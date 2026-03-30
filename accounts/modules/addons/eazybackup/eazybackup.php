@@ -1781,7 +1781,7 @@ function eazybackup_migrate_schema(): void {
             $t->char('default_currency',3)->nullable();
             $t->bigInteger('created_by')->nullable();
             $t->bigInteger('updated_by')->nullable();
-            $t->enum('base_metric_code',[ 'STORAGE_TB','DEVICE_COUNT','DISK_IMAGE','HYPERV_VM','PROXMOX_VM','VMWARE_VM','M365_USER','GENERIC' ])->nullable();
+            $t->enum('base_metric_code',[ 'STORAGE_TB','DEVICE_COUNT','DISK_IMAGE','HYPERV_VM','PROXMOX_VM','VMWARE_VM','M365_USER','GENERIC','E3_STORAGE_GIB' ])->nullable();
             $t->string('product_template', 50)->nullable();
             $t->text('features_json')->nullable();
             $t->text('attributes_json')->nullable();
@@ -1795,7 +1795,7 @@ function eazybackup_migrate_schema(): void {
         eb_add_column_if_missing('eb_catalog_products','default_currency', fn(Blueprint $t)=>$t->char('default_currency',3)->nullable());
         eb_add_column_if_missing('eb_catalog_products','created_by', fn(Blueprint $t)=>$t->bigInteger('created_by')->nullable());
         eb_add_column_if_missing('eb_catalog_products','updated_by', fn(Blueprint $t)=>$t->bigInteger('updated_by')->nullable());
-        eb_add_column_if_missing('eb_catalog_products','base_metric_code', fn(Blueprint $t)=>$t->enum('base_metric_code',[ 'STORAGE_TB','DEVICE_COUNT','DISK_IMAGE','HYPERV_VM','PROXMOX_VM','VMWARE_VM','M365_USER','GENERIC' ])->nullable());
+        eb_add_column_if_missing('eb_catalog_products','base_metric_code', fn(Blueprint $t)=>$t->enum('base_metric_code',[ 'STORAGE_TB','DEVICE_COUNT','DISK_IMAGE','HYPERV_VM','PROXMOX_VM','VMWARE_VM','M365_USER','GENERIC','E3_STORAGE_GIB' ])->nullable());
         eb_add_column_if_missing('eb_catalog_products','product_template', fn(Blueprint $t)=>$t->string('product_template', 50)->nullable());
         eb_add_column_if_missing('eb_catalog_products','features_json', fn(Blueprint $t)=>$t->text('features_json')->nullable());
         eb_add_column_if_missing('eb_catalog_products','attributes_json', fn(Blueprint $t)=>$t->text('attributes_json')->nullable());
@@ -1812,7 +1812,7 @@ function eazybackup_migrate_schema(): void {
             $t->integer('unit_amount'); // cents
             $t->enum('interval', ['month','year','none'])->default('month');
             $t->enum('aggregate_usage', ['sum','last_during_period','max','avg'])->nullable();
-            $t->enum('metric_code', ['STORAGE_TB','DEVICE_COUNT','DISK_IMAGE','HYPERV_VM','PROXMOX_VM','VMWARE_VM','M365_USER','GENERIC'])->default('GENERIC');
+            $t->enum('metric_code', ['STORAGE_TB','DEVICE_COUNT','DISK_IMAGE','HYPERV_VM','PROXMOX_VM','VMWARE_VM','M365_USER','GENERIC','E3_STORAGE_GIB'])->default('GENERIC');
             $t->string('stripe_price_id', 64)->nullable()->unique();
             $t->tinyInteger('active')->default(1);
             $t->enum('billing_type',['per_unit','metered','one_time'])->default('per_unit');
@@ -1846,6 +1846,96 @@ function eazybackup_migrate_schema(): void {
         eb_add_column_if_missing('eb_catalog_prices','pricing_scheme', fn(Blueprint $t)=>$t->string('pricing_scheme', 20)->default('per_unit'));
         eb_add_column_if_missing('eb_catalog_prices','tiers_mode', fn(Blueprint $t)=>$t->string('tiers_mode', 20)->nullable());
         eb_add_column_if_missing('eb_catalog_prices','tiers_json', fn(Blueprint $t)=>$t->text('tiers_json')->nullable());
+    }
+
+    // Extend catalog metric ENUMs on existing installs (add E3_STORAGE_GIB).
+    if ($schema->hasTable('eb_catalog_products') && $schema->hasColumn('eb_catalog_products', 'base_metric_code')) {
+        try {
+            $conn = Capsule::connection();
+            $dbName = (string) $conn->getDatabaseName();
+            $column = $conn->selectOne(
+                'SELECT COLUMN_TYPE FROM information_schema.COLUMNS WHERE table_schema = ? AND table_name = ? AND column_name = ? LIMIT 1',
+                [$dbName, 'eb_catalog_products', 'base_metric_code']
+            );
+            $columnType = '';
+            if (is_object($column)) {
+                $columnType = isset($column->COLUMN_TYPE) ? (string) $column->COLUMN_TYPE : (isset($column->column_type) ? (string) $column->column_type : '');
+            }
+            if ($columnType !== '' && strpos($columnType, "'E3_STORAGE_GIB'") === false) {
+                $conn->statement("ALTER TABLE eb_catalog_products MODIFY COLUMN base_metric_code ENUM('STORAGE_TB','DEVICE_COUNT','DISK_IMAGE','HYPERV_VM','PROXMOX_VM','VMWARE_VM','M365_USER','GENERIC','E3_STORAGE_GIB') NULL");
+            }
+        } catch (\Throwable $e) {
+            $schemaErr = 'eazybackup: schema enum alter failed for eb_catalog_products.base_metric_code: ' . $e->getMessage();
+            try { if (function_exists('logActivity')) { logActivity($schemaErr); } } catch (\Throwable $__) {}
+            try { if (function_exists('logModuleCall')) { @logModuleCall('eazybackup', 'schema:catalog-products-base-metric-enum-alter', [], ['error' => $e->getMessage()]); } } catch (\Throwable $__) {}
+            try { if (function_exists('customFileLog')) { customFileLog('schema enum alter failed for eb_catalog_products.base_metric_code', $e->getMessage()); } } catch (\Throwable $__) {}
+        }
+    }
+    if ($schema->hasTable('eb_catalog_prices') && $schema->hasColumn('eb_catalog_prices', 'metric_code')) {
+        try {
+            $conn = Capsule::connection();
+            $dbName = (string) $conn->getDatabaseName();
+            $column = $conn->selectOne(
+                'SELECT COLUMN_TYPE FROM information_schema.COLUMNS WHERE table_schema = ? AND table_name = ? AND column_name = ? LIMIT 1',
+                [$dbName, 'eb_catalog_prices', 'metric_code']
+            );
+            $columnType = '';
+            if (is_object($column)) {
+                $columnType = isset($column->COLUMN_TYPE) ? (string) $column->COLUMN_TYPE : (isset($column->column_type) ? (string) $column->column_type : '');
+            }
+            if ($columnType !== '' && strpos($columnType, "'E3_STORAGE_GIB'") === false) {
+                $conn->statement("ALTER TABLE eb_catalog_prices MODIFY COLUMN metric_code ENUM('STORAGE_TB','DEVICE_COUNT','DISK_IMAGE','HYPERV_VM','PROXMOX_VM','VMWARE_VM','M365_USER','GENERIC','E3_STORAGE_GIB') NOT NULL DEFAULT 'GENERIC'");
+            }
+        } catch (\Throwable $e) {
+            $schemaErr = 'eazybackup: schema enum alter failed for eb_catalog_prices.metric_code: ' . $e->getMessage();
+            try { if (function_exists('logActivity')) { logActivity($schemaErr); } } catch (\Throwable $__) {}
+            try { if (function_exists('logModuleCall')) { @logModuleCall('eazybackup', 'schema:catalog-prices-metric-code-enum-alter', [], ['error' => $e->getMessage()]); } } catch (\Throwable $__) {}
+            try { if (function_exists('customFileLog')) { customFileLog('schema enum alter failed for eb_catalog_prices.metric_code', $e->getMessage()); } } catch (\Throwable $__) {}
+        }
+    }
+    if ($schema->hasTable('eb_plan_components') && $schema->hasColumn('eb_plan_components', 'metric_code')) {
+        try {
+            $conn = Capsule::connection();
+            $dbName = (string) $conn->getDatabaseName();
+            $column = $conn->selectOne(
+                'SELECT COLUMN_TYPE FROM information_schema.COLUMNS WHERE table_schema = ? AND table_name = ? AND column_name = ? LIMIT 1',
+                [$dbName, 'eb_plan_components', 'metric_code']
+            );
+            $columnType = '';
+            if (is_object($column)) {
+                $columnType = isset($column->COLUMN_TYPE) ? (string) $column->COLUMN_TYPE : (isset($column->column_type) ? (string) $column->column_type : '');
+            }
+            if ($columnType !== '' && strpos($columnType, "'E3_STORAGE_GIB'") === false) {
+                $conn->statement("ALTER TABLE eb_plan_components MODIFY COLUMN metric_code ENUM('STORAGE_TB','DEVICE_COUNT','DISK_IMAGE','HYPERV_VM','PROXMOX_VM','VMWARE_VM','M365_USER','GENERIC','E3_STORAGE_GIB') NOT NULL");
+            }
+        } catch (\Throwable $e) {
+            $schemaErr = 'eazybackup: schema enum alter failed for eb_plan_components.metric_code: ' . $e->getMessage();
+            try { if (function_exists('logActivity')) { logActivity($schemaErr); } } catch (\Throwable $__) {}
+            try { if (function_exists('logModuleCall')) { @logModuleCall('eazybackup', 'schema:plan-components-metric-code-enum-alter', [], ['error' => $e->getMessage()]); } } catch (\Throwable $__) {}
+            try { if (function_exists('customFileLog')) { customFileLog('schema enum alter failed for eb_plan_components.metric_code', $e->getMessage()); } } catch (\Throwable $__) {}
+        }
+    }
+    if ($schema->hasTable('eb_plan_instance_items') && $schema->hasColumn('eb_plan_instance_items', 'metric_code')) {
+        try {
+            $conn = Capsule::connection();
+            $dbName = (string) $conn->getDatabaseName();
+            $column = $conn->selectOne(
+                'SELECT COLUMN_TYPE FROM information_schema.COLUMNS WHERE table_schema = ? AND table_name = ? AND column_name = ? LIMIT 1',
+                [$dbName, 'eb_plan_instance_items', 'metric_code']
+            );
+            $columnType = '';
+            if (is_object($column)) {
+                $columnType = isset($column->COLUMN_TYPE) ? (string) $column->COLUMN_TYPE : (isset($column->column_type) ? (string) $column->column_type : '');
+            }
+            if ($columnType !== '' && strpos($columnType, "'E3_STORAGE_GIB'") === false) {
+                $conn->statement("ALTER TABLE eb_plan_instance_items MODIFY COLUMN metric_code ENUM('STORAGE_TB','DEVICE_COUNT','DISK_IMAGE','HYPERV_VM','PROXMOX_VM','VMWARE_VM','M365_USER','GENERIC','E3_STORAGE_GIB') NOT NULL");
+            }
+        } catch (\Throwable $e) {
+            $schemaErr = 'eazybackup: schema enum alter failed for eb_plan_instance_items.metric_code: ' . $e->getMessage();
+            try { if (function_exists('logActivity')) { logActivity($schemaErr); } } catch (\Throwable $__) {}
+            try { if (function_exists('logModuleCall')) { @logModuleCall('eazybackup', 'schema:plan-instance-items-metric-code-enum-alter', [], ['error' => $e->getMessage()]); } } catch (\Throwable $__) {}
+            try { if (function_exists('customFileLog')) { customFileLog('schema enum alter failed for eb_plan_instance_items.metric_code', $e->getMessage()); } } catch (\Throwable $__) {}
+        }
     }
 
     // MSP default currency
@@ -1937,7 +2027,7 @@ function eazybackup_migrate_schema(): void {
             $t->bigIncrements('id');
             $t->bigInteger('plan_id')->index();
             $t->bigInteger('price_id')->index();
-            $t->enum('metric_code', ['STORAGE_TB','DEVICE_COUNT','DISK_IMAGE','HYPERV_VM','PROXMOX_VM','VMWARE_VM','M365_USER','GENERIC']);
+            $t->enum('metric_code', ['STORAGE_TB','DEVICE_COUNT','DISK_IMAGE','HYPERV_VM','PROXMOX_VM','VMWARE_VM','M365_USER','GENERIC','E3_STORAGE_GIB']);
             $t->integer('default_qty')->default(0);
             $t->enum('overage_mode', ['bill_all','cap_at_default'])->default('bill_all');
             $t->timestamp('created_at')->nullable()->useCurrent();
@@ -1983,7 +2073,7 @@ function eazybackup_migrate_schema(): void {
             $t->bigInteger('plan_instance_id')->index();
             $t->bigInteger('plan_component_id')->index();
             $t->string('stripe_subscription_item_id', 64);
-            $t->enum('metric_code', ['STORAGE_TB','DEVICE_COUNT','DISK_IMAGE','HYPERV_VM','PROXMOX_VM','VMWARE_VM','M365_USER','GENERIC']);
+            $t->enum('metric_code', ['STORAGE_TB','DEVICE_COUNT','DISK_IMAGE','HYPERV_VM','PROXMOX_VM','VMWARE_VM','M365_USER','GENERIC','E3_STORAGE_GIB']);
             $t->integer('last_qty')->nullable();
             $t->timestamp('created_at')->nullable()->useCurrent();
             $t->timestamp('updated_at')->nullable()->useCurrent()->useCurrentOnUpdate();

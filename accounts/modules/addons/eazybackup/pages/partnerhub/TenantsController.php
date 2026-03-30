@@ -286,6 +286,333 @@ function eb_ph_tenants_require_csrf_or_json_error(string $token): bool
     return true;
 }
 
+function eb_ph_plan_assignment_mode(int $planId, ?array $planComponents = null): array
+{
+    if ($planComponents === null) {
+        $rows = Capsule::table('eb_plan_components as pc')
+            ->leftJoin('eb_catalog_prices as pr', 'pr.id', '=', 'pc.price_id')
+            ->leftJoin('eb_catalog_products as p', 'p.id', '=', 'pr.product_id')
+            ->where('pc.plan_id', $planId)
+            ->get([
+                'pc.metric_code',
+                'pr.metric_code as price_metric',
+                'p.base_metric_code as product_base_metric',
+            ]);
+        $planComponents = [];
+        foreach ($rows as $row) {
+            $planComponents[] = (array)$row;
+        }
+    }
+
+    $metrics = [];
+    foreach ($planComponents as $component) {
+        $metric = strtoupper(trim((string)($component['price_metric'] ?? $component['metric_code'] ?? $component['product_base_metric'] ?? '')));
+        if ($metric !== '' && !in_array($metric, $metrics, true)) {
+            $metrics[] = $metric;
+        }
+    }
+
+    $isE3StorageOnly = $metrics === ['E3_STORAGE_GIB'];
+
+    return [
+        'mode' => $isE3StorageOnly ? 'e3_storage' : 'comet_user',
+        'requires_comet_user' => !$isE3StorageOnly,
+        'requires_s3_user' => $isE3StorageOnly,
+        'metrics' => $metrics,
+        'primary_metric' => $metrics[0] ?? 'GENERIC',
+    ];
+}
+
+function eb_ph_discover_msp_comet_usernames(int $clientId): array
+{
+    if ($clientId <= 0) {
+        return [];
+    }
+
+    try {
+        $excludeProductgroupIds = [2, 11];
+        $serviceRows = Capsule::table('tblhosting')
+            ->join('tblproducts', 'tblproducts.id', '=', 'tblhosting.packageid')
+            ->where('tblhosting.userid', $clientId)
+            ->where('tblhosting.domainstatus', 'Active')
+            ->whereNotIn('tblproducts.gid', $excludeProductgroupIds)
+            ->orderBy('tblhosting.id', 'asc')
+            ->get([
+                'tblhosting.username',
+            ]);
+
+        $usernames = [];
+        foreach ($serviceRows as $serviceRow) {
+            $username = trim((string)($serviceRow->username ?? ''));
+            if ($username === '') {
+                continue;
+            }
+            $usernames[strtolower($username)] = $username;
+        }
+
+        return array_values($usernames);
+    } catch (\Throwable $__) {
+        return [];
+    }
+}
+
+function eb_ph_discover_msp_s3_users(int $clientId): array
+{
+    if ($clientId <= 0) {
+        return [];
+    }
+
+    try {
+        $schema = Capsule::schema();
+        if (!$schema->hasTable('s3_users')) {
+            return [];
+        }
+
+        $hasIsActive = $schema->hasColumn('s3_users', 'is_active');
+        $hasDeletedAt = $schema->hasColumn('s3_users', 'deleted_at');
+        $hasCephUid = $schema->hasColumn('s3_users', 'ceph_uid');
+        $hasParentId = $schema->hasColumn('s3_users', 'parent_id');
+        $hasTenantId = $schema->hasColumn('s3_users', 'tenant_id');
+
+        $serviceRows = Capsule::table('tblhosting')
+            ->join('tblproducts', 'tblproducts.id', '=', 'tblhosting.packageid')
+            ->where('tblhosting.userid', $clientId)
+            ->where('tblhosting.domainstatus', 'Active')
+            ->where('tblproducts.gid', 11)
+            ->orderBy('tblhosting.id', 'asc')
+            ->get([
+                'tblhosting.username',
+            ]);
+
+        $serviceUsernames = [];
+        foreach ($serviceRows as $serviceRow) {
+            $username = trim((string)($serviceRow->username ?? ''));
+            if ($username === '') {
+                continue;
+            }
+            $serviceUsernames[strtolower($username)] = $username;
+        }
+        $serviceUsernames = array_values($serviceUsernames);
+
+        if (empty($serviceUsernames)) {
+            return [];
+        }
+
+        $candidateNames = [];
+        foreach ($serviceUsernames as $serviceUsername) {
+            $candidateNames[strtolower($serviceUsername)] = $serviceUsername;
+            if (strpos($serviceUsername, '$') !== false) {
+                $parts = explode('$', $serviceUsername, 2);
+                $baseUid = trim((string)($parts[1] ?? ''));
+                if ($baseUid !== '') {
+                    $candidateNames[strtolower($baseUid)] = $baseUid;
+                }
+            }
+        }
+        $candidateNames = array_values($candidateNames);
+
+        $seedQuery = Capsule::table('s3_users');
+        if ($hasIsActive) {
+            $seedQuery->where('is_active', 1);
+        }
+        if ($hasDeletedAt) {
+            $seedQuery->whereNull('deleted_at');
+        }
+        $seedQuery->where(function ($query) use ($candidateNames, $hasCephUid) {
+            $query->whereIn('username', $candidateNames);
+            if ($hasCephUid) {
+                $query->orWhereIn('ceph_uid', $candidateNames);
+            }
+        });
+
+        $seedColumns = ['id', 'username', 'name'];
+        if ($hasTenantId) {
+            $seedColumns[] = 'tenant_id';
+        }
+        if ($hasCephUid) {
+            $seedColumns[] = 'ceph_uid';
+        }
+        if ($hasParentId) {
+            $seedColumns[] = 'parent_id';
+        }
+
+        $seedRows = $seedQuery
+            ->orderBy('id', 'asc')
+            ->get($seedColumns);
+
+        $matchSeedRow = static function (string $serviceUsername, array $rows) use ($hasCephUid, $hasTenantId): ?object {
+            $serviceUsername = trim($serviceUsername);
+            if ($serviceUsername === '') {
+                return null;
+            }
+
+            $tenantId = null;
+            $baseUid = $serviceUsername;
+            if (strpos($serviceUsername, '$') !== false) {
+                $parts = explode('$', $serviceUsername, 2);
+                if (($parts[0] ?? '') !== '' && ($parts[1] ?? '') !== '') {
+                    $tenantId = trim((string)$parts[0]);
+                    $baseUid = trim((string)$parts[1]);
+                }
+            }
+
+            $matches = static function (object $row, ?string $matchTenantId, string $matchBaseUid, string $fullUsername, bool $tenantAware) use ($hasCephUid, $hasTenantId): bool {
+                $rowUsername = trim((string)($row->username ?? ''));
+                $rowTenantId = $hasTenantId ? trim((string)($row->tenant_id ?? '')) : '';
+                $rowCephUid = $hasCephUid ? trim((string)($row->ceph_uid ?? '')) : '';
+
+                if ($rowUsername === $fullUsername) {
+                    if (!$tenantAware || !$hasTenantId || $matchTenantId === null || $rowTenantId === $matchTenantId) {
+                        return true;
+                    }
+                }
+
+                if ($tenantAware && $hasTenantId && $matchTenantId !== null) {
+                    if ($rowTenantId !== $matchTenantId) {
+                        return false;
+                    }
+                }
+
+                if ($rowUsername === $matchBaseUid) {
+                    return true;
+                }
+
+                if ($hasCephUid && $rowCephUid !== '' && $rowCephUid === $matchBaseUid) {
+                    return true;
+                }
+
+                return false;
+            };
+
+            foreach ($rows as $row) {
+                if ($matches($row, $tenantId, $baseUid, $serviceUsername, true)) {
+                    return $row;
+                }
+            }
+
+            if ($tenantId !== null) {
+                foreach ($rows as $row) {
+                    if ($matches($row, null, $baseUid, $serviceUsername, false)) {
+                        return $row;
+                    }
+                }
+            }
+
+            return null;
+        };
+
+        $seedRowsArray = [];
+        foreach ($seedRows as $seedRow) {
+            $seedRowsArray[] = $seedRow;
+        }
+
+        $primaryIds = [];
+        foreach ($serviceUsernames as $serviceUsername) {
+            $seedRow = $matchSeedRow($serviceUsername, $seedRowsArray);
+            if (!$seedRow) {
+                continue;
+            }
+
+            $seedId = (int)($seedRow->id ?? 0);
+            if ($seedId <= 0) {
+                continue;
+            }
+
+            $primaryId = $seedId;
+            if ($hasParentId) {
+                $parentId = (int)($seedRow->parent_id ?? 0);
+                if ($parentId > 0) {
+                    $primaryId = $parentId;
+                }
+            }
+            $primaryIds[$primaryId] = $primaryId;
+        }
+
+        if (empty($primaryIds)) {
+            return [];
+        }
+
+        $resolvedQuery = Capsule::table('s3_users');
+        if ($hasIsActive) {
+            $resolvedQuery->where('is_active', 1);
+        }
+        if ($hasDeletedAt) {
+            $resolvedQuery->whereNull('deleted_at');
+        }
+        $resolvedQuery->where(function ($query) use ($primaryIds, $hasParentId) {
+            $query->whereIn('id', $primaryIds);
+            if ($hasParentId) {
+                $query->orWhereIn('parent_id', $primaryIds);
+            }
+        });
+
+        $resolvedColumns = ['id', 'username', 'name'];
+        if ($hasTenantId) {
+            $resolvedColumns[] = 'tenant_id';
+        }
+        if ($hasCephUid) {
+            $resolvedColumns[] = 'ceph_uid';
+        }
+        if ($hasParentId) {
+            $resolvedColumns[] = 'parent_id';
+        }
+
+        $resolvedRows = $resolvedQuery
+            ->orderBy($hasParentId ? 'parent_id' : 'id', 'asc')
+            ->orderBy('username', 'asc')
+            ->orderBy('id', 'asc')
+            ->get($resolvedColumns);
+
+        $rows = [];
+        foreach ($resolvedRows as $row) {
+            $id = (int)($row->id ?? 0);
+            if ($id <= 0) {
+                continue;
+            }
+
+            $username = trim((string)($row->username ?? ''));
+            $name = trim((string)($row->name ?? ''));
+            $tenantIdRaw = $hasTenantId ? trim((string)($row->tenant_id ?? '')) : '';
+            $tenantId = $tenantIdRaw !== '' ? $tenantIdRaw : null;
+            $cephUid = $hasCephUid ? trim((string)($row->ceph_uid ?? '')) : '';
+            $baseUid = $cephUid !== '' ? $cephUid : $username;
+            $qualifiedUid = $tenantId !== null ? ($tenantId . '$' . $baseUid) : $baseUid;
+
+            $displayLabel = $name !== '' ? $name : ($username !== '' ? $username : $qualifiedUid);
+            if ($qualifiedUid !== '' && $displayLabel !== $qualifiedUid) {
+                $displayLabel .= ' (' . $qualifiedUid . ')';
+            }
+
+            $rows[$id] = [
+                'id' => $id,
+                'username' => $username,
+                'name' => $name,
+                'tenant_id' => $tenantId,
+                'display_label' => $displayLabel,
+            ];
+        }
+
+        $rows = array_values($rows);
+        usort($rows, static function (array $a, array $b): int {
+            $labelCompare = strcasecmp((string)($a['display_label'] ?? ''), (string)($b['display_label'] ?? ''));
+            if ($labelCompare !== 0) {
+                return $labelCompare;
+            }
+
+            $usernameCompare = strcasecmp((string)($a['username'] ?? ''), (string)($b['username'] ?? ''));
+            if ($usernameCompare !== 0) {
+                return $usernameCompare;
+            }
+
+            return (int)($a['id'] ?? 0) <=> (int)($b['id'] ?? 0);
+        });
+
+        return $rows;
+    } catch (\Throwable $__) {
+        return [];
+    }
+}
+
 function eb_ph_tenants_management_entry(array $vars)
 {
     return eb_ph_tenants_index($vars);

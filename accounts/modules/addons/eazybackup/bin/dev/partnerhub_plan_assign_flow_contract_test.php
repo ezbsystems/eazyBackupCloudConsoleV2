@@ -3,9 +3,8 @@
 declare(strict_types=1);
 
 /**
- * Contract test: Partner Hub assign plan flow supports storage-only plans
- * without requiring an eazyBackup user and falls back to service links for
- * user discovery.
+ * Contract test: Partner Hub assign plan flow supports the approved
+ * Comet-user and E3-storage assignment modes.
  *
  * Run:
  * php accounts/modules/addons/eazybackup/bin/dev/partnerhub_plan_assign_flow_contract_test.php
@@ -17,10 +16,18 @@ $targets = [
     'catalog plans controller' => [
         'path' => $moduleRoot . '/pages/partnerhub/CatalogPlansController.php',
         'markers' => [
-            'assignment mode helper marker' => 'function eb_ph_plan_assignment_mode(',
             'service links fallback marker' => "Capsule::table('eb_service_links as sl')",
-            'storage assignment key marker' => 'function eb_ph_plan_storage_assignment_key(',
+            's3 user post marker' => "\$s3UserId = (int)(\$_POST['s3_user_id'] ?? 0);",
+            'e3 assignment key marker' => "\$cometUserId = 'e3:' . \$s3UserId;",
             'conditional comet validation marker' => "if (\$assignmentMode['requires_comet_user'] && \$cometUserId === '')",
+        ],
+    ],
+    'tenant shared helpers' => [
+        'path' => $moduleRoot . '/pages/partnerhub/TenantsController.php',
+        'markers' => [
+            'assignment mode helper marker' => 'function eb_ph_plan_assignment_mode(',
+            'e3 mode marker' => "'mode' => \$isE3StorageOnly ? 'e3_storage' : 'comet_user'",
+            'requires s3 user marker' => "'requires_s3_user' => \$isE3StorageOnly",
         ],
     ],
     'catalog plans script' => [
@@ -28,15 +35,20 @@ $targets = [
         'markers' => [
             'assign plan meta parser marker' => "var assignPlans = parseJsonScript('eb-assign-plans-json');",
             'assign requires user helper marker' => 'assignPlanRequiresCometUser(){',
-            'conditional assign validation marker' => "if (!this.assignData.tenant_id || (this.assignPlanRequiresCometUser() && !this.assignData.comet_user_id)) {",
+            'assign requires s3 helper marker' => 'assignPlanRequiresS3User(){',
+            'tenant selection validation marker' => 'if (!this.assignData.tenant_id) {',
+            'conditional assign validation marker' => "if (this.assignPlanRequiresCometUser() && !this.assignData.comet_user_id) {",
+            'conditional s3 validation marker' => "if (this.assignPlanRequiresS3User() && !this.selectedS3UserId) {",
+            'assign s3 payload marker' => "body.set('s3_user_id', String(this.selectedS3UserId));",
         ],
     ],
     'catalog plans template' => [
         'path' => $moduleRoot . '/templates/whitelabel/catalog-plans.tpl',
         'markers' => [
             'assign plans json marker' => 'id="eb-assign-plans-json"',
-            'conditional user label marker' => "x-text=\"assignPlanRequiresCometUser() ? 'eazyBackup user' : 'Storage assignment'\"",
-            'storage assignment helper text marker' => 'Storage-based plans bill at the tenant level and do not require an eazyBackup user.',
+            'e3 helper text marker' => 'This plan requires an MSP-owned S3 user instead of an eazyBackup user.',
+            's3 user label marker' => '<span class="eb-field-label">S3 user</span>',
+            's3 helper text marker' => 'Choose the MSP-owned S3 user that should back this storage subscription.',
         ],
     ],
 ];

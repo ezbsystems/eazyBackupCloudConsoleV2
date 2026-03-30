@@ -749,6 +749,7 @@
                       <div>
                         <div class="eb-field-label !mb-1">Plan</div>
                         <div class="text-sm font-medium text-[var(--eb-text-primary)]" x-text="assignPlanName"></div>
+                        <p x-show="assignPlanRequiresS3User()" class="mt-2 text-xs text-[var(--eb-text-muted)]">This plan requires an MSP-owned S3 user instead of an eazyBackup user.</p>
                       </div>
                       <div class="grid grid-cols-1 gap-5 md:grid-cols-2 md:gap-6">
                         <div class="relative min-w-0">
@@ -794,19 +795,18 @@
                             </div>
                           </div>
                         </div>
-                        <div class="relative min-w-0">
-                          <span class="eb-field-label" x-text="assignPlanRequiresCometUser() ? 'eazyBackup user' : 'Storage assignment'">eazyBackup user</span>
+                        <div class="relative min-w-0" x-show="assignPlanRequiresCometUser()">
+                          <span class="eb-field-label">eazyBackup user</span>
                           <button
                             type="button"
                             class="eb-input relative mt-2 flex w-full cursor-pointer items-center justify-between gap-2 pr-10 text-left disabled:cursor-not-allowed disabled:opacity-50"
-                            @click="assignData.tenant_id && assignPlanRequiresCometUser() && toggleAssignUserDropdown()"
-                            :disabled="!assignData.tenant_id || !assignPlanRequiresCometUser()"
+                            @click="assignData.tenant_id && toggleAssignUserDropdown()"
+                            :disabled="!assignData.tenant_id"
                             :aria-expanded="assignUserOpen"
                           >
                             <span class="min-w-0 truncate" :class="assignData.comet_user_id ? 'text-[var(--eb-text-primary)]' : 'text-[var(--eb-text-muted)]'" x-text="assignData.comet_user_id || assignUserPlaceholder()"></span>
                             <svg class="pointer-events-none absolute right-3 top-1/2 h-4 w-4 shrink-0 -translate-y-1/2 text-[var(--eb-text-muted)] transition-transform" :class="assignUserOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" /></svg>
                           </button>
-                          <p x-show="assignData.tenant_id && !assignPlanRequiresCometUser()" class="mt-2 text-xs text-[var(--eb-text-muted)]">Storage-based plans bill at the tenant level and do not require an eazyBackup user.</p>
                           <div
                             x-show="assignUserOpen"
                             x-transition
@@ -839,6 +839,53 @@
                               <div x-show="assignData.tenant_id && filteredCometAccounts.length === 0" class="px-3 py-4 text-center text-xs text-[var(--eb-text-muted)]">No eazyBackup users are linked to this customer.</div>
                               <div x-show="assignData.tenant_id && filteredCometAccounts.length > 0 && filteredAssignUsers().length === 0" class="px-3 py-4 text-center text-xs text-[var(--eb-text-muted)]">No users match your search.</div>
                               <div x-show="!assignData.tenant_id" class="px-3 py-4 text-center text-xs text-[var(--eb-text-muted)]">Select a customer to see users.</div>
+                            </div>
+                          </div>
+                        </div>
+                        <div class="relative min-w-0" x-show="assignPlanRequiresS3User()">
+                          <span class="eb-field-label">S3 user</span>
+                          <button
+                            type="button"
+                            class="eb-input relative mt-2 flex w-full cursor-pointer items-center justify-between gap-2 pr-10 text-left disabled:cursor-not-allowed disabled:opacity-50"
+                            @click="assignData.tenant_id && toggleAssignS3UserDropdown()"
+                            :disabled="!assignData.tenant_id"
+                            :aria-expanded="assignS3UserOpen"
+                          >
+                            <span class="min-w-0 truncate" :class="selectedS3UserId ? 'text-[var(--eb-text-primary)]' : 'text-[var(--eb-text-muted)]'" x-text="assignS3UserLabel() || (!assignData.tenant_id ? 'Select a customer first' : 'Select S3 user…')"></span>
+                            <svg class="pointer-events-none absolute right-3 top-1/2 h-4 w-4 shrink-0 -translate-y-1/2 text-[var(--eb-text-muted)] transition-transform" :class="assignS3UserOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" /></svg>
+                          </button>
+                          <p x-show="assignData.tenant_id" class="mt-2 text-xs text-[var(--eb-text-muted)]">Choose the MSP-owned S3 user that should back this storage subscription.</p>
+                          <div
+                            x-show="assignS3UserOpen"
+                            x-transition
+                            @click.outside="assignS3UserOpen = false"
+                            class="absolute left-0 right-0 z-[100] mt-2 max-h-72 overflow-hidden rounded-[var(--eb-radius-lg)] border border-[var(--eb-border-default)] bg-[var(--eb-bg-raised)] shadow-[var(--eb-shadow-lg)]"
+                            style="display: none;"
+                          >
+                            <div class="border-b border-[var(--eb-border-subtle)] p-2">
+                              <input
+                                type="search"
+                                x-ref="assignS3UserSearchInput"
+                                x-model="assignS3UserSearch"
+                                placeholder="Search S3 users…"
+                                class="eb-toolbar-search w-full rounded-[var(--eb-radius-md)] !py-2 text-sm"
+                                @click.stop
+                              />
+                            </div>
+                            <div class="max-h-52 overflow-y-auto p-1">
+                              <template x-for="user in filteredS3Users()" :key="'assign-s3-user-' + user.id">
+                                <button
+                                  type="button"
+                                  class="eb-menu-item w-full flex-col !items-stretch gap-0.5"
+                                  :class="String(selectedS3UserId) === String(user.id) ? 'is-active' : ''"
+                                  @click="selectAssignS3User(user.id)"
+                                >
+                                  <span class="truncate text-left font-medium" x-text="user.display_label || user.name || user.username || ('S3 user #' + user.id)"></span>
+                                  <span class="truncate text-left text-xs text-[var(--eb-text-muted)]" x-text="'ID ' + user.id"></span>
+                                </button>
+                              </template>
+                              <div x-show="!assignData.tenant_id" class="px-3 py-4 text-center text-xs text-[var(--eb-text-muted)]">Select a customer first.</div>
+                              <div x-show="assignData.tenant_id && filteredS3Users().length === 0" class="px-3 py-4 text-center text-xs text-[var(--eb-text-muted)]" x-text="assignS3UserSearch ? 'No S3 users match your search.' : 'No S3 users are available for this MSP.'"></div>
                             </div>
                           </div>
                         </div>
@@ -997,6 +1044,7 @@
 <script type="application/json" id="eb-plan-catalog-json">{$catalog_products_json nofilter}</script>
 <script type="application/json" id="eb-assign-plans-json">{$assign_plans_json|default:'[]' nofilter}</script>
 <script type="application/json" id="eb-assign-tenants-json">{$assign_tenants_json|default:'[]' nofilter}</script>
+<script type="application/json" id="eb-s3-users-json">{$s3_users_json|default:'[]' nofilter}</script>
 <script type="application/json" id="eb-comet-accounts-json">{$comet_accounts_json|default:'[]' nofilter}</script>
 <select id="eb-assign-tenant-smarty-data" class="hidden" aria-hidden="true">
 {foreach from=$assign_tenants item=c}

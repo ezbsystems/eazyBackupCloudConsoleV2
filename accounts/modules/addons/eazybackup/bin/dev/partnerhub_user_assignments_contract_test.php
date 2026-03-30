@@ -16,6 +16,9 @@ $targets = [
         'path' => $moduleRoot . '/pages/partnerhub/UserAssignmentsController.php',
         'markers' => [
             'user assignments page function marker' => 'function eb_ph_user_assignments(array $vars)',
+            'user assignments row key helper marker' => 'function eb_ph_user_assignments_row_key(array $row): string',
+            'user assignments service links marker' => "Capsule::table('eb_service_links as sl')",
+            'user assignments dedupe marker' => '$rowIndex[$rowKey] = true;',
             'user assignments template marker' => "'templatefile' => 'whitelabel/user-assignments'",
             'user assignments assigned rows marker' => "'assigned_rows' =>",
             'user assignments unassigned rows marker' => "'unassigned_rows' =>",
