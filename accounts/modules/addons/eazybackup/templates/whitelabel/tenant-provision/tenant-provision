@@ -1,0 +1,254 @@
+#!/usr/bin/env bash
+#
+# tenant_provision - Manage per-tenant Nginx vhosts and certificates
+#
+# Flow:
+#   1) write_http_stub <fqdn>
+#   2) issue_cert <fqdn> <email>
+#   3) write_https <fqdn> <upstream>   # usually http://obc_servers
+#
+# Utilities:
+#   disable <fqdn>    # rename <fqdn>.conf -> <fqdn>.conf.disabled and reload
+#   delete  <fqdn>    # remove both enabled/disabled confs and reload
+#   status  <fqdn>    # prints: enabled|disabled|absent
+#
+# Notes:
+# - Uses webroot issuance so Nginx config is never mutated by Certbot.
+# - Requires:
+#     /etc/nginx/conf.d/tenants/          (included by Nginx)
+#     /etc/nginx/templates/tenant.http.tpl
+#     /etc/nginx/templates/tenant.https.tpl
+#     /var/www/letsencrypt                (chowned to web user)
+#
+# Exit codes:
+#   0 success,  2 usage,  >=10 operational failures
+#
+
+set -Eeuo pipefail
+
+# ---- Config (adjust only if your layout differs) -----------------------------
+TENANT_DIR="/etc/nginx/conf.d/tenants"
+HTTP_TPL="/etc/nginx/templates/tenant.http.tpl"
+HTTPS_TPL="/etc/nginx/templates/tenant.https.tpl"
+WEBROOT="/var/www/letsencrypt"
+
+NGINX_TEST_CMD="nginx -t"
+NGINX_RELOAD_CMD="systemctl reload nginx"
+
+# ---- Logging helpers ---------------------------------------------------------
+log()  { printf '%s %s\n' "[tenant_provision]" "$*" >&2; }
+die()  { printf '%s ERROR: %s\n' "[tenant_provision]" "$*" >&2; exit 10; }
+usage(){
+  cat >&2 <<USAGE
+Usage:
+  $0 write_http_stub <host>
+  $0 issue_cert <host> <email>
+  $0 write_https <host> <upstream>
+  $0 disable <host>
+  $0 delete <host>
+  $0 status <host>
+USAGE
+  exit 2
+}
+
+# ---- Guards ------------------------------------------------------------------
+require_file() { [[ -f "$1" ]] || die "Missing file: $1"; }
+require_dir()  { [[ -d "$1" ]] || die "Missing directory: $1"; }
+
+validate_host() {
+  local h="$1"
+  [[ -n "$h" ]] || die "Host is empty"
+  # rudimentary fqdn check; loosen if you support wildcards
+  [[ "$h" =~ ^[a-zA-Z0-9.-]+$ ]] || die "Host contains invalid characters: $h"
+}
+
+validate_upstream() {
+  local u="$1"
+  [[ -n "$u" ]] || die "Upstream is empty"
+  # allow schemes like http://, https://, or bare upstream names
+  [[ "$u" =~ ^[a-zA-Z0-9+.-]+://.*$ || "$u" =~ ^[a-zA-Z0-9_:-]+$ ]] || \
+    die "Upstream looks invalid: $u"
+}
+
+test_and_reload() {
+  ${NGINX_TEST_CMD} >/dev/null 2>&1 || die "nginx -t failed"
+  ${NGINX_RELOAD_CMD} || die "Failed to reload Nginx"
+}
+
+render_template() {
+  # Args: <template_path> <dest_path> SERVER_NAME=<host> UPSTREAM=<upstream?>
+  local tpl="$1" dest="$2" host="$3" upstream="${4:-}"
+  require_file "$tpl"
+  mkdir -p "$(dirname "$dest")" || die "Cannot mkdir $(dirname "$dest")"
+  if [[ -n "$upstream" ]]; then
+    sed -e "s/{{SERVER_NAME}}/${host}/g" -e "s#{{UPSTREAM}}#${upstream}#g" \
+      "$tpl" > "$dest"
+  else
+    sed -e "s/{{SERVER_NAME}}/${host}/g" "$tpl" > "$dest"
+  fi
+}
+
+# ---- Commands ----------------------------------------------------------------
+cmd_write_http_stub() {
+  local host="$1"
+  validate_host "$host"
+  require_dir "$TENANT_DIR"
+  require_file "$HTTP_TPL"
+
+  local conf="${TENANT_DIR}/${host}.conf"
+  log "Writing HTTP stub for ${host} -> ${conf}"
+  render_template "$HTTP_TPL" "$conf" "$host"
+  test_and_reload
+  log "HTTP stub active for ${host}"
+}
+
+cmd_issue_cert() {
+  local host="$1" email="$2"
+  validate_host "$host"
+  [[ -n "$email" ]] || die "Email is empty"
+  require_dir "$WEBROOT"
+
+  # Ensure ACME dir exists
+  mkdir -p "$WEBROOT/.well-known/acme-challenge" || die "Cannot mkdir $WEBROOT/.well-known/acme-challenge"
+  chown -R www-data:www-data "$WEBROOT" || true
+
+  # Pick the self-test IP: prefer explicit override, else the primary LAN IP.
+  # (127.0.0.1 is fragile because a different listen group may answer.)
+  local SELFTEST_IP="${ACME_SELFTEST_IP:-}"
+  if [[ -z "$SELFTEST_IP" ]]; then
+    # Best-effort: the src IP used to reach the internet (gateway path)
+    SELFTEST_IP=$(ip -4 route get 1.1.1.1 2>/dev/null | awk '/src/ {for(i=1;i<=NF;i++) if($i=="src"){print $(i+1); exit}}')
+    [[ -n "$SELFTEST_IP" ]] || SELFTEST_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
+    [[ -n "$SELFTEST_IP" ]] || SELFTEST_IP="127.0.0.1"
+  fi
+
+  # Self-test ACME over HTTP hitting the actual listener with Host header
+  local token="selftest-$(date +%s)-$RANDOM"
+  echo "ok" > "$WEBROOT/.well-known/acme-challenge/${token}" || die "Cannot write ACME token to webroot"
+
+  local http_rc
+  http_rc=$(curl -sS -o /dev/null -w "%{http_code}" -H "Host: ${host}" \
+            "http://${SELFTEST_IP}/.well-known/acme-challenge/${token}" || echo "000")
+
+  if [[ "$http_rc" == "200" ]]; then
+    log "Issuing certificate (webroot) for ${host}"
+    if certbot certonly --webroot -w "$WEBROOT" -n --agree-tos -m "$email" -d "$host"; then
+      log "Certificate obtained for ${host} (webroot)"
+    else
+      echo "[tenant_provision] WARN: webroot issuance failed for ${host}, trying nginx authenticator..." >&2
+      if certbot --nginx -n --agree-tos -m "$email" -d "$host"; then
+        log "Certificate obtained for ${host} (nginx fallback)"
+      else
+        die "Certbot issuance failed for ${host} (webroot and nginx)"
+      fi
+    fi
+  else
+    echo "[tenant_provision] WARN: ACME self-test to http://${SELFTEST_IP} for ${host} returned HTTP ${http_rc}" >&2
+    echo "[tenant_provision] INFO: attempting nginx authenticator fallback..." >&2
+    if certbot --nginx -n --agree-tos -m "$email" -d "$host"; then
+      log "Certificate obtained for ${host} (nginx fallback)"
+    else
+      echo "[tenant_provision] HINT: Ensure the HTTP stub is active and includes:" >&2
+      echo "  location ^~ /.well-known/acme-challenge/ { root ${WEBROOT}; try_files \$uri =404; }" >&2
+      echo "[tenant_provision] HINT: You can override the self-test IP with ACME_SELFTEST_IP=<LAN_IP>" >&2
+      die "Certbot issuance failed for ${host} (nginx fallback also failed)"
+    fi
+  fi
+
+  # Final verification
+  local cert="/etc/letsencrypt/live/${host}/fullchain.pem"
+  local key="/etc/letsencrypt/live/${host}/privkey.pem"
+  [[ -f "$cert" && -f "$key" ]] || die "Issued cert files not found for ${host}"
+}
+
+cmd_write_https() {
+  local host="$1" upstream="$2"
+  validate_host "$host"
+  validate_upstream "$upstream"
+  require_dir "$TENANT_DIR"
+  require_file "$HTTPS_TPL"
+
+  # sanity: ensure cert paths exist to avoid nginx -t failure
+  local cert="/etc/letsencrypt/live/${host}/fullchain.pem"
+  local key="/etc/letsencrypt/live/${host}/privkey.pem"
+  [[ -f "$cert" && -f "$key" ]] || die "Expected cert/key not found for ${host} under /etc/letsencrypt/live"
+
+  local conf="${TENANT_DIR}/${host}.conf"
+  log "Writing HTTPS vhost for ${host} (upstream: ${upstream}) -> ${conf}"
+  render_template "$HTTPS_TPL" "$conf" "$host" "$upstream"
+  test_and_reload
+  log "HTTPS vhost active for ${host}"
+}
+
+cmd_disable() {
+  local host="$1"
+  validate_host "$host"
+  require_dir "$TENANT_DIR"
+
+  local conf="${TENANT_DIR}/${host}.conf"
+  local dis="${TENANT_DIR}/${host}.conf.disabled"
+  if [[ -f "$conf" ]]; then
+    mv -f "$conf" "$dis"
+    log "Disabled ${host}"
+    test_and_reload
+  else
+    log "No active config for ${host} (nothing to disable)"
+  fi
+}
+
+cmd_delete() {
+  local host="$1"
+  validate_host "$host"
+  require_dir "$TENANT_DIR"
+
+  local conf="${TENANT_DIR}/${host}.conf"
+  local dis="${TENANT_DIR}/${host}.conf.disabled"
+  rm -f "$conf" "$dis"
+  log "Deleted config for ${host} (if any)"
+  test_and_reload
+}
+
+cmd_status() {
+  local host="$1"
+  validate_host "$host"
+  require_dir "$TENANT_DIR"
+  local conf="${TENANT_DIR}/${host}.conf"
+  local dis="${TENANT_DIR}/${host}.conf.disabled"
+  if   [[ -f "$conf" ]]; then echo "enabled"
+  elif [[ -f "$dis" ]]; then echo "disabled"
+  else echo "absent"; fi
+}
+
+# ---- Main --------------------------------------------------------------------
+[[ $# -ge 1 ]] || usage
+cmd="$1"; shift || true
+
+case "$cmd" in
+  write_http_stub)
+    [[ $# -eq 1 ]] || usage
+    cmd_write_http_stub "$1"
+    ;;
+  issue_cert)
+    [[ $# -eq 2 ]] || usage
+    cmd_issue_cert "$1" "$2"
+    ;;
+  write_https)
+    [[ $# -eq 2 ]] || usage
+    cmd_write_https "$1" "$2"
+    ;;
+  disable)
+    [[ $# -eq 1 ]] || usage
+    cmd_disable "$1"
+    ;;
+  delete)
+    [[ $# -eq 1 ]] || usage
+    cmd_delete "$1"
+    ;;
+  status)
+    [[ $# -eq 1 ]] || usage
+    cmd_status "$1"
+    ;;
+  *)
+    usage
+    ;;
+esac
