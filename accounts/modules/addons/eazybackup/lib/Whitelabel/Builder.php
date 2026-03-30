@@ -44,27 +44,38 @@ class Builder
 
         // 2) nginx (HTTP stub)
         $this->startStep($tenantId, 'nginx');
+        $nginxOk = true;
         if (!$dev || !(int)($this->cfg['whitelabel_dev_skip_nginx'] ?? 0)) {
             $ops = new \EazyBackup\Whitelabel\HostOps($this->cfg);
-            $ops->writeHttpStub($fqdn);
+            $nginxOk = $ops->writeHttpStub($fqdn);
         }
-        $this->setStep($tenantId, 'nginx', 'success');
+        $this->setStep($tenantId, 'nginx', $nginxOk ? 'success' : 'failed');
 
-        // 3b) write HTTPS vhost after cert
+        // 3) Issue TLS certificate (depends on HTTP stub being active)
         $this->startStep($tenantId, 'cert');
+        $certOk = true;
         if (!$dev || !(int)($this->cfg['whitelabel_dev_skip_cert'] ?? 0)) {
-            $ops = new \EazyBackup\Whitelabel\HostOps($this->cfg);
-            $ops->issueCert($fqdn);
+            if (!$nginxOk) {
+                $certOk = false;
+            } else {
+                $ops = new \EazyBackup\Whitelabel\HostOps($this->cfg);
+                $certOk = $ops->issueCert($fqdn);
+            }
         }
-        $this->setStep($tenantId, 'cert', 'success');
+        $this->setStep($tenantId, 'cert', $certOk ? 'success' : 'failed');
 
-        // 3c) HTTPS vhost
+        // 3c) HTTPS vhost (depends on cert being issued)
         $this->startStep($tenantId, 'nginx');
+        $httpsOk = true;
         if (!$dev || !(int)($this->cfg['whitelabel_dev_skip_nginx'] ?? 0)) {
-            $ops = new \EazyBackup\Whitelabel\HostOps($this->cfg);
-            $ops->writeHttps($fqdn);
+            if (!$certOk) {
+                $httpsOk = false;
+            } else {
+                $ops = new \EazyBackup\Whitelabel\HostOps($this->cfg);
+                $httpsOk = $ops->writeHttps($fqdn);
+            }
         }
-        $this->setStep($tenantId, 'nginx', 'success');
+        $this->setStep($tenantId, 'nginx', $httpsOk ? 'success' : 'failed');
 
         // 4) Organization
         $this->startStep($tenantId, 'org');
@@ -259,10 +270,10 @@ class Builder
                 $res = $dns->upsertCNAME($fqdn, $target); $dns->waitForChange((string)($res['change_id']??'')); $this->setStep($tenantId,'dns','success'); break;
             case 'nginx':
                 $this->ensureStep($tenantId,'nginx','queued'); $this->startStep($tenantId,'nginx');
-                $ops = new \EazyBackup\Whitelabel\HostOps($this->cfg); $ops->writeHttpStub($fqdn); $this->setStep($tenantId,'nginx','success'); break;
+                $ops = new \EazyBackup\Whitelabel\HostOps($this->cfg); $ok=$ops->writeHttpStub($fqdn); $this->setStep($tenantId,'nginx',$ok?'success':'failed'); break;
             case 'cert':
                 $this->ensureStep($tenantId,'cert','queued'); $this->startStep($tenantId,'cert');
-                $ops2 = new \EazyBackup\Whitelabel\HostOps($this->cfg); $ops2->issueCert($fqdn); $this->setStep($tenantId,'cert','success'); break;
+                $ops2 = new \EazyBackup\Whitelabel\HostOps($this->cfg); $ok=$ops2->issueCert($fqdn); $this->setStep($tenantId,'cert',$ok?'success':'failed'); break;
             case 'org':
                 $this->ensureStep($tenantId,'org','queued'); $this->startStep($tenantId,'org');
                 $ct = new \EazyBackup\Whitelabel\CometTenant($this->cfg); $o = $ct->createOrUpdateOrg($fqdn,$fqdn); $oid=(string)($o['org_id']??''); Capsule::table('eb_whitelabel_tenants')->where('id',$tenantId)->update(['org_id'=>$oid]); $this->setStep($tenantId,'org','success'); break;

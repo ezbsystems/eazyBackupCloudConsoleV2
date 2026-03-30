@@ -5,6 +5,68 @@ use Illuminate\Database\Capsule\Manager as DB;
 
 require_once __DIR__ . '/../../lib/Whitelabel/Builder.php';
 
+/**
+ * Spawn the provisioning pipeline as a background CLI process.
+ *
+ * Guards: will not spawn if the tenant already has a running step
+ * or if no queued steps remain.  Safe to call multiple times.
+ */
+function eazybackup_whitelabel_spawn_pipeline(int $tenantId): bool
+{
+    if ($tenantId <= 0) {
+        return false;
+    }
+
+    try {
+        $hasRunning = Capsule::table('eb_whitelabel_builds')
+            ->where('tenant_id', $tenantId)
+            ->where('status', 'running')
+            ->exists();
+        if ($hasRunning) {
+            return false;
+        }
+
+        $hasQueued = Capsule::table('eb_whitelabel_builds')
+            ->where('tenant_id', $tenantId)
+            ->where('status', 'queued')
+            ->exists();
+        if (!$hasQueued) {
+            return false;
+        }
+    } catch (\Throwable $_) {
+        return false;
+    }
+
+    $script = realpath(__DIR__ . '/../../bin/whitelabel_run_pipeline.php');
+    if (!$script || !is_file($script)) {
+        try {
+            logModuleCall('eazybackup', 'spawn_pipeline', ['tenant_id' => $tenantId], 'script_not_found');
+        } catch (\Throwable $_) {}
+        return false;
+    }
+
+    $phpBin = PHP_BINARY ?: '/usr/bin/php';
+    $cmd = sprintf(
+        '%s %s %d >> /tmp/eb_pipeline_%d.log 2>&1 &',
+        escapeshellarg($phpBin),
+        escapeshellarg($script),
+        $tenantId,
+        $tenantId
+    );
+
+    exec($cmd, $out, $ret);
+
+    try {
+        logModuleCall('eazybackup', 'spawn_pipeline', [
+            'tenant_id' => $tenantId,
+            'cmd' => $cmd,
+            'exit_code' => $ret,
+        ], $ret === 0 ? 'ok' : 'exec_error');
+    } catch (\Throwable $_) {}
+
+    return $ret === 0;
+}
+
 function eazybackup_whitelabel_queue_provisioning_steps(array $vars, int $tenantId, bool $markBuilding = true): void
 {
     if ($tenantId <= 0) {
@@ -391,10 +453,11 @@ function eazybackup_whitelabel_intake(array $vars)
         ]);
     } catch (\Throwable $_) { /* non-fatal; continue */ }
 
-    // Initialize step rows as queued; actual execution will be driven by loader polling / dev panel
+    // Initialize step rows as queued
     eazybackup_whitelabel_queue_provisioning_steps($vars, (int)$tenantId, true);
 
-    // Ticket creation moved to status endpoint after all steps succeed
+    // Spawn pipeline as a background CLI process so it starts immediately
+    eazybackup_whitelabel_spawn_pipeline((int)$tenantId);
 
     // Redirect to Loader page for this tenant immediately so user sees progress
     $redirTid = $publicId;
@@ -947,6 +1010,11 @@ function eazybackup_whitelabel_loader(array $vars)
             } catch (\Throwable $__) {}
             try { logModuleCall('eazybackup', 'whitelabel_loader_step_exception', ['tenant_id'=>(int)$tenantObj->id, 'step'=>$step], $err); } catch (\Throwable $__) {}
         }
+    }
+
+    // Safety-net: on GET, spawn pipeline if steps are still queued
+    if (strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
+        eazybackup_whitelabel_spawn_pipeline((int)$tenantObj->id);
     }
 
     return [

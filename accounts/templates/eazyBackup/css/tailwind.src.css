@@ -1485,6 +1485,98 @@
     background: var(--eb-bg-raised);
   }
 
+  .eb-file-field {
+    display: block;
+    width: 100%;
+  }
+
+  .eb-file-field__control {
+    position: relative;
+    display: block;
+    width: 100%;
+    margin-top: 4px;
+    cursor: pointer;
+  }
+
+  .eb-file-field__input {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    cursor: pointer;
+    z-index: 2;
+  }
+
+  .eb-file-field__main {
+    display: flex;
+    min-height: 46px;
+    align-items: center;
+    gap: 12px;
+    overflow: hidden;
+    border-radius: var(--eb-radius-md);
+    border: 1px solid var(--eb-border-default);
+    background: var(--eb-bg-input);
+    padding: 6px 12px 6px 6px;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+  }
+
+  .eb-file-field:hover .eb-file-field__main {
+    border-color: var(--eb-border-emphasis);
+  }
+
+  .eb-file-field__input:focus-visible + .eb-file-field__main {
+    border-color: var(--eb-border-strong);
+    box-shadow: 0 0 0 3px var(--eb-ring);
+  }
+
+  .eb-file-field__button {
+    display: inline-flex;
+    min-height: 32px;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--eb-radius-pill);
+    border: 1px solid var(--eb-border-default);
+    background: var(--eb-bg-overlay);
+    padding: 0 14px;
+    font-family: var(--eb-font-display);
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--eb-text-primary);
+    transition: background 0.15s ease, border-color 0.15s ease;
+  }
+
+  .eb-file-field:hover .eb-file-field__button,
+  .eb-file-field.is-filled .eb-file-field__button {
+    background: var(--eb-bg-raised);
+  }
+
+  .eb-file-field.is-filled .eb-file-field__button {
+    border-color: var(--eb-primary-border);
+  }
+
+  .eb-file-field__name {
+    min-width: 0;
+    flex: 1 1 auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 13px;
+    color: var(--eb-text-secondary);
+  }
+
+  .eb-file-field__name.is-placeholder {
+    color: var(--eb-text-disabled);
+  }
+
+  .eb-file-field__meta {
+    flex-shrink: 0;
+    white-space: nowrap;
+    font-size: 11px;
+    color: var(--eb-text-muted);
+  }
+
   .eb-section-intro {
     margin-bottom: 24px;
   }
@@ -1981,6 +2073,15 @@
     background: var(--eb-info-bg);
     border-color: var(--eb-info-border);
     color: var(--eb-info-text);
+  }
+
+  .eb-alert-icon {
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+    display: block;
+    margin-top: 1px;
+    stroke: currentColor;
   }
 
   .eb-alert-title {

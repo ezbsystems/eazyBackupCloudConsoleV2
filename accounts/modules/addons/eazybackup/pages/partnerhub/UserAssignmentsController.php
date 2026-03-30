@@ -213,6 +213,24 @@ function eb_ph_user_assignments(array $vars)
         }
     } catch (\Throwable $__) {}
 
+    $whmcsCometUsernames = eb_ph_discover_msp_comet_usernames($clientId);
+    foreach ($whmcsCometUsernames as $username) {
+        $rowKey = '|' . $username;
+        if (isset($rowIndex[$rowKey])) {
+            continue;
+        }
+        if ($q !== '' && stripos($username, $q) === false) {
+            continue;
+        }
+        $unassignedRows[] = [
+            'comet_user_id' => $username,
+            'comet_username' => $username,
+            'tenant_name' => '',
+            'tenant_public_id' => '',
+        ];
+        $rowIndex[$rowKey] = true;
+    }
+
     foreach ($assignedRows as &$row) {
         $row['comet_user_display'] = eb_ph_user_assignments_display_label((string)($row['comet_user_id'] ?? ''), $s3UsersById);
         $row['username_sort'] = $row['comet_user_display'];
