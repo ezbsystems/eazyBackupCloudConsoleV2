@@ -96,6 +96,7 @@
     const confirmTitleEl = $('#eb-confirm-title');
     const confirmMessageEl = $('#eb-confirm-message');
     const confirmCancelBtn = $('#eb-confirm-cancel');
+    const confirmCloseBtn = $('#eb-confirm-close');
     const confirmSubmitBtn = $('#eb-confirm-submit');
     const confirmSubmitLabelEl = $('#eb-confirm-submit-label');
     const confirmSpinnerEl = $('#eb-confirm-spinner');
@@ -117,6 +118,7 @@
       document.removeEventListener('keydown', activeConfirm.onKeydown);
       if (confirmSubmitBtn) confirmSubmitBtn.onclick = null;
       if (confirmCancelBtn) confirmCancelBtn.onclick = null;
+      if (confirmCloseBtn) confirmCloseBtn.onclick = null;
       if (confirmBackdropEl) confirmBackdropEl.onclick = null;
       setConfirmBusy(false);
       close(confirmModalEl);
@@ -176,10 +178,12 @@
         activeConfirm = { resolve, onKeydown, busy: false };
         document.addEventListener('keydown', onKeydown);
         if (confirmCancelBtn) confirmCancelBtn.onclick = cancel;
+        if (confirmCloseBtn) confirmCloseBtn.onclick = cancel;
         if (confirmSubmitBtn) confirmSubmitBtn.onclick = submit;
         if (confirmBackdropEl) confirmBackdropEl.onclick = cancel;
       });
     }
+    window.ebShowConfirmDialog = showConfirmDialog;
 
     // Stripe product actions (archive/delete)
     if (!window.ebStripeActions) {
@@ -797,9 +801,16 @@ if (!window.catalogToastManager) {
         return '';
       },
       open(){ this.isOpen=true; showEl('eb-product-panel'); },
-      close(){
+      async close(){
         if (this._edited && !this._dirty) {
-          if (!window.confirm('Discard unsaved changes to this product?')) return;
+          var confirmed = await (window.ebShowConfirmDialog
+            ? window.ebShowConfirmDialog({
+                title: 'Discard changes?',
+                message: 'Discard unsaved changes to this product?',
+                confirmLabel: 'Discard changes'
+              })
+            : Promise.resolve(window.confirm('Discard unsaved changes to this product?')));
+          if (!confirmed) return;
         }
         this.closePhMenu();
         this.isOpen=false;
@@ -838,7 +849,7 @@ if (!window.catalogToastManager) {
         }
       },
       clearPriceFocus(){ this.focusPriceId = null; this.focusPriceKey = null; },
-      async openEditStripe(spid, focusTarget){ try{ this.reset(); this.mode='editStripe'; this.stripeProductId = spid; this.focusPriceId = focusTarget && focusTarget.focusPriceId ? String(focusTarget.focusPriceId) : null; this.focusPriceKey = focusTarget && focusTarget.focusPriceKey ? String(focusTarget.focusPriceKey) : null; this.showInactive = true; await this.refreshStripePrices(); } catch(e){ console.error('[eb.catalog] openEditStripe(panel) failed',e); safeToast('Failed to load Stripe product','error'); } },
+      async openEditStripe(spid, focusTarget){ try{ this.reset(); this.mode='editStripe'; this.stripeProductId = spid; this.focusPriceId = focusTarget && focusTarget.focusPriceId ? String(focusTarget.focusPriceId) : null; this.focusPriceKey = focusTarget && focusTarget.focusPriceKey ? String(focusTarget.focusPriceKey) : null; this.showInactive = false; await this.refreshStripePrices(); } catch(e){ console.error('[eb.catalog] openEditStripe(panel) failed',e); safeToast('Failed to load Stripe product','error'); } },
       async refreshStripePrices(){ try{ const token=(document.getElementById('eb-token')||{}).value||''; const activeParam=this.showInactive?'all':'1'; const res=await fetch(`${this.modulelink}&a=ph-catalog-product-get-stripe&id=${encodeURIComponent(this.stripeProductId)}&active=${encodeURIComponent(activeParam)}&token=${encodeURIComponent(token)}`, { method:'GET', credentials:'include' }); const out=await res.json(); if(out.status!=='success') throw new Error('bad'); var p=out.product||{}; this.product={ name:p.name||'', description:p.description||'' }; var bm = p.base_metric_code || ((out.prices||[]).some(pr => (pr.billingType==='metered')) ? 'STORAGE_TB' : 'GENERIC'); this.baseMetric=bm; this.items=(out.prices||[]).map(pr=>({ id: pr.id, label: pr.label||pr.nickname||'', billingType: pr.billingType || 'per_unit', metric: bm, unitLabel: pr.unitLabel || (bm==='STORAGE_TB'?'GiB':defaultUnitLabel(bm)), amount: Number(pr.amount||0), interval: pr.interval || 'month', active: !!pr.active, currency: pr.currency||this.currency, pricingScheme: pr.pricingScheme || 'per_unit' })); this.features=Array.isArray(p.features)?p.features:[]; this.items.forEach((_, idx)=>this.normalizePriceRow(idx)); if (this.focusPriceKey && !this.focusPriceId) { var matched = this.items.find((it)=> this.priceSlotKey(it) === this.focusPriceKey); if (matched && matched.id) this.focusPriceId = String(matched.id); } if (this.focusPriceId && !this.items.some((it)=> String(it.id || '') === String(this.focusPriceId))) { this.focusPriceId = null; } this.open(); } catch(e){ console.error('[eb.catalog] refreshStripePrices failed', e); safeToast('Failed to load Stripe prices','error'); } },
     metricLabel(v){ switch(String(v||'')){ case 'STORAGE_TB': return 'Storage'; case 'DEVICE_COUNT': return 'Device Count'; case 'DISK_IMAGE': return 'Disk Image'; case 'HYPERV_VM': return 'Hyper-V VM'; case 'PROXMOX_VM': return 'Proxmox VM'; case 'VMWARE_VM': return 'VMware VM'; case 'M365_USER': return 'Microsoft 365 User'; case 'GENERIC': return 'Generic'; default: return v; } },
     metricIcon(v){

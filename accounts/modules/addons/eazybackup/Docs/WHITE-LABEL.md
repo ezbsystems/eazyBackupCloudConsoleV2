@@ -148,7 +148,171 @@ All steps are idempotent and safe to re‑run individually in DEV.
 - All steps log to `logModuleCall('eazybackup', …)`; secrets are masked where possible. Steps are idempotent.
   - Custom Domain diagnostics: in DEV mode, JSON includes resolver details and table presence; server errors include exception text.
 
-## Reverse proxy & certificate operations
+## Domain provisioning flow (end-to-end)
+
+This section documents the complete lifecycle of a white-label domain, from the customer's browser through DNS, nginx, and TLS certificate provisioning on the proxy server.
+
+### Overview
+
+When a customer submits the white-label intake form, the system automatically:
+1. Generates a vanity FQDN (e.g., `85bb327b.obcbackup.com`).
+2. Creates a CNAME record in AWS Route 53 pointing to the proxy gateway.
+3. Deploys an HTTP-only nginx stub on the proxy (for ACME challenges).
+4. Issues a TLS certificate via Certbot (webroot HTTP-01 challenge).
+5. Replaces the HTTP stub with a full HTTPS reverse-proxy vhost.
+
+All operations are driven by the `Builder` class and executed over SSH against the proxy server.
+
+### Step 1: Subdomain generation (frontend → controller)
+
+**Frontend:** The intake form at `?m=eazybackup&a=whitelabel` renders `templates/whitelabel-signup.tpl`. On GET, the controller generates an 8-character random hex slug via `bin2hex(random_bytes(4))` and combines it with the configured `whitelabel_base_domain` (default: `obcbackup.com`) to produce a suggested FQDN like `85bb327b.obcbackup.com`. The slug and FQDN are passed to the template as `generated_subdomain` and `custom_domain`.
+
+**POST handler:** `eazybackup_whitelabel_intake()` in `BuildController.php` receives the submitted subdomain, constructs the FQDN (`$subdomain . '.' . $baseDomain`), and creates a row in `eb_whitelabel_tenants` with status `queued`. It then:
+1. Queues all 10 provisioning steps in `eb_whitelabel_builds`.
+2. Spawns the background CLI pipeline: `eazybackup_whitelabel_spawn_pipeline($tenantId)`.
+3. Redirects the browser to the loader page (`?a=whitelabel-loader&tid=<public_id>`).
+
+### Step 2: Background pipeline execution
+
+The spawn helper in `BuildController.php` launches the CLI runner:
+
+```
+php bin/whitelabel_run_pipeline.php <tenant_id> >> /tmp/eb_pipeline_<tenant_id>.log 2>&1 &
+```
+
+The CLI script (`bin/whitelabel_run_pipeline.php`) bootstraps WHMCS, loads addon settings from `tbladdonmodules`, and calls `Builder->runImmediate($tenantId)`. This executes all 10 steps in sequence. The DNS, nginx, and cert steps are the domain-specific ones documented below.
+
+### Step 3: DNS — AWS Route 53 CNAME upsert
+
+**Class:** `lib/Whitelabel/AwsRoute53.php`
+
+The `upsertCNAME($fqdn, $target)` method uses the AWS SDK (`Aws\Route53\Route53Client`) to call `ChangeResourceRecordSets` with action `UPSERT`:
+
+- **Record type:** CNAME
+- **TTL:** 60 seconds
+- **Target:** The value of `whitelabel_dns_target` (typically `gateway.obcbackup.com.`), which is a CNAME pointing to the proxy's public IP.
+- **Hosted zone:** Configured via `route53_hosted_zone_id` in addon settings.
+
+After the upsert, `waitForChange($changeId)` polls the Route 53 `GetChange` API every 500ms (up to 60 seconds) until the change status is `INSYNC`.
+
+**Addon settings used:**
+- `aws_access_key_id`, `aws_secret_access_key`, `aws_region` — AWS credentials.
+- `route53_hosted_zone_id` — The Route 53 hosted zone for the base domain.
+- `whitelabel_dns_target` — The CNAME target (e.g., `gateway.obcbackup.com`).
+
+**Failure handling:** If DNS fails, the entire pipeline aborts and the tenant is marked `failed`.
+
+### Step 4: Nginx HTTP stub — deploy to proxy via SSH
+
+**Class:** `lib/Whitelabel/HostOps.php`
+
+`writeHttpStub($fqdn)` calls `invokeArgs('write_http_stub', [$fqdn])`, which constructs and executes an SSH command:
+
+```
+ssh -o StrictHostKeyChecking=no -i '<key_path>' '<user>@<host>' \
+    'sudo /usr/local/bin/tenant_provision' 'write_http_stub' '<fqdn>'
+```
+
+On the proxy, the `tenant_provision` script renders `/etc/nginx/templates/tenant.http.tpl` with `{{SERVER_NAME}}` replaced by the FQDN, writes the result to `/etc/nginx/conf.d/tenants/<fqdn>.conf`, runs `nginx -t`, and reloads nginx.
+
+The HTTP stub serves two purposes:
+1. **ACME challenges:** The `location ^~ /.well-known/acme-challenge/` block serves challenge tokens from `/var/www/letsencrypt` for Certbot's webroot HTTP-01 validation.
+2. **Redirect:** All other HTTP requests are redirected to HTTPS via `return 301` inside a `location /` block (the redirect must be inside `location /`, not at the server level, or it would intercept ACME challenges before location matching).
+
+### Step 5: TLS certificate — Certbot via proxy SSH
+
+**Class:** `lib/Whitelabel/HostOps.php`
+
+`issueCert($fqdn)` calls `invokeArgs('issue_cert', [$fqdn, $email], $env)`:
+
+```
+ssh ... 'sudo /usr/local/bin/tenant_provision' 'issue_cert' '<fqdn>' '<email>'
+```
+
+On the proxy, the `tenant_provision` script:
+1. Creates the ACME challenge directory: `mkdir -p /var/www/letsencrypt/.well-known/acme-challenge`.
+2. Runs an **ACME self-test**: writes a token file to the webroot, then curls `http://<LAN_IP>/.well-known/acme-challenge/<token>` with `Host: <fqdn>` to verify nginx serves it correctly (expects HTTP 200).
+3. If the self-test passes, issues the certificate via webroot: `certbot certonly --webroot -w /var/www/letsencrypt -n --agree-tos -m <email> -d <fqdn>`.
+4. If the self-test fails, falls back to the nginx authenticator: `certbot --nginx -n --agree-tos -m <email> -d <fqdn>`.
+5. Verifies the cert files exist at `/etc/letsencrypt/live/<fqdn>/fullchain.pem` and `privkey.pem`.
+
+The self-test IP defaults to the proxy's primary LAN IP (detected via `ip -4 route get 1.1.1.1`) but can be overridden with the `ACME_SELFTEST_IP` environment variable (passed through from the `acme_selftest_ip` addon setting via sudoers `env_keep`).
+
+**Addon settings used:**
+- `certbot_email` — Email for Let's Encrypt account/notifications.
+- `acme_selftest_ip` — Optional override for the self-test target IP.
+
+**Dependency chain:** Cert issuance depends on the HTTP stub being active. If the HTTP stub step failed, cert issuance is automatically skipped.
+
+### Step 6: HTTPS vhost — replace HTTP stub
+
+**Class:** `lib/Whitelabel/HostOps.php`
+
+`writeHttps($fqdn)` calls `invokeArgs('write_https', [$fqdn, $upstream])`:
+
+```
+ssh ... 'sudo /usr/local/bin/tenant_provision' 'write_https' '<fqdn>' 'http://obc_servers'
+```
+
+On the proxy, the script verifies the cert/key files exist, then renders `/etc/nginx/templates/tenant.https.tpl` (substituting `{{SERVER_NAME}}` and `{{UPSTREAM}}`), writes it to `/etc/nginx/conf.d/tenants/<fqdn>.conf` (replacing the HTTP stub), runs `nginx -t`, and reloads nginx.
+
+The HTTPS vhost reverse-proxies all traffic to the Comet upstream (`http://obc_servers` → `192.168.92.165:8060`) with WebSocket upgrade support, extended timeouts (3000s), and no body size limit.
+
+**Addon settings used:**
+- `nginx_upstream` — The upstream identifier (default: `http://obc_servers`).
+
+**Dependency chain:** HTTPS vhost deployment depends on successful cert issuance. If the cert step failed, the HTTPS write is automatically skipped (the HTTP stub remains in place).
+
+### Error handling in Builder
+
+The `Builder::runImmediate()` method checks the return value of each HostOps method. The steps have dependency chains:
+- If `writeHttpStub()` returns `false` → nginx step marked `failed`, cert step is skipped (no HTTP stub to serve ACME challenges).
+- If `issueCert()` returns `false` → cert step marked `failed`, HTTPS write is skipped (no cert files on disk).
+- If `writeHttps()` returns `false` → nginx step marked `failed`.
+
+The pipeline continues with the remaining steps (org, admin, branding, etc.) regardless of nginx/cert failures, since those steps are independent.
+
+### Files involved
+
+| File | Role |
+|------|------|
+| `pages/whitelabel/BuildController.php` | Intake POST handler, spawn helper, loader/status endpoints |
+| `bin/whitelabel_run_pipeline.php` | CLI background runner (spawned by BuildController) |
+| `lib/Whitelabel/Builder.php` | Pipeline orchestrator (`runImmediate`, `runStep`) |
+| `lib/Whitelabel/AwsRoute53.php` | AWS Route 53 CNAME upsert + change polling |
+| `lib/Whitelabel/HostOps.php` | SSH command builder for proxy operations |
+| `templates/whitelabel-signup.tpl` | Customer intake form (frontend) |
+| `templates/whitelabel/loader.tpl` | Provisioning progress page with JS polling |
+
+### Proxy-side files
+
+On the proxy server (`proxy1.eazybackup.internal`):
+
+| Path | Role |
+|------|------|
+| `/usr/local/bin/tenant_provision` | Bash wrapper script (sudoers-restricted) |
+| `/etc/nginx/templates/tenant.http.tpl` | HTTP stub template (ACME + redirect) |
+| `/etc/nginx/templates/tenant.https.tpl` | HTTPS reverse-proxy template |
+| `/etc/nginx/conf.d/tenants/<fqdn>.conf` | Generated per-tenant vhost config |
+| `/etc/nginx/conf.d/000-tenants-include.conf` | Includes `tenants/*.conf` into nginx |
+| `/etc/nginx/conf.d/upstream_comet.conf` | Defines `obc_servers` upstream |
+| `/var/www/letsencrypt/` | Certbot webroot for ACME challenges |
+| `/etc/letsencrypt/live/<fqdn>/` | Issued cert + key files |
+
+### Local copies of proxy files
+
+Canonical copies of the proxy-side scripts and templates are maintained in the repository at:
+
+```
+accounts/modules/addons/eazybackup/templates/whitelabel/tenant-provision/
+├── tenant-provision        # Copy of /usr/local/bin/tenant_provision
+├── tenant.http.tpl         # Copy of /etc/nginx/templates/tenant.http.tpl
+└── tenant.https.tpl        # Copy of /etc/nginx/templates/tenant.https.tpl
+```
+
+When changes are made to these files, the updated versions must be manually deployed to the proxy server. The proxy files are owned by root and not writable by the `whitelabelbot` SSH user.
+
+### Reverse proxy configuration
 
 - **SSH mode (recommended):**
   - `ops_mode=ssh`, `ops_ssh_host=proxy1.eazybackup.internal`, `ops_ssh_user=whitelabelbot`, `ops_ssh_key_path=/path/to/id_ed25519`.
@@ -387,13 +551,18 @@ We use two templates so Nginx never breaks while we wait for certificates.
       access_log /var/log/nginx/{{SERVER_NAME}}_access.log main_ext buffer=256k flush=5s;
       error_log  /var/log/nginx/{{SERVER_NAME}}_error.log;
 
-      # ACME HTTP-01 (webroot)
-      location /.well-known/acme-challenge/ {
+      # ACME HTTP-01 (webroot) — ^~ ensures this wins over the catch-all redirect
+      location ^~ /.well-known/acme-challenge/ {
           root /var/www/letsencrypt;
+          try_files $uri =404;
       }
 
-      return 301 https://$host$request_uri;
+      location / {
+          return 301 https://$host$request_uri;
+      }
   }
+
+**Important:** The `return 301` directive MUST be inside `location /`, not at the server block level. In nginx, a `return` at the server level executes during the `SERVER_REWRITE_PHASE` before location matching, which would redirect ACME challenge requests before the `/.well-known/acme-challenge/` location can match. The `^~` modifier prevents regex locations from overriding the ACME prefix match.
 
 **4.2 HTTPS final (after cert exists)**
 
@@ -570,6 +739,8 @@ We use two templates so Nginx never breaks while we wait for certificates.
     status)          [[ $# -eq 1 ]] || usage; cmd_status "$1" ;;
     *) usage ;;
   esac
+
+Local copies of the `tenant_provision` script and both templates are stored in the repository at `accounts/modules/addons/eazybackup/templates/whitelabel/tenant-provision/`. After editing those files, deploy the updated versions to the proxy server manually.
 
 Permissions & sudoers:
 

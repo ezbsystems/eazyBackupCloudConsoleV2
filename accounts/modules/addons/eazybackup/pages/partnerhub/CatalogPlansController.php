@@ -296,6 +296,26 @@ function eb_ph_catalog_plans_index(array $vars)
             }
         }
     } catch (\Throwable $__) {}
+
+    $whmcsCometUsernames = eb_ph_discover_msp_comet_usernames($clientId);
+    foreach ($whmcsCometUsernames as $username) {
+        $alreadyKnown = false;
+        foreach ($cometAccountIndex as $entry) {
+            if (($entry['comet_user_id'] ?? '') === $username) {
+                $alreadyKnown = true;
+                break;
+            }
+        }
+        if (!$alreadyKnown) {
+            $cometAccountIndex['_whmcs_' . $username] = [
+                'tenant_public_id' => '',
+                'comet_user_id' => $username,
+                'comet_username' => $username,
+                'tenant_name' => '',
+            ];
+        }
+    }
+
     $cometAccounts = array_values($cometAccountIndex);
 
     // Normalize to arrays for Smarty
@@ -570,6 +590,12 @@ function eb_ph_plan_assign(array $vars): void
                 ->where('t.status', '!=', 'deleted')
                 ->where('sl.comet_user_id', $cometUserId)
                 ->first(['sl.id']);
+        }
+        if (!$ownedCometAccount) {
+            $whmcsUsernames = eb_ph_discover_msp_comet_usernames($clientId);
+            if (in_array($cometUserId, $whmcsUsernames, true)) {
+                $ownedCometAccount = (object)['id' => 0];
+            }
         }
         if (!$ownedCometAccount) { echo json_encode(['status'=>'error','message'=>'comet_user_not_found']); return; }
     }

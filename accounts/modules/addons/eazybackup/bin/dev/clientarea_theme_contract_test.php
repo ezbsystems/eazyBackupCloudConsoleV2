@@ -65,6 +65,10 @@ $targets = [
             'menu class' => '.eb-menu',
             'modal class' => '.eb-modal',
             'drawer class' => '.eb-drawer',
+            'alert icon class' => '.eb-alert-icon',
+            'file field class' => '.eb-file-field',
+            'file field control class' => '.eb-file-field__control',
+            'file field button class' => '.eb-file-field__button',
         ],
     ],
     'profile-nav.tpl' => [
@@ -227,6 +231,27 @@ $targets = [
         'forbidden' => [
             'legacy gray shell' => 'min-h-screen bg-gray-700 text-gray-100',
             'legacy inline toggle color' => "btn.style.backgroundColor",
+        ],
+    ],
+    'addon whitelabel-signup.tpl' => [
+        'path' => $root . '/modules/addons/eazybackup/templates/whitelabel-signup.tpl',
+        'markers' => [
+            'page shell marker' => 'class="eb-page"',
+            'file field marker' => 'class="eb-file-field__control"',
+            'file field button marker' => 'class="eb-file-field__button"',
+            'toggle state binding marker' => ':class="useParent ? \'is-on\' : \'\'"',
+        ],
+    ],
+    'addon whitelabel loader.tpl' => [
+        'path' => $root . '/modules/addons/eazybackup/templates/whitelabel/loader.tpl',
+        'markers' => [
+            'page shell include' => 'includes/ui/page-shell.tpl',
+            'subpanel marker' => 'class="eb-subpanel',
+            'inline activity shell marker' => 'id="wl-loader-activity"',
+            'inline activity spinner marker' => 'data-wl-loader-spinner',
+        ],
+        'forbidden' => [
+            'body overlay loader call' => "window.ebShowLoader(document.body,'Provisioning your tenant…');",
         ],
     ],
     'addon sidebar.tpl' => [

@@ -248,10 +248,20 @@
             <div class="mb-2 flex flex-wrap items-center justify-between gap-3">
               <h4 class="text-sm font-semibold text-[var(--eb-text-primary)]">Pricing</h4>
               <div class="flex flex-wrap items-center gap-3">
-                <label class="inline-flex cursor-pointer items-center gap-2 text-xs text-[var(--eb-text-secondary)]" x-show="mode==='editStripe'">
-                  <input type="checkbox" class="eb-checkbox" x-model="showInactive" @change="refreshStripePrices()">
-                  <span>Show inactive</span>
-                </label>
+                <button
+                  type="button"
+                  class="eb-toggle"
+                  x-cloak
+                  x-show="mode==='editStripe'"
+                  role="switch"
+                  :aria-checked="showInactive ? 'true' : 'false'"
+                  @click="showInactive = !showInactive; refreshStripePrices()"
+                >
+                  <span class="eb-toggle-track" :class="showInactive ? 'is-on' : ''">
+                    <span class="eb-toggle-thumb"></span>
+                  </span>
+                  <span class="eb-toggle-label">Show archived prices</span>
+                </button>
                 <button type="button" class="eb-btn eb-btn-secondary eb-btn-xs" @click="addEmptyItem()">Add price</button>
               </div>
             </div>
@@ -362,6 +372,31 @@
         <div class="eb-modal-footer shrink-0 !px-6 !py-5">
           <button type="button" class="eb-btn eb-btn-outline eb-btn-sm" @click="close()">Cancel</button>
           <button type="button" class="eb-btn eb-btn-primary eb-btn-sm" @click="save()">Save</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="eb-confirm-modal" class="fixed inset-0 z-[110] hidden">
+      <div id="eb-confirm-backdrop" class="eb-modal-backdrop absolute inset-0 backdrop-blur-sm"></div>
+      <div class="relative flex min-h-full items-center justify-center p-4">
+        <div class="eb-modal eb-modal--confirm w-full max-w-md">
+          <div class="eb-modal-header">
+            <div>
+              <div class="eb-modal-title" id="eb-confirm-title">Confirm action</div>
+              <p class="eb-modal-subtitle" id="eb-confirm-message">Are you sure you want to continue?</p>
+            </div>
+            <button type="button" id="eb-confirm-close" class="eb-modal-close" aria-label="Close">&#10005;</button>
+          </div>
+          <div class="eb-modal-footer !justify-end">
+            <button type="button" id="eb-confirm-cancel" class="eb-btn eb-btn-outline eb-btn-sm">Cancel</button>
+            <button type="button" id="eb-confirm-submit" class="eb-btn eb-btn-danger-solid eb-btn-sm inline-flex items-center justify-center gap-2">
+              <svg id="eb-confirm-spinner" class="hidden h-4 w-4 animate-spin text-white" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-90" fill="currentColor" d="M12 2a10 10 0 0 1 10 10h-4a6 6 0 0 0-6-6V2z"></path>
+              </svg>
+              <span id="eb-confirm-submit-label">Confirm</span>
+            </button>
+          </div>
         </div>
       </div>
     </div>
