@@ -11,193 +11,297 @@
     <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
       <div class="md:col-span-2 space-y-6" x-data="{ useParent: {if $email.inherit|default:1}true{else}false{/if} }">
         <form method="post" enctype="multipart/form-data" id="brandingForm" class="space-y-6">
-          <section class="rounded-2xl border border-slate-800/80 bg-slate-900/70 overflow-hidden">
-            <div class="px-6 py-5 border-b border-slate-800">
-              <h3 class="text-lg font-medium text-slate-100">System Branding</h3>
+          <section class="eb-card-raised !p-0 overflow-hidden" data-eb-ph-section="system-branding">
+            <div class="eb-card-header eb-card-header--divided !-mx-0 !-mt-0 !mb-0 !px-6 !py-5">
+              <div class="eb-section-intro !mb-0">
+                <h3 class="eb-section-title">System Branding</h3>
+                <p class="eb-section-description">Control panel title, header colors, header image, and favicon.</p>
+              </div>
             </div>
-            <div class="px-6 py-6 grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+            <div class="grid grid-cols-1 gap-4 px-6 py-6 text-sm md:grid-cols-2">
               <div>
-                <label for="brand_name" class="block text-slate-400 mb-1 text-sm">Page title</label>
-                <input id="brand_name" name="brand_name" value="{$brand.BrandName|default:$brand.ProductName|escape}" class="w-full px-3 py-2.5 rounded-lg bg-slate-800 text-sm text-slate-100 placeholder:text-gray-400 outline-1 -outline-offset-1 outline-white/10 focus-within:outline-2 focus-within:outline-sky-700 transition" placeholder="e.g., Acme Backup"/>
+                <label for="brand_name" class="eb-field-label">Page title</label>
+                <input id="brand_name" name="brand_name" value="{$brand.BrandName|default:$brand.ProductName|escape}" class="eb-input w-full" placeholder="e.g., Acme Backup"/>
               </div>
               <div>
-                <label class="block text-slate-400 mb-1 text-sm">Header Image</label>
-                <div class="flex items-center gap-3">
-                  <input type="file" name="header_image_file" accept=".jpg,.jpeg,.gif,.png,.svg" class="block w-full text-sm text-slate-300"/>
+                <label for="header_image_file" class="eb-field-label">Header Image</label>
+                <div class="eb-file-field flex flex-wrap items-center gap-3">
+                  <div class="eb-file-field__control min-w-0 flex-1">
+                    <label for="header_image_file" class="block cursor-pointer">
+                      <span class="eb-file-field__main flex min-w-0 items-center justify-between gap-3 rounded-xl border border-[var(--eb-border-default)] bg-[var(--eb-bg-input)] px-3 py-2.5 transition hover:border-[var(--eb-border-emphasis)]">
+                        <span class="eb-file-field__button shrink-0 rounded-full border border-[var(--eb-border-default)] bg-[var(--eb-bg-overlay)] px-3 py-1 text-xs font-semibold text-[var(--eb-text-primary)]">Choose file...</span>
+                        <span class="eb-file-field__name min-w-0 truncate text-sm text-[var(--eb-text-muted)]">JPG, PNG, SVG</span>
+                      </span>
+                    </label>
+                    <input type="file" id="header_image_file" name="header_image_file" accept=".jpg,.jpeg,.gif,.png,.svg" class="eb-file-field__input eb-file-input sr-only"/>
+                  </div>
                   {assign var=st value=$assetStatus.PathHeaderImage}
-                  {if $st.state=='uploaded'}<span class="inline-flex items-center gap-2 rounded-lg bg-white/5 ring-1 ring-white/10 px-2.5 py-1.5 text-nowrap text-xs text-white/70"><span class="h-1.5 w-1.5 rounded-full bg-emerald-300"></span><span>Uploaded</span></span>
-                  {elseif $st.state=='local'}<span class="inline-flex items-center gap-2 rounded-lg bg-white/5 ring-1 ring-white/10 px-2.5 py-1.5 text-nowrap text-xs text-white/70"><span class="h-1.5 w-1.5 rounded-full bg-amber-300"></span><span>Pending upload{if $st.filename}: {$st.filename|escape}{/if}</span></span>
-                  {else}<span class="inline-flex items-center gap-2 rounded-lg bg-white/5 ring-1 ring-white/10 px-2.5 py-1.5 text-nowrap text-xs text-white/70"><span class="h-1.5 w-1.5 rounded-full bg-white/30"></span><span>Not set</span></span>{/if}
+                  <div class="eb-file-field__meta flex flex-wrap items-center gap-3">
+                    {if $st.state=='uploaded'}<span class="eb-badge eb-badge--dot eb-badge--success gap-1.5 whitespace-nowrap">Uploaded</span>
+                    {elseif $st.state=='local'}<span class="eb-badge eb-badge--dot eb-badge--warning gap-1.5 whitespace-nowrap">Pending upload{if $st.filename}: {$st.filename|escape}{/if}</span>
+                    {else}<span class="eb-badge eb-badge--dot eb-badge--neutral gap-1.5 whitespace-nowrap">Not set</span>{/if}
+                  </div>
                 </div>
               </div>
               <div>
-                <label for="header_color" class="block text-slate-400 mb-1 text-sm">Header Color</label>
-                <div class="flex items-center">
-                  <input type="text" id="header_color" name="header_color" class="w-1/2 px-3 py-2 rounded-lg bg-slate-800 text-sm text-slate-100 outline-1 -outline-offset-1 outline-white/10 focus-within:outline-2 focus-within:outline-sky-700" value="{$brand.HeaderColor|escape}" placeholder="#FFFFFF"/>
-                  <input type="color" id="header_color_picker" class="ml-2 h-8 w-8 border" value="{$brand.HeaderColor|default:'#FFFFFF'}" aria-label="Pick header color"/>
+                <label for="header_color" class="eb-field-label">Header Color</label>
+                <div class="flex flex-wrap items-center gap-2">
+                  <input type="text" id="header_color" name="header_color" class="eb-input w-1/2 min-w-[8rem]" value="{$brand.HeaderColor|escape}" placeholder="#FFFFFF"/>
+                  <input type="color" id="header_color_picker" class="h-8 w-8 shrink-0 cursor-pointer rounded border border-[var(--eb-border-default)] bg-transparent p-0" value="{$brand.HeaderColor|default:'#FFFFFF'}" aria-label="Pick header color"/>
                 </div>
               </div>
               <div>
-                <label for="accent_color" class="block text-slate-400 mb-1 text-sm">Accent Color</label>
-                <div class="flex items-center">
-                  <input type="text" id="accent_color" name="accent_color" class="w-1/2 px-3 py-2 rounded-lg bg-slate-800 text-sm text-slate-100 outline-1 -outline-offset-1 outline-white/10 focus-within:outline-2 focus-within:outline-sky-700" value="{$brand.AccentColor|escape}" placeholder="#FFFFFF"/>
-                  <input type="color" id="accent_color_picker" class="ml-2 h-8 w-8 border" value="{$brand.AccentColor|default:'#FFFFFF'}" aria-label="Pick accent color"/>
+                <label for="accent_color" class="eb-field-label">Accent Color</label>
+                <div class="flex flex-wrap items-center gap-2">
+                  <input type="text" id="accent_color" name="accent_color" class="eb-input w-1/2 min-w-[8rem]" value="{$brand.AccentColor|escape}" placeholder="#FFFFFF"/>
+                  <input type="color" id="accent_color_picker" class="h-8 w-8 shrink-0 cursor-pointer rounded border border-[var(--eb-border-default)] bg-transparent p-0" value="{$brand.AccentColor|default:'#FFFFFF'}" aria-label="Pick accent color"/>
                 </div>
               </div>
               <div>
-                <label class="block text-slate-400 mb-1 text-sm">Tab icon (favicon)</label>
-                <div class="flex items-center gap-3">
-                  <input type="file" name="favicon_file" accept=".ico" class="block w-full text-sm text-slate-300"/>
+                <label for="favicon_file" class="eb-field-label">Tab icon (favicon)</label>
+                <div class="eb-file-field flex flex-wrap items-center gap-3">
+                  <div class="eb-file-field__control min-w-0 flex-1">
+                    <label for="favicon_file" class="block cursor-pointer">
+                      <span class="eb-file-field__main flex min-w-0 items-center justify-between gap-3 rounded-xl border border-[var(--eb-border-default)] bg-[var(--eb-bg-input)] px-3 py-2.5 transition hover:border-[var(--eb-border-emphasis)]">
+                        <span class="eb-file-field__button shrink-0 rounded-full border border-[var(--eb-border-default)] bg-[var(--eb-bg-overlay)] px-3 py-1 text-xs font-semibold text-[var(--eb-text-primary)]">Choose file...</span>
+                        <span class="eb-file-field__name min-w-0 truncate text-sm text-[var(--eb-text-muted)]">ICO only</span>
+                      </span>
+                    </label>
+                    <input type="file" id="favicon_file" name="favicon_file" accept=".ico" class="eb-file-field__input eb-file-input sr-only"/>
+                  </div>
                   {assign var=st value=$assetStatus.Favicon}
-                  {if $st.state=='uploaded'}<span class="inline-flex items-center gap-2 rounded-lg bg-white/5 ring-1 ring-white/10 px-2.5 py-1.5 text-nowrap text-xs text-white/70"><span class="h-1.5 w-1.5 rounded-full bg-emerald-300"></span><span>Uploaded</span></span>
-                  {elseif $st.state=='local'}<span class="inline-flex items-center gap-2 rounded-lg bg-white/5 ring-1 ring-white/10 px-2.5 py-1.5 text-nowrap text-xs text-white/70"><span class="h-1.5 w-1.5 rounded-full bg-amber-300"></span><span>Pending upload{if $st.filename}: {$st.filename|escape}{/if}</span></span>
-                  {else}<span class="inline-flex items-center gap-2 rounded-lg bg-white/5 ring-1 ring-white/10 px-2.5 py-1.5 text-nowrap text-xs text-white/70"><span class="h-1.5 w-1.5 rounded-full bg-white/30"></span><span>Not set</span></span>{/if}
+                  <div class="eb-file-field__meta flex flex-wrap items-center gap-3">
+                    {if $st.state=='uploaded'}<span class="eb-badge eb-badge--dot eb-badge--success gap-1.5 whitespace-nowrap">Uploaded</span>
+                    {elseif $st.state=='local'}<span class="eb-badge eb-badge--dot eb-badge--warning gap-1.5 whitespace-nowrap">Pending upload{if $st.filename}: {$st.filename|escape}{/if}</span>
+                    {else}<span class="eb-badge eb-badge--dot eb-badge--neutral gap-1.5 whitespace-nowrap">Not set</span>{/if}
+                  </div>
                 </div>
               </div>
             </div>
           </section>
 
-          <section class="rounded-2xl border border-slate-800/80 bg-slate-900/70 overflow-hidden">
-            <div class="px-6 py-5 border-b border-slate-800">
-              <h3 class="text-lg font-medium text-slate-100">Backup Agent Branding</h3>
+          <section class="eb-card-raised !p-0 overflow-hidden" data-eb-ph-section="backup-agent-branding">
+            <div class="eb-card-header eb-card-header--divided !-mx-0 !-mt-0 !mb-0 !px-6 !py-5">
+              <div class="eb-section-intro !mb-0">
+                <h3 class="eb-section-title">Backup Agent Branding</h3>
+                <p class="eb-section-description">Product identity, help link, desktop icons, and optional EULA.</p>
+              </div>
             </div>
-            <div class="px-6 py-6 grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+            <div class="grid grid-cols-1 gap-4 px-6 py-6 text-sm md:grid-cols-2">
               <div>
-                <label class="block text-slate-400 mb-1 text-sm">Product name</label>
-                <input name="product_name" value="{$brand.ProductName|escape}" class="w-full px-3 py-2.5 rounded-lg bg-slate-800 text-sm text-slate-100 placeholder:text-gray-400 outline-1 -outline-offset-1 outline-white/10 focus-within:outline-2 focus-within:outline-sky-700 transition"/>
+                <label for="product_name" class="eb-field-label">Product name</label>
+                <input id="product_name" name="product_name" value="{$brand.ProductName|escape}" class="eb-input w-full"/>
               </div>
               <div>
-                <label class="block text-slate-400 mb-1 text-sm">Company name</label>
-                <input name="company_name" value="{$brand.CompanyName|escape}" class="w-full px-3 py-2.5 rounded-lg bg-slate-800 text-sm text-slate-100 placeholder:text-gray-400 outline-1 -outline-offset-1 outline-white/10 focus-within:outline-2 focus-within:outline-sky-700 transition"/>
+                <label for="company_name" class="eb-field-label">Company name</label>
+                <input id="company_name" name="company_name" value="{$brand.CompanyName|escape}" class="eb-input w-full"/>
               </div>
               <div class="md:col-span-2">
-                <label class="block text-slate-400 mb-1 text-sm">Help URL</label>
-                <input type="url" name="help_url" value="{$brand.HelpURL|escape}" class="w-full px-3 py-2.5 rounded-lg bg-slate-800 text-sm text-slate-100 placeholder:text-gray-400 outline-1 -outline-offset-1 outline-white/10 focus-within:outline-2 focus-within:outline-sky-700 transition" placeholder="https://example.com/support"/>
+                <label for="help_url" class="eb-field-label">Help URL</label>
+                <input type="url" id="help_url" name="help_url" value="{$brand.HelpURL|escape}" class="eb-input w-full" placeholder="https://example.com/support"/>
               </div>
 
               <div>
-                <label class="block text-slate-400 mb-1 text-sm">Icon (Windows)</label>
-                <div class="flex items-center gap-3">
-                  <input type="file" name="win_ico_file" accept=".ico,.jpg,.jpeg,.gif,.png" class="block w-full text-sm text-slate-300"/>
+                <label for="win_ico_file" class="eb-field-label">Icon (Windows)</label>
+                <div class="eb-file-field flex flex-wrap items-center gap-3">
+                  <div class="eb-file-field__control min-w-0 flex-1">
+                    <label for="win_ico_file" class="block cursor-pointer">
+                      <span class="eb-file-field__main flex min-w-0 items-center justify-between gap-3 rounded-xl border border-[var(--eb-border-default)] bg-[var(--eb-bg-input)] px-3 py-2.5 transition hover:border-[var(--eb-border-emphasis)]">
+                        <span class="eb-file-field__button shrink-0 rounded-full border border-[var(--eb-border-default)] bg-[var(--eb-bg-overlay)] px-3 py-1 text-xs font-semibold text-[var(--eb-text-primary)]">Choose file...</span>
+                        <span class="eb-file-field__name min-w-0 truncate text-sm text-[var(--eb-text-muted)]">ICO, JPG, PNG</span>
+                      </span>
+                    </label>
+                    <input type="file" id="win_ico_file" name="win_ico_file" accept=".ico,.jpg,.jpeg,.gif,.png" class="eb-file-field__input eb-file-input sr-only"/>
+                  </div>
                   {assign var=st value=$assetStatus.PathIcoFile}
-                  {if $st.state=='uploaded'}<span class="inline-flex items-center gap-2 rounded-lg bg-white/5 ring-1 ring-white/10 px-2.5 py-1.5 text-nowrap text-xs text-white/70"><span class="h-1.5 w-1.5 rounded-full bg-emerald-300"></span><span>Uploaded</span></span>
-                  {elseif $st.state=='local'}<span class="inline-flex items-center gap-2 rounded-lg bg-white/5 ring-1 ring-white/10 px-2.5 py-1.5 text-nowrap text-xs text-white/70"><span class="h-1.5 w-1.5 rounded-full bg-amber-300"></span><span>Pending upload{if $st.filename}: {$st.filename|escape}{/if}</span></span>
-                  {else}<span class="inline-flex items-center gap-2 rounded-lg bg-white/5 ring-1 ring-white/10 px-2.5 py-1.5 text-nowrap text-xs text-white/70"><span class="h-1.5 w-1.5 rounded-full bg-white/30"></span><span>Not set</span></span>{/if}
+                  <div class="eb-file-field__meta flex flex-wrap items-center gap-3">
+                    {if $st.state=='uploaded'}<span class="eb-badge eb-badge--dot eb-badge--success gap-1.5 whitespace-nowrap">Uploaded</span>
+                    {elseif $st.state=='local'}<span class="eb-badge eb-badge--dot eb-badge--warning gap-1.5 whitespace-nowrap">Pending upload{if $st.filename}: {$st.filename|escape}{/if}</span>
+                    {else}<span class="eb-badge eb-badge--dot eb-badge--neutral gap-1.5 whitespace-nowrap">Not set</span>{/if}
+                  </div>
                 </div>
               </div>
               <div>
-                <label class="block text-slate-400 mb-1 text-sm">Icon (macOS)</label>
-                <div class="flex items-center gap-3">
-                  <input type="file" name="mac_icns_file" accept=".ico,.jpg,.jpeg,.gif,.png" class="block w-full text-sm text-slate-300"/>
+                <label for="mac_icns_file" class="eb-field-label">Icon (macOS)</label>
+                <div class="eb-file-field flex flex-wrap items-center gap-3">
+                  <div class="eb-file-field__control min-w-0 flex-1">
+                    <label for="mac_icns_file" class="block cursor-pointer">
+                      <span class="eb-file-field__main flex min-w-0 items-center justify-between gap-3 rounded-xl border border-[var(--eb-border-default)] bg-[var(--eb-bg-input)] px-3 py-2.5 transition hover:border-[var(--eb-border-emphasis)]">
+                        <span class="eb-file-field__button shrink-0 rounded-full border border-[var(--eb-border-default)] bg-[var(--eb-bg-overlay)] px-3 py-1 text-xs font-semibold text-[var(--eb-text-primary)]">Choose file...</span>
+                        <span class="eb-file-field__name min-w-0 truncate text-sm text-[var(--eb-text-muted)]">ICO, JPG, PNG</span>
+                      </span>
+                    </label>
+                    <input type="file" id="mac_icns_file" name="mac_icns_file" accept=".ico,.jpg,.jpeg,.gif,.png" class="eb-file-field__input eb-file-input sr-only"/>
+                  </div>
                   {assign var=st value=$assetStatus.PathIcnsFile}
-                  {if $st.state=='uploaded'}<span class="inline-flex items-center gap-2 rounded-lg bg-white/5 ring-1 ring-white/10 px-2.5 py-1.5 text-nowrap text-xs text-white/70"><span class="h-1.5 w-1.5 rounded-full bg-emerald-300"></span><span>Uploaded</span></span>
-                  {elseif $st.state=='local'}<span class="inline-flex items-center gap-2 rounded-lg bg-white/5 ring-1 ring-white/10 px-2.5 py-1.5 text-nowrap text-xs text-white/70"><span class="h-1.5 w-1.5 rounded-full bg-amber-300"></span><span>Pending upload{if $st.filename}: {$st.filename|escape}{/if}</span></span>
-                  {else}<span class="inline-flex items-center gap-2 rounded-lg bg-white/5 ring-1 ring-white/10 px-2.5 py-1.5 text-nowrap text-xs text-white/70"><span class="h-1.5 w-1.5 rounded-full bg-white/30"></span><span>Not set</span></span>{/if}
+                  <div class="eb-file-field__meta flex flex-wrap items-center gap-3">
+                    {if $st.state=='uploaded'}<span class="eb-badge eb-badge--dot eb-badge--success gap-1.5 whitespace-nowrap">Uploaded</span>
+                    {elseif $st.state=='local'}<span class="eb-badge eb-badge--dot eb-badge--warning gap-1.5 whitespace-nowrap">Pending upload{if $st.filename}: {$st.filename|escape}{/if}</span>
+                    {else}<span class="eb-badge eb-badge--dot eb-badge--neutral gap-1.5 whitespace-nowrap">Not set</span>{/if}
+                  </div>
                 </div>
               </div>
               <div>
-                <label class="block text-slate-400 mb-1 text-sm">Menu bar icon (macOS)</label>
-                <div class="flex items-center gap-3">
-                  <input type="file" name="mac_menubar_icns_file" accept=".ico,.jpg,.jpeg,.gif,.png" class="block w-full text-sm text-slate-300"/>
+                <label for="mac_menubar_icns_file" class="eb-field-label">Menu bar icon (macOS)</label>
+                <div class="eb-file-field flex flex-wrap items-center gap-3">
+                  <div class="eb-file-field__control min-w-0 flex-1">
+                    <label for="mac_menubar_icns_file" class="block cursor-pointer">
+                      <span class="eb-file-field__main flex min-w-0 items-center justify-between gap-3 rounded-xl border border-[var(--eb-border-default)] bg-[var(--eb-bg-input)] px-3 py-2.5 transition hover:border-[var(--eb-border-emphasis)]">
+                        <span class="eb-file-field__button shrink-0 rounded-full border border-[var(--eb-border-default)] bg-[var(--eb-bg-overlay)] px-3 py-1 text-xs font-semibold text-[var(--eb-text-primary)]">Choose file...</span>
+                        <span class="eb-file-field__name min-w-0 truncate text-sm text-[var(--eb-text-muted)]">ICO, JPG, PNG</span>
+                      </span>
+                    </label>
+                    <input type="file" id="mac_menubar_icns_file" name="mac_menubar_icns_file" accept=".ico,.jpg,.jpeg,.gif,.png" class="eb-file-field__input eb-file-input sr-only"/>
+                  </div>
                   {assign var=st value=$assetStatus.PathMenuBarIcnsFile}
-                  {if $st.state=='uploaded'}<span class="inline-flex items-center gap-2 rounded-lg bg-white/5 ring-1 ring-white/10 px-2.5 py-1.5 text-nowrap text-xs text-white/70"><span class="h-1.5 w-1.5 rounded-full bg-emerald-300"></span><span>Uploaded</span></span>
-                  {elseif $st.state=='local'}<span class="inline-flex items-center gap-2 rounded-lg bg-white/5 ring-1 ring-white/10 px-2.5 py-1.5 text-nowrap text-xs text-white/70"><span class="h-1.5 w-1.5 rounded-full bg-amber-300"></span><span>Pending upload{if $st.filename}: {$st.filename|escape}{/if}</span></span>
-                  {else}<span class="inline-flex items-center gap-2 rounded-lg bg-white/5 ring-1 ring-white/10 px-2.5 py-1.5 text-nowrap text-xs text-white/70"><span class="h-1.5 w-1.5 rounded-full bg-white/30"></span><span>Not set</span></span>{/if}
+                  <div class="eb-file-field__meta flex flex-wrap items-center gap-3">
+                    {if $st.state=='uploaded'}<span class="eb-badge eb-badge--dot eb-badge--success gap-1.5 whitespace-nowrap">Uploaded</span>
+                    {elseif $st.state=='local'}<span class="eb-badge eb-badge--dot eb-badge--warning gap-1.5 whitespace-nowrap">Pending upload{if $st.filename}: {$st.filename|escape}{/if}</span>
+                    {else}<span class="eb-badge eb-badge--dot eb-badge--neutral gap-1.5 whitespace-nowrap">Not set</span>{/if}
+                  </div>
                 </div>
               </div>
               <div>
-                <label class="block text-slate-400 mb-1 text-sm">Logo image (100x32)</label>
-                <div class="flex items-center gap-3">
-                  <input type="file" name="logo_file" accept=".jpg,.jpeg,.gif,.png,.svg" class="block w-full text-sm text-slate-300"/>
+                <label for="logo_file" class="eb-field-label">Logo image (100x32)</label>
+                <div class="eb-file-field flex flex-wrap items-center gap-3">
+                  <div class="eb-file-field__control min-w-0 flex-1">
+                    <label for="logo_file" class="block cursor-pointer">
+                      <span class="eb-file-field__main flex min-w-0 items-center justify-between gap-3 rounded-xl border border-[var(--eb-border-default)] bg-[var(--eb-bg-input)] px-3 py-2.5 transition hover:border-[var(--eb-border-emphasis)]">
+                        <span class="eb-file-field__button shrink-0 rounded-full border border-[var(--eb-border-default)] bg-[var(--eb-bg-overlay)] px-3 py-1 text-xs font-semibold text-[var(--eb-text-primary)]">Choose file...</span>
+                        <span class="eb-file-field__name min-w-0 truncate text-sm text-[var(--eb-text-muted)]">JPG, PNG, SVG</span>
+                      </span>
+                    </label>
+                    <input type="file" id="logo_file" name="logo_file" accept=".jpg,.jpeg,.gif,.png,.svg" class="eb-file-field__input eb-file-input sr-only"/>
+                  </div>
                   {assign var=st value=$assetStatus.LogoImage}
-                  {if $st.state=='uploaded'}<span class="inline-flex items-center gap-2 rounded-lg bg-white/5 ring-1 ring-white/10 px-2.5 py-1.5 text-nowrap text-xs text-white/70"><span class="h-1.5 w-1.5 rounded-full bg-emerald-300"></span><span>Uploaded</span></span>
-                  {elseif $st.state=='local'}<span class="inline-flex items-center gap-2 rounded-lg bg-white/5 ring-1 ring-white/10 px-2.5 py-1.5 text-nowrap text-xs text-white/70"><span class="h-1.5 w-1.5 rounded-full bg-amber-300"></span><span>Pending upload{if $st.filename}: {$st.filename|escape}{/if}</span></span>
-                  {else}<span class="inline-flex items-center gap-2 rounded-lg bg-white/5 ring-1 ring-white/10 px-2.5 py-1.5 text-nowrap text-xs text-white/70"><span class="h-1.5 w-1.5 rounded-full bg-white/30"></span><span>Not set</span></span>{/if}
+                  <div class="eb-file-field__meta flex flex-wrap items-center gap-3">
+                    {if $st.state=='uploaded'}<span class="eb-badge eb-badge--dot eb-badge--success gap-1.5 whitespace-nowrap">Uploaded</span>
+                    {elseif $st.state=='local'}<span class="eb-badge eb-badge--dot eb-badge--warning gap-1.5 whitespace-nowrap">Pending upload{if $st.filename}: {$st.filename|escape}{/if}</span>
+                    {else}<span class="eb-badge eb-badge--dot eb-badge--neutral gap-1.5 whitespace-nowrap">Not set</span>{/if}
+                  </div>
                 </div>
               </div>
               <div>
-                <label class="block text-slate-400 mb-1 text-sm">Tile image (150x150)</label>
-                <div class="flex items-center gap-3">
-                  <input type="file" name="tile_image_file" accept=".jpg,.jpeg,.gif,.png,.svg" class="block w-full text-sm text-slate-300"/>
+                <label for="tile_image_file" class="eb-field-label">Tile image (150x150)</label>
+                <div class="eb-file-field flex flex-wrap items-center gap-3">
+                  <div class="eb-file-field__control min-w-0 flex-1">
+                    <label for="tile_image_file" class="block cursor-pointer">
+                      <span class="eb-file-field__main flex min-w-0 items-center justify-between gap-3 rounded-xl border border-[var(--eb-border-default)] bg-[var(--eb-bg-input)] px-3 py-2.5 transition hover:border-[var(--eb-border-emphasis)]">
+                        <span class="eb-file-field__button shrink-0 rounded-full border border-[var(--eb-border-default)] bg-[var(--eb-bg-overlay)] px-3 py-1 text-xs font-semibold text-[var(--eb-text-primary)]">Choose file...</span>
+                        <span class="eb-file-field__name min-w-0 truncate text-sm text-[var(--eb-text-muted)]">JPG, PNG, SVG</span>
+                      </span>
+                    </label>
+                    <input type="file" id="tile_image_file" name="tile_image_file" accept=".jpg,.jpeg,.gif,.png,.svg" class="eb-file-field__input eb-file-input sr-only"/>
+                  </div>
                   {assign var=st value=$assetStatus.PathTilePng}
-                  {if $st.state=='uploaded'}<span class="inline-flex items-center gap-2 rounded-lg bg-white/5 ring-1 ring-white/10 px-2.5 py-1.5 text-nowrap text-xs text-white/70"><span class="h-1.5 w-1.5 rounded-full bg-emerald-300"></span><span>Uploaded</span></span>
-                  {elseif $st.state=='local'}<span class="inline-flex items-center gap-2 rounded-lg bg-white/5 ring-1 ring-white/10 px-2.5 py-1.5 text-nowrap text-xs text-white/70"><span class="h-1.5 w-1.5 rounded-full bg-amber-300"></span><span>Pending upload{if $st.filename}: {$st.filename|escape}{/if}</span></span>
-                  {else}<span class="inline-flex items-center gap-2 rounded-lg bg-white/5 ring-1 ring-white/10 px-2.5 py-1.5 text-nowrap text-xs text-white/70"><span class="h-1.5 w-1.5 rounded-full bg-white/30"></span><span>Not set</span></span>{/if}
+                  <div class="eb-file-field__meta flex flex-wrap items-center gap-3">
+                    {if $st.state=='uploaded'}<span class="eb-badge eb-badge--dot eb-badge--success gap-1.5 whitespace-nowrap">Uploaded</span>
+                    {elseif $st.state=='local'}<span class="eb-badge eb-badge--dot eb-badge--warning gap-1.5 whitespace-nowrap">Pending upload{if $st.filename}: {$st.filename|escape}{/if}</span>
+                    {else}<span class="eb-badge eb-badge--dot eb-badge--neutral gap-1.5 whitespace-nowrap">Not set</span>{/if}
+                  </div>
                 </div>
               </div>
               <div class="md:col-span-2">
-                <label for="tile_background" class="block text-slate-400 mb-1 text-sm">Tile background</label>
-                <div class="flex items-center">
-                  <input type="text" id="tile_background" name="tile_background" class="w-1/2 px-3 py-2 rounded-lg bg-slate-800 text-sm text-slate-100 outline-1 -outline-offset-1 outline-white/10 focus-within:outline-2 focus-within:outline-sky-700" value="{$brand.TileBackground|escape}" placeholder="#FFFFFF"/>
-                  <input type="color" id="tile_background_picker" class="ml-2 h-8 w-8 border" value="{$brand.TileBackground|default:'#FFFFFF'}" aria-label="Pick tile background color"/>
+                <label for="tile_background" class="eb-field-label">Tile background</label>
+                <div class="flex flex-wrap items-center gap-2">
+                  <input type="text" id="tile_background" name="tile_background" class="eb-input w-1/2 min-w-[8rem]" value="{$brand.TileBackground|escape}" placeholder="#FFFFFF"/>
+                  <input type="color" id="tile_background_picker" class="h-8 w-8 shrink-0 cursor-pointer rounded border border-[var(--eb-border-default)] bg-transparent p-0" value="{$brand.TileBackground|default:'#FFFFFF'}" aria-label="Pick tile background color"/>
                 </div>
               </div>
               <div class="md:col-span-2">
-                <label class="block text-slate-400 mb-1 text-sm">App icon image (256x256)</label>
-                <div class="flex items-center gap-3">
-                  <input type="file" name="app_icon_file" accept=".jpg,.jpeg,.gif,.png,.svg" class="block w-full text-sm text-slate-300"/>
+                <label for="app_icon_file" class="eb-field-label">App icon image (256x256)</label>
+                <div class="eb-file-field flex flex-wrap items-center gap-3">
+                  <div class="eb-file-field__control min-w-0 flex-1">
+                    <label for="app_icon_file" class="block cursor-pointer">
+                      <span class="eb-file-field__main flex min-w-0 items-center justify-between gap-3 rounded-xl border border-[var(--eb-border-default)] bg-[var(--eb-bg-input)] px-3 py-2.5 transition hover:border-[var(--eb-border-emphasis)]">
+                        <span class="eb-file-field__button shrink-0 rounded-full border border-[var(--eb-border-default)] bg-[var(--eb-bg-overlay)] px-3 py-1 text-xs font-semibold text-[var(--eb-text-primary)]">Choose file...</span>
+                        <span class="eb-file-field__name min-w-0 truncate text-sm text-[var(--eb-text-muted)]">JPG, PNG, SVG</span>
+                      </span>
+                    </label>
+                    <input type="file" id="app_icon_file" name="app_icon_file" accept=".jpg,.jpeg,.gif,.png,.svg" class="eb-file-field__input eb-file-input sr-only"/>
+                  </div>
                   {assign var=st value=$assetStatus.PathAppIconImage}
-                  {if $st.state=='uploaded'}<span class="inline-flex items-center gap-2 rounded-lg bg-white/5 ring-1 ring-white/10 px-2.5 py-1.5 text-nowrap text-xs text-white/70"><span class="h-1.5 w-1.5 rounded-full bg-emerald-300"></span><span>Uploaded</span></span>
-                  {elseif $st.state=='local'}<span class="inline-flex items-center gap-2 rounded-lg bg-white/5 ring-1 ring-white/10 px-2.5 py-1.5 text-nowrap text-xs text-white/70"><span class="h-1.5 w-1.5 rounded-full bg-amber-300"></span><span>Pending upload{if $st.filename}: {$st.filename|escape}{/if}</span></span>
-                  {else}<span class="inline-flex items-center gap-2 rounded-lg bg-white/5 ring-1 ring-white/10 px-2.5 py-1.5 text-nowrap text-xs text-white/70"><span class="h-1.5 w-1.5 rounded-full bg-white/30"></span><span>Not set</span></span>{/if}
+                  <div class="eb-file-field__meta flex flex-wrap items-center gap-3">
+                    {if $st.state=='uploaded'}<span class="eb-badge eb-badge--dot eb-badge--success gap-1.5 whitespace-nowrap">Uploaded</span>
+                    {elseif $st.state=='local'}<span class="eb-badge eb-badge--dot eb-badge--warning gap-1.5 whitespace-nowrap">Pending upload{if $st.filename}: {$st.filename|escape}{/if}</span>
+                    {else}<span class="eb-badge eb-badge--dot eb-badge--neutral gap-1.5 whitespace-nowrap">Not set</span>{/if}
+                  </div>
                 </div>
               </div>
               <div class="md:col-span-2">
-                <label class="block text-slate-400 mb-1 text-sm">EULA (Optional)</label>
-                <p class="text-xs text-slate-400 mb-2">
+                <label for="eula_text" class="eb-field-label">EULA (Optional)</label>
+                <p class="eb-field-help mb-2">
                   {assign var=eulaSt value=$assetStatus.PathEulaRtf}
                   {if $eulaSt.state=='uploaded'}Existing EULA editable below.
                   {elseif $eulaSt.state=='local'}A local EULA file is queued but not uploaded yet.
                   {else}No EULA set yet. Paste your EULA or upload a file.
                   {/if}
                 </p>
-                <textarea name="eula_text" class="w-full px-3 py-2.5 rounded-lg bg-slate-800 text-sm text-slate-100 placeholder:text-gray-400 outline-1 -outline-offset-1 outline-white/10 focus-within:outline-2 focus-within:outline-sky-700 transition h-48" placeholder="Paste or edit your EULA here…">{$eula_text|escape}</textarea>
+                <textarea id="eula_text" name="eula_text" class="eb-textarea h-48 w-full" placeholder="Paste or edit your EULA here…">{$eula_text|escape}</textarea>
                 <div class="mt-2">
-                  <label class="block text-slate-400 mb-1 text-sm">…or upload EULA file (.rtf/.txt/.pdf)</label>
-                  <input type="file" name="eula_file" accept=".rtf,.txt,.pdf" class="block w-full text-sm text-slate-300"/>
+                  <label for="eula_file" class="eb-field-label">…or upload EULA file (.rtf/.txt/.pdf)</label>
+                  <div class="eb-file-field">
+                    <div class="eb-file-field__control">
+                      <label for="eula_file" class="block cursor-pointer">
+                        <span class="eb-file-field__main flex min-w-0 items-center justify-between gap-3 rounded-xl border border-[var(--eb-border-default)] bg-[var(--eb-bg-input)] px-3 py-2.5 transition hover:border-[var(--eb-border-emphasis)]">
+                          <span class="eb-file-field__button shrink-0 rounded-full border border-[var(--eb-border-default)] bg-[var(--eb-bg-overlay)] px-3 py-1 text-xs font-semibold text-[var(--eb-text-primary)]">Choose file...</span>
+                          <span class="eb-file-field__name min-w-0 truncate text-sm text-[var(--eb-text-muted)]">RTF, TXT, PDF</span>
+                        </span>
+                      </label>
+                      <input type="file" id="eula_file" name="eula_file" accept=".rtf,.txt,.pdf" class="eb-file-field__input eb-file-input sr-only"/>
+                    </div>
+                  </div>
                 </div>
-                <p class="text-xs text-slate-400 mt-1">If you provide both EULA text and a file, the file takes precedence.</p>
+                <p class="eb-field-help">If you provide both EULA text and a file, the file takes precedence.</p>
               </div>
             </div>
           </section>
 
-          <section class="rounded-2xl border border-slate-800/80 bg-slate-900/70 overflow-hidden">
-            <div class="px-6 py-5 border-b border-slate-800">
-              <h3 class="text-lg font-medium text-slate-100">Email Reporting</h3>
+          <section class="eb-card-raised !p-0 overflow-hidden" data-eb-ph-section="email-reporting">
+            <div class="eb-card-header eb-card-header--divided !-mx-0 !-mt-0 !mb-0 !px-6 !py-5">
+              <div class="eb-section-intro !mb-0">
+                <h3 class="eb-section-title">Email Reporting</h3>
+                <p class="eb-section-description">SMTP settings for backup report emails sent to your end users.</p>
+              </div>
             </div>
-            <div class="px-6 py-6 space-y-4">
-            <label class="inline-flex items-center gap-2 text-sm text-slate-300">
-              <input type="checkbox" name="use_parent_mail" value="1" class="rounded border-slate-600 bg-slate-800 text-sky-600 focus:ring-sky-500" x-model="useParent" {if $email.inherit|default:1}checked{/if}/>
-              Use parent mail server
-            </label>
+            <div class="space-y-4 px-6 py-6">
+            <div class="flex flex-wrap items-center gap-3">
+              <label class="eb-toggle">
+                <input type="checkbox" id="use_parent_mail" name="use_parent_mail" value="1" class="sr-only" x-model="useParent" aria-controls="email-settings" {if $email.inherit|default:1}checked{/if}/>
+                <span class="eb-toggle-track" :class="useParent ? 'is-on' : ''">
+                  <span class="eb-toggle-thumb"></span>
+                </span>
+                <span class="eb-toggle-label">Use parent mail server</span>
+              </label>
+            </div>
             <div id="email-settings" class="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm" :class="useParent ? 'opacity-50 pointer-events-none' : ''">
               <div>
-                <label for="smtp_sendas_name" class="block text-slate-400 mb-1 text-sm">From Name</label>
-                <input id="smtp_sendas_name" name="smtp_sendas_name" value="{$email.FromName|escape}" class="w-full px-3 py-2.5 rounded-lg bg-slate-800 text-sm text-slate-100 placeholder:text-gray-400 outline-1 -outline-offset-1 outline-white/10 focus-within:outline-2 focus-within:outline-sky-700 transition" :disabled="useParent"/>
+                <label for="smtp_sendas_name" class="eb-field-label">From Name</label>
+                <input id="smtp_sendas_name" name="smtp_sendas_name" value="{$email.FromName|escape}" class="eb-input w-full" :disabled="useParent"/>
               </div>
               <div>
-                <label for="smtp_sendas_email" class="block text-slate-400 mb-1 text-sm">From Email</label>
-                <input id="smtp_sendas_email" name="smtp_sendas_email" value="{$email.FromEmail|escape}" class="w-full px-3 py-2.5 rounded-lg bg-slate-800 text-sm text-slate-100 placeholder:text-gray-400 outline-1 -outline-offset-1 outline-white/10 focus-within:outline-2 focus-within:outline-sky-700 transition" :disabled="useParent"/>
+                <label for="smtp_sendas_email" class="eb-field-label">From Email</label>
+                <input id="smtp_sendas_email" name="smtp_sendas_email" value="{$email.FromEmail|escape}" class="eb-input w-full" :disabled="useParent"/>
               </div>
               <div>
-                <label for="smtp_server" class="block text-slate-400 mb-1 text-sm">SMTP Server</label>
-                <input id="smtp_server" name="smtp_server" value="{$email.SMTPHost|default:''}" class="w-full px-3 py-2.5 rounded-lg bg-slate-800 text-sm text-slate-100 placeholder:text-gray-400 outline-1 -outline-offset-1 outline-white/10 focus-within:outline-2 focus-within:outline-sky-700 transition" :disabled="useParent"/>
+                <label for="smtp_server" class="eb-field-label">SMTP Server</label>
+                <input id="smtp_server" name="smtp_server" value="{$email.SMTPHost|default:''}" class="eb-input w-full" :disabled="useParent"/>
               </div>
               <div>
-                <label for="smtp_port" class="block text-slate-400 mb-1 text-sm">Port</label>
-                <input id="smtp_port" name="smtp_port" value="{$email.SMTPPort|default:''}" class="w-full px-3 py-2.5 rounded-lg bg-slate-800 text-sm text-slate-100 placeholder:text-gray-400 outline-1 -outline-offset-1 outline-white/10 focus-within:outline-2 focus-within:outline-sky-700 transition" :disabled="useParent"/>
+                <label for="smtp_port" class="eb-field-label">Port</label>
+                <input id="smtp_port" name="smtp_port" value="{$email.SMTPPort|default:''}" class="eb-input w-full" :disabled="useParent"/>
               </div>
               <div>
-                <label for="smtp_username" class="block text-slate-400 mb-1 text-sm">Username</label>
-                <input id="smtp_username" name="smtp_username" value="{$email.SMTPUsername|default:''}" class="w-full px-3 py-2.5 rounded-lg bg-slate-800 text-sm text-slate-100 placeholder:text-gray-400 outline-1 -outline-offset-1 outline-white/10 focus-within:outline-2 focus-within:outline-sky-700 transition" :disabled="useParent"/>
+                <label for="smtp_username" class="eb-field-label">Username</label>
+                <input id="smtp_username" name="smtp_username" value="{$email.SMTPUsername|default:''}" class="eb-input w-full" :disabled="useParent"/>
               </div>
               <div>
-                <label for="smtp_password" class="block text-slate-400 mb-1 text-sm">Password</label>
-                <input id="smtp_password" type="password" name="smtp_password" value="{$email.SMTPPassword|default:''}" class="w-full px-3 py-2.5 rounded-lg bg-slate-800 text-sm text-slate-100 placeholder:text-gray-400 outline-1 -outline-offset-1 outline-white/10 focus-within:outline-2 focus-within:outline-sky-700 transition" :disabled="useParent"/>
+                <label for="smtp_password" class="eb-field-label">Password</label>
+                <input id="smtp_password" type="password" name="smtp_password" value="{$email.SMTPPassword|default:''}" class="eb-input w-full" :disabled="useParent"/>
               </div>
               <div class="md:col-span-2">
-                <label for="smtp_security" class="block text-slate-400 mb-1 text-sm">Security</label>
-                <select id="smtp_security" name="smtp_security" class="w-full px-3 py-2.5 rounded-lg bg-slate-800 text-sm text-slate-100 placeholder:text-gray-400 outline-1 -outline-offset-1 outline-white/10 focus-within:outline-2 focus-within:outline-sky-700 transition" :disabled="useParent">
+                <label for="smtp_security" class="eb-field-label">Security</label>
+                <select id="smtp_security" name="smtp_security" class="eb-select w-full" :disabled="useParent">
                   <option value="SSL/TLS" {if $email.Mode=='smtp-ssl'}selected{/if}>SSL/TLS</option>
                   <option value="STARTTLS" {if $email.Mode=='smtp' && !$email.SMTPAllowUnencrypted|default:false}selected{/if}>STARTTLS</option>
                   <option value="Plain" {if $email.Mode=='smtp' && $email.SMTPAllowUnencrypted|default:false}selected{/if}>Plain</option>
@@ -211,52 +315,68 @@
       </div>
 
       <div class="space-y-6">
-        <section class="rounded-2xl border border-slate-800/80 bg-slate-900/70 overflow-hidden">
-          <div class="px-6 py-5 border-b border-slate-800">
-            <h3 class="text-lg font-medium text-slate-100">Hostname</h3>
-          </div>
-          <div class="px-6 py-6">
-          <div class="text-sm text-slate-300">Primary: <span class="font-mono">{$tenant.fqdn}</span></div>
-          {if $tenant.custom_domain}
-            <div class="text-sm text-slate-300">Custom: <span id="eb-cd-custom-label" class="font-mono">{$tenant.custom_domain}</span></div>
-          {/if}
-          <div class="mt-3">
-            <div class="text-sm text-slate-300 mb-2">Custom Domain (optional)</div>
-            <div class="text-xs text-slate-400 mb-2">Create CNAME <span class="font-mono">backup.acme.com</span> → <span class="font-mono">{$tenant.fqdn}</span>.</div>
-            <div class="flex gap-2 items-center">
-              <input id="eb-cd-host" type="text" class="w-full px-3 py-2.5 rounded-lg bg-slate-800 text-sm text-slate-100 placeholder:text-gray-400 outline-1 -outline-offset-1 outline-white/10 focus-within:outline-2 focus-within:outline-sky-700 transition" placeholder="backup.acme.com"  />
-              <button id="eb-cd-check" type="button" class="rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-slate-700" aria-controls="eb-cd-status" aria-label="Check DNS for custom domain">Check DNS</button>
-              <button id="eb-cd-attach" type="button" class="rounded-lg px-3 py-2 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-500" aria-controls="eb-cd-status" aria-label="Attach custom domain">Attach Domain</button>
-            </div>
-            <div id="eb-cd-loader" class="hidden mt-2 text-xs text-slate-300 flex items-center gap-2" role="status" aria-live="polite" aria-atomic="true" aria-busy="false">
-              <svg class="animate-spin h-4 w-4 text-slate-300" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path></svg>
-              <span id="eb-cd-loader-text">Attaching domain…</span>
-            </div>
-            <div id="eb-cd-status" class="mt-2 text-xs">
-              {if $tenant.custom_domain}
-                <span class="text-slate-300">{$tenant.custom_domain}</span>
-                <span class="ml-2 px-2 py-1 rounded {if $tenant.custom_domain_status=='verified'}bg-emerald-100 text-emerald-800{elseif $tenant.custom_domain_status=='dns_ok'}bg-blue-100 text-blue-800{elseif $tenant.custom_domain_status=='cert_ok'||$tenant.custom_domain_status=='org_updated'}bg-amber-100 text-amber-800{elseif $tenant.custom_domain_status=='failed'}bg-red-100 text-red-800{else}bg-gray-100 text-gray-700{/if}">
-                  {if $tenant.custom_domain_status=='verified'}Verified{elseif $tenant.custom_domain_status=='dns_ok'}DNS OK{elseif $tenant.custom_domain_status=='cert_ok'}TLS OK{elseif $tenant.custom_domain_status=='org_updated'}Organization updated{elseif $tenant.custom_domain_status=='failed'}Error{else}Custom Domain not configured{/if}
-                </span>
-                {if $custom_domain_row.checked_at}
-                  <div class="text-slate-400 mt-2">Last checked: {$custom_domain_row.checked_at}</div>
-                {/if}
-                {if $custom_domain_row.cert_expires_at}
-                  <div class="text-slate-400 mt-1">Cert expires: {$custom_domain_row.cert_expires_at}</div>
-                {/if}
-              {else}
-                <span class="px-2 py-1 rounded bg-gray-100 text-gray-700">Not configured</span>
-              {/if}
+        <section class="eb-card-raised !p-0 overflow-hidden" data-eb-ph-section="hostname">
+          <div class="eb-card-header eb-card-header--divided !-mx-0 !-mt-0 !mb-0 !px-6 !py-5">
+            <div class="eb-section-intro !mb-0">
+              <h3 class="eb-section-title">Hostname</h3>
+              <p class="eb-section-description">Primary hostname and optional custom domain (CNAME).</p>
             </div>
           </div>
+          <div class="space-y-4 px-6 py-6 text-sm">
+            <div class="space-y-1.5">
+              <div class="text-[var(--eb-text-secondary)]">Primary: <span class="font-mono text-[var(--eb-text-primary)]">{$tenant.fqdn}</span></div>
+              <div id="eb-cd-hostname-custom-slot">
+                {if $tenant.custom_domain}
+                  <div class="text-[var(--eb-text-secondary)]">Custom: <span id="eb-cd-custom-label" class="font-mono text-[var(--eb-text-primary)]">{$tenant.custom_domain}</span></div>
+                {/if}
+              </div>
+            </div>
+            <div>
+              <label for="eb-cd-host" class="eb-field-label">Custom Domain (optional)</label>
+              <p class="eb-field-help mb-2">Create CNAME <span class="font-mono">backup.acme.com</span> → <span class="font-mono">{$tenant.fqdn}</span>.</p>
+              <div class="flex flex-wrap gap-2 items-stretch sm:items-center">
+                <input id="eb-cd-host" type="text" class="eb-input min-w-0 flex-1 basis-full sm:basis-auto" placeholder="backup.acme.com" autocomplete="off" />
+                <button id="eb-cd-check" type="button" class="eb-btn eb-btn-secondary eb-btn-sm shrink-0" aria-controls="eb-cd-status" aria-label="Check DNS for custom domain">Check DNS</button>
+                <button id="eb-cd-attach" type="button" class="eb-btn eb-btn-success eb-btn-sm shrink-0" aria-controls="eb-cd-status" aria-label="Attach custom domain">Attach Domain</button>
+              </div>
+              <div id="eb-cd-loader" class="hidden mt-2 text-xs text-[var(--eb-text-muted)] flex items-center gap-2" role="status" aria-live="polite" aria-atomic="true" aria-busy="false">
+                <svg class="animate-spin h-4 w-4 text-[var(--eb-text-muted)]" viewBox="0 0 24 24" aria-hidden="true"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path></svg>
+                <span id="eb-cd-loader-text">Attaching domain…</span>
+              </div>
+              <div id="eb-cd-status" class="mt-3 space-y-2 text-xs">
+                {if $tenant.custom_domain}
+                  <div class="flex flex-wrap items-center gap-2">
+                    <span class="text-sm text-[var(--eb-text-secondary)]">{$tenant.custom_domain}</span>
+                    <span class="eb-badge eb-badge--dot {if $tenant.custom_domain_status=='verified'}eb-badge--success{elseif $tenant.custom_domain_status=='dns_ok'}eb-badge--info{elseif $tenant.custom_domain_status=='cert_ok' || $tenant.custom_domain_status=='org_updated'}eb-badge--warning{elseif $tenant.custom_domain_status=='failed'}eb-badge--danger{else}eb-badge--neutral{/if}">
+                      {if $tenant.custom_domain_status=='verified'}Verified{elseif $tenant.custom_domain_status=='dns_ok'}DNS OK{elseif $tenant.custom_domain_status=='cert_ok'}TLS OK{elseif $tenant.custom_domain_status=='org_updated'}Organization updated{elseif $tenant.custom_domain_status=='failed'}Error{else}Custom Domain not configured{/if}
+                    </span>
+                  </div>
+                  {if $custom_domain_row.checked_at}
+                    <p class="eb-field-help !mb-0">Last checked: {$custom_domain_row.checked_at}</p>
+                  {/if}
+                  {if $custom_domain_row.cert_expires_at}
+                    <p class="eb-field-help !mb-0">Cert expires: {$custom_domain_row.cert_expires_at}</p>
+                  {/if}
+                {else}
+                  <span class="eb-badge eb-badge--dot eb-badge--neutral">Not configured</span>
+                {/if}
+              </div>
+            </div>
           </div>
         </section>
 
-        <section class="rounded-2xl border border-slate-800/80 bg-slate-900/70 overflow-hidden">
-          <div class="px-6 py-5 border-b border-slate-800">
-            <h3 class="text-lg font-medium text-slate-100">Status</h3>
+        <section class="eb-card-raised !p-0 overflow-hidden" data-eb-ph-section="tenant-status">
+          <div class="eb-card-header eb-card-header--divided !-mx-0 !-mt-0 !mb-0 !px-6 !py-5">
+            <div class="eb-section-intro !mb-0">
+              <h3 class="eb-section-title">Status</h3>
+              <p class="eb-section-description">Provisioning and account state for this tenant.</p>
+            </div>
           </div>
-          <div class="px-6 py-6 text-sm text-slate-300">{$tenant.status|escape}</div>
+          <div class="px-6 py-6">
+            <div class="rounded-xl border border-[var(--eb-border-default)] bg-[var(--eb-bg-input)] px-4 py-3">
+              <p class="text-sm font-medium text-[var(--eb-text-primary)] leading-relaxed">{$tenant.status|escape}</p>
+            </div>
+          </div>
         </section>
       </div>
     </div>
@@ -343,17 +463,52 @@
   var loader=document.getElementById('eb-cd-loader'); var loaderText=document.getElementById('eb-cd-loader-text'); var customLabel=document.getElementById('eb-cd-custom-label');
   if (!btnC || !btnA || !hostI) return;
   var tenantTid = '{$tenant.public_id|default:""|escape:"javascript"}';
-  var token = '{$csrf_token|default:''}';
+  var token = '{$csrf_token|default:""|escape:"javascript"}';
   function enc(s){ return encodeURIComponent(s); }
-  function setBusy(b){ btnC.disabled=b; btnA.disabled=b; btnC.classList.toggle('opacity-50', b); btnA.classList.toggle('opacity-50', b); if (loader) loader.classList.toggle('hidden', !b); }
-  btnC.addEventListener('click', function(){ var h=(hostI.value||'').trim(); if (!h){ toast('Enter a hostname', 'error'); return; } if (loaderText) loaderText.textContent='Checking DNS…'; setBusy(true); xhr('{$modulelink}&a=whitelabel-branding-checkdns', 'tenant_tid='+enc(tenantTid)+'&hostname='+enc(h)+'&token='+enc(token), function(err,res){ setBusy(false); if (err||!res){ toast('Check failed', 'error'); return; } if (res.ok){ toast('DNS '+(res.status==='dns_ok'?'OK':'pending'), res.status==='dns_ok'?'success':'info'); stat && (stat.innerHTML = '<span class="text-slate-300">'+h+'</span> <span class="ml-2 px-2 py-1 rounded '+(res.status==='dns_ok'?'bg-blue-100 text-blue-800':'bg-gray-100 text-gray-700')+'">'+(res.status==='dns_ok'?'DNS OK':'Pending DNS')+'</span>'); } else { toast(res.error||'DNS check failed','error'); } }); });
-  btnA.addEventListener('click', function(){ var h=(hostI.value||'').trim(); if (!h){ toast('Enter a hostname', 'error'); return; } if (loaderText) loaderText.textContent='Attaching domain…'; setBusy(true); xhr('{$modulelink}&a=whitelabel-branding-attachdomain', 'tenant_tid='+enc(tenantTid)+'&hostname='+enc(h)+'&token='+enc(token), function(err,res){ setBusy(false); if (err||!res){ toast('Attach failed','error'); return; } if (res.ok){ toast(res.message||'Attached', 'success'); stat && (stat.innerHTML = '<span class="text-slate-300">'+h+'</span> <span class="ml-2 px-2 py-1 rounded bg-emerald-100 text-emerald-800">Verified</span>'); if (customLabel) { customLabel.textContent = h; } else { var lbl=document.createElement('div'); lbl.className='text-sm text-slate-300'; lbl.innerHTML='Custom: <span id="eb-cd-custom-label" class="font-mono">'+h+'</span>'; var hostPanel=document.querySelector('h3.text-lg.font-semibold.text-white.mb-3'); if (hostPanel){ hostPanel.parentElement.insertBefore(lbl, hostPanel.nextSibling); } } } else { toast(res.error||'Attach failed','error'); } }); });
+  function setBusy(b){ btnC.disabled=b; btnA.disabled=b; btnC.classList.toggle('opacity-50', b); btnA.classList.toggle('opacity-50', b); if (loader) { loader.classList.toggle('hidden', !b); loader.setAttribute('aria-busy', b ? 'true' : 'false'); } }
+  function renderDomainStatus(hostname, badgeCls, badgeTxt){
+    if (!stat) return;
+    stat.textContent = '';
+    var row = document.createElement('div');
+    row.className = 'flex flex-wrap items-center gap-2';
+    var host = document.createElement('span');
+    host.className = 'text-sm text-[var(--eb-text-secondary)]';
+    host.textContent = hostname;
+    var badge = document.createElement('span');
+    badge.className = badgeCls;
+    badge.textContent = badgeTxt;
+    row.appendChild(host);
+    row.appendChild(badge);
+    stat.appendChild(row);
+  }
+  btnC.addEventListener('click', function(){ var h=(hostI.value||'').trim(); if (!h){ toast('Enter a hostname', 'error'); return; } if (loaderText) loaderText.textContent='Checking DNS…'; setBusy(true); xhr('{$modulelink}&a=whitelabel-branding-checkdns', 'tenant_tid='+enc(tenantTid)+'&hostname='+enc(h)+'&token='+enc(token), function(err,res){ setBusy(false); if (err||!res){ toast('Check failed', 'error'); return; } if (res.ok){ toast('DNS '+(res.status==='dns_ok'?'OK':'pending'), res.status==='dns_ok'?'success':'info'); renderDomainStatus(h, res.status==='dns_ok' ? 'eb-badge eb-badge--dot eb-badge--info' : 'eb-badge eb-badge--dot eb-badge--neutral', res.status==='dns_ok' ? 'DNS OK' : 'Pending DNS'); } else { toast(res.error||'DNS check failed','error'); } }); });
+  btnA.addEventListener('click', function(){ var h=(hostI.value||'').trim(); if (!h){ toast('Enter a hostname', 'error'); return; } if (loaderText) loaderText.textContent='Attaching domain…'; setBusy(true); xhr('{$modulelink}&a=whitelabel-branding-attachdomain', 'tenant_tid='+enc(tenantTid)+'&hostname='+enc(h)+'&token='+enc(token), function(err,res){ setBusy(false); if (err||!res){ toast('Attach failed','error'); return; } if (res.ok){ toast(res.message||'Attached', 'success'); renderDomainStatus(h, 'eb-badge eb-badge--dot eb-badge--success', 'Verified'); if (customLabel) { customLabel.textContent = h; } else { var slot=document.getElementById('eb-cd-hostname-custom-slot'); if (slot){ slot.textContent=''; var row=document.createElement('div'); row.className='text-[var(--eb-text-secondary)]'; row.appendChild(document.createTextNode('Custom: ')); var sp=document.createElement('span'); sp.id='eb-cd-custom-label'; sp.className='font-mono text-[var(--eb-text-primary)]'; sp.textContent=h; row.appendChild(sp); slot.appendChild(row); } } } else { toast(res.error||'Attach failed','error'); } }); });
 })();
 </script>
 
 <script>
 (function(){
   function $(id){ return document.getElementById(id); }
+  function initFileFields(){
+    Array.prototype.forEach.call(document.querySelectorAll('.eb-file-field__control'), function(control){
+      var input = control.querySelector('.eb-file-field__input');
+      var name = control.querySelector('.eb-file-field__name');
+      if (!input || !name) return;
+      var defaultName = (name.textContent || '').trim();
+      var updateName = function(){
+        var label = defaultName;
+        if (input.files && input.files.length > 0) {
+          label = input.files.length === 1 ? (input.files[0].name || defaultName) : (input.files.length + ' files selected');
+        }
+        name.textContent = label;
+      };
+      input.addEventListener('change', updateName);
+      if (input.form) {
+        input.form.addEventListener('reset', function(){ setTimeout(updateName, 0); });
+      }
+      updateName();
+    });
+  }
   function normalizeHex(v){
     if (!v) return null;
     v = String(v).trim();
@@ -365,30 +520,42 @@
   }
   function bindColorPair(textId, pickerId){
     var t = $(textId), p = $(pickerId); if (!t || !p) return;
+    var lastValid = normalizeHex(t.value || p.value) || normalizeHex(p.value) || '#FFFFFF';
+    function applyColor(value){
+      lastValid = value;
+      t.value = value;
+      p.value = value;
+    }
     // Picker -> Text
     var syncFromPicker = function(){
       try {
         var v = p.value || '';
         var nv = normalizeHex(v);
-        if (nv) { t.value = nv; p.value = nv; }
+        if (nv) { applyColor(nv); }
       } catch(e){}
     };
     p.addEventListener('input', syncFromPicker);
     p.addEventListener('change', syncFromPicker);
-    // Text -> Picker (on input/change/blur)
-    ['input','change','blur'].forEach(function(ev){
+    // Text -> Picker (on input/change); blur restores the last valid value.
+    ['input','change'].forEach(function(ev){
       t.addEventListener(ev, function(){
         try {
           var nv = normalizeHex(t.value);
-          if (nv) { t.value = nv; p.value = nv; }
+          if (nv) { applyColor(nv); }
         } catch(e){}
       });
     });
-    // Initialize both ends to a consistent valid value if possible
-    var start = normalizeHex(t.value || p.value);
-    if (start) { t.value = start; p.value = start; }
+    t.addEventListener('blur', function(){
+      try {
+        var nv = normalizeHex(t.value);
+        applyColor(nv || lastValid);
+      } catch(e){}
+    });
+    // Initialize both ends to a consistent valid value.
+    applyColor(lastValid);
   }
   function init(){
+    initFileFields();
     bindColorPair('header_color','header_color_picker');
     bindColorPair('accent_color','accent_color_picker');
     bindColorPair('tile_background','tile_background_picker');
