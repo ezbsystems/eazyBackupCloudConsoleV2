@@ -42,11 +42,13 @@ $markers = [
     'eb_msp_accounts default currency create marker' => "\$t->char('default_currency',3)->nullable();",
     'eb_invoice_cache tenant_id create marker' => "\$t->bigInteger('tenant_id')->nullable()->index();",
     'eb_payment_cache tenant_id create marker' => "\$t->bigInteger('tenant_id')->nullable()->index();",
-    'eb_catalog_products base metric create marker' => "\$t->enum('base_metric_code',[ 'STORAGE_TB','DEVICE_COUNT','DISK_IMAGE','HYPERV_VM','PROXMOX_VM','VMWARE_VM','M365_USER','GENERIC' ])->nullable();",
+    'eb_catalog_products base metric create marker' => "\$t->enum('base_metric_code',[ 'STORAGE_TB','DEVICE_COUNT','DISK_IMAGE','HYPERV_VM','PROXMOX_VM','VMWARE_VM','M365_USER','GENERIC','E3_STORAGE_GIB' ])->nullable();",
     'eb_catalog_products product template create marker' => "\$t->string('product_template', 50)->nullable();",
     'eb_catalog_products attributes create marker' => "\$t->text('attributes_json')->nullable();",
     'eb_catalog_products product template migration marker' => "eb_add_column_if_missing('eb_catalog_products','product_template'",
     'eb_catalog_products attributes migration marker' => "eb_add_column_if_missing('eb_catalog_products','attributes_json'",
+    'eb_plan_components metric code create marker' => "\$t->enum('metric_code', ['STORAGE_TB','DEVICE_COUNT','DISK_IMAGE','HYPERV_VM','PROXMOX_VM','VMWARE_VM','M365_USER','GENERIC','E3_STORAGE_GIB']);",
+    'eb_plan_components metric code enum alter marker' => "ALTER TABLE eb_plan_components MODIFY COLUMN metric_code ENUM('STORAGE_TB','DEVICE_COUNT','DISK_IMAGE','HYPERV_VM','PROXMOX_VM','VMWARE_VM','M365_USER','GENERIC','E3_STORAGE_GIB') NOT NULL",
     'eb_catalog_prices pricing scheme create marker' => "\$t->string('pricing_scheme', 20)->default('per_unit');",
     'eb_catalog_prices tiers mode create marker' => "\$t->string('tiers_mode', 20)->nullable();",
     'eb_catalog_prices tiers json create marker' => "\$t->text('tiers_json')->nullable();",
@@ -67,6 +69,8 @@ $markers = [
     'eb_plan_instances tenant_id migration marker' => "eb_add_column_if_missing('eb_plan_instances','tenant_id'",
     'eb_plan_instances cancelled_at migration marker' => "eb_add_column_if_missing('eb_plan_instances','cancelled_at'",
     'eb_plan_instances cancel_reason migration marker' => "eb_add_column_if_missing('eb_plan_instances','cancel_reason'",
+    'eb_plan_instance_items metric code create marker' => "\$t->enum('metric_code', ['STORAGE_TB','DEVICE_COUNT','DISK_IMAGE','HYPERV_VM','PROXMOX_VM','VMWARE_VM','M365_USER','GENERIC','E3_STORAGE_GIB']);",
+    'eb_plan_instance_items metric code enum alter marker' => "ALTER TABLE eb_plan_instance_items MODIFY COLUMN metric_code ENUM('STORAGE_TB','DEVICE_COUNT','DISK_IMAGE','HYPERV_VM','PROXMOX_VM','VMWARE_VM','M365_USER','GENERIC','E3_STORAGE_GIB') NOT NULL",
 ];
 
 $missing = [];

@@ -16,6 +16,7 @@ function eb_ph_tenant_billing(array $vars)
     $planInstances = [];
     $assignablePlans = [];
     $tenantCometUsers = [];
+    $s3Users = [];
     $paymentMethods = [];
 
     try {
@@ -63,43 +64,39 @@ function eb_ph_tenant_billing(array $vars)
                 ->map(fn($r) => (array)$r)
                 ->toArray();
 
-            $planComponentRows = [];
-            if ($planRows !== [] && Capsule::schema()->hasTable('eb_plan_components')) {
-                $planComponentRows = Capsule::table('eb_plan_components as pc')
-                    ->leftJoin('eb_catalog_prices as pr', 'pr.id', '=', 'pc.price_id')
-                    ->leftJoin('eb_catalog_products as p', 'p.id', '=', 'pr.product_id')
-                    ->whereIn('pc.plan_id', array_map(static fn(array $row): int => (int)($row['id'] ?? 0), $planRows))
-                    ->get([
-                        'pc.plan_id',
-                        'pc.metric_code',
-                        'pr.metric_code as price_metric',
-                        'p.base_metric_code as product_base_metric',
-                    ])
-                    ->map(fn($r) => (array)$r)
-                    ->toArray();
-            }
-
-            $metricsByPlan = [];
-            foreach ($planComponentRows as $component) {
-                $planId = (int)($component['plan_id'] ?? 0);
-                $metric = strtoupper(trim((string)($component['price_metric'] ?? $component['metric_code'] ?? $component['product_base_metric'] ?? '')));
-                if ($planId <= 0 || $metric === '') {
-                    continue;
-                }
-                if (!isset($metricsByPlan[$planId])) {
-                    $metricsByPlan[$planId] = [];
-                }
-                $metricsByPlan[$planId][$metric] = true;
-            }
-
             foreach ($planRows as $planRow) {
-                $planId = (int)($planRow['id'] ?? 0);
-                $metrics = array_keys($metricsByPlan[$planId] ?? []);
-                $nonStorageMetrics = array_filter($metrics, static fn(string $metric): bool => $metric !== 'STORAGE_TB');
-                $planRow['requires_comet_user'] = count($metrics) === 0 ? true : count($nonStorageMetrics) > 0;
+                $planRow['assignment_mode'] = eb_ph_plan_assignment_mode((int)($planRow['id'] ?? 0));
+                $planRow['requires_comet_user'] = (bool)($planRow['assignment_mode']['requires_comet_user'] ?? true);
                 $assignablePlans[] = $planRow;
             }
         }
+
+        $s3Users = eb_ph_discover_msp_s3_users((int)($msp->whmcs_client_id ?? 0));
+        $s3UsersById = [];
+        foreach ($s3Users as $s3User) {
+            $s3UserId = (int)($s3User['id'] ?? 0);
+            if ($s3UserId > 0) {
+                $s3UsersById[$s3UserId] = $s3User;
+            }
+        }
+
+        foreach ($planInstances as &$planInstance) {
+            $cometUserId = trim((string)($planInstance['comet_user_id'] ?? ''));
+            if (preg_match('/^e3:(\d+)$/', $cometUserId, $matches)) {
+                $s3UserId = (int)($matches[1] ?? 0);
+                $displayLabel = trim((string)($s3UsersById[$s3UserId]['display_label'] ?? ''));
+                $planInstance['comet_user_display'] = $displayLabel !== '' ? 'S3: ' . $displayLabel : $cometUserId;
+                continue;
+            }
+
+            if (strpos($cometUserId, 'storage:') === 0) {
+                $planInstance['comet_user_display'] = 'Tenant-level (legacy)';
+                continue;
+            }
+
+            $planInstance['comet_user_display'] = $cometUserId;
+        }
+        unset($planInstance);
 
         if (Capsule::schema()->hasTable('eb_tenant_comet_accounts')) {
             $tenantCometUsers = Capsule::table('eb_tenant_comet_accounts')
@@ -109,6 +106,32 @@ function eb_ph_tenant_billing(array $vars)
                 ->map(fn($r) => (array)$r)
                 ->toArray();
         }
+
+        $mergedTenantCometUsers = [];
+        foreach ($tenantCometUsers as $tenantCometUser) {
+            $cometUserId = trim((string)($tenantCometUser['comet_user_id'] ?? ''));
+            if ($cometUserId === '') {
+                continue;
+            }
+            $mergedTenantCometUsers[strtolower($cometUserId)] = ['comet_user_id' => $cometUserId];
+        }
+        if (function_exists('eb_ph_discover_msp_comet_usernames')) {
+            foreach (eb_ph_discover_msp_comet_usernames((int)($msp->whmcs_client_id ?? 0)) as $discoveredCometUser) {
+                if (is_array($discoveredCometUser)) {
+                    $cometUserId = trim((string)($discoveredCometUser['comet_user_id'] ?? $discoveredCometUser['comet_username'] ?? ''));
+                } else {
+                    $cometUserId = trim((string)$discoveredCometUser);
+                }
+                if ($cometUserId === '') {
+                    continue;
+                }
+                $mergedTenantCometUsers[strtolower($cometUserId)] = ['comet_user_id' => $cometUserId];
+            }
+        }
+        $tenantCometUsers = array_values($mergedTenantCometUsers);
+        usort($tenantCometUsers, static function (array $left, array $right): int {
+            return strcasecmp((string)($left['comet_user_id'] ?? ''), (string)($right['comet_user_id'] ?? ''));
+        });
 
         $stripeCustomerId = trim((string)($tenant->stripe_customer_id ?? ''));
         $stripeConnectId = trim((string)($msp->stripe_connect_id ?? ''));
@@ -145,6 +168,7 @@ function eb_ph_tenant_billing(array $vars)
         'billing_plan_instances' => $planInstances,
         'billing_assignable_plans' => $assignablePlans,
         'billing_tenant_comet_users' => $tenantCometUsers,
+        'billing_s3_users' => $s3Users,
         'billing_payment_methods' => $paymentMethods,
     ]);
 }

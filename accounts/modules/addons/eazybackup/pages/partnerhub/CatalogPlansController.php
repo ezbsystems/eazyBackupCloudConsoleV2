@@ -1,5 +1,7 @@
 <?php
 
+require_once __DIR__ . '/TenantsController.php';
+
 use WHMCS\Database\Capsule;
 use PartnerHub\StripeService;
 use PartnerHub\CatalogService;
@@ -126,6 +128,25 @@ function eb_ph_plan_validate_component_rows(int $mspId, array $components, strin
         }
     }
 
+    $metrics = [];
+    foreach ($byId as $row) {
+        $metric = strtoupper(trim((string)($row['metric_code'] ?? '')));
+        if ($metric === '') {
+            $metric = strtoupper(trim((string)($row['product_base_metric'] ?? '')));
+        }
+        if ($metric === '') {
+            $metric = 'GENERIC';
+        }
+        $metrics[$metric] = true;
+    }
+
+    if (isset($metrics['E3_STORAGE_GIB']) && count($metrics) > 1) {
+        return eb_ph_plan_validation_error(
+            'e3 Object Storage components cannot be combined with other metric types in the same plan.',
+            'mixed_e3_metrics'
+        );
+    }
+
     return ['ok' => true, 'rows' => $byId];
 }
 
@@ -205,6 +226,7 @@ function eb_ph_catalog_plans_index(array $vars)
         ]);
 
     $tenants = Capsule::table('eb_tenants')->where('msp_id',(int)$msp->id)->where('status', '!=', 'deleted')->orderBy('id','desc')->limit(200)->get(['public_id', 'name']);
+    $s3Users = eb_ph_discover_msp_s3_users($clientId);
 
     // Subscription counts per plan
     $subCounts = [];
@@ -368,6 +390,8 @@ function eb_ph_catalog_plans_index(array $vars)
                     'name' => (string) ($t['name'] ?? ''),
                 ];
             }, $tenantsArr)), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT),
+            's3_users' => $s3Users,
+            's3_users_json' => json_encode($s3Users, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT),
             'comet_accounts' => $cometAccounts,
             'comet_accounts_json' => json_encode($cometAccounts, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT),
             'modulelink' => $vars['modulelink'] ?? ('index.php?m=eazybackup'),
@@ -388,45 +412,6 @@ function eb_ph_catalog_plans_resolve_tenant_for_msp(int $mspId, string $tenantPu
         ->where('msp_id', $mspId)
         ->where('status', '!=', 'deleted')
         ->first(['id', 'public_id', 'name']);
-}
-
-function eb_ph_plan_assignment_mode(int $planId, ?array $planComponents = null): array
-{
-    $metrics = [];
-    if ($planComponents === null) {
-        $rows = Capsule::table('eb_plan_components as pc')
-            ->leftJoin('eb_catalog_prices as pr', 'pr.id', '=', 'pc.price_id')
-            ->leftJoin('eb_catalog_products as p', 'p.id', '=', 'pr.product_id')
-            ->where('pc.plan_id', $planId)
-            ->get([
-                'pc.metric_code',
-                'pr.metric_code as price_metric',
-                'p.base_metric_code as product_base_metric',
-            ]);
-        $planComponents = [];
-        foreach ($rows as $row) {
-            $planComponents[] = (array)$row;
-        }
-    }
-
-    foreach ($planComponents as $component) {
-        $metric = strtoupper(trim((string)($component['price_metric'] ?? $component['metric_code'] ?? $component['product_base_metric'] ?? '')));
-        if ($metric !== '') {
-            $metrics[] = $metric;
-        }
-    }
-
-    $metrics = array_values(array_unique($metrics));
-    $isStorageOnly = !empty($metrics) && count(array_filter($metrics, static function (string $metric): bool {
-        return $metric !== 'STORAGE_TB';
-    })) === 0;
-
-    return [
-        'mode' => $isStorageOnly ? 'tenant_storage' : 'backup_user',
-        'requires_comet_user' => !$isStorageOnly,
-        'metrics' => $metrics,
-        'primary_metric' => $metrics[0] ?? 'GENERIC',
-    ];
 }
 
 function eb_ph_plan_storage_assignment_key($tenant): string
@@ -525,6 +510,7 @@ function eb_ph_plan_assign(array $vars): void
 
     $tenantPublicId = trim((string)($_POST['tenant_id'] ?? ''));
     $cometUserId = (string)($_POST['comet_user_id'] ?? '');
+    $s3UserId = (int)($_POST['s3_user_id'] ?? 0);
     $planId = (int)($_POST['plan_id'] ?? 0);
     $feePercent = isset($_POST['application_fee_percent']) && $_POST['application_fee_percent'] !== '' ? (float)$_POST['application_fee_percent'] : null;
 
@@ -539,13 +525,28 @@ function eb_ph_plan_assign(array $vars): void
     if (!$tenant) { echo json_encode(['status'=>'error','message'=>'tenant_not_found']); return; }
     $tenantId = (int)$tenant->id;
     $assignmentMode = eb_ph_plan_assignment_mode((int)$plan->id);
-    if ($assignmentMode['requires_comet_user'] && $cometUserId === '') { echo json_encode(['status'=>'error','message'=>'invalid']); return; }
-    if (!$assignmentMode['requires_comet_user']) {
-        $cometUserId = eb_ph_plan_storage_assignment_key($tenant);
-    }
+    if (($assignmentMode['mode'] ?? 'comet_user') === 'e3_storage') {
+        if ($s3UserId <= 0) { echo json_encode(['status'=>'error','message'=>'invalid']); return; }
 
-    $ownedCometAccount = true;
-    if ($assignmentMode['requires_comet_user']) {
+        $ownedS3Users = eb_ph_discover_msp_s3_users($clientId);
+        $ownedS3UserIds = [];
+        foreach ($ownedS3Users as $ownedS3User) {
+            $ownedS3UserIds[(int)($ownedS3User['id'] ?? 0)] = true;
+        }
+        if (!isset($ownedS3UserIds[$s3UserId])) { echo json_encode(['status'=>'error','message'=>'s3_user_not_found']); return; }
+
+        $cometUserId = 'e3:' . $s3UserId;
+        $existingStorageInstanceForUser = Capsule::table('eb_plan_instances')
+            ->where('comet_user_id', $cometUserId)
+            ->whereIn('status', ['active', 'trialing', 'past_due', 'paused'])
+            ->first();
+        if ($existingStorageInstanceForUser) {
+            echo json_encode(['status'=>'error','message'=>'This S3 user is already assigned to another active storage plan.']);
+            return;
+        }
+    } else {
+        if ($assignmentMode['requires_comet_user'] && $cometUserId === '') { echo json_encode(['status'=>'error','message'=>'invalid']); return; }
+
         $ownedCometAccount = null;
         try {
             if (Capsule::schema()->hasTable('eb_tenant_comet_accounts')) {

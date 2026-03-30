@@ -74,6 +74,7 @@
   var assignPlans = parseJsonScript('eb-assign-plans-json');
   var cometAccounts = parseJsonScript('eb-comet-accounts-json');
   var assignTenants = parseJsonScript('eb-assign-tenants-json');
+  var s3Users = parseJsonScript('eb-s3-users-json');
 
   window.planPageFactory = function(opts){
     var modulelink = (opts && opts.modulelink) || 'index.php?m=eazybackup';
@@ -104,6 +105,9 @@
       assignTenantSearch: '',
       assignUserOpen: false,
       assignUserSearch: '',
+      assignS3UserOpen: false,
+      assignS3UserSearch: '',
+      selectedS3UserId: '',
       successModalTitle: '',
       successModalMessage: '',
       successModalReload: false,
@@ -578,6 +582,9 @@
           case 'draft_price': return 'Only published catalog prices can be used when publishing a plan.';
           case 'no_components': return 'Add at least one recurring component before publishing.';
           case 'plan_not_active': return 'Only published plans can be assigned to customers.';
+          case 'tenant_not_found': return 'Select a valid customer.';
+          case 'comet_user_not_found': return 'Select a valid eazyBackup user for this customer.';
+          case 's3_user_not_found': return 'Select a valid S3 user for this MSP.';
           default: return String(out.message || 'Save failed.');
         }
       },
@@ -789,6 +796,9 @@
         this.assignTenantSearch = '';
         this.assignUserOpen = false;
         this.assignUserSearch = '';
+        this.assignS3UserOpen = false;
+        this.assignS3UserSearch = '';
+        this.selectedS3UserId = '';
         this.filteredCometAccounts = [];
         showEl('eb-assign-plan-modal');
       },
@@ -796,12 +806,14 @@
       closeAssign(){
         this.assignTenantOpen = false;
         this.assignUserOpen = false;
+        this.assignS3UserOpen = false;
         hideEl('eb-assign-plan-modal');
         if (this._dirty) location.reload();
       },
 
       toggleAssignTenantDropdown(){
         this.assignUserOpen = false;
+        this.assignS3UserOpen = false;
         this.assignTenantOpen = !this.assignTenantOpen;
         var self = this;
         if (this.assignTenantOpen) {
@@ -814,11 +826,25 @@
 
       toggleAssignUserDropdown(){
         this.assignTenantOpen = false;
+        this.assignS3UserOpen = false;
         this.assignUserOpen = !this.assignUserOpen;
         var self = this;
         if (this.assignUserOpen) {
           this.$nextTick(function(){
             var el = self.$refs.assignUserSearchInput;
+            if (el) el.focus();
+          });
+        }
+      },
+
+      toggleAssignS3UserDropdown(){
+        this.assignTenantOpen = false;
+        this.assignUserOpen = false;
+        this.assignS3UserOpen = !this.assignS3UserOpen;
+        var self = this;
+        if (this.assignS3UserOpen) {
+          this.$nextTick(function(){
+            var el = self.$refs.assignS3UserSearchInput;
             if (el) el.focus();
           });
         }
@@ -844,6 +870,17 @@
         });
       },
 
+      filteredS3Users(){
+        var q = String(this.assignS3UserSearch || '').trim().toLowerCase();
+        if (!q) return s3Users;
+        return s3Users.filter(function(user){
+          return String(user.display_label || '').toLowerCase().indexOf(q) >= 0 ||
+            String(user.username || '').toLowerCase().indexOf(q) >= 0 ||
+            String(user.name || '').toLowerCase().indexOf(q) >= 0 ||
+            String(user.id || '').toLowerCase().indexOf(q) >= 0;
+        });
+      },
+
       assignPlanMeta(){
         var id = String(this.assignPlanId || '');
         for (var i = 0; i < assignPlans.length; i++) {
@@ -851,12 +888,17 @@
             return assignPlans[i];
           }
         }
-        return { assignment_mode: { mode: 'backup_user', requires_comet_user: true, primary_metric: 'GENERIC', metrics: [] } };
+        return { assignment_mode: { mode: 'backup_user', requires_comet_user: true, requires_s3_user: false, primary_metric: 'GENERIC', metrics: [] } };
       },
 
       assignPlanRequiresCometUser(){
         var meta = this.assignPlanMeta();
         return !meta || !meta.assignment_mode ? true : !!meta.assignment_mode.requires_comet_user;
+      },
+
+      assignPlanRequiresS3User(){
+        var meta = this.assignPlanMeta();
+        return !!(meta && meta.assignment_mode && meta.assignment_mode.requires_s3_user);
       },
 
       assignUserLabel(){
@@ -866,9 +908,6 @@
       assignUserPlaceholder(){
         if (!this.assignData.tenant_id) {
           return 'Select a customer first';
-        }
-        if (!this.assignPlanRequiresCometUser()) {
-          return 'Tenant-level storage assignment';
         }
         return 'Select user...';
       },
@@ -888,6 +927,7 @@
         this.assignData.tenant_id = publicId ? String(publicId) : '';
         this.assignTenantOpen = false;
         this.assignUserOpen = false;
+        this.assignS3UserOpen = false;
         this.assignTenantSearch = '';
         var tenantPublicId = this.assignData.tenant_id;
         this.filteredCometAccounts = cometAccounts.filter(function(a){
@@ -904,9 +944,33 @@
         this.assignUserSearch = '';
       },
 
+      selectAssignS3User(id){
+        this.selectedS3UserId = id ? String(id) : '';
+        this.assignS3UserOpen = false;
+        this.assignS3UserSearch = '';
+      },
+
+      assignS3UserLabel(){
+        var id = String(this.selectedS3UserId || '');
+        for (var i = 0; i < s3Users.length; i++) {
+          if (String(s3Users[i].id || '') === id) {
+            return s3Users[i].display_label || s3Users[i].name || s3Users[i].username || ('S3 user #' + id);
+          }
+        }
+        return '';
+      },
+
       async submitAssign(){
-        if (!this.assignData.tenant_id || (this.assignPlanRequiresCometUser() && !this.assignData.comet_user_id)) {
-          safeToast(this.assignPlanRequiresCometUser() ? 'Select a customer and eazyBackup user.' : 'Select a customer.', 'warning');
+        if (!this.assignData.tenant_id) {
+          safeToast('Select a customer.', 'warning');
+          return;
+        }
+        if (this.assignPlanRequiresCometUser() && !this.assignData.comet_user_id) {
+          safeToast('Select an eazyBackup user.', 'warning');
+          return;
+        }
+        if (this.assignPlanRequiresS3User() && !this.selectedS3UserId) {
+          safeToast('Select an S3 user.', 'warning');
           return;
         }
         this.isSaving = true;
@@ -918,6 +982,9 @@
           });
           if (this.assignData.comet_user_id) {
             body.set('comet_user_id', String(this.assignData.comet_user_id));
+          }
+          if (this.assignPlanRequiresS3User() && this.selectedS3UserId) {
+            body.set('s3_user_id', String(this.selectedS3UserId));
           }
           var res = await fetch(modulelink + '&a=ph-plan-assign', { method:'POST', credentials:'include', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body: body });
           var out = await res.json();

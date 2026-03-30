@@ -52,12 +52,7 @@
                 <span x-show="!sidebarCollapsed" x-transition.opacity>Signup Approvals</span>
             </button>
 
-            <button type="button" @click="window.location.href='{$WEB_ROOT}/index.php?m=cloudstorage&amp;page=e3backup_users'" class="eb-sidebar-link w-full cursor-pointer text-left {if $ebPhSidebarPage eq 'storage-users'}is-active{/if}" :class="sidebarCollapsed && 'justify-center px-4'" :title="sidebarCollapsed ? 'Storage Users (e3)' : ''">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
-                </svg>
-                <span x-show="!sidebarCollapsed" x-transition.opacity>Storage Users (e3)</span>
-            </button>
+            {* Task 12: hide the legacy Storage Users (e3) sidebar entry. *}
 
             <button type="button" @click="window.location.href='{$WEB_ROOT}/index.php?m=eazybackup&amp;a=ph-user-assignments'" class="eb-sidebar-link w-full cursor-pointer text-left {if $ebPhSidebarPage eq 'user-assignments'}is-active{/if}" :class="sidebarCollapsed && 'justify-center px-4'" :title="sidebarCollapsed ? 'User Assignments' : ''">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">

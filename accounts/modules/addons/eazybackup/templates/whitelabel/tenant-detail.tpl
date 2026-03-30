@@ -26,10 +26,6 @@
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 flex-shrink-0"><path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 0 0 3.741-.479 3 3 0 0 0-4.682-2.72m.94 3.198.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0 1 12 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 0 1 6 18.719m12 0a5.971 5.971 0 0 0-.941-3.197m0 0A5.995 5.995 0 0 0 12 12.75a5.995 5.995 0 0 0-5.058 2.772m0 0a3 3 0 0 0-4.681 2.72 8.986 8.986 0 0 0 3.74.477m.94-3.197a5.971 5.971 0 0 0-.94 3.197M15 6.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm6 3a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Zm-13.5 0a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Z" /></svg>
             <span class="text-sm font-medium">Members</span>
           </a>
-          <a href="{$tab_links.storage_users|default:'#'|escape}" class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 {if $activeTab eq 'storage_users'}bg-white/10 text-white ring-1 ring-white/20{else}text-slate-400 hover:text-white hover:bg-white/5{/if}">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 flex-shrink-0"><path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" /></svg>
-            <span class="text-sm font-medium">Storage Users</span>
-          </a>
           <a href="{$tab_links.billing|default:'#'|escape}" class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 {if $activeTab eq 'billing'}bg-white/10 text-white ring-1 ring-white/20{else}text-slate-400 hover:text-white hover:bg-white/5{/if}">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 flex-shrink-0"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" /></svg>
             <span class="text-sm font-medium">Billing</span>
@@ -329,44 +325,15 @@
       </section>
     {elseif $activeTab eq 'storage_users'}
       <section class="eb-card-raised !p-0 overflow-hidden">
-        <div class="flex items-center justify-between gap-4 border-b border-[var(--eb-border-subtle)] px-6 py-5">
+        <div class="border-b border-[var(--eb-border-subtle)] px-6 py-5">
           <h2 class="eb-card-title text-lg font-semibold">Storage Users</h2>
-          <span class="eb-badge eb-badge--default">{$storage_users|@count} total</span>
         </div>
-        {if $storage_users_error|default:'' neq ''}
-          <div class="px-6 py-5">
-            <div class="eb-alert eb-alert--danger !mb-0">Unable to load storage users ({$storage_users_error|escape}).</div>
+        <div class="px-6 py-5">
+          <div class="eb-alert eb-alert--info !mb-0">
+            Storage Users is currently unavailable in Partner Hub.
+            <a href="{$tab_links.billing|default:($modulelink|cat:'&a=ph-tenant&id='|cat:$tenant.public_id|cat:'&tab=billing')|escape}" class="ml-1 text-[var(--eb-primary)] hover:underline">Return to Billing</a>
           </div>
-        {elseif $storage_users|@count eq 0}
-          <div class="px-6 py-5">
-            <div class="eb-alert eb-alert--info !mb-0">No storage users linked to this tenant.</div>
-          </div>
-        {else}
-          <div class="px-6 py-5">
-            <div class="eb-table-shell">
-              <table class="eb-table">
-                <thead>
-                  <tr>
-                    <th class="px-4 py-3 text-left font-medium">Username</th>
-                    <th class="px-4 py-3 text-left font-medium">Email</th>
-                    <th class="px-4 py-3 text-left font-medium">Status</th>
-                    <th class="px-4 py-3 text-left font-medium">Updated</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {foreach from=$storage_users item=user}
-                    <tr>
-                      <td class="px-4 py-3 text-left font-medium text-[var(--eb-text-primary)] eb-type-mono">{$user.username|default:'-'|escape}</td>
-                      <td class="px-4 py-3 text-left text-[var(--eb-text-secondary)]">{$user.email|default:'-'|escape}</td>
-                      <td class="px-4 py-3 text-left"><span class="eb-badge {if $user.status eq 'active'}eb-badge--success{else}eb-badge--neutral{/if}">{$user.status|default:'disabled'|escape}</span></td>
-                      <td class="px-4 py-3 text-left text-[var(--eb-text-secondary)]">{$user.updated_at|default:'-'|escape}</td>
-                    </tr>
-                  {/foreach}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        {/if}
+        </div>
       </section>
     {elseif $activeTab eq 'billing'}
       <section class="eb-card-raised !p-0 overflow-hidden">
@@ -427,12 +394,16 @@
                    paymentMethodMessage: '',
                    selectedPlanId: '',
                    selectedCometUserId: '',
+                   selectedS3UserId: '',
                    assignPlanOpen: false,
                    assignPlanSearch: '',
                    assignCometUserOpen: false,
                    assignCometUserSearch: '',
+                   assignS3UserOpen: false,
+                   assignS3UserSearch: '',
                    plans: {$billing_assignable_plans|default:array()|@json_encode|escape:'html'},
                    cometUsers: {$billing_tenant_comet_users|default:array()|@json_encode|escape:'html'},
+                   s3Users: {$billing_s3_users|default:array()|@json_encode|escape:'html'},
                    tenantPublicId: '{$billing_tenant.public_id|default:$tenant.public_id|escape:'javascript'}',
                    token: '{$token|escape:'javascript'}',
                    selectedPlan() {
@@ -458,7 +429,13 @@
                    },
                    requiresCometUser() {
                      const plan = this.selectedPlan();
-                     return plan ? !!plan.requires_comet_user : true;
+                     const mode = plan && plan.assignment_mode ? plan.assignment_mode : null;
+                     return mode ? !!mode.requires_comet_user : (plan ? !!plan.requires_comet_user : true);
+                   },
+                   requiresS3User() {
+                     const plan = this.selectedPlan();
+                     const mode = plan && plan.assignment_mode ? plan.assignment_mode : null;
+                     return mode ? !!mode.requires_s3_user : false;
                    },
                    filteredCometUsers() {
                      const query = String(this.assignCometUserSearch || '').trim().toLowerCase();
@@ -476,20 +453,62 @@
                      const user = this.cometUsers.find((row) => String(row.comet_user_id || '') === String(this.selectedCometUserId || '')) || null;
                      return user ? String(user.comet_user_id || '').trim() : String(this.selectedCometUserId || '');
                    },
+                   filteredS3Users() {
+                     const query = String(this.assignS3UserSearch || '').trim().toLowerCase();
+                     if (!query) {
+                       return this.s3Users;
+                     }
+                     return this.s3Users.filter((user) => {
+                       return String(user.display_label || '').toLowerCase().includes(query)
+                         || String(user.username || '').toLowerCase().includes(query)
+                         || String(user.name || '').toLowerCase().includes(query)
+                         || String(user.id || '').toLowerCase().includes(query);
+                     });
+                   },
                    selectAssignPlan(planId) {
                      this.selectedPlanId = String(planId || '');
                      this.assignPlanOpen = false;
                      this.assignPlanSearch = '';
+                     this.assignS3UserOpen = false;
+                     this.assignS3UserSearch = '';
                      if (!this.requiresCometUser()) {
                        this.selectedCometUserId = '';
                      } else if (!this.selectedCometUserId && this.cometUsers.length === 1) {
                        this.selectedCometUserId = String(this.cometUsers[0].comet_user_id || '');
+                     }
+                     if (!this.requiresS3User()) {
+                       this.selectedS3UserId = '';
+                     } else if (!this.selectedS3UserId && this.s3Users.length === 1) {
+                       this.selectedS3UserId = String(this.s3Users[0].id || '');
                      }
                    },
                    selectAssignCometUser(cometUserId) {
                      this.selectedCometUserId = String(cometUserId || '');
                      this.assignCometUserOpen = false;
                      this.assignCometUserSearch = '';
+                   },
+                   selectAssignS3User(id) {
+                     this.selectedS3UserId = String(id || '');
+                     this.assignS3UserOpen = false;
+                     this.assignS3UserSearch = '';
+                   },
+                   selectedS3UserLabel() {
+                     if (!this.selectedS3UserId) {
+                       return 'Select S3 user';
+                     }
+                     const selectedId = String(this.selectedS3UserId || '');
+                     const user = this.s3Users.find((row) => String(row.id || '') === selectedId) || null;
+                     return user
+                       ? String(user.display_label || user.name || user.username || ('S3 user #' + selectedId))
+                       : ('S3 user #' + selectedId);
+                   },
+                   toggleAssignS3UserDropdown() {
+                     if (!this.requiresS3User() || this.s3Users.length === 0) {
+                       return;
+                     }
+                     this.assignPlanOpen = false;
+                     this.assignCometUserOpen = false;
+                     this.assignS3UserOpen = !this.assignS3UserOpen;
                    },
                    openAssignModal() {
                      this.assignOpen = true;
@@ -498,11 +517,16 @@
                      this.assignPlanSearch = '';
                      this.assignCometUserOpen = false;
                      this.assignCometUserSearch = '';
+                     this.assignS3UserOpen = false;
+                     this.assignS3UserSearch = '';
                      if (!this.selectedPlanId && this.plans.length) {
                        this.selectedPlanId = String(this.plans[0].id || '');
                      }
-                     if (!this.selectedCometUserId && this.cometUsers.length) {
+                     if (this.requiresCometUser() && !this.selectedCometUserId && this.cometUsers.length) {
                        this.selectedCometUserId = String(this.cometUsers[0].comet_user_id || '');
+                     }
+                     if (this.requiresS3User() && !this.selectedS3UserId && this.s3Users.length) {
+                       this.selectedS3UserId = String(this.s3Users[0].id || '');
                      }
                    },
                    async submitAssignPlan() {
@@ -514,15 +538,24 @@
                        this.assignMessage = 'Select a backup user first.';
                        return;
                      }
+                     if (this.requiresS3User() && !this.selectedS3UserId) {
+                       this.assignMessage = 'Select an S3 user first.';
+                       return;
+                     }
                      this.assignSaving = true;
                      this.assignMessage = '';
                      try {
                        const payload = new URLSearchParams({
                          plan_id: String(this.selectedPlanId || ''),
                          tenant_id: String(this.tenantPublicId || ''),
-                         comet_user_id: this.requiresCometUser() ? String(this.selectedCometUserId || '') : '',
                          token: this.token
                        });
+                       if (this.requiresCometUser() && this.selectedCometUserId) {
+                         payload.set('comet_user_id', String(this.selectedCometUserId || ''));
+                       }
+                       if (this.requiresS3User() && this.selectedS3UserId) {
+                         payload.set('s3_user_id', String(this.selectedS3UserId || ''));
+                       }
                        const res = await fetch('{$modulelink}&a=ph-plan-assign', {
                          method: 'POST',
                          credentials: 'same-origin',
@@ -582,7 +615,7 @@
                   <thead>
                     <tr>
                       <th class="px-6 py-3">Plan</th>
-                      <th class="px-6 py-3">Backup User</th>
+                      <th class="px-6 py-3">Assigned User</th>
                       <th class="px-6 py-3">Status</th>
                       <th class="px-6 py-3">Since</th>
                     </tr>
@@ -591,7 +624,7 @@
                     {foreach from=$billing_plan_instances item=pi}
                     <tr>
                       <td class="px-6 py-3 text-[var(--eb-text-primary)]">{$pi.plan_name|default:'Unknown Plan'|escape}</td>
-                      <td class="px-6 py-3 eb-type-mono text-[var(--eb-text-secondary)]">{$pi.comet_user_id|default:'-'|escape}</td>
+                      <td class="px-6 py-3 eb-type-mono text-[var(--eb-text-secondary)]">{$pi.comet_user_display|default:$pi.comet_user_id|default:'-'|escape}</td>
                       <td class="px-6 py-3">
                         <span class="eb-badge {if $pi.status eq 'active'}eb-badge--success{elseif $pi.status eq 'trialing'}eb-badge--info{elseif $pi.status eq 'past_due'}eb-badge--warning{elseif $pi.status eq 'paused'}eb-badge--neutral{else}eb-badge--danger{/if}">{$pi.status|default:'unknown'|escape}</span>
                       </td>
@@ -625,7 +658,7 @@
                     <button
                       type="button"
                       class="eb-input relative flex w-full cursor-pointer items-center justify-between gap-2 pr-10 text-left"
-                      @click="assignPlanOpen = !assignPlanOpen; if (assignPlanOpen) { assignCometUserOpen = false; }"
+                      @click="assignPlanOpen = !assignPlanOpen; if (assignPlanOpen) { assignCometUserOpen = false; assignS3UserOpen = false; }"
                       :aria-expanded="assignPlanOpen"
                     >
                       <span class="min-w-0 truncate" :class="selectedPlanId ? 'text-[var(--eb-text-primary)]' : 'text-[var(--eb-text-muted)]'" x-text="selectedPlanLabel()"></span>
@@ -655,7 +688,7 @@
                             @click="selectAssignPlan(plan.id)"
                           >
                             <span class="min-w-0 truncate text-left font-medium" x-text="plan.name || ('Plan #' + String(plan.id || ''))"></span>
-                            <span class="truncate text-left text-xs text-[var(--eb-text-muted)]" x-text="plan.description || (plan.requires_comet_user ? 'Requires an eazyBackup user.' : 'Tenant-level storage assignment.')"></span>
+                            <span class="truncate text-left text-xs text-[var(--eb-text-muted)]" x-text="plan.description || ((plan.assignment_mode && plan.assignment_mode.requires_s3_user) ? 'Requires an MSP-owned S3 user.' : (((plan.assignment_mode && plan.assignment_mode.requires_comet_user === false) || !plan.requires_comet_user) ? 'Tenant-level storage assignment.' : 'Requires an eazyBackup user.'))"></span>
                           </button>
                         </template>
                         <div x-show="filteredAssignablePlans().length === 0" class="px-3 py-4 text-center text-xs text-[var(--eb-text-muted)]">No matching plans.</div>
@@ -676,7 +709,7 @@
                       <button
                         type="button"
                         class="eb-input relative flex w-full cursor-pointer items-center justify-between gap-2 pr-10 text-left disabled:cursor-not-allowed disabled:opacity-50"
-                        @click="if (requiresCometUser() && cometUsers.length) { assignCometUserOpen = !assignCometUserOpen; if (assignCometUserOpen) { assignPlanOpen = false; } }"
+                        @click="if (requiresCometUser() && cometUsers.length) { assignCometUserOpen = !assignCometUserOpen; if (assignCometUserOpen) { assignPlanOpen = false; assignS3UserOpen = false; } }"
                         :disabled="!requiresCometUser() || cometUsers.length === 0"
                         :aria-expanded="assignCometUserOpen"
                       >
@@ -716,6 +749,54 @@
                   </label>
                   <p class="mt-2 text-xs text-slate-500" x-show="cometUsers.length === 0">No linked backup users were found for this tenant.</p>
                 </div>
+                <div x-show="requiresS3User()">
+                  <label class="block text-sm">
+                    <span class="mb-1 block text-slate-300">S3 User</span>
+                    <div class="relative" @click.outside="assignS3UserOpen = false">
+                      <button
+                        type="button"
+                        class="eb-input relative flex w-full cursor-pointer items-center justify-between gap-2 pr-10 text-left disabled:cursor-not-allowed disabled:opacity-50"
+                        @click="toggleAssignS3UserDropdown()"
+                        :disabled="!requiresS3User() || s3Users.length === 0"
+                        :aria-expanded="assignS3UserOpen"
+                      >
+                        <span class="min-w-0 truncate" :class="selectedS3UserId ? 'text-[var(--eb-text-primary)]' : 'text-[var(--eb-text-muted)]'" x-text="selectedS3UserLabel()"></span>
+                        <svg class="pointer-events-none absolute right-3 top-1/2 h-4 w-4 shrink-0 -translate-y-1/2 text-[var(--eb-text-muted)] transition-transform" :class="assignS3UserOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" /></svg>
+                      </button>
+                      <div
+                        x-show="assignS3UserOpen"
+                        x-transition
+                        class="absolute left-0 right-0 z-[100] mt-2 max-h-72 overflow-hidden rounded-[var(--eb-radius-lg)] border border-[var(--eb-border-default)] bg-[var(--eb-bg-raised)] shadow-[var(--eb-shadow-lg)]"
+                        style="display: none;"
+                      >
+                        <div class="border-b border-[var(--eb-border-subtle)] p-2">
+                          <input
+                            type="search"
+                            x-model="assignS3UserSearch"
+                            placeholder="Search S3 users..."
+                            class="eb-toolbar-search w-full rounded-[var(--eb-radius-md)] !py-2 text-sm"
+                            @click.stop
+                          />
+                        </div>
+                        <div class="max-h-52 overflow-y-auto p-1">
+                          <template x-for="user in filteredS3Users()" :key="'tenant-s3-user-' + String(user.id || '')">
+                            <button
+                              type="button"
+                              class="eb-menu-item w-full flex-col !items-stretch gap-0.5"
+                              :class="String(selectedS3UserId || '') === String(user.id || '') ? 'is-active' : ''"
+                              @click="selectAssignS3User(user.id)"
+                            >
+                              <span class="truncate text-left font-medium" x-text="user.display_label || user.name || user.username || ('S3 user #' + user.id)"></span>
+                              <span class="truncate text-left text-xs text-[var(--eb-text-muted)]" x-text="'ID ' + String(user.id || '-')"></span>
+                            </button>
+                          </template>
+                          <div x-show="filteredS3Users().length === 0" class="px-3 py-4 text-center text-xs text-[var(--eb-text-muted)]" x-text="assignS3UserSearch ? 'No S3 users match your search.' : 'No S3 users are available for this MSP.'"></div>
+                        </div>
+                      </div>
+                    </div>
+                  </label>
+                  <p class="mt-2 text-xs text-slate-500">Choose the MSP-owned S3 user that should back this storage subscription.</p>
+                </div>
                 <template x-if="assignMessage">
                   <div class="eb-alert eb-alert--danger !mb-0" x-text="assignMessage"></div>
                 </template>
@@ -727,7 +808,6 @@
             </div>
           </div>
           </section>
-        </div>
         <section class="mx-6 mb-6 mt-4 eb-card-raised !p-0 overflow-hidden">
           <div class="flex items-center justify-between border-b border-[var(--eb-border-subtle)] px-6 py-4">
             <h2 class="eb-card-title text-lg font-semibold">Saved Payment Methods</h2>
