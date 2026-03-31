@@ -74,12 +74,39 @@
                 <div class="grid grid-cols-1 gap-6 sm:grid-cols-2">
                     <div>
                         <label for="routing_policy" class="eb-field-label">Default Recipient</label>
-                        <select id="routing_policy" name="routing_policy" class="eb-select">
-                            <option value="primary" {if $prefs.routing_policy=='primary'}selected{/if}>Primary</option>
-                            <option value="billing" {if $prefs.routing_policy=='billing'}selected{/if}>Billing</option>
-                            <option value="technical" {if $prefs.routing_policy=='technical'}selected{/if}>Technical</option>
-                            <option value="custom" {if $prefs.routing_policy=='custom'}selected{/if}>Custom</option>
-                        </select>
+                        <div class="relative" x-data="ebSelectMenu({ selectId: 'routing_policy', placeholder: 'Default Recipient' })" x-init="init()" @click.outside="close()" @keydown.escape.prevent="close()">
+                            <select id="routing_policy" name="routing_policy" class="sr-only" tabindex="-1" aria-hidden="true">
+                                <option value="primary" {if $prefs.routing_policy=='primary'}selected{/if}>Primary</option>
+                                <option value="billing" {if $prefs.routing_policy=='billing'}selected{/if}>Billing</option>
+                                <option value="technical" {if $prefs.routing_policy=='technical'}selected{/if}>Technical</option>
+                                <option value="custom" {if $prefs.routing_policy=='custom'}selected{/if}>Custom</option>
+                            </select>
+                            <button type="button"
+                                class="eb-input relative flex w-full items-center justify-between gap-2 pr-10 text-left"
+                                @click="toggle()"
+                                :aria-expanded="open"
+                                :disabled="disabled">
+                                <span class="min-w-0 flex-1 truncate" x-text="selectedLabel"></span>
+                                <svg class="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--eb-text-muted)] transition-transform" :class="open ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                                    <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+                                </svg>
+                            </button>
+                            <div x-show="open"
+                                x-transition:enter="transition ease-out duration-100"
+                                x-transition:enter-start="opacity-0 scale-95"
+                                x-transition:enter-end="opacity-100 scale-100"
+                                x-transition:leave="transition ease-in duration-75"
+                                x-transition:leave-start="opacity-100 scale-100"
+                                x-transition:leave-end="opacity-0 scale-95"
+                                class="eb-menu absolute left-0 right-0 z-50 mt-2 overflow-hidden p-1"
+                                style="display: none;">
+                                <template x-for="option in options" :key="'routing-' + option.value">
+                                    <button type="button" class="eb-menu-item w-full" :class="selectedValue === option.value ? 'is-active' : ''" @click="select(option.value)">
+                                        <span class="min-w-0 flex-1 truncate text-left" x-text="option.label"></span>
+                                    </button>
+                                </template>
+                            </div>
+                        </div>
                     </div>
                     <div>
                         <label for="custom_recipients" class="eb-field-label">Custom Recipient(s)</label>
@@ -128,6 +155,66 @@
 
 {literal}
 <script>
+function ebSelectMenu(config) {
+  return {
+    open: false,
+    selectId: config.selectId,
+    placeholder: config.placeholder || 'Select an option',
+    selectedValue: '',
+    selectedLabel: config.placeholder || 'Select an option',
+    options: [],
+    disabled: false,
+    init() {
+      var select = document.getElementById(this.selectId);
+      if (!select) {
+        return;
+      }
+
+      this.disabled = select.disabled;
+      this.options = Array.from(select.options).map(function(option) {
+        return {
+          value: option.value,
+          label: option.text.trim(),
+          disabled: option.disabled
+        };
+      }).filter(function(option) {
+        return !option.disabled;
+      });
+
+      var selectedOption = select.options[select.selectedIndex] || this.options[0] || null;
+      this.selectedValue = selectedOption ? selectedOption.value : '';
+      this.selectedLabel = selectedOption ? selectedOption.text.trim() : this.placeholder;
+    },
+    toggle() {
+      if (this.disabled) {
+        return;
+      }
+
+      this.open = !this.open;
+    },
+    close() {
+      this.open = false;
+    },
+    select(value) {
+      var option = this.options.find(function(item) {
+        return item.value === value;
+      });
+      var select = document.getElementById(this.selectId);
+
+      if (!option || !select) {
+        return;
+      }
+
+      this.selectedValue = option.value;
+      this.selectedLabel = option.label;
+      select.value = option.value;
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+      select.dispatchEvent(new Event('input', { bubbles: true }));
+      this.close();
+    }
+  };
+}
+
 document.addEventListener('DOMContentLoaded', function () {
   var toggles = document.querySelectorAll('[data-toggle]');
   toggles.forEach(function (btn) {

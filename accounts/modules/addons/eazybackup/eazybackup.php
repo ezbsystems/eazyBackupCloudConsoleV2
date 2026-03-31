@@ -2716,6 +2716,48 @@ function eazybackup_config()
                 'Default' => 'on',
                 'Description' => 'Show the Settings section in Partner Hub',
             ],
+            'partnerhub_show_signup_approvals' => [
+                'FriendlyName' => 'Partner Hub: Show Signup Approvals',
+                'Type' => 'yesno',
+                'Default' => 'on',
+                'Description' => 'Show the Signup Approvals page in Partner Hub',
+            ],
+            'partnerhub_show_user_assignments' => [
+                'FriendlyName' => 'Partner Hub: Show User Assignments',
+                'Type' => 'yesno',
+                'Default' => 'on',
+                'Description' => 'Show the User Assignments page in Partner Hub',
+            ],
+            'partnerhub_show_usage_dashboard' => [
+                'FriendlyName' => 'Partner Hub: Show Usage Dashboard',
+                'Type' => 'yesno',
+                'Default' => 'on',
+                'Description' => 'Show the Usage Dashboard page in Partner Hub',
+            ],
+            'partnerhub_show_tenant_portal' => [
+                'FriendlyName' => 'Partner Hub: Show Tenant Portal',
+                'Type' => 'yesno',
+                'Default' => 'on',
+                'Description' => 'Show the Tenant Portal section in Partner Hub',
+            ],
+            'partnerhub_show_tenant_portal_billing' => [
+                'FriendlyName' => 'Partner Hub: Show Tenant Portal Billing',
+                'Type' => 'yesno',
+                'Default' => 'on',
+                'Description' => 'Show the Tenant Portal Billing link in Partner Hub',
+            ],
+            'partnerhub_show_tenant_portal_services' => [
+                'FriendlyName' => 'Partner Hub: Show Tenant Portal Services',
+                'Type' => 'yesno',
+                'Default' => 'on',
+                'Description' => 'Show the Tenant Portal Services link in Partner Hub',
+            ],
+            'partnerhub_show_tenant_portal_cloud_storage' => [
+                'FriendlyName' => 'Partner Hub: Show Tenant Portal Cloud Storage',
+                'Type' => 'yesno',
+                'Default' => 'on',
+                'Description' => 'Show the Tenant Portal Cloud Storage link in Partner Hub',
+            ],
             // Grace periods
             'grace_days_devices' => [
                 'FriendlyName' => 'Grace Period (days) — Devices',
@@ -3204,6 +3246,82 @@ function eazybackup_AdminGroupsDescription(): string {
  * @param array $vars
  * @return mixed
  */
+function eazybackup_addon_bool_setting(string $setting, bool $default = true): bool
+{
+    static $cache = [];
+
+    if (array_key_exists($setting, $cache)) {
+        return $cache[$setting];
+    }
+
+    try {
+        $value = Capsule::table('tbladdonmodules')
+            ->where('module', 'eazybackup')
+            ->where('setting', $setting)
+            ->value('value');
+    } catch (\Throwable $__) {
+        $value = null;
+    }
+
+    if ($value === null) {
+        $cache[$setting] = $default;
+        return $cache[$setting];
+    }
+
+    $normalized = strtolower(trim((string)$value));
+    $cache[$setting] = in_array($normalized, ['1', 'on', 'yes', 'true'], true);
+    return $cache[$setting];
+}
+
+function eazybackup_partnerhub_page_visible(string $pageKey): bool
+{
+    $settingMap = [
+        'signup_approvals' => 'partnerhub_show_signup_approvals',
+        'user_assignments' => 'partnerhub_show_user_assignments',
+        'usage_dashboard' => 'partnerhub_show_usage_dashboard',
+        'tenant_portal' => 'partnerhub_show_tenant_portal',
+        'tenant_portal_billing' => 'partnerhub_show_tenant_portal_billing',
+        'tenant_portal_services' => 'partnerhub_show_tenant_portal_services',
+        'tenant_portal_cloud_storage' => 'partnerhub_show_tenant_portal_cloud_storage',
+    ];
+
+    if (!isset($settingMap[$pageKey])) {
+        return true;
+    }
+
+    return eazybackup_addon_bool_setting($settingMap[$pageKey], true);
+}
+
+function eazybackup_partnerhub_hidden_redirect_url(array $vars): string
+{
+    $base = (string)($vars['modulelink'] ?? 'index.php?m=eazybackup');
+    if (eazybackup_addon_bool_setting('partnerhub_show_overview', true)) {
+        return $base . '&a=ph-overview&error=page_disabled';
+    }
+
+    return $base . '&a=ph-tenants-manage&error=page_disabled';
+}
+
+function eazybackup_partnerhub_block_hidden_page(array $vars, string $pageKey, string $responseType = 'redirect'): void
+{
+    if (eazybackup_partnerhub_page_visible($pageKey)) {
+        return;
+    }
+
+    if ($responseType === 'json') {
+        http_response_code(403);
+        header('Content-Type: application/json');
+        echo json_encode([
+            'status' => 'error',
+            'message' => 'This page is disabled by the administrator.',
+        ]);
+        exit;
+    }
+
+    header('Location: ' . eazybackup_partnerhub_hidden_redirect_url($vars));
+    exit;
+}
+
 function eazybackup_clientarea(array $vars)
 {
     
@@ -4453,6 +4571,10 @@ function eazybackup_clientarea(array $vars)
     } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'whitelabel-branding') {
         require_once __DIR__ . "/pages/whitelabel/BuildController.php";
         return eazybackup_whitelabel_branding($vars);
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'whitelabel-branding-healthcheck') {
+        require_once __DIR__ . "/pages/whitelabel/BuildController.php";
+        eazybackup_whitelabel_branding_healthcheck($vars);
+        exit;
     } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'whitelabel-branding-checkdns') {
         // CSRF/token is handled by WHMCS; this endpoint returns JSON
         require_once __DIR__ . "/pages/whitelabel/BuildController.php";
@@ -4521,9 +4643,11 @@ function eazybackup_clientarea(array $vars)
         require_once __DIR__ . '/pages/partnerhub/TenantBillingController.php';
         return eb_ph_tenant_billing($vars);
     } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-usage-dashboard') {
+        eazybackup_partnerhub_block_hidden_page($vars, 'usage_dashboard');
         require_once __DIR__ . '/pages/partnerhub/UsageDashboardController.php';
         return eb_ph_usage_dashboard($vars);
     } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-user-assignments') {
+        eazybackup_partnerhub_block_hidden_page($vars, 'user_assignments');
         require_once __DIR__ . '/pages/partnerhub/UserAssignmentsController.php';
         return eb_ph_user_assignments($vars);
     } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-tenant-whitelabel') {
@@ -4542,12 +4666,15 @@ function eazybackup_clientarea(array $vars)
         require_once __DIR__ . '/pages/partnerhub/ClientViewController.php';
         return eb_ph_client_view($vars);
     } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-signup-approvals') {
+        eazybackup_partnerhub_block_hidden_page($vars, 'signup_approvals');
         require_once __DIR__ . '/pages/partnerhub/SignupApprovalsController.php';
         return eb_ph_signup_approvals_index($vars);
     } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-signup-approve') {
+        eazybackup_partnerhub_block_hidden_page($vars, 'signup_approvals');
         require_once __DIR__ . '/pages/partnerhub/SignupApprovalsController.php';
         eb_ph_signup_approve($vars); exit;
     } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-signup-reject') {
+        eazybackup_partnerhub_block_hidden_page($vars, 'signup_approvals');
         require_once __DIR__ . '/pages/partnerhub/SignupApprovalsController.php';
         eb_ph_signup_reject($vars); exit;
     } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-stripe-onboard') {
@@ -4765,9 +4892,11 @@ function eazybackup_clientarea(array $vars)
         require_once __DIR__ . '/pages/partnerhub/UsageController.php';
         eb_ph_usage_push($vars); exit;
     } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-usage-dashboard-stripe-live') {
+        eazybackup_partnerhub_block_hidden_page($vars, 'usage_dashboard', 'json');
         require_once __DIR__ . '/pages/partnerhub/UsageDashboardController.php';
         eb_ph_usage_dashboard_stripe_live($vars); exit;
     } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-usage-dashboard-push-now') {
+        eazybackup_partnerhub_block_hidden_page($vars, 'usage_dashboard', 'json');
         require_once __DIR__ . '/pages/partnerhub/UsageDashboardController.php';
         eb_ph_usage_dashboard_push_now($vars); exit;
     } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-invoices-refresh') {

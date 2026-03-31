@@ -25,57 +25,57 @@
               </div>
               <div>
                 <label for="header_image_file" class="eb-field-label">Header Image</label>
-                <div class="eb-file-field flex flex-wrap items-center gap-3">
-                  <div class="eb-file-field__control min-w-0 flex-1">
-                    <label for="header_image_file" class="block cursor-pointer">
-                      <span class="eb-file-field__main flex min-w-0 items-center justify-between gap-3 rounded-xl border border-[var(--eb-border-default)] bg-[var(--eb-bg-input)] px-3 py-2.5 transition hover:border-[var(--eb-border-emphasis)]">
-                        <span class="eb-file-field__button shrink-0 rounded-full border border-[var(--eb-border-default)] bg-[var(--eb-bg-overlay)] px-3 py-1 text-xs font-semibold text-[var(--eb-text-primary)]">Choose file...</span>
-                        <span class="eb-file-field__name min-w-0 truncate text-sm text-[var(--eb-text-muted)]">JPG, PNG, SVG</span>
-                      </span>
-                    </label>
+                <div class="eb-file-field">
+                  <label for="header_image_file" class="eb-file-field__control min-w-0 flex-1 cursor-pointer">
                     <input type="file" id="header_image_file" name="header_image_file" accept=".jpg,.jpeg,.gif,.png,.svg" class="eb-file-field__input eb-file-input sr-only"/>
-                  </div>
+                    <span class="eb-file-field__main">
+                      <span class="eb-file-field__button">Choose file</span>
+                      <span class="eb-file-field__name is-placeholder" data-placeholder="No file selected">No file selected</span>
+                      <span class="eb-file-field__meta">PNG, SVG, JPG</span>
+                    </span>
+                  </label>
+                </div>
                   {assign var=st value=$assetStatus.PathHeaderImage}
-                  <div class="eb-file-field__meta flex flex-wrap items-center gap-3">
+                  <div class="mt-2 flex flex-wrap items-center gap-3">
                     {if $st.state=='uploaded'}<span class="eb-badge eb-badge--dot eb-badge--success gap-1.5 whitespace-nowrap">Uploaded</span>
                     {elseif $st.state=='local'}<span class="eb-badge eb-badge--dot eb-badge--warning gap-1.5 whitespace-nowrap">Pending upload{if $st.filename}: {$st.filename|escape}{/if}</span>
                     {else}<span class="eb-badge eb-badge--dot eb-badge--neutral gap-1.5 whitespace-nowrap">Not set</span>{/if}
                   </div>
-                </div>
               </div>
               <div>
                 <label for="header_color" class="eb-field-label">Header Color</label>
                 <div class="flex flex-wrap items-center gap-2">
                   <input type="text" id="header_color" name="header_color" class="eb-input w-1/2 min-w-[8rem]" value="{$brand.HeaderColor|escape}" placeholder="#FFFFFF"/>
-                  <input type="color" id="header_color_picker" class="h-8 w-8 shrink-0 cursor-pointer rounded border border-[var(--eb-border-default)] bg-transparent p-0" value="{$brand.HeaderColor|default:'#FFFFFF'}" aria-label="Pick header color"/>
+                  <button type="button" data-swatch-for="header_color_picker" class="h-10 w-12 rounded-lg border flex-shrink-0 cursor-pointer" style="background:{$brand.HeaderColor|default:'#FFFFFF'|escape:'html'};border-color:var(--eb-border-default)" aria-label="Open color picker"></button>
+                  <input type="color" id="header_color_picker" class="sr-only" value="{$brand.HeaderColor|default:'#FFFFFF'}"/>
                 </div>
               </div>
               <div>
                 <label for="accent_color" class="eb-field-label">Accent Color</label>
                 <div class="flex flex-wrap items-center gap-2">
                   <input type="text" id="accent_color" name="accent_color" class="eb-input w-1/2 min-w-[8rem]" value="{$brand.AccentColor|escape}" placeholder="#FFFFFF"/>
-                  <input type="color" id="accent_color_picker" class="h-8 w-8 shrink-0 cursor-pointer rounded border border-[var(--eb-border-default)] bg-transparent p-0" value="{$brand.AccentColor|default:'#FFFFFF'}" aria-label="Pick accent color"/>
+                  <button type="button" data-swatch-for="accent_color_picker" class="h-10 w-12 rounded-lg border flex-shrink-0 cursor-pointer" style="background:{$brand.AccentColor|default:'#FFFFFF'|escape:'html'};border-color:var(--eb-border-default)" aria-label="Open color picker"></button>
+                  <input type="color" id="accent_color_picker" class="sr-only" value="{$brand.AccentColor|default:'#FFFFFF'}"/>
                 </div>
               </div>
               <div>
                 <label for="favicon_file" class="eb-field-label">Tab icon (favicon)</label>
-                <div class="eb-file-field flex flex-wrap items-center gap-3">
-                  <div class="eb-file-field__control min-w-0 flex-1">
-                    <label for="favicon_file" class="block cursor-pointer">
-                      <span class="eb-file-field__main flex min-w-0 items-center justify-between gap-3 rounded-xl border border-[var(--eb-border-default)] bg-[var(--eb-bg-input)] px-3 py-2.5 transition hover:border-[var(--eb-border-emphasis)]">
-                        <span class="eb-file-field__button shrink-0 rounded-full border border-[var(--eb-border-default)] bg-[var(--eb-bg-overlay)] px-3 py-1 text-xs font-semibold text-[var(--eb-text-primary)]">Choose file...</span>
-                        <span class="eb-file-field__name min-w-0 truncate text-sm text-[var(--eb-text-muted)]">ICO only</span>
-                      </span>
-                    </label>
+                <div class="eb-file-field">
+                  <label for="favicon_file" class="eb-file-field__control min-w-0 flex-1 cursor-pointer">
                     <input type="file" id="favicon_file" name="favicon_file" accept=".ico" class="eb-file-field__input eb-file-input sr-only"/>
-                  </div>
+                    <span class="eb-file-field__main">
+                      <span class="eb-file-field__button">Choose file</span>
+                      <span class="eb-file-field__name is-placeholder" data-placeholder="No file selected">No file selected</span>
+                      <span class="eb-file-field__meta">ICO</span>
+                    </span>
+                  </label>
+                </div>
                   {assign var=st value=$assetStatus.Favicon}
-                  <div class="eb-file-field__meta flex flex-wrap items-center gap-3">
+                  <div class="mt-2 flex flex-wrap items-center gap-3">
                     {if $st.state=='uploaded'}<span class="eb-badge eb-badge--dot eb-badge--success gap-1.5 whitespace-nowrap">Uploaded</span>
                     {elseif $st.state=='local'}<span class="eb-badge eb-badge--dot eb-badge--warning gap-1.5 whitespace-nowrap">Pending upload{if $st.filename}: {$st.filename|escape}{/if}</span>
                     {else}<span class="eb-badge eb-badge--dot eb-badge--neutral gap-1.5 whitespace-nowrap">Not set</span>{/if}
                   </div>
-                </div>
               </div>
             </div>
           </section>
@@ -103,130 +103,125 @@
 
               <div>
                 <label for="win_ico_file" class="eb-field-label">Icon (Windows)</label>
-                <div class="eb-file-field flex flex-wrap items-center gap-3">
-                  <div class="eb-file-field__control min-w-0 flex-1">
-                    <label for="win_ico_file" class="block cursor-pointer">
-                      <span class="eb-file-field__main flex min-w-0 items-center justify-between gap-3 rounded-xl border border-[var(--eb-border-default)] bg-[var(--eb-bg-input)] px-3 py-2.5 transition hover:border-[var(--eb-border-emphasis)]">
-                        <span class="eb-file-field__button shrink-0 rounded-full border border-[var(--eb-border-default)] bg-[var(--eb-bg-overlay)] px-3 py-1 text-xs font-semibold text-[var(--eb-text-primary)]">Choose file...</span>
-                        <span class="eb-file-field__name min-w-0 truncate text-sm text-[var(--eb-text-muted)]">ICO, JPG, PNG</span>
-                      </span>
-                    </label>
+                <div class="eb-file-field">
+                  <label for="win_ico_file" class="eb-file-field__control min-w-0 flex-1 cursor-pointer">
                     <input type="file" id="win_ico_file" name="win_ico_file" accept=".ico,.jpg,.jpeg,.gif,.png" class="eb-file-field__input eb-file-input sr-only"/>
-                  </div>
+                    <span class="eb-file-field__main">
+                      <span class="eb-file-field__button">Choose file</span>
+                      <span class="eb-file-field__name is-placeholder" data-placeholder="No file selected">No file selected</span>
+                      <span class="eb-file-field__meta">ICO, JPG, PNG</span>
+                    </span>
+                  </label>
+                </div>
                   {assign var=st value=$assetStatus.PathIcoFile}
-                  <div class="eb-file-field__meta flex flex-wrap items-center gap-3">
+                  <div class="mt-2 flex flex-wrap items-center gap-3">
                     {if $st.state=='uploaded'}<span class="eb-badge eb-badge--dot eb-badge--success gap-1.5 whitespace-nowrap">Uploaded</span>
                     {elseif $st.state=='local'}<span class="eb-badge eb-badge--dot eb-badge--warning gap-1.5 whitespace-nowrap">Pending upload{if $st.filename}: {$st.filename|escape}{/if}</span>
                     {else}<span class="eb-badge eb-badge--dot eb-badge--neutral gap-1.5 whitespace-nowrap">Not set</span>{/if}
                   </div>
-                </div>
               </div>
               <div>
                 <label for="mac_icns_file" class="eb-field-label">Icon (macOS)</label>
-                <div class="eb-file-field flex flex-wrap items-center gap-3">
-                  <div class="eb-file-field__control min-w-0 flex-1">
-                    <label for="mac_icns_file" class="block cursor-pointer">
-                      <span class="eb-file-field__main flex min-w-0 items-center justify-between gap-3 rounded-xl border border-[var(--eb-border-default)] bg-[var(--eb-bg-input)] px-3 py-2.5 transition hover:border-[var(--eb-border-emphasis)]">
-                        <span class="eb-file-field__button shrink-0 rounded-full border border-[var(--eb-border-default)] bg-[var(--eb-bg-overlay)] px-3 py-1 text-xs font-semibold text-[var(--eb-text-primary)]">Choose file...</span>
-                        <span class="eb-file-field__name min-w-0 truncate text-sm text-[var(--eb-text-muted)]">ICO, JPG, PNG</span>
-                      </span>
-                    </label>
+                <div class="eb-file-field">
+                  <label for="mac_icns_file" class="eb-file-field__control min-w-0 flex-1 cursor-pointer">
                     <input type="file" id="mac_icns_file" name="mac_icns_file" accept=".ico,.jpg,.jpeg,.gif,.png" class="eb-file-field__input eb-file-input sr-only"/>
-                  </div>
+                    <span class="eb-file-field__main">
+                      <span class="eb-file-field__button">Choose file</span>
+                      <span class="eb-file-field__name is-placeholder" data-placeholder="No file selected">No file selected</span>
+                      <span class="eb-file-field__meta">ICO, JPG, PNG</span>
+                    </span>
+                  </label>
+                </div>
                   {assign var=st value=$assetStatus.PathIcnsFile}
-                  <div class="eb-file-field__meta flex flex-wrap items-center gap-3">
+                  <div class="mt-2 flex flex-wrap items-center gap-3">
                     {if $st.state=='uploaded'}<span class="eb-badge eb-badge--dot eb-badge--success gap-1.5 whitespace-nowrap">Uploaded</span>
                     {elseif $st.state=='local'}<span class="eb-badge eb-badge--dot eb-badge--warning gap-1.5 whitespace-nowrap">Pending upload{if $st.filename}: {$st.filename|escape}{/if}</span>
                     {else}<span class="eb-badge eb-badge--dot eb-badge--neutral gap-1.5 whitespace-nowrap">Not set</span>{/if}
                   </div>
-                </div>
               </div>
               <div>
                 <label for="mac_menubar_icns_file" class="eb-field-label">Menu bar icon (macOS)</label>
-                <div class="eb-file-field flex flex-wrap items-center gap-3">
-                  <div class="eb-file-field__control min-w-0 flex-1">
-                    <label for="mac_menubar_icns_file" class="block cursor-pointer">
-                      <span class="eb-file-field__main flex min-w-0 items-center justify-between gap-3 rounded-xl border border-[var(--eb-border-default)] bg-[var(--eb-bg-input)] px-3 py-2.5 transition hover:border-[var(--eb-border-emphasis)]">
-                        <span class="eb-file-field__button shrink-0 rounded-full border border-[var(--eb-border-default)] bg-[var(--eb-bg-overlay)] px-3 py-1 text-xs font-semibold text-[var(--eb-text-primary)]">Choose file...</span>
-                        <span class="eb-file-field__name min-w-0 truncate text-sm text-[var(--eb-text-muted)]">ICO, JPG, PNG</span>
-                      </span>
-                    </label>
+                <div class="eb-file-field">
+                  <label for="mac_menubar_icns_file" class="eb-file-field__control min-w-0 flex-1 cursor-pointer">
                     <input type="file" id="mac_menubar_icns_file" name="mac_menubar_icns_file" accept=".ico,.jpg,.jpeg,.gif,.png" class="eb-file-field__input eb-file-input sr-only"/>
-                  </div>
+                    <span class="eb-file-field__main">
+                      <span class="eb-file-field__button">Choose file</span>
+                      <span class="eb-file-field__name is-placeholder" data-placeholder="No file selected">No file selected</span>
+                      <span class="eb-file-field__meta">ICO, JPG, PNG</span>
+                    </span>
+                  </label>
+                </div>
                   {assign var=st value=$assetStatus.PathMenuBarIcnsFile}
-                  <div class="eb-file-field__meta flex flex-wrap items-center gap-3">
+                  <div class="mt-2 flex flex-wrap items-center gap-3">
                     {if $st.state=='uploaded'}<span class="eb-badge eb-badge--dot eb-badge--success gap-1.5 whitespace-nowrap">Uploaded</span>
                     {elseif $st.state=='local'}<span class="eb-badge eb-badge--dot eb-badge--warning gap-1.5 whitespace-nowrap">Pending upload{if $st.filename}: {$st.filename|escape}{/if}</span>
                     {else}<span class="eb-badge eb-badge--dot eb-badge--neutral gap-1.5 whitespace-nowrap">Not set</span>{/if}
                   </div>
-                </div>
               </div>
               <div>
                 <label for="logo_file" class="eb-field-label">Logo image (100x32)</label>
-                <div class="eb-file-field flex flex-wrap items-center gap-3">
-                  <div class="eb-file-field__control min-w-0 flex-1">
-                    <label for="logo_file" class="block cursor-pointer">
-                      <span class="eb-file-field__main flex min-w-0 items-center justify-between gap-3 rounded-xl border border-[var(--eb-border-default)] bg-[var(--eb-bg-input)] px-3 py-2.5 transition hover:border-[var(--eb-border-emphasis)]">
-                        <span class="eb-file-field__button shrink-0 rounded-full border border-[var(--eb-border-default)] bg-[var(--eb-bg-overlay)] px-3 py-1 text-xs font-semibold text-[var(--eb-text-primary)]">Choose file...</span>
-                        <span class="eb-file-field__name min-w-0 truncate text-sm text-[var(--eb-text-muted)]">JPG, PNG, SVG</span>
-                      </span>
-                    </label>
+                <div class="eb-file-field">
+                  <label for="logo_file" class="eb-file-field__control min-w-0 flex-1 cursor-pointer">
                     <input type="file" id="logo_file" name="logo_file" accept=".jpg,.jpeg,.gif,.png,.svg" class="eb-file-field__input eb-file-input sr-only"/>
-                  </div>
+                    <span class="eb-file-field__main">
+                      <span class="eb-file-field__button">Choose file</span>
+                      <span class="eb-file-field__name is-placeholder" data-placeholder="No file selected">No file selected</span>
+                      <span class="eb-file-field__meta">PNG, SVG, JPG</span>
+                    </span>
+                  </label>
+                </div>
                   {assign var=st value=$assetStatus.LogoImage}
-                  <div class="eb-file-field__meta flex flex-wrap items-center gap-3">
+                  <div class="mt-2 flex flex-wrap items-center gap-3">
                     {if $st.state=='uploaded'}<span class="eb-badge eb-badge--dot eb-badge--success gap-1.5 whitespace-nowrap">Uploaded</span>
                     {elseif $st.state=='local'}<span class="eb-badge eb-badge--dot eb-badge--warning gap-1.5 whitespace-nowrap">Pending upload{if $st.filename}: {$st.filename|escape}{/if}</span>
                     {else}<span class="eb-badge eb-badge--dot eb-badge--neutral gap-1.5 whitespace-nowrap">Not set</span>{/if}
                   </div>
-                </div>
               </div>
               <div>
                 <label for="tile_image_file" class="eb-field-label">Tile image (150x150)</label>
-                <div class="eb-file-field flex flex-wrap items-center gap-3">
-                  <div class="eb-file-field__control min-w-0 flex-1">
-                    <label for="tile_image_file" class="block cursor-pointer">
-                      <span class="eb-file-field__main flex min-w-0 items-center justify-between gap-3 rounded-xl border border-[var(--eb-border-default)] bg-[var(--eb-bg-input)] px-3 py-2.5 transition hover:border-[var(--eb-border-emphasis)]">
-                        <span class="eb-file-field__button shrink-0 rounded-full border border-[var(--eb-border-default)] bg-[var(--eb-bg-overlay)] px-3 py-1 text-xs font-semibold text-[var(--eb-text-primary)]">Choose file...</span>
-                        <span class="eb-file-field__name min-w-0 truncate text-sm text-[var(--eb-text-muted)]">JPG, PNG, SVG</span>
-                      </span>
-                    </label>
+                <div class="eb-file-field">
+                  <label for="tile_image_file" class="eb-file-field__control min-w-0 flex-1 cursor-pointer">
                     <input type="file" id="tile_image_file" name="tile_image_file" accept=".jpg,.jpeg,.gif,.png,.svg" class="eb-file-field__input eb-file-input sr-only"/>
-                  </div>
+                    <span class="eb-file-field__main">
+                      <span class="eb-file-field__button">Choose file</span>
+                      <span class="eb-file-field__name is-placeholder" data-placeholder="No file selected">No file selected</span>
+                      <span class="eb-file-field__meta">PNG, SVG, JPG</span>
+                    </span>
+                  </label>
+                </div>
                   {assign var=st value=$assetStatus.PathTilePng}
-                  <div class="eb-file-field__meta flex flex-wrap items-center gap-3">
+                  <div class="mt-2 flex flex-wrap items-center gap-3">
                     {if $st.state=='uploaded'}<span class="eb-badge eb-badge--dot eb-badge--success gap-1.5 whitespace-nowrap">Uploaded</span>
                     {elseif $st.state=='local'}<span class="eb-badge eb-badge--dot eb-badge--warning gap-1.5 whitespace-nowrap">Pending upload{if $st.filename}: {$st.filename|escape}{/if}</span>
                     {else}<span class="eb-badge eb-badge--dot eb-badge--neutral gap-1.5 whitespace-nowrap">Not set</span>{/if}
                   </div>
-                </div>
               </div>
               <div class="md:col-span-2">
                 <label for="tile_background" class="eb-field-label">Tile background</label>
                 <div class="flex flex-wrap items-center gap-2">
                   <input type="text" id="tile_background" name="tile_background" class="eb-input w-1/2 min-w-[8rem]" value="{$brand.TileBackground|escape}" placeholder="#FFFFFF"/>
-                  <input type="color" id="tile_background_picker" class="h-8 w-8 shrink-0 cursor-pointer rounded border border-[var(--eb-border-default)] bg-transparent p-0" value="{$brand.TileBackground|default:'#FFFFFF'}" aria-label="Pick tile background color"/>
+                  <button type="button" data-swatch-for="tile_background_picker" class="h-10 w-12 rounded-lg border flex-shrink-0 cursor-pointer" style="background:{$brand.TileBackground|default:'#FFFFFF'|escape:'html'};border-color:var(--eb-border-default)" aria-label="Open color picker"></button>
+                  <input type="color" id="tile_background_picker" class="sr-only" value="{$brand.TileBackground|default:'#FFFFFF'}"/>
                 </div>
               </div>
               <div class="md:col-span-2">
                 <label for="app_icon_file" class="eb-field-label">App icon image (256x256)</label>
-                <div class="eb-file-field flex flex-wrap items-center gap-3">
-                  <div class="eb-file-field__control min-w-0 flex-1">
-                    <label for="app_icon_file" class="block cursor-pointer">
-                      <span class="eb-file-field__main flex min-w-0 items-center justify-between gap-3 rounded-xl border border-[var(--eb-border-default)] bg-[var(--eb-bg-input)] px-3 py-2.5 transition hover:border-[var(--eb-border-emphasis)]">
-                        <span class="eb-file-field__button shrink-0 rounded-full border border-[var(--eb-border-default)] bg-[var(--eb-bg-overlay)] px-3 py-1 text-xs font-semibold text-[var(--eb-text-primary)]">Choose file...</span>
-                        <span class="eb-file-field__name min-w-0 truncate text-sm text-[var(--eb-text-muted)]">JPG, PNG, SVG</span>
-                      </span>
-                    </label>
+                <div class="eb-file-field">
+                  <label for="app_icon_file" class="eb-file-field__control min-w-0 flex-1 cursor-pointer">
                     <input type="file" id="app_icon_file" name="app_icon_file" accept=".jpg,.jpeg,.gif,.png,.svg" class="eb-file-field__input eb-file-input sr-only"/>
-                  </div>
+                    <span class="eb-file-field__main">
+                      <span class="eb-file-field__button">Choose file</span>
+                      <span class="eb-file-field__name is-placeholder" data-placeholder="No file selected">No file selected</span>
+                      <span class="eb-file-field__meta">PNG, SVG, JPG</span>
+                    </span>
+                  </label>
+                </div>
                   {assign var=st value=$assetStatus.PathAppIconImage}
-                  <div class="eb-file-field__meta flex flex-wrap items-center gap-3">
+                  <div class="mt-2 flex flex-wrap items-center gap-3">
                     {if $st.state=='uploaded'}<span class="eb-badge eb-badge--dot eb-badge--success gap-1.5 whitespace-nowrap">Uploaded</span>
                     {elseif $st.state=='local'}<span class="eb-badge eb-badge--dot eb-badge--warning gap-1.5 whitespace-nowrap">Pending upload{if $st.filename}: {$st.filename|escape}{/if}</span>
                     {else}<span class="eb-badge eb-badge--dot eb-badge--neutral gap-1.5 whitespace-nowrap">Not set</span>{/if}
                   </div>
-                </div>
               </div>
               <div class="md:col-span-2">
                 <label for="eula_text" class="eb-field-label">EULA (Optional)</label>
@@ -241,15 +236,14 @@
                 <div class="mt-2">
                   <label for="eula_file" class="eb-field-label">…or upload EULA file (.rtf/.txt/.pdf)</label>
                   <div class="eb-file-field">
-                    <div class="eb-file-field__control">
-                      <label for="eula_file" class="block cursor-pointer">
-                        <span class="eb-file-field__main flex min-w-0 items-center justify-between gap-3 rounded-xl border border-[var(--eb-border-default)] bg-[var(--eb-bg-input)] px-3 py-2.5 transition hover:border-[var(--eb-border-emphasis)]">
-                          <span class="eb-file-field__button shrink-0 rounded-full border border-[var(--eb-border-default)] bg-[var(--eb-bg-overlay)] px-3 py-1 text-xs font-semibold text-[var(--eb-text-primary)]">Choose file...</span>
-                          <span class="eb-file-field__name min-w-0 truncate text-sm text-[var(--eb-text-muted)]">RTF, TXT, PDF</span>
-                        </span>
-                      </label>
+                    <label for="eula_file" class="eb-file-field__control cursor-pointer">
                       <input type="file" id="eula_file" name="eula_file" accept=".rtf,.txt,.pdf" class="eb-file-field__input eb-file-input sr-only"/>
-                    </div>
+                      <span class="eb-file-field__main">
+                        <span class="eb-file-field__button">Choose file</span>
+                        <span class="eb-file-field__name is-placeholder" data-placeholder="No file selected">No file selected</span>
+                        <span class="eb-file-field__meta">RTF, TXT, PDF</span>
+                      </span>
+                    </label>
                   </div>
                 </div>
                 <p class="eb-field-help">If you provide both EULA text and a file, the file takes precedence.</p>
@@ -323,14 +317,39 @@
             </div>
           </div>
           <div class="space-y-4 px-6 py-6 text-sm">
-            <div class="space-y-1.5">
-              <div class="text-[var(--eb-text-secondary)]">Primary: <span class="font-mono text-[var(--eb-text-primary)]">{$tenant.fqdn}</span></div>
+
+            {* --- Primary domain with health status --- *}
+            <div class="rounded-lg border border-[var(--eb-border-default)] bg-[var(--eb-bg-input)] p-3 space-y-2">
+              <div class="flex items-center justify-between gap-2">
+                <span class="text-xs font-semibold uppercase tracking-wider text-[var(--eb-text-muted)]">Primary</span>
+                <span id="eb-hc-primary-spinner" class="inline-flex items-center gap-1.5 text-xs text-[var(--eb-text-muted)]">
+                  <svg class="animate-spin h-3.5 w-3.5" viewBox="0 0 24 24" aria-hidden="true"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path></svg>
+                  Checking…
+                </span>
+              </div>
+              <div class="font-mono text-[var(--eb-text-primary)]">{$tenant.fqdn}</div>
+              <div id="eb-hc-primary-status" class="flex flex-wrap gap-2 items-center"></div>
+              <div id="eb-hc-primary-details" class="text-xs text-[var(--eb-text-muted)] space-y-0.5"></div>
+            </div>
+
+            {* --- Custom domain with health status --- *}
+            <div id="eb-hc-custom-block" class="rounded-lg border border-[var(--eb-border-default)] bg-[var(--eb-bg-input)] p-3 space-y-2{if !$tenant.custom_domain || $tenant.custom_domain == $tenant.fqdn} hidden{/if}">
+              <div class="flex items-center justify-between gap-2">
+                <span class="text-xs font-semibold uppercase tracking-wider text-[var(--eb-text-muted)]">Custom Domain</span>
+                <span id="eb-hc-custom-spinner" class="inline-flex items-center gap-1.5 text-xs text-[var(--eb-text-muted)]">
+                  <svg class="animate-spin h-3.5 w-3.5" viewBox="0 0 24 24" aria-hidden="true"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path></svg>
+                  Checking…
+                </span>
+              </div>
               <div id="eb-cd-hostname-custom-slot">
                 {if $tenant.custom_domain}
-                  <div class="text-[var(--eb-text-secondary)]">Custom: <span id="eb-cd-custom-label" class="font-mono text-[var(--eb-text-primary)]">{$tenant.custom_domain}</span></div>
+                  <span id="eb-cd-custom-label" class="font-mono text-[var(--eb-text-primary)]">{$tenant.custom_domain}</span>
                 {/if}
               </div>
+              <div id="eb-hc-custom-status" class="flex flex-wrap gap-2 items-center"></div>
+              <div id="eb-hc-custom-details" class="text-xs text-[var(--eb-text-muted)] space-y-0.5"></div>
             </div>
+
             <div>
               <label for="eb-cd-host" class="eb-field-label">Custom Domain (optional)</label>
               <p class="eb-field-help mb-2">Create CNAME <span class="font-mono">backup.acme.com</span> → <span class="font-mono">{$tenant.fqdn}</span>.</p>
@@ -347,7 +366,7 @@
                 {if $tenant.custom_domain}
                   <div class="flex flex-wrap items-center gap-2">
                     <span class="text-sm text-[var(--eb-text-secondary)]">{$tenant.custom_domain}</span>
-                    <span class="eb-badge eb-badge--dot {if $tenant.custom_domain_status=='verified'}eb-badge--success{elseif $tenant.custom_domain_status=='dns_ok'}eb-badge--info{elseif $tenant.custom_domain_status=='cert_ok' || $tenant.custom_domain_status=='org_updated'}eb-badge--warning{elseif $tenant.custom_domain_status=='failed'}eb-badge--danger{else}eb-badge--neutral{/if}">
+                    <span class="eb-badge eb-badge--dot gap-1.5 whitespace-nowrap {if $tenant.custom_domain_status=='verified'}eb-badge--success{elseif $tenant.custom_domain_status=='dns_ok'}eb-badge--info{elseif $tenant.custom_domain_status=='cert_ok' || $tenant.custom_domain_status=='org_updated'}eb-badge--warning{elseif $tenant.custom_domain_status=='failed'}eb-badge--danger{else}eb-badge--neutral{/if}">
                       {if $tenant.custom_domain_status=='verified'}Verified{elseif $tenant.custom_domain_status=='dns_ok'}DNS OK{elseif $tenant.custom_domain_status=='cert_ok'}TLS OK{elseif $tenant.custom_domain_status=='org_updated'}Organization updated{elseif $tenant.custom_domain_status=='failed'}Error{else}Custom Domain not configured{/if}
                     </span>
                   </div>
@@ -358,7 +377,7 @@
                     <p class="eb-field-help !mb-0">Cert expires: {$custom_domain_row.cert_expires_at}</p>
                   {/if}
                 {else}
-                  <span class="eb-badge eb-badge--dot eb-badge--neutral">Not configured</span>
+                  <span class="eb-badge eb-badge--dot eb-badge--neutral gap-1.5 whitespace-nowrap">Not configured</span>
                 {/if}
               </div>
             </div>
@@ -475,7 +494,7 @@
     host.className = 'text-sm text-[var(--eb-text-secondary)]';
     host.textContent = hostname;
     var badge = document.createElement('span');
-    badge.className = badgeCls;
+    badge.className = badgeCls + ' gap-1.5 whitespace-nowrap';
     badge.textContent = badgeTxt;
     row.appendChild(host);
     row.appendChild(badge);
@@ -488,19 +507,119 @@
 
 <script>
 (function(){
+  var hcTid = '{$tenant.public_id|default:""|escape:"javascript"}';
+  var hcUrl = '{$modulelink}&a=whitelabel-branding-healthcheck&tid=' + encodeURIComponent(hcTid);
+
+  function hcBadge(ok, label) {
+    return '<span class="eb-badge eb-badge--dot gap-1.5 whitespace-nowrap ' +
+      (ok ? 'eb-badge--success' : 'eb-badge--danger') + '">' + label + '</span>';
+  }
+  function hcWarnBadge(label) {
+    return '<span class="eb-badge eb-badge--dot gap-1.5 whitespace-nowrap eb-badge--warning">' + label + '</span>';
+  }
+
+  function renderDomain(prefix, data) {
+    var statusEl = document.getElementById('eb-hc-' + prefix + '-status');
+    var detailsEl = document.getElementById('eb-hc-' + prefix + '-details');
+    var spinnerEl = document.getElementById('eb-hc-' + prefix + '-spinner');
+    if (spinnerEl) spinnerEl.style.display = 'none';
+    if (!statusEl || !data) return;
+
+    var badges = '';
+    badges += hcBadge(data.dns_ok, data.dns_ok ? 'DNS OK' : 'DNS Issue');
+    if (data.cert_ok === true) {
+      if (data.cert_days_left !== null && data.cert_days_left <= 14) {
+        badges += hcWarnBadge('Cert expiring');
+      } else {
+        badges += hcBadge(true, 'TLS Valid');
+      }
+    } else if (data.cert_ok === false) {
+      badges += hcBadge(false, 'TLS Issue');
+    } else {
+      badges += '<span class="eb-badge eb-badge--dot gap-1.5 whitespace-nowrap eb-badge--neutral">No Cert</span>';
+    }
+    statusEl.innerHTML = badges;
+
+    var details = [];
+    if (data.dns_resolves) {
+      details.push('Resolves to: <span class="font-mono">' + data.dns_resolves + '</span>');
+    } else if (!data.dns_ok) {
+      details.push('No CNAME record found');
+    }
+    if (data.cert_issuer) {
+      details.push('Issuer: ' + data.cert_issuer);
+    }
+    if (data.cert_expires) {
+      var expiryLabel = 'Expires: ' + data.cert_expires;
+      if (data.cert_days_left !== null) {
+        expiryLabel += ' (' + data.cert_days_left + ' days)';
+      }
+      details.push(expiryLabel);
+    }
+    if (details.length && detailsEl) {
+      detailsEl.innerHTML = details.map(function(d) { return '<div>' + d + '</div>'; }).join('');
+    }
+  }
+
+  function runHealthCheck() {
+    if (!hcTid) return;
+    var x = new XMLHttpRequest();
+    x.open('GET', hcUrl, true);
+    x.onreadystatechange = function() {
+      if (x.readyState !== 4) return;
+      try {
+        var res = JSON.parse(x.responseText || '{}');
+        if (res.ok) {
+          renderDomain('primary', res.primary || null);
+          if (res.custom) {
+            var block = document.getElementById('eb-hc-custom-block');
+            if (block) block.classList.remove('hidden');
+            renderDomain('custom', res.custom);
+          } else {
+            var sp = document.getElementById('eb-hc-custom-spinner');
+            if (sp) sp.style.display = 'none';
+          }
+        } else {
+          var sp1 = document.getElementById('eb-hc-primary-spinner');
+          var sp2 = document.getElementById('eb-hc-custom-spinner');
+          if (sp1) sp1.innerHTML = '<span class="text-[var(--eb-text-danger)]">Check failed</span>';
+          if (sp2) sp2.style.display = 'none';
+        }
+      } catch(e) {
+        var sp1 = document.getElementById('eb-hc-primary-spinner');
+        if (sp1) sp1.innerHTML = '<span class="text-[var(--eb-text-danger)]">Check failed</span>';
+      }
+    };
+    x.send();
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', runHealthCheck, { once: true });
+  } else {
+    runHealthCheck();
+  }
+})();
+</script>
+
+<script>
+(function(){
   function $(id){ return document.getElementById(id); }
   function initFileFields(){
     Array.prototype.forEach.call(document.querySelectorAll('.eb-file-field__control'), function(control){
       var input = control.querySelector('.eb-file-field__input');
       var name = control.querySelector('.eb-file-field__name');
       if (!input || !name) return;
-      var defaultName = (name.textContent || '').trim();
+      var field = control.closest('.eb-file-field');
+      var defaultName = name.getAttribute('data-placeholder') || (name.textContent || '').trim();
       var updateName = function(){
         var label = defaultName;
-        if (input.files && input.files.length > 0) {
+        var hasFiles = input.files && input.files.length > 0;
+        if (hasFiles) {
           label = input.files.length === 1 ? (input.files[0].name || defaultName) : (input.files.length + ' files selected');
         }
         name.textContent = label;
+        name.classList.toggle('is-placeholder', !hasFiles);
+        if (field) field.classList.toggle('is-filled', !!hasFiles);
       };
       input.addEventListener('change', updateName);
       if (input.form) {
@@ -520,11 +639,18 @@
   }
   function bindColorPair(textId, pickerId){
     var t = $(textId), p = $(pickerId); if (!t || !p) return;
+    var sw = document.querySelector('[data-swatch-for="' + pickerId + '"]');
     var lastValid = normalizeHex(t.value || p.value) || normalizeHex(p.value) || '#FFFFFF';
     function applyColor(value){
       lastValid = value;
       t.value = value;
       p.value = value;
+      if (sw) sw.style.background = value;
+    }
+    if (sw) {
+      sw.addEventListener('click', function(){
+        try { p.click(); } catch(e){}
+      });
     }
     // Picker -> Text
     var syncFromPicker = function(){

@@ -148,6 +148,10 @@ add_hook('ClientAreaPage', 1, function ($vars) {
             $s = strtolower(trim((string)$val));
             return in_array($s, ['1','on','yes','true'], true);
         };
+        $showTenantPortal = $get('partnerhub_show_tenant_portal', true);
+        $showTenantPortalBilling = $get('partnerhub_show_tenant_portal_billing', true);
+        $showTenantPortalServices = $get('partnerhub_show_tenant_portal_services', true);
+        $showTenantPortalCloudStorage = $get('partnerhub_show_tenant_portal_cloud_storage', true);
         return [
             'eb_partner_hub_enabled' => $get('partnerhub_nav_enabled', true),
             'eb_ph_show_overview'    => $get('partnerhub_show_overview', true),
@@ -157,6 +161,14 @@ add_hook('ClientAreaPage', 1, function ($vars) {
             'eb_ph_show_money'       => $get('partnerhub_show_money', true),
             'eb_ph_show_stripe'      => $get('partnerhub_show_stripe', true),
             'eb_ph_show_settings'    => $get('partnerhub_show_settings', true),
+            'eb_ph_show_signup_approvals' => $get('partnerhub_show_signup_approvals', true),
+            'eb_ph_show_user_assignments' => $get('partnerhub_show_user_assignments', true),
+            'eb_ph_show_usage_dashboard'  => $get('partnerhub_show_usage_dashboard', true),
+            'eb_ph_show_tenant_portal' => $showTenantPortal
+                && ($showTenantPortalBilling || $showTenantPortalServices || $showTenantPortalCloudStorage),
+            'eb_ph_show_tenant_portal_billing' => $showTenantPortal && $showTenantPortalBilling,
+            'eb_ph_show_tenant_portal_services' => $showTenantPortal && $showTenantPortalServices,
+            'eb_ph_show_tenant_portal_cloud_storage' => $showTenantPortal && $showTenantPortalCloudStorage,
         ];
     } catch (\Throwable $e) {
         return [];

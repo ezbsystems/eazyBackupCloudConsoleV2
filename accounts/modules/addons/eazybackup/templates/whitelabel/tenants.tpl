@@ -248,7 +248,14 @@
                   data-slug="{$tenant.slug|escape}"
                   data-contact-email="{$tenant.contact_email|default:'-'|escape}"
                   data-status="{$tenant.status|escape}"
-                  data-updated="{$tenant.updated_at|default:''|escape}">
+                  data-updated="{$tenant.updated_at|default:''|escape}"
+                  tabindex="0"
+                  role="link"
+                  class="cursor-pointer transition-colors hover:bg-white/5 focus:outline-none focus:ring-1 focus:ring-[var(--eb-border-orange)]"
+                  aria-label="Open tenant {$tenant.name|escape}"
+                  @click="window.location.href='{$modulelink}&a=ph-tenant&id={$tenant.public_id|escape:'url'}'"
+                  @keydown.enter.prevent="window.location.href='{$modulelink}&a=ph-tenant&id={$tenant.public_id|escape:'url'}'"
+                  @keydown.space.prevent="window.location.href='{$modulelink}&a=ph-tenant&id={$tenant.public_id|escape:'url'}'">
                 <td x-show="cols.public_id" class="whitespace-nowrap eb-table-mono">{$tenant.public_id|escape}</td>
                 <td x-show="cols.name" class="whitespace-nowrap eb-table-primary">{$tenant.name|escape}</td>
                 <td x-show="cols.slug" class="whitespace-nowrap">{$tenant.slug|escape}</td>
@@ -256,7 +263,7 @@
                 <td x-show="cols.status" class="whitespace-nowrap">{$tenant.status|escape}</td>
                 <td x-show="cols.updated" class="whitespace-nowrap">{$tenant.updated_at|default:'-'|escape}</td>
                 <td x-show="cols.actions" class="!text-right">
-                  <a class="eb-btn eb-btn-outline eb-btn-xs" href="{$modulelink}&a=ph-tenant&id={$tenant.public_id|escape:'url'}">Manage</a>
+                  <a class="eb-btn eb-btn-outline eb-btn-xs" href="{$modulelink}&a=ph-tenant&id={$tenant.public_id|escape:'url'}" @click.stop>Manage</a>
                 </td>
               </tr>
             {foreachelse}

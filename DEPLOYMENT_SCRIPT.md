@@ -2,6 +2,15 @@
 
 Use this runbook when releasing Tenant v2 canonical ownership changes in environments that run Partner Hub + Cloud Storage.
 
+## Step 1 - Backup `/var/www/eazybackup.ca`
+
+Before starting the rollout, create a full zip backup of `/var/www/eazybackup.ca`. This command writes the final zip file into your current working directory and avoids zipping the archive into itself:
+
+```bash
+sudo tar -czf "/tmp/eazybackup.ca-$(date +%F-%H%M%S).tar.gz" -C /var/www eazybackup.ca
+
+```
+
 ### Deployment Sync Script (existing behavior)
 
 ```bash

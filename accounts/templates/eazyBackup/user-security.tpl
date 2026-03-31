@@ -71,26 +71,30 @@
 
     {include file="$template/clientareasecurity.tpl"}
 
-    <div id="modalAjax" class="modal system-modal fade fixed inset-0 z-50" tabindex="-1" role="dialog" aria-hidden="true" style="display:none;">
+    <div id="modalAjax" class="modal system-modal whmcs-modal fade fixed inset-0 z-50" tabindex="-1" role="dialog" aria-hidden="true" style="display:none;">
         <div class="eb-modal-backdrop absolute inset-0"></div>
 
         <div class="modal-dialog relative mx-auto mt-10 w-full max-w-lg px-4">
-            <div class="modal-content eb-modal">
-                <div class="modal-header eb-modal-header">
+            <div class="modal-content panel-primary eb-modal">
+                <div class="modal-header panel-heading eb-modal-header">
                     <h5 class="modal-title eb-modal-title"></h5>
-                    <button type="button" class="close eb-modal-close" data-dismiss="modal">
+                    <button type="button" class="close eb-modal-close" id="modalAjaxClose" data-dismiss="modal">
                         <span aria-hidden="true">&times;</span>
                         <span class="sr-only">{lang key='close'}</span>
                     </button>
                 </div>
 
-                <div class="modal-body eb-modal-body">
+                <div class="modal-body panel-body eb-modal-body">
                     {lang key='loading'}
                 </div>
 
-                <div class="modal-footer eb-modal-footer">
-                    <button type="button" class="btn-close eb-btn eb-btn-ghost" data-dismiss="modal">{lang key='close'}</button>
-                    <button type="button" class="btn-submit eb-btn eb-btn-primary modal-submit">{lang key='submit'}</button>
+                <div class="modal-footer panel-footer eb-modal-footer">
+                    <div class="loader float-left text-sm">
+                        <i class="fas fa-circle-notch fa-spin"></i>
+                        {lang key='loading'}
+                    </div>
+                    <button type="button" class="btn btn-default btn-close eb-btn eb-btn-ghost" data-dismiss="modal">{lang key='close'}</button>
+                    <button type="button" class="btn btn-primary btn-submit eb-btn eb-btn-primary modal-submit">{lang key='submit'}</button>
                 </div>
             </div>
         </div>
