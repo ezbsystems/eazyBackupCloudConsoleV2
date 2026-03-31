@@ -281,16 +281,9 @@
 
 <!-- Billing Address Modal -->
 <div id="modalBillingAddress" class="fixed inset-0 z-50 hidden overflow-y-auto" aria-labelledby="modalBillingAddressLabel" role="dialog" aria-modal="true">
-    <div class="flex items-center justify-center min-h-screen px-4 text-center sm:block sm:p-0">
-        <!-- Background overlay -->
-        <div class="fixed inset-0 transition-opacity" aria-hidden="true">
-            <div class="eb-modal-backdrop absolute inset-0"></div>
-        </div>
-
-        <!-- Modal panel -->
-        <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
-        <div class="inline-block align-bottom text-left transform transition-all sm:my-8 sm:align-middle sm:max-w-4xl sm:w-full">
-            <form id="billingContactForm" action="{routePath('account-paymentmethods-billing-contacts-create')}" data-role="json-form">
+    <div class="eb-modal-backdrop absolute inset-0" aria-hidden="true"></div>
+    <div class="relative flex min-h-full items-center justify-center px-4 py-8">
+            <form id="billingContactForm" action="{routePath('account-paymentmethods-billing-contacts-create')}" data-role="json-form" class="eb-modal relative mx-auto flex w-full !max-w-4xl flex-col !overflow-visible">
                 <input type="hidden" name="token" value="{$csrfToken}" />
                 <!-- Modal Header -->
                 <div class="eb-modal-header">
@@ -306,7 +299,7 @@
                 </div>
 
                 <!-- Modal Body -->
-                <div class="eb-modal-body">
+                <div class="eb-modal-body overflow-visible">
                     <div class="grid grid-cols-12 gap-6">
                         <!-- Left Column -->
                         <div class="col-span-12 md:col-span-6 space-y-6">
@@ -352,8 +345,45 @@
                                 <label for="inputState" class="eb-field-label">
                                     {lang key='clientareastate'}
                                 </label>
-                                <input type="text" name="state" id="inputState" value="{$contactstate}"
-                                        class="eb-form-control">
+                                <div id="billingStateWrapper"
+                                    class="relative"
+                                    x-data="ebStateSelectMenu({ rootId: 'billingStateWrapper', countryId: 'inputCountry', placeholder: '{lang key='clientareastate'|escape:'javascript'}' })"
+                                    x-init="init()"
+                                    @click.outside="close()"
+                                    @keydown.escape.prevent="close()">
+                                    <input type="text" name="state" id="inputState" value="{$contactstate}" class="eb-form-control">
+                                    <template x-if="hasSelect">
+                                        <div>
+                                            <button type="button"
+                                                class="eb-input relative flex w-full items-center justify-between gap-2 pr-10 text-left"
+                                                @click="toggle()"
+                                                :aria-expanded="open"
+                                                :disabled="disabled">
+                                                <span class="min-w-0 flex-1 truncate" x-text="selectedLabel"></span>
+                                                <svg class="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--eb-text-muted)] transition-transform" :class="open ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                                                    <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+                                                </svg>
+                                            </button>
+                                            <div x-show="open"
+                                                x-transition:enter="transition ease-out duration-100"
+                                                x-transition:enter-start="opacity-0 scale-95"
+                                                x-transition:enter-end="opacity-100 scale-100"
+                                                x-transition:leave="transition ease-in duration-75"
+                                                x-transition:leave-start="opacity-100 scale-100"
+                                                x-transition:leave-end="opacity-0 scale-95"
+                                                class="eb-menu absolute left-0 right-0 z-50 mt-2 overflow-hidden p-2"
+                                                style="display: none;">
+                                                <div class="max-h-64 overflow-y-auto">
+                                                    <template x-for="option in options" :key="'billing-state-' + option.value">
+                                                        <button type="button" class="eb-menu-item w-full" :class="selectedValue === option.value ? 'is-active' : ''" @click="select(option.value)">
+                                                            <span class="min-w-0 flex-1 truncate text-left" x-text="option.label"></span>
+                                                        </button>
+                                                    </template>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </template>
+                                </div>
                             </div>
 
                             {if $showTaxIdField}
@@ -402,14 +432,46 @@
                                 <label for="inputCountry" class="eb-field-label">
                                     {lang key='clientareacountry'}
                                 </label>
-                                <select name="country" id="inputCountry"
-                                        class="eb-select">
-                                    {foreach $countries as $countryCode => $countryName}
-                                        <option value="{$countryCode}"{if ($countryCode == $clientCountry)} selected="selected"{/if}>
-                                            {$countryName}
-                                        </option>
-                                    {/foreach}
-                                </select>
+                                <div class="relative" x-data="ebSelectMenu({ selectId: 'inputCountry', placeholder: '{lang key='clientareacountry'|escape:'javascript'}' })" x-init="init()" @click.outside="close()" @keydown.escape.prevent="close()">
+                                    <select name="country" id="inputCountry" class="sr-only" tabindex="-1" aria-hidden="true">
+                                        {foreach $countries as $countryCode => $countryName}
+                                            <option value="{$countryCode}"{if ($countryCode == $clientCountry)} selected="selected"{/if}>
+                                                {$countryName}
+                                            </option>
+                                        {/foreach}
+                                    </select>
+                                    <button type="button"
+                                        class="eb-input relative flex w-full items-center justify-between gap-2 pr-10 text-left"
+                                        @click="toggle()"
+                                        :aria-expanded="open"
+                                        :disabled="disabled">
+                                        <span class="min-w-0 flex-1 truncate" x-text="selectedLabel"></span>
+                                        <svg class="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--eb-text-muted)] transition-transform" :class="open ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                                            <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+                                        </svg>
+                                    </button>
+                                    <div x-show="open"
+                                        x-transition:enter="transition ease-out duration-100"
+                                        x-transition:enter-start="opacity-0 scale-95"
+                                        x-transition:enter-end="opacity-100 scale-100"
+                                        x-transition:leave="transition ease-in duration-75"
+                                        x-transition:leave-start="opacity-100 scale-100"
+                                        x-transition:leave-end="opacity-0 scale-95"
+                                        class="eb-menu absolute left-0 right-0 z-50 mt-2 overflow-hidden p-2"
+                                        style="display: none;">
+                                        <div class="border-b border-[var(--eb-border-subtle)] pb-2">
+                                            <input type="search" x-model="search" placeholder="Search countries..." class="eb-toolbar-search w-full rounded-[var(--eb-radius-md)] !py-2 text-sm" @click.stop>
+                                        </div>
+                                        <div class="mt-2 max-h-64 overflow-y-auto">
+                                            <template x-for="option in filteredOptions" :key="'billing-country-' + option.value">
+                                                <button type="button" class="eb-menu-item w-full" :class="selectedValue === option.value ? 'is-active' : ''" @click="select(option.value)">
+                                                    <span class="min-w-0 flex-1 truncate text-left" x-text="option.label"></span>
+                                                </button>
+                                            </template>
+                                            <div x-show="filteredOptions.length === 0" class="px-3 py-4 text-center text-xs text-[var(--eb-text-muted)]">No countries match your search.</div>
+                                        </div>
+                                    </div>
+                                </div>
                             </div> 
 
                             <!-- Postcode -->
@@ -434,7 +496,6 @@
                     </button>
                 </div>
             </form>
-        </div>
     </div>
 </div>
 
@@ -443,6 +504,168 @@
 
 <script src="{$BASE_PATH_JS}/jquery.payment.js"></script>
 <script>
+    function ebSelectMenu(config) {
+        return {
+            open: false,
+            search: '',
+            selectId: config.selectId,
+            placeholder: config.placeholder || 'Select an option',
+            selectedValue: '',
+            selectedLabel: config.placeholder || 'Select an option',
+            options: [],
+            disabled: false,
+            init() {
+                const select = document.getElementById(this.selectId);
+                if (!select) {
+                    return;
+                }
+
+                this.disabled = select.disabled;
+                this.options = Array.from(select.options).map(function(option) {
+                    return {
+                        value: option.value,
+                        label: option.text.trim(),
+                        disabled: option.disabled
+                    };
+                }).filter(function(option) {
+                    return !option.disabled;
+                });
+
+                const selectedOption = select.options[select.selectedIndex] || this.options[0] || null;
+                this.selectedValue = selectedOption ? selectedOption.value : '';
+                this.selectedLabel = selectedOption ? selectedOption.text.trim() : this.placeholder;
+            },
+            get filteredOptions() {
+                if (!this.search) {
+                    return this.options;
+                }
+
+                const query = this.search.toLowerCase();
+                return this.options.filter(function(option) {
+                    return option.label.toLowerCase().includes(query);
+                });
+            },
+            toggle() {
+                if (this.disabled) {
+                    return;
+                }
+
+                this.open = !this.open;
+                if (!this.open) {
+                    this.search = '';
+                }
+            },
+            close() {
+                this.open = false;
+                this.search = '';
+            },
+            select(value) {
+                const option = this.options.find(function(item) {
+                    return item.value === value;
+                });
+                const select = document.getElementById(this.selectId);
+
+                if (!option || !select) {
+                    return;
+                }
+
+                this.selectedValue = option.value;
+                this.selectedLabel = option.label;
+                select.value = option.value;
+                select.dispatchEvent(new Event('change', { bubbles: true }));
+                select.dispatchEvent(new Event('input', { bubbles: true }));
+                this.close();
+            }
+        };
+    }
+
+    function ebStateSelectMenu(config) {
+        return {
+            open: false,
+            rootId: config.rootId,
+            countryId: config.countryId,
+            placeholder: config.placeholder || 'Select an option',
+            selectedValue: '',
+            selectedLabel: config.placeholder || 'Select an option',
+            options: [],
+            disabled: false,
+            hasSelect: false,
+            init() {
+                const country = document.getElementById(this.countryId);
+                if (country) {
+                    country.addEventListener('change', () => {
+                        window.setTimeout(() => this.sync(), 50);
+                    });
+                }
+
+                this.sync();
+                window.setTimeout(() => this.sync(), 120);
+            },
+            sync() {
+                const root = document.getElementById(this.rootId);
+                const select = root ? root.querySelector('#stateselect') : null;
+
+                if (!select) {
+                    this.hasSelect = false;
+                    this.options = [];
+                    this.selectedValue = '';
+                    this.selectedLabel = this.placeholder;
+                    this.disabled = false;
+                    this.close();
+                    return;
+                }
+
+                select.classList.add('sr-only');
+                select.setAttribute('tabindex', '-1');
+                select.setAttribute('aria-hidden', 'true');
+
+                this.hasSelect = true;
+                this.disabled = select.disabled;
+                this.options = Array.from(select.options).map(function(option) {
+                    return {
+                        value: option.value,
+                        label: option.text.trim(),
+                        disabled: option.disabled
+                    };
+                }).filter(function(option) {
+                    return !option.disabled;
+                });
+
+                const selectedOption = select.options[select.selectedIndex] || this.options[0] || null;
+                this.selectedValue = selectedOption ? selectedOption.value : '';
+                this.selectedLabel = selectedOption ? selectedOption.text.trim() : this.placeholder;
+            },
+            toggle() {
+                if (this.disabled || !this.hasSelect) {
+                    return;
+                }
+
+                this.open = !this.open;
+            },
+            close() {
+                this.open = false;
+            },
+            select(value) {
+                const root = document.getElementById(this.rootId);
+                const select = root ? root.querySelector('#stateselect') : null;
+                const option = this.options.find(function(item) {
+                    return item.value === value;
+                });
+
+                if (!select || !option) {
+                    return;
+                }
+
+                select.value = option.value;
+                select.dispatchEvent(new Event('change', { bubbles: true }));
+                select.dispatchEvent(new Event('input', { bubbles: true }));
+                this.selectedValue = option.value;
+                this.selectedLabel = option.label;
+                this.close();
+            }
+        };
+    }
+
     // Define helper functions to toggle error messages using Tailwind classes
     jQuery.fn.showInputError = function(errorMessage) {
         if (errorMessage) {
@@ -624,6 +847,9 @@
                                 paymentInitSingleton.set(module, true);
                             }
                             WHMCS.payment.event.gatewaySelected(whmcsPaymentModuleMetadata, module, element);
+                            if (typeof window.ebScheduleStripeDarkTheme === 'function') {
+                                window.ebScheduleStripeDarkTheme();
+                            }
                             showSection('.fieldgroup-auxfields');
                         } else if (response.gatewayType === 'Bank') {
                             showSection('.fieldgroup-bankaccount');
@@ -710,22 +936,42 @@
         return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
     }
 
-    function applyStripeDarkTheme() {
-        var styledAnything = false;
-        var textPrimary = cssVar('--eb-text-primary');
-        var textDisabled = cssVar('--eb-text-disabled');
-        var success = cssVar('--eb-success-icon');
-        var dangerText = cssVar('--eb-danger-text');
-        var bodyFont = cssVar('--eb-font-body') || 'system-ui, sans-serif';
+    function themeColor(name, fallback, lightValue) {
+        var value = cssVar(name);
 
-        if (window.card && typeof card.update === 'function') {
-            card.update({
+        if (!value || (lightValue && value.toLowerCase() === lightValue.toLowerCase())) {
+            return fallback;
+        }
+
+        return value;
+    }
+
+    function getStripeElementHandle(name) {
+        return window[name] && typeof window[name].update === 'function' ? window[name] : null;
+    }
+
+    window.ebApplyStripeDarkTheme = function () {
+        var styledAnything = false;
+        var textPrimary = themeColor('--eb-text-primary', '#eef2f9', '#2b2b2b');
+        var textDisabled = themeColor('--eb-text-muted', '#6d88a8', '#8b8b8b');
+        var success = themeColor('--eb-success-icon', '#22c55e', '#16a34a');
+        var dangerText = themeColor('--eb-danger-text', '#f77070', '#991b1b');
+        var bodyFont = cssVar('--eb-font-body') || 'system-ui, sans-serif';
+        var cardElement = getStripeElementHandle('card');
+        var expiryElement = getStripeElementHandle('cardExpiryElements');
+        var cvcElement = getStripeElementHandle('cardCvcElements');
+
+        if (cardElement) {
+            cardElement.update({
                 style: {
                     base: {
                         color: textPrimary,
                         iconColor: success,
                         '::placeholder': {
                             color: textDisabled
+                        },
+                        ':-webkit-autofill': {
+                            color: textPrimary
                         },
                         fontFamily: bodyFont,
                         fontSize: '14px'
@@ -739,13 +985,16 @@
             styledAnything = true;
         }
 
-        if (window.cardExpiryElements && typeof cardExpiryElements.update === 'function') {
-            cardExpiryElements.update({
+        if (expiryElement) {
+            expiryElement.update({
                 style: {
                     base: {
                         color: textPrimary,
                         '::placeholder': {
                             color: textDisabled
+                        },
+                        ':-webkit-autofill': {
+                            color: textPrimary
                         }
                     },
                     invalid: {
@@ -756,13 +1005,16 @@
             styledAnything = true;
         }
 
-        if (window.cardCvcElements && typeof cardCvcElements.update === 'function') {
-            cardCvcElements.update({
+        if (cvcElement) {
+            cvcElement.update({
                 style: {
                     base: {
                         color: textPrimary,
                         '::placeholder': {
                             color: textDisabled
+                        },
+                        ':-webkit-autofill': {
+                            color: textPrimary
                         }
                     },
                     invalid: {
@@ -774,17 +1026,29 @@
         }
 
         return styledAnything;
-    }
+    };
 
-    if (!applyStripeDarkTheme()) {
+    window.ebScheduleStripeDarkTheme = function () {
         var attempts = 0;
-        var iv = setInterval(function () {
+
+        if (window.ebStripeDarkThemeInterval) {
+            clearInterval(window.ebStripeDarkThemeInterval);
+        }
+
+        if (window.ebApplyStripeDarkTheme()) {
+            return;
+        }
+
+        window.ebStripeDarkThemeInterval = setInterval(function () {
             attempts++;
-            if (applyStripeDarkTheme() || attempts > 40) {
-                clearInterval(iv);
+            if (window.ebApplyStripeDarkTheme() || attempts > 40) {
+                clearInterval(window.ebStripeDarkThemeInterval);
+                window.ebStripeDarkThemeInterval = null;
             }
         }, 250);
-    }
+    };
+
+    window.ebScheduleStripeDarkTheme();
 })();
 </script>
 {/literal}

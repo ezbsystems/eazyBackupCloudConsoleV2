@@ -1231,4 +1231,135 @@ function eazybackup_whitelabel_branding_attachdomain(array $vars)
     }
 }
 
+/**
+ * GET: Health check for primary and custom domain DNS + TLS cert.
+ * Called via AJAX when the branding page loads.
+ */
+function eazybackup_whitelabel_branding_healthcheck(array $vars)
+{
+    header('Content-Type: application/json');
+    try {
+        if (!((int)($_SESSION['uid'] ?? 0) > 0)) {
+            echo json_encode(['ok' => false, 'error' => 'Not authenticated']);
+            return;
+        }
 
+        $tenantId = 0;
+        $tid = strtoupper(trim((string)($_GET['tid'] ?? '')));
+        if ($tid !== '' && preg_match('/^[0-9A-HJ-NP-TV-Z]{26}$/', $tid)) {
+            $trow = Capsule::table('eb_whitelabel_tenants')->where('public_id', $tid)->first();
+            if ($trow) { $tenantId = (int)$trow->id; }
+        }
+        if ($tenantId <= 0) { $tenantId = (int)($_GET['id'] ?? 0); }
+        if ($tenantId <= 0) {
+            echo json_encode(['ok' => false, 'error' => 'Missing tenant']);
+            return;
+        }
+
+        $tenant = Capsule::table('eb_whitelabel_tenants')->where('id', $tenantId)->first();
+        if (!$tenant || (int)$tenant->client_id !== (int)$_SESSION['uid']) {
+            echo json_encode(['ok' => false, 'error' => 'Tenant not found']);
+            return;
+        }
+
+        $fqdn = (string)$tenant->fqdn;
+        $customDomain = trim((string)($tenant->custom_domain ?? ''));
+        $dnsTarget = (string)($vars['whitelabel_dns_target'] ?? '');
+        if ($dnsTarget === '') { $dnsTarget = $fqdn; }
+
+        $result = [
+            'ok' => true,
+            'primary' => _eb_healthcheck_domain($fqdn, $dnsTarget, $vars),
+        ];
+        if ($customDomain !== '' && strcasecmp($customDomain, $fqdn) !== 0) {
+            $result['custom'] = _eb_healthcheck_domain($customDomain, $fqdn, $vars);
+        }
+
+        echo json_encode($result);
+    } catch (\Throwable $e) {
+        $devMode = (int)($vars['whitelabel_dev_mode'] ?? 0) === 1;
+        $msg = 'Server error';
+        if ($devMode) { $msg .= ': ' . $e->getMessage(); }
+        echo json_encode(['ok' => false, 'error' => $msg]);
+    }
+}
+
+/**
+ * Check DNS resolution and TLS certificate for a single hostname.
+ */
+function _eb_healthcheck_domain(string $hostname, string $expectedCname, array $vars): array
+{
+    $out = [
+        'hostname' => $hostname,
+        'dns_ok' => false,
+        'dns_resolves' => null,
+        'cert_ok' => false,
+        'cert_issuer' => null,
+        'cert_expires' => null,
+        'cert_days_left' => null,
+    ];
+
+    // --- DNS check ---
+    $answers = @dns_get_record($hostname, DNS_CNAME) ?: [];
+    $cnames = [];
+    foreach ($answers as $a) {
+        if (isset($a['target'])) { $cnames[] = rtrim(strtolower((string)$a['target']), '.'); }
+    }
+    $expectedLower = rtrim(strtolower($expectedCname), '.');
+    $out['dns_resolves'] = !empty($cnames) ? $cnames[0] : null;
+    $out['dns_ok'] = in_array($expectedLower, $cnames, true);
+
+    if (!$out['dns_ok']) {
+        try {
+            $hop = new \EazyBackup\Whitelabel\HostOps($vars);
+            foreach (['1.1.1.1', '8.8.8.8'] as $resolver) {
+                $res = $hop->dig($hostname, $resolver, 'CNAME');
+                if (is_array($res) && !empty($res['answer'])) {
+                    $ans = rtrim(strtolower((string)$res['answer']), '.');
+                    if ($out['dns_resolves'] === null) { $out['dns_resolves'] = $ans; }
+                    if ($ans === $expectedLower) { $out['dns_ok'] = true; break; }
+                }
+            }
+        } catch (\Throwable $_) {}
+    }
+
+    // --- TLS cert check ---
+    $ctx = stream_context_create([
+        'ssl' => [
+            'capture_peer_cert' => true,
+            'verify_peer' => false,
+            'verify_peer_name' => false,
+            'SNI_enabled' => true,
+            'peer_name' => $hostname,
+        ],
+    ]);
+
+    $errno = 0;
+    $errstr = '';
+    $conn = @stream_socket_client(
+        'ssl://' . $hostname . ':443',
+        $errno, $errstr, 8,
+        STREAM_CLIENT_CONNECT,
+        $ctx
+    );
+
+    if ($conn) {
+        $params = stream_context_get_params($conn);
+        fclose($conn);
+        if (!empty($params['options']['ssl']['peer_certificate'])) {
+            $certInfo = openssl_x509_parse($params['options']['ssl']['peer_certificate']);
+            if ($certInfo) {
+                $validTo = (int)($certInfo['validTo_time_t'] ?? 0);
+                $issuer = (string)($certInfo['issuer']['O'] ?? $certInfo['issuer']['CN'] ?? 'Unknown');
+                $daysLeft = $validTo > 0 ? (int)floor(($validTo - time()) / 86400) : null;
+
+                $out['cert_ok'] = $validTo > time();
+                $out['cert_issuer'] = $issuer;
+                $out['cert_expires'] = $validTo > 0 ? date('Y-m-d', $validTo) : null;
+                $out['cert_days_left'] = $daysLeft;
+            }
+        }
+    }
+
+    return $out;
+}

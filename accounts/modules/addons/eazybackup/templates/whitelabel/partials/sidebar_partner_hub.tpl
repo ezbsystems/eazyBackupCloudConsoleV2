@@ -45,28 +45,34 @@
                 <span x-show="!sidebarCollapsed" x-transition.opacity>White-Label Tenants</span>
             </button>
 
+            {if !isset($eb_ph_show_signup_approvals) || $eb_ph_show_signup_approvals}
             <button type="button" @click="window.location.href='{$WEB_ROOT}/index.php?m=eazybackup&amp;a=ph-signup-approvals'" class="eb-sidebar-link w-full cursor-pointer text-left {if $ebPhSidebarPage eq 'signup-approvals'}is-active{/if}" :class="sidebarCollapsed && 'justify-center px-4'" :title="sidebarCollapsed ? 'Signup Approvals' : ''">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
                 </svg>
                 <span x-show="!sidebarCollapsed" x-transition.opacity>Signup Approvals</span>
             </button>
+            {/if}
 
             {* Task 12: hide the legacy Storage Users (e3) sidebar entry. *}
 
+            {if !isset($eb_ph_show_user_assignments) || $eb_ph_show_user_assignments}
             <button type="button" @click="window.location.href='{$WEB_ROOT}/index.php?m=eazybackup&amp;a=ph-user-assignments'" class="eb-sidebar-link w-full cursor-pointer text-left {if $ebPhSidebarPage eq 'user-assignments'}is-active{/if}" :class="sidebarCollapsed && 'justify-center px-4'" :title="sidebarCollapsed ? 'User Assignments' : ''">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 0 0 3.75 1.03m-3.75-1.03a9.094 9.094 0 0 1-3.75 1.03m7.5-1.03a9.094 9.094 0 0 0-7.5 0m7.5 0A9.094 9.094 0 0 0 12 15.75a9.094 9.094 0 0 0-3.75 2.97m0 0A9.094 9.094 0 0 1 4.5 19.75m3.75-1.03a9.094 9.094 0 0 0-3.75-1.03m3.75 1.03A9.094 9.094 0 0 1 12 15.75m0 0a3.75 3.75 0 1 0 0-7.5 3.75 3.75 0 0 0 0 7.5Z" />
                 </svg>
                 <span x-show="!sidebarCollapsed" x-transition.opacity>User Assignments</span>
             </button>
+            {/if}
 
+            {if !isset($eb_ph_show_usage_dashboard) || $eb_ph_show_usage_dashboard}
             <button type="button" @click="window.location.href='{$WEB_ROOT}/index.php?m=eazybackup&amp;a=ph-usage-dashboard'" class="eb-sidebar-link w-full cursor-pointer text-left {if $ebPhSidebarPage eq 'usage-dashboard'}is-active{/if}" :class="sidebarCollapsed && 'justify-center px-4'" :title="sidebarCollapsed ? 'Usage' : ''">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M3 3v18h18M7.5 15.75l3-3 2.25 2.25 4.5-6" />
                 </svg>
                 <span x-show="!sidebarCollapsed" x-transition.opacity>Usage</span>
             </button>
+            {/if}
 
             {if !isset($eb_ph_show_catalog) || $eb_ph_show_catalog}
             <div x-data="{ catalogOpen: {if $catalogGroupActive}true{else}false{/if} }" class="space-y-0">
@@ -216,6 +222,7 @@
             </div>
             {/if}
 
+            {if !isset($eb_ph_show_tenant_portal) || $eb_ph_show_tenant_portal}
             <div x-data="{ portalOpen: false }" class="space-y-0">
                 <button type="button" @click="portalOpen = !portalOpen" class="eb-sidebar-link w-full cursor-pointer text-left" :class="sidebarCollapsed && 'justify-center px-4'" :title="sidebarCollapsed ? 'Tenant Portal' : ''">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
@@ -225,26 +232,33 @@
                     <svg x-show="!sidebarCollapsed" x-transition.opacity class="eb-sidebar-chevron transition-transform duration-200" :class="portalOpen && 'rotate-180'" xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg>
                 </button>
                 <div x-show="portalOpen" x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100" x-transition:leave="transition ease-in duration-150" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0" class="transition-all duration-300" :class="sidebarCollapsed ? 'eb-sidebar-subnav--collapsed' : 'eb-sidebar-subnav'">
+                    {if !isset($eb_ph_show_tenant_portal_billing) || $eb_ph_show_tenant_portal_billing}
                     <button type="button" @click="window.location.href='{$WEB_ROOT}/portal/index.php?page=billing'" class="eb-sidebar-sublink w-full min-w-0 cursor-pointer text-left" :class="sidebarCollapsed && 'justify-center px-2'" :title="sidebarCollapsed ? 'Billing' : ''">
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 0 0 2.25-2.25V6.75A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25v10.5A2.25 2.25 0 0 0 4.5 19.5Z" />
                         </svg>
                         <span x-show="!sidebarCollapsed" x-transition.opacity class="min-w-0">Billing</span>
                     </button>
+                    {/if}
+                    {if !isset($eb_ph_show_tenant_portal_services) || $eb_ph_show_tenant_portal_services}
                     <button type="button" @click="window.location.href='{$WEB_ROOT}/portal/index.php?page=services'" class="eb-sidebar-sublink w-full min-w-0 cursor-pointer text-left" :class="sidebarCollapsed && 'justify-center px-2'" :title="sidebarCollapsed ? 'Services' : ''">
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6ZM3.75 15.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25Z" />
                         </svg>
                         <span x-show="!sidebarCollapsed" x-transition.opacity class="min-w-0">Services</span>
                     </button>
+                    {/if}
+                    {if !isset($eb_ph_show_tenant_portal_cloud_storage) || $eb_ph_show_tenant_portal_cloud_storage}
                     <button type="button" @click="window.location.href='{$WEB_ROOT}/portal/index.php?page=cloud_storage'" class="eb-sidebar-sublink w-full min-w-0 cursor-pointer text-left" :class="sidebarCollapsed && 'justify-center px-2'" :title="sidebarCollapsed ? 'Cloud Storage' : ''">
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
                         </svg>
                         <span x-show="!sidebarCollapsed" x-transition.opacity class="min-w-0">Cloud Storage</span>
                     </button>
+                    {/if}
                 </div>
             </div>
+            {/if}
 
             <div class="eb-sidebar-divider"></div>
 

@@ -14,20 +14,16 @@
 * ******************************************************************** */
 add_hook('ClientAreaFooterOutput', 1, function ($vars) {
     if (defined('CLIENTAREA') && CLIENTAREA == 1) {
-        // Limit to contacts/sub-accounts & user/user-permissions pages only
         $tpl = isset($vars['templatefile']) ? (string)$vars['templatefile'] : '';
 
-        // Target templates:
-        // - Contacts/sub-accounts management
-        // - User management (invite form)
-        // - User permissions pages
         $isTargetPage = in_array($tpl, [
             'account-contacts-manage',
+            'account-contacts-new',
             'clientareacontacts',
             'contacts',
-            'account-user-management',    // Users page (invite permissions)
-            'account-user-permissions',   // Older/singular naming
-            'account-users-permissions',  // Newer/plural naming used by routePath('account-users-permissions', ...)
+            'account-user-management',
+            'account-user-permissions',
+            'account-users-permissions',
         ], true);
 
         if (!$isTargetPage) {
@@ -41,27 +37,76 @@ add_hook('ClientAreaFooterOutput', 1, function ($vars) {
             return '';
         }
 
-        // Vanilla JS (no jQuery) to remove domain-related permission inputs from both
-        // Contacts and Users templates
         return '<script>
-document.addEventListener("DOMContentLoaded", function () {
+function hideDomainPermissionFields() {
   var selectors = [
     "input[name=\"perms[managedomains]\"]",
     "input[name=\"perms[domains]\"]",
+    "input[name=\"perms[affiliate]\"]",
+    "input[name=\"perms[affiliates]\"]",
     "input[name=\"email_preferences[domain]\"]"
   ];
-  selectors.forEach(function (sel) {
-    var inputs = document.querySelectorAll(sel);
-    if (!inputs.length) return;
-    inputs.forEach(function (input) {
-      var parent = input.parentElement;
-      if (parent && parent.previousElementSibling && parent.previousElementSibling.tagName === "BR") {
-        parent.previousElementSibling.remove();
-      }
-      if (parent) parent.remove();
+  var titlePatterns = [
+    /^view domains$/i,
+    /^manage domain settings$/i,
+    /^view\s*(?:&|and)\s*manage affiliate account$/i
+  ];
+
+  function removeNode(node) {
+    if (!node || !node.parentNode) {
+      return;
+    }
+    node.parentNode.removeChild(node);
+  }
+
+  function removePermissionContainer(input) {
+    var container = input.closest(".eb-choice-card")
+      || input.closest("label")
+      || input.closest(".form-group")
+      || input.closest("tr");
+
+    if (container) {
+      removeNode(container);
+      return true;
+    }
+
+    if (input.parentElement) {
+      removeNode(input.parentElement);
+      return true;
+    }
+
+    return false;
+  }
+
+  selectors.forEach(function (selector) {
+    document.querySelectorAll(selector).forEach(function (input) {
+      removePermissionContainer(input);
     });
   });
-});
+
+  document.querySelectorAll(".eb-choice-card, label, tr, .form-group").forEach(function (node) {
+    var titleNode = node.querySelector(".eb-choice-card-title");
+    var text = titleNode ? titleNode.textContent.trim() : node.textContent.trim();
+
+    if (!text) {
+      return;
+    }
+
+    var shouldHide = titlePatterns.some(function (pattern) {
+      return pattern.test(text);
+    });
+
+    if (shouldHide) {
+      removeNode(node);
+    }
+  });
+}
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", hideDomainPermissionFields);
+} else {
+  hideDomainPermissionFields();
+}
 </script>';
     }
 });
