@@ -3299,7 +3299,7 @@ function eazybackup_partnerhub_hidden_redirect_url(array $vars): string
         return $base . '&a=ph-overview&error=page_disabled';
     }
 
-    return $base . '&a=ph-tenants-manage&error=page_disabled';
+    return $base . '&a=whitelabel-branding&error=page_disabled';
 }
 
 function eazybackup_partnerhub_block_hidden_page(array $vars, string $pageKey, string $responseType = 'redirect'): void
@@ -4616,6 +4616,11 @@ function eazybackup_clientarea(array $vars)
         require_once __DIR__ . '/pages/whitelabel/EmailTemplatesController.php';
         return eazybackup_whitelabel_email_template_edit($vars);
     } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-overview') {
+        if (!eazybackup_addon_bool_setting('partnerhub_show_overview', true)) {
+            $base = (string)($vars['modulelink'] ?? 'index.php?m=eazybackup');
+            header('Location: ' . $base . '&a=whitelabel-branding');
+            exit;
+        }
         require_once __DIR__ . '/pages/partnerhub/OverviewController.php';
         return eb_ph_overview_index($vars);
     } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-overview-notice-dismiss') {

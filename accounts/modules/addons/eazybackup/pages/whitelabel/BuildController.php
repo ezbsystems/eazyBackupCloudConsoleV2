@@ -1353,13 +1353,57 @@ function _eb_healthcheck_domain(string $hostname, string $expectedCname, array $
                 $issuer = (string)($certInfo['issuer']['O'] ?? $certInfo['issuer']['CN'] ?? 'Unknown');
                 $daysLeft = $validTo > 0 ? (int)floor(($validTo - time()) / 86400) : null;
 
-                $out['cert_ok'] = $validTo > time();
+                $hostnameMatch = _eb_cert_covers_hostname($certInfo, $hostname);
+
+                $out['cert_ok'] = $hostnameMatch && $validTo > time();
                 $out['cert_issuer'] = $issuer;
                 $out['cert_expires'] = $validTo > 0 ? date('Y-m-d', $validTo) : null;
                 $out['cert_days_left'] = $daysLeft;
+                if (!$hostnameMatch) {
+                    $cn = (string)($certInfo['subject']['CN'] ?? '');
+                    $out['cert_mismatch'] = 'Certificate is for ' . $cn . ', not ' . $hostname;
+                }
             }
         }
     }
 
     return $out;
+}
+
+/**
+ * Check whether a parsed certificate covers the given hostname.
+ * Matches against Subject CN and all DNS entries in subjectAltName.
+ * Supports wildcard certs (e.g. *.example.com matches foo.example.com).
+ */
+function _eb_cert_covers_hostname(array $certInfo, string $hostname): bool
+{
+    $hostname = strtolower(trim($hostname));
+    if ($hostname === '') { return false; }
+
+    $names = [];
+    $cn = strtolower(trim((string)($certInfo['subject']['CN'] ?? '')));
+    if ($cn !== '') { $names[] = $cn; }
+
+    if (!empty($certInfo['extensions']['subjectAltName'])) {
+        $sans = explode(',', (string)$certInfo['extensions']['subjectAltName']);
+        foreach ($sans as $san) {
+            $san = trim($san);
+            if (stripos($san, 'DNS:') === 0) {
+                $names[] = strtolower(trim(substr($san, 4)));
+            }
+        }
+    }
+
+    foreach ($names as $pattern) {
+        if ($pattern === $hostname) { return true; }
+        if (strpos($pattern, '*.') === 0) {
+            $wildSuffix = substr($pattern, 1);
+            $hostSuffix = substr($hostname, strpos($hostname, '.') ?: 0);
+            if (strcasecmp($wildSuffix, $hostSuffix) === 0 && substr_count($hostname, '.') === substr_count($pattern, '.')) {
+                return true;
+            }
+        }
+    }
+
+    return false;
 }
