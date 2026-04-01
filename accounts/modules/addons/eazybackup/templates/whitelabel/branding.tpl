@@ -534,7 +534,7 @@
         badges += hcBadge(true, 'TLS Valid');
       }
     } else if (data.cert_ok === false) {
-      badges += hcBadge(false, 'TLS Issue');
+      badges += hcBadge(false, data.cert_mismatch ? 'TLS Mismatch' : 'TLS Issue');
     } else {
       badges += '<span class="eb-badge eb-badge--dot gap-1.5 whitespace-nowrap eb-badge--neutral">No Cert</span>';
     }
@@ -546,7 +546,9 @@
     } else if (!data.dns_ok) {
       details.push('No CNAME record found');
     }
-    if (data.cert_issuer) {
+    if (data.cert_mismatch) {
+      details.push('<span class="text-[var(--eb-text-danger)]">' + data.cert_mismatch + '</span>');
+    } else if (data.cert_issuer) {
       details.push('Issuer: ' + data.cert_issuer);
     }
     if (data.cert_expires) {
