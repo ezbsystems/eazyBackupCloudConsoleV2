@@ -76,7 +76,9 @@ $rows = $base->orderByRaw($sortCol . ' ' . $dir)
     ->offset(($page - 1) * $perPage)
     ->limit($perPage)
     ->get([
-    't.id','t.client_id','t.fqdn','t.custom_domain','t.status','t.created_at','c.firstname','c.lastname','c.email'
+    't.id','t.client_id','t.fqdn','t.custom_domain','t.status','t.created_at',
+    't.comet_admin_user','t.comet_admin_pass_enc','t.org_id','t.subdomain',
+    'c.firstname','c.lastname','c.email','c.companyname'
 ]);
 
 ob_start();
@@ -135,6 +137,25 @@ ob_start();
             <td><?php echo $e((string)$r->status); ?></td>
             <td><span class="text-muted small"><?php echo $e((string)$r->created_at); ?></span></td>
             <td class="text-right">
+              <?php
+                $decryptedPass = '';
+                if (!empty($r->comet_admin_pass_enc) && function_exists('decrypt')) {
+                    try { $decryptedPass = decrypt($r->comet_admin_pass_enc); } catch (\Throwable $ex) { $decryptedPass = '(decryption failed)'; }
+                }
+              ?>
+              <button type="button" class="btn btn-info btn-xs" onclick="ebWlManage(<?php echo (int)$r->id; ?>)">Manage</button>
+              <div id="eb-wl-data-<?php echo (int)$r->id; ?>" style="display:none"
+                   data-client-id="<?php echo (int)$r->client_id; ?>"
+                   data-client-name="<?php echo $e(trim($r->firstname.' '.$r->lastname)); ?>"
+                   data-client-email="<?php echo $e((string)$r->email); ?>"
+                   data-client-company="<?php echo $e((string)($r->companyname ?? '')); ?>"
+                   data-fqdn="<?php echo $e((string)$r->fqdn); ?>"
+                   data-custom-domain="<?php echo $e((string)($r->custom_domain ?? '')); ?>"
+                   data-org-id="<?php echo $e((string)($r->org_id ?? '')); ?>"
+                   data-status="<?php echo $e((string)$r->status); ?>"
+                   data-comet-user="<?php echo $e((string)($r->comet_admin_user ?? '')); ?>"
+                   data-comet-pass="<?php echo $e($decryptedPass); ?>"
+              ></div>
               <form method="post" style="display:inline-block;margin:0;padding:0">
                 <?php echo function_exists('generate_token') ? generate_token('input') : ''; ?>
                 <input type="hidden" name="id" value="<?php echo (int)$r->id; ?>"/>
@@ -185,6 +206,87 @@ ob_start();
     </div>
   </div>
 </div>
+
+<!-- Manage Tenant Modal -->
+<div class="modal fade" id="ebWlManageModal" tabindex="-1" role="dialog">
+  <div class="modal-dialog" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
+        <h4 class="modal-title">Manage White-Label Tenant</h4>
+      </div>
+      <div class="modal-body">
+        <h5 style="margin-top:0;margin-bottom:12px;font-weight:600">WHMCS Client</h5>
+        <table class="table table-condensed" style="margin-bottom:20px">
+          <tr><th style="width:140px">Client ID</th><td id="ebWlMClientId"></td></tr>
+          <tr><th>Name</th><td id="ebWlMClientName"></td></tr>
+          <tr><th>Company</th><td id="ebWlMClientCompany"></td></tr>
+          <tr><th>Email</th><td id="ebWlMClientEmail"></td></tr>
+        </table>
+        <h5 style="margin-bottom:12px;font-weight:600">Tenant Details</h5>
+        <table class="table table-condensed" style="margin-bottom:20px">
+          <tr><th style="width:140px">Tenant ID</th><td id="ebWlMTenantId"></td></tr>
+          <tr><th>FQDN</th><td id="ebWlMFqdn"></td></tr>
+          <tr><th>Custom Domain</th><td id="ebWlMCustomDomain"></td></tr>
+          <tr><th>Org ID</th><td id="ebWlMOrgId"></td></tr>
+          <tr><th>Status</th><td id="ebWlMStatus"></td></tr>
+        </table>
+        <h5 style="margin-bottom:12px;font-weight:600">Comet Tenant Admin</h5>
+        <table class="table table-condensed" style="margin-bottom:0">
+          <tr><th style="width:140px">Username</th><td id="ebWlMCometUser" style="font-family:monospace"></td></tr>
+          <tr>
+            <th>Password</th>
+            <td>
+              <code id="ebWlMCometPass" style="user-select:all;cursor:pointer"></code>
+              <button type="button" class="btn btn-default btn-xs" style="margin-left:8px" onclick="ebWlCopyPass()" title="Copy to clipboard">
+                <i class="fas fa-copy"></i> Copy
+              </button>
+            </td>
+          </tr>
+        </table>
+      </div>
+      <div class="modal-footer">
+        <a id="ebWlMClientLink" href="#" target="_blank" class="btn btn-primary btn-sm">View Client in WHMCS</a>
+        <button type="button" class="btn btn-default btn-sm" data-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function ebWlManage(tenantId) {
+    var d = document.getElementById('eb-wl-data-' + tenantId);
+    if (!d) return;
+    document.getElementById('ebWlMClientId').textContent = d.getAttribute('data-client-id');
+    document.getElementById('ebWlMClientName').textContent = d.getAttribute('data-client-name');
+    document.getElementById('ebWlMClientCompany').textContent = d.getAttribute('data-client-company') || '—';
+    document.getElementById('ebWlMClientEmail').textContent = d.getAttribute('data-client-email');
+    document.getElementById('ebWlMTenantId').textContent = tenantId;
+    document.getElementById('ebWlMFqdn').textContent = d.getAttribute('data-fqdn');
+    document.getElementById('ebWlMCustomDomain').textContent = d.getAttribute('data-custom-domain') || '—';
+    document.getElementById('ebWlMOrgId').textContent = d.getAttribute('data-org-id') || '—';
+    document.getElementById('ebWlMStatus').textContent = d.getAttribute('data-status');
+    document.getElementById('ebWlMCometUser').textContent = d.getAttribute('data-comet-user') || '—';
+    document.getElementById('ebWlMCometPass').textContent = d.getAttribute('data-comet-pass') || '—';
+    document.getElementById('ebWlMClientLink').href = 'clientssummary.php?userid=' + d.getAttribute('data-client-id');
+    jQuery('#ebWlManageModal').modal('show');
+}
+function ebWlCopyPass() {
+    var pw = document.getElementById('ebWlMCometPass').textContent;
+    if (pw && pw !== '—') {
+        if (navigator.clipboard) {
+            navigator.clipboard.writeText(pw);
+        } else {
+            var t = document.createElement('textarea');
+            t.value = pw;
+            document.body.appendChild(t);
+            t.select();
+            document.execCommand('copy');
+            document.body.removeChild(t);
+        }
+    }
+}
+</script>
 <?php
 return ob_get_clean();
 

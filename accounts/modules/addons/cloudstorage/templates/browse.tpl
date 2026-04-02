@@ -1,15 +1,13 @@
 <!-- accounts\modules\addons\cloudstorage\templates\browse.tpl -->
-<div class="min-h-screen bg-slate-950 text-gray-300">
+<script src="{$WEB_ROOT}/modules/addons/eazybackup/templates/assets/js/ui.js"></script>
+<div class="eb-page">
     {* <div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,_#1f293780,_transparent_60%)]"></div> *}
-    <div class="container mx-auto px-4 pt-6 relative pointer-events-auto">
+    <div class="eb-page-inner max-w-full pb-10 pt-6">
         <!-- Loading Overlay -->
-        <div id="loading-overlay" class="fixed inset-0 bg-slate-900/90 flex items-center justify-center z-50 hidden">
-            <div class="flex items-center">
-                <div class="text-slate-200 text-lg">Loading...</div>
-                <svg class="animate-spin h-8 w-8 text-slate-200 ml-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
-                </svg>
+        <div id="loading-overlay" class="eb-loading-overlay hidden" style="z-index: 50;">
+            <div class="eb-loading-card">
+                <span class="eb-loading-spinner"></span>
+                <div class="eb-type-body">Loading...</div>
             </div>
         </div>
 
@@ -21,564 +19,480 @@
             <!-- Removed: New Virtual Grid (Tailwind + Alpine) -->
 
     <!-- Create Folder Modal -->
-    <div id="createFolderModal" class="fixed inset-0 flex items-center justify-center bg-gray-900/75 hidden z-50">
-        <div class="bg-slate-900 rounded-lg shadow-lg w-11/12 md:w-1/3 border border-slate-700">
-            <div class="flex justify-between items-center px-6 py-4 border-b border-slate-700">
-                <h5 class="text-lg font-semibold text-white">Create folder</h5>
-                <button type="button" class="text-slate-400 hover:text-slate-300 focus:outline-none" onclick="toggleCreateFolderModal(false)" aria-label="Close">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                </button>
-            </div>
-            <div class="px-6 py-4 space-y-2">
-                <label class="block text-sm text-slate-300 mb-1">Folder name</label>
-                <input type="text" id="newFolderName" class="w-full bg-gray-700 text-gray-300 border border-gray-600 rounded-md px-3 py-2 focus:outline-none focus:border-sky-600" placeholder="reports_2025" />
-                <div id="createFolderMsg" class="text-xs text-slate-300"></div>
-            </div>
-            <div class="px-6 py-4 flex justify-end gap-2">
-                <button type="button" class="bg-gray-700 hover:bg-gray-600 text-gray-200 px-4 py-2 rounded-md" onclick="toggleCreateFolderModal(false)">Cancel</button>
-                <button type="button" class="btn-run-now" onclick="createFolder()">Create</button>
+    <div id="createFolderModal" class="fixed inset-0 z-50 hidden overflow-y-auto" role="dialog" aria-modal="true" aria-labelledby="createFolderModalTitle">
+        <div class="eb-modal-backdrop absolute inset-0" onclick="toggleCreateFolderModal(false)"></div>
+        <div class="relative flex min-h-full items-center justify-center px-4 py-8">
+            <div class="eb-modal">
+                <div class="eb-modal-header">
+                    <h5 class="eb-modal-title" id="createFolderModalTitle">Create Folder</h5>
+                    <button type="button" class="eb-modal-close" onclick="toggleCreateFolderModal(false)" aria-label="Close">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                    </button>
+                </div>
+                <div class="eb-modal-body space-y-3">
+                    <label for="newFolderName" class="eb-field-label">Folder Name</label>
+                    <input type="text" id="newFolderName" class="eb-input" placeholder="reports_2025" />
+                    <div id="createFolderMsg" class="text-xs text-[var(--eb-text-muted)]"></div>
+                </div>
+                <div class="eb-modal-footer">
+                    <button type="button" class="eb-btn eb-btn-ghost eb-btn-sm" onclick="toggleCreateFolderModal(false)">Cancel</button>
+                    <button type="button" class="eb-btn eb-btn-primary eb-btn-sm" onclick="createFolder()">Create</button>
+                </div>
             </div>
         </div>
     </div>
     <!-- Copy URL Modal -->
-    <div id="copyUrlModal" class="fixed inset-0 flex items-center justify-center bg-black/75 hidden z-50">
-        <div class="bg-slate-900 rounded-lg shadow-lg w-11/12 md:w-2/3 border border-slate-700">
-            <div class="flex justify-between items-center px-6 py-4 border-b border-slate-700">
-                <h5 class="text-lg font-semibold text-white">Selected URLs</h5>
-                <button type="button" class="text-slate-400 hover:text-slate-300 focus:outline-none" onclick="toggleCopyUrlModal(false)" aria-label="Close">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                </button>
-            </div>
-            <div class="px-6 py-4">
-                <textarea id="copyUrlTextarea" class="w-full h-56 bg-gray-800 text-gray-200 border border-gray-700 rounded-md p-3 font-mono text-xs"></textarea>
-            </div>
-            <div class="px-6 py-4 flex justify-end gap-2">
-                <button type="button" class="bg-gray-700 hover:bg-gray-600 text-gray-200 px-4 py-2 rounded-md" onclick="toggleCopyUrlModal(false)">Close</button>
-                <button type="button" class="btn-run-now" onclick="copyToClipboard(document.getElementById('copyUrlTextarea').value)">Copy All</button>
+    <div id="copyUrlModal" class="fixed inset-0 z-50 hidden overflow-y-auto" role="dialog" aria-modal="true" aria-labelledby="copyUrlModalTitle">
+        <div class="eb-modal-backdrop absolute inset-0" onclick="toggleCopyUrlModal(false)"></div>
+        <div class="relative flex min-h-full items-center justify-center px-4 py-8">
+            <div class="eb-modal !max-w-3xl">
+                <div class="eb-modal-header">
+                    <h5 class="eb-modal-title" id="copyUrlModalTitle">Selected URLs</h5>
+                    <button type="button" class="eb-modal-close" onclick="toggleCopyUrlModal(false)" aria-label="Close">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                    </button>
+                </div>
+                <div class="eb-modal-body">
+                    <textarea id="copyUrlTextarea" class="eb-textarea h-56 font-mono text-xs"></textarea>
+                </div>
+                <div class="eb-modal-footer">
+                    <button type="button" class="eb-btn eb-btn-ghost eb-btn-sm" onclick="toggleCopyUrlModal(false)">Close</button>
+                    <button type="button" class="eb-btn eb-btn-primary eb-btn-sm" onclick="copyToClipboard(document.getElementById('copyUrlTextarea').value)">Copy All</button>
+                </div>
             </div>
         </div>
     </div>
 
     <!-- Delete Selected Items Modal -->
-    <div id="deleteSelectedModal" class="fixed inset-0 hidden z-50 flex items-center justify-center bg-black/75 p-4" role="dialog" aria-modal="true" aria-labelledby="deleteSelectedTitle">
-        <div class="absolute inset-0" onclick="toggleDeleteSelectedModal(false)"></div>
-        <div class="relative w-full max-w-lg rounded-lg border border-slate-700 bg-slate-900 shadow-lg">
-                <div class="flex justify-between items-center px-6 py-4 border-b border-slate-700">
-                    <h5 id="deleteSelectedTitle" class="text-lg font-semibold text-white">Delete selected items?</h5>
-                    <button type="button" class="text-slate-400 hover:text-slate-300 focus:outline-none" onclick="toggleDeleteSelectedModal(false)" aria-label="Close">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <div id="deleteSelectedModal" class="fixed inset-0 z-50 hidden overflow-y-auto" role="dialog" aria-modal="true" aria-labelledby="deleteSelectedTitle">
+        <div class="eb-modal-backdrop absolute inset-0" onclick="toggleDeleteSelectedModal(false)"></div>
+        <div class="relative flex min-h-full items-center justify-center px-4 py-8">
+            <div class="eb-modal eb-modal--confirm">
+                <div class="eb-modal-header">
+                    <h5 id="deleteSelectedTitle" class="eb-modal-title">Delete selected items?</h5>
+                    <button type="button" class="eb-modal-close" onclick="toggleDeleteSelectedModal(false)" aria-label="Close">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
                         </svg>
                     </button>
                 </div>
-                <div class="px-6 py-4 space-y-2">
-                    <p class="text-sm text-slate-300">
-                        This will permanently delete <span id="deleteSelectedCount" class="font-semibold text-slate-100">0</span>
+                <div class="eb-modal-body space-y-2">
+                    <p class="text-sm text-[var(--eb-text-secondary)]">
+                        This will permanently delete <span id="deleteSelectedCount" class="font-semibold text-[var(--eb-text-primary)]">0</span>
                         selected item(s). This action cannot be undone.
                     </p>
-                    <p class="text-xs text-slate-400">Tip: folders are deleted by prefix and may take a moment to propagate.</p>
+                    <p class="text-xs text-[var(--eb-text-muted)]">Tip: folders are deleted by prefix and may take a moment to propagate.</p>
                 </div>
-                <div class="px-6 py-4 flex justify-end gap-2">
-                    <button type="button" class="bg-gray-700 hover:bg-gray-600 text-gray-200 px-4 py-2 rounded-md" onclick="toggleDeleteSelectedModal(false)">Cancel</button>
-                    <button type="button" id="confirmDeleteSelectedBtn" class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500" onclick="confirmDeleteSelected()">Delete</button>
+                <div class="eb-modal-footer">
+                    <button type="button" class="eb-btn eb-btn-ghost eb-btn-sm" onclick="toggleDeleteSelectedModal(false)">Cancel</button>
+                    <button type="button" id="confirmDeleteSelectedBtn" class="eb-btn eb-btn-danger eb-btn-sm" onclick="confirmDeleteSelected()">Delete</button>
                 </div>
+            </div>
         </div>
     </div>
 
     <!-- Main Content -->
-    <div class="container mx-auto flex-1 flex flex-col pb-10">
-        <div class="rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)] px-4 py-6 flex-1">
-            <style>
-            [x-cloak] { display: none !important; }
-            .btn-run-now {
-                display: inline-flex; align-items: center; gap: 0.5rem;
-                border-radius: 9999px; padding: 0.375rem 1rem;
-                font-size: 0.875rem; font-weight: 600;
-                color: rgb(15 23 42);
-                background-image: linear-gradient(to right, rgb(16 185 129), rgb(52 211 153), rgb(56 189 248));
-                box-shadow: 0 1px 2px rgba(0,0,0,0.25);
-                border: 1px solid rgba(16,185,129,0.4);
-                transition: transform .15s ease, box-shadow .2s ease;
-            }
-            .btn-run-now:hover { transform: translateY(-1px); box-shadow: 0 8px 20px rgba(16,185,129,0.25); }
-            .btn-run-now:active { transform: translateY(0); box-shadow: 0 1px 2px rgba(0,0,0,0.25); }
-            .icon-btn {
-                display:inline-flex; align-items:center; justify-content:center;
-                width:2rem; height:2rem; border-radius:9999px;
-                border:1px solid rgba(51,65,85,0.8);
-                background-color: rgba(15,23,42,0.6);
-                color:#cbd5e1; font-size:.75rem; transition: all .15s ease;
-            }
-            .icon-btn:hover { border-color:#94a3b8; color:white; background-color:#1f2937; }
-            .icon-btn[disabled] { opacity:.6; cursor:not-allowed; }
-            .bucket-row:hover { background-color: rgba(15,23,42,0.9); }
-            .bucket-row-selected { background-color: rgba(30,64,175,0.35); border-left: 2px solid rgb(56,189,248); }
-            .row-parent:hover { cursor: pointer; }
-            /* On viewports below ~1480px, stack table and details vertically
-               so the Object details panel stays inside the main container. */
-            @media (max-width: 1480px) {
-                #bucket-layout {
-                    flex-direction: column;
+    <div class="eb-panel">
+        <div class="eb-panel-nav">
+            {include file="modules/addons/cloudstorage/templates/partials/core_nav.tpl" cloudstorageActivePage='buckets'}
+        </div>
+        <div class="space-y-6">
+                <style>
+                [x-cloak] { display: none !important; }
+                .row-parent:hover { cursor: pointer; }
+                @media (max-width: 1480px) {
+                    #bucket-layout { flex-direction: column; }
                 }
-            }
-            /* Dark thin scrollbar for table container */
-            .table-scroll-container {
-                scrollbar-width: thin;
-                scrollbar-color: #334155 #1e293b;
-            }
-            .table-scroll-container::-webkit-scrollbar {
-                width: 6px;
-                height: 6px;
-            }
-            .table-scroll-container::-webkit-scrollbar-track {
-                background: #1e293b;
-                border-radius: 3px;
-            }
-            .table-scroll-container::-webkit-scrollbar-thumb {
-                background: #334155;
-                border-radius: 3px;
-            }
-            .table-scroll-container::-webkit-scrollbar-thumb:hover {
-                background: #475569;
-            }
-            /* DataTables pagination styling to match billing */
-            .dataTables_paginate .paginate_button {
-                display: inline-flex;
-                align-items: center;
-                justify-content: center;
-                min-width: 32px;
-                height: 32px;
-                padding: 0 8px;
-                margin: 0 2px;
-                border-radius: 6px;
-                font-size: 12px;
-                font-weight: 500;
-                cursor: pointer;
-                transition: all 0.15s ease;
-            }
-            /* DataTables controls override to match billing table */
-            .browser-dt-filter input.dt-eb-input {
-                width: 100% !important;
-                padding: 0.375rem 0.75rem !important;
-                border: 1px solid #334155 !important;
-                color: #e2e8f0 !important;
-                background-color: rgba(15, 23, 42, 0.7) !important;
-                border-radius: 0.5rem !important;
-                font-size: 0.75rem !important;
-                line-height: 1.25rem !important;
-                outline: none !important;
-                box-shadow: none !important;
-                margin: 0 !important;
-                height: auto !important;
-                background-clip: padding-box !important;
-            }
-            .browser-dt-filter input.dt-eb-input:focus {
-                border-color: #0284c7 !important;
-            }
-            .browser-dt-filter label {
-                display: block !important;
-                text-align: left !important;
-            }
-            .browser-dt-length select.dt-eb-select {
-                width: auto !important;
-                padding: 0.375rem 2rem 0.375rem 0.75rem !important;
-                border: 1px solid #334155 !important;
-                color: #e2e8f0 !important;
-                background-color: rgba(15, 23, 42, 0.7) !important;
-                border-radius: 0.5rem !important;
-                font-size: 0.75rem !important;
-                line-height: 1.25rem !important;
-                outline: none !important;
-                box-shadow: none !important;
-                margin: 0 !important;
-                background-position: right 0.5rem center !important;
-                background-repeat: no-repeat !important;
-                background-size: 1.25em 1.25em !important;
-                background-clip: padding-box !important;
-            }
-            /* Toggle switch styling (matching cloudnas.tpl) */
-            .toggle-switch {
-                position: relative;
-                width: 2.75rem;
-                height: 1.5rem;
-                border-radius: 9999px;
-                transition: background-color 0.2s;
-                cursor: pointer;
-                flex-shrink: 0;
-            }
-            .toggle-switch .toggle-knob {
-                position: absolute;
-                top: 0.125rem;
-                left: 0.125rem;
-                width: 1.25rem;
-                height: 1.25rem;
-                background: white;
-                border-radius: 9999px;
-                transition: transform 0.2s;
-                box-shadow: 0 1px 3px rgba(0,0,0,0.3);
-            }
-            .toggle-switch.active .toggle-knob {
-                transform: translateX(1.25rem);
-            }
-            </style>
+                .table-scroll-container {
+                    scrollbar-width: thin;
+                    scrollbar-color: color-mix(in srgb, var(--eb-border-emphasis) 80%, transparent) color-mix(in srgb, var(--eb-bg-overlay) 92%, transparent);
+                }
+                .table-scroll-container::-webkit-scrollbar {
+                    width: 6px;
+                    height: 6px;
+                }
+                .table-scroll-container::-webkit-scrollbar-track {
+                    background: color-mix(in srgb, var(--eb-bg-overlay) 92%, transparent);
+                    border-radius: 999px;
+                }
+                .table-scroll-container::-webkit-scrollbar-thumb {
+                    background: color-mix(in srgb, var(--eb-border-emphasis) 80%, transparent);
+                    border-radius: 999px;
+                }
+                .table-scroll-container::-webkit-scrollbar-thumb:hover {
+                    background: color-mix(in srgb, var(--eb-border-strong) 92%, transparent);
+                }
+                .upload-container.is-dragover {
+                    border-color: var(--eb-border-strong);
+                    background: var(--eb-bg-hover);
+                }
+                .upload-queue-item {
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    gap: 0.75rem;
+                    border: 1px solid var(--eb-border-subtle);
+                    border-radius: var(--eb-radius-md);
+                    background: color-mix(in srgb, var(--eb-bg-overlay) 92%, transparent);
+                    padding: 0.5rem 0.75rem;
+                    font-size: 12px;
+                    color: var(--eb-text-secondary);
+                }
+                .upload-queue-item[data-status="completed"] {
+                    border-color: var(--eb-success-border);
+                    background: color-mix(in srgb, var(--eb-success-soft) 72%, transparent);
+                    color: var(--eb-success-text);
+                }
+                .upload-queue-item[data-status="failed"] {
+                    border-color: var(--eb-danger-border);
+                    background: color-mix(in srgb, var(--eb-danger-soft) 72%, transparent);
+                    color: var(--eb-danger-text);
+                }
+                .upload-queue-item[data-status="uploading"] {
+                    border-color: var(--eb-info-border);
+                    background: color-mix(in srgb, var(--eb-info-soft) 72%, transparent);
+                    color: var(--eb-info-text);
+                }
+                .upload-queue-item[data-status="pending"],
+                .upload-queue-item[data-status="cancelled"] {
+                    color: var(--eb-text-muted);
+                }
+                .details-row > td {
+                    background: color-mix(in srgb, var(--eb-bg-overlay) 92%, transparent);
+                    border-top: 1px solid var(--eb-border-subtle);
+                }
+                .details-col {
+                    width: 2.5rem;
+                }
+                .eb-table .object-name {
+                    color: var(--eb-text-primary);
+                    font-weight: 500;
+                }
+                .eb-table .object-name.is-muted {
+                    color: var(--eb-text-muted);
+                }
+                .bucket-version-table th:first-child,
+                .bucket-version-table td:first-child {
+                    width: 2.5rem;
+                }
+                </style>
 
-            <!-- Alpine Toast Notification -->
-            <div x-data="{
-                    visible: false, message: '', type: 'info', timeout: null,
-                    show(msg, t = 'info') { this.message = msg; this.type = t; this.visible = true; if (this.timeout) clearTimeout(this.timeout); this.timeout = setTimeout(() => { this.visible = false; }, t === 'error' ? 7000 : 4000); }
-                }"
-                 x-init="window.toast = { success: (m) => show(m, 'success'), error: (m) => show(m, 'error'), info: (m) => show(m, 'info') }"
-                 class="fixed top-4 right-4 z-[9999]"
-                 x-cloak>
-                <div x-show="visible"
-                     x-transition:enter="transform transition ease-out duration-300"
-                     x-transition:enter-start="translate-y-2 opacity-0"
-                     x-transition:enter-end="translate-y-0 opacity-100"
-                     x-transition:leave="transform transition ease-in duration-200"
-                     x-transition:leave-start="translate-y-0 opacity-100"
-                     x-transition:leave-end="translate-y-2 opacity-0"
-                     class="rounded-md px-4 py-3 text-white shadow-lg min-w-[300px] max-w-[500px]"
-                    :class="type === 'success' ? 'bg-green-600' : (type === 'error' ? 'bg-red-600' : 'bg-blue-600')">
-                    <div class="flex items-start justify-between">
-                        <div class="flex items-start">
-                            <div class="flex-shrink-0">
-                                <svg x-show="type === 'success'" class="h-5 w-5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
-                                <svg x-show="type === 'error'" class="h-5 w-5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"/></svg>
-                                <svg x-show="type === 'info'" class="h-5 w-5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"/></svg>
-                            </div>
-                            <p class="ml-3 text-sm font-medium" x-text="message"></p>
-                        </div>
-                        <button @click="visible = false" class="ml-4 inline-flex text-white hover:text-gray-200 focus:outline-none">
-                            <svg class="h-5 w-5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
-                        </button>
+                <div id="toast-container" x-data="{
+                        visible: false, message: '', type: 'info', timeout: null,
+                        show(msg, t = 'info') { this.message = msg; this.type = t; this.visible = true; if (this.timeout) clearTimeout(this.timeout); this.timeout = setTimeout(() => { this.visible = false; }, t === 'error' ? 7000 : 4000); }
+                    }"
+                    x-init="window.toast = { success: (m) => show(m, 'success'), error: (m) => show(m, 'error'), info: (m) => show(m, 'info') }"
+                    class="pointer-events-none fixed right-4 top-4 z-[9999] space-y-2"
+                    x-cloak>
+                    <div x-show="visible"
+                        x-transition.opacity.duration.200ms
+                        class="pointer-events-auto eb-toast text-sm"
+                        :class="type === 'success' ? 'eb-toast--success' : (type === 'error' ? 'eb-toast--danger' : 'eb-toast--info')"
+                        x-text="message"></div>
+                </div>
+
+                <div id="alertMessage" class="eb-alert eb-alert--danger hidden" role="alert">
+                    <svg class="eb-alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z" />
+                    </svg>
+                    <div></div>
+                </div>
+                {if $error_message}
+                    <div class="eb-alert eb-alert--danger" role="alert">
+                        {$error_message}
                     </div>
-                </div>
-            </div>
-            <!-- Alert -->
-            <div class="browse-alert rounded container mx-auto px-4 mb-4 flex-1 flex flex-col py-2 bg-red-600 hidden" id="alertMessage" role="alert"></div>
-            {if $error_message}
-                <div class="browse-alert rounded container mx-auto px-4 mb-4 flex-1 flex flex-col py-2 bg-red-600" role="alert">
-                    {$error_message}
-                </div>
-            {/if}
-            <input type="hidden" id="continuationToken">
-            <input type="hidden" id="username" value="{$smarty.get.username}">
-            <input type="hidden" id="bucketName" value="{$smarty.get.bucket}">
-            <input type="hidden" id="maxKeys" value="{$smarty.get.max_keys}">
-            <input type="hidden" id="folderPath" value="{$smarty.get.folder_path}">
-            <input type="hidden" id="nextKeyMarker">
-            <input type="hidden" id="nextVersionIdMarker">
-            <input type="hidden" id="s3Endpoint" value="{$S3_ENDPOINT|default:''}">
+                {/if}
+                <input type="hidden" id="continuationToken">
+                <input type="hidden" id="username" value="{$smarty.get.username}">
+                <input type="hidden" id="bucketName" value="{$smarty.get.bucket}">
+                <input type="hidden" id="maxKeys" value="{$smarty.get.max_keys}">
+                <input type="hidden" id="folderPath" value="{$smarty.get.folder_path}">
+                <input type="hidden" id="nextKeyMarker">
+                <input type="hidden" id="nextVersionIdMarker">
+                <input type="hidden" id="s3Endpoint" value="{$S3_ENDPOINT|default:''}">
 
-            <!-- Cloud Storage Navigation -->
-            <div class="mb-6">
-                <nav class="inline-flex rounded-full bg-slate-900/80 p-1 text-xs font-medium text-slate-400" aria-label="Cloud Storage Navigation">
-                    <a href="index.php?m=cloudstorage&page=dashboard"
-                       class="px-4 py-1.5 rounded-full transition {if $smarty.get.page == 'dashboard'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
-                        Dashboard
-                    </a>
-                    <a href="index.php?m=cloudstorage&page=buckets"
-                       class="px-4 py-1.5 rounded-full transition {if $smarty.get.page == 'buckets'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
-                        Buckets
-                    </a>
-                    {assign var=__browse_user value=$smarty.get.username|default:''}
-                    {assign var=__browse_bucket value=$smarty.get.bucket|default:''}
-                    <a href="index.php?m=cloudstorage&page={if $__browse_user && $__browse_bucket}browse&bucket={$__browse_bucket|escape:'url'}&username={$__browse_user|escape:'url'}{else}buckets{/if}"
-                       class="px-4 py-1.5 rounded-full transition {if $smarty.get.page == 'browse'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
-                        Browse
-                    </a>
-                    <a href="index.php?m=cloudstorage&page=access_keys"
-                       class="px-4 py-1.5 rounded-full transition {if $smarty.get.page == 'access_keys'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
-                        Access Keys
-                    </a>
-                    <a href="index.php?m=cloudstorage&page=users"
-                       class="px-4 py-1.5 rounded-full transition {if $smarty.get.page == 'users'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
-                        Users
-                    </a>
-                    <a href="index.php?m=cloudstorage&page=billing"
-                       class="px-4 py-1.5 rounded-full transition {if $smarty.get.page == 'billing'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
-                        Billing
-                    </a>
-                    <a href="index.php?m=cloudstorage&page=history"
-                       class="px-4 py-1.5 rounded-full transition {if $smarty.get.page == 'history'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
-                        Historical Stats
-                    </a>
-                </nav>
-            </div>
-
-            <!-- Header + Breadcrumbs + Toolbar -->
-            <div class="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-                <div class="space-y-1">
-                    <div class="flex items-center gap-2 text-slate-100">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-6 w-6 text-sky-400">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="m20.25 7.5-.625 10.632a2.25 2.25 0 0 1-2.247 2.118H6.622a2.25 2.25 0 0 1-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125Z" />
-                        </svg>
-                        <div>
-                            <div class="text-lg font-semibold leading-tight">Browse Bucket: {$smarty.get.bucket}</div>
-                            <div class="text-xs text-slate-400">Object browser</div>
+                <div class="eb-page-header">
+                    <div>
+                        <div class="eb-breadcrumb">
+                            <a href="index.php?m=cloudstorage&page=buckets" class="eb-breadcrumb-link">Buckets</a>
+                            <span class="eb-breadcrumb-separator">/</span>
+                            <span class="eb-breadcrumb-current">Browse</span>
                         </div>
-                        <button
-                            type="button"
-                            onclick="showLoaderAndRefresh()"
-                            class="ml-3 icon-btn"
-                            title="Refresh">
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-4 w-4">
+                        <h1 class="eb-page-title">Browse Bucket: {$smarty.get.bucket|escape}</h1>
+                        <p class="eb-page-description">Inspect objects, navigate prefixes, upload new files, and manage version history for this bucket.</p>
+                        <div class="mt-3 flex flex-wrap items-center gap-2">
+                            <span class="eb-badge eb-badge--neutral">Owner: {$smarty.get.username|default:'Unknown'|escape}</span>
+                        </div>
+                    </div>
+                    <div class="flex flex-wrap items-center gap-2">
+                        <button type="button" onclick="showLoaderAndRefresh()" class="eb-btn eb-btn-secondary eb-btn-sm eb-btn-icon" title="Refresh bucket listing">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
                             </svg>
                         </button>
-                    </div>
-                    <div class="mt-3 flex items-center gap-2">
-                        <button type="button" class="icon-btn" id="btnUpOneLevel" onclick="goUpOneLevel()" title="Up one level" disabled>
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-4 w-4">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.75v10.5m0-10.5 4.5 4.5M12 6.75l-4.5 4.5M3.75 17.25h16.5" />
+                        <button type="button" class="eb-btn eb-btn-primary eb-btn-sm" onclick="triggerUpload()">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 16.5V3m0 0l4.5 4.5M12 3 7.5 7.5M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5" />
+                            </svg>
+                            <span>Upload</span>
+                        </button>
+                        <button type="button" class="eb-btn eb-btn-secondary eb-btn-sm eb-btn-icon" id="btnDownload" onclick="downloadSelected()" title="Download selected file" disabled>
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
                             </svg>
                         </button>
-                        <div id="breadcrumbs" class="w-full rounded-lg bg-slate-900/70 border border-slate-800 px-3 py-1.5 text-xs text-slate-300 flex flex-wrap items-center gap-1"></div>
-                    </div>
-                </div>
-                <div class="flex items-center gap-3">
-                    <button type="button" class="btn-run-now" onclick="triggerUpload()">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 16.5V3m0 0l4.5 4.5M12 3 7.5 7.5M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5" />
-                        </svg>
-                        <span>Upload</span>
-                    </button>
-                    <button type="button" class="icon-btn" id="btnDownload" onclick="downloadSelected()" title="Download (single file)" disabled>
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-4 w-4">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
-                        </svg>
-                    </button>
-                    <button type="button" class="icon-btn" id="btnCopyUrl" onclick="copySelectedUrls()" title="Copy URL(s)" disabled>
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-4 w-4">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 7.5V6.108c0-1.135.845-2.098 1.976-2.192.373-.03.748-.057 1.123-.08M15.75 18H18a2.25 2.25 0 0 0 2.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 0 0-1.123-.08M15.75 18.75v-1.875a3.375 3.375 0 0 0-3.375-3.375h-1.5a1.125 1.125 0 0 1-1.125-1.125v-1.5A3.375 3.375 0 0 0 6.375 7.5H5.25m11.9-3.664A2.251 2.251 0 0 0 15 2.25h-1.5a2.251 2.251 0 0 0-2.15 1.586m5.8 0c.065.21.1.433.1.664v.75h-6V4.5c0-.231.035-.454.1-.664M6.75 7.5H4.875c-.621 0-1.125.504-1.125 1.125v12c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V16.5a9 9 0 0 0-9-9Z" />
-                        </svg>
-                    </button>
-                    <button type="button" class="icon-btn" id="btnCreateFolder" onclick="openCreateFolderModal()" title="Create folder">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-4 w-4">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 10.5v6m3-3H9m4.06-7.19-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z" />
-                        </svg>
-                    </button>
-                    <button type="button" class="icon-btn" id="btnDelete" onclick="deleteSelected()" title="Delete" disabled>
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
-                        </svg>
-                    </button>
-                </div>
-            </div>
-            <div class="flex items-center mb-4">
-                <div class="flex items-center">
-                    <div x-data="{ active:false }" class="inline-flex">
-                        <button
-                            id="btnToggleVersions"
-                            type="button"
-                            @click="active = !active; if (window.setShowVersions) { window.setShowVersions(active); }"
-                            :class="active
-                                ? 'bg-sky-600 border-sky-500 text-white'
-                                : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'"
-                            class="inline-flex items-center gap-2 rounded-md px-3 py-1.5 text-xs font-medium border focus:outline-none focus:ring-2 focus:ring-sky-500"
-                            aria-pressed="false"
-                            title="Toggle object versions view">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4"
-                                 viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                                <path stroke-linecap="round" stroke-linejoin="round"
-                                      d="M3.75 6.75h16.5M3.75 12h16.5M3.75 17.25h16.5" />
+                        <button type="button" class="eb-btn eb-btn-secondary eb-btn-sm eb-btn-icon" id="btnCopyUrl" onclick="copySelectedUrls()" title="Copy selected URL" disabled>
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 7.5V6.108c0-1.135.845-2.098 1.976-2.192.373-.03.748-.057 1.123-.08M15.75 18H18a2.25 2.25 0 0 0 2.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 0 0-1.123-.08M15.75 18.75v-1.875a3.375 3.375 0 0 0-3.375-3.375h-1.5a1.125 1.125 0 0 1-1.125-1.125v-1.5A3.375 3.375 0 0 0 6.375 7.5H5.25m11.9-3.664A2.251 2.251 0 0 0 15 2.25h-1.5a2.251 2.251 0 0 0-2.15 1.586m5.8 0c.065.21.1.433.1.664v.75h-6V4.5c0-.231.035-.454.1-.664M6.75 7.5H4.875c-.621 0-1.125.504-1.125 1.125v12c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V16.5a9 9 0 0 0-9-9Z" />
                             </svg>
-                            <span x-text="active ? 'Versions: On' : 'Versions: Off'"></span>
+                        </button>
+                        <button type="button" class="eb-btn eb-btn-secondary eb-btn-sm" id="btnCreateFolder" onclick="openCreateFolderModal()">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M12 10.5v6m3-3H9m4.06-7.19-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z" />
+                            </svg>
+                            <span>Create Folder</span>
+                        </button>
+                        <button type="button" class="eb-btn eb-btn-danger eb-btn-sm eb-btn-icon" id="btnDelete" onclick="deleteSelected()" title="Delete selected item" disabled>
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.11 0 00-7.5 0" />
+                            </svg>
                         </button>
                     </div>
                 </div>
-            </div>
 
-            <!-- Bucket Contents Table + Details Panel -->
-            <div id="bucket-layout" class="mt-4 flex flex-col gap-4 lg:flex-row lg:items-start">
-                <div class="flex-1 rounded-2xl border border-slate-800 bg-slate-900/80 backdrop-blur-sm shadow-[0_18px_60px_rgba(0,0,0,0.65)]">
-                    <!-- Table title row -->
-                    <div class="px-4 py-3">
-                        <h3 class="text-sm font-semibold text-slate-100">Objects</h3>
+                <div class="eb-subpanel !p-4">
+                    <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                        <div class="flex min-w-0 items-center gap-2">
+                            <button type="button" class="eb-btn eb-btn-secondary eb-btn-sm eb-btn-icon" id="btnUpOneLevel" onclick="goUpOneLevel()" title="Go up one level" disabled>
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.75v10.5m0-10.5 4.5 4.5M12 6.75l-4.5 4.5M3.75 17.25h16.5" />
+                                </svg>
+                            </button>
+                            <div id="breadcrumbs" class="flex min-h-[42px] flex-1 flex-wrap items-center gap-1 rounded-[var(--eb-radius-md)] border border-[var(--eb-border-subtle)] bg-[var(--eb-bg-overlay)] px-3 py-2 text-xs text-[var(--eb-text-secondary)]"></div>
+                        </div>
+
+                        <div x-data="{ active:false }" class="flex items-center gap-3">
+                            <span class="text-sm font-medium text-[var(--eb-text-primary)]">Show object versions</span>
+                            <button
+                                id="btnToggleVersions"
+                                type="button"
+                                class="eb-toggle"
+                                @click="active = !active; if (window.setShowVersions) { window.setShowVersions(active); }"
+                                :aria-pressed="active ? 'true' : 'false'"
+                                :aria-checked="active ? 'true' : 'false'"
+                                role="switch"
+                                title="Toggle object versions view">
+                                <span class="eb-toggle-track" :class="active ? 'is-on' : ''"><span class="eb-toggle-thumb"></span></span>
+                            </button>
+                            <span class="text-xs text-[var(--eb-text-muted)]" x-text="active ? 'Versions view enabled' : 'Current objects only'"></span>
+                        </div>
                     </div>
-                    <!-- Table content with fixed height and scrollable area -->
-                    <div class="p-4">
-                        <style>
-                            /* DataTables can override header typography inconsistently (e.g., sorting columns).
-                               Force a consistent header look across all columns. */
-                            #bucketContents thead th,
-                            #bucketContents thead th.sorting,
-                            #bucketContents thead th.sorting_asc,
-                            #bucketContents thead th.sorting_desc,
-                            #bucketContents thead th.sorting_asc_disabled,
-                            #bucketContents thead th.sorting_desc_disabled {
-                                font-size: 14px !important;
-                                font-weight: 600 !important;
-                                color: rgb(148 163 184) !important; /* slate-400 */
-                                text-transform: none !important;
-                                letter-spacing: normal !important;
-                            }
-                        </style>
+                </div>
+
+                <div id="services-wrapper" class="eb-subpanel">
+                    <div class="eb-table-toolbar">
+                        <div class="relative" x-data="{ isOpen: false, selected: 10 }" @click.away="isOpen = false">
+                            <button type="button" @click="isOpen = !isOpen" class="eb-btn eb-btn-secondary eb-btn-sm">
+                                <span x-text="'Show ' + selected"></span>
+                                <svg class="h-4 w-4 transition-transform" :class="isOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                                    <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+                                </svg>
+                            </button>
+                            <div x-show="isOpen"
+                                 x-transition:enter="transition ease-out duration-100"
+                                 x-transition:enter-start="opacity-0 scale-95"
+                                 x-transition:enter-end="opacity-100 scale-100"
+                                 x-transition:leave="transition ease-in duration-75"
+                                 x-transition:leave-start="opacity-100 scale-100"
+                                 x-transition:leave-end="opacity-0 scale-95"
+                                 class="eb-dropdown-menu absolute left-0 z-50 mt-2 w-40 overflow-hidden"
+                                 style="display: none;">
+                                <template x-for="size in [10,25,50,100]" :key="'bucket-entries-' + size">
+                                    <button type="button"
+                                            class="eb-menu-option"
+                                            :class="selected === size ? 'is-active' : ''"
+                                            @click="selected = size; isOpen = false; window.setBucketEntries(size)">
+                                        <span x-text="size"></span>
+                                    </button>
+                                </template>
+                            </div>
+                        </div>
+
+                        <div id="bucketVersionFilters" class="hidden items-center gap-4">
+                            <div class="flex items-center gap-2">
+                                <button id="filterIncludeDeletedToggle" type="button" class="eb-toggle" data-active="false" aria-pressed="false">
+                                    <span class="eb-toggle-track"><span class="eb-toggle-thumb"></span></span>
+                                </button>
+                                <span class="text-xs text-[var(--eb-text-secondary)]">Include deleted keys</span>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <button id="filterOnlyWithVersionsToggle" type="button" class="eb-toggle" data-active="false" aria-pressed="false">
+                                    <span class="eb-toggle-track"><span class="eb-toggle-thumb"></span></span>
+                                </button>
+                                <span class="text-xs text-[var(--eb-text-secondary)]">Only keys with versions</span>
+                            </div>
+                        </div>
+
+                        <div class="flex-1"></div>
+                        <input id="bucketSearchInput" type="text" placeholder="Search objects..." class="eb-toolbar-search xl:w-80">
+                    </div>
+                    <div class="eb-table-shell overflow-x-auto">
                         <div class="table-scroll-container overflow-auto" style="min-height: 625px; max-height: 625px;">
-                            <table id="bucketContents" class="table-auto w-full text-sm text-slate-200">
-                                <thead class="bg-slate-900/90 border-b border-slate-800 text-[11px] tracking-normal text-slate-400 sticky top-0 z-10">
-                                <tr>
-                                    <!-- Checkbox for selecting all files -->
-                                        <th class="px-4 py-2 text-left font-normal !font-normal !text-slate-400 !text-[11px] w-10">
-                                            <input type="checkbox" id="selectAllFiles" class="rounded border-slate-600 bg-slate-800 text-sky-500 focus:ring-sky-500 focus:ring-offset-0" />
-                                    </th>
-                                        <th class="px-4 py-2 text-left font-normal !font-normal !text-slate-400 !text-[11px] w-8"></th>
-                                        <th class="px-4 py-2 text-left font-normal !font-normal !text-slate-400 !text-[11px]">Name</th>
-                                        <th class="px-4 py-2 text-left font-normal !font-normal !text-slate-400 !text-[11px] whitespace-nowrap">Size</th>
-                                        <th class="px-4 py-2 text-left font-normal !font-normal !text-slate-400 !text-[11px] whitespace-nowrap">Last Modified</th>
-                                        <th class="px-4 py-2 text-left font-normal !font-normal !text-slate-400 !text-[11px]">ETag</th>
-                                        <th class="px-4 py-2 text-left font-normal !font-normal !text-slate-400 !text-[11px] whitespace-nowrap">Storage Class</th>
-                                        <th class="px-4 py-2 text-left font-normal !font-normal !text-slate-400 !text-[11px]">Owner</th>
-                                        <th class="px-4 py-2 text-left font-normal !font-normal !text-slate-400 !text-[11px] whitespace-nowrap">Version Id</th>
-                                        <th class="px-4 py-2 text-left font-normal !font-normal !text-slate-400 !text-[11px] w-10"></th>
-                                </tr>
-                            </thead>
-                                <tbody class="bg-slate-900/60 divide-y divide-slate-800 text-slate-300">
-                                <!-- DataTables will populate additional rows here -->
-                            </tbody>
-                        </table>
+                            <table id="bucketContents" class="eb-table">
+                                <thead>
+                                    <tr>
+                                        <th class="w-10">
+                                            <input type="checkbox" id="selectAllFiles" class="eb-check-input" />
+                                        </th>
+                                        <th class="w-8"></th>
+                                        <th><button type="button" class="eb-table-sort-button" data-col-index="2">Name <span class="eb-sort-indicator" data-col="2"></span></button></th>
+                                        <th class="whitespace-nowrap"><button type="button" class="eb-table-sort-button" data-col-index="3">Size <span class="eb-sort-indicator" data-col="3"></span></button></th>
+                                        <th class="whitespace-nowrap"><button type="button" class="eb-table-sort-button" data-col-index="4">Last Modified <span class="eb-sort-indicator" data-col="4"></span></button></th>
+                                        <th><button type="button" class="eb-table-sort-button" data-col-index="5">ETag <span class="eb-sort-indicator" data-col="5"></span></button></th>
+                                        <th class="whitespace-nowrap"><button type="button" class="eb-table-sort-button" data-col-index="6">Storage Class <span class="eb-sort-indicator" data-col="6"></span></button></th>
+                                        <th><button type="button" class="eb-table-sort-button" data-col-index="7">Owner <span class="eb-sort-indicator" data-col="7"></span></button></th>
+                                        <th class="whitespace-nowrap"><button type="button" class="eb-table-sort-button" data-col-index="8">Version Id <span class="eb-sort-indicator" data-col="8"></span></button></th>
+                                        <th class="w-10"></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <!-- DataTables will populate additional rows here -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div class="eb-table-pagination">
+                        <div id="bucketPageSummary"></div>
+                        <div class="flex items-center gap-2">
+                            <button type="button" id="bucketPrevPage" class="eb-table-pagination-button">Prev</button>
+                            <span id="bucketPageLabel"></span>
+                            <button type="button" id="bucketNextPage" class="eb-table-pagination-button">Next</button>
                         </div>
                     </div>
                 </div>
 
+                <div class="eb-subpanel !p-0 overflow-hidden">
+                    <div class="border-b border-[var(--eb-border-subtle)] px-6 py-5">
+                        <h2 class="eb-card-title">Upload Files & Folders</h2>
+                    </div>
+                    <div class="p-6 pt-5">
+                        <div class="upload-container relative cursor-pointer rounded-[var(--eb-radius-xl)] border-2 border-dashed border-[var(--eb-border-default)] bg-[var(--eb-bg-overlay)] p-6 text-center transition-colors hover:border-[var(--eb-border-emphasis)] hover:bg-[var(--eb-bg-hover)]" id="dropZone">
+                            <input id="fileInput" type="file" name="uploadedFiles[]" multiple class="hidden">
+                            <input id="folderInput" type="file" name="uploadedFolders[]" webkitdirectory directory multiple class="hidden">
+                            <div class="flex flex-col items-center gap-3">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10 text-[var(--eb-text-muted)]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                                </svg>
+                                <div class="text-sm text-[var(--eb-text-secondary)]">
+                                    <span class="font-medium text-[var(--eb-text-primary)]">Drag and drop</span> files or folders here
+                                </div>
+                                <div class="text-xs text-[var(--eb-text-muted)]">or</div>
+                                <div class="flex flex-wrap justify-center gap-3">
+                                    <button type="button" onclick="document.getElementById('fileInput').click()" class="eb-btn eb-btn-secondary eb-btn-sm">
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                        </svg>
+                                        <span>Select Files</span>
+                                    </button>
+                                    <button type="button" onclick="document.getElementById('folderInput').click()" class="eb-btn eb-btn-secondary eb-btn-sm">
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                                        </svg>
+                                        <span>Select Folder</span>
+                                    </button>
+                                </div>
+                                <div class="mt-1 text-[11px] text-[var(--eb-text-muted)]">Folder uploads preserve directory structure.</div>
+                            </div>
+                        </div>
+
+                        <div id="uploadQueueContainer" class="hidden mt-4">
+                            <div class="eb-subpanel !p-4">
+                                <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
+                                    <h4 class="text-sm font-medium text-[var(--eb-text-primary)]">Upload Queue</h4>
+                                    <div class="flex items-center gap-3">
+                                        <span id="uploadQueueSummary" class="text-xs text-[var(--eb-text-muted)]"></span>
+                                        <button type="button" id="cancelAllUploads" class="eb-btn eb-btn-danger eb-btn-sm hidden">Cancel All</button>
+                                    </div>
+                                </div>
+                                <div id="uploadQueueProgress" class="mb-3">
+                                    <div class="mb-1 flex items-center justify-between text-xs text-[var(--eb-text-muted)]">
+                                        <span id="uploadProgressText">0 / 0 files</span>
+                                        <span id="uploadProgressPercent">0%</span>
+                                    </div>
+                                    <div class="eb-progress-track">
+                                        <div id="uploadProgressBar" class="eb-progress-fill h-1.5 transition-all duration-300" style="width: 0%; background: var(--eb-success-strong);"></div>
+                                    </div>
+                                </div>
+                                <div id="uploadQueue" class="table-scroll-container max-h-40 overflow-y-auto space-y-1"></div>
+                </div>
             </div>
-
-            <!-- Upload Files Card -->
-            <div class="mt-5 rounded-2xl border border-slate-800 bg-slate-900/80 backdrop-blur-sm shadow-[0_18px_60px_rgba(0,0,0,0.65)]">
-                <!-- Title row -->
-                <div class="px-4 py-3">
-                    <h3 class="text-sm font-semibold text-slate-100">Upload Files & Folders</h3>
-                </div>
-                <!-- Content -->
-                <div class="p-4 pt-0">
-                    <div class="upload-container relative border-2 border-dashed border-slate-700 rounded-xl p-6 text-center cursor-pointer hover:bg-slate-800/50 hover:border-slate-600 transition-colors" id="dropZone">
-                    <input id="fileInput" type="file" name="uploadedFiles[]" multiple class="hidden">
-                        <input id="folderInput" type="file" name="uploadedFolders[]" webkitdirectory directory multiple class="hidden">
-                        <div class="flex flex-col items-center gap-3">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                            </svg>
-                            <div class="text-slate-300 text-sm">
-                                <span class="font-medium">Drag and drop</span> files or folders here
-                    </div>
-                            <div class="text-slate-500 text-xs">or</div>
-                            <div class="flex gap-3">
-                                <button type="button" onclick="document.getElementById('fileInput').click()" class="inline-flex items-center rounded-lg border border-slate-700 bg-slate-900/80 px-3 py-1.5 text-xs font-medium text-slate-100 hover:bg-slate-800 hover:border-slate-500 focus:outline-none focus:ring-1 focus:ring-sky-500 transition-colors">
-                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                                    </svg>
-                                    Select Files
-                                </button>
-                                <button type="button" onclick="document.getElementById('folderInput').click()" class="inline-flex items-center rounded-lg border border-slate-700 bg-slate-900/80 px-3 py-1.5 text-xs font-medium text-slate-100 hover:bg-slate-800 hover:border-slate-500 focus:outline-none focus:ring-1 focus:ring-sky-500 transition-colors">
-                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
-                                    </svg>
-                                    Select Folder
-                                </button>
-                </div>
-                            <div class="text-[11px] text-slate-500 mt-1">Folder uploads preserve directory structure</div>
-                        </div>
-                    </div>
-                    <!-- Upload Queue -->
-                    <div id="uploadQueueContainer" class="hidden mt-4">
-                        <div class="flex items-center justify-between mb-2">
-                            <h4 class="text-xs font-medium text-slate-300">Upload Queue</h4>
-                            <div class="flex items-center gap-3">
-                                <span id="uploadQueueSummary" class="text-[11px] text-slate-400"></span>
-                                <button type="button" id="cancelAllUploads" class="text-[11px] text-red-400 hover:text-red-300 hidden">Cancel All</button>
-                            </div>
-                        </div>
-                        <div id="uploadQueueProgress" class="mb-2">
-                            <div class="flex items-center justify-between text-[11px] text-slate-400 mb-1">
-                                <span id="uploadProgressText">0 / 0 files</span>
-                                <span id="uploadProgressPercent">0%</span>
-                            </div>
-                            <div class="w-full bg-slate-800 rounded-full h-1.5">
-                                <div id="uploadProgressBar" class="bg-emerald-500 h-1.5 rounded-full transition-all duration-300" style="width: 0%"></div>
-                            </div>
-                        </div>
-                        <div id="uploadQueue" class="max-h-40 overflow-y-auto space-y-1 table-scroll-container"></div>
-                    </div>
-                </div>
+        </div>
             </div>
         </div>
     </div>
 
     <!-- Delete Confirmation Modal -->
-    <div id="deleteConfirmationModal" class="fixed inset-0 flex items-center justify-center bg-gray-900/75 hidden z-50">
-        <div class="bg-gray-800 rounded-lg shadow-lg w-11/12 md:w-1/3">
-            <div class="flex justify-between items-center px-6 py-4 border-b border-gray-700">
-                <h5 class="text-lg font-semibold text-white">Confirm File Deletion</h5>
-                <button
-                    type="button"
-                    class="text-gray-400 hover:text-gray-300 focus:outline-none"
-                    onclick="toggleDeleteModal(false)"
-                    aria-label="Close"
-                >
-                    <!-- Close Icon SVG -->
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                </button>
-            </div>
-            <div class="px-6 py-4">
-                <p class="text-gray-300">Are you sure you want to delete this file?</p>
-                <input type="hidden" name="file_key" id="fileKey">
-                <div id="deleteSuccessMessage" class="alert hidden mt-2 bg-green-600 text-white px-4 py-2 rounded-md"></div>
-            </div>
-            <div class="px-6 py-4 flex justify-end space-x-2">
-                <button
-                    type="button"
-                    class="bg-gray-700 hover:bg-gray-600 text-gray-300 px-4 py-2 rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
-                    onclick="toggleDeleteModal(false)"
-                >
-                    Cancel
-                </button>
-                <button
-                    type="button"
-                    class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
-                    id="confirmDeleteButton"
-                >
-                    Delete File
-                </button>
-            </div>
+    <div id="deleteConfirmationModal" class="fixed inset-0 z-50 hidden overflow-y-auto" role="dialog" aria-modal="true" aria-labelledby="deleteFileModalTitle">
+        <div class="eb-modal-backdrop absolute inset-0" onclick="toggleDeleteModal(false)"></div>
+        <div class="relative flex min-h-full items-center justify-center px-4 py-8">
+            <div class="eb-modal eb-modal--confirm">
+                <div class="eb-modal-header">
+                    <h5 class="eb-modal-title" id="deleteFileModalTitle">Confirm File Deletion</h5>
+                    <button type="button" class="eb-modal-close" onclick="toggleDeleteModal(false)" aria-label="Close">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                    </button>
+                </div>
+                <div class="eb-modal-body">
+                    <p class="text-sm text-[var(--eb-text-secondary)]">Are you sure you want to delete this file?</p>
+                    <input type="hidden" name="file_key" id="fileKey">
+                    <div id="deleteSuccessMessage" class="eb-alert eb-alert--success mt-3 hidden"></div>
+                </div>
+                <div class="eb-modal-footer">
+                    <button type="button" class="eb-btn eb-btn-ghost eb-btn-sm" onclick="toggleDeleteModal(false)">Cancel</button>
+                    <button type="button" class="eb-btn eb-btn-danger eb-btn-sm" id="confirmDeleteButton">Delete File</button>
+                </div>
         </div>
     </div>
 
     <!-- Restore Confirmation Modal -->
-    <div id="restoreConfirmationModal" class="fixed inset-0 flex items-center justify-center bg-gray-900/75 hidden z-50">
-        <div class="bg-gray-800 rounded-lg shadow-lg w-11/12 md:w-1/3">
-            <div class="flex justify-between items-center px-6 py-4 border-b border-gray-700">
-                <h5 class="text-lg font-semibold text-white">Confirm Restore</h5>
-                <button type="button" class="text-gray-400 hover:text-gray-300 focus:outline-none" onclick="toggleRestoreModal(false)" aria-label="Close">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                </button>
-            </div>
-            <div class="px-6 py-4 space-y-2 text-sm text-gray-300">
-                <div class="text-gray-200">Restore this version to current?</div>
-                <div><span class="text-gray-400">Key:</span> <span id="restoreKeyText" class="font-mono text-gray-100"></span></div>
-                <div><span class="text-gray-400">Version:</span> <span id="restoreVersionText" class="font-mono text-gray-100"></span></div>
-                <div><span class="text-gray-400">Last Modified:</span> <span id="restoreModifiedText" class="text-gray-100"></span></div>
-                <div><span class="text-gray-400">ETag:</span> <span id="restoreEtagText" class="font-mono text-gray-100"></span></div>
-                <div><span class="text-gray-400">Size:</span> <span id="restoreSizeText" class="text-gray-100"></span></div>
-                <div class="pt-2">
-                    <label for="restoreMetadataDirective" class="text-gray-400 mr-2">Metadata:</label>
-                    <select id="restoreMetadataDirective" class="bg-gray-700 text-gray-200 border border-gray-600 rounded px-2 py-1">
-                        <option value="COPY" selected>Keep original (COPY)</option>
-                        <option value="REPLACE">Replace with defaults (REPLACE)</option>
-                    </select>
+    <div id="restoreConfirmationModal" class="fixed inset-0 z-50 hidden overflow-y-auto" role="dialog" aria-modal="true" aria-labelledby="restoreConfirmationTitle">
+        <div class="eb-modal-backdrop absolute inset-0" onclick="toggleRestoreModal(false)"></div>
+        <div class="relative flex min-h-full items-center justify-center px-4 py-8">
+            <div class="eb-modal">
+                <div class="eb-modal-header">
+                    <h5 class="eb-modal-title" id="restoreConfirmationTitle">Confirm Restore</h5>
+                    <button type="button" class="eb-modal-close" onclick="toggleRestoreModal(false)" aria-label="Close">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                    </button>
                 </div>
-                <div class="text-xs text-gray-500 pt-1">Note: Restoring creates a new current version. Existing versions and delete markers are not removed.</div>
-            </div>
-            <div class="px-6 py-4 flex justify-end space-x-2">
-                <button type="button" class="bg-gray-700 hover:bg-gray-600 text-gray-300 px-4 py-2 rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500" onclick="toggleRestoreModal(false)">Cancel</button>
-                <button type="button" id="confirmRestoreButton" class="bg-sky-600 hover:bg-sky-700 text-white px-4 py-2 rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500">Restore</button>
+                <div class="eb-modal-body space-y-2 text-sm text-[var(--eb-text-secondary)]">
+                    <div class="text-[var(--eb-text-primary)]">Restore this version to current?</div>
+                    <div><span class="text-[var(--eb-text-muted)]">Key:</span> <span id="restoreKeyText" class="font-mono text-[var(--eb-text-primary)]"></span></div>
+                    <div><span class="text-[var(--eb-text-muted)]">Version:</span> <span id="restoreVersionText" class="font-mono text-[var(--eb-text-primary)]"></span></div>
+                    <div><span class="text-[var(--eb-text-muted)]">Last Modified:</span> <span id="restoreModifiedText" class="text-[var(--eb-text-primary)]"></span></div>
+                    <div><span class="text-[var(--eb-text-muted)]">ETag:</span> <span id="restoreEtagText" class="font-mono text-[var(--eb-text-primary)]"></span></div>
+                    <div><span class="text-[var(--eb-text-muted)]">Size:</span> <span id="restoreSizeText" class="text-[var(--eb-text-primary)]"></span></div>
+                    <div class="pt-2">
+                        <label for="restoreMetadataDirective" class="eb-field-label !mb-2">Metadata</label>
+                        <select id="restoreMetadataDirective" class="eb-select">
+                            <option value="COPY" selected>Keep original (COPY)</option>
+                            <option value="REPLACE">Replace with defaults (REPLACE)</option>
+                        </select>
+                    </div>
+                    <div class="pt-1 text-xs text-[var(--eb-text-muted)]">Note: restoring creates a new current version. Existing versions and delete markers are not removed.</div>
+                </div>
+                <div class="eb-modal-footer">
+                    <button type="button" class="eb-btn eb-btn-ghost eb-btn-sm" onclick="toggleRestoreModal(false)">Cancel</button>
+                    <button type="button" id="confirmRestoreButton" class="eb-btn eb-btn-primary eb-btn-sm">Restore</button>
+                </div>
             </div>
         </div>
     </div>
@@ -648,13 +562,13 @@
                     return;
                 }
                 container.textContent = message;
-                container.classList.remove('hidden', 'bg-red-600', 'bg-green-600', 'bg-blue-600');
+                container.classList.remove('hidden', 'eb-alert--danger', 'eb-alert--success', 'eb-alert--info');
                 if (type === 'fail' || type === 'error') {
-                    container.classList.add('bg-red-600');
+                    container.classList.add('eb-alert--danger');
                 } else if (type === 'success') {
-                    container.classList.add('bg-green-600');
+                    container.classList.add('eb-alert--success');
                 } else {
-                    container.classList.add('bg-blue-600');
+                    container.classList.add('eb-alert--info');
                 }
                 // Auto-hide after 10 seconds
                 setTimeout(function() {
@@ -714,7 +628,87 @@
                 if (jQuery.fn && jQuery.fn.dataTable && jQuery.fn.dataTable.ext) {
                     jQuery.fn.dataTable.ext.errMode = 'none';
                 }
-                const table = new DataTable('#bucketContents', {
+                let table;
+
+                function updateSortIndicators() {
+                    const order = table.order();
+                    const activeCol = order.length ? order[0][0] : null;
+                    const activeDir = order.length ? order[0][1] : 'asc';
+                    jQuery('#bucketContents .eb-sort-indicator').text('');
+                    if (activeCol !== null) {
+                        jQuery('#bucketContents .eb-sort-indicator[data-col="' + activeCol + '"]').text(activeDir === 'asc' ? '↑' : '↓');
+                    }
+                }
+
+                function updateBucketPager() {
+                    const info = table.page.info();
+                    const start = info.recordsDisplay ? info.start + 1 : 0;
+                    const end = info.recordsDisplay ? info.end : 0;
+                    const total = info.recordsDisplay || 0;
+                    jQuery('#bucketPageSummary').text('Showing ' + start + '-' + end + ' of ' + total + ' objects');
+                    jQuery('#bucketPageLabel').text('Page ' + ((info.page || 0) + 1) + ' / ' + (info.pages || 1));
+                    jQuery('#bucketPrevPage').prop('disabled', info.page <= 0);
+                    jQuery('#bucketNextPage').prop('disabled', info.page >= info.pages - 1 || info.pages === 0);
+                }
+
+                function updateVersionFilterVisibility() {
+                    const $filters = jQuery('#bucketVersionFilters');
+                    $filters.toggleClass('hidden', !showVersions);
+                    $filters.toggleClass('flex', showVersions);
+                }
+
+                function setFilterToggleState($btn, isActive) {
+                    $btn.attr('data-active', isActive ? 'true' : 'false');
+                    $btn.attr('aria-pressed', isActive ? 'true' : 'false');
+                    $btn.find('.eb-toggle-track').toggleClass('is-on', isActive);
+                }
+
+                window.setBucketEntries = function (size) {
+                    table.page.len(Number(size) || 10).draw();
+                };
+
+                window.setBucketSearch = function (query) {
+                    table.search(query || '').draw();
+                };
+
+                jQuery(document).on('input', '#bucketSearchInput', function () {
+                    window.setBucketSearch(this.value);
+                });
+
+                jQuery(document).on('click', '#bucketPrevPage', function () {
+                    table.page('previous').draw('page');
+                });
+
+                jQuery(document).on('click', '#bucketNextPage', function () {
+                    table.page('next').draw('page');
+                });
+
+                jQuery(document).on('click', '#bucketContents .eb-table-sort-button', function () {
+                    const index = Number(jQuery(this).data('colIndex'));
+                    const current = table.order();
+                    const currentCol = current.length ? current[0][0] : null;
+                    const currentDir = current.length ? current[0][1] : 'asc';
+                    const nextDir = currentCol === index && currentDir === 'asc' ? 'desc' : 'asc';
+                    table.order([index, nextDir]).draw();
+                });
+
+                jQuery('#filterIncludeDeletedToggle').on('click', function() {
+                    const $btn = jQuery(this);
+                    const newState = $btn.attr('data-active') !== 'true';
+                    setFilterToggleState($btn, newState);
+                    if (showVersions) { window.__allowNextIndexReload = true; }
+                    table.ajax.reload();
+                });
+
+                jQuery('#filterOnlyWithVersionsToggle').on('click', function() {
+                    const $btn = jQuery(this);
+                    const newState = $btn.attr('data-active') !== 'true';
+                    setFilterToggleState($btn, newState);
+                    if (showVersions) { window.__allowNextIndexReload = true; }
+                    table.ajax.reload();
+                });
+
+                table = new DataTable('#bucketContents', {
                     ajax: {
                         url: normalUrl,
                         data: function(d) {
@@ -813,7 +807,7 @@
                         },
                         {
                             data: null,
-                            className: 'px-2 w-8 details-col',
+                            className: 'details-col',
                             render: function() {
                                 // Chevron button removed; expand/collapse is handled via row click in versions mode.
                                 return '';
@@ -828,23 +822,23 @@
                                         const name = (row.name || '').replace(/^@/, '');
                                         if (row.deleted) {
                                             return `
-                                                <svg xmlns="http://www.w3.org/2000/svg" class="inline-block h-5 w-5 mr-2 text-red-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                                                <svg xmlns="http://www.w3.org/2000/svg" class="mr-2 inline-block h-5 w-5 text-[var(--eb-danger-text)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
                                                     <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5-4h4a2 2 0 012 2v2H8V5a2 2 0 012-2z" />
                                                 </svg>
-                                                <span class="object-name text-gray-400">${name}</span>
-                                                <span class="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs bg-gray-600 text-gray-200">Deleted</span>
-                                                <span class="ml-2 align-middle inline-flex items-center text-xs font-medium chip chip-neutral hidden" title="" aria-label=""></span>
+                                                <span class="object-name is-muted">${name}</span>
+                                                <span class="eb-badge eb-badge--warning ml-2">Deleted</span>
+                                                <span class="chip eb-badge eb-badge--neutral ml-2 hidden inline-flex items-center align-middle text-xs font-medium" title="" aria-label=""></span>
                                             `;
                                         }
                                         return `
-                                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="inline-block h-5 w-5 mr-2 text-gray-400">
+                                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="mr-2 inline-block h-5 w-5 text-[var(--eb-text-muted)]">
                                                 <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
                                             </svg>
                                             <span class="object-name">${name}</span>
-                                            <span class="ml-2 align-middle inline-flex items-center text-xs font-medium chip chip-neutral hidden" title="" aria-label=""></span>
+                                            <span class="chip eb-badge eb-badge--neutral ml-2 hidden inline-flex items-center align-middle text-xs font-medium" title="" aria-label=""></span>
                                         `;
                                     } else {
-                                        return `<span class="text-gray-300 pl-6 inline-block">${row.name ? row.name : ''}</span>`;
+                                        return `<span class="inline-block pl-6">${row.name ? row.name : ''}</span>`;
                                     }
                                 }
                                 const rawName = (data || '').replace(/^@/, '');
@@ -855,11 +849,11 @@
                                     // File icon
                                     return `
                                         <span class="inline-flex items-start max-w-full">
-                                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-5 w-5 mr-2 mt-0.5 text-gray-400 flex-shrink-0">
+                                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="mr-2 mt-0.5 h-5 w-5 shrink-0 text-[var(--eb-text-muted)]">
                                                 <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
                                             </svg>
                                             <span class="object-name break-all">${displayName}</span>
-                                            <span class="ml-2 mt-0.5 inline-flex items-center text-xs font-medium chip chip-neutral hidden" title="" aria-label=""></span>
+                                            <span class="chip eb-badge eb-badge--neutral ml-2 mt-0.5 hidden inline-flex items-center text-xs font-medium" title="" aria-label=""></span>
                                         </span>
                                     `;
                                 } else {
@@ -872,7 +866,7 @@
                                         class="inline-flex items-start max-w-full"
                                         onclick="navigateToFolder('${safeFolderName}')">
                                             <svg xmlns="http://www.w3.org/2000/svg"
-                                                class="h-5 w-5 mr-2 mt-0.5 text-yellow-400 flex-shrink-0"
+                                                class="mr-2 mt-0.5 h-5 w-5 shrink-0 text-[var(--eb-warning-text)]"
                                                 fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                                     d="M3 7a4 4 0 014-4h6l2 2h6a2 2 0 012 2v12a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" />
@@ -885,36 +879,32 @@
                         },
                         // Size
                         {
-                            data: function(row) { return showVersions ? (row.size || '') : row.size; },
-                            className: 'px-6 py-4 text-sm text-gray-300'
+                            data: function(row) { return showVersions ? (row.size || '') : row.size; }
                         },
                         // Last Modified
                         {
-                            data: function(row) { return showVersions ? (row.modified || '') : row.modified; },
-                            className: 'px-6 py-4 text-sm text-gray-300'
+                            data: function(row) { return showVersions ? (row.modified || '') : row.modified; }
                         },
                         // ETag (versions mode)
                         {
                             data: function(row) { return showVersions ? (row.etag || '') : ''; },
-                            className: 'px-6 py-4 text-sm text-gray-300',
+                            className: 'eb-table-mono',
                             visible: true
                         },
                         // Storage Class (versions mode)
                         {
                             data: function(row) { return showVersions ? (row.storage_class || '') : ''; },
-                            className: 'px-6 py-4 text-sm text-gray-300',
                             visible: true
                         },
                         // Owner (versions mode)
                         {
                             data: function(row) { return showVersions ? (row.owner || '') : ''; },
-                            className: 'px-6 py-4 text-sm text-gray-300',
                             visible: true
                         },
                         // Version ID (versions mode)
                         {
                             data: function(row) { return showVersions ? (row.version_id || '') : ''; },
-                            className: 'px-6 py-4 text-sm text-gray-300',
+                            className: 'eb-table-mono',
                             visible: true
                         },
                         // Single File Delete / Restore (versions mode)
@@ -924,7 +914,7 @@
                                 if (showVersions) {
                                     if (row.is_parent) return '';
                                     const isDeleteMarker = row.deleted === true;
-                                    const restoreBtnClass = isDeleteMarker ? 'opacity-50 cursor-not-allowed' : 'text-sky-500 hover:text-sky-400';
+                                    const restoreBtnClass = isDeleteMarker ? 'opacity-50 cursor-not-allowed text-[var(--eb-text-muted)]' : 'text-[var(--eb-info-text)] hover:text-[var(--eb-info-strong)]';
                                     const restoreTitle = isDeleteMarker ? 'Cannot restore a delete marker' : 'Restore this version';
 
                                     // Safely embed values using data-* then bind a delegated click handler
@@ -976,153 +966,25 @@
                             jQuery(row).addClass('bucket-row');
                         }
                     },
-                    search: true,
+                    searching: true,
+                    paging: true,
                     pageLength: 10,
-                    lengthMenu: [10, 25, 50, 100],
+                    lengthChange: false,
+                    ordering: true,
+                    order: [[2, 'asc']],
                     autoWidth: false,
-                    responsive: true,
+                    responsive: false,
                     bInfo: false,
                     language: {
-                        emptyTable: "No objects found",
-                        paginate: {
-                            previous: "Previous",
-                            next: "Next"
-                        }
+                        emptyTable: "No objects found"
                     },
-                    dom: "<'browser-dt-controls'<'browser-dt-length'l><'browser-dt-filter'f>>" +
-                        "tr" +
-                        "<'browser-dt-footer'<'browser-dt-info'i><'browser-dt-pagination'p>>",
-
-                    initComplete: function(settings, json) {
-                        const wrapper = jQuery('#bucketContents_wrapper');
-                        
-                        // Wrap length and filter in a styled container matching billing table
-                        wrapper.find('.browser-dt-controls')
-                            .addClass('flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between px-4 py-3 border-b border-slate-800');
-                        
-                        // LENGTH MENU - matching billing table style
-                        const $lengthContainer = wrapper.find('.browser-dt-length');
-                        $lengthContainer.addClass('mr-auto');
-
-                        let $lengthLabel = $lengthContainer.find('label');
-                        // Wrap text nodes in spans for consistent styling
-                        $lengthLabel.contents().filter(function() {
-                            return this.nodeType === 3 && jQuery.trim(jQuery(this).text()) !== "";
-                        }).each(function() {
-                            var text = jQuery.trim(jQuery(this).text());
-                            jQuery(this).replaceWith('<span>' + text + '</span>');
-                        });
-                        $lengthLabel.removeClass().addClass('text-xs inline-flex items-center text-slate-300 space-x-1');
-
-                        let $lengthSelect = $lengthContainer.find('select');
-                        $lengthSelect.removeClass().addClass(
-                            "dt-eb-select inline-block appearance-none border border-slate-700 text-slate-200 bg-slate-900/70 rounded-lg focus:outline-none focus:ring-0 focus:border-sky-600 text-xs cursor-pointer"
-                        ).css({
-                            'padding': '0.375rem 2rem 0.375rem 0.75rem',
-                            'background-image': 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' fill=\'none\' viewBox=\'0 0 20 20\'%3E%3Cpath stroke=\'%2394a3b8\' stroke-linecap=\'round\' stroke-linejoin=\'round\' stroke-width=\'1.5\' d=\'m6 8 4 4 4-4\'/%3E%3C/svg%3E")',
-                            'background-position': 'right 0.5rem center',
-                            'background-repeat': 'no-repeat',
-                            'background-size': '1.25em 1.25em'
-                        });
-
-                        // SEARCH BOX - matching billing table style exactly
-                        const $filterContainer = wrapper.find('.browser-dt-filter');
-                        $filterContainer.addClass('ml-auto');
-
-                        $filterContainer.find('label')
-                            .removeClass()
-                            .addClass('text-xs text-slate-300');
-
-                        $filterContainer.find('input')
-                            .removeClass()
-                            .addClass(
-                                "dt-eb-input block w-full px-3 py-1.5 border border-slate-700 text-slate-200 bg-slate-900/70 rounded-lg focus:outline-none focus:ring-0 focus:border-sky-600 text-xs"
-                            )
-                            .attr('placeholder', 'Search...');
-
-                        // FOOTER - info and pagination
-                        wrapper.find('.browser-dt-footer')
-                            .addClass('flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between px-4 py-3 border-t border-slate-800');
-                        
-                        wrapper.find('.browser-dt-info').addClass('text-xs text-slate-400');
-                        wrapper.find('.browser-dt-pagination').addClass('ml-auto');
-
-                        // PAGINATION - matching billing table style
-                        const stylePagination = function() {
-                            wrapper.find('.dataTables_paginate .paginate_button').each(function() {
-                                const $btn = jQuery(this);
-                                $btn.removeClass();
-                                if ($btn.hasClass('current') || $btn.attr('class')?.includes('current')) {
-                                    $btn.addClass('px-3 py-1 mx-0.5 rounded-lg bg-sky-600 text-white text-xs font-medium cursor-default');
-                                } else if ($btn.hasClass('disabled') || $btn.attr('class')?.includes('disabled')) {
-                                    $btn.addClass('px-3 py-1 mx-0.5 rounded-lg bg-slate-800 text-slate-500 text-xs font-medium cursor-not-allowed opacity-50');
-                                } else {
-                                    $btn.addClass('px-3 py-1 mx-0.5 rounded-lg border border-slate-700 bg-slate-900/80 text-slate-100 text-xs font-medium hover:bg-slate-800 hover:border-slate-500 cursor-pointer');
-                                }
-                            });
-                        };
-                        stylePagination();
-
-                        // Re-style pagination on page change
-                        jQuery('#bucketContents').on('draw.dt', stylePagination);
-
-                        // Add versions filter bar when toggle enabled
-                        const toolbarId = 'versionsFilterBar';
-                        jQuery(`#${toolbarId}`).remove();
-                        const $versionFilters = jQuery('<div id="'+toolbarId+'" class="mt-2 flex flex-wrap items-center gap-4 sm:gap-6 px-4"></div>');
-                        $versionFilters.append(`
-                            <div class="flex items-center gap-2">
-                                <button id="filterIncludeDeletedToggle" type="button" 
-                                        class="toggle-switch bg-slate-700"
-                                        data-active="false">
-                                    <span class="toggle-knob"></span>
-                                </button>
-                                <span class="text-xs text-slate-300">Include deleted keys</span>
-                            </div>
-                        `);
-                        $versionFilters.append(`
-                            <div class="flex items-center gap-2">
-                                <button id="filterOnlyWithVersionsToggle" type="button" 
-                                        class="toggle-switch bg-slate-700"
-                                        data-active="false">
-                                    <span class="toggle-knob"></span>
-                                </button>
-                                <span class="text-xs text-slate-300">Only keys with versions</span>
-                            </div>
-                        `);
-                        wrapper.find('.browser-dt-controls').after($versionFilters);
-                        
-                        // Toggle button click handlers
-                        jQuery('#filterIncludeDeletedToggle').on('click', function() {
-                            const $btn = jQuery(this);
-                            const isActive = $btn.attr('data-active') === 'true';
-                            const newState = !isActive;
-                            $btn.attr('data-active', newState ? 'true' : 'false');
-                            $btn.toggleClass('active bg-sky-600', newState);
-                            $btn.toggleClass('bg-slate-700', !newState);
-                            // Trigger reload
-                            if (showVersions) { window.__allowNextIndexReload = true; }
-                            jQuery('#bucketContents').DataTable().ajax.reload();
-                        });
-                        
-                        jQuery('#filterOnlyWithVersionsToggle').on('click', function() {
-                            const $btn = jQuery(this);
-                            const isActive = $btn.attr('data-active') === 'true';
-                            const newState = !isActive;
-                            $btn.attr('data-active', newState ? 'true' : 'false');
-                            $btn.toggleClass('active bg-sky-600', newState);
-                            $btn.toggleClass('bg-slate-700', !newState);
-                            // Trigger reload
-                            if (showVersions) { window.__allowNextIndexReload = true; }
-                            jQuery('#bucketContents').DataTable().ajax.reload();
-                        });
-                        
-                        // Hide loader once DataTable is ready
-                        try { document.getElementById('loading-overlay')?.classList.add('hidden'); } catch (e) {}
-                    },
+                    dom: 't',
 
                     // Per-draw adjustments
                     drawCallback: function(settings) {
+                        updateBucketPager();
+                        updateSortIndicators();
+                        updateVersionFilterVisibility();
                         // Remove legacy \"Up One Level\" helper row (breadcrumb now handles this)
                         jQuery('#upOneLevelRow').remove();
 
@@ -1140,8 +1002,13 @@
                                 $empty.text('No versions found here. Try a different folder or turn off Show versions to see only current objects.');
                             }
                         }
+                        try { document.getElementById('loading-overlay')?.classList.add('hidden'); } catch (e) {}
                     }
                 });
+
+                updateBucketPager();
+                updateSortIndicators();
+                updateVersionFilterVisibility();
 
                 // Guard: prevent unexpected automatic reloads of versions index.
                 // We only allow a versions index XHR if we explicitly enable it right before calling reload/load.
@@ -1241,29 +1108,29 @@
                             
                             switch(item.status) {
                                 case 'pending':
-                                    statusIcon = '<svg class="animate-pulse h-4 w-4 text-gray-400" fill="currentColor" viewBox="0 0 20 20"><circle cx="10" cy="10" r="3"/></svg>';
-                                    statusClass = 'text-gray-400';
+                                    statusIcon = '<svg class="h-4 w-4 animate-pulse text-[var(--eb-text-muted)]" fill="currentColor" viewBox="0 0 20 20"><circle cx="10" cy="10" r="3"/></svg>';
+                                    statusClass = 'text-[var(--eb-text-muted)]';
                                     break;
                                 case 'uploading':
-                                    statusIcon = '<svg class="animate-spin h-4 w-4 text-sky-400" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path></svg>';
-                                    statusClass = 'text-sky-400';
+                                    statusIcon = '<svg class="h-4 w-4 animate-spin text-[var(--eb-info-text)]" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path></svg>';
+                                    statusClass = 'text-[var(--eb-info-text)]';
                                     break;
                                 case 'completed':
-                                    statusIcon = '<svg class="h-4 w-4 text-emerald-400" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>';
-                                    statusClass = 'text-emerald-400';
+                                    statusIcon = '<svg class="h-4 w-4 text-[var(--eb-success-text)]" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>';
+                                    statusClass = 'text-[var(--eb-success-text)]';
                                     break;
                                 case 'failed':
-                                    statusIcon = '<svg class="h-4 w-4 text-red-400" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>';
-                                    statusClass = 'text-red-400';
+                                    statusIcon = '<svg class="h-4 w-4 text-[var(--eb-danger-text)]" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>';
+                                    statusClass = 'text-[var(--eb-danger-text)]';
                                     break;
                                 case 'cancelled':
-                                    statusIcon = '<svg class="h-4 w-4 text-gray-500" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>';
-                                    statusClass = 'text-gray-500';
+                                    statusIcon = '<svg class="h-4 w-4 text-[var(--eb-text-muted)]" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>';
+                                    statusClass = 'text-[var(--eb-text-muted)]';
                                     break;
                             }
                             
                             return `
-                                <div class="flex items-center justify-between py-1 px-2 rounded bg-slate-800/50 text-xs ${statusClass}">
+                                <div class="upload-queue-item ${statusClass}" data-status="${item.status}">
                                     <div class="flex items-center gap-2 truncate flex-1">
                                         ${statusIcon}
                                         <span class="truncate" title="${displayPath}">${truncatedPath}</span>
@@ -1530,19 +1397,19 @@
                 dropZone.addEventListener('dragover', function(e) {
                     e.preventDefault();
                     e.stopPropagation();
-                    this.classList.add('border-sky-500', 'bg-slate-700/50');
+                    this.classList.add('is-dragover');
                 });
 
                 dropZone.addEventListener('dragleave', function(e) {
                     e.preventDefault();
                     e.stopPropagation();
-                    this.classList.remove('border-sky-500', 'bg-slate-700/50');
+                    this.classList.remove('is-dragover');
                 });
 
                 dropZone.addEventListener('drop', async function(e) {
                     e.preventDefault();
                     e.stopPropagation();
-                    this.classList.remove('border-sky-500', 'bg-slate-700/50');
+                    this.classList.remove('is-dragover');
 
                     // Show loading indicator
                     if (window.toast) window.toast.info('Scanning files and folders...');
@@ -1626,7 +1493,7 @@
                     if (!keyMarker && !versionIdMarker) {
                         // No more pages
                         document.getElementById('loading-overlay').classList.add('hidden');
-                        alert('No more versioned keys under this prefix.');
+                        if (window.toast) { window.toast.info('No more versioned keys under this prefix.'); }
                         return;
                     }
                     jQuery.ajax({
@@ -1646,7 +1513,7 @@
                         dataType: 'json',
                         success: function(response) {
                             if (response.status === 'fail') {
-                                jQuery('.browse-alert').text(response.message).removeClass('hidden');
+                                showMessage(response.message, 'alertMessage', 'fail');
                                 document.getElementById('loading-overlay').classList.add('hidden');
                                 return;
                             }
@@ -1669,7 +1536,7 @@
 
                 const continuationToken = jQuery('#continuationToken').val();
                 if (!continuationToken) {
-                    alert('No more objects left in bucket.');
+                    if (window.toast) { window.toast.info('No more objects left in this bucket.'); }
                     document.getElementById('loading-overlay').classList.add('hidden');
                     return;
                 }
@@ -1686,7 +1553,7 @@
                     dataType: 'json',
                     success: function(response) {
                         if (response.status === 'fail') {
-                            jQuery('.browse-alert').text(response.message).removeClass('hidden');
+                            showMessage(response.message, 'alertMessage', 'fail');
                             document.getElementById('loading-overlay').classList.add('hidden');
                             return;
                         }
@@ -1713,7 +1580,7 @@
                 toggleDeleteModal(false);
                 const fileKey = jQuery('#fileKey').val();
                 if (!fileKey) {
-                    alert('Select the file object for delete');
+                    if (window.toast) { window.toast.info('Select a file object to delete.'); }
                     return;
                 }
                 deleteFiles([fileKey]);
@@ -1788,7 +1655,7 @@
             function deleteSingleVersion(key, versionId) {
                 if (!key || !versionId) return;
                 if (bucketLock.enabled) {
-                    alert('Object Lock enabled. Versions are read-only.');
+                    if (window.toast) { window.toast.info('Object Lock enabled. Versions are read-only.'); }
                     return;
                 }
                 if (!confirm('This will permanently delete this object version. Type OK to proceed.')) {
@@ -1912,6 +1779,7 @@
                 if (__versionSwitching) { showVersions = next; return; }
                 if (showVersions === next) return;
                 showVersions = next;
+                jQuery('#bucketVersionFilters').toggleClass('hidden', !showVersions).toggleClass('flex', showVersions);
                 // Collapse any open detail rows when turning off
                 if (!showVersions) {
                     jQuery('tr.details-row').remove();
@@ -2034,7 +1902,7 @@
                 const $chip = $tr.find('.chip');
                 if ($chip.length === 0) return;
 
-                $chip.removeClass('hidden chip-neutral chip-amber chip-red');
+                $chip.removeClass('hidden eb-badge--neutral eb-badge--warning eb-badge--danger');
 
                 const t = [];
                 if (meta.hasVersions) t.push(`${meta.versionCount} non-current version${meta.versionCount===1?'':'s'}`);
@@ -2044,22 +1912,22 @@
                 if (meta.governance) t.push('Governance');
 
                 let label = '';
-                let cls = 'chip-neutral bg-gray-700 text-gray-300';
+                let cls = 'eb-badge--neutral';
                 if (meta.legalHolds > 0 || meta.complianceUntil) {
                     label = meta.complianceUntil ? `Compliance until ${meta.complianceUntil}` : 'Legal hold';
-                    cls = 'chip-red bg-red-600 text-white';
+                    cls = 'eb-badge--danger';
                 } else if (meta.governance) {
                     label = 'Governance';
-                    cls = 'chip-amber bg-amber-600 text-white';
+                    cls = 'eb-badge--warning';
                 } else if (meta.hasVersions || meta.deleteMarkerCount > 0) {
                     label = meta.hasVersions ? 'Versions' : 'Delete marker';
-                    cls = 'chip-neutral bg-gray-700 text-gray-300';
+                    cls = 'eb-badge--neutral';
                 } else {
                     $chip.addClass('hidden');
                     return;
                 }
 
-                $chip.attr('title', t.join('; ')).attr('aria-label', t.join('; ')).text(label).removeClass('bg-gray-700 bg-amber-600 bg-red-600 text-white text-gray-300').addClass(cls);
+                $chip.attr('title', t.join('; ')).attr('aria-label', t.join('; ')).text(label).removeClass('eb-badge--neutral eb-badge--warning eb-badge--danger').addClass(cls);
             }
 
             // Escape for embedding into HTML attribute values created in renderers
@@ -2133,25 +2001,25 @@
                 // Insert details container row
                 const colSpan = $tr.children('td').length;
                 const $details = jQuery(`
-                    <tr class="details-row bg-gray-900/40">
-                        <td colspan="${colSpan}" class="px-6 py-4">
+                    <tr class="details-row">
+                        <td colspan="${colSpan}">
                             <div class="flex items-start justify-between">
                                 <div>
-                                    <div class="text-sm text-gray-300 mb-2">Versions and delete markers for <span class="font-mono text-gray-100">${key}</span></div>
-                                    <div class="inline-block px-2 py-1 rounded text-xs font-medium ${bucketLock.enabled ? (bucketLock.mode==='COMPLIANCE' ? 'bg-red-600 text-white' : 'bg-amber-600 text-white') : 'hidden'}">
+                                    <div class="mb-2 text-sm text-[var(--eb-text-secondary)]">Versions and delete markers for <span class="font-mono text-[var(--eb-text-primary)]">${key}</span></div>
+                                    <div class="eb-badge ${bucketLock.enabled ? (bucketLock.mode==='COMPLIANCE' ? 'eb-badge--danger' : 'eb-badge--warning') : 'hidden'}">
                                         ${bucketLock.enabled ? (bucketLock.mode==='COMPLIANCE' ? 'Object Lock: Compliance (read-only)' : 'Object Lock: Governance (read-only)') : ''}
                                     </div>
                                 </div>
                                 <div>
-                                    <button class="refresh-key-details bg-gray-700 hover:bg-gray-600 text-gray-300 px-2 py-1 rounded text-xs" data-key="${key}">Refresh</button>
+                                    <button class="refresh-key-details eb-btn eb-btn-secondary eb-btn-sm" data-key="${key}">Refresh</button>
                                 </div>
                             </div>
                             <div class="mt-3" id="keyPanel-${key.replace(/[^a-zA-Z0-9_-]/g,'_')}">
-                                <div class="text-gray-400 text-sm">Loading…</div>
+                                <div class="text-sm text-[var(--eb-text-muted)]">Loading...</div>
                             </div>
-                            <div class="mt-3 flex items-center space-x-2 ${bucketLock.enabled ? 'hidden' : ''}" id="deleteVersionsBar-${key.replace(/[^a-zA-Z0-9_-]/g,'_')}">
-                                <button class="delete-selected-versions bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded text-sm" data-key="${key}">Delete selected versions</button>
-                                <label class="text-xs text-gray-400">Destructive: permanently removes selected versions and delete markers</label>
+                            <div class="mt-3 flex flex-wrap items-center gap-3 ${bucketLock.enabled ? 'hidden' : ''}" id="deleteVersionsBar-${key.replace(/[^a-zA-Z0-9_-]/g,'_')}">
+                                <button class="delete-selected-versions eb-btn eb-btn-danger eb-btn-sm" data-key="${key}">Delete selected versions</button>
+                                <label class="text-xs text-[var(--eb-text-muted)]">Destructive: permanently removes selected versions and delete markers</label>
                             </div>
                         </td>
                     </tr>
@@ -2188,7 +2056,7 @@
                 const $deleteBar = jQuery(`#deleteVersionsBar-${panelSuffix}`);
 
                 if (versions.length === 0 && markers.length === 0) {
-                    $panel.html('<div class="text-gray-400 text-sm">No non-current versions or delete markers.</div>');
+                    $panel.html('<div class="text-sm text-[var(--eb-text-muted)]">No non-current versions or delete markers.</div>');
                     // Hide delete bar when no versions/markers
                     $deleteBar.addClass('hidden');
                     return;
@@ -2209,16 +2077,16 @@
                     const retMode = retention && retention.Mode ? retention.Mode : '';
                     const retUntil = retention && retention.RetainUntil ? retention.RetainUntil : '';
                     const protChips = [];
-                    if (hold === 'ON') protChips.push('<span class="inline-block px-2 py-0.5 rounded bg-red-600 text-white text-[10px]">Legal hold</span>');
-                    if (retMode === 'COMPLIANCE') protChips.push(`<span class="inline-block px-2 py-0.5 rounded bg-red-600 text-white text-[10px]">Compliance${retUntil? ' until '+retUntil: ''}</span>`);
-                    if (retMode === 'GOVERNANCE') protChips.push('<span class="inline-block px-2 py-0.5 rounded bg-amber-600 text-white text-[10px]">Governance</span>');
+                    if (hold === 'ON') protChips.push('<span class="eb-badge eb-badge--danger">Legal hold</span>');
+                    if (retMode === 'COMPLIANCE') protChips.push(`<span class="eb-badge eb-badge--danger">Compliance${retUntil ? ' until ' + retUntil : ''}</span>`);
+                    if (retMode === 'GOVERNANCE') protChips.push('<span class="eb-badge eb-badge--warning">Governance</span>');
                     return `
-                        <tr class="border-b border-gray-700">
-                            <td class="px-2 py-2 w-8"><input type="checkbox" class="versionCheckbox" data-key="${key}" data-version="${vid}" data-marker="${isMarker?1:0}"></td>
-                            <td class="px-2 py-2 font-mono text-xs text-gray-200">${vid ? vid : '—'}</td>
-                            <td class="px-2 py-2 text-sm text-gray-300">${lm}</td>
-                            <td class="px-2 py-2 text-sm text-gray-300">${isMarker ? 'Delete marker' : 'Version'}</td>
-                            <td class="px-2 py-2 space-x-1">${protChips.join(' ')}</td>
+                        <tr>
+                            <td><input type="checkbox" class="versionCheckbox eb-check-input" data-key="${key}" data-version="${vid}" data-marker="${isMarker ? 1 : 0}"></td>
+                            <td class="eb-table-mono">${vid ? vid : '—'}</td>
+                            <td>${lm}</td>
+                            <td>${isMarker ? 'Delete marker' : 'Version'}</td>
+                            <td><div class="flex flex-wrap gap-1">${protChips.join(' ')}</div></td>
                         </tr>
                     `;
                 };
@@ -2227,15 +2095,15 @@
                 markers.forEach(m => rows.push(renderRow(m, true)));
 
                 $panel.html(`
-                    <div class="overflow-x-auto">
-                        <table class="min-w-full text-left">
-                            <thead class="border-b border-gray-700">
+                    <div class="eb-table-shell overflow-x-auto">
+                        <table class="eb-table bucket-version-table">
+                            <thead>
                                 <tr>
-                                    <th class="px-2 py-2"></th>
-                                    <th class="px-2 py-2 text-xs uppercase text-gray-400">Version ID</th>
-                                    <th class="px-2 py-2 text-xs uppercase text-gray-400">Last Modified</th>
-                                    <th class="px-2 py-2 text-xs uppercase text-gray-400">Type</th>
-                                    <th class="px-2 py-2 text-xs uppercase text-gray-400">Protection</th>
+                                    <th></th>
+                                    <th>Version ID</th>
+                                    <th>Last Modified</th>
+                                    <th>Type</th>
+                                    <th>Protection</th>
                                 </tr>
                             </thead>
                             <tbody>${rows.join('')}</tbody>
@@ -2253,7 +2121,7 @@
                     selected.push({ key: key, versionId: versionId });
                 });
                 if (selected.length === 0) {
-                    alert('Select at least one version or delete marker.');
+                    if (window.toast) { window.toast.info('Select at least one version or delete marker.'); }
                     return;
                 }
                 if (!confirm('This will permanently delete selected versions and delete markers. Type OK to proceed.')) {
@@ -2298,9 +2166,9 @@
                     return t === 'folder';
                 });
                 // Highlight selected rows
-                jQuery('#bucketContents tbody tr').removeClass('bucket-row-selected');
+                jQuery('#bucketContents tbody tr').removeClass('is-selected');
                 jQuery('.fileCheckbox:checked').each(function() {
-                    jQuery(this).closest('tr').addClass('bucket-row-selected');
+                    jQuery(this).closest('tr').addClass('is-selected');
                 });
                 // Delete disabled when object lock enabled or in versions view
                 jQuery('#btnDelete').prop('disabled', !anySelected || bucketLock.enabled || showVersions);
@@ -2351,15 +2219,15 @@
                 if (!empty || !body) return;
                 const isFolder = (String(data.type || '').toLowerCase() === 'folder' || (data.name || '').endsWith('/'));
                 const rows = [];
-                rows.push(`<div><span class="font-semibold text-slate-100">${isFolder ? 'Folder' : 'File'}</span></div>`);
-                rows.push(`<div class="font-mono break-all text-[11px] text-slate-200">${data.name || data.key || ''}</div>`);
+                rows.push(`<div><span class="font-semibold text-[var(--eb-text-primary)]">${isFolder ? 'Folder' : 'File'}</span></div>`);
+                rows.push(`<div class="font-mono break-all text-[11px] text-[var(--eb-text-secondary)]">${data.name || data.key || ''}</div>`);
                 if (!isFolder) {
-                    if (data.size) rows.push(`<div><span class="text-slate-400">Size:</span> <span class="text-slate-200">${data.size}</span></div>`);
-                    if (data.modified) rows.push(`<div><span class="text-slate-400">Last modified:</span> <span class="text-slate-200">${data.modified}</span></div>`);
-                    if (data.etag) rows.push(`<div><span class="text-slate-400">ETag:</span> <span class="text-slate-200">${data.etag}</span></div>`);
-                    if (data.storage_class) rows.push(`<div><span class="text-slate-400">Storage class:</span> <span class="text-slate-200">${data.storage_class}</span></div>`);
-                    if (data.owner) rows.push(`<div><span class="text-slate-400">Owner:</span> <span class="text-slate-200">${data.owner}</span></div>`);
-                    if (data.version_id) rows.push(`<div><span class="text-slate-400">Version ID:</span> <span class="text-slate-200">${data.version_id}</span></div>`);
+                    if (data.size) rows.push(`<div><span class="text-[var(--eb-text-muted)]">Size:</span> <span class="text-[var(--eb-text-secondary)]">${data.size}</span></div>`);
+                    if (data.modified) rows.push(`<div><span class="text-[var(--eb-text-muted)]">Last modified:</span> <span class="text-[var(--eb-text-secondary)]">${data.modified}</span></div>`);
+                    if (data.etag) rows.push(`<div><span class="text-[var(--eb-text-muted)]">ETag:</span> <span class="text-[var(--eb-text-secondary)]">${data.etag}</span></div>`);
+                    if (data.storage_class) rows.push(`<div><span class="text-[var(--eb-text-muted)]">Storage class:</span> <span class="text-[var(--eb-text-secondary)]">${data.storage_class}</span></div>`);
+                    if (data.owner) rows.push(`<div><span class="text-[var(--eb-text-muted)]">Owner:</span> <span class="text-[var(--eb-text-secondary)]">${data.owner}</span></div>`);
+                    if (data.version_id) rows.push(`<div><span class="text-[var(--eb-text-muted)]">Version ID:</span> <span class="text-[var(--eb-text-secondary)]">${data.version_id}</span></div>`);
                 }
                 body.innerHTML = rows.map(r => `<div>${r}</div>`).join('');
                 empty.classList.add('hidden');
@@ -2417,16 +2285,16 @@
                 const inp = document.getElementById('newFolderName');
                 const msg = document.getElementById('createFolderMsg');
                 if (inp) inp.value = '';
-                if (msg) { msg.textContent=''; msg.className='text-xs text-slate-300'; }
+                if (msg) { msg.textContent=''; msg.className='text-xs text-[var(--eb-text-muted)]'; }
                 toggleCreateFolderModal(true);
             }
             function createFolder() {
                 const parent = (jQuery('#folderPath').val() || '').trim().replace(/^[\\/]+|[\\/]+$/g,'');
                 const name = (document.getElementById('newFolderName')?.value || '').trim();
                 const msg = document.getElementById('createFolderMsg');
-                if (!name) { if (msg){ msg.textContent='Enter a folder name'; msg.className='text-xs text-rose-300'; } return; }
+                if (!name) { if (msg){ msg.textContent='Enter a folder name'; msg.className='text-xs text-[var(--eb-danger-text)]'; } return; }
                 // sanitize name (S3-friendly)
-                if (!/^[A-Za-z0-9._-]+$/.test(name)) { if (msg){ msg.textContent='Use letters, numbers, dot, dash or underscore only'; msg.className='text-xs text-rose-300'; } return; }
+                if (!/^[A-Za-z0-9._-]+$/.test(name)) { if (msg){ msg.textContent='Use letters, numbers, dot, dash or underscore only'; msg.className='text-xs text-[var(--eb-danger-text)]'; } return; }
                 const body = new URLSearchParams({
                     bucket: bucketName,
                     username: username,
@@ -2443,9 +2311,9 @@
                         toggleCreateFolderModal(false);
                         jQuery('#bucketContents').DataTable().ajax.reload();
                     } else {
-                        if (msg) { msg.textContent = d.message || 'Failed to create folder'; msg.className='text-xs text-rose-300'; }
+                        if (msg) { msg.textContent = d.message || 'Failed to create folder'; msg.className='text-xs text-[var(--eb-danger-text)]'; }
                     }
-                }).catch(() => { if (msg){ msg.textContent='Error creating folder'; msg.className='text-xs text-rose-300'; } });
+                }).catch(() => { if (msg){ msg.textContent='Error creating folder'; msg.className='text-xs text-[var(--eb-danger-text)]'; } });
             }
             function deleteSelected() {
                 const items = collectSelection();
@@ -2535,8 +2403,8 @@
             // Breadcrumbs rendering
             function renderBreadcrumbs() {
                 try {
-                    const label = `<span class="mr-2 uppercase tracking-wide text-slate-400">Path</span>`;
-                    const rootHtml = `<a href="javascript:void(0)" class="text-slate-200 hover:text-white" onclick="goToPrefix('')">root</a>`;
+                    const label = `<span class="mr-2 uppercase tracking-[0.08em] text-[var(--eb-text-muted)]">Path</span>`;
+                    const rootHtml = `<a href="javascript:void(0)" class="text-[var(--eb-text-secondary)] transition-colors hover:text-[var(--eb-text-primary)]" onclick="goToPrefix('')">root</a>`;
                     const fp = normalizeFolderPath(jQuery('#folderPath').val() || '');
                     updateUpOneLevelButton();
                     if (!fp) { jQuery('#breadcrumbs').html(label + rootHtml); return; }
@@ -2546,7 +2414,7 @@
                     parts.forEach((p, idx) => {
                         acc = acc ? (acc + '/' + p) : p;
                         const encodedAcc = encodeURIComponent(acc);
-                        crumbs.push(`<span class="mx-1 text-slate-500">/</span><a href="javascript:void(0)" class="text-slate-200 hover:text-white" onclick="goToPrefix(decodeURIComponent('${encodedAcc}'))">${p}</a>`);
+                        crumbs.push(`<span class="mx-1 text-[var(--eb-text-disabled)]">/</span><a href="javascript:void(0)" class="text-[var(--eb-text-secondary)] transition-colors hover:text-[var(--eb-text-primary)]" onclick="goToPrefix(decodeURIComponent('${encodedAcc}'))">${p}</a>`);
                     });
                     jQuery('#breadcrumbs').html(crumbs.join(''));
                 } catch (e) {}

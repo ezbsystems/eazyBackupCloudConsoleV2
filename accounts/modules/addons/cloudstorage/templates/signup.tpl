@@ -253,7 +253,7 @@
 
                   {if isset($TURNSTILE_SITE_KEY) && $TURNSTILE_SITE_KEY|trim neq ''}
                     {if !isset($TURNSTILE_USE_INVISIBLE) || !$TURNSTILE_USE_INVISIBLE}
-                      <div id="cf-turnstile-container" class="flex min-h-[4.5rem] w-full justify-center"></div>
+                      <div id="cf-turnstile-container" class="flex w-full justify-center"></div>
                     {/if}
                   {/if}
 
@@ -383,7 +383,7 @@
                   </p>
                 </div>
                 <p class="text-sm text-[var(--eb-text-muted)]">
-                  If you don’t see the email within a few minutes, check spam or junk. You can close this page; the link stays valid until it expires.
+                  If you don’t see the email within a few minutes, check spam or junk. You can close this page; the link will remain valid.
                 </p>
                 <form action="index.php?m=cloudstorage&amp;page=resendtrial" method="post" class="text-sm text-[var(--eb-text-muted)]">
                   <input type="hidden" name="email" value="{$smarty.post.email|default:$email|escape}" />

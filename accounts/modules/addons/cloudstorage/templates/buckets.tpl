@@ -17,59 +17,190 @@
         <!-- Alpine Toasts -->
         <!-- ebLoader -->
         <script src="{$WEB_ROOT}/modules/addons/eazybackup/templates/assets/js/ui.js"></script>
-        <!-- Alpine toast helper - must be defined before the x-data element -->
         <script>
-        function toastCenter() {
+        function normalizeToastMessage(message) {
+            try {
+                var html = String(message || '');
+                var tmp = document.createElement('div');
+                tmp.innerHTML = html
+                    .replace(/<\/li>\s*<li>/gi, ', ')
+                    .replace(/<li>/gi, '')
+                    .replace(/<\/li>/gi, '')
+                    .replace(/<\/?(ul|ol)>/gi, ' ');
+                return (tmp.textContent || tmp.innerText || '').replace(/\s+/g, ' ').trim();
+            } catch (e) {
+                return String(message || '').trim();
+            }
+        }
+
+        function bucketToastManager() {
             return {
                 toasts: [],
-                init: function() {
-                    var self = this;
-                    window.addEventListener('toast', function(e){
-                        var d = e.detail || {};
-                        self.add(d.message || '', d.type || 'info', d.duration || 5000);
-                    });
-                },
-                add: function(message, type, duration) {
-                    if (this.toasts.length) {
-                        var last = this.toasts[this.toasts.length - 1];
-                        if (last && last.message === message && last.type === type && last.show) {
-                            return;
-                        }
+                push(detail) {
+                    var toast = detail || {};
+                    var message = normalizeToastMessage(toast.message || '');
+                    if (!message) {
+                        return;
                     }
+
                     var id = Date.now() + Math.random();
-                    this.toasts.push({ id: id, message: message, type: type, show: true });
+                    var entry = {
+                        id: id,
+                        message: message,
+                        type: toast.type || 'info',
+                        visible: true
+                    };
+                    this.toasts.push(entry);
+
                     var self = this;
-                    setTimeout(function(){ self.remove(id); }, duration || 5000);
+                    window.setTimeout(function() {
+                        self.remove(id);
+                    }, toast.duration || 4200);
                 },
-                remove: function(id) {
-                    this.toasts = this.toasts.filter(function(t){ return t.id !== id; });
+                remove(id) {
+                    this.toasts = this.toasts.filter(function(toast) {
+                        return toast.id !== id;
+                    });
                 }
             };
         }
-        function pushToast(message, type) {
+
+        function pushToast(message, type, duration) {
             try {
-                var k = (type || 'info') + '|' + String(message || '');
-                var now = Date.now();
-                if (window.__lastToastKey === k && (now - (window.__lastToastAt || 0) < 1000)) {
+                var normalizedMessage = normalizeToastMessage(message);
+                if (!normalizedMessage) {
                     return;
                 }
-                window.__lastToastKey = k;
+
+                var key = (type || 'info') + '|' + normalizedMessage;
+                var now = Date.now();
+                if (window.__lastToastKey === key && (now - (window.__lastToastAt || 0) < 1000)) {
+                    return;
+                }
+
+                window.__lastToastKey = key;
                 window.__lastToastAt = now;
-                window.dispatchEvent(new CustomEvent('toast', { detail: { message: message, type: type } }));
-            } catch(e) {}
+                window.dispatchEvent(new CustomEvent('bucket:toast', {
+                    detail: {
+                        message: normalizedMessage,
+                        type: type || 'info',
+                        duration: duration || 4200
+                    }
+                }));
+            } catch (e) {}
+        }
+
+        function bucketSelectMenu(config) {
+            return {
+                open: false,
+                search: '',
+                selectId: config.selectId,
+                placeholder: config.placeholder || 'Select an option',
+                searchPlaceholder: config.searchPlaceholder || 'Search options...',
+                searchable: !!config.searchable,
+                selectedValue: '',
+                selectedLabel: config.placeholder || 'Select an option',
+                options: [],
+                disabled: false,
+                init() {
+                    this.sync();
+                },
+                sync() {
+                    var select = document.getElementById(this.selectId);
+                    if (!select) {
+                        return;
+                    }
+
+                    this.disabled = !!select.disabled;
+                    this.options = Array.from(select.options).map(function(option) {
+                        return {
+                            value: option.value,
+                            label: option.text.trim(),
+                            disabled: option.disabled
+                        };
+                    }).filter(function(option) {
+                        return !option.disabled && option.value !== '';
+                    });
+
+                    this.selectedValue = select.value || '';
+                    this.selectedLabel = this.labelForValue(this.selectedValue);
+                },
+                labelForValue(value) {
+                    if (!value) {
+                        return this.placeholder;
+                    }
+
+                    var option = this.options.find(function(item) {
+                        return item.value === value;
+                    });
+                    if (!option) {
+                        return this.placeholder;
+                    }
+
+                    if (typeof config.formatLabel === 'function') {
+                        return config.formatLabel(option);
+                    }
+
+                    return option.label;
+                },
+                get filteredOptions() {
+                    if (!this.searchable || !this.search) {
+                        return this.options;
+                    }
+
+                    var query = this.search.toLowerCase();
+                    return this.options.filter(function(option) {
+                        return option.label.toLowerCase().includes(query);
+                    });
+                },
+                toggle() {
+                    if (this.disabled) {
+                        return;
+                    }
+
+                    this.open = !this.open;
+                    if (!this.open) {
+                        this.search = '';
+                    }
+                },
+                close() {
+                    this.open = false;
+                    this.search = '';
+                },
+                select(value) {
+                    var select = document.getElementById(this.selectId);
+                    if (!select) {
+                        return;
+                    }
+
+                    select.value = value;
+                    select.dispatchEvent(new Event('change', { bubbles: true }));
+                    select.dispatchEvent(new Event('input', { bubbles: true }));
+                    this.sync();
+                    this.close();
+                },
+                reset() {
+                    this.close();
+                    this.sync();
+                }
+            };
+        }
+
+        function bucketOwnerMenu(config) {
+            return bucketSelectMenu({
+                selectId: config.selectId,
+                placeholder: config.placeholder || 'Select a user',
+                searchable: true,
+                searchPlaceholder: config.searchPlaceholder || 'Search users...',
+                formatLabel: function(option) {
+                    return option.value === config.primaryUsername ? 'Root user' : option.label;
+                }
+            });
         }
         </script>
-        <div x-data="toastCenter()" x-init="init()" class="pointer-events-none fixed top-4 inset-x-0 z-[70] flex justify-center">
-            <template x-for="t in toasts" :key="t.id">
-                <div
-                    x-show="t.show"
-                    x-transition.opacity.duration.200ms
-                    class="pointer-events-auto mb-2 rounded-md px-4 py-2 text-sm shadow-lg"
-                    :class="t.type === 'success' ? 'bg-emerald-600 text-white' : (t.type === 'error' ? 'bg-rose-600 text-white' : 'bg-slate-700 text-slate-100')"
-                    @click="remove(t.id)"
-                >
-                    <span x-text="t.message"></span>
-                </div>
+        <div id="toast-container" x-data="bucketToastManager()" @bucket:toast.window="push($event.detail)" class="pointer-events-none fixed right-4 top-4 z-[9999] space-y-2">
+            <template x-for="toast in toasts" :key="toast.id">
+                <div x-show="toast.visible" x-transition.opacity.duration.200ms class="pointer-events-auto eb-toast text-sm" :class="toast.type === 'success' ? 'eb-toast--success' : (toast.type === 'error' ? 'eb-toast--danger' : (toast.type === 'warning' ? 'eb-toast--warning' : 'eb-toast--info'))" x-text="toast.message"></div>
             </template>
         </div>
         
@@ -123,7 +254,7 @@
                     <span>Create Bucket</span>
                 </button>
             </div>
-            <div class="w-full sm:w-80">
+            <div class="w-full sm:ml-auto sm:w-80">
                 <input
                     type="text"
                     id="searchBuckets"
@@ -490,215 +621,186 @@
         </div>
 
         <!-- Create Bucket Modal -->
-        <div class="fixed inset-0 bg-black/75 flex items-center justify-center z-50 hidden" id="createBucketModal">
-            <div class="bg-slate-900/80 rounded-lg shadow-lg w-full max-w-lg p-6 rounded-lg shadow-lg w-full max-w-lg p-6">
-                <div class="flex justify-between items-center mb-4">
-                    <div class="flex items-center">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6 mr-2">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="m20.25 7.5-.625 10.632a2.25 2.25 0 0 1-2.247 2.118H6.622a2.25 2.25 0 0 1-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125Z" />
-                        </svg>
-                        <h2 class="text-xl font-semibold text-white">Create Bucket</h2>
-                    </div>
-                    <button type="button" onclick="closeModal('createBucketModal')" class="text-slate-300 hover:text-white focus:outline-none">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-                        </svg>
-                    </button>
-                </div>
-                <div>
-                    <!-- Error Message -->
-                    <div id="bucketCreationMessage" class="bg-red-600 text-white px-4 py-2 rounded-md mb-4 hidden" role="alert"></div>
-                    <form action="index.php?m=cloudstorage&page=savebucket" method="post" id="createBucketForm">
-                        <div class="mb-4">
-                            <label for="bucketName" class="block text-sm font-medium text-slate-100">Bucket Name</label>
-                            <input
-                                type="text"
-                                class="mt-1 block w-full bg-slate-900 text-gray-300 border border-gray-600 rounded-md shadow-sm focus:ring-sky-500 focus:border-sky-500 focus:outline-none px-4 py-2"
-                                id="bucketName"
-                                name="bucket_name"
-                                required
-                            >
+        <div class="fixed inset-0 z-50 hidden overflow-y-auto" id="createBucketModal" role="dialog" aria-modal="true" aria-labelledby="createBucketModalTitle">
+            <div class="eb-modal-backdrop absolute inset-0" onclick="closeModal('createBucketModal')"></div>
+            <div class="relative flex min-h-full items-center justify-center px-4 py-8">
+                <div class="eb-modal">
+                    <div class="eb-modal-header">
+                        <div>
+                            <h2 class="eb-modal-title" id="createBucketModalTitle">Create Bucket</h2>
+                            <p class="eb-modal-subtitle">Choose an owner and set the protection defaults for the new bucket.</p>
                         </div>
-                        <div class="mb-4" x-data="{
-                                isOpen: false,
-                                selectedUsername: '',
-                                searchTerm: '',
-                                primaryUsername: '{$PRIMARY_USERNAME|default:""|escape:'javascript'}',
-                                usernames: [
-                                    {foreach from=$usernames item=username name=userloop}
-                                        '{$username|escape:'javascript'}'{if !$smarty.foreach.userloop.last},{/if}
+                        <button type="button" class="eb-modal-close" onclick="closeModal('createBucketModal')" aria-label="Close create bucket modal">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M6 18 18 6M6 6l12 12" />
+                            </svg>
+                        </button>
+                    </div>
+                    <form action="index.php?m=cloudstorage&page=savebucket" method="post" id="createBucketForm">
+                        <div class="eb-modal-body space-y-5">
+                            <div id="bucketCreationMessage" class="hidden" role="alert"></div>
+                            <div>
+                                <label for="bucketName" class="eb-field-label">Bucket Name</label>
+                                <input type="text" class="eb-input" id="bucketName" name="bucket_name" required>
+                            </div>
+
+                            <div class="relative"
+                                x-data="bucketOwnerMenu({ selectId: 'bucketOwnerUsername', placeholder: 'Select a user', searchPlaceholder: 'Search users...', primaryUsername: '{$PRIMARY_USERNAME|default:""|escape:'javascript'}' })"
+                                x-init="init()"
+                                @click.outside="close()"
+                                @keydown.escape.prevent="close()"
+                                @bucket-create-modal-reset.window="reset()">
+                                <label for="bucketOwnerUsername" class="eb-field-label">Select Bucket Owner</label>
+                                <select name="username" id="bucketOwnerUsername" class="sr-only" tabindex="-1" aria-hidden="true">
+                                    <option value="">Select a user</option>
+                                    {foreach from=$usernames item=username}
+                                        <option value="{$username|escape}">{$username|escape}</option>
                                     {/foreach}
-                                ],
-                                get filteredUsernames() {
-                                    if (this.searchTerm === '') {
-                                        return this.usernames;
-                                    }
-                                    return this.usernames.filter((username) => {
-                                        return username.toLowerCase().includes(this.searchTerm.toLowerCase());
-                                    });
-                                }
-                            }" @click.away="isOpen = false">
-                            <label for="username" class="block text-sm font-medium text-slate-100">Select Bucket Owner</label>
-                            <input type="hidden" name="username" id="username" x-model="selectedUsername">
-                            <div class="relative">
-                                <button @click="isOpen = !isOpen" type="button" class="relative w-full px-3 py-2 text-left bg-[#11182759] border border-gray-600 rounded-md shadow-sm cursor-default focus:outline-none focus:ring-1 focus:ring-sky-500 focus:border-sky-500">
-                                    <span class="block truncate" x-text="selectedUsername ? (selectedUsername === primaryUsername ? 'Root user' : selectedUsername) : 'Select a user'"></span>
-                                    <span class="absolute inset-y-0 right-0 flex items-center pr-2 pointer-events-none">
-                                        <svg class="w-5 h-5 text-gray-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-                                            <path fill-rule="evenodd" d="M10 3a1 1 0 01.707.293l3 3a1 1 0 01-1.414 1.414L10 5.414 7.707 7.707a1 1 0 01-1.414-1.414l3-3A1 1 0 0110 3zm-3.707 9.293a1 1 0 011.414 0L10 14.586l2.293-2.293a1 1 0 011.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd" />
-                                        </svg>
-                                    </span>
+                                </select>
+                                <button type="button"
+                                    class="eb-input relative flex w-full items-center justify-between gap-2 pr-10 text-left"
+                                    @click="toggle()"
+                                    :aria-expanded="open"
+                                    :disabled="disabled">
+                                    <span class="min-w-0 flex-1 truncate" x-text="selectedLabel"></span>
+                                    <svg class="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--eb-text-muted)] transition-transform" :class="open ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                                        <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+                                    </svg>
                                 </button>
-                        
-                                <div x-show="isOpen" 
-                                     x-transition:leave="transition ease-in duration-100"
-                                     x-transition:leave-start="opacity-100"
-                                     x-transition:leave-end="opacity-0"
-                                     class="absolute z-10 w-full mt-1 bg-[#1a2231] border border-gray-600 rounded-md shadow-lg"
-                                     style="display: none;">
-                                    <div class="p-2">
-                                        <input type="text" x-model="searchTerm" placeholder="Search users..." class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-gray-300 focus:outline-none focus:ring-sky-500 focus:border-sky-500">
+                                <div x-show="open"
+                                    x-transition:enter="transition ease-out duration-100"
+                                    x-transition:enter-start="opacity-0 scale-95"
+                                    x-transition:enter-end="opacity-100 scale-100"
+                                    x-transition:leave="transition ease-in duration-75"
+                                    x-transition:leave-start="opacity-100 scale-100"
+                                    x-transition:leave-end="opacity-0 scale-95"
+                                    class="eb-menu absolute left-0 right-0 z-50 mt-2 overflow-hidden p-2"
+                                    style="display: none;">
+                                    <div class="border-b border-[var(--eb-border-subtle)] pb-2">
+                                        <input type="search" x-model="search" placeholder="Search users..." class="eb-toolbar-search w-full rounded-[var(--eb-radius-md)] !py-2 text-sm" @click.stop>
                                     </div>
-                                    <ul class="py-1 overflow-auto text-base max-h-60 focus:outline-none sm:text-sm scrollbar_thin" role="listbox">
-                                        <template x-if="filteredUsernames.length === 0">
-                                            <li class="px-4 py-2 text-gray-400">No users found.</li>
+                                    <div class="mt-2 max-h-64 overflow-y-auto">
+                                        <template x-for="option in filteredOptions" :key="'owner-' + option.value">
+                                            <button type="button" class="eb-menu-item w-full" :class="selectedValue === option.value ? 'is-active' : ''" @click="select(option.value)">
+                                                <span class="min-w-0 flex-1 truncate text-left" x-text="labelForValue(option.value)"></span>
+                                            </button>
                                         </template>
-                                        <template x-for="username in filteredUsernames" :key="username">
-                                            <li @click="selectedUsername = username; isOpen = false"
-                                                class="px-4 py-2 text-gray-300 cursor-pointer select-none hover:bg-gray-700"
-                                                x-text="username === primaryUsername ? 'Root user' : username">
-                                            </li>
-                                        </template>
-                                    </ul>
+                                        <div x-show="filteredOptions.length === 0" class="px-3 py-4 text-center text-xs text-[var(--eb-text-muted)]">No users match your search.</div>
+                                    </div>
                                 </div>
                             </div>
-                        </div>
-                        <div class="mb-4">
-                            <label for="versioningToggle" class="flex items-center justify-between text-sm text-slate-300">
-                                <span>Enable Versioning</span>
-                                <span class="relative inline-flex items-center">
-                                    <input
-                                        type="checkbox"
-                                        class="sr-only peer"
-                                        id="versioningToggle"
-                                        name="enableVersioning"
-                                    >
-                                    <span class="w-11 h-6 bg-slate-700 rounded-full peer-focus:ring-2 peer-focus:ring-sky-500 peer-checked:bg-sky-600 transition"></span>
-                                    <span class="absolute left-1 top-1 h-4 w-4 rounded-full bg-white transition peer-checked:translate-x-5"></span>
-                                </span>
-                            </label>
-                        </div>
-                        <div class="mb-4">
-                            <label for="objectLockingToggle" class="flex items-center justify-between text-sm text-slate-300">
-                                <span>Enable Object Locking</span>
-                                <span class="relative inline-flex items-center">
-                                    <input
-                                        type="checkbox"
-                                        class="sr-only peer"
-                                        id="objectLockingToggle"
-                                        name="enableObjectLocking"
-                                    >
-                                    <span class="w-11 h-6 bg-slate-700 rounded-full peer-focus:ring-2 peer-focus:ring-rose-500 peer-checked:bg-rose-600 transition"></span>
-                                    <span class="absolute left-1 top-1 h-4 w-4 rounded-full bg-white transition peer-checked:translate-x-5"></span>
-                                </span>
-                            </label>
-                        </div>
-                        
-                        <!-- Object Lock Settings Section -->
-                        <div id="objectLockSettings" class="hidden mb-4 ml-6">
-                            <div class="mb-4 flex items-center">
-                                <input
-                                    type="checkbox"
-                                    class="h-4 w-4 text-amber-600 bg-gray-700 border-gray-600 rounded focus:ring-sky-500"
-                                    id="setDefaultRetentionToggle"
-                                    name="setDefaultRetention"
-                                >
-                                <label for="setDefaultRetentionToggle" class="ml-2 block text-sm text-slate-300">
-                                    Set a default retention policy for this bucket
-                                </label>
+
+                            <div class="space-y-3">
+                                <div class="rounded-[var(--eb-radius-xl)] border border-[var(--eb-border-subtle)] bg-[var(--eb-bg-overlay)] px-4 py-3">
+                                    <label for="versioningToggle" class="flex items-start justify-between gap-4">
+                                        <span>
+                                            <span class="block text-sm font-medium text-[var(--eb-text-primary)]">Enable Versioning</span>
+                                            <span class="eb-field-help mt-1 block">Keep multiple object revisions so deleted or overwritten files can be recovered later.</span>
+                                        </span>
+                                        <span class="eb-toggle mt-0.5 shrink-0">
+                                            <input type="checkbox" class="sr-only" id="versioningToggle" name="enableVersioning">
+                                            <span class="eb-toggle-track js-eb-toggle-track"><span class="eb-toggle-thumb"></span></span>
+                                        </span>
+                                    </label>
+                                </div>
+
+                                <div class="rounded-[var(--eb-radius-xl)] border border-[var(--eb-border-subtle)] bg-[var(--eb-bg-overlay)] px-4 py-3">
+                                    <label for="objectLockingToggle" class="flex items-start justify-between gap-4">
+                                        <span>
+                                            <span class="block text-sm font-medium text-[var(--eb-text-primary)]">Enable Object Locking</span>
+                                            <span class="eb-field-help mt-1 block">Protect objects from deletion or overwrite for WORM and compliance-driven workflows.</span>
+                                        </span>
+                                        <span class="eb-toggle mt-0.5 shrink-0">
+                                            <input type="checkbox" class="sr-only" id="objectLockingToggle" name="enableObjectLocking">
+                                            <span class="eb-toggle-track js-eb-toggle-track"><span class="eb-toggle-thumb"></span></span>
+                                        </span>
+                                    </label>
+                                </div>
                             </div>
-                            <p class="text-sm text-slate-100 mb-4 ml-6">
-                                Leave this unchecked for applications that manage object locks individually (Veeam). Check this box to enforce a default immutability rule for all new objects.
-                            </p>
-                            
-                            <!-- Default Retention Policy Settings -->
-                            <div id="retentionPolicySettings" class="hidden ml-6">
-                                <div class="border border-gray-700 rounded-md">
-                                    <button
-                                        type="button"
-                                        class="w-full text-left px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-t-md focus:outline-none"
-                                        onclick="toggleAccordion('objectLockAccordion')"
-                                    >
-                                        <span class="text-sm font-medium text-slate-100">Default Retention Policy Settings</span>
-                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 inline-block float-right" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
-                                        </svg>
-                                    </button>
-                                    <div id="objectLockAccordion" class="hidden px-4 py-2">
-                                        <!-- Object Lock Mode -->
-                                        <div class="mb-4" x-data="{ open: false, selected: 'GOVERNANCE' }">
-                                            <label class="block text-sm font-medium text-slate-100">Default Mode</label>
-                                            <input type="hidden" id="objectLockMode" name="objectLockMode" x-model="selected">
-                                            <div class="relative mt-1">
+
+                            <div id="objectLockSettings" class="hidden space-y-4 rounded-[var(--eb-radius-xl)] border border-[var(--eb-border-default)] bg-[var(--eb-bg-overlay)] p-4">
+                                <div class="rounded-[var(--eb-radius-lg)] border border-[var(--eb-border-subtle)] bg-[var(--eb-bg-surface)] px-4 py-3">
+                                    <label for="setDefaultRetentionToggle" class="flex items-start justify-between gap-4">
+                                        <span>
+                                            <span class="block text-sm font-medium text-[var(--eb-text-primary)]">Set a default retention policy</span>
+                                            <span class="eb-field-help mt-1 block">Leave this off for applications that manage object locks individually. Turn it on to enforce a default immutability rule for new objects.</span>
+                                        </span>
+                                        <span class="eb-toggle mt-0.5 shrink-0">
+                                            <input type="checkbox" class="sr-only" id="setDefaultRetentionToggle" name="setDefaultRetention">
+                                            <span class="eb-toggle-track js-eb-toggle-track"><span class="eb-toggle-thumb"></span></span>
+                                        </span>
+                                    </label>
+                                </div>
+
+                                <div id="retentionPolicySettings" class="hidden">
+                                    <div class="eb-subpanel !p-0 overflow-hidden">
+                                        <button type="button" class="flex w-full items-center justify-between border-b border-[var(--eb-border-subtle)] px-4 py-3 text-left" onclick="toggleAccordion('objectLockAccordion')">
+                                            <span class="text-sm font-medium text-[var(--eb-text-primary)]">Default Retention Policy Settings</span>
+                                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-[var(--eb-text-muted)]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M19 9l-7 7-7-7" />
+                                            </svg>
+                                        </button>
+                                        <div id="objectLockAccordion" class="hidden space-y-4 px-4 py-4">
+                                            <div class="relative"
+                                                x-data="bucketSelectMenu({ selectId: 'objectLockMode', placeholder: 'Select a mode' })"
+                                                x-init="init()"
+                                                @click.outside="close()"
+                                                @keydown.escape.prevent="close()"
+                                                @bucket-create-modal-reset.window="reset()">
+                                                <label for="objectLockMode" class="eb-field-label">Default Mode</label>
+                                                <select id="objectLockMode" name="objectLockMode" class="sr-only" tabindex="-1" aria-hidden="true">
+                                                    <option value="GOVERNANCE" selected>Governance</option>
+                                                    <option value="COMPLIANCE">Compliance</option>
+                                                </select>
                                                 <button type="button"
-                                                        class="w-full bg-gray-700 border border-gray-600 rounded-md shadow-sm px-4 py-2 text-left text-slate-100 focus:outline-none focus:ring-1 focus:ring-sky-500 flex items-center justify-between"
-                                                        @click="open = !open">
-                                                    <span x-text="selected === 'COMPLIANCE' ? 'Compliance' : 'Governance'"></span>
-                                                    <svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                                                    class="eb-input relative flex w-full items-center justify-between gap-2 pr-10 text-left"
+                                                    @click="toggle()"
+                                                    :aria-expanded="open"
+                                                    :disabled="disabled">
+                                                    <span class="min-w-0 flex-1 truncate" x-text="selectedLabel"></span>
+                                                    <svg class="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--eb-text-muted)] transition-transform" :class="open ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                                                        <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
                                                     </svg>
                                                 </button>
-                                                <div x-show="open" x-cloak @click.away="open = false"
-                                                     class="absolute z-50 mt-2 w-full rounded-md bg-gray-800 border border-gray-600 shadow-lg overflow-hidden">
-                                                    <button type="button"
-                                                            class="w-full text-left px-4 py-2 text-slate-100 hover:bg-gray-700"
-                                                            @click="selected = 'GOVERNANCE'; open = false">
-                                                        Governance
-                                                    </button>
-                                                    <button type="button"
-                                                            class="w-full text-left px-4 py-2 text-slate-100 hover:bg-gray-700"
-                                                            @click="selected = 'COMPLIANCE'; open = false">
-                                                        Compliance
-                                                    </button>
+                                                <div x-show="open"
+                                                    x-transition:enter="transition ease-out duration-100"
+                                                    x-transition:enter-start="opacity-0 scale-95"
+                                                    x-transition:enter-end="opacity-100 scale-100"
+                                                    x-transition:leave="transition ease-in duration-75"
+                                                    x-transition:leave-start="opacity-100 scale-100"
+                                                    x-transition:leave-end="opacity-0 scale-95"
+                                                    class="eb-menu absolute left-0 right-0 z-50 mt-2 overflow-hidden p-2"
+                                                    style="display: none;">
+                                                    <div class="max-h-64 overflow-y-auto">
+                                                        <template x-for="option in filteredOptions" :key="'mode-' + option.value">
+                                                            <button type="button" class="eb-menu-item w-full" :class="selectedValue === option.value ? 'is-active' : ''" @click="select(option.value)">
+                                                                <span class="min-w-0 flex-1 truncate text-left" x-text="option.label"></span>
+                                                            </button>
+                                                        </template>
+                                                    </div>
+                                                </div>
+                                                <p class="eb-field-help mt-2">Choose Governance to allow authorized overrides when necessary. Compliance prevents any override until retention expires.</p>
+                                                <div x-show="selectedValue === 'COMPLIANCE'" x-cloak class="mt-3 rounded-[var(--eb-radius-lg)] border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-xs text-amber-100">
+                                                    <p class="font-semibold text-amber-200">Compliance mode is permanent once enabled.</p>
+                                                    <p class="mt-2">Objects in this bucket cannot be deleted or overwritten until their retention expires, even by administrators.</p>
+                                                    <p class="mt-2">Billing continues for retained data until the retention date is reached because the storage cannot be freed early.</p>
+                                                    <p class="mt-2">Use this only for strict regulatory or WORM requirements. Governance mode is the safer default for most workloads.</p>
                                                 </div>
                                             </div>
-                                            <p class="mt-2 text-sm text-slate-100">
-                                                Choose 'Governance' to allow users with specific permissions to override the lock settings. Select 'Compliance' to prevent any users from overriding the lock settings.
-                                            </p>
-                                            <div x-show="selected === 'COMPLIANCE'" x-cloak class="mt-3 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-xs text-amber-100">
-                                                <p class="font-semibold text-amber-200">Compliance mode is permanent once enabled.</p>
-                                                <p class="mt-2">Objects in this bucket cannot be deleted or overwritten until their retention expires — even by administrators.</p>
-                                                <p class="mt-2">Billing continues for all retained data until the retention date is reached, since the storage can’t be freed early.</p>
-                                                <p class="mt-2">Use this only for strict regulatory/WORM requirements. For most use cases, Governance mode provides strong protection with an emergency override.</p>
+
+                                            <div>
+                                                <label for="objectLockDays" class="eb-field-label">Default Retention Period (Days)</label>
+                                                <input type="number" class="eb-input" id="objectLockDays" name="objectLockDays" min="1" value="30">
+                                                <p class="eb-field-help mt-2">Set how long new objects remain immutable after they are written to the bucket.</p>
                                             </div>
-                                        </div>
-                                        <!-- Default Retention Period in Days -->
-                                        <div>
-                                            <label for="objectLockDays" class="block text-sm font-medium text-slate-100">Default Retention Period (Days)</label>
-                                            <input
-                                                type="number"
-                                                class="mt-1 block w-full bg-gray-700 text-gray-300 border border-gray-600 rounded-md shadow-sm focus:ring-sky-500 focus:border-sky-500 focus:outline-none px-4 py-2"
-                                                id="objectLockDays"
-                                                name="objectLockDays"
-                                                min="1"
-                                                value="30"
-                                            >
-                                            <p class="mt-2 text-sm text-slate-100">
-                                                Specify a default retention period for protecting objects against deletion or overwriting. When a bucket is created with object locking enabled, setting a number of days for retention defines how long an object remains immutable once it is written to the bucket.
-                                            </p>
                                         </div>
                                     </div>
                                 </div>
                             </div>
                         </div>
-                        <div class="flex justify-end">
-                            <button
-                                type="submit"
-                                class="btn-accent"
-                                id="submitBucketBtn"
-                            >
-                                Submit
-                            </button>
+                        <div class="eb-modal-footer">
+                            <button type="button" class="eb-btn eb-btn-ghost" onclick="closeModal('createBucketModal')">Cancel</button>
+                            <button type="submit" class="eb-btn eb-btn-primary" id="submitBucketBtn">Create Bucket</button>
                         </div>
                     </form>
                 </div>
@@ -1402,7 +1504,7 @@ rclone lsf e3:&lt;bucket&gt; --format "spt" --recursive   # quick scan items
         jQuery('#submitBucketBtn').click(function(e) {
             e.preventDefault();
             const bucketName = jQuery('#bucketName').val();
-            const username = jQuery('#username').val();
+            const username = jQuery('#bucketOwnerUsername').val();
             const validation = validateBucketName(bucketName);
             const objectLockingEnabled = jQuery('#objectLockingToggle').is(':checked');
             const setDefaultRetention = jQuery('#setDefaultRetentionToggle').is(':checked');
@@ -1410,26 +1512,24 @@ rclone lsf e3:&lt;bucket&gt; --format "spt" --recursive   # quick scan items
             
             if (!validation.isValid || username.trim() == '') {
                 jQuery(this).attr('disabled', false);
-                let message = '<ul>';
+                let messages = [];
                 if (username.trim() == '') {
-                    message += '<li>Please select a Username.</li>';
+                    messages.push('Please select a bucket owner.');
                 }
                 if (!validation.isValid) {
-                    message += '<li>' + validation.message + '</li>';
+                    messages.push(validation.message);
                 }
-                message += '</ul>';
 
-                showModalMessage(message, 'bucketCreationMessage', 'error');
+                showModalMessage(messages.join(' '), 'bucketCreationMessage', 'error');
             } else if (objectLockingEnabled && setDefaultRetention && (objectLockDays == '' || objectLockDays < 1)) {
-                let message = '<ul>';
+                let messages = [];
                 if (objectLockDays == '') {
-                    message += '<li>Please enter the retention days.</li>';
+                    messages.push('Please enter the retention days.');
                 } else if (objectLockDays < 1) {
-                    message += '<li>Object Lock Days must be greater than 0.</li>';
+                    messages.push('Object Lock Days must be greater than 0.');
                 }
-                message += '</ul>';
 
-                showModalMessage(message, 'bucketCreationMessage', 'error');
+                showModalMessage(messages.join(' '), 'bucketCreationMessage', 'error');
             } else {
                 jQuery(this).attr('disabled', true);
                 jQuery('#createBucketForm').submit();
@@ -2409,6 +2509,7 @@ rclone lsf e3:&lt;bucket&gt; --format "spt" --recursive   # quick scan items
                 // Uncheck the nested checkbox when parent is unchecked
                 jQuery('#setDefaultRetentionToggle').prop('checked', false);
             }
+            syncBucketModalToggles();
         });
 
         // enable default retention policy settings
@@ -2420,6 +2521,7 @@ rclone lsf e3:&lt;bucket&gt; --format "spt" --recursive   # quick scan items
                 jQuery('#retentionPolicySettings').addClass('hidden');
                 jQuery('#objectLockAccordion').addClass('hidden');
             }
+            syncBucketModalToggles();
         });
 
         // delete bucket (schedule deletion request)
@@ -2857,7 +2959,6 @@ rclone lsf e3:&lt;bucket&gt; --format "spt" --recursive   # quick scan items
             const modal = document.getElementById(modalId);
             if (modal) {
                 modal.classList.remove('hidden');
-                modal.classList.add('flex'); // Ensure flex display for centering
                 // Optional: Disable background scrolling
                 document.body.style.overflow = 'hidden';
             }
@@ -2868,7 +2969,6 @@ rclone lsf e3:&lt;bucket&gt; --format "spt" --recursive   # quick scan items
             const modal = document.getElementById(modalId);
             if (modal) {
                 modal.classList.add('hidden');
-                modal.classList.remove('flex');
                 // Optional: Re-enable background scrolling
                 document.body.style.overflow = '';
                 
@@ -2919,6 +3019,11 @@ rclone lsf e3:&lt;bucket&gt; --format "spt" --recursive   # quick scan items
 
         // Optional: Initialize any additional behaviors when the DOM is fully loaded
         document.addEventListener('DOMContentLoaded', function() {
+            const createBucketModal = document.getElementById('createBucketModal');
+            if (createBucketModal && createBucketModal.parentNode !== document.body) {
+                document.body.appendChild(createBucketModal);
+            }
+
             // Example: Attach event listener to a button that opens the modal
             const openModalButton = document.getElementById('openCreateBucketModalBtn');
             if (openModalButton) {
@@ -2933,8 +3038,23 @@ rclone lsf e3:&lt;bucket&gt; --format "spt" --recursive   # quick scan items
                     jQuery('#setDefaultRetentionToggle').prop('checked', false);
                     jQuery('#objectLockingToggle').prop('checked', false);
                     jQuery('#versioningToggle').prop('checked', false);
+                    jQuery('#submitBucketBtn').attr('disabled', false);
+                    window.dispatchEvent(new CustomEvent('bucket-create-modal-reset'));
+                    syncBucketModalToggles();
                 });
             }
+
+            ['versioningToggle', 'objectLockingToggle', 'setDefaultRetentionToggle'].forEach(function(id) {
+                var input = document.getElementById(id);
+                if (!input) {
+                    return;
+                }
+
+                input.addEventListener('change', function() {
+                    syncBucketModalToggles();
+                });
+            });
+            syncBucketModalToggles();
 
             // Example: Toggle Object Lock Settings based on the checkbox
             // const objectLockingToggle = document.getElementById('objectLockingToggle');
@@ -2970,6 +3090,7 @@ rclone lsf e3:&lt;bucket&gt; --format "spt" --recursive   # quick scan items
                         .removeAttr('readonly')
                         .removeClass('opacity-50 cursor-not-allowed');
                 }
+                syncBucketModalToggles();
             });
         });
 
@@ -2983,44 +3104,38 @@ rclone lsf e3:&lt;bucket&gt; --format "spt" --recursive   # quick scan items
             showMessage(message, modalContainer, type);
         }
 
-        // toastCenter and pushToast are defined earlier in the template (before the Alpine x-data element)
-
         function showMessage(message, containerId, type = 'info') {
-            const container = jQuery('#' + containerId);
-            if (container.length === 0) return;
-
-            // Reset all classes
-            container.removeClass('bg-red-600 bg-green-600 bg-amber-600 bg-blue-600 hidden');
-            
-            // Apply appropriate styling based on type
-            switch(type) {
-                case 'error':
-                    container.addClass('bg-red-600');
-                    break;
-                case 'success':
-                    container.addClass('bg-green-600');
-                    break;
-                case 'warning':
-                    container.addClass('bg-amber-600');
-                    break;
-                case 'info':
-                default:
-                    container.addClass('bg-blue-600');
-                    break;
-            }
-            
-            container.html(message).removeClass('hidden');
-            
-            // Auto-hide success messages after 5 seconds
-            if (type === 'success') {
-                setTimeout(() => {
-                    container.addClass('hidden');
-                }, 5000);
-            }
+            pushToast(message, type);
         }
 
         function hideMessage(containerId) {
-            jQuery('#' + containerId).addClass('hidden');
+            const container = jQuery('#' + containerId);
+            if (container.length) {
+                container.addClass('hidden').empty();
+            }
+        }
+
+        function syncBucketModalToggle(id) {
+            var input = document.getElementById(id);
+            if (!input) {
+                return;
+            }
+
+            var track = input.parentElement ? input.parentElement.querySelector('.js-eb-toggle-track') : null;
+            if (!track) {
+                return;
+            }
+
+            track.classList.toggle('is-on', !!input.checked);
+            if (input.readOnly || input.disabled) {
+                track.classList.add('opacity-50');
+            } else {
+                track.classList.remove('opacity-50');
+            }
+        }
+
+        function syncBucketModalToggles() {
+            ['versioningToggle', 'objectLockingToggle', 'setDefaultRetentionToggle'].forEach(syncBucketModalToggle);
         }
 
         // Fetch object lock status and update UI

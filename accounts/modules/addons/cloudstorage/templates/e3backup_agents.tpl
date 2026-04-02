@@ -1,271 +1,292 @@
-<div class="min-h-screen bg-slate-950 text-gray-200" x-data="agentsApp()">
-    <div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,_#1f293780,_transparent_60%)]"></div>
-    <div class="container mx-auto px-4 py-6 relative pointer-events-auto">
-        {assign var="activeNav" value="agents"}
-        {include file="modules/addons/cloudstorage/templates/partials/e3backup_nav.tpl"}
+{capture assign=ebE3Actions}
+    <div class="flex flex-wrap items-center justify-end gap-2">
+        <a href="/client_installer/e3-backup-agent-setup.exe" target="_blank" rel="noopener" class="eb-btn eb-btn-secondary eb-btn-sm">
+            Download Agent
+        </a>
+        <a href="index.php?m=cloudstorage&page=e3backup&view=tokens" class="eb-btn eb-btn-primary eb-btn-sm">
+            Get Enrollment Token
+        </a>
+    </div>
+{/capture}
 
-        {* Glass panel container *}
-        <div class="rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)] px-6 py-6">
-        <!-- Header -->
-        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6">
-            <div>
-                <div class="flex items-center gap-2 mb-1">
-                    <a href="index.php?m=cloudstorage&page=e3backup" class="text-slate-400 hover:text-white text-sm">e3 Cloud Backup</a>
-                    <span class="text-slate-600">/</span>
-                    <span class="text-white text-sm font-medium">Agents</span>
-                </div>
-                <h1 class="text-2xl font-semibold text-white">Backup Agents</h1>
-                <p class="text-xs text-slate-400 mt-1">Manage your backup agents and their configurations.</p>
-            </div>
-            <div class="flex gap-2 mt-4 sm:mt-0">
-                <a href="/client_installer/e3-backup-agent-setup.exe" class="px-4 py-2 rounded-md bg-slate-700 text-white text-sm font-semibold hover:bg-slate-600" target="_blank" rel="noopener">
-                    Download Agent
-                </a>
-                <a href="index.php?m=cloudstorage&page=e3backup&view=tokens" class="px-4 py-2 rounded-md bg-sky-600 text-white text-sm font-semibold hover:bg-sky-500">
-                    Get Enrollment Token
-                </a>
-            </div>
-        </div>
+{capture assign=ebE3Icon}
+    <span class="eb-icon-box eb-icon-box--sm eb-icon-box--orange">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 17.25v1.007a3 3 0 0 1-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0 1 15 18.257V17.25m6-12V15a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 15V5.25m18 0A2.25 2.25 0 0 0 18.75 3H5.25A2.25 2.25 0 0 0 3 5.25m18 0V12a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 12V5.25" />
+        </svg>
+    </span>
+{/capture}
 
-        {if $isMspClient}
-        <!-- Tenant Filter (MSP Only) -->
-        <div class="mb-4 flex flex-col sm:flex-row sm:items-center gap-3">
-            <div class="flex items-center gap-3">
-                <label class="text-sm text-slate-400">Filter by Tenant:</label>
-                <div class="relative" @click.away="tenantMenuOpen = false">
+{capture assign=ebE3AgentsBreadcrumb}
+    <div class="eb-breadcrumb">
+        <a href="index.php?m=cloudstorage&page=e3backup&view=dashboard" class="eb-breadcrumb-link">e3 Cloud Backup</a>
+        <span class="eb-breadcrumb-separator">/</span>
+        <span class="eb-breadcrumb-current">Agents</span>
+    </div>
+{/capture}
+
+{capture assign=ebE3AgentsHeaderActions}
+    <span class="eb-badge eb-badge--neutral" x-text="loading ? 'Loading' : (filteredAgents().length + ' agents')"></span>
+{/capture}
+
+{capture assign=ebE3Content}
+<div x-data="agentsApp()" class="space-y-6">
+    {include file="$template/includes/ui/page-header.tpl"
+        ebBreadcrumb=$ebE3AgentsBreadcrumb
+        ebPageTitle='Registered Agents'
+        ebPageDescription='Manage backup agents, connection state, enrollment, and recovery actions.'
+        ebPageActions=$ebE3AgentsHeaderActions
+    }
+
+    <div id="services-wrapper" class="eb-subpanel overflow-visible">
+        <div class="eb-table-toolbar">
+            {if $isMspClient}
+            <div class="relative" @click.outside="tenantMenuOpen = false">
+                <button
+                    type="button"
+                    @click="tenantMenuOpen = !tenantMenuOpen"
+                    class="eb-btn eb-btn-secondary min-w-[16rem] justify-between"
+                >
+                    <span class="truncate" x-text="'Tenant: ' + tenantLabel()"></span>
+                    <svg class="h-4 w-4 transition-transform" :class="tenantMenuOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                        <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+                    </svg>
+                </button>
+                <div x-show="tenantMenuOpen" x-transition class="eb-menu absolute left-0 z-20 mt-2 w-72 overflow-hidden" style="display: none;">
                     <button
                         type="button"
-                        @click="tenantMenuOpen = !tenantMenuOpen"
-                        class="inline-flex items-center gap-2 rounded-md bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:outline-none focus:ring-1 focus:ring-sky-500"
+                        class="eb-menu-option"
+                        :class="tenantFilter === '' ? 'is-active' : ''"
+                        @click="tenantFilter=''; tenantMenuOpen=false; loadAgents()"
+                        data-agents-tenant-option=""
                     >
-                        <span class="truncate max-w-[14rem]" x-text="tenantLabel()"></span>
-                        <svg class="w-4 h-4 transition-transform" :class="tenantMenuOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                            <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
-                        </svg>
+                        All Agents
                     </button>
-                    <div
-                        x-show="tenantMenuOpen"
-                        x-transition:enter="transition ease-out duration-100"
-                        x-transition:enter-start="opacity-0 scale-95"
-                        x-transition:enter-end="opacity-100 scale-100"
-                        x-transition:leave="transition ease-in duration-75"
-                        x-transition:leave-start="opacity-100 scale-100"
-                        x-transition:leave-end="opacity-0 scale-95"
-                        class="absolute left-0 mt-2 w-72 rounded-xl border border-slate-700 bg-slate-900 shadow-2xl z-50 overflow-hidden"
-                        style="display: none;"
+                    <button
+                        type="button"
+                        class="eb-menu-option"
+                        :class="tenantFilter === 'direct' ? 'is-active' : ''"
+                        @click="tenantFilter='direct'; tenantMenuOpen=false; loadAgents()"
+                        data-agents-tenant-option="direct"
                     >
-                        <div class="px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400 border-b border-slate-800">
-                            Select tenant
-                        </div>
-                        <div class="py-1 max-h-72 overflow-auto">
-                            <button
-                                type="button"
-                                class="w-full px-4 py-2 text-left text-sm transition"
-                                :class="tenantFilter === '' ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'"
-                                @click="tenantFilter=''; tenantMenuOpen=false; loadAgents()"
-                                data-agents-tenant-option=""
-                            >
-                                All Agents
-                            </button>
-                            <button
-                                type="button"
-                                class="w-full px-4 py-2 text-left text-sm transition"
-                                :class="tenantFilter === 'direct' ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'"
-                                @click="tenantFilter='direct'; tenantMenuOpen=false; loadAgents()"
-                                data-agents-tenant-option="direct"
-                            >
-                                Direct (No Tenant)
-                            </button>
-                            {foreach from=$tenants item=tenant}
-                            <button
-                                type="button"
-                                class="w-full px-4 py-2 text-left text-sm transition"
-                                :class="String(tenantFilter) === String('{$tenant->public_id|escape:'javascript'}') ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'"
-                                @click="tenantFilter='{$tenant->public_id|escape:'javascript'}'; tenantMenuOpen=false; loadAgents()"
-                                data-agents-tenant-option="{$tenant->public_id|escape}"
-                            >
-                                {$tenant->name|escape}
-                            </button>
-                            {/foreach}
-                        </div>
-                    </div>
+                        Direct (No Tenant)
+                    </button>
+                    {foreach from=$tenants item=tenant}
+                    <button
+                        type="button"
+                        class="eb-menu-option"
+                        :class="String(tenantFilter) === String('{$tenant->public_id|escape:'javascript'}') ? 'is-active' : ''"
+                        @click="tenantFilter='{$tenant->public_id|escape:'javascript'}'; tenantMenuOpen=false; loadAgents()"
+                        data-agents-tenant-option="{$tenant->public_id|escape}"
+                    >
+                        {$tenant->name|escape}
+                    </button>
+                    {/foreach}
                 </div>
             </div>
+            {/if}
 
-            <!-- Column selector (same Alpine scope as agentsApp()) -->
-            <div class="relative sm:ml-auto">
-                <button @click="columnsOpen = !columnsOpen" class="text-xs px-3 py-2 rounded bg-slate-900 border border-slate-700 hover:border-slate-500 text-slate-200">
-                    Columns ▾
+            <div class="relative" @click.outside="columnsOpen = false">
+                <button type="button" class="eb-btn eb-btn-secondary" @click="columnsOpen = !columnsOpen">
+                    <span>Visible Columns</span>
+                    <svg class="h-4 w-4 transition-transform" :class="columnsOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                        <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+                    </svg>
                 </button>
-                <div x-show="columnsOpen" @click.outside="columnsOpen=false" class="absolute right-0 mt-2 w-56 rounded-lg border border-slate-700 bg-slate-900 shadow-lg p-3 z-10">
-                    <label class="flex items-center gap-2 text-xs text-slate-200">
-                        <input type="checkbox" class="rounded border-slate-600 bg-slate-950" x-model="showDeviceId">
+                <div x-show="columnsOpen" x-transition class="eb-menu absolute left-0 z-20 mt-2 w-56 p-3" style="display: none;">
+                    <label class="eb-menu-checklist-item">
                         <span>Device ID</span>
+                        <input type="checkbox" class="eb-checkbox" x-model="showDeviceId">
                     </label>
-                    <label class="mt-2 flex items-center gap-2 text-xs text-slate-200">
-                        <input type="checkbox" class="rounded border-slate-600 bg-slate-950" x-model="showDeviceName">
+                    <label class="eb-menu-checklist-item mt-2">
                         <span>Device Name</span>
+                        <input type="checkbox" class="eb-checkbox" x-model="showDeviceName">
                     </label>
                 </div>
             </div>
-        </div>
-        {/if}
 
-        <!-- Agents Table -->
-        <div class="overflow-x-auto rounded-lg border border-slate-800">
-            <table class="min-w-full divide-y divide-slate-800 text-sm">
-                <thead class="bg-slate-900/80 text-slate-300">
-                    <tr>
-                        <th class="px-4 py-3 text-left font-medium">Connection</th>
-                        <th class="px-4 py-3 text-left font-medium">Agent UUID</th>
-                        <th class="px-4 py-3 text-left font-medium">Hostname</th>
-                        <th class="px-4 py-3 text-left font-medium" x-show="showDeviceId">Device ID</th>
-                        <th class="px-4 py-3 text-left font-medium" x-show="showDeviceName">Device Name</th>
-                        {if $isMspClient}
-                        <th class="px-4 py-3 text-left font-medium">Tenant</th>
-                        {/if}
-                        <th class="px-4 py-3 text-left font-medium">Type</th>
-                        <th class="px-4 py-3 text-left font-medium">Status</th>
-                        <th class="px-4 py-3 text-left font-medium">Last Seen</th>
-                        <th class="px-4 py-3 text-left font-medium">Created</th>
-                        <th class="px-4 py-3 text-left font-medium">Actions</th>
-                    </tr>
-                </thead>
-                <tbody class="divide-y divide-slate-800">
-                    <template x-if="loading">
+            <div class="flex-1"></div>
+
+            <input
+                type="text"
+                x-model.debounce.250ms="searchQuery"
+                placeholder="Search agent, hostname, or device"
+                class="eb-toolbar-search xl:w-80"
+            >
+        </div>
+
+        <div class="eb-table-shell overflow-x-auto">
+                <table class="eb-table">
+                    <thead>
                         <tr>
-                            <td :colspan="{if $isMspClient}9{else}8{/if} + (showDeviceId ? 1 : 0) + (showDeviceName ? 1 : 0)" class="px-4 py-8 text-center text-slate-400">
-                                <svg class="animate-spin h-6 w-6 mx-auto text-sky-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                </svg>
-                            </td>
-                        </tr>
-                    </template>
-                    <template x-if="!loading && agents.length === 0">
-                        <tr>
-                            <td :colspan="{if $isMspClient}9{else}8{/if} + (showDeviceId ? 1 : 0) + (showDeviceName ? 1 : 0)" class="px-4 py-8 text-center text-slate-400">
-                                No agents found. <a href="index.php?m=cloudstorage&page=e3backup&view=tokens" class="text-sky-400 hover:underline">Generate an enrollment token</a> to add agents.
-                            </td>
-                        </tr>
-                    </template>
-                    <template x-for="agent in agents" :key="agent.agent_uuid || agent.device_id || agent.hostname">
-                        <tr class="hover:bg-slate-800/50">
-                            <td class="px-4 py-3">
-                                <span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold"
-                                      :class="agent.online_status === 'online' ? 'bg-emerald-500/15 text-emerald-200' : (agent.online_status === 'offline' ? 'bg-rose-500/15 text-rose-200' : 'bg-slate-700 text-slate-300')">
-                                    <span class="h-1.5 w-1.5 rounded-full"
-                                          :class="agent.online_status === 'online'
-                                                ? 'bg-emerald-400 ring-2 ring-emerald-400/20 shadow-[0_0_10px_rgba(52,211,153,0.45)]'
-                                                : (agent.online_status === 'offline'
-                                                    ? 'bg-rose-400'
-                                                    : 'bg-slate-500')"></span>
-                                    <span x-text="agent.online_status === 'online' ? 'online' : (agent.online_status === 'offline' ? 'offline' : 'never')"></span>
-                                </span>
-                                <span class="ml-2 text-xs text-slate-500" x-show="agent.seconds_since_seen !== null && agent.seconds_since_seen !== undefined"
-                                      x-text="agent.online_status === 'online' ? '' : '(' + agent.seconds_since_seen + 's)'"></span>
-                            </td>
-                            <td class="px-4 py-3 text-slate-200 font-mono text-xs" x-text="agent.agent_uuid || '—'"></td>
-                            <td class="px-4 py-3 text-slate-200" x-text="agent.hostname || '—'"></td>
-                            <td class="px-4 py-3 text-slate-300 font-mono text-xs" x-show="showDeviceId" x-text="agent.device_id || '—'"></td>
-                            <td class="px-4 py-3 text-slate-300" x-show="showDeviceName" x-text="agent.device_name || '—'"></td>
+                            <th>Connection</th>
+                            <th>Agent UUID</th>
+                            <th>Hostname</th>
+                            <th x-show="showDeviceId">Device ID</th>
+                            <th x-show="showDeviceName">Device Name</th>
                             {if $isMspClient}
-                            <td class="px-4 py-3 text-slate-300" x-text="agent.tenant_name || 'Direct'"></td>
+                            <th>Tenant</th>
                             {/if}
-                            <td class="px-4 py-3">
-                                <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium"
-                                      :class="{ 'bg-sky-500/15 text-sky-200': agent.agent_type === 'workstation', 'bg-violet-500/15 text-violet-200': agent.agent_type === 'server', 'bg-amber-500/15 text-amber-200': agent.agent_type === 'hypervisor' }"
-                                      x-text="agent.agent_type || 'workstation'"></span>
-                            </td>
-                            <td class="px-4 py-3">
-                                <span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold"
-                                      :class="agent.status === 'active' ? 'bg-emerald-500/15 text-emerald-200' : 'bg-slate-700 text-slate-300'">
-                                    <span class="h-1.5 w-1.5 rounded-full" :class="agent.status === 'active' ? 'bg-emerald-400' : 'bg-slate-500'"></span>
-                                    <span x-text="agent.status"></span>
-                                </span>
-                            </td>
-                            <td class="px-4 py-3 text-slate-300" x-text="agent.last_seen_at || '—'"></td>
-                            <td class="px-4 py-3 text-slate-300" x-text="agent.created_at"></td>
-                            <td class="px-4 py-3">
-                                <div class="flex gap-1">
-                                    <button @click="openManage(agent)" class="text-xs px-2 py-1 rounded bg-sky-900/30 border border-sky-700 hover:border-sky-500 text-sky-200">Manage</button>
-                                    <button @click="toggleAgent(agent)" class="text-xs px-2 py-1 rounded bg-slate-800 border border-slate-700 hover:border-slate-500"
-                                            x-text="agent.status === 'active' ? 'Disable' : 'Enable'"></button>
-                                    <button @click="deleteAgent(agent)" class="text-xs px-2 py-1 rounded bg-rose-900/50 border border-rose-700 hover:border-rose-500 text-rose-200">Delete</button>
-                                </div>
-                            </td>
+                            <th>Type</th>
+                            <th>Status</th>
+                            <th>Last Seen</th>
+                            <th>Created</th>
+                            <th>Actions</th>
                         </tr>
-                    </template>
-                </tbody>
-            </table>
+                    </thead>
+                    <tbody>
+                        <template x-if="loading">
+                            <tr>
+                                <td :colspan="{if $isMspClient}9{else}8{/if} + (showDeviceId ? 1 : 0) + (showDeviceName ? 1 : 0)" class="!px-4 !py-10 text-center">
+                                    <div class="inline-flex items-center gap-3 text-sm text-[var(--eb-text-muted)]">
+                                        <span class="h-4 w-4 animate-spin rounded-full border-2 border-[color:var(--eb-info-border)] border-t-[color:var(--eb-info-icon)]"></span>
+                                        Loading agents...
+                                    </div>
+                                </td>
+                            </tr>
+                        </template>
+                        <template x-if="!loading && filteredAgents().length === 0">
+                            <tr>
+                                <td :colspan="{if $isMspClient}9{else}8{/if} + (showDeviceId ? 1 : 0) + (showDeviceName ? 1 : 0)" class="!px-4 !py-10 text-center text-sm text-[var(--eb-text-muted)]">
+                                    <template x-if="searchQuery.trim()">
+                                        <span>No agents match your current search.</span>
+                                    </template>
+                                    <template x-if="!searchQuery.trim()">
+                                        <span>
+                                            No agents found.
+                                            <a href="index.php?m=cloudstorage&page=e3backup&view=tokens" class="font-medium text-[var(--eb-info-text)] hover:text-[var(--eb-text-primary)]">Generate an enrollment token</a>
+                                            to add agents.
+                                        </span>
+                                    </template>
+                                </td>
+                            </tr>
+                        </template>
+                        <template x-for="agent in filteredAgents()" :key="agent.agent_uuid || agent.device_id || agent.hostname">
+                            <tr>
+                                <td>
+                                    <div class="flex items-center gap-2">
+                                        <span class="eb-badge gap-1.5"
+                                              :class="agent.online_status === 'online' ? 'eb-badge--success' : (agent.online_status === 'offline' ? 'eb-badge--danger' : 'eb-badge--default')">
+                                            <span class="inline-flex h-2 w-2 rounded-full"
+                                                  :class="agent.online_status === 'online' ? 'bg-emerald-400' : (agent.online_status === 'offline' ? 'bg-rose-400' : 'bg-slate-500')"></span>
+                                            <span x-text="agent.online_status === 'online' ? 'online' : (agent.online_status === 'offline' ? 'offline' : 'never')"></span>
+                                        </span>
+                                        <span class="text-xs text-[var(--eb-text-muted)]" x-show="agent.seconds_since_seen !== null && agent.seconds_since_seen !== undefined && agent.online_status !== 'online'" x-text="'(' + agent.seconds_since_seen + 's)'"></span>
+                                    </div>
+                                </td>
+                                <td class="eb-table-mono eb-table-primary" x-text="agent.agent_uuid || '—'"></td>
+                                <td class="eb-table-primary" x-text="agent.hostname || '—'"></td>
+                                <td class="eb-table-mono" x-show="showDeviceId" x-text="agent.device_id || '—'"></td>
+                                <td x-show="showDeviceName" x-text="agent.device_name || '—'"></td>
+                                {if $isMspClient}
+                                <td x-text="agent.tenant_name || 'Direct'"></td>
+                                {/if}
+                                <td>
+                                    <span class="eb-badge"
+                                          :class="agent.agent_type === 'server' ? 'eb-badge--premium' : (agent.agent_type === 'hypervisor' ? 'eb-badge--warning' : 'eb-badge--info')"
+                                          x-text="agent.agent_type || 'workstation'"></span>
+                                </td>
+                                <td>
+                                    <span class="eb-badge" :class="agent.status === 'active' ? 'eb-badge--success' : 'eb-badge--default'" x-text="agent.status"></span>
+                                </td>
+                                <td x-text="agent.last_seen_at || '—'"></td>
+                                <td x-text="agent.created_at"></td>
+                                <td>
+                                    <div class="flex flex-wrap gap-2">
+                                        <button type="button" @click="openManage(agent)" class="eb-btn eb-btn-info eb-btn-xs">Manage</button>
+                                        <button type="button" @click="toggleAgent(agent)" class="eb-btn eb-btn-secondary eb-btn-xs" x-text="agent.status === 'active' ? 'Disable' : 'Enable'"></button>
+                                        <button type="button" @click="deleteAgent(agent)" class="eb-btn eb-btn-danger eb-btn-xs">Delete</button>
+                                    </div>
+                                </td>
+                            </tr>
+                        </template>
+                    </tbody>
+                </table>
         </div>
+    </div>
 
-        <!-- Manage Drawer -->
-        <div x-show="manageOpen"
-             x-transition:enter="transition ease-out duration-200"
-             x-transition:enter-start="opacity-0"
-             x-transition:enter-end="opacity-100"
-             x-transition:leave="transition ease-in duration-150"
-             x-transition:leave-start="opacity-100"
-             x-transition:leave-end="opacity-0"
-             class="fixed inset-0 z-40"
-             style="display: none;">
-            <div class="absolute inset-0 bg-black/60" @click="closeManage()"></div>
-            <div class="absolute right-0 top-0 h-full w-full max-w-md bg-slate-950 border-l border-slate-800 shadow-2xl">
-                <div class="px-6 py-4 border-b border-slate-800 flex items-center justify-between">
-                    <div>
-                        <h3 class="text-lg font-semibold text-white">Manage Agent</h3>
-                        <p class="text-xs text-slate-400 mt-1" x-text="selectedAgent ? (selectedAgent.device_name || selectedAgent.hostname || selectedAgent.agent_uuid || '') : ''"></p>
+    <div x-show="manageOpen"
+         x-transition:enter="transition ease-out duration-200"
+         x-transition:enter-start="opacity-0"
+         x-transition:enter-end="opacity-100"
+         x-transition:leave="transition ease-in duration-150"
+         x-transition:leave-start="opacity-100"
+         x-transition:leave-end="opacity-0"
+         class="fixed inset-0 z-40"
+         style="display: none;">
+        <div class="absolute inset-0 eb-drawer-backdrop" @click="closeManage()"></div>
+        <div class="absolute right-0 top-0 h-full eb-drawer eb-drawer--wide overflow-y-auto">
+            <div class="eb-drawer-header">
+                <div>
+                    <div class="eb-drawer-title">Manage Agent</div>
+                    <p class="mt-1 text-sm text-[var(--eb-text-muted)]" x-text="selectedAgent ? (selectedAgent.device_name || selectedAgent.hostname || selectedAgent.agent_uuid || '') : ''"></p>
+                </div>
+                <button type="button" class="eb-btn eb-btn-secondary eb-btn-xs" @click="closeManage()">Close</button>
+            </div>
+
+            <div class="eb-drawer-body space-y-4">
+                <div class="eb-card">
+                    <div class="eb-card-header">
+                        <div>
+                            <div class="eb-type-eyebrow">Backup</div>
+                            <p class="eb-card-subtitle">Create a new backup job scoped to this agent.</p>
+                        </div>
                     </div>
-                    <button class="text-slate-400 hover:text-white" @click="closeManage()">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-                        </svg>
+                    <button type="button" class="eb-btn eb-btn-success eb-btn-sm" @click="goToCreateJob(selectedAgent)">
+                        Create Backup Job
                     </button>
                 </div>
 
-                <div class="px-6 py-5 space-y-6">
-                    <div class="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-                        <div class="text-xs uppercase tracking-wide text-slate-400">Backup</div>
-                        <p class="text-xs text-slate-400 mt-2">Create a new backup job scoped to this agent.</p>
-                        <button class="mt-3 text-xs px-3 py-2 rounded bg-emerald-600 text-white hover:bg-emerald-500"
-                                @click="goToCreateJob(selectedAgent)">
-                            Create Backup Job
-                        </button>
+                <div class="eb-card">
+                    <div class="eb-card-header">
+                        <div>
+                            <div class="eb-type-eyebrow">Restore</div>
+                            <p class="eb-card-subtitle">Launch restore points filtered to this agent.</p>
+                        </div>
                     </div>
+                    <button type="button" class="eb-btn eb-btn-info eb-btn-sm" @click="goToRestores(selectedAgent)">
+                        Open Restore Points
+                    </button>
+                </div>
 
-                    <div class="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-                        <div class="text-xs uppercase tracking-wide text-slate-400">Restore</div>
-                        <p class="text-xs text-slate-400 mt-2">Launch restore points filtered to this agent.</p>
-                        <button class="mt-3 text-xs px-3 py-2 rounded bg-sky-600 text-white hover:bg-sky-500"
-                                @click="goToRestores(selectedAgent)">
-                            Open Restore Points
-                        </button>
+                <div class="eb-card">
+                    <div class="eb-card-header">
+                        <div>
+                            <div class="eb-type-eyebrow">Device Name</div>
+                            <p class="eb-card-subtitle">Update the device name shown in the UI.</p>
+                        </div>
                     </div>
+                    <input type="text" class="eb-input mt-3 w-full" placeholder="Coming soon" disabled>
+                    <button type="button" class="eb-btn eb-btn-secondary eb-btn-sm mt-3 cursor-not-allowed opacity-60" disabled>
+                        Save
+                    </button>
+                </div>
 
-                    <div class="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-                        <div class="text-xs uppercase tracking-wide text-slate-400">Device Name</div>
-                        <p class="text-xs text-slate-400 mt-2">Update the device name shown in the UI.</p>
-                        <input type="text" class="mt-3 w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200"
-                               placeholder="Coming soon" disabled>
-                        <button class="mt-3 text-xs px-3 py-2 rounded bg-slate-700 text-slate-400 cursor-not-allowed" disabled>
-                            Save
-                        </button>
+                <div class="eb-card">
+                    <div class="eb-card-header">
+                        <div>
+                            <div class="eb-type-eyebrow">Updates</div>
+                            <p class="eb-card-subtitle">Trigger an agent policy refresh.</p>
+                        </div>
                     </div>
-
-                    <div class="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-                        <div class="text-xs uppercase tracking-wide text-slate-400">Updates</div>
-                        <p class="text-xs text-slate-400 mt-2">Trigger an agent policy refresh.</p>
-                        <button class="mt-3 text-xs px-3 py-2 rounded bg-slate-700 text-slate-400 cursor-not-allowed" disabled>
-                            Coming soon
-                        </button>
-                    </div>
+                    <button type="button" class="eb-btn eb-btn-secondary eb-btn-sm cursor-not-allowed opacity-60" disabled>
+                        Coming soon
+                    </button>
                 </div>
             </div>
-        </div>
         </div>
     </div>
 </div>
+{/capture}
+
+{include file="modules/addons/cloudstorage/templates/partials/e3backup_shell.tpl"
+    ebE3SidebarPage='agents'
+    ebE3Title='Backup Agents'
+    ebE3Description='Manage your backup agents and their configurations.'
+    ebE3Icon=$ebE3Icon
+    ebE3Actions=$ebE3Actions
+    ebE3Content=$ebE3Content
+}
 
 {literal}
 <script>
@@ -275,6 +296,7 @@ function agentsApp() {
         loading: true,
         tenants: {/literal}{if $tenants}{$tenants|json_encode nofilter}{else}[]{/if}{literal},
         tenantFilter: '',
+        searchQuery: '',
         tenantMenuOpen: false,
         showDeviceId: false,
         showDeviceName: false,
@@ -304,6 +326,30 @@ function agentsApp() {
             if (this.tenantFilter === 'direct') return 'Direct (No Tenant)';
             const match = (this.tenants || []).find(t => String(t.public_id || t.id) === String(this.tenantFilter));
             return match ? match.name : `Tenant ${this.tenantFilter}`;
+        },
+
+        normalizedSearchValue(value) {
+            return String(value || '').toLowerCase();
+        },
+
+        filteredAgents() {
+            const term = this.normalizedSearchValue(this.searchQuery).trim();
+            if (!term) {
+                return this.agents;
+            }
+
+            return this.agents.filter((agent) => {
+                return [
+                    agent.agent_uuid,
+                    agent.hostname,
+                    agent.device_id,
+                    agent.device_name,
+                    agent.tenant_name,
+                    agent.agent_type,
+                    agent.status,
+                    agent.online_status
+                ].some((value) => this.normalizedSearchValue(value).includes(term));
+            });
         },
 
         persistColumns() {
@@ -427,4 +473,3 @@ function agentsApp() {
 }
 </script>
 {/literal}
-

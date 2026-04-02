@@ -1,210 +1,193 @@
-<div class="min-h-screen bg-slate-950 text-gray-300">
-    <div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,_#1f293780,_transparent_60%)]"></div>
-    <div class="container mx-auto px-4 pb-10 pt-6 relative pointer-events-auto">
-        
-        {assign var="activeNav" value="cloudnas"}
-        {include file="modules/addons/cloudstorage/templates/partials/e3backup_nav.tpl"}
-        
-        {* Glass panel container *}
-        <div class="rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)] px-6 py-6"
-             x-data="cloudNAS()" x-init="init()">
-            
-            {* Custom button styles *}
-            <style>
-                .btn-mount {
-                    display: inline-flex; align-items: center; gap: 0.5rem;
-                    border-radius: 9999px; padding: 0.5rem 1.25rem;
-                    font-size: 0.875rem; font-weight: 600;
-                    color: rgb(15 23 42);
-                    background-image: linear-gradient(to right, rgb(6 182 212), rgb(59 130 246));
-                    box-shadow: 0 1px 2px rgba(0,0,0,0.25);
-                    border: 1px solid rgba(6,182,212,0.4);
-                    transition: transform .15s ease, box-shadow .2s ease;
-                }
-                .btn-mount:hover { transform: translateY(-1px); box-shadow: 0 8px 20px rgba(6,182,212,0.25); }
-                .btn-mount:active { transform: translateY(0); box-shadow: 0 1px 2px rgba(0,0,0,0.25); }
-                .btn-mount:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
-                
-                .toggle-switch {
-                    position: relative;
-                    width: 2.75rem;
-                    height: 1.5rem;
-                    border-radius: 9999px;
-                    transition: background-color 0.2s;
-                    cursor: pointer;
-                }
-                .toggle-switch .toggle-knob {
-                    position: absolute;
-                    top: 0.125rem;
-                    left: 0.125rem;
-                    width: 1.25rem;
-                    height: 1.25rem;
-                    background: white;
-                    border-radius: 9999px;
-                    transition: transform 0.2s;
-                    box-shadow: 0 1px 3px rgba(0,0,0,0.3);
-                }
-                .toggle-switch.active .toggle-knob {
-                    transform: translateX(1.25rem);
-                }
-            </style>
-            
-            {* Header with icon and title *}
-            <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6">
-                <div class="flex items-center gap-3">
-                    <div class="p-2.5 rounded-xl bg-gradient-to-br from-cyan-500/20 to-blue-600/20 border border-cyan-500/30">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6 text-cyan-400">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M21.75 17.25v-.228a4.5 4.5 0 0 0-.12-1.03l-2.268-9.64a3.375 3.375 0 0 0-3.285-2.602H7.923a3.375 3.375 0 0 0-3.285 2.602l-2.268 9.64a4.5 4.5 0 0 0-.12 1.03v.228m19.5 0a3 3 0 0 1-3 3H5.25a3 3 0 0 1-3-3m19.5 0a3 3 0 0 0-3-3H5.25a3 3 0 0 0-3 3m16.5 0h.008v.008h-.008v-.008Zm-3 0h.008v.008h-.008v-.008Z" />
-                        </svg>
-                    </div>
-                    <div>
-                        <h2 class="text-2xl font-semibold text-white flex items-center gap-2">
-                            Cloud NAS
-                            <span class="inline-flex items-center rounded-full bg-cyan-500/15 px-2 py-0.5 text-[0.65rem] font-semibold uppercase tracking-wide text-cyan-200 border border-cyan-400/40">
-                                Beta
-                            </span>
-                        </h2>
-                        <p class="text-xs text-slate-400 mt-0.5">Mount your cloud storage as a local Windows drive</p>
-                    </div>
-                </div>
-                
-                {* Quick Mount Button *}
-                <button @click="openMountWizard()" :disabled="!hasAgent" class="mt-4 sm:mt-0 btn-mount">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-                    </svg>
-                    Mount Drive
-                </button>
+{capture assign=ebE3Icon}
+    <span class="eb-icon-box eb-icon-box--sm eb-icon-box--orange">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M21.75 17.25v-.228a4.5 4.5 0 0 0-.12-1.03l-2.268-9.64a3.375 3.375 0 0 0-3.285-2.602H7.923a3.375 3.375 0 0 0-3.285 2.602l-2.268 9.64a4.5 4.5 0 0 0-.12 1.03v.228m19.5 0a3 3 0 0 1-3 3H5.25a3 3 0 0 1-3-3m19.5 0a3 3 0 0 0-3-3H5.25a3 3 0 0 0-3 3m16.5 0h.008v.008h-.008v-.008Zm-3 0h.008v.008h-.008v-.008Z" />
+        </svg>
+    </span>
+{/capture}
+
+{capture assign=ebE3CloudNasBreadcrumb}
+    <div class="eb-breadcrumb">
+        <a href="index.php?m=cloudstorage&page=e3backup&view=dashboard" class="eb-breadcrumb-link">e3 Cloud Backup</a>
+        <span class="eb-breadcrumb-separator">/</span>
+        <span class="eb-breadcrumb-current">Cloud NAS</span>
+    </div>
+{/capture}
+
+{capture assign=ebE3Content}
+<div x-data="cloudNAS()" x-init="init()" class="space-y-6">
+    <style>
+        /* Temporary helper for the legacy Cloud NAS settings partial until it is migrated. */
+        .toggle-switch {
+            position: relative;
+            width: 2.75rem;
+            height: 1.5rem;
+            border-radius: 9999px;
+            transition: background-color 0.2s;
+            cursor: pointer;
+        }
+        .toggle-switch .toggle-knob {
+            position: absolute;
+            top: 0.125rem;
+            left: 0.125rem;
+            width: 1.25rem;
+            height: 1.25rem;
+            background: white;
+            border-radius: 9999px;
+            transition: transform 0.2s;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+        }
+        .toggle-switch.active .toggle-knob {
+            transform: translateX(1.25rem);
+        }
+    </style>
+
+    <div class="eb-page-header">
+        <div>
+            {$ebE3CloudNasBreadcrumb nofilter}
+            <div class="flex flex-wrap items-center gap-2">
+                <h2 class="eb-page-title !mb-0">Cloud NAS</h2>
+                <span class="eb-badge eb-badge--info">Beta</span>
             </div>
-            
-            {* Beta Notice *}
-            <div class="mb-6 rounded-xl border border-cyan-500/30 bg-cyan-500/10 px-4 py-3 text-xs text-cyan-100 flex items-start gap-2">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mt-[2px] flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
+            <p class="eb-page-description">Mount your cloud storage as a local Windows drive, browse point-in-time snapshots, and manage Cloud NAS defaults.</p>
+        </div>
+        <div class="shrink-0">
+            <button
+                type="button"
+                @click="openMountWizard()"
+                :disabled="!hasAgent"
+                class="eb-btn eb-btn-primary"
+                :class="!hasAgent ? 'pointer-events-none opacity-60' : ''"
+            >
+                Mount Drive
+            </button>
+        </div>
+    </div>
+
+    <div class="eb-alert eb-alert--info">
+        <div class="flex-1">
+            <strong class="font-semibold">Cloud NAS Beta.</strong>
+            Mount S3 buckets as local Windows drives using the backup agent.
+            <a href="https://winfsp.dev/rel/" target="_blank" rel="noopener" class="font-medium underline">Download WinFSP</a>
+            before creating your first mount.
+        </div>
+    </div>
+
+    <div class="eb-panel-nav">
+        <nav class="flex flex-wrap items-center gap-1" aria-label="Cloud NAS sections">
+            <button
+                type="button"
+                @click="activeTab = 'drives'"
+                class="flex items-center gap-2 rounded-lg px-3 py-2.5 text-sm font-medium transition"
+                :class="activeTab === 'drives' ? 'bg-white/10 text-white ring-1 ring-white/20' : 'text-[var(--eb-text-muted)] hover:bg-white/5 hover:text-white'"
+            >
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-4 w-4">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44z" />
                 </svg>
-                <div>
-                    <p class="font-semibold text-cyan-100 text-[0.75rem] uppercase tracking-wide">Cloud NAS Beta</p>
-                    <p class="mt-1 text-[0.75rem] leading-relaxed text-cyan-100/90">
-                        Mount S3 buckets as local Windows drives using the backup agent. 
-                        <a href="https://winfsp.dev/rel/" target="_blank" class="underline hover:text-white">Download WinFSP</a>
-                    </p>
-                </div>
-            </div>
-            
-            {* Inner Tab Navigation *}
-            <div class="mb-6 border-b border-slate-800">
-                <nav class="flex gap-1 sm:gap-6 text-sm overflow-x-auto">
-                    <button @click="activeTab = 'drives'" 
-                            :class="activeTab === 'drives' ? 'text-cyan-400 border-cyan-400' : 'text-slate-400 border-transparent hover:text-slate-200'"
-                            class="pb-3 border-b-2 font-medium transition whitespace-nowrap px-2">
-                        <span class="flex items-center gap-2">
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z" />
-                            </svg>
-                            My Drives
-                        </span>
-                    </button>
-                    <button @click="activeTab = 'timemachine'"
-                            :class="activeTab === 'timemachine' ? 'text-cyan-400 border-cyan-400' : 'text-slate-400 border-transparent hover:text-slate-200'"
-                            class="pb-3 border-b-2 font-medium transition whitespace-nowrap px-2">
-                        <span class="flex items-center gap-2">
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
-                            </svg>
-                            Time Machine
-                        </span>
-                    </button>
-                    <button @click="activeTab = 'settings'"
-                            :class="activeTab === 'settings' ? 'text-cyan-400 border-cyan-400' : 'text-slate-400 border-transparent hover:text-slate-200'"
-                            class="pb-3 border-b-2 font-medium transition whitespace-nowrap px-2">
-                        <span class="flex items-center gap-2">
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.220-.128.332-.183.582-.495.644-.869l.214-1.281z" />
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                            </svg>
-                            Settings
-                        </span>
-                    </button>
-                </nav>
-            </div>
-            
-            {* Tab Content - My Drives *}
-            <div x-show="activeTab === 'drives'" x-cloak>
-                {include file="modules/addons/cloudstorage/templates/partials/cloudnas_drives.tpl"}
-            </div>
-            
-            {* Tab Content - Time Machine *}
-            <div x-show="activeTab === 'timemachine'" x-cloak>
-                {include file="modules/addons/cloudstorage/templates/partials/cloudnas_timemachine.tpl"}
-            </div>
-            
-            {* Tab Content - Settings *}
-            <div x-show="activeTab === 'settings'" x-cloak>
-                {include file="modules/addons/cloudstorage/templates/partials/cloudnas_settings.tpl"}
-            </div>
-            
-            {* Mount Wizard Modal *}
-            {include file="modules/addons/cloudstorage/templates/partials/cloudnas_mount_wizard.tpl"}
-            
-            {* Confirmation Modal *}
-            <div x-show="showConfirmModal" x-cloak
-                 class="fixed inset-0 z-[60] overflow-y-auto"
-                 @keydown.escape.window="closeConfirm()">
-                <div class="flex min-h-screen items-center justify-center p-4">
-                    {* Backdrop *}
-                    <div class="fixed inset-0 bg-black/70 backdrop-blur-sm" @click="closeConfirm()"></div>
-                    
-                    {* Modal *}
-                    <div class="relative w-full max-w-md rounded-2xl border border-slate-800 bg-slate-950 shadow-2xl"
-                         x-transition:enter="transition ease-out duration-200"
-                         x-transition:enter-start="opacity-0 scale-95"
-                         x-transition:enter-end="opacity-100 scale-100"
-                         x-transition:leave="transition ease-in duration-150"
-                         x-transition:leave-start="opacity-100 scale-100"
-                         x-transition:leave-end="opacity-0 scale-95">
-                        
-                        {* Icon & Title *}
-                        <div class="px-6 pt-6 pb-2">
-                            <div class="flex items-center gap-4">
-                                <div class="flex-shrink-0 w-12 h-12 rounded-full flex items-center justify-center"
-                                     :class="confirmDanger ? 'bg-rose-500/20' : 'bg-amber-500/20'">
-                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" 
-                                         class="w-6 h-6" :class="confirmDanger ? 'text-rose-400' : 'text-amber-400'">
-                                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
-                                    </svg>
-                                </div>
-                                <div>
-                                    <h3 class="text-lg font-semibold text-white" x-text="confirmTitle"></h3>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        {* Message *}
-                        <div class="px-6 py-4">
-                            <p class="text-sm text-slate-300 leading-relaxed" x-text="confirmMessage"></p>
-                        </div>
-                        
-                        {* Actions *}
-                        <div class="flex justify-end gap-3 border-t border-slate-800 px-6 py-4 bg-slate-900/50 rounded-b-2xl">
-                            <button @click="closeConfirm()" 
-                                    type="button"
-                                    class="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-medium transition">
-                                Cancel
-                            </button>
-                            <button @click="executeConfirm()" 
-                                    type="button"
-                                    class="px-4 py-2 rounded-lg text-white text-sm font-semibold transition"
-                                    :class="confirmDanger ? 'bg-rose-600 hover:bg-rose-500' : 'bg-cyan-600 hover:bg-cyan-500'">
-                                <span x-text="confirmDanger ? 'Delete' : 'Confirm'"></span>
-                            </button>
-                        </div>
+                <span>My Drives</span>
+            </button>
+            <button
+                type="button"
+                @click="activeTab = 'timemachine'"
+                class="flex items-center gap-2 rounded-lg px-3 py-2.5 text-sm font-medium transition"
+                :class="activeTab === 'timemachine' ? 'bg-white/10 text-white ring-1 ring-white/20' : 'text-[var(--eb-text-muted)] hover:bg-white/5 hover:text-white'"
+            >
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-4 w-4">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0z" />
+                </svg>
+                <span>Time Machine</span>
+            </button>
+            <button
+                type="button"
+                @click="activeTab = 'settings'"
+                class="flex items-center gap-2 rounded-lg px-3 py-2.5 text-sm font-medium transition"
+                :class="activeTab === 'settings' ? 'bg-white/10 text-white ring-1 ring-white/20' : 'text-[var(--eb-text-muted)] hover:bg-white/5 hover:text-white'"
+            >
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-4 w-4">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 0 1 0 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 0 1 0-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z" />
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0z" />
+                </svg>
+                <span>Settings</span>
+            </button>
+        </nav>
+    </div>
+
+    <div x-show="activeTab === 'drives'" x-cloak class="eb-card-raised">
+        {include file="modules/addons/cloudstorage/templates/partials/cloudnas_drives.tpl"}
+    </div>
+
+    <div x-show="activeTab === 'timemachine'" x-cloak class="eb-card-raised">
+        {include file="modules/addons/cloudstorage/templates/partials/cloudnas_timemachine.tpl"}
+    </div>
+
+    <div x-show="activeTab === 'settings'" x-cloak class="eb-card-raised">
+        {include file="modules/addons/cloudstorage/templates/partials/cloudnas_settings.tpl"}
+    </div>
+
+    {include file="modules/addons/cloudstorage/templates/partials/cloudnas_mount_wizard.tpl"}
+
+    <div
+        x-show="showConfirmModal"
+        x-cloak
+        class="fixed inset-0 z-40"
+        style="display: none;"
+        @keydown.escape.window="closeConfirm()"
+    >
+        <div class="absolute inset-0 eb-drawer-backdrop" @click="closeConfirm()"></div>
+
+        <div class="relative flex min-h-full items-center justify-center p-4 sm:p-6">
+            <div
+                class="eb-panel w-full max-w-md !overflow-hidden !p-0"
+                x-transition:enter="transition ease-out duration-200"
+                x-transition:enter-start="opacity-0 scale-95"
+                x-transition:enter-end="opacity-100 scale-100"
+                x-transition:leave="transition ease-in duration-150"
+                x-transition:leave-start="opacity-100 scale-100"
+                x-transition:leave-end="opacity-0 scale-95"
+            >
+                <div class="flex items-start gap-4 border-b border-[var(--eb-border-subtle)] px-6 py-5">
+                    <span
+                        class="eb-icon-box shrink-0"
+                        :class="confirmDanger ? 'eb-icon-box--danger' : 'eb-icon-box--info'"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                        </svg>
+                    </span>
+                    <div class="min-w-0">
+                        <h3 class="eb-card-title" x-text="confirmTitle"></h3>
+                        <p class="eb-card-subtitle">Confirm this Cloud NAS action before proceeding.</p>
                     </div>
                 </div>
+
+                <div class="px-6 py-4">
+                    <p class="text-sm leading-relaxed text-[var(--eb-text-secondary)]" x-text="confirmMessage"></p>
+                </div>
+
+                <div class="flex justify-end gap-3 border-t border-[var(--eb-border-subtle)] bg-[var(--eb-bg-surface)] px-6 py-4">
+                    <button type="button" class="eb-btn eb-btn-secondary" @click="closeConfirm()">Cancel</button>
+                    <button
+                        type="button"
+                        class="eb-btn"
+                        :class="confirmDanger ? 'eb-btn-danger' : 'eb-btn-primary'"
+                        @click="executeConfirm()"
+                    >
+                        <span x-text="confirmDanger ? 'Delete' : 'Confirm'"></span>
+                    </button>
+                </div>
             </div>
-            
         </div>
     </div>
 </div>
+{/capture}
+
+{include file="modules/addons/cloudstorage/templates/partials/e3backup_shell.tpl"
+    ebE3SidebarPage='cloudnas'
+    ebE3Title='e3 Cloud Backup'
+    ebE3Description='Mount buckets as local Windows drives, browse snapshot history, and manage Cloud NAS behavior.'
+    ebE3Icon=$ebE3Icon
+    ebE3Content=$ebE3Content
+}
 
 {literal}
 <script>
@@ -735,4 +718,3 @@ function cloudNAS() {
 }
 </script>
 {/literal}
-
