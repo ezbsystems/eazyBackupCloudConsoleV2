@@ -61,7 +61,7 @@
       </div>
     {/if}
 
-    <section class="eb-card-raised !p-0">
+    <div class="eb-subpanel !p-0 overflow-hidden">
       <div class="border-b border-[var(--eb-border-subtle)] px-6 py-5">
         <h2 class="eb-app-card-title">Existing Customer Tenants</h2>
       </div>
@@ -157,7 +157,7 @@
           <div class="relative" @click.away="entriesOpen=false">
             <button type="button"
                     @click="entriesOpen=!entriesOpen"
-                    class="eb-btn eb-btn-outline eb-btn-sm inline-flex items-center gap-2">
+                    class="eb-btn eb-btn-secondary eb-btn-sm">
               <span x-text="'Show ' + entriesPerPage"></span>
               <svg class="h-4 w-4 transition-transform" :class="entriesOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
                 <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
@@ -170,11 +170,11 @@
                  x-transition:leave="transition ease-in duration-75"
                  x-transition:leave-start="opacity-100 scale-100"
                  x-transition:leave-end="opacity-0 scale-95"
-                 class="eb-dropdown-menu absolute left-0 z-50 mt-2 w-40 overflow-hidden !min-w-0"
+                 class="eb-dropdown-menu absolute left-0 z-50 mt-2 w-40 overflow-hidden"
                  style="display: none;">
               <template x-for="size in [10,25,50,100]" :key="'tenants-entries-' + size">
                 <button type="button"
-                        class="eb-menu-item w-full justify-start !rounded-[var(--eb-radius-md)]"
+                        class="eb-menu-option"
                         :class="entriesPerPage === size ? 'is-active' : ''"
                         @click="setEntries(size); entriesOpen=false;">
                   <span x-text="size"></span>
@@ -185,7 +185,7 @@
           <div class="relative" @click.away="columnsOpen=false">
             <button type="button"
                     @click="columnsOpen=!columnsOpen"
-                    class="eb-btn eb-btn-outline eb-btn-sm inline-flex items-center gap-2">
+                    class="eb-btn eb-btn-secondary eb-btn-sm">
               Columns
               <svg class="h-4 w-4 transition-transform" :class="columnsOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
                 <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
@@ -198,15 +198,18 @@
                  x-transition:leave="transition ease-in duration-75"
                  x-transition:leave-start="opacity-100 scale-100"
                  x-transition:leave-end="opacity-0 scale-95"
-                 class="eb-dropdown-menu absolute left-0 z-50 mt-2 w-64 overflow-hidden p-2 !min-w-0"
+                 class="eb-dropdown-menu absolute left-0 z-50 mt-2 w-64 overflow-hidden"
                  style="display: none;">
-              <label class="eb-menu-checklist-item flex cursor-pointer items-center justify-between rounded px-2 py-2 text-sm"><span>Tenant ID</span><input type="checkbox" class="eb-checkbox" x-model="cols.public_id"></label>
-              <label class="eb-menu-checklist-item flex cursor-pointer items-center justify-between rounded px-2 py-2 text-sm"><span>Name</span><input type="checkbox" class="eb-checkbox" x-model="cols.name"></label>
-              <label class="eb-menu-checklist-item flex cursor-pointer items-center justify-between rounded px-2 py-2 text-sm"><span>Slug</span><input type="checkbox" class="eb-checkbox" x-model="cols.slug"></label>
-              <label class="eb-menu-checklist-item flex cursor-pointer items-center justify-between rounded px-2 py-2 text-sm"><span>Contact Email</span><input type="checkbox" class="eb-checkbox" x-model="cols.contact_email"></label>
-              <label class="eb-menu-checklist-item flex cursor-pointer items-center justify-between rounded px-2 py-2 text-sm"><span>Status</span><input type="checkbox" class="eb-checkbox" x-model="cols.status"></label>
-              <label class="eb-menu-checklist-item flex cursor-pointer items-center justify-between rounded px-2 py-2 text-sm"><span>Updated</span><input type="checkbox" class="eb-checkbox" x-model="cols.updated"></label>
-              <label class="eb-menu-checklist-item flex cursor-pointer items-center justify-between rounded px-2 py-2 text-sm"><span>Actions</span><input type="checkbox" class="eb-checkbox" x-model="cols.actions"></label>
+              <div class="eb-menu-label">Visible Columns</div>
+              <div class="eb-menu-checklist p-1">
+                <label class="eb-menu-checklist-item"><span>Tenant ID</span><input type="checkbox" class="eb-checkbox" x-model="cols.public_id"></label>
+                <label class="eb-menu-checklist-item"><span>Name</span><input type="checkbox" class="eb-checkbox" x-model="cols.name"></label>
+                <label class="eb-menu-checklist-item"><span>Slug</span><input type="checkbox" class="eb-checkbox" x-model="cols.slug"></label>
+                <label class="eb-menu-checklist-item"><span>Contact Email</span><input type="checkbox" class="eb-checkbox" x-model="cols.contact_email"></label>
+                <label class="eb-menu-checklist-item"><span>Status</span><input type="checkbox" class="eb-checkbox" x-model="cols.status"></label>
+                <label class="eb-menu-checklist-item"><span>Updated</span><input type="checkbox" class="eb-checkbox" x-model="cols.updated"></label>
+                <label class="eb-menu-checklist-item"><span>Actions</span><input type="checkbox" class="eb-checkbox" x-model="cols.actions"></label>
+              </div>
             </div>
           </div>
           <div class="flex-1"></div>
@@ -293,7 +296,7 @@
           </div>
         </div>
       </div>
-    </section>
+    </div>
         </div>
 
         <!-- Create Tenant Modal -->

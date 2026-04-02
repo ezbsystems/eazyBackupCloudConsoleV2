@@ -1,6 +1,6 @@
 <div class="eb-page">
     <div class="eb-page-inner py-8">
-        <div class="mx-auto max-w-6xl space-y-6">
+        <div class="mx-auto max-w-7xl space-y-6">
             <div class="eb-panel">
                 <div class="eb-page-header">
                     <div>
@@ -46,26 +46,25 @@
                             </div>
                         </div> *}
 
-                        <div id="eb-product-select" class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                        <div class="eb-service-grid-shell">
+                        <div id="eb-product-select" class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
                             <button
                                 type="button"
-                                class="group eb-card text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-[var(--eb-primary-border)] hover:bg-[var(--eb-bg-hover)] hover:shadow-[var(--eb-shadow-md)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--eb-primary)]"
+                                class="eb-service-option is-popular text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--eb-primary)]"
                                 data-choice="backup"
                                 onclick="ebChooseProduct(this)"
                             >
-                                <div class="flex items-start gap-4">
-                                    <div class="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-xl border border-[var(--eb-border-default)] bg-[var(--eb-bg-raised)]">
+                                <span class="eb-service-option-badge">Most Popular</span>
+                                <div class="eb-service-option-inner">
+                                    <div class="eb-service-option-icon">
                                         <img src="{$WEB_ROOT}/templates/eazyBackup/assets/icon/e-cloud-logo-orange.svg" alt="" class="h-7 w-7" loading="lazy" />
                                     </div>
-                                    <div class="min-w-0 flex-1">
-                                        <div class="flex flex-wrap items-center gap-2">
-                                            <h2 class="eb-card-title text-base">Cloud Backup</h2>
-                                            <span class="eb-badge eb-badge--success">Most Popular</span>
-                                        </div>
-                                        <p class="eb-type-body mt-3 text-sm">
+                                    <div class="eb-service-option-copy">
+                                        <h2 class="eb-service-option-title">Cloud Backup</h2>
+                                        <p class="eb-service-option-body">
                                             Back up Windows, macOS, and servers directly to eazyBackup's Canadian cloud with encryption, retention policies, and fast restores.
                                         </p>
-                                        <p class="eb-type-caption mt-3">
+                                        <p class="eb-service-option-note">
                                             Best for end users, MSPs, and IT teams protecting PCs, laptops, and servers with the eazyBackup app.
                                         </p>
                                     </div>
@@ -74,20 +73,20 @@
 
                             <button
                                 type="button"
-                                class="group eb-card text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-[var(--eb-info-border)] hover:bg-[var(--eb-bg-hover)] hover:shadow-[var(--eb-shadow-md)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--eb-info-icon)]"
+                                class="eb-service-option text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--eb-info-icon)]"
                                 data-choice="storage"
                                 onclick="ebChooseProduct(this)"
                             >
-                                <div class="flex items-start gap-4">
-                                    <div class="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-xl border border-[var(--eb-border-default)] bg-[var(--eb-bg-raised)]">
+                                <div class="eb-service-option-inner">
+                                    <div class="eb-service-option-icon">
                                         <img src="{$WEB_ROOT}/templates/eazyBackup/assets/icon/e3.svg" alt="" class="h-7 w-7" loading="lazy" />
                                     </div>
-                                    <div class="min-w-0 flex-1">
-                                        <h2 class="eb-card-title text-base">e3 Object Storage</h2>
-                                        <p class="eb-type-body mt-3 text-sm">
+                                    <div class="eb-service-option-copy">
+                                        <h2 class="eb-service-option-title">e3 Object Storage</h2>
+                                        <p class="eb-service-option-body">
                                             S3-compatible e3 object storage for backups, archives, media, and application data stored in Canada.
                                         </p>
-                                        <p class="eb-type-caption mt-3">
+                                        <p class="eb-service-option-note">
                                             Best for teams that already have backup software or need a secure object storage target for their own tooling.
                                         </p>
                                     </div>
@@ -96,22 +95,22 @@
 
                             <button
                                 type="button"
-                                class="group eb-card text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-[var(--eb-premium-border)] hover:bg-[var(--eb-bg-hover)] hover:shadow-[var(--eb-shadow-md)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--eb-premium-icon)]"
+                                class="eb-service-option text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--eb-premium-icon)]"
                                 data-choice="ms365"
                                 onclick="ebChooseProduct(this)"
                             >
-                                <div class="flex items-start gap-4">
-                                    <div class="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-xl border border-[var(--eb-border-default)] bg-[var(--eb-bg-raised)] text-[var(--eb-premium-icon)]">
+                                <div class="eb-service-option-inner">
+                                    <div class="eb-service-option-icon">
                                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 50 50" fill="currentColor" class="h-7 w-7" aria-hidden="true">
                                             <path d="M20.13,32.5c-2.79-1.69-4.53-4.77-4.53-8.04V8.9c0-1.63,0.39-3.19,1.11-4.57L7.54,9.88C4.74,11.57,3,14.65,3,17.92v14.15 c0,1.59,0.42,3.14,1.16,4.5c0.69,1.12,1.67,2.06,2.88,2.74c2.53,1.42,5.51,1.36,7.98-0.15l8.02-4.9L20.13,32.5z M42.84,27.14 l-8.44-5.05v2.29c0,3.25-1.72,6.33-4.49,8.02l-13.84,8.47c-1.52,0.93-3.19,1.42-4.87,1.46l8.93,5.41c1.5,0.91,3.19,1.36,4.87,1.36 s3.37-0.45,4.87-1.36l9.08-5.5l3.52-2.13c0.27-0.16,0.53-0.34,0.78-0.54c0.08-0.05,0.16-0.11,0.23-0.16 c0.65-0.53,1.23-1.13,1.71-1.79c0.02-0.03,0.04-0.06,0.06-0.09c0.77-1.19,1.2-2.59,1.19-4.06C46.43,30.85,45.09,28.48,42.84,27.14z M42.46,9.88l-9.57-5.79l-3.02-1.83C29.45,2,29.01,1.79,28.56,1.61c-0.49-0.21-1-0.37-1.51-0.47c-1.84-0.38-3.76-0.08-5.46,0.89 c-2.5,1.43-3.99,3.99-3.99,6.87v9.6l2.8-1.65c2.84-1.67,6.36-1.66,9.19,0.03l14.28,8.54c1.29,0.78,2.35,1.81,3.12,3.02L47,17.92 C47,14.65,45.26,11.57,42.46,9.88z"/>
                                         </svg>
                                     </div>
-                                    <div class="min-w-0 flex-1">
-                                        <h2 class="eb-card-title text-base">Microsoft 365 Backup</h2>
-                                        <p class="eb-type-body mt-3 text-sm">
+                                    <div class="eb-service-option-copy">
+                                        <h2 class="eb-service-option-title">Microsoft 365 Backup</h2>
+                                        <p class="eb-service-option-body">
                                             Protect Exchange, OneDrive, SharePoint, and Teams with automated backups, retention controls, and point-in-time restore workflows.
                                         </p>
-                                        <p class="eb-type-caption mt-3">
+                                        <p class="eb-service-option-note">
                                             Best for organizations that need dedicated Microsoft 365 recovery beyond Microsoft's built-in retention.
                                         </p>
                                     </div>
@@ -120,27 +119,28 @@
 
                             <button
                                 type="button"
-                                class="group eb-card text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-[var(--eb-warning-border)] hover:bg-[var(--eb-bg-hover)] hover:shadow-[var(--eb-shadow-md)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--eb-warning-icon)]"
+                                class="eb-service-option text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--eb-warning-icon)]"
                                 data-choice="cloud2cloud"
                                 onclick="ebChooseProduct(this)"
                             >
-                                <div class="flex items-start gap-4">
-                                    <div class="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-400">
+                                <div class="eb-service-option-inner">
+                                    <div class="eb-service-option-icon">
                                         <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
                                             <path stroke-linecap="round" stroke-linejoin="round" d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" />
                                         </svg>
                                     </div>
-                                    <div class="min-w-0 flex-1">
-                                        <h2 class="eb-card-title text-base">Cloud-to-Cloud Backup</h2>
-                                        <p class="eb-type-body mt-3 text-sm">
+                                    <div class="eb-service-option-copy">
+                                        <h2 class="eb-service-option-title">Cloud-to-Cloud Backup</h2>
+                                        <p class="eb-service-option-body">
                                             Replicate Google Drive, Dropbox, and S3-provider data into secure Canadian e3 buckets on a schedule.
                                         </p>
-                                        <p class="eb-type-caption mt-3">
+                                        <p class="eb-service-option-note">
                                             Best for organizations consolidating cloud data into one protected recovery vault.
                                         </p>
                                     </div>
                                 </div>
                             </button>
+                        </div>
                         </div>
                     </section>
                 </div>
@@ -154,6 +154,133 @@
 <script src="{$WEB_ROOT}/modules/addons/eazybackup/templates/assets/js/ui.js"></script>
 
 <style>
+    .eb-service-grid-shell {
+        position: relative;
+        margin-inline: -1.5rem;
+        padding: 1.5rem;
+        border-top: 1px solid var(--eb-border-subtle);
+        border-bottom: 1px solid var(--eb-border-subtle);
+        background: var(--eb-bg-base);
+    }
+
+    @media (min-width: 640px) {
+        .eb-service-grid-shell {
+            margin-inline: -2rem;
+            padding: 2rem;
+        }
+    }
+
+    .eb-service-option {
+        position: relative;
+        overflow: visible;
+        display: block;
+        height: 100%;
+        cursor: pointer;
+        border: 1px solid var(--eb-border-default);
+        border-radius: 20px;
+        background: var(--eb-bg-card);
+        padding: 1.5rem;
+        color: inherit;
+        box-shadow: 0 2px 8px rgba(213, 93, 29, 0.05);
+        transition: transform 200ms ease-out, border-color 200ms ease-out, box-shadow 200ms ease-out;
+    }
+
+    .eb-service-option:hover,
+    .eb-service-option:focus-visible {
+        transform: translateY(-2px);
+        border-color: var(--eb-accent);
+        box-shadow: 0 12px 36px rgba(213, 93, 29, 0.12);
+    }
+
+    .eb-service-option.is-popular {
+        border: 2px solid var(--eb-primary);
+        box-shadow: 0 8px 32px rgba(213, 93, 29, 0.15);
+    }
+
+    .eb-service-option-badge {
+        position: absolute;
+        top: -12px;
+        right: 16px;
+        z-index: 2;
+        display: inline-flex;
+        align-items: center;
+        border-radius: 9999px;
+        background: var(--eb-primary);
+        padding: 4px 12px;
+        color: #fff;
+        font-size: 9.5px;
+        font-weight: 800;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+    }
+
+    .eb-service-option-inner {
+        display: flex;
+        height: 100%;
+        flex-direction: column;
+        gap: 16px;
+        align-items: flex-start;
+    }
+
+    .eb-service-option-icon {
+        display: inline-flex;
+        height: 52px;
+        width: 52px;
+        align-items: center;
+        justify-content: center;
+        border-radius: 12px;
+        border: 1px solid var(--eb-border-default);
+        background: var(--eb-bg-raised);
+        color: var(--eb-primary);
+        flex-shrink: 0;
+    }
+
+    .eb-service-option-icon img {
+        display: block;
+        max-width: 32px;
+        max-height: 32px;
+        width: auto;
+    }
+
+    .eb-service-option-icon svg {
+        height: 32px;
+        width: 32px;
+        max-width: 32px;
+        max-height: 32px;
+    }
+
+    .eb-service-option-copy {
+        display: flex;
+        min-width: 0;
+        flex: 1;
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    .eb-service-option-title {
+        font-family: var(--eb-font-display);
+        font-size: 1.25rem;
+        font-weight: 700;
+        line-height: 1.15;
+        color: var(--eb-text-primary);
+    }
+
+    .eb-service-option-body {
+        font-size: 14px;
+        line-height: 1.65;
+        color: var(--eb-text-secondary);
+    }
+
+    .eb-service-option-note {
+        margin-top: auto;
+        border-top: 1px solid var(--eb-border-subtle);
+        padding-top: 14px;
+        font-size: 12px;
+        line-height: 1.55;
+        font-weight: 700;
+        color: var(--eb-text-secondary);
+    }
+
     #eb-card-overlay #stripeElements .StripeElement {
         display: block;
         width: 100%;
@@ -292,7 +419,7 @@
                 <button
                     type="button"
                     onclick="ebSelectStorageTier('trial_limited')"
-                    class="group eb-card w-full text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-[var(--eb-info-border)] hover:bg-[var(--eb-bg-hover)] hover:shadow-[var(--eb-shadow-md)]"
+                    class="group eb-card w-full cursor-pointer text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-[var(--eb-info-border)] hover:bg-[var(--eb-bg-hover)] hover:shadow-[var(--eb-shadow-md)]"
                 >
                     <div class="flex items-start gap-4">
                         <div class="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-xl border border-[var(--eb-border-default)] bg-[var(--eb-bg-raised)] text-[var(--eb-text-secondary)] transition-colors group-hover:text-[var(--eb-info-icon)]">
@@ -305,7 +432,7 @@
                                 <div class="eb-card-title text-base">Free Trial</div>
                                 <span class="eb-badge eb-badge--info">No Card Required</span>
                             </div>
-                            <p class="eb-type-body mt-3 text-sm">Try e3 Cloud Storage risk-free for 30 days with a 1 TiB user quota.</p>
+                            <p class="eb-type-body mt-3 text-sm">Try e3 Cloud Storage risk-free for 30 days with a 1 TiB quota.</p>
                             <ul class="mt-4 space-y-2 pl-5 text-sm text-[var(--eb-text-secondary)]">
                                 <li class="list-disc">30 days free</li>
                                 <li class="list-disc">1 TiB storage limit</li>
@@ -318,7 +445,7 @@
                 <button
                     type="button"
                     onclick="ebSelectStorageTier('trial_unlimited')"
-                    class="group eb-card-orange relative w-full text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-[var(--eb-primary)] hover:shadow-[var(--eb-shadow-md)]"
+                    class="group eb-card-orange relative w-full cursor-pointer text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-[var(--eb-primary)] hover:shadow-[var(--eb-shadow-md)]"
                 >
                     <span class="absolute right-4 top-4 eb-badge eb-badge--orange">Recommended</span>
                     <div class="flex items-start gap-4 pr-16">

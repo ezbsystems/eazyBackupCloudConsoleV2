@@ -244,10 +244,10 @@
                             Knowledgebase
                         </a>
 
-                        <div x-data="{ open: ['index.php?m=cloudstorage&page=dashboard','index.php?m=cloudstorage&page=buckets','index.php?m=cloudstorage&page=access_keys','index.php?m=cloudstorage&page=users','index.php?m=cloudstorage&page=billing','index.php?m=cloudstorage&page=history'].some(path => window.location.href.includes(path)) }" class="space-y-1">
+                        <div x-data="{ open: ['index.php?m=cloudstorage&page=dashboard','index.php?m=cloudstorage&page=buckets','index.php?m=cloudstorage&page=browse','index.php?m=cloudstorage&page=access_keys','index.php?m=cloudstorage&page=users','index.php?m=cloudstorage&page=billing','index.php?m=cloudstorage&page=history'].some(path => window.location.href.includes(path)) }" class="space-y-1">
                             <button
                                 @click="open = !open"
-                                class="eb-sidebar-link w-full text-left {if ($smarty.server.REQUEST_URI|strstr:'index.php?m=cloudstorage&page=dashboard') || ($smarty.server.REQUEST_URI|strstr:'index.php?m=cloudstorage&page=buckets') || ($smarty.server.REQUEST_URI|strstr:'index.php?m=cloudstorage&page=access_keys') || ($smarty.server.REQUEST_URI|strstr:'index.php?m=cloudstorage&page=users') || ($smarty.server.REQUEST_URI|strstr:'index.php?m=cloudstorage&page=billing') || ($smarty.server.REQUEST_URI|strstr:'index.php?m=cloudstorage&page=history')}is-active{/if}"
+                                class="eb-sidebar-link w-full text-left {if ($smarty.server.REQUEST_URI|strstr:'index.php?m=cloudstorage&page=dashboard') || ($smarty.server.REQUEST_URI|strstr:'index.php?m=cloudstorage&page=buckets') || ($smarty.server.REQUEST_URI|strstr:'index.php?m=cloudstorage&page=browse') || ($smarty.server.REQUEST_URI|strstr:'index.php?m=cloudstorage&page=access_keys') || ($smarty.server.REQUEST_URI|strstr:'index.php?m=cloudstorage&page=users') || ($smarty.server.REQUEST_URI|strstr:'index.php?m=cloudstorage&page=billing') || ($smarty.server.REQUEST_URI|strstr:'index.php?m=cloudstorage&page=history')}is-active{/if}"
                             >
                                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                                     <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 15a4.5 4.5 0 0 0 4.5 4.5H18a3.75 3.75 0 0 0 1.332-7.257 3 3 0 0 0-3.758-3.848 5.25 5.25 0 0 0-10.233 2.33A4.502 4.502 0 0 0 2.25 15Z" />
@@ -259,7 +259,7 @@
                             </button>
                             <div x-show="open" x-cloak class="eb-sidebar-subnav">
                                 <a href="{$WEB_ROOT}/index.php?m=cloudstorage" class="eb-sidebar-sublink {if $smarty.get.m == 'cloudstorage' and (empty($smarty.get.page) or $smarty.get.page == 'dashboard')}is-active{/if}">Dashboard</a>
-                                <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=buckets" class="eb-sidebar-sublink {if $smarty.server.REQUEST_URI|strstr:'page=buckets'}is-active{/if}">Buckets</a>
+                                <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=buckets" class="eb-sidebar-sublink {if ($smarty.server.REQUEST_URI|strstr:'page=buckets') || ($smarty.server.REQUEST_URI|strstr:'page=browse')}is-active{/if}">Buckets</a>
                                 <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=access_keys" class="eb-sidebar-sublink {if $smarty.server.REQUEST_URI|strstr:'page=access_keys'}is-active{/if}">Access Keys</a>
                                 <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=users" class="eb-sidebar-sublink {if $smarty.server.REQUEST_URI|strstr:'page=users'}is-active{/if}">Users</a>
                                 <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=billing" class="eb-sidebar-sublink {if $smarty.server.REQUEST_URI|strstr:'page=billing'}is-active{/if}">Billing</a>

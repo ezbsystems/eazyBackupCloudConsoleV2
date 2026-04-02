@@ -232,11 +232,38 @@
                     </div>
                     <!-- Select Dropdown -->
                     <div class="mb-4">
-                        <select onchange="updateChart(this, 'ingress')" class="eb-select mt-1 block w-full">
-                            <option value="day">Today</option>
-                            <option value="weekly">7 Days</option>
-                            <option value="monthly">Month</option>
-                        </select>
+                        <div class="relative" x-data="dashboardSelectMenu({ selectId: 'ingressPeriod', placeholder: 'Select period' })" x-init="init()" @click.outside="close()" @keydown.escape.prevent="close()">
+                            <select id="ingressPeriod" onchange="updateChart(this, 'ingress')" class="sr-only" tabindex="-1" aria-hidden="true">
+                                <option value="day" selected>Today</option>
+                                <option value="weekly">7 Days</option>
+                                <option value="monthly">Month</option>
+                            </select>
+                            <button type="button"
+                                class="eb-input relative flex w-full items-center justify-between gap-2 pr-10 text-left"
+                                @click="toggle()"
+                                :aria-expanded="open"
+                                :disabled="disabled">
+                                <span class="min-w-0 flex-1 truncate" x-text="selectedLabel"></span>
+                                <svg class="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--eb-text-muted)] transition-transform" :class="open ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                                    <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+                                </svg>
+                            </button>
+                            <div x-show="open"
+                                x-transition:enter="transition ease-out duration-100"
+                                x-transition:enter-start="opacity-0 scale-95"
+                                x-transition:enter-end="opacity-100 scale-100"
+                                x-transition:leave="transition ease-in duration-75"
+                                x-transition:leave-start="opacity-100 scale-100"
+                                x-transition:leave-end="opacity-0 scale-95"
+                                class="eb-menu absolute left-0 right-0 z-50 mt-2 overflow-hidden p-1"
+                                style="display: none;">
+                                <template x-for="option in options" :key="'ingress-' + option.value">
+                                    <button type="button" class="eb-menu-item w-full" :class="selectedValue === option.value ? 'is-active' : ''" @click="select(option.value)">
+                                        <span class="min-w-0 flex-1 truncate text-left" x-text="option.label"></span>
+                                    </button>
+                                </template>
+                            </div>
+                        </div>
                     </div>
                     <!-- Chart Container -->
                     <div id="bytesReceivedChart"></div>
@@ -260,11 +287,38 @@
                     </div>
                     <!-- Select Dropdown -->
                     <div class="mb-4">
-                        <select onchange="updateChart(this, 'egress')" class="eb-select mt-1 block w-full">
-                            <option value="day">Today</option>
-                            <option value="weekly">7 Days</option>
-                            <option value="monthly">Month</option>
-                        </select>
+                        <div class="relative" x-data="dashboardSelectMenu({ selectId: 'egressPeriod', placeholder: 'Select period' })" x-init="init()" @click.outside="close()" @keydown.escape.prevent="close()">
+                            <select id="egressPeriod" onchange="updateChart(this, 'egress')" class="sr-only" tabindex="-1" aria-hidden="true">
+                                <option value="day" selected>Today</option>
+                                <option value="weekly">7 Days</option>
+                                <option value="monthly">Month</option>
+                            </select>
+                            <button type="button"
+                                class="eb-input relative flex w-full items-center justify-between gap-2 pr-10 text-left"
+                                @click="toggle()"
+                                :aria-expanded="open"
+                                :disabled="disabled">
+                                <span class="min-w-0 flex-1 truncate" x-text="selectedLabel"></span>
+                                <svg class="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--eb-text-muted)] transition-transform" :class="open ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                                    <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+                                </svg>
+                            </button>
+                            <div x-show="open"
+                                x-transition:enter="transition ease-out duration-100"
+                                x-transition:enter-start="opacity-0 scale-95"
+                                x-transition:enter-end="opacity-100 scale-100"
+                                x-transition:leave="transition ease-in duration-75"
+                                x-transition:leave-start="opacity-100 scale-100"
+                                x-transition:leave-end="opacity-0 scale-95"
+                                class="eb-menu absolute left-0 right-0 z-50 mt-2 overflow-hidden p-1"
+                                style="display: none;">
+                                <template x-for="option in options" :key="'egress-' + option.value">
+                                    <button type="button" class="eb-menu-item w-full" :class="selectedValue === option.value ? 'is-active' : ''" @click="select(option.value)">
+                                        <span class="min-w-0 flex-1 truncate text-left" x-text="option.label"></span>
+                                    </button>
+                                </template>
+                            </div>
+                        </div>
                     </div>
                     <!-- Chart Container -->
                     <div id="BytesSentChart"></div>
@@ -631,6 +685,66 @@
             url.searchParams.delete('username');
         }
         window.location.href = url.toString();
+    }
+
+    function dashboardSelectMenu(config) {
+        return {
+            open: false,
+            selectId: config.selectId,
+            placeholder: config.placeholder || 'Select an option',
+            selectedValue: '',
+            selectedLabel: config.placeholder || 'Select an option',
+            options: [],
+            disabled: false,
+            init() {
+                const select = document.getElementById(this.selectId);
+                if (!select) {
+                    return;
+                }
+
+                this.disabled = select.disabled;
+                this.options = Array.from(select.options).map(function(option) {
+                    return {
+                        value: option.value,
+                        label: option.text.trim(),
+                        disabled: option.disabled
+                    };
+                }).filter(function(option) {
+                    return !option.disabled;
+                });
+
+                const selectedOption = select.options[select.selectedIndex] || this.options[0] || null;
+                this.selectedValue = selectedOption ? selectedOption.value : '';
+                this.selectedLabel = selectedOption ? selectedOption.text.trim() : this.placeholder;
+            },
+            toggle() {
+                if (this.disabled) {
+                    return;
+                }
+
+                this.open = !this.open;
+            },
+            close() {
+                this.open = false;
+            },
+            select(value) {
+                const option = this.options.find(function(item) {
+                    return item.value === value;
+                });
+                const select = document.getElementById(this.selectId);
+
+                if (!option || !select) {
+                    return;
+                }
+
+                this.selectedValue = option.value;
+                this.selectedLabel = option.label;
+                select.value = option.value;
+                select.dispatchEvent(new Event('change', { bubbles: true }));
+                select.dispatchEvent(new Event('input', { bubbles: true }));
+                this.close();
+            }
+        };
     }
 
     jQuery(document).ready(function() {
