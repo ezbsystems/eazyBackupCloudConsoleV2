@@ -1,251 +1,273 @@
-<div class="min-h-screen bg-slate-950 text-gray-200" x-data="backupUserDetailApp()">
-    <div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,_#1f293780,_transparent_60%)]"></div>
-    <div class="container mx-auto px-4 py-6 relative pointer-events-auto">
-        {assign var="activeNav" value="users"}
-        {include file="modules/addons/cloudstorage/templates/partials/e3backup_nav.tpl"}
+{capture assign=ebE3Icon}
+    <span class="eb-icon-box eb-icon-box--sm eb-icon-box--orange">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 0 0 3.75 1.03m-3.75-1.03a9.094 9.094 0 0 1-3.75 1.03m7.5-1.03a9.094 9.094 0 0 0-7.5 0m7.5 0A9.094 9.094 0 0 0 12 15.75a9.094 9.094 0 0 0-3.75 2.97m0 0A9.094 9.094 0 0 1 4.5 19.75m3.75-1.03a9.094 9.094 0 0 0-3.75-1.03m3.75 1.03A9.094 9.094 0 0 1 12 15.75m0 0a3.75 3.75 0 1 0 0-7.5 3.75 3.75 0 0 0 0 7.5Z" />
+        </svg>
+    </span>
+{/capture}
 
-        <div class="rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)] px-6 py-6">
-            <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-6">
-                <div>
-                    <div class="flex items-center gap-2 mb-1 text-sm">
-                        <a href="index.php?m=cloudstorage&page=e3backup" class="text-slate-400 hover:text-white">e3 Cloud Backup</a>
-                        <span class="text-slate-600">/</span>
-                        <a href="index.php?m=cloudstorage&page=e3backup&view=users" class="text-slate-400 hover:text-white">Users</a>
-                        <span class="text-slate-600">/</span>
-                        <span class="text-white font-medium" x-text="user.username || 'User Detail'"></span>
+{capture assign=ebE3Actions}{/capture}
+
+{capture assign=ebE3UserDetailBreadcrumb}
+    <div class="eb-breadcrumb">
+        <a href="index.php?m=cloudstorage&page=e3backup&view=dashboard" class="eb-breadcrumb-link">e3 Cloud Backup</a>
+        <span class="eb-breadcrumb-separator">/</span>
+        <a href="index.php?m=cloudstorage&page=e3backup&view=users" class="eb-breadcrumb-link">Users</a>
+        <span class="eb-breadcrumb-separator">/</span>
+        <span class="eb-breadcrumb-current" x-text="user.username || 'User Detail'"></span>
+    </div>
+{/capture}
+
+{capture assign=ebE3UserDetailPageActions}
+    <a href="index.php?m=cloudstorage&page=e3backup&view=users"
+       class="eb-btn eb-btn-secondary eb-btn-sm">
+        Back to Users
+    </a>
+{/capture}
+
+{capture assign=ebE3Content}
+<div x-data="backupUserDetailApp()" class="space-y-6">
+    {include file="$template/includes/ui/page-header.tpl"
+        ebBreadcrumb=$ebE3UserDetailBreadcrumb
+        ebPageTitle='User Detail'
+        ebPageDescription='Review scoped metrics and update this username configuration.'
+        ebPageActions=$ebE3UserDetailPageActions
+    }
+
+    <template x-if="loading">
+        <div class="eb-card !p-10 text-center">
+            <span class="inline-block h-6 w-6 animate-spin rounded-full border-2 border-[color:var(--eb-info-border)] border-t-[color:var(--eb-info-icon)]" aria-hidden="true"></span>
+        </div>
+    </template>
+
+    <template x-if="!loading">
+        <div class="space-y-6">
+            <div class="eb-card-raised !p-4">
+                <div class="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2 xl:grid-cols-4">
+                    <div>
+                        <div class="eb-stat-label">Username</div>
+                        <div class="mt-1 font-medium text-[var(--eb-text-primary)]" x-text="user.username || '—'"></div>
                     </div>
-                    <h1 class="text-2xl font-semibold text-white">User Detail</h1>
-                    <p class="text-xs text-slate-400 mt-1">Review scoped metrics and update this username configuration.</p>
+                    <div>
+                        <div class="eb-stat-label">Email</div>
+                        <div class="mt-1 text-[var(--eb-text-primary)]" x-text="user.email || '—'"></div>
+                    </div>
+                    <div>
+                        <div class="eb-stat-label">Tenant</div>
+                        <div class="mt-1 text-[var(--eb-text-primary)]" x-text="isMspClient ? (user.canonical_tenant_name || user.tenant_name || 'Direct') : 'Direct'"></div>
+                    </div>
+                    <div>
+                        <div class="eb-stat-label">Status</div>
+                        <div class="mt-1">
+                            <span class="eb-badge eb-badge--dot"
+                                  :class="user.status === 'active' ? 'eb-badge--success' : 'eb-badge--neutral'">
+                                <span x-text="user.status || 'unknown'"></span>
+                            </span>
+                        </div>
+                    </div>
                 </div>
-                <a href="index.php?m=cloudstorage&page=e3backup&view=users"
-                   class="px-4 py-2 rounded-md border border-slate-700 bg-slate-900 text-slate-200 text-sm hover:bg-slate-800">
-                    Back to Users
-                </a>
             </div>
 
-            <template x-if="loading">
-                <div class="py-10 text-center text-slate-400">
-                    <svg class="animate-spin h-6 w-6 mx-auto text-amber-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
-                    </svg>
+            <div class="grid grid-cols-2 gap-3 lg:grid-cols-5">
+                <div class="eb-stat-card">
+                    <div class="eb-stat-label">Vaults</div>
+                    <div class="eb-stat-value !text-xl !leading-tight lg:!text-2xl" x-text="user.vaults_count ?? 0"></div>
                 </div>
-            </template>
+                <div class="eb-stat-card">
+                    <div class="eb-stat-label">Jobs</div>
+                    <div class="eb-stat-value !text-xl !leading-tight lg:!text-2xl" x-text="user.jobs_count ?? 0"></div>
+                </div>
+                <div class="eb-stat-card">
+                    <div class="eb-stat-label">Agents</div>
+                    <div class="eb-stat-value !text-xl !leading-tight lg:!text-2xl" x-text="user.agents_count ?? 0"></div>
+                </div>
+                <div class="eb-stat-card">
+                    <div class="eb-stat-label">Online Devices</div>
+                    <div class="eb-stat-value !text-xl !leading-tight lg:!text-2xl" x-text="user.online_devices ?? 0"></div>
+                </div>
+                <div class="eb-stat-card">
+                    <div class="eb-stat-label">Last Backup</div>
+                    <div class="mt-1 text-base font-semibold text-[var(--eb-text-primary)]" x-text="formatDate(user.last_backup_at)"></div>
+                </div>
+            </div>
 
-            <template x-if="!loading">
-                <div class="space-y-6">
-                    <div class="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-                        <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 text-sm">
-                            <div>
-                                <div class="text-slate-400 text-xs uppercase tracking-wide">Username</div>
-                                <div class="text-slate-100 font-medium mt-1" x-text="user.username || '—'"></div>
-                            </div>
-                            <div>
-                                <div class="text-slate-400 text-xs uppercase tracking-wide">Email</div>
-                                <div class="text-slate-100 mt-1" x-text="user.email || '—'"></div>
-                            </div>
-                            <div>
-                                <div class="text-slate-400 text-xs uppercase tracking-wide">Tenant</div>
-                                <div class="text-slate-100 mt-1" x-text="isMspClient ? (user.canonical_tenant_name || user.tenant_name || 'Direct') : 'Direct'"></div>
-                            </div>
-                            <div>
-                                <div class="text-slate-400 text-xs uppercase tracking-wide">Status</div>
-                                <div class="mt-1">
-                                    <span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold"
-                                          :class="user.status === 'active' ? 'bg-emerald-500/15 text-emerald-200' : 'bg-slate-700 text-slate-300'">
-                                        <span class="h-1.5 w-1.5 rounded-full" :class="user.status === 'active' ? 'bg-emerald-400' : 'bg-slate-500'"></span>
-                                        <span x-text="user.status || 'unknown'"></span>
-                                    </span>
-                                </div>
-                            </div>
-                        </div>
+            <div class="grid grid-cols-1 gap-6 xl:grid-cols-2">
+                <div class="eb-card overflow-visible">
+                    <h2 class="eb-card-title mb-3">Update User</h2>
+                    <div x-show="updateMessage" x-cloak class="eb-alert eb-alert--success mb-3" role="status">
+                        <div x-text="updateMessage"></div>
+                    </div>
+                    <div x-show="updateError" x-cloak class="eb-alert eb-alert--danger mb-3" role="alert">
+                        <div x-text="updateError"></div>
                     </div>
 
-                    <div class="grid grid-cols-2 lg:grid-cols-5 gap-3">
-                        <div class="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-                            <div class="text-xs text-slate-400 uppercase">Vaults</div>
-                            <div class="text-xl font-semibold text-slate-100 mt-2" x-text="user.vaults_count ?? 0"></div>
+                    <form @submit.prevent="updateUser()" class="space-y-4">
+                        <div>
+                            <label class="eb-field-label" for="e3-user-detail-username">Username</label>
+                            <input id="e3-user-detail-username" type="text" x-model.trim="updateForm.username" class="eb-input" :class="updateErrors.username ? 'is-error' : ''">
+                            <p class="eb-field-error" x-show="updateErrors.username" x-text="updateErrors.username"></p>
                         </div>
-                        <div class="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-                            <div class="text-xs text-slate-400 uppercase">Jobs</div>
-                            <div class="text-xl font-semibold text-slate-100 mt-2" x-text="user.jobs_count ?? 0"></div>
+                        <div>
+                            <label class="eb-field-label" for="e3-user-detail-email">Email</label>
+                            <input id="e3-user-detail-email" type="email" x-model.trim="updateForm.email" class="eb-input" :class="updateErrors.email ? 'is-error' : ''">
+                            <p class="eb-field-error" x-show="updateErrors.email" x-text="updateErrors.email"></p>
                         </div>
-                        <div class="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-                            <div class="text-xs text-slate-400 uppercase">Agents</div>
-                            <div class="text-xl font-semibold text-slate-100 mt-2" x-text="user.agents_count ?? 0"></div>
-                        </div>
-                        <div class="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-                            <div class="text-xs text-slate-400 uppercase">Online Devices</div>
-                            <div class="text-xl font-semibold text-slate-100 mt-2" x-text="user.online_devices ?? 0"></div>
-                        </div>
-                        <div class="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-                            <div class="text-xs text-slate-400 uppercase">Last Backup</div>
-                            <div class="text-sm font-medium text-slate-100 mt-2" x-text="formatDate(user.last_backup_at)"></div>
-                        </div>
-                    </div>
 
-                    <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
-                        <div class="rounded-xl border border-slate-800 bg-slate-900/60 p-5">
-                            <h2 class="text-lg text-white font-semibold mb-3">Update User</h2>
-                            <div x-show="updateMessage" class="mb-3 rounded-md border border-emerald-500/40 bg-emerald-900/20 px-3 py-2 text-sm text-emerald-200" x-text="updateMessage"></div>
-                            <div x-show="updateError" class="mb-3 rounded-md border border-rose-500/40 bg-rose-900/20 px-3 py-2 text-sm text-rose-200" x-text="updateError"></div>
-
-                            <form @submit.prevent="updateUser()" class="space-y-4">
-                                <div>
-                                    <label class="block text-sm font-medium text-slate-300 mb-1">Username</label>
-                                    <input type="text" x-model.trim="updateForm.username"
-                                           class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-sky-500">
-                                    <p class="text-xs text-rose-300 mt-1" x-show="updateErrors.username" x-text="updateErrors.username"></p>
-                                </div>
-                                <div>
-                                    <label class="block text-sm font-medium text-slate-300 mb-1">Email</label>
-                                    <input type="email" x-model.trim="updateForm.email"
-                                           class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-sky-500">
-                                    <p class="text-xs text-rose-300 mt-1" x-show="updateErrors.email" x-text="updateErrors.email"></p>
-                                </div>
-
-                                {if $isMspClient}
-                                <div>
-                                    <label class="block text-sm font-medium text-slate-300 mb-1">Tenant</label>
-                                    <div class="relative" x-data="{ isOpen: false }" @click.away="isOpen = false">
-                                        <button type="button"
-                                                @click="isOpen = !isOpen"
-                                                class="w-full inline-flex items-center justify-between gap-2 rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-sky-500">
-                                            <span class="truncate" x-text="updateTenantLabel()"></span>
-                                            <svg class="w-4 h-4 transition-transform" :class="isOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                                                <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
-                                            </svg>
-                                        </button>
-                                        <div x-show="isOpen"
-                                             x-transition:enter="transition ease-out duration-100"
-                                             x-transition:enter-start="opacity-0 scale-95"
-                                             x-transition:enter-end="opacity-100 scale-100"
-                                             x-transition:leave="transition ease-in duration-75"
-                                             x-transition:leave-start="opacity-100 scale-100"
-                                             x-transition:leave-end="opacity-0 scale-95"
-                                             class="absolute left-0 mt-2 w-full rounded-xl border border-slate-700 bg-slate-900 shadow-2xl z-50 overflow-hidden"
-                                             style="display: none;">
-                                            <div class="px-3 py-2 border-b border-slate-800">
-                                                <input type="text" x-model="tenantSearch" placeholder="Search tenants"
-                                                       class="w-full rounded-md bg-slate-950 border border-slate-700 px-3 py-2 text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
-                                            </div>
-                                            <div class="py-1 max-h-64 overflow-auto">
-                                                <button type="button"
-                                                        class="w-full px-4 py-2 text-left text-sm transition"
-                                                        :class="updateForm.tenant_id === '' ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'"
-                                                        @click="updateForm.tenant_id=''; isOpen=false;">
-                                                    Direct (No Tenant)
-                                                </button>
-                                                <template x-for="tenant in filteredTenants" :key="'detail-tenant-' + (tenant.public_id || tenant.id)">
-                                                    <button type="button"
-                                                            class="w-full px-4 py-2 text-left text-sm transition"
-                                                            :class="String(updateForm.tenant_id) === String(tenant.public_id || tenant.id) ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'"
-                                                            @click="updateForm.tenant_id = String(tenant.public_id || tenant.id); isOpen=false;">
-                                                        <span x-text="tenant.name"></span>
-                                                    </button>
-                                                </template>
-                                            </div>
-                                        </div>
+                        {if $isMspClient}
+                        <div class="overflow-visible">
+                            <label class="eb-field-label">Tenant</label>
+                            <div class="relative overflow-visible" x-data="{ isOpen: false }" @click.away="isOpen = false">
+                                <button type="button"
+                                        @click="isOpen = !isOpen"
+                                        class="eb-btn eb-btn-secondary eb-btn-sm flex w-full items-center justify-between gap-2">
+                                    <span class="min-w-0 truncate text-left" x-text="updateTenantLabel()"></span>
+                                    <svg class="h-4 w-4 shrink-0 transition-transform" :class="isOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                                        <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+                                    </svg>
+                                </button>
+                                <div x-show="isOpen"
+                                     x-transition:enter="transition ease-out duration-100"
+                                     x-transition:enter-start="opacity-0 scale-95"
+                                     x-transition:enter-end="opacity-100 scale-100"
+                                     x-transition:leave="transition ease-in duration-75"
+                                     x-transition:leave-start="opacity-100 scale-100"
+                                     x-transition:leave-end="opacity-0 scale-95"
+                                     class="eb-menu absolute left-0 z-50 mt-2 w-full overflow-hidden"
+                                     style="display: none;">
+                                    <div class="border-b border-[var(--eb-border-subtle)] p-2">
+                                        <input type="text" x-model="tenantSearch" placeholder="Search tenants"
+                                               class="eb-toolbar-search w-full !py-2 text-sm"
+                                               @click.stop>
                                     </div>
-                                    <p class="text-xs text-rose-300 mt-1" x-show="updateErrors.tenant_id" x-text="updateErrors.tenant_id"></p>
-                                </div>
-                                {/if}
-
-                                <div>
-                                    <label class="block text-sm font-medium text-slate-300 mb-1">Status</label>
-                                    <div class="relative" x-data="{ isOpen: false }" @click.away="isOpen = false">
+                                    <div class="max-h-64 overflow-auto p-1">
                                         <button type="button"
-                                                @click="isOpen = !isOpen"
-                                                class="w-full inline-flex items-center justify-between gap-2 rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-sky-500">
-                                            <span x-text="updateForm.status === 'disabled' ? 'Disabled' : 'Active'"></span>
-                                            <svg class="w-4 h-4 transition-transform" :class="isOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                                                <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
-                                            </svg>
+                                                class="eb-menu-option"
+                                                :class="updateForm.tenant_id === '' ? 'is-active' : ''"
+                                                @click="updateForm.tenant_id=''; isOpen=false;">
+                                            Direct (No Tenant)
                                         </button>
-                                        <div x-show="isOpen"
-                                             x-transition:enter="transition ease-out duration-100"
-                                             x-transition:enter-start="opacity-0 scale-95"
-                                             x-transition:enter-end="opacity-100 scale-100"
-                                             x-transition:leave="transition ease-in duration-75"
-                                             x-transition:leave-start="opacity-100 scale-100"
-                                             x-transition:leave-end="opacity-0 scale-95"
-                                             class="absolute left-0 mt-2 w-full rounded-xl border border-slate-700 bg-slate-900 shadow-2xl z-50 overflow-hidden"
-                                             style="display: none;">
+                                        <template x-for="tenant in filteredTenants" :key="'detail-tenant-' + (tenant.public_id || tenant.id)">
                                             <button type="button"
-                                                    class="w-full px-4 py-2 text-left text-sm transition"
-                                                    :class="updateForm.status === 'active' ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'"
-                                                    @click="updateForm.status='active'; isOpen=false;">
-                                                Active
+                                                    class="eb-menu-option"
+                                                    :class="String(updateForm.tenant_id) === String(tenant.public_id || tenant.id) ? 'is-active' : ''"
+                                                    @click="updateForm.tenant_id = String(tenant.public_id || tenant.id); isOpen=false;">
+                                                <span x-text="tenant.name"></span>
                                             </button>
-                                            <button type="button"
-                                                    class="w-full px-4 py-2 text-left text-sm transition"
-                                                    :class="updateForm.status === 'disabled' ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'"
-                                                    @click="updateForm.status='disabled'; isOpen=false;">
-                                                Disabled
-                                            </button>
-                                        </div>
+                                        </template>
                                     </div>
                                 </div>
+                            </div>
+                            <p class="eb-field-error" x-show="updateErrors.tenant_id" x-text="updateErrors.tenant_id"></p>
+                        </div>
+                        {/if}
 
-                                <div class="pt-2">
-                                    <button type="submit"
-                                            :disabled="updating"
-                                            class="px-4 py-2 rounded-md bg-amber-600 text-white text-sm font-semibold hover:bg-amber-500 disabled:opacity-60 disabled:cursor-not-allowed">
-                                        <span x-show="!updating">Save Changes</span>
-                                        <span x-show="updating">Saving...</span>
+                        <div class="overflow-visible">
+                            <label class="eb-field-label">Status</label>
+                            <div class="relative overflow-visible" x-data="{ isOpen: false }" @click.away="isOpen = false">
+                                <button type="button"
+                                        @click="isOpen = !isOpen"
+                                        class="eb-btn eb-btn-secondary eb-btn-sm flex w-full items-center justify-between gap-2">
+                                    <span x-text="updateForm.status === 'disabled' ? 'Disabled' : 'Active'"></span>
+                                    <svg class="h-4 w-4 shrink-0 transition-transform" :class="isOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                                        <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+                                    </svg>
+                                </button>
+                                <div x-show="isOpen"
+                                     x-transition:enter="transition ease-out duration-100"
+                                     x-transition:enter-start="opacity-0 scale-95"
+                                     x-transition:enter-end="opacity-100 scale-100"
+                                     x-transition:leave="transition ease-in duration-75"
+                                     x-transition:leave-start="opacity-100 scale-100"
+                                     x-transition:leave-end="opacity-0 scale-95"
+                                     class="eb-dropdown-menu absolute left-0 z-50 mt-2 w-full overflow-hidden"
+                                     style="display: none;">
+                                    <button type="button"
+                                            class="eb-menu-option"
+                                            :class="updateForm.status === 'active' ? 'is-active' : ''"
+                                            @click="updateForm.status='active'; isOpen=false;">
+                                        Active
+                                    </button>
+                                    <button type="button"
+                                            class="eb-menu-option"
+                                            :class="updateForm.status === 'disabled' ? 'is-active' : ''"
+                                            @click="updateForm.status='disabled'; isOpen=false;">
+                                        Disabled
                                     </button>
                                 </div>
-                            </form>
+                            </div>
                         </div>
 
-                        <div class="space-y-6">
-                            <div class="rounded-xl border border-slate-800 bg-slate-900/60 p-5">
-                                <h2 class="text-lg text-white font-semibold mb-3">Reset Password</h2>
-                                <div x-show="passwordMessage" class="mb-3 rounded-md border border-emerald-500/40 bg-emerald-900/20 px-3 py-2 text-sm text-emerald-200" x-text="passwordMessage"></div>
-                                <div x-show="passwordError" class="mb-3 rounded-md border border-rose-500/40 bg-rose-900/20 px-3 py-2 text-sm text-rose-200" x-text="passwordError"></div>
-                                <form @submit.prevent="resetPassword()" class="space-y-4">
-                                    <div>
-                                        <label class="block text-sm font-medium text-slate-300 mb-1">New Password</label>
-                                        <input type="password" x-model="passwordForm.password"
-                                               class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-sky-500">
-                                        <p class="text-xs text-rose-300 mt-1" x-show="passwordErrors.password" x-text="passwordErrors.password"></p>
-                                    </div>
-                                    <div>
-                                        <label class="block text-sm font-medium text-slate-300 mb-1">Confirm Password</label>
-                                        <input type="password" x-model="passwordForm.password_confirm"
-                                               class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-sky-500">
-                                        <p class="text-xs text-rose-300 mt-1" x-show="passwordErrors.password_confirm" x-text="passwordErrors.password_confirm"></p>
-                                    </div>
-                                    <div>
-                                        <button type="submit"
-                                                :disabled="resettingPassword"
-                                                class="px-4 py-2 rounded-md bg-amber-600 text-white text-sm font-semibold hover:bg-amber-500 disabled:opacity-60 disabled:cursor-not-allowed">
-                                            <span x-show="!resettingPassword">Update Password</span>
-                                            <span x-show="resettingPassword">Updating...</span>
-                                        </button>
-                                    </div>
-                                </form>
-                            </div>
+                        <div class="pt-2">
+                            <button type="submit"
+                                    :disabled="updating"
+                                    class="eb-btn eb-btn-primary eb-btn-sm disabled:cursor-not-allowed">
+                                <span x-show="!updating">Save Changes</span>
+                                <span x-show="updating">Saving...</span>
+                            </button>
+                        </div>
+                    </form>
+                </div>
 
-                            <div class="rounded-xl border border-rose-800/60 bg-rose-950/20 p-5">
-                                <h2 class="text-lg text-rose-200 font-semibold mb-2">Delete User</h2>
-                                <p class="text-sm text-rose-300/90 mb-4">This permanently removes the username record.</p>
-                                <div x-show="deleteError" class="mb-3 rounded-md border border-rose-500/40 bg-rose-900/20 px-3 py-2 text-sm text-rose-200" x-text="deleteError"></div>
-                                <button type="button"
-                                        @click="deleteUser()"
-                                        :disabled="deleting"
-                                        class="px-4 py-2 rounded-md bg-rose-700 text-white text-sm font-semibold hover:bg-rose-600 disabled:opacity-60 disabled:cursor-not-allowed">
-                                    <span x-show="!deleting">Delete User</span>
-                                    <span x-show="deleting">Deleting...</span>
+                <div class="space-y-6">
+                    <div class="eb-card overflow-visible">
+                        <h2 class="eb-card-title mb-3">Reset Password</h2>
+                        <div x-show="passwordMessage" x-cloak class="eb-alert eb-alert--success mb-3" role="status">
+                            <div x-text="passwordMessage"></div>
+                        </div>
+                        <div x-show="passwordError" x-cloak class="eb-alert eb-alert--danger mb-3" role="alert">
+                            <div x-text="passwordError"></div>
+                        </div>
+                        <form @submit.prevent="resetPassword()" class="space-y-4">
+                            <div>
+                                <label class="eb-field-label" for="e3-user-detail-pw">New Password</label>
+                                <input id="e3-user-detail-pw" type="password" x-model="passwordForm.password" class="eb-input" :class="passwordErrors.password ? 'is-error' : ''">
+                                <p class="eb-field-error" x-show="passwordErrors.password" x-text="passwordErrors.password"></p>
+                            </div>
+                            <div>
+                                <label class="eb-field-label" for="e3-user-detail-pw2">Confirm Password</label>
+                                <input id="e3-user-detail-pw2" type="password" x-model="passwordForm.password_confirm" class="eb-input" :class="passwordErrors.password_confirm ? 'is-error' : ''">
+                                <p class="eb-field-error" x-show="passwordErrors.password_confirm" x-text="passwordErrors.password_confirm"></p>
+                            </div>
+                            <div>
+                                <button type="submit"
+                                        :disabled="resettingPassword"
+                                        class="eb-btn eb-btn-primary eb-btn-sm disabled:cursor-not-allowed">
+                                    <span x-show="!resettingPassword">Update Password</span>
+                                    <span x-show="resettingPassword">Updating...</span>
                                 </button>
                             </div>
+                        </form>
+                    </div>
+
+                    <div class="eb-card-raised border-[color:var(--eb-danger-border)] bg-[color-mix(in_srgb,var(--eb-danger-bg)_35%,var(--eb-bg-raised))]">
+                        <h2 class="eb-card-title mb-2 text-[var(--eb-danger-text)]">Delete User</h2>
+                        <p class="eb-card-subtitle mb-4 !text-[var(--eb-text-secondary)]">This permanently removes the username record.</p>
+                        <div x-show="deleteError" x-cloak class="eb-alert eb-alert--danger mb-3" role="alert">
+                            <div x-text="deleteError"></div>
                         </div>
+                        <button type="button"
+                                @click="deleteUser()"
+                                :disabled="deleting"
+                                class="eb-btn eb-btn-danger-solid eb-btn-sm disabled:cursor-not-allowed">
+                            <span x-show="!deleting">Delete User</span>
+                            <span x-show="deleting">Deleting...</span>
+                        </button>
                     </div>
                 </div>
-            </template>
+            </div>
         </div>
-    </div>
+    </template>
 </div>
+{/capture}
+
+{include file="modules/addons/cloudstorage/templates/partials/e3backup_shell.tpl"
+    ebE3SidebarPage='users'
+    ebE3Title='Backup user'
+    ebE3Description='Account details, usage, and administration for this username.'
+    ebE3Icon=$ebE3Icon
+    ebE3Actions=$ebE3Actions
+    ebE3Content=$ebE3Content
+}
 
 {literal}
 <script>
@@ -479,4 +501,3 @@ function backupUserDetailApp() {
 }
 </script>
 {/literal}
-

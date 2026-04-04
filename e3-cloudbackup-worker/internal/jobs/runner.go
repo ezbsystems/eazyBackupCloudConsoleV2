@@ -57,7 +57,7 @@ func (r *Runner) Run(ctx context.Context, run db.Run) error {
 	}
 
 	// Prepare working directory
-	runDir := filepath.Join(r.cfg.Rclone.RunDir, fmt.Sprintf("%d", run.ID))
+	runDir := filepath.Join(r.cfg.Rclone.RunDir, run.ID)
 	if err := os.MkdirAll(runDir, 0o755); err != nil {
 		now := time.Now().UTC()
 		_ = r.db.UpdateRunStatus(ctx, run.ID, "failed", nil, &now, fmt.Sprintf(`{"code":"%s","message":"failed to create run directory","details":"%v"}`, ErrWriteRcloneConfig, err))
@@ -637,14 +637,14 @@ loop:
 			if time.Since(lastCancelCheck) >= cancelCheckEvery {
 				cancel, cerr := r.db.CheckCancelRequested(ctx, run.ID)
 				if cerr == nil && cancel {
-					log.Printf("run %d: cancellation requested, terminating rclone", run.ID)
-					if err := r.terminate(cmd); err != nil {
-						log.Printf("run %d: error terminating rclone: %v", run.ID, err)
-					}
-					// Wait a bit for graceful shutdown, then kill if needed
-					time.Sleep(5 * time.Second)
-					if cmd.Process != nil && cmd.ProcessState == nil {
-						log.Printf("run %d: force killing rclone", run.ID)
+				log.Printf("run %s: cancellation requested, terminating rclone", run.ID)
+				if err := r.terminate(cmd); err != nil {
+					log.Printf("run %s: error terminating rclone: %v", run.ID, err)
+				}
+				// Wait a bit for graceful shutdown, then kill if needed
+				time.Sleep(5 * time.Second)
+				if cmd.Process != nil && cmd.ProcessState == nil {
+					log.Printf("run %s: force killing rclone", run.ID)
 						_ = cmd.Process.Kill()
 					}
 				}
@@ -658,7 +658,7 @@ loop:
 }
 
 // notifyCompletion triggers immediate email notification by calling the WHMCS API endpoint.
-func (r *Runner) notifyCompletion(ctx context.Context, runID int64) error {
+func (r *Runner) notifyCompletion(ctx context.Context, runID string) error {
 	// Resolve base URL: prefer addon override if present, else SystemURL
 	base := ""
 	cfgMap, _ := r.db.GetAddonConfigMap(ctx)
@@ -689,12 +689,12 @@ func (r *Runner) notifyCompletion(ctx context.Context, runID int64) error {
 		log.Printf("notify: encryption key unavailable, cannot compute token")
 		return fmt.Errorf("encryption key unavailable")
 	}
-	tokenSrc := fmt.Sprintf("%s:%d", encKey, runID)
+	tokenSrc := fmt.Sprintf("%s:%s", encKey, runID)
 	sum := sha256.Sum256([]byte(tokenSrc))
 	token := hex.EncodeToString(sum[:])
 
 	form := url.Values{}
-	form.Set("run_id", fmt.Sprintf("%d", runID))
+	form.Set("run_id", runID)
 	form.Set("token", token)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, notifyURL, strings.NewReader(form.Encode()))
@@ -716,7 +716,7 @@ func (r *Runner) notifyCompletion(ctx context.Context, runID int64) error {
 		log.Printf("notify: http status %d, body=%s", resp.StatusCode, strings.TrimSpace(string(b)))
 		return fmt.Errorf("notify http %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
 	}
-	log.Printf("notify: run %d notification triggered successfully", runID)
+	log.Printf("notify: run %s notification triggered successfully", runID)
 	return nil
 }
 
@@ -816,6 +816,7 @@ func (r *Runner) runArchive(ctx context.Context, run db.Run, job *db.Job, runDir
 		"--stats-one-line=false",
 		"--log-level", strings.ToLower(r.cfg.Rclone.LogLevel),
 	}
+	copyArgs = append(copyArgs, r.rclone.PerformanceArgs()...)
 	cmd := exec.CommandContext(ctx, r.cfg.Rclone.BinaryPath, copyArgs...)
 	cmd.Dir = runDir
 	cmd.Stdout = os.Stdout
@@ -881,7 +882,7 @@ stage_done:
 	}
 
 	// 3) Upload tar as single object
-	objectName := fmt.Sprintf("%s/%s", strings.TrimPrefix(job.DestPrefix, "/"), fmt.Sprintf("run_%d.tar.gz", run.ID))
+	objectName := fmt.Sprintf("%s/run_%s.tar.gz", strings.TrimPrefix(job.DestPrefix, "/"), run.ID)
 	dest := fmt.Sprintf("%s:%s/%s", destRemote, job.DestBucketName, objectName)
 	copytoArgs := []string{
 		"copyto",
@@ -890,6 +891,7 @@ stage_done:
 		"--config", confPath,
 		"--log-level", strings.ToLower(r.cfg.Rclone.LogLevel),
 	}
+	copytoArgs = append(copytoArgs, r.rclone.PerformanceArgs()...)
 	up := exec.CommandContext(ctx, r.cfg.Rclone.BinaryPath, copytoArgs...)
 	up.Stdout = os.Stdout
 	up.Stderr = os.Stderr

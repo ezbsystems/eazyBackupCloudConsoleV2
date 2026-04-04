@@ -38,8 +38,10 @@ if (!$vmId) {
 
 try {
     // Verify VM belongs to a job owned by this client
+    $hasJobIdPk = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'job_id');
+    $vmJobJoin = $hasJobIdPk ? 'j.job_id' : 'j.id';
     $vm = Capsule::table('s3_hyperv_vms as v')
-        ->join('s3_cloudbackup_jobs as j', 'v.job_id', '=', 'j.id')
+        ->join('s3_cloudbackup_jobs as j', 'v.job_id', '=', $vmJobJoin)
         ->where('v.id', $vmId)
         ->where('j.client_id', $loggedInUserId)
         ->select('v.id', 'v.vm_name')

@@ -240,6 +240,11 @@ class MspController
                 ->whereRaw('job_id = ' . UuidBinary::toDbExpr($jobIdNorm))
                 ->where('client_id', $clientId)
                 ->first();
+        } elseif (!$hasJobIdPk && is_numeric($jobId)) {
+            $job = Capsule::table('s3_cloudbackup_jobs')
+                ->where('id', (int) $jobId)
+                ->where('client_id', $clientId)
+                ->first();
         } else {
             return [
                 'valid' => false,

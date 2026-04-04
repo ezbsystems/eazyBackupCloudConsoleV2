@@ -70,7 +70,7 @@ $vmSelect = [
     'v.rct_enabled',
     'v.backup_enabled',
     'j.name as job_name',
-    'j.agent_id',
+    'j.agent_uuid',
 ];
 $vmSelect[] = $hasJobIdPk
     ? Capsule::raw('BIN_TO_UUID(v.job_id) as job_id')

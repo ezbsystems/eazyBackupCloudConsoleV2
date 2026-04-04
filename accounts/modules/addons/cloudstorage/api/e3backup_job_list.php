@@ -7,6 +7,7 @@ use Illuminate\Database\Capsule\Manager as Capsule;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use WHMCS\ClientArea;
 use WHMCS\Module\Addon\CloudStorage\Client\MspController;
+use WHMCS\Module\Addon\CloudStorage\Client\UuidBinary;
 
 if (!defined("WHMCS")) {
     die("This file cannot be accessed directly");
@@ -45,12 +46,17 @@ try {
         $tenantDeletedSelect = Capsule::raw('CASE WHEN ' . $tenantColumn . ' IS NOT NULL AND t.id IS NULL THEN 1 ELSE 0 END as tenant_deleted');
     }
 
+    $hasJobIdPk = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'job_id');
+    $jobIdSelect = $hasJobIdPk
+        ? Capsule::raw('BIN_TO_UUID(j.job_id) as id')
+        : 'j.id';
+
     $query = Capsule::table('s3_cloudbackup_jobs as j')
         ->leftJoin('s3_cloudbackup_agents as a', 'j.agent_uuid', '=', 'a.agent_uuid')
         ->where('j.client_id', $clientId)
         ->where('j.status', '!=', 'deleted')
         ->select([
-            'j.id',
+            $jobIdSelect,
             'j.name',
             'j.source_type',
             'j.source_display_name',
@@ -115,23 +121,44 @@ try {
         }
     }
 
-    // Attach last run summary per job
-    $jobIds = $jobs->pluck('id')->toArray();
+    $jobIds = $jobs->pluck('id')->filter()->toArray();
     $lastRunByJob = [];
     if (!empty($jobIds)) {
-        $runs = Capsule::table('s3_cloudbackup_runs')
-            ->whereIn('job_id', $jobIds)
-            ->orderBy('started_at', 'desc')
-            ->get(['job_id', 'status', 'started_at', 'finished_at', 'bytes_transferred']);
-        foreach ($runs as $r) {
-            $jid = (int) $r->job_id;
-            if (!isset($lastRunByJob[$jid])) {
-                $lastRunByJob[$jid] = [
-                    'status' => $r->status,
-                    'started_at' => $r->started_at,
-                    'finished_at' => $r->finished_at,
-                    'bytes_transferred' => $r->bytes_transferred ?? 0,
-                ];
+        if ($hasJobIdPk) {
+            $binExprs = array_map(function ($uuid) {
+                return UuidBinary::toDbExpr(UuidBinary::normalize($uuid));
+            }, $jobIds);
+            $runs = Capsule::table('s3_cloudbackup_runs')
+                ->selectRaw('BIN_TO_UUID(job_id) as job_id_str, status, started_at, finished_at, bytes_transferred')
+                ->whereRaw('job_id IN (' . implode(',', $binExprs) . ')')
+                ->orderBy('started_at', 'desc')
+                ->get();
+            foreach ($runs as $r) {
+                $jid = $r->job_id_str;
+                if (!isset($lastRunByJob[$jid])) {
+                    $lastRunByJob[$jid] = [
+                        'status' => $r->status,
+                        'started_at' => $r->started_at,
+                        'finished_at' => $r->finished_at,
+                        'bytes_transferred' => $r->bytes_transferred ?? 0,
+                    ];
+                }
+            }
+        } else {
+            $runs = Capsule::table('s3_cloudbackup_runs')
+                ->whereIn('job_id', $jobIds)
+                ->orderBy('started_at', 'desc')
+                ->get(['job_id', 'status', 'started_at', 'finished_at', 'bytes_transferred']);
+            foreach ($runs as $r) {
+                $jid = (int) $r->job_id;
+                if (!isset($lastRunByJob[$jid])) {
+                    $lastRunByJob[$jid] = [
+                        'status' => $r->status,
+                        'started_at' => $r->started_at,
+                        'finished_at' => $r->finished_at,
+                        'bytes_transferred' => $r->bytes_transferred ?? 0,
+                    ];
+                }
             }
         }
     }
@@ -141,7 +168,7 @@ try {
         if ($bucketId !== null && isset($bucketNameById[$bucketId])) {
             $job->dest_bucket_name = $bucketNameById[$bucketId];
         }
-        $jobId = (int) $job->id;
+        $jobId = $hasJobIdPk ? ($job->id ?? '') : (int) ($job->id ?? 0);
         $job->last_run = $lastRunByJob[$jobId] ?? null;
         $job->tenant_deleted = (bool) ($job->tenant_deleted ?? false);
         if ($job->tenant_deleted && (!isset($job->tenant_name) || trim((string) $job->tenant_name) === '')) {

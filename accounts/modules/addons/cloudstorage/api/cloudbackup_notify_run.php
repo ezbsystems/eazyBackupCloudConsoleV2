@@ -10,6 +10,7 @@ use Symfony\Component\HttpFoundation\JsonResponse;
 use WHMCS\Database\Capsule;
 use WHMCS\Module\Addon\CloudStorage\Client\DBController;
 use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupController;
+use WHMCS\Module\Addon\CloudStorage\Client\UuidBinary;
 
 // Worker callback to send notification email immediately after a run completes.
 // Auth: HMAC-like token computed as sha256(encryption_key . ':' . run_id)
@@ -21,10 +22,13 @@ function cs_json($payload) {
 }
 
 try {
-    $runId = isset($_POST['run_id']) ? (int) $_POST['run_id'] : 0;
+    $runId = isset($_POST['run_id']) ? trim((string) $_POST['run_id']) : '';
     $token = $_POST['token'] ?? ($_SERVER['HTTP_X_WORKER_TOKEN'] ?? '');
 
-    if ($runId <= 0) {
+    $hasRunIdPk = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'run_id');
+    $validRunId = ($hasRunIdPk && UuidBinary::isUuid($runId))
+              || (!$hasRunIdPk && is_numeric($runId) && (int) $runId > 0);
+    if ($runId === '' || !$validRunId) {
         cs_json(['status' => 'fail', 'message' => 'Invalid run_id']);
     }
 

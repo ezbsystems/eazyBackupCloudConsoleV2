@@ -34,12 +34,18 @@ type WorkerConfig struct {
 }
 
 type RcloneConfig struct {
-	BinaryPath   string `yaml:"binary_path"`
-	ConfigDir    string `yaml:"config_dir"`
-	LogDir       string `yaml:"log_dir"`
-	RunDir       string `yaml:"run_dir"`
-	StatsInterval string `yaml:"stats_interval"`
-	LogLevel     string `yaml:"log_level"`
+	BinaryPath          string `yaml:"binary_path"`
+	ConfigDir           string `yaml:"config_dir"`
+	LogDir              string `yaml:"log_dir"`
+	RunDir              string `yaml:"run_dir"`
+	StatsInterval       string `yaml:"stats_interval"`
+	LogLevel            string `yaml:"log_level"`
+	Transfers           int    `yaml:"transfers"`
+	Checkers            int    `yaml:"checkers"`
+	MultiThreadStreams   int    `yaml:"multi_thread_streams"`
+	BufferSize          string `yaml:"buffer_size"`
+	S3ChunkSize         string `yaml:"s3_chunk_size"`
+	S3UploadConcurrency int    `yaml:"s3_upload_concurrency"`
 }
 
 type DestinationConfig struct {
@@ -114,6 +120,24 @@ func (c *Config) applyDefaults() {
 	}
 	if c.Rclone.RunDir == "" {
 		c.Rclone.RunDir = "/var/lib/e3-cloudbackup/runs"
+	}
+	if c.Rclone.Transfers <= 0 {
+		c.Rclone.Transfers = 16
+	}
+	if c.Rclone.Checkers <= 0 {
+		c.Rclone.Checkers = 16
+	}
+	if c.Rclone.MultiThreadStreams <= 0 {
+		c.Rclone.MultiThreadStreams = 16
+	}
+	if c.Rclone.BufferSize == "" {
+		c.Rclone.BufferSize = "128M"
+	}
+	if c.Rclone.S3ChunkSize == "" {
+		c.Rclone.S3ChunkSize = "128M"
+	}
+	if c.Rclone.S3UploadConcurrency <= 0 {
+		c.Rclone.S3UploadConcurrency = 16
 	}
 }
 

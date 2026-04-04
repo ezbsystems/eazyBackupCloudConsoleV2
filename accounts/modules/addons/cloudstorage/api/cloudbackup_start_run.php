@@ -14,6 +14,7 @@ use WHMCS\Module\Addon\CloudStorage\Client\DBController;
 use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupController;
 use WHMCS\Module\Addon\CloudStorage\Client\MspController;
 use WHMCS\Module\Addon\CloudStorage\Client\UuidBinary;
+use WHMCS\Database\Capsule;
 
 $ca = new ClientArea();
 if (!$ca->isLoggedIn()) {
@@ -41,11 +42,13 @@ if (is_null($product) || empty($product->username)) {
 }
 
 $jobId = isset($_POST['job_id']) ? trim((string) $_POST['job_id']) : '';
-if ($jobId === '' || !UuidBinary::isUuid($jobId)) {
+$hasJobIdPk = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'job_id');
+$validId = ($hasJobIdPk && UuidBinary::isUuid($jobId)) || (!$hasJobIdPk && is_numeric($jobId) && (int) $jobId > 0);
+if ($jobId === '' || !$validId) {
     $response = new JsonResponse([
         'status' => 'fail',
         'code' => 'invalid_identifier_format',
-        'message' => 'job_id must be a valid UUID.',
+        'message' => 'job_id must be a valid identifier.',
     ], 400);
     $response->send();
     exit();

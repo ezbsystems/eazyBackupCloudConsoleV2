@@ -1,0 +1,1161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>e3 Cloud Backup — Job Card Redesign Style Guide</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&display=swap" rel="stylesheet">
+<style>
+/* ═══════════════════════════════════════════════════════════
+   DESIGN TOKENS — from eazyBackup Dark System
+   ═══════════════════════════════════════════════════════════ */
+:root {
+  --bg-chrome:    #070d1b;
+  --bg-base:      #0b1220;
+  --bg-surface:   #111d33;
+  --bg-card:      #172035;
+  --bg-raised:    #1e2d45;
+  --bg-overlay:   #253450;
+  --bg-hover:     #1a2840;
+  --bg-active:    #1f3050;
+  --bg-input:     #131e34;
+
+  --border-faint:     #141f35;
+  --border-subtle:    #1e2d45;
+  --border-default:   #253658;
+  --border-emphasis:  #304878;
+  --border-strong:    #3d5a8a;
+  --border-orange:    rgba(213,93,29,0.3);
+
+  --text-primary:   #eef2f9;
+  --text-secondary: #adbdd5;
+  --text-muted:     #6d88a8;
+  --text-disabled:  #3d5470;
+
+  --brand-orange:       #fe5000;
+  --primary:            #d55d1d;
+  --primary-hover:      #c04f18;
+  --primary-soft:       rgba(213,93,29,0.12);
+  --primary-border:     rgba(213,93,29,0.28);
+
+  --success-bg:     #091e16;
+  --success-border: #0e3d28;
+  --success-text:   #36d68a;
+  --success-strong: #16a34a;
+
+  --warning-bg:     #1e1200;
+  --warning-border: #5c3700;
+  --warning-text:   #f59e0b;
+  --warning-strong: #b45309;
+
+  --danger-bg:      #1c0808;
+  --danger-border:  #5c1616;
+  --danger-text:    #f77070;
+
+  --info-bg:        #081628;
+  --info-border:    #173562;
+  --info-text:      #60a5fa;
+
+  --font-display: 'Outfit', sans-serif;
+  --font-body:    'DM Sans', sans-serif;
+
+  --r-sm:   6px;
+  --r-md:   10px;
+  --r-lg:   14px;
+  --r-xl:   18px;
+  --r-pill: 999px;
+
+  --shadow-sm:  0 1px 3px rgba(0,0,0,0.4);
+  --shadow-md:  0 4px 16px rgba(0,0,0,0.35), 0 1px 4px rgba(0,0,0,0.3);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   RESET
+   ═══════════════════════════════════════════════════════════ */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; background: var(--bg-base); }
+body {
+  font-family: var(--font-body);
+  background: var(--bg-base);
+  color: var(--text-secondary);
+  font-size: 14px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   STYLE GUIDE LAYOUT
+   ═══════════════════════════════════════════════════════════ */
+.guide-container {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 48px 40px 80px;
+}
+
+/* Cover */
+.guide-cover {
+  padding: 56px 48px 48px;
+  background: var(--bg-chrome);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-xl);
+  margin-bottom: 48px;
+  position: relative;
+  overflow: hidden;
+}
+.guide-cover::before {
+  content: '';
+  position: absolute;
+  top: -60px; right: -60px;
+  width: 400px; height: 400px;
+  background: radial-gradient(circle, rgba(254,80,0,0.08), transparent 60%);
+  border-radius: 50%;
+  pointer-events: none;
+}
+.guide-cover .eyebrow {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--brand-orange);
+  margin-bottom: 12px;
+  position: relative;
+}
+.guide-cover h1 {
+  font-family: var(--font-display);
+  font-size: 42px;
+  font-weight: 800;
+  color: var(--text-primary);
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+  position: relative;
+}
+.guide-cover h1 em {
+  font-style: normal;
+  color: var(--brand-orange);
+}
+.guide-cover .subtitle {
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 400;
+  color: var(--text-muted);
+  margin-top: 6px;
+  position: relative;
+}
+.guide-cover .desc {
+  margin-top: 16px;
+  color: var(--text-muted);
+  font-size: 14px;
+  max-width: 600px;
+  line-height: 1.65;
+  position: relative;
+}
+
+/* Sections */
+.guide-section {
+  margin-bottom: 56px;
+}
+.section-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--brand-orange);
+  margin-bottom: 8px;
+}
+.section-title {
+  font-family: var(--font-display);
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.02em;
+  margin-bottom: 8px;
+}
+.section-desc {
+  color: var(--text-muted);
+  font-size: 14px;
+  max-width: 700px;
+  line-height: 1.6;
+  margin-bottom: 28px;
+}
+
+/* Preview panes */
+.preview-pane {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--r-xl);
+  padding: 32px;
+  margin-bottom: 20px;
+}
+.preview-label {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 20px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-faint);
+}
+
+/* Rationale callout */
+.rationale {
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-left: 3px solid var(--primary);
+  border-radius: var(--r-md);
+  padding: 16px 20px;
+  margin-bottom: 32px;
+  font-size: 13.5px;
+  line-height: 1.65;
+  color: var(--text-secondary);
+}
+.rationale strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+/* Comparison grid */
+.comparison-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  margin-bottom: 24px;
+}
+.comparison-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--r-lg);
+  padding: 20px;
+}
+.comparison-card .comp-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  margin-bottom: 12px;
+}
+.comparison-card .comp-label.old { color: var(--danger-text); }
+.comparison-card .comp-label.new { color: var(--success-text); }
+
+/* Spec table */
+.spec-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  margin-bottom: 24px;
+}
+.spec-table th {
+  text-align: left;
+  padding: 10px 16px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border-default);
+  background: var(--bg-card);
+}
+.spec-table td {
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border-faint);
+  color: var(--text-secondary);
+  vertical-align: top;
+}
+.spec-table code {
+  font-size: 12px;
+  padding: 2px 6px;
+  background: var(--bg-overlay);
+  border-radius: 4px;
+  color: var(--info-text);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   JOB CARD — NEW DESIGN
+   ═══════════════════════════════════════════════════════════ */
+
+/* The card container */
+.job-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--r-lg);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  overflow: hidden;
+}
+.job-card:hover {
+  border-color: var(--border-emphasis);
+  box-shadow: var(--shadow-sm);
+}
+
+/* ── Card Header ──────────────────────────────────────── */
+.job-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-faint);
+  gap: 12px;
+}
+
+.job-card-identity {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  flex: 1;
+}
+
+/* Source type icon — subtle, monochrome */
+.job-type-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--r-sm);
+  background: var(--bg-overlay);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.job-type-icon svg {
+  width: 18px;
+  height: 18px;
+  stroke: var(--text-muted);
+  fill: none;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.job-card-name {
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  letter-spacing: -0.01em;
+}
+
+/* Paused state badge — only shown when paused */
+.job-status-paused {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--warning-text);
+  background: var(--warning-bg);
+  border: 1px solid var(--warning-border);
+  padding: 3px 10px;
+  border-radius: var(--r-pill);
+  flex-shrink: 0;
+}
+.job-status-paused .pause-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--warning-text);
+}
+
+/* Action buttons cluster */
+.job-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.btn-run {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  font-size: 12.5px;
+  font-weight: 600;
+  font-family: var(--font-body);
+  color: var(--text-primary);
+  background: var(--primary);
+  border: none;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition: background 0.15s ease;
+  white-space: nowrap;
+}
+.btn-run:hover {
+  background: var(--primary-hover);
+}
+.btn-run svg {
+  width: 13px;
+  height: 13px;
+  fill: currentColor;
+  stroke: none;
+}
+
+.btn-icon {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition: background 0.15s ease;
+  color: var(--text-muted);
+}
+.btn-icon:hover {
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+}
+.btn-icon svg {
+  width: 15px;
+  height: 15px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* Pause button highlighted when paused */
+.btn-icon.is-paused {
+  background: var(--warning-bg);
+  color: var(--warning-text);
+  border: 1px solid var(--warning-border);
+}
+.btn-icon.is-paused:hover {
+  background: rgba(245,158,11,0.15);
+}
+
+/* ── Card Body — Metadata Grid ────────────────────────── */
+.job-card-body {
+  padding: 16px 20px 18px;
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 0;
+}
+
+.job-meta-item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 0 12px;
+  border-right: 1px solid var(--border-faint);
+}
+.job-meta-item:first-child {
+  padding-left: 0;
+}
+.job-meta-item:last-child {
+  border-right: none;
+  padding-right: 0;
+}
+
+.job-meta-label {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  line-height: 1;
+}
+
+.job-meta-value {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+  line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.job-meta-value .sub {
+  display: block;
+  font-size: 11.5px;
+  font-weight: 400;
+  color: var(--text-muted);
+  margin-top: 1px;
+}
+
+/* Mode — plain text, no badge */
+.mode-sync { color: var(--text-primary); }
+.mode-archive { color: var(--text-primary); }
+
+/* Schedule indicator  */
+.schedule-manual { color: var(--text-muted); font-style: italic; }
+
+/* Last run status — small inline indicator */
+.last-run-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 2px;
+}
+.status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.status-dot.success { background: var(--success-text); }
+.status-dot.failed { background: var(--danger-text); }
+.status-dot.warning { background: var(--warning-text); }
+.status-dot.running {
+  background: var(--info-text);
+  animation: pulse-dot 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+.status-label {
+  font-size: 11.5px;
+  font-weight: 500;
+}
+.status-label.success { color: var(--success-text); }
+.status-label.failed { color: var(--danger-text); }
+.status-label.warning { color: var(--warning-text); }
+.status-label.running { color: var(--info-text); }
+
+/* ═══════════════════════════════════════════════════════════
+   RESPONSIVE — Card body switches to 2-col grid
+   ═══════════════════════════════════════════════════════════ */
+@media (max-width: 1280px) {
+  .job-card-body {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 14px 0;
+  }
+  .job-meta-item:nth-child(3) {
+    border-right: none;
+  }
+  .job-meta-item:nth-child(4) {
+    padding-left: 0;
+  }
+}
+
+@media (max-width: 768px) {
+  .job-card-body {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 14px 0;
+  }
+  .job-meta-item {
+    border-right: none;
+    padding: 0;
+  }
+  .job-meta-item:nth-child(odd) {
+    padding-right: 12px;
+    border-right: 1px solid var(--border-faint);
+  }
+  .job-card-header {
+    flex-wrap: wrap;
+  }
+  .job-card-actions {
+    width: 100%;
+    justify-content: flex-end;
+    padding-top: 8px;
+    border-top: 1px solid var(--border-faint);
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   GUIDE-SPECIFIC RESPONSIVE
+   ═══════════════════════════════════════════════════════════ */
+@media (max-width: 900px) {
+  .guide-container { padding: 24px 16px 60px; }
+  .guide-cover { padding: 36px 28px 32px; }
+  .guide-cover h1 { font-size: 32px; }
+  .comparison-grid { grid-template-columns: 1fr; }
+  .preview-pane { padding: 20px; }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   BADGE COLOUR AUDIT — DEMO ONLY
+   ═══════════════════════════════════════════════════════════ */
+.old-badges-demo {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.old-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: var(--r-pill);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+.old-badge.green { background: var(--success-bg); border: 1px solid var(--success-border); color: var(--success-text); }
+.old-badge.blue { background: var(--info-bg); border: 1px solid var(--info-border); color: var(--info-text); }
+.old-badge.purple { background: var(--primary-soft); border: 1px solid var(--primary-border); color: #c89b78; }
+
+/* Swatches for the minimal colour approach */
+.colour-rule-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+  margin-bottom: 24px;
+}
+.colour-rule {
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--r-md);
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.colour-rule .dot-preview {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.colour-rule .rule-text {
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+.colour-rule .rule-text strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+</style>
+</head>
+<body>
+
+<div class="guide-container">
+
+  <!-- ═══════════════ COVER ═══════════════ -->
+  <div class="guide-cover">
+    <div class="eyebrow">e3 Cloud Backup — UI Component Guide</div>
+    <h1>Job Card <em>Redesign</em></h1>
+    <div class="subtitle">Backup Jobs Page — Card Component Specification</div>
+    <p class="desc">A redesigned job card that solves visual clutter, reduces badge overuse, improves information hierarchy, and handles responsive layouts gracefully from mobile to wide desktop.</p>
+  </div>
+
+
+  <!-- ═══════════════ §1 — DESIGN AUDIT ═══════════════ -->
+  <div class="guide-section">
+    <div class="section-label">Section 01 — Analysis</div>
+    <h2 class="section-title">Problems Identified</h2>
+    <p class="section-desc">An audit of the current job cards across the three breakpoints provided reveals several compounding issues that hurt scannability and readability.</p>
+
+    <div class="comparison-grid">
+      <div class="comparison-card">
+        <div class="comp-label old">Current Issues</div>
+        <div style="display:flex;flex-direction:column;gap:10px;font-size:13px;color:var(--text-secondary);line-height:1.55;">
+          <div><strong style="color:var(--text-primary);">Badge overload.</strong> Active, Sync, and source type (aws) all use coloured badges with different hues — green, blue, purple — creating visual noise where the eye can't prioritise.</div>
+          <div><strong style="color:var(--text-primary);">Flat metadata layout.</strong> Six data fields sit in a single flat row with no visual separators. Labels and values blend together, especially at narrower widths.</div>
+          <div><strong style="color:var(--text-primary);">Redundant "Active" badge.</strong> Every active job shows an Active badge, which adds no information — the default state shouldn't need a label.</div>
+          <div><strong style="color:var(--text-primary);">Breakpoint squeeze.</strong> Between 1281px–1450px, text wraps and the card becomes cramped. The responsive jump to vertical layout at ≤1280px is good, but the in-between zone suffers.</div>
+          <div><strong style="color:var(--text-primary);">Button density.</strong> Run Now plus five icon buttons crowd the header area, competing with the job name for attention.</div>
+        </div>
+      </div>
+      <div class="comparison-card">
+        <div class="comp-label new">Design Principles Applied</div>
+        <div style="display:flex;flex-direction:column;gap:10px;font-size:13px;color:var(--text-secondary);line-height:1.55;">
+          <div><strong style="color:var(--text-primary);">No badge = active.</strong> Remove the Active badge entirely. Only show a "Paused" state when a job is paused, using amber to signal attention needed.</div>
+          <div><strong style="color:var(--text-primary);">Text over badges.</strong> Mode (Sync/Archive) and Source type are plain text — they're metadata, not status indicators. No colour needed.</div>
+          <div><strong style="color:var(--text-primary);">Colour only for status.</strong> The only colour in the card body is the last-run status dot: green for success, red for failed, amber for warning, blue pulse for running.</div>
+          <div><strong style="color:var(--text-primary);">Two-zone layout.</strong> A header row (name + actions) and a metadata grid (6 columns with subtle dividers) creates clear visual hierarchy.</div>
+          <div><strong style="color:var(--text-primary);">Graceful responsive.</strong> The 6-col grid flows to 3×2 at ≤1280px and 2×3 at ≤768px using CSS grid, eliminating the text-wrapping squeeze zone.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ═══════════════ §2 — COLOUR RULES ═══════════════ -->
+  <div class="guide-section">
+    <div class="section-label">Section 02 — Colour Rules</div>
+    <h2 class="section-title">When Colour Is Allowed</h2>
+    <p class="section-desc">The redesigned card uses colour in exactly two places: the primary CTA button and the last-run status indicator. Everything else is expressed through the neutral text hierarchy (primary → secondary → muted).</p>
+
+    <div class="colour-rule-grid">
+      <div class="colour-rule">
+        <div class="dot-preview" style="background:var(--success-text);"></div>
+        <div class="rule-text"><strong>Success</strong> — last run completed</div>
+      </div>
+      <div class="colour-rule">
+        <div class="dot-preview" style="background:var(--danger-text);"></div>
+        <div class="rule-text"><strong>Failed</strong> — last run errored</div>
+      </div>
+      <div class="colour-rule">
+        <div class="dot-preview" style="background:var(--warning-text);"></div>
+        <div class="rule-text"><strong>Warning</strong> — completed with warnings</div>
+      </div>
+      <div class="colour-rule">
+        <div class="dot-preview" style="background:var(--info-text);"></div>
+        <div class="rule-text"><strong>Running</strong> — job currently executing</div>
+      </div>
+      <div class="colour-rule">
+        <div class="dot-preview" style="background:var(--warning-text);"></div>
+        <div class="rule-text"><strong>Paused</strong> — amber badge + highlighted button</div>
+      </div>
+      <div class="colour-rule">
+        <div class="dot-preview" style="background:var(--primary);"></div>
+        <div class="rule-text"><strong>Run Now</strong> — primary CTA only</div>
+      </div>
+    </div>
+
+    <div class="rationale">
+      <strong>Why remove the mode badges?</strong> "Sync" and "Archive" are not states that need attention — they're fixed properties of the job that don't change. Using a coloured badge for them elevates them to the same visual importance as actual status changes like "Failed" or "Running", which dilutes the signal when something actually needs attention.
+    </div>
+  </div>
+
+
+  <!-- ═══════════════ §3 — ACTIVE JOB (SUCCESS) ═══════════════ -->
+  <div class="guide-section">
+    <div class="section-label">Section 03 — Live Examples</div>
+    <h2 class="section-title">Active Job — Last Run Success</h2>
+    <p class="section-desc">The default state. No "Active" badge. The card is clean, scannable, and relies on layout structure rather than colour to organise information.</p>
+
+    <div class="preview-pane">
+      <div class="preview-label">Default Active State — AWS Cloud Backup Job</div>
+
+      <div class="job-card">
+        <div class="job-card-header">
+          <div class="job-card-identity">
+            <div class="job-type-icon">
+              <svg viewBox="0 0 24 24"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2z"/></svg>
+            </div>
+            <div class="job-card-name">AWS – e3cloudbackup</div>
+          </div>
+          <div class="job-card-actions">
+            <button class="btn-run">
+              <svg viewBox="0 0 24 24"><polygon points="5,3 19,12 5,21"/></svg>
+              Run now
+            </button>
+            <button class="btn-icon" title="Edit job"><svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+            <button class="btn-icon" title="Pause job"><svg viewBox="0 0 24 24"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg></button>
+            <button class="btn-icon" title="View logs"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></button>
+            <button class="btn-icon" title="Delete job"><svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>
+            <button class="btn-icon" title="Download"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button>
+          </div>
+        </div>
+        <div class="job-card-body">
+          <div class="job-meta-item">
+            <div class="job-meta-label">Source</div>
+            <div class="job-meta-value">e3cloudbackup<span class="sub">AWS</span></div>
+          </div>
+          <div class="job-meta-item">
+            <div class="job-meta-label">Destination</div>
+            <div class="job-meta-value">e3cloudbackup-1231<span class="sub">/e3cloudbackup3</span></div>
+          </div>
+          <div class="job-meta-item">
+            <div class="job-meta-label">Mode</div>
+            <div class="job-meta-value mode-sync">Sync</div>
+          </div>
+          <div class="job-meta-item">
+            <div class="job-meta-label">Schedule</div>
+            <div class="job-meta-value schedule-manual">Manual</div>
+          </div>
+          <div class="job-meta-item">
+            <div class="job-meta-label">Next Run</div>
+            <div class="job-meta-value" style="color:var(--text-muted);">—</div>
+          </div>
+          <div class="job-meta-item">
+            <div class="job-meta-label">Last Run</div>
+            <div class="job-meta-value">Apr 03, 2026, 08:37 PM</div>
+            <div class="last-run-status">
+              <span class="status-dot success"></span>
+              <span class="status-label success">Success</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+
+  <!-- ═══════════════ §4 — PAUSED JOB ═══════════════ -->
+  <div class="guide-section">
+    <h2 class="section-title">Paused Job — With Warning State</h2>
+    <p class="section-desc">When a job is paused, two visual signals appear: a "Paused" badge in the header and the pause button highlights in amber. This is the only state that adds a badge to the header.</p>
+
+    <div class="preview-pane">
+      <div class="preview-label">Paused State — Local NAS Backup</div>
+
+      <div class="job-card">
+        <div class="job-card-header">
+          <div class="job-card-identity">
+            <div class="job-type-icon">
+              <svg viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
+            </div>
+            <div class="job-card-name">NAS – Office File Server</div>
+            <span class="job-status-paused">
+              <span class="pause-dot"></span>
+              Paused
+            </span>
+          </div>
+          <div class="job-card-actions">
+            <button class="btn-run" style="opacity:0.4;pointer-events:none;">
+              <svg viewBox="0 0 24 24"><polygon points="5,3 19,12 5,21"/></svg>
+              Run now
+            </button>
+            <button class="btn-icon" title="Edit job"><svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+            <button class="btn-icon is-paused" title="Resume job"><svg viewBox="0 0 24 24"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg></button>
+            <button class="btn-icon" title="View logs"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></button>
+            <button class="btn-icon" title="Delete job"><svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>
+            <button class="btn-icon" title="Download"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button>
+          </div>
+        </div>
+        <div class="job-card-body">
+          <div class="job-meta-item">
+            <div class="job-meta-label">Source</div>
+            <div class="job-meta-value">Office-NAS<span class="sub">Local</span></div>
+          </div>
+          <div class="job-meta-item">
+            <div class="job-meta-label">Destination</div>
+            <div class="job-meta-value">vault-prod-01<span class="sub">/fileserver-daily</span></div>
+          </div>
+          <div class="job-meta-item">
+            <div class="job-meta-label">Mode</div>
+            <div class="job-meta-value mode-archive">Archive</div>
+          </div>
+          <div class="job-meta-item">
+            <div class="job-meta-label">Schedule</div>
+            <div class="job-meta-value">Daily, 02:00 AM</div>
+          </div>
+          <div class="job-meta-item">
+            <div class="job-meta-label">Next Run</div>
+            <div class="job-meta-value" style="color:var(--text-muted);">— (paused)</div>
+          </div>
+          <div class="job-meta-item">
+            <div class="job-meta-label">Last Run</div>
+            <div class="job-meta-value">Apr 01, 2026, 02:14 AM</div>
+            <div class="last-run-status">
+              <span class="status-dot warning"></span>
+              <span class="status-label warning">Warning</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="rationale">
+      <strong>Paused state design rationale.</strong> The amber "Paused" badge only appears when the job is paused — it's an exception, not the norm. The pause button in the actions bar also gets an amber highlight so admins can quickly find the toggle to resume. The "Run now" button is disabled (dimmed) since you can't run a paused job.
+    </div>
+  </div>
+
+
+  <!-- ═══════════════ §5 — FAILED / RUNNING ═══════════════ -->
+  <div class="guide-section">
+    <h2 class="section-title">Failed & Running States</h2>
+    <p class="section-desc">Failed jobs use a red status dot in the last-run column. Running jobs use a pulsing blue dot. No additional badges or colours elsewhere on the card.</p>
+
+    <div class="preview-pane">
+      <div class="preview-label">Failed State — Microsoft 365 Backup</div>
+
+      <div class="job-card">
+        <div class="job-card-header">
+          <div class="job-card-identity">
+            <div class="job-type-icon">
+              <svg viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
+            </div>
+            <div class="job-card-name">M365 – Exchange & SharePoint</div>
+          </div>
+          <div class="job-card-actions">
+            <button class="btn-run">
+              <svg viewBox="0 0 24 24"><polygon points="5,3 19,12 5,21"/></svg>
+              Run now
+            </button>
+            <button class="btn-icon" title="Edit job"><svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+            <button class="btn-icon" title="Pause job"><svg viewBox="0 0 24 24"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg></button>
+            <button class="btn-icon" title="View logs"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></button>
+            <button class="btn-icon" title="Delete job"><svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>
+            <button class="btn-icon" title="Download"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button>
+          </div>
+        </div>
+        <div class="job-card-body">
+          <div class="job-meta-item">
+            <div class="job-meta-label">Source</div>
+            <div class="job-meta-value">Exchange Online<span class="sub">Microsoft 365</span></div>
+          </div>
+          <div class="job-meta-item">
+            <div class="job-meta-label">Destination</div>
+            <div class="job-meta-value">m365-vault-prod<span class="sub">/exchange-daily</span></div>
+          </div>
+          <div class="job-meta-item">
+            <div class="job-meta-label">Mode</div>
+            <div class="job-meta-value">Sync</div>
+          </div>
+          <div class="job-meta-item">
+            <div class="job-meta-label">Schedule</div>
+            <div class="job-meta-value">Every 6 hours</div>
+          </div>
+          <div class="job-meta-item">
+            <div class="job-meta-label">Next Run</div>
+            <div class="job-meta-value">Apr 04, 2026, 12:00 AM</div>
+          </div>
+          <div class="job-meta-item">
+            <div class="job-meta-label">Last Run</div>
+            <div class="job-meta-value">Apr 03, 2026, 06:00 PM</div>
+            <div class="last-run-status">
+              <span class="status-dot failed"></span>
+              <span class="status-label failed">Failed</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="preview-pane">
+      <div class="preview-label">Running State — Hyper-V Virtual Machine Backup</div>
+
+      <div class="job-card">
+        <div class="job-card-header">
+          <div class="job-card-identity">
+            <div class="job-type-icon">
+              <svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+            </div>
+            <div class="job-card-name">HyperV – Production VMs</div>
+          </div>
+          <div class="job-card-actions">
+            <button class="btn-run" style="opacity:0.4;pointer-events:none;">
+              <svg viewBox="0 0 24 24"><polygon points="5,3 19,12 5,21"/></svg>
+              Running…
+            </button>
+            <button class="btn-icon" title="Edit job"><svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+            <button class="btn-icon" title="Pause job"><svg viewBox="0 0 24 24"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg></button>
+            <button class="btn-icon" title="View logs"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></button>
+            <button class="btn-icon" title="Delete job"><svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>
+            <button class="btn-icon" title="Download"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button>
+          </div>
+        </div>
+        <div class="job-card-body">
+          <div class="job-meta-item">
+            <div class="job-meta-label">Source</div>
+            <div class="job-meta-value">YOURVM-01<span class="sub">Hyper-V</span></div>
+          </div>
+          <div class="job-meta-item">
+            <div class="job-meta-label">Destination</div>
+            <div class="job-meta-value">hyperv-vault<span class="sub">/production-vms</span></div>
+          </div>
+          <div class="job-meta-item">
+            <div class="job-meta-label">Mode</div>
+            <div class="job-meta-value">Archive</div>
+          </div>
+          <div class="job-meta-item">
+            <div class="job-meta-label">Schedule</div>
+            <div class="job-meta-value">Daily, 11:00 PM</div>
+          </div>
+          <div class="job-meta-item">
+            <div class="job-meta-label">Next Run</div>
+            <div class="job-meta-value">Apr 03, 2026, 11:00 PM</div>
+          </div>
+          <div class="job-meta-item">
+            <div class="job-meta-label">Last Run</div>
+            <div class="job-meta-value">Started 12 min ago</div>
+            <div class="last-run-status">
+              <span class="status-dot running"></span>
+              <span class="status-label running">Running</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+
+  <!-- ═══════════════ §6 — MULTI-CARD LIST ═══════════════ -->
+  <div class="guide-section">
+    <h2 class="section-title">Multi-Card List View</h2>
+    <p class="section-desc">How multiple cards stack on the jobs page. The consistent two-zone structure (header + metadata grid) creates a steady visual rhythm that's easy to scan vertically.</p>
+
+    <div class="preview-pane">
+      <div class="preview-label">Three jobs stacked — mix of states</div>
+
+      <div style="display:flex;flex-direction:column;gap:12px;">
+
+        <!-- Card 1 - Active/Success -->
+        <div class="job-card">
+          <div class="job-card-header">
+            <div class="job-card-identity">
+              <div class="job-type-icon"><svg viewBox="0 0 24 24"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2z"/></svg></div>
+              <div class="job-card-name">AWS – e3cloudbackup</div>
+            </div>
+            <div class="job-card-actions">
+              <button class="btn-run"><svg viewBox="0 0 24 24"><polygon points="5,3 19,12 5,21"/></svg> Run now</button>
+              <button class="btn-icon"><svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+              <button class="btn-icon"><svg viewBox="0 0 24 24"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg></button>
+              <button class="btn-icon"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></button>
+              <button class="btn-icon"><svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>
+              <button class="btn-icon"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button>
+            </div>
+          </div>
+          <div class="job-card-body">
+            <div class="job-meta-item"><div class="job-meta-label">Source</div><div class="job-meta-value">e3cloudbackup<span class="sub">AWS</span></div></div>
+            <div class="job-meta-item"><div class="job-meta-label">Destination</div><div class="job-meta-value">e3cloudbackup-1231<span class="sub">/e3cloudbackup3</span></div></div>
+            <div class="job-meta-item"><div class="job-meta-label">Mode</div><div class="job-meta-value">Sync</div></div>
+            <div class="job-meta-item"><div class="job-meta-label">Schedule</div><div class="job-meta-value schedule-manual">Manual</div></div>
+            <div class="job-meta-item"><div class="job-meta-label">Next Run</div><div class="job-meta-value" style="color:var(--text-muted);">—</div></div>
+            <div class="job-meta-item"><div class="job-meta-label">Last Run</div><div class="job-meta-value">Apr 03, 2026, 08:37 PM</div><div class="last-run-status"><span class="status-dot success"></span><span class="status-label success">Success</span></div></div>
+          </div>
+        </div>
+
+        <!-- Card 2 - Paused -->
+        <div class="job-card">
+          <div class="job-card-header">
+            <div class="job-card-identity">
+              <div class="job-type-icon"><svg viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg></div>
+              <div class="job-card-name">NAS – Office File Server</div>
+              <span class="job-status-paused"><span class="pause-dot"></span>Paused</span>
+            </div>
+            <div class="job-card-actions">
+              <button class="btn-run" style="opacity:0.4;pointer-events:none;"><svg viewBox="0 0 24 24"><polygon points="5,3 19,12 5,21"/></svg> Run now</button>
+              <button class="btn-icon"><svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+              <button class="btn-icon is-paused"><svg viewBox="0 0 24 24"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg></button>
+              <button class="btn-icon"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></button>
+              <button class="btn-icon"><svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>
+              <button class="btn-icon"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button>
+            </div>
+          </div>
+          <div class="job-card-body">
+            <div class="job-meta-item"><div class="job-meta-label">Source</div><div class="job-meta-value">Office-NAS<span class="sub">Local</span></div></div>
+            <div class="job-meta-item"><div class="job-meta-label">Destination</div><div class="job-meta-value">vault-prod-01<span class="sub">/fileserver-daily</span></div></div>
+            <div class="job-meta-item"><div class="job-meta-label">Mode</div><div class="job-meta-value">Archive</div></div>
+            <div class="job-meta-item"><div class="job-meta-label">Schedule</div><div class="job-meta-value">Daily, 02:00 AM</div></div>
+            <div class="job-meta-item"><div class="job-meta-label">Next Run</div><div class="job-meta-value" style="color:var(--text-muted);">— (paused)</div></div>
+            <div class="job-meta-item"><div class="job-meta-label">Last Run</div><div class="job-meta-value">Apr 01, 2026, 02:14 AM</div><div class="last-run-status"><span class="status-dot warning"></span><span class="status-label warning">Warning</span></div></div>
+          </div>
+        </div>
+
+        <!-- Card 3 - Failed -->
+        <div class="job-card">
+          <div class="job-card-header">
+            <div class="job-card-identity">
+              <div class="job-type-icon"><svg viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg></div>
+              <div class="job-card-name">M365 – Exchange & SharePoint</div>
+            </div>
+            <div class="job-card-actions">
+              <button class="btn-run"><svg viewBox="0 0 24 24"><polygon points="5,3 19,12 5,21"/></svg> Run now</button>
+              <button class="btn-icon"><svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+              <button class="btn-icon"><svg viewBox="0 0 24 24"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg></button>
+              <button class="btn-icon"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></button>
+              <button class="btn-icon"><svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>
+              <button class="btn-icon"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button>
+            </div>
+          </div>
+          <div class="job-card-body">
+            <div class="job-meta-item"><div class="job-meta-label">Source</div><div class="job-meta-value">Exchange Online<span class="sub">Microsoft 365</span></div></div>
+            <div class="job-meta-item"><div class="job-meta-label">Destination</div><div class="job-meta-value">m365-vault-prod<span class="sub">/exchange-daily</span></div></div>
+            <div class="job-meta-item"><div class="job-meta-label">Mode</div><div class="job-meta-value">Sync</div></div>
+            <div class="job-meta-item"><div class="job-meta-label">Schedule</div><div class="job-meta-value">Every 6 hours</div></div>
+            <div class="job-meta-item"><div class="job-meta-label">Next Run</div><div class="job-meta-value">Apr 04, 2026, 12:00 AM</div></div>
+            <div class="job-meta-item"><div class="job-meta-label">Last Run</div><div class="job-meta-value">Apr 03, 2026, 06:00 PM</div><div class="last-run-status"><span class="status-dot failed"></span><span class="status-label failed">Failed</span></div></div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ═══════════════ §7 — COMPONENT SPEC ═══════════════ -->
+  <div class="guide-section">
+    <div class="section-label">Section 04 — Specification</div>
+    <h2 class="section-title">Component Specification</h2>
+    <p class="section-desc">Token-level specifications for implementing the redesigned job card.</p>
+
+    <table class="spec-table">
+      <thead>
+        <tr><th>Element</th><th>Token / Value</th><th>Notes</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Card background</td><td><code>--bg-card</code> #172035</td><td>Standard card elevation</td></tr>
+        <tr><td>Card border</td><td><code>--border-default</code> #253658</td><td>Hover: <code>--border-emphasis</code></td></tr>
+        <tr><td>Card radius</td><td><code>--r-lg</code> 14px</td><td></td></tr>
+        <tr><td>Header divider</td><td><code>--border-faint</code> #141f35</td><td>1px bottom border on header</td></tr>
+        <tr><td>Header padding</td><td>16px 20px</td><td></td></tr>
+        <tr><td>Body padding</td><td>16px 20px 18px</td><td></td></tr>
+        <tr><td>Job name font</td><td>Outfit 600, 15px</td><td><code>--text-primary</code></td></tr>
+        <tr><td>Meta label font</td><td>DM Sans 600, 10.5px</td><td><code>--text-muted</code>, uppercase, 0.06em tracking</td></tr>
+        <tr><td>Meta value font</td><td>DM Sans 500, 13px</td><td><code>--text-primary</code></td></tr>
+        <tr><td>Meta sub-value font</td><td>DM Sans 400, 11.5px</td><td><code>--text-muted</code></td></tr>
+        <tr><td>Type icon box</td><td>36×36px, <code>--bg-overlay</code></td><td>Monochrome icon, <code>--text-muted</code> stroke</td></tr>
+        <tr><td>Column dividers</td><td><code>--border-faint</code></td><td>1px right border between meta columns</td></tr>
+        <tr><td>Status dot</td><td>6px diameter</td><td>Only colour in the body area</td></tr>
+        <tr><td>Run Now button</td><td><code>--primary</code> bg, 12.5px 600</td><td>Hover: <code>--primary-hover</code></td></tr>
+        <tr><td>Icon buttons</td><td>32×32px, transparent bg</td><td>Hover: <code>--bg-hover</code></td></tr>
+        <tr><td>Paused badge</td><td>Amber family tokens</td><td><code>--warning-bg</code> / <code>--warning-border</code> / <code>--warning-text</code></td></tr>
+      </tbody>
+    </table>
+
+    <h3 style="font-family:var(--font-display);font-size:18px;font-weight:600;color:var(--text-primary);margin:28px 0 12px;">Responsive Breakpoints</h3>
+
+    <table class="spec-table">
+      <thead>
+        <tr><th>Breakpoint</th><th>Body Grid</th><th>Behaviour</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>> 1280px</td><td>6 columns</td><td>Full horizontal layout with column dividers</td></tr>
+        <tr><td>769px – 1280px</td><td>3 columns × 2 rows</td><td>Columns 1–3 on first row, 4–6 on second. Dividers adapt.</td></tr>
+        <tr><td>≤ 768px</td><td>2 columns × 3 rows</td><td>Header wraps, actions move to second row below name.</td></tr>
+      </tbody>
+    </table>
+
+    <div class="rationale" style="margin-top:24px;">
+      <strong>Key change for the 1281–1450px squeeze zone:</strong> Instead of keeping 6 columns and letting text wrap, the grid now breaks to 3 columns at 1280px. This eliminates the awkward mid-range where destination paths and timestamps were getting truncated and wrapping. The trade-off — an extra row of metadata — is far better than unreadable text.
+    </div>
+  </div>
+
+
+  <!-- ═══════════════ §8 — BADGE REDUCTION SUMMARY ═══════════════ -->
+  <div class="guide-section">
+    <div class="section-label">Section 05 — Summary</div>
+    <h2 class="section-title">Badge Reduction Summary</h2>
+    <p class="section-desc">A side-by-side comparison of what was removed and what replaces it.</p>
+
+    <table class="spec-table">
+      <thead>
+        <tr><th>Old Element</th><th>Old Treatment</th><th>New Treatment</th><th>Why</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>"Active" badge</td>
+          <td>Green pill with dot</td>
+          <td>Removed entirely</td>
+          <td>Default state needs no indicator. Absence of "Paused" = active.</td>
+        </tr>
+        <tr>
+          <td>"Sync" / "Archive" mode</td>
+          <td>Blue badge</td>
+          <td>Plain text in metadata grid</td>
+          <td>Fixed property, not a status. Doesn't need colour emphasis.</td>
+        </tr>
+        <tr>
+          <td>Source type "(aws)"</td>
+          <td>Coloured sub-badge</td>
+          <td>Muted sub-text under source value</td>
+          <td>Supplementary info, not a primary data point.</td>
+        </tr>
+        <tr>
+          <td>"Paused" state</td>
+          <td>Active badge turns from green to grey</td>
+          <td>Amber badge + amber pause button highlight</td>
+          <td>Paused is exceptional — it deserves attention. Amber signals "needs action".</td>
+        </tr>
+        <tr>
+          <td>Last run "Success"</td>
+          <td>Green badge</td>
+          <td>Small green dot + text</td>
+          <td>Reduces visual weight while maintaining the status signal.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+</div>
+
+</body>
+</html>

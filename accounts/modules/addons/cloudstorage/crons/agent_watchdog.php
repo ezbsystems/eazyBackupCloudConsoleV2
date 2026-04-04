@@ -3,6 +3,7 @@
 require __DIR__ . '/../../../../init.php';
 
 use Illuminate\Database\Capsule\Manager as Capsule;
+use WHMCS\Module\Addon\CloudStorage\Client\UuidBinary;
 
 function getIntEnv(string $key, int $default): int
 {
@@ -82,36 +83,53 @@ $timing = getAgentTimingConfig();
 $hasUpdatedAtColumn = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'updated_at');
 $heartbeatExpr = $hasUpdatedAtColumn ? "COALESCE(r.updated_at, r.started_at, r.created_at)" : "COALESCE(r.started_at, r.created_at)";
 
-$result = Capsule::connection()->transaction(function () use ($timing, $heartbeatExpr, $hasUpdatedAtColumn) {
-    $staleRuns = Capsule::table('s3_cloudbackup_runs as r')
+$hasRunIdPk = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'run_id');
+
+$result = Capsule::connection()->transaction(function () use ($timing, $heartbeatExpr, $hasUpdatedAtColumn, $hasRunIdPk) {
+    $staleQuery = Capsule::table('s3_cloudbackup_runs as r')
         ->select('r.*', Capsule::raw("$heartbeatExpr as last_heartbeat_at"))
         ->whereIn('r.status', ['starting', 'running'])
         ->whereRaw("TIMESTAMPDIFF(SECOND, $heartbeatExpr, NOW()) > ?", [$timing['watchdog_timeout_seconds']])
-        ->lockForUpdate()
-        ->get();
+        ->lockForUpdate();
+    if ($hasRunIdPk) {
+        $staleQuery->addSelect(Capsule::raw('BIN_TO_UUID(r.run_id) as run_id_str'));
+    }
+    $staleRuns = $staleQuery->get();
 
     $processed = [];
     $events = [];
 
     foreach ($staleRuns as $run) {
+        $runIdentifier = $hasRunIdPk ? ($run->run_id_str ?? '') : ($run->id ?? 0);
         $lastHeartbeat = $run->last_heartbeat_at ?? null;
         $message = 'Agent offline / no heartbeat since ' . formatHeartbeat($lastHeartbeat);
         $isCancelRequested = !empty($run->cancel_requested);
 
+        $whereRunClause = function ($query) use ($hasRunIdPk, $runIdentifier) {
+            if ($hasRunIdPk && UuidBinary::isUuid($runIdentifier)) {
+                $query->whereRaw('run_id = ' . UuidBinary::toDbExpr(UuidBinary::normalize($runIdentifier)));
+            } else {
+                $query->where('id', $runIdentifier);
+            }
+        };
+
+        $runIdForEvent = $hasRunIdPk
+            ? Capsule::raw(UuidBinary::toDbExpr(UuidBinary::normalize($runIdentifier)))
+            : $runIdentifier;
+
         if (!$isCancelRequested) {
-            // Phase 1: request cancellation and emit event, but don't mark failed yet.
             $update = [
                 'cancel_requested' => 1,
             ];
             if ($hasUpdatedAtColumn) {
                 $update['updated_at'] = Capsule::raw('NOW()');
             }
-            Capsule::table('s3_cloudbackup_runs')
-                ->where('id', $run->id)
-                ->update($update);
+            $updateQuery = Capsule::table('s3_cloudbackup_runs');
+            $whereRunClause($updateQuery);
+            $updateQuery->update($update);
 
             $events[] = [
-                'run_id' => $run->id,
+                'run_id' => $runIdForEvent,
                 'ts' => date('Y-m-d H:i:s.u'),
                 'type' => 'cancelled',
                 'level' => 'warn',
@@ -124,7 +142,7 @@ $result = Capsule::connection()->transaction(function () use ($timing, $heartbea
             ];
 
             $processed[] = [
-                'run_id' => $run->id,
+                'run_id' => $runIdentifier,
                 'agent_id' => $run->agent_id ?? null,
                 'last_heartbeat_at' => $lastHeartbeat,
                 'status' => 'cancel_requested',
@@ -132,7 +150,6 @@ $result = Capsule::connection()->transaction(function () use ($timing, $heartbea
             continue;
         }
 
-        // Phase 2: already requested cancellation; mark terminal.
         $updateStatus = 'cancelled';
         $summary = 'Cancellation requested; ' . $message;
 
@@ -146,12 +163,12 @@ $result = Capsule::connection()->transaction(function () use ($timing, $heartbea
             $update['updated_at'] = Capsule::raw('NOW()');
         }
 
-        Capsule::table('s3_cloudbackup_runs')
-            ->where('id', $run->id)
-            ->update($update);
+        $updateQuery = Capsule::table('s3_cloudbackup_runs');
+        $whereRunClause($updateQuery);
+        $updateQuery->update($update);
 
         $events[] = [
-            'run_id' => $run->id,
+            'run_id' => $runIdForEvent,
             'ts' => date('Y-m-d H:i:s.u'),
             'type' => 'cancelled',
             'level' => 'warn',
@@ -165,7 +182,7 @@ $result = Capsule::connection()->transaction(function () use ($timing, $heartbea
         ];
 
         $processed[] = [
-            'run_id' => $run->id,
+            'run_id' => $runIdentifier,
             'agent_id' => $run->agent_id ?? null,
             'last_heartbeat_at' => $lastHeartbeat,
             'status' => $updateStatus,

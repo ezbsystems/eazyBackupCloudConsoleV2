@@ -10,7 +10,7 @@
             </div>
           </div>
           <div class="p-6">
-            <section class="eb-card-raised !p-0 overflow-hidden">
+            <div class="eb-subpanel !p-0 overflow-hidden">
               <div class="border-b border-[var(--eb-border-subtle)] px-6 py-5">
                 <h2 class="eb-app-card-title">Stripe Disputes</h2>
                 <p class="eb-page-description mt-1">Review dispute activity, evidence deadlines, and charge references.</p>
@@ -217,7 +217,7 @@
                   </div>
                 </div>
               </div>
-            </section>
+            </div>
           </div>
       <script>
         (function(){

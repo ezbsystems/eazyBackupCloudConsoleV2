@@ -37,7 +37,7 @@
                 </div>
               </div>
 
-              <section class="eb-card-raised !p-0">
+              <div class="eb-subpanel !p-0">
                 <div class="p-4"
                      x-data="{
                        entriesOpen: false,
@@ -279,7 +279,7 @@
                     </div>
                   </div>
                 </div>
-              </section>
+              </div>
 
               <div id="eb-plan-panel" class="hidden fixed inset-0 z-50">
                 <div class="absolute inset-0 eb-drawer-backdrop backdrop-blur-sm" @click="closePanel()"></div>

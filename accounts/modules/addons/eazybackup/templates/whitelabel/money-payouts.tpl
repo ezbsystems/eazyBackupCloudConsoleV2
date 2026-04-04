@@ -10,7 +10,7 @@
             </div>
           </div>
           <div class="p-6">
-            <section class="eb-card-raised !p-0 overflow-hidden">
+            <div class="eb-subpanel !p-0 overflow-hidden">
               <div class="border-b border-[var(--eb-border-subtle)] px-6 py-5">
                 <h2 class="eb-app-card-title">Stripe Payouts</h2>
                 <p class="eb-page-description mt-1">Review payout history, arrival timing, and Stripe links.</p>
@@ -216,7 +216,7 @@
                   </div>
                 </div>
               </div>
-            </section>
+            </div>
           </div>
     <script>
       (function(){

@@ -258,14 +258,58 @@
                         </label>
 
                         {if $isMspClient}
-                        <label class="block">
+                        <label class="block"
+                               x-data="{
+                                   isOpen: false,
+                                   selected: '',
+                                   options: [
+                                       { value: '', label: 'All / Direct' },
+                                       {foreach from=$tenants item=tenant}
+                                       { value: '{$tenant->public_id|escape:'javascript'}', label: '{$tenant->name|escape:'javascript'}' },
+                                       {/foreach}
+                                   ],
+                                   labelFor(val) {
+                                       const option = this.options.find(opt => String(opt.value) === String(val));
+                                       return option ? option.label : 'All / Direct';
+                                   }
+                               }"
+                               x-init="
+                                   selected = newToken.tenant_id || '';
+                                   $watch('newToken.tenant_id', value => { selected = value || ''; });
+                               ">
                             <span class="eb-field-label">Scope to Tenant</span>
-                            <select x-model="newToken.tenant_id" class="eb-select mt-2 w-full">
+                            <select x-model="newToken.tenant_id" class="hidden">
                                 <option value="">All / Direct</option>
                                 {foreach from=$tenants item=tenant}
                                 <option value="{$tenant->public_id|escape}">{$tenant->name|escape}</option>
                                 {/foreach}
                             </select>
+                            <div class="relative mt-2" @click.away="isOpen = false">
+                                <button type="button"
+                                        @click="isOpen = !isOpen"
+                                        class="eb-menu-trigger relative">
+                                    <span class="block truncate" x-text="labelFor(selected)"></span>
+                                    <span class="absolute inset-y-0 right-0 flex items-center pr-2 pointer-events-none">
+                                        <svg class="h-5 w-5 text-[var(--eb-text-muted)]" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                                            <path fill-rule="evenodd" d="M10 3a1 1 0 01.707.293l3 3a1 1 0 01-1.414 1.414L10 5.414 7.707 7.707a1 1 0 01-1.414-1.414l3-3A1 1 0 0110 3zm-3.707 9.293a1 1 0 011.414 0L10 14.586l2.293-2.293a1 1 0 011.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd" />
+                                        </svg>
+                                    </span>
+                                </button>
+                                <div x-show="isOpen"
+                                     x-transition
+                                     class="eb-dropdown-menu absolute z-10 mt-1 w-full overflow-hidden"
+                                     style="display:none;">
+                                    <ul class="max-h-60 overflow-auto py-1 text-sm scrollbar_thin">
+                                        <template x-for="opt in options" :key="opt.value || '__all_direct'">
+                                            <li @click="selected = opt.value; newToken.tenant_id = opt.value; isOpen = false"
+                                                class="eb-menu-option cursor-pointer select-none"
+                                                :class="{ 'is-active': String(selected) === String(opt.value) }"
+                                                x-text="opt.label">
+                                            </li>
+                                        </template>
+                                    </ul>
+                                </div>
+                            </div>
                             <p class="eb-field-help">Agents enrolled with this token will inherit the selected tenant scope.</p>
                         </label>
                         {/if}

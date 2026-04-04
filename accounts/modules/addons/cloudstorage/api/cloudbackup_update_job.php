@@ -143,11 +143,13 @@ if (is_null($product) || empty($product->username)) {
 }
 
 $jobId = isset($_POST['job_id']) ? trim((string) $_POST['job_id']) : '';
-if ($jobId === '' || !UuidBinary::isUuid($jobId)) {
+$hasJobIdPk = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'job_id');
+$validJobId = ($hasJobIdPk && UuidBinary::isUuid($jobId)) || (!$hasJobIdPk && is_numeric($jobId) && (int) $jobId > 0);
+if ($jobId === '' || !$validJobId) {
     $response = new JsonResponse([
         'status' => 'fail',
         'code' => 'invalid_identifier_format',
-        'message' => 'job_id must be a valid UUID.',
+        'message' => 'job_id must be a valid identifier.',
     ], 400);
     $response->send();
     exit();
@@ -280,7 +282,7 @@ $agentUuidForJob = null;
 $isLocalAgentJob = (($sourceTypeForPath === 'local_agent') || (($existingJob['source_type'] ?? '') === 'local_agent'));
 $policyDestination = null;
 $repositoryRecord = null;
-if (($sourceTypeForPath === 'local_agent' || isset($_POST['agent_uuid'])) && $hasAgentUuidJobs) {
+if (($sourceTypeForPath === 'local_agent' || (isset($_POST['agent_uuid']) && trim((string) ($_POST['agent_uuid'] ?? '')) !== '')) && $hasAgentUuidJobs) {
     $agentUuidForJob = isset($_POST['agent_uuid']) ? trim((string) $_POST['agent_uuid']) : (string) ($existingJob['agent_uuid'] ?? '');
     if ($agentUuidForJob === '') {
         $response = new JsonResponse(['status' => 'fail', 'message' => 'Agent is required for Local Agent jobs.'], 200);
@@ -298,6 +300,7 @@ if (($sourceTypeForPath === 'local_agent' || isset($_POST['agent_uuid'])) && $ha
         exit();
     }
     $updateData['agent_uuid'] = $agentUuidForJob;
+    $updateData['agent_id'] = (int) $agentRow->id;
 }
 if ($isLocalAgentJob) {
     if (!$agentUuidForJob && !empty($existingJob['agent_uuid'])) {
@@ -824,11 +827,16 @@ if (is_array($result) && ($result['status'] ?? 'fail') === 'success') {
     $newRetentionMode = $updateData['retention_mode'] ?? ($existingJob['retention_mode'] ?? 'none');
     $newRetentionValue = $updateData['retention_value'] ?? ($existingJob['retention_value'] ?? null);
 
-    // Enforce bucket versioning on effective destination bucket
+    // Only (re)enforce bucket versioning when keep_days retention is active
+    // and the retention/bucket settings were part of this update.
     $effectiveBucketId = isset($updateData['dest_bucket_id'])
         ? (int)$updateData['dest_bucket_id']
         : (int)($existingJob['dest_bucket_id'] ?? 0);
-    if ($effectiveBucketId > 0) {
+    $keepDaysActive = ($newRetentionMode === 'keep_days' && (int)$newRetentionValue > 0);
+    $versioningRelevantChange = isset($updateData['dest_bucket_id'])
+        || isset($updateData['retention_mode'])
+        || isset($updateData['retention_value']);
+    if ($keepDaysActive && $versioningRelevantChange && $effectiveBucketId > 0) {
         $ver = \WHMCS\Module\Addon\CloudStorage\Client\CloudBackupController::ensureVersioningForBucketId($effectiveBucketId);
         logModuleCall('cloudstorage', 'update_job_enforce_versioning', ['dest_bucket_id' => $effectiveBucketId], $ver);
         if (!is_array($ver) || ($ver['status'] ?? 'fail') !== 'success') {

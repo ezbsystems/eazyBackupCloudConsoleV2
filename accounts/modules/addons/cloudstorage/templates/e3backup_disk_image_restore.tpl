@@ -1,72 +1,130 @@
-<div class="min-h-screen bg-slate-950 text-gray-200" x-data="diskImageRestorePage()" x-init="init()">
-    <div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,_#1f293780,_transparent_60%)]"></div>
-    <div class="container mx-auto px-4 py-6 relative pointer-events-auto">
-        {assign var="activeNav" value="disk_restore"}
-        {include file="modules/addons/cloudstorage/templates/partials/e3backup_nav.tpl"}
+{capture assign=ebE3DiskImageRestoreBreadcrumb}
+    <div class="eb-breadcrumb">
+        <a href="index.php?m=cloudstorage&page=e3backup&view=dashboard" class="eb-breadcrumb-link">e3 Cloud Backup</a>
+        <span class="eb-breadcrumb-separator">/</span>
+        <span class="eb-breadcrumb-current">Disk Image Recovery</span>
+    </div>
+{/capture}
 
-        <div class="rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)] px-6 py-6">
-        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6">
-            <div>
-                <div class="flex items-center gap-2 mb-1">
-                    <a href="index.php?m=cloudstorage&page=e3backup" class="text-slate-400 hover:text-white text-sm">e3 Cloud Backup</a>
-                    <span class="text-slate-600">/</span>
-                    <span class="text-white text-sm font-medium">Disk Image Recovery</span>
-                </div>
-                <h1 class="text-2xl font-semibold text-white">Disk Image Recovery</h1>
-                <p class="text-xs text-slate-400 mt-1">Generate a recovery token and preview the disk layout before a bare-metal restore.</p>
-            </div>
-        </div>
+{capture assign=ebE3Content}
+<div x-data="diskImageRestorePage()" x-init="init()" class="space-y-6">
+    {include file="$template/includes/ui/page-header.tpl"
+        ebBreadcrumb=$ebE3DiskImageRestoreBreadcrumb
+        ebPageTitle='Disk Image Recovery'
+        ebPageDescription='Generate a recovery token and preview the disk layout before a bare-metal restore.'
+    }
 
-        <div class="grid lg:grid-cols-3 gap-6">
-        <div class="lg:col-span-2 space-y-4">
-            <div class="rounded-xl border border-slate-800 bg-slate-900/60 p-4 space-y-3">
-                <div class="flex flex-wrap gap-3 items-center">
+    <div class="grid gap-6 lg:grid-cols-3">
+        <div class="space-y-4 lg:col-span-2">
+            <div class="eb-subpanel">
+                <div class="eb-table-toolbar">
                     {if $isMspClient}
-                        <select class="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm" x-model="tenantFilter" @change="reload()">
-                            <option value="">All tenants</option>
-                            <option value="direct">Direct clients</option>
-                            {foreach $tenants as $t}
-                                <option value="{$t->id}">{$t->name}</option>
-                            {/foreach}
-                        </select>
+                        <div class="relative" x-data="{ isOpen: false }" @click.away="isOpen = false">
+                            <button type="button"
+                                    @click="isOpen = !isOpen"
+                                    class="eb-btn eb-btn-secondary eb-btn-sm min-w-[14rem] justify-between">
+                                <span class="truncate" x-text="'Tenant: ' + tenantLabel()"></span>
+                                <svg class="h-4 w-4 transition-transform" :class="isOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                                    <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+                                </svg>
+                            </button>
+                            <div x-show="isOpen"
+                                 x-transition
+                                 class="eb-dropdown-menu absolute left-0 z-50 mt-2 w-72 overflow-hidden"
+                                 style="display: none;">
+                                <div class="eb-menu-label">Select tenant</div>
+                                <div class="max-h-72 overflow-auto p-1">
+                                    <button type="button"
+                                            class="eb-menu-option"
+                                            :class="tenantFilter === '' ? 'is-active' : ''"
+                                            @click="tenantFilter=''; isOpen=false; reload()">
+                                        All tenants
+                                    </button>
+                                    <button type="button"
+                                            class="eb-menu-option"
+                                            :class="tenantFilter === 'direct' ? 'is-active' : ''"
+                                            @click="tenantFilter='direct'; isOpen=false; reload()">
+                                        Direct clients
+                                    </button>
+                                    <template x-for="tenant in tenants" :key="tenant.id || tenant.public_id">
+                                        <button type="button"
+                                                class="eb-menu-option"
+                                                :class="String(tenantFilter) === String(tenant.id || tenant.public_id || '') ? 'is-active' : ''"
+                                                @click="tenantFilter = String(tenant.id || tenant.public_id || ''); isOpen=false; reload()">
+                                            <span x-text="tenant.name || ('Tenant ' + (tenant.id || tenant.public_id || ''))"></span>
+                                        </button>
+                                    </template>
+                                </div>
+                            </div>
+                        </div>
                     {/if}
-                    <select class="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm" x-model="agentFilter" @change="reload()">
-                        <option value="">All agents</option>
-                        {foreach $agents as $a}
-                            <option value="{$a->agent_uuid}">{$a->hostname|default:$a->device_name|default:$a->agent_uuid}</option>
-                        {/foreach}
-                    </select>
-                    <input type="text" class="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm flex-1" placeholder="Search restore points" x-model="searchQuery" @input.debounce.400ms="reload()" />
+                    <div class="relative" x-data="{ isOpen: false }" @click.away="isOpen = false">
+                        <button type="button"
+                                @click="isOpen = !isOpen"
+                                class="eb-btn eb-btn-secondary eb-btn-sm min-w-[14rem] justify-between">
+                            <span class="truncate" x-text="'Agent: ' + agentLabel()"></span>
+                            <svg class="h-4 w-4 transition-transform" :class="isOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                                <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+                            </svg>
+                        </button>
+                        <div x-show="isOpen"
+                             x-transition
+                             class="eb-dropdown-menu absolute left-0 z-50 mt-2 w-72 overflow-hidden"
+                             style="display: none;">
+                            <div class="eb-menu-label">Select agent</div>
+                            <div class="max-h-72 overflow-auto p-1">
+                                <button type="button"
+                                        class="eb-menu-option"
+                                        :class="agentFilter === '' ? 'is-active' : ''"
+                                        @click="agentFilter=''; isOpen=false; reload()">
+                                    All agents
+                                </button>
+                                <template x-for="agent in agents" :key="agent.agent_uuid || agent.id">
+                                    <button type="button"
+                                            class="eb-menu-option"
+                                            :class="String(agentFilter) === String(agent.agent_uuid || '') ? 'is-active' : ''"
+                                            @click="agentFilter = String(agent.agent_uuid || ''); isOpen=false; reload()">
+                                        <span x-text="agent.hostname || agent.device_name || agent.agent_uuid || 'Unknown agent'"></span>
+                                    </button>
+                                </template>
+                            </div>
+                        </div>
+                    </div>
+                    <input type="text"
+                           class="eb-toolbar-search w-full md:flex-1"
+                           placeholder="Search restore points"
+                           x-model="searchQuery"
+                           @input.debounce.400ms="reload()" />
                 </div>
             </div>
 
-            <div class="rounded-xl border border-slate-800 bg-slate-900/60 overflow-hidden">
-                <table class="min-w-full text-sm">
-                    <thead class="bg-slate-800/60 text-slate-400">
+            <div class="eb-table-shell">
+                <table class="eb-table">
+                    <thead>
                         <tr>
-                            <th class="text-left px-4 py-3">Restore Point</th>
-                            <th class="text-left px-4 py-3">Agent</th>
-                            <th class="text-left px-4 py-3">Size</th>
-                            <th class="text-left px-4 py-3">Status</th>
-                            <th class="px-4 py-3"></th>
+                            <th>Restore Point</th>
+                            <th>Agent</th>
+                            <th>Size</th>
+                            <th>Status</th>
+                            <th></th>
                         </tr>
                     </thead>
                     <tbody>
                         <template x-for="point in restorePoints" :key="point.id">
-                            <tr class="border-t border-slate-800 hover:bg-slate-800/40">
-                                <td class="px-4 py-3">
-                                    <div class="text-slate-100 font-medium" x-text="point.job_name || ('Restore Point #' + point.id)"></div>
-                                    <div class="text-xs text-slate-500" x-text="point.created_at"></div>
+                            <tr>
+                                <td class="eb-table-primary">
+                                    <div class="font-medium text-[var(--eb-text-primary)]" x-text="point.job_name || ('Restore Point #' + point.id)"></div>
+                                    <div class="text-xs text-[var(--eb-text-muted)]" x-text="point.created_at"></div>
                                 </td>
-                                <td class="px-4 py-3 text-slate-300" x-text="point.agent_hostname || 'Unknown'"></td>
-                                <td class="px-4 py-3 text-slate-300" x-text="formatBytes(point.disk_total_bytes || 0)"></td>
-                                <td class="px-4 py-3">
-                                    <span class="text-xs px-2 py-1 rounded bg-slate-800 border border-slate-700 text-slate-300" x-text="point.status || 'unknown'"></span>
-                                    <div class="text-[11px] text-amber-300 mt-1" x-show="!point.is_restorable && point.non_restorable_reason" x-text="point.non_restorable_reason"></div>
+                                <td x-text="point.agent_hostname || 'Unknown'"></td>
+                                <td x-text="formatBytes(point.disk_total_bytes || 0)"></td>
+                                <td>
+                                    <span class="eb-badge eb-badge--neutral" x-text="point.status || 'unknown'"></span>
+                                    <div class="mt-1 text-[11px] text-[var(--eb-warning-text)]" x-show="!point.is_restorable && point.non_restorable_reason" x-text="point.non_restorable_reason"></div>
                                 </td>
-                                <td class="px-4 py-3 text-right">
-                                    <button class="text-xs px-3 py-1 rounded border"
-                                            :class="point.is_restorable ? 'bg-sky-700/30 border-sky-600 text-sky-200' : 'bg-slate-800 border-slate-700 text-slate-500 cursor-not-allowed'"
+                                <td class="text-right">
+                                    <button class="eb-btn eb-btn-info eb-btn-xs"
+                                            :class="point.is_restorable ? '' : 'disabled'"
                                             @click="selectPoint(point)"
                                             :disabled="!point.is_restorable">
                                         <span x-text="point.is_restorable ? 'Select' : 'Unavailable'"></span>
@@ -75,7 +133,12 @@
                             </tr>
                         </template>
                         <tr x-show="restorePoints.length === 0">
-                            <td colspan="5" class="px-4 py-6 text-center text-slate-500">No disk image restore points found.</td>
+                            <td colspan="5">
+                                <div class="eb-app-empty !py-8">
+                                    <div class="eb-app-empty-title">No disk image restore points found</div>
+                                    <p class="eb-app-empty-copy">Adjust your filters or wait for a new disk image backup to complete.</p>
+                                </div>
+                            </td>
                         </tr>
                     </tbody>
                 </table>
@@ -83,55 +146,105 @@
         </div>
 
         <div class="space-y-4">
-            <div class="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-                <h3 class="text-sm font-semibold text-slate-200 mb-3">Selected Restore Point</h3>
+            <div class="eb-card">
+                <div class="eb-card-header">
+                    <div>
+                        <div class="eb-card-title">Selected Restore Point</div>
+                        <p class="eb-card-subtitle">Preview the selected image before generating a recovery token.</p>
+                    </div>
+                </div>
                 <template x-if="!selectedPoint">
-                    <div class="text-sm text-slate-500">Select a disk image restore point to view layout and generate a recovery token.</div>
+                    <div class="eb-app-empty !py-8">
+                        <div class="eb-app-empty-title">No restore point selected</div>
+                        <p class="eb-app-empty-copy">Select a disk image restore point to view layout and generate a recovery token.</p>
+                    </div>
                 </template>
                 <template x-if="selectedPoint">
-                    <div class="space-y-2">
-                        <div class="text-sm text-slate-200 font-medium" x-text="selectedPoint.job_name || ('Restore Point #' + selectedPoint.id)"></div>
-                        <div class="text-xs text-slate-500" x-text="selectedPoint.manifest_id"></div>
-                        <div class="text-xs text-slate-500">Disk size: <span x-text="formatBytes(selectedPoint.disk_total_bytes || 0)"></span></div>
-                        <div class="text-xs text-slate-500">Used: <span x-text="formatBytes(selectedPoint.disk_used_bytes || 0)"></span></div>
-                        <div class="text-xs text-slate-500">Boot: <span x-text="selectedPoint.disk_boot_mode || 'unknown'"></span></div>
-                        <div class="text-xs text-slate-500">Partition: <span x-text="selectedPoint.disk_partition_style || 'unknown'"></span></div>
-                        <div class="text-xs text-amber-300" x-show="!selectedPoint.is_restorable && selectedPoint.non_restorable_reason" x-text="selectedPoint.non_restorable_reason"></div>
+                    <div class="eb-kv-list">
+                        <div class="eb-kv-row">
+                            <span class="eb-kv-label">Job</span>
+                            <span class="eb-kv-value" x-text="selectedPoint.job_name || ('Restore Point #' + selectedPoint.id)"></span>
+                        </div>
+                        <div class="eb-kv-row">
+                            <span class="eb-kv-label">Manifest</span>
+                            <span class="eb-kv-value eb-type-mono" x-text="selectedPoint.manifest_id"></span>
+                        </div>
+                        <div class="eb-kv-row">
+                            <span class="eb-kv-label">Disk size</span>
+                            <span class="eb-kv-value" x-text="formatBytes(selectedPoint.disk_total_bytes || 0)"></span>
+                        </div>
+                        <div class="eb-kv-row">
+                            <span class="eb-kv-label">Used</span>
+                            <span class="eb-kv-value" x-text="formatBytes(selectedPoint.disk_used_bytes || 0)"></span>
+                        </div>
+                        <div class="eb-kv-row">
+                            <span class="eb-kv-label">Boot</span>
+                            <span class="eb-kv-value" x-text="selectedPoint.disk_boot_mode || 'unknown'"></span>
+                        </div>
+                        <div class="eb-kv-row">
+                            <span class="eb-kv-label">Partition</span>
+                            <span class="eb-kv-value" x-text="selectedPoint.disk_partition_style || 'unknown'"></span>
+                        </div>
+                        <div class="text-xs text-[var(--eb-warning-text)]" x-show="!selectedPoint.is_restorable && selectedPoint.non_restorable_reason" x-text="selectedPoint.non_restorable_reason"></div>
                     </div>
                 </template>
             </div>
 
-            <div class="rounded-xl border border-slate-800 bg-slate-900/60 p-4 space-y-3" x-show="selectedPoint">
-                <h3 class="text-sm font-semibold text-slate-200">Disk Layout</h3>
+            <div class="eb-card" x-show="selectedPoint">
+                <div class="eb-card-header">
+                    <div>
+                        <div class="eb-card-title">Disk Layout</div>
+                        <p class="eb-card-subtitle">Partition metadata reported by the selected restore point.</p>
+                    </div>
+                </div>
                 <template x-if="layoutPartitions.length === 0">
-                    <div class="text-xs text-slate-500">No partition layout metadata available.</div>
+                    <div class="eb-app-empty !py-8">
+                        <div class="eb-app-empty-title">No partition metadata available</div>
+                        <p class="eb-app-empty-copy">This restore point does not include a browsable partition layout.</p>
+                    </div>
                 </template>
                 <template x-for="part in layoutPartitions" :key="part.index">
-                    <div class="flex items-center justify-between text-xs text-slate-400 border border-slate-800 rounded-lg px-2 py-1">
-                        <span x-text="part.name || part.path"></span>
-                        <span x-text="formatBytes(part.size_bytes || 0)"></span>
+                    <div class="eb-kv-row rounded-[var(--eb-radius-md)] border border-[var(--eb-border-subtle)] px-3 py-2 text-sm">
+                        <span class="eb-kv-value" x-text="part.name || part.path"></span>
+                        <span class="eb-kv-label" x-text="formatBytes(part.size_bytes || 0)"></span>
                     </div>
                 </template>
             </div>
 
-            <div class="rounded-xl border border-slate-800 bg-slate-900/60 p-4 space-y-3" x-show="selectedPoint">
-                <h3 class="text-sm font-semibold text-slate-200">Recovery Token</h3>
-                <div class="text-xs text-slate-500">Use this code on the recovery media to start a bare‑metal restore.</div>
-                <input type="text" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100" placeholder="Token will appear here" x-model="generatedToken" readonly>
-                <div class="flex items-center gap-2">
-                    <button class="text-xs px-3 py-2 rounded bg-emerald-600/30 border border-emerald-500 text-emerald-200 disabled:opacity-50 disabled:cursor-not-allowed"
-                            @click="generateToken()"
-                            :disabled="loadingToken || !selectedPoint || !selectedPoint.is_restorable">
-                        Generate Token
-                    </button>
-                    <span class="text-xs text-slate-500" x-text="tokenExpiry"></span>
+            <div class="eb-card" x-show="selectedPoint">
+                <div class="eb-card-header">
+                    <div>
+                        <div class="eb-card-title">Recovery Token</div>
+                        <p class="eb-card-subtitle">Use this code on the recovery media to start a bare-metal restore.</p>
+                    </div>
+                </div>
+                <div class="space-y-3">
+                    <input type="text"
+                           class="eb-input eb-type-mono"
+                           placeholder="Token will appear here"
+                           x-model="generatedToken"
+                           readonly>
+                    <div class="flex flex-wrap items-center gap-2">
+                        <button class="eb-btn eb-btn-success eb-btn-sm"
+                                @click="generateToken()"
+                                :disabled="loadingToken || !selectedPoint || !selectedPoint.is_restorable">
+                            Generate Token
+                        </button>
+                        <span class="eb-type-caption" x-text="tokenExpiry"></span>
+                    </div>
                 </div>
             </div>
         </div>
-        </div>
-        </div>
     </div>
 </div>
+{/capture}
+
+{include file="modules/addons/cloudstorage/templates/partials/e3backup_shell.tpl"
+    ebE3SidebarPage='disk_restore'
+    ebE3Title='Disk Image Recovery'
+    ebE3Description='Generate a recovery token and preview the disk layout before a bare-metal restore.'
+    ebE3Content=$ebE3Content
+}
 
 {literal}
 <script>
@@ -140,6 +253,8 @@ function diskImageRestorePage() {
         restorePoints: [],
         selectedPoint: null,
         layoutPartitions: [],
+        tenants: {/literal}{if $tenants}{$tenants|json_encode nofilter}{else}[]{/if}{literal},
+        agents: {/literal}{if $agents}{$agents|json_encode nofilter}{else}[]{/if}{literal},
         tenantFilter: '',
         agentFilter: '',
         searchQuery: '',
@@ -152,6 +267,18 @@ function diskImageRestorePage() {
             const qs = new URLSearchParams(window.location.search || '');
             this.preselectId = qs.get('restore_point_id') || '';
             this.reload();
+        },
+        tenantLabel() {
+            if (!this.tenantFilter) return 'All tenants';
+            if (this.tenantFilter === 'direct') return 'Direct clients';
+            const match = (this.tenants || []).find((tenant) => String(tenant.id || tenant.public_id || '') === String(this.tenantFilter));
+            return match ? (match.name || `Tenant ${this.tenantFilter}`) : this.tenantFilter;
+        },
+        agentLabel() {
+            if (!this.agentFilter) return 'All agents';
+            const match = (this.agents || []).find((agent) => String(agent.agent_uuid || '') === String(this.agentFilter));
+            if (!match) return this.agentFilter;
+            return match.hostname || match.device_name || match.agent_uuid || 'Unknown agent';
         },
 
         async reload() {

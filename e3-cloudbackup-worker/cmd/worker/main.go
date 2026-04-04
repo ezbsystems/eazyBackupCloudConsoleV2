@@ -23,13 +23,13 @@ import (
 
 func main() {
 	var configPath string
-	var printDriveSourceRun int64
+	var printDriveSourceRun string
 	var replayLogPath string
-	var replayRunID int64
+	var replayRunID string
 	flag.StringVar(&configPath, "config", "/opt/e3-cloudbackup-worker/config/config.yaml", "Path to config.yaml")
-	flag.Int64Var(&printDriveSourceRun, "print-drive-source-run", 0, "DEV: print computed Drive [source] section for the given run id and exit")
+	flag.StringVar(&printDriveSourceRun, "print-drive-source-run", "", "DEV: print computed Drive [source] section for the given run UUID and exit")
 	flag.StringVar(&replayLogPath, "replay-log", "", "DEV: path to an rclone JSON log to replay as events")
-	flag.Int64Var(&replayRunID, "replay-run", 0, "DEV: run id to associate with replayed events (requires -replay-log)")
+	flag.StringVar(&replayRunID, "replay-run", "", "DEV: run UUID to associate with replayed events (requires -replay-log)")
 	flag.Parse()
 
 	cfg, err := config.Load(configPath)
@@ -47,14 +47,14 @@ func main() {
 	_ = diag.PreflightCheck(context.Background(), dbc)
 
 	// Dev helper: print computed Drive source section for a run and exit
-	if printDriveSourceRun > 0 {
+	if printDriveSourceRun != "" {
 		if err := printDriveSourceForRun(cfg, dbc, printDriveSourceRun); err != nil {
 			log.Fatalf("print-drive-source-run: %v", err)
 		}
 		return
 	}
-	// Dev helper: replay a JSON log file into events for a run id
-	if replayLogPath != "" && replayRunID > 0 {
+	// Dev helper: replay a JSON log file into events for a run UUID
+	if replayLogPath != "" && replayRunID != "" {
 		if err := replayLogAsEvents(cfg, dbc, replayRunID, replayLogPath); err != nil {
 			log.Fatalf("replay-log: %v", err)
 		}
@@ -82,7 +82,7 @@ func main() {
 }
 
 // printDriveSourceForRun builds the rclone config for the run and prints the [source] section.
-func printDriveSourceForRun(cfg *config.Config, dbc *db.Database, runID int64) error {
+func printDriveSourceForRun(cfg *config.Config, dbc *db.Database, runID string) error {
 	ctx := context.Background()
 	r, err := dbc.GetRun(ctx, runID)
 	if err != nil {
@@ -93,8 +93,8 @@ func printDriveSourceForRun(cfg *config.Config, dbc *db.Database, runID int64) e
 		return err
 	}
 	runDir := os.TempDir()
-	confPath := filepath.Join(runDir, fmt.Sprintf("rclone-%d.conf", runID))
-	logPath := filepath.Join(runDir, fmt.Sprintf("rclone-%d.json", runID))
+	confPath := filepath.Join(runDir, fmt.Sprintf("rclone-%s.conf", runID))
+	logPath := filepath.Join(runDir, fmt.Sprintf("rclone-%s.json", runID))
 	decryptedSource, err := decryptWithFallback(job.SourceConfigEnc)
 	if err != nil {
 		return fmt.Errorf("decrypt source: %w", err)
@@ -243,7 +243,7 @@ func decryptWithFallback(enc string) (string, error) {
 }
 
 // replayLogAsEvents reads a JSON log file and emits sanitized events for a run.
-func replayLogAsEvents(cfg *config.Config, dbc *db.Database, runID int64, path string) error {
+func replayLogAsEvents(cfg *config.Config, dbc *db.Database, runID string, path string) error {
 	ctx := context.Background()
 	// Basic existence check
 	if _, err := os.Stat(path); err != nil {

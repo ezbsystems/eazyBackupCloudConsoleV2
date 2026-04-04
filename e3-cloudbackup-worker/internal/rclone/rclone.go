@@ -200,6 +200,7 @@ func (b *Builder) BuildSyncArgs(job *db.Job, sourceRemote string, destRemote str
 		"--stats", b.cfg.Rclone.StatsInterval,
 		"--stats-one-line=false",
 	}
+	args = append(args, b.PerformanceArgs()...)
 	// Global bandwidth limit
 	if b.cfg.Worker.MaxBandwidthKbps > 0 {
 		args = append(args, "--bwlimit", fmt.Sprintf("%dk", b.cfg.Worker.MaxBandwidthKbps))
@@ -211,6 +212,29 @@ func (b *Builder) BuildSyncArgs(job *db.Job, sourceRemote string, destRemote str
 	}
 	args = append(args, "--log-level", level)
 
+	return args
+}
+
+func (b *Builder) PerformanceArgs() []string {
+	var args []string
+	if b.cfg.Rclone.Transfers > 0 {
+		args = append(args, "--transfers", fmt.Sprintf("%d", b.cfg.Rclone.Transfers))
+	}
+	if b.cfg.Rclone.Checkers > 0 {
+		args = append(args, "--checkers", fmt.Sprintf("%d", b.cfg.Rclone.Checkers))
+	}
+	if b.cfg.Rclone.MultiThreadStreams > 0 {
+		args = append(args, "--multi-thread-streams", fmt.Sprintf("%d", b.cfg.Rclone.MultiThreadStreams))
+	}
+	if b.cfg.Rclone.BufferSize != "" {
+		args = append(args, "--buffer-size", b.cfg.Rclone.BufferSize)
+	}
+	if b.cfg.Rclone.S3ChunkSize != "" {
+		args = append(args, "--s3-chunk-size", b.cfg.Rclone.S3ChunkSize)
+	}
+	if b.cfg.Rclone.S3UploadConcurrency > 0 {
+		args = append(args, "--s3-upload-concurrency", fmt.Sprintf("%d", b.cfg.Rclone.S3UploadConcurrency))
+	}
 	return args
 }
 

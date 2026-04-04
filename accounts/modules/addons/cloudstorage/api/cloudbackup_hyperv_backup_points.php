@@ -23,6 +23,7 @@ use Symfony\Component\HttpFoundation\JsonResponse;
 use WHMCS\ClientArea;
 use WHMCS\Database\Capsule;
 use WHMCS\Module\Addon\CloudStorage\Client\MspController;
+use WHMCS\Module\Addon\CloudStorage\Client\UuidBinary;
 
 function respond(array $data, int $httpCode = 200): void
 {
@@ -61,11 +62,16 @@ if (!Capsule::schema()->hasTable('s3_hyperv_vms') || !Capsule::schema()->hasTabl
 }
 
 // Get VM and verify ownership through job
+$hasJobIdPk = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'job_id');
+$vmJobJoin = $hasJobIdPk ? 'j.job_id' : 'j.id';
+$jobIdSelect = $hasJobIdPk
+    ? Capsule::raw('BIN_TO_UUID(j.job_id) as job_id')
+    : 'j.id as job_id';
 $vm = Capsule::table('s3_hyperv_vms as v')
-    ->join('s3_cloudbackup_jobs as j', 'v.job_id', '=', 'j.id')
+    ->join('s3_cloudbackup_jobs as j', 'v.job_id', '=', $vmJobJoin)
     ->where('v.id', $vmId)
     ->where('j.client_id', $clientId)
-    ->select('v.*', 'j.id as job_id', 'j.name as job_name', 'j.agent_id')
+    ->select('v.*', $jobIdSelect, 'j.name as job_name', 'j.agent_uuid')
     ->first();
 
 if (!$vm) {
@@ -73,16 +79,18 @@ if (!$vm) {
 }
 
 // MSP tenant authorization check
-$accessCheck = MspController::validateJobAccess((int)$vm->job_id, $clientId);
+$accessCheck = MspController::validateJobAccess($vm->job_id, $clientId);
 if (!$accessCheck['valid']) {
     respond(['status' => 'fail', 'message' => $accessCheck['message']]);
 }
 
 // Build query for backup points
+$hasRunIdPk = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'run_id');
+$runJoinCol = $hasRunIdPk ? 'r.run_id' : 'r.id';
 $query = Capsule::table('s3_hyperv_backup_points as bp')
-    ->join('s3_cloudbackup_runs as r', 'bp.run_id', '=', 'r.id')
+    ->join('s3_cloudbackup_runs as r', 'bp.run_id', '=', $runJoinCol)
     ->where('bp.vm_id', $vmId)
-    ->whereIn('r.status', ['success', 'warning']); // Only restorable runs
+    ->whereIn('r.status', ['success', 'warning']);
 
 if ($typeFilter !== '' && in_array($typeFilter, ['Full', 'Incremental'], true)) {
     $query->where('bp.backup_type', $typeFilter);
@@ -146,7 +154,7 @@ foreach ($backupPoints as $bp) {
 
     $result[] = [
         'id' => (int) $bp->id,
-        'run_id' => (int) $bp->run_id,
+        'run_id' => $bp->run_id,
         'backup_type' => $bp->backup_type,
         'manifest_id' => $bp->manifest_id,
         'parent_backup_id' => $bp->parent_backup_id ? (int) $bp->parent_backup_id : null,
@@ -222,7 +230,7 @@ respond([
         'vm_guid' => $vm->vm_guid,
         'generation' => (int) ($vm->generation ?? 2),
         'rct_enabled' => (bool) ($vm->rct_enabled ?? false),
-        'job_id' => (int) $vm->job_id,
+        'job_id' => $vm->job_id,
         'job_name' => $vm->job_name,
     ],
     'disks' => $disks,

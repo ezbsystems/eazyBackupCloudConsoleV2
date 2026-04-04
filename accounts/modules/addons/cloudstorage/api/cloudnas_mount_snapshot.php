@@ -9,6 +9,7 @@ require_once __DIR__ . '/../../../../init.php';
 use Illuminate\Database\Capsule\Manager as Capsule;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use WHMCS\ClientArea;
+use WHMCS\Module\Addon\CloudStorage\Client\UuidBinary;
 
 if (!defined("WHMCS")) {
     die("This file cannot be accessed directly");
@@ -24,21 +25,29 @@ $clientId = $ca->getUserID();
 // Get JSON input
 $input = json_decode(file_get_contents('php://input'), true);
 
-$jobId = intval($input['job_id'] ?? 0);
+$hasJobIdPk = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'job_id');
+$hasRunIdPk = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'run_id');
+$rawJobId = trim((string) ($input['job_id'] ?? ''));
+$jobIdIsUuid = $hasJobIdPk && UuidBinary::isUuid($rawJobId);
 $manifestId = trim($input['manifest_id'] ?? '');
 $agentUuid = trim((string) ($input['agent_uuid'] ?? ''));
 
-if ($jobId <= 0 || empty($manifestId) || $agentUuid === '') {
+$jobIdEmpty = $jobIdIsUuid ? false : (intval($rawJobId) <= 0);
+if ($jobIdEmpty || empty($manifestId) || $agentUuid === '') {
     (new JsonResponse(['status' => 'error', 'message' => 'Job ID, manifest ID, and agent UUID are required'], 200))->send();
     exit;
 }
 
 try {
     // Verify job belongs to client
-    $job = Capsule::table('s3_cloudbackup_jobs')
-        ->where('id', $jobId)
-        ->where('client_id', $clientId)
-        ->first();
+    $jobQuery = Capsule::table('s3_cloudbackup_jobs')
+        ->where('client_id', $clientId);
+    if ($jobIdIsUuid) {
+        $jobQuery->whereRaw('job_id = ' . UuidBinary::toDbExpr(UuidBinary::normalize($rawJobId)));
+    } else {
+        $jobQuery->where('id', intval($rawJobId));
+    }
+    $job = $jobQuery->first();
 
     if (!$job) {
         (new JsonResponse(['status' => 'error', 'message' => 'Job not found'], 200))->send();
@@ -57,11 +66,18 @@ try {
     }
 
     // Verify manifest exists in a completed run
-    $run = Capsule::table('s3_cloudbackup_runs')
-        ->where('job_id', $jobId)
+    $runQuery = Capsule::table('s3_cloudbackup_runs')
         ->where('manifest_id', $manifestId)
-        ->where('status', 'success')
-        ->first();
+        ->where('status', 'success');
+    if ($jobIdIsUuid) {
+        $runQuery->whereRaw('job_id = ' . UuidBinary::toDbExpr(UuidBinary::normalize($rawJobId)));
+    } else {
+        $runQuery->where('job_id', intval($rawJobId));
+    }
+    if ($hasRunIdPk) {
+        $runQuery->addSelect(Capsule::raw('*, BIN_TO_UUID(run_id) as run_id_str'));
+    }
+    $run = $runQuery->first();
 
     if (!$run) {
         (new JsonResponse(['status' => 'error', 'message' => 'Snapshot not found'], 200))->send();
@@ -116,8 +132,9 @@ try {
         ->value('value') ?: 'https://s3.eazybackup.ca';
 
     // Queue snapshot mount command
+    $runIdValue = $hasRunIdPk ? ($run->run_id_str ?? $run->run_id) : ($run->id ?? null);
     $commandPayload = [
-        'run_id' => $run->id,
+        'run_id' => $runIdValue,
         'type' => 'nas_mount_snapshot',
         'payload_json' => json_encode([
             'job_id' => $jobId,

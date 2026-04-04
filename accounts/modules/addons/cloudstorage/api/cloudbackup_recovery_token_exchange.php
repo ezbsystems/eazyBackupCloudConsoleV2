@@ -8,6 +8,7 @@ require_once __DIR__ . '/../../../../init.php';
 use Illuminate\Database\Capsule\Manager as Capsule;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use WHMCS\Module\Addon\CloudStorage\Client\HelperController;
+use WHMCS\Module\Addon\CloudStorage\Client\UuidBinary;
 
 if (!defined("WHMCS")) {
     die("This file cannot be accessed directly");
@@ -238,19 +239,29 @@ if (!empty($row->expires_at) && strtotime((string) $row->expires_at) < time()) {
     respondError('token_expired', 'Recovery token has expired', 403);
 }
 
-$restorePoint = Capsule::table('s3_cloudbackup_restore_points')
+$hasJobIdPk = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'job_id');
+$rpQuery = Capsule::table('s3_cloudbackup_restore_points')
     ->where('id', $row->restore_point_id)
-    ->where('client_id', $row->client_id)
-    ->first();
+    ->where('client_id', $row->client_id);
+if ($hasJobIdPk) {
+    $rpQuery->addSelect(Capsule::raw('*, BIN_TO_UUID(job_id) as job_id_str'));
+}
+$restorePoint = $rpQuery->first();
 if (!$restorePoint) {
     respondError('not_found', 'Restore point not found', 404);
 }
 
 $policyJSON = null;
-if (!empty($restorePoint->job_id)) {
-    $jobPolicyRaw = Capsule::table('s3_cloudbackup_jobs')
-        ->where('id', $restorePoint->job_id)
-        ->value('policy_json');
+$rpJobId = $hasJobIdPk ? ($restorePoint->job_id_str ?? '') : ($restorePoint->job_id ?? 0);
+$rpJobIdPresent = $hasJobIdPk ? UuidBinary::isUuid($rpJobId) : ((int) $rpJobId > 0);
+if ($rpJobIdPresent) {
+    $policyQuery = Capsule::table('s3_cloudbackup_jobs');
+    if ($hasJobIdPk) {
+        $policyQuery->whereRaw('job_id = ' . UuidBinary::toDbExpr(UuidBinary::normalize($rpJobId)));
+    } else {
+        $policyQuery->where('id', (int) $rpJobId);
+    }
+    $jobPolicyRaw = $policyQuery->value('policy_json');
     if ($jobPolicyRaw !== null && $jobPolicyRaw !== '') {
         $dec = json_decode($jobPolicyRaw, true);
         if (json_last_error() === JSON_ERROR_NONE && is_array($dec)) {
@@ -366,7 +377,7 @@ respond([
     'session_expires_at' => $sessionExpiry,
     'restore_point' => [
         'id' => (int) $restorePoint->id,
-        'job_id' => (int) ($restorePoint->job_id ?? 0),
+        'job_id' => $hasJobIdPk ? ($restorePoint->job_id_str ?? '') : (int) ($restorePoint->job_id ?? 0),
         'engine' => $restorePoint->engine ?? 'disk_image',
         'manifest_id' => $restorePoint->manifest_id ?? '',
         'disk_layout_json' => $restorePoint->disk_layout_json ?? null,

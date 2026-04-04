@@ -34,15 +34,15 @@ if (!$run) {
 }
 
 // Get job details
-$job = CloudBackupController::getJob($run['job_id'], $loggedInUserId);
+$job = CloudBackupController::getJob($run['job_id'], $loggedInUserId) ?? [];
 
 // Resolve agent display name (if available)
 $agentName = null;
-$agentId = $job['agent_id'] ?? ($run['agent_id'] ?? null);
-if (!empty($agentId)) {
+$agentUuid = $job['agent_uuid'] ?? ($run['agent_uuid'] ?? null);
+if (!empty($agentUuid)) {
     try {
         $agentRow = Capsule::table('s3_cloudbackup_agents')
-            ->where('id', (int) $agentId)
+            ->where('agent_uuid', $agentUuid)
             ->first(['hostname']);
         if ($agentRow && !empty($agentRow->hostname)) {
             $agentName = $agentRow->hostname;
@@ -91,7 +91,7 @@ return [
     'run' => $run,
     'job' => $job,
     'agent_name' => $agentName,
-    'agent_id' => $agentId,
+    'agent_uuid' => $agentUuid,
     'is_restore' => $isRestore,
     'is_hyperv_restore' => $isHypervRestore,
     'restore_metadata' => $restoreMetadata,

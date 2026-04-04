@@ -9,7 +9,7 @@
         <h1 class="eb-type-h2 tracking-tight text-[var(--eb-text-primary)]">Pending Signup Approvals</h1>
         <p class="eb-page-description mt-1">Review and approve or reject customer signups awaiting MSP action.</p>
       </div>
-      <a href="{$modulelink}&a=ph-tenants-manage" class="eb-btn eb-btn-outline eb-btn-sm shrink-0">Back to Tenants</a>
+      <a href="{$modulelink}&a=ph-tenants-manage" class="eb-btn eb-btn-secondary eb-btn-sm shrink-0">Back to Tenants</a>
     </div>
 
     {if isset($notice) && $notice == 'approved'}
@@ -28,7 +28,7 @@
       </div>
     {/if}
 
-    <div class="eb-card-raised mt-6 !p-4"
+    <div class="eb-subpanel mt-6 !p-4"
          x-data="{
            entriesOpen: false,
            statusOpen: false,
@@ -135,22 +135,22 @@
          x-init="init()">
       <div class="eb-table-toolbar mb-4">
         <div class="relative" @click.away="entriesOpen = false">
-          <button type="button" @click="entriesOpen = !entriesOpen" class="eb-btn eb-btn-outline eb-btn-sm inline-flex items-center gap-2">
+          <button type="button" @click="entriesOpen = !entriesOpen" class="eb-btn eb-btn-secondary eb-btn-sm">
             <span x-text="'Show ' + entriesPerPage"></span>
             <svg class="h-4 w-4 transition-transform" :class="entriesOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" /></svg>
           </button>
-          <div x-show="entriesOpen" x-transition:enter="transition ease-out duration-100" x-transition:enter-start="opacity-0 scale-95" x-transition:enter-end="opacity-100 scale-100" x-transition:leave="transition ease-in duration-75" x-transition:leave-start="opacity-100 scale-100" x-transition:leave-end="opacity-0 scale-95" class="eb-dropdown-menu absolute left-0 z-50 mt-2 w-40 overflow-hidden !min-w-0" style="display: none;">
+          <div x-show="entriesOpen" x-transition:enter="transition ease-out duration-100" x-transition:enter-start="opacity-0 scale-95" x-transition:enter-end="opacity-100 scale-100" x-transition:leave="transition ease-in duration-75" x-transition:leave-start="opacity-100 scale-100" x-transition:leave-end="opacity-0 scale-95" class="eb-dropdown-menu absolute left-0 z-50 mt-2 w-40 overflow-hidden" style="display: none;">
             <template x-for="size in [10,25,50,100]" :key="'approvals-entries-' + size">
-              <button type="button" class="eb-menu-item w-full justify-start !rounded-[var(--eb-radius-md)]" :class="entriesPerPage === size ? 'is-active' : ''" @click="setEntries(size); entriesOpen = false;"><span x-text="size"></span></button>
+              <button type="button" class="eb-menu-option" :class="entriesPerPage === size ? 'is-active' : ''" @click="setEntries(size); entriesOpen = false;"><span x-text="size"></span></button>
             </template>
           </div>
         </div>
         <div class="relative" @click.away="statusOpen = false">
-          <button type="button" @click="statusOpen = !statusOpen" class="eb-btn eb-btn-outline eb-btn-sm inline-flex items-center gap-2">
+          <button type="button" @click="statusOpen = !statusOpen" class="eb-btn eb-btn-secondary eb-btn-sm">
             <span x-text="'Status: ' + statusLabel()"></span>
             <svg class="h-4 w-4 transition-transform" :class="statusOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" /></svg>
           </button>
-          <div x-show="statusOpen" x-transition:enter="transition ease-out duration-100" x-transition:enter-start="opacity-0 scale-95" x-transition:enter-end="opacity-100 scale-100" x-transition:leave="transition ease-in duration-75" x-transition:leave-start="opacity-100 scale-100" x-transition:leave-end="opacity-0 scale-95" class="eb-dropdown-menu absolute left-0 z-50 mt-2 w-56 overflow-hidden !min-w-0" style="display: none;">
+          <div x-show="statusOpen" x-transition:enter="transition ease-out duration-100" x-transition:enter-start="opacity-0 scale-95" x-transition:enter-end="opacity-100 scale-100" x-transition:leave="transition ease-in duration-75" x-transition:leave-start="opacity-100 scale-100" x-transition:leave-end="opacity-0 scale-95" class="eb-dropdown-menu absolute left-0 z-50 mt-2 w-56 overflow-hidden" style="display: none;">
             <template x-for="option in [
               { value: 'pending_approval', label: 'Pending Approval' },
               { value: 'approving', label: 'Approving' },
@@ -159,7 +159,7 @@
               { value: 'rejected', label: 'Rejected' },
               { value: 'all', label: 'All' }
             ]" :key="'approvals-status-' + option.value">
-              <button type="button" class="eb-menu-item w-full justify-start !rounded-[var(--eb-radius-md)]" :class="statusFilter === option.value ? 'is-active' : ''" @click="setStatus(option.value); statusOpen = false;"><span x-text="option.label"></span></button>
+              <button type="button" class="eb-menu-option" :class="statusFilter === option.value ? 'is-active' : ''" @click="setStatus(option.value); statusOpen = false;"><span x-text="option.label"></span></button>
             </template>
           </div>
         </div>
@@ -171,12 +171,12 @@
         <table class="eb-table min-w-full text-sm">
           <thead>
             <tr>
-              <th><button type="button" class="eb-table-sort-button" @click="setSort('tenant')">Tenant <span x-text="sortIndicator('tenant')"></span></button></th>
-              <th><button type="button" class="eb-table-sort-button" @click="setSort('email')">Email <span x-text="sortIndicator('email')"></span></button></th>
-              <th><button type="button" class="eb-table-sort-button" @click="setSort('client')">WHMCS Client <span x-text="sortIndicator('client')"></span></button></th>
-              <th><button type="button" class="eb-table-sort-button" @click="setSort('order')">Order <span x-text="sortIndicator('order')"></span></button></th>
-              <th><button type="button" class="eb-table-sort-button" @click="setSort('status')">Status <span x-text="sortIndicator('status')"></span></button></th>
-              <th><button type="button" class="eb-table-sort-button" @click="setSort('submitted')">Submitted <span x-text="sortIndicator('submitted')"></span></button></th>
+              <th><button type="button" class="eb-table-sort-button" @click="setSort('tenant')">Tenant <span class="eb-sort-indicator" x-text="sortIndicator('tenant')"></span></button></th>
+              <th><button type="button" class="eb-table-sort-button" @click="setSort('email')">Email <span class="eb-sort-indicator" x-text="sortIndicator('email')"></span></button></th>
+              <th><button type="button" class="eb-table-sort-button" @click="setSort('client')">WHMCS Client <span class="eb-sort-indicator" x-text="sortIndicator('client')"></span></button></th>
+              <th><button type="button" class="eb-table-sort-button" @click="setSort('order')">Order <span class="eb-sort-indicator" x-text="sortIndicator('order')"></span></button></th>
+              <th><button type="button" class="eb-table-sort-button" @click="setSort('status')">Status <span class="eb-sort-indicator" x-text="sortIndicator('status')"></span></button></th>
+              <th><button type="button" class="eb-table-sort-button" @click="setSort('submitted')">Submitted <span class="eb-sort-indicator" x-text="sortIndicator('submitted')"></span></button></th>
               <th class="!text-right">Actions</th>
             </tr>
           </thead>

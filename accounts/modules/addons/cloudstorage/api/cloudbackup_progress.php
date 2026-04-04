@@ -208,11 +208,27 @@ try {
                 ->value('value');
             if (!empty($templateSetting)) {
                 // Load joined run + job for merge vars
-                $row = Capsule::table('s3_cloudbackup_runs')
-                    ->join('s3_cloudbackup_jobs', 's3_cloudbackup_runs.job_id', '=', 's3_cloudbackup_jobs.id')
-                    ->where('s3_cloudbackup_runs.id', (int)$runId)
-                    ->select(
-                        's3_cloudbackup_runs.id as run_id',
+                $hasJobIdPk = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'job_id');
+                $hasRunIdPk = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'run_id');
+                $progressQuery = Capsule::table('s3_cloudbackup_runs');
+                if ($hasJobIdPk) {
+                    $progressQuery->join('s3_cloudbackup_jobs', 's3_cloudbackup_runs.job_id', '=', 's3_cloudbackup_jobs.job_id');
+                } else {
+                    $progressQuery->join('s3_cloudbackup_jobs', 's3_cloudbackup_runs.job_id', '=', 's3_cloudbackup_jobs.id');
+                }
+                if ($hasRunIdPk && UuidBinary::isUuid($runIdentifier)) {
+                    $progressQuery->whereRaw('s3_cloudbackup_runs.run_id = ' . UuidBinary::toDbExpr(UuidBinary::normalize($runIdentifier)));
+                } else {
+                    $progressQuery->where('s3_cloudbackup_runs.id', (int)$runIdentifier);
+                }
+                $runIdSelectExpr = $hasRunIdPk
+                    ? Capsule::raw('BIN_TO_UUID(s3_cloudbackup_runs.run_id) as run_id')
+                    : 's3_cloudbackup_runs.id as run_id';
+                $jobIdSelectExpr = $hasJobIdPk
+                    ? Capsule::raw('BIN_TO_UUID(s3_cloudbackup_jobs.job_id) as job_id')
+                    : 's3_cloudbackup_jobs.id as job_id';
+                $row = $progressQuery->select(
+                        $runIdSelectExpr,
                         's3_cloudbackup_runs.status',
                         's3_cloudbackup_runs.started_at',
                         's3_cloudbackup_runs.finished_at',
@@ -222,7 +238,7 @@ try {
                         's3_cloudbackup_runs.objects_total',
                         's3_cloudbackup_runs.objects_transferred',
                         's3_cloudbackup_runs.error_summary',
-                        's3_cloudbackup_jobs.id as job_id',
+                        $jobIdSelectExpr,
                         's3_cloudbackup_jobs.name',
                         's3_cloudbackup_jobs.client_id',
                         's3_cloudbackup_jobs.source_display_name',

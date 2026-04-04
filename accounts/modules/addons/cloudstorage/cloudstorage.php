@@ -1257,7 +1257,7 @@ function cloudstorage_activate() {
 
         if (!Capsule::schema()->hasTable('s3_cloudbackup_jobs')) {
             Capsule::schema()->create('s3_cloudbackup_jobs', function ($table) {
-            $table->binary('job_id', 16)->primary();  // BINARY(16) UUIDv7 PK per design
+            $table->char('job_id', 16)->charset('binary')->primary();  // BINARY(16) UUIDv7 PK per design
             $table->unsignedInteger('client_id');
             $table->unsignedInteger('tenant_id')->nullable();
             $table->string('repository_id', 64)->nullable();
@@ -1302,8 +1302,8 @@ function cloudstorage_activate() {
 
         if (!Capsule::schema()->hasTable('s3_cloudbackup_runs')) {
             Capsule::schema()->create('s3_cloudbackup_runs', function ($table) {
-            $table->binary('run_id', 16)->primary();  // BINARY(16) UUIDv7 PK
-            $table->binary('job_id', 16);              // BINARY(16) FK -> jobs.job_id
+            $table->char('run_id', 16)->charset('binary')->primary();  // BINARY(16) UUIDv7 PK
+            $table->char('job_id', 16)->charset('binary');              // BINARY(16) FK -> jobs.job_id
             $table->unsignedInteger('tenant_id')->nullable();
             $table->string('repository_id', 64)->nullable();
             $table->enum('trigger_type', ['manual', 'schedule', 'validation'])->default('manual');
@@ -1360,7 +1360,7 @@ function cloudstorage_activate() {
         if (!Capsule::schema()->hasTable('s3_cloudbackup_run_events')) {
             Capsule::schema()->create('s3_cloudbackup_run_events', function ($table) {
                 $table->bigIncrements('id');
-                $table->binary('run_id', 16);  // BINARY(16) FK -> runs.run_id
+                $table->char('run_id', 16)->charset('binary');  // BINARY(16) FK -> runs.run_id
                 $table->dateTime('ts'); // event timestamp (UTC)
                 $table->string('type', 32); // start|progress|warning|error|summary|cancelled|validation_*
                 $table->string('level', 16); // info|warn|error
@@ -1383,9 +1383,9 @@ function cloudstorage_activate() {
                 $table->string('repository_id', 64)->nullable();
                 $table->unsignedInteger('tenant_user_id')->nullable();
                 $table->string('agent_uuid', 36)->nullable();
-                $table->binary('job_id', 16)->nullable();   // BINARY(16) UUIDv7 FK -> jobs.job_id
+                $table->char('job_id', 16)->charset('binary')->nullable();   // BINARY(16) UUIDv7 FK -> jobs.job_id
                 $table->string('job_name', 191)->nullable();
-                $table->binary('run_id', 16)->nullable();   // BINARY(16) UUIDv7 FK -> runs.run_id
+                $table->char('run_id', 16)->charset('binary')->nullable();   // BINARY(16) UUIDv7 FK -> runs.run_id
                 $table->string('run_uuid', 36)->nullable();
                 $table->string('engine', 32)->nullable();
                 $table->string('status', 32)->nullable();
@@ -1644,7 +1644,7 @@ function cloudstorage_activate() {
                 $table->dateTime('locked_until')->nullable();
                 $table->string('session_token', 64)->nullable();
                 $table->dateTime('session_expires_at')->nullable();
-                $table->binary('session_run_id', 16)->nullable();  // BINARY(16) UUIDv7 FK -> runs.run_id
+                $table->char('session_run_id', 16)->charset('binary')->nullable();  // BINARY(16) UUIDv7 FK -> runs.run_id
                 $table->string('created_ip', 45)->nullable();
                 $table->string('created_user_agent', 255)->nullable();
                 $table->dateTime('exchanged_at')->nullable();
@@ -2001,7 +2001,7 @@ function cloudstorage_activate() {
         if (!Capsule::schema()->hasTable('s3_cloudbackup_run_logs')) {
             Capsule::schema()->create('s3_cloudbackup_run_logs', function ($table) {
                 $table->bigIncrements('id');
-                $table->binary('run_id', 16);  // BINARY(16) FK -> runs.run_id
+                $table->char('run_id', 16)->charset('binary');  // BINARY(16) FK -> runs.run_id
                 $table->timestamp('created_at')->useCurrent();
                 $table->string('level', 16)->default('info');
                 $table->string('code', 64)->nullable();
@@ -2017,7 +2017,7 @@ function cloudstorage_activate() {
         if (!Capsule::schema()->hasTable('s3_cloudbackup_run_commands')) {
             Capsule::schema()->create('s3_cloudbackup_run_commands', function ($table) {
                 $table->bigIncrements('id');
-                $table->binary('run_id', 16)->nullable();  // BINARY(16) FK -> runs.run_id; nullable for browse commands
+                $table->char('run_id', 16)->charset('binary')->nullable();  // BINARY(16) FK -> runs.run_id; nullable for browse commands
                 $table->string('type', 64); // cancel|maintenance_quick|maintenance_full|restore
                 $table->json('payload_json')->nullable(); // target_path, manifest_id, etc.
                 $table->enum('status', ['pending','processing','completed','failed'])->default('pending');
@@ -2124,7 +2124,7 @@ function cloudstorage_activate() {
                 $table->unsignedBigInteger('repo_id');
                 $table->string('source_uuid', 64);
                 $table->enum('lifecycle', ['active', 'retired', 'expired'])->default('active');
-                $table->binary('job_id', 16)->nullable();
+                $table->char('job_id', 16)->charset('binary')->nullable();
                 $table->timestamp('created_at')->useCurrent();
                 $table->timestamp('updated_at')->useCurrent();
                 $table->timestamp('retired_at')->nullable();
@@ -2209,7 +2209,7 @@ function cloudstorage_activate() {
         if (!Capsule::schema()->hasTable('s3_hyperv_vms')) {
             Capsule::schema()->create('s3_hyperv_vms', function ($table) {
                 $table->increments('id');
-                $table->binary('job_id', 16);  // BINARY(16) FK -> jobs.job_id
+                $table->char('job_id', 16)->charset('binary');  // BINARY(16) FK -> jobs.job_id
                 $table->string('vm_name', 255);
                 $table->string('vm_guid', 64)->nullable();
                 $table->tinyInteger('generation')->default(2);
@@ -2232,7 +2232,7 @@ function cloudstorage_activate() {
             Capsule::schema()->create('s3_hyperv_checkpoints', function ($table) {
                 $table->increments('id');
                 $table->unsignedInteger('vm_id');
-                $table->binary('run_id', 16)->nullable();  // BINARY(16) FK -> runs.run_id
+                $table->char('run_id', 16)->charset('binary')->nullable();  // BINARY(16) FK -> runs.run_id
                 $table->string('checkpoint_id', 64);
                 $table->string('checkpoint_name', 255)->nullable();
                 $table->enum('checkpoint_type', ['Production', 'Standard', 'Reference'])->default('Production');
@@ -2253,7 +2253,7 @@ function cloudstorage_activate() {
             Capsule::schema()->create('s3_hyperv_backup_points', function ($table) {
                 $table->increments('id');
                 $table->unsignedInteger('vm_id');
-                $table->binary('run_id', 16);  // BINARY(16) FK -> runs.run_id
+                $table->char('run_id', 16)->charset('binary');  // BINARY(16) FK -> runs.run_id
                 $table->enum('backup_type', ['Full', 'Incremental']);
                 $table->string('manifest_id', 128);
                 $table->unsignedInteger('parent_backup_id')->nullable();
@@ -2710,32 +2710,34 @@ function cloudstorage_upgrade($vars) {
                 $schema->hasColumn('s3_cloudbackup_jobs', 'agent_id') &&
                 $schema->hasColumn('s3_cloudbackup_agents', 'tenant_id')
             ) {
-                $updatedJobs = 0;
-                $lastJobId = 0;
-                $chunk = 500;
-                while (true) {
-                    $rows = \WHMCS\Database\Capsule::table('s3_cloudbackup_jobs as j')
-                        ->join('s3_cloudbackup_agents as a', 'a.id', '=', 'j.agent_id')
-                        ->where('j.id', '>', $lastJobId)
-                        ->whereNull('j.tenant_id')
-                        ->select(['j.id as job_id', 'a.tenant_id as agent_tenant_id'])
-                        ->orderBy('j.id', 'asc')
-                        ->limit($chunk)
-                        ->get();
-                    if (!$rows || count($rows) === 0) {
-                        break;
+                if (!$schema->hasColumn('s3_cloudbackup_jobs', 'job_id')) {
+                    $updatedJobs = 0;
+                    $lastJobId = 0;
+                    $chunk = 500;
+                    while (true) {
+                        $rows = \WHMCS\Database\Capsule::table('s3_cloudbackup_jobs as j')
+                            ->join('s3_cloudbackup_agents as a', 'a.id', '=', 'j.agent_id')
+                            ->where('j.id', '>', $lastJobId)
+                            ->whereNull('j.tenant_id')
+                            ->select(['j.id as job_id', 'a.tenant_id as agent_tenant_id'])
+                            ->orderBy('j.id', 'asc')
+                            ->limit($chunk)
+                            ->get();
+                        if (!$rows || count($rows) === 0) {
+                            break;
+                        }
+                        foreach ($rows as $row) {
+                            $lastJobId = (int) $row->job_id;
+                            try {
+                                $updatedJobs += (int) \WHMCS\Database\Capsule::table('s3_cloudbackup_jobs')
+                                    ->where('id', (int) $row->job_id)
+                                    ->whereNull('tenant_id')
+                                    ->update(['tenant_id' => $row->agent_tenant_id !== null ? (int) $row->agent_tenant_id : null]);
+                            } catch (\Throwable $__) {}
+                        }
                     }
-                    foreach ($rows as $row) {
-                        $lastJobId = (int) $row->job_id;
-                        try {
-                            $updatedJobs += (int) \WHMCS\Database\Capsule::table('s3_cloudbackup_jobs')
-                                ->where('id', (int) $row->job_id)
-                                ->whereNull('tenant_id')
-                                ->update(['tenant_id' => $row->agent_tenant_id !== null ? (int) $row->agent_tenant_id : null]);
-                        } catch (\Throwable $__) {}
-                    }
+                    logModuleCall('cloudstorage', 'upgrade_backfill_jobs_tenant_id', [], ['updated' => $updatedJobs], [], []);
                 }
-                logModuleCall('cloudstorage', 'upgrade_backfill_jobs_tenant_id', [], ['updated' => $updatedJobs], [], []);
             }
 
             // Backfill runs.tenant_id from jobs.tenant_id snapshots.
@@ -2746,32 +2748,34 @@ function cloudstorage_upgrade($vars) {
                 $schema->hasColumn('s3_cloudbackup_runs', 'job_id') &&
                 $schema->hasColumn('s3_cloudbackup_jobs', 'tenant_id')
             ) {
-                $updatedRuns = 0;
-                $lastRunId = 0;
-                $chunk = 500;
-                while (true) {
-                    $rows = \WHMCS\Database\Capsule::table('s3_cloudbackup_runs as r')
-                        ->join('s3_cloudbackup_jobs as j', 'j.id', '=', 'r.job_id')
-                        ->where('r.id', '>', $lastRunId)
-                        ->whereNull('r.tenant_id')
-                        ->select(['r.id as run_id', 'j.tenant_id as job_tenant_id'])
-                        ->orderBy('r.id', 'asc')
-                        ->limit($chunk)
-                        ->get();
-                    if (!$rows || count($rows) === 0) {
-                        break;
+                if (!$schema->hasColumn('s3_cloudbackup_runs', 'run_id')) {
+                    $updatedRuns = 0;
+                    $lastRunId = 0;
+                    $chunk = 500;
+                    while (true) {
+                        $rows = \WHMCS\Database\Capsule::table('s3_cloudbackup_runs as r')
+                            ->join('s3_cloudbackup_jobs as j', 'j.id', '=', 'r.job_id')
+                            ->where('r.id', '>', $lastRunId)
+                            ->whereNull('r.tenant_id')
+                            ->select(['r.id as run_id', 'j.tenant_id as job_tenant_id'])
+                            ->orderBy('r.id', 'asc')
+                            ->limit($chunk)
+                            ->get();
+                        if (!$rows || count($rows) === 0) {
+                            break;
+                        }
+                        foreach ($rows as $row) {
+                            $lastRunId = (int) $row->run_id;
+                            try {
+                                $updatedRuns += (int) \WHMCS\Database\Capsule::table('s3_cloudbackup_runs')
+                                    ->where('id', (int) $row->run_id)
+                                    ->whereNull('tenant_id')
+                                    ->update(['tenant_id' => $row->job_tenant_id !== null ? (int) $row->job_tenant_id : null]);
+                            } catch (\Throwable $__) {}
+                        }
                     }
-                    foreach ($rows as $row) {
-                        $lastRunId = (int) $row->run_id;
-                        try {
-                            $updatedRuns += (int) \WHMCS\Database\Capsule::table('s3_cloudbackup_runs')
-                                ->where('id', (int) $row->run_id)
-                                ->whereNull('tenant_id')
-                                ->update(['tenant_id' => $row->job_tenant_id !== null ? (int) $row->job_tenant_id : null]);
-                        } catch (\Throwable $__) {}
-                    }
+                    logModuleCall('cloudstorage', 'upgrade_backfill_runs_tenant_id', [], ['updated' => $updatedRuns], [], []);
                 }
-                logModuleCall('cloudstorage', 'upgrade_backfill_runs_tenant_id', [], ['updated' => $updatedRuns], [], []);
             }
 
             // Backfill runs.repository_id from jobs.repository_id snapshots.
@@ -2782,33 +2786,35 @@ function cloudstorage_upgrade($vars) {
                 $schema->hasColumn('s3_cloudbackup_runs', 'job_id') &&
                 $schema->hasColumn('s3_cloudbackup_jobs', 'repository_id')
             ) {
-                $updatedRunRepos = 0;
-                $lastRunRepoId = 0;
-                $chunk = 500;
-                while (true) {
-                    $rows = \WHMCS\Database\Capsule::table('s3_cloudbackup_runs as r')
-                        ->join('s3_cloudbackup_jobs as j', 'j.id', '=', 'r.job_id')
-                        ->where('r.id', '>', $lastRunRepoId)
-                        ->whereNull('r.repository_id')
-                        ->whereNotNull('j.repository_id')
-                        ->select(['r.id as run_id', 'j.repository_id as job_repository_id'])
-                        ->orderBy('r.id', 'asc')
-                        ->limit($chunk)
-                        ->get();
-                    if (!$rows || count($rows) === 0) {
-                        break;
+                if (!$schema->hasColumn('s3_cloudbackup_runs', 'run_id')) {
+                    $updatedRunRepos = 0;
+                    $lastRunRepoId = 0;
+                    $chunk = 500;
+                    while (true) {
+                        $rows = \WHMCS\Database\Capsule::table('s3_cloudbackup_runs as r')
+                            ->join('s3_cloudbackup_jobs as j', 'j.id', '=', 'r.job_id')
+                            ->where('r.id', '>', $lastRunRepoId)
+                            ->whereNull('r.repository_id')
+                            ->whereNotNull('j.repository_id')
+                            ->select(['r.id as run_id', 'j.repository_id as job_repository_id'])
+                            ->orderBy('r.id', 'asc')
+                            ->limit($chunk)
+                            ->get();
+                        if (!$rows || count($rows) === 0) {
+                            break;
+                        }
+                        foreach ($rows as $row) {
+                            $lastRunRepoId = (int) $row->run_id;
+                            try {
+                                $updatedRunRepos += (int) \WHMCS\Database\Capsule::table('s3_cloudbackup_runs')
+                                    ->where('id', (int) $row->run_id)
+                                    ->whereNull('repository_id')
+                                    ->update(['repository_id' => (string) $row->job_repository_id]);
+                            } catch (\Throwable $__) {}
+                        }
                     }
-                    foreach ($rows as $row) {
-                        $lastRunRepoId = (int) $row->run_id;
-                        try {
-                            $updatedRunRepos += (int) \WHMCS\Database\Capsule::table('s3_cloudbackup_runs')
-                                ->where('id', (int) $row->run_id)
-                                ->whereNull('repository_id')
-                                ->update(['repository_id' => (string) $row->job_repository_id]);
-                        } catch (\Throwable $__) {}
-                    }
+                    logModuleCall('cloudstorage', 'upgrade_backfill_runs_repository_id', [], ['updated' => $updatedRunRepos], [], []);
                 }
-                logModuleCall('cloudstorage', 'upgrade_backfill_runs_repository_id', [], ['updated' => $updatedRunRepos], [], []);
             }
 
             // Backfill restore_points.repository_id from runs.repository_id snapshots.
@@ -2822,9 +2828,10 @@ function cloudstorage_upgrade($vars) {
                 $updatedRestoreRepos = 0;
                 $lastRestoreId = 0;
                 $chunk = 500;
+                $rpRunJoin = $schema->hasColumn('s3_cloudbackup_runs', 'run_id') ? 'r.run_id' : 'r.id';
                 while (true) {
                     $rows = \WHMCS\Database\Capsule::table('s3_cloudbackup_restore_points as rp')
-                        ->join('s3_cloudbackup_runs as r', 'r.id', '=', 'rp.run_id')
+                        ->join('s3_cloudbackup_runs as r', $rpRunJoin, '=', 'rp.run_id')
                         ->where('rp.id', '>', $lastRestoreId)
                         ->whereNull('rp.repository_id')
                         ->whereNotNull('r.repository_id')
@@ -3130,7 +3137,7 @@ function cloudstorage_upgrade($vars) {
                 $table->unsignedBigInteger('repo_id');
                 $table->string('source_uuid', 64);
                 $table->enum('lifecycle', ['active', 'retired', 'expired'])->default('active');
-                $table->binary('job_id', 16)->nullable();
+                $table->char('job_id', 16)->charset('binary')->nullable();
                 $table->timestamp('created_at')->useCurrent();
                 $table->timestamp('updated_at')->useCurrent();
                 $table->timestamp('retired_at')->nullable();
@@ -3402,17 +3409,19 @@ function cloudstorage_upgrade($vars) {
                         $table->string('run_uuid', 36)->nullable()->after('id');
                         $table->index('run_uuid');
                     });
-                    // Backfill existing rows with UUIDs
-                    \WHMCS\Database\Capsule::table('s3_cloudbackup_runs')
-                        ->whereNull('run_uuid')
-                        ->orderBy('id')
-                        ->chunk(500, function ($runs) {
-                            foreach ($runs as $run) {
-                                \WHMCS\Database\Capsule::table('s3_cloudbackup_runs')
-                                    ->where('id', $run->id)
-                                    ->update(['run_uuid' => cloudstorage_generate_uuid()]);
-                            }
-                        });
+                    // Backfill existing rows with UUIDs (legacy schema only)
+                    if (!$schema->hasColumn('s3_cloudbackup_runs', 'run_id')) {
+                        \WHMCS\Database\Capsule::table('s3_cloudbackup_runs')
+                            ->whereNull('run_uuid')
+                            ->orderBy('id')
+                            ->chunk(500, function ($runs) {
+                                foreach ($runs as $run) {
+                                    \WHMCS\Database\Capsule::table('s3_cloudbackup_runs')
+                                        ->where('id', $run->id)
+                                        ->update(['run_uuid' => cloudstorage_generate_uuid()]);
+                                }
+                            });
+                    }
                     logModuleCall('cloudstorage', 'upgrade_add_run_uuid', [], 'run_uuid added and backfilled');
                 } catch (\Exception $e) {
                     logModuleCall('cloudstorage', 'upgrade_add_run_uuid_error', [], $e->getMessage(), [], []);
@@ -3582,9 +3591,9 @@ function cloudstorage_upgrade($vars) {
                 $table->string('repository_id', 64)->nullable();
                 $table->unsignedInteger('tenant_user_id')->nullable();
                 $table->string('agent_uuid', 36)->nullable();
-                $table->binary('job_id', 16)->nullable();   // BINARY(16) UUIDv7 FK -> jobs.job_id
+                $table->char('job_id', 16)->charset('binary')->nullable();   // BINARY(16) UUIDv7 FK -> jobs.job_id
                 $table->string('job_name', 191)->nullable();
-                $table->binary('run_id', 16)->nullable();   // BINARY(16) UUIDv7 FK -> runs.run_id
+                $table->char('run_id', 16)->charset('binary')->nullable();   // BINARY(16) UUIDv7 FK -> runs.run_id
                 $table->string('run_uuid', 36)->nullable();
                 $table->string('engine', 32)->nullable();
                 $table->string('status', 32)->nullable();
@@ -3664,7 +3673,7 @@ function cloudstorage_upgrade($vars) {
                 $table->dateTime('locked_until')->nullable();
                 $table->string('session_token', 64)->nullable();
                 $table->dateTime('session_expires_at')->nullable();
-                $table->binary('session_run_id', 16)->nullable();  // BINARY(16) UUIDv7 FK -> runs.run_id
+                $table->char('session_run_id', 16)->charset('binary')->nullable();  // BINARY(16) UUIDv7 FK -> runs.run_id
                 $table->string('created_ip', 45)->nullable();
                 $table->string('created_user_agent', 255)->nullable();
                 $table->dateTime('exchanged_at')->nullable();
