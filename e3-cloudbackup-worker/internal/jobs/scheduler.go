@@ -14,7 +14,7 @@ type Scheduler struct {
 	db            *db.Database
 	cfg           *config.Config
 	runningMu     sync.Mutex
-	running       map[int64]struct{}
+	running       map[string]struct{}
 	maxConcurrent int
 	pollInterval  time.Duration
 }
@@ -23,7 +23,7 @@ func NewScheduler(database *db.Database, cfg *config.Config) *Scheduler {
 	return &Scheduler{
 		db:            database,
 		cfg:           cfg,
-		running:       make(map[int64]struct{}),
+		running:       make(map[string]struct{}),
 		maxConcurrent: cfg.Worker.MaxConcurrentJobs,
 		pollInterval:  cfg.PollInterval(),
 	}
@@ -44,7 +44,6 @@ func (s *Scheduler) Run(ctx context.Context) error {
 }
 
 func (s *Scheduler) tick(ctx context.Context) {
-	// Refresh global settings
 	settings, err := s.db.GetAddonSettings(ctx)
 	if err != nil {
 		log.Printf("warning: failed to load addon settings: %v", err)
@@ -87,7 +86,7 @@ func (s *Scheduler) availableSlots() int {
 	return s.maxConcurrent - len(s.running)
 }
 
-func (s *Scheduler) tryStart(runID int64) bool {
+func (s *Scheduler) tryStart(runID string) bool {
 	s.runningMu.Lock()
 	defer s.runningMu.Unlock()
 	if _, exists := s.running[runID]; exists {
@@ -100,7 +99,7 @@ func (s *Scheduler) tryStart(runID int64) bool {
 	return true
 }
 
-func (s *Scheduler) done(runID int64) {
+func (s *Scheduler) done(runID string) {
 	s.runningMu.Lock()
 	defer s.runningMu.Unlock()
 	delete(s.running, runID)
@@ -110,6 +109,6 @@ func (s *Scheduler) startRun(ctx context.Context, r db.Run) {
 	defer s.done(r.ID)
 	runner := NewRunner(s.db, s.cfg)
 	if err := runner.Run(ctx, r); err != nil {
-		log.Printf("run %d failed: %v", r.ID, err)
+		log.Printf("run %s failed: %v", r.ID, err)
 	}
 }

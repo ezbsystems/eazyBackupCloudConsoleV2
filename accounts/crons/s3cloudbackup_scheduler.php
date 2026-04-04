@@ -16,6 +16,7 @@ if (!defined("WHMCS")) {
 
 use WHMCS\Database\Capsule;
 use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupController;
+use WHMCS\Module\Addon\CloudStorage\Client\UuidBinary;
 
 function parseScheduleJson($raw): array
 {
@@ -196,10 +197,15 @@ try {
     $settingsMap = Capsule::table('s3_cloudbackup_settings')->pluck('default_timezone', 'client_id')->toArray();
 } catch (\Throwable $e) {}
 
+$hasJobIdPk = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'job_id');
+$jobIdSelect = $hasJobIdPk
+    ? Capsule::raw('BIN_TO_UUID(job_id) as job_id')
+    : 'id';
+
 $jobs = Capsule::table('s3_cloudbackup_jobs')
     ->where('status', 'active')
     ->select([
-        'id',
+        $jobIdSelect,
         'client_id',
         'schedule_type',
         'schedule_time',
@@ -214,6 +220,8 @@ $queued = 0;
 $skipped = 0;
 
 foreach ($jobs as $job) {
+    $jobIdentifier = $hasJobIdPk ? $job->job_id : $job->id;
+
     $schedule = resolveScheduleType($job);
     if (empty($schedule['type']) || $schedule['type'] === 'manual') {
         $skipped++;
@@ -237,8 +245,13 @@ foreach ($jobs as $job) {
     $slotStartServer = (clone $slotStartJob)->setTimezone($serverTz);
     $slotEndServer = (clone $slotEndJob)->setTimezone($serverTz);
 
-    $existingScheduled = Capsule::table('s3_cloudbackup_runs')
-        ->where('job_id', $job->id)
+    $dupeQuery = Capsule::table('s3_cloudbackup_runs');
+    if ($hasJobIdPk && UuidBinary::isUuid($jobIdentifier)) {
+        $dupeQuery->whereRaw('job_id = ' . UuidBinary::toDbExpr(UuidBinary::normalize($jobIdentifier)));
+    } else {
+        $dupeQuery->where('job_id', $jobIdentifier);
+    }
+    $existingScheduled = $dupeQuery
         ->where('trigger_type', 'schedule')
         ->whereBetween('created_at', [$slotStartServer->format('Y-m-d H:i:s'), $slotEndServer->format('Y-m-d H:i:s')])
         ->count();
@@ -247,8 +260,13 @@ foreach ($jobs as $job) {
         continue;
     }
 
-    $inFlight = Capsule::table('s3_cloudbackup_runs')
-        ->where('job_id', $job->id)
+    $flightQuery = Capsule::table('s3_cloudbackup_runs');
+    if ($hasJobIdPk && UuidBinary::isUuid($jobIdentifier)) {
+        $flightQuery->whereRaw('job_id = ' . UuidBinary::toDbExpr(UuidBinary::normalize($jobIdentifier)));
+    } else {
+        $flightQuery->where('job_id', $jobIdentifier);
+    }
+    $inFlight = $flightQuery
         ->whereIn('status', ['queued', 'starting', 'running'])
         ->whereNull('finished_at')
         ->count();
@@ -257,9 +275,9 @@ foreach ($jobs as $job) {
         continue;
     }
 
-    $res = CloudBackupController::startRun((int)$job->id, (int)$job->client_id, 'schedule');
+    $res = CloudBackupController::startRun($jobIdentifier, (int)$job->client_id, 'schedule');
     logModuleCall('cloudstorage', 'scheduler_queue', [
-        'job_id' => $job->id,
+        'job_id' => $jobIdentifier,
         'client_id' => $job->client_id,
         'schedule_type' => $schedule['type'],
         'slot_start' => $slotStartJob->format('Y-m-d H:i:s'),

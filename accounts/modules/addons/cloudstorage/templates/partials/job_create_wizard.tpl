@@ -1,55 +1,33 @@
 <!-- Create Job Slide-Over (dynamically populated) -->
-<div id="createJobSlideover" x-data="{ isOpen: false }" x-show="isOpen" class="fixed inset-0 z-50" style="display: none;">
+<div id="createJobSlideover" x-data="{ isOpen: false }" x-show="isOpen" class="fixed inset-0 z-50" style="display: none;" @click.self="closeCreateSlideover()">
     <!-- Backdrop -->
-    <div class="absolute inset-0 bg-black/75"
+    <div class="absolute inset-0 eb-drawer-backdrop"
          x-show="isOpen"
          x-transition.opacity
          onclick="closeCreateSlideover()"></div>
     <!-- Panel -->
-    <div class="absolute right-0 top-0 h-full w-full max-w-xl bg-slate-950 border-l border-slate-800/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)] overflow-y-auto"
+    <div class="absolute right-0 top-0 h-full w-full max-w-xl eb-drawer overflow-y-auto"
          x-show="isOpen"
+         @click.stop
          x-transition:enter="transform transition ease-in-out duration-300"
          x-transition:enter-start="translate-x-full"
          x-transition:enter-end="translate-x-0"
          x-transition:leave="transform transition ease-in-out duration-300"
          x-transition:leave-start="translate-x-0"
          x-transition:leave-end="translate-x-full">
-        <div class="flex items-center justify-between p-4 border-b border-slate-700">
-            <h3 class="text-lg font-semibold text-white">Create Backup Job</h3>
-            <button class="text-slate-300 hover:text-white" onclick="closeCreateSlideover()">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+        <div class="eb-drawer-header">
+            <div>
+                <div class="eb-drawer-title">Create Backup Job</div>
+                <p class="mt-1 text-sm text-[var(--eb-text-muted)]">Configure a cloud backup source, destination, schedule, and retention policy.</p>
+            </div>
+            <button type="button" class="eb-modal-close" onclick="closeCreateSlideover()" aria-label="Close create backup job drawer">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6 18L18 6M6 6l12 12" />
                 </svg>
             </button>
         </div>
-        <div class="p-4">
+        <div class="eb-drawer-body">
         <style>
-        #createJobSlideover ::placeholder { color: #94a3b8; opacity: 1; }
-        /* Panel + form controls - dark slate theme */
-        #createJobSlideover .border-slate-700 { border-color: rgba(51,65,85,1); }
-        #createJobSlideover input[type="text"],
-        #createJobSlideover input[type="password"],
-        #createJobSlideover input[type="number"],
-        #createJobSlideover input[type="time"],
-        #createJobSlideover select,
-        #createJobSlideover textarea {
-            background-color: rgb(15 23 42) !important; /* bg-slate-900 */
-            border-color: rgba(51,65,85,1) !important;        /* border-slate-700 */
-            color: #e2e8f0 !important;                        /* text-slate-200 */
-        }
-        #createJobSlideover input:focus,
-        #createJobSlideover select:focus,
-        #createJobSlideover textarea:focus {
-            outline: none !important;
-            border-color: rgb(14 165 233 / 1) !important;     /* border-sky-500 */
-            
-        }
-        /* Common dropdown panels */
-        #createJobSlideover .dropdown-surface {
-            background-color: rgb(2 6 23);                    /* bg-slate-950 */
-            border-color: rgba(51,65,85,1);
-        }
-
         /* Scrollbars (ensure available on all pages using this template) */
         .scrollbar_thin {
             /* Firefox */
@@ -73,7 +51,7 @@
         .scrollbar-thin-dark::-webkit-scrollbar-thumb { background: #334155; border-radius: 9999px; border: 1px solid #0f172a; }
         .scrollbar-thin-dark::-webkit-scrollbar-thumb:hover { background: #475569; }
         </style>
-        <div id="jobCreationMessage" class="bg-red-600 text-white px-4 py-2 rounded-md mb-4 hidden"></div>
+        <div id="jobCreationMessage" class="eb-alert eb-alert--danger mb-4 hidden"></div>
         <form id="createJobForm">
             
             <input type="hidden" name="client_id" value="{$client_id}">
@@ -81,18 +59,61 @@
             
             {if $isMspClient}
             <!-- MSP: Tenant Selection (filters agent dropdown) -->
-            <div class="mb-4 p-4 bg-slate-800/50 rounded-lg border border-slate-700" 
-                 x-data="mspTenantFilter()" 
+            <div class="eb-subpanel mb-4" 
+                 x-data="{
+                     ...mspTenantFilter(),
+                     isOpen: false,
+                     selected: '',
+                     options: [
+                         { value: '', label: 'All / Direct (No Tenant Filter)' },
+                         { value: 'direct', label: 'Direct Only (No Tenant)' },
+                         {foreach from=$tenants item=tenant}
+                         { value: '{$tenant->public_id|escape:'javascript'}', label: '{$tenant->name|escape:'javascript'}' },
+                         {/foreach}
+                     ],
+                     labelFor(val) {
+                         const option = this.options.find(opt => String(opt.value) === String(val));
+                         return option ? option.label : 'All / Direct (No Tenant Filter)';
+                     }
+                 }" 
                  data-agents='{if $agents}{$agents|@json_encode}{else}[]{/if}'>
-                <label class="block text-xs uppercase tracking-wide font-semibold text-emerald-400 mb-2">MSP: Scope to Tenant</label>
-                <select x-model="selectedTenant" name="wizard_tenant_id" class="w-full bg-slate-900 text-slate-200 border border-slate-700 rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-emerald-500">
+                <label class="eb-field-label"><span class="eb-type-eyebrow text-[var(--eb-success-text)]">MSP</span> Scope to Tenant</label>
+                <select x-model="selectedTenant" name="wizard_tenant_id" class="hidden">
                     <option value="">All / Direct (No Tenant Filter)</option>
                     <option value="direct">Direct Only (No Tenant)</option>
                     {foreach from=$tenants item=tenant}
                     <option value="{$tenant->public_id|escape}">{$tenant->name|escape}</option>
                     {/foreach}
                 </select>
-                <p class="text-xs text-slate-500 mt-1">Select a tenant to filter available agents. The job will be associated with the agent's tenant.</p>
+                <div class="relative mt-2"
+                     @click.away="isOpen = false"
+                     x-init="
+                        selected = selectedTenant || '';
+                        $watch('selectedTenant', value => { selected = value || ''; });
+                     ">
+                    <button type="button"
+                            @click="isOpen = !isOpen"
+                            class="eb-menu-trigger relative">
+                        <span class="block truncate" x-text="labelFor(selected)"></span>
+                        <span class="absolute inset-y-0 right-0 flex items-center pr-2 pointer-events-none">
+                            <svg class="h-5 w-5 text-[var(--eb-text-muted)]" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                                <path fill-rule="evenodd" d="M10 3a1 1 0 01.707.293l3 3a1 1 0 01-1.414 1.414L10 5.414 7.707 7.707a1 1 0 01-1.414-1.414l3-3A1 1 0 0110 3zm-3.707 9.293a1 1 0 011.414 0L10 14.586l2.293-2.293a1 1 0 011.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd" />
+                            </svg>
+                        </span>
+                    </button>
+                    <div x-show="isOpen" class="eb-dropdown-menu absolute z-10 mt-1 w-full overflow-hidden" style="display:none;">
+                        <ul class="max-h-60 overflow-auto py-1 text-sm scrollbar_thin">
+                            <template x-for="opt in options" :key="opt.value || '__all_direct'">
+                                <li @click="selected = opt.value; selectedTenant = opt.value; isOpen = false"
+                                    class="eb-menu-option cursor-pointer select-none"
+                                    :class="{ 'is-active': String(selected) === String(opt.value) }"
+                                    x-text="opt.label">
+                                </li>
+                            </template>
+                        </ul>
+                    </div>
+                </div>
+                <p class="eb-field-help">Select a tenant to filter available agents. The job will be associated with the agent's tenant.</p>
             </div>
             {/if}
             
@@ -116,7 +137,7 @@
                 selected = $refs.nativeSelect.value || selected;
                 $refs.nativeSelect.addEventListener('change', () => { selected = $refs.nativeSelect.value; });
             ">
-                <label class="block text-sm font-medium text-slate-300 mb-2">Source Type</label>
+                <label class="eb-field-label">Source Type</label>
                 <!-- Hidden native select preserved for existing JS listeners and form submission -->
                 <select name="source_type" id="sourceType" x-ref="nativeSelect" class="hidden" required>
                     <option value="s3_compatible">S3-Compatible Storage</option>
@@ -130,20 +151,20 @@
                 <div class="relative">
                     <button type="button"
                             @click="isOpen = !isOpen"
-                            class="relative w-full px-3 py-2 text-left text-slate-300 bg-slate-900 border border-gray-600 rounded-md shadow-sm cursor-default focus:outline-none focus:ring-1 focus:ring-sky-500 focus:border-sky-500">
+                            class="eb-menu-trigger relative">
                         <span class="block truncate" x-text="labelFor(selected)"></span>
                         <span class="absolute inset-y-0 right-0 flex items-center pr-2 pointer-events-none">
-                            <svg class="w-5 h-5 text-gray-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                            <svg class="h-5 w-5 text-[var(--eb-text-muted)]" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
                                 <path fill-rule="evenodd" d="M10 3a1 1 0 01.707.293l3 3a1 1 0 01-1.414 1.414L10 5.414 7.707 7.707a1 1 0 01-1.414-1.414l3-3A1 1 0 0110 3zm-3.707 9.293a1 1 0 011.414 0L10 14.586l2.293-2.293a1 1 0 011.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd" />
                             </svg>
                         </span>
                     </button>
-                    <div x-show="isOpen" class="absolute z-10 w-full mt-1 bg-slate-900 border border-gray-600 rounded-md shadow-lg" style="display:none;">
-                        <ul class="py-1 overflow-auto text-base max-h-60 rounded-md border border-slate-600 ring-1 ring-black ring-opacity-5 focus:outline-none sm:text-sm scrollbar_thin">
+                    <div x-show="isOpen" class="eb-dropdown-menu absolute z-10 mt-1 w-full overflow-hidden" style="display:none;">
+                        <ul class="max-h-60 overflow-auto py-1 text-sm scrollbar_thin">
                             <template x-for="opt in options" :key="opt.value">
                                 <li @click="selected = opt.value; $refs.nativeSelect.value = opt.value; $refs.nativeSelect.dispatchEvent(new Event('change')); isOpen = false"
-                                    class="px-4 py-2 text-gray-300 cursor-pointer select-none hover:bg-gray-700"
-                                    :class="{ 'bg-gray-700 text-white': selected === opt.value }"
+                                    class="eb-menu-option cursor-pointer select-none"
+                                    :class="{ 'is-active': selected === opt.value }"
                                     x-text="opt.label">
                                 </li>
                             </template>
@@ -155,17 +176,17 @@
             <!-- Step 2: Source Details -->
             <div id="sourceDetails">
                 <!-- Security Warning: Read-Only Access Keys -->
-                <div id="sourceAccessWarning" class="mb-4 p-4 bg-slate-800 border border-gray-600 rounded-lg">
-                    <div class="flex items-start">
-                        <div class="flex-shrink-0">
-                            <svg class="h-6 w-6 text-orange-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <div id="sourceAccessWarning" class="eb-alert eb-alert--warning mb-4">
+                    <div class="flex items-start gap-3">
+                        <div class="shrink-0">
+                            <svg class="eb-alert-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                             </svg>
                         </div>
-                        <div class="ml-3 flex-1">
-                            <h3 class="text-sm font-bold text-gray-200 mb-1">Use READ-ONLY Access Keys</h3>
+                        <div class="flex-1">
+                            <h3 class="eb-alert-title">Use READ-ONLY Access Keys</h3>
                             
-                            <ul class="text-xs text-gray-300 list-disc list-inside space-y-1">
+                            <ul class="mt-1 list-inside list-disc space-y-1 text-xs text-[var(--eb-text-secondary)]">
                                 <li>Do not use access keys with write, delete, or modify permissions</li>
                                 <li>Create dedicated read-only access keys specifically for backups</li>
                                 <li>Using write-enabled keys is not required and is not recommended</li>
@@ -178,37 +199,33 @@
                 <div id="s3Fields" class="source-type-fields">
                     <input type="hidden" name="source_display_name" id="sourceDisplayName">
                     <div class="mb-4">
-                        <label class="block text-sm font-medium text-slate-300 mb-2">Endpoint URL</label>
-                        <input type="text" name="s3_endpoint" class="w-full bg-gray-700 text-gray-300 border border-gray-600 rounded-md px-4 py-2 focus:outline-none focus:ring-0 focus:border-sky-600" placeholder="https://s3.storageprovider.com" required>
+                        <label class="eb-field-label">Endpoint URL</label>
+                        <input type="text" name="s3_endpoint" class="eb-input" placeholder="https://s3.storageprovider.com" required>
                     </div>
                     <div class="mb-4">
-                        <label class="block text-sm font-medium text-slate-300 mb-2">Region</label>
-                        <input type="text" name="s3_region" value="ca-central-1" class="w-full bg-gray-700 text-gray-300 border border-gray-600 rounded-md px-4 py-2 focus:outline-none focus:ring-0 focus:border-sky-600" placeholder="ca-central-1" required>
+                        <label class="eb-field-label">Region</label>
+                        <input type="text" name="s3_region" value="ca-central-1" class="eb-input" placeholder="ca-central-1" required>
                     </div>
                     <div class="mb-4">
-                        <label class="block text-sm font-medium text-slate-300 mb-2">Access Key ID</label>
-                        <input type="text" name="s3_access_key" class="w-full bg-gray-700 text-gray-300 border border-gray-600 rounded-md px-4 py-2 focus:outline-none focus:ring-0 focus:border-sky-600" required>
+                        <label class="eb-field-label">Access Key ID</label>
+                        <input type="text" name="s3_access_key" class="eb-input" required>
                     </div>
                     <div class="mb-4">
-                        <label class="block text-sm font-medium text-slate-300 mb-2">Secret Access Key</label>
-                        <input type="password" name="s3_secret_key" class="w-full bg-gray-700 text-gray-300 border border-gray-600 rounded-md px-4 py-2 focus:outline-none focus:ring-0 focus:border-sky-600" required>
+                        <label class="eb-field-label">Secret Access Key</label>
+                        <input type="password" name="s3_secret_key" class="eb-input" required>
                     </div>
                     <div class="mb-4">
-                        <label class="block text-sm font-medium text-slate-300 mb-2">Bucket Name</label>
-                        <input type="text" name="s3_bucket" class="w-full bg-gray-700 text-gray-300 border border-gray-600 rounded-md px-4 py-2 focus:outline-none focus:ring-0 focus:border-sky-600" required>
+                        <label class="eb-field-label">Bucket Name</label>
+                        <input type="text" name="s3_bucket" class="eb-input" required>
                     </div>
                     <div class="mb-4">
-                        <label class="block text-sm font-medium text-slate-300 mb-2">Path/Prefix (optional)</label>
-                        <input type="text" name="s3_path" class="w-full bg-gray-700 text-gray-300 border border-gray-600 rounded-md px-4 py-2 focus:outline-none focus:ring-0 focus:border-sky-600" placeholder="backups/">
+                        <label class="eb-field-label">Path/Prefix (optional)</label>
+                        <input type="text" name="s3_path" class="eb-input" placeholder="backups/">
                     </div>
                 </div>
 
                 <!-- AWS fields -->
                 <div id="awsFields" class="source-type-fields hidden">
-                    <div class="mb-4">
-                        <label class="block text-sm font-medium text-slate-300 mb-2">Display Name</label>
-                        <input type="text" name="aws_display_name" class="w-full bg-gray-700 text-gray-300 border border-gray-600 rounded-md px-4 py-2 focus:outline-none focus:ring-0 focus:border-sky-600" placeholder="e.g., AWS S3 Production" required>
-                    </div>
                     <div class="mb-4" x-data="{
                         isOpen: false,
                         search: '',
@@ -244,23 +261,30 @@
                             const q = this.search.toLowerCase();
                             return this.regions.filter(r => r.code.toLowerCase().includes(q) || r.name.toLowerCase().includes(q));
                         }
-                    }" @click.away="isOpen=false">
-                        <label class="block text-sm font-medium text-slate-300 mb-2">Region</label>
-                        <input type="hidden" name="aws_region" :value="selected">
+                    }" @click.away="isOpen=false" x-init="
+                        selected = $refs.real?.value || selected;
+                        if ($refs.real) {
+                            $refs.real.addEventListener('change', () => {
+                                selected = $refs.real.value || selected;
+                            });
+                        }
+                    ">
+                        <label class="eb-field-label">Region</label>
+                        <input type="hidden" name="aws_region" x-ref="real" :value="selected">
                         <div class="relative">
-                            <button type="button" @click="isOpen=!isOpen" class="relative w-full px-3 py-2 text-left text-slate-300 bg-slate-900 border border-gray-600 rounded-md shadow-sm cursor-default focus:outline-none focus:ring-1 focus:ring-sky-500 focus:border-sky-500">
+                            <button type="button" @click="isOpen=!isOpen" class="eb-menu-trigger relative">
                                 <span class="block truncate" x-text="selected"></span>
                                 <span class="absolute inset-y-0 right-0 flex items-center pr-2 pointer-events-none">
-                                    <svg class="w-5 h-5 text-gray-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 3a1 1 0 01.707.293l3 3a1 1 0 01-1.414 1.414L10 5.414 7.707 7.707a1 1 0 01-1.414-1.414l3-3A1 1 0 0110 3zm-3.707 9.293a1 1 0 011.414 0L10 14.586l2.293-2.293a1 1 0 011.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
+                                    <svg class="h-5 w-5 text-[var(--eb-text-muted)]" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 3a1 1 0 01.707.293l3 3a1 1 0 01-1.414 1.414L10 5.414 7.707 7.707a1 1 0 01-1.414-1.414l3-3A1 1 0 0110 3zm-3.707 9.293a1 1 0 011.414 0L10 14.586l2.293-2.293a1 1 0 011.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
                                 </span>
                             </button>
-                            <div x-show="isOpen" class="absolute z-10 w-full mt-1 bg-slate-900 border border-gray-600 rounded-md shadow-lg" style="display:none;">
+                            <div x-show="isOpen" class="eb-dropdown-menu absolute z-10 mt-1 w-full overflow-hidden" style="display:none;">
                                 <div class="p-2">
-                                    <input type="text" x-model="search" placeholder="Search regions..." class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-gray-300 focus:outline-none focus:ring-sky-500 focus:border-sky-500">
+                                    <input type="text" x-model="search" placeholder="Search regions..." class="eb-input">
                                 </div>
-                                <ul class="py-1 overflow-auto text-base max-h-60 ring-1 ring-black ring-opacity-5 focus:outline-none sm:text-sm scrollbar_thin">
+                                <ul class="max-h-60 overflow-auto py-1 text-sm scrollbar_thin">
                                     <template x-for="r in filtered" :key="r.code">
-                                        <li @click="selected=r.code; isOpen=false" class="px-4 py-2 text-gray-300 cursor-pointer select-none hover:bg-gray-700">
+                                        <li @click="selected=r.code; isOpen=false" class="eb-menu-option cursor-pointer select-none">
                                             <span x-text="r.code + ' — ' + r.name"></span>
                                         </li>
                                     </template>
@@ -269,12 +293,12 @@
                         </div>
                     </div>
                     <div class="mb-4">
-                        <label class="block text-sm font-medium text-slate-300 mb-2">Access Key ID</label>
-                        <input type="text" name="aws_access_key" class="w-full bg-gray-700 text-gray-300 border border-gray-600 rounded-md px-4 py-2 focus:outline-none focus:ring-0 focus:border-sky-600" required>
+                        <label class="eb-field-label">Access Key ID</label>
+                        <input type="text" name="aws_access_key" class="eb-input" required>
                     </div>
                     <div class="mb-4">
-                        <label class="block text-sm font-medium text-slate-300 mb-2">Secret Access Key</label>
-                        <input type="password" name="aws_secret_key" class="w-full bg-gray-700 text-gray-300 border border-gray-600 rounded-md px-4 py-2 focus:outline-none focus:ring-0 focus:border-sky-600" required>
+                        <label class="eb-field-label">Secret Access Key</label>
+                        <input type="password" name="aws_secret_key" class="eb-input" required>
                     </div>
                     <div class="mb-4" x-data="{
                         isOpen:false, loading:false, search:'', buckets:[], selected:'',
@@ -282,7 +306,7 @@
                             const ak = (document.querySelector('input[name=aws_access_key]')?.value || '').trim();
                             const sk = (document.querySelector('input[name=aws_secret_key]')?.value || '').trim();
                             const rg = (document.querySelector('input[name=aws_region]')?.value || '').trim();
-                            if (!ak || !sk || !rg) { if (window.toast) window.toast.error('Enter Access Key, Secret, and Region'); return; }
+                            if (!ak || !sk || !rg) { if (typeof e3backupNotify === 'function') e3backupNotify('error', 'Enter Access Key, Secret, and Region'); else if (window.toast) window.toast.error('Enter Access Key, Secret, and Region'); return; }
                             this.loading = true;
                             try {
                                 const resp = await fetch('modules/addons/cloudstorage/api/cloudbackup_list_aws_buckets.php', {
@@ -294,12 +318,12 @@
                                 if (data.status === 'success') {
                                     this.buckets = (data.buckets || []).map(b => b.name);
                                     this.isOpen = true;
-                                    if (!this.buckets.length && window.toast) window.toast.info('No buckets found in this region');
+                                    if (!this.buckets.length) { if (typeof e3backupNotify === 'function') e3backupNotify('info', 'No buckets found in this region'); else if (window.toast) window.toast.info('No buckets found in this region'); }
                                 } else {
-                                    if (window.toast) window.toast.error(data.message || 'Failed to load buckets');
+                                    if (typeof e3backupNotify === 'function') e3backupNotify('error', data.message || 'Failed to load buckets'); else if (window.toast) window.toast.error(data.message || 'Failed to load buckets');
                                 }
                             } catch (e) {
-                                if (window.toast) window.toast.error('Error loading buckets');
+                                if (typeof e3backupNotify === 'function') e3backupNotify('error', 'Error loading buckets'); else if (window.toast) window.toast.error('Error loading buckets');
                             } finally {
                                 this.loading = false;
                             }
@@ -310,58 +334,58 @@
                             return this.buckets.filter(n => n.toLowerCase().includes(q));
                         }
                     }" @click.away="isOpen=false">
-                        <label class="block text-sm font-medium text-slate-300 mb-2">Bucket Name</label>
+                        <label class="eb-field-label">Bucket Name</label>
                         <div class="flex gap-2">
-                            <input type="text" name="aws_bucket" x-model="selected" class="flex-1 bg-gray-700 text-gray-300 border border-gray-600 rounded-md px-4 py-2 focus:outline-none focus:ring-0 focus:border-sky-600" placeholder="Select or type a bucket..." required>
-                            <button type="button" class="px-3 py-2 rounded-md border border-slate-600 text-slate-300 hover:text-white hover:border-slate-500" @click="load()" :disabled="loading">
+                            <input type="text" name="aws_bucket" x-model="selected" class="eb-input flex-1" placeholder="Select or type a bucket..." required>
+                            <button type="button" class="eb-btn eb-btn-secondary eb-btn-sm" @click="load()" :disabled="loading">
                                 <span x-show="!loading">Load buckets</span>
                                 <span x-show="loading">Loading…</span>
                             </button>
                         </div>
                         <div x-show="isOpen" class="relative mt-2">
-                            <div class="absolute z-10 w-full bg-slate-900 border border-gray-600 rounded-md shadow-lg">
+                            <div class="eb-dropdown-menu absolute z-10 w-full overflow-hidden">
                                 <div class="p-2">
-                                    <input type="text" x-model="search" placeholder="Search buckets..." class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-gray-300 focus:outline-none focus:ring-sky-500 focus:border-sky-500">
+                                    <input type="text" x-model="search" placeholder="Search buckets..." class="eb-input">
                                 </div>
-                                <ul class="py-1 overflow-auto text-base max-h-60 ring-1 ring-black ring-opacity-5 focus:outline-none sm:text-sm scrollbar_thin">
+                                <ul class="max-h-60 overflow-auto py-1 text-sm scrollbar_thin">
                                     <template x-for="b in filtered" :key="b">
-                                        <li @click="selected=b; isOpen=false" class="px-4 py-2 text-gray-300 cursor-pointer select-none hover:bg-gray-700" x-text="b"></li>
+                                        <li @click="selected=b; isOpen=false" class="eb-menu-option cursor-pointer select-none" x-text="b"></li>
                                     </template>
                                 </ul>
                             </div>
                         </div>
                     </div>
                     <div class="mb-4">
-                        <label class="block text-sm font-medium text-slate-300 mb-2">Path/Prefix (optional)</label>
-                        <input type="text" name="aws_path" class="w-full bg-gray-700 text-gray-300 border border-gray-600 rounded-md px-4 py-2 focus:outline-none focus:ring-0 focus:border-sky-600" placeholder="backups/">
+                        <label class="eb-field-label">Path/Prefix (optional)</label>
+                        <input type="text" name="aws_path" class="eb-input" placeholder="backups/">
                     </div>
                 </div>
 
                 <!-- SFTP fields -->
                 <div id="sftpFields" class="source-type-fields hidden">
                     <div class="mb-4">
-                        <label class="block text-sm font-medium text-slate-300 mb-2">Display Name</label>
-                        <input type="text" name="sftp_display_name" class="w-full bg-gray-700 text-gray-300 border border-gray-600 rounded-md px-4 py-2 focus:outline-none focus:ring-0 focus:border-sky-600" placeholder="e.g., Customer NAS" required>
+                        <label class="eb-field-label">Display Name</label>
+                        <input type="text" name="sftp_display_name" class="eb-input" placeholder="e.g., Customer NAS" required>
                     </div>
                     <div class="mb-4">
-                        <label class="block text-sm font-medium text-slate-300 mb-2">Hostname</label>
-                        <input type="text" name="sftp_host" class="w-full bg-gray-700 text-gray-300 border border-gray-600 rounded-md px-4 py-2 focus:outline-none focus:ring-0 focus:border-sky-600" required>
+                        <label class="eb-field-label">Hostname</label>
+                        <input type="text" name="sftp_host" class="eb-input" required>
                     </div>
                     <div class="mb-4">
-                        <label class="block text-sm font-medium text-slate-300 mb-2">Port</label>
-                        <input type="number" name="sftp_port" value="22" class="w-full bg-gray-700 text-gray-300 border border-gray-600 rounded-md px-4 py-2 focus:outline-none focus:ring-0 focus:border-sky-600" required>
+                        <label class="eb-field-label">Port</label>
+                        <input type="number" name="sftp_port" value="22" class="eb-input" required>
                     </div>
                     <div class="mb-4">
-                        <label class="block text-sm font-medium text-slate-300 mb-2">Username</label>
-                        <input type="text" name="sftp_username" class="w-full bg-gray-700 text-gray-300 border border-gray-600 rounded-md px-4 py-2 focus:outline-none focus:ring-0 focus:border-sky-600" required>
+                        <label class="eb-field-label">Username</label>
+                        <input type="text" name="sftp_username" class="eb-input" required>
                     </div>
                     <div class="mb-4">
-                        <label class="block text-sm font-medium text-slate-300 mb-2">Password</label>
-                        <input type="password" name="sftp_password" class="w-full bg-gray-700 text-gray-300 border border-gray-600 rounded-md px-4 py-2 focus:outline-none focus:ring-0 focus:border-sky-600">
+                        <label class="eb-field-label">Password</label>
+                        <input type="password" name="sftp_password" class="eb-input">
                     </div>
                     <div class="mb-4">
-                        <label class="block text-sm font-medium text-slate-300 mb-2">Remote Path</label>
-                        <input type="text" name="sftp_path" class="w-full bg-gray-700 text-gray-300 border border-gray-600 rounded-md px-4 py-2 focus:outline-none focus:ring-0 focus:border-sky-600" placeholder="/backups/" required>
+                        <label class="eb-field-label">Remote Path</label>
+                        <input type="text" name="sftp_path" class="eb-input" placeholder="/backups/" required>
                     </div>
                 </div>
 
@@ -384,40 +408,40 @@
                             }
                         }
                     }" x-init="load()">
-                        <label class="block text-sm font-medium text-slate-300 mb-2">Agent</label>
-                        <select name="agent_uuid" id="agent_uuid" class="w-full bg-gray-700 text-gray-300 border border-gray-600 rounded-md px-4 py-2 focus:outline-none focus:ring-0 focus:border-sky-600" required>
+                        <label class="eb-field-label">Agent</label>
+                        <select name="agent_uuid" id="agent_uuid" class="eb-select" required>
                             <option value="">Select an agent</option>
-                            <template x-for="a in options" :key="a.id">
+                            <template x-for="a in options" :key="a.agent_uuid">
                                 <option :value="a.agent_uuid || ''" x-text="a.hostname ? (a.hostname + ' (' + (a.agent_uuid || '') + ')') : (a.agent_uuid || 'Unknown agent')"></option>
                             </template>
                         </select>
-                        <p class="text-xs text-slate-400 mt-1" x-show="!loading && options.length === 0">No active agents found. Create an agent first.</p>
+                        <p class="eb-field-help" x-show="!loading && options.length === 0">No active agents found. Create an agent first.</p>
                     </div>
                     <div class="mb-4">
-                        <label class="block text-sm font-medium text-slate-300 mb-2">Local Source Path</label>
-                        <input type="text" name="local_source_path" class="w-full bg-gray-700 text-gray-300 border border-gray-600 rounded-md px-4 py-2 focus:outline-none focus:ring-0 focus:border-sky-600" placeholder="C:\Data" />
+                        <label class="eb-field-label">Local Source Path</label>
+                        <input type="text" name="local_source_path" class="eb-input" placeholder="C:\Data" />
                     </div>
                     <div class="mb-4 grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
-                            <label class="block text-sm font-medium text-slate-300 mb-2">Include (glob, optional)</label>
-                            <input type="text" name="local_include_glob" class="w-full bg-gray-700 text-gray-300 border border-gray-600 rounded-md px-4 py-2 focus:outline-none focus:ring-0 focus:border-sky-600" placeholder="**\\*.docx" />
+                            <label class="eb-field-label">Include (glob, optional)</label>
+                            <input type="text" name="local_include_glob" class="eb-input" placeholder="**\\*.docx" />
                         </div>
                         <div>
-                            <label class="block text-sm font-medium text-slate-300 mb-2">Exclude (glob, optional)</label>
-                            <input type="text" name="local_exclude_glob" class="w-full bg-gray-700 text-gray-300 border border-gray-600 rounded-md px-4 py-2 focus:outline-none focus:ring-0 focus:border-sky-600" placeholder="**\\node_modules\\**" />
+                            <label class="eb-field-label">Exclude (glob, optional)</label>
+                            <input type="text" name="local_exclude_glob" class="eb-input" placeholder="**\\node_modules\\**" />
                         </div>
                     </div>
                     <div class="mb-4">
-                        <label class="block text-sm font-medium text-slate-300 mb-2">Bandwidth Limit (KB/s, optional)</label>
-                        <input type="number" name="local_bandwidth_limit_kbps" min="0" class="w-full bg-gray-700 text-gray-300 border border-gray-600 rounded-md px-4 py-2 focus:outline-none focus:ring-0 focus:border-sky-600" placeholder="0 = unlimited" />
+                        <label class="eb-field-label">Bandwidth Limit (KB/s, optional)</label>
+                        <input type="number" name="local_bandwidth_limit_kbps" min="0" class="eb-input" placeholder="0 = unlimited" />
                     </div>
-                    <p class="text-xs text-slate-400">Local Agent jobs run on your Windows agent. Ensure the path exists on that machine.</p>
+                    <p class="eb-field-help">Local Agent jobs run on your Windows agent. Ensure the path exists on that machine.</p>
                 </div>
 
                 <!-- Google Drive fields -->
                 <div id="gdriveFields" class="source-type-fields hidden">
                     <div class="mb-4">
-                        <label class="block text-sm font-medium text-slate-300 mb-2">Google Drive Connection</label>
+                        <label class="eb-field-label">Google Drive Connection</label>
                         <div x-data="{
                             loading:false, open:false, search:'', selected:null, options:[],
                             async load() {
@@ -428,12 +452,12 @@
                                     if (data.status === 'success') {
                                         this.options = (data.sources || []);
                                         this.open = true;
-                                        if (!this.options.length && window.toast) window.toast.info('No Google Drive connections yet');
+                                        if (!this.options.length) { if (typeof e3backupNotify === 'function') e3backupNotify('info', 'No Google Drive connections yet'); else if (window.toast) window.toast.info('No Google Drive connections yet'); }
                                     } else {
-                                        if (window.toast) window.toast.error(data.message || 'Failed to load connections');
+                                        if (typeof e3backupNotify === 'function') e3backupNotify('error', data.message || 'Failed to load connections'); else if (window.toast) window.toast.error(data.message || 'Failed to load connections');
                                     }
                                 } catch (e) {
-                                    if (window.toast) window.toast.error('Error loading connections');
+                                    if (typeof e3backupNotify === 'function') e3backupNotify('error', 'Error loading connections'); else if (window.toast) window.toast.error('Error loading connections');
                                 } finally {
                                     this.loading = false;
                                 }
@@ -456,41 +480,41 @@
                             <input type="hidden" name="source_connection_id" value="">
                             <input type="hidden" name="gdrive_team_drive" value="">
                             <div class="flex gap-2 mb-2">
-                                <button type="button" class="px-3 py-2 rounded-md border border-slate-600 text-slate-300 hover:text-white hover:border-slate-500" @click="load()" :disabled="loading">
+                                <button type="button" class="eb-btn eb-btn-secondary eb-btn-sm" @click="load()" :disabled="loading">
                                     <span x-show="!loading">Load connections</span>
                                     <span x-show="loading">Loading…</span>
                                 </button>
-                                <a href="index.php?m=cloudstorage&page=oauth_google_start" class="px-3 py-2 rounded-md bg-sky-600 text-white hover:bg-sky-700">Connect Google Drive</a>
+                                <a href="index.php?m=cloudstorage&page=oauth_google_start" class="eb-btn eb-btn-info eb-btn-sm">Connect Google Drive</a>
                             </div>
-                            <p class="text-xs text-slate-400">
+                            <p class="eb-field-help">
                                 By connecting, you allow eazyBackup to view and download your Google Drive files for backup and restore. We don’t use this data for ads or resale, and you can disconnect at any time in Settings or your Google Account.
                             </p>
                             <div>
                                 <div class="relative">
-                                    <button type="button" @click="open=!open" class="relative w-full px-3 py-2 text-left text-slate-300 bg-slate-900 border border-gray-600 rounded-md shadow-sm cursor-default focus:outline-none focus:ring-1 focus:ring-sky-500 focus:border-sky-500">
+                                    <button type="button" @click="open=!open" class="eb-menu-trigger relative">
                                         <span class="block truncate" x-text="selected ? ((selected.display_name || selected.account_email) || ('ID '+selected.id)) : 'Select a connection'"></span>
                                         <span class="absolute inset-y-0 right-0 flex items-center pr-2 pointer-events-none">
-                                            <svg class="w-5 h-5 text-gray-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 3a1 1 0 01.707.293l3 3a1 1 0 01-1.414 1.414L10 5.414 7.707 7.707a1 1 0 01-1.414-1.414l3-3A1 1 0 0110 3zm-3.707 9.293a1 1 0 011.414 0L10 14.586l2.293-2.293a1 1 0 011.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
+                                            <svg class="h-5 w-5 text-[var(--eb-text-muted)]" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 3a1 1 0 01.707.293l3 3a1 1 0 01-1.414 1.414L10 5.414 7.707 7.707a1 1 0 01-1.414-1.414l3-3A1 1 0 0110 3zm-3.707 9.293a1 1 0 011.414 0L10 14.586l2.293-2.293a1 1 0 011.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
                                         </span>
                                     </button>
-                                    <div x-show="open" class="absolute z-10 w-full mt-1 bg-slate-900 border border-gray-600 rounded-md shadow-lg" style="display:none;">
+                                    <div x-show="open" class="eb-dropdown-menu absolute z-10 mt-1 w-full overflow-hidden" style="display:none;">
                                         <div class="p-2">
-                                            <input type="text" x-model="search" placeholder="Search connections..." class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-gray-300 focus:outline-none focus:ring-sky-500 focus:border-sky-500">
+                                            <input type="text" x-model="search" placeholder="Search connections..." class="eb-input">
                                         </div>
-                                        <ul class="py-1 overflow-auto text-base max-h-60 focus:outline-none sm:text-sm scrollbar_thin">
+                                        <ul class="max-h-60 overflow-auto py-1 text-sm scrollbar_thin">
                                             <template x-for="opt in filtered" :key="opt.id">
-                                                <li @click="choose(opt)" class="px-4 py-2 text-gray-300 cursor-pointer select-none hover:bg-gray-700">
+                                                <li @click="choose(opt)" class="eb-menu-option cursor-pointer select-none">
                                                     <span x-text="(opt.display_name || opt.account_email) || ('ID '+opt.id)"></span>
-                                                    <span class="ml-2 text-[11px] text-slate-400" x-text="opt.account_email"></span>
+                                                    <span class="ml-2 text-[11px] text-[var(--eb-text-muted)]" x-text="opt.account_email"></span>
                                                 </li>
                                             </template>
                                             <template x-if="filtered.length === 0">
-                                                <li class="px-4 py-2 text-gray-400">No connections.</li>
+                                                <li class="px-4 py-2 text-sm text-[var(--eb-text-muted)]">No connections.</li>
                                             </template>
                                         </ul>
                                     </div>
                                 </div>
-                                <p class="mt-1 text-[11px] text-slate-400">Select a saved Google Drive connection or click Connect to add one.</p>
+                                <p class="eb-field-help !mt-1">Select a saved Google Drive connection or click Connect to add one.</p>
                             </div>
                         </div>
                     </div>
@@ -501,10 +525,10 @@
                         <input type="hidden" name="gdrive_selected_type" value="">
                         <div class="flex items-center justify-between">
                             <div>
-                                <p class="text-sm font-medium text-slate-300">Select from Google Drive</p>
-                                <p class="text-[11px] text-slate-400 mt-0.5">Choose a folder or a single file to back up.</p>
+                                <p class="text-sm font-medium text-[var(--eb-text-secondary)]">Select from Google Drive</p>
+                                <p class="mt-0.5 text-[11px] text-[var(--eb-text-muted)]">Choose a folder or a single file to back up.</p>
                             </div>
-                            <button type="button" class="px-3 py-2 rounded-md border border-slate-600 text-slate-300 hover:text-white hover:border-slate-500"
+                            <button type="button" class="eb-btn eb-btn-secondary eb-btn-sm"
                                     onclick="openDrivePicker('create')">
                                 Browse Drive
                             </button>
@@ -516,27 +540,27 @@
                 <!-- Dropbox fields -->
                 <div id="dropboxFields" class="source-type-fields hidden">
                     <div class="mb-4">
-                        <label class="block text-sm font-medium text-slate-300 mb-2">Display Name</label>
-                        <input type="text" name="dropbox_display_name" class="w-full bg-gray-700 text-gray-300 border border-gray-600 rounded-md px-4 py-2" placeholder="e.g., Dropbox Team" />
+                        <label class="eb-field-label">Display Name</label>
+                        <input type="text" name="dropbox_display_name" class="eb-input" placeholder="e.g., Dropbox Team" />
                     </div>
                     <div class="mb-4">
-                        <label class="block text-sm font-medium text-slate-300 mb-2">Access Token</label>
-                        <input type="text" name="dropbox_token" class="w-full bg-gray-700 text-gray-300 border border-gray-600 rounded-md px-4 py-2" />
+                        <label class="eb-field-label">Access Token</label>
+                        <input type="text" name="dropbox_token" class="eb-input" />
                     </div>
                     <div class="mb-4">
-                        <label class="block text-sm font-medium text-slate-300 mb-2">Root Path (optional)</label>
-                        <input type="text" name="dropbox_root" class="w-full bg-gray-700 text-gray-300 border border-gray-600 rounded-md px-4 py-2" placeholder="/folder/" />
+                        <label class="eb-field-label">Root Path (optional)</label>
+                        <input type="text" name="dropbox_root" class="eb-input" placeholder="/folder/" />
                     </div>
                     <div class="mb-4">
-                        <label class="block text-sm font-medium text-slate-300 mb-2">Path (optional)</label>
-                        <input type="text" name="dropbox_path" class="w-full bg-gray-700 text-gray-300 border border-gray-600 rounded-md px-4 py-2" placeholder="/folder/sub/" />
+                        <label class="eb-field-label">Path (optional)</label>
+                        <input type="text" name="dropbox_path" class="eb-input" placeholder="/folder/sub/" />
                     </div>
                 </div>
             </div>
 
             <!-- Step 3: Destination -->
             <div class="mb-4">
-                <label class="block text-sm font-medium text-slate-300 mb-2">Destination Bucket</label>
+                <label class="eb-field-label">Destination Bucket</label>
                 <div
                     x-data="{
                         isOpen: false,
@@ -580,25 +604,25 @@
                     <div class="relative">
                         <button type="button"
                                 @click="isOpen = !isOpen"
-                                class="relative w-full px-3 py-2 text-left text-slate-300 bg-slate-900 border border-gray-600 rounded-md shadow-sm cursor-default focus:outline-none focus:ring-1 focus:ring-sky-500 focus:border-sky-500">
+                                class="eb-menu-trigger relative">
                             <span class="block truncate" x-text="selectedName || 'Select a bucket'"></span>
                             <span class="absolute inset-y-0 right-0 flex items-center pr-2 pointer-events-none">
-                                <svg class="w-5 h-5 text-gray-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                                <svg class="h-5 w-5 text-[var(--eb-text-muted)]" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
                                     <path fill-rule="evenodd" d="M10 3a1 1 0 01.707.293l3 3a1 1 0 01-1.414 1.414L10 5.414 7.707 7.707a1 1 0 01-1.414-1.414l3-3A1 1 0 0110 3zm-3.707 9.293a1 1 0 011.414 0L10 14.586l2.293-2.293a1 1 0 011.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd"/>
                                 </svg>
                             </span>
                         </button>
                         <!-- Dropdown panel -->
-                        <div x-show="isOpen" class="absolute z-10 mt-1 w-full bg-slate-900 border border-slate-600 rounded-md shadow-lg">
+                        <div x-show="isOpen" class="eb-dropdown-menu absolute z-10 mt-1 w-full overflow-hidden">
                             <div class="p-2">
-                                <input type="text" x-model="search" placeholder="Search buckets..." class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-gray-300 focus:outline-none focus:ring-sky-500 focus:border-sky-500">
+                                <input type="text" x-model="search" placeholder="Search buckets..." class="eb-input">
                             </div>
-                            <ul class="py-1 max-h-60 overflow-auto text-sm scrollbar_thin">
+                            <ul class="max-h-60 overflow-auto py-1 text-sm scrollbar_thin">
                                 <template x-for="opt in filtered" :key="opt.id">
-                                    <li @click="choose(opt)" class="px-4 py-2 text-gray-300 cursor-pointer select-none hover:bg-gray-700" x-text="opt.name"></li>
+                                    <li @click="choose(opt)" class="eb-menu-option cursor-pointer select-none" x-text="opt.name"></li>
                                 </template>
                                 <template x-if="filtered.length === 0">
-                                    <li class="px-4 py-2 text-gray-400">No buckets found.</li>
+                                    <li class="px-4 py-2 text-sm text-[var(--eb-text-muted)]">No buckets found.</li>
                                 </template>
                             </ul>
                         </div>
@@ -626,18 +650,18 @@
             <!-- Inline Bucket Creation -->
             <div class="mb-4" x-data="{ open:false, creating:false }">
                 <button type="button"
-                        class="inline-flex items-center gap-2 rounded-full border border-slate-700 px-3 py-1.5 text-xs text-slate-300 hover:text-white hover:border-slate-500 transition"
+                        class="eb-btn eb-btn-outline eb-btn-xs"
                         @click="open = !open">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 6v12m6-6H6" />
                     </svg>
                     <span x-text="open ? `Hide create bucket` : `Don't have a bucket? Create one`"></span>
                 </button>
-                <div class="mt-3 rounded-lg border border-slate-700 bg-slate-900/50 p-3 space-y-3" x-show="open" x-cloak>
+                <div class="eb-subpanel mt-3 space-y-3 !p-3" x-show="open" x-cloak>
                     <div>
-                        <label class="block text-xs font-medium text-slate-300 mb-1">Bucket Name</label>
-                        <input type="text" id="inline_bucket_name" class="w-full bg-gray-700 text-gray-300 border border-gray-600 rounded-md px-3 py-2 focus:outline-none focus:border-sky-600" placeholder="e.g., backups-company-prod">
-                        <p class="mt-1 text-[11px] text-slate-400">Lowercase letters, numbers, and hyphens only.</p>
+                        <label class="eb-field-label !mb-1 text-xs">Bucket Name</label>
+                        <input type="text" id="inline_bucket_name" class="eb-input" placeholder="e.g., backups-company-prod">
+                        <p class="eb-field-help !mt-1 !text-[11px]">Lowercase letters, numbers, and hyphens only.</p>
                     </div>
                     <!-- Tenant selection combobox (Alpine) -->
                     <div
@@ -657,13 +681,13 @@
                         }"
                         @click.away="isOpen = false"
                     >
-                        <label for="inline_username" class="block text-xs font-medium text-slate-300 mb-1">Select Tenant</label>
+                        <label for="inline_username" class="eb-field-label !mb-1 text-xs">Select Tenant</label>
                         <input type="hidden" id="inline_username" x-model="selectedUsername">
                         <div class="relative">
-                            <button @click="isOpen = !isOpen" type="button" class="relative w-full px-3 py-2 text-left text-slate-300 bg-slate-900 border border-gray-600 rounded-md shadow-sm cursor-default focus:outline-none focus:ring-1 focus:ring-sky-500 focus:border-sky-500">
+                            <button @click="isOpen = !isOpen" type="button" class="eb-menu-trigger relative">
                                 <span class="block truncate" x-text="selectedUsername || 'Select a tenant'"></span>
                                 <span class="absolute inset-y-0 right-0 flex items-center pr-2 pointer-events-none">
-                                    <svg class="w-5 h-5 text-gray-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                                    <svg class="h-5 w-5 text-[var(--eb-text-muted)]" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
                                         <path fill-rule="evenodd" d="M10 3a1 1 0 01.707.293l3 3a1 1 0 01-1.414 1.414L10 5.414 7.707 7.707a1 1 0 01-1.414-1.414l3-3A1 1 0 0110 3zm-3.707 9.293a1 1 0 011.414 0L10 14.586l2.293-2.293a1 1 0 011.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd" />
                                     </svg>
                                 </span>
@@ -672,18 +696,18 @@
                                  x-transition:leave="transition ease-in duration-100"
                                  x-transition:leave-start="opacity-100"
                                  x-transition:leave-end="opacity-0"
-                                 class="absolute z-10 w-full mt-1 bg-slate-900 border border-gray-600 rounded-md shadow-lg"
+                                 class="eb-dropdown-menu absolute z-10 mt-1 w-full overflow-hidden"
                                  style="display: none;">
                                 <div class="p-2">
-                                    <input type="text" x-model="searchTerm" placeholder="Search tenants..." class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-gray-300 focus:outline-none focus:ring-sky-500 focus:border-sky-500">
+                                    <input type="text" x-model="searchTerm" placeholder="Search tenants..." class="eb-input">
                                 </div>
-                                <ul class="py-1 overflow-auto text-base max-h-60 ring-1 ring-black ring-opacity-5 focus:outline-none sm:text-sm scrollbar_thin" role="listbox">
+                                <ul class="max-h-60 overflow-auto py-1 text-sm scrollbar_thin" role="listbox">
                                     <template x-if="filteredUsernames.length === 0">
-                                        <li class="px-4 py-2 text-gray-400">No tenants found.</li>
+                                        <li class="px-4 py-2 text-sm text-[var(--eb-text-muted)]">No tenants found.</li>
                                     </template>
                                     <template x-for="u in filteredUsernames" :key="u">
                                         <li @click="selectedUsername = u; isOpen = false"
-                                            class="px-4 py-2 text-gray-300 cursor-pointer select-none hover:bg-gray-700"
+                                            class="eb-menu-option cursor-pointer select-none"
                                             x-text="u">
                                         </li>
                                     </template>
@@ -693,20 +717,20 @@
                     </div>
                     <div>
                         <label class="inline-flex items-center gap-2">
-                            <input type="checkbox" id="inline_bucket_versioning" class="w-4 h-4 text-sky-600 bg-gray-700 border-gray-600 rounded focus:ring-sky-500 focus:ring-2">
-                            <span class="text-sm text-slate-300">Enable versioning</span>
+                            <input type="checkbox" id="inline_bucket_versioning" class="eb-checkbox">
+                            <span class="text-sm text-[var(--eb-text-secondary)]">Enable versioning</span>
                         </label>
                         <div class="mt-2" x-data="{ v:false }" x-init="$watch(() => { const el = document.getElementById('inline_bucket_versioning'); return el ? !!el.checked : false; }, val => v = !!val)">
                             <div x-show="v" x-cloak>
-                                <label class="block text-xs font-medium text-slate-300 mb-1">Keep previous versions for (days)</label>
-                                <input type="number" min="1" value="30" id="inline_bucket_retention_days" class="w-40 bg-gray-700 text-gray-300 border border-gray-600 rounded-md px-3 py-2 focus:outline-none focus:border-sky-600">
-                                <p class="mt-1 text-[11px] text-amber-300/90">Each stored version increases usage and may impact monthly billing.</p>
+                                <label class="eb-field-label !mb-1 text-xs">Keep previous versions for (days)</label>
+                                <input type="number" min="1" value="30" id="inline_bucket_retention_days" class="eb-input w-40">
+                                <p class="eb-field-help !mt-1 !text-[11px] !text-[var(--eb-warning-text)]">Each stored version increases usage and may impact monthly billing.</p>
                             </div>
                         </div>
                     </div>
                     <div id="inlineCreateBucketMsg" class="hidden text-xs"></div>
                     <div class="flex justify-end">
-                        <button type="button" class="btn-run-now"
+                        <button type="button" class="eb-btn eb-btn-primary eb-btn-sm"
                                 :disabled="creating"
                                 @click="creating=true; createBucketInline().finally(() => creating=false)">
                             <span x-show="!creating">Create bucket</span>
@@ -716,13 +740,13 @@
                 </div>
             </div>
             <div class="mb-4">
-                <label class="block text-sm font-medium text-slate-300 mb-2">Destination Prefix</label>
-                <input type="text" name="dest_prefix" class="w-full bg-gray-700 text-gray-300 border border-gray-600 rounded-md px-4 py-2 focus:outline-none focus:ring-0 focus:border-sky-600" placeholder="backups/source-name/" required>
+                <label class="eb-field-label">Destination Prefix</label>
+                <input type="text" name="dest_prefix" class="eb-input" placeholder="backups/source-name/" required>
             </div>
 
             <!-- Step 4: Backup Mode -->
             <div class="mb-4">
-                <label class="block text-sm font-medium text-slate-300 mb-2">Backup Mode</label>
+                <label class="eb-field-label">Backup Mode</label>
                 <div
                     x-data="{
                         isOpen:false,
@@ -760,24 +784,24 @@
                     <div class="relative">
                         <button type="button"
                                 @click="isOpen = !isOpen"
-                                class="relative w-full px-3 py-2 text-left text-slate-300 bg-slate-900 border border-gray-600 rounded-md shadow-sm cursor-default focus:outline-none focus:ring-1 focus:ring-sky-500 focus:border-sky-500">
+                                class="eb-menu-trigger relative">
                             <span class="block truncate" x-text="selectedName"></span>
                             <span class="absolute inset-y-0 right-0 flex items-center pr-2 pointer-events-none">
-                                <svg class="w-5 h-5 text-gray-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                                <svg class="h-5 w-5 text-[var(--eb-text-muted)]" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
                                     <path fill-rule="evenodd" d="M10 3a1 1 0 01.707.293l3 3a1 1 0 01-1.414 1.414L10 5.414 7.707 7.707a1 1 0 01-1.414-1.414l3-3A1 1 0 0110 3zm-3.707 9.293a1 1 0 011.414 0L10 14.586l2.293-2.293a1 1 0 011.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd"/>
                                 </svg>
                             </span>
                         </button>
-                        <div x-show="isOpen" class="absolute z-10 mt-1 w-full bg-slate-900 border border-slate-600 rounded-md shadow-lg">
+                        <div x-show="isOpen" class="eb-dropdown-menu absolute z-10 mt-1 w-full overflow-hidden">
                             <div class="p-2">
-                                <input type="text" x-model="search" placeholder="Search…" class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-gray-300 focus:outline-none focus:ring-sky-500 focus:border-sky-500">
+                                <input type="text" x-model="search" placeholder="Search…" class="eb-input">
                             </div>
-                            <ul class="py-1 max-h-60 overflow-auto text-sm scrollbar_thin">
+                            <ul class="max-h-60 overflow-auto py-1 text-sm scrollbar_thin">
                                 <template x-for="opt in filtered" :key="opt.id">
-                                    <li @click="choose(opt)" class="px-4 py-2 text-gray-300 cursor-pointer select-none hover:bg-gray-700" x-text="opt.name"></li>
+                                    <li @click="choose(opt)" class="eb-menu-option cursor-pointer select-none" x-text="opt.name"></li>
                                 </template>
                                 <template x-if="filtered.length === 0">
-                                    <li class="px-4 py-2 text-gray-400">No options.</li>
+                                    <li class="px-4 py-2 text-sm text-[var(--eb-text-muted)]">No options.</li>
                                 </template>
                             </ul>
                         </div>
@@ -786,14 +810,18 @@
                         (function(){
                             const sel = $refs.real;
                             if (sel) {
-                                const o = sel.options[sel.selectedIndex];
-                                selectedId = o ? String(o.value) : 'sync';
-                                selectedName = o ? o.text : 'Sync (Incremental)';
+                                const sync = () => {
+                                    const o = sel.options[sel.selectedIndex];
+                                    selectedId = o ? String(o.value) : 'sync';
+                                    selectedName = o ? o.text : 'Sync (Incremental)';
+                                };
+                                sync();
+                                sel.addEventListener('change', sync);
                             }
                         })()
                     "></div>
                 </div>
-                <p class="mt-1 text-xs text-slate-400">
+                <p class="eb-field-help">
                     <strong>Sync:</strong> Transfers files incrementally, preserving structure. <strong>Archive:</strong> Creates a compressed archive file per run.
                 </p>
             </div>
@@ -822,7 +850,7 @@
 
             <!-- Step 4d: Retention Policy -->
             <div class="mb-4">
-                <label class="block text-sm font-medium text-slate-300 mb-2">Retention Policy</label>
+                <label class="eb-field-label">Retention Policy</label>
                 <div
                     x-data="{
                         isOpen:false,
@@ -862,24 +890,24 @@
                     <div class="relative">
                         <button type="button"
                                 @click="selectedId = ($refs.real?.value || selectedId); selectedName = ($refs.real?.options[$refs.real.selectedIndex]?.text || selectedName); isOpen = !isOpen"
-                                class="relative w-full px-3 py-2 text-left text-slate-300 bg-slate-900 border border-gray-600 rounded-md shadow-sm cursor-default focus:outline-none focus:ring-1 focus:ring-sky-500 focus:border-sky-500">
+                                class="eb-menu-trigger relative">
                             <span class="block truncate" x-text="selectedName"></span>
                             <span class="absolute inset-y-0 right-0 flex items-center pr-2 pointer-events-none">
-                                <svg class="w-5 h-5 text-gray-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                                <svg class="h-5 w-5 text-[var(--eb-text-muted)]" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
                                     <path fill-rule="evenodd" d="M10 3a1 1 0 01.707.293l3 3a1 1 0 01-1.414 1.414L10 5.414 7.707 7.707a1 1 0 01-1.414-1.414l3-3A1 1 0 0110 3zm-3.707 9.293a1 1 0 011.414 0L10 14.586l2.293-2.293a1 1 0 011.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd"/>
                                 </svg>
                             </span>
                         </button>
-                        <div x-show="isOpen" class="absolute z-10 mt-1 w-full bg-slate-900 border border-gray-600 rounded-md shadow-lg">
+                        <div x-show="isOpen" class="eb-dropdown-menu absolute z-10 mt-1 w-full overflow-hidden">
                             <div class="p-2">
-                                <input type="text" x-model="search" placeholder="Search…" class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-gray-300 focus:outline-none focus:ring-sky-500 focus:border-sky-500">
+                                <input type="text" x-model="search" placeholder="Search…" class="eb-input">
                             </div>
-                            <ul class="py-1 max-h-60 overflow-auto text-sm scrollbar_thin">
+                            <ul class="max-h-60 overflow-auto py-1 text-sm scrollbar_thin">
                                 <template x-for="opt in filtered" :key="opt.id">
-                                    <li @click="choose(opt)" class="px-4 py-2 text-gray-300 cursor-pointer select-none hover:bg-gray-700" x-text="opt.name"></li>
+                                    <li @click="choose(opt)" class="eb-menu-option cursor-pointer select-none" x-text="opt.name"></li>
                                 </template>
                                 <template x-if="filtered.length === 0">
-                                    <li class="px-4 py-2 text-gray-400">No options.</li>
+                                    <li class="px-4 py-2 text-sm text-[var(--eb-text-muted)]">No options.</li>
                                 </template>
                             </ul>
                         </div>
@@ -901,14 +929,14 @@
                     "></div>
                 </div>
                 <div id="retentionValueContainer" class="mt-2 hidden">
-                    <input type="number" name="retention_value" id="retentionValue" min="1" class="w-full bg-gray-700 text-gray-300 border border-gray-600 rounded-md px-4 py-2 focus:outline-none focus:ring-0 focus:border-sky-600" placeholder="Enter number">
-                    <p class="mt-1 text-xs text-slate-400" id="retentionHelp"></p>
+                    <input type="number" name="retention_value" id="retentionValue" min="1" class="eb-input" placeholder="Enter number">
+                    <p class="eb-field-help" id="retentionHelp"></p>
                 </div>
             </div>
 
             <!-- Step 5: Schedule -->
             <div class="mb-4">
-                <label class="block text-sm font-medium text-slate-300 mb-2">Schedule</label>
+                <label class="eb-field-label">Schedule</label>
                 <div
                     x-data="{
                         isOpen:false,
@@ -948,24 +976,24 @@
                     <div class="relative">
                         <button type="button"
                                 @click="isOpen = !isOpen"
-                                class="relative w-full px-3 py-2 text-left text-slate-300 bg-slate-900 border border-gray-600 rounded-md shadow-sm cursor-default focus:outline-none focus:ring-1 focus:ring-sky-500 focus:border-sky-500">
+                                class="eb-menu-trigger relative">
                             <span class="block truncate" x-text="selectedName"></span>
                             <span class="absolute inset-y-0 right-0 flex items-center pr-2 pointer-events-none">
-                                <svg class="w-5 h-5 text-gray-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                                <svg class="h-5 w-5 text-[var(--eb-text-muted)]" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
                                     <path fill-rule="evenodd" d="M10 3a1 1 0 01.707.293l3 3a1 1 0 01-1.414 1.414L10 5.414 7.707 7.707a1 1 0 01-1.414-1.414l3-3A1 1 0 0110 3zm-3.707 9.293a1 1 0 011.414 0L10 14.586l2.293-2.293a1 1 0 011.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd"/>
                                 </svg>
                             </span>
                         </button>
-                        <div x-show="isOpen" class="absolute z-10 mt-1 w-full bg-slate-900 border border-gray-600 rounded-md shadow-lg">
+                        <div x-show="isOpen" class="eb-dropdown-menu absolute z-10 mt-1 w-full overflow-hidden">
                             <div class="p-2">
-                                <input type="text" x-model="search" placeholder="Search…" class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-gray-300 focus:outline-none focus:ring-sky-500 focus:border-sky-500">
+                                <input type="text" x-model="search" placeholder="Search…" class="eb-input">
                             </div>
-                            <ul class="py-1 max-h-60 overflow-auto text-sm scrollbar_thin">
+                            <ul class="max-h-60 overflow-auto py-1 text-sm scrollbar_thin">
                                 <template x-for="opt in filtered" :key="opt.id">
-                                    <li @click="choose(opt)" class="px-4 py-2 text-gray-300 cursor-pointer select-none hover:bg-gray-700" x-text="opt.name"></li>
+                                    <li @click="choose(opt)" class="eb-menu-option cursor-pointer select-none" x-text="opt.name"></li>
                                 </template>
                                 <template x-if="filtered.length === 0">
-                                    <li class="px-4 py-2 text-gray-400">No options.</li>
+                                    <li class="px-4 py-2 text-sm text-[var(--eb-text-muted)]">No options.</li>
                                 </template>
                             </ul>
                         </div>
@@ -974,9 +1002,13 @@
                         (function(){
                             const sel = $refs.real;
                             if (sel) {
-                                const o = sel.options[sel.selectedIndex];
-                                selectedId = o ? String(o.value) : 'manual';
-                                selectedName = o ? o.text : 'Manual Only';
+                                const sync = () => {
+                                    const o = sel.options[sel.selectedIndex];
+                                    selectedId = o ? String(o.value) : 'manual';
+                                    selectedName = o ? o.text : 'Manual Only';
+                                };
+                                sync();
+                                sel.addEventListener('change', sync);
                             }
                         })()
                     "></div>
@@ -984,12 +1016,12 @@
             </div>
             <div id="scheduleOptions" class="mb-4 hidden">
                 <div class="mb-2">
-                    <label class="block text-sm font-medium text-slate-300 mb-2">Time</label>
-                    <input type="time" name="schedule_time" class="w-full bg-gray-700 text-gray-300 border border-gray-600 rounded-md px-4 py-2 focus:outline-none focus:ring-0 focus:border-sky-600">
+                    <label class="eb-field-label">Time</label>
+                    <input type="time" name="schedule_time" class="eb-input">
                 </div>
                 <div id="weeklyOption" class="mb-2 hidden">
-                    <label class="block text-sm font-medium text-slate-300 mb-2">Weekday</label>
-                    <select name="schedule_weekday" class="w-full bg-gray-700 text-gray-300 border border-gray-600 rounded-md px-4 py-2 focus:outline-none focus:ring-0 focus:border-sky-600">
+                    <label class="eb-field-label">Weekday</label>
+                    <select name="schedule_weekday" class="eb-select">
                         <option value="1">Monday</option>
                         <option value="2">Tuesday</option>
                         <option value="3">Wednesday</option>
@@ -1003,34 +1035,36 @@
 
             <!-- Job Name -->
             <div class="mb-4">
-                <label class="block text-sm font-medium text-slate-300 mb-2">Job Name</label>
-                <input type="text" name="name" class="w-full bg-gray-700 text-gray-300 border border-gray-600 rounded-md px-4 py-2 focus:outline-none focus:ring-0 focus:border-sky-600" required>
+                <label class="eb-field-label">Job Name</label>
+                <input type="text" name="name" class="eb-input" required>
             </div>
 
-            <div class="flex justify-end space-x-2 mt-6">
-                <button type="button" onclick="closeCreateSlideover()" class="bg-slate-800 hover:bg-slate-700 text-slate-200 px-4 py-2 rounded-md">Cancel</button>
-                <button type="submit" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-md">Create Job</button>
+            <div class="mt-6 flex justify-end gap-2">
+                <button type="button" onclick="closeCreateSlideover()" class="eb-btn eb-btn-secondary eb-btn-sm">Cancel</button>
+                <button type="submit" class="eb-btn eb-btn-success eb-btn-sm">Create Job</button>
             </div>
         </form>
 
         <!-- No Schedule confirmation modal -->
         <div id="noScheduleModal" x-data="{ open:false }" x-show="open" class="fixed inset-0 z-[9998] flex items-center justify-center" style="display:none;">
-            <div class="absolute inset-0 bg-black/60" @click="open=false" onclick="hideNoScheduleModal()"></div>
-            <div class="relative w-full max-w-md rounded-2xl border border-slate-700 bg-slate-900/90 shadow-2xl p-5">
-                <div class="flex items-start gap-3">
-                    <div class="mt-1 flex h-8 w-8 items-center justify-center rounded-full bg-amber-500/15 text-amber-300 border border-amber-400/30">
+            <div class="eb-modal-backdrop absolute inset-0" @click="open=false" onclick="hideNoScheduleModal()"></div>
+            <div class="eb-modal eb-modal--confirm relative w-full max-w-md overflow-hidden !p-0">
+                <div class="eb-modal-header">
+                    <div class="flex items-start gap-3">
+                        <div class="mt-1 flex h-8 w-8 items-center justify-center rounded-full border border-[var(--eb-warning-border)] bg-[var(--eb-warning-bg)] text-[var(--eb-warning-text)]">
                         !
-                    </div>
-                    <div class="flex-1">
-                        <h3 class="text-lg font-semibold text-white">Create without a schedule?</h3>
-                        <p class="mt-1 text-sm text-slate-300">
-                            This backup will not run automatically. You can add a schedule later from the job settings.
-                        </p>
+                        </div>
+                        <div class="flex-1">
+                            <h3 class="eb-modal-title">Create without a schedule?</h3>
+                            <p class="eb-modal-subtitle">
+                                This backup will not run automatically. You can add a schedule later from the job settings.
+                            </p>
+                        </div>
                     </div>
                 </div>
-                <div class="mt-5 flex justify-end gap-2">
-                    <button type="button" class="px-4 py-2 rounded-md border border-slate-600 text-slate-200 hover:border-slate-500" @click="open=false" onclick="hideNoScheduleModal()">Cancel</button>
-                    <button type="button" class="px-4 py-2 rounded-md bg-emerald-600 text-white hover:bg-emerald-700" onclick="confirmNoScheduleCreate()">Create without schedule</button>
+                <div class="eb-modal-footer">
+                    <button type="button" class="eb-btn eb-btn-secondary eb-btn-sm" @click="open=false" onclick="hideNoScheduleModal()">Cancel</button>
+                    <button type="button" class="eb-btn eb-btn-success eb-btn-sm" onclick="confirmNoScheduleCreate()">Create without schedule</button>
                 </div>
             </div>
         </div>
@@ -1038,61 +1072,270 @@
     </div>
 </div>
 
+<style>
+#localJobWizardModal .local-wizard-dialog {
+    width: min(80rem, 100%);
+    max-width: 80rem;
+    height: min(85vh, 920px);
+}
+
+#localJobWizardModal .local-wizard-surface {
+    background:
+        radial-gradient(circle at top right, rgba(249, 115, 22, 0.12), transparent 28%),
+        linear-gradient(180deg, rgba(15, 23, 42, 0.92), rgba(2, 6, 23, 0.96));
+}
+
+#localJobWizardModal .local-wizard-panel {
+    background: var(--eb-surface-subpanel);
+    border: 1px solid var(--eb-border-primary);
+    border-radius: 1rem;
+}
+
+#localJobWizardModal .local-wizard-panel-soft {
+    background: var(--eb-bg-surface);
+    border: 1px solid var(--eb-border-primary);
+    border-radius: 0.875rem;
+}
+
+#localJobWizardModal .local-wizard-panel-info {
+    background: var(--eb-info-bg);
+    border: 1px solid var(--eb-info-border);
+    color: var(--eb-info-text);
+    border-radius: 1rem;
+}
+
+#localJobWizardModal .local-wizard-panel-warning {
+    background: var(--eb-warning-bg);
+    border: 1px solid var(--eb-warning-border);
+    color: var(--eb-warning-text);
+    border-radius: 1rem;
+}
+
+#localJobWizardModal .local-wizard-crumb {
+    color: var(--eb-text-muted);
+}
+
+#localJobWizardModal .local-wizard-crumb:hover:not(:disabled),
+#localJobWizardModal .local-wizard-crumb[data-active="true"] {
+    background: var(--eb-bg-hover);
+    color: var(--eb-text-secondary);
+}
+
+#localJobWizardModal .local-wizard-crumb-step {
+    background: var(--eb-bg-overlay);
+    color: var(--eb-text-muted);
+}
+
+#localJobWizardModal .local-wizard-crumb[data-active="true"] .local-wizard-crumb-step {
+    background: var(--eb-info-icon);
+    color: #fff;
+}
+
+#localJobWizardModal .local-wizard-crumb[data-complete="true"] .local-wizard-crumb-step {
+    background: var(--eb-success-icon);
+    color: #fff;
+}
+
+#localJobWizardModal .local-wizard-crumb[data-locked="true"] {
+    color: var(--eb-text-muted);
+}
+
+#localJobWizardModal .local-wizard-engine-card {
+    min-height: 9.5rem;
+}
+
+#localJobWizardModal .engine-card,
+#localJobWizardModal .volume-card,
+#localJobWizardModal .vm-card {
+    background: var(--eb-surface-subpanel);
+    border-color: var(--eb-border-primary);
+}
+
+#localJobWizardModal .engine-card:hover,
+#localJobWizardModal .volume-card:hover,
+#localJobWizardModal .vm-card:hover {
+    border-color: var(--eb-border-strong);
+    background: var(--eb-bg-hover);
+}
+
+#localJobWizardModal .engine-card.selected {
+    background: var(--eb-info-bg);
+    border-color: var(--eb-info-border);
+    box-shadow: inset 0 0 0 1px var(--eb-info-border);
+}
+
+#localJobWizardModal .local-wizard-pill-choice {
+    border: 1px solid var(--eb-border-primary);
+    background: var(--eb-bg-surface);
+    color: var(--eb-text-secondary);
+}
+
+#localJobWizardModal .local-wizard-pill-choice.is-active {
+    border-color: var(--eb-info-border);
+    background: var(--eb-info-bg);
+    color: var(--eb-info-text);
+}
+
+#localJobWizardModal .local-wizard-stepper {
+    border: 1px solid var(--eb-border-primary);
+    border-radius: 1rem;
+    background: var(--eb-bg-surface);
+}
+
+#localJobWizardModal .local-wizard-stepper-btn {
+    color: var(--eb-text-secondary);
+}
+
+#localJobWizardModal .local-wizard-stepper-btn:hover {
+    background: var(--eb-bg-hover);
+}
+
+#localJobWizardModal .local-wizard-stepper-input {
+    background: transparent;
+    color: var(--eb-text-primary);
+}
+
+#localJobWizardModal .local-wizard-hint {
+    color: var(--eb-text-muted);
+}
+
+#localJobWizardModal input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]),
+#localJobWizardModal textarea {
+    background: var(--eb-bg-surface);
+    border: 1px solid var(--eb-border-primary);
+    border-radius: 0.875rem;
+    color: var(--eb-text-primary);
+}
+
+#localJobWizardModal textarea {
+    min-height: 4.75rem;
+    resize: vertical;
+}
+
+#localJobWizardModal input::placeholder,
+#localJobWizardModal textarea::placeholder {
+    color: var(--eb-text-muted);
+    opacity: 1;
+}
+
+#localJobWizardModal [class*="text-slate-100"],
+#localJobWizardModal [class*="text-slate-200"] {
+    color: var(--eb-text-primary);
+}
+
+#localJobWizardModal [class*="text-slate-300"] {
+    color: var(--eb-text-secondary);
+}
+
+#localJobWizardModal [class*="text-slate-400"],
+#localJobWizardModal [class*="text-slate-500"],
+#localJobWizardModal [class*="text-slate-600"] {
+    color: var(--eb-text-muted);
+}
+
+#localJobWizardModal [class*="rounded-xl"][class*="border"][class*="bg-slate-900/60"],
+#localJobWizardModal [class*="rounded-xl"][class*="border"][class*="bg-slate-900/50"],
+#localJobWizardModal [class*="rounded-xl"][class*="border"][class*="bg-slate-900"] {
+    background: var(--eb-surface-subpanel);
+    border-color: var(--eb-border-primary);
+}
+
+#localJobWizardModal [class*="bg-slate-800/60"],
+#localJobWizardModal [class*="bg-slate-800/50"] {
+    background: var(--eb-bg-surface);
+}
+
+#localJobWizardModal [class*="border-slate-800"],
+#localJobWizardModal [class*="border-slate-700"],
+#localJobWizardModal [class*="border-slate-600"] {
+    border-color: var(--eb-border-primary);
+}
+
+#localJobWizardModal button[class*="bg-slate-800"],
+#localJobWizardModal button[class*="bg-slate-700"] {
+    border: 1px solid var(--eb-border-primary);
+    background: var(--eb-bg-surface);
+    color: var(--eb-text-secondary);
+}
+
+#localJobWizardModal button[class*="bg-slate-800"]:hover,
+#localJobWizardModal button[class*="bg-slate-700"]:hover {
+    background: var(--eb-bg-hover);
+}
+
+#localJobWizardModal button[class*="bg-sky-600"],
+#localJobWizardModal button[class*="bg-blue-500"],
+#localJobWizardModal button[class*="bg-cyan-600"] {
+    background: var(--eb-info-icon);
+    color: #fff;
+}
+
+#localJobWizardModal [class*="bg-purple-900/20"] {
+    background: var(--eb-warning-bg);
+    border-color: var(--eb-warning-border);
+}
+
+#localJobWizardModal [class*="bg-blue-900/20"] {
+    background: var(--eb-info-bg);
+    border-color: var(--eb-info-border);
+}
+</style>
+
 <!-- Local Agent Job Wizard Modal -->
 <div id="localJobWizardModal" class="fixed inset-0 z-[2000] hidden">
-    <div class="absolute inset-0 bg-black/75" onclick="closeLocalJobWizard()"></div>
+    <div class="eb-modal-backdrop absolute inset-0" onclick="closeLocalJobWizard()"></div>
     <div class="absolute inset-0 flex items-center justify-center p-4">
-        <div class="w-full max-w-5xl h-[85vh] rounded-2xl border border-slate-800 bg-slate-950 shadow-2xl overflow-hidden flex flex-col">
-            <div class="px-6 py-4 border-b border-slate-800 shrink-0">
+        <div class="eb-modal local-wizard-dialog local-wizard-surface flex flex-col overflow-hidden !p-0">
+            <div class="eb-modal-header shrink-0 !mb-0">
                 <div class="flex items-center justify-between mb-4">
                     <div>
-                        <p class="text-xs uppercase text-slate-400 tracking-wide">Local Agent</p>
-                        <h3 class="text-xl font-semibold text-white">Backup Job Wizard</h3>
+                        <p class="eb-type-eyebrow">Local Agent</p>
+                        <h3 class="eb-modal-title">Backup Job Wizard</h3>
                     </div>
-                    <button class="icon-btn" onclick="closeLocalJobWizard()" aria-label="Close wizard">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <button type="button" class="eb-modal-close" onclick="closeLocalJobWizard()" aria-label="Close wizard">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6 18L18 6M6 6l12 12" />
                         </svg>
                     </button>
                 </div>
                 <!-- Breadcrumb Navigation -->
-                <nav id="localWizardBreadcrumb" class="flex items-center gap-1">
-                    <button type="button" data-wizard-step="1" onclick="localWizardGoToStep(1)" class="wizard-crumb group flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all" data-active="true">
-                        <span class="w-5 h-5 flex items-center justify-center rounded-full text-[10px] font-bold bg-cyan-500 text-white group-[.is-active]:bg-cyan-500 group-[.is-locked]:bg-slate-700 group-[.is-complete]:bg-emerald-500">1</span>
+                <nav id="localWizardBreadcrumb" class="flex flex-wrap items-center gap-1">
+                    <button type="button" data-wizard-step="1" onclick="localWizardGoToStep(1)" class="wizard-crumb local-wizard-crumb flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-medium transition-all" data-active="true">
+                        <span class="local-wizard-crumb-step flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold">1</span>
                         <span class="hidden sm:inline">Setup</span>
                     </button>
-                    <svg class="w-4 h-4 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
-                    <button type="button" data-wizard-step="2" onclick="localWizardGoToStep(2)" class="wizard-crumb group flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all" data-locked="true">
-                        <span class="w-5 h-5 flex items-center justify-center rounded-full text-[10px] font-bold bg-slate-700 text-slate-400">2</span>
+                    <svg class="h-4 w-4 text-[var(--eb-text-muted)]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                    <button type="button" data-wizard-step="2" onclick="localWizardGoToStep(2)" class="wizard-crumb local-wizard-crumb flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-medium transition-all" data-locked="true">
+                        <span class="local-wizard-crumb-step flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold">2</span>
                         <span class="hidden sm:inline">Source</span>
                     </button>
-                    <svg class="w-4 h-4 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
-                    <button type="button" data-wizard-step="3" onclick="localWizardGoToStep(3)" class="wizard-crumb group flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all" data-locked="true">
-                        <span class="w-5 h-5 flex items-center justify-center rounded-full text-[10px] font-bold bg-slate-700 text-slate-400">3</span>
+                    <svg class="h-4 w-4 text-[var(--eb-text-muted)]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                    <button type="button" data-wizard-step="3" onclick="localWizardGoToStep(3)" class="wizard-crumb local-wizard-crumb flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-medium transition-all" data-locked="true">
+                        <span class="local-wizard-crumb-step flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold">3</span>
                         <span class="hidden sm:inline">Schedule</span>
                     </button>
-                    <svg class="w-4 h-4 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
-                    <button type="button" data-wizard-step="4" onclick="localWizardGoToStep(4)" class="wizard-crumb group flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all" data-locked="true">
-                        <span class="w-5 h-5 flex items-center justify-center rounded-full text-[10px] font-bold bg-slate-700 text-slate-400">4</span>
+                    <svg class="h-4 w-4 text-[var(--eb-text-muted)]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                    <button type="button" data-wizard-step="4" onclick="localWizardGoToStep(4)" class="wizard-crumb local-wizard-crumb flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-medium transition-all" data-locked="true">
+                        <span class="local-wizard-crumb-step flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold">4</span>
                         <span class="hidden sm:inline">Policy</span>
                     </button>
-                    <svg class="w-4 h-4 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
-                    <button type="button" data-wizard-step="5" onclick="localWizardGoToStep(5)" class="wizard-crumb group flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all" data-locked="true">
-                        <span class="w-5 h-5 flex items-center justify-center rounded-full text-[10px] font-bold bg-slate-700 text-slate-400">5</span>
+                    <svg class="h-4 w-4 text-[var(--eb-text-muted)]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                    <button type="button" data-wizard-step="5" onclick="localWizardGoToStep(5)" class="wizard-crumb local-wizard-crumb flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-medium transition-all" data-locked="true">
+                        <span class="local-wizard-crumb-step flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold">5</span>
                         <span class="hidden sm:inline">Review</span>
                     </button>
                 </nav>
             </div>
 
-            <div class="px-6 py-4 overflow-y-auto flex-1 scrollbar-thin-dark">
+            <div class="eb-modal-body flex-1 overflow-y-auto scrollbar-thin-dark">
 
                 <div class="space-y-6">
                     <!-- Step 1 -->
                     <div class="wizard-step" data-step="1">
                         <div class="grid md:grid-cols-2 gap-4">
                             <div>
-                                <label class="block text-sm font-medium text-slate-200 mb-2">Job Name</label>
-                                <input id="localWizardName" type="text" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-slate-100 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500/50" placeholder="My local backup">
+                                <label class="eb-field-label">Job Name</label>
+                                <input id="localWizardName" type="text" class="eb-input" placeholder="My local backup">
                             </div>
                             {if $isMspClient}
                             <!-- MSP: Tenant Selector -->
@@ -1130,17 +1373,17 @@
                                     window.dispatchEvent(new CustomEvent('tenant-changed', { detail: { tenantId } }));
                                 }
                             }" @click.away="isOpen = false" x-init="selectedName = 'No Tenant (Direct)'">
-                                <label class="block text-sm font-medium text-slate-200 mb-2">
-                                    <span class="text-emerald-400 text-xs uppercase tracking-wide font-semibold">MSP:</span> Scope to Tenant
+                                <label class="eb-field-label">
+                                    <span class="eb-type-eyebrow text-[var(--eb-success-text)]">MSP</span> Scope to Tenant
                                 </label>
                                 <input type="hidden" id="localWizardTenantId" x-model="selectedId">
                                 <div class="relative">
                                     <button type="button"
                                             @click="isOpen = !isOpen"
-                                            class="relative w-full px-3 py-2 text-left text-slate-300 bg-slate-900 border border-slate-700 rounded-lg shadow-sm cursor-default focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500/50">
+                                            class="eb-menu-trigger relative">
                                         <span class="block truncate" x-text="selectedName || 'No Tenant (Direct)'"></span>
                                         <span class="absolute inset-y-0 right-0 flex items-center pr-2 pointer-events-none">
-                                            <svg class="w-5 h-5 text-gray-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                                            <svg class="h-5 w-5 text-[var(--eb-text-muted)]" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
                                                 <path fill-rule="evenodd" d="M10 3a1 1 0 01.707.293l3 3a1 1 0 01-1.414 1.414L10 5.414 7.707 7.707a1 1 0 01-1.414-1.414l3-3A1 1 0 0110 3zm-3.707 9.293a1 1 0 011.414 0L10 14.586l2.293-2.293a1 1 0 011.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd"/>
                                             </svg>
                                         </span>
@@ -1149,22 +1392,22 @@
                                          x-transition:enter="transition ease-out duration-100"
                                          x-transition:enter-start="opacity-0 scale-95"
                                          x-transition:enter-end="opacity-100 scale-100"
-                                         class="absolute z-20 mt-1 w-full bg-slate-900 border border-slate-700 rounded-lg shadow-xl overflow-hidden" 
+                                         class="eb-dropdown-menu absolute z-20 mt-1 w-full overflow-hidden" 
                                          style="display: none;">
-                                        <div class="p-2 border-b border-slate-800">
-                                            <input type="text" x-model="search" placeholder="Search tenants..." class="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-md text-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500/50">
+                                        <div class="p-2">
+                                            <input type="text" x-model="search" placeholder="Search tenants..." class="eb-input">
                                         </div>
-                                        <ul class="py-1 max-h-60 overflow-auto text-sm scrollbar_thin">
+                                        <ul class="max-h-60 overflow-auto py-1 text-sm scrollbar_thin">
                                             <template x-for="opt in filtered" :key="opt.id">
                                                 <li @click="choose(opt)" 
-                                                    class="px-3 py-2 text-slate-200 cursor-pointer select-none hover:bg-slate-800 transition"
-                                                    :class="selectedId === String(opt.id) ? 'bg-cyan-500/20 text-cyan-200' : ''">
+                                                    class="eb-menu-option cursor-pointer select-none"
+                                                    :class="{ 'is-active': selectedId === String(opt.id) }">
                                                     <div class="flex items-center gap-2">
-                                                        <div class="w-6 h-6 rounded bg-slate-700/50 flex items-center justify-center shrink-0" :class="opt.id ? 'bg-violet-500/20' : 'bg-slate-700/50'">
-                                                            <svg x-show="opt.id" class="w-3.5 h-3.5 text-violet-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                        <div class="flex h-6 w-6 items-center justify-center rounded bg-[var(--eb-bg-overlay)] text-[var(--eb-text-muted)] shrink-0">
+                                                            <svg x-show="opt.id" class="h-3.5 w-3.5 text-[var(--eb-info-text)]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
                                                             </svg>
-                                                            <svg x-show="!opt.id" class="w-3.5 h-3.5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                            <svg x-show="!opt.id" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20 12H4" />
                                                             </svg>
                                                         </div>
@@ -1173,31 +1416,28 @@
                                                 </li>
                                             </template>
                                             <template x-if="filtered.length === 0">
-                                                <li class="px-3 py-2 text-slate-500 text-center">No tenants found.</li>
+                                                <li class="px-3 py-2 text-center text-sm text-[var(--eb-text-muted)]">No tenants found.</li>
                                             </template>
                                         </ul>
                                     </div>
                                 </div>
-                                <p class="text-xs text-slate-500 mt-1">Select a tenant to scope this backup job. The job will be associated with the tenant's agents.</p>
+                                <p class="eb-field-help">Select a tenant to scope this backup job. The job will be associated with the tenant's agents.</p>
                             </div>
                             {/if}
                             <div class="md:col-span-2" x-data="{ showAdvanced: false }">
                                 <div class="flex items-center justify-between mb-3">
-                                    <label class="block text-sm font-medium text-slate-200">Backup Engine</label>
-                                    <label class="flex items-center gap-2 text-xs text-slate-400 cursor-pointer">
-                                        <span>Advanced</span>
-                                        <button @click="showAdvanced = !showAdvanced" type="button" 
-                                                class="relative w-9 h-5 rounded-full transition-colors"
-                                                :class="showAdvanced ? 'bg-cyan-600' : 'bg-slate-700'">
-                                            <span class="absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform"
-                                                  :class="showAdvanced ? 'translate-x-4' : 'translate-x-0'"></span>
-                                        </button>
-                                    </label>
+                                    <label class="eb-field-label !mb-0">Backup Engine</label>
+                                    <button type="button" class="eb-toggle" @click="showAdvanced = !showAdvanced">
+                                        <div class="eb-toggle-track" :class="showAdvanced && 'is-on'">
+                                            <div class="eb-toggle-thumb"></div>
+                                        </div>
+                                        <span class="eb-toggle-label">Advanced</span>
+                                    </button>
                                 </div>
                                 <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
                                     <!-- File Backup (Archive) - Primary option -->
                                     <button type="button" data-engine-btn="kopia" 
-                                            class="engine-card group flex flex-col items-center gap-2 p-4 rounded-xl border border-slate-700 bg-slate-800/50 hover:bg-slate-800 hover:border-slate-600 transition-all text-center"
+                                            class="engine-card local-wizard-engine-card eb-choice-card group flex flex-col items-center gap-2 p-4 text-center"
                                             onclick="localWizardSet('engine','kopia')">
                                         <div class="w-10 h-10 rounded-lg bg-slate-700/50 flex items-center justify-center group-[.selected]:bg-cyan-500/20">
                                             <svg class="w-5 h-5 text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1212,7 +1452,7 @@
 
                                     <!-- Disk Image -->
                                     <button type="button" data-engine-btn="disk_image" 
-                                            class="engine-card group flex flex-col items-center gap-2 p-4 rounded-xl border border-slate-700 bg-slate-800/50 hover:bg-slate-800 hover:border-slate-600 transition-all text-center"
+                                            class="engine-card local-wizard-engine-card eb-choice-card group flex flex-col items-center gap-2 p-4 text-center"
                                             onclick="localWizardSet('engine','disk_image')">
                                         <div class="w-10 h-10 rounded-lg bg-slate-700/50 flex items-center justify-center group-[.selected]:bg-cyan-500/20">
                                             <svg class="w-5 h-5 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1228,7 +1468,7 @@
 
                                     <!-- Hyper-V Backup -->
                                     <button type="button" data-engine-btn="hyperv" 
-                                            class="engine-card group flex flex-col items-center gap-2 p-4 rounded-xl border border-slate-700 bg-slate-800/50 hover:bg-slate-800 hover:border-slate-600 transition-all text-center"
+                                            class="engine-card local-wizard-engine-card eb-choice-card group flex flex-col items-center gap-2 p-4 text-center"
                                             onclick="localWizardSet('engine','hyperv')">
                                         <div class="w-10 h-10 rounded-lg bg-slate-700/50 flex items-center justify-center group-[.selected]:bg-cyan-500/20">
                                             <svg class="w-5 h-5 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1247,7 +1487,7 @@
                                             x-transition:enter="transition ease-out duration-200"
                                             x-transition:enter-start="opacity-0 scale-95"
                                             x-transition:enter-end="opacity-100 scale-100"
-                                            class="engine-card group flex flex-col items-center gap-2 p-4 rounded-xl border border-slate-700 bg-slate-800/50 hover:bg-slate-800 hover:border-slate-600 transition-all text-center"
+                                            class="engine-card local-wizard-engine-card eb-choice-card group flex flex-col items-center gap-2 p-4 text-center"
                                             onclick="localWizardSet('engine','sync')">
                                         <div class="w-10 h-10 rounded-lg bg-slate-700/50 flex items-center justify-center group-[.selected]:bg-cyan-500/20">
                                             <svg class="w-5 h-5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1356,10 +1596,10 @@
                                     this.isOpen = false;
                                 }
                             }" x-init="init()">
-                                <label class="block text-sm font-medium text-slate-200 mb-2">Agent</label>
+                                <label class="eb-field-label">Agent</label>
                                 <input type="hidden" id="localWizardAgentId">
                                 <div class="relative">
-                                    <button type="button" class="w-full px-4 py-2 rounded-lg border border-slate-700 bg-slate-800 text-slate-100 flex justify-between items-center"
+                                    <button type="button" class="eb-menu-trigger flex items-center justify-between"
                                             @click="isOpen = !isOpen">
                                         <span class="flex items-center gap-2">
                                             <template x-if="selectedAgent">
@@ -1371,16 +1611,17 @@
                                             </template>
                                             <span x-text="selectedAgent ? agentLabel(selectedAgent) : (loading ? 'Loading agents…' : 'Select agent')"></span>
                                         </span>
-                                        <svg class="w-4 h-4 text-slate-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <svg class="h-4 w-4 text-[var(--eb-text-muted)]" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
                                         </svg>
                                     </button>
-                                    <div x-show="isOpen" class="absolute z-10 mt-1 w-full bg-slate-900 border border-slate-700 rounded-md shadow-lg max-h-60 overflow-auto" style="display:none;">
-                                        <div class="p-2 border-b border-slate-800">
-                                            <input type="text" x-model="search" placeholder="Search agents..." class="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-md text-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500/50">
+                                    <div x-show="isOpen" class="eb-dropdown-menu absolute z-10 mt-1 w-full overflow-hidden" style="display:none;">
+                                        <div class="p-2">
+                                            <input type="text" x-model="search" placeholder="Search agents..." class="eb-input">
                                         </div>
-                                        <template x-for="opt in filtered" :key="opt.id">
-                                            <div class="px-3 py-2 text-slate-200 hover:bg-slate-800 cursor-pointer flex items-center gap-2" @click="choose(opt)">
+                                        <div class="max-h-60 overflow-auto py-1 text-sm scrollbar_thin">
+                                        <template x-for="opt in filtered" :key="opt.agent_uuid">
+                                            <div class="eb-menu-option flex cursor-pointer items-center gap-2" @click="choose(opt)">
                                                 <span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold"
                                                       :class="statusBadgeClass(opt.online_status)">
                                                     <span class="h-1.5 w-1.5 rounded-full" :class="statusDotClass(opt.online_status)"></span>
@@ -1389,25 +1630,26 @@
                                                 <span x-text="agentLabel(opt)"></span>
                                             </div>
                                         </template>
-                                        <div class="px-3 py-2 text-slate-500 text-xs" x-show="!loading && filtered.length===0">No active agents found.</div>
+                                        <div class="px-3 py-2 text-xs text-[var(--eb-text-muted)]" x-show="!loading && filtered.length===0">No active agents found.</div>
+                                        </div>
                                     </div>
                                 </div>
-                                <p class="text-xs text-slate-500 mt-1">Select your registered local agent.</p>
+                                <p class="eb-field-help">Select your registered local agent.</p>
                             </div>
                             <div>
-                                <label class="block text-sm font-medium text-slate-200 mb-2">Destination</label>
+                                <label class="eb-field-label">Destination</label>
                                 <div class="flex gap-2">
-                                    <button type="button" class="px-4 py-2 rounded-lg border border-slate-700 bg-slate-800 text-slate-100 opacity-100" disabled>e3 (only)</button>
-                                    <button type="button" class="px-4 py-2 rounded-lg border border-slate-700 bg-slate-800 text-slate-500 cursor-not-allowed" disabled>Local (disabled)</button>
+                                    <button type="button" class="eb-btn eb-btn-secondary eb-btn-sm" disabled>e3 (only)</button>
+                                    <button type="button" class="eb-btn eb-btn-secondary eb-btn-sm cursor-not-allowed opacity-60" disabled>Local (disabled)</button>
                                 </div>
                             </div>
                             <!-- Disk image fields moved to Step 2 -->
                             <div id="localWizardS3Fields">
-                                <label class="block text-sm font-medium text-slate-200 mb-1">
+                                <label class="eb-field-label !mb-1">
                                     e3 Storage Location
-                                    <span class="ml-1 text-xs font-normal text-slate-400">(Policy Managed)</span>
+                                    <span class="ml-1 text-xs font-normal text-[var(--eb-text-muted)]">(Policy Managed)</span>
                                 </label>
-                                <p class="text-xs text-slate-500 mb-2">Bucket and root prefix are assigned automatically from the enrolled agent destination policy.</p>
+                                <p class="eb-field-help !mb-2 !mt-0">Bucket and root prefix are assigned automatically from the enrolled agent destination policy.</p>
                                 <div
                                     id="localWizardBucketDropdown"
                                     class="hidden"
@@ -1452,7 +1694,7 @@
                                     <div class="relative">
                                         <button type="button"
                                                 @click="isOpen = !isOpen"
-                                                class="relative w-full px-3 py-2 text-left text-slate-300 bg-slate-900 border border-slate-700 rounded-lg shadow-sm cursor-default focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500/50">
+                                                class="eb-menu-trigger relative">
                                             <span class="flex items-center gap-2">
                                                 <svg class="w-4 h-4 text-emerald-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
@@ -1460,52 +1702,52 @@
                                                 <span class="block truncate" x-text="selectedName || 'Choose where to store your backups'"></span>
                                             </span>
                                             <span class="absolute inset-y-0 right-0 flex items-center pr-2 pointer-events-none">
-                                                <svg class="w-5 h-5 text-gray-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                                                <svg class="h-5 w-5 text-[var(--eb-text-muted)]" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
                                                     <path fill-rule="evenodd" d="M10 3a1 1 0 01.707.293l3 3a1 1 0 01-1.414 1.414L10 5.414 7.707 7.707a1 1 0 01-1.414-1.414l3-3A1 1 0 0110 3zm-3.707 9.293a1 1 0 011.414 0L10 14.586l2.293-2.293a1 1 0 011.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd"/>
                                                 </svg>
                                             </span>
                                         </button>
-                                        <div x-show="isOpen" class="absolute z-10 mt-1 w-full bg-slate-900 border border-slate-600 rounded-md shadow-lg">
+                                        <div x-show="isOpen" class="eb-dropdown-menu absolute z-10 mt-1 w-full overflow-hidden">
                                             <div class="p-2">
-                                                <input type="text" x-model="search" placeholder="Search buckets..." class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-gray-300 focus:outline-none focus:ring-sky-500 focus:border-sky-500">
+                                                <input type="text" x-model="search" placeholder="Search buckets..." class="eb-input">
                                             </div>
-                                            <ul class="py-1 max-h-60 overflow-auto text-sm scrollbar_thin">
+                                            <ul class="max-h-60 overflow-auto py-1 text-sm scrollbar_thin">
                                                 <template x-for="opt in filtered" :key="opt.id">
-                                                    <li @click="choose(opt)" class="px-4 py-2 text-gray-300 cursor-pointer select-none hover:bg-gray-700" x-text="opt.name"></li>
+                                                    <li @click="choose(opt)" class="eb-menu-option cursor-pointer select-none" x-text="opt.name"></li>
                                                 </template>
                                                 <template x-if="filtered.length === 0">
-                                                    <li class="px-4 py-2 text-gray-400">No buckets found.</li>
+                                                    <li class="px-4 py-2 text-sm text-[var(--eb-text-muted)]">No buckets found.</li>
                                                 </template>
                                             </ul>
                                         </div>
                                     </div>
                                 </div>
                                 <div class="mt-3 hidden">
-                                    <label class="block text-sm font-medium text-slate-200 mb-2">Directory (optional)</label>
-                                    <input id="localWizardPrefix" type="text" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-slate-100 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500/50" placeholder="backups/job123/">
+                                    <label class="eb-field-label">Directory (optional)</label>
+                                    <input id="localWizardPrefix" type="text" class="eb-input" placeholder="backups/job123/">
                                 </div>
                                 <div class="mt-3 hidden">
-                                    <button type="button" class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-dashed border-slate-600 text-slate-400 hover:text-sky-400 hover:border-sky-500/50 transition text-sm" onclick="openBucketCreateModal(onLocalWizardBucketCreated)">
+                                    <button type="button" class="eb-btn eb-btn-outline eb-btn-sm" onclick="openBucketCreateModal(onLocalWizardBucketCreated)">
                                         <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
                                         </svg>
                                         Create new bucket
                                     </button>
                                 </div>
-                                <div class="mt-2 rounded-lg border border-slate-700 bg-slate-900/60 p-3 space-y-2">
+                                <div class="local-wizard-panel-soft mt-2 space-y-2 p-3">
                                     <div>
-                                        <div class="text-xs text-slate-400">Bucket</div>
-                                        <div id="localWizardBucketLabel" class="text-sm text-slate-100">Auto-assigned from selected agent</div>
+                                        <div class="text-xs text-[var(--eb-text-muted)]">Bucket</div>
+                                        <div id="localWizardBucketLabel" class="text-sm text-[var(--eb-text-primary)]">Auto-assigned from selected agent</div>
                                     </div>
                                     <div>
-                                        <div class="text-xs text-slate-400">Prefix</div>
-                                        <div id="localWizardPrefixLabel" class="text-sm text-slate-100">Device-scoped immutable prefix</div>
+                                        <div class="text-xs text-[var(--eb-text-muted)]">Prefix</div>
+                                        <div id="localWizardPrefixLabel" class="text-sm text-[var(--eb-text-primary)]">Device-scoped immutable prefix</div>
                                     </div>
                                 </div>
                             </div>
                             <div id="localWizardLocalFields" class="hidden">
-                                <label class="block text-sm font-medium text-slate-200 mb-2">Local Destination Path</label>
-                                <input id="localWizardLocalPath" type="text" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-slate-100 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500/50" placeholder="E.g. D:\Backups">
+                                <label class="eb-field-label">Local Destination Path</label>
+                                <input id="localWizardLocalPath" type="text" class="eb-input" placeholder="E.g. D:\Backups">
                             </div>
                         </div>
                     </div>
@@ -1704,47 +1946,82 @@
                                 </div>
 
                                 <!-- Backup Options -->
-                                <div class="rounded-xl border border-slate-800 bg-slate-900/60 p-4 space-y-3">
-                                    <h4 class="text-xs font-semibold text-slate-400 uppercase tracking-wide">Backup Options</h4>
+                                <div class="local-wizard-panel p-4 space-y-3">
+                                    <h4 class="eb-type-eyebrow">Backup Options</h4>
                                     
                                     <!-- Enable RCT -->
-                                    <label class="flex items-center gap-2 cursor-pointer">
-                                        <input type="checkbox" id="localWizardHypervEnableRCT" checked 
-                                               class="w-4 h-4 text-blue-600 bg-slate-800 border-slate-600 rounded focus:ring-blue-500 focus:ring-2">
-                                        <div>
-                                            <span class="text-sm text-slate-200">Enable RCT (Incremental)</span>
-                                            <p class="text-[10px] text-slate-500">Use Resilient Change Tracking for fast incremental backups</p>
-                                        </div>
-                                    </label>
+                                    <div x-data="{ on: true }" x-init="$refs.input.checked = on" class="space-y-1">
+                                        <button type="button" class="eb-toggle" @click="on = !on; $refs.input.checked = on">
+                                            <input x-ref="input" type="checkbox" id="localWizardHypervEnableRCT" class="hidden" checked>
+                                            <div class="eb-toggle-track" :class="on && 'is-on'">
+                                                <div class="eb-toggle-thumb"></div>
+                                            </div>
+                                            <span class="eb-toggle-label">Enable RCT (Incremental)</span>
+                                        </button>
+                                        <p class="text-[10px] text-[var(--eb-text-muted)]">Use Resilient Change Tracking for fast incremental backups</p>
+                                    </div>
 
                                     <!-- Consistency Level -->
-                                    <div>
-                                        <label class="block text-xs text-slate-400 mb-1">Consistency Level</label>
-                                        <select id="localWizardHypervConsistency" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500/50">
+                                    <div x-data="{
+                                        isOpen: false,
+                                        selected: 'application',
+                                        options: [
+                                            { value: 'application', label: 'Application-consistent (VSS)' },
+                                            { value: 'crash', label: 'Crash-consistent (Faster)' }
+                                        ],
+                                        labelFor(val) {
+                                            const option = this.options.find(opt => opt.value === val);
+                                            return option ? option.label : val;
+                                        }
+                                    }" x-init="selected = $refs.nativeSelect.value || selected; window.addEventListener('local-wizard-fields-loaded', () => { selected = $refs.nativeSelect.value || selected; });" @click.away="isOpen = false">
+                                        <label class="eb-field-label !mb-1 text-xs">Consistency Level</label>
+                                        <select id="localWizardHypervConsistency" x-ref="nativeSelect" class="hidden">
                                             <option value="application">Application-consistent (VSS)</option>
                                             <option value="crash">Crash-consistent (Faster)</option>
                                         </select>
-                                        <p class="text-[10px] text-slate-500 mt-1">Application-consistent uses VSS for quiesced snapshots</p>
+                                        <div class="relative">
+                                            <button type="button" @click="selected = $refs.nativeSelect.value || selected; isOpen = !isOpen" class="eb-menu-trigger relative">
+                                                <span class="block truncate" x-text="labelFor(selected)"></span>
+                                                <span class="absolute inset-y-0 right-0 flex items-center pr-2 pointer-events-none">
+                                                    <svg class="h-5 w-5 text-[var(--eb-text-muted)]" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                                                        <path fill-rule="evenodd" d="M10 3a1 1 0 01.707.293l3 3a1 1 0 01-1.414 1.414L10 5.414 7.707 7.707a1 1 0 01-1.414-1.414l3-3A1 1 0 0110 3zm-3.707 9.293a1 1 0 011.414 0L10 14.586l2.293-2.293a1 1 0 011.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd"/>
+                                                    </svg>
+                                                </span>
+                                            </button>
+                                            <div x-show="isOpen" class="eb-dropdown-menu absolute z-10 mt-1 w-full overflow-hidden" style="display:none;">
+                                                <div class="py-1 text-sm">
+                                                    <template x-for="opt in options" :key="opt.value">
+                                                        <button type="button"
+                                                                @click="selected = opt.value; $refs.nativeSelect.value = opt.value; isOpen = false"
+                                                                class="eb-menu-option w-full text-left"
+                                                                :class="{ 'is-active': selected === opt.value }"
+                                                                x-text="opt.label">
+                                                        </button>
+                                                    </template>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <p class="text-[10px] text-[var(--eb-text-muted)] mt-1">Application-consistent uses VSS for quiesced snapshots</p>
                                     </div>
 
                                     <!-- Quiesce Timeout -->
                                     <div>
-                                        <label class="block text-xs text-slate-400 mb-1">Quiesce Timeout (seconds)</label>
+                                        <label class="eb-field-label !mb-1 text-xs">Quiesce Timeout (seconds)</label>
                                         <input type="number" id="localWizardHypervQuiesceTimeout" value="300" min="30" max="1800"
-                                               class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500/50">
-                                        <p class="text-[10px] text-slate-500 mt-1">Maximum time to wait for VSS quiesce</p>
+                                               class="eb-input">
+                                        <p class="text-[10px] text-[var(--eb-text-muted)] mt-1">Maximum time to wait for VSS quiesce</p>
                                     </div>
                                 </div>
 
                                 <!-- Hyper-V Info -->
-                                <div class="rounded-xl border border-blue-500/30 bg-blue-900/20 p-4">
+                                <div class="local-wizard-panel-info p-4">
                                     <div class="flex items-start gap-2">
-                                        <svg class="w-4 h-4 text-blue-400 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <svg class="mt-0.5 h-4 w-4 shrink-0 text-[var(--eb-info-text)]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                                         </svg>
                                         <div>
-                                            <p class="text-xs text-blue-200 font-medium">Hyper-V Backup</p>
-                                            <p class="text-[10px] text-blue-300/70 mt-1">VMs are backed up using VSS-aware checkpoints. RCT enables efficient incremental backups by tracking changed blocks.</p>
+                                            <p class="text-xs font-medium text-[var(--eb-info-text)]">Hyper-V Backup</p>
+                                            <p class="mt-1 text-[10px] text-[var(--eb-info-text)]/80">VMs are backed up using VSS-aware checkpoints. RCT enables efficient incremental backups by tracking changed blocks.</p>
                                         </div>
                                     </div>
                                 </div>
@@ -1976,13 +2253,46 @@
                                         <input type="hidden" id="localWizardDiskVolumeSelect" value="">
 
                                         <!-- Image Format -->
-                                        <div class="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-                                            <label class="block text-xs uppercase tracking-wide text-slate-400 mb-2">Image Format</label>
-                                            <select id="localWizardDiskFormat" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500/50">
+                                        <div class="local-wizard-panel p-4" x-data="{
+                                            isOpen: false,
+                                            selected: 'vhdx',
+                                            options: [
+                                                { value: 'vhdx', label: 'VHDX (Windows)' },
+                                                { value: 'raw', label: 'Raw (Linux)' }
+                                            ],
+                                            labelFor(val) {
+                                                const option = this.options.find(opt => opt.value === val);
+                                                return option ? option.label : val;
+                                            }
+                                        }" x-init="selected = $refs.nativeSelect.value || selected; window.addEventListener('local-wizard-fields-loaded', () => { selected = $refs.nativeSelect.value || selected; });" @click.away="isOpen = false">
+                                            <label class="eb-field-label !mb-2 text-xs uppercase tracking-wide">Image Format</label>
+                                            <select id="localWizardDiskFormat" x-ref="nativeSelect" class="hidden">
                                                 <option value="vhdx">VHDX (Windows)</option>
                                                 <option value="raw">Raw (Linux)</option>
                                             </select>
-                                            <p class="text-xs text-slate-500 mt-2">VHDX recommended for Windows, Raw for Linux systems.</p>
+                                            <div class="relative">
+                                                <button type="button" @click="selected = $refs.nativeSelect.value || selected; isOpen = !isOpen" class="eb-menu-trigger relative">
+                                                    <span class="block truncate" x-text="labelFor(selected)"></span>
+                                                    <span class="absolute inset-y-0 right-0 flex items-center pr-2 pointer-events-none">
+                                                        <svg class="h-5 w-5 text-[var(--eb-text-muted)]" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                                                            <path fill-rule="evenodd" d="M10 3a1 1 0 01.707.293l3 3a1 1 0 01-1.414 1.414L10 5.414 7.707 7.707a1 1 0 01-1.414-1.414l3-3A1 1 0 0110 3zm-3.707 9.293a1 1 0 011.414 0L10 14.586l2.293-2.293a1 1 0 011.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd"/>
+                                                        </svg>
+                                                    </span>
+                                                </button>
+                                                <div x-show="isOpen" class="eb-dropdown-menu absolute z-10 mt-1 w-full overflow-hidden" style="display:none;">
+                                                    <div class="py-1 text-sm">
+                                                        <template x-for="opt in options" :key="opt.value">
+                                                            <button type="button"
+                                                                    @click="selected = opt.value; $refs.nativeSelect.value = opt.value; isOpen = false"
+                                                                    class="eb-menu-option w-full text-left"
+                                                                    :class="{ 'is-active': selected === opt.value }"
+                                                                    x-text="opt.label">
+                                                            </button>
+                                                        </template>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <p class="eb-field-help !mt-2">VHDX recommended for Windows, Raw for Linux systems.</p>
                                         </div>
 
                                         <!-- Temp Directory -->
@@ -2550,16 +2860,13 @@
                             <!-- Advanced Settings (unchanged structure) -->
                             <div x-data="{ showAdvancedPolicy: false }">
                                 <div class="flex items-center justify-between mb-3">
-                                    <label class="block text-sm font-medium text-slate-200">Advanced Settings</label>
-                                    <label class="flex items-center gap-2 text-xs text-slate-400 cursor-pointer select-none">
-                                        <span>Show advanced</span>
-                                        <button @click="showAdvancedPolicy = !showAdvancedPolicy" type="button"
-                                                class="relative w-9 h-5 rounded-full transition-colors"
-                                                :class="showAdvancedPolicy ? 'bg-cyan-600' : 'bg-slate-700'">
-                                            <span class="absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform"
-                                                  :class="showAdvancedPolicy ? 'translate-x-4' : 'translate-x-0'"></span>
-                                        </button>
-                                    </label>
+                                    <label class="eb-field-label !mb-0">Advanced Settings</label>
+                                    <button type="button" class="eb-toggle" @click="showAdvancedPolicy = !showAdvancedPolicy">
+                                        <div class="eb-toggle-track" :class="showAdvancedPolicy && 'is-on'">
+                                            <div class="eb-toggle-thumb"></div>
+                                        </div>
+                                        <span class="eb-toggle-label">Show advanced</span>
+                                    </button>
                                 </div>
                                 <div x-show="showAdvancedPolicy" x-transition:enter="transition ease-out duration-150" x-transition:enter-start="opacity-0 scale-95" x-transition:enter-end="opacity-100 scale-100"
                                      class="rounded-xl border border-slate-700 bg-slate-900/50 p-4 space-y-4" style="display:none;">
@@ -2572,29 +2879,64 @@
                                             <label class="block text-xs text-slate-400 mb-1">Parallel uploads</label>
                                             <input id="localWizardParallelism" type="number" value="16" min="1" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500/50" placeholder="16">
                                         </div>
-                                        <div>
-                                            <label class="block text-xs text-slate-400 mb-1">Compression</label>
-                                            <select id="localWizardCompression" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500/50">
+                                        <div x-data="{
+                                            isOpen: false,
+                                            selected: 'zstd-default',
+                                            options: [
+                                                { value: 'zstd-default', label: 'zstd-default' },
+                                                { value: 'none', label: 'None' },
+                                                { value: 'pgzip', label: 'pgzip' },
+                                                { value: 's2', label: 's2' }
+                                            ],
+                                            labelFor(val) {
+                                                const option = this.options.find(opt => opt.value === val);
+                                                return option ? option.label : val;
+                                            }
+                                        }" x-init="selected = $refs.nativeSelect.value || selected; window.addEventListener('local-wizard-fields-loaded', () => { selected = $refs.nativeSelect.value || selected; });" @click.away="isOpen = false">
+                                            <label class="eb-field-label !mb-1 text-xs">Compression</label>
+                                            <select id="localWizardCompression" x-ref="nativeSelect" class="hidden">
                                                 <option value="zstd-default" selected>zstd-default</option>
                                                 <option value="none">None</option>
                                                 <option value="pgzip">pgzip</option>
                                                 <option value="s2">s2</option>
                                             </select>
+                                            <div class="relative">
+                                                <button type="button" @click="selected = $refs.nativeSelect.value || selected; isOpen = !isOpen" class="eb-menu-trigger relative">
+                                                    <span class="block truncate" x-text="labelFor(selected)"></span>
+                                                    <span class="absolute inset-y-0 right-0 flex items-center pr-2 pointer-events-none">
+                                                        <svg class="h-5 w-5 text-[var(--eb-text-muted)]" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                                                            <path fill-rule="evenodd" d="M10 3a1 1 0 01.707.293l3 3a1 1 0 01-1.414 1.414L10 5.414 7.707 7.707a1 1 0 01-1.414-1.414l3-3A1 1 0 0110 3zm-3.707 9.293a1 1 0 011.414 0L10 14.586l2.293-2.293a1 1 0 011.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd"/>
+                                                        </svg>
+                                                    </span>
+                                                </button>
+                                                <div x-show="isOpen" class="eb-dropdown-menu absolute z-10 mt-1 w-full overflow-hidden" style="display:none;">
+                                                    <div class="py-1 text-sm">
+                                                        <template x-for="opt in options" :key="opt.value">
+                                                            <button type="button"
+                                                                    @click="selected = opt.value; $refs.nativeSelect.value = opt.value; isOpen = false"
+                                                                    class="eb-menu-option w-full text-left"
+                                                                    :class="{ 'is-active': selected === opt.value }"
+                                                                    x-text="opt.label">
+                                                            </button>
+                                                        </template>
+                                                    </div>
+                                                </div>
+                                            </div>
                                         </div>
                                     </div>
                                     <div>
-                                        <label class="inline-flex items-center gap-2">
-                                            <input id="localWizardDebugLogs" type="checkbox" class="rounded border-slate-600 bg-slate-800">
-                                            <span class="text-sm text-slate-200">Enable detailed eazyBackup debug logs</span>
+                                        <label class="eb-inline-choice">
+                                            <input id="localWizardDebugLogs" type="checkbox" class="eb-check-input">
+                                            <span>Enable detailed eazyBackup debug logs</span>
                                         </label>
-                                        <p class="text-xs text-slate-500 mt-1">Adds more step-level events to the live progress view for troubleshooting.</p>
+                                        <p class="eb-field-help">Adds more step-level events to the live progress view for troubleshooting.</p>
                                     </div>
                                     <div>
-                                        <label class="inline-flex items-center gap-2">
-                                            <input id="localWizardParallelDiskReads" type="checkbox" class="rounded border-slate-600 bg-slate-800" checked>
-                                            <span class="text-sm text-slate-200">Enable parallel disk reads</span>
+                                        <label class="eb-inline-choice">
+                                            <input id="localWizardParallelDiskReads" type="checkbox" class="eb-check-input" checked>
+                                            <span>Enable parallel disk reads</span>
                                         </label>
-                                        <p class="text-xs text-slate-500 mt-1">Recommended for Disk Image and Hyper-V. Disable if the disk is under heavy load.</p>
+                                        <p class="eb-field-help">Recommended for Disk Image and Hyper-V. Disable if the disk is under heavy load.</p>
                                     </div>
                                 </div>
                             </div>
@@ -2612,11 +2954,11 @@
 
             </div>
 
-            <div class="flex justify-between items-center px-6 py-4 border-t border-slate-800 shrink-0 bg-slate-950">
-                <button type="button" class="px-4 py-2 rounded-lg border border-slate-700 bg-slate-800 text-slate-100" onclick="localWizardPrev()">Back</button>
+            <div class="eb-modal-footer shrink-0">
+                <button type="button" class="eb-btn eb-btn-secondary eb-btn-sm" onclick="localWizardPrev()">Back</button>
                 <div class="flex gap-2">
-                    <button type="button" class="px-4 py-2 rounded-lg border border-slate-700 bg-slate-800 text-slate-100" onclick="closeLocalJobWizard()">Cancel</button>
-                        <button type="button" id="localWizardNextBtn" data-local-wizard-next class="px-4 py-2 rounded-lg bg-sky-600 text-white" onclick="localWizardNext()">Next</button>
+                    <button type="button" class="eb-btn eb-btn-secondary eb-btn-sm" onclick="closeLocalJobWizard()">Cancel</button>
+                    <button type="button" id="localWizardNextBtn" data-local-wizard-next class="eb-btn eb-btn-primary eb-btn-sm" onclick="localWizardNext()">Next</button>
                 </div>
             </div>
         </div>

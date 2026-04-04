@@ -27,6 +27,14 @@ rclone:
   stats_interval: "5s"  # How often rclone reports stats
   log_level: "INFO"  # DEBUG, INFO, WARN, ERROR
 
+  # Performance tuning — defaults are tuned for datacenter-grade links
+  transfers: 16              # Parallel file transfers (rclone default: 4)
+  checkers: 16               # Parallel file checkers (rclone default: 8)
+  multi_thread_streams: 16   # Download streams per file (rclone default: 4)
+  buffer_size: "128M"        # Per-file read-ahead buffer (rclone default: 16M)
+  s3_chunk_size: "128M"      # Multipart upload chunk size (rclone default: 5M)
+  s3_upload_concurrency: 16  # Parallel chunk uploads per file (rclone default: 4)
+
 # S3/e3 Destination Configuration
 destination:
   endpoint: "https://rgw.example.com"  # Your Ceph RGW endpoint

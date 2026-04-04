@@ -231,7 +231,7 @@ if (empty($sourcePaths) && $primarySourcePath !== '') {
 $hasAgentUuidJobs = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'agent_uuid');
 $agentUuidForJob = null;
 $agentRow = null;
-if (($sourceType === 'local_agent' || isset($_POST['agent_uuid'])) && $hasAgentUuidJobs) {
+if (($sourceType === 'local_agent' || (isset($_POST['agent_uuid']) && trim((string) ($_POST['agent_uuid'] ?? '')) !== '')) && $hasAgentUuidJobs) {
     $agentUuidForJob = trim((string) ($_POST['agent_uuid'] ?? ''));
     if ($agentUuidForJob === '') {
         respondJson(['status' => 'fail', 'message' => 'Agent is required for Local Agent jobs.'], 200);
@@ -466,6 +466,9 @@ $jobData = [
 
 if ($agentUuidForJob) {
     $jobData['agent_uuid'] = $agentUuidForJob;
+    if ($agentRow && isset($agentRow->id)) {
+        $jobData['agent_id'] = (int) $agentRow->id;
+    }
 }
 if (Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'tenant_id')) {
     $jobData['tenant_id'] = $resolvedTenantId;

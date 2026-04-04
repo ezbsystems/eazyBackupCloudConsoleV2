@@ -119,16 +119,22 @@ class CloudBackupController {
     {
         try {
             $hasJobIdPk = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'job_id');
-            if (!$hasJobIdPk || !UuidBinary::isUuid($jobId)) {
+            if ($hasJobIdPk && UuidBinary::isUuid($jobId)) {
+                $jobIdNorm = UuidBinary::normalize($jobId);
+                $otherCols = array_values(array_diff(Capsule::schema()->getColumnListing('s3_cloudbackup_jobs'), ['job_id']));
+                $job = Capsule::table('s3_cloudbackup_jobs')
+                    ->whereRaw('job_id = ' . UuidBinary::toDbExpr($jobIdNorm))
+                    ->where('client_id', $clientId)
+                    ->select(array_merge([Capsule::raw('BIN_TO_UUID(job_id) as job_id')], $otherCols))
+                    ->first();
+            } elseif (!$hasJobIdPk && is_numeric($jobId)) {
+                $job = Capsule::table('s3_cloudbackup_jobs')
+                    ->where('id', (int) $jobId)
+                    ->where('client_id', $clientId)
+                    ->first();
+            } else {
                 return null;
             }
-            $jobIdNorm = UuidBinary::normalize($jobId);
-            $otherCols = array_values(array_diff(Capsule::schema()->getColumnListing('s3_cloudbackup_jobs'), ['job_id']));
-            $job = Capsule::table('s3_cloudbackup_jobs')
-                ->whereRaw('job_id = ' . UuidBinary::toDbExpr($jobIdNorm))
-                ->where('client_id', $clientId)
-                ->select(array_merge([Capsule::raw('BIN_TO_UUID(job_id) as job_id')], $otherCols))
-                ->first();
 
             if (!$job) {
                 return null;
@@ -211,6 +217,9 @@ class CloudBackupController {
             if (isset($data['agent_id'])) {
                 $jobData['agent_id'] = $data['agent_id'];
             }
+            if (isset($data['agent_uuid'])) {
+                $jobData['agent_uuid'] = $data['agent_uuid'];
+            }
             if (array_key_exists('source_paths_json', $data)) {
                 $jobData['source_paths_json'] = $data['source_paths_json'];
             }
@@ -236,6 +245,7 @@ class CloudBackupController {
                 'parallelism',
                 'encryption_mode',
                 'compression',
+                'agent_uuid',
                 'source_paths_json',
                 'disk_source_volume',
                 'disk_image_format',
@@ -326,6 +336,12 @@ class CloudBackupController {
             }
             if (array_key_exists('tenant_id', $data)) {
                 $updateData['tenant_id'] = $data['tenant_id'];
+            }
+            if (array_key_exists('agent_id', $data)) {
+                $updateData['agent_id'] = $data['agent_id'];
+            }
+            if (array_key_exists('agent_uuid', $data)) {
+                $updateData['agent_uuid'] = $data['agent_uuid'];
             }
             if (array_key_exists('repository_id', $data)) {
                 $incomingRepositoryId = trim((string) $data['repository_id']);
@@ -461,11 +477,14 @@ class CloudBackupController {
                 // If schema introspection fails, proceed with original updateData.
             }
 
-            $jobIdNorm = UuidBinary::normalize($jobId);
-            Capsule::table('s3_cloudbackup_jobs')
-                ->whereRaw('job_id = ' . UuidBinary::toDbExpr($jobIdNorm))
-                ->where('client_id', $clientId)
-                ->update($updateData);
+            $hasJobIdPk = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'job_id');
+            $query = Capsule::table('s3_cloudbackup_jobs')->where('client_id', $clientId);
+            if ($hasJobIdPk && UuidBinary::isUuid($jobId)) {
+                $query->whereRaw('job_id = ' . UuidBinary::toDbExpr(UuidBinary::normalize($jobId)));
+            } else {
+                $query->where('id', (int) $jobId);
+            }
+            $query->update($updateData);
 
             return ['status' => 'success'];
         } catch (\Exception $e) {
@@ -600,7 +619,21 @@ class CloudBackupController {
                 $query->where('s3_cloudbackup_runs.run_uuid', $runIdNormalized);
             }
 
-            $run = $query->select('s3_cloudbackup_runs.*')->first();
+            $binaryCols = [];
+            if ($hasRunIdCol) $binaryCols[] = 'run_id';
+            if ($hasJobIdPk) $binaryCols[] = 'job_id';
+
+            if (!empty($binaryCols)) {
+                $allCols = Capsule::schema()->getColumnListing('s3_cloudbackup_runs');
+                $plainCols = array_values(array_diff($allCols, $binaryCols));
+                $selectExprs = array_map(fn($c) => "s3_cloudbackup_runs.{$c}", $plainCols);
+                foreach ($binaryCols as $bc) {
+                    $selectExprs[] = Capsule::raw("BIN_TO_UUID(s3_cloudbackup_runs.{$bc}) as {$bc}");
+                }
+                $run = $query->select($selectExprs)->first();
+            } else {
+                $run = $query->select('s3_cloudbackup_runs.*')->first();
+            }
 
             if (!$run) {
                 return null;
@@ -659,14 +692,23 @@ class CloudBackupController {
             $hasSourceTypeCol = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'source_type');
             $jobIsLocalAgent = ($job['source_type'] ?? '') === 'local_agent';
 
+            // Helper closure: build a WHERE for s3_cloudbackup_jobs by the appropriate PK
+            $hasJobIdPk = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'job_id');
+            $jobWhereQuery = function () use ($hasJobIdPk, $jobId, $clientId) {
+                $q = Capsule::table('s3_cloudbackup_jobs')->where('client_id', $clientId);
+                if ($hasJobIdPk && UuidBinary::isUuid($jobId)) {
+                    $q->whereRaw('job_id = ' . UuidBinary::toDbExpr(UuidBinary::normalize($jobId)));
+                } else {
+                    $q->where('id', (int) $jobId);
+                }
+                return $q;
+            };
+
             // Legacy rows may have engine=kopia + agent_id but blank source_type (enum not updated when created)
             if (!$jobIsLocalAgent && $hasAgentIdJobs && !empty($job['agent_id']) && (($job['engine'] ?? '') === 'kopia')) {
                 if ($hasSourceTypeCol) {
-                    // Best-effort backfill to mark it local_agent so workers ignore
                     try {
-                        Capsule::table('s3_cloudbackup_jobs')
-                            ->whereRaw('job_id = ' . UuidBinary::toDbExpr(UuidBinary::normalize($jobId)))
-                            ->update(['source_type' => 'local_agent']);
+                        $jobWhereQuery()->update(['source_type' => 'local_agent']);
                         $job['source_type'] = 'local_agent';
                         $jobIsLocalAgent = true;
                     } catch (\Throwable $e) {
@@ -686,11 +728,8 @@ class CloudBackupController {
             // If engine is Kopia but the row still isn't marked local_agent or lacks agent_id, stop and fail fast
             if (($job['engine'] ?? '') === 'kopia') {
                 if (!$jobIsLocalAgent && $hasSourceTypeCol) {
-                    // Attempt a best-effort fix
                     try {
-                        Capsule::table('s3_cloudbackup_jobs')
-                            ->whereRaw('job_id = ' . UuidBinary::toDbExpr(UuidBinary::normalize($jobId)))
-                            ->update(['source_type' => 'local_agent']);
+                        $jobWhereQuery()->update(['source_type' => 'local_agent']);
                         $job['source_type'] = 'local_agent';
                         $jobIsLocalAgent = true;
                     } catch (\Throwable $e) {
@@ -755,9 +794,10 @@ class CloudBackupController {
             $hasRunRepositoryCol = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'repository_id');
 
             $runUuid = $hasRunIdCol ? self::generateUuid() : null;
-            $jobIdNorm = UuidBinary::normalize($jobId);
+            $isUuidJob = UuidBinary::isUuid($jobId);
+            $jobIdNorm = $isUuidJob ? UuidBinary::normalize($jobId) : null;
             $runInsert = [
-                'job_id' => $hasRunIdCol ? Capsule::raw(UuidBinary::toDbExpr($jobIdNorm)) : $jobId,
+                'job_id' => ($hasRunIdCol && $jobIdNorm) ? Capsule::raw(UuidBinary::toDbExpr($jobIdNorm)) : $jobId,
                 'trigger_type' => $triggerType,
                 'status' => 'queued',
                 'created_at' => date('Y-m-d H:i:s'),
@@ -924,13 +964,28 @@ class CloudBackupController {
     public static function sendRunNotification($runId, $emailTemplateId)
     {
         try {
-            // Get run with job data
-            $run = Capsule::table('s3_cloudbackup_runs')
-                ->join('s3_cloudbackup_jobs', 's3_cloudbackup_runs.job_id', '=', 's3_cloudbackup_jobs.id')
-                ->where('s3_cloudbackup_runs.id', $runId)
-                ->select(
+            $hasRunIdPk = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'run_id');
+            $hasJobIdPk = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'job_id');
+
+            $query = Capsule::table('s3_cloudbackup_runs');
+            if ($hasJobIdPk) {
+                $query->join('s3_cloudbackup_jobs', 's3_cloudbackup_runs.job_id', '=', 's3_cloudbackup_jobs.job_id');
+            } else {
+                $query->join('s3_cloudbackup_jobs', 's3_cloudbackup_runs.job_id', '=', 's3_cloudbackup_jobs.id');
+            }
+            if ($hasRunIdPk && UuidBinary::isUuid($runId)) {
+                $query->whereRaw('s3_cloudbackup_runs.run_id = ' . UuidBinary::toDbExpr(UuidBinary::normalize($runId)));
+            } else {
+                $query->where('s3_cloudbackup_runs.id', $runId);
+            }
+
+            $jobIdSelect = $hasJobIdPk
+                ? Capsule::raw('BIN_TO_UUID(s3_cloudbackup_jobs.job_id) as job_id_str')
+                : 's3_cloudbackup_jobs.id as job_id_str';
+
+            $run = $query->select(
                     's3_cloudbackup_runs.*',
-                    's3_cloudbackup_jobs.id as job_id',
+                    $jobIdSelect,
                     's3_cloudbackup_jobs.name',
                     's3_cloudbackup_jobs.client_id',
                     's3_cloudbackup_jobs.source_display_name',
@@ -948,21 +1003,18 @@ class CloudBackupController {
                 return ['status' => 'error', 'message' => 'Run not found'];
             }
 
-            // Check if already notified
             if ($run->notified_at) {
                 return ['status' => 'skipped', 'message' => 'Already notified'];
             }
 
-            // Get client
             $client = DBController::getClient($run->client_id);
             if (!$client) {
                 return ['status' => 'error', 'message' => 'Client not found'];
             }
 
-            // Convert to arrays
             $runArray = (array) $run;
             $jobArray = [
-                'id' => $run->job_id,
+                'id' => $run->job_id_str ?? $run->job_id ?? null,
                 'name' => $run->name,
                 'client_id' => $run->client_id,
                 'source_display_name' => $run->source_display_name,
@@ -975,7 +1027,6 @@ class CloudBackupController {
                 'notify_override_email' => $run->notify_override_email,
             ];
 
-            // Send notification
             $result = \WHMCS\Module\Addon\CloudStorage\Client\CloudBackupEmailService::sendRunNotification(
                 $runArray,
                 $jobArray,
@@ -983,11 +1034,14 @@ class CloudBackupController {
                 $emailTemplateId
             );
 
-            // Mark as notified if successful
             if ($result['status'] === 'success') {
-                Capsule::table('s3_cloudbackup_runs')
-                    ->where('id', $runId)
-                    ->update(['notified_at' => date('Y-m-d H:i:s')]);
+                $updateQuery = Capsule::table('s3_cloudbackup_runs');
+                if ($hasRunIdPk && UuidBinary::isUuid($runId)) {
+                    $updateQuery->whereRaw('run_id = ' . UuidBinary::toDbExpr(UuidBinary::normalize($runId)));
+                } else {
+                    $updateQuery->where('id', $runId);
+                }
+                $updateQuery->update(['notified_at' => date('Y-m-d H:i:s')]);
             }
 
             return $result;
@@ -1013,10 +1067,16 @@ class CloudBackupController {
     public static function applyRetentionPolicy($jobId, $s3Endpoint, $cephAdminUser, $cephAdminAccessKey, $cephAdminSecretKey, $s3Region, $encryptionKey)
     {
         try {
-            // Get job
-            $job = Capsule::table('s3_cloudbackup_jobs')
-                ->where('id', $jobId)
-                ->first();
+            $hasJobIdPk = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'job_id');
+            $hasRunIdPk = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'run_id');
+
+            $jobQuery = Capsule::table('s3_cloudbackup_jobs');
+            if ($hasJobIdPk && UuidBinary::isUuid($jobId)) {
+                $jobQuery->whereRaw('job_id = ' . UuidBinary::toDbExpr(UuidBinary::normalize($jobId)));
+            } else {
+                $jobQuery->where('id', $jobId);
+            }
+            $job = $jobQuery->first();
 
             if (!$job) {
                 return ['status' => 'fail', 'message' => 'Job not found'];
@@ -1067,27 +1127,44 @@ class CloudBackupController {
             $runsToPrune = [];
             $prefix = rtrim($job->dest_prefix, '/') . '/';
 
+            $runIdCol = $hasRunIdPk ? 'run_id' : 'id';
+            $runsBaseQuery = function () use ($hasJobIdPk, $hasRunIdPk, $jobId) {
+                $q = Capsule::table('s3_cloudbackup_runs');
+                if ($hasJobIdPk && UuidBinary::isUuid($jobId)) {
+                    $q->whereRaw('job_id = ' . UuidBinary::toDbExpr(UuidBinary::normalize($jobId)));
+                } else {
+                    $q->where('job_id', $jobId);
+                }
+                return $q;
+            };
+
             if ($job->retention_mode === 'keep_last_n') {
-                // Get all successful runs ordered by started_at desc
-                $allRuns = Capsule::table('s3_cloudbackup_runs')
-                    ->where('job_id', $jobId)
+                $selectCols = $hasRunIdPk
+                    ? [Capsule::raw('BIN_TO_UUID(run_id) as run_id_str'), '*']
+                    : ['*'];
+                $allRuns = $runsBaseQuery()
                     ->where('status', 'success')
                     ->whereNotNull('started_at')
                     ->orderBy('started_at', 'desc')
+                    ->select($selectCols)
                     ->get();
 
-                // Keep the N most recent runs, mark others for pruning
                 if ($allRuns->count() > $job->retention_value) {
-                    $runsToPrune = $allRuns->slice($job->retention_value)->pluck('id')->toArray();
+                    $runsToPrune = $allRuns->slice($job->retention_value)
+                        ->pluck($hasRunIdPk ? 'run_id_str' : 'id')
+                        ->toArray();
                 }
             } elseif ($job->retention_mode === 'keep_days') {
-                // Get runs older than retention_value days
                 $cutoffDate = date('Y-m-d H:i:s', strtotime("-{$job->retention_value} days"));
-                $runsToPrune = Capsule::table('s3_cloudbackup_runs')
-                    ->where('job_id', $jobId)
+                $selectCols = $hasRunIdPk
+                    ? [Capsule::raw('BIN_TO_UUID(run_id) as run_id_str')]
+                    : ['id'];
+                $runsToPrune = $runsBaseQuery()
                     ->where('status', 'success')
                     ->where('started_at', '<', $cutoffDate)
-                    ->pluck('id')
+                    ->select($selectCols)
+                    ->get()
+                    ->pluck($hasRunIdPk ? 'run_id_str' : 'id')
                     ->toArray();
             }
 
@@ -1095,20 +1172,27 @@ class CloudBackupController {
                 return ['status' => 'success', 'message' => 'No runs to prune'];
             }
 
-            // Get run details to build object keys
-            $runs = Capsule::table('s3_cloudbackup_runs')
-                ->whereIn('id', $runsToPrune)
-                ->get();
+            if ($hasRunIdPk) {
+                $binExprs = array_map(function ($uuid) {
+                    return UuidBinary::toDbExpr(UuidBinary::normalize($uuid));
+                }, $runsToPrune);
+                $runs = Capsule::table('s3_cloudbackup_runs')
+                    ->selectRaw('*, BIN_TO_UUID(run_id) as run_id_str')
+                    ->whereRaw('run_id IN (' . implode(',', $binExprs) . ')')
+                    ->get();
+            } else {
+                $runs = Capsule::table('s3_cloudbackup_runs')
+                    ->whereIn('id', $runsToPrune)
+                    ->get();
+            }
 
             $deletedCount = 0;
             $errorCount = 0;
 
             foreach ($runs as $run) {
                 try {
-                    // Build object prefix for this run (typically includes timestamp)
-                    // Format: dest_prefix/run_id/ or dest_prefix/YYYY-MM-DD/ or similar
-                    // We'll delete all objects under the prefix that match the run's timeframe
-                    $runPrefix = $prefix . 'run_' . $run->id . '/';
+                    $runIdentifier = $hasRunIdPk ? ($run->run_id_str ?? '') : $run->id;
+                    $runPrefix = $prefix . 'run_' . $runIdentifier . '/';
                     
                     // Alternative: if runs are stored by date, use started_at
                     if ($run->started_at) {
@@ -1154,15 +1238,17 @@ class CloudBackupController {
                         }
                     }
 
-                    // Mark run as pruned (we'll add a pruned_at column if needed, or use a status field)
-                    // For now, we'll just log that it was pruned
-                    Capsule::table('s3_cloudbackup_runs')
-                        ->where('id', $run->id)
-                        ->update(['updated_at' => date('Y-m-d H:i:s')]);
+                    $updateQuery = Capsule::table('s3_cloudbackup_runs');
+                    if ($hasRunIdPk && !empty($run->run_id_str) && UuidBinary::isUuid($run->run_id_str)) {
+                        $updateQuery->whereRaw('run_id = ' . UuidBinary::toDbExpr(UuidBinary::normalize($run->run_id_str)));
+                    } else {
+                        $updateQuery->where('id', $run->id);
+                    }
+                    $updateQuery->update(['updated_at' => date('Y-m-d H:i:s')]);
 
                 } catch (\Exception $e) {
                     $errorCount++;
-                    logModuleCall(self::$module, 'applyRetentionPolicy_run', ['run_id' => $run->id], $e->getMessage());
+                    logModuleCall(self::$module, 'applyRetentionPolicy_run', ['run_id' => $runIdentifier], $e->getMessage());
                 }
             }
 

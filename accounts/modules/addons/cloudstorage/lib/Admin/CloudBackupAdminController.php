@@ -353,11 +353,26 @@ class CloudBackupAdminController {
             }
 
             if (isset($filters['agent_id']) && $filters['agent_id']) {
-                $agentId = (int) $filters['agent_id'];
-                $query->where(function ($q) use ($agentId) {
-                    $q->where('s3_cloudbackup_runs.agent_id', $agentId)
-                        ->orWhere('s3_cloudbackup_jobs.agent_id', $agentId);
-                });
+                $hasJobsAgentUuid = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'agent_uuid');
+                $hasRunsAgentUuid = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'agent_uuid');
+                if ($hasJobsAgentUuid || $hasRunsAgentUuid) {
+                    $agent = Capsule::table('s3_cloudbackup_agents')->where('id', (int) $filters['agent_id'])->first();
+                    $agentUuidFilter = $agent->agent_uuid ?? '';
+                    $query->where(function ($q) use ($agentUuidFilter, $hasRunsAgentUuid, $hasJobsAgentUuid) {
+                        if ($hasRunsAgentUuid) {
+                            $q->where('s3_cloudbackup_runs.agent_uuid', $agentUuidFilter);
+                        }
+                        if ($hasJobsAgentUuid) {
+                            $q->orWhere('s3_cloudbackup_jobs.agent_uuid', $agentUuidFilter);
+                        }
+                    });
+                } else {
+                    $agentId = (int) $filters['agent_id'];
+                    $query->where(function ($q) use ($agentId) {
+                        $q->where('s3_cloudbackup_runs.agent_id', $agentId)
+                            ->orWhere('s3_cloudbackup_jobs.agent_id', $agentId);
+                    });
+                }
             }
 
             if (isset($filters['status']) && $filters['status']) {

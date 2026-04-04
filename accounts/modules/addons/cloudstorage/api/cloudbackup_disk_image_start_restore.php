@@ -11,6 +11,7 @@ use WHMCS\ClientArea;
 use WHMCS\Database\Capsule;
 use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupController;
 use WHMCS\Module\Addon\CloudStorage\Client\MspController;
+use WHMCS\Module\Addon\CloudStorage\Client\UuidBinary;
 
 if (!defined("WHMCS")) {
     die("This file cannot be accessed directly");
@@ -43,10 +44,15 @@ if ($targetDisk === '') {
     respond(['status' => 'fail', 'message' => 'target_disk is required']);
 }
 
-$restorePoint = Capsule::table('s3_cloudbackup_restore_points')
+$hasJobIdPk = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'job_id');
+$hasRunIdPk = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'run_id');
+$rpQuery = Capsule::table('s3_cloudbackup_restore_points')
     ->where('id', $restorePointId)
-    ->where('client_id', $clientId)
-    ->first();
+    ->where('client_id', $clientId);
+if ($hasJobIdPk) {
+    $rpQuery->addSelect(Capsule::raw('*, BIN_TO_UUID(job_id) as job_id_str'));
+}
+$restorePoint = $rpQuery->first();
 if (!$restorePoint) {
     respond(['status' => 'fail', 'message' => 'Restore point not found']);
 }
@@ -78,15 +84,24 @@ if (MspController::isMspClient($clientId) && !empty($restorePoint->tenant_id)) {
     }
 }
 
-$jobId = (int) ($restorePoint->job_id ?? 0);
-if ($jobId <= 0) {
+$hasJobIdPk = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'job_id');
+$hasRunIdPk = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'run_id');
+$jobIdStr = $hasJobIdPk ? ($restorePoint->job_id_str ?? '') : ($restorePoint->job_id ?? 0);
+if ($hasJobIdPk && !UuidBinary::isUuid($jobIdStr)) {
+    respond(['status' => 'fail', 'message' => 'Restore point missing job reference']);
+} elseif (!$hasJobIdPk && (int) $jobIdStr <= 0) {
     respond(['status' => 'fail', 'message' => 'Restore point missing job reference']);
 }
 
-$job = Capsule::table('s3_cloudbackup_jobs')
-    ->where('id', $jobId)
-    ->where('client_id', $clientId)
-    ->first();
+$jobQuery = Capsule::table('s3_cloudbackup_jobs')
+    ->where('client_id', $clientId);
+if ($hasJobIdPk) {
+    $jobQuery->whereRaw('job_id = ' . UuidBinary::toDbExpr(UuidBinary::normalize($jobIdStr)));
+    $jobQuery->addSelect(Capsule::raw('*, BIN_TO_UUID(job_id) as job_id_str'));
+} else {
+    $jobQuery->where('id', (int) $jobIdStr);
+}
+$job = $jobQuery->first();
 if (!$job) {
     respond(['status' => 'fail', 'message' => 'Backup job not found']);
 }
@@ -108,29 +123,52 @@ if (!Capsule::schema()->hasTable('s3_cloudbackup_run_commands')) {
 try {
     $restoreRunId = null;
     $restoreRunUuid = null;
-    Capsule::connection()->transaction(function () use ($restorePoint, $job, $targetAgent, $targetDisk, $shrinkEnabled, &$restoreRunId, &$restoreRunUuid) {
+    Capsule::connection()->transaction(function () use ($restorePoint, $job, $targetAgent, $targetDisk, $shrinkEnabled, &$restoreRunId, &$restoreRunUuid, $hasRunIdPk, $hasJobIdPk) {
         $hasRunUuidColumn = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'run_uuid');
         $hasRunTypeColumn = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'run_type');
 
-        $runData = [
-            'job_id' => $job->id,
-            'client_id' => $job->client_id,
-            'agent_uuid' => $targetAgent->agent_uuid ?? null,
-            'engine' => 'disk_image',
-            'status' => 'queued',
-            'progress_pct' => 0,
-            'created_at' => date('Y-m-d H:i:s'),
-            'stats_json' => json_encode(['type' => 'disk_restore']),
-        ];
+        $runUuid = CloudBackupController::generateUuid();
+
+        if ($hasRunIdPk) {
+            $runData = [
+                'run_id' => Capsule::raw(UuidBinary::toDbExpr($runUuid)),
+                'job_id' => $hasJobIdPk
+                    ? Capsule::raw(UuidBinary::toDbExpr(UuidBinary::normalize($job->job_id_str ?? '')))
+                    : ($job->id ?? 0),
+                'client_id' => $job->client_id,
+                'agent_uuid' => $targetAgent->agent_uuid ?? null,
+                'engine' => 'disk_image',
+                'status' => 'queued',
+                'progress_pct' => 0,
+                'created_at' => date('Y-m-d H:i:s'),
+                'stats_json' => json_encode(['type' => 'disk_restore']),
+            ];
+        } else {
+            $runData = [
+                'job_id' => $job->id ?? 0,
+                'client_id' => $job->client_id,
+                'agent_uuid' => $targetAgent->agent_uuid ?? null,
+                'engine' => 'disk_image',
+                'status' => 'queued',
+                'progress_pct' => 0,
+                'created_at' => date('Y-m-d H:i:s'),
+                'stats_json' => json_encode(['type' => 'disk_restore']),
+            ];
+        }
         if ($hasRunTypeColumn) {
             $runData['run_type'] = 'disk_restore';
         }
         if ($hasRunUuidColumn) {
-            $runData['run_uuid'] = CloudBackupController::generateUuid();
+            $runData['run_uuid'] = $runUuid;
         }
 
-        $restoreRunId = Capsule::table('s3_cloudbackup_runs')->insertGetId($runData);
-        $restoreRunUuid = $runData['run_uuid'] ?? null;
+        if ($hasRunIdPk) {
+            Capsule::table('s3_cloudbackup_runs')->insert($runData);
+            $restoreRunId = $runUuid;
+        } else {
+            $restoreRunId = Capsule::table('s3_cloudbackup_runs')->insertGetId($runData);
+        }
+        $restoreRunUuid = $runUuid;
 
         $payload = [
             'restore_point_id' => (int) $restorePoint->id,

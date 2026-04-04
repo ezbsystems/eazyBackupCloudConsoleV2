@@ -1,592 +1,500 @@
-<div class="min-h-screen bg-slate-950 text-gray-200" x-data="jobsApp()">
-    <div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,_#1f293780,_transparent_60%)]"></div>
-    <div class="container mx-auto px-4 py-6 relative pointer-events-auto">
-        <!-- Navigation Tabs -->
-        {assign var="activeNav" value="jobs"}
-        {include file="modules/addons/cloudstorage/templates/partials/e3backup_nav.tpl"}
+{capture assign=ebE3JobsBreadcrumb}
+    <div class="eb-breadcrumb">
+        <a href="index.php?m=cloudstorage&page=e3backup&view=dashboard" class="eb-breadcrumb-link">e3 Cloud Backup</a>
+        <span class="eb-breadcrumb-separator">/</span>
+        <span class="eb-breadcrumb-current">Jobs</span>
+    </div>
+{/capture}
 
-        {* Glass panel container *}
-        <div class="rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)] px-6 py-6">
-        <style>
-        .btn-run-now {
-            display: inline-flex; align-items: center; gap: 0.5rem;
-            border-radius: 9999px; padding: 0.375rem 1rem;
-            font-size: 0.875rem; font-weight: 600;
-            color: rgb(15 23 42);
-            background-image: linear-gradient(to right, rgb(16 185 129), rgb(52 211 153), rgb(56 189 248));
-            box-shadow: 0 1px 2px rgba(0,0,0,0.25);
-            border: 1px solid rgba(16,185,129,0.4);
-            transition: transform .15s ease, box-shadow .2s ease;
-        }
-        .btn-run-now:hover { transform: translateY(-1px); box-shadow: 0 8px 20px rgba(16,185,129,0.25); }
-        .btn-run-now:active { transform: translateY(0); box-shadow: 0 1px 2px rgba(0,0,0,0.25); }
-        .icon-btn {
-            display:inline-flex; align-items:center; justify-content:center;
-            width:2rem; height:2rem; border-radius:9999px;
-            border:1px solid rgba(51,65,85,0.8);
-            background-color: rgba(15,23,42,0.6);
-            color:#cbd5e1; font-size:.75rem; transition: all .15s ease;
-        }
-        .icon-btn:hover { border-color:#94a3b8; color:white; background-color:#1f2937; }
-        .icon-btn[disabled] { opacity:.6; cursor:not-allowed; }
-        </style>
-
-        <!-- Header -->
-        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6">
-            <div>
-                <div class="flex items-center gap-2 mb-1">
-                    <a href="index.php?m=cloudstorage&page=e3backup" class="text-slate-400 hover:text-white text-sm">e3 Cloud Backup</a>
-                    <span class="text-slate-600">/</span>
-                    <span class="text-white text-sm font-medium">Jobs</span>
-                </div>
-                <h1 class="text-2xl font-semibold text-white">Backup Jobs</h1>
-                <p class="text-xs text-slate-400 mt-1">View and filter backup jobs. MSPs can filter by tenant and agent.</p>
-            </div>
-            <div class="flex gap-2 mt-4 sm:mt-0">
-                <!-- Create Job Dropdown -->
-                <div x-data="{ isOpen: false }" class="relative" @click.away="isOpen = false">
-                    <button @click="isOpen = !isOpen" class="btn-run-now">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
-                        </svg>
-                        Create Job
-                        <svg class="w-4 h-4 transition-transform" :class="isOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                            <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
-                        </svg>
+{capture assign=ebE3Content}
+<div x-data="jobsApp()" class="space-y-6">
+    {capture assign=ebE3JobsHeaderActions}
+        <div x-data="{ isOpen: false }" class="relative" @click.away="isOpen = false">
+            <button type="button" @click="isOpen = !isOpen" class="eb-btn eb-btn-success eb-btn-sm">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                </svg>
+                Create Job
+                <svg class="h-4 w-4 transition-transform" :class="isOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                    <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+                </svg>
+            </button>
+            <div x-show="isOpen"
+                 x-transition
+                 class="eb-dropdown-menu absolute right-0 z-50 mt-2 w-72 overflow-hidden"
+                 style="display: none;">
+                <div class="eb-menu-label">Select backup source</div>
+                <div class="p-1">
+                    <button type="button" @click="isOpen = false; window.openCloudBackupWizard()" class="eb-menu-item">
+                        <span class="eb-icon-box eb-icon-box--sm eb-icon-box--info">
+                            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z" />
+                            </svg>
+                        </span>
+                        <span class="flex-1 min-w-0">
+                            <span class="block text-left text-sm text-[var(--eb-text-primary)]">Cloud Backup</span>
+                            <span class="block text-left text-xs text-[var(--eb-text-muted)]">S3, AWS, SFTP, Google Drive, Dropbox</span>
+                        </span>
                     </button>
-                    <!-- Dropdown Menu -->
-                    <div x-show="isOpen" 
-                         x-transition:enter="transition ease-out duration-100"
-                         x-transition:enter-start="opacity-0 scale-95"
-                         x-transition:enter-end="opacity-100 scale-100"
-                         x-transition:leave="transition ease-in duration-75"
-                         x-transition:leave-start="opacity-100 scale-100"
-                         x-transition:leave-end="opacity-0 scale-95"
-                         class="absolute right-0 mt-2 w-64 rounded-xl border border-slate-700 bg-slate-900 shadow-2xl z-50 overflow-hidden"
-                         style="display: none;">
-                        <div class="px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400 border-b border-slate-800">
-                            SELECT BACKUP SOURCE
-                        </div>
-                        <div class="py-1">
-                            <!-- Cloud Backup Option -->
-                            <button type="button" 
-                                    @click="isOpen = false; window.openCloudBackupWizard()"
-                                    class="w-full px-4 py-3 flex items-start gap-3 hover:bg-slate-800/60 transition text-left">
-                                <div class="w-10 h-10 rounded-lg bg-sky-500/20 flex items-center justify-center shrink-0">
-                                    <svg class="w-5 h-5 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z" />
-                                    </svg>
-                                </div>
-                                <div class="flex-1 min-w-0">
-                                    <p class="text-sm font-medium text-slate-100">Cloud Backup</p>
-                                    <p class="text-xs text-slate-400 mt-0.5">S3, AWS, SFTP, Google Drive, Dropbox</p>
-                                </div>
-                                <svg class="w-4 h-4 text-slate-500 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
-                                </svg>
-                            </button>
-                            <!-- Local Backup Option -->
-                            <button type="button" 
-                                    @click="isOpen = false; window.openLocalJobWizard()"
-                                    class="w-full px-4 py-3 flex items-start gap-3 hover:bg-slate-800/60 transition text-left">
-                                <div class="w-10 h-10 rounded-lg bg-purple-500/20 flex items-center justify-center shrink-0">
-                                    <svg class="w-5 h-5 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
-                                    </svg>
-                                </div>
-                                <div class="flex-1 min-w-0">
-                                    <p class="text-sm font-medium text-slate-100">Local Agent Backup</p>
-                                    <p class="text-xs text-slate-400 mt-0.5">File, Disk Image, Windows Agent</p>
-                                </div>
-                                <svg class="w-4 h-4 text-slate-500 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
-                                </svg>
-                            </button>
-                        </div>
-                    </div>
+                    <button type="button" @click="isOpen = false; window.openLocalJobWizard()" class="eb-menu-item">
+                        <span class="eb-icon-box eb-icon-box--sm eb-icon-box--premium">
+                            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
+                            </svg>
+                        </span>
+                        <span class="flex-1 min-w-0">
+                            <span class="block text-left text-sm text-[var(--eb-text-primary)]">Local Agent Backup</span>
+                            <span class="block text-left text-xs text-[var(--eb-text-muted)]">File, Disk Image, Windows Agent</span>
+                        </span>
+                    </button>
                 </div>
             </div>
         </div>
+    {/capture}
 
-        {if $isMspClient}
-        <!-- Filters (MSP) -->
-        <div class="mb-4 flex flex-col sm:flex-row gap-3 items-start sm:items-center">
-            <div class="flex items-center gap-2">
-                <label class="text-sm text-slate-400">Tenant:</label>
-                <div x-data="{ isOpen: false }" class="relative" @click.away="isOpen = false">
-                    <button
-                        type="button"
-                        @click="isOpen = !isOpen"
-                        class="inline-flex items-center gap-2 rounded-md bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:outline-none focus:ring-1 focus:ring-sky-500"
-                    >
-                        <span class="truncate max-w-[14rem]" x-text="tenantLabel()"></span>
-                        <svg class="w-4 h-4 transition-transform" :class="isOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+    {include file="$template/includes/ui/page-header.tpl"
+        ebBreadcrumb=$ebE3JobsBreadcrumb
+        ebPageTitle='Backup Jobs'
+        ebPageDescription='View and filter backup jobs. MSPs can filter by tenant and agent.'
+        ebPageActions=$ebE3JobsHeaderActions
+    }
+
+    <div class="eb-subpanel overflow-visible">
+        <div class="space-y-3">
+            <div class="eb-table-toolbar eb-jobs-toolbar">
+                <div class="eb-input-wrap eb-jobs-toolbar-search w-full xl:min-w-[18rem] xl:flex-1">
+                    <div class="eb-input-icon">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="m21 21-4.35-4.35m1.85-5.15a7 7 0 1 1-14 0 7 7 0 0 1 14 0Z" />
+                        </svg>
+                    </div>
+                    <input type="text" placeholder="Search jobs..." class="eb-input eb-input-has-icon" x-model="searchQuery">
+                </div>
+
+                {if $isMspClient}
+                <div class="relative eb-jobs-toolbar-item w-full sm:w-auto"
+                     x-data="{
+                         isOpen: false,
+                         tenantMenuQuery: '',
+                         hasVisibleTenantOptions() {
+                             return Array.from(this.$refs.tenantOptions.querySelectorAll('[data-tenant-option]')).some(option => option.offsetParent !== null);
+                         }
+                     }"
+                     @click.away="isOpen = false; tenantMenuQuery = ''">
+                    <button type="button"
+                            @click="isOpen = !isOpen; if (isOpen) tenantMenuQuery = ''"
+                            class="eb-menu-trigger w-full sm:min-w-[14rem]">
+                        <span class="truncate" x-text="tenantLabel()"></span>
+                        <svg class="h-4 w-4 shrink-0 transition-transform" :class="isOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
                             <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
                         </svg>
                     </button>
-                    <div
-                        x-show="isOpen"
-                        x-transition:enter="transition ease-out duration-100"
-                        x-transition:enter-start="opacity-0 scale-95"
-                        x-transition:enter-end="opacity-100 scale-100"
-                        x-transition:leave="transition ease-in duration-75"
-                        x-transition:leave-start="opacity-100 scale-100"
-                        x-transition:leave-end="opacity-0 scale-95"
-                        class="absolute left-0 mt-2 w-72 rounded-xl border border-slate-700 bg-slate-900 shadow-2xl z-50 overflow-hidden"
-                        style="display: none;"
-                    >
-                        <div class="px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400 border-b border-slate-800">
-                            Select tenant
+                    <div x-show="isOpen"
+                         x-transition
+                         class="eb-dropdown-menu absolute left-0 z-50 mt-2 w-full overflow-hidden sm:w-72"
+                         style="display: none;">
+                        <div class="eb-menu-label">Select tenant</div>
+                        <div class="p-2 pb-0">
+                            <input type="text"
+                                   class="eb-input"
+                                   placeholder="Search tenants..."
+                                   x-model="tenantMenuQuery">
                         </div>
-                        <div class="py-1 max-h-72 overflow-auto">
-                            <button
-                                type="button"
-                                class="w-full px-4 py-2 text-left text-sm transition"
-                                :class="tenantFilter === '' ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'"
-                                @click="tenantFilter=''; isOpen=false; onTenantChange()"
-                                data-tenant-option=""
-                            >
-                                All Tenants
-                            </button>
-                            <button
-                                type="button"
-                                class="w-full px-4 py-2 text-left text-sm transition"
-                                :class="tenantFilter === 'direct' ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'"
-                                @click="tenantFilter='direct'; isOpen=false; onTenantChange()"
-                                data-tenant-option="direct"
-                            >
-                                Direct (No Tenant)
-                            </button>
+                        <div class="max-h-72 overflow-auto p-1" x-ref="tenantOptions">
+                            <button type="button" class="eb-menu-option" :class="tenantFilter === '' ? 'is-active' : ''" x-show="!tenantMenuQuery || 'all tenants'.includes(tenantMenuQuery.toLowerCase())" @click="tenantFilter=''; tenantMenuQuery=''; isOpen=false; onTenantChange()" data-tenant-option="">All Tenants</button>
+                            <button type="button" class="eb-menu-option" :class="tenantFilter === 'direct' ? 'is-active' : ''" x-show="!tenantMenuQuery || 'direct (no tenant)'.includes(tenantMenuQuery.toLowerCase())" @click="tenantFilter='direct'; tenantMenuQuery=''; isOpen=false; onTenantChange()" data-tenant-option="direct">Direct (No Tenant)</button>
                             {foreach from=$tenants item=tenant}
-                            <button
-                                type="button"
-                                class="w-full px-4 py-2 text-left text-sm transition"
-                                :class="String(tenantFilter) === String('{$tenant->public_id|escape:'javascript'}') ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'"
-                                @click="tenantFilter='{$tenant->public_id|escape:'javascript'}'; isOpen=false; onTenantChange()"
-                                data-tenant-option="{$tenant->public_id|escape}"
-                            >
+                            <button type="button"
+                                    class="eb-menu-option"
+                                    x-show="!tenantMenuQuery || '{$tenant->name|escape:'javascript'}'.toLowerCase().includes(tenantMenuQuery.toLowerCase())"
+                                    :class="String(tenantFilter) === String('{$tenant->public_id|escape:'javascript'}') ? 'is-active' : ''"
+                                    @click="tenantFilter='{$tenant->public_id|escape:'javascript'}'; tenantMenuQuery=''; isOpen=false; onTenantChange()"
+                                    data-tenant-option="{$tenant->public_id|escape}">
                                 {$tenant->name|escape}
                             </button>
                             {/foreach}
+                            <div x-show="tenantMenuQuery && !hasVisibleTenantOptions()" class="px-3 py-2 text-sm text-[var(--eb-text-muted)]" style="display: none;">
+                                No tenants match your search
+                            </div>
                         </div>
                     </div>
                 </div>
-            </div>
-            <div class="flex items-center gap-2">
-                <label class="text-sm text-slate-400">Agent:</label>
-                <div x-data="{ isOpen: false }" class="relative" @click.away="isOpen = false">
-                    <button
-                        type="button"
-                        @click="isOpen = !isOpen"
-                        class="inline-flex items-center gap-2 rounded-md bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:outline-none focus:ring-1 focus:ring-sky-500"
-                    >
-                        <span class="truncate max-w-[14rem]" x-text="agentLabel()"></span>
-                        <svg class="w-4 h-4 transition-transform" :class="isOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+
+                <div class="relative eb-jobs-toolbar-item w-full sm:w-auto" x-data="{ isOpen: false, agentMenuQuery: '' }" @click.away="isOpen = false; agentMenuQuery = ''">
+                    <button type="button"
+                            @click="isOpen = !isOpen; if (isOpen) agentMenuQuery = ''"
+                            class="eb-menu-trigger w-full sm:min-w-[14rem]">
+                        <span class="truncate" x-text="agentLabel()"></span>
+                        <svg class="h-4 w-4 shrink-0 transition-transform" :class="isOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
                             <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
                         </svg>
                     </button>
-                    <div
-                        x-show="isOpen"
-                        x-transition:enter="transition ease-out duration-100"
-                        x-transition:enter-start="opacity-0 scale-95"
-                        x-transition:enter-end="opacity-100 scale-100"
-                        x-transition:leave="transition ease-in duration-75"
-                        x-transition:leave-start="opacity-100 scale-100"
-                        x-transition:leave-end="opacity-0 scale-95"
-                        class="absolute left-0 mt-2 w-72 rounded-xl border border-slate-700 bg-slate-900 shadow-2xl z-50 overflow-hidden"
-                        style="display: none;"
-                    >
-                        <div class="px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400 border-b border-slate-800">
-                            Select agent
+                    <div x-show="isOpen"
+                         x-transition
+                         class="eb-dropdown-menu absolute left-0 z-50 mt-2 w-full overflow-hidden sm:w-72"
+                         style="display: none;">
+                        <div class="eb-menu-label">Select agent</div>
+                        <div class="p-2 pb-0">
+                            <input type="text"
+                                   class="eb-input"
+                                   placeholder="Search agents..."
+                                   x-model="agentMenuQuery">
                         </div>
-                        <div class="py-1 max-h-72 overflow-auto">
-                            <button
-                                type="button"
-                                class="w-full px-4 py-2 text-left text-sm transition"
-                                :class="agentFilter === '' ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'"
-                                @click="agentFilter=''; isOpen=false; loadJobs()"
-                            >
-                                All Agents
-                            </button>
+                        <div class="max-h-72 overflow-auto p-1">
+                            <button type="button" class="eb-menu-option" :class="agentFilter === '' ? 'is-active' : ''" x-show="!agentMenuQuery || 'all agents'.includes(agentMenuQuery.toLowerCase())" @click="agentFilter=''; agentMenuQuery=''; isOpen=false; loadJobs()">All Agents</button>
                             <template x-for="agent in filteredAgents" :key="agent.agent_uuid || agent.id">
-                                <button
-                                    type="button"
-                                    class="w-full px-4 py-2 text-left text-sm transition"
-                                    :class="String(agentFilter) === String(agent.agent_uuid || '') ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'"
-                                    @click="agentFilter=agent.agent_uuid || ''; isOpen=false; loadJobs()"
-                                >
+                                <button type="button"
+                                        class="eb-menu-option"
+                                        x-show="!agentMenuQuery || String(agent.hostname || agent.device_name || (agent.agent_uuid || 'Unknown agent')).toLowerCase().includes(agentMenuQuery.toLowerCase())"
+                                        :class="String(agentFilter) === String(agent.agent_uuid || '') ? 'is-active' : ''"
+                                        @click="agentFilter=agent.agent_uuid || ''; agentMenuQuery=''; isOpen=false; loadJobs()">
                                     <span class="truncate" x-text="agent.hostname || agent.device_name || (agent.agent_uuid || 'Unknown agent')"></span>
                                 </button>
                             </template>
-                            <template x-if="filteredAgents.length === 0">
-                                <div class="px-4 py-2 text-sm text-slate-400">
-                                    No agents available
-                                </div>
-                            </template>
+                            <div x-show="filteredAgents.filter(agent => !agentMenuQuery || String(agent.hostname || agent.device_name || (agent.agent_uuid || 'Unknown agent')).toLowerCase().includes(agentMenuQuery.toLowerCase())).length === 0 && !(agentMenuQuery && 'all agents'.includes(agentMenuQuery.toLowerCase()))" class="px-3 py-2 text-sm text-[var(--eb-text-muted)]" style="display: none;" x-text="agentMenuQuery ? 'No agents match your search' : 'No agents available'"></div>
                         </div>
                     </div>
                 </div>
-            </div>
-        </div>
-        {/if}
+                {/if}
 
-        <!-- Filters -->
-        <div class="mb-4 flex flex-col sm:flex-row gap-3 justify-between items-start sm:items-center">
-            <div class="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
-                <input type="text" placeholder="Search jobs" class="w-full sm:w-80 rounded-full bg-slate-900/70 border border-slate-700 px-4 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
-                    x-model="searchQuery">
-                <div x-data="{ isOpen: false }" class="relative" @click.away="isOpen = false">
-                    <button
-                        type="button"
-                        @click="isOpen = !isOpen"
-                        class="inline-flex items-center justify-between gap-2 rounded-full border border-slate-700 bg-slate-900/80 px-4 py-2 text-xs text-slate-200 w-full sm:w-auto min-w-[12rem]"
-                    >
+                <div class="relative eb-jobs-toolbar-item w-full sm:w-auto"
+                     x-data="{
+                         isOpen: false,
+                         sourceMenuQuery: '',
+                         hasVisibleSourceOptions() {
+                             return Array.from(this.$refs.sourceOptions.querySelectorAll('[data-source-option]')).some(option => option.offsetParent !== null);
+                         }
+                     }"
+                     @click.away="isOpen = false; sourceMenuQuery = ''">
+                    <button type="button"
+                            @click="isOpen = !isOpen; if (isOpen) sourceMenuQuery = ''"
+                            class="eb-menu-trigger w-full sm:min-w-[11rem]">
                         <span class="truncate" x-text="sourceLabel()"></span>
-                        <svg class="w-4 h-4 transition-transform" :class="isOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                        <svg class="h-4 w-4 shrink-0 transition-transform" :class="isOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
                             <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
                         </svg>
                     </button>
-                    <div
-                        x-show="isOpen"
-                        x-transition:enter="transition ease-out duration-100"
-                        x-transition:enter-start="opacity-0 scale-95"
-                        x-transition:enter-end="opacity-100 scale-100"
-                        x-transition:leave="transition ease-in duration-75"
-                        x-transition:leave-start="opacity-100 scale-100"
-                        x-transition:leave-end="opacity-0 scale-95"
-                        class="absolute left-0 mt-2 w-64 rounded-xl border border-slate-700 bg-slate-900 shadow-2xl z-50 overflow-hidden"
-                        style="display: none;"
-                    >
-                        <div class="px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400 border-b border-slate-800">
-                            Source type
+                    <div x-show="isOpen"
+                         x-transition
+                         class="eb-dropdown-menu absolute right-0 z-50 mt-2 w-full overflow-hidden sm:w-64"
+                         style="display: none;">
+                        <div class="eb-menu-label">Source type</div>
+                        <div class="p-2 pb-0">
+                            <input type="text"
+                                   class="eb-input"
+                                   placeholder="Search sources..."
+                                   x-model="sourceMenuQuery">
                         </div>
-                        <div class="py-1">
-                            <button type="button" class="w-full px-4 py-2 text-left text-sm transition"
-                                :class="sourceFilter === 'all' ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'"
-                                @click="sourceFilter='all'; isOpen=false"
-                            >All Sources</button>
-                            <button type="button" class="w-full px-4 py-2 text-left text-sm transition"
-                                :class="sourceFilter === 'local_agent' ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'"
-                                @click="sourceFilter='local_agent'; isOpen=false"
-                            >Local Agent</button>
-                            <button type="button" class="w-full px-4 py-2 text-left text-sm transition"
-                                :class="sourceFilter === 'cloud' ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'"
-                                @click="sourceFilter='cloud'; isOpen=false"
-                            >Cloud-to-Cloud</button>
-                            <button type="button" class="w-full px-4 py-2 text-left text-sm transition"
-                                :class="sourceFilter === 's3_compatible' ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'"
-                                @click="sourceFilter='s3_compatible'; isOpen=false"
-                            >S3-Compatible</button>
-                            <button type="button" class="w-full px-4 py-2 text-left text-sm transition"
-                                :class="sourceFilter === 'aws' ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'"
-                                @click="sourceFilter='aws'; isOpen=false"
-                            >AWS</button>
-                            <button type="button" class="w-full px-4 py-2 text-left text-sm transition"
-                                :class="sourceFilter === 'sftp' ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'"
-                                @click="sourceFilter='sftp'; isOpen=false"
-                            >SFTP</button>
-                            <button type="button" class="w-full px-4 py-2 text-left text-sm transition"
-                                :class="sourceFilter === 'google_drive' ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'"
-                                @click="sourceFilter='google_drive'; isOpen=false"
-                            >Google Drive</button>
-                            <button type="button" class="w-full px-4 py-2 text-left text-sm transition"
-                                :class="sourceFilter === 'dropbox' ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'"
-                                @click="sourceFilter='dropbox'; isOpen=false"
-                            >Dropbox</button>
+                        <div class="p-1" x-ref="sourceOptions">
+                            <button type="button" class="eb-menu-option" data-source-option="all" :class="sourceFilter === 'all' ? 'is-active' : ''" x-show="!sourceMenuQuery || 'all sources'.includes(sourceMenuQuery.toLowerCase())" @click="sourceFilter='all'; sourceMenuQuery=''; isOpen=false">All Sources</button>
+                            <button type="button" class="eb-menu-option" data-source-option="local_agent" :class="sourceFilter === 'local_agent' ? 'is-active' : ''" x-show="!sourceMenuQuery || 'local agent'.includes(sourceMenuQuery.toLowerCase())" @click="sourceFilter='local_agent'; sourceMenuQuery=''; isOpen=false">Local Agent</button>
+                            <button type="button" class="eb-menu-option" data-source-option="cloud" :class="sourceFilter === 'cloud' ? 'is-active' : ''" x-show="!sourceMenuQuery || 'cloud-to-cloud'.includes(sourceMenuQuery.toLowerCase())" @click="sourceFilter='cloud'; sourceMenuQuery=''; isOpen=false">Cloud-to-Cloud</button>
+                            <button type="button" class="eb-menu-option" data-source-option="s3_compatible" :class="sourceFilter === 's3_compatible' ? 'is-active' : ''" x-show="!sourceMenuQuery || 's3-compatible'.includes(sourceMenuQuery.toLowerCase())" @click="sourceFilter='s3_compatible'; sourceMenuQuery=''; isOpen=false">S3-Compatible</button>
+                            <button type="button" class="eb-menu-option" data-source-option="aws" :class="sourceFilter === 'aws' ? 'is-active' : ''" x-show="!sourceMenuQuery || 'aws'.includes(sourceMenuQuery.toLowerCase())" @click="sourceFilter='aws'; sourceMenuQuery=''; isOpen=false">AWS</button>
+                            <button type="button" class="eb-menu-option" data-source-option="sftp" :class="sourceFilter === 'sftp' ? 'is-active' : ''" x-show="!sourceMenuQuery || 'sftp'.includes(sourceMenuQuery.toLowerCase())" @click="sourceFilter='sftp'; sourceMenuQuery=''; isOpen=false">SFTP</button>
+                            <button type="button" class="eb-menu-option" data-source-option="google_drive" :class="sourceFilter === 'google_drive' ? 'is-active' : ''" x-show="!sourceMenuQuery || 'google drive'.includes(sourceMenuQuery.toLowerCase())" @click="sourceFilter='google_drive'; sourceMenuQuery=''; isOpen=false">Google Drive</button>
+                            <button type="button" class="eb-menu-option" data-source-option="dropbox" :class="sourceFilter === 'dropbox' ? 'is-active' : ''" x-show="!sourceMenuQuery || 'dropbox'.includes(sourceMenuQuery.toLowerCase())" @click="sourceFilter='dropbox'; sourceMenuQuery=''; isOpen=false">Dropbox</button>
+                            <div x-show="sourceMenuQuery && !hasVisibleSourceOptions()" class="px-3 py-2 text-sm text-[var(--eb-text-muted)]" style="display: none;">
+                                No sources match your search
+                            </div>
                         </div>
                     </div>
                 </div>
             </div>
-            <div class="inline-flex rounded-full bg-slate-900/80 p-1 text-xs font-medium text-slate-400">
-                <button class="px-3 py-1.5 rounded-full transition" :class="statusFilter === 'all' ? 'bg-slate-800 text-slate-50 shadow-sm' : 'hover:text-slate-200'" @click="statusFilter='all'">All</button>
-                <button class="px-3 py-1.5 rounded-full transition" :class="statusFilter === 'success' ? 'bg-slate-800 text-slate-50 shadow-sm' : 'hover:text-slate-200'" @click="statusFilter='success'">Success</button>
-                <button class="px-3 py-1.5 rounded-full transition" :class="statusFilter === 'warning' ? 'bg-slate-800 text-slate-50 shadow-sm' : 'hover:text-slate-200'" @click="statusFilter='warning'">Warning</button>
-                <button class="px-3 py-1.5 rounded-full transition" :class="statusFilter === 'failed' ? 'bg-slate-800 text-slate-50 shadow-sm' : 'hover:text-slate-200'" @click="statusFilter='failed'">Failed</button>
-                <button class="px-3 py-1.5 rounded-full transition" :class="statusFilter === 'running' ? 'bg-slate-800 text-slate-50 shadow-sm' : 'hover:text-slate-200'" @click="statusFilter='running'">Running</button>
-                <button class="px-3 py-1.5 rounded-full transition" :class="statusFilter === 'failed_recent' ? 'bg-slate-800 text-slate-50 shadow-sm' : 'hover:text-slate-200'" @click="statusFilter='failed_recent'">Failed Recently</button>
-            </div>
-        </div>
 
-        <!-- Jobs Container -->
-        <div class="grid grid-cols-1 gap-6">
-            <template x-if="loading">
-                <div class="rounded-2xl border border-slate-800/80 bg-slate-900/70 p-6 text-center text-slate-400">
-                    <svg class="animate-spin h-6 w-6 mx-auto text-sky-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
-                </div>
-            </template>
-            <template x-if="!loading && filteredJobs.length === 0">
-                <div class="rounded-2xl border border-slate-800/80 bg-slate-900/70 p-6 text-center text-slate-400">
-                    No jobs found.
-                </div>
-            </template>
-            <template x-for="job in filteredJobs" :key="job.job_id">
-                <div class="job-row group relative overflow-hidden rounded-2xl border border-slate-800/80 bg-slate-900/70 p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-emerald-400/60 hover:shadow-lg hover:shadow-emerald-500/15">
-                    <div class="flex items-center justify-between gap-4 mb-3">
-                        <div class="flex items-center gap-3">
-                            <div class="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-800/90 group-hover:bg-slate-700">
-                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-sky-300" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 15.75a4.5 4.5 0 004.5 4.5h9a4.5 4.5 0 004.5-4.5 4.5 4.5 0 00-3.75-4.415A5.25 5.25 0 006.75 9.75a5.25 5.25 0 00-.518 2.25M9 12l3-3m0 0l3 3m-3-3v7.5" />
-                                </svg>
-                            </div>
-                            <div>
-                                <div class="flex items-center gap-2">
-                                    <h3 class="text-sm font-semibold text-white" x-text="job.name"></h3>
-                                    <span x-show="job.source_type === 'local_agent'" class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[0.65rem] font-semibold bg-sky-500/15 text-sky-200 border border-sky-400/40">
-                                        Local Agent
-                                    </span>
-                                    <span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium" :class="statusClass(job.status)">
-                                        <span class="h-1.5 w-1.5 rounded-full" :class="dotClass(job.status)"></span>
-                                        <span x-text="(job.status || '').charAt(0).toUpperCase() + (job.status || '').slice(1)"></span>
-                                    </span>
-                                </div>                                
-                            </div>
+            <div class="flex flex-wrap gap-2">
+                <button class="eb-pill" :class="statusFilter === 'all' ? 'is-active' : ''" @click="statusFilter='all'">All</button>
+                <button class="eb-pill" :class="statusFilter === 'success' ? 'is-active' : ''" @click="statusFilter='success'">Success</button>
+                <button class="eb-pill" :class="statusFilter === 'warning' ? 'is-active' : ''" @click="statusFilter='warning'">Warning</button>
+                <button class="eb-pill" :class="statusFilter === 'failed' ? 'is-active' : ''" @click="statusFilter='failed'">Failed</button>
+                <button class="eb-pill" :class="statusFilter === 'running' ? 'is-active' : ''" @click="statusFilter='running'">Running</button>
+                <button class="eb-pill" :class="statusFilter === 'failed_recent' ? 'is-active' : ''" @click="statusFilter='failed_recent'">Failed Recently</button>
+            </div>
+
+            <div class="grid grid-cols-1 gap-6">
+                <template x-if="loading">
+                    <div class="eb-card !p-8 text-center">
+                        <div class="inline-flex items-center gap-3 text-sm text-[var(--eb-text-muted)]">
+                            <span class="h-4 w-4 animate-spin rounded-full border-2 border-[color:var(--eb-info-border)] border-t-[color:var(--eb-info-icon)]"></span>
+                            Loading jobs...
                         </div>
-                        <div class="flex items-center gap-2">
-                            <div x-data="{ running: false }">
-                                <button
-                                    class="btn-run-now"
-                                    @click="running = true; runJob(job.job_id).finally(() => running = false)"
-                                    :disabled="job.status !== 'active'"
-                                >
-                                    <template x-if="!running">
-                                        <div class="flex items-center gap-2">
-                                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-4 w-4">
-                                                <path stroke-linecap="round" stroke-linejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.347a1.125 1.125 0 0 1 0 1.972l-11.54 6.347a1.125 1.125 0 0 1-1.667-.986V5.653Z" />
-                                            </svg>
-                                            <span>Run now</span>
-                                        </div>
-                                    </template>
-                                    <template x-if="running">
-                                        <div class="flex items-center gap-2">
-                                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
-                                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3"></circle>
-                                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
-                                            </svg>
-                                            <span>Running…</span>
-                                        </div>
-                                    </template>
+                    </div>
+                </template>
+
+                <template x-if="!loading && filteredJobs.length === 0">
+                    <div class="eb-app-empty">
+                        <div class="eb-app-empty-title">No jobs found</div>
+                        <p class="eb-app-empty-copy">Try a different filter or create a new backup job.</p>
+                    </div>
+                </template>
+
+                <template x-for="job in filteredJobs" :key="job.job_id">
+                    <div class="eb-job-card">
+                        <div class="eb-job-card-header">
+                            <div class="eb-job-card-identity">
+                                <div class="eb-job-type-icon" aria-hidden="true">
+                                    <svg x-show="(job.source_type || '').toLowerCase() === 'local_agent'" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+                                        <rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/>
+                                    </svg>
+                                    <svg x-show="(job.source_type || '').toLowerCase() !== 'local_agent'" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+                                        <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2z"/>
+                                    </svg>
+                                </div>
+                                <div class="eb-job-card-name" x-text="job.name"></div>
+                                <span x-show="(job.status || '').toLowerCase() === 'paused'" class="eb-job-status-paused">
+                                    <span class="eb-job-status-paused-dot" aria-hidden="true"></span>
+                                    Paused
+                                </span>
+                            </div>
+                            <div class="eb-job-card-actions">
+                                <div x-data="{ running: false }">
+                                    <button type="button"
+                                            class="eb-btn eb-btn-primary eb-btn-sm"
+                                            @click="running = true; runJob(job.job_id).finally(() => running = false)"
+                                            :disabled="(job.status || '').toLowerCase() !== 'active'">
+                                        <template x-if="!running">
+                                            <span class="inline-flex items-center gap-1.5">
+                                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="h-3.5 w-3.5 shrink-0" fill="currentColor" aria-hidden="true"><polygon points="5,3 19,12 5,21"/></svg>
+                                                <span>Run now</span>
+                                            </span>
+                                        </template>
+                                        <template x-if="running">
+                                            <span class="inline-flex items-center gap-1.5">
+                                                <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5 shrink-0 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3"></circle>
+                                                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+                                                </svg>
+                                                <span>Running...</span>
+                                            </span>
+                                        </template>
+                                    </button>
+                                </div>
+                                <button type="button" @click="editJob(job)" class="eb-btn eb-btn-icon eb-btn-sm" title="Edit job">
+                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="h-[15px] w-[15px]">
+                                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                                    </svg>
+                                </button>
+                                <button type="button"
+                                        @click="toggleJobStatus(job.job_id, job.status)"
+                                        class="eb-btn eb-btn-icon eb-btn-sm"
+                                        :class="(job.status || '').toLowerCase() === 'paused' ? 'eb-job-action-icon--paused' : ''"
+                                        :title="(job.status || '').toLowerCase() === 'active' ? 'Pause job' : 'Resume job'">
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-[15px] w-[15px]">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 4h4v16H6V4zm8 0h4v16h-4V4z"/>
+                                    </svg>
+                                </button>
+                                <button type="button" @click="viewLogs(job.job_id)" class="eb-btn eb-btn-icon eb-btn-sm" title="View logs">
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-[15px] w-[15px]">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>
+                                    </svg>
+                                </button>
+                                <button type="button" @click="openDeleteModal(job)" class="eb-btn eb-btn-icon eb-btn-sm is-danger" title="Delete job">
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-[15px] w-[15px]">
+                                        <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                                    </svg>
+                                </button>
+                                <button type="button" @click="openRestore(job)" class="eb-btn eb-btn-icon eb-btn-sm" title="Download / restore">
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-[15px] w-[15px]">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+                                    </svg>
                                 </button>
                             </div>
-                            <button @click="editJob(job)" class="icon-btn" title="Edit">
-                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="h-4 w-4">
-                                    <path d="M21.731 2.269a2.625 2.625 0 00-3.712 0l-1.157 1.157 3.712 3.712 1.157-1.157a2.625 2.625 0 000-3.712z" />
-                                    <path d="M3.75 15.75V19.5h3.75l9.72-9.72-3.75-3.75L3.75 15.75z" />
-                                </svg>
-                            </button>
-                            <button @click="toggleJobStatus(job.job_id, job.status)" class="icon-btn" :title="job.status === 'active' ? 'Pause' : 'Resume'">
-                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-4 w-4">
-                                    <path stroke-linecap="round" stroke-linejoin="round" d="M21 7.5V18M15 7.5V18M3 16.811V8.69c0-.864.933-1.406 1.683-.977l7.108 4.061a1.125 1.125 0 0 1 0 1.954l-7.108 4.061A1.125 1.125 0 0 1 3 16.811Z" />
-                                </svg>
-                            </button>
-                            <button @click="openDeleteModal(job)" class="icon-btn" title="Delete">
-                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-4 w-4">
-                                    <path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
-                                </svg>
-                            </button>
-                            <button @click="viewLogs(job.job_id)" class="icon-btn" title="Logs">
-                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-4 w-4">
-                                    <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 6.75h12M8.25 12h12m-12 5.25h12M3.75 6.75h.007v.008H3.75V6.75Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0ZM3.75 12h.007v.008H3.75V12Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm-.375 5.25h.007v.008H3.75v-.008Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Z" />
-                                </svg>
-                            </button>
-                            <button @click="openRestore(job)" class="icon-btn" title="Restore">
-                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 4v9m0 0l-3.5-3.5M12 13l3.5-3.5M6 20h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.5" />
-                                </svg>
-                            </button>
                         </div>
-                    </div>
-                    <div class="mt-2 grid grid-cols-1 sm:grid-cols-6 gap-4 text-xs text-slate-400">
-                        <div>
-                            <h6 class="text-sm font-medium text-slate-400">Source</h6>
-                            <span class="text-md font-medium text-slate-300" x-text="job.source_display_name || formatSourceType(job.source_type)"></span>
-                            <span class="text-xs text-slate-500 ml-2" x-text="formatAgentHint(job)"></span>
-                        </div>
-                        <div>
-                            <h6 class="text-sm font-medium text-slate-400">Destination</h6>
-                            <span class="text-md font-medium text-slate-300" x-text="formatDestinationName(job)"></span>
-                            <span class="text-xs text-slate-500 ml-2" x-show="job.dest_prefix" x-text="'/' + job.dest_prefix"></span>
-                        </div>
-                        <div>
-                            <h6 class="text-sm font-medium text-slate-400">Mode</h6>
-                            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium"
-                                  :class="job.backup_mode === 'archive' ? 'bg-purple-700 text-purple-200' : 'bg-blue-700 text-blue-200'">
-                                <span x-text="formatMode(job)"></span>
-                            </span>
-                            <span x-show="job.encryption_enabled" class="ml-1 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-700 text-green-200" title="Encrypted">
-                                🔒
-                            </span>
-                        </div>
-                        <div>
-                            <h6 class="text-sm font-medium text-slate-400">Schedule</h6>
-                            <span class="text-md font-medium text-slate-300" x-text="formatScheduleLabel(job)"></span>
-                        </div>
-                        <div>
-                            <h6 class="text-sm font-medium text-slate-400">Next Run</h6>
-                            <span class="text-md font-medium" :class="job.schedule_type === 'manual' ? 'text-slate-500' : 'text-slate-300'" x-text="nextRunText(job)"></span>
-                        </div>
-                        <div>
-                            <h6 class="text-sm font-medium text-slate-400">Last Run</h6>
-                            <div class="text-md font-medium text-slate-300">
-                                <span x-text="formatLastRunTime(job)"></span>
+
+                        <div class="eb-job-card-body">
+                            <div class="eb-job-meta-item">
+                                <div class="eb-job-meta-label">Source</div>
+                                <div class="eb-job-meta-value" x-text="sourcePrimaryLabel(job)"></div>
+                                <div class="eb-job-meta-sub" x-show="formatSourceSubtitle(job)" x-text="formatSourceSubtitle(job)"></div>
+                            </div>
+                            <div class="eb-job-meta-item">
+                                <div class="eb-job-meta-label">Destination</div>
+                                <div class="eb-job-meta-value" x-text="formatDestinationName(job)"></div>
+                                <div class="eb-job-meta-sub" x-show="job.dest_prefix" x-text="'/' + job.dest_prefix"></div>
+                            </div>
+                            <div class="eb-job-meta-item">
+                                <div class="eb-job-meta-label">Mode</div>
+                                <div class="eb-job-meta-value">
+                                    <span x-text="formatMode(job)"></span><span x-show="job.encryption_enabled" class="text-[var(--eb-text-muted)] font-normal"> · Encrypted</span>
+                                </div>
+                            </div>
+                            <div class="eb-job-meta-item">
+                                <div class="eb-job-meta-label">Schedule</div>
+                                <div class="eb-job-meta-value"
+                                     :class="resolveScheduleType(job) === 'manual' ? 'eb-job-schedule-manual' : ''"
+                                     x-text="formatScheduleLabel(job)"></div>
+                            </div>
+                            <div class="eb-job-meta-item">
+                                <div class="eb-job-meta-label">Next Run</div>
+                                <div class="eb-job-meta-value"
+                                     :class="[
+                                         (resolveScheduleType(job) === 'manual' && (job.status || '').toLowerCase() !== 'paused') ? 'eb-job-schedule-manual' : '',
+                                         nextRunMuted(job) ? '!text-[var(--eb-text-muted)]' : ''
+                                     ]"
+                                     x-text="nextRunDisplay(job)"></div>
+                            </div>
+                            <div class="eb-job-meta-item">
+                                <div class="eb-job-meta-label">Last Run</div>
+                                <div class="eb-job-meta-value" x-text="formatLastRunTime(job)"></div>
                                 <template x-if="job.last_run && job.last_run.status">
-                                    <span class="ml-2 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[0.65rem] font-medium" :class="lastRunStatusClass(job.last_run.status)">
-                                        <span x-text="capitalize(job.last_run.status)"></span>
-                                    </span>
+                                    <div class="eb-job-last-run-status">
+                                        <span class="eb-job-last-run-dot" :class="lastRunDotClass(job.last_run.status)"></span>
+                                        <span class="eb-job-last-run-label" :class="lastRunLabelClass(job.last_run.status)" x-text="capitalize(job.last_run.status)"></span>
+                                    </div>
                                 </template>
                             </div>
                         </div>
                     </div>
-                </div>
-            </template>
-        </div>
-
-        <!-- Delete Job Confirmation Modal -->
-        <div
-            x-show="deleteModalOpen"
-            x-cloak
-            class="fixed inset-0 z-[2200] flex items-center justify-center p-4"
-            style="display:none;"
-            @keydown.escape.window="closeDeleteModal()"
-        >
-            <div class="absolute inset-0 bg-black/70" @click="closeDeleteModal()"></div>
-            <div
-                class="relative w-full max-w-md rounded-2xl border border-slate-700 bg-slate-900 shadow-2xl overflow-hidden"
-                @click.stop
-                x-transition:enter="transition ease-out duration-150"
-                x-transition:enter-start="opacity-0 scale-95"
-                x-transition:enter-end="opacity-100 scale-100"
-                x-transition:leave="transition ease-in duration-100"
-                x-transition:leave-start="opacity-100 scale-100"
-                x-transition:leave-end="opacity-0 scale-95"
-            >
-                <div class="p-5">
-                    <div class="flex items-start gap-3">
-                        <div class="mt-0.5 flex h-10 w-10 items-center justify-center rounded-full bg-rose-500/15 text-rose-300 border border-rose-400/30">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
-                            </svg>
-                        </div>
-                        <div class="flex-1">
-                            <h3 class="text-lg font-semibold text-white">Delete job?</h3>
-                            <p class="mt-1 text-sm text-slate-300">
-                                This will remove the job configuration and stop scheduled runs.
-                            </p>
-                            <p class="mt-2 text-sm text-slate-400">
-                                Job: <span class="text-slate-200 font-semibold" x-text="deleteJobName || 'Unnamed job'"></span>
-                            </p>
-                        </div>
-                    </div>
-                </div>
-                <div class="px-5 py-4 bg-slate-800 border-t border-slate-700 flex justify-end gap-2">
-                    <button
-                        type="button"
-                        class="px-4 py-2 rounded-md border border-slate-600 text-slate-200 hover:border-slate-500 hover:bg-slate-800"
-                        @click="closeDeleteModal()"
-                        :disabled="deleteInProgress"
-                    >
-                        Cancel
-                    </button>
-                    <button
-                        type="button"
-                        class="px-4 py-2 rounded-md bg-rose-600 text-white hover:bg-rose-500 inline-flex items-center gap-2"
-                        @click="confirmDeleteJob()"
-                        :disabled="deleteInProgress"
-                    >
-                        <svg x-show="deleteInProgress" class="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
-                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
-                        </svg>
-                        <span x-text="deleteInProgress ? 'Deleting…' : 'Delete'"></span>
-                    </button>
-                </div>
+                </template>
             </div>
         </div>
-        </div>
     </div>
-</div>
 
-<!-- Include the Job Creation Wizard Slide-Over -->
-{include file="{$smarty.const.ROOTDIR}/modules/addons/cloudstorage/templates/partials/job_create_wizard.tpl"}
-
-<!-- Include Bucket Creation Modal (shared) -->
-{include file="{$smarty.const.ROOTDIR}/modules/addons/cloudstorage/templates/partials/bucket_create_modal.tpl"}
-
-<!-- Restore Wizard Modal -->
-<div id="restoreWizardModal" class="fixed inset-0 z-[2100] hidden">
-    <div class="absolute inset-0 bg-black/75" onclick="closeRestoreModal()"></div>
-    <div class="absolute inset-0 flex items-center justify-center p-4">
-        <div class="w-full max-w-3xl rounded-2xl border border-slate-800 bg-slate-950 shadow-2xl overflow-hidden">
-            <div class="flex items-center justify-between px-6 py-4 border-b border-slate-800">
+    <div x-show="deleteModalOpen"
+         x-cloak
+         class="fixed inset-0 z-[2200] flex items-center justify-center p-4"
+         style="display:none;"
+         @keydown.escape.window="closeDeleteModal()">
+        <div class="eb-modal-backdrop absolute inset-0" @click="closeDeleteModal()"></div>
+        <div class="eb-modal eb-modal--confirm relative z-10 !p-0 overflow-hidden"
+             @click.stop
+             x-transition:enter="transition ease-out duration-150"
+             x-transition:enter-start="opacity-0 scale-95"
+             x-transition:enter-end="opacity-100 scale-100"
+             x-transition:leave="transition ease-in duration-100"
+             x-transition:leave-start="opacity-100 scale-100"
+             x-transition:leave-end="opacity-0 scale-95">
+            <div class="eb-modal-header">
                 <div>
-                    <p class="text-xs uppercase text-slate-400 tracking-wide">Restore</p>
-                    <h3 class="text-xl font-semibold text-white">Restore Snapshot</h3>
-                    <p class="text-[11px] text-slate-400 mt-1">Select a snapshot (recent run), choose a target path, and optionally request a mount.</p>
+                    <h3 class="eb-modal-title">Delete job?</h3>
+                    <p class="eb-modal-subtitle">This will remove the job configuration and stop scheduled runs.</p>
                 </div>
-                <button class="p-2 rounded hover:bg-slate-800 text-slate-400 hover:text-white" onclick="closeRestoreModal()" aria-label="Close wizard">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6 18L18 6M6 6l12 12" />
+            </div>
+            <div class="eb-modal-body">
+                <div class="eb-alert eb-alert--danger">
+                    <svg class="eb-alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
                     </svg>
+                    <div>Job: <span class="font-semibold text-[var(--eb-text-primary)]" x-text="deleteJobName || 'Unnamed job'"></span></div>
+                </div>
+            </div>
+            <div class="eb-modal-footer">
+                <button type="button" class="eb-btn eb-btn-secondary eb-btn-sm" @click="closeDeleteModal()" :disabled="deleteInProgress">Cancel</button>
+                <button type="button" class="eb-btn eb-btn-danger-solid eb-btn-sm" @click="confirmDeleteJob()" :disabled="deleteInProgress">
+                    <svg x-show="deleteInProgress" class="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                    </svg>
+                    <span x-text="deleteInProgress ? 'Deleting...' : 'Delete'"></span>
                 </button>
             </div>
-            <div class="px-6 py-4">
-                <div class="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-400 mb-4">
-                    <span class="px-2 py-1 rounded-full border border-slate-700 bg-slate-900" id="restoreStepLabel">Step 1 of 3</span>
-                    <span class="text-slate-300" id="restoreStepTitle">Select Snapshot</span>
+        </div>
+    </div>
+
+    {include file="{$smarty.const.ROOTDIR}/modules/addons/cloudstorage/templates/partials/job_create_wizard.tpl"}
+    {include file="{$smarty.const.ROOTDIR}/modules/addons/cloudstorage/templates/partials/bucket_create_modal.tpl"}
+
+    <div id="restoreWizardModal" class="fixed inset-0 z-[2100] hidden">
+        <div class="eb-modal-backdrop absolute inset-0" onclick="closeRestoreModal()"></div>
+        <div class="absolute inset-0 flex items-center justify-center p-4">
+            <div class="eb-modal relative z-10 w-full max-w-3xl !p-0 overflow-hidden">
+                <div class="eb-modal-header">
+                    <div>
+                        <h3 class="eb-modal-title">Restore Snapshot</h3>
+                        <p class="eb-modal-subtitle">Select a snapshot, choose a target path, and optionally request a mount.</p>
+                    </div>
+                    <button class="eb-modal-close" onclick="closeRestoreModal()" aria-label="Close wizard">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                    </button>
                 </div>
-
-                <div class="space-y-6">
-                    <!-- Step 1 -->
-                    <div class="restore-step" data-step="1">
-                        <label class="block text-sm font-medium text-slate-200 mb-2">Snapshot (from recent runs)</label>
-                        <div class="mb-3">
-                            <select id="restoreRunSelect" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-slate-100">
-                                <option value="">Loading runs…</option>
-                            </select>
-                            <p class="text-xs text-slate-400 mt-1">Pick a run whose snapshot you want to restore.</p>
-                        </div>
+                <div class="eb-modal-body">
+                    <div class="mb-4 flex items-center gap-2">
+                        <span class="eb-badge eb-badge--neutral" id="restoreStepLabel">Step 1 of 3</span>
+                        <span class="eb-type-caption text-[var(--eb-text-secondary)]" id="restoreStepTitle">Select Snapshot</span>
                     </div>
 
-                    <!-- Step 2 -->
-                    <div class="restore-step hidden" data-step="2">
-                        <label class="block text-sm font-medium text-slate-200 mb-2">Restore Target</label>
-                        <div class="space-y-3">
-                            <input id="restoreTargetPath" type="text" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-slate-100" placeholder="Destination path on agent (e.g., C:\Restores\job123)">
-                            <label class="inline-flex items-center gap-2 text-sm text-slate-300">
-                                <input id="restoreMount" type="checkbox" class="rounded border-slate-600 bg-slate-800">
-                                <span>Request mount instead of copy</span>
-                            </label>
+                    <div class="space-y-6">
+                        <div class="restore-step" data-step="1">
+                            <label class="eb-field-label">Snapshot (from recent runs)</label>
+                            <div class="mb-3">
+                                <select id="restoreRunSelect" class="eb-select">
+                                    <option value="">Loading runs...</option>
+                                </select>
+                                <p class="eb-field-help mt-1">Pick a run whose snapshot you want to restore.</p>
+                            </div>
                         </div>
-                    </div>
 
-                    <!-- Step 3 -->
-                    <div class="restore-step hidden" data-step="3">
-                        <div class="rounded-xl border border-slate-800 bg-slate-900 px-4 py-3 text-slate-100">
-                            <p class="text-sm font-semibold mb-2">Review</p>
-                            <div id="restoreReview" class="text-xs whitespace-pre-wrap leading-5 bg-slate-950 border border-slate-800 rounded-lg p-3 overflow-auto max-h-64"></div>
+                        <div class="restore-step hidden" data-step="2">
+                            <label class="eb-field-label">Restore Target</label>
+                            <div class="space-y-3">
+                                <input id="restoreTargetPath" type="text" class="eb-input" placeholder="Destination path on agent (e.g., C:\Restores\job123)">
+                                <label class="eb-inline-choice">
+                                    <input id="restoreMount" type="checkbox" class="eb-check-input">
+                                    <span>Request mount instead of copy</span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="restore-step hidden" data-step="3">
+                            <div class="eb-card-raised">
+                                <p class="eb-card-title mb-2">Review</p>
+                                <div id="restoreReview" class="max-h-64 overflow-auto rounded-[var(--eb-radius-md)] border border-[var(--eb-border-subtle)] bg-[var(--eb-bg-base)] p-3 text-xs leading-5 text-[var(--eb-text-secondary)] whitespace-pre-wrap"></div>
+                            </div>
                         </div>
                     </div>
                 </div>
-
-                <div class="flex justify-between items-center mt-6">
-                    <button type="button" class="px-4 py-2 rounded-lg border border-slate-700 bg-slate-800 text-slate-100 hover:bg-slate-700" onclick="restorePrev()">Back</button>
+                <div class="eb-modal-footer">
+                    <button type="button" class="eb-btn eb-btn-secondary eb-btn-sm" onclick="restorePrev()">Back</button>
                     <div class="flex gap-2">
-                        <button type="button" class="px-4 py-2 rounded-lg border border-slate-700 bg-slate-800 text-slate-100 hover:bg-slate-700" onclick="closeRestoreModal()">Cancel</button>
-                        <button type="button" class="px-4 py-2 rounded-lg bg-sky-600 text-white hover:bg-sky-500" onclick="restoreNext()">Next</button>
+                        <button type="button" class="eb-btn eb-btn-secondary eb-btn-sm" onclick="closeRestoreModal()">Cancel</button>
+                        <button type="button" class="eb-btn eb-btn-primary eb-btn-sm" onclick="restoreNext()">Next</button>
                     </div>
                 </div>
             </div>
         </div>
     </div>
 </div>
+{/capture}
+
+{include file="modules/addons/cloudstorage/templates/partials/e3backup_shell.tpl"
+    ebE3SidebarPage='jobs'
+    ebE3Title='Backup Jobs'
+    ebE3Description='View and filter backup jobs. MSPs can filter by tenant and agent.'
+    ebE3Content=$ebE3Content
+}
 
 <style>
 /* Hide native number spinners for custom steppers */
 .eb-no-spinner::-webkit-outer-spin-button,
 .eb-no-spinner::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 .eb-no-spinner { -moz-appearance: textfield; appearance: textfield; }
+
+.eb-jobs-toolbar > * {
+    min-width: 0;
+}
+
+@media (min-width: 1280px) and (max-width: 1323px) {
+    .eb-jobs-toolbar {
+        display: grid;
+        grid-template-columns: minmax(0, 1.2fr) repeat(3, minmax(0, 0.9fr));
+        align-items: start;
+        gap: 0.75rem;
+    }
+
+    .eb-jobs-toolbar-search,
+    .eb-jobs-toolbar-item {
+        width: 100%;
+        min-width: 0 !important;
+    }
+
+    .eb-jobs-toolbar-item .eb-menu-trigger {
+        width: 100%;
+        min-width: 0 !important;
+        max-width: 100%;
+    }
+}
 </style>
 
 {literal}
@@ -916,12 +824,9 @@ function e3backupNotify(type, message) {
         const el = document.createElement('div');
         const isErr = type === 'error';
         el.className = [
-            'pointer-events-auto',
-            // Smaller + tighter toast
-            'rounded-lg px-3 py-2 shadow-lg',
-            'text-sm font-medium leading-snug',
-            // Solid backgrounds (success = green, error = red)
-            isErr ? 'bg-rose-600 text-white' : 'bg-emerald-600 text-white'
+            'eb-toast',
+            isErr ? 'eb-toast--danger' : 'eb-toast--success',
+            'pointer-events-auto'
         ].join(' ');
         el.textContent = msg || (isErr ? 'Error' : 'Success');
         wrap.appendChild(el);
@@ -1063,7 +968,7 @@ function jobsApp() {
                 const res = await fetch(url);
                 const data = await res.json();
                 if (data.status === 'success') {
-                    this.jobs = data.jobs || [];
+                    this.jobs = (data.jobs || []).map(j => { j.job_id = j.id; return j; });
                 } else {
                     console.error(data.message);
                 }
@@ -1188,20 +1093,22 @@ function jobsApp() {
         openRestoreModal(jobId) {
             window.openRestoreModal(jobId);
         },
-        statusClass(status) {
-            const s = (status || '').toLowerCase();
-            if (s === 'active') return 'bg-emerald-500/15 text-emerald-200';
-            if (s === 'paused') return 'bg-amber-500/15 text-amber-200';
-            return 'bg-slate-700 text-slate-300';
+        sourcePrimaryLabel(job) {
+            if (!job) return '-';
+            if (job.source_display_name) return job.source_display_name;
+            const t = (job.source_type || '').toLowerCase();
+            if (t === 'local_agent') {
+                if (job.agent_hostname) return job.agent_hostname;
+                if (job.agent_uuid) return job.agent_uuid;
+            }
+            return this.formatSourceType(job.source_type);
         },
-        dotClass(status) {
-            const s = (status || '').toLowerCase();
-            if (s === 'active') return 'bg-emerald-400';
-            if (s === 'paused') return 'bg-amber-400';
-            return 'bg-slate-500';
-        },
-        sourceClass(type) {
-            return 'bg-sky-500/15 text-sky-200';
+        formatSourceSubtitle(job) {
+            if (!job) return '';
+            const t = (job.source_type || '').toLowerCase();
+            if (t === 'local_agent') return 'Local';
+            if (!job.source_type) return '';
+            return this.formatSourceType(job.source_type);
         },
         formatEngine(engine) {
             const e = (engine || '').toLowerCase();
@@ -1413,35 +1320,55 @@ function jobsApp() {
             const hourlyMinute = this.scheduleJsonNumber(job, 'minute');
             return computeNextRunText(type, time, weekdayIdx, hourlyMinute);
         },
+        nextRunDisplay(job) {
+            if (!job) return '—';
+            const st = (job.status || '').toLowerCase();
+            if (st === 'paused') {
+                return '— (paused)';
+            }
+            const type = this.resolveScheduleType(job);
+            if (!type || type === 'manual') {
+                return '—';
+            }
+            const txt = this.nextRunText(job);
+            if (txt === '-' || !txt) {
+                return '—';
+            }
+            return txt;
+        },
+        nextRunMuted(job) {
+            if (!job) return true;
+            const st = (job.status || '').toLowerCase();
+            const type = this.resolveScheduleType(job);
+            return type === 'manual' || st === 'paused';
+        },
         formatLastRunTime(job) {
-            if (!job.last_run || !job.last_run.started_at) return '-';
+            if (!job.last_run || !job.last_run.started_at) return '—';
             try {
                 return fmtDateTime(new Date(job.last_run.started_at));
             } catch (e) {
                 return job.last_run.started_at;
             }
         },
-        lastRunStatusClass(status) {
+        lastRunDotClass(status) {
             const s = (status || '').toLowerCase();
-            if (s === 'success') return 'bg-emerald-500/10 text-emerald-300';
-            if (s === 'failed') return 'bg-rose-500/15 text-rose-300';
-            if (s === 'warning') return 'bg-amber-500/15 text-amber-300';
-            if (s === 'cancelled') return 'bg-amber-500/15 text-amber-300';
-            if (s === 'running' || s === 'starting') return 'bg-sky-500/10 text-sky-300';
-            return 'bg-slate-500/15 text-slate-300';
+            if (s === 'success') return 'eb-job-last-run-dot--success';
+            if (s === 'failed') return 'eb-job-last-run-dot--failed';
+            if (s === 'warning' || s === 'cancelled') return 'eb-job-last-run-dot--warning';
+            if (s === 'running' || s === 'starting') return 'eb-job-last-run-dot--running';
+            return 'eb-job-last-run-dot--neutral';
+        },
+        lastRunLabelClass(status) {
+            const s = (status || '').toLowerCase();
+            if (s === 'success') return 'eb-job-last-run-label--success';
+            if (s === 'failed') return 'eb-job-last-run-label--failed';
+            if (s === 'warning' || s === 'cancelled') return 'eb-job-last-run-label--warning';
+            if (s === 'running' || s === 'starting') return 'eb-job-last-run-label--running';
+            return 'eb-job-last-run-label--neutral';
         },
         capitalize(value) {
             if (!value) return '';
             return value.charAt(0).toUpperCase() + value.slice(1);
-        },
-        formatAgentHint(job) {
-            const type = (job.source_type || '').toLowerCase();
-            if (type === 'local_agent') {
-                if (job.agent_hostname) return '(' + job.agent_hostname + ')';
-                if (job.agent_uuid) return '(' + job.agent_uuid + ')';
-                return '';
-            }
-            return type ? '(' + type + ')' : '';
         },
         editJob(job) {
             // Route to the correct edit UI based on source_type
@@ -1634,6 +1561,58 @@ function mspTenantFilter() {
 
 // --- Job Creation Wizard Functions ---
 
+function cloudWizardSetModeUi(isEdit) {
+    const panel = document.getElementById('createJobSlideover');
+    if (!panel) return;
+    const titleEl = panel.querySelector('.eb-drawer-title');
+    if (titleEl) {
+        titleEl.textContent = isEdit ? 'Edit Backup Job' : 'Create Backup Job';
+    }
+    const submitEl = panel.querySelector('#createJobForm button[type="submit"]');
+    if (submitEl) {
+        submitEl.textContent = isEdit ? 'Save Changes' : 'Create Job';
+    }
+}
+
+function cloudWizardField(name) {
+    return document.querySelector('#createJobForm [name="' + name + '"]');
+}
+
+function cloudWizardSetFieldValue(name, value, dispatchEvents = true) {
+    const field = cloudWizardField(name);
+    if (!field) return null;
+    field.value = value == null ? '' : String(value);
+    if (dispatchEvents) {
+        try { field.dispatchEvent(new Event('input', { bubbles: true })); } catch (e) {}
+        try { field.dispatchEvent(new Event('change', { bubbles: true })); } catch (e) {}
+    }
+    return field;
+}
+
+function cloudWizardSetDestBucket(bucketId, bucketName) {
+    const select = document.querySelector('#createJobForm select[data-dest-bucket-src]');
+    if (!select) return;
+    const value = bucketId == null ? '' : String(bucketId);
+    if (value && !Array.from(select.options).some(opt => String(opt.value) === value)) {
+        const extra = document.createElement('option');
+        extra.value = value;
+        extra.text = bucketName || ('Bucket #' + value);
+        select.appendChild(extra);
+    }
+    select.value = value;
+    try { select.dispatchEvent(new Event('change', { bubbles: true })); } catch (e) {}
+}
+
+function cloudWizardNormalizeWeekday(value) {
+    if (Array.isArray(value) && value.length) {
+        return String(value[0]);
+    }
+    if (value == null || value === '') {
+        return '1';
+    }
+    return String(value);
+}
+
 // Cloud Backup Wizard (Slideover)
 function openCloudBackupWizard() {
     const panel = document.getElementById('createJobSlideover');
@@ -1642,18 +1621,21 @@ function openCloudBackupWizard() {
     // Reset edit mode state when opening via this function (create mode)
     if (!window.cloudWizardState?.editMode) {
         window.cloudWizardState = { editMode: false, jobId: null };
-        // Reset panel title for create mode
-        const titleEl = panel.querySelector('h2');
-        if (titleEl) {
-            titleEl.textContent = 'Create Backup Job';
-        }
+        cloudWizardSetModeUi(false);
         // Reset form fields
         const form = document.getElementById('createJobForm');
-        if (form) form.reset();
+        if (form) {
+            form.reset();
+        }
+        const msgEl = document.getElementById('jobCreationMessage');
+        if (msgEl) {
+            msgEl.textContent = '';
+            msgEl.classList.add('hidden');
+        }
     }
     
     panel.style.setProperty('display', 'block', 'important');
-    const backdrop = panel.querySelector('.absolute.inset-0.bg-black\\/75');
+    const backdrop = panel.querySelector('.eb-drawer-backdrop');
     if (backdrop) backdrop.style.setProperty('display', 'block', 'important');
     const panelContent = panel.querySelector('.absolute.right-0.top-0');
     if (panelContent) panelContent.style.setProperty('display', 'block', 'important');
@@ -1714,11 +1696,7 @@ function openCloudBackupWizardForEdit(jobId) {
             // Populate form fields
             cloudWizardFillFromJob(job, source);
             
-            // Update panel title
-            const titleEl = document.querySelector('#createJobSlideover h2');
-            if (titleEl) {
-                titleEl.textContent = 'Edit Backup Job';
-            }
+            cloudWizardSetModeUi(true);
             
             window.cloudWizardState.loading = false;
         })
@@ -1730,73 +1708,50 @@ function openCloudBackupWizardForEdit(jobId) {
 
 // Fill Cloud Wizard fields from job data
 function cloudWizardFillFromJob(job, source) {
-    // Job name
-    const nameEl = document.getElementById('jobName');
-    if (nameEl) nameEl.value = job.name || '';
-    
-    // Source type
-    const sourceTypeEl = document.getElementById('sourceType');
-    if (sourceTypeEl) {
-        sourceTypeEl.value = job.source_type || '';
-        onSourceTypeChange(job.source_type || '');
-    }
-    
-    // Fill source-specific fields based on type
-    const type = (source.type || job.source_type || '').toLowerCase();
+    const type = String(source.type || job.source_type || '').toLowerCase();
+    const jobSchedJson = typeof job.schedule_json === 'string' ? safeParseJSON(job.schedule_json) : job.schedule_json;
+    const jobRetJson = typeof job.retention_json === 'string' ? safeParseJSON(job.retention_json) : job.retention_json;
+    const scheduleType = job.schedule_type || jobSchedJson?.type || 'manual';
+    const scheduleTime = job.schedule_time || jobSchedJson?.time || '';
+    const scheduleWeekday = cloudWizardNormalizeWeekday(jobSchedJson?.weekday || job.schedule_weekday || '1');
+    const retentionMode = job.retention_mode || jobRetJson?.mode || 'none';
+    const retentionValue = job.retention_value || jobRetJson?.value || '';
+
+    cloudWizardSetFieldValue('name', job.name || '', false);
+    cloudWizardSetFieldValue('wizard_tenant_id', job.tenant_id || '', true);
+    cloudWizardSetFieldValue('source_type', job.source_type || '', true);
+    cloudWizardSetFieldValue('source_display_name', job.source_display_name || '', false);
+
     if (type === 's3_compatible') {
-        const endpointEl = document.getElementById('s3Endpoint');
-        if (endpointEl) endpointEl.value = source.endpoint || '';
-        const bucketEl = document.getElementById('s3Bucket');
-        if (bucketEl) bucketEl.value = source.bucket || '';
-        const regionEl = document.getElementById('s3Region');
-        if (regionEl) regionEl.value = source.region || 'ca-central-1';
-        // Access/Secret: don't prefill (security), show indicator if saved
+        cloudWizardSetFieldValue('s3_endpoint', source.endpoint || '', false);
+        cloudWizardSetFieldValue('s3_region', source.region || 'ca-central-1', false);
+        cloudWizardSetFieldValue('s3_access_key', source.access_key || '', false);
+        cloudWizardSetFieldValue('s3_secret_key', source.secret_key || '', false);
+        cloudWizardSetFieldValue('s3_bucket', source.bucket || '', false);
+        cloudWizardSetFieldValue('s3_path', job.source_path || '', false);
     } else if (type === 'aws') {
-        const bucketEl = document.getElementById('awsBucket');
-        if (bucketEl) bucketEl.value = source.bucket || '';
-        const regionEl = document.getElementById('awsRegion');
-        if (regionEl) regionEl.value = source.region || 'us-east-1';
+        cloudWizardSetFieldValue('aws_region', source.region || 'us-east-1', true);
+        cloudWizardSetFieldValue('aws_access_key', source.access_key || '', false);
+        cloudWizardSetFieldValue('aws_secret_key', source.secret_key || '', false);
+        cloudWizardSetFieldValue('aws_bucket', source.bucket || '', true);
+        cloudWizardSetFieldValue('aws_path', job.source_path || '', false);
     } else if (type === 'sftp') {
-        const hostEl = document.getElementById('sftpHost');
-        if (hostEl) hostEl.value = source.host || '';
-        const portEl = document.getElementById('sftpPort');
-        if (portEl) portEl.value = source.port || '22';
-        const userEl = document.getElementById('sftpUsername');
-        if (userEl) userEl.value = source.user || '';
+        cloudWizardSetFieldValue('sftp_host', source.host || '', false);
+        cloudWizardSetFieldValue('sftp_port', source.port || '22', false);
+        cloudWizardSetFieldValue('sftp_username', source.user || '', false);
+        cloudWizardSetFieldValue('sftp_path', job.source_path || '', false);
+        cloudWizardSetFieldValue('sftp_display_name', job.source_display_name || '', false);
     }
-    
-    // Destination
-    const destBucketEl = document.getElementById('destBucketId');
-    if (destBucketEl) {
-        destBucketEl.value = job.dest_bucket_id || '';
-    }
-    const destPrefixEl = document.getElementById('destPrefix');
-    if (destPrefixEl) destPrefixEl.value = job.dest_prefix || '';
-    
-    // Schedule
-    const scheduleTypeEl = document.getElementById('scheduleType');
-    if (scheduleTypeEl) {
-        scheduleTypeEl.value = job.schedule_type || 'manual';
-        // Trigger schedule UI update
-        scheduleTypeEl.dispatchEvent(new Event('change'));
-    }
-    const scheduleTimeEl = document.getElementById('scheduleTime');
-    if (scheduleTimeEl) scheduleTimeEl.value = job.schedule_time || '';
-    const scheduleWeekdayEl = document.getElementById('scheduleWeekday');
-    if (scheduleWeekdayEl) scheduleWeekdayEl.value = job.schedule_weekday || '1';
-    
-    // Retention
-    const retentionModeEl = document.getElementById('retentionMode');
-    if (retentionModeEl) {
-        retentionModeEl.value = job.retention_mode || 'none';
-        onRetentionModeChange();
-    }
-    const retentionValueEl = document.getElementById('retentionValue');
-    if (retentionValueEl) retentionValueEl.value = job.retention_value || '';
-    
-    // Backup mode
-    const backupModeEl = document.getElementById('backupMode');
-    if (backupModeEl) backupModeEl.value = job.backup_mode || 'sync';
+
+    cloudWizardSetDestBucket(job.dest_bucket_id || '', job.dest_bucket_name || '');
+    cloudWizardSetFieldValue('dest_prefix', job.dest_prefix || '', false);
+    cloudWizardSetFieldValue('backup_mode', job.backup_mode || 'sync', true);
+    cloudWizardSetFieldValue('retention_mode', retentionMode, true);
+    cloudWizardSetFieldValue('retention_value', retentionValue, false);
+    onRetentionModeChange();
+    cloudWizardSetFieldValue('schedule_type', scheduleType, true);
+    cloudWizardSetFieldValue('schedule_time', scheduleTime, false);
+    cloudWizardSetFieldValue('schedule_weekday', scheduleWeekday, false);
 }
 
 function applyInitialSourceState() {
@@ -1807,24 +1762,39 @@ function applyInitialSourceState() {
 }
 
 function onSourceTypeChange(value) {
-    document.querySelectorAll('.source-type-fields').forEach(el => el.classList.add('hidden'));
+    document.querySelectorAll('.source-type-fields').forEach(el => {
+        el.classList.add('hidden');
+        el.querySelectorAll('[required]').forEach(inp => {
+            inp.dataset.requiredWhenVisible = '1';
+            inp.removeAttribute('required');
+        });
+        el.querySelectorAll('[data-required-when-visible]').forEach(inp => {
+            inp.removeAttribute('required');
+        });
+    });
     const warning = document.getElementById('sourceAccessWarning');
     if (warning) warning.classList.add('hidden');
-    
-    if (value === 's3_compatible') {
-        document.getElementById('s3Fields')?.classList.remove('hidden');
+
+    const map = {
+        s3_compatible: 's3Fields',
+        aws: 'awsFields',
+        sftp: 'sftpFields',
+        local_agent: 'localAgentFields',
+        google_drive: 'gdriveFields',
+        dropbox: 'dropboxFields',
+    };
+    const targetId = map[value];
+    if (targetId) {
+        const target = document.getElementById(targetId);
+        if (target) {
+            target.classList.remove('hidden');
+            target.querySelectorAll('[data-required-when-visible]').forEach(inp => {
+                inp.setAttribute('required', '');
+            });
+        }
+    }
+    if (value === 's3_compatible' || value === 'aws') {
         if (warning) warning.classList.remove('hidden');
-    } else if (value === 'aws') {
-        document.getElementById('awsFields')?.classList.remove('hidden');
-        if (warning) warning.classList.remove('hidden');
-    } else if (value === 'sftp') {
-        document.getElementById('sftpFields')?.classList.remove('hidden');
-    } else if (value === 'local_agent') {
-        document.getElementById('localAgentFields')?.classList.remove('hidden');
-    } else if (value === 'google_drive') {
-        document.getElementById('gdriveFields')?.classList.remove('hidden');
-    } else if (value === 'dropbox') {
-        document.getElementById('dropboxFields')?.classList.remove('hidden');
     }
 }
 
@@ -1904,7 +1874,7 @@ function doCreateJobSubmit(formEl) {
             bucket: formData.get('aws_bucket'),
             region: formData.get('aws_region')
         };
-        sourceDisplayName = formData.get('aws_display_name') || 'AWS S3';
+        sourceDisplayName = formData.get('aws_bucket') || 'AWS S3';
         sourcePath = formData.get('aws_path') || '';
     } else if (sourceType === 'sftp') {
         sourceConfig = {
@@ -1934,6 +1904,13 @@ function doCreateJobSubmit(formEl) {
         formData.delete('dest_bucket_id');
         formData.delete('dest_prefix');
         formData.delete('bucket_auto_create');
+    } else {
+        // Hidden local-agent fields still exist in the form; strip them for cloud jobs.
+        formData.delete('agent_uuid');
+        formData.delete('local_source_path');
+        formData.delete('local_include_glob');
+        formData.delete('local_exclude_glob');
+        formData.delete('local_bandwidth_limit_kbps');
     }
     
     const msgEl = document.getElementById('jobCreationMessage');
@@ -2518,6 +2495,7 @@ function localWizardFillFromJob(j, s) {
     if (retTxt) {
         retTxt.value = retentionObj ? JSON.stringify(retentionObj) : '';
     }
+    window.dispatchEvent(new CustomEvent('local-wizard-fields-loaded'));
     if (job.agent_uuid) {
         // When loading an existing job for edit, preserve any preloaded selections
         // (otherwise the file browser clears them when the agent-selected event fires).
@@ -2533,9 +2511,9 @@ function localWizardSet(key, val) {
         buttons.forEach((btn) => {
             const e = btn.getAttribute('data-engine-btn');
             if (e === val) {
-                btn.classList.add('selected', 'ring-2', 'ring-cyan-500', 'border-cyan-500/50', 'bg-slate-800');
+                btn.classList.add('selected', 'ring-2', 'ring-[var(--eb-info-border)]', 'border-[var(--eb-info-border)]', 'bg-[var(--eb-info-bg)]');
             } else {
-                btn.classList.remove('selected', 'ring-2', 'ring-cyan-500', 'border-cyan-500/50', 'bg-slate-800');
+                btn.classList.remove('selected', 'ring-2', 'ring-[var(--eb-info-border)]', 'border-[var(--eb-info-border)]', 'bg-[var(--eb-info-bg)]');
             }
         });
         window.dispatchEvent(new CustomEvent('engine-changed', { detail: { engine: val } }));
@@ -3316,21 +3294,21 @@ function localWizardUpdateView() {
         const isComplete = stepNum < state.step;
         const isLocked = stepNum > 1 && !step1Valid;
 
-        crumb.classList.remove('bg-slate-800/50', 'text-slate-300', 'text-slate-500', 'cursor-not-allowed', 'hover:bg-slate-800');
-        numBadge.classList.remove('bg-cyan-500', 'bg-emerald-500', 'bg-slate-700', 'text-white', 'text-slate-400');
+        crumb.classList.remove('bg-[var(--eb-bg-hover)]', 'text-[var(--eb-text-secondary)]', 'text-[var(--eb-text-muted)]', 'cursor-not-allowed', 'hover:bg-[var(--eb-bg-hover)]');
+        numBadge.classList.remove('bg-[var(--eb-info-icon)]', 'bg-[var(--eb-success-icon)]', 'bg-[var(--eb-bg-overlay)]', 'text-white', 'text-[var(--eb-text-muted)]');
 
         if (isActive) {
-            crumb.classList.add('bg-slate-800/50', 'text-slate-300');
-            numBadge.classList.add('bg-cyan-500', 'text-white');
+            crumb.classList.add('bg-[var(--eb-bg-hover)]', 'text-[var(--eb-text-secondary)]');
+            numBadge.classList.add('bg-[var(--eb-info-icon)]', 'text-white');
         } else if (isComplete) {
-            crumb.classList.add('text-slate-300', 'hover:bg-slate-800');
-            numBadge.classList.add('bg-emerald-500', 'text-white');
+            crumb.classList.add('text-[var(--eb-text-secondary)]', 'hover:bg-[var(--eb-bg-hover)]');
+            numBadge.classList.add('bg-[var(--eb-success-icon)]', 'text-white');
         } else if (isLocked) {
-            crumb.classList.add('text-slate-500', 'cursor-not-allowed');
-            numBadge.classList.add('bg-slate-700', 'text-slate-400');
+            crumb.classList.add('text-[var(--eb-text-muted)]', 'cursor-not-allowed');
+            numBadge.classList.add('bg-[var(--eb-bg-overlay)]', 'text-[var(--eb-text-muted)]');
         } else {
-            crumb.classList.add('text-slate-400', 'hover:bg-slate-800');
-            numBadge.classList.add('bg-slate-700', 'text-slate-400');
+            crumb.classList.add('text-[var(--eb-text-muted)]', 'hover:bg-[var(--eb-bg-hover)]');
+            numBadge.classList.add('bg-[var(--eb-bg-overlay)]', 'text-[var(--eb-text-muted)]');
         }
 
         crumb.disabled = isLocked;

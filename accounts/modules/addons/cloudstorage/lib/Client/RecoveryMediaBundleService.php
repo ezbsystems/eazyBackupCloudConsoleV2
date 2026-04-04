@@ -233,9 +233,12 @@ class RecoveryMediaBundleService
         return $prefix . '/' . $suffix;
     }
 
-    public static function resolveRunDestinationContext(int $clientId, int $agentId, int $runId): array
+    public static function resolveRunDestinationContext(int $clientId, int $agentId, $runId): array
     {
-        if ($runId <= 0) {
+        $hasRunIdPk = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'run_id');
+        $hasJobIdPk = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'job_id');
+        $runIdIsUuid = $hasRunIdPk && UuidBinary::isUuid($runId);
+        if (!$runIdIsUuid && (int) $runId <= 0) {
             return ['status' => 'fail', 'message' => 'run_id is required'];
         }
         $hasRunAgent = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'agent_id');
@@ -243,13 +246,24 @@ class RecoveryMediaBundleService
         $hasRunDestType = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'dest_type');
         $hasRunDestPrefix = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'dest_prefix');
 
+        $jobJoinCol = $hasJobIdPk ? 'j.job_id' : 'j.id';
         $query = Capsule::table('s3_cloudbackup_runs as r')
-            ->join('s3_cloudbackup_jobs as j', 'j.id', '=', 'r.job_id')
-            ->where('r.id', $runId)
-            ->where('j.client_id', $clientId)
-            ->select(
-                'r.id as run_id',
-                'r.job_id',
+            ->join('s3_cloudbackup_jobs as j', $jobJoinCol, '=', 'r.job_id')
+            ->where('j.client_id', $clientId);
+        if ($runIdIsUuid) {
+            $query->whereRaw('r.run_id = ' . UuidBinary::toDbExpr(UuidBinary::normalize($runId)));
+        } else {
+            $query->where('r.id', $runId);
+        }
+        $runIdSelectExpr = $runIdIsUuid
+            ? Capsule::raw('BIN_TO_UUID(r.run_id) as run_id')
+            : 'r.id as run_id';
+        $jobIdSelectExpr = $hasJobIdPk
+            ? Capsule::raw('BIN_TO_UUID(r.job_id) as job_id')
+            : 'r.job_id';
+        $query->select(
+                $runIdSelectExpr,
+                $jobIdSelectExpr,
                 'j.client_id',
                 'j.dest_type as job_dest_type',
                 'j.dest_prefix as job_dest_prefix',
@@ -312,8 +326,8 @@ class RecoveryMediaBundleService
 
         return [
             'status' => 'success',
-            'run_id' => (int) $row->run_id,
-            'job_id' => (int) $row->job_id,
+            'run_id' => $row->run_id,
+            'job_id' => $row->job_id,
             'client_id' => (int) $row->client_id,
             'agent_id' => $agentId,
             'dest_type' => 's3',
@@ -331,7 +345,7 @@ class RecoveryMediaBundleService
     public static function uploadBundleObjectForRun(
         int $clientId,
         int $agentId,
-        int $runId,
+        $runId,
         string $profile,
         string $blob,
         string $sha256
@@ -370,7 +384,7 @@ class RecoveryMediaBundleService
         ];
     }
 
-    public static function bundleExistsForRunDestination(int $clientId, int $agentId, int $runId, string $profile): array
+    public static function bundleExistsForRunDestination(int $clientId, int $agentId, $runId, string $profile): array
     {
         $ctx = self::resolveRunDestinationContext($clientId, $agentId, $runId);
         if (($ctx['status'] ?? 'fail') !== 'success') {

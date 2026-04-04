@@ -5,6 +5,7 @@ require_once __DIR__ . '/../../../../init.php';
 use Illuminate\Database\Capsule\Manager as Capsule;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use WHMCS\Module\Addon\CloudStorage\Client\RecoveryMediaBundleService;
+use WHMCS\Module\Addon\CloudStorage\Client\UuidBinary;
 
 if (!defined("WHMCS")) {
     die("This file cannot be accessed directly");
@@ -70,7 +71,10 @@ $body = getBodyJson();
 $agent = authenticateAgent();
 
 $profile = RecoveryMediaBundleService::normalizeProfile((string) requestParam($body, 'profile', 'essential'));
-$runId = (int) requestParam($body, 'run_id', 0);
+$hasRunIdPk = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'run_id');
+$rawRunId = trim((string) requestParam($body, 'run_id', ''));
+$runIdIsUuid = $hasRunIdPk && UuidBinary::isUuid($rawRunId);
+$runId = $runIdIsUuid ? $rawRunId : (int) $rawRunId;
 $restorePointId = (int) requestParam($body, 'restore_point_id', 0);
 $artifactName = trim((string) requestParam($body, 'artifact_name', 'drivers-' . $profile . '.zip'));
 $artifactURL = trim((string) requestParam($body, 'artifact_url', ''));
@@ -119,7 +123,8 @@ if ($artifactURL === '') {
     if ($sha256 === '') {
         $sha256 = hash('sha256', $bin);
     }
-    if ($runId <= 0) {
+    $runIdEmpty = $runIdIsUuid ? false : ($runId <= 0);
+    if ($runIdEmpty) {
         respond(['status' => 'fail', 'message' => 'run_id is required for bundle storage'], 400);
     }
     $store = RecoveryMediaBundleService::uploadBundleObjectForRun(
@@ -151,22 +156,31 @@ if ($artifactURL === '') {
     $artifactURL = (string) ($store['artifact_url'] ?? '');
 }
 
-if ($backupFinishedAt === '' && $runId > 0) {
-    $runFinished = Capsule::table('s3_cloudbackup_runs')
-        ->where('id', $runId)
-        ->value('finished_at');
+$runIdPresent = $runIdIsUuid || $runId > 0;
+if ($backupFinishedAt === '' && $runIdPresent) {
+    $runFinishedQuery = Capsule::table('s3_cloudbackup_runs');
+    if ($runIdIsUuid) {
+        $runFinishedQuery->whereRaw('run_id = ' . UuidBinary::toDbExpr(UuidBinary::normalize($rawRunId)));
+    } else {
+        $runFinishedQuery->where('id', $runId);
+    }
+    $runFinished = $runFinishedQuery->value('finished_at');
     if ($runFinished) {
         $backupFinishedAt = (string) $runFinished;
     }
 }
 
-if ($restorePointId <= 0 && $runId > 0 && Capsule::schema()->hasTable('s3_cloudbackup_restore_points')) {
-    $rp = Capsule::table('s3_cloudbackup_restore_points')
+if ($restorePointId <= 0 && $runIdPresent && Capsule::schema()->hasTable('s3_cloudbackup_restore_points')) {
+    $rpQuery = Capsule::table('s3_cloudbackup_restore_points')
         ->where('client_id', (int) $agent->client_id)
         ->where('agent_uuid', (string) $agent->agent_uuid)
-        ->where('run_id', $runId)
-        ->orderByDesc('id')
-        ->first();
+        ->orderByDesc('id');
+    if ($runIdIsUuid) {
+        $rpQuery->whereRaw('run_id = ' . UuidBinary::toDbExpr(UuidBinary::normalize($rawRunId)));
+    } else {
+        $rpQuery->where('run_id', $runId);
+    }
+    $rp = $rpQuery->first();
     if ($rp) {
         $restorePointId = (int) $rp->id;
     }
@@ -177,7 +191,7 @@ try {
         'client_id' => (int) $agent->client_id,
         'tenant_id' => $agent->tenant_id ?? null,
         'agent_id' => (int) $agent->id,
-        'run_id' => $runId > 0 ? $runId : null,
+        'run_id' => $runIdPresent ? ($runIdIsUuid ? $rawRunId : $runId) : null,
         'restore_point_id' => $restorePointId > 0 ? $restorePointId : null,
         'profile' => $profile,
         'bundle_kind' => 'source',

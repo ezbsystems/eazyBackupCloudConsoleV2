@@ -6,6 +6,7 @@ use Illuminate\Database\Capsule\Manager as Capsule;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupController;
 use WHMCS\Module\Addon\CloudStorage\Client\HelperController;
+use WHMCS\Module\Addon\CloudStorage\Client\UuidBinary;
 
 if (!defined("WHMCS")) {
     die("This file cannot be accessed directly");
@@ -63,7 +64,14 @@ $result = CloudBackupController::startRun($jobId, $agent->client_id, 'agent');
 
 if (isset($result['status']) && $result['status'] === 'success') {
     // Fetch job and destination details to return to the agent
-    $job = Capsule::table('s3_cloudbackup_jobs')->where('id', $jobId)->first();
+    $hasJobIdPk = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'job_id');
+    $jobQuery = Capsule::table('s3_cloudbackup_jobs');
+    if ($hasJobIdPk && UuidBinary::isUuid($jobId)) {
+        $jobQuery->whereRaw('job_id = ' . UuidBinary::toDbExpr(UuidBinary::normalize($jobId)));
+    } else {
+        $jobQuery->where('id', $jobId);
+    }
+    $job = $jobQuery->first();
     $bucket = $job ? Capsule::table('s3_buckets')->where('id', $job->dest_bucket_id)->first() : null;
     $keys = $job ? Capsule::table('s3_user_access_keys')
         ->where('user_id', $job->s3_user_id ?? 0)

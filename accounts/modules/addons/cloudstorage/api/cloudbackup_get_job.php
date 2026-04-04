@@ -32,11 +32,13 @@ if (is_null($product) || empty($product->username)) {
 }
 
 $jobId = isset($_GET['job_id']) ? trim((string) $_GET['job_id']) : '';
-if ($jobId === '' || !UuidBinary::isUuid($jobId)) {
+$hasJobIdPk = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'job_id');
+$validJobId = ($hasJobIdPk && UuidBinary::isUuid($jobId)) || (!$hasJobIdPk && is_numeric($jobId) && (int) $jobId > 0);
+if ($jobId === '' || !$validJobId) {
     $resp = new JsonResponse([
         'status' => 'fail',
         'code' => 'invalid_identifier_format',
-        'message' => 'job_id must be a valid UUID.',
+        'message' => 'job_id must be a valid identifier.',
     ], 400);
     $resp->send();
     exit();
@@ -85,6 +87,8 @@ try {
             'endpoint'   => isset($dec['endpoint']) ? $dec['endpoint'] : null,
             'bucket'     => isset($dec['bucket']) ? $dec['bucket'] : null,
             'region'     => isset($dec['region']) ? $dec['region'] : null,
+            'access_key' => isset($dec['access_key']) ? $dec['access_key'] : null,
+            'secret_key' => isset($dec['secret_key']) ? $dec['secret_key'] : null,
             'has_access' => (isset($dec['access_key']) && !empty($dec['access_key'])),
             'has_secret' => (isset($dec['secret_key']) && !empty($dec['secret_key'])),
         ];
@@ -93,6 +97,8 @@ try {
             'type'       => 'aws',
             'bucket'     => isset($dec['bucket']) ? $dec['bucket'] : null,
             'region'     => isset($dec['region']) ? $dec['region'] : null,
+            'access_key' => isset($dec['access_key']) ? $dec['access_key'] : null,
+            'secret_key' => isset($dec['secret_key']) ? $dec['secret_key'] : null,
             'has_access' => (isset($dec['access_key']) && !empty($dec['access_key'])),
             'has_secret' => (isset($dec['secret_key']) && !empty($dec['secret_key'])),
         ];
@@ -125,7 +131,7 @@ try {
 
 // Whitelist job fields returned to client (job_id is UUID string)
 $outJob = [
-    'id'                    => $job['job_id'],
+    'id'                    => $job['job_id'] ?? $job['id'] ?? null,
     'client_id'             => (int) $job['client_id'],
     's3_user_id'            => (int) $job['s3_user_id'],
     'agent_uuid'            => isset($job['agent_uuid']) ? (string) $job['agent_uuid'] : null,

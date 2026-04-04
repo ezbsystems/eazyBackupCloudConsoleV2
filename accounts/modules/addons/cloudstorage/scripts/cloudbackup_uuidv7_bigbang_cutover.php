@@ -58,6 +58,9 @@ if ($schema->hasTable('s3_hyperv_backup_points')) {
 if ($schema->hasTable('s3_hyperv_checkpoints')) {
     $schema->drop('s3_hyperv_checkpoints');
 }
+if ($schema->hasTable('s3_hyperv_vm_disks')) {
+    $schema->drop('s3_hyperv_vm_disks');
+}
 
 $schema->dropIfExists('s3_cloudbackup_runs');
 

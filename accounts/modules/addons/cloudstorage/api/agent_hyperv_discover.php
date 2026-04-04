@@ -10,6 +10,7 @@ require_once __DIR__ . '/../../../../init.php';
 
 use Illuminate\Database\Capsule\Manager as Capsule;
 use Symfony\Component\HttpFoundation\JsonResponse;
+use WHMCS\Module\Addon\CloudStorage\Client\UuidBinary;
 
 if (!defined("WHMCS")) {
     die("This file cannot be accessed directly");
@@ -66,10 +67,15 @@ if (!$jobId) {
 }
 
 // Verify job belongs to agent's client
-$job = Capsule::table('s3_cloudbackup_jobs')
-    ->where('id', $jobId)
-    ->where('client_id', $agent->client_id)
-    ->first();
+$hasJobIdPk = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'job_id');
+$jobQuery = Capsule::table('s3_cloudbackup_jobs')
+    ->where('client_id', $agent->client_id);
+if ($hasJobIdPk && UuidBinary::isUuid($jobId)) {
+    $jobQuery->whereRaw('job_id = ' . UuidBinary::toDbExpr(UuidBinary::normalize($jobId)));
+} else {
+    $jobQuery->where('id', $jobId);
+}
+$job = $jobQuery->first();
 
 if (!$job) {
     respond(['status' => 'fail', 'message' => 'Job not found or unauthorized'], 403);
@@ -89,10 +95,14 @@ try {
         }
         
         // Check if VM already exists for this job
-        $existingVm = Capsule::table('s3_hyperv_vms')
-            ->where('job_id', $jobId)
-            ->where('vm_guid', $vmGuid)
-            ->first();
+        $vmQuery = Capsule::table('s3_hyperv_vms')
+            ->where('vm_guid', $vmGuid);
+        if ($hasJobIdPk && UuidBinary::isUuid($jobId)) {
+            $vmQuery->whereRaw('job_id = ' . UuidBinary::toDbExpr(UuidBinary::normalize($jobId)));
+        } else {
+            $vmQuery->where('job_id', $jobId);
+        }
+        $existingVm = $vmQuery->first();
         
         $vmRecord = [
             'vm_name' => $vmName,
@@ -115,9 +125,13 @@ try {
             // Update disk records
             updateVmDisks($existingVm->id, $vmData['disks'] ?? []);
         } else {
-            // Create new VM
-            $vmRecord['job_id'] = $jobId;
-            $vmRecord['backup_enabled'] = true; // Enable by default
+            // Create new VM – store job_id as raw binary when UUID schema
+            if ($hasJobIdPk && UuidBinary::isUuid($jobId)) {
+                $vmRecord['job_id'] = Capsule::raw(UuidBinary::toDbExpr(UuidBinary::normalize($jobId)));
+            } else {
+                $vmRecord['job_id'] = $jobId;
+            }
+            $vmRecord['backup_enabled'] = true;
             $vmRecord['created_at'] = Capsule::raw('NOW()');
             
             $newVmId = Capsule::table('s3_hyperv_vms')->insertGetId($vmRecord);

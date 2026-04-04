@@ -85,7 +85,7 @@ $bpSelect = [
     'v.vm_name',
     'v.vm_guid',
     'j.name as job_name',
-    'j.agent_id',
+    'j.agent_uuid',
     'j.engine',
     'r.status as run_status',
 ];
@@ -206,7 +206,10 @@ try {
         if ($hasRunIdCol && $restoreRunUuidGen) {
             $runData['run_id'] = Capsule::raw(UuidBinary::toDbExpr($restoreRunUuidGen));
         }
-        if ($hasAgentIdRuns && $backupPoint->agent_id) {
+        $hasAgentUuidRuns = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'agent_uuid');
+        if ($hasAgentUuidRuns && !empty($backupPoint->agent_uuid)) {
+            $runData['agent_uuid'] = $backupPoint->agent_uuid;
+        } elseif ($hasAgentIdRuns && !empty($backupPoint->agent_id)) {
             $runData['agent_id'] = $backupPoint->agent_id;
         }
         if ($hasEngineColumn) {

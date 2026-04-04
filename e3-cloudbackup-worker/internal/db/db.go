@@ -39,17 +39,17 @@ func (d *Database) Close() error {
 }
 
 type Run struct {
-	ID    int64
-	JobID int64
+	ID    string
+	JobID string
 }
 
-// GetRun returns basic run info by id.
-func (d *Database) GetRun(ctx context.Context, runID int64) (*Run, error) {
-	row := d.sqlDB.QueryRowContext(ctx, `SELECT id, job_id FROM s3_cloudbackup_runs WHERE id=?`, runID)
+func (d *Database) GetRun(ctx context.Context, runID string) (*Run, error) {
+	row := d.sqlDB.QueryRowContext(ctx,
+		`SELECT BIN_TO_UUID(run_id), BIN_TO_UUID(job_id) FROM s3_cloudbackup_runs WHERE run_id=UUID_TO_BIN(?)`, runID)
 	var r Run
 	if err := row.Scan(&r.ID, &r.JobID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fmt.Errorf("run %d not found", runID)
+			return nil, fmt.Errorf("run %s not found", runID)
 		}
 		return nil, fmt.Errorf("scan run: %w", err)
 	}
@@ -57,7 +57,7 @@ func (d *Database) GetRun(ctx context.Context, runID int64) (*Run, error) {
 }
 
 type Job struct {
-	ID                 int64
+	ID                 string
 	ClientID           int64
 	S3UserID           int64
 	Name               string
@@ -71,9 +71,8 @@ type Job struct {
 	DestPrefix         string
 	BackupMode         string
 	ValidationMode     string
-	// Destination credentials (encrypted)
-	DestAccessKeyEnc string
-	DestSecretKeyEnc string
+	DestAccessKeyEnc   string
+	DestSecretKeyEnc   string
 }
 
 type Progress struct {
@@ -87,7 +86,6 @@ type Progress struct {
 	CurrentItem        string
 }
 
-// AddonSettings holds dynamic limits loaded from WHMCS addon settings.
 type AddonSettings struct {
 	GlobalMaxConcurrentJobs int
 	GlobalMaxBandwidthKbps  int
@@ -95,7 +93,6 @@ type AddonSettings struct {
 	EventsProgressIntervalS int
 }
 
-// GetAddonConfigMap returns all cloudstorage addon settings as a map.
 func (d *Database) GetAddonConfigMap(ctx context.Context) (map[string]string, error) {
 	rows, err := d.sqlDB.QueryContext(ctx, `
 		SELECT setting, value
@@ -118,15 +115,15 @@ func (d *Database) GetAddonConfigMap(ctx context.Context) (map[string]string, er
 
 func (d *Database) GetNextQueuedRuns(ctx context.Context, limit int) ([]Run, error) {
 	rows, err := d.sqlDB.QueryContext(ctx, `
-		SELECT r.id, r.job_id
+		SELECT BIN_TO_UUID(r.run_id), BIN_TO_UUID(r.job_id)
 		FROM s3_cloudbackup_runs r
-		INNER JOIN s3_cloudbackup_jobs j ON j.id = r.job_id
+		INNER JOIN s3_cloudbackup_jobs j ON j.job_id = r.job_id
 		WHERE r.status = 'queued'
 		  AND j.status = 'active'
-		  AND (j.agent_id IS NULL OR j.agent_id = 0)
+		  AND (j.agent_uuid IS NULL OR j.agent_uuid = '')
 		  AND (j.source_type IS NULL OR j.source_type <> 'local_agent')
 		  AND (j.engine IS NULL OR j.engine <> 'kopia')
-		ORDER BY r.id ASC
+		ORDER BY r.run_id ASC
 		LIMIT ?`, limit)
 	if err != nil {
 		return nil, fmt.Errorf("query next queued runs: %w", err)
@@ -143,8 +140,7 @@ func (d *Database) GetNextQueuedRuns(ctx context.Context, limit int) ([]Run, err
 	return res, rows.Err()
 }
 
-func (d *Database) UpdateRunStatus(ctx context.Context, runID int64, status string, startedAt, finishedAt *time.Time, errorSummary string) error {
-	// Build dynamic parts for timestamps
+func (d *Database) UpdateRunStatus(ctx context.Context, runID string, status string, startedAt, finishedAt *time.Time, errorSummary string) error {
 	query := `UPDATE s3_cloudbackup_runs SET status=?, worker_host=?, error_summary=?`
 	var args []any
 	args = append(args, status, d.workerHost, nullify(errorSummary))
@@ -156,7 +152,7 @@ func (d *Database) UpdateRunStatus(ctx context.Context, runID int64, status stri
 		query += `, finished_at=?`
 		args = append(args, *finishedAt)
 	}
-	query += ` WHERE id=?`
+	query += ` WHERE run_id=UUID_TO_BIN(?)`
 	args = append(args, runID)
 
 	_, err := d.sqlDB.ExecContext(ctx, query, args...)
@@ -166,7 +162,7 @@ func (d *Database) UpdateRunStatus(ctx context.Context, runID int64, status stri
 	return nil
 }
 
-func (d *Database) UpdateRunProgress(ctx context.Context, runID int64, p Progress) error {
+func (d *Database) UpdateRunProgress(ctx context.Context, runID string, p Progress) error {
 	_, err := d.sqlDB.ExecContext(ctx, `
 		UPDATE s3_cloudbackup_runs
 		SET progress_pct=?,
@@ -177,7 +173,7 @@ func (d *Database) UpdateRunProgress(ctx context.Context, runID int64, p Progres
 		    speed_bytes_per_sec=?,
 		    eta_seconds=?,
 		    current_item=?
-		WHERE id=?`,
+		WHERE run_id=UUID_TO_BIN(?)`,
 		p.ProgressPct,
 		p.BytesTotal,
 		p.BytesTransferred,
@@ -194,14 +190,14 @@ func (d *Database) UpdateRunProgress(ctx context.Context, runID int64, p Progres
 	return nil
 }
 
-func (d *Database) MarkRunCancelled(ctx context.Context, runID int64, reason string) error {
+func (d *Database) MarkRunCancelled(ctx context.Context, runID string, reason string) error {
 	now := time.Now().UTC()
 	return d.UpdateRunStatus(ctx, runID, "cancelled", nil, &now, reason)
 }
 
-func (d *Database) GetJobConfig(ctx context.Context, jobID int64) (*Job, error) {
+func (d *Database) GetJobConfig(ctx context.Context, jobID string) (*Job, error) {
 	row := d.sqlDB.QueryRowContext(ctx, `
-		SELECT j.id, j.client_id, j.s3_user_id, j.name, j.source_type, j.source_display_name,
+		SELECT BIN_TO_UUID(j.job_id), j.client_id, j.s3_user_id, j.name, j.source_type, j.source_display_name,
 		       j.source_config_enc, j.source_connection_id, j.source_path, j.dest_bucket_id, b.name AS dest_bucket_name,
 		       j.dest_prefix, j.backup_mode,
 		       COALESCE(r.validation_mode, 'none') AS validation_mode,
@@ -213,10 +209,10 @@ func (d *Database) GetJobConfig(ctx context.Context, jobID int64) (*Job, error) 
 		LEFT JOIN (
 			SELECT job_id, MAX(validation_mode) AS validation_mode
 			FROM s3_cloudbackup_runs
-			WHERE job_id = ?
+			WHERE job_id = UUID_TO_BIN(?)
 			GROUP BY job_id
-		) r ON r.job_id = j.id
-		WHERE j.id = ?`,
+		) r ON r.job_id = j.job_id
+		WHERE j.job_id = UUID_TO_BIN(?)`,
 		jobID, jobID,
 	)
 	var j Job
@@ -228,7 +224,7 @@ func (d *Database) GetJobConfig(ctx context.Context, jobID int64) (*Job, error) 
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fmt.Errorf("job %d not found", jobID)
+			return nil, fmt.Errorf("job %s not found", jobID)
 		}
 		return nil, fmt.Errorf("scan job: %w", err)
 	}
@@ -261,7 +257,6 @@ func (d *Database) GetSourceConnection(ctx context.Context, id int64, clientID i
 	return &s, nil
 }
 
-// GetLatestActiveGoogleDriveSource returns the most recently updated active Google Drive source for a client.
 func (d *Database) GetLatestActiveGoogleDriveSource(ctx context.Context, clientID int64) (*SourceConnection, error) {
 	row := d.sqlDB.QueryRowContext(ctx, `
 		SELECT id, client_id, provider, refresh_token_enc, status, account_email, scopes, meta
@@ -279,10 +274,10 @@ func (d *Database) GetLatestActiveGoogleDriveSource(ctx context.Context, clientI
 	return &s, nil
 }
 
-func (d *Database) CheckCancelRequested(ctx context.Context, runID int64) (bool, error) {
+func (d *Database) CheckCancelRequested(ctx context.Context, runID string) (bool, error) {
 	var flag bool
 	err := d.sqlDB.QueryRowContext(ctx, `
-		SELECT COALESCE(cancel_requested, 0) FROM s3_cloudbackup_runs WHERE id=?`, runID).
+		SELECT COALESCE(cancel_requested, 0) FROM s3_cloudbackup_runs WHERE run_id=UUID_TO_BIN(?)`, runID).
 		Scan(&flag)
 	if err != nil {
 		return false, fmt.Errorf("query cancel flag: %w", err)
@@ -290,11 +285,11 @@ func (d *Database) CheckCancelRequested(ctx context.Context, runID int64) (bool,
 	return flag, nil
 }
 
-func (d *Database) UpdateRunLogPathAndExcerpt(ctx context.Context, runID int64, logPath, logExcerpt string) error {
+func (d *Database) UpdateRunLogPathAndExcerpt(ctx context.Context, runID string, logPath, logExcerpt string) error {
 	_, err := d.sqlDB.ExecContext(ctx, `
 		UPDATE s3_cloudbackup_runs
 		SET log_path=?, log_excerpt=?
-		WHERE id=?`,
+		WHERE run_id=UUID_TO_BIN(?)`,
 		logPath, logExcerpt, runID,
 	)
 	if err != nil {
@@ -303,12 +298,11 @@ func (d *Database) UpdateRunLogPathAndExcerpt(ctx context.Context, runID int64, 
 	return nil
 }
 
-// UpdateRunValidationStatus sets the validation_status column.
-func (d *Database) UpdateRunValidationStatus(ctx context.Context, runID int64, status string) error {
+func (d *Database) UpdateRunValidationStatus(ctx context.Context, runID string, status string) error {
 	_, err := d.sqlDB.ExecContext(ctx, `
 		UPDATE s3_cloudbackup_runs
 		SET validation_status=?
-		WHERE id=?`,
+		WHERE run_id=UUID_TO_BIN(?)`,
 		status, runID,
 	)
 	if err != nil {
@@ -317,12 +311,11 @@ func (d *Database) UpdateRunValidationStatus(ctx context.Context, runID int64, s
 	return nil
 }
 
-// UpdateRunValidationLogExcerpt stores the last N JSON lines for validation.
-func (d *Database) UpdateRunValidationLogExcerpt(ctx context.Context, runID int64, excerpt string) error {
+func (d *Database) UpdateRunValidationLogExcerpt(ctx context.Context, runID string, excerpt string) error {
 	_, err := d.sqlDB.ExecContext(ctx, `
 		UPDATE s3_cloudbackup_runs
 		SET validation_log_excerpt=?
-		WHERE id=?`,
+		WHERE run_id=UUID_TO_BIN(?)`,
 		excerpt, runID,
 	)
 	if err != nil {
@@ -331,7 +324,6 @@ func (d *Database) UpdateRunValidationLogExcerpt(ctx context.Context, runID int6
 	return nil
 }
 
-// GetSystemURL returns the WHMCS SystemURL from tblconfiguration.
 func (d *Database) GetSystemURL(ctx context.Context) (string, error) {
 	row := d.sqlDB.QueryRowContext(ctx, `
 		SELECT value FROM tblconfiguration WHERE setting='SystemURL' LIMIT 1`)
@@ -342,7 +334,6 @@ func (d *Database) GetSystemURL(ctx context.Context) (string, error) {
 	return v, nil
 }
 
-// GetAddonSettings reads cloudbackup-related limits from WHMCS tbladdonmodules for the cloudstorage module.
 func (d *Database) GetAddonSettings(ctx context.Context) (*AddonSettings, error) {
 	rows, err := d.sqlDB.QueryContext(ctx, `
 		SELECT setting, value
@@ -386,7 +377,6 @@ func (d *Database) GetAddonSettings(ctx context.Context) (*AddonSettings, error)
 	return settings, rows.Err()
 }
 
-// CountGlobalRunningRuns returns the number of runs across all workers in starting/running states.
 func (d *Database) CountGlobalRunningRuns(ctx context.Context) (int, error) {
 	row := d.sqlDB.QueryRowContext(ctx, `
 		SELECT COUNT(*) FROM s3_cloudbackup_runs WHERE status IN ('starting','running')`)
@@ -397,9 +387,9 @@ func (d *Database) CountGlobalRunningRuns(ctx context.Context) (int, error) {
 	return n, nil
 }
 
-// CountRunEvents returns the number of events already stored for a run.
-func (d *Database) CountRunEvents(ctx context.Context, runID int64) (int, error) {
-	row := d.sqlDB.QueryRowContext(ctx, `SELECT COUNT(*) FROM s3_cloudbackup_run_events WHERE run_id=?`, runID)
+func (d *Database) CountRunEvents(ctx context.Context, runID string) (int, error) {
+	row := d.sqlDB.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM s3_cloudbackup_run_events WHERE run_id=UUID_TO_BIN(?)`, runID)
 	var n int
 	if err := row.Scan(&n); err != nil {
 		return 0, fmt.Errorf("count run events: %w", err)
@@ -407,12 +397,11 @@ func (d *Database) CountRunEvents(ctx context.Context, runID int64) (int, error)
 	return n, nil
 }
 
-// InsertRunEvent inserts a sanitized event row for a run with params JSON.
-func (d *Database) InsertRunEvent(ctx context.Context, runID int64, ts time.Time, typ, level, code, messageID string, paramsJSON string) error {
+func (d *Database) InsertRunEvent(ctx context.Context, runID string, ts time.Time, typ, level, code, messageID string, paramsJSON string) error {
 	_, err := d.sqlDB.ExecContext(ctx, `
 		INSERT INTO s3_cloudbackup_run_events 
 			(run_id, ts, type, level, code, message_id, params_json)
-		VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		VALUES (UUID_TO_BIN(?), ?, ?, ?, ?, ?, ?)`,
 		runID, ts.UTC(), typ, level, code, messageID, paramsJSON,
 	)
 	if err != nil {

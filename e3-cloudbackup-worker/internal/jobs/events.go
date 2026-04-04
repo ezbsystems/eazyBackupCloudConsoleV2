@@ -12,7 +12,7 @@ import (
 
 type eventEmitter struct {
 	db                *db.Database
-	runID             int64
+	runID             string
 	maxPerRun         int
 	progressInterval  time.Duration
 	lastProgressEmit  time.Time
@@ -21,7 +21,7 @@ type eventEmitter struct {
 	truncatedNotified bool
 }
 
-func newEventEmitter(database *db.Database, runID int64, maxPerRun int, progressIntervalSeconds int) *eventEmitter {
+func newEventEmitter(database *db.Database, runID string, maxPerRun int, progressIntervalSeconds int) *eventEmitter {
 	if maxPerRun <= 0 {
 		maxPerRun = 5000
 	}
@@ -51,7 +51,7 @@ func (e *eventEmitter) insert(ctx context.Context, typ, level, code, messageID s
 	now := time.Now().UTC()
 	b, _ := json.Marshal(params)
 	if err := e.db.InsertRunEvent(ctx, e.runID, now, typ, level, code, messageID, string(b)); err != nil {
-		log.Printf("run %d: failed to insert event (%s/%s): %v", e.runID, typ, code, err)
+		log.Printf("run %s: failed to insert event (%s/%s): %v", e.runID, typ, code, err)
 		return
 	}
 	e.eventsInserted++

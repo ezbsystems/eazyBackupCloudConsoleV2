@@ -1,288 +1,301 @@
-<div class="min-h-screen bg-slate-950 text-gray-200" x-data="backupUsersApp()">
-    {* <div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,_#1f293780,_transparent_60%)]"></div> *}
-    <div class="container mx-auto px-4 py-6 relative pointer-events-auto">
-        {assign var="activeNav" value="users"}
-        {include file="modules/addons/cloudstorage/templates/partials/e3backup_nav.tpl"}
+{capture assign=ebE3Actions}
+    <button type="button"
+            onclick="window.dispatchEvent(new CustomEvent('eb-e3-user-create-open'))"
+            class="eb-btn eb-btn-primary eb-btn-sm">
+        Add User
+    </button>
+{/capture}
 
-        <div class="rounded-3xl border border-slate-800/80 bg-slate-950 shadow-[0_18px_60px_rgba(0,0,0,0.6)] px-6 py-6">
-            <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 gap-3">
-                <div>
-                    <div class="flex items-center gap-2 mb-1">
-                        <a href="index.php?m=cloudstorage&page=e3backup" class="text-slate-400 hover:text-white text-sm">e3 Cloud Backup</a>
-                        <span class="text-slate-600">/</span>
-                        <span class="text-white text-sm font-medium">Users</span>
-                    </div>
-                    <h1 class="text-2xl font-semibold text-white">Users</h1>
-                    <p class="text-xs text-slate-400 mt-1">Manage backup usernames and monitor scoped activity.</p>
-                </div>
+{capture assign=ebE3Icon}
+    <span class="eb-icon-box eb-icon-box--sm eb-icon-box--orange">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 0 0 3.75 1.03m-3.75-1.03a9.094 9.094 0 0 1-3.75 1.03m7.5-1.03a9.094 9.094 0 0 0-7.5 0m7.5 0A9.094 9.094 0 0 0 12 15.75a9.094 9.094 0 0 0-3.75 2.97m0 0A9.094 9.094 0 0 1 4.5 19.75m3.75-1.03a9.094 9.094 0 0 0-3.75-1.03m3.75 1.03A9.094 9.094 0 0 1 12 15.75m0 0a3.75 3.75 0 1 0 0-7.5 3.75 3.75 0 0 0 0 7.5Z" />
+        </svg>
+    </span>
+{/capture}
+
+{capture assign=ebE3UsersBreadcrumb}
+    <div class="eb-breadcrumb">
+        <a href="index.php?m=cloudstorage&page=e3backup&view=dashboard" class="eb-breadcrumb-link">e3 Cloud Backup</a>
+        <span class="eb-breadcrumb-separator">/</span>
+        <span class="eb-breadcrumb-current">Users</span>
+    </div>
+{/capture}
+
+{capture assign=ebE3UsersHeaderActions}
+    <span class="eb-badge eb-badge--neutral" x-text="loading ? 'Loading users' : (filteredUsers().length + ' users')"></span>
+{/capture}
+
+{capture assign=ebE3Content}
+<div x-data="backupUsersApp()" @eb-e3-user-create-open.window="openCreateModal()" class="space-y-6">
+    {include file="$template/includes/ui/page-header.tpl"
+        ebBreadcrumb=$ebE3UsersBreadcrumb
+        ebPageTitle='User Directory'
+        ebPageDescription='Manage backup usernames, tenant scope, and account activity.'
+        ebPageActions=$ebE3UsersHeaderActions
+    }
+
+    <div class="eb-subpanel overflow-visible">
+        <div class="eb-table-toolbar">
+            {if $isMspClient}
+            <div class="relative" x-data="{ isOpen: false }" @click.away="isOpen = false">
                 <button type="button"
-                        @click="openCreateModal()"
-                        class="px-4 py-2 rounded-md bg-amber-600 text-white text-sm font-semibold hover:bg-amber-500">
-                    + Add User
+                        @click="isOpen = !isOpen"
+                        class="eb-btn eb-btn-secondary eb-btn-sm min-w-[16rem] justify-between">
+                    <span class="truncate" x-text="'Tenant: ' + tenantFilterLabel()"></span>
+                    <svg class="h-4 w-4 transition-transform" :class="isOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                        <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+                    </svg>
                 </button>
-            </div>
-
-            <div class="mb-4 flex flex-col xl:flex-row xl:items-center gap-3">
-                {if $isMspClient}
-                <div class="relative" x-data="{ isOpen: false }" @click.away="isOpen = false">
-                    <button type="button"
-                            @click="isOpen = !isOpen"
-                            class="inline-flex items-center gap-2 rounded-md bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:outline-none hover:border-slate-600 hover:bg-slate-900/80">
-                        <span x-text="tenantFilterLabel()"></span>
-                        <svg class="w-4 h-4 transition-transform" :class="isOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                            <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
-                        </svg>
-                    </button>
-                    <div x-show="isOpen"
-                         x-transition:enter="transition ease-out duration-100"
-                         x-transition:enter-start="opacity-0 scale-95"
-                         x-transition:enter-end="opacity-100 scale-100"
-                         x-transition:leave="transition ease-in duration-75"
-                         x-transition:leave-start="opacity-100 scale-100"
-                         x-transition:leave-end="opacity-0 scale-95"
-                         class="absolute left-0 mt-2 w-72 rounded-xl border border-slate-700 bg-slate-900 shadow-2xl z-50 overflow-hidden"
-                         style="display: none;">
-                        <div class="px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400 border-b border-slate-800">
-                            Filter by tenant
-                        </div>
-                        <div class="px-4 py-2 border-b border-slate-800">
-                            <input type="text" x-model="tenantSearch" placeholder="Search tenants"
-                                   class="w-full rounded-md bg-slate-950 border border-slate-700 px-3 py-2 text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
-                        </div>
-                        <div class="py-1 max-h-72 overflow-auto">
-                            <button type="button"
-                                    class="w-full px-4 py-2 text-left text-sm transition"
-                                    :class="tenantFilter === '' ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'"
-                                    @click="setTenantFilter(''); isOpen=false;">
-                                All Tenants
-                            </button>
-                            <button type="button"
-                                    class="w-full px-4 py-2 text-left text-sm transition"
-                                    :class="tenantFilter === 'direct' ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'"
-                                    @click="setTenantFilter('direct'); isOpen=false;">
-                                Direct (No Tenant)
-                            </button>
-                            <template x-for="tenant in filteredTenants" :key="'tenant-filter-' + (tenant.public_id || tenant.id)">
-                                <button type="button"
-                                        class="w-full px-4 py-2 text-left text-sm transition"
-                                        :class="String(tenantFilter) === String(tenant.public_id || tenant.id) ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'"
-                                        @click="setTenantFilter(String(tenant.public_id || tenant.id)); isOpen=false;">
-                                    <span x-text="tenant.name"></span>
-                                </button>
-                            </template>
-                        </div>
+                <div x-show="isOpen"
+                     x-transition
+                     class="eb-menu absolute left-0 z-20 mt-2 w-72 overflow-hidden"
+                     style="display: none;">
+                    <div class="eb-menu-label">Filter by tenant</div>
+                    <div class="border-b border-[var(--eb-border-subtle)] p-2">
+                        <input type="search"
+                               x-model="tenantSearch"
+                               placeholder="Search tenants"
+                               class="eb-toolbar-search w-full !py-2 text-sm"
+                               @click.stop>
                     </div>
-                </div>
-                {/if}
-
-                <div class="relative" x-data="{ isOpen: false }" @click.away="isOpen = false">
-                    <button type="button"
-                            @click="isOpen = !isOpen"
-                            class="inline-flex items-center gap-2 rounded-md bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:outline-none hover:border-slate-600 hover:bg-slate-900/80">
-                        <span x-text="'Show ' + entriesPerPage"></span>
-                        <svg class="w-4 h-4 transition-transform" :class="isOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                            <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
-                        </svg>
-                    </button>
-                    <div x-show="isOpen"
-                         x-transition:enter="transition ease-out duration-100"
-                         x-transition:enter-start="opacity-0 scale-95"
-                         x-transition:enter-end="opacity-100 scale-100"
-                         x-transition:leave="transition ease-in duration-75"
-                         x-transition:leave-start="opacity-100 scale-100"
-                         x-transition:leave-end="opacity-0 scale-95"
-                         class="absolute left-0 mt-2 w-40 rounded-xl border border-slate-700 bg-slate-900 shadow-2xl z-50 overflow-hidden"
-                         style="display: none;">
-                        <template x-for="size in [10,25,50,100]" :key="'entries-' + size">
+                    <div class="max-h-72 overflow-auto p-1">
+                        <button type="button"
+                                class="eb-menu-option"
+                                :class="tenantFilter === '' ? 'is-active' : ''"
+                                @click="setTenantFilter(''); isOpen=false;">
+                            All Tenants
+                        </button>
+                        <button type="button"
+                                class="eb-menu-option"
+                                :class="tenantFilter === 'direct' ? 'is-active' : ''"
+                                @click="setTenantFilter('direct'); isOpen=false;">
+                            Direct (No Tenant)
+                        </button>
+                        <template x-for="tenant in filteredTenants" :key="'tenant-filter-' + (tenant.public_id || tenant.id)">
                             <button type="button"
-                                    class="w-full px-4 py-2 text-left text-sm transition"
-                                    :class="entriesPerPage === size ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'"
-                                    @click="setEntries(size); isOpen=false;">
-                                <span x-text="size"></span>
+                                    class="eb-menu-option"
+                                    :class="String(tenantFilter) === String(tenant.public_id || tenant.id) ? 'is-active' : ''"
+                                    @click="setTenantFilter(String(tenant.public_id || tenant.id)); isOpen=false;">
+                                <span x-text="tenant.name"></span>
                             </button>
                         </template>
                     </div>
                 </div>
+            </div>
+            {/if}
 
-                <div class="relative" x-data="{ isOpen: false }" @click.away="isOpen = false">
-                    <button type="button"
-                            @click="isOpen = !isOpen"
-                            class="inline-flex items-center gap-2 rounded-md bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:outline-none hover:border-slate-600 hover:bg-slate-900/80">
-                        Columns
-                        <svg class="w-4 h-4 transition-transform" :class="isOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                            <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
-                        </svg>
-                    </button>
-                    <div x-show="isOpen"
-                         x-transition:enter="transition ease-out duration-100"
-                         x-transition:enter-start="opacity-0 scale-95"
-                         x-transition:enter-end="opacity-100 scale-100"
-                         x-transition:leave="transition ease-in duration-75"
-                         x-transition:leave-start="opacity-100 scale-100"
-                         x-transition:leave-end="opacity-0 scale-95"
-                         class="absolute left-0 mt-2 w-64 rounded-xl border border-slate-700 bg-slate-900 shadow-2xl z-50 overflow-hidden p-2"
-                         style="display: none;">
+            <div class="relative" x-data="{ isOpen: false }" @click.away="isOpen = false">
+                <button type="button"
+                        @click="isOpen = !isOpen"
+                        class="eb-btn eb-btn-secondary eb-btn-sm">
+                    <span x-text="'Show ' + entriesPerPage"></span>
+                    <svg class="h-4 w-4 transition-transform" :class="isOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                        <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+                    </svg>
+                </button>
+                <div x-show="isOpen"
+                     x-transition
+                     class="eb-dropdown-menu absolute left-0 z-20 mt-2 w-40 overflow-hidden"
+                     style="display: none;">
+                    <template x-for="size in [10,25,50,100]" :key="'entries-' + size">
+                        <button type="button"
+                                class="eb-menu-option"
+                                :class="entriesPerPage === size ? 'is-active' : ''"
+                                @click="setEntries(size); isOpen=false;">
+                            <span x-text="size"></span>
+                        </button>
+                    </template>
+                </div>
+            </div>
+
+            <div class="relative" x-data="{ isOpen: false }" @click.away="isOpen = false">
+                <button type="button"
+                        @click="isOpen = !isOpen"
+                        class="eb-btn eb-btn-secondary eb-btn-sm">
+                    <span>Columns</span>
+                    <svg class="h-4 w-4 transition-transform" :class="isOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                        <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+                    </svg>
+                </button>
+                <div x-show="isOpen"
+                     x-transition
+                     class="eb-menu absolute left-0 z-20 mt-2 w-64 p-3"
+                     style="display: none;">
+                    <div class="eb-menu-label">Visible columns</div>
+                    <div class="eb-menu-checklist mt-2">
                         <template x-for="col in availableColumns" :key="'col-' + col.key">
-                            <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer">
+                            <label class="eb-menu-checklist-item">
                                 <span x-text="col.label"></span>
                                 <input type="checkbox"
-                                       class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-sky-500"
+                                       class="eb-check-input"
                                        :checked="columnState[col.key]"
                                        @change="toggleColumn(col.key)">
                             </label>
                         </template>
                     </div>
                 </div>
-
-                <div class="flex-1"></div>
-                <input type="text"
-                       placeholder="Search username or email"
-                       x-model.debounce.200ms="searchQuery"
-                       class="w-full xl:w-80 rounded-full bg-slate-900/70 border border-slate-700 px-4 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none hover:border-slate-600 hover:bg-slate-900/80">
             </div>
 
-            <p class="mb-3 text-xs text-amber-300" x-show="canonicalTenantLoadError" x-text="canonicalTenantLoadError"></p>
+            <div class="flex-1"></div>
 
-            <div class="overflow-x-auto rounded-lg border border-slate-800">
-                <table class="min-w-full divide-y divide-slate-800 text-sm">
-                    <thead class="bg-slate-900/80 text-slate-300">
-                        <tr>
-                            <th class="px-4 py-3 text-left font-medium">
-                                <button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="sortBy('username')">
-                                    Username
-                                    <span x-text="sortIndicator('username')"></span>
-                                </button>
-                            </th>
-                            <template x-if="columnState.tenant && isMspClient">
-                                <th class="px-4 py-3 text-left font-medium">
-                                    <button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="sortBy('tenant_name')">
-                                        Tenant
-                                        <span x-text="sortIndicator('tenant_name')"></span>
-                                    </button>
-                                </th>
-                            </template>
-                            <template x-if="columnState.vaults_count">
-                                <th class="px-4 py-3 text-left font-medium">
-                                    <button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="sortBy('vaults_count')">
-                                        # Vaults
-                                        <span x-text="sortIndicator('vaults_count')"></span>
-                                    </button>
-                                </th>
-                            </template>
-                            <template x-if="columnState.jobs_count">
-                                <th class="px-4 py-3 text-left font-medium">
-                                    <button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="sortBy('jobs_count')">
-                                        # Jobs
-                                        <span x-text="sortIndicator('jobs_count')"></span>
-                                    </button>
-                                </th>
-                            </template>
-                            <template x-if="columnState.agents_count">
-                                <th class="px-4 py-3 text-left font-medium">
-                                    <button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="sortBy('agents_count')">
-                                        # Agents
-                                        <span x-text="sortIndicator('agents_count')"></span>
-                                    </button>
-                                </th>
-                            </template>
-                            <template x-if="columnState.last_backup_at">
-                                <th class="px-4 py-3 text-left font-medium">
-                                    <button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="sortBy('last_backup_at')">
-                                        Last Backup
-                                        <span x-text="sortIndicator('last_backup_at')"></span>
-                                    </button>
-                                </th>
-                            </template>
-                            <template x-if="columnState.online_devices">
-                                <th class="px-4 py-3 text-left font-medium">
-                                    <button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="sortBy('online_devices')">
-                                        Online Devices
-                                        <span x-text="sortIndicator('online_devices')"></span>
-                                    </button>
-                                </th>
-                            </template>
-                            <th class="px-4 py-3 text-left font-medium">
-                                <button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="sortBy('status')">
-                                    Status
-                                    <span x-text="sortIndicator('status')"></span>
-                                </button>
-                            </th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-slate-800">
-                        <template x-if="loading">
-                            <tr>
-                                <td :colspan="visibleColumnCount()" class="px-4 py-8 text-center text-slate-400">
-                                    <svg class="animate-spin h-6 w-6 mx-auto text-amber-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                    </svg>
-                                </td>
-                            </tr>
-                        </template>
-                        <template x-if="!loading && pagedUsers().length === 0">
-                            <tr>
-                                <td :colspan="visibleColumnCount()" class="px-4 py-8 text-center text-slate-400">
-                                    No users found.
-                                </td>
-                            </tr>
-                        </template>
-                        <template x-for="user in pagedUsers()" :key="'user-row-' + user.id">
-                            <tr class="hover:bg-slate-800/50 cursor-pointer" @click="goToDetail(user.id)">
-                                <td class="px-4 py-3">
-                                    <div class="font-medium text-slate-100" x-text="user.username"></div>
-                                    <div class="text-xs text-slate-500" x-text="user.email"></div>
-                                </td>
-                                <template x-if="columnState.tenant && isMspClient">
-                                    <td class="px-4 py-3 text-slate-300" x-text="user.tenant_name || 'Direct'"></td>
-                                </template>
-                                <template x-if="columnState.vaults_count">
-                                    <td class="px-4 py-3 text-slate-300" x-text="user.vaults_count"></td>
-                                </template>
-                                <template x-if="columnState.jobs_count">
-                                    <td class="px-4 py-3 text-slate-300" x-text="user.jobs_count"></td>
-                                </template>
-                                <template x-if="columnState.agents_count">
-                                    <td class="px-4 py-3 text-slate-300" x-text="user.agents_count"></td>
-                                </template>
-                                <template x-if="columnState.last_backup_at">
-                                    <td class="px-4 py-3 text-slate-300" x-text="formatDate(user.last_backup_at)"></td>
-                                </template>
-                                <template x-if="columnState.online_devices">
-                                    <td class="px-4 py-3 text-slate-300" x-text="user.online_devices"></td>
-                                </template>
-                                <td class="px-4 py-3">
-                                    <span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold"
-                                          :class="user.status === 'active' ? 'bg-emerald-500/15 text-emerald-200' : 'bg-slate-700 text-slate-300'">
-                                        <span class="h-1.5 w-1.5 rounded-full" :class="user.status === 'active' ? 'bg-emerald-400' : 'bg-slate-500'"></span>
-                                        <span x-text="user.status"></span>
-                                    </span>
-                                </td>
-                            </tr>
-                        </template>
-                    </tbody>
-                </table>
-            </div>
+            <input type="search"
+                   placeholder="Search username, email, or tenant"
+                   x-model.debounce.200ms="searchQuery"
+                   class="eb-toolbar-search w-full xl:w-80">
+        </div>
 
-            <div class="mt-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-slate-400">
-                <div x-text="pageSummary()"></div>
-                <div class="flex items-center gap-2">
-                    <button type="button"
-                            @click="prevPage()"
-                            :disabled="currentPage <= 1"
-                            class="px-3 py-1.5 rounded border border-slate-700 bg-slate-900/70 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed">
-                        Prev
-                    </button>
-                    <span class="text-slate-300" x-text="'Page ' + currentPage + ' / ' + totalPages()"></span>
-                    <button type="button"
-                            @click="nextPage()"
-                            :disabled="currentPage >= totalPages()"
-                            class="px-3 py-1.5 rounded border border-slate-700 bg-slate-900/70 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed">
-                        Next
-                    </button>
+        <div x-show="canonicalTenantLoadError"
+             x-cloak
+             class="eb-alert eb-alert--warning"
+             role="status">
+            <svg class="eb-alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m0 3.75h.008v.008H12v-.008ZM10.29 3.86l-7.5 13A1 1 0 0 0 3.66 18.5h16.68a1 1 0 0 0 .87-1.64l-7.5-13a1 1 0 0 0-1.74 0Z" />
+            </svg>
+            <div x-text="canonicalTenantLoadError"></div>
+        </div>
+
+        <template x-if="loading">
+            <div class="eb-card !p-6 text-center">
+                <div class="inline-flex items-center gap-3 text-sm text-[var(--eb-text-muted)]">
+                    <span class="h-4 w-4 animate-spin rounded-full border-2 border-[color:var(--eb-info-border)] border-t-[color:var(--eb-info-icon)]"></span>
+                    Loading users...
                 </div>
             </div>
-        </div>
+        </template>
+
+        <template x-if="!loading && pagedUsers().length === 0">
+            <div class="eb-app-empty">
+                <div class="eb-app-empty-title" x-text="searchQuery.trim() ? 'No matching users found' : 'No users found'"></div>
+                <p class="eb-app-empty-copy" x-text="searchQuery.trim() ? 'Try a different search term or clear your filters.' : 'Create your first backup user to get started.'"></p>
+            </div>
+        </template>
+
+        <template x-if="!loading && pagedUsers().length > 0">
+            <div>
+                <div class="eb-table-shell overflow-x-auto">
+                    <table class="eb-table">
+                        <thead>
+                            <tr>
+                                <th>
+                                    <button type="button" class="eb-table-sort-button" @click="sortBy('username')">
+                                        Username
+                                        <span class="eb-sort-indicator" x-text="sortIndicator('username')"></span>
+                                    </button>
+                                </th>
+                                <template x-if="columnState.tenant && isMspClient">
+                                    <th>
+                                        <button type="button" class="eb-table-sort-button" @click="sortBy('tenant_name')">
+                                            Tenant
+                                            <span class="eb-sort-indicator" x-text="sortIndicator('tenant_name')"></span>
+                                        </button>
+                                    </th>
+                                </template>
+                                <template x-if="columnState.vaults_count">
+                                    <th>
+                                        <button type="button" class="eb-table-sort-button" @click="sortBy('vaults_count')">
+                                            # Vaults
+                                            <span class="eb-sort-indicator" x-text="sortIndicator('vaults_count')"></span>
+                                        </button>
+                                    </th>
+                                </template>
+                                <template x-if="columnState.jobs_count">
+                                    <th>
+                                        <button type="button" class="eb-table-sort-button" @click="sortBy('jobs_count')">
+                                            # Jobs
+                                            <span class="eb-sort-indicator" x-text="sortIndicator('jobs_count')"></span>
+                                        </button>
+                                    </th>
+                                </template>
+                                <template x-if="columnState.agents_count">
+                                    <th>
+                                        <button type="button" class="eb-table-sort-button" @click="sortBy('agents_count')">
+                                            # Agents
+                                            <span class="eb-sort-indicator" x-text="sortIndicator('agents_count')"></span>
+                                        </button>
+                                    </th>
+                                </template>
+                                <template x-if="columnState.last_backup_at">
+                                    <th>
+                                        <button type="button" class="eb-table-sort-button" @click="sortBy('last_backup_at')">
+                                            Last Backup
+                                            <span class="eb-sort-indicator" x-text="sortIndicator('last_backup_at')"></span>
+                                        </button>
+                                    </th>
+                                </template>
+                                <template x-if="columnState.online_devices">
+                                    <th>
+                                        <button type="button" class="eb-table-sort-button" @click="sortBy('online_devices')">
+                                            Online Devices
+                                            <span class="eb-sort-indicator" x-text="sortIndicator('online_devices')"></span>
+                                        </button>
+                                    </th>
+                                </template>
+                                <th>
+                                    <button type="button" class="eb-table-sort-button" @click="sortBy('status')">
+                                        Status
+                                        <span class="eb-sort-indicator" x-text="sortIndicator('status')"></span>
+                                    </button>
+                                </th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <template x-for="user in pagedUsers()" :key="'user-row-' + user.id">
+                                <tr class="cursor-pointer" @click="goToDetail(user.id)">
+                                    <td class="eb-table-primary">
+                                        <div class="font-medium text-[var(--eb-text-primary)]" x-text="user.username"></div>
+                                        <div class="text-xs text-[var(--eb-text-muted)]" x-text="user.email"></div>
+                                    </td>
+                                    <template x-if="columnState.tenant && isMspClient">
+                                        <td x-text="user.tenant_name || 'Direct'"></td>
+                                    </template>
+                                    <template x-if="columnState.vaults_count">
+                                        <td x-text="user.vaults_count"></td>
+                                    </template>
+                                    <template x-if="columnState.jobs_count">
+                                        <td x-text="user.jobs_count"></td>
+                                    </template>
+                                    <template x-if="columnState.agents_count">
+                                        <td x-text="user.agents_count"></td>
+                                    </template>
+                                    <template x-if="columnState.last_backup_at">
+                                        <td x-text="formatDate(user.last_backup_at)"></td>
+                                    </template>
+                                    <template x-if="columnState.online_devices">
+                                        <td x-text="user.online_devices"></td>
+                                    </template>
+                                    <td>
+                                        <span class="eb-badge eb-badge--dot"
+                                              :class="user.status === 'active' ? 'eb-badge--success' : 'eb-badge--neutral'">
+                                            <span x-text="user.status"></span>
+                                        </span>
+                                    </td>
+                                </tr>
+                            </template>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="eb-table-pagination">
+                    <span x-text="pageSummary()"></span>
+                    <div class="flex items-center gap-2">
+                        <button type="button"
+                                @click="prevPage()"
+                                :disabled="currentPage <= 1"
+                                class="eb-table-pagination-button">
+                            Prev
+                        </button>
+                        <span class="text-[var(--eb-text-primary)]" x-text="'Page ' + currentPage + ' / ' + totalPages()"></span>
+                        <button type="button"
+                                @click="nextPage()"
+                                :disabled="currentPage >= totalPages()"
+                                class="eb-table-pagination-button">
+                            Next
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </template>
     </div>
 
     {include file="modules/addons/cloudstorage/templates/partials/e3backup_create_user_modal.tpl"
@@ -291,6 +304,16 @@
         submittingLabel="Creating..."
         showTenantSelector=true}
 </div>
+{/capture}
+
+{include file="modules/addons/cloudstorage/templates/partials/e3backup_shell.tpl"
+    ebE3SidebarPage='users'
+    ebE3Title='Users'
+    ebE3Description='Manage backup usernames and monitor scoped activity.'
+    ebE3Icon=$ebE3Icon
+    ebE3Actions=$ebE3Actions
+    ebE3Content=$ebE3Content
+}
 
 {literal}
 <script>

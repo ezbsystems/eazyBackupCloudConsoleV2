@@ -1,29 +1,70 @@
 {include file="modules/addons/eazybackup/templates/partials/_ui-tokens.tpl"}
 {capture assign=ebPhContent}
-  <section class="eb-card-raised">
+  <section
+    class="eb-subpanel"
+    x-data="{
+      sortOpen: false,
+      dirOpen: false,
+      sortValue: '{$sort|default:'username'|escape:'javascript'}',
+      dirValue: '{$dir|default:'asc'|escape:'javascript'}',
+      sortLabel() {
+        return {
+          username: 'Username',
+          tenant: 'Tenant',
+          plan: 'Plan',
+          status: 'Status',
+          since: 'Since'
+        }[this.sortValue] || 'Username';
+      },
+      dirLabel() {
+        return {
+          asc: 'Asc',
+          desc: 'Desc'
+        }[this.dirValue] || 'Asc';
+      }
+    }"
+  >
     <form method="get" action="{$modulelink}" class="grid grid-cols-1 gap-3 md:grid-cols-4">
       <input type="hidden" name="m" value="eazybackup" />
       <input type="hidden" name="a" value="ph-user-assignments" />
+      <input type="hidden" name="sort" :value="sortValue" />
+      <input type="hidden" name="dir" :value="dirValue" />
       <label class="block text-sm">
         <span class="mb-1 block text-[var(--eb-text-muted)]">Search</span>
         <input type="text" name="q" value="{$q|default:''|escape}" placeholder="Backup user, tenant, or plan" class="eb-input" />
       </label>
       <label class="block text-sm">
         <span class="mb-1 block text-[var(--eb-text-muted)]">Sort By</span>
-        <select name="sort" class="eb-input">
-          <option value="username" {if $sort|default:'' eq 'username'}selected{/if}>Username</option>
-          <option value="tenant" {if $sort|default:'' eq 'tenant'}selected{/if}>Tenant</option>
-          <option value="plan" {if $sort|default:'' eq 'plan'}selected{/if}>Plan</option>
-          <option value="status" {if $sort|default:'' eq 'status'}selected{/if}>Status</option>
-          <option value="since" {if $sort|default:'' eq 'since'}selected{/if}>Since</option>
-        </select>
+        <div class="relative" @click.away="sortOpen = false">
+          <button type="button" @click="sortOpen = !sortOpen" class="eb-btn eb-btn-secondary eb-btn-sm w-full justify-between">
+            <span x-text="'Sort By: ' + sortLabel()"></span>
+            <svg class="h-4 w-4 transition-transform" :class="sortOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+              <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+            </svg>
+          </button>
+          <div x-show="sortOpen" x-transition:enter="transition ease-out duration-100" x-transition:enter-start="opacity-0 scale-95" x-transition:enter-end="opacity-100 scale-100" x-transition:leave="transition ease-in duration-75" x-transition:leave-start="opacity-100 scale-100" x-transition:leave-end="opacity-0 scale-95" class="eb-dropdown-menu absolute left-0 z-50 mt-2 w-full overflow-hidden" style="display: none;">
+            <button type="button" class="eb-menu-option" :class="sortValue === 'username' ? 'is-active' : ''" @click="sortValue = 'username'; sortOpen = false;">Username</button>
+            <button type="button" class="eb-menu-option" :class="sortValue === 'tenant' ? 'is-active' : ''" @click="sortValue = 'tenant'; sortOpen = false;">Tenant</button>
+            <button type="button" class="eb-menu-option" :class="sortValue === 'plan' ? 'is-active' : ''" @click="sortValue = 'plan'; sortOpen = false;">Plan</button>
+            <button type="button" class="eb-menu-option" :class="sortValue === 'status' ? 'is-active' : ''" @click="sortValue = 'status'; sortOpen = false;">Status</button>
+            <button type="button" class="eb-menu-option" :class="sortValue === 'since' ? 'is-active' : ''" @click="sortValue = 'since'; sortOpen = false;">Since</button>
+          </div>
+        </div>
       </label>
       <label class="block text-sm">
         <span class="mb-1 block text-[var(--eb-text-muted)]">Direction</span>
-        <select name="dir" class="eb-input">
-          <option value="asc" {if $dir|default:'' eq 'asc'}selected{/if}>Asc</option>
-          <option value="desc" {if $dir|default:'' eq 'desc'}selected{/if}>Desc</option>
-        </select>
+        <div class="relative" @click.away="dirOpen = false">
+          <button type="button" @click="dirOpen = !dirOpen" class="eb-btn eb-btn-secondary eb-btn-sm w-full justify-between">
+            <span x-text="'Direction: ' + dirLabel()"></span>
+            <svg class="h-4 w-4 transition-transform" :class="dirOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+              <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+            </svg>
+          </button>
+          <div x-show="dirOpen" x-transition:enter="transition ease-out duration-100" x-transition:enter-start="opacity-0 scale-95" x-transition:enter-end="opacity-100 scale-100" x-transition:leave="transition ease-in duration-75" x-transition:leave-start="opacity-100 scale-100" x-transition:leave-end="opacity-0 scale-95" class="eb-dropdown-menu absolute left-0 z-50 mt-2 w-full overflow-hidden" style="display: none;">
+            <button type="button" class="eb-menu-option" :class="dirValue === 'asc' ? 'is-active' : ''" @click="dirValue = 'asc'; dirOpen = false;">Asc</button>
+            <button type="button" class="eb-menu-option" :class="dirValue === 'desc' ? 'is-active' : ''" @click="dirValue = 'desc'; dirOpen = false;">Desc</button>
+          </div>
+        </div>
       </label>
       <div class="self-end">
         <button type="submit" class="eb-btn eb-btn-primary">Apply</button>
@@ -31,7 +72,7 @@
     </form>
   </section>
 
-  <section class="eb-card-raised mt-5">
+  <div class="eb-subpanel mt-5">
     <div class="mb-5 flex flex-col gap-1 border-b border-[var(--eb-border-subtle)] pb-4">
       <h2 class="eb-type-h4 text-[var(--eb-text-primary)]">Assigned Backup Users</h2>
       <p class="eb-page-description">Backup usernames currently mapped to active plan instances.</p>
@@ -78,10 +119,10 @@
         No assigned backup users found.
       </div>
     {/if}
-  </section>
+  </div>
 
-  <section
-    class="eb-card-raised mt-5"
+  <div
+    class="eb-subpanel mt-5"
     x-data="ebUserAssignments(
       {$assign_plans|default:array()|@json_encode|escape:'html'},
       {$assign_tenants|default:array()|@json_encode|escape:'html'},
@@ -377,7 +418,7 @@
         </div>
       </div>
     </div>
-  </section>
+  </div>
 
   <script>
     function ebUserAssignments(assignPlans, assignTenants, unassignedRows, s3Users, modulelink, token) {

@@ -1,430 +1,378 @@
-<div class="min-h-screen bg-slate-950 text-gray-200" x-data="restoresApp()">
-    <div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,_#1f293780,_transparent_60%)]"></div>
-    <div class="container mx-auto px-4 py-6 relative pointer-events-auto">
-        {assign var="activeNav" value="restores"}
-        {include file="modules/addons/cloudstorage/templates/partials/e3backup_nav.tpl"}
+{capture assign=ebE3RestoresBreadcrumb}
+    <div class="eb-breadcrumb">
+        <a href="index.php?m=cloudstorage&page=e3backup&view=dashboard" class="eb-breadcrumb-link">e3 Cloud Backup</a>
+        <span class="eb-breadcrumb-separator">/</span>
+        <span class="eb-breadcrumb-current">Restores</span>
+    </div>
+{/capture}
 
-        <div class="rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)] px-6 py-6">
-        <!-- Header -->
-        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6">
-            <div>
-                <div class="flex items-center gap-2 mb-1">
-                    <a href="index.php?m=cloudstorage&page=e3backup" class="text-slate-400 hover:text-white text-sm">e3 Cloud Backup</a>
-                    <span class="text-slate-600">/</span>
-                    <span class="text-white text-sm font-medium">Restores</span>
-                </div>
-                <h1 class="text-2xl font-semibold text-white">Restore Points</h1>
-                <p class="text-xs text-slate-400 mt-1">Restore from snapshots across all agents, even after jobs are deleted.</p>
-            </div>
-        </div>
+{capture assign=ebE3Content}
+<div x-data="restoresApp()" class="space-y-6">
+    {include file="$template/includes/ui/page-header.tpl"
+        ebBreadcrumb=$ebE3RestoresBreadcrumb
+        ebPageTitle='Restore Points'
+        ebPageDescription='Restore from snapshots across all agents, even after jobs are deleted.'
+    }
 
-        <!-- Filters -->
-        <div class="mb-4 space-y-3">
-            <div class="flex flex-col lg:flex-row gap-3 items-start lg:items-center">
-                {if $isMspClient}
-                <div class="flex items-center gap-2">
-                    <label class="text-sm text-slate-400">Tenant:</label>
-                    <div x-data="{ isOpen: false }" class="relative" @click.away="isOpen = false">
+    <div class="eb-subpanel overflow-visible">
+        <div class="space-y-4">
+            <div class="space-y-3">
+                <div class="eb-table-toolbar">
+                    {if $isMspClient}
+                    <div class="relative" x-data="{ isOpen: false }" @click.away="isOpen = false">
                         <button type="button"
                                 @click="isOpen = !isOpen"
-                                class="inline-flex items-center gap-2 rounded-md bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:outline-none focus:ring-1 focus:ring-sky-500">
-                            <span class="truncate max-w-[14rem]" x-text="tenantLabel()"></span>
-                            <svg class="w-4 h-4 transition-transform" :class="isOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                                class="eb-btn eb-btn-secondary eb-btn-sm min-w-[16rem] justify-between">
+                            <span class="truncate" x-text="'Tenant: ' + tenantLabel()"></span>
+                            <svg class="h-4 w-4 transition-transform" :class="isOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
                                 <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
                             </svg>
                         </button>
                         <div x-show="isOpen"
-                             x-transition:enter="transition ease-out duration-100"
-                             x-transition:enter-start="opacity-0 scale-95"
-                             x-transition:enter-end="opacity-100 scale-100"
-                             x-transition:leave="transition ease-in duration-75"
-                             x-transition:leave-start="opacity-100 scale-100"
-                             x-transition:leave-end="opacity-0 scale-95"
-                             class="absolute left-0 mt-2 w-72 rounded-xl border border-slate-700 bg-slate-900 shadow-2xl z-50 overflow-hidden"
+                             x-transition
+                             class="eb-menu absolute left-0 z-50 mt-2 w-72 overflow-hidden"
                              style="display: none;">
-                            <div class="px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400 border-b border-slate-800">
-                                Select tenant
+                            <div class="eb-menu-label">Select tenant</div>
+                            <div class="border-b border-[var(--eb-border-subtle)] p-2">
+                                <input type="text"
+                                       x-model="tenantSearch"
+                                       placeholder="Search tenants"
+                                       class="eb-toolbar-search w-full !py-2 text-sm"
+                                       @click.stop>
                             </div>
-                            <div class="px-4 py-2 border-b border-slate-800">
-                                <input type="text" x-model="tenantSearch" placeholder="Search tenants"
-                                       class="w-full rounded-md bg-slate-950 border border-slate-700 px-3 py-2 text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
-                            </div>
-                            <div class="py-1 max-h-72 overflow-auto">
-                                <button type="button"
-                                        class="w-full px-4 py-2 text-left text-sm transition"
-                                        :class="tenantFilter === '' ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'"
-                                        @click="selectTenant(''); isOpen=false;">
-                                    All Tenants
-                                </button>
-                                <button type="button"
-                                        class="w-full px-4 py-2 text-left text-sm transition"
-                                        :class="tenantFilter === 'direct' ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'"
-                                        @click="selectTenant('direct'); isOpen=false;">
-                                    Direct (No Tenant)
-                                </button>
+                            <div class="max-h-72 overflow-auto p-1">
+                                <button type="button" class="eb-menu-option" :class="tenantFilter === '' ? 'is-active' : ''" @click="selectTenant(''); isOpen=false;">All Tenants</button>
+                                <button type="button" class="eb-menu-option" :class="tenantFilter === 'direct' ? 'is-active' : ''" @click="selectTenant('direct'); isOpen=false;">Direct (No Tenant)</button>
                                 <template x-for="tenant in filteredTenants" :key="tenant.public_id || tenant.id">
                                     <button type="button"
-                                            class="w-full px-4 py-2 text-left text-sm transition"
-                                            :class="String(tenantFilter) === String(tenant.public_id || tenant.id) ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'"
+                                            class="eb-menu-option"
+                                            :class="String(tenantFilter) === String(tenant.public_id || tenant.id) ? 'is-active' : ''"
                                             @click="selectTenant(String(tenant.public_id || tenant.id)); isOpen=false;">
                                         <span class="truncate" x-text="tenant.name"></span>
                                     </button>
                                 </template>
                                 <template x-if="filteredTenants.length === 0">
-                                    <div class="px-4 py-2 text-sm text-slate-400">No tenants found</div>
+                                    <div class="px-3 py-2 text-sm text-[var(--eb-text-muted)]">No tenants found</div>
                                 </template>
                             </div>
                         </div>
                     </div>
-                </div>
-                {/if}
-                <div class="flex items-center gap-2">
-                    <label class="text-sm text-slate-400">Agent:</label>
-                    <div x-data="{ isOpen: false }" class="relative" @click.away="isOpen = false">
+                    {/if}
+
+                    <div class="relative" x-data="{ isOpen: false }" @click.away="isOpen = false">
                         <button type="button"
                                 @click="isOpen = !isOpen"
-                                class="inline-flex items-center gap-2 rounded-md bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:outline-none focus:ring-1 focus:ring-sky-500">
-                            <span class="truncate max-w-[14rem]" x-text="agentLabel()"></span>
-                            <svg class="w-4 h-4 transition-transform" :class="isOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                                class="eb-btn eb-btn-secondary eb-btn-sm min-w-[16rem] justify-between">
+                            <span class="truncate" x-text="'Agent: ' + agentLabel()"></span>
+                            <svg class="h-4 w-4 transition-transform" :class="isOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
                                 <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
                             </svg>
                         </button>
                         <div x-show="isOpen"
-                             x-transition:enter="transition ease-out duration-100"
-                             x-transition:enter-start="opacity-0 scale-95"
-                             x-transition:enter-end="opacity-100 scale-100"
-                             x-transition:leave="transition ease-in duration-75"
-                             x-transition:leave-start="opacity-100 scale-100"
-                             x-transition:leave-end="opacity-0 scale-95"
-                             class="absolute left-0 mt-2 w-72 rounded-xl border border-slate-700 bg-slate-900 shadow-2xl z-50 overflow-hidden"
+                             x-transition
+                             class="eb-dropdown-menu absolute left-0 z-50 mt-2 w-72 overflow-hidden"
                              style="display: none;">
-                            <div class="px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400 border-b border-slate-800">
-                                Select agent
+                            <div class="eb-menu-label">Select agent</div>
+                            <div class="border-b border-[var(--eb-border-subtle)] p-2">
+                                <input type="text"
+                                       x-model="agentSearch"
+                                       placeholder="Search agents"
+                                       class="eb-toolbar-search w-full !py-2 text-sm"
+                                       @click.stop>
                             </div>
-                            <div class="px-4 py-2 border-b border-slate-800">
-                                <input type="text" x-model="agentSearch" placeholder="Search agents"
-                                       class="w-full rounded-md bg-slate-950 border border-slate-700 px-3 py-2 text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
-                            </div>
-                            <div class="py-1 max-h-72 overflow-auto">
-                                <button type="button"
-                                        class="w-full px-4 py-2 text-left text-sm transition"
-                                        :class="agentFilter === '' ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'"
-                                        @click="selectAgent(''); isOpen=false;">
-                                    All Agents
-                                </button>
+                            <div class="max-h-72 overflow-auto p-1">
+                                <button type="button" class="eb-menu-option" :class="agentFilter === '' ? 'is-active' : ''" @click="selectAgent(''); isOpen=false;">All Agents</button>
                                 <template x-for="agent in filteredAgents" :key="agent.agent_uuid || agent.id">
                                     <button type="button"
-                                            class="w-full px-4 py-2 text-left text-sm transition"
-                                            :class="String(agentFilter) === String(agent.agent_uuid || '') ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'"
+                                            class="eb-menu-option"
+                                            :class="String(agentFilter) === String(agent.agent_uuid || '') ? 'is-active' : ''"
                                             @click="selectAgent(String(agent.agent_uuid || '')); isOpen=false;">
                                         <span class="truncate" x-text="agent.hostname || agent.device_name || (agent.agent_uuid || 'Unknown agent')"></span>
                                     </button>
                                 </template>
                                 <template x-if="filteredAgents.length === 0">
-                                    <div class="px-4 py-2 text-sm text-slate-400">No agents found</div>
+                                    <div class="px-3 py-2 text-sm text-[var(--eb-text-muted)]">No agents found</div>
                                 </template>
                             </div>
                         </div>
                     </div>
-                </div>
-                <div class="flex flex-col sm:flex-row items-start sm:items-center gap-2">
-                    <label class="text-sm text-slate-400">Date:</label>
-                    <div class="flex items-center gap-2">
-                        <input type="date" x-model="dateFrom" @change="onDateChange()"
-                               class="rounded-md bg-slate-900 border border-slate-700 px-3 py-2 text-xs text-slate-200 focus:outline-none focus:ring-1 focus:ring-sky-500">
-                        <span class="text-slate-500 text-xs">to</span>
-                        <input type="date" x-model="dateTo" @change="onDateChange()"
-                               class="rounded-md bg-slate-900 border border-slate-700 px-3 py-2 text-xs text-slate-200 focus:outline-none focus:ring-1 focus:ring-sky-500">
-                    </div>
-                    <div class="flex items-center gap-1">
-                        <button type="button" @click="setQuickRange(7)"
-                                class="text-xs px-2 py-1 rounded border border-slate-700 bg-slate-900/70 text-slate-300 hover:bg-slate-800">
-                            7d
-                        </button>
-                        <button type="button" @click="setQuickRange(30)"
-                                class="text-xs px-2 py-1 rounded border border-slate-700 bg-slate-900/70 text-slate-300 hover:bg-slate-800">
-                            30d
-                        </button>
-                        <button type="button" @click="setQuickRange(90)"
-                                class="text-xs px-2 py-1 rounded border border-slate-700 bg-slate-900/70 text-slate-300 hover:bg-slate-800">
-                            90d
-                        </button>
-                        <button type="button" @click="clearDateRange()"
-                                class="text-xs px-2 py-1 rounded border border-slate-700 bg-slate-900/70 text-slate-300 hover:bg-slate-800">
-                            Clear
-                        </button>
-                    </div>
-                </div>
-            </div>
-            <div class="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
-                <div class="flex items-center gap-2 sm:ml-auto w-full">
-                    <input type="text" placeholder="Search restore points" x-model="searchQuery"
-                           class="w-full sm:w-80 rounded-full bg-slate-900/70 border border-slate-700 px-4 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-sky-500">
-                </div>
-            </div>
-        </div>
 
-        <!-- Restore Points Table -->
-        <div class="overflow-x-auto rounded-lg border border-slate-800">
-            <table class="min-w-full divide-y divide-slate-800 text-sm">
-                <thead class="bg-slate-900/80 text-slate-300">
-                    <tr>
-                        <th class="px-4 py-3 text-left font-medium">Snapshot</th>
-                        {if $isMspClient}<th class="px-4 py-3 text-left font-medium">Tenant</th>{/if}
-                        <th class="px-4 py-3 text-left font-medium">Agent</th>
-                        <th class="px-4 py-3 text-left font-medium">Engine</th>
-                        <th class="px-4 py-3 text-left font-medium">Status</th>
-                        <th class="px-4 py-3 text-left font-medium">Source</th>
-                        <th class="px-4 py-3 text-left font-medium">Destination</th>
-                        <th class="px-4 py-3 text-left font-medium">Completed</th>
-                        <th class="px-4 py-3 text-left font-medium">Action</th>
-                    </tr>
-                </thead>
-                <tbody class="divide-y divide-slate-800">
-                    <template x-if="loading">
+                    <div class="flex-1"></div>
+
+                    <input type="text"
+                           placeholder="Search restore points"
+                           x-model="searchQuery"
+                           class="eb-toolbar-search w-full xl:w-80">
+                </div>
+
+                <div class="flex flex-wrap items-center gap-2">
+                    <input type="date" x-model="dateFrom" @change="onDateChange()" class="eb-input w-auto min-w-[10rem]">
+                    <span class="eb-type-caption">to</span>
+                    <input type="date" x-model="dateTo" @change="onDateChange()" class="eb-input w-auto min-w-[10rem]">
+                    <button type="button" @click="clearDateRange()" class="eb-pill">Clear</button>
+                </div>
+            </div>
+
+            <div class="eb-table-shell">
+                <table class="eb-table">
+                    <thead>
                         <tr>
-                            <td :colspan="{if $isMspClient}9{else}8{/if}" class="px-4 py-8 text-center text-slate-400">
-                                <svg class="animate-spin h-6 w-6 mx-auto text-sky-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                </svg>
-                            </td>
+                            <th>Snapshot</th>
+                            {if $isMspClient}<th>Tenant</th>{/if}
+                            <th>Agent</th>
+                            <th>Engine</th>
+                            <th>Status</th>
+                            <th>Source</th>
+                            <th>Destination</th>
+                            <th>Completed</th>
+                            <th>Action</th>
                         </tr>
-                    </template>
-                    <template x-if="!loading && needsFilter">
-                        <tr>
-                            <td :colspan="{if $isMspClient}9{else}8{/if}" class="px-4 py-8 text-center text-slate-400">
-                                Select a tenant, agent, date range, or search to load restore points.
-                            </td>
-                        </tr>
-                    </template>
-                    <template x-if="!loading && !needsFilter && restorePoints.length === 0">
-                        <tr>
-                            <td :colspan="{if $isMspClient}9{else}8{/if}" class="px-4 py-8 text-center text-slate-400">
-                                No restore points found.
-                            </td>
-                        </tr>
-                    </template>
-                    <template x-for="point in restorePoints" :key="point.id">
-                        <tr class="hover:bg-slate-800/50">
-                            <td class="px-4 py-3">
-                                <div class="text-slate-100 font-medium" x-text="point.job_name || 'Unnamed job'"></div>
-                                <div class="text-xs text-slate-500" x-text="point.manifest_id || 'No manifest'"></div>
-                                <div class="text-xs text-slate-400" x-show="point.hyperv_vm_name">VM: <span x-text="point.hyperv_vm_name"></span></div>
-                            </td>
-                            {if $isMspClient}
-                            <td class="px-4 py-3 text-slate-300" x-text="point.tenant_name || (point.tenant_deleted ? 'Deleted tenant' : 'Direct')"></td>
-                            {/if}
-                            <td class="px-4 py-3 text-slate-300" x-text="point.agent_hostname || point.agent_uuid || '—'"></td>
-                            <td class="px-4 py-3">
-                                <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium"
-                                      :class="{ 'bg-sky-500/15 text-sky-200': point.engine === 'kopia', 'bg-purple-500/15 text-purple-200': point.engine === 'disk_image', 'bg-amber-500/15 text-amber-200': point.engine === 'hyperv', 'bg-slate-700 text-slate-300': !point.engine }"
-                                      x-text="point.engine || 'unknown'"></span>
-                            </td>
-                            <td class="px-4 py-3">
-                                <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium"
-                                      :class="point.status === 'success' ? 'bg-emerald-500/15 text-emerald-200' : (point.status === 'warning' ? 'bg-amber-500/15 text-amber-200' : (point.status === 'metadata_incomplete' ? 'bg-rose-500/15 text-rose-200' : 'bg-slate-700 text-slate-300'))"
-                                      x-text="point.status || 'unknown'"></span>
-                                <div class="text-[11px] text-amber-300 mt-1" x-show="!point.is_restorable && point.non_restorable_reason" x-text="point.non_restorable_reason"></div>
-                            </td>
-                            <td class="px-4 py-3 text-slate-300">
-                                <div class="text-xs" x-text="point.source_display_name || point.source_type || '—'"></div>
-                                <div class="text-xs text-slate-500" x-text="point.source_path || ''"></div>
-                            </td>
-                            <td class="px-4 py-3 text-slate-300">
-                                <div class="text-xs" x-text="point.dest_type || 's3'"></div>
-                                <div class="text-xs text-slate-500" x-text="point.dest_bucket_name || point.dest_prefix || point.dest_local_path || ''"></div>
-                            </td>
-                            <td class="px-4 py-3 text-slate-300" x-text="point.finished_at || point.created_at || '—'"></td>
-                            <td class="px-4 py-3">
-                                <template x-if="point.hyperv_backup_point_id">
-                                    <a :href="'index.php?m=cloudstorage&page=e3backup&view=hyperv_restore&vm_id=' + point.hyperv_vm_id"
-                                       class="text-xs px-2 py-1 rounded bg-sky-600/20 border border-sky-500/40 text-sky-300 hover:bg-sky-600/30 hover:border-sky-400 transition">
-                                        Hyper-V Restore
-                                    </a>
-                                </template>
-                                <template x-if="!point.hyperv_backup_point_id && String(point.engine || '').toLowerCase() === 'disk_image'">
-                                    <span>
-                                        <a x-show="point.is_restorable"
-                                           :href="'index.php?m=cloudstorage&page=e3backup&view=disk_image_restore&restore_point_id=' + point.id"
-                                           class="text-xs px-2 py-1 rounded bg-purple-600/20 border border-purple-500/40 text-purple-200 hover:bg-purple-600/30 hover:border-purple-400 transition">
-                                            Disk Recovery
+                    </thead>
+                    <tbody>
+                        <template x-if="loading">
+                            <tr>
+                                <td :colspan="{if $isMspClient}9{else}8{/if}">
+                                    <div class="eb-app-empty !py-8">
+                                        <div class="inline-flex items-center gap-3 text-sm text-[var(--eb-text-muted)]">
+                                            <span class="h-4 w-4 animate-spin rounded-full border-2 border-[color:var(--eb-info-border)] border-t-[color:var(--eb-info-icon)]"></span>
+                                            Loading restore points...
+                                        </div>
+                                    </div>
+                                </td>
+                            </tr>
+                        </template>
+                        <template x-if="!loading && needsFilter">
+                            <tr>
+                                <td :colspan="{if $isMspClient}9{else}8{/if}">
+                                    <div class="eb-app-empty !py-8">
+                                        <div class="eb-app-empty-title">Filters required</div>
+                                        <p class="eb-app-empty-copy">Select a tenant, agent, date range, or search term to load restore points.</p>
+                                    </div>
+                                </td>
+                            </tr>
+                        </template>
+                        <template x-if="!loading && !needsFilter && restorePoints.length === 0">
+                            <tr>
+                                <td :colspan="{if $isMspClient}9{else}8{/if}">
+                                    <div class="eb-app-empty !py-8">
+                                        <div class="eb-app-empty-title">No restore points found</div>
+                                        <p class="eb-app-empty-copy">Try a different search term or widen your date range.</p>
+                                    </div>
+                                </td>
+                            </tr>
+                        </template>
+                        <template x-for="point in restorePoints" :key="point.id">
+                            <tr>
+                                <td class="eb-table-primary">
+                                    <div class="font-medium text-[var(--eb-text-primary)]" x-text="point.job_name || 'Unnamed job'"></div>
+                                    <div class="text-xs text-[var(--eb-text-muted)]" x-text="point.manifest_id || 'No manifest'"></div>
+                                    <div class="text-xs text-[var(--eb-text-secondary)]" x-show="point.hyperv_vm_name">VM: <span x-text="point.hyperv_vm_name"></span></div>
+                                </td>
+                                {if $isMspClient}
+                                <td x-text="point.tenant_name || (point.tenant_deleted ? 'Deleted tenant' : 'Direct')"></td>
+                                {/if}
+                                <td x-text="point.agent_hostname || point.agent_uuid || '—'"></td>
+                                <td>
+                                    <span class="eb-badge"
+                                          :class="{ 'eb-badge--info': point.engine === 'kopia', 'eb-badge--premium': point.engine === 'disk_image', 'eb-badge--warning': point.engine === 'hyperv', 'eb-badge--neutral': !point.engine }"
+                                          x-text="point.engine || 'unknown'"></span>
+                                </td>
+                                <td>
+                                    <span class="eb-badge"
+                                          :class="point.status === 'success' ? 'eb-badge--success' : (point.status === 'warning' ? 'eb-badge--warning' : (point.status === 'metadata_incomplete' ? 'eb-badge--danger' : 'eb-badge--neutral'))"
+                                          x-text="point.status || 'unknown'"></span>
+                                    <div class="mt-1 text-[11px] text-[var(--eb-warning-text)]" x-show="!point.is_restorable && point.non_restorable_reason" x-text="point.non_restorable_reason"></div>
+                                </td>
+                                <td>
+                                    <div class="text-xs text-[var(--eb-text-secondary)]" x-text="point.source_display_name || point.source_type || '—'"></div>
+                                    <div class="text-xs text-[var(--eb-text-muted)]" x-text="point.source_path || ''"></div>
+                                </td>
+                                <td>
+                                    <div class="text-xs text-[var(--eb-text-secondary)]" x-text="point.dest_type || 's3'"></div>
+                                    <div class="text-xs text-[var(--eb-text-muted)]" x-text="point.dest_bucket_name || point.dest_prefix || point.dest_local_path || ''"></div>
+                                </td>
+                                <td x-text="point.finished_at || point.created_at || '—'"></td>
+                                <td>
+                                    <template x-if="point.hyperv_backup_point_id">
+                                        <a :href="'index.php?m=cloudstorage&page=e3backup&view=hyperv_restore&vm_id=' + point.hyperv_vm_id"
+                                           class="eb-btn eb-btn-info eb-btn-xs">
+                                            Hyper-V Restore
                                         </a>
-                                        <button x-show="!point.is_restorable"
-                                                type="button"
-                                                class="text-xs px-2 py-1 rounded bg-slate-800 border border-slate-700 text-slate-500 cursor-not-allowed"
+                                    </template>
+                                    <template x-if="!point.hyperv_backup_point_id && String(point.engine || '').toLowerCase() === 'disk_image'">
+                                        <span>
+                                            <a x-show="point.is_restorable"
+                                               :href="'index.php?m=cloudstorage&page=e3backup&view=disk_image_restore&restore_point_id=' + point.id"
+                                               class="eb-btn eb-btn-premium eb-btn-xs">
+                                                Disk Recovery
+                                            </a>
+                                            <button x-show="!point.is_restorable"
+                                                    type="button"
+                                                    class="eb-btn eb-btn-secondary eb-btn-xs disabled"
+                                                    :title="point.non_restorable_reason || 'Restore point is not restorable'"
+                                                    disabled>
+                                                Unavailable
+                                            </button>
+                                        </span>
+                                    </template>
+                                    <template x-if="!point.hyperv_backup_point_id && String(point.engine || '').toLowerCase() !== 'disk_image'">
+                                        <button @click="openRestoreModal(point)"
+                                                class="eb-btn eb-btn-info eb-btn-xs"
+                                                :class="point.is_restorable ? '' : 'disabled'"
                                                 :title="point.non_restorable_reason || 'Restore point is not restorable'"
-                                                disabled>
-                                            Unavailable
+                                                :disabled="!point.is_restorable">
+                                            <span x-text="point.is_restorable ? 'Restore' : 'Unavailable'"></span>
                                         </button>
-                                    </span>
-                                </template>
-                                <template x-if="!point.hyperv_backup_point_id && String(point.engine || '').toLowerCase() !== 'disk_image'">
-                                    <button @click="openRestoreModal(point)"
-                                            :class="point.is_restorable ? 'text-xs px-2 py-1 rounded bg-sky-600/20 border border-sky-500/40 text-sky-300 hover:bg-sky-600/30 hover:border-sky-400 transition' : 'text-xs px-2 py-1 rounded bg-slate-800 border border-slate-700 text-slate-500 cursor-not-allowed'"
-                                            :title="point.non_restorable_reason || 'Restore point is not restorable'"
-                                            :disabled="!point.is_restorable">
-                                        <span x-text="point.is_restorable ? 'Restore' : 'Unavailable'"></span>
-                                    </button>
-                                </template>
-                            </td>
-                        </tr>
-                    </template>
-                </tbody>
-            </table>
-        </div>
-        <div class="mt-4 flex justify-center" x-show="hasMore && !loading" style="display: none;">
-            <button type="button" @click="loadRestorePoints(false)"
-                    class="px-4 py-2 rounded-lg border border-slate-700 bg-slate-900 text-slate-200 hover:bg-slate-800">
-                Load more
-            </button>
-        </div>
+                                    </template>
+                                </td>
+                            </tr>
+                        </template>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="flex justify-center" x-show="hasMore && !loading" style="display: none;">
+                <button type="button" @click="loadRestorePoints(false)" class="eb-btn eb-btn-secondary eb-btn-sm">
+                    Load more
+                </button>
+            </div>
         </div>
     </div>
 
-    <!-- Restore Wizard Modal -->
     <div id="restorePointModal" class="fixed inset-0 z-[2100] hidden">
-        <div class="absolute inset-0 bg-black/75" onclick="closeRestorePointModal()"></div>
+        <div class="eb-modal-backdrop absolute inset-0" onclick="closeRestorePointModal()"></div>
         <div class="absolute inset-0 flex items-center justify-center p-4">
-            <div class="w-full max-w-3xl max-h-[85vh] rounded-2xl bg-slate-950 border border-slate-800 shadow-2xl flex flex-col">
-                <div class="px-6 py-4 border-b border-slate-800 flex items-center justify-between shrink-0">
+            <div class="eb-modal relative z-10 flex max-h-[85vh] w-full max-w-3xl flex-col !p-0 overflow-hidden">
+                <div class="eb-modal-header">
                     <div>
-                        <h3 class="text-lg font-semibold text-white">Restore Snapshot</h3>
-                        <p class="text-xs text-slate-400 mt-1">Restore from a saved restore point.</p>
+                        <h3 class="eb-modal-title">Restore Snapshot</h3>
+                        <p class="eb-modal-subtitle">Restore from a saved restore point.</p>
                     </div>
-                    <button class="text-slate-400 hover:text-white" onclick="closeRestorePointModal()">
+                    <button class="eb-modal-close" onclick="closeRestorePointModal()">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
                         </svg>
                     </button>
                 </div>
 
-                <div class="px-6 py-4 flex-1 overflow-y-auto scrollbar-thin-dark">
-                    <div class="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-400 mb-4">
-                        <span class="px-2 py-1 rounded-full border border-slate-700 bg-slate-900" id="restorePointStepLabel">Step 1 of 4</span>
-                        <span class="text-slate-300" id="restorePointStepTitle">Confirm Snapshot</span>
+                <div class="eb-modal-body flex-1 overflow-y-auto scrollbar-thin-dark">
+                    <div class="mb-4 flex items-center gap-2">
+                        <span class="eb-badge eb-badge--neutral" id="restorePointStepLabel">Step 1 of 4</span>
+                        <span class="eb-type-caption text-[var(--eb-text-secondary)]" id="restorePointStepTitle">Confirm Snapshot</span>
                     </div>
 
                     <div class="space-y-6">
-                        <!-- Step 1 -->
                         <div class="restore-point-step" data-step="1">
-                            <div class="rounded-xl border border-slate-800 bg-slate-900 px-4 py-3">
-                                <div class="text-sm text-slate-200 font-semibold" id="restorePointJobName">Selected restore point</div>
-                                <div class="text-xs text-slate-400 mt-1" id="restorePointManifest"></div>
-                                <div class="text-xs text-slate-400 mt-1" id="restorePointAgent"></div>
+                            <div class="eb-card-raised">
+                                <div class="text-sm font-semibold text-[var(--eb-text-primary)]" id="restorePointJobName">Selected restore point</div>
+                                <div class="mt-1 text-xs text-[var(--eb-text-muted)]" id="restorePointManifest"></div>
+                                <div class="mt-1 text-xs text-[var(--eb-text-muted)]" id="restorePointAgent"></div>
                             </div>
                         </div>
 
-                        <!-- Step 2 -->
                         <div class="restore-point-step hidden" data-step="2">
-                            <label class="block text-sm font-medium text-slate-200 mb-2">Destination Agent</label>
-                            <p class="text-xs text-slate-400 mb-3">Select the computer where the data should be restored.</p>
+                            <label class="eb-field-label">Destination Agent</label>
+                            <p class="eb-field-help mb-3">Select the computer where the data should be restored.</p>
                             <div class="space-y-3">
-                                <select id="restorePointTargetAgent" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-slate-100">
+                                <select id="restorePointTargetAgent" class="eb-select">
                                     <option value="">Select an agent</option>
                                 </select>
-                                <p id="restorePointAgentHint" class="text-xs text-amber-300 hidden"></p>
+                                <p id="restorePointAgentHint" class="eb-field-help hidden"></p>
                             </div>
                         </div>
 
-                        <!-- Step 3 -->
                         <div class="restore-point-step hidden" data-step="3">
-                            <label class="block text-sm font-medium text-slate-200 mb-2">Select Items (Optional)</label>
-                            <p class="text-xs text-slate-400 mb-3">Choose specific files or folders to restore. Leave empty to restore the full snapshot.</p>
-                            <div class="rounded-xl border border-slate-800 bg-slate-900 overflow-hidden">
-                                <div class="flex items-center justify-between px-4 py-2 bg-slate-800/60 border-b border-slate-800">
-                                    <div id="restorePointSnapshotBreadcrumbs" class="flex items-center gap-1 text-xs text-slate-300"></div>
-                                    <div id="restorePointSnapshotSelection" class="text-xs text-slate-500">0 selected</div>
+                            <label class="eb-field-label">Select Items (Optional)</label>
+                            <p class="eb-field-help mb-3">Choose specific files or folders to restore. Leave empty to restore the full snapshot.</p>
+                            <div class="rounded-[var(--eb-radius-lg)] border border-[var(--eb-border-default)] bg-[var(--eb-bg-card)] overflow-hidden">
+                                <div class="flex items-center justify-between gap-3 border-b border-[var(--eb-border-subtle)] bg-[var(--eb-bg-chrome)] px-4 py-2">
+                                    <div id="restorePointSnapshotBreadcrumbs" class="flex items-center gap-1 text-xs text-[var(--eb-text-secondary)]"></div>
+                                    <div id="restorePointSnapshotSelection" class="text-xs text-[var(--eb-text-muted)]">0 selected</div>
                                 </div>
-                                <div id="restorePointSnapshotStatus" class="px-4 py-2 text-xs text-slate-400 hidden"></div>
+                                <div id="restorePointSnapshotStatus" class="px-4 py-2 text-xs text-[var(--eb-text-muted)] hidden"></div>
                                 <div class="h-[360px] overflow-y-auto scrollbar-thin-dark">
-                                    <div id="restorePointSnapshotList" class="p-2 space-y-1"></div>
+                                    <div id="restorePointSnapshotList" class="space-y-1 p-2"></div>
                                 </div>
                             </div>
                         </div>
 
-                        <!-- Step 4 -->
                         <div class="restore-point-step hidden" data-step="4">
-                            <label class="block text-sm font-medium text-slate-200 mb-2">Restore Target</label>
+                            <label class="eb-field-label">Restore Target</label>
                             <div class="space-y-3">
-                                <div class="flex flex-col sm:flex-row gap-2">
-                                    <input id="restorePointTargetPath" type="text" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-slate-100" placeholder="Destination path on agent (e.g., C:\Restores\snapshot)">
-                                    <button type="button" onclick="openRestorePointBrowseModal()"
-                                            class="px-3 py-2 rounded-lg border border-slate-700 bg-slate-900 text-slate-200 hover:bg-slate-800">
+                                <div class="flex flex-col gap-2 sm:flex-row">
+                                    <input id="restorePointTargetPath" type="text" class="eb-input" placeholder="Destination path on agent (e.g., C:\Restores\snapshot)">
+                                    <button type="button" onclick="openRestorePointBrowseModal()" class="eb-btn eb-btn-secondary eb-btn-sm">
                                         Browse
                                     </button>
                                 </div>
-                                <label class="inline-flex items-center gap-2 text-sm text-slate-300">
-                                    <input id="restorePointMount" type="checkbox" class="rounded border-slate-600 bg-slate-800">
+                                <label class="eb-inline-choice">
+                                    <input id="restorePointMount" type="checkbox" class="eb-check-input">
                                     <span>Request mount instead of copy</span>
                                 </label>
                             </div>
                         </div>
 
-                        <!-- Step 5 -->
                         <div class="restore-point-step hidden" data-step="5">
-                            <div class="rounded-xl border border-slate-800 bg-slate-900 px-4 py-3 text-slate-100">
-                                <p class="text-sm font-semibold mb-2">Review</p>
-                                <div id="restorePointReview" class="text-xs whitespace-pre-wrap leading-5 bg-slate-950 border border-slate-800 rounded-lg p-3 overflow-auto max-h-64"></div>
+                            <div class="eb-card-raised">
+                                <p class="eb-card-title mb-2">Review</p>
+                                <div id="restorePointReview" class="overflow-auto rounded-[var(--eb-radius-md)] border border-[var(--eb-border-subtle)] bg-[var(--eb-bg-base)] p-3 text-xs leading-5 text-[var(--eb-text-secondary)] whitespace-pre-wrap max-h-64"></div>
                             </div>
                         </div>
                     </div>
+                </div>
 
-                    <div class="flex justify-between items-center mt-6">
-                        <button type="button" class="px-4 py-2 rounded-lg border border-slate-700 bg-slate-800 text-slate-100 hover:bg-slate-700" onclick="restorePointPrev()">Back</button>
-                        <div class="flex gap-2">
-                            <button type="button" class="px-4 py-2 rounded-lg border border-slate-700 bg-slate-800 text-slate-100 hover:bg-slate-700" onclick="closeRestorePointModal()">Cancel</button>
-                            <button type="button" class="px-4 py-2 rounded-lg bg-sky-600 text-white hover:bg-sky-500" onclick="restorePointNext()">Next</button>
-                        </div>
+                <div class="eb-modal-footer">
+                    <button type="button" class="eb-btn eb-btn-secondary eb-btn-sm" onclick="restorePointPrev()">Back</button>
+                    <div class="flex gap-2">
+                        <button type="button" class="eb-btn eb-btn-secondary eb-btn-sm" onclick="closeRestorePointModal()">Cancel</button>
+                        <button type="button" class="eb-btn eb-btn-primary eb-btn-sm" onclick="restorePointNext()">Next</button>
                     </div>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- Destination Browse Modal -->
     <div id="restorePointBrowseModal" class="fixed inset-0 z-[2200] hidden">
-        <div class="absolute inset-0 bg-black/75" onclick="closeRestorePointBrowseModal()"></div>
+        <div class="eb-modal-backdrop absolute inset-0" onclick="closeRestorePointBrowseModal()"></div>
         <div class="absolute inset-0 flex items-center justify-center p-4">
-            <div class="w-full max-w-2xl rounded-2xl bg-slate-950 border border-slate-800 shadow-2xl">
-                <div class="px-6 py-4 border-b border-slate-800 flex items-center justify-between">
+            <div class="eb-modal relative z-10 w-full max-w-2xl !p-0 overflow-hidden">
+                <div class="eb-modal-header">
                     <div>
-                        <h3 class="text-lg font-semibold text-white">Browse Destination</h3>
-                        <p class="text-xs text-slate-400 mt-1">Select a folder on the destination agent.</p>
+                        <h3 class="eb-modal-title">Browse Destination</h3>
+                        <p class="eb-modal-subtitle">Select a folder on the destination agent.</p>
                     </div>
-                    <button class="text-slate-400 hover:text-white" onclick="closeRestorePointBrowseModal()">
+                    <button class="eb-modal-close" onclick="closeRestorePointBrowseModal()">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
                         </svg>
                     </button>
                 </div>
-                <div class="px-6 py-4 space-y-3">
-                    <div class="flex items-center justify-between text-xs text-slate-400">
+                <div class="eb-modal-body space-y-3">
+                    <div class="flex items-center justify-between gap-3 text-xs text-[var(--eb-text-muted)]">
                         <div id="restorePointBrowsePath">This PC</div>
-                        <button type="button" onclick="restorePointBrowseUp()"
-                                class="px-2 py-1 rounded border border-slate-700 bg-slate-900 text-slate-300 hover:bg-slate-800">
-                            Up
-                        </button>
+                        <button type="button" onclick="restorePointBrowseUp()" class="eb-btn eb-btn-secondary eb-btn-xs">Up</button>
                     </div>
-                    <div id="restorePointBrowseStatus" class="text-xs text-slate-400 hidden"></div>
-                    <div class="rounded-xl border border-slate-800 bg-slate-900 max-h-72 overflow-auto">
-                        <div id="restorePointBrowseList" class="divide-y divide-slate-800"></div>
+                    <div id="restorePointBrowseStatus" class="text-xs text-[var(--eb-text-muted)] hidden"></div>
+                    <div class="rounded-[var(--eb-radius-lg)] border border-[var(--eb-border-default)] bg-[var(--eb-bg-card)] max-h-72 overflow-auto">
+                        <div id="restorePointBrowseList" class="divide-y divide-[var(--eb-border-subtle)]"></div>
                     </div>
-                    <div class="flex justify-end gap-2 pt-2">
-                        <button type="button" onclick="closeRestorePointBrowseModal()"
-                                class="px-3 py-2 rounded-lg border border-slate-700 bg-slate-900 text-slate-200 hover:bg-slate-800">
-                            Cancel
-                        </button>
-                        <button type="button" onclick="applyRestorePointBrowseSelection()"
-                                class="px-3 py-2 rounded-lg bg-sky-600 text-white hover:bg-sky-500">
-                            Use this folder
-                        </button>
-                    </div>
+                </div>
+                <div class="eb-modal-footer">
+                    <button type="button" onclick="closeRestorePointBrowseModal()" class="eb-btn eb-btn-secondary eb-btn-sm">Cancel</button>
+                    <button type="button" onclick="applyRestorePointBrowseSelection()" class="eb-btn eb-btn-primary eb-btn-sm">Use this folder</button>
                 </div>
             </div>
         </div>
     </div>
 </div>
+{/capture}
+
+{include file="modules/addons/cloudstorage/templates/partials/e3backup_shell.tpl"
+    ebE3SidebarPage='restores'
+    ebE3Title='Restore Points'
+    ebE3Description='Restore from snapshots across all agents, even after jobs are deleted.'
+    ebE3Content=$ebE3Content
+}
 
 {literal}
 <script>
@@ -748,8 +696,8 @@ function setSnapshotStatus(message, kind) {
     }
     statusEl.textContent = message;
     statusEl.classList.remove('hidden');
-    statusEl.classList.toggle('text-rose-300', kind === 'error');
-    statusEl.classList.toggle('text-slate-400', kind !== 'error');
+    statusEl.classList.toggle('text-[var(--eb-danger-text)]', kind === 'error');
+    statusEl.classList.toggle('text-[var(--eb-text-muted)]', kind !== 'error');
 }
 
 function loadSnapshotEntries(path) {
@@ -826,7 +774,7 @@ function renderSnapshotList() {
 
     if (!Array.isArray(st.snapshotEntries) || st.snapshotEntries.length === 0) {
         const empty = document.createElement('div');
-        empty.className = 'px-3 py-6 text-center text-sm text-slate-500';
+        empty.className = 'eb-app-empty !py-6';
         empty.textContent = st.snapshotError ? 'Unable to browse snapshot.' : 'No entries found.';
         listEl.appendChild(empty);
         return;
@@ -835,29 +783,31 @@ function renderSnapshotList() {
     if (st.snapshotPath) {
         const upRow = document.createElement('button');
         upRow.type = 'button';
-        upRow.className = 'w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-800/60 text-left transition';
+        upRow.className = 'flex w-full items-center gap-3 rounded-[var(--eb-radius-md)] border border-[var(--eb-border-subtle)] bg-[var(--eb-bg-input)] px-3 py-2 text-left text-[var(--eb-text-secondary)] transition hover:bg-[var(--eb-bg-hover)]';
         upRow.addEventListener('click', () => loadSnapshotEntries(st.snapshotParent || ''));
         upRow.innerHTML = `
-            <div class="w-8 h-8 rounded-lg bg-slate-800 flex items-center justify-center">
-                <svg class="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <div class="flex h-8 w-8 items-center justify-center rounded-[var(--eb-radius-md)] bg-[var(--eb-bg-chrome)]">
+                <svg class="h-4 w-4 text-[var(--eb-text-muted)]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3" />
                 </svg>
             </div>
-            <span class="text-sm text-slate-400">..</span>
+            <span class="text-sm text-[var(--eb-text-secondary)]">..</span>
         `;
         listEl.appendChild(upRow);
     }
 
     st.snapshotEntries.forEach((entry) => {
         const row = document.createElement('div');
-        row.className = 'flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-slate-800/60 transition';
+        row.className = 'flex items-center gap-2 rounded-[var(--eb-radius-md)] border border-transparent px-3 py-2 transition hover:bg-[var(--eb-bg-hover)]';
         if (isSnapshotSelected(entry.path)) {
-            row.classList.add('bg-cyan-500/10', 'ring-1', 'ring-cyan-500/40');
+            row.classList.add('border-[var(--eb-info-border)]', 'bg-[var(--eb-info-bg)]');
         }
 
         const checkboxWrap = document.createElement('label');
-        checkboxWrap.className = 'w-5 h-5 flex items-center justify-center rounded border cursor-pointer';
-        checkboxWrap.className += isSnapshotSelected(entry.path) ? ' bg-cyan-500 border-cyan-500' : ' border-slate-600';
+        checkboxWrap.className = 'flex h-5 w-5 cursor-pointer items-center justify-center rounded-[var(--eb-radius-sm)] border';
+        checkboxWrap.className += isSnapshotSelected(entry.path)
+            ? ' border-[var(--eb-info-border)] bg-[var(--eb-info-icon)]'
+            : ' border-[var(--eb-border-default)] bg-[var(--eb-bg-input)]';
         const checkbox = document.createElement('input');
         checkbox.type = 'checkbox';
         checkbox.className = 'hidden';
@@ -865,7 +815,7 @@ function renderSnapshotList() {
         checkbox.addEventListener('change', () => toggleSnapshotSelection(entry.path));
         checkboxWrap.appendChild(checkbox);
         checkboxWrap.insertAdjacentHTML('beforeend', `
-            <svg class="w-3 h-3 text-white ${isSnapshotSelected(entry.path) ? '' : 'hidden'}" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <svg class="h-3 w-3 text-white ${isSnapshotSelected(entry.path) ? '' : 'hidden'}" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" />
             </svg>
         `);
@@ -873,26 +823,26 @@ function renderSnapshotList() {
 
         const nameBtn = document.createElement('button');
         nameBtn.type = 'button';
-        nameBtn.className = 'flex-1 flex items-center gap-3 text-left cursor-pointer';
+        nameBtn.className = 'flex flex-1 items-center gap-3 text-left cursor-pointer';
         if (entry.is_dir) {
             nameBtn.addEventListener('click', () => loadSnapshotEntries(entry.path));
         }
         const icon = entry.is_dir
-            ? `<svg class="w-5 h-5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            ? `<svg class="h-5 w-5 text-[var(--eb-warning-icon)]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z" />
                 </svg>`
-            : `<svg class="w-5 h-5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            : `<svg class="h-5 w-5 text-[var(--eb-text-muted)]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
                 </svg>`;
         nameBtn.innerHTML = `
-            <div class="w-8 h-8 rounded-lg flex items-center justify-center bg-slate-800">
+            <div class="flex h-8 w-8 items-center justify-center rounded-[var(--eb-radius-md)] bg-[var(--eb-bg-chrome)]">
                 ${icon}
             </div>
             <div class="flex-1 min-w-0">
-                <p class="text-sm text-slate-100 truncate">${entry.name || entry.path || 'Unnamed'}</p>
-                <p class="text-xs text-slate-500">${entry.is_dir ? 'Folder' : formatSnapshotBytes(entry.size || 0)}</p>
+                <p class="truncate text-sm text-[var(--eb-text-primary)]">${entry.name || entry.path || 'Unnamed'}</p>
+                <p class="text-xs text-[var(--eb-text-muted)]">${entry.is_dir ? 'Folder' : formatSnapshotBytes(entry.size || 0)}</p>
             </div>
-            ${entry.is_dir ? '<svg class="w-4 h-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>' : ''}
+            ${entry.is_dir ? '<svg class="h-4 w-4 text-[var(--eb-text-muted)]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>' : ''}
         `;
         row.appendChild(nameBtn);
 
@@ -908,7 +858,7 @@ function renderSnapshotBreadcrumbs() {
 
     const rootBtn = document.createElement('button');
     rootBtn.type = 'button';
-    rootBtn.className = 'px-2 py-1 rounded hover:bg-slate-700/60 transition';
+    rootBtn.className = 'rounded-[var(--eb-radius-sm)] px-2 py-1 transition hover:bg-[var(--eb-bg-hover)]';
     rootBtn.textContent = 'Snapshot root';
     rootBtn.addEventListener('click', () => loadSnapshotEntries(''));
     crumbsEl.appendChild(rootBtn);
@@ -916,13 +866,13 @@ function renderSnapshotBreadcrumbs() {
     const segments = getSnapshotPathSegments(st.snapshotPath || '');
     segments.forEach((segment) => {
         const sep = document.createElement('span');
-        sep.className = 'text-slate-600';
+        sep.className = 'text-[var(--eb-text-muted)]';
         sep.textContent = '/';
         crumbsEl.appendChild(sep);
 
         const btn = document.createElement('button');
         btn.type = 'button';
-        btn.className = 'px-2 py-1 rounded hover:bg-slate-700/60 transition truncate max-w-[140px]';
+        btn.className = 'truncate rounded-[var(--eb-radius-sm)] px-2 py-1 transition hover:bg-[var(--eb-bg-hover)] max-w-[140px]';
         btn.textContent = segment.name;
         btn.addEventListener('click', () => loadSnapshotEntries(segment.path));
         crumbsEl.appendChild(btn);
@@ -1021,8 +971,8 @@ function setRestorePointBrowseStatus(message, kind) {
     }
     statusEl.textContent = message;
     statusEl.classList.remove('hidden');
-    statusEl.classList.toggle('text-rose-300', kind === 'error');
-    statusEl.classList.toggle('text-slate-400', kind !== 'error');
+    statusEl.classList.toggle('text-[var(--eb-danger-text)]', kind === 'error');
+    statusEl.classList.toggle('text-[var(--eb-text-muted)]', kind !== 'error');
 }
 
 function loadRestorePointBrowsePath(path) {
@@ -1089,7 +1039,7 @@ function renderRestorePointBrowseList() {
     const entries = Array.isArray(bs.entries) ? bs.entries.filter(e => e && e.is_dir) : [];
     if (entries.length === 0) {
         const empty = document.createElement('div');
-        empty.className = 'px-4 py-3 text-xs text-slate-500';
+        empty.className = 'px-4 py-3 text-xs text-[var(--eb-text-muted)]';
         empty.textContent = bs.error ? 'Unable to browse folders.' : 'No folders found.';
         listEl.appendChild(empty);
         return;
@@ -1097,7 +1047,7 @@ function renderRestorePointBrowseList() {
 
     entries.forEach((entry) => {
         const row = document.createElement('div');
-        row.className = 'px-4 py-2 text-sm text-slate-200 hover:bg-slate-800/50 cursor-pointer';
+        row.className = 'cursor-pointer px-4 py-2 text-sm text-[var(--eb-text-secondary)] transition hover:bg-[var(--eb-bg-hover)]';
         row.textContent = entry.name || entry.path || 'Unnamed';
         row.addEventListener('click', () => loadRestorePointBrowsePath(entry.path || ''));
         listEl.appendChild(row);

@@ -6,7 +6,45 @@
 {/capture}
 {capture assign=ebPhContent}
   <div x-data="{
+        metricOpen: false,
+        statusOpen: false,
+        sortOpen: false,
+        dirOpen: false,
+        metricOptions: {$metric_options|default:array()|@json_encode|escape:'html'},
+        metricValue: '{$metric|default:''|escape:'javascript'}',
+        statusValue: '{$status|default:''|escape:'javascript'}',
+        sortValue: '{$sort|default:'last_push'|escape:'javascript'}',
+        dirValue: '{$dir|default:'desc'|escape:'javascript'}',
         liveMessage: '',
+        metricLabel() {
+          return this.metricOptions[this.metricValue] || 'Metric';
+        },
+        statusLabel() {
+          return {
+            '': 'All Statuses',
+            over_quota: 'Over Quota',
+            at_risk: 'At Risk',
+            capped: 'Capped',
+            healthy: 'Healthy'
+          }[this.statusValue] || 'All Statuses';
+        },
+        sortLabel() {
+          return {
+            last_push: 'Last Push',
+            tenant: 'Tenant',
+            plan: 'Plan',
+            metric: 'Metric',
+            included: 'Included Qty',
+            used: 'Used Qty',
+            status: 'Status'
+          }[this.sortValue] || 'Last Push';
+        },
+        dirLabel() {
+          return {
+            desc: 'Desc',
+            asc: 'Asc'
+          }[this.dirValue] || 'Desc';
+        },
         async fetchStripeUsage(itemId) {
           this.liveMessage = 'Checking Stripe usage...';
           const url = '{$modulelink}&a=ph-usage-dashboard-stripe-live&plan_instance_item_id=' + encodeURIComponent(String(itemId)) + '&token={$token|escape:'javascript'}';
@@ -56,27 +94,49 @@
       </section>
     </div>
 
-    <section class="eb-card-raised mt-5">
+    <section class="eb-subpanel mt-5">
       <form method="get" action="{$modulelink}" class="grid grid-cols-1 gap-3 md:grid-cols-5">
         <input type="hidden" name="m" value="eazybackup" />
         <input type="hidden" name="a" value="ph-usage-dashboard" />
+        <input type="hidden" name="metric" :value="metricValue" />
+        <input type="hidden" name="status" :value="statusValue" />
+        <input type="hidden" name="sort" :value="sortValue" />
+        <input type="hidden" name="dir" :value="dirValue" />
         <label class="block text-sm">
           <span class="mb-1 block text-[var(--eb-text-muted)]">Metric</span>
-          <select name="metric" class="eb-input">
-            {foreach from=$metric_options item=label key=value}
-              <option value="{$value|escape}" {if $metric|default:'' eq $value}selected{/if}>{$label|escape}</option>
-            {/foreach}
-          </select>
+          <div class="relative" @click.away="metricOpen = false">
+            <button type="button" @click="metricOpen = !metricOpen" class="eb-btn eb-btn-secondary eb-btn-sm w-full justify-between">
+              <span x-text="'Metric: ' + metricLabel()"></span>
+              <svg class="h-4 w-4 transition-transform" :class="metricOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+              </svg>
+            </button>
+            <div x-show="metricOpen" x-transition:enter="transition ease-out duration-100" x-transition:enter-start="opacity-0 scale-95" x-transition:enter-end="opacity-100 scale-100" x-transition:leave="transition ease-in duration-75" x-transition:leave-start="opacity-100 scale-100" x-transition:leave-end="opacity-0 scale-95" class="eb-dropdown-menu absolute left-0 z-50 mt-2 max-h-72 w-full overflow-hidden" style="display: none;">
+              <div class="max-h-72 overflow-y-auto">
+                {foreach from=$metric_options item=label key=value}
+                  <button type="button" class="eb-menu-option" :class="metricValue === '{$value|escape:'javascript'}' ? 'is-active' : ''" @click="metricValue = '{$value|escape:'javascript'}'; metricOpen = false;">{$label|escape}</button>
+                {/foreach}
+              </div>
+            </div>
+          </div>
         </label>
         <label class="block text-sm">
           <span class="mb-1 block text-[var(--eb-text-muted)]">Status</span>
-          <select name="status" class="eb-input">
-            <option value="" {if $status|default:'' eq ''}selected{/if}>All Statuses</option>
-            <option value="over_quota" {if $status|default:'' eq 'over_quota'}selected{/if}>Over Quota</option>
-            <option value="at_risk" {if $status|default:'' eq 'at_risk'}selected{/if}>At Risk</option>
-            <option value="capped" {if $status|default:'' eq 'capped'}selected{/if}>Capped</option>
-            <option value="healthy" {if $status|default:'' eq 'healthy'}selected{/if}>Healthy</option>
-          </select>
+          <div class="relative" @click.away="statusOpen = false">
+            <button type="button" @click="statusOpen = !statusOpen" class="eb-btn eb-btn-secondary eb-btn-sm w-full justify-between">
+              <span x-text="'Status: ' + statusLabel()"></span>
+              <svg class="h-4 w-4 transition-transform" :class="statusOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+              </svg>
+            </button>
+            <div x-show="statusOpen" x-transition:enter="transition ease-out duration-100" x-transition:enter-start="opacity-0 scale-95" x-transition:enter-end="opacity-100 scale-100" x-transition:leave="transition ease-in duration-75" x-transition:leave-start="opacity-100 scale-100" x-transition:leave-end="opacity-0 scale-95" class="eb-dropdown-menu absolute left-0 z-50 mt-2 w-full overflow-hidden" style="display: none;">
+              <button type="button" class="eb-menu-option" :class="statusValue === '' ? 'is-active' : ''" @click="statusValue = ''; statusOpen = false;">All Statuses</button>
+              <button type="button" class="eb-menu-option" :class="statusValue === 'over_quota' ? 'is-active' : ''" @click="statusValue = 'over_quota'; statusOpen = false;">Over Quota</button>
+              <button type="button" class="eb-menu-option" :class="statusValue === 'at_risk' ? 'is-active' : ''" @click="statusValue = 'at_risk'; statusOpen = false;">At Risk</button>
+              <button type="button" class="eb-menu-option" :class="statusValue === 'capped' ? 'is-active' : ''" @click="statusValue = 'capped'; statusOpen = false;">Capped</button>
+              <button type="button" class="eb-menu-option" :class="statusValue === 'healthy' ? 'is-active' : ''" @click="statusValue = 'healthy'; statusOpen = false;">Healthy</button>
+            </div>
+          </div>
         </label>
         <label class="block text-sm">
           <span class="mb-1 block text-[var(--eb-text-muted)]">Search</span>
@@ -84,23 +144,39 @@
         </label>
         <label class="block text-sm">
           <span class="mb-1 block text-[var(--eb-text-muted)]">Sort By</span>
-          <select name="sort" class="eb-input">
-            <option value="last_push" {if $sort|default:'' eq 'last_push'}selected{/if}>Last Push</option>
-            <option value="tenant" {if $sort|default:'' eq 'tenant'}selected{/if}>Tenant</option>
-            <option value="plan" {if $sort|default:'' eq 'plan'}selected{/if}>Plan</option>
-            <option value="metric" {if $sort|default:'' eq 'metric'}selected{/if}>Metric</option>
-            <option value="included" {if $sort|default:'' eq 'included'}selected{/if}>Included Qty</option>
-            <option value="used" {if $sort|default:'' eq 'used'}selected{/if}>Used Qty</option>
-            <option value="status" {if $sort|default:'' eq 'status'}selected{/if}>Status</option>
-          </select>
+          <div class="relative" @click.away="sortOpen = false">
+            <button type="button" @click="sortOpen = !sortOpen" class="eb-btn eb-btn-secondary eb-btn-sm w-full justify-between">
+              <span x-text="'Sort By: ' + sortLabel()"></span>
+              <svg class="h-4 w-4 transition-transform" :class="sortOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+              </svg>
+            </button>
+            <div x-show="sortOpen" x-transition:enter="transition ease-out duration-100" x-transition:enter-start="opacity-0 scale-95" x-transition:enter-end="opacity-100 scale-100" x-transition:leave="transition ease-in duration-75" x-transition:leave-start="opacity-100 scale-100" x-transition:leave-end="opacity-0 scale-95" class="eb-dropdown-menu absolute left-0 z-50 mt-2 w-full overflow-hidden" style="display: none;">
+              <button type="button" class="eb-menu-option" :class="sortValue === 'last_push' ? 'is-active' : ''" @click="sortValue = 'last_push'; sortOpen = false;">Last Push</button>
+              <button type="button" class="eb-menu-option" :class="sortValue === 'tenant' ? 'is-active' : ''" @click="sortValue = 'tenant'; sortOpen = false;">Tenant</button>
+              <button type="button" class="eb-menu-option" :class="sortValue === 'plan' ? 'is-active' : ''" @click="sortValue = 'plan'; sortOpen = false;">Plan</button>
+              <button type="button" class="eb-menu-option" :class="sortValue === 'metric' ? 'is-active' : ''" @click="sortValue = 'metric'; sortOpen = false;">Metric</button>
+              <button type="button" class="eb-menu-option" :class="sortValue === 'included' ? 'is-active' : ''" @click="sortValue = 'included'; sortOpen = false;">Included Qty</button>
+              <button type="button" class="eb-menu-option" :class="sortValue === 'used' ? 'is-active' : ''" @click="sortValue = 'used'; sortOpen = false;">Used Qty</button>
+              <button type="button" class="eb-menu-option" :class="sortValue === 'status' ? 'is-active' : ''" @click="sortValue = 'status'; sortOpen = false;">Status</button>
+            </div>
+          </div>
         </label>
         <div class="grid grid-cols-2 gap-2 self-end">
           <label class="block text-sm">
             <span class="mb-1 block text-[var(--eb-text-muted)]">Direction</span>
-            <select name="dir" class="eb-input">
-              <option value="desc" {if $dir|default:'' eq 'desc'}selected{/if}>Desc</option>
-              <option value="asc" {if $dir|default:'' eq 'asc'}selected{/if}>Asc</option>
-            </select>
+            <div class="relative" @click.away="dirOpen = false">
+              <button type="button" @click="dirOpen = !dirOpen" class="eb-btn eb-btn-secondary eb-btn-sm w-full justify-between">
+                <span x-text="'Direction: ' + dirLabel()"></span>
+                <svg class="h-4 w-4 transition-transform" :class="dirOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                  <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+                </svg>
+              </button>
+              <div x-show="dirOpen" x-transition:enter="transition ease-out duration-100" x-transition:enter-start="opacity-0 scale-95" x-transition:enter-end="opacity-100 scale-100" x-transition:leave="transition ease-in duration-75" x-transition:leave-start="opacity-100 scale-100" x-transition:leave-end="opacity-0 scale-95" class="eb-dropdown-menu absolute left-0 z-50 mt-2 w-full overflow-hidden" style="display: none;">
+                <button type="button" class="eb-menu-option" :class="dirValue === 'desc' ? 'is-active' : ''" @click="dirValue = 'desc'; dirOpen = false;">Desc</button>
+                <button type="button" class="eb-menu-option" :class="dirValue === 'asc' ? 'is-active' : ''" @click="dirValue = 'asc'; dirOpen = false;">Asc</button>
+              </div>
+            </div>
           </label>
           <button type="submit" class="eb-btn eb-btn-primary self-end">Apply</button>
         </div>
@@ -110,7 +186,7 @@
       </template>
     </section>
 
-    <section class="eb-card-raised mt-5">
+    <div class="eb-subpanel mt-5">
       <div class="mb-5 flex flex-col gap-1 border-b border-[var(--eb-border-subtle)] pb-4">
         <h2 class="eb-type-h4 text-[var(--eb-text-primary)]">Latest Metered Usage</h2>
         <p class="eb-page-description">One row per active metered plan item, with the latest local usage and the most recent 10 ledger entries.</p>
@@ -213,7 +289,7 @@
           No metered usage rows found. Usage appears here after metered plans are assigned and at least one usage sample is recorded.
         </div>
       {/if}
-    </section>
+    </div>
   </div>
 {/capture}
 {include file="modules/addons/eazybackup/templates/whitelabel/partials/partner_hub_shell.tpl"

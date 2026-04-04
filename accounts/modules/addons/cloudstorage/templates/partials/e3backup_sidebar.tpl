@@ -2,7 +2,6 @@
 {assign var=isMspClient value=$isMspClient|default:false}
 
 <aside
-    x-data="{ downloadFlyoutOpen: false }"
     :class="sidebarCollapsed ? 'w-20' : 'w-56'"
     class="eb-sidebar relative flex-shrink-0 overflow-hidden rounded-tl-[var(--eb-radius-xl)] rounded-bl-[var(--eb-radius-xl)] transition-all duration-300 ease-in-out"
 >
@@ -107,7 +106,7 @@
         </nav>
 
         <div class="border-t border-[var(--eb-border-subtle)] px-3 py-3">
-            <button type="button" @click="downloadFlyoutOpen = true" class="eb-sidebar-link w-full cursor-pointer text-left" :class="sidebarCollapsed && 'justify-center px-4'" :title="sidebarCollapsed ? 'Download Agent' : ''">
+            <button type="button" onclick="window.dispatchEvent(new Event('open-e3-download-flyout'))" class="eb-sidebar-link w-full cursor-pointer text-left" :class="sidebarCollapsed && 'justify-center px-4'" :title="sidebarCollapsed ? 'Download Agent' : ''">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
                 </svg>
@@ -122,50 +121,6 @@
                 </svg>
                 <span x-show="!sidebarCollapsed" x-transition.opacity>Collapse</span>
             </button>
-        </div>
-    </div>
-
-    <div x-show="downloadFlyoutOpen"
-         x-transition.opacity
-         @click="downloadFlyoutOpen = false"
-         class="fixed inset-0 z-40 bg-[var(--eb-backdrop-drawer)]"
-         style="display: none;"></div>
-
-    <div x-show="downloadFlyoutOpen"
-         x-transition:enter="transition ease-out duration-300"
-         x-transition:enter-start="-translate-x-full"
-         x-transition:enter-end="translate-x-0"
-         x-transition:leave="transition ease-in duration-200"
-         x-transition:leave-start="translate-x-0"
-         x-transition:leave-end="-translate-x-full"
-         @keydown.escape.window="downloadFlyoutOpen = false"
-         class="fixed left-0 top-0 z-50 flex h-screen eb-drawer eb-drawer--narrow flex-col"
-         style="display: none;">
-        <div class="eb-drawer-header">
-            <div>
-                <div class="eb-drawer-title">Download Agent</div>
-                <p class="mt-1 text-sm text-[var(--eb-text-muted)]">Download the e3 Backup Agent for your operating system.</p>
-            </div>
-            <button type="button" class="eb-btn eb-btn-secondary eb-btn-xs" @click="downloadFlyoutOpen = false" aria-label="Close download drawer">
-                Close
-            </button>
-        </div>
-        <div class="eb-drawer-body space-y-4">
-            <a href="/client_installer/e3-backup-agent-setup.exe" target="_blank" rel="noopener" @click="downloadFlyoutOpen = false" class="eb-btn eb-btn-primary eb-btn-md w-full justify-center">
-                Windows Agent
-            </a>
-            <a href="/client_installer/e3-backup-agent-linux" target="_blank" rel="noopener" @click="downloadFlyoutOpen = false" class="eb-btn eb-btn-secondary eb-btn-md w-full justify-center">
-                Linux Agent
-            </a>
-
-            <div class="eb-card !p-4">
-                <p class="text-sm text-[var(--eb-text-secondary)]">
-                    Need an enrollment token after download?
-                </p>
-                <a href="index.php?m=cloudstorage&page=e3backup&view=tokens" class="mt-3 inline-flex text-sm font-medium text-[var(--eb-info-text)] hover:text-[var(--eb-text-primary)]">
-                    Open enrollment tokens
-                </a>
-            </div>
         </div>
     </div>
 </aside>

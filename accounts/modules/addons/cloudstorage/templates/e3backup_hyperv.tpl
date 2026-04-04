@@ -1,246 +1,236 @@
-<div class="min-h-screen bg-slate-950 text-gray-200">
-    <div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,_#1f293780,_transparent_60%)]"></div>
-    <div class="container mx-auto px-4 py-6 relative pointer-events-auto">
-        <!-- Navigation Tabs -->
-        {assign var="activeNav" value="hyperv"}
-        {include file="modules/addons/cloudstorage/templates/partials/e3backup_nav.tpl"}
+{capture assign=ebE3Icon}
+    <span class="eb-icon-box eb-icon-box--sm eb-icon-box--info">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M5 12h14M5 12a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2M5 12a2 2 0 0 0-2 2v4a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-4a2 2 0 0 0-2-2m-2-4h.01M17 16h.01"/>
+        </svg>
+    </span>
+{/capture}
 
-        {* Glass panel container *}
-        <div class="rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)] px-6 py-6">
-        <!-- Page Header -->
-        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6">
-            <div>
-                <h1 class="text-2xl font-semibold text-white flex items-center gap-2">
-                    <svg class="w-7 h-7 text-sky-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01"/>
-                    </svg>
-                    Hyper-V Backup
-                </h1>
-                <p class="text-xs text-slate-400 mt-1">Manage virtual machine backups with application-consistent snapshots and incremental RCT.</p>
-            </div>
-        </div>
+{capture assign=ebE3Actions}
+    {if $selectedJob}
+        <button type="button" onclick="refreshVMDiscovery('{$selectedJob.job_id|escape:'javascript'}')" class="eb-btn eb-btn-info eb-btn-sm">
+            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 0 0 4.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 0 1-15.357-2m15.357 2H15"/>
+            </svg>
+            <span>Refresh VM Discovery</span>
+        </button>
+    {/if}
+{/capture}
 
-        {if $selectedJob}
-        <!-- Job Details View -->
-        <div class="mb-4">
-            <a href="index.php?m=cloudstorage&page=e3backup&view=hyperv" class="text-sm text-sky-400 hover:text-sky-300 flex items-center gap-1">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+{capture assign=ebE3Content}
+<div class="space-y-6">
+    {if $selectedJob}
+        <div class="flex flex-wrap items-center justify-between gap-3">
+            <a href="index.php?m=cloudstorage&page=e3backup&view=hyperv" class="eb-btn eb-btn-ghost eb-btn-sm">
+                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
                 </svg>
-                Back to Jobs
+                <span>Back to Jobs</span>
             </a>
+            <span class="eb-badge eb-badge--neutral">{$vms|@count} VMs</span>
         </div>
 
-        <div class="rounded-xl border border-slate-800/80 bg-slate-900/70 p-6 mb-6">
-            <div class="flex items-center justify-between mb-4">
+        <section class="eb-card-raised !p-0 overflow-hidden">
+            <div class="eb-card-header eb-card-header--divided !mb-0">
                 <div>
-                    <h2 class="text-lg font-semibold text-white">{$selectedJob.name|escape}</h2>
-                    <p class="text-sm text-slate-400">Job: {$selectedJob.name|escape}</p>
+                    <h2 class="eb-card-title">{$selectedJob.name|escape}</h2>
+                    <p class="eb-card-subtitle">Manage virtual machine backups with application-consistent snapshots and incremental RCT for this job.</p>
                 </div>
-                <button onclick="refreshVMDiscovery('{$selectedJob.job_id|escape:'javascript'}')" class="px-4 py-2 rounded-md bg-sky-600 text-white text-sm font-semibold hover:bg-sky-500 flex items-center gap-2">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
-                    </svg>
-                    Refresh VM Discovery
-                </button>
             </div>
 
             {if $selectedJob.hyperv_config}
-            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                <div class="bg-slate-800/50 rounded-lg p-3">
-                    <p class="text-slate-400 text-xs uppercase tracking-wide">RCT Enabled</p>
-                    <p class="text-white font-medium mt-1">
-                        {if $selectedJob.hyperv_config.enable_rct}
-                        <span class="inline-flex items-center gap-1 text-emerald-300">
-                            <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
-                            Yes
-                        </span>
-                        {else}
-                        <span class="text-slate-400">No</span>
-                        {/if}
-                    </p>
+                <div class="grid gap-4 p-6 md:grid-cols-2 xl:grid-cols-4">
+                    <div class="eb-card">
+                        <div class="eb-type-eyebrow">RCT Enabled</div>
+                        <div class="mt-3">
+                            {if $selectedJob.hyperv_config.enable_rct}
+                                <span class="eb-badge eb-badge--success">
+                                    <svg class="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+                                        <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 0 1 0 1.414l-8 8a1 1 0 0 1-1.414 0l-4-4a1 1 0 0 1 1.414-1.414L8 12.586l7.293-7.293a1 1 0 0 1 1.414 0z" clip-rule="evenodd"/>
+                                    </svg>
+                                    <span>Yes</span>
+                                </span>
+                            {else}
+                                <span class="eb-badge eb-badge--neutral">No</span>
+                            {/if}
+                        </div>
+                    </div>
+                    <div class="eb-card">
+                        <div class="eb-type-eyebrow">Consistency</div>
+                        <div class="mt-3 text-sm font-medium text-[var(--eb-text-primary)]">{$selectedJob.hyperv_config.consistency_level|default:'Application'|capitalize}</div>
+                    </div>
+                    <div class="eb-card">
+                        <div class="eb-type-eyebrow">VMs Configured</div>
+                        <div class="mt-3 text-sm font-medium text-[var(--eb-text-primary)]">{$vms|@count}</div>
+                    </div>
+                    <div class="eb-card">
+                        <div class="eb-type-eyebrow">Backup All VMs</div>
+                        <div class="mt-3 text-sm font-medium text-[var(--eb-text-primary)]">{if $selectedJob.hyperv_config.backup_all_vms}Yes{else}No{/if}</div>
+                    </div>
                 </div>
-                <div class="bg-slate-800/50 rounded-lg p-3">
-                    <p class="text-slate-400 text-xs uppercase tracking-wide">Consistency</p>
-                    <p class="text-white font-medium mt-1">{$selectedJob.hyperv_config.consistency_level|default:'Application'|capitalize}</p>
-                </div>
-                <div class="bg-slate-800/50 rounded-lg p-3">
-                    <p class="text-slate-400 text-xs uppercase tracking-wide">VMs Configured</p>
-                    <p class="text-white font-medium mt-1">{$vms|@count}</p>
-                </div>
-                <div class="bg-slate-800/50 rounded-lg p-3">
-                    <p class="text-slate-400 text-xs uppercase tracking-wide">Backup All VMs</p>
-                    <p class="text-white font-medium mt-1">{if $selectedJob.hyperv_config.backup_all_vms}Yes{else}No{/if}</p>
-                </div>
-            </div>
             {/if}
-        </div>
+        </section>
 
-        <!-- VMs Table -->
-        <div class="rounded-xl border border-slate-800/80 bg-slate-900/70 overflow-hidden">
-            <div class="px-6 py-4 border-b border-slate-800">
-                <h3 class="text-lg font-semibold text-white">Virtual Machines</h3>
+        <section class="eb-table-shell">
+            <div class="eb-card-header eb-card-header--divided !mb-0">
+                <div>
+                    <h2 class="eb-card-title">Virtual Machines</h2>
+                    <p class="eb-card-subtitle">Review discovered VMs, restore disks, and control whether each machine is included in backups.</p>
+                </div>
             </div>
+
             {if $vms|@count > 0}
-            <div class="overflow-x-auto">
-                <table class="min-w-full divide-y divide-slate-800 text-sm">
-                    <thead class="bg-slate-800/50 text-slate-300">
+                <table class="eb-table">
+                    <thead>
                         <tr>
-                            <th class="px-4 py-3 text-left font-medium">VM Name</th>
-                            <th class="px-4 py-3 text-left font-medium">Type</th>
-                            <th class="px-4 py-3 text-left font-medium">Disks</th>
-                            <th class="px-4 py-3 text-left font-medium">RCT</th>
-                            <th class="px-4 py-3 text-left font-medium">Last Backup</th>
-                            <th class="px-4 py-3 text-left font-medium">Status</th>
-                            <th class="px-4 py-3 text-left font-medium">Actions</th>
+                            <th>VM Name</th>
+                            <th>Type</th>
+                            <th>Disks</th>
+                            <th>RCT</th>
+                            <th>Last Backup</th>
+                            <th>Status</th>
+                            <th>Actions</th>
                         </tr>
                     </thead>
-                    <tbody class="divide-y divide-slate-800">
+                    <tbody>
                         {foreach $vms as $vm}
-                        <tr class="hover:bg-slate-800/30 transition">
-                            <td class="px-4 py-3">
-                                <div class="flex items-center gap-2">
-                                    {if $vm.is_linux}
-                                    <svg class="w-5 h-5 text-amber-400" fill="currentColor" viewBox="0 0 24 24">
-                                        <path d="M12.503 18.668s-.218.125-.492.125c-.274 0-.493-.125-.493-.125-.562 0-.887.875-.887 1.5 0 .413.35.82.713 1.083.413.3 1.113.625 1.167.625l.167-.625c.054 0 .754-.325 1.167-.625.363-.263.713-.67.713-1.083 0-.625-.325-1.5-.887-1.5z"/>
-                                    </svg>
-                                    {else}
-                                    <svg class="w-5 h-5 text-sky-400" fill="currentColor" viewBox="0 0 24 24">
-                                        <path d="M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.9-1.801"/>
-                                    </svg>
-                                    {/if}
-                                    <div>
-                                        <p class="text-white font-medium">{$vm.vm_name|escape}</p>
-                                        <p class="text-xs text-slate-500 font-mono">{$vm.vm_guid|escape|truncate:20:'...'}</p>
+                            <tr>
+                                <td class="eb-table-primary">
+                                    <div class="flex items-center gap-3">
+                                        <span class="eb-icon-box eb-icon-box--sm {if $vm.is_linux}eb-icon-box--orange{else}eb-icon-box--info{/if}">
+                                            {if $vm.is_linux}
+                                                <svg fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                                                    <path d="M12.503 18.668s-.218.125-.492.125c-.274 0-.493-.125-.493-.125-.562 0-.887.875-.887 1.5 0 .413.35.82.713 1.083.413.3 1.113.625 1.167.625l.167-.625c.054 0 .754-.325 1.167-.625.363-.263.713-.67.713-1.083 0-.625-.325-1.5-.887-1.5z"/>
+                                                </svg>
+                                            {else}
+                                                <svg fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                                                    <path d="M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.9-1.801"/>
+                                                </svg>
+                                            {/if}
+                                        </span>
+                                        <div class="min-w-0">
+                                            <div class="font-medium text-[var(--eb-text-primary)]">{$vm.vm_name|escape}</div>
+                                            <div class="eb-table-mono mt-1">{$vm.vm_guid|escape|truncate:20:'...'}</div>
+                                        </div>
                                     </div>
-                                </div>
-                            </td>
-                            <td class="px-4 py-3 text-slate-300">
-                                {if $vm.is_linux}Linux{else}Windows{/if} Gen{$vm.generation}
-                            </td>
-                            <td class="px-4 py-3 text-slate-300">{$vm.disk_count}</td>
-                            <td class="px-4 py-3">
-                                {if $vm.rct_enabled}
-                                <span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium bg-emerald-500/15 text-emerald-300 border border-emerald-400/40">
-                                    Enabled
-                                </span>
-                                {else}
-                                <span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium bg-slate-700 text-slate-400">
-                                    Disabled
-                                </span>
-                                {/if}
-                            </td>
-                            <td class="px-4 py-3">
-                                {if $vm.last_backup}
-                                <div>
-                                    <span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium 
-                                        {if $vm.last_backup.type == 'Full'}bg-sky-500/15 text-sky-300{else}bg-amber-500/15 text-amber-300{/if}">
-                                        {$vm.last_backup.type}
-                                    </span>
-                                    <p class="text-xs text-slate-500 mt-1">{$vm.last_backup.created_at|date_format:'%Y-%m-%d %H:%M'}</p>
-                                </div>
-                                {else}
-                                <span class="text-slate-500 text-xs">Never</span>
-                                {/if}
-                            </td>
-                            <td class="px-4 py-3">
-                                {if $vm.backup_enabled}
-                                <span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium bg-emerald-500/15 text-emerald-300">
-                                    <span class="h-1.5 w-1.5 rounded-full bg-emerald-400"></span>
-                                    Active
-                                </span>
-                                {else}
-                                <span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium bg-slate-700 text-slate-400">
-                                    Excluded
-                                </span>
-                                {/if}
-                            </td>
-                            <td class="px-4 py-3">
-                                <div class="flex items-center gap-2">
-                                    <a href="index.php?m=cloudstorage&page=e3backup&view=hyperv_restore&vm_id={$vm.id}" 
-                                       class="text-xs px-2 py-1 rounded bg-sky-600/20 border border-sky-500/40 text-sky-300 hover:bg-sky-600/30 hover:border-sky-400 transition flex items-center gap-1"
-                                       title="Restore VM Disks">
-                                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
-                                        </svg>
-                                        Restore
-                                    </a>
-                                    <button onclick="toggleVMBackup({$vm.id}, {if $vm.backup_enabled}false{else}true{/if})" 
-                                            class="text-xs px-2 py-1 rounded bg-slate-800 border border-slate-700 hover:border-slate-500 transition">
-                                        {if $vm.backup_enabled}Exclude{else}Include{/if}
-                                    </button>
-                                </div>
-                            </td>
-                        </tr>
+                                </td>
+                                <td class="text-[var(--eb-text-secondary)]">
+                                    {if $vm.is_linux}Linux{else}Windows{/if} Gen{$vm.generation}
+                                </td>
+                                <td class="text-[var(--eb-text-secondary)]">{$vm.disk_count}</td>
+                                <td>
+                                    {if $vm.rct_enabled}
+                                        <span class="eb-badge eb-badge--success">Enabled</span>
+                                    {else}
+                                        <span class="eb-badge eb-badge--neutral">Disabled</span>
+                                    {/if}
+                                </td>
+                                <td>
+                                    {if $vm.last_backup}
+                                        <div class="space-y-1">
+                                            <span class="eb-badge {if $vm.last_backup.type == 'Full'}eb-badge--info{else}eb-badge--warning{/if}">{$vm.last_backup.type}</span>
+                                            <div class="text-xs text-[var(--eb-text-muted)]">{$vm.last_backup.created_at|date_format:'%Y-%m-%d %H:%M'}</div>
+                                        </div>
+                                    {else}
+                                        <span class="text-xs text-[var(--eb-text-muted)]">Never</span>
+                                    {/if}
+                                </td>
+                                <td>
+                                    {if $vm.backup_enabled}
+                                        <span class="eb-badge eb-badge--success eb-badge--dot">Active</span>
+                                    {else}
+                                        <span class="eb-badge eb-badge--neutral">Excluded</span>
+                                    {/if}
+                                </td>
+                                <td>
+                                    <div class="flex flex-wrap items-center gap-2">
+                                        <a href="index.php?m=cloudstorage&page=e3backup&view=hyperv_restore&vm_id={$vm.id}" class="eb-btn eb-btn-info eb-btn-xs" title="Restore VM Disks">
+                                            <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 0 0 4.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 0 1-15.357-2m15.357 2H15"/>
+                                            </svg>
+                                            <span>Restore</span>
+                                        </a>
+                                        <button type="button" onclick="toggleVMBackup({$vm.id}, {if $vm.backup_enabled}false{else}true{/if})" class="eb-btn {if $vm.backup_enabled}eb-btn-secondary{else}eb-btn-success{/if} eb-btn-xs">
+                                            {if $vm.backup_enabled}Exclude{else}Include{/if}
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
                         {/foreach}
                     </tbody>
                 </table>
-            </div>
             {else}
-            <div class="px-6 py-12 text-center">
-                <svg class="w-12 h-12 mx-auto text-slate-600 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
-                </svg>
-                <p class="text-slate-400">No VMs discovered yet.</p>
-                <p class="text-sm text-slate-500 mt-1">Click "Refresh VM Discovery" to scan for virtual machines.</p>
-            </div>
-            {/if}
-        </div>
-
-        {else}
-        <!-- Jobs List View -->
-        {if $hypervJobs|@count > 0}
-        <div class="grid gap-4">
-            {foreach $hypervJobs as $job}
-            <a href="index.php?m=cloudstorage&page=e3backup&view=hyperv&job_id={$job.job_id}" 
-               class="block rounded-xl border border-slate-800/80 bg-slate-900/70 p-6 hover:border-slate-700 transition group">
-                <div class="flex items-center justify-between">
-                    <div class="flex items-center gap-4">
-                        <div class="flex items-center justify-center w-12 h-12 rounded-xl bg-slate-800/90 group-hover:bg-slate-700 transition">
-                            <svg class="w-6 h-6 text-sky-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2"/>
-                            </svg>
-                        </div>
-                        <div>
-                            <h3 class="text-lg font-semibold text-white group-hover:text-sky-300 transition">{$job.name|escape}</h3>
-                            <p class="text-sm text-slate-400">{$job.source_display_name|escape|default:'Hyper-V Host'}</p>
-                        </div>
-                    </div>
-                    <div class="flex items-center gap-4">
-                        <span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium 
-                            {if $job.status == 'active'}bg-emerald-500/15 text-emerald-300{else}bg-slate-700 text-slate-400{/if}">
-                            <span class="h-1.5 w-1.5 rounded-full {if $job.status == 'active'}bg-emerald-400{else}bg-slate-500{/if}"></span>
-                            {$job.status|capitalize}
-                        </span>
-                        <svg class="w-5 h-5 text-slate-500 group-hover:text-slate-300 transition" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+                <div class="eb-app-empty !py-12">
+                    <span class="eb-icon-box eb-icon-box--lg eb-icon-box--default mx-auto">
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2z"/>
                         </svg>
+                    </span>
+                    <div class="eb-app-empty-title mt-4">No VMs discovered yet</div>
+                    <p class="eb-app-empty-copy">Click "Refresh VM Discovery" to scan for virtual machines.</p>
+                </div>
+            {/if}
+        </section>
+    {else}
+        {if $hypervJobs|@count > 0}
+            <div class="grid gap-4 xl:grid-cols-2">
+                {foreach $hypervJobs as $job}
+                    <a href="index.php?m=cloudstorage&page=e3backup&view=hyperv&job_id={$job.job_id}" class="eb-card block">
+                        <div class="flex items-start justify-between gap-4">
+                            <div class="flex min-w-0 items-start gap-4">
+                                <span class="eb-icon-box eb-icon-box--info">
+                                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M5 12h14M5 12a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2M5 12a2 2 0 0 0-2 2v4a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-4a2 2 0 0 0-2-2"/>
+                                    </svg>
+                                </span>
+                                <div class="min-w-0">
+                                    <div class="eb-card-title">{$job.name|escape}</div>
+                                    <p class="eb-card-subtitle">{$job.source_display_name|escape|default:'Hyper-V Host'}</p>
+                                </div>
+                            </div>
+                            <div class="flex shrink-0 items-center gap-3">
+                                <span class="eb-badge {if $job.status == 'active'}eb-badge--success eb-badge--dot{else}eb-badge--neutral{/if}">{$job.status|capitalize}</span>
+                                <svg class="h-4 w-4 text-[var(--eb-text-muted)]" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+                                </svg>
+                            </div>
+                        </div>
+                    </a>
+                {/foreach}
+            </div>
+        {else}
+            <section class="eb-subpanel">
+                <div class="eb-app-empty !py-12">
+                    <span class="eb-icon-box eb-icon-box--lg eb-icon-box--default mx-auto">
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M5 12h14M5 12a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2M5 12a2 2 0 0 0-2 2v4a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-4a2 2 0 0 0-2-2m-2-4h.01M17 16h.01"/>
+                        </svg>
+                    </span>
+                    <div class="eb-app-empty-title mt-4">No Hyper-V Jobs Configured</div>
+                    <p class="eb-app-empty-copy">Create a new backup job with Hyper-V as the source type to get started.</p>
+                    <div class="mt-6">
+                        <a href="index.php?m=cloudstorage&page=e3backup&view=jobs" class="eb-btn eb-btn-orange eb-btn-sm">
+                            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+                            </svg>
+                            <span>Create Hyper-V Job</span>
+                        </a>
                     </div>
                 </div>
-            </a>
-            {/foreach}
-        </div>
-        {else}
-        <!-- Empty State -->
-        <div class="rounded-xl border border-slate-800/80 bg-slate-900/70 p-12 text-center">
-            <svg class="w-16 h-16 mx-auto text-slate-600 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01"/>
-            </svg>
-            <h3 class="text-xl font-semibold text-white mb-2">No Hyper-V Jobs Configured</h3>
-            <p class="text-slate-400 mb-6">Create a new backup job with Hyper-V as the source type to get started.</p>
-            <a href="index.php?m=cloudstorage&page=e3backup&view=jobs" 
-               class="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-gradient-to-r from-[#FE5000] via-[#FF7A33] to-[#FF924D] text-slate-950 font-semibold text-sm hover:shadow-lg transition">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
-                </svg>
-                Create Hyper-V Job
-            </a>
-        </div>
+            </section>
         {/if}
-        {/if}
-        </div>
-    </div>
+    {/if}
 </div>
+{/capture}
+
+{include file="modules/addons/cloudstorage/templates/partials/e3backup_shell.tpl"
+    ebE3SidebarPage='hyperv'
+    ebE3Title='Hyper-V Backup'
+    ebE3Description='Manage virtual machine backups with application-consistent snapshots and incremental RCT.'
+    ebE3Icon=$ebE3Icon
+    ebE3Actions=$ebE3Actions
+    ebE3Content=$ebE3Content
+}
 
 {literal}
 <script>
@@ -281,4 +271,3 @@ async function toggleVMBackup(vmId, enable) {
 }
 </script>
 {/literal}
-

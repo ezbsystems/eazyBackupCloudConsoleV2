@@ -9,6 +9,7 @@ use WHMCS\ClientArea;
 use WHMCS\Module\Addon\CloudStorage\Client\KopiaRetentionOperationService;
 use WHMCS\Module\Addon\CloudStorage\Client\KopiaRetentionSourceService;
 use WHMCS\Module\Addon\CloudStorage\Client\MspController;
+use WHMCS\Module\Addon\CloudStorage\Client\UuidBinary;
 
 if (!defined("WHMCS")) {
     die("This file cannot be accessed directly");
@@ -76,10 +77,15 @@ try {
     } else {
         $jobQuery->whereRaw('1 = 0');
     }
-    $jobIds = $jobQuery->pluck('id')->toArray();
+    $hasJobIdPk = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'job_id');
+    if ($hasJobIdPk) {
+        $jobIds = $jobQuery->selectRaw('BIN_TO_UUID(job_id) as job_id_str')->pluck('job_id_str')->toArray();
+    } else {
+        $jobIds = $jobQuery->pluck('id')->toArray();
+    }
     foreach ($jobIds as $jid) {
         try {
-            KopiaRetentionSourceService::ensureRepoSourceForJob((int) $jid);
+            KopiaRetentionSourceService::ensureRepoSourceForJob($jid);
         } catch (\Throwable $_) {
             logModuleCall('cloudstorage', 'agent_delete_ensure_source', ['job_id' => $jid], $_->getMessage());
         }

@@ -96,13 +96,16 @@ function getScopedMetrics(int $clientId, bool $isMsp, ?int $tenantFilter, bool $
     }
 
     if ($hasJobs && $hasAgents) {
+        $hasJobIdPk = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'job_id');
+        $jobCountExpr = $hasJobIdPk ? 'COUNT(j.job_id)' : 'COUNT(j.id)';
+        $hasAgentUuid = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'agent_uuid');
         $jobQuery = Capsule::table('s3_cloudbackup_jobs as j')
-            ->leftJoin('s3_cloudbackup_agents as a', 'j.agent_id', '=', 'a.id')
+            ->leftJoin('s3_cloudbackup_agents as a', $hasAgentUuid ? 'j.agent_uuid' : 'j.agent_id', '=', $hasAgentUuid ? 'a.agent_uuid' : 'a.id')
             ->where('j.client_id', $clientId)
             ->where('j.status', '!=', 'deleted')
             ->select([
                 'a.tenant_id',
-                Capsule::raw('COUNT(j.id) as jobs_count'),
+                Capsule::raw($jobCountExpr . ' as jobs_count'),
                 Capsule::raw('COUNT(DISTINCT j.dest_bucket_id) as vaults_count'),
             ])
             ->groupBy('a.tenant_id');
@@ -137,9 +140,11 @@ function getScopedMetrics(int $clientId, bool $isMsp, ?int $tenantFilter, bool $
     }
 
     if ($hasRuns && $hasJobs && $hasAgents) {
+        $hasJobIdPkRuns = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'job_id');
+        $runJobJoin = $hasJobIdPkRuns ? 'j.job_id' : 'j.id';
         $lastBackupQuery = Capsule::table('s3_cloudbackup_runs as r')
-            ->join('s3_cloudbackup_jobs as j', 'r.job_id', '=', 'j.id')
-            ->leftJoin('s3_cloudbackup_agents as a', 'j.agent_id', '=', 'a.id')
+            ->join('s3_cloudbackup_jobs as j', 'r.job_id', '=', $runJobJoin)
+            ->leftJoin('s3_cloudbackup_agents as a', $hasAgentUuid ? 'j.agent_uuid' : 'j.agent_id', '=', $hasAgentUuid ? 'a.agent_uuid' : 'a.id')
             ->where('j.client_id', $clientId)
             ->whereNotNull('r.finished_at')
             ->whereIn('r.status', ['success', 'warning'])
