@@ -5539,7 +5539,8 @@
 
   .eb-log-line {
     display: flex;
-    gap: 0;
+    align-items: flex-start;
+    gap: 12px;
     padding: 4px 16px;
     border-bottom: 1px solid color-mix(in srgb, var(--eb-border-faint) 88%, transparent);
     transition: background 0.1s ease;
@@ -5554,11 +5555,16 @@
   }
 
   .eb-log-level {
-    width: 42px;
+    box-sizing: border-box;
+    flex: 0 0 auto;
+    min-width: 2.625rem;
+    width: max-content;
+    max-width: 11rem;
     flex-shrink: 0;
     padding-top: 1px;
     font-size: 10.5px;
     font-weight: 600;
+    white-space: nowrap;
   }
 
   .eb-log-level.info {
@@ -5589,6 +5595,7 @@
   }
 
   .eb-log-message {
+    flex: 1 1 0;
     min-width: 0;
     color: var(--eb-text-secondary);
     word-break: break-word;
