@@ -253,6 +253,17 @@ class SettingsService
 
     public static function saveEmailSettings(int $mspId, array $json): void
     {
+        if (isset($json['smtp']['password_enc']) && $json['smtp']['password_enc'] !== '' && function_exists('encrypt')) {
+            $raw = (string)$json['smtp']['password_enc'];
+            if (function_exists('decrypt')) {
+                try { $test = decrypt($raw); } catch (\Throwable $__) { $test = ''; }
+                if ($test === '' || $test === $raw) {
+                    $json['smtp']['password_enc'] = encrypt($raw);
+                }
+            } else {
+                $json['smtp']['password_enc'] = encrypt($raw);
+            }
+        }
         $now = date('Y-m-d H:i:s');
         $payload = [ 'msp_id' => $mspId, 'email_json' => json_encode($json), 'updated_at' => $now ];
         try {

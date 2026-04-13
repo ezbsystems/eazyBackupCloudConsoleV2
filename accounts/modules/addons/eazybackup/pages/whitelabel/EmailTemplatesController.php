@@ -116,9 +116,11 @@ function eazybackup_whitelabel_email_template_edit(array $vars)
                 $portalUrl = rtrim((string)($vars['systemurl'] ?? ''), '/') . '/index.php?m=eazybackup&a=public-download';
                 $helpUrl = rtrim((string)($vars['systemurl'] ?? ''), '/') . '/index.php?m=eazybackup&a=knowledgebase';
                 $varsSend = [ 'customer_name'=>'Test User', 'brand_name'=>$brandName, 'portal_url'=>$portalUrl, 'help_url'=>$helpUrl ];
-                $ms->testSend($tenantId, $key, $to, $varsSend);
-                try { logModuleCall('eazybackup','email_tpl_test',['tenant'=>$tenantId,'key'=>$key,'to'=>$to],'ok'); } catch (\Throwable $__) {}
-                header('Location: '.$vars['modulelink'].'&a=whitelabel-email-template-edit&tid='.urlencode((string)$tenantObj->public_id).'&tpl='.urlencode($key).'&tested=1');
+                $result = $ms->testSend($tenantId, $key, $to, $varsSend);
+                $sendOk = is_array($result) ? !empty($result['ok']) : true;
+                try { logModuleCall('eazybackup','email_tpl_test',['tenant'=>$tenantId,'key'=>$key,'to'=>$to], $sendOk ? 'ok' : 'failed'); } catch (\Throwable $__) {}
+                $flag = $sendOk ? 'tested=1' : 'error=send_failed';
+                header('Location: '.$vars['modulelink'].'&a=whitelabel-email-template-edit&tid='.urlencode((string)$tenantObj->public_id).'&tpl='.urlencode($key).'&'.$flag);
                 exit;
             } else {
                 header('Location: '.$vars['modulelink'].'&a=whitelabel-email-template-edit&tid='.urlencode((string)$tenantObj->public_id).'&tpl='.urlencode($key).'&error=invalid_to');

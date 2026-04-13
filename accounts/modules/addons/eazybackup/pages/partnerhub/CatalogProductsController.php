@@ -15,7 +15,7 @@ function eb_ph_catalog_normalize_billing_type($metric, $billingType)
 {
     $metric = (string)($metric ?? 'GENERIC');
     $billingType = (string)($billingType ?? 'per_unit');
-    if ($metric === 'STORAGE_TB') { return 'metered'; }
+    if ($metric === 'STORAGE_TB' || $metric === 'E3_STORAGE_GIB') { return 'metered'; }
     if (in_array($metric, ['DEVICE_COUNT','DISK_IMAGE','HYPERV_VM','PROXMOX_VM','VMWARE_VM','M365_USER'], true)) { return 'per_unit'; }
     if (!in_array($billingType, ['per_unit','metered','one_time'], true)) { return 'per_unit'; }
     return $billingType;
@@ -75,7 +75,7 @@ function eb_ph_catalog_price_row_value($row, $field, $default = null)
 function eb_ph_catalog_default_unit_label($metric)
 {
     $metric = (string)($metric ?? 'GENERIC');
-    if ($metric === 'STORAGE_TB') { return 'GiB'; }
+    if ($metric === 'STORAGE_TB' || $metric === 'E3_STORAGE_GIB') { return 'GiB'; }
     $map = [
         'DEVICE_COUNT' => 'device',
         'DISK_IMAGE' => 'machine',
@@ -227,7 +227,7 @@ function eb_ph_catalog_sync_local_prices_from_stripe($productId, array $remotePr
             'published_at' => $timestamp,
             'updated_at' => $timestamp,
         ];
-        if ($payload['metric_code'] === 'STORAGE_TB') {
+        if ($payload['metric_code'] === 'STORAGE_TB' || $payload['metric_code'] === 'E3_STORAGE_GIB') {
             $write['amount_per_gb_cents'] = $payload['unit_label'] === 'GiB'
                 ? (int)$payload['unit_amount']
                 : (int)round(((int)$payload['unit_amount']) / 1024);
@@ -778,11 +778,11 @@ function eb_ph_catalog_product_save(array $vars): void
             if ($prodBase !== '' && $prodBase !== $metric) { echo json_encode(['status'=>'error','message'=>'mismatched_metric']); return; }
         } catch (\Throwable $__) {}
         $billingType = eb_ph_catalog_normalize_billing_type($metric, $billingType);
-        if ($metric === 'STORAGE_TB' && $unitLabel === '') { $unitLabel = 'GB'; }
+        if (($metric === 'STORAGE_TB' || $metric === 'E3_STORAGE_GIB') && $unitLabel === '') { $unitLabel = 'GB'; }
         $interval = eb_ph_catalog_normalize_interval_for_slot($billingType, $interval);
         $amountCents = (int)round($amount * 100);
         $amountPerGbCents = null; $displayPerTbMoney = null;
-        if ($metric === 'STORAGE_TB') {
+        if ($metric === 'STORAGE_TB' || $metric === 'E3_STORAGE_GIB') {
             // Interpret amount based on unit label: GiB or TiB
             if (strtoupper($unitLabel) === 'GIB') {
                 $amountPerGbCents = $amountCents; // entered per GiB
@@ -1113,7 +1113,7 @@ function eb_ph_catalog_products_create(array $vars): void
     $name = trim((string)($_POST['name'] ?? ''));
     $description = trim((string)($_POST['description'] ?? ''));
     $category = (string)($_POST['category'] ?? 'Backup');
-    if ($name === '' || !in_array($category,['Backup','Services','Other'],true)) { echo json_encode(['status'=>'error','message'=>'invalid']); return; }
+    if ($name === '' || !in_array($category,['Backup','Cloud Storage','Services','Other'],true)) { echo json_encode(['status'=>'error','message'=>'invalid']); return; }
 
     $id = Capsule::table('eb_catalog_products')->insertGetId([
         'msp_id' => (int)$msp->id,
@@ -1338,7 +1338,7 @@ function eb_ph_catalog_product_get_stripe(array $vars): void
         if (!empty($items)) {
             foreach ($items as &$it) {
                 $it['metric'] = $baseMetric;
-                if ($baseMetric === 'STORAGE_TB' && ($it['unitLabel'] ?? '') === '') { $it['unitLabel'] = 'GiB'; }
+                if (($baseMetric === 'STORAGE_TB' || $baseMetric === 'E3_STORAGE_GIB') && ($it['unitLabel'] ?? '') === '') { $it['unitLabel'] = 'GiB'; }
             }
             unset($it);
         }

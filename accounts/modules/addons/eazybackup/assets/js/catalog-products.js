@@ -416,6 +416,7 @@ window.productForm = function initProductForm({ currency = 'CAD', ready = 0 }){
         const m = String(this.state.baseMetric||'');
         if (!m) return;
         if (m === 'STORAGE_TB') { this.addPreset('cloud_storage'); return; }
+        if (m === 'E3_STORAGE_GIB') { this.addPreset('e3_object_storage'); return; }
         const defaults = {
           'DEVICE_COUNT': { label:'Workstation Seat', unitLabel:'device' },
           'DISK_IMAGE': { label:'Disk Image', unitLabel:'machine' },
@@ -459,7 +460,7 @@ window.productForm = function initProductForm({ currency = 'CAD', ready = 0 }){
       },
     async openAddPrice(id){ await this.openEdit(id); if(this.state.items.length===0 && this.state.product.category==='Cloud Storage'){ this.addPreset('cloud_storage'); } this.state.step=2; },
     close(){ const modal=document.getElementById('eb-create-product-modal'); if(modal) modal.classList.add('hidden'); },
-    addEmptyItem(){ const m = this.state.baseMetric || 'GENERIC'; const bt = (m==='STORAGE_TB') ? 'metered' : 'per_unit'; const unit = (m==='STORAGE_TB') ? '' : 'unit'; this.state.items.push({ label:'', billingType:bt, metric:m, unitLabel:unit, amount:0, interval:'month', active:true }); },
+    addEmptyItem(){ const m = this.state.baseMetric || 'GENERIC'; const bt = (m==='STORAGE_TB'||m==='E3_STORAGE_GIB') ? 'metered' : 'per_unit'; const unit = (m==='STORAGE_TB'||m==='E3_STORAGE_GIB') ? 'GiB' : 'unit'; this.state.items.push({ label:'', billingType:bt, metric:m, unitLabel:unit, amount:0, interval:'month', active:true }); },
     removeItem(i){ try { if (Array.isArray(this.state.items) && i>=0 && i<this.state.items.length) { this.state.items.splice(i,1); } } catch(e){} },
     onCategoryChange(){ try { if (this.state.product.category === 'Cloud Storage' && this.state.items.length === 0) { this.addPreset('cloud_storage'); } } catch(e){} },
     billingLabel(v){ return v==='per_unit'?'Per-unit':(v==='metered'?'Metered':'One-time'); },
@@ -467,6 +468,7 @@ window.productForm = function initProductForm({ currency = 'CAD', ready = 0 }){
     metricLabel(v){
       switch(String(v||'')){
         case 'STORAGE_TB': return 'Storage';
+        case 'E3_STORAGE_GIB': return 'e3 Object Storage';
         case 'DEVICE_COUNT': return 'Device Count';
         case 'DISK_IMAGE': return 'Disk Image';
         case 'HYPERV_VM': return 'Hyper-V VM';
@@ -478,13 +480,13 @@ window.productForm = function initProductForm({ currency = 'CAD', ready = 0 }){
       }
     },
     intervalLabel(v){ return v==='month'?'Month':(v==='year'?'Year':v); },
-    isBillingDisabled(i,opt){ const it=this.state.items[i]; if(!it) return false; if(it.metric==='STORAGE_TB'){ return opt!=='metered'; } if(['DEVICE_COUNT','DISK_IMAGE','HYPERV_VM','PROXMOX_VM','VMWARE_VM','M365_USER'].includes(it.metric)){ return opt!=='per_unit'; } return false; },
+    isBillingDisabled(i,opt){ const it=this.state.items[i]; if(!it) return false; if(it.metric==='STORAGE_TB' || it.metric==='E3_STORAGE_GIB'){ return opt!=='metered'; } if(['DEVICE_COUNT','DISK_IMAGE','HYPERV_VM','PROXMOX_VM','VMWARE_VM','M365_USER'].includes(it.metric)){ return opt!=='per_unit'; } return false; },
     allValid(){
       if (!this.state.items || this.state.items.length===0) return false;
       for (const it of this.state.items) {
         if (!it || !it.label || String(it.label).trim()==='') return false;
         if (!(Number(it.amount) > 0)) return false;
-        if (it.metric==='STORAGE_TB') {
+        if (it.metric==='STORAGE_TB' || it.metric==='E3_STORAGE_GIB') {
           if (!(it.unitLabel==='GiB' || it.unitLabel==='TiB')) return false;
         }
       }
@@ -494,8 +496,9 @@ window.productForm = function initProductForm({ currency = 'CAD', ready = 0 }){
       if (this.state.step === 1) {
         if (this.state.lastSeededMetric !== this.state.baseMetric) { this.state.items = []; }
         if (this.state.items.length === 0) {
-          // Prefer explicit Cloud Storage preset, else derive from selected base metric
-          if (this.state.product.category === 'Cloud Storage' || this.state.baseMetric === 'STORAGE_TB') {
+          if (this.state.baseMetric === 'E3_STORAGE_GIB') {
+            this.addPreset('e3_object_storage');
+          } else if (this.state.product.category === 'Cloud Storage' || this.state.baseMetric === 'STORAGE_TB') {
             this.addPreset('cloud_storage');
           } else {
             this.addDefaultForBaseMetric();
@@ -507,7 +510,8 @@ window.productForm = function initProductForm({ currency = 'CAD', ready = 0 }){
     prev(){ if (this.state.step > 1) { this.state.step--; } },
     addPreset(key){
       const cur = this.state.currency || 'CAD';
-      if (key==='cloud_storage') { this.state.product.category='Cloud Storage'; this.state.baseMetric='STORAGE_TB'; this.state.items.push({ label:'Storage', billingType:'metered', metric:'STORAGE_TB', unitLabel:'', amount:0.00, interval:'month', active:true }); this.state.selectedPreset=key; this.state.lastSeededMetric='STORAGE_TB'; return; }
+      if (key==='cloud_storage') { this.state.product.category='Cloud Storage'; this.state.baseMetric='STORAGE_TB'; this.state.items.push({ label:'Storage', billingType:'metered', metric:'STORAGE_TB', unitLabel:'GiB', amount:0.00, interval:'month', active:true }); this.state.selectedPreset=key; this.state.lastSeededMetric='STORAGE_TB'; return; }
+      if (key==='e3_object_storage') { this.state.product.category='Cloud Storage'; this.state.baseMetric='E3_STORAGE_GIB'; this.state.items.push({ label:'Object Storage', billingType:'metered', metric:'E3_STORAGE_GIB', unitLabel:'GiB', amount:0.00, interval:'month', active:true }); this.state.selectedPreset=key; this.state.lastSeededMetric='E3_STORAGE_GIB'; return; }
       const presets = {
         workstation: { label:'Workstation Seat', metric:'DEVICE_COUNT', unitLabel:'device' },
         disk_image: { label:'Disk Image', metric:'DISK_IMAGE', unitLabel:'machine' },
@@ -518,9 +522,9 @@ window.productForm = function initProductForm({ currency = 'CAD', ready = 0 }){
       };
       if (presets[key]) { const p=presets[key]; this.state.baseMetric=p.metric; this.state.items.push({ label:p.label, billingType:'per_unit', metric:p.metric, unitLabel:p.unitLabel, amount:0, interval:'month', active:true }); this.state.selectedPreset=key; this.state.lastSeededMetric=p.metric; }
     },
-    onMetricChange(i){ const it=this.state.items[i]; if(!it) return; if (it.metric==='STORAGE_TB'){ it.billingType='metered'; /* unit set via unit dropdown */ } if(['DEVICE_COUNT','DISK_IMAGE','HYPERV_VM','PROXMOX_VM','VMWARE_VM','M365_USER'].includes(it.metric)){ it.billingType='per_unit'; } },
-    onBillingTypeChange(i){ const it=this.state.items[i]; if(!it) return; if (it.billingType==='one_time'){ it.interval='none'; } if (it.billingType==='metered'){ if(it.metric!=='STORAGE_TB'){ it.metric='GENERIC'; } } },
-    selectProductType(code){ this.state.baseMetric = code; if (code==='STORAGE_TB') { this.state.product.category='Cloud Storage'; } else { this.state.product.category='Backup'; } if (this.state.step===1) { this.state.items=[]; this.state.selectedPreset=''; this.state.lastSeededMetric=null; } },
+    onMetricChange(i){ const it=this.state.items[i]; if(!it) return; if (it.metric==='STORAGE_TB' || it.metric==='E3_STORAGE_GIB'){ it.billingType='metered'; } if(['DEVICE_COUNT','DISK_IMAGE','HYPERV_VM','PROXMOX_VM','VMWARE_VM','M365_USER'].includes(it.metric)){ it.billingType='per_unit'; } },
+    onBillingTypeChange(i){ const it=this.state.items[i]; if(!it) return; if (it.billingType==='one_time'){ it.interval='none'; } if (it.billingType==='metered'){ if(it.metric!=='STORAGE_TB' && it.metric!=='E3_STORAGE_GIB'){ it.metric='GENERIC'; } } },
+    selectProductType(code){ this.state.baseMetric = code; if (code==='STORAGE_TB' || code==='E3_STORAGE_GIB') { this.state.product.category='Cloud Storage'; } else { this.state.product.category='Backup'; } if (this.state.step===1) { this.state.items=[]; this.state.selectedPreset=''; this.state.lastSeededMetric=null; } },
       async save(mode){
       try{
         if (this.state.isStripeRemote) {
@@ -655,7 +659,7 @@ if (!window.catalogToastManager) {
     }
   }
   function defaultUnitLabel(metric){
-    var map = { DEVICE_COUNT:'device', DISK_IMAGE:'machine', HYPERV_VM:'VM', PROXMOX_VM:'VM', VMWARE_VM:'VM', M365_USER:'user', GENERIC:'unit' };
+    var map = { DEVICE_COUNT:'device', DISK_IMAGE:'machine', HYPERV_VM:'VM', PROXMOX_VM:'VM', VMWARE_VM:'VM', M365_USER:'user', GENERIC:'unit', E3_STORAGE_GIB:'GiB' };
     return map[String(metric || 'GENERIC')] || 'unit';
   }
   function coerceMoney(value){
@@ -683,7 +687,7 @@ if (!window.catalogToastManager) {
   function normalizedBillingType(metric, billingType){
     var m = String(metric || 'GENERIC');
     var bt = String(billingType || 'per_unit');
-    if (m === 'STORAGE_TB') return 'metered';
+    if (m === 'STORAGE_TB' || m === 'E3_STORAGE_GIB') return 'metered';
     if (['DEVICE_COUNT','DISK_IMAGE','HYPERV_VM','PROXMOX_VM','VMWARE_VM','M365_USER'].indexOf(m) !== -1) return 'per_unit';
     if (bt !== 'one_time' && bt !== 'metered') return 'per_unit';
     return bt;
@@ -820,7 +824,7 @@ if (!window.catalogToastManager) {
       preset: null,
       reset(){ this.closePhMenu(); this.mode='create'; this.productId=null; this.stripeProductId=null; this.product={ name:'', description:'' }; this.baseMetric=null; this.items=[]; this.features=[]; this.lastSeededMetric=null; this.focusPriceId=null; this.focusPriceKey=null; this.showInactive=false; this.isSaving=false; this._dirty=false; this._edited=false; this.preset=null; },
       openCreate(){ this.reset(); this.mode='create'; this.open(); },
-      async openEdit(id, focusPriceId){ try{ this.reset(); this.mode='edit'; const res = await fetch(`${this.modulelink}&a=ph-catalog-product-get&id=${encodeURIComponent(id)}`, { method:'GET' }); const out = await res.json(); if(out.status!=='success') throw new Error('bad'); var p=out.product||{}; if (p.stripe_product_id) { await this.openEditStripe(String(p.stripe_product_id), { focusPriceId: focusPriceId ? String(focusPriceId) : null }); return; } this.productId = p.id || id || null; this.product={ name:p.name||'', description:p.description||'' }; this.baseMetric = p.base_metric_code || null; this.items=(out.prices||[]).map(pr=>({ id: pr.id, label: pr.name||'', billingType:(pr.kind==='metered'?'metered':(pr.kind==='one_time'?'one_time':'per_unit')), metric: pr.metric_code||this.baseMetric||'GENERIC', unitLabel: pr.unit_label||(String(pr.metric_code||this.baseMetric||'GENERIC')==='STORAGE_TB'?'GiB':defaultUnitLabel(pr.metric_code||this.baseMetric||'GENERIC')), amount:Number(pr.unit_amount||0)/100, interval:(pr.kind==='one_time'?'none':(pr.interval||'month')), active:!!pr.active, currency:this.currency, pricingScheme: pr.pricing_scheme||'per_unit', tiers: pr.tiers_json ? (function(){ try{ var t=JSON.parse(pr.tiers_json); return t.map(function(r){ return { up_to:r.up_to, unit_amount:r.unit_amount||0, unit_amount_display:Number(r.unit_amount||0)/100, flat_amount:r.flat_amount||0, flat_amount_display:Number(r.flat_amount||0)/100 }; }); }catch(_){ return []; } })() : [] })); this.features=Array.isArray(p.features)?p.features:[]; this.focusPriceId = focusPriceId ? String(focusPriceId) : null; this.items.forEach((_, idx)=>this.normalizePriceRow(idx)); this.open(); }catch(e){ console.error('[eb.catalog] openEdit(panel) failed',e); safeToast('Failed to load product','error'); } },
+      async openEdit(id, focusPriceId){ try{ this.reset(); this.mode='edit'; const res = await fetch(`${this.modulelink}&a=ph-catalog-product-get&id=${encodeURIComponent(id)}`, { method:'GET' }); const out = await res.json(); if(out.status!=='success') throw new Error('bad'); var p=out.product||{}; if (p.stripe_product_id) { await this.openEditStripe(String(p.stripe_product_id), { focusPriceId: focusPriceId ? String(focusPriceId) : null }); return; } this.productId = p.id || id || null; this.product={ name:p.name||'', description:p.description||'' }; this.baseMetric = p.base_metric_code || null; this.items=(out.prices||[]).map(pr=>({ id: pr.id, label: pr.name||'', billingType:(pr.kind==='metered'?'metered':(pr.kind==='one_time'?'one_time':'per_unit')), metric: pr.metric_code||this.baseMetric||'GENERIC', unitLabel: pr.unit_label||((String(pr.metric_code||this.baseMetric||'GENERIC')==='STORAGE_TB'||String(pr.metric_code||this.baseMetric||'GENERIC')==='E3_STORAGE_GIB')?'GiB':defaultUnitLabel(pr.metric_code||this.baseMetric||'GENERIC')), amount:Number(pr.unit_amount||0)/100, interval:(pr.kind==='one_time'?'none':(pr.interval||'month')), active:!!pr.active, currency:this.currency, pricingScheme: pr.pricing_scheme||'per_unit', tiers: pr.tiers_json ? (function(){ try{ var t=JSON.parse(pr.tiers_json); return t.map(function(r){ return { up_to:r.up_to, unit_amount:r.unit_amount||0, unit_amount_display:Number(r.unit_amount||0)/100, flat_amount:r.flat_amount||0, flat_amount_display:Number(r.flat_amount||0)/100 }; }); }catch(_){ return []; } })() : [] })); this.features=Array.isArray(p.features)?p.features:[]; this.focusPriceId = focusPriceId ? String(focusPriceId) : null; this.items.forEach((_, idx)=>this.normalizePriceRow(idx)); this.open(); }catch(e){ console.error('[eb.catalog] openEdit(panel) failed',e); safeToast('Failed to load product','error'); } },
       async openEditPrice(productId, localPriceId, stripePriceId){
         try {
           const res = await fetch(`${this.modulelink}&a=ph-catalog-product-get&id=${encodeURIComponent(productId)}`, { method:'GET' });
@@ -850,11 +854,12 @@ if (!window.catalogToastManager) {
       },
       clearPriceFocus(){ this.focusPriceId = null; this.focusPriceKey = null; },
       async openEditStripe(spid, focusTarget){ try{ this.reset(); this.mode='editStripe'; this.stripeProductId = spid; this.focusPriceId = focusTarget && focusTarget.focusPriceId ? String(focusTarget.focusPriceId) : null; this.focusPriceKey = focusTarget && focusTarget.focusPriceKey ? String(focusTarget.focusPriceKey) : null; this.showInactive = false; await this.refreshStripePrices(); } catch(e){ console.error('[eb.catalog] openEditStripe(panel) failed',e); safeToast('Failed to load Stripe product','error'); } },
-      async refreshStripePrices(){ try{ const token=(document.getElementById('eb-token')||{}).value||''; const activeParam=this.showInactive?'all':'1'; const res=await fetch(`${this.modulelink}&a=ph-catalog-product-get-stripe&id=${encodeURIComponent(this.stripeProductId)}&active=${encodeURIComponent(activeParam)}&token=${encodeURIComponent(token)}`, { method:'GET', credentials:'include' }); const out=await res.json(); if(out.status!=='success') throw new Error('bad'); var p=out.product||{}; this.product={ name:p.name||'', description:p.description||'' }; var bm = p.base_metric_code || ((out.prices||[]).some(pr => (pr.billingType==='metered')) ? 'STORAGE_TB' : 'GENERIC'); this.baseMetric=bm; this.items=(out.prices||[]).map(pr=>({ id: pr.id, label: pr.label||pr.nickname||'', billingType: pr.billingType || 'per_unit', metric: bm, unitLabel: pr.unitLabel || (bm==='STORAGE_TB'?'GiB':defaultUnitLabel(bm)), amount: Number(pr.amount||0), interval: pr.interval || 'month', active: !!pr.active, currency: pr.currency||this.currency, pricingScheme: pr.pricingScheme || 'per_unit' })); this.features=Array.isArray(p.features)?p.features:[]; this.items.forEach((_, idx)=>this.normalizePriceRow(idx)); if (this.focusPriceKey && !this.focusPriceId) { var matched = this.items.find((it)=> this.priceSlotKey(it) === this.focusPriceKey); if (matched && matched.id) this.focusPriceId = String(matched.id); } if (this.focusPriceId && !this.items.some((it)=> String(it.id || '') === String(this.focusPriceId))) { this.focusPriceId = null; } this.open(); } catch(e){ console.error('[eb.catalog] refreshStripePrices failed', e); safeToast('Failed to load Stripe prices','error'); } },
-    metricLabel(v){ switch(String(v||'')){ case 'STORAGE_TB': return 'Storage'; case 'DEVICE_COUNT': return 'Device Count'; case 'DISK_IMAGE': return 'Disk Image'; case 'HYPERV_VM': return 'Hyper-V VM'; case 'PROXMOX_VM': return 'Proxmox VM'; case 'VMWARE_VM': return 'VMware VM'; case 'M365_USER': return 'Microsoft 365 User'; case 'GENERIC': return 'Generic'; default: return v; } },
+      async refreshStripePrices(){ try{ const token=(document.getElementById('eb-token')||{}).value||''; const activeParam=this.showInactive?'all':'1'; const res=await fetch(`${this.modulelink}&a=ph-catalog-product-get-stripe&id=${encodeURIComponent(this.stripeProductId)}&active=${encodeURIComponent(activeParam)}&token=${encodeURIComponent(token)}`, { method:'GET', credentials:'include' }); const out=await res.json(); if(out.status!=='success') throw new Error('bad'); var p=out.product||{}; this.product={ name:p.name||'', description:p.description||'' }; var bm = p.base_metric_code || ((out.prices||[]).some(pr => (pr.billingType==='metered')) ? 'STORAGE_TB' : 'GENERIC'); this.baseMetric=bm; this.items=(out.prices||[]).map(pr=>({ id: pr.id, label: pr.label||pr.nickname||'', billingType: pr.billingType || 'per_unit', metric: bm, unitLabel: pr.unitLabel || ((bm==='STORAGE_TB'||bm==='E3_STORAGE_GIB')?'GiB':defaultUnitLabel(bm)), amount: Number(pr.amount||0), interval: pr.interval || 'month', active: !!pr.active, currency: pr.currency||this.currency, pricingScheme: pr.pricingScheme || 'per_unit' })); this.features=Array.isArray(p.features)?p.features:[]; this.items.forEach((_, idx)=>this.normalizePriceRow(idx)); if (this.focusPriceKey && !this.focusPriceId) { var matched = this.items.find((it)=> this.priceSlotKey(it) === this.focusPriceKey); if (matched && matched.id) this.focusPriceId = String(matched.id); } if (this.focusPriceId && !this.items.some((it)=> String(it.id || '') === String(this.focusPriceId))) { this.focusPriceId = null; } this.open(); } catch(e){ console.error('[eb.catalog] refreshStripePrices failed', e); safeToast('Failed to load Stripe prices','error'); } },
+    metricLabel(v){ switch(String(v||'')){ case 'STORAGE_TB': return 'Storage'; case 'E3_STORAGE_GIB': return 'e3 Object Storage'; case 'DEVICE_COUNT': return 'Device Count'; case 'DISK_IMAGE': return 'Disk Image'; case 'HYPERV_VM': return 'Hyper-V VM'; case 'PROXMOX_VM': return 'Proxmox VM'; case 'VMWARE_VM': return 'VMware VM'; case 'M365_USER': return 'Microsoft 365 User'; case 'GENERIC': return 'Generic'; default: return v; } },
     metricIcon(v){
       switch(String(v||'')){
         case 'STORAGE_TB': return 'storage.svg';
+        case 'E3_STORAGE_GIB': return 'storage.svg';
         case 'DEVICE_COUNT': return 'device_endpoint.svg';
         case 'DISK_IMAGE': return 'disk_image.svg';
         case 'HYPERV_VM': return 'hyper-v.svg';
@@ -868,6 +873,7 @@ if (!window.catalogToastManager) {
       metricDescription(v){
         switch(String(v||'')){
           case 'STORAGE_TB': return 'Metered billing based on the customer\'s storage consumption. Priced per GiB or TiB.';
+          case 'E3_STORAGE_GIB': return 'Metered billing for e3 object storage consumption. Priced per GiB or TiB. Usage is read from the e3 storage platform.';
           case 'DEVICE_COUNT': return 'Per-unit billing for each backup endpoint (workstation or server) registered in the customer\'s account.';
           case 'DISK_IMAGE': return 'Per-unit billing for each machine protected with disk image backups.';
           case 'HYPERV_VM': return 'Per-unit billing for each Microsoft Hyper-V virtual machine being backed up.';
@@ -879,12 +885,12 @@ if (!window.catalogToastManager) {
         }
       },
       billingLabel(v){ return v==='per_unit'?'Per-unit':(v==='metered'?'Metered':'One-time'); },
-      selectProductType(code){ this.baseMetric=code; this._edited=true; if (this.lastSeededMetric!==code) { this.items=[]; this.lastSeededMetric=null; } if (code==='STORAGE_TB' && this.items.length===0){ this.items.push({ label:'Storage', billingType:'metered', metric:'STORAGE_TB', unitLabel:'GiB', amount:0, interval:'month', active:true, currency:this.currency, pricingScheme:'per_unit' }); this.lastSeededMetric='STORAGE_TB'; } else if (this.items.length===0) { var d=[this.metricLabel(code)||'Generic', defaultUnitLabel(code)]; this.items.push({ label:d[0], billingType:'per_unit', metric:code, unitLabel:d[1], amount:0, interval:'month', active:true, currency:this.currency, pricingScheme:'per_unit' }); this.lastSeededMetric=code; } },
+      selectProductType(code){ this.baseMetric=code; this._edited=true; if (this.lastSeededMetric!==code) { this.items=[]; this.lastSeededMetric=null; } if ((code==='STORAGE_TB' || code==='E3_STORAGE_GIB') && this.items.length===0){ this.items.push({ label: code==='E3_STORAGE_GIB' ? 'Object Storage' : 'Storage', billingType:'metered', metric:code, unitLabel:'GiB', amount:0, interval:'month', active:true, currency:this.currency, pricingScheme:'per_unit' }); this.lastSeededMetric=code; } else if (this.items.length===0) { var d=[this.metricLabel(code)||'Generic', defaultUnitLabel(code)]; this.items.push({ label:d[0], billingType:'per_unit', metric:code, unitLabel:d[1], amount:0, interval:'month', active:true, currency:this.currency, pricingScheme:'per_unit' }); this.lastSeededMetric=code; } },
       applyPreset(key){
         this.preset = key;
         var presets = {
           eazybackup_cloud_backup: { name:'eazyBackup Cloud Backup', metric:'STORAGE_TB', items:[{ label:'Storage', billingType:'metered', metric:'STORAGE_TB', unitLabel:'GiB', amount:0, interval:'month', active:true, pricingScheme:'per_unit' }] },
-          e3_object_storage: { name:'e3 Object Storage', metric:'STORAGE_TB', items:[{ label:'Object Storage', billingType:'metered', metric:'STORAGE_TB', unitLabel:'GiB', amount:0, interval:'month', active:true, pricingScheme:'per_unit' }] },
+          e3_object_storage: { name:'e3 Object Storage', metric:'E3_STORAGE_GIB', items:[{ label:'Object Storage', billingType:'metered', metric:'E3_STORAGE_GIB', unitLabel:'GiB', amount:0, interval:'month', active:true, pricingScheme:'per_unit' }] },
           workstation_seat: { name:'Workstation Backup Seat', metric:'DEVICE_COUNT', items:[{ label:'Workstation Seat', billingType:'per_unit', metric:'DEVICE_COUNT', unitLabel:'device', amount:0, interval:'month', active:true, pricingScheme:'per_unit' }] },
           custom_service: { name:'Custom Service', metric:'GENERIC', items:[{ label:'Service', billingType:'per_unit', metric:'GENERIC', unitLabel:'unit', amount:0, interval:'month', active:true, pricingScheme:'per_unit' }] },
         };
@@ -896,12 +902,12 @@ if (!window.catalogToastManager) {
         this.lastSeededMetric = p.metric;
       },
       clearPreset(){ this._edited=true; this.preset=null; },
-      addEmptyItem(){ this._edited=true; this.focusPriceId = null; this.focusPriceKey = null; const m=this.baseMetric||'GENERIC'; const bt=(m==='STORAGE_TB')?'metered':'per_unit'; const unit=(m==='STORAGE_TB')?'GiB':defaultUnitLabel(m); this.items.push({ label:'', billingType:bt, metric:m, unitLabel:unit, amount:0, interval:'month', active:true, currency:this.currency, pricingScheme:'per_unit' }); },
+      addEmptyItem(){ this._edited=true; this.focusPriceId = null; this.focusPriceKey = null; const m=this.baseMetric||'GENERIC'; const bt=(m==='STORAGE_TB'||m==='E3_STORAGE_GIB')?'metered':'per_unit'; const unit=(m==='STORAGE_TB'||m==='E3_STORAGE_GIB')?'GiB':defaultUnitLabel(m); this.items.push({ label:'', billingType:bt, metric:m, unitLabel:unit, amount:0, interval:'month', active:true, currency:this.currency, pricingScheme:'per_unit' }); },
       removeItem(i){ try{ if(Array.isArray(this.items) && i>=0 && i<this.items.length){ this._edited=true; var removed = this.items[i]; this.items.splice(i,1); if (this.focusPriceId && removed && String(removed.id || '') === String(this.focusPriceId)) { this.focusPriceId = null; this.focusPriceKey = null; } } }catch(_){ } },
       duplicatePrice(i){ try{ const it=this.items[i]; if(!it) return; this._edited=true; this.focusPriceId = null; this.focusPriceKey = null; const cp=JSON.parse(JSON.stringify(it)); delete cp.id; this.items.splice(i+1,0,cp); }catch(_){ } },
       priceSlotKey(it){ return pricingSlotKey(it, this.baseMetric); },
       priceSlotLabel(it){ return pricingSlotLabel(it, this.baseMetric); },
-      normalizePriceRow(i){ try{ var it=this.items[i]; if(!it) return; it.amount = coerceMoney(it.amount); it.metric = this.baseMetric || it.metric || 'GENERIC'; if (it.metric === 'STORAGE_TB') { it.billingType = 'metered'; if (it.unitLabel !== 'GiB' && it.unitLabel !== 'TiB') it.unitLabel = 'GiB'; if (it.interval === 'none' || !it.interval) it.interval = 'month'; } else if (it.metric === 'GENERIC') { if (it.billingType !== 'one_time' && it.billingType !== 'per_unit') it.billingType = 'per_unit'; if (it.billingType === 'one_time') it.interval = 'none'; else if (it.interval === 'none' || !it.interval) it.interval = 'month'; if (!it.unitLabel) it.unitLabel = defaultUnitLabel(it.metric); } else { it.billingType = 'per_unit'; if (it.interval === 'none' || !it.interval) it.interval = 'month'; if (!it.unitLabel) it.unitLabel = defaultUnitLabel(it.metric); } }catch(_){ } },
+      normalizePriceRow(i){ try{ var it=this.items[i]; if(!it) return; it.amount = coerceMoney(it.amount); it.metric = this.baseMetric || it.metric || 'GENERIC'; if (it.metric === 'STORAGE_TB' || it.metric === 'E3_STORAGE_GIB') { it.billingType = 'metered'; if (it.unitLabel !== 'GiB' && it.unitLabel !== 'TiB') it.unitLabel = 'GiB'; if (it.interval === 'none' || !it.interval) it.interval = 'month'; } else if (it.metric === 'GENERIC') { if (it.billingType !== 'one_time' && it.billingType !== 'per_unit') it.billingType = 'per_unit'; if (it.billingType === 'one_time') it.interval = 'none'; else if (it.interval === 'none' || !it.interval) it.interval = 'month'; if (!it.unitLabel) it.unitLabel = defaultUnitLabel(it.metric); } else { it.billingType = 'per_unit'; if (it.interval === 'none' || !it.interval) it.interval = 'month'; if (!it.unitLabel) it.unitLabel = defaultUnitLabel(it.metric); } }catch(_){ } },
       onInlineBillingTypeChange(i){ this._edited=true; this.normalizePriceRow(i); },
       onPricingSchemeChange(i){
         var it = this.items[i]; if(!it) return;
@@ -974,7 +980,7 @@ if (!window.catalogToastManager) {
             }
           }
           if (String(it.metric||'') !== String(this.baseMetric||'')) return 'Each price must match the selected product type';
-          if (it.metric === 'STORAGE_TB' && it.unitLabel !== 'GiB' && it.unitLabel !== 'TiB') return 'Storage prices must use GiB or TiB';
+          if ((it.metric === 'STORAGE_TB' || it.metric === 'E3_STORAGE_GIB') && it.unitLabel !== 'GiB' && it.unitLabel !== 'TiB') return 'Storage prices must use GiB or TiB';
           var slotKey = this.priceSlotKey(it);
           if (seenSlots[slotKey] !== undefined) return 'Each price needs a unique billing setup. Duplicate setup: ' + this.priceSlotLabel(it);
           seenSlots[slotKey] = i;

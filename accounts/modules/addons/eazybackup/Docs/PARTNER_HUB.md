@@ -956,3 +956,245 @@ Schema is created/ensured by `eazybackup_migrate_schema()` in [eazybackup.php](m
 - Module Log entries for `ph-settings-tax-save` and registration CRUD
 - Activity Log summaries
 - Immutable audit rows in `eb_msp_tax_audit`
+
+## Updates — April 2026 (Portal Branding, Impersonation, Hardening)
+
+### Overview
+
+This iteration delivered Tenant Portal branding and domain management, MSP-to-tenant impersonation ("Login as Tenant"), Partner Hub email system hardening, comprehensive security fixes (CSRF, null-safety, error sanitisation), legacy table cleanup, and UI alignment to the semantic styling guide.
+
+### Portal Branding (Settings → Portal Branding)
+
+MSPs can now fully customise the appearance and behaviour of their Tenant Portal from a dedicated settings page.
+
+- Route: `index.php?m=eazybackup&a=ph-settings-portal-branding`
+- Controller: `pages/partnerhub/PortalBrandingController.php`
+- Template: `templates/whitelabel/settings-portal-branding.tpl`
+- Sidebar page ID: `settings-portal-branding`
+
+#### Branding Sections
+
+1. **Portal Identity** — Company name, logo URLs (light & dark), favicon URL, primary colour, accent colour, support email, support URL.
+2. **Portal Pages** — Toggle visibility of individual portal sections: Billing, Services, Cloud Storage, Devices, Jobs, Restore.
+3. **Footer** — Custom footer text and links array.
+4. **Custom Domain** — Attach a custom FQDN to the tenant portal (DNS CNAME check, HTTP stub, TLS cert via certbot, HTTPS vhost). Uses the same `HostOps` pipeline as the Comet white-label feature (see below).
+5. **Portal SMTP** — Optional MSP-owned SMTP server for portal emails (mode, host, port, username, encrypted password, from name/email).
+
+#### DNS/TLS Process (HostOps integration)
+
+Portal Branding uses the **same HostOps infrastructure** as the Comet Backup white-label feature:
+
+1. MSP enters a custom hostname and creates a CNAME record pointing to the `whitelabel_dns_target` addon setting.
+2. **Check DNS** (`ph-portal-branding-checkdns`) — Resolves CNAME records and compares against the expected target.
+3. **Attach Domain** (`ph-portal-branding-attachdomain`) — Calls `HostOps::writeHttpStub()` → `HostOps::issueCert()` → `HostOps::writeHttpsWithUpstream()` with the `ops_whmcs_upstream` setting. Domain record persisted to `s3_msp_portal_domains`.
+
+The certificate scripts, Nginx config generation, and certbot integration are identical to the white-label Comet backup client domain provisioning (`lib/Whitelabel/HostOps.php`).
+
+#### Data Storage
+
+- Branding settings are stored as JSON in `eb_msp_settings.portal_branding_json` (per MSP).
+- Custom domain records use the existing `s3_msp_portal_domains` table (managed by the cloudstorage addon).
+
+#### Controller Functions
+
+| Function | Purpose |
+|----------|---------|
+| `eb_ph_portal_branding_defaults()` | Returns the full defaults array for all branding sections |
+| `eb_ph_settings_portal_branding_show()` | Renders the branding settings page (GET) |
+| `eb_ph_settings_portal_branding_save()` | Saves branding settings (POST, JSON) with CSRF, sanitisation, SMTP password encryption |
+| `eb_ph_portal_branding_check_dns()` | Verifies CNAME resolution for a custom hostname (POST, JSON) |
+| `eb_ph_portal_branding_attach_domain()` | Provisions HTTP stub + TLS cert + HTTPS vhost for a custom hostname (POST, JSON) |
+| `eb_ph_get_portal_branding()` | Helper to load merged branding settings for an MSP |
+
+### MSP Impersonation ("Login as Tenant")
+
+MSPs can log in to the Tenant Portal as one of their tenant's admin users to see exactly what the end customer sees.
+
+#### Flow
+
+1. MSP clicks **"Login as Tenant"** button on the tenant detail page (Profile tab) in Partner Hub.
+2. Route `a=ph-tenant-impersonate&tenant_id=<public_id>` generates a single-use token in `eb_tenant_portal_tokens` (expires after 5 minutes).
+3. MSP is redirected to the portal with `?impersonate=<token>`.
+4. Portal `index.php` validates the token, starts a session as the tenant user, and sets `$_SESSION['impersonator_client_id']` to track the MSP.
+5. While impersonating, the portal header shows a prominent banner with a **"Logout & Return to Partner Hub"** button.
+6. Clicking the return button destroys the portal session and redirects back to Partner Hub.
+
+#### Security
+
+- Tokens are single-use (stamped with `used_at` on consumption).
+- Tokens expire after 5 minutes.
+- Only tenant admin users with `status=active` can be impersonated.
+- The impersonation session tracks the MSP's `whmcs_client_id` for audit purposes.
+
+#### Database Table
+
+- `eb_tenant_portal_tokens` — `id`, `token` (UNIQUE, 64 chars), `tenant_user_id`, `msp_client_id`, `expires_at`, `used_at`, `created_at`.
+
+#### UI Controls
+
+- **Partner Hub**: "Login as Tenant" button appears on the tenant detail page (Profile tab) when the tenant has an active portal admin user. Located in the `ebPhActions` header area.
+- **Tenant Portal**: Impersonation banner with styled "Logout & Return to Partner Hub" button in `portal/templates/layout.tpl`, conditionally shown when `$_SESSION['impersonator_client_id']` is set.
+
+### Legacy Table Cleanup
+
+The Tenant Portal code (`accounts/portal/`) has been updated to exclusively use the canonical `eb_tenants` and `eb_tenant_users` tables. All fallback logic to the legacy `s3_backup_tenants` / `s3_backup_tenant_users` tables has been removed.
+
+#### Changes
+
+- `portal/bootstrap.php`: `portal_tenant_table()` now returns `'eb_tenants'` directly; `portal_tenant_users_table()` returns `'eb_tenant_users'` directly. The `portal_use_canonical_tables()` function and all conditional table selection logic removed.
+- `portal/auth.php`: `portal_login()` updated to query `eb_tenant_users` and `eb_tenants` exclusively, using `t.msp_id` for client ID resolution.
+- All portal API endpoints (`profile_update.php`, `change_password.php`, `password_reset.php`, `password_reset_confirm.php`, `devices.php`) already used the `portal_tenant_users_table()` / `portal_tenant_table()` helpers and required no direct changes.
+
+### Partner Hub Email System Hardening
+
+#### MailService (`lib/PartnerHub/MailService.php`)
+
+- Fixed finance BCC: corrected `addCC()` to `addBCC()` for finance recipient copies.
+- Added SMTP password decryption: stored `password_enc` is now decrypted via WHMCS `decrypt()` before PHPMailer use.
+- Improved PHP `mail()` fallback error reporting.
+
+#### SettingsService (`lib/PartnerHub/SettingsService.php`)
+
+- SMTP passwords are now encrypted via WHMCS `encrypt()` before storage in `eb_msp_settings.email_json`.
+
+#### EmailTemplatesController
+
+- Test send redirection now accurately reflects the email sending outcome (success vs failure).
+
+#### PublicSignupController
+
+- Integrated `EmailTriggers::trigger()` to send the `WELCOME_ON_SIGNUP` email after provisioning.
+
+#### Webhook Email
+
+- `StripeWebhookController.php` introduced `eb_ph_webhook_send_email()` helper for webhook-triggered email sends.
+
+### Security Fixes
+
+#### PHP 8+ Null Safety
+
+Added null checks (`if (!$msp) { ... }`) before accessing MSP object properties in:
+- `BackfillController.php`
+- `ServicesController.php`
+- `ProfileController.php`
+- `StripeController.php`
+- `SubscriptionsController.php`
+
+#### CSRF Protection
+
+Strengthened CSRF token validation in controllers that were catching `check_token()` exceptions silently:
+- `StripeController.php` — Added explicit CSRF check.
+- `SubscriptionsController.php` — Corrected CSRF check ordering.
+- `TaxSettingsController.php` — `try-catch` blocks now return JSON error responses on CSRF failure.
+- `EmailSettingsController.php` — Same CSRF hardening.
+
+#### Error Message Sanitisation
+
+Controllers no longer expose raw exception messages (`$e->getMessage()`) in JSON responses to the client. Internal messages are logged via `logModuleCall()`; clients receive generic error codes (e.g., `'link_failed'`, `'update_failed'`).
+
+### Stripe Webhook Improvements
+
+- Changed response for missing `stripe_webhook_secret` from 200 to 400 Bad Request.
+- Refined idempotency logic to specifically handle duplicate entry errors vs other exceptions.
+- `tenant_id=0` values in `eb_invoice_cache` and `eb_payment_cache` are now stored as `null` instead of `0`.
+
+### Branding Defaults
+
+- `hooks.php`: Replaced hardcoded default branding values for the backup client with configurable settings lookups.
+
+### Routing (new routes added)
+
+| Route | Method | Description |
+|-------|--------|-------------|
+| `ph-settings-portal-branding` | GET | Portal Branding settings page |
+| `ph-settings-portal-branding-save` | POST | Save portal branding settings (JSON) |
+| `ph-portal-branding-checkdns` | POST | Check DNS CNAME for custom portal domain (JSON) |
+| `ph-portal-branding-attachdomain` | POST | Provision TLS + HTTPS for custom portal domain (JSON) |
+| `ph-tenant-impersonate` | GET | Generate impersonation token and redirect to tenant portal |
+
+### UI / Template Changes
+
+#### Semantic Styling Migration
+
+All new and modified templates follow the `SEMANTIC-THEME-REFERENCE.md` styling guide:
+- Input fields use `eb-input`, buttons use `eb-btn eb-btn-primary|secondary|info`, labels use `eb-field-label`, cards use `eb-card-raised`.
+- Alert messages use `eb-alert` with semantic variants (`eb-alert--success`, `eb-alert--warning`, `eb-alert--danger`) and `eb-alert-icon` SVGs.
+- Navigation tabs on `tenant-detail.tpl` use the `eb-tab` / `is-active` class pattern (replacing inline Tailwind utility bundles).
+
+#### Template Structure
+
+- `settings-portal-branding.tpl` follows the standard Partner Hub shell pattern: `{include file="$template/includes/head.tpl"}` → `{capture assign=ebPhContent}` → `{include file=".../partner_hub_shell.tpl" ebPhSidebarPage='settings-portal-branding'}`. This ensures Alpine.js context (`sidebarCollapsed`, etc.) is available.
+- `tenant-detail.tpl` updated with "Login as Tenant" button in `ebPhActions` area and semantic `eb-tab` navigation.
+- `portal/templates/layout.tpl` updated with impersonation banner and dynamic branding from `$branding`.
+- Sidebar (`sidebar_partner_hub.tpl`) updated with "Portal Branding" menu item under the Settings group.
+
+### Database Schema Changes
+
+#### New Table
+
+- `eb_tenant_portal_tokens` — Single-use impersonation tokens for MSP-to-tenant login.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| id | bigint (PK, auto) | |
+| token | varchar(64), UNIQUE | Cryptographically random token |
+| tenant_user_id | bigint | FK to `eb_tenant_users` |
+| msp_client_id | int | WHMCS client ID of the impersonating MSP |
+| expires_at | timestamp | Token expiry (5 minutes from creation) |
+| used_at | timestamp, nullable | Stamped on consumption |
+| created_at | timestamp | |
+
+#### New Columns
+
+| Table | Column | Type | Notes |
+|-------|--------|------|-------|
+| `eb_tenant_users` | `password_reset_token` | varchar(64), nullable | For portal password reset flow |
+| `eb_tenant_users` | `password_reset_expires` | timestamp, nullable | Token expiry for password reset |
+| `eb_tenants` | `branding_json` | JSON, nullable | Per-tenant branding overrides |
+| `eb_msp_settings` | `portal_branding_json` | JSON, nullable | MSP-level portal branding configuration |
+
+#### Migration Fixes (April 2026)
+
+The following columns were missing from their respective `$schema->create()` blocks and only existed in the `else` (upgrade) path. They are now included in both paths to ensure correctness on fresh installs:
+
+- `eb_tenants.branding_json` — added to CREATE block.
+- `eb_msp_settings.portal_branding_json` — added to CREATE block.
+- `eb_msp_accounts.default_currency` — backfill added to `else` upgrade path (was only handled by a separate global backfill).
+- `eb_msp_accounts.invoice_branding_json` — backfill added to `else` upgrade path (was only in CREATE).
+
+### Files Added/Updated
+
+- **New**: `pages/partnerhub/PortalBrandingController.php`
+- **New**: `templates/whitelabel/settings-portal-branding.tpl`
+- **Updated**: `pages/partnerhub/TenantsController.php` — impersonation function `eb_ph_tenant_impersonate()`
+- **Updated**: `pages/partnerhub/BackfillController.php` — null safety, error sanitisation
+- **Updated**: `pages/partnerhub/ServicesController.php` — null safety, error sanitisation
+- **Updated**: `pages/partnerhub/ProfileController.php` — null safety, error sanitisation
+- **Updated**: `pages/partnerhub/StripeController.php` — null safety, CSRF
+- **Updated**: `pages/partnerhub/SubscriptionsController.php` — null safety, CSRF ordering
+- **Updated**: `pages/partnerhub/StripeWebhookController.php` — webhook hardening
+- **Updated**: `pages/partnerhub/TaxSettingsController.php` — CSRF hardening
+- **Updated**: `pages/partnerhub/EmailSettingsController.php` — CSRF hardening
+- **Updated**: `lib/PartnerHub/MailService.php` — BCC fix, SMTP decrypt, fallback error
+- **Updated**: `lib/PartnerHub/SettingsService.php` — SMTP password encryption
+- **Updated**: `pages/whitelabel/PublicSignupController.php` — welcome email trigger
+- **Updated**: `pages/whitelabel/EmailTemplatesController.php` — test send outcome
+- **Updated**: `templates/whitelabel/tenant-detail.tpl` — Login as Tenant button, semantic tabs, semantic alerts
+- **Updated**: `templates/whitelabel/partials/sidebar_partner_hub.tpl` — Portal Branding menu item
+- **Updated**: `portal/bootstrap.php` — legacy table fallback removed
+- **Updated**: `portal/auth.php` — legacy table fallback removed
+- **Updated**: `portal/templates/layout.tpl` — impersonation banner + branding
+- **Updated**: `hooks.php` — configurable branding defaults
+- **Updated**: `eazybackup.php` — new routes, migrations for `eb_tenant_portal_tokens`, `eb_tenant_users` columns, `eb_tenants.branding_json`, `eb_msp_settings.portal_branding_json`, migration gap fixes
+
+### Migration Notes
+
+All schema changes are handled by `eazybackup_migrate_schema()` in `eazybackup.php`. No manual SQL is required. The migration function uses `eb_add_column_if_missing()` to safely add columns to existing tables without affecting installations that already have them.
+
+#### Tables NOT in eazybackup.php migrations
+
+The following tables are referenced in the codebase but managed elsewhere:
+
+- `s3_msp_portal_domains` — Created by the cloudstorage addon (`cloudstorage.php`). Used by `PortalBrandingController.php` for custom domain records.
+- `eb_whitelabel_signup_domains` / `eb_whitelabel_signup_flows` — Lazily created by `SignupSettingsController.php` when the signup settings page is first accessed.
+- `eb_tenant_services` — Documented but not implemented; no PHP code references this table.

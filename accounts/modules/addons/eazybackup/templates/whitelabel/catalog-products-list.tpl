@@ -320,10 +320,13 @@
               <p class="eb-field-help">Choose the resource this product represents. Prices will be variants of this resource.</p>
             </div>
             <div class="flex flex-wrap gap-2">
-              <template x-for="opt in ['STORAGE_TB','DEVICE_COUNT','DISK_IMAGE','HYPERV_VM','PROXMOX_VM','VMWARE_VM','M365_USER','GENERIC']" :key="opt">
+              <template x-for="opt in ['STORAGE_TB','E3_STORAGE_GIB','DEVICE_COUNT','DISK_IMAGE','HYPERV_VM','PROXMOX_VM','VMWARE_VM','M365_USER','GENERIC']" :key="opt">
                 <button type="button" @click="selectProductType(opt)" :class="baseMetric===opt ? 'eb-btn eb-btn-primary eb-btn-xs inline-flex items-center gap-2' : 'eb-btn eb-btn-outline eb-btn-xs inline-flex items-center gap-2'">
                   <template x-if="opt==='STORAGE_TB'">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960" fill="currentColor" :class="baseMetric===opt ? 'h-4 w-4 shrink-0 text-white' : 'h-4 w-4 shrink-0 text-[var(--eb-text-muted)]'" aria-hidden="true"><path d="M141.58-173.31v-139.04h677.03v139.04H141.58Zm66.73-35.38h68.27v-68.27h-68.27v68.27Zm-66.73-438.16v-139.03h677.03v139.03H141.58Zm66.73-35.38h68.27v-68.27h-68.27v68.27Zm-66.73 271.34v-137.42h677.03v137.42H141.58Zm66.73-34.57h68.27v-68.27h-68.27v68.27Z"/></svg>
+                  </template>
+                  <template x-if="opt==='E3_STORAGE_GIB'">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960" fill="currentColor" :class="baseMetric===opt ? 'h-4 w-4 shrink-0 text-white' : 'h-4 w-4 shrink-0 text-[var(--eb-text-muted)]'" aria-hidden="true"><path d="M260-160q-91 0-155.5-63T40-377q0-78 47-139t123-78q25-92 100-149t170-57q117 0 198.5 81.5T760-520q69 8 114.5 59.5T920-340q0 75-52.5 127.5T740-160H260Z"/></svg>
                   </template>
                   <template x-if="opt==='DEVICE_COUNT'">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960" fill="currentColor" :class="baseMetric===opt ? 'h-4 w-4 shrink-0 text-white' : 'h-4 w-4 shrink-0 text-[var(--eb-text-muted)]'" aria-hidden="true"><path d="M63.46-160.46v-55.96h833.08v55.96H63.46Zm112.8-95.16q-28.35 0-48.27-19.91-19.91-19.92-19.91-48.28v-409.88q0-28.36 19.91-48.28 19.92-19.91 48.27-19.91h607.48q28.35 0 48.27 19.91 19.91 19.92 19.91 48.28v409.88q0 28.36-19.91 48.28-19.92 19.91-48.27 19.91H176.26Zm.09-55.96h607.3q4.62 0 8.47-3.84 3.84-3.85 3.84-8.46v-409.73q0-4.62-3.84-8.47-3.85-3.84-8.47-3.84h-607.3q-4.62 0-8.47 3.84-3.84 3.85-3.84 8.47v409.73q0 4.61 3.84 8.46 3.85 3.84 8.47 3.84Zm-12.31 0V-745.92v434.34Z"/></svg>

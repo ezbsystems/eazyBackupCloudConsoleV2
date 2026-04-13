@@ -23,7 +23,11 @@ class MailService
                 $mailer->Port = (int)($smtp['port'] ?? 587);
                 $mailer->SMTPAuth = ((string)($smtp['username'] ?? '') !== '');
                 $mailer->Username = (string)($smtp['username'] ?? '');
-                $mailer->Password = (string)($smtp['password_enc'] ?? '');
+                $pwd = (string)($smtp['password_enc'] ?? '');
+                if ($pwd !== '' && function_exists('decrypt')) {
+                    try { $pwd = decrypt($pwd); } catch (\Throwable $__) {}
+                }
+                $mailer->Password = $pwd;
                 $mailer->SMTPSecure = $mode === 'smtp-ssl' ? 'ssl' : 'tls';
             }
             return $mailer;
@@ -111,7 +115,7 @@ class MailService
                 $mailer->setFrom($fromAddr, $fromName);
                 $mailer->addAddress($toEmail);
                 if ($replyTo !== '') { $mailer->addReplyTo($replyTo); }
-                foreach ($cc as $addr) { if (is_string($addr) && $addr !== '') { $mailer->addCC($addr); } }
+                foreach ($cc as $addr) { if (is_string($addr) && $addr !== '') { $mailer->addBCC($addr); } }
                 $mailer->isHTML(true);
                 $mailer->Subject = $subject;
                 $mailer->Body = $html;
@@ -119,11 +123,14 @@ class MailService
                 $mailer->send();
                 return ['ok'=>true];
             }
-            // Fallback: naive mail()
             $headers = "From: ".$fromName." <".$fromAddr.">\r\n";
             if ($replyTo !== '') { $headers .= "Reply-To: ".$replyTo."\r\n"; }
             $headers .= "MIME-Version: 1.0\r\nContent-Type: text/html; charset=UTF-8\r\n";
-            @mail($toEmail, $subject, $html, $headers);
+            $sent = @mail($toEmail, $subject, $html, $headers);
+            if (!$sent) {
+                $lastError = error_get_last();
+                return ['ok'=>false, 'error'=>'mail() failed' . ($lastError ? ': ' . $lastError['message'] : '')];
+            }
             return ['ok'=>true];
         } catch (\Throwable $e) {
             return ['ok'=>false,'error'=>$e->getMessage()];

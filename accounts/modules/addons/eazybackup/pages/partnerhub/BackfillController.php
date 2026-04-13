@@ -12,8 +12,9 @@ function eb_ph_invoices_refresh(array $vars): void
     if (!eb_ph_tenants_require_csrf_or_json_error((string)($_POST['token'] ?? ''))) { return; }
     $clientId = (int)$_SESSION['uid'];
     $msp = Capsule::table('eb_msp_accounts')->where('whmcs_client_id',$clientId)->first();
+    if (!$msp) { echo json_encode(['status'=>'error','message'=>'no-msp']); return; }
     $tenantPublicId = trim((string)($_POST['tenant_id'] ?? $_POST['customer_id'] ?? ''));
-    $tenant = eb_ph_tenants_find_owned_tenant_by_public_id((int)($msp->id ?? 0), $tenantPublicId);
+    $tenant = eb_ph_tenants_find_owned_tenant_by_public_id((int)$msp->id, $tenantPublicId);
     if (!$tenant) { echo json_encode(['status'=>'error','message'=>'invalid']); return; }
     try {
         $svc = new StripeService();
@@ -55,7 +56,8 @@ function eb_ph_invoices_refresh(array $vars): void
         echo json_encode(['status'=>'success']);
         return;
     } catch (\Throwable $e) {
-        echo json_encode(['status'=>'error','message'=>$e->getMessage()]);
+        try { if (function_exists('logModuleCall')) { @logModuleCall('eazybackup', 'ph-invoices-refresh', '', $e->getMessage()); } } catch (\Throwable $___) {}
+        echo json_encode(['status'=>'error','message'=>'refresh_failed']);
         return;
     }
 }
@@ -91,7 +93,8 @@ function eb_ph_payouts_refresh(array $vars): void
         echo json_encode(['status'=>'success']);
         return;
     } catch (\Throwable $e) {
-        echo json_encode(['status'=>'error','message'=>$e->getMessage()]);
+        try { if (function_exists('logModuleCall')) { @logModuleCall('eazybackup', 'ph-payouts-refresh', '', $e->getMessage()); } } catch (\Throwable $___) {}
+        echo json_encode(['status'=>'error','message'=>'refresh_failed']);
         return;
     }
 }
@@ -129,7 +132,8 @@ function eb_ph_disputes_refresh(array $vars): void
         echo json_encode(['status'=>'success']);
         return;
     } catch (\Throwable $e) {
-        echo json_encode(['status'=>'error','message'=>$e->getMessage()]);
+        try { if (function_exists('logModuleCall')) { @logModuleCall('eazybackup', 'ph-disputes-refresh', '', $e->getMessage()); } } catch (\Throwable $___) {}
+        echo json_encode(['status'=>'error','message'=>'refresh_failed']);
         return;
     }
 }

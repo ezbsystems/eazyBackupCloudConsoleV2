@@ -11,8 +11,9 @@ function eb_ph_client_profile_update(array $vars): void
     if (!eb_ph_tenants_require_csrf_or_json_error((string)($_POST['token'] ?? ''))) { return; }
     $clientId = (int)$_SESSION['uid'];
     $msp = Capsule::table('eb_msp_accounts')->where('whmcs_client_id',$clientId)->first();
+    if (!$msp) { echo json_encode(['status'=>'error','message'=>'no-msp']); return; }
     $tenantPublicId = trim((string)($_POST['tenant_id'] ?? $_POST['customer_id'] ?? ''));
-    $tenant = eb_ph_tenants_find_owned_tenant_by_public_id((int)($msp->id ?? 0), $tenantPublicId);
+    $tenant = eb_ph_tenants_find_owned_tenant_by_public_id((int)$msp->id, $tenantPublicId);
     if (!$tenant) { echo json_encode(['status'=>'error','message'=>'invalid']); return; }
     $up = [];
     if (array_key_exists('companyname', $_POST) || array_key_exists('firstname', $_POST) || array_key_exists('lastname', $_POST)) {
@@ -35,7 +36,7 @@ function eb_ph_client_profile_update(array $vars): void
         return;
     } catch (\Throwable $e) {
         try { logActivity('eazybackup: ph-client-profile-update EX='.$e->getMessage()); } catch (\Throwable $__) {}
-        echo json_encode(['status'=>'error','message'=>$e->getMessage()]);
+        echo json_encode(['status'=>'error','message'=>'update_failed']);
         return;
     }
 }

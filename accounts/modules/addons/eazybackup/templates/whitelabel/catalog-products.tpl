@@ -239,7 +239,7 @@
               <p class="eb-field-help">Choose the resource this product represents. Prices will be variants of this resource.</p>
             </div>
             <div class="flex flex-wrap gap-2">
-              <template x-for="opt in ['STORAGE_TB','DEVICE_COUNT','DISK_IMAGE','HYPERV_VM','PROXMOX_VM','VMWARE_VM','M365_USER','GENERIC']" :key="opt">
+              <template x-for="opt in ['STORAGE_TB','E3_STORAGE_GIB','DEVICE_COUNT','DISK_IMAGE','HYPERV_VM','PROXMOX_VM','VMWARE_VM','M365_USER','GENERIC']" :key="opt">
                 <button type="button" @click="selectProductType(opt)" :class="baseMetric===opt ? 'eb-btn eb-btn-primary eb-btn-xs' : 'eb-btn eb-btn-outline eb-btn-xs'" x-text="metricLabel(opt)"></button>
               </template>
             </div>

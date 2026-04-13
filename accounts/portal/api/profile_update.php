@@ -32,7 +32,7 @@ if ($tenantId <= 0 || $userId <= 0) {
     portal_json(['status' => 'fail', 'message' => 'Invalid session'], 401);
 }
 
-$current = Capsule::table('s3_backup_tenant_users')
+$current = Capsule::table(portal_tenant_users_table())
     ->where('id', $userId)
     ->where('tenant_id', $tenantId)
     ->first(['name', 'email']);
@@ -54,7 +54,7 @@ if ((string) ($current->name ?? '') === $name && strtolower((string) ($current->
     ]);
 }
 
-$duplicateExists = Capsule::table('s3_backup_tenant_users')
+$duplicateExists = Capsule::table(portal_tenant_users_table())
     ->where('tenant_id', $tenantId)
     ->where('id', '!=', $userId)
     ->whereRaw('LOWER(email) = ?', [$email])
@@ -65,7 +65,7 @@ if ($duplicateExists) {
 }
 
 try {
-    $updated = Capsule::table('s3_backup_tenant_users')
+    $updated = Capsule::table(portal_tenant_users_table())
         ->where('id', $userId)
         ->where('tenant_id', $tenantId)
         ->update([

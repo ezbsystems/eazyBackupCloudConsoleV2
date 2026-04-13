@@ -280,6 +280,14 @@ function eazybackup_public_signup(array $vars)
         ]);
         try { logModuleCall('eazybackup','signup_post',['tenant_id'=>(int)$tenant->id,'event_id'=>$eventId,'orderId'=>$orderId],'pending_approval'); } catch (\Throwable $__) {}
 
+        try {
+            require_once __DIR__ . '/EmailTriggers.php';
+            \EmailTriggers::trigger((int)$tenant->id, \EmailTriggers::WELCOME_ON_SIGNUP, $email, [
+                'customer_name' => trim($first . ' ' . $last),
+                'brand_name' => (string)($tenant->fqdn ?? $tenant->name ?? ''),
+            ]);
+        } catch (\Throwable $__) {}
+
         return [
             'pagetitle' => 'Signup received',
             'templatefile' => 'templates/whitelabel/public-signup',

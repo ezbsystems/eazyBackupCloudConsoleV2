@@ -11,10 +11,11 @@ function eb_ph_services_link(array $vars): void
     if (!eb_ph_tenants_require_csrf_or_json_error((string)($_POST['token'] ?? ''))) { return; }
     $clientId = (int)$_SESSION['uid'];
     $msp = Capsule::table('eb_msp_accounts')->where('whmcs_client_id',$clientId)->first();
+    if (!$msp) { echo json_encode(['status'=>'error','message'=>'no-msp']); return; }
     $tenantPublicId = trim((string)($_POST['tenant_id'] ?? $_POST['customer_id'] ?? ''));
     $serviceId = (int)($_POST['whmcs_service_id'] ?? 0);
     $cometUser = (string)($_POST['comet_user'] ?? '');
-    $tenant = eb_ph_tenants_find_owned_tenant_by_public_id((int)($msp->id ?? 0), $tenantPublicId);
+    $tenant = eb_ph_tenants_find_owned_tenant_by_public_id((int)$msp->id, $tenantPublicId);
     if (!$tenant || $serviceId <= 0 || $cometUser === '') { echo json_encode(['status'=>'error','message'=>'invalid']); return; }
     try {
         Capsule::table('eb_service_links')->updateOrInsert(
@@ -34,7 +35,7 @@ function eb_ph_services_link(array $vars): void
         echo json_encode(['status'=>'success']);
         return;
     } catch (\Throwable $e) {
-        echo json_encode(['status'=>'error','message'=>$e->getMessage()]);
+        echo json_encode(['status'=>'error','message'=>'link_failed']);
         return;
     }
 }

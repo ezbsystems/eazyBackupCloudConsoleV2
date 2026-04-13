@@ -13,15 +13,18 @@ function portal_login(string $email, string $password): array
     $tenantContextId = portal_resolve_tenant_context();
     $clientContextId = portal_resolve_client_context();
 
-    $query = Capsule::table('s3_backup_tenant_users as u')
-        ->join('s3_backup_tenants as t', 'u.tenant_id', '=', 't.id')
+    $query = Capsule::table('eb_tenant_users as u')
+        ->join('eb_tenants as t', 'u.tenant_id', '=', 't.id')
         ->whereRaw('LOWER(u.email) = LOWER(?)', [$email])
         ->where('u.status', 'active')
         ->where('t.status', 'active');
     if ($tenantContextId !== null && $tenantContextId > 0) {
         $query->where('u.tenant_id', $tenantContextId);
     } elseif ($clientContextId !== null && $clientContextId > 0) {
-        $query->where('t.client_id', $clientContextId);
+        $mspId = portal_resolve_msp_id_for_client($clientContextId);
+        if ($mspId !== null) {
+            $query->where('t.msp_id', $mspId);
+        }
     }
     $matches = $query->orderBy('u.id', 'asc')->get([
         'u.id as user_id',
@@ -30,7 +33,7 @@ function portal_login(string $email, string $password): array
         'u.email',
         'u.name',
         'u.role',
-        't.client_id',
+        't.msp_id as owner_id',
         't.name as tenant_name',
     ]);
 
@@ -47,9 +50,15 @@ function portal_login(string $email, string $password): array
     }
 
     $tenantId = (int) ($user->tenant_id ?? 0);
-    $clientId = (int) ($user->client_id ?? 0);
-    if ($tenantId <= 0 || $clientId <= 0) {
+    $ownerId = (int) ($user->owner_id ?? 0);
+    if ($tenantId <= 0 || $ownerId <= 0) {
         return ['status' => 'fail', 'message' => 'Tenant unavailable'];
+    }
+
+    $clientId = $ownerId;
+    if ($ownerId > 0) {
+        $msp = Capsule::table('eb_msp_accounts')->where('id', $ownerId)->first(['whmcs_client_id']);
+        $clientId = $msp ? (int) $msp->whmcs_client_id : 0;
     }
 
     $branding = portal_detect_branding();
@@ -67,7 +76,7 @@ function portal_login(string $email, string $password): array
         'logged_in_at' => time(),
     ];
 
-    Capsule::table('s3_backup_tenant_users')
+    Capsule::table('eb_tenant_users')
         ->where('id', (int) $user->user_id)
         ->update([
             'last_login_at' => Capsule::raw('NOW()'),

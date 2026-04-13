@@ -271,12 +271,14 @@
                             </div>
                         </div>
                         
-                        <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=e3backup"
+                        <a id="sidebar-e3-backup-link"
+                           href="{$WEB_ROOT}/index.php?m=cloudstorage&page=e3backup"
                            class="eb-sidebar-link {if $smarty.server.REQUEST_URI|strstr:'index.php?m=cloudstorage&page=e3backup'}is-active{/if}">
                             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960" class="eb-sidebar-link-icon--filled" aria-hidden="true">
                                 <path fill="currentColor" d="M260-160q-91 0-155.5-63T40-377q0-78 47-139t123-78q25-92 100-149t170-57q117 0 198.5 81.5T760-520q69 8 114.5 59.5T920-340q0 75-52.5 127.5T740-160H520q-33 0-56.5-23.5T440-240v-206l-64 62-56-56 160-160 160 160-56 56-64-62v206h220q42 0 71-29t29-71q0-42-29-71t-71-29h-60v-80q0-83-58.5-141.5T480-720q-83 0-141.5 58.5T280-520h-20q-58 0-99 41t-41 99q0 58 41 99t99 41h100v80H260Zm220-280Z"/>
                             </svg>
-                            e3 Cloud Backup
+                            <span class="whitespace-nowrap">e3 Cloud Backup</span>
+                            <span class="eb-badge eb-badge--warning flex-shrink-0" style="font-size:9px;padding:1px 5px;margin-left:auto;">BETA</span>
                         </a>
                         {/if}
                         </div>                    
@@ -1198,6 +1200,88 @@ x-data="{ openModal: null }"
     {$maincontent}
 
 
+<!-- Partner Hub Beta Modal -->
+<div id="eb-beta-modal-ph" class="fixed inset-0 z-50 flex items-center justify-center p-4" style="display:none;">
+    <div class="eb-modal-backdrop fixed inset-0" id="eb-beta-modal-ph-backdrop"></div>
+    <div class="eb-modal relative z-10" style="max-width:520px;">
+        <div class="eb-modal-header">
+            <div class="flex items-center gap-3">
+                <span class="eb-icon-box eb-icon-box--sm eb-icon-box--warning">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+                    </svg>
+                </span>
+                <div>
+                    <h2 class="eb-modal-title">Partner Hub — Beta Notice</h2>
+                    <p class="eb-modal-subtitle">Billing features are in active development</p>
+                </div>
+            </div>
+            <button class="eb-modal-close" id="eb-beta-modal-ph-close">&times;</button>
+        </div>
+        <div class="eb-modal-body">
+            <div class="eb-alert eb-alert--warning" style="margin-bottom:16px;">
+                <svg class="eb-alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+                </svg>
+                <div>
+                    <div class="eb-alert-title">Beta Product</div>
+                    <p>The Partner Hub is being expanded to include billing capabilities which are currently in Beta. These features are under active development and may change.</p>
+                </div>
+            </div>
+            <p class="eb-type-body" style="margin-bottom:12px;">The <strong>White-Label cloud backup</strong> feature remains fully in production and MSPs can continue to use it as normal.</p>
+            <p class="eb-type-body">Please <strong>contact support</strong> before using any of the new billing features to ensure proper setup and to report any issues you encounter.</p>
+        </div>
+        <div class="eb-modal-footer">
+            <a id="eb-beta-modal-ph-proceed" href="#" class="eb-btn eb-btn-primary eb-btn-sm">I Understand — Continue to Partner Hub</a>
+        </div>
+    </div>
+</div>
+
+<!-- e3 Cloud Backup Beta Modal -->
+<div id="eb-beta-modal-e3" class="fixed inset-0 z-50 flex items-center justify-center p-4" style="display:none;">
+    <div class="eb-modal-backdrop fixed inset-0" id="eb-beta-modal-e3-backdrop"></div>
+    <div class="eb-modal relative z-10" style="max-width:520px;">
+        <div class="eb-modal-header">
+            <div class="flex items-center gap-3">
+                <span class="eb-icon-box eb-icon-box--sm eb-icon-box--warning">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+                    </svg>
+                </span>
+                <div>
+                    <h2 class="eb-modal-title">e3 Cloud Backup — Beta Notice</h2>
+                    <p class="eb-modal-subtitle">Early-stage product in development</p>
+                </div>
+            </div>
+            <button class="eb-modal-close" id="eb-beta-modal-e3-close">&times;</button>
+        </div>
+        <div class="eb-modal-body">
+            <div class="eb-alert eb-alert--warning" style="margin-bottom:16px;">
+                <svg class="eb-alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+                </svg>
+                <div>
+                    <div class="eb-alert-title">Beta Product — Early Development</div>
+                    <p>e3 Cloud Backup is a new product that is in the early stages of development. Features may be incomplete, change significantly, or experience interruptions.</p>
+                </div>
+            </div>
+            <div class="eb-alert eb-alert--danger" style="margin-bottom:16px;">
+                <svg class="eb-alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z" />
+                </svg>
+                <div>
+                    <div class="eb-alert-title">Not for Primary Backups</div>
+                    <p>e3 Cloud Backup should <strong>not</strong> be considered a primary backup strategy at this time. Do not rely on it as your sole backup solution.</p>
+                </div>
+            </div>
+            <p class="eb-type-body">Please <strong>contact support</strong> before using this feature to discuss your use case and ensure proper expectations are set.</p>
+        </div>
+        <div class="eb-modal-footer">
+            <a id="eb-beta-modal-e3-proceed" href="#" class="eb-btn eb-btn-warning eb-btn-sm">I Understand — Continue to e3 Cloud Backup</a>
+        </div>
+    </div>
+</div>
+
 <!-- Consolidated JavaScript for Both Menus -->
 <script>
 document.addEventListener('DOMContentLoaded', function () {
@@ -1664,7 +1748,54 @@ document.addEventListener('DOMContentLoaded', function() {
 
 </script>
 
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    function ebBetaModal(linkId, modalId, sessionKey) {
+        var link = document.getElementById(linkId);
+        var modal = document.getElementById(modalId);
+        if (!link || !modal) return;
 
+        var backdrop = document.getElementById(modalId + '-backdrop');
+        var closeBtn = document.getElementById(modalId + '-close');
+        var proceedBtn = document.getElementById(modalId + '-proceed');
+        var targetHref = link.getAttribute('href');
+
+        function showModal() {
+            modal.style.display = 'flex';
+            document.body.classList.add('overflow-hidden');
+        }
+
+        function hideModal() {
+            modal.style.display = 'none';
+            document.body.classList.remove('overflow-hidden');
+        }
+
+        link.addEventListener('click', function (e) {
+            if (sessionStorage.getItem(sessionKey)) return;
+            e.preventDefault();
+            proceedBtn.setAttribute('href', targetHref);
+            showModal();
+        });
+
+        if (closeBtn) closeBtn.addEventListener('click', hideModal);
+        if (backdrop) backdrop.addEventListener('click', hideModal);
+
+        if (proceedBtn) {
+            proceedBtn.addEventListener('click', function () {
+                sessionStorage.setItem(sessionKey, '1');
+                hideModal();
+            });
+        }
+
+        document.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape' && modal.style.display === 'flex') hideModal();
+        });
+    }
+
+    ebBetaModal('sidebar-partner-hub-link', 'eb-beta-modal-ph', 'eb_beta_ph_ack');
+    ebBetaModal('sidebar-e3-backup-link', 'eb-beta-modal-e3', 'eb_beta_e3_ack');
+});
+</script>
 
 </body>
 </html>

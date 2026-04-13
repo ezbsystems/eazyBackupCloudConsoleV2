@@ -16,11 +16,31 @@ function portal_json(array $payload, int $code = 200): void
     exit;
 }
 
+function portal_tenant_table(): string
+{
+    return 'eb_tenants';
+}
+
+function portal_tenant_users_table(): string
+{
+    return 'eb_tenant_users';
+}
+
+function portal_resolve_msp_id_for_client(int $clientId): ?int
+{
+    try {
+        $msp = Capsule::table('eb_msp_accounts')->where('whmcs_client_id', $clientId)->first(['id']);
+        return $msp ? (int) $msp->id : null;
+    } catch (\Throwable $e) {
+        return null;
+    }
+}
+
 function portal_detect_branding(): array
 {
     $tenantContextId = portal_resolve_tenant_context();
     if ($tenantContextId !== null && $tenantContextId > 0) {
-        $tenantBrandingJson = Capsule::table('s3_backup_tenants')
+        $tenantBrandingJson = Capsule::table('eb_tenants')
             ->where('id', $tenantContextId)
             ->whereNotNull('branding_json')
             ->value('branding_json');
@@ -47,11 +67,15 @@ function portal_resolve_tenant_context(): ?int
     }
 
     $domainClientId = portal_resolve_client_context_from_domain();
-    $query = Capsule::table('s3_backup_tenants')
+    $query = Capsule::table('eb_tenants')
         ->where('slug', $mspParam)
         ->where('status', 'active');
+
     if ($domainClientId !== null && $domainClientId > 0) {
-        $query->where('client_id', $domainClientId);
+        $mspId = portal_resolve_msp_id_for_client($domainClientId);
+        if ($mspId !== null) {
+            $query->where('msp_id', $mspId);
+        }
     }
 
     $matches = $query->orderBy('id', 'asc')->limit(2)->get(['id']);
@@ -104,11 +128,15 @@ function portal_resolve_client_context(): ?int
 
     $tenantContextId = portal_resolve_tenant_context();
     if ($tenantContextId !== null && $tenantContextId > 0) {
-        $tenant = Capsule::table('s3_backup_tenants')
+        $tenant = Capsule::table('eb_tenants')
             ->where('id', $tenantContextId)
-            ->first(['client_id']);
-        if ($tenant && !empty($tenant->client_id)) {
-            return (int) $tenant->client_id;
+            ->first();
+        if (!$tenant) return null;
+
+        $mspId = (int) ($tenant->msp_id ?? 0);
+        if ($mspId > 0) {
+            $msp = Capsule::table('eb_msp_accounts')->where('id', $mspId)->first(['whmcs_client_id']);
+            return $msp ? (int) $msp->whmcs_client_id : null;
         }
     }
 
@@ -117,10 +145,37 @@ function portal_resolve_client_context(): ?int
 
 function portal_load_branding(int $clientId): array
 {
-    $brandingJson = Capsule::table('s3_backup_tenants')
-        ->where('client_id', $clientId)
-        ->whereNotNull('branding_json')
-        ->value('branding_json');
+    $mspId = portal_resolve_msp_id_for_client($clientId);
+    if ($mspId !== null) {
+        $portalJson = null;
+        try {
+            $portalJson = Capsule::table('eb_msp_settings')
+                ->where('msp_id', $mspId)
+                ->value('portal_branding_json');
+        } catch (\Throwable $e) {}
+        if ($portalJson) {
+            $stored = json_decode((string)$portalJson, true);
+            if (is_array($stored) && isset($stored['identity'])) {
+                $merged = portal_default_branding();
+                $identity = (array)($stored['identity'] ?? []);
+                foreach ($identity as $k => $v) {
+                    if ($v !== '' && $v !== null) { $merged[$k] = $v; }
+                }
+                if (!empty($stored['portal_pages'])) { $merged['portal_pages'] = $stored['portal_pages']; }
+                if (!empty($stored['footer']['text'])) { $merged['footer_text'] = $stored['footer']['text']; }
+                return $merged;
+            }
+        }
+    }
+
+    if ($mspId !== null) {
+        $brandingJson = Capsule::table('eb_tenants')
+            ->where('msp_id', $mspId)
+            ->whereNotNull('branding_json')
+            ->value('branding_json');
+    } else {
+        $brandingJson = null;
+    }
 
     $branding = $brandingJson ? json_decode($brandingJson, true) : [];
     if (!is_array($branding)) {
@@ -177,8 +232,8 @@ function portal_require_auth(): array
         exit;
     }
 
-    $row = Capsule::table('s3_backup_tenant_users as u')
-        ->join('s3_backup_tenants as t', 'u.tenant_id', '=', 't.id')
+    $row = Capsule::table('eb_tenant_users as u')
+        ->join('eb_tenants as t', 'u.tenant_id', '=', 't.id')
         ->where('u.id', $userId)
         ->where('u.tenant_id', $tenantId)
         ->where('u.status', 'active')
@@ -189,7 +244,7 @@ function portal_require_auth(): array
             'u.email',
             'u.name',
             'u.role',
-            't.client_id',
+            't.msp_id as owner_id',
             't.name as tenant_name',
         ]);
     if (!$row) {
@@ -209,9 +264,15 @@ function portal_require_auth(): array
         exit;
     }
 
+    $clientId = (int) ($row->owner_id ?? 0);
+    if ($clientId > 0) {
+        $msp = Capsule::table('eb_msp_accounts')->where('id', $clientId)->first(['whmcs_client_id']);
+        $clientId = $msp ? (int) $msp->whmcs_client_id : 0;
+    }
+
     $sess['user_id'] = (int) $row->user_id;
     $sess['tenant_id'] = (int) $row->tenant_id;
-    $sess['client_id'] = (int) ($row->client_id ?? 0);
+    $sess['client_id'] = $clientId;
     $sess['email'] = (string) ($row->email ?? '');
     $sess['name'] = (string) ($row->name ?? '');
     $sess['role'] = (string) ($row->role ?? '');
@@ -240,8 +301,8 @@ function portal_require_auth_json(): array
         portal_json(['status' => 'fail', 'message' => 'auth'], 401);
     }
 
-    $row = Capsule::table('s3_backup_tenant_users as u')
-        ->join('s3_backup_tenants as t', 'u.tenant_id', '=', 't.id')
+    $row = Capsule::table('eb_tenant_users as u')
+        ->join('eb_tenants as t', 'u.tenant_id', '=', 't.id')
         ->where('u.id', $userId)
         ->where('u.tenant_id', $tenantId)
         ->where('u.status', 'active')
@@ -252,7 +313,7 @@ function portal_require_auth_json(): array
             'u.email',
             'u.name',
             'u.role',
-            't.client_id',
+            't.msp_id as owner_id',
             't.name as tenant_name',
         ]);
     if (!$row) {
@@ -265,9 +326,15 @@ function portal_require_auth_json(): array
         portal_json(['status' => 'fail', 'message' => 'auth'], 401);
     }
 
+    $clientId = (int) ($row->owner_id ?? 0);
+    if ($clientId > 0) {
+        $msp = Capsule::table('eb_msp_accounts')->where('id', $clientId)->first(['whmcs_client_id']);
+        $clientId = $msp ? (int) $msp->whmcs_client_id : 0;
+    }
+
     $sess['user_id'] = (int) $row->user_id;
     $sess['tenant_id'] = (int) $row->tenant_id;
-    $sess['client_id'] = (int) ($row->client_id ?? 0);
+    $sess['client_id'] = $clientId;
     $sess['email'] = (string) ($row->email ?? '');
     $sess['name'] = (string) ($row->name ?? '');
     $sess['role'] = (string) ($row->role ?? '');
