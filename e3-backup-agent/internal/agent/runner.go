@@ -77,6 +77,7 @@ func (r *Runner) Start(stop <-chan struct{}) {
 
 	go r.reportVolumesLoop(stop)
 	go r.commandLoop(stop)
+	go r.cloudNASPrepareLoop(stop)
 
 	for {
 		if err := r.pollOnce(); err != nil {

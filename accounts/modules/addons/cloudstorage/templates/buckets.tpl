@@ -3334,5 +3334,41 @@ rclone lsf e3:&lt;bucket&gt; --format "spt" --recursive   # quick scan items
                 serverMessage.hide();
             }
         });
+
+        function focusBucketFromHash() {
+            var hash = window.location.hash || '';
+            var match = hash.match(/^#bucketRow(\d+)$/);
+            if (!match) {
+                return;
+            }
+
+            var row = document.getElementById('bucketRow' + match[1]);
+            if (!row) {
+                return;
+            }
+
+            try {
+                row.scrollIntoView({ block: 'center', behavior: 'smooth' });
+            } catch (e) {}
+
+            var originalBorderColor = row.style.borderColor || '';
+            var originalBoxShadow = row.style.boxShadow || '';
+            row.style.borderColor = 'rgba(250, 204, 21, 0.95)';
+            row.style.boxShadow = '0 0 0 2px rgba(250, 204, 21, 0.45), 0 16px 32px rgba(250, 204, 21, 0.18)';
+
+            window.clearTimeout(row._bucketFocusTimer);
+            row._bucketFocusTimer = window.setTimeout(function() {
+                row.style.borderColor = originalBorderColor;
+                row.style.boxShadow = originalBoxShadow;
+            }, 2600);
+        }
+
+        window.addEventListener('hashchange', function() {
+            window.setTimeout(focusBucketFromHash, 50);
+        });
+
+        jQuery(document).ready(function() {
+            window.setTimeout(focusBucketFromHash, 150);
+        });
     </script>
 {/literal}

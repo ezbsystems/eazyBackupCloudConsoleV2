@@ -11,9 +11,11 @@ use WHMCS\ClientArea;
 use WHMCS\Module\Addon\CloudStorage\Admin\ProductConfig;
 use WHMCS\Module\Addon\CloudStorage\Client\DBController;
 use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupController;
+use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupEventFormatter;
 use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupLogFormatter;
 use WHMCS\Module\Addon\CloudStorage\Client\SanitizedLogFormatter;
 use WHMCS\Module\Addon\CloudStorage\Client\TimezoneHelper;
+use WHMCS\Module\Addon\CloudStorage\Client\UuidBinary;
 
 $ca = new ClientArea();
 if (!$ca->isLoggedIn()) {
@@ -68,6 +70,7 @@ $userTz = TimezoneHelper::resolveUserTimezone($loggedInUserId, $run['job_id'] ??
 $sanitized = SanitizedLogFormatter::sanitizeAndStructure($run['log_excerpt'] ?? null, $run['status'] ?? null, $userTz);
 $formattedBackupLog = $sanitized['formatted_log'];
 $formattedValidationLog = null;
+$rawBackupExcerpt = trim((string) ($run['log_excerpt'] ?? ''));
 
 // Format validation log if available
 if (!empty($run['validation_log_excerpt']) && $run['validation_mode'] === 'post_run') {
@@ -86,11 +89,15 @@ if ($limit > 5000) {
 }
 try {
     if (\WHMCS\Database\Capsule::schema()->hasTable('s3_cloudbackup_run_logs')) {
-        $logRows = \WHMCS\Database\Capsule::table('s3_cloudbackup_run_logs')
-                    ->where('run_id', $run['id'] ?? 0)
+        $logQuery = \WHMCS\Database\Capsule::table('s3_cloudbackup_run_logs')
             ->orderBy('created_at', 'asc')
-            ->limit($limit)
-            ->get();
+            ->limit($limit);
+        if (is_string($runIdentifier) && UuidBinary::isUuid($runIdentifier)) {
+            $logQuery->whereRaw('run_id = ' . UuidBinary::toDbExpr(UuidBinary::normalize($runIdentifier)));
+        } else {
+            $logQuery->where('run_id', $run['id'] ?? 0);
+        }
+        $logRows = $logQuery->get();
         foreach ($logRows as $row) {
             $details = null;
             if (!empty($row->details_json)) {
@@ -112,6 +119,48 @@ try {
     // ignore; best-effort
 }
 
+// Fallback: when excerpt/run_logs are empty, use the event stream as the user-visible run log.
+if (empty($structuredLogs) && $rawBackupExcerpt === '' && \WHMCS\Database\Capsule::schema()->hasTable('s3_cloudbackup_run_events')) {
+    try {
+        $eventQuery = \WHMCS\Database\Capsule::table('s3_cloudbackup_run_events')
+            ->select(['id', 'ts', 'type', 'level', 'code', 'message_id', 'params_json'])
+            ->orderBy('id', 'asc')
+            ->limit($limit);
+        if (is_string($runIdentifier) && UuidBinary::isUuid($runIdentifier)) {
+            $eventQuery->whereRaw('run_id = ' . UuidBinary::toDbExpr(UuidBinary::normalize($runIdentifier)));
+        } else {
+            $eventQuery->where('run_id', $run['id'] ?? 0);
+        }
+        $eventRows = $eventQuery->get();
+        foreach ($eventRows as $row) {
+            $params = [];
+            if (!empty($row->params_json)) {
+                $decoded = json_decode($row->params_json, true);
+                if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                    $params = $decoded;
+                }
+            }
+            $structuredLogs[] = [
+                'ts' => TimezoneHelper::formatTimestamp($row->ts, $userTz),
+                'level' => (string) ($row->level ?? 'info'),
+                'code' => (string) ($row->code ?? ''),
+                'message' => CloudBackupEventFormatter::render((string) ($row->message_id ?? ''), $params),
+                'details' => !empty($params) ? $params : null,
+            ];
+        }
+    } catch (\Throwable $e) {
+        // ignore; best-effort
+    }
+}
+
+if ($rawBackupExcerpt === '' && !empty($structuredLogs)) {
+    $formattedBackupLog = implode("\n", array_map(static function ($row) {
+        $ts = !empty($row['ts']) ? '[' . $row['ts'] . '] ' : '';
+        $level = !empty($row['level']) ? '(' . strtoupper((string) $row['level']) . ') ' : '';
+        return $ts . $level . (string) ($row['message'] ?? '');
+    }, $structuredLogs));
+}
+
 $jsonData = [
     'status' => 'success',
     'backup_log' => $formattedBackupLog,
@@ -123,4 +172,3 @@ $jsonData = [
 $response = new JsonResponse($jsonData, 200);
 $response->send();
 exit();
-

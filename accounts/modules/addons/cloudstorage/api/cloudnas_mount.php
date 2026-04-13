@@ -1,7 +1,12 @@
 <?php
 /**
  * Cloud NAS - Mount Drive
- * Sends a mount command to the agent for a configured mount
+ * Provisions temporary S3 credentials, queues the nas_mount agent command,
+ * and updates the mount status so the dashboard can track progress.
+ *
+ * Uses AdminOps temporary keys so the mount works regardless of whether the
+ * customer has stored access keys (Option B / key-less provisioning).
+ * The temp key is recorded on the mount row and revoked on unmount.
  */
 
 require_once __DIR__ . '/../../../../init.php';
@@ -12,6 +17,7 @@ use WHMCS\ClientArea;
 use WHMCS\Module\Addon\CloudStorage\Admin\ProductConfig;
 use WHMCS\Module\Addon\CloudStorage\Client\DBController;
 use WHMCS\Module\Addon\CloudStorage\Client\HelperController;
+use WHMCS\Module\Addon\CloudStorage\Admin\AdminOps;
 
 if (!defined("WHMCS")) {
     die("This file cannot be accessed directly");
@@ -24,13 +30,28 @@ if (!$ca->isLoggedIn()) {
 }
 $clientId = $ca->getUserID();
 
-// Get JSON input
 $input = json_decode(file_get_contents('php://input'), true);
 $mountId = intval($input['mount_id'] ?? 0);
 
 if ($mountId <= 0) {
     (new JsonResponse(['status' => 'error', 'message' => 'Mount ID is required'], 200))->send();
     exit;
+}
+
+/**
+ * Helper: set mount to error state in DB so the UI reflects it.
+ */
+function failMount(int $mountId, string $errorMessage): void
+{
+    try {
+        Capsule::table('s3_cloudnas_mounts')
+            ->where('id', $mountId)
+            ->update([
+                'status'     => 'error',
+                'error'      => $errorMessage,
+                'updated_at' => date('Y-m-d H:i:s'),
+            ]);
+    } catch (\Throwable $ignored) {}
 }
 
 try {
@@ -49,37 +70,39 @@ try {
         (new JsonResponse(['status' => 'error', 'message' => 'Drive is already mounted'], 200))->send();
         exit;
     }
+
     $agent = Capsule::table('s3_cloudbackup_agents')
         ->where('id', (int) $mount->agent_id)
         ->where('client_id', $clientId)
         ->first(['agent_uuid']);
     if (!$agent || trim((string) ($agent->agent_uuid ?? '')) === '') {
+        failMount($mountId, 'Agent not found');
         (new JsonResponse(['status' => 'error', 'message' => 'Agent not found for mount'], 200))->send();
         exit;
     }
     $agentUuid = trim((string) $agent->agent_uuid);
 
-    // Get user's S3 user account
+    // Resolve the storage user that owns the bucket
     $packageId = ProductConfig::$E3_PRODUCT_ID;
     $product = DBController::getProduct($clientId, $packageId);
     if (is_null($product) || is_null($product->username)) {
+        failMount($mountId, 'No storage account');
         (new JsonResponse(['status' => 'error', 'message' => 'No storage account found'], 200))->send();
         exit;
     }
-    
+
     $user = DBController::getUser($product->username);
     if (is_null($user)) {
+        failMount($mountId, 'Storage user not found');
         (new JsonResponse(['status' => 'error', 'message' => 'User not found'], 200))->send();
         exit;
     }
 
-    // Get user and tenant IDs
     $tenants = DBController::getResult('s3_users', [
         ['parent_id', '=', $user->id]
     ], ['id'])->pluck('id')->toArray();
     $userIds = array_merge([$user->id], $tenants);
 
-    // Get bucket - find which user owns it
     $bucket = Capsule::table('s3_buckets')
         ->where('name', $mount->bucket_name)
         ->whereIn('user_id', $userIds)
@@ -87,59 +110,104 @@ try {
         ->first();
 
     if (!$bucket) {
+        failMount($mountId, 'Bucket not found or access denied');
         (new JsonResponse(['status' => 'error', 'message' => 'Bucket not found'], 200))->send();
         exit;
     }
 
-    // Get access keys for the bucket owner
-    $accessKeys = Capsule::table('s3_user_access_keys')
-        ->where('user_id', $bucket->user_id)
-        ->first();
+    // ---------------------------------------------------------------
+    // Resolve S3 credentials via AdminOps temporary key.
+    // This avoids reliance on stored/encrypted customer keys which may
+    // not exist under Option B provisioning.
+    // ---------------------------------------------------------------
+    $settings = Capsule::table('tbladdonmodules')
+        ->where('module', 'cloudstorage')
+        ->whereIn('setting', ['s3_endpoint', 'cloudbackup_agent_s3_endpoint', 'cloudbackup_agent_s3_region', 'ceph_access_key', 'ceph_secret_key', 'encryption_key'])
+        ->pluck('value', 'setting');
 
-    if (!$accessKeys) {
-        (new JsonResponse(['status' => 'error', 'message' => 'No access keys found for bucket owner'], 200))->send();
+    // s3_endpoint is the internal Ceph RGW address (for admin ops).
+    // cloudbackup_agent_s3_endpoint is the public URL agents should use.
+    $s3Endpoint     = $settings['s3_endpoint']     ?? 'https://s3.eazybackup.ca';
+    $agentEndpoint  = trim($settings['cloudbackup_agent_s3_endpoint'] ?? '');
+    if ($agentEndpoint === '') {
+        $agentEndpoint = $s3Endpoint;
+    }
+    $agentRegion    = trim($settings['cloudbackup_agent_s3_region'] ?? '') ?: 'us-east-1';
+    $adminAccessKey = $settings['ceph_access_key'] ?? '';
+    $adminSecretKey = $settings['ceph_secret_key'] ?? '';
+    $encryptionKey  = $settings['encryption_key']  ?? '';
+
+    // Determine the Ceph UID for the bucket owner
+    $ownerRow   = Capsule::table('s3_users')->where('id', $bucket->user_id)->first();
+    $cephUid    = $ownerRow ? HelperController::resolveCephQualifiedUid($ownerRow) : '';
+
+    if ($cephUid === '') {
+        failMount($mountId, 'Cannot resolve storage identity for bucket owner');
+        (new JsonResponse(['status' => 'error', 'message' => 'Cannot resolve storage identity for bucket owner'], 200))->send();
         exit;
     }
 
-    // Get encryption key from module settings
-    $encryptionKey = Capsule::table('tbladdonmodules')
-        ->where('module', 'cloudstorage')
-        ->where('setting', 'encryption_key')
-        ->value('value');
+    // Revoke any previously-issued temp key for this mount (defensive cleanup)
+    if (Capsule::schema()->hasColumn('s3_cloudnas_mounts', 'temp_access_key')) {
+        $prevKey = $mount->temp_access_key ?? null;
+        if ($prevKey && $prevKey !== '') {
+            try {
+                AdminOps::removeKey($s3Endpoint, $adminAccessKey, $adminSecretKey, $prevKey, $cephUid, null);
+            } catch (\Throwable $ignored) {}
+            Capsule::table('s3_cloudnas_mounts')->where('id', $mountId)->update(['temp_access_key' => null]);
+        }
+    }
 
-    // Decrypt the keys using HelperController
-    $accessKey = HelperController::decryptKey($accessKeys->access_key, $encryptionKey);
-    $secretKey = HelperController::decryptKey($accessKeys->secret_key, $encryptionKey);
+    // Create a temporary S3 key for the bucket owner via AdminOps
+    $accessKey = '';
+    $secretKey = '';
 
-    if (!$accessKey || !$secretKey) {
-        (new JsonResponse(['status' => 'error', 'message' => 'Failed to decrypt access credentials'], 200))->send();
+    if ($adminAccessKey !== '' && $adminSecretKey !== '') {
+        $tmp = AdminOps::createTempKey($s3Endpoint, $adminAccessKey, $adminSecretKey, $cephUid, null);
+        if (is_array($tmp) && ($tmp['status'] ?? '') === 'success') {
+            $accessKey = (string) ($tmp['access_key'] ?? '');
+            $secretKey = (string) ($tmp['secret_key'] ?? '');
+        }
+    }
+
+    if ($accessKey === '' || $secretKey === '') {
+        failMount($mountId, 'Unable to provision S3 credentials for mount');
+        (new JsonResponse(['status' => 'error', 'message' => 'Unable to provision S3 credentials for mount. Check admin S3 settings.'], 200))->send();
         exit;
     }
 
-    // Get S3 endpoint from settings
-    $s3Endpoint = Capsule::table('tbladdonmodules')
-        ->where('module', 'cloudstorage')
-        ->where('setting', 's3_endpoint')
-        ->value('value') ?: 'https://s3.eazybackup.ca';
+    // Persist the temp access key ID so it can be revoked on unmount.
+    $mountUpdate = [
+        'status'     => 'mounting',
+        'error'      => null,
+        'updated_at' => date('Y-m-d H:i:s'),
+    ];
+    if (Capsule::schema()->hasColumn('s3_cloudnas_mounts', 'temp_access_key')) {
+        $mountUpdate['temp_access_key'] = $accessKey;
+    }
+    if (Capsule::schema()->hasColumn('s3_cloudnas_mounts', 'temp_key_ceph_uid')) {
+        $mountUpdate['temp_key_ceph_uid'] = $cephUid;
+    }
+    Capsule::table('s3_cloudnas_mounts')->where('id', $mountId)->update($mountUpdate);
 
-    // Queue mount command for agent
     $commandPayload = [
-        'run_id' => null, // No associated run (NULL to avoid FK constraint)
+        'run_id' => null,
         'type' => 'nas_mount',
         'payload_json' => json_encode([
             'mount_id' => $mountId,
-            'bucket' => $mount->bucket_name,
-            'prefix' => $mount->prefix,
-            'drive_letter' => $mount->drive_letter,
-            'read_only' => (bool)$mount->read_only,
-            'cache_mode' => $mount->cache_mode,
-            'endpoint' => $s3Endpoint,
+            'bucket' => (string) $mount->bucket_name,
+            'prefix' => (string) ($mount->prefix ?? ''),
+            'drive_letter' => (string) $mount->drive_letter,
+            'read_only' => !empty($mount->read_only),
+            'cache_mode' => (string) ($mount->cache_mode ?? 'writes'),
+            'persistent' => !empty($mount->persistent),
+            'endpoint' => $agentEndpoint,
             'access_key' => $accessKey,
             'secret_key' => $secretKey,
-            'region' => 'us-east-1'
+            'region' => $agentRegion,
         ]),
         'status' => 'pending',
-        'created_at' => Capsule::raw('NOW()')
+        'created_at' => Capsule::raw('NOW()'),
     ];
     if (Capsule::schema()->hasColumn('s3_cloudbackup_run_commands', 'agent_uuid')) {
         $commandPayload['agent_uuid'] = $agentUuid;
@@ -148,23 +216,17 @@ try {
     }
     $commandId = Capsule::table('s3_cloudbackup_run_commands')->insertGetId($commandPayload);
 
-    // Update mount status to mounting
-    Capsule::table('s3_cloudnas_mounts')
-        ->where('id', $mountId)
-        ->update([
-            'status' => 'mounting',
-            'error' => null,
-            'updated_at' => date('Y-m-d H:i:s')
-        ]);
-
     (new JsonResponse([
         'status' => 'success',
-        'message' => 'Mount command queued',
-        'command_id' => $commandId
+        'message' => 'Mount command queued. Drive mounting in progress.',
+        'mount_id' => $mountId,
+        'agent_uuid' => $agentUuid,
+        'command_id' => $commandId,
     ], 200))->send();
 
 } catch (Exception $e) {
     error_log("cloudnas_mount error: " . $e->getMessage());
+    failMount($mountId, 'Internal error: ' . $e->getMessage());
     (new JsonResponse(['status' => 'error', 'message' => 'Failed to send mount command'], 200))->send();
 }
 exit;

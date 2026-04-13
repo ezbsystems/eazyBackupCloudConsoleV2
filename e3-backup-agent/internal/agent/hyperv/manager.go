@@ -106,17 +106,32 @@ $ErrorActionPreference = 'Stop'
 $vm = Get-VM -Name '%s' -ErrorAction Stop
 $disks = Get-VMHardDiskDrive -VM $vm | ForEach-Object {
     $vhd = $null
+    $fileSizeFallback = 0
     try {
         $vhd = Get-VHD -Path $_.Path -ErrorAction SilentlyContinue
     } catch {}
+    # Fallback: if Get-VHD fails (e.g., VHDX locked by running VM), use actual file size
+    if (-not $vhd -or ($vhd.FileSize -eq 0 -and $vhd.Size -eq 0)) {
+        try {
+            $fi = Get-Item -Path $_.Path -ErrorAction SilentlyContinue
+            if ($fi) {
+                $fileSizeFallback = $fi.Length
+            }
+        } catch {}
+    }
+    # SizeBytes = actual file size on disk (FileSize), not virtual capacity (Size).
+    # For dynamic VHDX, Size is the max virtual capacity (e.g. 127GB) while
+    # FileSize is the actual bytes on disk (e.g. 39GB). The backup agent reads
+    # the physical file, so it needs the real file size for progress and tail detection.
     @{
         ControllerType = $_.ControllerType.ToString()
         ControllerNumber = $_.ControllerNumber
         ControllerLocation = $_.ControllerLocation
         Path = $_.Path
-        SizeBytes = if ($vhd) { $vhd.Size } else { 0 }
-        UsedBytes = if ($vhd) { $vhd.FileSize } else { 0 }
+        SizeBytes = if ($vhd -and $vhd.FileSize -gt 0) { $vhd.FileSize } elseif ($fileSizeFallback -gt 0) { $fileSizeFallback } elseif ($vhd -and $vhd.Size -gt 0) { $vhd.Size } else { 0 }
+        UsedBytes = if ($vhd) { $vhd.FileSize } elseif ($fileSizeFallback -gt 0) { $fileSizeFallback } else { 0 }
         VHDFormat = if ($vhd) { $vhd.VhdFormat.ToString() } else { "Unknown" }
+        VirtualSize = if ($vhd -and $vhd.Size -gt 0) { $vhd.Size } else { 0 }
         RCTEnabled = $_.SupportPersistentReservations
         RCTID = ""
     }
@@ -165,17 +180,29 @@ $vm = Get-VM | Where-Object { $_.VMId.ToString() -eq '%s' } | Select-Object -Fir
 if (-not $vm) { throw "VM not found: %s" }
 $disks = Get-VMHardDiskDrive -VM $vm | ForEach-Object {
     $vhd = $null
+    $fileSizeFallback = 0
     try {
         $vhd = Get-VHD -Path $_.Path -ErrorAction SilentlyContinue
     } catch {}
+    # Fallback: if Get-VHD fails (e.g., VHDX locked by running VM), use actual file size
+    if (-not $vhd -or ($vhd.FileSize -eq 0 -and $vhd.Size -eq 0)) {
+        try {
+            $fi = Get-Item -Path $_.Path -ErrorAction SilentlyContinue
+            if ($fi) {
+                $fileSizeFallback = $fi.Length
+            }
+        } catch {}
+    }
+    # SizeBytes = actual file size on disk (FileSize), not virtual capacity (Size).
     @{
         ControllerType = $_.ControllerType.ToString()
         ControllerNumber = $_.ControllerNumber
         ControllerLocation = $_.ControllerLocation
         Path = $_.Path
-        SizeBytes = if ($vhd) { $vhd.Size } else { 0 }
-        UsedBytes = if ($vhd) { $vhd.FileSize } else { 0 }
+        SizeBytes = if ($vhd -and $vhd.FileSize -gt 0) { $vhd.FileSize } elseif ($fileSizeFallback -gt 0) { $fileSizeFallback } elseif ($vhd -and $vhd.Size -gt 0) { $vhd.Size } else { 0 }
+        UsedBytes = if ($vhd) { $vhd.FileSize } elseif ($fileSizeFallback -gt 0) { $fileSizeFallback } else { 0 }
         VHDFormat = if ($vhd) { $vhd.VhdFormat.ToString() } else { "Unknown" }
+        VirtualSize = if ($vhd -and $vhd.Size -gt 0) { $vhd.Size } else { 0 }
         RCTEnabled = $_.SupportPersistentReservations
         RCTID = ""
     }

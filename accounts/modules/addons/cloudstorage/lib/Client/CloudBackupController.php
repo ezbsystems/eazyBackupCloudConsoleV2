@@ -40,20 +40,20 @@ class CloudBackupController {
 
             // Preload agent hostnames for local agent jobs
             $agentNames = [];
-            $agentIds = [];
+            $agentUuids = [];
             foreach ($jobs as $job) {
-                if (!empty($job->agent_id)) {
-                    $agentIds[] = (int) $job->agent_id;
+                if (!empty($job->agent_uuid)) {
+                    $agentUuids[] = (string) $job->agent_uuid;
                 }
             }
-            if (!empty($agentIds)) {
+            if (!empty($agentUuids)) {
                 $agentRows = Capsule::table('s3_cloudbackup_agents')
-                    ->whereIn('id', $agentIds)
+                    ->whereIn('agent_uuid', $agentUuids)
                     ->where('client_id', $clientId)
-                    ->select('id', 'hostname')
+                    ->select('agent_uuid', 'hostname')
                     ->get();
                 foreach ($agentRows as $agent) {
-                    $agentNames[(int) $agent->id] = $agent->hostname;
+                    $agentNames[(string) $agent->agent_uuid] = $agent->hostname;
                 }
             }
 
@@ -71,8 +71,8 @@ class CloudBackupController {
                 }
                 
                 // Attach agent hostname when available
-                if (!empty($job->agent_id)) {
-                    $jobArray['agent_hostname'] = $agentNames[(int) $job->agent_id] ?? null;
+                if (!empty($job->agent_uuid)) {
+                    $jobArray['agent_hostname'] = $agentNames[(string) $job->agent_uuid] ?? null;
                 }
 
                 // Get last run summary (schema-aware: use binary or numeric job id for join)
@@ -174,6 +174,7 @@ class CloudBackupController {
             $jobData = [
                 'client_id' => $data['client_id'],
                 'tenant_id' => $data['tenant_id'] ?? null,
+                'backup_user_id' => $data['backup_user_id'] ?? null,
                 'repository_id' => $data['repository_id'] ?? null,
                 's3_user_id' => $data['s3_user_id'],
                 'name' => $data['name'],
@@ -214,9 +215,6 @@ class CloudBackupController {
                 'created_at' => date('Y-m-d H:i:s'),
                 'updated_at' => date('Y-m-d H:i:s'),
             ];
-            if (isset($data['agent_id'])) {
-                $jobData['agent_id'] = $data['agent_id'];
-            }
             if (isset($data['agent_uuid'])) {
                 $jobData['agent_uuid'] = $data['agent_uuid'];
             }
@@ -233,6 +231,7 @@ class CloudBackupController {
             $optionalCols = [
                 'source_connection_id',
                 'tenant_id',
+                'backup_user_id',
                 'repository_id',
                 'engine',
                 'dest_type',
@@ -337,8 +336,8 @@ class CloudBackupController {
             if (array_key_exists('tenant_id', $data)) {
                 $updateData['tenant_id'] = $data['tenant_id'];
             }
-            if (array_key_exists('agent_id', $data)) {
-                $updateData['agent_id'] = $data['agent_id'];
+            if (array_key_exists('backup_user_id', $data)) {
+                $updateData['backup_user_id'] = $data['backup_user_id'];
             }
             if (array_key_exists('agent_uuid', $data)) {
                 $updateData['agent_uuid'] = $data['agent_uuid'];
@@ -688,9 +687,9 @@ class CloudBackupController {
             }
 
             // Normalize/validate local agent jobs before proceeding
-            $hasAgentIdJobs = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'agent_id');
             $hasSourceTypeCol = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'source_type');
             $jobIsLocalAgent = ($job['source_type'] ?? '') === 'local_agent';
+            $jobHasAgent = !empty($job['agent_uuid'] ?? null);
 
             // Helper closure: build a WHERE for s3_cloudbackup_jobs by the appropriate PK
             $hasJobIdPk = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'job_id');
@@ -704,8 +703,8 @@ class CloudBackupController {
                 return $q;
             };
 
-            // Legacy rows may have engine=kopia + agent_id but blank source_type (enum not updated when created)
-            if (!$jobIsLocalAgent && $hasAgentIdJobs && !empty($job['agent_id']) && (($job['engine'] ?? '') === 'kopia')) {
+            // Legacy rows may have engine=kopia + agent but blank source_type
+            if (!$jobIsLocalAgent && $jobHasAgent && (($job['engine'] ?? '') === 'kopia')) {
                 if ($hasSourceTypeCol) {
                     try {
                         $jobWhereQuery()->update(['source_type' => 'local_agent']);
@@ -717,15 +716,15 @@ class CloudBackupController {
                 }
             }
 
-            // Hard-require agent_id for local_agent jobs to avoid the cloud worker picking them up
+            // Hard-require an agent for local_agent jobs to avoid the cloud worker picking them up
             if ($jobIsLocalAgent) {
-                if (!$hasAgentIdJobs || empty($job['agent_id'])) {
+                if (!$jobHasAgent) {
                     logModuleCall(self::$module, 'startRun', ['job_id' => $jobId, 'client_id' => $clientId], 'Local agent job missing agent assignment');
                     return ['status' => 'fail', 'message' => 'This Local Agent job is missing an assigned agent. Please edit the job and select an agent.'];
                 }
             }
 
-            // If engine is Kopia but the row still isn't marked local_agent or lacks agent_id, stop and fail fast
+            // If engine is Kopia but the row still isn't marked local_agent or lacks agent, stop and fail fast
             if (($job['engine'] ?? '') === 'kopia') {
                 if (!$jobIsLocalAgent && $hasSourceTypeCol) {
                     try {
@@ -736,7 +735,7 @@ class CloudBackupController {
                         logModuleCall(self::$module, 'startRun_backfill_source_type_kopia', ['job_id' => $jobId], $e->getMessage());
                     }
                 }
-                if (empty($job['agent_id'])) {
+                if (!$jobHasAgent) {
                     logModuleCall(self::$module, 'startRun', ['job_id' => $jobId, 'client_id' => $clientId], 'Archive job missing agent assignment');
                     return ['status' => 'fail', 'message' => 'eazyBackup jobs require a Local Agent. Please assign an agent before starting the run.'];
                 }
@@ -829,14 +828,12 @@ class CloudBackupController {
             if ($hasDestLocalCol) {
                 $runInsert['dest_local_path'] = $job['dest_local_path'] ?? null;
             }
-            // Bind run to agent so agents can filter/claim (only if column exists)
-            $hasAgentIdCol = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'agent_id');
-            if ($hasAgentIdCol && !empty($job['agent_id'])) {
-                $runInsert['agent_id'] = (int)$job['agent_id'];
-                // Hint: mark worker_host so cloud workers ignore; agent will claim via agent_next_run
-                if ($hasWorkerHostCol) {
-                    $runInsert['worker_host'] = 'agent-' . (int)$job['agent_id'];
-                }
+            // Bind run to agent so agents can filter/claim via agent_uuid
+            if (Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'agent_uuid') && !empty($job['agent_uuid'])) {
+                $runInsert['agent_uuid'] = (string) $job['agent_uuid'];
+            }
+            if ($hasWorkerHostCol && $jobHasAgent) {
+                $runInsert['worker_host'] = (string) $job['agent_uuid'];
             }
             if ($hasRunIdCol && $runUuid) {
                 Capsule::table('s3_cloudbackup_runs')->insert($runInsert);
@@ -1489,11 +1486,11 @@ class CloudBackupController {
                 return ['status' => 'skip', 'message' => 'Job not found'];
             }
 
-            $agentId = (int) ($run->agent_id ?? $job->agent_id ?? 0);
+            $agentUuid = (string) ($run->agent_uuid ?? $job->agent_uuid ?? '');
             $agent = null;
-            if ($agentId > 0) {
+            if ($agentUuid !== '') {
                 $agent = Capsule::table('s3_cloudbackup_agents')
-                    ->where('id', $agentId)
+                    ->where('agent_uuid', $agentUuid)
                     ->first();
             }
 
@@ -1515,7 +1512,8 @@ class CloudBackupController {
                 'tenant_id' => $run->tenant_id ?? $job->tenant_id ?? null,
                 'repository_id' => $run->repository_id ?? $job->repository_id ?? null,
                 'tenant_user_id' => $job->tenant_user_id ?? ($agent->tenant_user_id ?? null),
-                'agent_id' => $agentId > 0 ? $agentId : null,
+                'backup_user_id' => $job->backup_user_id ?? ($agent->backup_user_id ?? null),
+                'agent_uuid' => $agentUuid !== '' ? $agentUuid : null,
                 'job_id' => $hasJobIdPk ? Capsule::raw(UuidBinary::toDbExpr(UuidBinary::normalize($job->job_id_uuid ?? ''))) : (int) ($job->id ?? 0),
                 'job_name' => (string) ($job->name ?? ''),
                 'run_id' => $hasRunIdPk ? Capsule::raw(UuidBinary::toDbExpr(UuidBinary::normalize((string) $runId))) : (int) ($run->id ?? 0),
@@ -1645,7 +1643,7 @@ class CloudBackupController {
                 $payload = [
                     'client_id' => (int) ($job->client_id ?? 0),
                     'tenant_id' => $run->tenant_id ?? null,
-                    'agent_id' => (int) ($run->agent_id ?? $job->agent_id ?? 0),
+                    'agent_uuid' => (string) ($run->agent_uuid ?? $job->agent_uuid ?? ''),
                     'run_id' => (int) ($run->id ?? 0),
                     'restore_point_id' => $restorePointId > 0 ? $restorePointId : null,
                     'profile' => RecoveryMediaBundleService::normalizeProfile((string) $profile),
@@ -1782,4 +1780,3 @@ class CloudBackupController {
         return vsprintf('%s%s-%s-%s-%s-%s%s%s', str_split(bin2hex($bytes), 4));
     }
 }
-

@@ -43,12 +43,28 @@ if (empty($s3Endpoint) || empty($cephAdminUser) || empty($cephAdminAccessKey) ||
 // Get only cloud source type jobs (excludes local_agent, Kopia-family engines)
 $cloudSourceTypes = KopiaRetentionRoutingService::getCloudSourceTypes();
 $kopiaFamilyEngines = KopiaRetentionRoutingService::getKopiaFamilyEngines();
+$hasJobIdPk = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'job_id');
+$hasEngineColumn = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'engine');
+$jobIdSelect = $hasJobIdPk
+    ? Capsule::raw('BIN_TO_UUID(job_id) as job_id')
+    : 'id';
+$jobSelect = [
+    $jobIdSelect,
+    'name',
+    'retention_mode',
+    'retention_value',
+    'source_type',
+];
+if ($hasEngineColumn) {
+    $jobSelect[] = 'engine';
+}
 $jobs = Capsule::table('s3_cloudbackup_jobs')
     ->where('status', 'active')
     ->whereIn('retention_mode', ['keep_last_n', 'keep_days'])
     ->whereNotNull('retention_value')
-    ->whereIn('source_type', $cloudSourceTypes);
-if (Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'engine')) {
+    ->whereIn('source_type', $cloudSourceTypes)
+    ->select($jobSelect);
+if ($hasEngineColumn) {
     $jobs = $jobs->whereNotIn('engine', $kopiaFamilyEngines);
 }
 $jobs = $jobs->get();
@@ -64,10 +80,11 @@ $errorCount = 0;
 
 foreach ($jobs as $job) {
     try {
-        echo "Processing job ID {$job->id} ({$job->name}) - Retention: {$job->retention_mode} = {$job->retention_value}\n";
+        $jobIdentifier = $hasJobIdPk ? $job->job_id : $job->id;
+        echo "Processing job ID {$jobIdentifier} ({$job->name}) - Retention: {$job->retention_mode} = {$job->retention_value}\n";
         
         $result = CloudBackupController::applyRetentionPolicy(
-            $job->id,
+            $jobIdentifier,
             $s3Endpoint,
             $cephAdminUser,
             $cephAdminAccessKey,
@@ -90,8 +107,9 @@ foreach ($jobs as $job) {
         }
     } catch (\Exception $e) {
         $errorCount++;
-        echo "  ✗ Error processing job {$job->id}: " . $e->getMessage() . "\n";
-        logModuleCall('cloudstorage', 'retention_cleanup', ['job_id' => $job->id], $e->getMessage());
+        $jobIdentifier = $hasJobIdPk ? ($job->job_id ?? null) : ($job->id ?? null);
+        echo "  ✗ Error processing job {$jobIdentifier}: " . $e->getMessage() . "\n";
+        logModuleCall('cloudstorage', 'retention_cleanup', ['job_id' => $jobIdentifier], $e->getMessage());
     }
 }
 

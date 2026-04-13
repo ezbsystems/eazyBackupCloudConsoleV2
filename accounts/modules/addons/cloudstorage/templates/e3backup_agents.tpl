@@ -244,7 +244,12 @@
                             <p class="eb-card-subtitle">Launch restore points filtered to this agent.</p>
                         </div>
                     </div>
-                    <button type="button" class="eb-btn eb-btn-info eb-btn-sm" @click="goToRestores(selectedAgent)">
+                    <button type="button"
+                            class="eb-btn eb-btn-info eb-btn-sm"
+                            :class="selectedAgent && !selectedAgent.backup_user_route_id ? 'opacity-50 cursor-not-allowed' : ''"
+                            :disabled="selectedAgent && !selectedAgent.backup_user_route_id"
+                            :title="selectedAgent && !selectedAgent.backup_user_route_id ? 'Agent is not linked to a backup user' : 'Open restore points for this user'"
+                            @click="goToRestores(selectedAgent)">
                         Open Restore Points
                     </button>
                 </div>
@@ -438,18 +443,19 @@ function agentsApp() {
 
         goToRestores(agent) {
             if (!agent) return;
-            const isMsp = {/literal}{if $isMspClient}true{else}false{/if}{literal};
-            const params = [];
-            if (agent.agent_uuid) params.push('agent_uuid=' + encodeURIComponent(agent.agent_uuid));
-            if (isMsp) {
-                if (agent.tenant_id) {
-                    params.push('tenant_id=' + encodeURIComponent(agent.tenant_id));
+            const backupUserRouteId = agent.backup_user_route_id ? String(agent.backup_user_route_id) : '';
+            if (!backupUserRouteId) {
+                if (typeof e3backupNotify === 'function') {
+                    e3backupNotify('error', 'This agent is not linked to a backup user yet.');
                 } else {
-                    params.push('tenant_id=direct');
+                    alert('This agent is not linked to a backup user yet.');
                 }
+                return;
             }
-            const qs = params.length ? '&' + params.join('&') : '';
-            window.location.href = 'index.php?m=cloudstorage&page=e3backup&view=restores' + qs;
+            const params = new URLSearchParams();
+            params.set('user_id', backupUserRouteId);
+            if (agent.agent_uuid) params.set('agent_uuid', String(agent.agent_uuid));
+            window.location.href = 'index.php?m=cloudstorage&page=e3backup&view=user_detail&' + params.toString() + '#restore';
         },
 
         goToCreateJob(agent) {

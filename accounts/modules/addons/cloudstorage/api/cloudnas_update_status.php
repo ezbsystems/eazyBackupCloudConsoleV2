@@ -1,7 +1,11 @@
 <?php
 /**
  * Cloud NAS - Update Mount Status (Agent Callback)
- * Called by the agent to update the status of a mount operation
+ * Called by the agent to update the status of a mount operation.
+ *
+ * Important semantics:
+ * - mounted = tray-owned Explorer-session mapping was verified by the agent
+ * - error   = no desktop session, no tray, mapping failure, or verification failure
  */
 
 require_once __DIR__ . '/../../../../init.php';
@@ -52,7 +56,7 @@ if ($mountId <= 0 || empty($status)) {
 }
 
 // Validate status
-$validStatuses = ['mounted', 'unmounted', 'mounting', 'unmounting', 'error'];
+$validStatuses = ['pending', 'mounted', 'unmounted', 'mounting', 'unmounting', 'error'];
 if (!in_array($status, $validStatuses)) {
     respond(['status' => 'error', 'message' => 'Invalid status']);
 }
@@ -87,10 +91,19 @@ try {
         ->where('id', $mountId)
         ->update($updateData);
 
+    if ($status === 'error' || $status === 'mounted') {
+        error_log(sprintf(
+            'cloudnas_update_status mount=%d agent_uuid=%s status=%s detail=%s',
+            $mountId,
+            (string) $agentUuid,
+            $status,
+            $error !== '' ? $error : '-'
+        ));
+    }
+
     respond(['status' => 'success', 'message' => 'Status updated']);
 
 } catch (Exception $e) {
     error_log("cloudnas_update_status error: " . $e->getMessage());
     respond(['status' => 'error', 'message' => 'Failed to update status']);
 }
-

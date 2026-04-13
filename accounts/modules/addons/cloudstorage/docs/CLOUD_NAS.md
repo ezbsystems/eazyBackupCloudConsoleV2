@@ -20,6 +20,7 @@
   - `api/cloudnas_unmount.php`
   - `api/cloudnas_delete_mount.php`
   - `api/cloudnas_settings.php`
+  - `api/cloudnas_available_drives.php`
   - `api/cloudnas_mount_snapshot.php`
   - `api/cloudnas_unmount_snapshot.php`
   - (Shared) `api/cloudbackup_list_jobs.php`, `api/cloudbackup_list_snapshots.php`
@@ -53,7 +54,10 @@
 - drive_letter
 - read_only (bool), persistent (bool), cache_mode
 - status (mounted, unmounted, mounting, unmounting, error)
-- error (text), last_mounted_at, created_at, updated_at
+- error (text)
+- temp_access_key (nullable) — AdminOps temp key issued for the active mount; revoked on unmount/delete
+- temp_key_ceph_uid (nullable) — Ceph UID the temp key belongs to (needed for revocation)
+- last_mounted_at, created_at, updated_at
 
 `s3_cloudnas_settings`
 - id (PK), client_id (unique)
@@ -73,10 +77,22 @@
 
 ## Server–agent flow (mount)
 1) Client creates mount config → `cloudnas_create_mount.php` stores row in `s3_cloudnas_mounts`.
-2) Client requests mount → `cloudnas_mount.php` enqueues `nas_mount` command in `s3_cloudbackup_run_commands` with payload (bucket/prefix/drive_letter/endpoint/keys/cache_mode/read_only).
+2) Client requests mount → `cloudnas_mount.php`:
+   - Resolves the Ceph UID for the bucket owner.
+   - Creates a temporary S3 key via `AdminOps::createTempKey()` (avoids reliance on stored encrypted customer keys).
+   - Stores the temp key ID in `s3_cloudnas_mounts.temp_access_key` for later revocation.
+   - Enqueues `nas_mount` command with payload (bucket/prefix/drive_letter/endpoint/temp-keys/cache_mode/read_only).
+   - On any error, updates mount status to `error` with a descriptive message for the UI.
 3) Agent polls `agent_poll_pending_commands.php` and executes `mountNASDrive`.
-4) Agent reports status via `cloudnas_update_status.php` (optional) and drive appears in UI as “mounted”.
-5) Unmount → `cloudnas_unmount.php` enqueues `nas_unmount`; agent runs `unmountNASDrive`.
+4) Agent reports status via `cloudnas_update_status.php` and drive appears in UI as "mounted" (or "error").
+5) Unmount → `cloudnas_unmount.php` revokes the temp S3 key via `AdminOps::removeKey()`, then enqueues `nas_unmount`; agent runs `unmountNASDrive`.
+6) Delete → `cloudnas_delete_mount.php` revokes the temp key and sends unmount command if mounted.
+
+## Drive letter selection
+- The mount wizard fetches available drive letters from `cloudnas_available_drives.php`.
+- This endpoint combines the agent's reported host volumes (from `s3_cloudbackup_agents.volumes_json`, reported by the agent every 5 minutes) with existing Cloud NAS mounts to exclude letters already in use.
+- Drive letters A–C are always excluded (reserved for system drives/floppy).
+- Refreshes when the agent selection changes in the wizard.
 
 ## Important considerations
 - Windows WebDAV client:
@@ -85,7 +101,8 @@
   - Default upload limit (50MB) is a WebClient setting; can be raised in the same registry key (`FileSizeLimitInBytes`).
 - Performance: WebDAV overhead is slightly higher than FUSE; VFS cache helps. Cache mode is configurable.
 - Security: WebDAV served on 127.0.0.1 only; no auth since it is loopback + agent-controlled.
-- Snapshot mount: currently stubbed; Time Machine UI calls the endpoint, but agent returns “not implemented” error—needs future work if snapshot browsing is required.
+- Temp key lifecycle: A temporary S3 key is created on mount and revoked on unmount/delete. If the agent crashes without a clean unmount, the temp key remains until the next mount or manual cleanup.
+- Snapshot mount: currently stubbed; Time Machine UI calls the endpoint, but agent returns "not implemented" error—needs future work if snapshot browsing is required.
 
 ## Testing checklist
 - Create mount (RO and RW) and verify:
@@ -94,6 +111,9 @@
   - Unmount removes mapping and server stops
 - Settings: cache modes apply; read-only enforced.
 - Error paths: invalid drive letter, missing bucket/keys, WebClient stopped.
+- Mount error feedback: error toast appears when mount fails; drive card shows error state with reason.
+- Drive letter filtering: only unused letters appear in wizard selector (no system/fixed drives shown).
+- Unmount/delete revokes temp key: verify key count in RGW decreases after unmount.
 
 ## Build / deploy notes
 - Agent builds as single binary (Windows):
@@ -103,5 +123,4 @@
 ## Future work
 - Implement Kopia snapshot mount browsing.
 - Add bandwidth enforcement for WebDAV (currently relies on VFS caching and general network limits).
-- Better status callbacks: agent → `cloudnas_update_status.php` to reflect errors in UI promptly.
-
+- Orphan temp key cleanup: periodic scan for mounts with `temp_access_key` that are in `error`/`unmounted` state and revoke stale keys.

@@ -1,328 +1,392 @@
 {* Cloud NAS - Mount Wizard Modal *}
 
-<div x-show="showMountWizard" x-cloak 
-     class="fixed inset-0 z-50 overflow-y-auto"
+<div x-show="showMountWizard" x-cloak
+     class="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto p-4"
      @keydown.escape.window="showMountWizard = false">
-    <div class="flex min-h-screen items-center justify-center p-4">
-        {* Backdrop *}
-        <div class="fixed inset-0 bg-black/70 backdrop-blur-sm" @click="showMountWizard = false"></div>
-        
-        {* Modal *}
-        <div class="relative w-full max-w-lg rounded-2xl border border-slate-800 bg-slate-950 shadow-2xl"
-             x-transition:enter="transition ease-out duration-200"
-             x-transition:enter-start="opacity-0 scale-95"
-             x-transition:enter-end="opacity-100 scale-100"
-             x-transition:leave="transition ease-in duration-150"
-             x-transition:leave-start="opacity-100 scale-100"
-             x-transition:leave-end="opacity-0 scale-95">
-            
-            {* Header *}
-            <div class="flex items-center justify-between border-b border-slate-800 px-6 py-4">
-                <h3 class="text-lg font-semibold text-white flex items-center gap-2">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 text-cyan-400">
+    <div class="eb-modal-backdrop absolute inset-0" @click="showMountWizard = false"></div>
+
+    <div class="eb-modal relative z-10 w-full max-w-lg !overflow-visible !p-0 flex flex-col max-h-[min(90vh,720px)]"
+         @click.stop
+         x-transition:enter="transition ease-out duration-200"
+         x-transition:enter-start="opacity-0 scale-95"
+         x-transition:enter-end="opacity-100 scale-100"
+         x-transition:leave="transition ease-in duration-150"
+         x-transition:leave-start="opacity-100 scale-100"
+         x-transition:leave-end="opacity-0 scale-95">
+
+        {* Header *}
+        <div class="eb-modal-header !mb-0 shrink-0">
+            <div class="flex min-w-0 items-center gap-2">
+                <span class="eb-icon-box eb-icon-box--sm eb-icon-box--default shrink-0" aria-hidden="true">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-5 w-5">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M21.75 17.25v-.228a4.5 4.5 0 00-.12-1.03l-2.268-9.64a3.375 3.375 0 00-3.285-2.602H7.923a3.375 3.375 0 00-3.285 2.602l-2.268 9.64a4.5 4.5 0 00-.12 1.03v.228m19.5 0a3 3 0 01-3 3H5.25a3 3 0 01-3-3m19.5 0a3 3 0 00-3-3H5.25a3 3 0 00-3 3m16.5 0h.008v.008h-.008v-.008zm-3 0h.008v.008h-.008v-.008z" />
                     </svg>
-                    <span x-text="newMount.id ? 'Edit Mount' : 'Mount Cloud Drive'"></span>
-                </h3>
-                <button @click="showMountWizard = false" class="text-slate-400 hover:text-white transition">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                </button>
+                </span>
+                <h2 class="eb-modal-title" x-text="newMount.id ? 'Edit Mount' : 'Mount Cloud Drive'"></h2>
             </div>
-            
-            {* Steps Indicator *}
-            <div class="px-6 py-4 border-b border-slate-800 bg-slate-900/50">
-                <div class="flex items-center justify-between">
-                    <template x-for="(step, i) in ['Select Bucket', 'Configure', 'Review']" :key="i">
+            <button type="button" class="eb-modal-close" @click="showMountWizard = false" aria-label="Close">&times;</button>
+        </div>
+
+        {* Steps Indicator *}
+        <div class="shrink-0 border-b border-[var(--eb-border-subtle)] bg-[var(--eb-bg-chrome)] px-6 py-4">
+            <div class="flex items-center justify-between">
+                <template x-for="(step, i) in ['Select Bucket', 'Configure', 'Review']" :key="i">
+                    <div class="flex items-center">
                         <div class="flex items-center">
-                            <div class="flex items-center">
-                                <div class="w-8 h-8 rounded-full flex items-center justify-center text-sm font-semibold transition"
-                                     :class="wizardStep > i ? 'bg-cyan-500 text-white' : wizardStep === i ? 'bg-cyan-500/20 text-cyan-400 ring-2 ring-cyan-500' : 'bg-slate-800 text-slate-500'">
-                                    <template x-if="wizardStep > i">
-                                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4">
-                                            <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-                                        </svg>
-                                    </template>
-                                    <template x-if="wizardStep <= i">
-                                        <span x-text="i + 1"></span>
-                                    </template>
-                                </div>
-                                <span class="ml-2 text-xs hidden sm:inline" :class="wizardStep >= i ? 'text-slate-200' : 'text-slate-500'" x-text="step"></span>
+                            <div class="flex h-8 w-8 items-center justify-center rounded-full text-sm font-semibold transition"
+                                 :class="wizardStep > i ? 'bg-[var(--eb-primary)] text-[var(--eb-text-inverse)]' : wizardStep === i ? 'bg-[var(--eb-primary-soft)] text-[var(--eb-primary)] ring-2 ring-[var(--eb-border-orange)]' : 'bg-[var(--eb-bg-card)] text-[var(--eb-text-muted)]'">
+                                <template x-if="wizardStep > i">
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="h-4 w-4">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                                    </svg>
+                                </template>
+                                <template x-if="wizardStep <= i">
+                                    <span x-text="i + 1"></span>
+                                </template>
                             </div>
-                            <template x-if="i < 2">
-                                <div class="w-8 sm:w-12 h-px mx-2" :class="wizardStep > i ? 'bg-cyan-500' : 'bg-slate-700'"></div>
-                            </template>
+                            <span class="ml-2 hidden text-xs sm:inline"
+                                  :class="wizardStep >= i ? 'text-[var(--eb-text-primary)]' : 'text-[var(--eb-text-muted)]'"
+                                  x-text="step"></span>
                         </div>
-                    </template>
-                </div>
+                        <template x-if="i < 2">
+                            <div class="mx-2 h-px w-8 sm:w-12"
+                                 :class="wizardStep > i ? 'bg-[var(--eb-primary)]' : 'bg-[var(--eb-border-default)]'"></div>
+                        </template>
+                    </div>
+                </template>
             </div>
-            
-            {* Step Content *}
-            <div class="px-6 py-6 max-h-[60vh] overflow-y-auto">
-                
-                {* Step 1: Select Bucket *}
-                <div x-show="wizardStep === 0">
-                    {* Agent selector *}
-                    <div class="mb-5">
-                        <label class="text-sm text-slate-300 mb-2 block">Select Agent</label>
-                        <div x-data="{ agentOpen: false }" @click.away="agentOpen = false" class="relative">
-                            <button @click="agentOpen = !agentOpen"
-                                    type="button"
-                                    class="w-full flex items-center justify-between rounded-lg bg-slate-900 border border-slate-700 px-3 py-2.5 text-sm text-left hover:border-slate-600 transition">
-                                <span x-text="newMount.agent_uuid ? agents.find(a => a.agent_uuid == newMount.agent_uuid)?.hostname || newMount.agent_uuid : 'Select an agent...'" 
-                                      :class="newMount.agent_uuid ? 'text-white' : 'text-slate-400'"></span>
-                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" 
-                                     class="w-4 h-4 text-slate-400 transition-transform" :class="agentOpen ? 'rotate-180' : ''">
-                                    <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
-                                </svg>
-                            </button>
-                            
-                            <div x-show="agentOpen" x-transition
-                                 class="absolute z-30 mt-1 w-full rounded-lg bg-slate-800 border border-slate-700 shadow-xl max-h-48 overflow-y-auto">
+        </div>
+
+        {* Step Content (overflow visible so teleported menus are not clipped; inner block scrolls) *}
+        <div class="eb-modal-body min-h-0 max-h-[60vh] flex-1 !overflow-visible !pt-6">
+            <div class="max-h-[min(60vh,28rem)] overflow-y-auto pr-1">
+
+            {* Step 1: Select Bucket *}
+            <div x-show="wizardStep === 0">
+                {* Agent selector *}
+                <div class="mb-5">
+                    <label class="eb-field-label">Select Agent</label>
+                    <div x-data="{
+                            agentOpen: false,
+                            menuTop: 0,
+                            menuLeft: 0,
+                            menuWidth: 0,
+                            syncAgentMenuPos() {
+                                const el = this.$refs.agentTrigger;
+                                if (!el) return;
+                                const r = el.getBoundingClientRect();
+                                this.menuTop = r.bottom + 8;
+                                this.menuLeft = r.left;
+                                this.menuWidth = r.width;
+                            },
+                            toggleAgentMenu() {
+                                this.agentOpen = !this.agentOpen;
+                                if (this.agentOpen) this.$nextTick(() => this.syncAgentMenuPos());
+                            }
+                        }"
+                        class="relative">
+                        <button type="button"
+                                x-ref="agentTrigger"
+                                class="eb-menu-trigger w-full"
+                                @click="toggleAgentMenu()"
+                                aria-haspopup="listbox"
+                                :aria-expanded="agentOpen">
+                            <span class="min-w-0 truncate text-left"
+                                  x-text="newMount.agent_uuid ? agents.find(a => a.agent_uuid == newMount.agent_uuid)?.hostname || newMount.agent_uuid : 'Select an agent...'"
+                                  :class="newMount.agent_uuid ? 'text-[var(--eb-text-primary)]' : 'text-[var(--eb-text-muted)]'"></span>
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"
+                                 class="h-4 w-4 shrink-0 text-[var(--eb-text-muted)] transition-transform" :class="agentOpen && 'rotate-180'">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                            </svg>
+                        </button>
+
+                        <template x-teleport="body">
+                            <div x-show="showMountWizard && agentOpen"
+                                 x-transition
+                                 @click.outside="if (!$refs.agentTrigger || !$refs.agentTrigger.contains($event.target)) agentOpen = false"
+                                 class="eb-dropdown-menu fixed !max-h-[min(50vh,16rem)] !min-w-0 overflow-y-auto p-1"
+                                 style="display: none;"
+                                 role="listbox"
+                                 :style="{ position: 'fixed', top: menuTop + 'px', left: menuLeft + 'px', width: menuWidth + 'px', minWidth: menuWidth + 'px', zIndex: 200 }">
                                 <template x-for="agent in agents" :key="agent.agent_uuid || agent.hostname">
-                                    <button @click="newMount.agent_uuid = agent.agent_uuid || ''; selectedAgentUuid = agent.agent_uuid || ''; agentOpen = false"
-                                            type="button"
-                                            class="w-full px-3 py-2.5 text-sm text-left hover:bg-slate-700 transition flex items-center justify-between"
-                                            :class="newMount.agent_uuid == (agent.agent_uuid || '') ? 'bg-cyan-600/20 text-cyan-300' : 'text-slate-200'">
-                                        <div class="flex items-center gap-2">
-                                            <span class="relative flex h-2 w-2">
-                                                <span :class="agent.status === 'active' ? 'bg-emerald-500' : 'bg-slate-600'" class="relative inline-flex rounded-full h-2 w-2"></span>
-                                            </span>
-                                            <span x-text="agent.hostname || agent.device_name || (agent.agent_uuid || 'Unknown agent')"></span>
+                                    <button type="button"
+                                            class="eb-menu-item w-full justify-between !rounded-[var(--eb-radius-md)]"
+                                            :class="newMount.agent_uuid == (agent.agent_uuid || '') && 'is-active'"
+                                            role="option"
+                                            @click="newMount.agent_uuid = agent.agent_uuid || ''; selectedAgentUuid = agent.agent_uuid || ''; agentOpen = false; calculateAvailableDriveLetters().then(() => { if (availableDriveLetters.length) newMount.drive_letter = availableDriveLetters[0]; })">
+                                        <div class="flex min-w-0 flex-1 items-center gap-2">
+                                            <span class="eb-status-dot shrink-0"
+                                                  :class="agent.status === 'active' ? 'eb-status-dot--active' : 'eb-status-dot--inactive'"></span>
+                                            <span class="truncate" x-text="agent.hostname || agent.device_name || (agent.agent_uuid || 'Unknown agent')"></span>
                                         </div>
-                                        <svg x-show="newMount.agent_uuid == (agent.agent_uuid || '')" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4 text-cyan-400">
+                                        <svg x-show="newMount.agent_uuid == (agent.agent_uuid || '')" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="h-4 w-4 shrink-0">
                                             <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
                                         </svg>
                                     </button>
                                 </template>
                             </div>
-                        </div>
+                        </template>
                     </div>
-                    
-                    {* Bucket selector *}
-                    <div class="mb-5">
-                        <label class="text-sm text-slate-300 mb-2 block">Select Bucket</label>
-                        <div x-data="{ bucketOpen: false, search: '' }" @click.away="bucketOpen = false" class="relative">
-                            <button @click="bucketOpen = !bucketOpen"
-                                    type="button"
-                                    class="w-full flex items-center justify-between rounded-lg bg-slate-900 border border-slate-700 px-3 py-2.5 text-sm text-left hover:border-slate-600 transition">
-                                <span x-text="newMount.bucket || 'Choose a bucket...'" 
-                                      :class="newMount.bucket ? 'text-white' : 'text-slate-400'"></span>
-                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" 
-                                     class="w-4 h-4 text-slate-400 transition-transform" :class="bucketOpen ? 'rotate-180' : ''">
-                                    <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
-                                </svg>
-                            </button>
-                            
-                            <div x-show="bucketOpen" x-transition
-                                 class="absolute z-30 mt-1 w-full rounded-lg bg-slate-800 border border-slate-700 shadow-xl overflow-hidden">
-                                {* Search input *}
-                                <div class="p-2 border-b border-slate-700">
+                </div>
+
+                {* Bucket selector *}
+                <div class="mb-5">
+                    <label class="eb-field-label">Select Bucket</label>
+                    <div x-data="{
+                            bucketOpen: false,
+                            search: '',
+                            menuTop: 0,
+                            menuLeft: 0,
+                            menuWidth: 0,
+                            syncBucketMenuPos() {
+                                const el = this.$refs.bucketTrigger;
+                                if (!el) return;
+                                const r = el.getBoundingClientRect();
+                                this.menuTop = r.bottom + 8;
+                                this.menuLeft = r.left;
+                                this.menuWidth = r.width;
+                            },
+                            toggleBucketMenu() {
+                                this.bucketOpen = !this.bucketOpen;
+                                if (this.bucketOpen) this.$nextTick(() => this.syncBucketMenuPos());
+                            }
+                        }"
+                        class="relative">
+                        <button type="button"
+                                x-ref="bucketTrigger"
+                                class="eb-menu-trigger w-full"
+                                @click="toggleBucketMenu()"
+                                aria-haspopup="listbox"
+                                :aria-expanded="bucketOpen">
+                            <span class="min-w-0 truncate text-left"
+                                  x-text="newMount.bucket || 'Choose a bucket...'"
+                                  :class="newMount.bucket ? 'text-[var(--eb-text-primary)]' : 'text-[var(--eb-text-muted)]'"></span>
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"
+                                 class="h-4 w-4 shrink-0 text-[var(--eb-text-muted)] transition-transform" :class="bucketOpen && 'rotate-180'">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                            </svg>
+                        </button>
+
+                        <template x-teleport="body">
+                            <div x-show="showMountWizard && bucketOpen"
+                                 x-transition
+                                 @click.outside="if (!$refs.bucketTrigger || !$refs.bucketTrigger.contains($event.target)) bucketOpen = false"
+                                 class="eb-dropdown-menu fixed !min-w-0 !max-w-none flex flex-col overflow-hidden !p-0"
+                                 style="display: none;"
+                                 role="listbox"
+                                 :style="{ position: 'fixed', top: menuTop + 'px', left: menuLeft + 'px', width: menuWidth + 'px', minWidth: menuWidth + 'px', zIndex: 200, maxHeight: 'min(55vh, 22rem)' }">
+                                <div class="shrink-0 border-b border-[var(--eb-border-subtle)] p-2">
                                     <input type="text" x-model="search" placeholder="Search buckets..."
-                                           class="w-full rounded-md bg-slate-900 border border-slate-600 px-3 py-2 text-sm text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-cyan-500">
+                                           class="eb-input !py-2 text-xs" />
                                 </div>
-                                <div class="max-h-48 overflow-y-auto">
+                                <div class="max-h-[min(45vh,18rem)] overflow-y-auto p-1">
                                     <template x-if="loadingBuckets">
-                                        <div class="px-3 py-4 text-sm text-slate-400 text-center">Loading buckets...</div>
+                                        <div class="px-3 py-4 text-center eb-type-caption text-[var(--eb-text-muted)]">Loading buckets...</div>
                                     </template>
                                     <template x-if="!loadingBuckets && buckets.length === 0">
-                                        <div class="px-3 py-4 text-sm text-slate-400 text-center">No buckets found</div>
+                                        <div class="px-3 py-4 text-center eb-type-caption text-[var(--eb-text-muted)]">No buckets found</div>
                                     </template>
                                     <template x-for="bucket in buckets.filter(b => !search || b.name.toLowerCase().includes(search.toLowerCase()))" :key="bucket.name">
-                                        <button @click="newMount.bucket = bucket.name; bucketOpen = false; search = ''"
-                                                type="button"
-                                                class="w-full px-3 py-2.5 text-sm text-left hover:bg-slate-700 transition flex items-center justify-between"
-                                                :class="newMount.bucket === bucket.name ? 'bg-cyan-600/20 text-cyan-300' : 'text-slate-200'">
-                                            <div class="flex items-center gap-2">
-                                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 text-slate-400">
+                                        <button type="button"
+                                                class="eb-menu-item w-full justify-between !rounded-[var(--eb-radius-md)]"
+                                                :class="newMount.bucket === bucket.name && 'is-active'"
+                                                role="option"
+                                                @click="newMount.bucket = bucket.name; bucketOpen = false; search = ''">
+                                            <div class="flex min-w-0 flex-1 items-center gap-2">
+                                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-4 w-4 shrink-0 text-[var(--eb-text-muted)]">
                                                     <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z" />
                                                 </svg>
-                                                <span x-text="bucket.name"></span>
+                                                <span class="truncate" x-text="bucket.name"></span>
                                             </div>
-                                            <svg x-show="newMount.bucket === bucket.name" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4 text-cyan-400">
+                                            <svg x-show="newMount.bucket === bucket.name" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="h-4 w-4 shrink-0">
                                                 <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
                                             </svg>
                                         </button>
                                     </template>
                                 </div>
                             </div>
-                        </div>
-                    </div>
-                    
-                    {* Prefix input *}
-                    <div>
-                        <label class="text-sm text-slate-300 mb-2 block">Prefix / Subfolder (optional)</label>
-                        <input type="text" x-model="newMount.prefix" placeholder="e.g., documents/ or backups/2024/"
-                               class="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-cyan-500 focus:border-cyan-500">
-                        <p class="text-xs text-slate-500 mt-2">Mount only a specific folder within the bucket. Leave empty to mount the entire bucket.</p>
+                        </template>
                     </div>
                 </div>
-                
-                {* Step 2: Configure *}
-                <div x-show="wizardStep === 1">
-                    {* Drive letter selector *}
-                    <div class="mb-5">
-                        <label class="text-sm text-slate-300 mb-2 block">Drive Letter</label>
-                        <div x-data="{ letterOpen: false }" @click.away="letterOpen = false" class="relative">
-                            <button @click="letterOpen = !letterOpen"
-                                    type="button"
-                                    class="w-full flex items-center justify-between rounded-lg bg-slate-900 border border-slate-700 px-3 py-2.5 text-sm text-left hover:border-slate-600 transition">
-                                <span class="text-white font-medium" x-text="newMount.drive_letter + ':'"></span>
-                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" 
-                                     class="w-4 h-4 text-slate-400 transition-transform" :class="letterOpen ? 'rotate-180' : ''">
-                                    <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
-                                </svg>
-                            </button>
-                            
-                            <div x-show="letterOpen" x-transition
-                                 class="absolute z-30 mt-1 w-full rounded-lg bg-slate-800 border border-slate-700 shadow-xl max-h-48 overflow-y-auto">
-                                <div class="grid grid-cols-6 gap-1 p-2">
+
+                {* Prefix input *}
+                <div>
+                    <label class="eb-field-label">Prefix / Subfolder (optional)</label>
+                    <input type="text" x-model="newMount.prefix" placeholder="e.g., documents/ or backups/2024/"
+                           class="eb-input" />
+                    <p class="eb-field-help">Mount only a specific folder within the bucket. Leave empty to mount the entire bucket.</p>
+                </div>
+            </div>
+
+            {* Step 2: Configure *}
+            <div x-show="wizardStep === 1">
+                {* Drive letter selector *}
+                <div class="mb-5">
+                    <label class="eb-field-label">Drive Letter</label>
+                    <div x-data="{
+                            letterOpen: false,
+                            menuTop: 0,
+                            menuLeft: 0,
+                            menuWidth: 0,
+                            syncLetterMenuPos() {
+                                const el = this.$refs.letterTrigger;
+                                if (!el) return;
+                                const r = el.getBoundingClientRect();
+                                this.menuTop = r.bottom + 8;
+                                this.menuLeft = r.left;
+                                this.menuWidth = r.width;
+                            },
+                            toggleLetterMenu() {
+                                this.letterOpen = !this.letterOpen;
+                                if (this.letterOpen) this.$nextTick(() => this.syncLetterMenuPos());
+                            }
+                        }"
+                        class="relative">
+                        <button type="button"
+                                x-ref="letterTrigger"
+                                class="eb-menu-trigger w-full"
+                                @click="toggleLetterMenu()"
+                                aria-haspopup="listbox"
+                                :aria-expanded="letterOpen">
+                            <span class="font-semibold text-[var(--eb-text-primary)]" x-text="newMount.drive_letter + ':'"></span>
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"
+                                 class="h-4 w-4 shrink-0 text-[var(--eb-text-muted)] transition-transform" :class="letterOpen && 'rotate-180'">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                            </svg>
+                        </button>
+
+                        <template x-teleport="body">
+                            <div x-show="showMountWizard && letterOpen"
+                                 x-transition
+                                 @click.outside="if (!$refs.letterTrigger || !$refs.letterTrigger.contains($event.target)) letterOpen = false"
+                                 class="eb-dropdown-menu fixed !max-h-[min(50vh,16rem)] !min-w-0 overflow-y-auto p-2"
+                                 style="display: none;"
+                                 :style="{ position: 'fixed', top: menuTop + 'px', left: menuLeft + 'px', width: menuWidth + 'px', minWidth: menuWidth + 'px', zIndex: 200 }">
+                                <div class="grid grid-cols-6 gap-1">
                                     <template x-for="letter in availableDriveLetters" :key="letter">
-                                        <button @click="newMount.drive_letter = letter; letterOpen = false"
-                                                type="button"
-                                                class="px-3 py-2 text-sm text-center rounded-md transition font-medium"
-                                                :class="newMount.drive_letter === letter ? 'bg-cyan-500 text-white' : 'bg-slate-700 text-slate-200 hover:bg-slate-600'">
+                                        <button type="button"
+                                                class="eb-btn eb-btn-xs min-w-0"
+                                                :class="newMount.drive_letter === letter ? 'eb-btn-primary' : 'eb-btn-secondary'"
+                                                @click="newMount.drive_letter = letter; letterOpen = false">
                                             <span x-text="letter + ':'"></span>
                                         </button>
                                     </template>
                                 </div>
                             </div>
-                        </div>
-                        <p class="text-xs text-slate-500 mt-2">Select which drive letter to use for this mount</p>
+                        </template>
                     </div>
-                    
-                    {* Options *}
-                    <div class="space-y-4">
-                        <label class="flex items-center gap-3 cursor-pointer group">
-                            <div class="relative">
-                                <input type="checkbox" x-model="newMount.read_only" class="sr-only peer">
-                                <div class="w-5 h-5 rounded border border-slate-600 bg-slate-800 peer-checked:bg-cyan-500 peer-checked:border-cyan-500 transition flex items-center justify-center">
-                                    <svg x-show="newMount.read_only" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor" class="w-3.5 h-3.5 text-white">
-                                        <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-                                    </svg>
-                                </div>
+                    <p class="eb-field-help">Select which drive letter to use for this mount</p>
+                </div>
+
+                {* Options *}
+                <div class="space-y-4">
+                    <label class="eb-inline-choice cursor-pointer">
+                        <input type="checkbox" x-model="newMount.read_only" class="eb-check-input" />
+                        <span>
+                            <span class="eb-type-body text-[var(--eb-text-primary)]">Read-only mode</span>
+                            <span class="mt-0.5 block eb-type-caption">Prevent modifications to files on this drive</span>
+                        </span>
+                    </label>
+
+                    <label class="eb-inline-choice cursor-pointer">
+                        <input type="checkbox" x-model="newMount.persistent" class="eb-check-input" />
+                        <span>
+                            <span class="eb-type-body text-[var(--eb-text-primary)]">Mount on startup</span>
+                            <span class="mt-0.5 block eb-type-caption">Auto-reconnect this drive when Windows starts</span>
+                        </span>
+                    </label>
+
+                    <label class="eb-inline-choice cursor-pointer">
+                        <input type="checkbox" x-model="newMount.enable_cache" class="eb-check-input" />
+                        <span>
+                            <span class="eb-type-body text-[var(--eb-text-primary)]">Enable VFS caching</span>
+                            <span class="mt-0.5 block eb-type-caption">Cache files locally for better performance</span>
+                        </span>
+                    </label>
+                </div>
+            </div>
+
+            {* Step 3: Review *}
+            <div x-show="wizardStep === 2">
+                <div class="eb-card-raised !p-0 overflow-hidden">
+                    <div class="border-b border-[var(--eb-border-subtle)] bg-[var(--eb-bg-chrome)] p-4">
+                        <div class="flex items-center gap-3">
+                            <div class="flex h-14 w-14 shrink-0 items-center justify-center rounded-[var(--eb-radius-lg)] border border-[var(--eb-border-orange)] bg-[var(--eb-primary-soft)] shadow-[var(--eb-shadow-sm)]">
+                                <span class="eb-type-h3 text-[var(--eb-primary)]" x-text="newMount.drive_letter + ':'"></span>
                             </div>
-                            <div>
-                                <span class="text-sm text-slate-300 group-hover:text-white transition">Read-only mode</span>
-                                <p class="text-xs text-slate-500">Prevent modifications to files on this drive</p>
+                            <div class="min-w-0">
+                                <p class="eb-type-h3 truncate" x-text="newMount.bucket"></p>
+                                <p class="mt-0.5 eb-type-caption" x-text="newMount.prefix || 'Root folder'"></p>
                             </div>
-                        </label>
-                        
-                        <label class="flex items-center gap-3 cursor-pointer group">
-                            <div class="relative">
-                                <input type="checkbox" x-model="newMount.persistent" class="sr-only peer">
-                                <div class="w-5 h-5 rounded border border-slate-600 bg-slate-800 peer-checked:bg-cyan-500 peer-checked:border-cyan-500 transition flex items-center justify-center">
-                                    <svg x-show="newMount.persistent" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor" class="w-3.5 h-3.5 text-white">
-                                        <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-                                    </svg>
-                                </div>
-                            </div>
-                            <div>
-                                <span class="text-sm text-slate-300 group-hover:text-white transition">Mount on startup</span>
-                                <p class="text-xs text-slate-500">Auto-reconnect this drive when Windows starts</p>
-                            </div>
-                        </label>
-                        
-                        <label class="flex items-center gap-3 cursor-pointer group">
-                            <div class="relative">
-                                <input type="checkbox" x-model="newMount.enable_cache" class="sr-only peer">
-                                <div class="w-5 h-5 rounded border border-slate-600 bg-slate-800 peer-checked:bg-cyan-500 peer-checked:border-cyan-500 transition flex items-center justify-center">
-                                    <svg x-show="newMount.enable_cache" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor" class="w-3.5 h-3.5 text-white">
-                                        <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-                                    </svg>
-                                </div>
-                            </div>
-                            <div>
-                                <span class="text-sm text-slate-300 group-hover:text-white transition">Enable VFS caching</span>
-                                <p class="text-xs text-slate-500">Cache files locally for better performance</p>
-                            </div>
-                        </label>
+                        </div>
+                    </div>
+                    <div class="eb-kv-list p-4">
+                        <div class="eb-kv-row">
+                            <span class="eb-kv-label">Agent</span>
+                            <span class="eb-kv-value" x-text="agents.find(a => a.agent_uuid == newMount.agent_uuid)?.hostname || newMount.agent_uuid"></span>
+                        </div>
+                        <div class="eb-kv-row">
+                            <span class="eb-kv-label">Drive Letter</span>
+                            <span class="eb-kv-value" x-text="newMount.drive_letter + ':'"></span>
+                        </div>
+                        <div class="eb-kv-row">
+                            <span class="eb-kv-label">Access Mode</span>
+                            <span class="eb-kv-value" x-text="newMount.read_only ? 'Read-only' : 'Read/Write'"></span>
+                        </div>
+                        <div class="eb-kv-row">
+                            <span class="eb-kv-label">Auto-mount</span>
+                            <span class="eb-kv-value" x-text="newMount.persistent ? 'Yes' : 'No'"></span>
+                        </div>
+                        <div class="eb-kv-row">
+                            <span class="eb-kv-label">VFS Caching</span>
+                            <span class="eb-kv-value" x-text="newMount.enable_cache ? 'Enabled' : 'Disabled'"></span>
+                        </div>
                     </div>
                 </div>
-                
-                {* Step 3: Review *}
-                <div x-show="wizardStep === 2">
-                    <div class="rounded-xl bg-slate-900 border border-slate-700 overflow-hidden">
-                        <div class="p-4 border-b border-slate-700 bg-slate-800/50">
-                            <div class="flex items-center gap-3">
-                                <div class="w-14 h-14 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center text-white font-bold text-xl shadow-lg">
-                                    <span x-text="newMount.drive_letter + ':'"></span>
-                                </div>
-                                <div>
-                                    <p class="text-lg font-semibold text-white" x-text="newMount.bucket"></p>
-                                    <p class="text-xs text-slate-400" x-text="newMount.prefix || 'Root folder'"></p>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="p-4 space-y-3">
-                            <div class="flex justify-between text-sm">
-                                <span class="text-slate-400">Agent</span>
-                                <span class="text-white" x-text="agents.find(a => a.agent_uuid == newMount.agent_uuid)?.hostname || newMount.agent_uuid"></span>
-                            </div>
-                            <div class="flex justify-between text-sm">
-                                <span class="text-slate-400">Drive Letter</span>
-                                <span class="text-white font-medium" x-text="newMount.drive_letter + ':'"></span>
-                            </div>
-                            <div class="flex justify-between text-sm">
-                                <span class="text-slate-400">Access Mode</span>
-                                <span class="text-white" x-text="newMount.read_only ? 'Read-only' : 'Read/Write'"></span>
-                            </div>
-                            <div class="flex justify-between text-sm">
-                                <span class="text-slate-400">Auto-mount</span>
-                                <span class="text-white" x-text="newMount.persistent ? 'Yes' : 'No'"></span>
-                            </div>
-                            <div class="flex justify-between text-sm">
-                                <span class="text-slate-400">VFS Caching</span>
-                                <span class="text-white" x-text="newMount.enable_cache ? 'Enabled' : 'Disabled'"></span>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <div class="mt-4 rounded-lg bg-cyan-500/10 border border-cyan-500/30 p-3">
-                        <p class="text-xs text-cyan-200 flex items-start gap-2">
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 mt-0.5 flex-shrink-0">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
-                            </svg>
-                            <span>The drive will be mounted immediately after creation.</span>
-                        </p>
+
+                <div class="eb-alert eb-alert--info mt-4 !mb-0">
+                    <svg class="eb-alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
+                    </svg>
+                    <div>
+                        <p class="eb-type-caption !mb-0">The drive will be mounted automatically on your Windows PC.</p>
                     </div>
                 </div>
             </div>
-            
-            {* Footer *}
-            <div class="flex justify-between border-t border-slate-800 px-6 py-4 bg-slate-900/50">
-                <button x-show="wizardStep > 0" @click="wizardStep--" 
+            </div>
+        </div>
+
+        {* Footer *}
+        <div class="eb-modal-footer !mt-0 shrink-0 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div class="flex min-h-[36px] items-center">
+                <button x-show="wizardStep > 0" @click="wizardStep--"
                         type="button"
-                        class="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-medium transition">
+                        class="eb-btn eb-btn-secondary eb-btn-sm">
                     Back
                 </button>
-                <div x-show="wizardStep === 0"></div>
-                
-                <div class="flex gap-3">
-                    <button @click="showMountWizard = false" 
-                            type="button"
-                            class="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-medium transition">
-                        Cancel
-                    </button>
-                    <button x-show="wizardStep < 2" @click="wizardStep++" 
-                            :disabled="!canProceed"
-                            type="button"
-                            class="px-5 py-2 rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-semibold shadow-lg shadow-cyan-500/20 transition"
-                            style="background: linear-gradient(to right, rgb(8, 145, 178), rgb(37, 99, 235));">
-                        Next
-                    </button>
-                    <button x-show="wizardStep === 2" @click="createMount()" 
-                            type="button"
-                            class="px-5 py-2 rounded-lg bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white text-sm font-semibold shadow-lg shadow-emerald-500/20 transition flex items-center gap-2">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.348a1.125 1.125 0 010 1.971l-11.54 6.347a1.125 1.125 0 01-1.667-.985V5.653z" />
-                        </svg>
-                        Mount Drive
-                    </button>
-                </div>
+            </div>
+
+            <div class="flex flex-wrap items-center justify-end gap-3">
+                <button @click="showMountWizard = false"
+                        type="button"
+                        class="eb-btn eb-btn-secondary eb-btn-sm">
+                    Cancel
+                </button>
+                <button x-show="wizardStep < 2" @click="wizardStep++"
+                        :disabled="!canProceed"
+                        type="button"
+                        class="eb-btn eb-btn-primary eb-btn-sm disabled:cursor-not-allowed disabled:opacity-50">
+                    Next
+                </button>
+                <button x-show="wizardStep === 2" @click="createMount()"
+                        type="button"
+                        class="eb-btn eb-btn-success eb-btn-sm inline-flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-4 w-4 shrink-0">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.348a1.125 1.125 0 010 1.971l-11.54 6.347a1.125 1.125 0 01-1.667-.985V5.653z" />
+                    </svg>
+                    Mount Drive
+                </button>
             </div>
         </div>
     </div>
 </div>
-

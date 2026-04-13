@@ -388,6 +388,10 @@ $hypervEnabled = isset($_POST['hyperv_enabled']) ? (int) $_POST['hyperv_enabled'
 $hypervConfigJson = normalizeJsonPayload($_POST['hyperv_config'] ?? null);
 $hypervVmIds = decodeJsonArray($_POST['hyperv_vm_ids'] ?? null);
 $hypervVms = decodeJsonArray($_POST['hyperv_vms'] ?? null);
+$requestedEngine = trim((string) ($_POST['engine'] ?? ''));
+if ($hypervEnabled && $requestedEngine === '') {
+    $requestedEngine = 'hyperv';
+}
 
 // Validate AWS/S3-compatible source if provided
 if (in_array($sourceType, ['aws', 's3_compatible'], true) && is_array($sourceConfig)) {
@@ -412,7 +416,7 @@ $diskSourceVolume = $_POST['disk_source_volume'] ?? '';
 $diskImageFormat = $_POST['disk_image_format'] ?? 'vhdx';
 $diskTempDir = $_POST['disk_temp_dir'] ?? '';
 
-if (($_POST['engine'] ?? '') === 'disk_image') {
+if ($requestedEngine === 'disk_image') {
     if ($diskSourceVolume === '') {
         respondJson(['status' => 'fail', 'message' => 'Disk source volume is required for disk image backups.'], 200);
     }
@@ -436,7 +440,7 @@ $jobData = [
     'dest_bucket_id' => $destBucketId,
     'dest_prefix' => $destPrefix,
     'backup_mode' => $_POST['backup_mode'] ?? 'sync',
-    'engine' => $_POST['engine'] ?? 'sync',
+    'engine' => $requestedEngine !== '' ? $requestedEngine : 'sync',
     'dest_type' => 's3',
     'dest_local_path' => $_POST['dest_local_path'] ?? null,
     'bucket_auto_create' => isset($_POST['bucket_auto_create']) ? 1 : 0,
@@ -466,12 +470,34 @@ $jobData = [
 
 if ($agentUuidForJob) {
     $jobData['agent_uuid'] = $agentUuidForJob;
-    if ($agentRow && isset($agentRow->id)) {
-        $jobData['agent_id'] = (int) $agentRow->id;
-    }
 }
 if (Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'tenant_id')) {
     $jobData['tenant_id'] = $resolvedTenantId;
+}
+if (Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'backup_user_id')) {
+    $backupUserPublicId = isset($_POST['backup_user_public_id']) ? trim((string) $_POST['backup_user_public_id']) : '';
+    $backupUserIdRaw = isset($_POST['backup_user_id']) ? trim((string) $_POST['backup_user_id']) : '';
+    $backupUser = null;
+    if ($backupUserPublicId !== '' && Capsule::schema()->hasColumn('s3_backup_users', 'public_id')) {
+        $backupUser = Capsule::table('s3_backup_users')
+            ->where('public_id', $backupUserPublicId)
+            ->where('client_id', $loggedInUserId)
+            ->first();
+    } elseif ($backupUserIdRaw !== '' && $backupUserIdRaw !== '0') {
+        $backupUser = Capsule::table('s3_backup_users')
+            ->where('id', (int) $backupUserIdRaw)
+            ->where('client_id', $loggedInUserId)
+            ->first();
+    }
+    if (!$backupUser && $agentRow && Capsule::schema()->hasColumn('s3_cloudbackup_agents', 'backup_user_id') && !empty($agentRow->backup_user_id)) {
+        $backupUser = Capsule::table('s3_backup_users')
+            ->where('id', (int) $agentRow->backup_user_id)
+            ->where('client_id', $loggedInUserId)
+            ->first();
+    }
+    if ($backupUser) {
+        $jobData['backup_user_id'] = (int) $backupUser->id;
+    }
 }
 if ($repositoryId !== null && Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'repository_id')) {
     $jobData['repository_id'] = $repositoryId;
@@ -510,7 +536,7 @@ if ($retentionJson !== null && $retentionJson !== '') {
 $result = CloudBackupController::createJob($jobData, $encryptionKey);
 if (is_array($result) && ($result['status'] ?? '') === 'success') {
     $jobId = $result['job_id'] ?? null;
-    if ($jobId && ($jobData['engine'] ?? '') === 'hyperv') {
+    if ($jobId && ((($jobData['engine'] ?? '') === 'hyperv') || !empty($jobData['hyperv_enabled']))) {
         try {
             if (Capsule::schema()->hasTable('s3_hyperv_vms')) {
                 $vmList = [];
@@ -569,7 +595,7 @@ if (is_array($result) && ($result['status'] ?? '') === 'success') {
             logModuleCall('cloudstorage', 'create_job_hyperv_vms', ['job_id' => $jobId], $e->getMessage());
         }
     }
-    if ($jobId && $sourceType === 'local_agent' && in_array($jobData['engine'] ?? '', ['kopia', 'disk_image', 'hyperv'], true) && !empty($repositoryId)) {
+    if ($jobId && $sourceType === 'local_agent' && (in_array($jobData['engine'] ?? '', ['kopia', 'disk_image', 'hyperv'], true) || !empty($jobData['hyperv_enabled'])) && !empty($repositoryId)) {
         KopiaRetentionSourceService::ensureRepoSourceForJob($jobId);
     }
 }

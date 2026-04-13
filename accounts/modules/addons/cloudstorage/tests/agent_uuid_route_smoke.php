@@ -65,7 +65,6 @@ if (strpos($cutoverSrc, 'agent_id') !== false) {
 
 $pageChecks = [
     'e3backup_jobs.php',
-    'e3backup_restores.php',
     'e3backup_disk_image_restore.php',
 ];
 foreach ($pageChecks as $page) {

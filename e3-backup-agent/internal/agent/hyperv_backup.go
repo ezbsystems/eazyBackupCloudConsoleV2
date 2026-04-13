@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -621,11 +622,41 @@ func (r *Runner) backupHyperVVM(
 	result.ConsistencyLevel = string(consistencyLevel)
 
 	// Back up each disk
-	for _, disk := range vm.Disks {
+	for i := range vm.Disks {
+		disk := &vm.Disks[i] // Use pointer to allow size correction
+
 		if ctx.Err() != nil {
 			return result, ctx.Err()
 		}
-		log.Printf("agent: hyperv backing up disk: %s (size=%d)", disk.Path, disk.SizeBytes)
+
+		// Always prefer actual file size over the virtual disk size from Get-VHD.
+		// Get-VHD returns the virtual capacity (e.g., 127 GB) which can be much
+		// larger than the actual VHDX file on disk for dynamically expanding disks.
+		effectiveSize := disk.SizeBytes
+		if fi, err := os.Stat(disk.Path); err == nil && fi.Size() > 0 {
+			actualFileSize := fi.Size()
+			if effectiveSize == 0 {
+				effectiveSize = actualFileSize
+				log.Printf("agent: hyperv disk %s size was 0, using actual file size: %d bytes", disk.Path, effectiveSize)
+				if progressTracker != nil {
+					progressTracker.mu.Lock()
+					progressTracker.totalBytes += effectiveSize
+					progressTracker.mu.Unlock()
+				}
+			} else if actualFileSize < effectiveSize {
+				log.Printf("agent: hyperv disk %s correcting size: virtual=%d actual=%d", disk.Path, effectiveSize, actualFileSize)
+				if progressTracker != nil {
+					progressTracker.mu.Lock()
+					progressTracker.totalBytes -= (effectiveSize - actualFileSize)
+					progressTracker.mu.Unlock()
+				}
+				effectiveSize = actualFileSize
+			}
+		} else if err != nil && effectiveSize == 0 {
+			log.Printf("agent: hyperv warning: could not stat disk %s to get size: %v", disk.Path, err)
+		}
+
+		log.Printf("agent: hyperv backing up disk: %s (size=%d)", disk.Path, effectiveSize)
 
 		r.pushEvents(run.RunID, RunEvent{
 			Type:      "info",
@@ -634,7 +665,7 @@ func (r *Runner) backupHyperVVM(
 			ParamsJSON: map[string]any{
 				"vm_name":   vmRun.VMName,
 				"disk_path": disk.Path,
-				"size":      disk.SizeBytes,
+				"size":      effectiveSize,
 			},
 		})
 
@@ -651,22 +682,22 @@ func (r *Runner) backupHyperVVM(
 			// Find RCT info for this disk
 			diskRCT := hyperv.FindDiskRCTInfo(rctInfos, disk.Path)
 			if diskRCT != nil && diskRCT.Valid && len(diskRCT.ChangedBlocks) > 0 {
-				manifestID, err = r.backupVHDXSparse(ctx, run, disk.Path, disk.SizeBytes, diskRCT.ChangedBlocks, progressCallback)
+				manifestID, err = r.backupVHDXSparse(ctx, run, disk.Path, effectiveSize, diskRCT.ChangedBlocks, progressCallback, checkpointDisabled)
 				if err == nil {
 					result.RCTIDs[disk.Path] = diskRCT.RCTID
 				}
 			} else {
 				// Fall back to full for this disk
 				log.Printf("agent: hyperv no valid RCT data for disk %s, using full backup", disk.Path)
-				manifestID, err = r.backupVHDXFull(ctx, run, disk.Path, disk.SizeBytes, progressCallback)
+				manifestID, err = r.backupVHDXFull(ctx, run, disk.Path, effectiveSize, progressCallback, checkpointDisabled)
 			}
 		} else {
-			manifestID, err = r.backupVHDXFull(ctx, run, disk.Path, disk.SizeBytes, progressCallback)
+			manifestID, err = r.backupVHDXFull(ctx, run, disk.Path, effectiveSize, progressCallback, checkpointDisabled)
 		}
 
 		// After disk completes, add its bytes to cumulative total
 		if err == nil && progressTracker != nil {
-			progressTracker.addCompletedBytes(disk.SizeBytes)
+			progressTracker.addCompletedBytes(effectiveSize)
 			progressTracker.finalizeCurrentDiskUpload()
 		}
 
@@ -679,7 +710,7 @@ func (r *Runner) backupHyperVVM(
 		}
 
 		result.DiskManifests[disk.Path] = manifestID
-		result.TotalBytes += disk.SizeBytes
+		result.TotalBytes += effectiveSize
 
 		log.Printf("agent: hyperv disk %s backed up, manifest=%s", disk.Path, manifestID)
 	}
@@ -712,43 +743,101 @@ func (r *Runner) backupHyperVVM(
 // ProgressCallback is called during backup to report bytes processed and uploaded.
 type ProgressCallback func(bytesProcessed int64, bytesUploaded int64)
 
-func (r *Runner) backupVHDXFull(ctx context.Context, run *NextRunResponse, vhdxPath string, size int64, progressCb ProgressCallback) (string, error) {
+func (r *Runner) backupVHDXFull(ctx context.Context, run *NextRunResponse, vhdxPath string, size int64, progressCb ProgressCallback, liveDisk bool) (string, error) {
 	reader, err := newFullVHDXReader(vhdxPath)
 	if err != nil {
 		return "", err
 	}
 	defer reader.Close()
 
-	return r.backupVHDXWithReader(ctx, run, vhdxPath, size, reader, progressCb)
+	// Always prefer the actual file size for backup operations.
+	// Get-VHD returns $vhd.Size (virtual disk capacity) which can be much larger
+	// than the actual VHDX file on disk for dynamically expanding disks.
+	// The parallel reader needs the real file size so isNearTail() correctly
+	// identifies locked VHDX metadata regions at the physical end of the file.
+	actualSize := reader.Size()
+	if actualSize > 0 && actualSize != size {
+		log.Printf("agent: hyperv correcting disk size: reported=%d actual_file=%d (using actual)", size, actualSize)
+		size = actualSize
+	} else if size == 0 && actualSize > 0 {
+		log.Printf("agent: hyperv disk size was 0, using actual file size: %d bytes", actualSize)
+		size = actualSize
+	}
+
+	return r.backupVHDXWithReader(ctx, run, vhdxPath, size, reader, progressCb, liveDisk)
 }
 
 // backupVHDXSparse backs up only changed blocks of a VHDX file.
-func (r *Runner) backupVHDXSparse(ctx context.Context, run *NextRunResponse, vhdxPath string, size int64, changedBlocks []hyperv.ChangedBlockRange, progressCb ProgressCallback) (string, error) {
+func (r *Runner) backupVHDXSparse(ctx context.Context, run *NextRunResponse, vhdxPath string, size int64, changedBlocks []hyperv.ChangedBlockRange, progressCb ProgressCallback, liveDisk bool) (string, error) {
+	// Always prefer the actual file size over the virtual disk size from Get-VHD.
+	if fi, err := os.Stat(vhdxPath); err == nil && fi.Size() > 0 {
+		actualSize := fi.Size()
+		if actualSize != size {
+			log.Printf("agent: hyperv correcting sparse disk size: reported=%d actual_file=%d (using actual)", size, actualSize)
+			size = actualSize
+		}
+	} else if size == 0 {
+		log.Printf("agent: hyperv warning: could not determine disk size for %s", vhdxPath)
+	}
+
 	reader, err := newSparseVHDXReader(vhdxPath, size, changedBlocks)
 	if err != nil {
 		return "", err
 	}
 	defer reader.Close()
 
-	return r.backupVHDXWithReader(ctx, run, vhdxPath, size, reader, progressCb)
+	return r.backupVHDXWithReader(ctx, run, vhdxPath, size, reader, progressCb, liveDisk)
 }
 
 // backupVHDXWithReader streams a VHDX to Kopia using the provided reader.
+// liveDisk indicates the VHDX is actively locked by Hyper-V (no checkpoint),
+// so the parallel reader should skip tail reads entirely (zero-fill instead).
 func (r *Runner) backupVHDXWithReader(ctx context.Context, run *NextRunResponse, vhdxPath string, size int64, reader interface {
 	Read([]byte) (int, error)
 	Seek(int64, int) (int64, error)
 	Close() error
-}, progressCb ProgressCallback) (string, error) {
+}, progressCb ProgressCallback, liveDisk bool) (string, error) {
 	// Create a stable source identifier for Kopia deduplication
 	// Use the disk path as the source so subsequent snapshots dedupe properly
 	diskName := filepath.Base(vhdxPath)
 	stablePath := strings.TrimSuffix(diskName, filepath.Ext(diskName))
 
+	// Create warning callback to push read warnings to the UI
+	warningCb := func(warning diskReadWarning) {
+		level := "info"
+		messageID := "HYPERV_DISK_READ_WARNING"
+		if warning.NearTail {
+			level = "warning"
+		}
+		// Check if this is a timeout warning
+		if strings.Contains(warning.Error, "timeout") {
+			level = "warning"
+			messageID = "HYPERV_DISK_READ_TIMEOUT"
+		}
+		r.pushEvents(run.RunID, RunEvent{
+			Type:      level,
+			Level:     level,
+			MessageID: messageID,
+			ParamsJSON: map[string]any{
+				"disk":           filepath.Base(warning.Path),
+				"reader":         warning.Reader,
+				"offset_bytes":   warning.OffsetBytes,
+				"request_bytes":  warning.RequestedBytes,
+				"read_bytes":     warning.ReadBytes,
+				"zero_filled":    warning.ZeroFilledBytes,
+				"near_tail":      warning.NearTail,
+				"error":          warning.Error,
+			},
+		})
+	}
+
 	// Create stream entry for Kopia
 	entry := &deviceEntry{
-		name: fmt.Sprintf("%s.vhdx", stablePath),
-		path: vhdxPath,
-		size: size,
+		name:            fmt.Sprintf("%s.vhdx", stablePath),
+		path:            vhdxPath,
+		size:            size,
+		skipTailReads:   liveDisk,
+		warningCallback: warningCb,
 	}
 
 	// Use the existing Kopia snapshot mechanism

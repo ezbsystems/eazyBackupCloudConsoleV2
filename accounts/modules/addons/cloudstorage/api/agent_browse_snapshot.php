@@ -29,6 +29,7 @@ if (!Capsule::schema()->hasTable('s3_cloudbackup_run_commands')) {
     respond(['status' => 'fail', 'message' => 'Command queue not available'], 500);
 }
 
+$agentUuid = trim((string) ($_GET['agent_uuid'] ?? ''));
 $agentId = isset($_GET['agent_id']) ? (int) $_GET['agent_id'] : 0;
 $restorePointId = isset($_GET['restore_point_id']) ? (int) $_GET['restore_point_id'] : 0;
 $path = isset($_GET['path']) ? trim((string) $_GET['path']) : '';
@@ -40,18 +41,22 @@ if ($maxItems > 1000) {
     $maxItems = 1000;
 }
 
-if ($agentId <= 0) {
-    respond(['status' => 'fail', 'message' => 'agent_id is required'], 400);
+if ($agentUuid === '' && $agentId <= 0) {
+    respond(['status' => 'fail', 'message' => 'agent_uuid is required'], 400);
 }
 if ($restorePointId <= 0) {
     respond(['status' => 'fail', 'message' => 'restore_point_id is required'], 400);
 }
 
-$agent = Capsule::table('s3_cloudbackup_agents')
-    ->where('id', $agentId)
+$agentQuery = Capsule::table('s3_cloudbackup_agents')
     ->where('client_id', $clientId)
-    ->where('status', 'active')
-    ->first(['id', 'client_id', 'tenant_id']);
+    ->where('status', 'active');
+if ($agentUuid !== '') {
+    $agentQuery->where('agent_uuid', $agentUuid);
+} else {
+    $agentQuery->where('id', $agentId);
+}
+$agent = $agentQuery->first(['id', 'agent_uuid', 'client_id', 'tenant_id']);
 
 if (!$agent) {
     respond(['status' => 'fail', 'message' => 'Agent not found or inactive'], 404);
@@ -108,7 +113,7 @@ try {
 
     $insert = [
         'run_id' => null,
-        'agent_id' => $agent->id,
+        'agent_uuid' => $agent->agent_uuid,
         'type' => 'browse_snapshot',
         'payload_json' => json_encode($payload, JSON_UNESCAPED_SLASHES),
         'status' => 'pending',
@@ -151,4 +156,3 @@ try {
 } catch (\Throwable $e) {
     respond(['status' => 'fail', 'message' => 'Server error: ' . $e->getMessage()], 500);
 }
-

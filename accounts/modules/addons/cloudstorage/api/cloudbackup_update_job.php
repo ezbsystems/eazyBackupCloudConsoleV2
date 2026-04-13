@@ -275,6 +275,10 @@ $hypervEnabled = isset($_POST['hyperv_enabled']) ? (int) $_POST['hyperv_enabled'
 $hypervConfigJson = normalizeJsonPayload($_POST['hyperv_config'] ?? null);
 $hypervVmIds = decodeJsonArray($_POST['hyperv_vm_ids'] ?? null);
 $hypervVms = decodeJsonArray($_POST['hyperv_vms'] ?? null);
+$requestedEngine = isset($_POST['engine']) ? trim((string) $_POST['engine']) : '';
+if ($hypervEnabled && $requestedEngine === '') {
+    $requestedEngine = 'hyperv';
+}
 
 // Validate agent assignment for local_agent jobs when provided/required
 $hasAgentUuidJobs = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'agent_uuid');
@@ -329,7 +333,7 @@ if ($isLocalAgentJob) {
     } else {
         $repoRes = RepositoryService::createOrAttachForAgent(
             (int) ($agentRow->id ?? 0),
-            (string) ($_POST['engine'] ?? ($existingJob['engine'] ?? 'kopia')),
+            ($requestedEngine !== '' ? $requestedEngine : (string) ($existingJob['engine'] ?? 'kopia')),
             'managed_recovery',
             $loggedInUserId
         );
@@ -356,6 +360,32 @@ if ($isLocalAgentJob) {
             $response->send();
             exit();
         }
+    }
+}
+
+if (Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'backup_user_id')) {
+    $backupUserPublicId = isset($_POST['backup_user_public_id']) ? trim((string) $_POST['backup_user_public_id']) : '';
+    $backupUserIdRaw = isset($_POST['backup_user_id']) ? trim((string) $_POST['backup_user_id']) : '';
+    $backupUser = null;
+    if ($backupUserPublicId !== '' && Capsule::schema()->hasColumn('s3_backup_users', 'public_id')) {
+        $backupUser = Capsule::table('s3_backup_users')
+            ->where('public_id', $backupUserPublicId)
+            ->where('client_id', $loggedInUserId)
+            ->first();
+    } elseif ($backupUserIdRaw !== '' && $backupUserIdRaw !== '0') {
+        $backupUser = Capsule::table('s3_backup_users')
+            ->where('id', (int) $backupUserIdRaw)
+            ->where('client_id', $loggedInUserId)
+            ->first();
+    }
+    if (!$backupUser && isset($agentRow) && $agentRow && Capsule::schema()->hasColumn('s3_cloudbackup_agents', 'backup_user_id') && !empty($agentRow->backup_user_id)) {
+        $backupUser = Capsule::table('s3_backup_users')
+            ->where('id', (int) $agentRow->backup_user_id)
+            ->where('client_id', $loggedInUserId)
+            ->first();
+    }
+    if ($backupUser) {
+        $updateData['backup_user_id'] = (int) $backupUser->id;
     }
 }
 
@@ -463,8 +493,8 @@ if (isset($_POST['bucket_auto_create'])) {
 if (isset($_POST['backup_mode'])) {
     $updateData['backup_mode'] = $_POST['backup_mode'];
 }
-if (isset($_POST['engine'])) {
-    $updateData['engine'] = $_POST['engine'];
+if ($requestedEngine !== '' || isset($_POST['engine'])) {
+    $updateData['engine'] = $requestedEngine;
 }
 if (($updateData['engine'] ?? '') === 'disk_image') {
     if ($diskSourceVolume === '') {

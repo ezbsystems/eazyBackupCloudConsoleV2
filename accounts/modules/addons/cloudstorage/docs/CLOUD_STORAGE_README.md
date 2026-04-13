@@ -68,7 +68,8 @@ Defined in `cloudstorage.php` activation:
 - `s3_bucket_sizes_history` — collected size/object history for analytics
 - `s3_historical_stats` — per-user daily historical aggregates
 - `ceph_pool_usage_history` — Ceph pool usage time-series used to forecast when the pool reaches an % threshold (e.g., 80% full)
-- `s3_backup_users` — e3 Cloud Backup Username records (client-scoped, optional tenant scope, login/reporting profile fields)
+- `s3_backup_users` — e3 Cloud Backup Username records (client-scoped, optional tenant scope, login/reporting profile fields, `backup_type` intent)
+- `s3_agent_login_sessions` — short-lived tray enrollment sessions that bridge credential verification to e3 User selection during local-agent sign in
 
 ## e3 Cloud Backup: Username domain (Users page)
 
@@ -76,14 +77,51 @@ This module now includes a dedicated **Username** management domain for e3 Cloud
 
 ### Scope model
 
-- MSP context: `Tenant -> Username -> Vaults/Jobs/Agents/Logs` (derived scope metrics in this phase)
-- Direct context: `Account -> Username -> Vaults/Jobs/Agents/Logs` (derived scope metrics in this phase)
+- MSP context: `Tenant -> Username -> Vaults/Jobs/Agents/Logs` (hybrid: direct FK + derived scope metrics)
+- Direct context: `Account -> Username -> Vaults/Jobs/Agents/Logs` (hybrid: direct FK + derived scope metrics)
 
-### Important implementation note (current phase)
+### Job ownership
 
-- This rollout **does not remap existing vault/job/agent ownership records**.
-- Existing flows remain unchanged; per-username counts are derived by scope (client + tenant/direct).
-- This keeps the rollout incremental and safe for existing installs.
+Cloud backup jobs now have a nullable `backup_user_id` FK column in `s3_cloudbackup_jobs` that directly links a job to a `s3_backup_users` row. Jobs created from a User Detail page automatically set this FK. Legacy jobs (without `backup_user_id`) continue to be associated via tenant scope derivation.
+
+### Agent ownership
+
+Cloud backup agents (`s3_cloudbackup_agents`) and enrollment tokens (`s3_agent_enrollment_tokens`) now also have a nullable `backup_user_id` FK column. When an enrollment token is created from a User Detail page, the `backup_user_id` is set on the token. Agents enrolled via that token inherit the link. Legacy agents (without `backup_user_id`) continue to be associated via tenant scope derivation.
+
+### Tray enrollment flow
+
+Interactive local-agent sign in now uses a two-step tray flow backed by `api/agent_login.php`:
+
+- `mode=authenticate`
+  - validates WHMCS email/password
+  - resolves the owning `client_id`
+  - returns eligible e3 Users where `backup_type IN ('local', 'both')`
+  - creates a short-lived row in `s3_agent_login_sessions`
+- `mode=complete`
+  - validates the session token
+  - accepts a selected `backup_user_id` or auto-creates a direct `local` user when none exist
+  - creates or rekeys the agent with both `backup_user_id` and the selected user's `tenant_id`
+  - returns agent credentials for the tray to persist in `agent.conf`
+
+Customer-facing behavior:
+
+- If there are no eligible users, the tray offers to auto-create a local-backup user and continue.
+- If there is exactly one eligible user, the tray shows a confirmation screen.
+- If there are multiple eligible users, the tray shows a compact scrollable list with the username and backup type.
+- After enrollment, the tray links the customer to `view=user_detail&user_id=<id>#jobs` instead of the deprecated standalone Jobs page.
+
+### Backup type intent
+
+Each user has a `backup_type` column (ENUM: `cloud_only`, `local`, `both`, default `both`). This controls:
+
+- **Create User modal**: `cloud_only` hides encryption/password fields and auto-generates a server-side password
+- **User Detail page**: `cloud_only` hides the Agents tab and the Local Agent job type; `local` hides the Cloud Backup job type
+- **Upgrade**: Users can be upgraded from `cloud_only` to `both` (or vice versa) from the Overview tab
+
+### Important implementation note
+
+- Existing vault/job/agent ownership records are **not** remapped. Legacy jobs and agents without `backup_user_id` are associated by scope.
+- The standalone Jobs page has been deprecated. Jobs are now managed from User Detail pages.
 
 ### New/updated e3 backup routes
 
@@ -115,7 +153,8 @@ This module now includes a dedicated **Username** management domain for e3 Cloud
 - Validation:
   - `username`: required, regex constrained, uniqueness in account scope (`client_id + tenant_id` logical scope).
   - `email`: required, valid format.
-  - `password`: required on create, minimum length, confirmation match.
+  - `password`: required on create when `backup_type` is `local` or `both`; auto-generated for `cloud_only`.
+  - `backup_type`: `cloud_only`, `local`, or `both` (default `both`).
   - `status`: limited to `active` or `disabled`.
 
 ### UI behavior delivered
@@ -124,7 +163,7 @@ This module now includes a dedicated **Username** management domain for e3 Cloud
   - sortable columns
   - column show/hide controls
   - show entries control (`10/25/50/100`)
-  - Add User modal (Username, Password, Confirm Password, Email, Tenant assignment for MSP)
+  - Add User modal (Username, Backup Type selector, Password/Encryption Mode conditional on type, Email, Tenant assignment for MSP)
   - row click to user detail view
 - Dropdowns/menus on this page are Alpine components (custom menus, not native select menus for custom UI controls).
 
@@ -148,6 +187,7 @@ This module now includes a dedicated **Username** management domain for e3 Cloud
   - change show entries between 10/25/50/100
 - Navigation:
   - e3 Cloud Backup menu shows `Users` between `Dashboard` and `Agents`
+  - Jobs link has been removed from sidebar and horizontal nav (deprecated)
   - row click opens `user_detail` view
 
 ## Admin: Cloud Storage Bucket Monitor (usage charts + forecasting)

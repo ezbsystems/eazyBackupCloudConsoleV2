@@ -38,7 +38,7 @@ if ($onlineThresholdSeconds <= 0) {
     $onlineThresholdSeconds = 180;
 }
 
-$agents = Capsule::table('s3_cloudbackup_agents')
+$agentQuery = Capsule::table('s3_cloudbackup_agents')
     ->where('client_id', $clientId)
     ->select([
         'agent_uuid',
@@ -50,8 +50,26 @@ $agents = Capsule::table('s3_cloudbackup_agents')
         'created_at',
         'updated_at',
         Capsule::raw('TIMESTAMPDIFF(SECOND, last_seen_at, NOW()) as seconds_since_seen'),
-    ])
-    ->get();
+    ]);
+
+$userIdParam = isset($_GET['user_id']) ? trim((string) $_GET['user_id']) : '';
+if ($userIdParam !== '' && Capsule::schema()->hasColumn('s3_cloudbackup_agents', 'backup_user_id')) {
+    $hasPublicIdCol = Capsule::schema()->hasColumn('s3_backup_users', 'public_id');
+    $userLookup = Capsule::table('s3_backup_users')->where('client_id', $clientId);
+    if ($hasPublicIdCol && !ctype_digit($userIdParam)) {
+        $userLookup->where('public_id', $userIdParam);
+    } else {
+        $userLookup->where('id', (int) $userIdParam);
+    }
+    $backupUser = $userLookup->first(['id']);
+    if ($backupUser) {
+        $agentQuery->where('backup_user_id', (int) $backupUser->id);
+    } else {
+        $agentQuery->where('backup_user_id', -1);
+    }
+}
+
+$agents = $agentQuery->get();
 
 // Add computed online/offline status.
 foreach ($agents as $a) {

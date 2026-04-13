@@ -19,12 +19,14 @@ make build-windows
 
 ## Prerequisites
 
-| Requirement | Details |
-|-------------|---------|
-| Go toolchain | Version 1.24.x or later |
-| Source code | `/var/www/eazybackup.ca/e3-backup-agent/` |
-| Target platform | Windows amd64 (CGO_ENABLED=0) |
-| Inno Setup | Required on Windows to compile the installer |
+
+| Requirement     | Details                                      |
+| --------------- | -------------------------------------------- |
+| Go toolchain    | Version 1.24.x or later                      |
+| Source code     | `/var/www/eazybackup.ca/e3-backup-agent/`    |
+| Target platform | Windows amd64 (CGO_ENABLED=0)                |
+| Inno Setup      | Required on Windows to compile the installer |
+
 
 ---
 
@@ -32,10 +34,12 @@ make build-windows
 
 You must build **TWO executables**:
 
-| Binary | Purpose |
-|--------|---------|
-| `e3-backup-agent.exe` | Windows service (runs backups) |
-| `e3-backup-tray.exe` | Tray helper (enrollment UI, user interaction) |
+
+| Binary                | Purpose                                       |
+| --------------------- | --------------------------------------------- |
+| `e3-backup-agent.exe` | Windows service (runs backups)                |
+| `e3-backup-tray.exe`  | Tray helper (enrollment UI, user interaction) |
+
 
 ### Option A: Use Makefile (Recommended)
 
@@ -47,6 +51,7 @@ make build-windows
 ```
 
 This will output:
+
 ```
 bin/e3-backup-agent.exe
 bin/e3-backup-tray.exe
@@ -129,6 +134,7 @@ Download and install [Inno Setup](https://jrsoftware.org/isinfo.php) on your Win
 ### Output
 
 The installer will be created in the `installer\Output\` folder:
+
 ```
 e3-backup-agent-setup.exe
 ```
@@ -149,10 +155,12 @@ scp e3-backup-agent-setup.exe user@server:/var/www/eazybackup.ca/accounts/client
 # https://accounts.eazybackup.ca/client_installer/e3-backup-agent-setup.exe
 ```
 
-| File | Server Path | Download URL |
-|------|-------------|--------------|
+
+| File              | Server Path                                                                  | Download URL                                  |
+| ----------------- | ---------------------------------------------------------------------------- | --------------------------------------------- |
 | Windows Installer | `/var/www/eazybackup.ca/accounts/client_installer/e3-backup-agent-setup.exe` | `/client_installer/e3-backup-agent-setup.exe` |
-| Linux Binary | `/var/www/eazybackup.ca/accounts/client_installer/e3-backup-agent-linux` | `/client_installer/e3-backup-agent-linux` |
+| Linux Binary      | `/var/www/eazybackup.ca/accounts/client_installer/e3-backup-agent-linux`     | `/client_installer/e3-backup-agent-linux`     |
+
 
 ---
 
@@ -212,6 +220,7 @@ powershell -ExecutionPolicy Bypass -File .\stage-driver-packs.ps1 `
 ```
 
 Recommended operational model:
+
 - daily/default recovery ISO -> `drivers-critical` (faster startup)
 - fallback extended ISO -> `drivers-full` (maximum hardware coverage)
 
@@ -345,6 +354,7 @@ e3-backup-agent-setup.exe /VERYSILENT /TOKEN=your-enrollment-token-here
 ```
 
 With custom API endpoint:
+
 ```cmd
 e3-backup-agent-setup.exe /VERYSILENT /TOKEN=abc123... /API=https://your-server.com/modules/addons/cloudstorage/api
 ```
@@ -355,12 +365,14 @@ e3-backup-agent-setup.exe /VERYSILENT /TOKEN=abc123... /API=https://your-server.
 
 After installation, files are located at:
 
-| Location | Contents |
-|----------|----------|
-| `C:\Program Files\E3Backup\` | Executables (`e3-backup-agent.exe`, `e3-backup-tray.exe`) |
-| `C:\ProgramData\E3Backup\agent.conf` | Configuration file |
-| `C:\ProgramData\E3Backup\runs\` | Backup run data |
-| `C:\ProgramData\E3Backup\logs\` | Log files (`agent.log`, `tray.log`) |
+
+| Location                             | Contents                                                  |
+| ------------------------------------ | --------------------------------------------------------- |
+| `C:\Program Files\E3Backup\`         | Executables (`e3-backup-agent.exe`, `e3-backup-tray.exe`) |
+| `C:\ProgramData\E3Backup\agent.conf` | Configuration file                                        |
+| `C:\ProgramData\E3Backup\runs\`      | Backup run data                                           |
+| `C:\ProgramData\E3Backup\logs\`      | Log files (`agent.log`, `tray.log`)                       |
+
 
 ---
 
@@ -425,6 +437,7 @@ run_dir: "C:\\ProgramData\\E3Backup\\runs"
 ## Troubleshooting
 
 ### Tray app not included in installer
+
 **Symptom:** Only `e3-backup-agent.exe` exists in `C:\Program Files\E3Backup\`
 
 **Cause:** The tray binary wasn't built before compiling the installer.
@@ -432,16 +445,19 @@ run_dir: "C:\\ProgramData\\E3Backup\\runs"
 **Fix:** Run `make build-windows` to build both binaries, then recompile the installer.
 
 ### YAML parse error (unknown escape character)
+
 **Symptom:** Service fails with `found unknown escape character`
 
 **Cause:** Windows paths with backslashes aren't escaped in double-quoted YAML strings.
 
 **Fix:** Use escaped backslashes in the config:
+
 ```yaml
 run_dir: "C:\\ProgramData\\E3Backup\\runs"
 ```
 
 ### Browser doesn't open on first run
+
 **Symptom:** Tray shows "Not enrolled" but browser doesn't open automatically.
 
 **Cause:** The tray binary wasn't rebuilt with the latest code.
@@ -454,14 +470,16 @@ run_dir: "C:\\ProgramData\\E3Backup\\runs"
 
 ## Makefile Targets
 
-| Target | Description |
-|--------|-------------|
-| `make build` | Build Linux agent binary |
-| `make build-windows` | Build both Windows binaries (agent + tray) |
-| `make build-agent-windows` | Build only Windows agent |
-| `make build-tray-windows` | Build only Windows tray |
-| `make clean` | Remove build artifacts |
-| `make deps` | Download Go dependencies |
+
+| Target                     | Description                                |
+| -------------------------- | ------------------------------------------ |
+| `make build`               | Build Linux agent binary                   |
+| `make build-windows`       | Build both Windows binaries (agent + tray) |
+| `make build-agent-windows` | Build only Windows agent                   |
+| `make build-tray-windows`  | Build only Windows tray                    |
+| `make clean`               | Remove build artifacts                     |
+| `make deps`                | Download Go dependencies                   |
+
 
 ---
 
@@ -474,3 +492,4 @@ run_dir: "C:\\ProgramData\\E3Backup\\runs"
 - Driver bundles for recovery media are stored in customer destination buckets using:
   - `dest_prefix/driver-bundles/<agentid>/<profile>.zip`
 - Driver bundle downloads in media manifests are pre-signed (12-hour TTL), so generated URLs are intentionally temporary.
+

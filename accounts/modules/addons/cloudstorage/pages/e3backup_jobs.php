@@ -47,6 +47,7 @@ $agentSelect = [
     'a.tenant_id',
     'a.status',
     'a.last_seen_at',
+    Capsule::raw('TIMESTAMPDIFF(SECOND, a.last_seen_at, NOW()) as seconds_since_seen'),
 ];
 
 if ($isMspClient && $tenantTable === 'eb_tenants' && MspController::hasTenantPublicIds()) {
@@ -59,6 +60,28 @@ if ($isMspClient && $tenantTable === 'eb_tenants' && MspController::hasTenantPub
 }
 
 $agents = $agentQuery->get($agentSelect);
+
+$onlineThresholdSeconds = 180;
+try {
+    $configuredThreshold = (int) Capsule::table('tbladdonmodules')
+        ->where('module', 'cloudstorage')
+        ->where('setting', 'cloudbackup_agent_online_threshold_seconds')
+        ->value('value');
+    if ($configuredThreshold > 0) {
+        $onlineThresholdSeconds = $configuredThreshold;
+    }
+} catch (\Throwable $e) {
+}
+
+foreach ($agents as $agent) {
+    $lastSeenAt = trim((string) ($agent->last_seen_at ?? ''));
+    $secondsSinceSeen = isset($agent->seconds_since_seen) ? (int) $agent->seconds_since_seen : null;
+    if ($lastSeenAt === '') {
+        $agent->online_status = 'never';
+        continue;
+    }
+    $agent->online_status = ($secondsSinceSeen !== null && $secondsSinceSeen <= $onlineThresholdSeconds) ? 'online' : 'offline';
+}
 
 // Get user tenants (s3_users) for bucket access
 $s3Tenants = DBController::getResult('s3_users', [
@@ -81,4 +104,3 @@ return [
     'client_id' => $loggedInUserId,
     'usernames' => $s3Tenants, // For inline bucket creation
 ];
-

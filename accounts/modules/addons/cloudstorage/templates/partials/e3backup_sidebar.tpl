@@ -25,10 +25,11 @@
                 <span x-show="!sidebarCollapsed" x-transition.opacity>Dashboard</span>
             </a>
 
-            <a href="index.php?m=cloudstorage&page=e3backup&view=users" class="eb-sidebar-link {if $activeNav eq 'users'}is-active{/if}" :class="sidebarCollapsed && 'justify-center px-4'" :title="sidebarCollapsed ? 'Users' : ''">
+            <a href="index.php?m=cloudstorage&page=e3backup&view=users" class="eb-sidebar-link {if $activeNav eq 'users'}is-active{/if}" :class="sidebarCollapsed && 'justify-center px-4'" :title="sidebarCollapsed ? 'Users' : ''">                
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 0 0 3.75 1.03m-3.75-1.03a9.094 9.094 0 0 1-3.75 1.03m7.5-1.03a9.094 9.094 0 0 0-7.5 0m7.5 0A9.094 9.094 0 0 0 12 15.75a9.094 9.094 0 0 0-3.75 2.97m0 0A9.094 9.094 0 0 1 4.5 19.75m3.75-1.03a9.094 9.094 0 0 0-3.75-1.03m3.75 1.03A9.094 9.094 0 0 1 12 15.75m0 0a3.75 3.75 0 1 0 0-7.5 3.75 3.75 0 0 0 0 7.5Z" />
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 0 1 8.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0 1 11.964-3.07M12 6.375a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0Zm8.25 2.25a2.625 2.625 0 1 1-5.25 0 2.625 2.625 0 0 1 5.25 0Z" />
                 </svg>
+
                 <span x-show="!sidebarCollapsed" x-transition.opacity>Users</span>
             </a>
 
@@ -40,8 +41,8 @@
             </a>
 
             <a href="index.php?m=cloudstorage&page=e3backup&view=tokens" class="eb-sidebar-link {if $activeNav eq 'tokens'}is-active{/if}" :class="sidebarCollapsed && 'justify-center px-4'" :title="sidebarCollapsed ? 'Tokens' : ''">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 5.25a3 3 0 1 1 3 3m0 0a6 6 0 1 1-8.69 5.3l-2.28 2.28H6v2.25H3.75V15.6l5.16-5.16a6 6 0 0 1 9.84-2.19Z" />
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960" class="eb-sidebar-link-icon--filled" aria-hidden="true">
+                    <path fill="currentColor" d="M480-80 120-280v-400l360-200 360 200v400L480-80ZM364-590q23-24 53-37t63-13q33 0 63 13t53 37l120-67-236-131-236 131 120 67Zm76 396v-131q-54-14-87-57t-33-98q0-11 1-20.5t4-19.5l-125-70v263l240 133Zm96.5-229.5Q560-447 560-480t-23.5-56.5Q513-560 480-560t-56.5 23.5Q400-513 400-480t23.5 56.5Q447-400 480-400t56.5-23.5ZM520-194l240-133v-263l-125 70q3 10 4 19.5t1 20.5q0 55-33 98t-87 57v131Z" />
                 </svg>
                 <span x-show="!sidebarCollapsed" x-transition.opacity>Tokens</span>
             </a>
@@ -54,27 +55,13 @@
                 <span x-show="!sidebarCollapsed" x-transition.opacity>Tenants</span>
             </a>
 
-            <a href="index.php?m=cloudstorage&page=e3backup&view=tenant_members" class="eb-sidebar-link {if $activeNav eq 'tenant_members'}is-active{/if}" :class="sidebarCollapsed && 'justify-center px-4'" :title="sidebarCollapsed ? 'Tenant Members' : ''">
+            {* <a href="index.php?m=cloudstorage&page=e3backup&view=tenant_members" class="eb-sidebar-link {if $activeNav eq 'tenant_members'}is-active{/if}" :class="sidebarCollapsed && 'justify-center px-4'" :title="sidebarCollapsed ? 'Tenant Members' : ''">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 0 0 3.741-.479 3 3 0 0 0-4.682-2.72m.94 3.198.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0 1 12 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 0 1 6 18.719m12 0a5.971 5.971 0 0 0-.941-3.197m0 0A5.995 5.995 0 0 0 12 12.75a5.995 5.995 0 0 0-5.058 2.772m0 0a3 3 0 0 0-4.681 2.72 8.986 8.986 0 0 0 3.74.477m.94-3.197a5.971 5.971 0 0 0-.94 3.197M15 6.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm6 3a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Zm-13.5 0a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Z" />
                 </svg>
                 <span x-show="!sidebarCollapsed" x-transition.opacity>Tenant Members</span>
-            </a>
+            </a> *}
             {/if}
-
-            <a href="index.php?m=cloudstorage&page=e3backup&view=jobs" class="eb-sidebar-link {if $activeNav eq 'jobs'}is-active{/if}" :class="sidebarCollapsed && 'justify-center px-4'" :title="sidebarCollapsed ? 'Jobs' : ''">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M3 3v18h18M7.5 15.75l3-3 2.25 2.25 4.5-6" />
-                </svg>
-                <span x-show="!sidebarCollapsed" x-transition.opacity>Jobs</span>
-            </a>
-
-            <a href="index.php?m=cloudstorage&page=e3backup&view=restores" class="eb-sidebar-link {if $activeNav eq 'restores'}is-active{/if}" :class="sidebarCollapsed && 'justify-center px-4'" :title="sidebarCollapsed ? 'Restores' : ''">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.992 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865A8.25 8.25 0 0 1 17.834 6.165l3.181 3.182" />
-                </svg>
-                <span x-show="!sidebarCollapsed" x-transition.opacity>Restores</span>
-            </a>
 
             <a href="index.php?m=cloudstorage&page=e3backup&view=disk_image_restore" class="eb-sidebar-link {if $activeNav eq 'disk_restore'}is-active{/if}" :class="sidebarCollapsed && 'justify-center px-4'" :title="sidebarCollapsed ? 'Recovery' : ''">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
@@ -97,12 +84,6 @@
                 <span x-show="!sidebarCollapsed" x-transition.opacity>Cloud NAS</span>
             </a>
 
-            <a href="index.php?m=cloudstorage&page=e3backup&view=hyperv" class="eb-sidebar-link {if $activeNav eq 'hyperv'}is-active{/if}" :class="sidebarCollapsed && 'justify-center px-4'" :title="sidebarCollapsed ? 'Hyper-V' : ''">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3.75h4.5v4.5h-4.5v-4.5Zm6 0h4.5v4.5h-4.5v-4.5Zm-6 6h4.5v4.5h-4.5v-4.5Zm6 0h4.5v10.5h-4.5V9.75ZM3.75 15.75h7.5v4.5h-7.5v-4.5Z" />
-                </svg>
-                <span x-show="!sidebarCollapsed" x-transition.opacity>Hyper-V</span>
-            </a>
         </nav>
 
         <div class="border-t border-[var(--eb-border-subtle)] px-3 py-3">

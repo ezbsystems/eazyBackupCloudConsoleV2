@@ -28,6 +28,25 @@ function normalizeUsername(string $value): string
     return trim($value);
 }
 
+function generateBackupUserPublicId(): string
+{
+    $alphabet = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
+    try { $time = (int) floor(microtime(true) * 1000); } catch (\Throwable $__) { $time = (int) (time() * 1000); }
+    $timeBytes = '';
+    for ($i = 5; $i >= 0; $i--) { $timeBytes .= chr(($time >> ($i * 8)) & 0xFF); }
+    try { $rand = random_bytes(10); } catch (\Throwable $__) { $rand = substr(hash('sha256', uniqid('', true), true), 0, 10); }
+    $bin = $timeBytes . $rand;
+    $bits = '';
+    for ($i = 0; $i < 16; $i++) { $bits .= str_pad(decbin(ord($bin[$i])), 8, '0', STR_PAD_LEFT); }
+    $out = '';
+    for ($i = 0; $i < 26; $i++) {
+        $chunk = substr($bits, $i * 5, 5);
+        if ($chunk === '') { $chunk = '00000'; }
+        $out .= $alphabet[bindec(str_pad($chunk, 5, '0'))];
+    }
+    return $out;
+}
+
 $ca = new ClientArea();
 if (!$ca->isLoggedIn()) {
     userCreateFail('Session timeout', 200);
@@ -50,8 +69,19 @@ $isMsp = MspController::isMspClient($clientId);
 
 $username = normalizeUsername((string) ($_POST['username'] ?? ''));
 $email = strtolower(trim((string) ($_POST['email'] ?? '')));
-$password = (string) ($_POST['password'] ?? '');
-$passwordConfirm = (string) ($_POST['password_confirm'] ?? '');
+$backupType = strtolower(trim((string) ($_POST['backup_type'] ?? 'both')));
+if (!in_array($backupType, ['cloud_only', 'local', 'both'], true)) {
+    $backupType = 'both';
+}
+$isCloudOnly = ($backupType === 'cloud_only');
+
+if ($isCloudOnly) {
+    $password = bin2hex(random_bytes(32));
+    $passwordConfirm = $password;
+} else {
+    $password = (string) ($_POST['password'] ?? '');
+    $passwordConfirm = (string) ($_POST['password_confirm'] ?? '');
+}
 $status = strtolower(trim((string) ($_POST['status'] ?? 'active')));
 $tenantIdRaw = trim((string) ($_POST['tenant_id'] ?? ''));
 $tenantId = null;
@@ -97,16 +127,18 @@ if ($email === '') {
     $errors['email'] = 'Please enter a valid email address.';
 }
 
-if ($password === '') {
-    $errors['password'] = 'Password is required.';
-} elseif (strlen($password) < 8) {
-    $errors['password'] = 'Password must be at least 8 characters.';
-}
+if (!$isCloudOnly) {
+    if ($password === '') {
+        $errors['password'] = 'Password is required.';
+    } elseif (strlen($password) < 8) {
+        $errors['password'] = 'Password must be at least 8 characters.';
+    }
 
-if ($passwordConfirm === '') {
-    $errors['password_confirm'] = 'Please confirm your password.';
-} elseif ($password !== $passwordConfirm) {
-    $errors['password_confirm'] = 'Password confirmation does not match.';
+    if ($passwordConfirm === '') {
+        $errors['password_confirm'] = 'Please confirm your password.';
+    } elseif ($password !== $passwordConfirm) {
+        $errors['password_confirm'] = 'Password confirmation does not match.';
+    }
 }
 
 if (!in_array($status, ['active', 'disabled'], true)) {
@@ -164,9 +196,12 @@ if ($existing) {
     ]);
 }
 
+$hasPublicId = Capsule::schema()->hasColumn('s3_backup_users', 'public_id');
+$publicId = $hasPublicId ? generateBackupUserPublicId() : null;
+
 try {
-    $userId = Capsule::connection()->transaction(function () use ($clientId, $tenantId, $username, $password, $email, $status, $isMsp, $canonicalTenantId) {
-        $userId = (int) Capsule::table('s3_backup_users')->insertGetId([
+    $userId = Capsule::connection()->transaction(function () use ($clientId, $tenantId, $username, $password, $email, $status, $backupType, $isMsp, $canonicalTenantId, $hasPublicId, $publicId) {
+        $insertData = [
             'client_id' => $clientId,
             'tenant_id' => $tenantId,
             'username' => $username,
@@ -175,7 +210,14 @@ try {
             'status' => $status,
             'created_at' => Capsule::raw('NOW()'),
             'updated_at' => Capsule::raw('NOW()'),
-        ]);
+        ];
+        if ($hasPublicId && $publicId !== null) {
+            $insertData['public_id'] = $publicId;
+        }
+        if (Capsule::schema()->hasColumn('s3_backup_users', 'backup_type')) {
+            $insertData['backup_type'] = $backupType;
+        }
+        $userId = (int) Capsule::table('s3_backup_users')->insertGetId($insertData);
 
         if ($isMsp) {
             $storageIdentifier = eb_tenant_storage_identifier_for_user((int) $userId);
@@ -191,10 +233,14 @@ try {
     userCreateFail('Failed to create user.', 500);
 }
 
-(new JsonResponse([
+$response = [
     'status' => 'success',
     'user_id' => (int) $userId,
     'message' => 'User created successfully.',
-], 200))->send();
+];
+if ($publicId !== null) {
+    $response['public_id'] = $publicId;
+}
+(new JsonResponse($response, 200))->send();
 exit;
 

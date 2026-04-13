@@ -22,6 +22,7 @@ Table: `s3_backup_users`
 - `password_hash` (required)
 - `email` (required; reporting email)
 - `status` (`active` or `disabled`)
+- `backup_type` ENUM(`cloud_only`, `local`, `both`) DEFAULT `both` -- intent selector for user creation
 - `created_at`
 - `updated_at`
 
@@ -73,23 +74,35 @@ Implemented in `cloudstorage_clientarea()`:
 - `username`: required, `^[A-Za-z0-9._-]{3,64}$`, unique within scope
 - `email`: required, valid format
 - `password`:
-  - required on create
+  - required on create when `backup_type` is `local` or `both`
+  - auto-generated server-side when `backup_type` is `cloud_only`
   - minimum 8 characters
   - confirmation must match
+- `backup_type`: `cloud_only`, `local`, or `both` (default `both`)
 - `status`: `active` or `disabled`
 - `tenant_id`:
   - optional for MSP
   - rejected for direct customers
 
-## Metrics strategy (no ownership remap)
+## Job ownership link
 
-Per-username metrics are currently **derived by scope** (tenant/direct), not bound to explicit username ownership links in existing resource tables:
+Table `s3_cloudbackup_jobs` has a nullable `backup_user_id` column that directly links a job to a `s3_backup_users` row. When a job is created from a User Detail page, this FK is set automatically. Legacy jobs (created before this column existed) have `backup_user_id = NULL` and continue to be associated via tenant scope derivation.
 
-- `# Agents`: from `s3_cloudbackup_agents` by `client_id` + tenant scope
-- `# Jobs`: from `s3_cloudbackup_jobs` joined to agent tenant scope
-- `# Vaults`: distinct destination buckets from jobs in scope
-- `Last Backup`: latest successful/warning run from `s3_cloudbackup_runs` in scope
-- `Online Devices`: agents with `last_seen_at` inside online threshold setting
+## Agent ownership link
+
+Table `s3_cloudbackup_agents` has a nullable `backup_user_id` column that directly links an agent to a `s3_backup_users` row. When an enrollment token carries a `backup_user_id`, the agent enrolled with that token inherits the link automatically. Legacy agents (enrolled before this column existed) have `backup_user_id = NULL` and are associated via tenant scope derivation.
+
+Table `s3_agent_enrollment_tokens` also has a nullable `backup_user_id` column. When a token is created from a User Detail page context, this FK is set so that agents enrolled via that token are automatically linked to the correct backup user.
+
+## Metrics strategy (hybrid)
+
+Per-username metrics use a **hybrid** approach: direct FK when available, tenant scope derivation as fallback. This applies uniformly to agents, jobs, vaults, and last backup.
+
+- `# Agents`: from `s3_cloudbackup_agents` where `backup_user_id = <user_id>` OR (`backup_user_id IS NULL` AND `client_id` + tenant scope match)
+- `# Jobs`: from `s3_cloudbackup_jobs` where `backup_user_id = <user_id>` OR (`backup_user_id IS NULL` AND agent tenant scope match)
+- `# Vaults`: distinct destination buckets from jobs in scope (same hybrid logic)
+- `Last Backup`: latest successful/warning run from `s3_cloudbackup_runs` in scope (same hybrid logic on jobs)
+- `Online Devices`: agents with `last_seen_at` inside online threshold setting (same hybrid agent scope)
 
 ## UI notes
 
@@ -104,15 +117,18 @@ Users list (`e3backup_users.tpl`) includes:
 
 User detail (`e3backup_user_detail.tpl`) includes:
 
-- profile summary
+- profile summary with backup type badge and upgrade action
 - derived metrics cards
 - update form
 - password reset form
 - delete action
+- Create Job dropdown contextualized by `backup_type` (hides irrelevant job types)
+- Agents tab hidden when `backup_type` is `cloud_only`
+
+The standalone Jobs page (`e3backup_jobs.tpl`) has been deprecated. Jobs are now managed from each User's detail page. The page still exists with a deprecation banner for legacy bookmarks.
 
 ## Non-goals in this phase
 
-- no schema-level ownership remapping of existing vault/job/agent/log records
 - no backfill from legacy tenant user/storage user data into `s3_backup_users`
 - no changes to existing backup execution or provisioning flows
 

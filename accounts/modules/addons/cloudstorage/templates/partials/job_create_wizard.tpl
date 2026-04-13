@@ -52,10 +52,12 @@
         .scrollbar-thin-dark::-webkit-scrollbar-thumb:hover { background: #475569; }
         </style>
         <div id="jobCreationMessage" class="eb-alert eb-alert--danger mb-4 hidden"></div>
+        <script type="application/json" id="jobCreateWizardAgentsData">{$agents|@json_encode nofilter}</script>
         <form id="createJobForm">
             
             <input type="hidden" name="client_id" value="{$client_id}">
             <input type="hidden" name="s3_user_id" value="{$s3_user_id}">
+            <input type="hidden" name="backup_user_public_id" value="{$backup_user_public_id|default:''}">
             
             {if $isMspClient}
             <!-- MSP: Tenant Selection (filters agent dropdown) -->
@@ -397,7 +399,22 @@
                         async load() {
                             this.loading = true;
                             try {
-                                const resp = await fetch('modules/addons/cloudstorage/api/agent_list.php');
+                                const embeddedAgentsEl = document.getElementById('jobCreateWizardAgentsData');
+                                if (embeddedAgentsEl) {
+                                    try {
+                                        const embeddedAgents = JSON.parse(embeddedAgentsEl.textContent || '[]');
+                                        if (Array.isArray(embeddedAgents)) {
+                                            this.options = embeddedAgents.filter(a => a && a.status === 'active');
+                                            return;
+                                        }
+                                    } catch (e) {}
+                                }
+                                let agentUrl = 'modules/addons/cloudstorage/api/agent_list.php';
+                                const bupField = document.querySelector('input[name=backup_user_public_id]');
+                                if (bupField && bupField.value) {
+                                    agentUrl += '?user_id=' + encodeURIComponent(bupField.value);
+                                }
+                                const resp = await fetch(agentUrl);
                                 const data = await resp.json();
                                 if (data.status === 'success') {
                                     this.options = (data.agents || []).filter(a => a.status === 'active');
@@ -1073,6 +1090,20 @@
 </div>
 
 <style>
+/* Overlay + centering only over main column (matches .eb-theme-main margin), not full viewport — avoids modal under theme sidebar */
+#localJobWizardModal.local-job-wizard-modal-host {
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: var(--eb-mobile-sidebar-rail-width, 56px);
+}
+
+@media (min-width: 1024px) {
+    #localJobWizardModal.local-job-wizard-modal-host {
+        left: var(--eb-sidebar-width, 220px);
+    }
+}
+
 #localJobWizardModal .local-wizard-dialog {
     width: min(80rem, 100%);
     max-width: 80rem;
@@ -1087,13 +1118,13 @@
 
 #localJobWizardModal .local-wizard-panel {
     background: var(--eb-surface-subpanel);
-    border: 1px solid var(--eb-border-primary);
+    border: 1px solid var(--eb-border-default);
     border-radius: 1rem;
 }
 
 #localJobWizardModal .local-wizard-panel-soft {
     background: var(--eb-bg-surface);
-    border: 1px solid var(--eb-border-primary);
+    border: 1px solid var(--eb-border-default);
     border-radius: 0.875rem;
 }
 
@@ -1148,24 +1179,64 @@
 #localJobWizardModal .volume-card,
 #localJobWizardModal .vm-card {
     background: var(--eb-surface-subpanel);
-    border-color: var(--eb-border-primary);
+    /* Primary accent border (eb-primary family) — was invalid var(--eb-border-primary) */
+    border: 1px solid var(--eb-primary-border);
 }
 
 #localJobWizardModal .engine-card:hover,
 #localJobWizardModal .volume-card:hover,
 #localJobWizardModal .vm-card:hover {
-    border-color: var(--eb-border-strong);
+    border-color: var(--eb-border-orange);
     background: var(--eb-bg-hover);
 }
 
-#localJobWizardModal .engine-card.selected {
-    background: var(--eb-info-bg);
-    border-color: var(--eb-info-border);
-    box-shadow: inset 0 0 0 1px var(--eb-info-border);
+#localJobWizardModal .engine-card.selected,
+#localJobWizardModal .volume-card.selected {
+    background: var(--eb-primary-soft);
+    border-color: var(--eb-accent);
+    box-shadow: inset 0 0 0 1px var(--eb-border-brand);
+}
+
+/* Hyper-V VM cards: subtle selection (no full-card blue); text stays on dark surfaces */
+#localJobWizardModal .vm-card.selected {
+    background: var(--eb-bg-card);
+    border-color: var(--eb-primary);
+    box-shadow:
+        inset 0 0 0 1px var(--eb-primary-border),
+        0 0 0 1px color-mix(in srgb, var(--eb-primary) 22%, transparent);
+}
+
+#localJobWizardModal .vm-card.selected:hover {
+    background: var(--eb-bg-hover);
+    border-color: var(--eb-primary-hover);
+}
+
+/* Hyper-V VM card: icon well + checkbox (avoid full-card blue flood) */
+#localJobWizardModal .vm-card-icon-wrap {
+    border-radius: var(--eb-radius-lg);
+    background: color-mix(in srgb, var(--eb-bg-overlay) 65%, var(--eb-bg-card));
+    border: 1px solid var(--eb-border-subtle);
+}
+
+#localJobWizardModal .vm-card.selected .vm-card-icon-wrap {
+    background: var(--eb-primary-soft);
+    border-color: var(--eb-primary-border);
+}
+
+#localJobWizardModal .vm-card-check {
+    border-radius: var(--eb-radius-sm);
+    border: 2px solid var(--eb-border-default);
+    background: transparent;
+}
+
+#localJobWizardModal .vm-card.selected .vm-card-check {
+    border-color: var(--eb-primary);
+    background: var(--eb-primary);
+    color: var(--eb-text-inverse);
 }
 
 #localJobWizardModal .local-wizard-pill-choice {
-    border: 1px solid var(--eb-border-primary);
+    border: 1px solid var(--eb-border-default);
     background: var(--eb-bg-surface);
     color: var(--eb-text-secondary);
 }
@@ -1177,7 +1248,7 @@
 }
 
 #localJobWizardModal .local-wizard-stepper {
-    border: 1px solid var(--eb-border-primary);
+    border: 1px solid var(--eb-border-default);
     border-radius: 1rem;
     background: var(--eb-bg-surface);
 }
@@ -1202,7 +1273,7 @@
 #localJobWizardModal input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]),
 #localJobWizardModal textarea {
     background: var(--eb-bg-surface);
-    border: 1px solid var(--eb-border-primary);
+    border: 1px solid var(--eb-border-default);
     border-radius: 0.875rem;
     color: var(--eb-text-primary);
 }
@@ -1237,7 +1308,7 @@
 #localJobWizardModal [class*="rounded-xl"][class*="border"][class*="bg-slate-900/50"],
 #localJobWizardModal [class*="rounded-xl"][class*="border"][class*="bg-slate-900"] {
     background: var(--eb-surface-subpanel);
-    border-color: var(--eb-border-primary);
+    border-color: var(--eb-border-default);
 }
 
 #localJobWizardModal [class*="bg-slate-800/60"],
@@ -1248,12 +1319,12 @@
 #localJobWizardModal [class*="border-slate-800"],
 #localJobWizardModal [class*="border-slate-700"],
 #localJobWizardModal [class*="border-slate-600"] {
-    border-color: var(--eb-border-primary);
+    border-color: var(--eb-border-default);
 }
 
 #localJobWizardModal button[class*="bg-slate-800"],
 #localJobWizardModal button[class*="bg-slate-700"] {
-    border: 1px solid var(--eb-border-primary);
+    border: 1px solid var(--eb-border-default);
     background: var(--eb-bg-surface);
     color: var(--eb-text-secondary);
 }
@@ -1282,7 +1353,7 @@
 </style>
 
 <!-- Local Agent Job Wizard Modal -->
-<div id="localJobWizardModal" class="fixed inset-0 z-[2000] hidden">
+<div id="localJobWizardModal" class="local-job-wizard-modal-host fixed z-[2000] hidden">
     <div class="eb-modal-backdrop absolute inset-0" onclick="closeLocalJobWizard()"></div>
     <div class="absolute inset-0 flex items-center justify-center p-4">
         <div class="eb-modal local-wizard-dialog local-wizard-surface flex flex-col overflow-hidden !p-0">
@@ -1549,7 +1620,23 @@
                                 async load() {
                                     this.loading = true;
                                     try {
-                                        const resp = await fetch('modules/addons/cloudstorage/api/agent_list.php');
+                                        const embeddedAgentsEl = document.getElementById('jobCreateWizardAgentsData');
+                                        if (embeddedAgentsEl) {
+                                            try {
+                                                const embeddedAgents = JSON.parse(embeddedAgentsEl.textContent || '[]');
+                                                if (Array.isArray(embeddedAgents)) {
+                                                    this.allAgents = embeddedAgents.filter(a => a && a.status === 'active');
+                                                    this.applyTenantFilter();
+                                                    return;
+                                                }
+                                            } catch (e) {}
+                                        }
+                                        let agentUrl = 'modules/addons/cloudstorage/api/agent_list.php';
+                                        const bupField = document.querySelector('input[name=backup_user_public_id]');
+                                        if (bupField && bupField.value) {
+                                            agentUrl += '?user_id=' + encodeURIComponent(bupField.value);
+                                        }
+                                        const resp = await fetch(agentUrl);
                                         const data = await resp.json();
                                         if (data.status === 'success') {
                                             this.allAgents = (data.agents || []).filter(a => a.status === 'active');
@@ -1832,21 +1919,18 @@
                                             <template x-for="vm in vms" :key="vm.id">
                                                 <button type="button" 
                                                         class="vm-card group p-4 rounded-xl border text-left transition-all"
-                                                        :class="isSelected(vm.id) 
-                                                            ? 'border-blue-500 bg-blue-500/10 ring-2 ring-blue-500/40' 
-                                                            : 'border-slate-700 bg-slate-800/50 hover:border-slate-600 hover:bg-slate-800'"
+                                                        :class="{ 'selected': isSelected(vm.id) }"
                                                         @click="toggleVM(vm)">
                                                     <div class="flex items-start gap-3">
                                                         <!-- VM Icon -->
-                                                        <div class="w-12 h-12 rounded-xl flex items-center justify-center shrink-0"
-                                                             :class="isSelected(vm.id) ? 'bg-blue-500/20' : 'bg-slate-700/50'">
+                                                        <div class="vm-card-icon-wrap w-12 h-12 flex items-center justify-center shrink-0">
                                                             <svg class="w-6 h-6" :class="vm.state === 'Running' ? 'text-emerald-400' : (vm.state === 'Off' ? 'text-slate-400' : 'text-amber-400')" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5.25 14.25h13.5m-13.5 0a3 3 0 01-3-3m3 3a3 3 0 100 6h13.5a3 3 0 100-6m-16.5-3a3 3 0 013-3h13.5a3 3 0 013 3m-19.5 0a4.5 4.5 0 01.9-2.7L5.737 5.1a3.375 3.375 0 012.7-1.35h7.126c1.062 0 2.062.5 2.7 1.35l2.587 3.45a4.5 4.5 0 01.9 2.7" />
                                                             </svg>
                                                         </div>
                                                         <!-- VM Info -->
                                                         <div class="flex-1 min-w-0">
-                                                            <p class="text-base font-semibold text-slate-100 truncate" x-text="vm.name"></p>
+                                                            <p class="text-base font-semibold truncate" style="color: var(--eb-text-primary);" x-text="vm.name"></p>
                                                             <div class="flex items-center gap-2 mt-1 flex-wrap">
                                                                 <!-- State Badge -->
                                                                 <span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium"
@@ -1855,33 +1939,33 @@
                                                                     <span x-text="vm.state"></span>
                                                                 </span>
                                                                 <!-- Generation -->
-                                                                <span class="text-[10px] text-slate-500" x-text="'Gen ' + (vm.generation || 2)"></span>
+                                                                <span class="text-[10px]" style="color: var(--eb-text-muted);" x-text="'Gen ' + (vm.generation || 2)"></span>
                                                                 <!-- OS Type -->
-                                                                <span x-show="vm.is_linux" class="text-[10px] text-slate-500">• Linux</span>
-                                                                <span x-show="!vm.is_linux" class="text-[10px] text-slate-500">• Windows</span>
+                                                                <span x-show="vm.is_linux" class="text-[10px]" style="color: var(--eb-text-muted);">• Linux</span>
+                                                                <span x-show="!vm.is_linux" class="text-[10px]" style="color: var(--eb-text-muted);">• Windows</span>
                                                             </div>
-                                                            <div class="flex items-center gap-3 mt-1 text-[10px] text-slate-500">
+                                                            <div class="flex items-center gap-3 mt-1 text-[10px]" style="color: var(--eb-text-muted);">
                                                                 <span x-show="vm.cpu_count" x-text="vm.cpu_count + ' vCPU'"></span>
                                                                 <span x-show="vm.memory_mb" x-text="formatMemory(vm.memory_mb)"></span>
                                                                 <span x-show="Array.isArray(vm.disks) && vm.disks.length" x-text="(Array.isArray(vm.disks) ? vm.disks.length : 0) + ' disk(s)'"></span>
-                                                                <span x-show="(!vm.disks || vm.disks.length === 0) && (vm.disk_count !== null && vm.disk_count !== undefined)" class="text-[10px] text-slate-500" x-text="vm.disk_count + ' disk(s)'"></span>
-                                                                <span x-show="(!vm.disks || vm.disks.length === 0) && (vm.disk_count === null || vm.disk_count === undefined) && isSelected(vm.id)" class="text-[10px] text-slate-500">Fetching disk info...</span>
+                                                                <span x-show="(!vm.disks || vm.disks.length === 0) && (vm.disk_count !== null && vm.disk_count !== undefined)" x-text="vm.disk_count + ' disk(s)'"></span>
+                                                                <span x-show="(!vm.disks || vm.disks.length === 0) && (vm.disk_count === null || vm.disk_count === undefined) && isSelected(vm.id)">Fetching disk info...</span>
                                                             </div>
                                                         </div>
                                                         <!-- Checkbox -->
                                                         <div class="shrink-0">
-                                                            <div class="w-5 h-5 rounded border-2 flex items-center justify-center"
-                                                                 :class="isSelected(vm.id) ? 'border-blue-500 bg-blue-500' : 'border-slate-600'">
-                                                                <svg x-show="isSelected(vm.id)" class="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                            <div class="vm-card-check w-5 h-5 flex items-center justify-center"
+                                                                 aria-hidden="true">
+                                                                <svg x-show="isSelected(vm.id)" class="w-3 h-3" style="color: var(--eb-text-inverse);" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" />
                                                                 </svg>
                                                             </div>
                                                         </div>
                                                     </div>
                                                     <!-- RCT Status -->
-                                                    <div class="mt-3 pt-3 border-t border-slate-700/50 flex items-center justify-between">
+                                                    <div class="mt-3 pt-3 flex items-center justify-between" style="border-top: 1px solid var(--eb-border-faint);">
                                                         <div class="flex items-center gap-2">
-                                                            <span class="text-[10px] text-slate-500">RCT (Incremental):</span>
+                                                            <span class="text-[10px]" style="color: var(--eb-text-muted);">RCT (Incremental):</span>
                                                             <span x-show="vm.rct_enabled" class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium bg-emerald-500/15 text-emerald-300">
                                                                 Enabled
                                                             </span>
@@ -1913,7 +1997,7 @@
                                 <div class="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
                                     <div class="flex items-center justify-between mb-2">
                                         <h4 class="text-xs font-semibold text-slate-400 uppercase tracking-wide">Selected VMs</h4>
-                                        <span class="text-xs text-blue-300" x-text="selectedVMs.length"></span>
+                                        <span class="text-xs" style="color: var(--eb-accent);" x-text="selectedVMs.length"></span>
                                     </div>
                                     <div class="space-y-2 max-h-48 overflow-y-auto">
                                         <template x-for="vmId in selectedVMs" :key="vmId">

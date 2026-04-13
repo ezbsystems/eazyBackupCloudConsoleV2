@@ -630,8 +630,10 @@
                 }
                 let table;
 
-                function updateSortIndicators() {
-                    const order = table.order();
+                function updateSortIndicators(api) {
+                    var dt = api || table;
+                    if (!dt) return;
+                    const order = dt.order();
                     const activeCol = order.length ? order[0][0] : null;
                     const activeDir = order.length ? order[0][1] : 'asc';
                     jQuery('#bucketContents .eb-sort-indicator').text('');
@@ -640,8 +642,10 @@
                     }
                 }
 
-                function updateBucketPager() {
-                    const info = table.page.info();
+                function updateBucketPager(api) {
+                    var dt = api || table;
+                    if (!dt) return;
+                    const info = dt.page.info();
                     const start = info.recordsDisplay ? info.start + 1 : 0;
                     const end = info.recordsDisplay ? info.end : 0;
                     const total = info.recordsDisplay || 0;
@@ -708,7 +712,7 @@
                     table.ajax.reload();
                 });
 
-                table = new DataTable('#bucketContents', {
+                table = jQuery('#bucketContents').DataTable({
                     ajax: {
                         url: normalUrl,
                         data: function(d) {
@@ -982,8 +986,9 @@
 
                     // Per-draw adjustments
                     drawCallback: function(settings) {
-                        updateBucketPager();
-                        updateSortIndicators();
+                        var api = this.api();
+                        updateBucketPager(api);
+                        updateSortIndicators(api);
                         updateVersionFilterVisibility();
                         // Remove legacy \"Up One Level\" helper row (breadcrumb now handles this)
                         jQuery('#upOneLevelRow').remove();

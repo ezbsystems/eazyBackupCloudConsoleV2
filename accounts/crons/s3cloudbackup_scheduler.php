@@ -110,6 +110,116 @@ function resolveTimezone($job, array $settingsMap, DateTimeZone $fallback): Date
     }
 }
 
+function parseCronField(string $field, int $min, int $max): array
+{
+    $field = trim($field);
+    if ($field === '') {
+        return [];
+    }
+
+    $values = [];
+    foreach (explode(',', $field) as $segment) {
+        $segment = trim($segment);
+        if ($segment === '') {
+            return [];
+        }
+
+        $step = 1;
+        if (strpos($segment, '/') !== false) {
+            [$base, $stepRaw] = explode('/', $segment, 2);
+            $base = trim($base);
+            $stepRaw = trim($stepRaw);
+            if ($stepRaw === '' || !ctype_digit($stepRaw) || (int)$stepRaw <= 0) {
+                return [];
+            }
+            $step = (int)$stepRaw;
+            $segment = $base;
+        }
+
+        if ($segment === '*') {
+            $start = $min;
+            $end = $max;
+        } elseif (preg_match('/^(\d+)-(\d+)$/', $segment, $m)) {
+            $start = (int)$m[1];
+            $end = (int)$m[2];
+            if ($start > $end) {
+                return [];
+            }
+        } elseif (preg_match('/^\d+$/', $segment)) {
+            if ($step !== 1) {
+                return [];
+            }
+            $start = (int)$segment;
+            $end = (int)$segment;
+        } else {
+            return [];
+        }
+
+        if ($start < $min || $end > $max) {
+            return [];
+        }
+
+        for ($value = $start; $value <= $end; $value += $step) {
+            $values[$value] = true;
+        }
+    }
+
+    $values = array_keys($values);
+    sort($values);
+
+    return $values;
+}
+
+function cronMatchesNow(string $cronExpr, DateTime $now): bool
+{
+    $parts = preg_split('/\s+/', trim($cronExpr));
+    if (!is_array($parts) || count($parts) !== 5) {
+        return false;
+    }
+
+    [$minuteField, $hourField, $dayOfMonthField, $monthField, $dayOfWeekField] = $parts;
+
+    $minutes = parseCronField($minuteField, 0, 59);
+    $hours = parseCronField($hourField, 0, 23);
+    $daysOfMonth = parseCronField($dayOfMonthField, 1, 31);
+    $months = parseCronField($monthField, 1, 12);
+    $daysOfWeek = parseCronField($dayOfWeekField, 0, 7);
+    if (empty($minutes) || empty($hours) || empty($daysOfMonth) || empty($months) || empty($daysOfWeek)) {
+        return false;
+    }
+
+    $daysOfWeek = array_values(array_unique(array_map(static function ($value) {
+        return $value === 7 ? 0 : $value;
+    }, $daysOfWeek)));
+
+    $minute = (int)$now->format('i');
+    $hour = (int)$now->format('G');
+    $dayOfMonth = (int)$now->format('j');
+    $month = (int)$now->format('n');
+    $dayOfWeek = (int)$now->format('w');
+
+    if (!in_array($minute, $minutes, true) || !in_array($hour, $hours, true) || !in_array($month, $months, true)) {
+        return false;
+    }
+
+    $dayOfMonthMatches = in_array($dayOfMonth, $daysOfMonth, true);
+    $dayOfWeekMatches = in_array($dayOfWeek, $daysOfWeek, true);
+    $dayOfMonthIsWildcard = trim($dayOfMonthField) === '*';
+    $dayOfWeekIsWildcard = trim($dayOfWeekField) === '*';
+
+    if ($dayOfMonthIsWildcard && $dayOfWeekIsWildcard) {
+        return true;
+    }
+    if ($dayOfMonthIsWildcard) {
+        return $dayOfWeekMatches;
+    }
+    if ($dayOfWeekIsWildcard) {
+        return $dayOfMonthMatches;
+    }
+
+    return $dayOfMonthMatches || $dayOfWeekMatches;
+}
+
 function computeSlot(DateTime $now, array $schedule): ?array
 {
     $type = $schedule['type'] ?? '';
@@ -184,8 +294,17 @@ function computeSlot(DateTime $now, array $schedule): ?array
     }
 
     if ($type === 'cron') {
-        // Cron parsing is not implemented; skip safely
-        return null;
+        $cronExpr = trim((string)($schedule['cron'] ?? ''));
+        if ($cronExpr === '' || !cronMatchesNow($cronExpr, $now)) {
+            return null;
+        }
+        $slotStart = (clone $now)->setTime(
+            (int)$now->format('H'),
+            (int)$now->format('i'),
+            0
+        );
+        $slotEnd = (clone $slotStart)->modify('+5 minutes');
+        return [$slotStart, $slotEnd];
     }
 
     return null;

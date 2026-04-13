@@ -13,14 +13,6 @@
            class="px-4 py-1.5 rounded-full transition {if $activeNav == 'agents'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
             Agents
         </a>
-        <a href="index.php?m=cloudstorage&page=e3backup&view=jobs"
-           class="px-4 py-1.5 rounded-full transition {if $activeNav == 'jobs'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
-            Jobs
-        </a>
-        <a href="index.php?m=cloudstorage&page=e3backup&view=restores"
-           class="px-4 py-1.5 rounded-full transition {if $activeNav == 'restores'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
-            Restores
-        </a>
         <a href="index.php?m=cloudstorage&page=e3backup&view=disk_image_restore"
            class="px-4 py-1.5 rounded-full transition {if $activeNav == 'disk_restore'}bg-slate-800 text-slate-50 shadow-sm{else}hover:text-slate-200{/if}">
             Recovery
