@@ -56,7 +56,7 @@
                 type="button"
                 @click="openMountWizard()"
                 :disabled="!hasAgent"
-                class="eb-btn eb-btn-primary"
+                class="eb-btn eb-btn-primary eb-btn-sm"
                 :class="!hasAgent ? 'pointer-events-none opacity-60' : ''"
             >
                 Mount Drive
@@ -65,23 +65,24 @@
     </div>
 
     <div class="eb-alert eb-alert--info">
+        <svg class="eb-alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
+        </svg>
         <div class="flex-1">
             <strong class="font-semibold">Cloud NAS Beta.</strong>
-            Mount S3 buckets as local Windows drives using the backup agent.
-            <a href="https://winfsp.dev/rel/" target="_blank" rel="noopener" class="font-medium underline">Download WinFSP</a>
-            before creating your first mount.
+            Mount S3 buckets as local Windows drives using the backup agent. No additional software is required.
         </div>
     </div>
 
     <div class="eb-panel-nav">
-        <nav class="flex flex-wrap items-center gap-1" aria-label="Cloud NAS sections">
+        <nav class="flex flex-wrap gap-2" aria-label="Cloud NAS sections">
             <button
                 type="button"
                 @click="activeTab = 'drives'"
-                class="flex items-center gap-2 rounded-lg px-3 py-2.5 text-sm font-medium transition"
-                :class="activeTab === 'drives' ? 'bg-white/10 text-white ring-1 ring-white/20' : 'text-[var(--eb-text-muted)] hover:bg-white/5 hover:text-white'"
+                class="eb-tab"
+                :class="{ 'is-active': activeTab === 'drives' }"
             >
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-4 w-4">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-4 w-4 shrink-0">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44z" />
                 </svg>
                 <span>My Drives</span>
@@ -89,10 +90,10 @@
             <button
                 type="button"
                 @click="activeTab = 'timemachine'"
-                class="flex items-center gap-2 rounded-lg px-3 py-2.5 text-sm font-medium transition"
-                :class="activeTab === 'timemachine' ? 'bg-white/10 text-white ring-1 ring-white/20' : 'text-[var(--eb-text-muted)] hover:bg-white/5 hover:text-white'"
+                class="eb-tab"
+                :class="{ 'is-active': activeTab === 'timemachine' }"
             >
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-4 w-4">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-4 w-4 shrink-0">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0z" />
                 </svg>
                 <span>Time Machine</span>
@@ -100,10 +101,10 @@
             <button
                 type="button"
                 @click="activeTab = 'settings'"
-                class="flex items-center gap-2 rounded-lg px-3 py-2.5 text-sm font-medium transition"
-                :class="activeTab === 'settings' ? 'bg-white/10 text-white ring-1 ring-white/20' : 'text-[var(--eb-text-muted)] hover:bg-white/5 hover:text-white'"
+                class="eb-tab"
+                :class="{ 'is-active': activeTab === 'settings' }"
             >
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-4 w-4">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-4 w-4 shrink-0">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 0 1 0 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 0 1 0-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z" />
                     <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0z" />
                 </svg>
@@ -161,15 +162,15 @@
                 </div>
 
                 <div class="px-6 py-4">
-                    <p class="text-sm leading-relaxed text-[var(--eb-text-secondary)]" x-text="confirmMessage"></p>
+                    <p class="eb-type-body leading-relaxed" x-text="confirmMessage"></p>
                 </div>
 
                 <div class="flex justify-end gap-3 border-t border-[var(--eb-border-subtle)] bg-[var(--eb-bg-surface)] px-6 py-4">
-                    <button type="button" class="eb-btn eb-btn-secondary" @click="closeConfirm()">Cancel</button>
+                    <button type="button" class="eb-btn eb-btn-secondary eb-btn-sm" @click="closeConfirm()">Cancel</button>
                     <button
                         type="button"
-                        class="eb-btn"
-                        :class="confirmDanger ? 'eb-btn-danger' : 'eb-btn-primary'"
+                        class="eb-btn eb-btn-sm"
+                        :class="confirmDanger ? 'eb-btn-danger-solid' : 'eb-btn-primary'"
                         @click="executeConfirm()"
                     >
                         <span x-text="confirmDanger ? 'Delete' : 'Confirm'"></span>
@@ -291,7 +292,7 @@ function cloudNAS() {
             this.startStatusPolling();
         },
         
-        // Start polling for status updates when mounts are pending
+        // Start polling for status updates while mount actions are in progress
         startStatusPolling() {
             // Clear any existing interval
             if (this.statusPollInterval) {
@@ -303,7 +304,7 @@ function cloudNAS() {
             }, 3000);
         },
         
-        // Check if there are pending mounts and refresh if needed
+        // Check if there are active mount state transitions and refresh if needed
         async checkPendingMounts() {
             const pendingMounts = this.mounts.filter(m => 
                 m.status === 'mounting' || m.status === 'unmounting'
@@ -449,18 +450,36 @@ function cloudNAS() {
             if (idx >= 0) this.timeSliderValue = idx;
         },
         
-        // Calculate available drive letters
-        calculateAvailableDriveLetters() {
-            const usedLetters = this.mounts.map(m => m.drive_letter.toUpperCase());
-            const allLetters = 'ZYXWVUTSRQPONMLKJIHGFED'.split('');
-            this.availableDriveLetters = allLetters.filter(l => !usedLetters.includes(l));
+        // Fetch available drive letters from the server.
+        // The server combines the host's in-use drives (reported by the agent)
+        // with existing Cloud NAS mounts to produce usable letters only.
+        async calculateAvailableDriveLetters() {
+            const uuid = this.selectedAgentUuid || '';
+            if (!uuid) {
+                this.availableDriveLetters = 'ZYXWVUTSRQPONMLKJIHGFED'.split('');
+                return;
+            }
+            try {
+                const res = await fetch(`modules/addons/cloudstorage/api/cloudnas_available_drives.php?agent_uuid=${encodeURIComponent(uuid)}`);
+                const data = await res.json();
+                if (data.status === 'success' && Array.isArray(data.available)) {
+                    this.availableDriveLetters = data.available;
+                } else {
+                    const usedLetters = this.mounts.map(m => m.drive_letter.toUpperCase());
+                    this.availableDriveLetters = 'ZYXWVUTSRQPONMLKJIHGFED'.split('').filter(l => !usedLetters.includes(l));
+                }
+            } catch (e) {
+                console.error('Failed to fetch available drives:', e);
+                const usedLetters = this.mounts.map(m => m.drive_letter.toUpperCase());
+                this.availableDriveLetters = 'ZYXWVUTSRQPONMLKJIHGFED'.split('').filter(l => !usedLetters.includes(l));
+            }
             if (this.availableDriveLetters.length > 0 && !this.newMount.drive_letter) {
                 this.newMount.drive_letter = this.availableDriveLetters[0];
             }
         },
         
         // Open mount wizard
-        openMountWizard() {
+        async openMountWizard() {
             this.wizardStep = 0;
             this.newMount = {
                 bucket: '',
@@ -473,6 +492,10 @@ function cloudNAS() {
                 agent_uuid: this.selectedAgentUuid || ''
             };
             this.showMountWizard = true;
+            await this.calculateAvailableDriveLetters();
+            if (this.availableDriveLetters.length > 0) {
+                this.newMount.drive_letter = this.availableDriveLetters[0];
+            }
         },
         
         // Create mount
@@ -491,12 +514,8 @@ function cloudNAS() {
                 if (data.status === 'success') {
                     this.showMountWizard = false;
                     await this.loadMounts();
+                    await this.mountDrive(data.mount_id);
                     this.calculateAvailableDriveLetters();
-                    this.showToast('Mount configuration created', 'success');
-                    // Auto-mount the new drive
-                    if (data.mount_id) {
-                        await this.mountDrive(data.mount_id);
-                    }
                 } else {
                     this.showToast(data.message || 'Failed to create mount', 'error');
                 }
@@ -506,10 +525,11 @@ function cloudNAS() {
             }
         },
         
-        // Mount drive
+        // Start the mount immediately from the client area.
         async mountDrive(mountId) {
             try {
                 const mount = this.mounts.find(m => m.id === mountId);
+                const driveLabel = mount?.drive_letter || this.newMount.drive_letter || '';
                 if (mount) mount.status = 'mounting';
                 
                 const res = await fetch('modules/addons/cloudstorage/api/cloudnas_mount.php', {
@@ -519,12 +539,16 @@ function cloudNAS() {
                 });
                 const data = await res.json();
                 if (data.status === 'success') {
-                    this.showToast(`Drive ${mount?.drive_letter}: mounting...`, 'success');
-                    // Poll for status
-                    setTimeout(() => this.loadMounts(), 2000);
+                    this.showToast(`Drive ${driveLabel}: mounting in progress.`, 'success');
+                    await this.loadMounts();
                 } else {
-                    if (mount) mount.status = 'unmounted';
+                    if (mount) {
+                        mount.status = 'error';
+                        mount.error = data.message || 'Mount failed';
+                    }
                     this.showToast(data.message || 'Failed to mount drive', 'error');
+                    await this.loadMounts();
+                    this.calculateAvailableDriveLetters();
                 }
             } catch (e) {
                 console.error('Failed to mount drive:', e);
@@ -704,15 +728,27 @@ function cloudNAS() {
             this.confirmAction = null;
         },
         
-        // Toast notification
+        // Toast notification with DOM fallback when window.toast is unavailable
         showToast(message, type = 'info') {
             if (window.toast) {
                 if (type === 'success') window.toast.success(message);
                 else if (type === 'error') window.toast.error(message);
                 else window.toast.info(message);
-            } else {
-                console.log(`[${type}] ${message}`);
+                return;
             }
+            const colors = {
+                success: { bg: 'var(--eb-success-bg, #ecfdf5)', border: 'var(--eb-success-border, #10b981)', text: 'var(--eb-success-text, #065f46)' },
+                error:   { bg: 'var(--eb-danger-bg, #fef2f2)',  border: 'var(--eb-danger-border, #ef4444)',  text: 'var(--eb-danger-text, #991b1b)' },
+                info:    { bg: 'var(--eb-info-bg, #eff6ff)',     border: 'var(--eb-info-border, #3b82f6)',    text: 'var(--eb-info-text, #1e40af)' }
+            };
+            const c = colors[type] || colors.info;
+            const el = document.createElement('div');
+            el.setAttribute('role', 'alert');
+            el.style.cssText = `position:fixed;top:1rem;right:1rem;z-index:9999;max-width:24rem;padding:0.75rem 1rem;border-radius:0.5rem;border:1px solid ${c.border};background:${c.bg};color:${c.text};font-size:0.875rem;box-shadow:0 4px 12px rgba(0,0,0,.12);opacity:0;transition:opacity .2s;`;
+            el.textContent = message;
+            document.body.appendChild(el);
+            requestAnimationFrame(() => { el.style.opacity = '1'; });
+            setTimeout(() => { el.style.opacity = '0'; setTimeout(() => el.remove(), 250); }, 5000);
         }
     };
 }

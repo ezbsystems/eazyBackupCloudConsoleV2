@@ -1,153 +1,171 @@
-<div class="min-h-screen bg-slate-950 text-gray-300">
-    <div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,_#1f293780,_transparent_60%)]"></div>
-    <div class="container mx-auto px-4 pb-10 pt-6 relative pointer-events-auto">
-        {assign var="activeNav" value="jobs"}
-        {include file="modules/addons/cloudstorage/templates/partials/e3backup_nav.tpl"}
-        <!-- Glass panel container -->
-        <div class="rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)] px-6 py-6">
-
+{capture assign=ebE3RunsBreadcrumb}
+    <div class="eb-breadcrumb">
+        <a href="index.php?m=cloudstorage&page=e3backup&view=dashboard" class="eb-breadcrumb-link">e3 Cloud Backup</a>
+        <span class="eb-breadcrumb-separator">/</span>
         {if isset($job)}
-        <div class="flex flex-col sm:flex-row h-16 justify-between items-start sm:items-center mb-3">
-            <div class="flex items-center">
-                <h2 class="text-2xl font-semibold text-white flex items-center gap-2">
-                    <span>Run History: {$job.name}</span>
-                    <span class="inline-flex items-center rounded-full bg-amber-500/15 px-2 py-0.5 text-[0.65rem] font-semibold uppercase tracking-wide text-amber-200 border border-amber-400/40">
-                        Beta
-                    </span>
-                </h2>
-            </div>
+            <a href="index.php?m=cloudstorage&page=e3backup&view=runs" class="eb-breadcrumb-link">Run history</a>
+            <span class="eb-breadcrumb-separator">/</span>
+            <span class="eb-breadcrumb-current">{$job.name|escape:'html'}</span>
+        {else}
+            <span class="eb-breadcrumb-current">Run history</span>
+        {/if}
+    </div>
+{/capture}
+
+{capture assign=ebE3RunsHeaderActions}
+    <span class="eb-badge eb-badge--warning">Beta</span>
+{/capture}
+
+{if isset($job)}
+    {capture assign=ebE3RunsPageTitle}Run history: {$job.name|escape:'html'}{/capture}
+{else}
+    {assign var=ebE3RunsPageTitle value='Run history'}
+{/if}
+
+{capture assign=ebE3Content}
+<div class="space-y-6">
+    {include file="$template/includes/ui/page-header.tpl"
+        ebBreadcrumb=$ebE3RunsBreadcrumb
+        ebPageTitle=$ebE3RunsPageTitle
+        ebPageDescription='Cloud Backup run history, validation, and log excerpts. Runs remain available while the job exists.'
+        ebPageActions=$ebE3RunsHeaderActions
+    }
+
+    <div class="eb-alert eb-alert--warning">
+        <svg class="eb-alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+        </svg>
+        <div>
+            <div class="eb-alert-title">Cloud Backup (beta)</div>
+            <p class="eb-type-caption !mt-1 !text-[var(--eb-warning-text)]">
+                Functionality may change and occasional issues are expected. Keep a primary backup strategy in place and contact support if you notice problems.
+            </p>
         </div>
-        <div class="mb-6 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-xs text-amber-100 flex items-start gap-2">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mt-[2px]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 9v3.75M12 15.75h.007M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            <div>
-                <p class="font-semibold text-amber-100 text-[0.75rem] uppercase tracking-wide">Cloud Backup (Beta)</p>
-                <p class="mt-1 text-[0.75rem] leading-relaxed text-amber-100/90">
-                    Cloud Backup is currently in beta. Functionality may change and occasional issues are expected.
-                    Please keep a primary backup strategy in place and contact support if you notice any problems.
-                </p>
+    </div>
+
+    {if isset($job)}
+        <div class="grid gap-4 md:grid-cols-4">
+            <div class="eb-card !p-4">
+                <div class="eb-stat-label">Total runs</div>
+                <div class="eb-type-stat">{if isset($metrics.total_runs)}{$metrics.total_runs}{else}{if isset($runs)}{count($runs)}{else}0{/if}{/if}</div>
             </div>
-        </div>
-        <!-- Summary Metrics Band (per-job runs) -->
-        <div class="mb-6 grid gap-4 md:grid-cols-4">
-            <div class="rounded-2xl border border-slate-800/80 bg-slate-900/70 px-4 py-3">
-                <p class="text-xs font-medium text-slate-400 uppercase tracking-wide">Total Runs</p>
-                <p class="mt-1 text-2xl font-semibold text-white">{if isset($metrics.total_runs)}{$metrics.total_runs}{else}{if isset($runs)}{count($runs)}{else}0{/if}{/if}</p>
+            <div class="eb-card !p-4" style="border-color: var(--eb-success-border);">
+                <div class="eb-stat-label !text-[var(--eb-success-text)]">Success (24h)</div>
+                <div class="eb-type-stat !text-[var(--eb-success-text)]">{if isset($metrics.success_24h)}{$metrics.success_24h}{else}0{/if}</div>
             </div>
-            <div class="rounded-2xl border border-emerald-500/30 bg-emerald-500/5 px-4 py-3">
-                <p class="text-xs font-medium text-emerald-300 uppercase tracking-wide">Success (24h)</p>
-                <p class="mt-1 text-2xl font-semibold text-emerald-100">{if isset($metrics.success_24h)}{$metrics.success_24h}{else}0{/if}</p>
+            <div class="eb-card !p-4" style="border-color: var(--eb-danger-border);">
+                <div class="eb-stat-label !text-[var(--eb-danger-text)]">Failed (24h)</div>
+                <div class="eb-type-stat !text-[var(--eb-danger-text)]">{if isset($metrics.failed_24h)}{$metrics.failed_24h}{else}0{/if}</div>
             </div>
-            <div class="rounded-2xl border border-rose-500/30 bg-rose-500/5 px-4 py-3">
-                <p class="text-xs font-medium text-rose-300 uppercase tracking-wide">Failed (24h)</p>
-                <p class="mt-1 text-2xl font-semibold text-rose-100">{if isset($metrics.failed_24h)}{$metrics.failed_24h}{else}0{/if}</p>
-            </div>
-            <div class="rounded-2xl border border-slate-800/80 bg-slate-900/70 px-4 py-3">
-                <p class="text-xs font-medium text-slate-400 uppercase tracking-wide">Last Run</p>
-                <p class="mt-1 text-sm text-slate-200">
+            <div class="eb-card !p-4">
+                <div class="eb-stat-label">Last run</div>
+                <div class="eb-type-body !mt-1 !text-[var(--eb-text-secondary)]">
                     {if isset($metrics.last_run_started_at) && $metrics.last_run_started_at}
                         {$metrics.last_run_started_at|date_format:"%d %b %Y %H:%M"}
                         {if $metrics.last_run_status}
-                            <span class="ml-2 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[0.65rem] font-medium
-                                {if $metrics.last_run_status eq 'success'}bg-emerald-500/10 text-emerald-300
-                                {elseif $metrics.last_run_status eq 'failed'}bg-rose-500/15 text-rose-300
-                                {elseif $metrics.last_run_status eq 'cancelled'}bg-amber-500/15 text-amber-300
-                                {else}bg-slate-500/15 text-slate-300{/if}">
-                                {$metrics.last_run_status|ucfirst}
+                            <span class="ml-2 align-middle">
+                                {if $metrics.last_run_status eq 'success'}
+                                    <span class="eb-badge eb-badge--success">{$metrics.last_run_status|ucfirst}</span>
+                                {elseif $metrics.last_run_status eq 'failed'}
+                                    <span class="eb-badge eb-badge--danger">{$metrics.last_run_status|ucfirst}</span>
+                                {elseif $metrics.last_run_status eq 'cancelled'}
+                                    <span class="eb-badge eb-badge--warning">{$metrics.last_run_status|ucfirst}</span>
+                                {else}
+                                    <span class="eb-badge eb-badge--neutral">{$metrics.last_run_status|ucfirst}</span>
+                                {/if}
                             </span>
                         {/if}
                     {else}
-                        <span class="text-slate-500">-</span>
+                        <span class="eb-type-caption">—</span>
                     {/if}
-                </p>
+                </div>
             </div>
         </div>
 
-        <div class="bg-slate-800 rounded-lg border border-slate-700 shadow-lg p-6 mb-6">
-            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div class="eb-subpanel">
+            <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
                 <div>
-                    <h6 class="text-sm font-medium text-slate-400">Source</h6>
-                    <span class="text-md font-medium text-slate-300">{$job.source_display_name}</span>
+                    <h6 class="eb-field-label">Source</h6>
+                    <div class="eb-type-body !text-[var(--eb-text-primary)] !font-medium">{$job.source_display_name}</div>
                 </div>
                 <div>
-                    <h6 class="text-sm font-medium text-slate-400">Destination</h6>
-                    <span class="text-md font-medium text-slate-300">
+                    <h6 class="eb-field-label">Destination</h6>
+                    <div class="eb-type-body !text-[var(--eb-text-primary)] !font-medium">
                         {if isset($job.dest_bucket_name) && $job.dest_bucket_name}
                             {$job.dest_bucket_name}{if $job.dest_prefix} / {$job.dest_prefix}{/if}
                         {else}
                             Bucket #{$job.dest_bucket_id}{if $job.dest_prefix} / {$job.dest_prefix}{/if}
                         {/if}
-                    </span>
+                    </div>
                 </div>
                 <div>
-                    <h6 class="text-sm font-medium text-slate-400">Schedule</h6>
-                    <span class="text-md font-medium text-slate-300">{$job.schedule_type|ucfirst}</span>
+                    <h6 class="eb-field-label">Schedule</h6>
+                    <div class="eb-type-body !text-[var(--eb-text-primary)] !font-medium">{$job.schedule_type|ucfirst}</div>
                 </div>
             </div>
         </div>
 
-        <div class="bg-slate-800 rounded-lg border border-slate-700 shadow-lg overflow-hidden">
-            <table class="min-w-full divide-y divide-slate-700">
-                <thead class="bg-slate-700">
+        <div class="eb-table-shell">
+            <table class="eb-table">
+                <thead>
                     <tr>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-slate-300 uppercase tracking-wider">Date/Time</th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-slate-300 uppercase tracking-wider">Trigger</th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-slate-300 uppercase tracking-wider">Status</th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-slate-300 uppercase tracking-wider">Validation</th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-slate-300 uppercase tracking-wider">Bytes Transferred</th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-slate-300 uppercase tracking-wider">Duration</th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-slate-300 uppercase tracking-wider">Actions</th>
+                        <th>Date/time</th>
+                        <th>Trigger</th>
+                        <th>Status</th>
+                        <th>Validation</th>
+                        <th>Bytes transferred</th>
+                        <th>Duration</th>
+                        <th>Actions</th>
                     </tr>
                 </thead>
-                <tbody class="bg-slate-800 divide-y divide-slate-700">
+                <tbody>
                     {if count($runs) > 0}
                         {foreach from=$runs item=run}
-                            <tr class="run-row hover:bg-slate-700/40 cursor-pointer" data-run-id="{$run.run_id}" title="Click to view log">
-                                <td class="px-6 py-4 whitespace-nowrap text-sm text-slate-300">
+                            <tr class="run-row cursor-pointer" data-run-id="{$run.run_id}" title="Click to view log">
+                                <td class="eb-table-primary">
                                     {if $run.started_at}
                                         {$run.started_at|date_format:"%d %b %Y %H:%M:%S"}
                                     {else}
                                         Queued
                                     {/if}
                                 </td>
-                                <td class="px-6 py-4 whitespace-nowrap text-sm text-slate-300">
-                                    {$run.trigger_type|ucfirst}
-                                </td>
-                                <td class="px-6 py-4 whitespace-nowrap">
-                                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium
-                                        {if $run.status eq 'success'}bg-emerald-500/10 text-emerald-300
-                                        {elseif $run.status eq 'failed'}bg-rose-500/15 text-rose-300
-                                        {elseif $run.status eq 'running' || $run.status eq 'starting'}bg-sky-500/10 text-sky-300
-                                        {elseif $run.status eq 'warning'}bg-amber-500/15 text-amber-300
-                                        {elseif $run.status eq 'cancelled'}bg-amber-500/15 text-amber-300
-                                        {else}bg-slate-500/15 text-slate-300{/if}">
-                                        {$run.status|ucfirst}
-                                    </span>
-                                </td>
-                                <td class="px-6 py-4 whitespace-nowrap">
-                                    {if $run.validation_mode eq 'post_run'}
-                                        {if $run.validation_status eq 'success'}
-                                            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-700 text-green-200" title="Validation passed">✓ Valid</span>
-                                        {elseif $run.validation_status eq 'failed'}
-                                            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-700 text-red-200" title="Validation failed">✗ Failed</span>
-                                        {elseif $run.validation_status eq 'running'}
-                                            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-700 text-blue-200">Running...</span>
-                                        {else}
-                                            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-700 text-gray-200">Pending</span>
-                                        {/if}
+                                <td>{$run.trigger_type|ucfirst}</td>
+                                <td>
+                                    {if $run.status eq 'success'}
+                                        <span class="eb-badge eb-badge--success">{$run.status|ucfirst}</span>
+                                    {elseif $run.status eq 'failed'}
+                                        <span class="eb-badge eb-badge--danger">{$run.status|ucfirst}</span>
+                                    {elseif $run.status eq 'running' || $run.status eq 'starting'}
+                                        <span class="eb-badge eb-badge--info">{$run.status|ucfirst}</span>
+                                    {elseif $run.status eq 'warning' || $run.status eq 'cancelled'}
+                                        <span class="eb-badge eb-badge--warning">{$run.status|ucfirst}</span>
                                     {else}
-                                        <span class="text-xs text-slate-500">-</span>
+                                        <span class="eb-badge eb-badge--neutral">{$run.status|ucfirst}</span>
                                     {/if}
                                 </td>
-                                <td class="px-6 py-4 whitespace-nowrap text-sm text-slate-300">
+                                <td>
+                                    {if $run.validation_mode eq 'post_run'}
+                                        {if $run.validation_status eq 'success'}
+                                            <span class="eb-badge eb-badge--success" title="Validation passed">✓ Valid</span>
+                                        {elseif $run.validation_status eq 'failed'}
+                                            <span class="eb-badge eb-badge--danger" title="Validation failed">✗ Failed</span>
+                                        {elseif $run.validation_status eq 'running'}
+                                            <span class="eb-badge eb-badge--info">Running…</span>
+                                        {else}
+                                            <span class="eb-badge eb-badge--neutral">Pending</span>
+                                        {/if}
+                                    {else}
+                                        <span class="eb-type-caption">—</span>
+                                    {/if}
+                                </td>
+                                <td>
                                     {if $run.bytes_transferred|@strlen}
                                         {\WHMCS\Module\Addon\CloudStorage\Client\HelperController::formatSizeUnits($run.bytes_transferred)}
                                     {else}
-                                        -
+                                        —
                                     {/if}
                                 </td>
-                                <td class="px-6 py-4 whitespace-nowrap text-sm text-slate-300">
+                                <td>
                                     {if $run.started_at && $run.finished_at}
                                         {assign var="start" value=$run.started_at|strtotime}
                                         {assign var="end" value=$run.finished_at|strtotime}
@@ -160,128 +178,90 @@
                                             {math equation="floor(x/3600)" x=$duration}h {math equation="floor((x%3600)/60)" x=$duration}m
                                         {/if}
                                     {elseif $run.status eq 'running'}
-                                        Running...
+                                        Running…
                                     {else}
-                                        -
+                                        —
                                     {/if}
                                 </td>
-                                <td class="px-6 py-4 whitespace-nowrap text-sm">
+                                <td>
                                     {if $run.status eq 'running'}
-                                        <div class="flex items-center gap-3">
-                                            <a href="index.php?m=cloudstorage&page=e3backup&view=live&run_id={$run.run_id}" class="text-sky-400 hover:text-sky-500">View Live</a>
-                                            <button type="button" onclick="showRunDetails('{$run.run_id}')" class="text-sky-400 hover:text-sky-500">View Log</button>
+                                        <div class="flex flex-wrap items-center gap-3">
+                                            <a href="index.php?m=cloudstorage&page=e3backup&view=live&run_id={$run.run_id}" class="eb-link">View live</a>
+                                            <button type="button" class="eb-btn eb-btn-ghost eb-btn-sm" onclick="showRunDetails('{$run.run_id}')">View log</button>
                                         </div>
                                     {else}
-                                        <button type="button" onclick="showRunDetails('{$run.run_id}')" class="text-sky-400 hover:text-sky-500">View Log</button>
+                                        <button type="button" class="eb-btn eb-btn-ghost eb-btn-sm" onclick="showRunDetails('{$run.run_id}')">View log</button>
                                     {/if}
                                 </td>
                             </tr>
                         {/foreach}
                     {else}
                         <tr>
-                            <td colspan="7" class="px-6 py-4 text-center text-slate-400">No runs found for this job.</td>
+                            <td colspan="7" class="!p-0">
+                                <div class="eb-app-empty">
+                                    <div class="eb-app-empty-title">No runs for this job</div>
+                                    <p class="eb-app-empty-copy">Runs will appear here after the job executes.</p>
+                                </div>
+                            </td>
                         </tr>
                     {/if}
                 </tbody>
             </table>
         </div>
-        {else}
-        <div class="flex flex-col sm:flex-row h-16 justify-between items-start sm:items-center mb-3">
-            <div class="flex items-center">
-                <h2 class="text-2xl font-semibold text-white flex items-center gap-2">
-                    <span>Run History</span>
-                    <span class="inline-flex items-center rounded-full bg-amber-500/15 px-2 py-0.5 text-[0.65rem] font-semibold uppercase tracking-wide text-amber-200 border border-amber-400/40">
-                        Beta
-                    </span>
-                </h2>
+    {else}
+        <div class="grid gap-4 md:grid-cols-5">
+            <div class="eb-card !p-4">
+                <div class="eb-stat-label">Total jobs</div>
+                <div class="eb-type-stat">{if isset($metrics.total_jobs)}{$metrics.total_jobs}{else}{if isset($jobs)}{count($jobs)}{else}0{/if}{/if}</div>
             </div>
-        </div>
-        <div class="mb-6 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-xs text-amber-100 flex items-start gap-2">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mt-[2px]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 9v3.75M12 15.75h.007M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            <div>
-                <p class="font-semibold text-amber-100 text-[0.75rem] uppercase tracking-wide">Cloud Backup (Beta)</p>
-                <p class="mt-1 text-[0.75rem] leading-relaxed text-amber-100/90">
-                    Cloud Backup is currently in beta. Functionality may change and occasional issues are expected.
-                    Please keep a primary backup strategy in place and contact support if you notice any problems.
-                </p>
+            <div class="eb-card !p-4"{if isset($metrics.active) && $metrics.active > 0} style="border-color: var(--eb-success-border);"{/if}>
+                <div class="eb-stat-label{if isset($metrics.active) && $metrics.active > 0} !text-[var(--eb-success-text)]{/if}">Active</div>
+                <div class="eb-type-stat">{if isset($metrics.active)}{$metrics.active}{else}0{/if}</div>
             </div>
-        </div>
-        <!-- Summary Metrics Band (all jobs aggregate) -->
-        <div class="mb-6 grid gap-4 md:grid-cols-5">
-            <div class="rounded-2xl px-4 py-3 bg-slate-950/70 border border-slate-800/80">
-                <p class="text-[0.65rem] font-medium tracking-wide uppercase text-slate-400">Total Jobs</p>
-                <p class="mt-1 text-2xl font-semibold text-white">{if isset($metrics.total_jobs)}{$metrics.total_jobs}{else}{if isset($jobs)}{count($jobs)}{else}0{/if}{/if}</p>
+            <div class="eb-card !p-4"{if isset($metrics.paused) && $metrics.paused > 0} style="border-color: var(--eb-warning-border);"{/if}>
+                <div class="eb-stat-label{if isset($metrics.paused) && $metrics.paused > 0} !text-[var(--eb-warning-text)]{/if}">Paused</div>
+                <div class="eb-type-stat">{if isset($metrics.paused)}{$metrics.paused}{else}0{/if}</div>
             </div>
-            <div class="rounded-2xl px-4 py-3 bg-slate-950/70 border
-                {if isset($metrics.active) && $metrics.active > 0}
-                    border-emerald-500/35
-                {else}
-                    border-slate-800/80
-                {/if}">
-                <p class="text-[0.65rem] font-medium tracking-wide uppercase
-                    {if isset($metrics.active) && $metrics.active > 0} text-emerald-200 {else} text-slate-400 {/if}">
-                    Active
-                </p>
-                <p class="mt-1 text-2xl font-semibold text-slate-50">{if isset($metrics.active)}{$metrics.active}{else}0{/if}</p>
+            <div class="eb-card !p-4"{if isset($metrics.failed_24h) && $metrics.failed_24h > 0} style="border-color: var(--eb-danger-border);"{/if}>
+                <div class="eb-stat-label{if isset($metrics.failed_24h) && $metrics.failed_24h > 0} !text-[var(--eb-danger-text)]{/if}">Failed (24h)</div>
+                <div class="eb-type-stat">{if isset($metrics.failed_24h)}{$metrics.failed_24h}{else}0{/if}</div>
             </div>
-            <div class="rounded-2xl px-4 py-3 bg-slate-950/70 border
-                {if isset($metrics.paused) && $metrics.paused > 0}
-                    border-amber-500/35
-                {else}
-                    border-slate-800/80
-                {/if}">
-                <p class="text-[0.65rem] font-medium tracking-wide uppercase
-                    {if isset($metrics.paused) && $metrics.paused > 0} text-amber-200 {else} text-slate-400 {/if}">
-                    Paused
-                </p>
-                <p class="mt-1 text-2xl font-semibold text-slate-50">{if isset($metrics.paused)}{$metrics.paused}{else}0{/if}</p>
-            </div>
-            <div class="rounded-2xl px-4 py-3 bg-slate-950/70 border
-                {if isset($metrics.failed_24h) && $metrics.failed_24h > 0}
-                    border-rose-500/35 shadow-[0_0_24px_rgba(248,113,113,0.25)]
-                {else}
-                    border-slate-800/80
-                {/if}">
-                <p class="text-[0.65rem] font-medium tracking-wide uppercase
-                    {if isset($metrics.failed_24h) && $metrics.failed_24h > 0} text-rose-300 {else} text-slate-400 {/if}">
-                    Failed (24h)
-                </p>
-                <p class="mt-1 text-2xl font-semibold text-slate-50">{if isset($metrics.failed_24h)}{$metrics.failed_24h}{else}0{/if}</p>
-            </div>
-            <div class="rounded-2xl px-4 py-3 bg-slate-950/70 border border-slate-800/80">
-                <p class="text-[0.65rem] font-medium tracking-wide uppercase text-slate-400">Last Run</p>
-                <p class="mt-1 text-sm text-slate-200">
+            <div class="eb-card !p-4">
+                <div class="eb-stat-label">Last run</div>
+                <div class="eb-type-body !mt-1 !text-[var(--eb-text-secondary)]">
                     {if isset($metrics.last_run_started_at) && $metrics.last_run_started_at}
                         {$metrics.last_run_started_at|date_format:"%d %b %Y %H:%M"}
                         {if $metrics.last_run_status}
-                            <span class="ml-2 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[0.65rem] font-medium
-                                {if $metrics.last_run_status eq 'success'}bg-emerald-500/10 text-emerald-300
-                                {elseif $metrics.last_run_status eq 'failed'}bg-rose-500/15 text-rose-300
-                                {elseif $metrics.last_run_status eq 'cancelled'}bg-amber-500/15 text-amber-300
-                                {else}bg-slate-500/15 text-slate-300{/if}">
-                                {$metrics.last_run_status|ucfirst}
+                            <span class="ml-2 align-middle">
+                                {if $metrics.last_run_status eq 'success'}
+                                    <span class="eb-badge eb-badge--success">{$metrics.last_run_status|ucfirst}</span>
+                                {elseif $metrics.last_run_status eq 'failed'}
+                                    <span class="eb-badge eb-badge--danger">{$metrics.last_run_status|ucfirst}</span>
+                                {elseif $metrics.last_run_status eq 'cancelled'}
+                                    <span class="eb-badge eb-badge--warning">{$metrics.last_run_status|ucfirst}</span>
+                                {else}
+                                    <span class="eb-badge eb-badge--neutral">{$metrics.last_run_status|ucfirst}</span>
+                                {/if}
                             </span>
                         {/if}
                     {else}
-                        <span class="text-slate-500">Never</span>
+                        <span class="eb-type-caption">Never</span>
                     {/if}
-                </p>
+                </div>
             </div>
         </div>
 
-        <div class="bg-slate-800 rounded-lg border border-slate-700 shadow-lg p-6">
-            <p class="text-slate-300 mb-4">Select a backup job to view its run history:</p>
+        <div class="eb-subpanel">
+            <p class="eb-type-body !mb-4 !text-[var(--eb-text-secondary)]">Select a backup job to view its run history.</p>
             {if isset($jobs) && count($jobs) > 0}
-                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
                     {foreach from=$jobs item=j}
-                        <a href="index.php?m=cloudstorage&page=e3backup&view=runs&job_id={$j->job_id}" class="block bg-slate-700 hover:bg-slate-600 border border-slate-600 rounded-md p-4">
-                            <div class="text-white font-semibold">{$j->name}</div>
-                            <div class="text-sm text-slate-300 mt-1">{$j->source_display_name}</div>
-                            <div class="text-xs text-slate-400 mt-1 uppercase">Engine: {$j->engine|default:'sync'|upper}</div>
-                            <div class="text-xs text-slate-400 mt-2">
-                                Dest Bucket 
+                        <a href="index.php?m=cloudstorage&page=e3backup&view=runs&job_id={$j->job_id}" class="eb-card !block !no-underline transition-shadow hover:shadow-[var(--eb-shadow-md)]">
+                            <div class="eb-card-title">{$j->name}</div>
+                            <div class="eb-type-caption !mt-1">{$j->source_display_name}</div>
+                            <div class="eb-type-eyebrow !mt-2">Engine: {$j->engine|default:'sync'|upper}</div>
+                            <div class="eb-type-caption !mt-2">
+                                Dest bucket
                                 {if isset($j->dest_bucket_name) && $j->dest_bucket_name}
                                     {$j->dest_bucket_name}
                                 {else}
@@ -293,32 +273,46 @@
                     {/foreach}
                 </div>
             {else}
-                <div class="text-slate-400">No backup jobs found. Create a job first on the Jobs tab.</div>
+                <div class="eb-app-empty">
+                    <div class="eb-app-empty-title">No backup jobs</div>
+                    <p class="eb-app-empty-copy">Create a job from a user detail page to see runs here.</p>
+                </div>
             {/if}
         </div>
-        {/if}
-    </div>
+    {/if}
 </div>
+{/capture}
 
-<!-- Run Details Modal -->
-<div class="fixed inset-0 bg-gray-900/75 flex items-center justify-center z-50 hidden" id="runDetailsModal">
-    <div class="bg-gray-800 rounded-lg shadow-lg w-full max-w-3xl max-h-[85vh] overflow-y-auto p-6">
-        <div class="flex justify-between items-center mb-4">
-            <h2 class="text-xl font-semibold text-white">Run Details</h2>
-            <button type="button" onclick="closeModal('runDetailsModal')" class="text-slate-300 hover:text-white">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+{include file="modules/addons/cloudstorage/templates/partials/e3backup_shell.tpl"
+    ebE3SidebarPage=''
+    ebE3Title='Run history'
+    ebE3Description='Inspect backup runs, validation, and logs.'
+    ebE3Content=$ebE3Content
+}
+
+<!-- Run details modal -->
+<div id="runDetailsModal" class="fixed inset-0 z-50 hidden items-center justify-center p-4 sm:p-6">
+    <div class="eb-modal-backdrop fixed inset-0" onclick="closeModal('runDetailsModal')" role="presentation"></div>
+    <div class="eb-modal relative z-10 flex max-h-[85vh] w-full max-w-3xl flex-col overflow-hidden">
+        <div class="eb-modal-header !shrink-0">
+            <div>
+                <h2 class="eb-modal-title">Run details</h2>
+                <p class="eb-modal-subtitle">Backup and validation log excerpts</p>
+            </div>
+            <button type="button" class="eb-modal-close" onclick="closeModal('runDetailsModal')" aria-label="Close">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
                 </svg>
             </button>
         </div>
-        <div id="runDetailsContent" class="text-slate-300">
+        <div id="runDetailsContent" class="eb-modal-body min-h-0 flex-1 overflow-y-auto">
             <div id="runDetailsLog" class="mb-4">
-                <h3 class="text-lg font-semibold mb-2">Backup Log</h3>
-                <pre class="bg-gray-900 p-4 rounded-md overflow-x-auto text-sm whitespace-pre-wrap" id="logExcerpt"></pre>
+                <h3 class="eb-type-h3 !mb-2">Backup log</h3>
+                <pre class="eb-type-mono max-h-64 overflow-auto whitespace-pre-wrap rounded-[var(--eb-radius-md)] border border-[var(--eb-border-subtle)] bg-[var(--eb-bg-base)] p-4 text-[length:var(--eb-type-mono-size)] leading-relaxed text-[var(--eb-text-secondary)]" id="logExcerpt"></pre>
             </div>
             <div id="runDetailsValidation" class="hidden">
-                <h3 class="text-lg font-semibold mb-2">Validation Log</h3>
-                <pre class="bg-gray-900 p-4 rounded-md overflow-x-auto text-sm whitespace-pre-wrap" id="validationLogExcerpt"></pre>
+                <h3 class="eb-type-h3 !mb-2">Validation log</h3>
+                <pre class="eb-type-mono max-h-64 overflow-auto whitespace-pre-wrap rounded-[var(--eb-radius-md)] border border-[var(--eb-border-subtle)] bg-[var(--eb-bg-base)] p-4 text-[length:var(--eb-type-mono-size)] leading-relaxed text-[var(--eb-text-secondary)]" id="validationLogExcerpt"></pre>
             </div>
         </div>
     </div>
@@ -327,17 +321,17 @@
 <script>
 function closeModal(modalId) {
     document.getElementById(modalId).classList.add('hidden');
+    document.getElementById(modalId).classList.remove('flex');
 }
 
 function showRunDetails(runId) {
     const modal = document.getElementById('runDetailsModal');
-    const content = document.getElementById('runDetailsContent');
     const logExcerpt = document.getElementById('logExcerpt');
     const validationLogExcerpt = document.getElementById('validationLogExcerpt');
     const validationSection = document.getElementById('runDetailsValidation');
-    
-    // Show modal and set loading state
+
     modal.classList.remove('hidden');
+    modal.classList.add('flex');
     logExcerpt.textContent = 'Loading log details...';
     if (validationLogExcerpt) {
         validationLogExcerpt.textContent = '';
@@ -345,8 +339,7 @@ function showRunDetails(runId) {
     if (validationSection) {
         validationSection.classList.add('hidden');
     }
-    
-    // Fetch structured logs (includes s3_cloudbackup_run_logs when available)
+
     fetch('modules/addons/cloudstorage/api/cloudbackup_get_run_logs.php?run_uuid=' + encodeURIComponent(runId) + '&limit=5000')
         .then(response => response.json())
         .then(data => {
@@ -394,4 +387,3 @@ document.querySelectorAll('tr[data-run-id]').forEach(row => {
     });
 });
 </script>
-

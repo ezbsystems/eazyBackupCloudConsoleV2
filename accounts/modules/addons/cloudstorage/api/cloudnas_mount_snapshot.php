@@ -105,31 +105,52 @@ try {
         exit;
     }
 
-    // Get bucket credentials
-    $accessKey = Capsule::table('s3_access_keys')
-        ->where('client_id', $clientId)
-        ->where('status', 'active')
-        ->first();
-
-    if (!$accessKey) {
-        (new JsonResponse(['status' => 'error', 'message' => 'No active access key found'], 200))->send();
+    // Resolve the destination bucket name from the job's dest_bucket_id FK
+    $destBucketName = '';
+    $destPrefix = $job->dest_prefix ?? '';
+    if (!empty($job->dest_bucket_id)) {
+        $destBucket = Capsule::table('s3_buckets')->where('id', (int) $job->dest_bucket_id)->first(['name', 'user_id']);
+        if ($destBucket) {
+            $destBucketName = $destBucket->name;
+        }
+    }
+    if ($destBucketName === '') {
+        (new JsonResponse(['status' => 'error', 'message' => 'Cannot determine destination bucket for job'], 200))->send();
         exit;
     }
 
-    // Decrypt the secret key
-    $encryptionKey = getenv('S3_ENCRYPTION_KEY') ?: 'default-key-change-me';
-    $secretKey = openssl_decrypt($accessKey->secret_key_enc, 'AES-256-CBC', $encryptionKey, 0, substr($encryptionKey, 0, 16));
-
-    if (!$secretKey) {
-        (new JsonResponse(['status' => 'error', 'message' => 'Failed to decrypt credentials'], 200))->send();
-        exit;
-    }
-
-    // Get S3 endpoint
-    $s3Endpoint = Capsule::table('tbladdonmodules')
+    // Resolve S3 credentials via AdminOps temp key (same approach as nas_mount)
+    $settings = Capsule::table('tbladdonmodules')
         ->where('module', 'cloudstorage')
-        ->where('setting', 's3_endpoint')
-        ->value('value') ?: 'https://s3.eazybackup.ca';
+        ->whereIn('setting', ['s3_endpoint', 'cloudbackup_agent_s3_endpoint', 'cloudbackup_agent_s3_region', 'ceph_access_key', 'ceph_secret_key'])
+        ->pluck('value', 'setting');
+
+    $s3Endpoint     = $settings['s3_endpoint']     ?? 'https://s3.eazybackup.ca';
+    $agentEndpoint  = trim($settings['cloudbackup_agent_s3_endpoint'] ?? '');
+    if ($agentEndpoint === '') {
+        $agentEndpoint = $s3Endpoint;
+    }
+    $agentRegion    = trim($settings['cloudbackup_agent_s3_region'] ?? '') ?: 'us-east-1';
+    $adminAccessKey = $settings['ceph_access_key'] ?? '';
+    $adminSecretKey = $settings['ceph_secret_key'] ?? '';
+
+    $bucketOwner = Capsule::table('s3_users')->where('id', $destBucket->user_id ?? 0)->first();
+    $cephUid = $bucketOwner ? \WHMCS\Module\Addon\CloudStorage\Client\HelperController::resolveCephQualifiedUid($bucketOwner) : '';
+
+    $accessKeyPlain = '';
+    $secretKeyPlain = '';
+    if ($cephUid !== '' && $adminAccessKey !== '' && $adminSecretKey !== '') {
+        $tmp = \WHMCS\Module\Addon\CloudStorage\Admin\AdminOps::createTempKey($s3Endpoint, $adminAccessKey, $adminSecretKey, $cephUid, null);
+        if (is_array($tmp) && ($tmp['status'] ?? '') === 'success') {
+            $accessKeyPlain = (string) ($tmp['access_key'] ?? '');
+            $secretKeyPlain = (string) ($tmp['secret_key'] ?? '');
+        }
+    }
+
+    if ($accessKeyPlain === '' || $secretKeyPlain === '') {
+        (new JsonResponse(['status' => 'error', 'message' => 'Unable to provision S3 credentials for snapshot mount'], 200))->send();
+        exit;
+    }
 
     // Queue snapshot mount command
     $runIdValue = $hasRunIdPk ? ($run->run_id_str ?? $run->run_id) : ($run->id ?? null);
@@ -137,18 +158,18 @@ try {
         'run_id' => $runIdValue,
         'type' => 'nas_mount_snapshot',
         'payload_json' => json_encode([
-            'job_id' => $jobId,
+            'job_id' => $rawJobId,
             'manifest_id' => $manifestId,
             'drive_letter' => $driveLetter,
-            'bucket' => $job->dest_bucket,
-            'prefix' => $job->dest_prefix,
-            'endpoint' => $s3Endpoint,
-            'access_key' => $accessKey->access_key,
-            'secret_key' => $secretKey,
-            'region' => 'us-east-1'
+            'bucket' => $destBucketName,
+            'prefix' => $destPrefix,
+            'endpoint' => $agentEndpoint,
+            'access_key' => $accessKeyPlain,
+            'secret_key' => $secretKeyPlain,
+            'region' => $agentRegion,
         ]),
         'status' => 'pending',
-        'created_at' => Capsule::raw('NOW()')
+        'created_at' => Capsule::raw('NOW()'),
     ];
     if (Capsule::schema()->hasColumn('s3_cloudbackup_run_commands', 'agent_uuid')) {
         $commandPayload['agent_uuid'] = $agentUuid;

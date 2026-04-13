@@ -130,7 +130,7 @@
   --eb-drawer-width-wide: 480px;
   --eb-drawer-width-panel: min(80rem, 100vw);
   --eb-modal-width-standard: 480px;
-  --eb-modal-width-confirm: 400px;
+  --eb-modal-width-confirm: 440px;
 
   /* Compatibility aliases for existing token-based templates */
   --bg-page: 255 244 221;
@@ -269,7 +269,7 @@
   --eb-drawer-width-wide: 480px;
   --eb-drawer-width-panel: min(80rem, 100vw);
   --eb-modal-width-standard: 480px;
-  --eb-modal-width-confirm: 400px;
+  --eb-modal-width-confirm: 440px;
 
   /* Compatibility aliases for existing token-based templates */
   --bg-page: 11 18 32;

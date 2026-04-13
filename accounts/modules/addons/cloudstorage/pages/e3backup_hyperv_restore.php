@@ -59,6 +59,9 @@ $latestBackup = null;
 
 $hasJobIdPk = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'job_id');
 $hasRunIdCol = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'run_id');
+$hasBackupUserIdCol = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'backup_user_id');
+$hasBackupUserPublicIdCol = Capsule::schema()->hasTable('s3_backup_users')
+    && Capsule::schema()->hasColumn('s3_backup_users', 'public_id');
 $vmJobJoin = $hasJobIdPk ? ['v.job_id', '=', 'j.job_id'] : ['v.job_id', '=', 'j.id'];
 
 $vmSelect = [
@@ -72,17 +75,23 @@ $vmSelect = [
     'j.name as job_name',
     'j.agent_uuid',
 ];
+$vmSelect[] = $hasBackupUserIdCol ? 'j.backup_user_id' : Capsule::raw('NULL as backup_user_id');
+$vmSelect[] = $hasBackupUserIdCol && $hasBackupUserPublicIdCol
+    ? 'bu.public_id as backup_user_public_id'
+    : Capsule::raw('NULL as backup_user_public_id');
 $vmSelect[] = $hasJobIdPk
     ? Capsule::raw('BIN_TO_UUID(v.job_id) as job_id')
     : 'v.job_id';
 
 try {
-    $vm = Capsule::table('s3_hyperv_vms as v')
+    $vmQuery = Capsule::table('s3_hyperv_vms as v')
         ->join('s3_cloudbackup_jobs as j', $vmJobJoin[0], $vmJobJoin[1], $vmJobJoin[2])
         ->where('v.id', $vmId)
-        ->where('j.client_id', $loggedInUserId)
-        ->select($vmSelect)
-        ->first();
+        ->where('j.client_id', $loggedInUserId);
+    if ($hasBackupUserIdCol && Capsule::schema()->hasTable('s3_backup_users')) {
+        $vmQuery->leftJoin('s3_backup_users as bu', 'j.backup_user_id', '=', 'bu.id');
+    }
+    $vm = $vmQuery->select($vmSelect)->first();
 
     if (!$vm) {
         return [
@@ -213,6 +222,11 @@ try {
 }
 
 // Return template variables (job_id as UUID string when UUID schema)
+$backupUserRouteId = trim((string) ($vm->backup_user_public_id ?? ''));
+if ($backupUserRouteId === '' && !empty($vm->backup_user_id)) {
+    $backupUserRouteId = (string) ((int) $vm->backup_user_id);
+}
+
 return [
     'vm' => [
         'id' => (int) $vm->id,
@@ -224,6 +238,7 @@ return [
         'backup_enabled' => (bool) $vm->backup_enabled,
         'job_id' => $hasJobIdPk ? (string) ($vm->job_id ?? '') : (int) $vm->job_id,
         'job_name' => $vm->job_name,
+        'backup_user_route_id' => $backupUserRouteId,
     ],
     'disks' => $disks,
     'backupPointCount' => $backupPointCount,

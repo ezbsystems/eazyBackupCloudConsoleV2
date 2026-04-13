@@ -13,6 +13,7 @@ use WHMCS\Module\Addon\CloudStorage\Client\DBController;
 use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupController;
 use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupEventFormatter;
 use WHMCS\Module\Addon\CloudStorage\Client\TimezoneHelper;
+use WHMCS\Module\Addon\CloudStorage\Client\UuidBinary;
 
 $ca = new ClientArea();
 if (!$ca->isLoggedIn()) {
@@ -47,14 +48,22 @@ if (!$run) {
     (new JsonResponse(['status' => 'fail', 'message' => 'Run not found or access denied.'], 200))->send();
     exit;
 }
-$runId = (int) ($run['id'] ?? 0);
 $userTz = TimezoneHelper::resolveUserTimezone($userId, $run['job_id'] ?? null);
+$hasRunIdPk = Capsule::schema()->hasTable('s3_cloudbackup_runs')
+    && Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'run_id');
+$useUuidRunId = $hasRunIdPk && is_string($runIdentifier) && UuidBinary::isUuid($runIdentifier);
+$runIdNorm = $useUuidRunId ? UuidBinary::normalize($runIdentifier) : null;
+$legacyRunId = (int) ($run['id'] ?? 0);
 
 // Fetch events
 $query = Capsule::table('s3_cloudbackup_run_events')
     ->select(['id', 'ts', 'type', 'level', 'code', 'message_id', 'params_json'])
-    ->where('run_id', '=', $runId)
     ->orderBy('id', 'asc');
+if ($useUuidRunId && $runIdNorm !== null) {
+    $query->whereRaw('run_id = ' . UuidBinary::toDbExpr($runIdNorm));
+} else {
+    $query->where('run_id', '=', $legacyRunId);
+}
 if ($sinceId > 0) {
     $query->where('id', '>', $sinceId);
 }
@@ -117,5 +126,4 @@ try {
     'events' => $out,
 ], 200))->send();
 exit;
-
 

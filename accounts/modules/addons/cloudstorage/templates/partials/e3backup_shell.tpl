@@ -3,6 +3,7 @@
 {assign var=ebE3HeaderClass value=$ebE3HeaderClass|default:''}
 {assign var=ebE3BodyClass value=$ebE3BodyClass|default:''}
 {assign var=ebE3Title value=$ebE3Title|default:''}
+{assign var=ebE3TitleHtml value=$ebE3TitleHtml|default:''}
 {assign var=ebE3Description value=$ebE3Description|default:''}
 {assign var=ebE3Icon value=$ebE3Icon|default:''}
 {assign var=ebE3Actions value=$ebE3Actions|default:''}
@@ -27,19 +28,25 @@
             <div class="eb-app-shell">
                 {include file="modules/addons/cloudstorage/templates/partials/e3backup_sidebar.tpl" activeNav=$ebE3SidebarPage isMspClient=$isMspClient|default:false}
                 <main class="eb-app-main">
-                    {if $ebE3Title|trim neq '' || $ebE3Actions|trim neq ''}
+                    {if $ebE3TitleHtml|trim neq '' || $ebE3Title|trim neq '' || $ebE3Icon|trim neq '' || $ebE3Actions|trim neq ''}
                         <div class="eb-app-header {$ebE3HeaderClass}">
+                            {if $ebE3TitleHtml|trim neq ''}
+                            <div class="eb-app-header-copy min-w-0 flex-1 !items-start">
+                                {$ebE3TitleHtml nofilter}
+                            </div>
+                            {else}
                             <div class="eb-app-header-copy">
                                 {if $ebE3Icon|trim neq ''}
                                     {$ebE3Icon nofilter}
                                 {/if}
-                                <div>
+                                <div class="min-w-0">
                                     <h1 class="eb-app-header-title">{$ebE3Title}</h1>
                                     {if $ebE3Description|trim neq ''}
                                         <p class="eb-page-description !mt-1">{$ebE3Description}</p>
                                     {/if}
                                 </div>
                             </div>
+                            {/if}
                             {if $ebE3Actions|trim neq ''}
                                 <div class="w-full lg:w-auto lg:shrink-0">
                                     {$ebE3Actions nofilter}

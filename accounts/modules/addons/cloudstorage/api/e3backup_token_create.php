@@ -59,6 +59,9 @@ $tenantPublicId = trim((string) ($_POST['tenant_id'] ?? ''));
 $tenantId = null;
 $maxUses = (int)($_POST['max_uses'] ?? 0);
 $expiresIn = $_POST['expires_in'] ?? '';
+$backupUserPublicIdRaw = trim((string) ($_POST['backup_user_public_id'] ?? ''));
+$backupUserIdRaw = trim((string) ($_POST['backup_user_id'] ?? ''));
+$backupUserId = null;
 
 // Validate tenant ownership if specified
 if ($tenantPublicId !== '' && $tenantPublicId !== 'direct') {
@@ -74,6 +77,25 @@ if ($tenantPublicId !== '' && $tenantPublicId !== 'direct') {
     }
 
     $tenantId = (int) $tenant->id;
+}
+
+$backupUser = null;
+if ($backupUserPublicIdRaw !== '' && Capsule::schema()->hasColumn('s3_backup_users', 'public_id')) {
+    $backupUser = Capsule::table('s3_backup_users')
+        ->where('public_id', $backupUserPublicIdRaw)
+        ->where('client_id', $clientId)
+        ->first();
+} elseif ($backupUserIdRaw !== '' && $backupUserIdRaw !== '0') {
+    $backupUser = Capsule::table('s3_backup_users')
+        ->where('id', (int) $backupUserIdRaw)
+        ->where('client_id', $clientId)
+        ->first();
+}
+if ($backupUser) {
+    $backupUserId = (int) $backupUser->id;
+} elseif ($backupUserPublicIdRaw !== '' || ($backupUserIdRaw !== '' && $backupUserIdRaw !== '0')) {
+    (new JsonResponse(['status' => 'fail', 'message' => 'Backup user not found'], 404))->send();
+    exit;
 }
 
 $bootstrapOwner = CloudBackupBootstrapService::ensureBackupOwnerUser((int) $clientId);
@@ -130,7 +152,7 @@ if ($expiresIn) {
     }
 }
 
-$tokenId = Capsule::table('s3_agent_enrollment_tokens')->insertGetId([
+$insertData = [
     'client_id' => $clientId,
     'tenant_id' => $tenantId ?: null,
     'token' => $token,
@@ -139,7 +161,11 @@ $tokenId = Capsule::table('s3_agent_enrollment_tokens')->insertGetId([
     'use_count' => 0,
     'expires_at' => $expiresAt,
     'created_at' => Capsule::raw('NOW()'),
-]);
+];
+if (Capsule::schema()->hasColumn('s3_agent_enrollment_tokens', 'backup_user_id')) {
+    $insertData['backup_user_id'] = $backupUserId;
+}
+$tokenId = Capsule::table('s3_agent_enrollment_tokens')->insertGetId($insertData);
 
 (new JsonResponse([
     'status' => 'success', 

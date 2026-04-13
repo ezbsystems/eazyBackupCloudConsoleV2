@@ -45,11 +45,12 @@ $tenantTable = MspController::getTenantTableName();
 $mspId = MspController::getMspIdForClient($clientId);
 $tenantOwnerId = ($tenantTable === 'eb_tenants') ? (int)($mspId ?? 0) : (int)$clientId;
 $tenantOwnerSelect = $tenantTable === 'eb_tenants' ? 't.msp_id as tenant_owner_id' : 't.client_id as tenant_owner_id';
-$userId = (int) ($_POST['user_id'] ?? 0);
+$userIdRaw = trim((string) ($_POST['user_id'] ?? ''));
+$hasPublicIdCol = Capsule::schema()->hasColumn('s3_backup_users', 'public_id');
 $password = (string) ($_POST['password'] ?? '');
 $passwordConfirm = (string) ($_POST['password_confirm'] ?? '');
 
-if ($userId <= 0) {
+if ($userIdRaw === '') {
     userResetFail('Invalid user ID.', 400, ['user_id' => 'Invalid user ID']);
 }
 
@@ -63,21 +64,25 @@ if ($passwordConfirm !== '' && $password !== $passwordConfirm) {
     userResetFail('Password confirmation does not match.', 400, ['password_confirm' => 'Password confirmation does not match.']);
 }
 
-$user = Capsule::table('s3_backup_users as u')
+$resetLookup = Capsule::table('s3_backup_users as u')
     ->leftJoin($tenantTable . ' as t', 'u.tenant_id', '=', 't.id')
-    ->where('u.id', $userId)
-    ->where('u.client_id', $clientId)
-    ->select([
-        'u.id',
-        'u.tenant_id',
-        Capsule::raw($tenantOwnerSelect),
-        't.status as tenant_status',
-    ])
-    ->first();
+    ->where('u.client_id', $clientId);
+if ($hasPublicIdCol && !ctype_digit($userIdRaw)) {
+    $resetLookup->where('u.public_id', $userIdRaw);
+} else {
+    $resetLookup->where('u.id', (int) $userIdRaw);
+}
+$user = $resetLookup->select([
+    'u.id',
+    'u.tenant_id',
+    Capsule::raw($tenantOwnerSelect),
+    't.status as tenant_status',
+])->first();
 
 if (!$user) {
     userResetFail('User not found.', 404);
 }
+$userId = (int) $user->id;
 
 if (!$isMsp && !empty($user->tenant_id)) {
     userResetFail('User not found.', 404);

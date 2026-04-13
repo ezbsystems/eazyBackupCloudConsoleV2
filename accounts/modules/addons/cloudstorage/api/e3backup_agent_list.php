@@ -21,6 +21,8 @@ $clientId = $ca->getUserID();
 
 $isMsp = MspController::isMspClient($clientId);
 $tenantTable = MspController::getTenantTableName();
+$hasAgentBackupUserId = Capsule::schema()->hasColumn('s3_cloudbackup_agents', 'backup_user_id');
+$hasBackupUserPublicId = Capsule::schema()->hasColumn('s3_backup_users', 'public_id');
 $tenantFilterRaw = isset($_GET['tenant_id']) ? trim((string) $_GET['tenant_id']) : null;
 $tenantFilter = null;
 
@@ -74,6 +76,7 @@ $query = Capsule::table('s3_cloudbackup_agents as a')
         'a.tenant_id as storage_tenant_id',
         $tenantSelect,
         'a.tenant_user_id',
+        $hasAgentBackupUserId ? 'a.backup_user_id' : Capsule::raw('NULL as backup_user_id'),
         'a.last_seen_at',
         'a.created_at',
         'a.updated_at',
@@ -103,6 +106,38 @@ if ($isMsp) {
 
 $agents = $query->orderByDesc('a.created_at')->get();
 
+$backupUserRouteById = [];
+if ($hasAgentBackupUserId) {
+    $backupUserIds = $agents->pluck('backup_user_id')
+        ->filter(function ($value) {
+            return (int) $value > 0;
+        })
+        ->map(function ($value) {
+            return (int) $value;
+        })
+        ->unique()
+        ->values()
+        ->toArray();
+    if (!empty($backupUserIds)) {
+        $backupUserSelect = ['id'];
+        if ($hasBackupUserPublicId) {
+            $backupUserSelect[] = 'public_id';
+        }
+        $backupUsers = Capsule::table('s3_backup_users')
+            ->whereIn('id', $backupUserIds)
+            ->get($backupUserSelect);
+        foreach ($backupUsers as $backupUser) {
+            $routeId = $hasBackupUserPublicId
+                ? trim((string) ($backupUser->public_id ?? ''))
+                : '';
+            if ($routeId === '') {
+                $routeId = (string) ((int) ($backupUser->id ?? 0));
+            }
+            $backupUserRouteById[(int) $backupUser->id] = $routeId;
+        }
+    }
+}
+
 // Add computed online/offline status.
 foreach ($agents as $a) {
     $secs = isset($a->seconds_since_seen) ? (int) $a->seconds_since_seen : null;
@@ -114,9 +149,12 @@ foreach ($agents as $a) {
         $a->online_status = 'offline';
     }
     $a->online_threshold_seconds = $onlineThresholdSeconds;
-    unset($a->storage_tenant_id);
+    $backupUserId = (int) ($a->backup_user_id ?? 0);
+    $a->backup_user_route_id = $backupUserId > 0
+        ? ($backupUserRouteById[$backupUserId] ?? null)
+        : null;
+    unset($a->storage_tenant_id, $a->backup_user_id);
 }
 
 (new JsonResponse(['status' => 'success', 'agents' => $agents, 'online_threshold_seconds' => $onlineThresholdSeconds], 200))->send();
 exit;
-

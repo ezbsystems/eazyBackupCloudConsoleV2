@@ -119,7 +119,10 @@ func main() {
 	configPath := flag.String("config", defaultConfigPath(), "Path to agent.conf")
 	flag.Parse()
 
-	app := &trayApp{configPath: *configPath}
+	app := &trayApp{
+		configPath:     *configPath,
+		cloudNASMounts: make(map[string]*cloudNASPendingMount),
+	}
 	systray.Run(app.onReady, app.onExit)
 }
 
@@ -128,6 +131,12 @@ type trayApp struct {
 
 	httpOnce sync.Once
 	httpAddr string
+
+	cloudNASControlToken  string
+	cloudNASDiscoveryPath string
+	cloudNASMenu          *systray.MenuItem
+	cloudNASMenuMu        sync.Mutex
+	cloudNASMounts        map[string]*cloudNASPendingMount
 
 	mu       sync.Mutex
 	lastErr  string
@@ -183,6 +192,10 @@ var recoveryPhaseOrder = []struct {
 }
 
 func (a *trayApp) onReady() {
+	a.httpOnce.Do(func() {
+		a.startHTTP()
+	})
+
 	// Ensure a config exists and stable identity is persisted so the UI can always display/copy device_id.
 	cfg, err := loadConfig(a.configPath)
 	if err != nil || cfg == nil {
@@ -227,6 +240,12 @@ func (a *trayApp) onReady() {
 	mStop := systray.AddMenuItem("Stop service", "Stop the E3 Backup Agent service")
 	mRestart := systray.AddMenuItem("Restart service", "Restart the E3 Backup Agent service")
 	mRecovery := systray.AddMenuItem("Create recovery media…", "Create a bootable recovery USB")
+	mCloudNAS := systray.AddMenuItem("Cloud NAS", "Complete prepared Cloud NAS mounts")
+	mCloudNAS.Disable()
+	a.cloudNASMenu = mCloudNAS
+	if a.cloudNASMounts == nil {
+		a.cloudNASMounts = make(map[string]*cloudNASPendingMount)
+	}
 	systray.AddSeparator()
 	mDevice := systray.AddMenuItem("Device ID: loading…", "Device identity")
 	mDevice.Disable()
@@ -273,7 +292,9 @@ func (a *trayApp) onReady() {
 	}()
 }
 
-func (a *trayApp) onExit() {}
+func (a *trayApp) onExit() {
+	a.cleanupCloudNASControl()
+}
 
 func (a *trayApp) statusLines() (string, string) {
 	cfg, _ := loadConfig(a.configPath)
@@ -447,6 +468,7 @@ func (a *trayApp) startHTTP() {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/enroll", a.handleEnroll)
+	mux.HandleFunc("/enroll/complete", a.handleEnrollComplete)
 	mux.HandleFunc("/recovery", a.handleRecovery)
 	mux.HandleFunc("/recovery/api/catalog", a.handleRecoveryCatalog)
 	mux.HandleFunc("/recovery/api/disks", a.handleRecoveryDisks)
@@ -454,6 +476,11 @@ func (a *trayApp) startHTTP() {
 	mux.HandleFunc("/recovery/api/status", a.handleRecoveryStatus)
 	mux.HandleFunc("/recovery/api/eject", a.handleRecoveryEject)
 	mux.HandleFunc("/recovery/api/boot_instructions", a.handleRecoveryBootInstructions)
+	mux.HandleFunc("/control/ping", a.handleCloudNASPing)
+	mux.HandleFunc("/control/cloudnas/register", a.handleCloudNASRegister)
+	mux.HandleFunc("/control/cloudnas/unregister", a.handleCloudNASUnregister)
+	mux.HandleFunc("/control/cloudnas/mount", a.handleCloudNASMount)
+	mux.HandleFunc("/control/cloudnas/unmount", a.handleCloudNASUnmount)
 	mux.HandleFunc("/assets/eazybackup-logo.svg", func(w http.ResponseWriter, r *http.Request) {
 		b := []byte(eazybackupLogoSVG)
 		w.Header().Set("Content-Type", "image/svg+xml")
@@ -466,6 +493,9 @@ func (a *trayApp) startHTTP() {
 	})
 
 	s := &http.Server{Handler: mux}
+	if err := a.initCloudNASControl(); err != nil {
+		logDebug("cloudnas: failed to initialize tray control: %v", err)
+	}
 	go func() {
 		_ = s.Serve(ln)
 	}()
@@ -505,54 +535,126 @@ func (a *trayApp) handleEnroll(w http.ResponseWriter, r *http.Request) {
 		ensureIdentity(cfg)
 		hn, _ := os.Hostname()
 
-		res, err := enrollWithCredentials(cfg.APIBaseURL, email, pass, hn, cfg.DeviceID, cfg.InstallID, cfg.DeviceName)
+		res, err := authenticateForEnroll(cfg.APIBaseURL, email, pass, hn, cfg.DeviceID, cfg.InstallID, cfg.DeviceName)
 		if err != nil {
 			a.setErr(err.Error())
 			w.WriteHeader(401)
 			renderEnrollPage(w, "Enrollment failed: "+err.Error())
 			return
 		}
-
-		// Respect server-provided base URL if present (helps when moving between dev/prod).
-		if strings.TrimSpace(res.APIBaseURL) != "" {
-			cfg.APIBaseURL = strings.TrimSpace(res.APIBaseURL)
+		switch len(res.Users) {
+		case 0:
+			renderNoUsersPage(w, res.SessionToken)
+		case 1:
+			renderConfirmUserPage(w, res.SessionToken, res.Users[0])
+		default:
+			renderUserSelectPage(w, res.SessionToken, res.Users)
 		}
-		cfg.ClientID = string(res.ClientID)
-		cfg.AgentUUID = string(res.AgentUUID)
-		cfg.AgentToken = res.AgentToken
-		cfg.EnrollEmail = ""
-		cfg.EnrollPassword = ""
-		cfg.EnrollmentToken = ""
-		if err := saveConfig(a.configPath, cfg); err != nil {
-			a.setErr("failed to save agent.conf: " + err.Error())
-			w.WriteHeader(500)
-			renderEnrollPage(w, "Enrollment succeeded but saving agent.conf failed. Please run the tray as Administrator and try again.")
-			return
-		}
-
-		// Start service after successful enrollment.
-		_ = a.sc("start")
-
-		a.setInfo("enrolled successfully")
-		renderSuccessPage(w, cfg.APIBaseURL)
 		return
 	default:
 		w.WriteHeader(405)
 	}
 }
 
-type enrollResp struct {
+func (a *trayApp) handleEnrollComplete(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(405)
+		return
+	}
+
+	_ = r.ParseForm()
+	sessionToken := strings.TrimSpace(r.Form.Get("session_token"))
+	autoCreate := strings.EqualFold(strings.TrimSpace(r.Form.Get("auto_create_user")), "true") || r.Form.Get("auto_create_user") == "1"
+	backupUserID := 0
+	if raw := strings.TrimSpace(r.Form.Get("backup_user_id")); raw != "" {
+		fmt.Sscanf(raw, "%d", &backupUserID)
+	}
+
+	if sessionToken == "" {
+		w.WriteHeader(400)
+		renderEnrollPage(w, "Enrollment session expired. Please sign in again.")
+		return
+	}
+
+	cfg, _ := loadConfig(a.configPath)
+	if cfg == nil {
+		cfg = &agentConfig{}
+	}
+	if strings.TrimSpace(cfg.APIBaseURL) == "" {
+		cfg.APIBaseURL = defaultAPIBaseURL
+	}
+	ensureIdentity(cfg)
+
+	res, err := completeEnrollment(cfg.APIBaseURL, sessionToken, backupUserID, autoCreate)
+	if err != nil {
+		a.setErr(err.Error())
+		w.WriteHeader(401)
+		renderEnrollPage(w, "Enrollment failed: "+err.Error())
+		return
+	}
+
+	if strings.TrimSpace(res.APIBaseURL) != "" {
+		cfg.APIBaseURL = strings.TrimSpace(res.APIBaseURL)
+	}
+	cfg.ClientID = string(res.ClientID)
+	cfg.AgentUUID = string(res.AgentUUID)
+	cfg.AgentToken = res.AgentToken
+	cfg.EnrollEmail = ""
+	cfg.EnrollPassword = ""
+	cfg.EnrollmentToken = ""
+	if err := saveConfig(a.configPath, cfg); err != nil {
+		a.setErr("failed to save agent.conf: " + err.Error())
+		w.WriteHeader(500)
+		renderEnrollPage(w, "Enrollment succeeded but saving agent.conf failed. Please run the tray as Administrator and try again.")
+		return
+	}
+
+	_ = a.sc("start")
+
+	a.setInfo("enrolled successfully")
+	renderSuccessPage(w, cfg.APIBaseURL, res.User.Username, res.User.routeID())
+}
+
+type authUser struct {
+	ID         int    `json:"id"`
+	PublicID   string `json:"public_id,omitempty"`
+	Username   string `json:"username"`
+	Email      string `json:"email"`
+	BackupType string `json:"backup_type"`
+}
+
+func (u authUser) routeID() string {
+	if strings.TrimSpace(u.PublicID) != "" {
+		return strings.TrimSpace(u.PublicID)
+	}
+	if u.ID <= 0 {
+		return ""
+	}
+	return fmt.Sprintf("%d", u.ID)
+}
+
+type authResp struct {
+	Status       string     `json:"status"`
+	Message      string     `json:"message"`
+	SessionToken string     `json:"session_token"`
+	ClientID     jsonString `json:"client_id"`
+	Users        []authUser `json:"users"`
+}
+
+type completeResp struct {
 	Status     string     `json:"status"`
 	Message    string     `json:"message"`
 	AgentUUID  jsonString `json:"agent_uuid"`
 	ClientID   jsonString `json:"client_id"`
 	AgentToken string     `json:"agent_token"`
 	APIBaseURL string     `json:"api_base_url"`
+	User       authUser   `json:"user"`
 }
 
-func enrollWithCredentials(apiBaseURL, email, password, hostname, deviceID, installID, deviceName string) (*enrollResp, error) {
+func authenticateForEnroll(apiBaseURL, email, password, hostname, deviceID, installID, deviceName string) (*authResp, error) {
 	endpoint := strings.TrimRight(apiBaseURL, "/") + "/agent_login.php"
 	form := url.Values{}
+	form.Set("mode", "authenticate")
 	form.Set("email", email)
 	form.Set("password", password)
 	form.Set("hostname", hostname)
@@ -576,7 +678,45 @@ func enrollWithCredentials(apiBaseURL, email, password, hostname, deviceID, inst
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
 
-	var out enrollResp
+	var out authResp
+	if err := json.Unmarshal(body, &out); err != nil {
+		return nil, fmt.Errorf("enrollment parse failed: %v", err)
+	}
+	if out.Status != "success" {
+		if out.Message != "" {
+			return nil, fmt.Errorf("%s", out.Message)
+		}
+		return nil, fmt.Errorf("enrollment failed")
+	}
+	if strings.TrimSpace(out.SessionToken) == "" {
+		return nil, fmt.Errorf("enrollment response missing session token")
+	}
+	return &out, nil
+}
+
+func completeEnrollment(apiBaseURL, sessionToken string, backupUserID int, autoCreate bool) (*completeResp, error) {
+	endpoint := strings.TrimRight(apiBaseURL, "/") + "/agent_login.php"
+	form := url.Values{}
+	form.Set("mode", "complete")
+	form.Set("session_token", sessionToken)
+	if backupUserID > 0 {
+		form.Set("backup_user_id", fmt.Sprintf("%d", backupUserID))
+	}
+	if autoCreate {
+		form.Set("auto_create_user", "true")
+	}
+
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodPost, endpoint, strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+
+	var out completeResp
 	if err := json.Unmarshal(body, &out); err != nil {
 		return nil, fmt.Errorf("enrollment parse failed: %v", err)
 	}
@@ -677,66 +817,511 @@ func logDebug(format string, args ...interface{}) {
 	fmt.Fprintf(f, "%s  %s\n", timestamp, msg)
 }
 
-func renderEnrollPage(w http.ResponseWriter, message string) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+const localAgentSemanticPageStyles = `
+:root{
+  --eb-bg-base:#0b1220;
+  --eb-bg-surface:#111d33;
+  --eb-bg-card:#172035;
+  --eb-bg-raised:#1e2d45;
+  --eb-bg-input:#131e34;
+  --eb-border-default:#253658;
+  --eb-border-subtle:#1e2d45;
+  --eb-border-strong:#3d5a8a;
+  --eb-text-primary:#eef2f9;
+  --eb-text-secondary:#adbdd5;
+  --eb-text-muted:#6d88a8;
+  --eb-text-disabled:#3d5470;
+  --eb-primary:#d55d1d;
+  --eb-primary-hover:#c04f18;
+  --eb-brand-orange:#fe5000;
+  --eb-warning-bg:#1e1200;
+  --eb-warning-border:#5c3700;
+  --eb-warning-text:#f59e0b;
+  --eb-success-bg:#091e16;
+  --eb-success-border:#0e3d28;
+  --eb-success-text:#36d68a;
+  --eb-radius-sm:6px;
+  --eb-radius-md:10px;
+  --eb-radius-lg:14px;
+  --eb-radius-xl:18px;
+  --eb-font-display:'Outfit',system-ui,sans-serif;
+  --eb-font-body:'DM Sans',system-ui,sans-serif;
+  --eb-shadow-card:0 18px 48px rgba(0,0,0,0.45),0 8px 18px rgba(0,0,0,0.28);
+}
+*{box-sizing:border-box}
+html,body{min-height:100%}
+body{
+  margin:0;
+  font-family:var(--eb-font-body);
+  color:var(--eb-text-secondary);
+  background:
+    radial-gradient(circle at top, rgba(254,80,0,0.14), transparent 24%),
+    linear-gradient(180deg, rgba(7,13,27,0.65), rgba(7,13,27,0) 34%),
+    var(--eb-bg-base);
+}
+.eb-auth-shell{
+  min-height:100vh;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:24px;
+}
+.eb-auth-wrap{
+  position:relative;
+  width:100%;
+  max-width:560px;
+}
+.eb-auth-glow{
+  position:absolute;
+  left:56px;
+  right:56px;
+  bottom:-42px;
+  height:140px;
+  border-radius:999px;
+  background:rgba(254,80,0,0.18);
+  filter:blur(72px);
+  opacity:.82;
+  pointer-events:none;
+}
+.eb-auth-card{
+  position:relative;
+  border:1px solid var(--eb-border-default);
+  border-radius:var(--eb-radius-xl);
+  background:rgba(23,32,53,0.94);
+  box-shadow:var(--eb-shadow-card);
+  backdrop-filter:blur(16px);
+  padding:30px 28px;
+}
+.eb-logo{
+  display:flex;
+  justify-content:center;
+  margin-bottom:18px;
+}
+.eb-logo img{
+  width:auto;
+  height:38px;
+}
+.eb-type-eyebrow{
+  display:block;
+  margin-bottom:8px;
+  font-size:10.5px;
+  font-weight:700;
+  letter-spacing:.22em;
+  text-transform:uppercase;
+  color:var(--eb-brand-orange);
+}
+.eb-auth-title{
+  margin:0;
+  color:var(--eb-text-primary);
+  font-family:var(--eb-font-display);
+  font-size:30px;
+  font-weight:700;
+  letter-spacing:-0.02em;
+  line-height:1.08;
+}
+.eb-auth-description{
+  margin:10px 0 0 0;
+  color:var(--eb-text-muted);
+  font-size:13px;
+  line-height:1.6;
+}
+.eb-form-stack{
+  display:flex;
+  flex-direction:column;
+  gap:16px;
+  margin-top:22px;
+}
+.eb-field-label{
+  display:block;
+  margin:0 0 6px 0;
+  color:var(--eb-text-secondary);
+  font-size:12px;
+  font-weight:600;
+}
+.eb-input{
+  width:100%;
+  max-width:100%;
+  padding:12px 14px;
+  border-radius:var(--eb-radius-md);
+  border:1px solid var(--eb-border-default);
+  background:var(--eb-bg-input);
+  color:var(--eb-text-primary);
+  font:inherit;
+  outline:none;
+  transition:border-color .15s ease, box-shadow .15s ease, background .15s ease;
+}
+.eb-input::placeholder{
+  color:var(--eb-text-disabled);
+}
+.eb-input:focus{
+  border-color:var(--eb-border-strong);
+  background:var(--eb-bg-card);
+  box-shadow:0 0 0 3px rgba(61,90,138,0.18);
+}
+.eb-btn{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  width:100%;
+  padding:12px 16px;
+  border:0;
+  border-radius:var(--eb-radius-md);
+  background:var(--eb-primary);
+  color:var(--eb-text-primary);
+  font-family:var(--eb-font-display);
+  font-size:13px;
+  font-weight:600;
+  text-decoration:none;
+  cursor:pointer;
+  transition:transform .15s ease, background .15s ease, box-shadow .15s ease;
+  box-shadow:0 12px 28px rgba(213,93,29,0.22);
+}
+.eb-btn:hover{
+  background:var(--eb-primary-hover);
+  transform:translateY(-1px);
+}
+.eb-btn:focus{
+  outline:none;
+  box-shadow:0 0 0 3px rgba(213,93,29,0.24),0 12px 28px rgba(213,93,29,0.22);
+}
+.eb-btn-inline{
+  width:auto;
+}
+.eb-alert{
+  display:flex;
+  align-items:flex-start;
+  gap:10px;
+  margin-top:2px;
+  padding:12px 14px;
+  border-radius:var(--eb-radius-md);
+  border:1px solid var(--eb-warning-border);
+  background:var(--eb-warning-bg);
+  color:var(--eb-warning-text);
+  font-size:13px;
+  line-height:1.55;
+}
+.eb-alert-icon{
+  width:16px;
+  height:16px;
+  flex-shrink:0;
+  margin-top:2px;
+}
+.eb-success-icon{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  width:64px;
+  height:64px;
+  margin:0 auto 18px;
+  border-radius:18px;
+  border:1px solid var(--eb-success-border);
+  background:var(--eb-success-bg);
+  color:var(--eb-success-text);
+}
+.eb-success-icon svg{
+  width:30px;
+  height:30px;
+  stroke:currentColor;
+  fill:none;
+  stroke-width:2;
+  stroke-linecap:round;
+  stroke-linejoin:round;
+}
+.eb-next-step{
+  margin-top:18px;
+  padding:16px;
+  border-radius:var(--eb-radius-lg);
+  border:1px solid var(--eb-border-default);
+  background:var(--eb-bg-card);
+}
+.eb-next-step-title{
+  margin:0 0 8px 0;
+  color:var(--eb-text-primary);
+  font-family:var(--eb-font-display);
+  font-size:17px;
+  font-weight:600;
+}
+.eb-next-step-copy{
+  margin-bottom:14px;
+}
+.eb-user-list{
+  flex:1;
+  min-height:0;
+  overflow-y:auto;
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+  scrollbar-width:thin;
+  scrollbar-color:rgba(109,136,168,0.75) transparent;
+}
+.eb-user-list::-webkit-scrollbar{
+  width:8px;
+}
+.eb-user-list::-webkit-scrollbar-track{
+  background:transparent;
+}
+.eb-user-list::-webkit-scrollbar-thumb{
+  background:rgba(109,136,168,0.75);
+  border-radius:999px;
+  border:2px solid transparent;
+  background-clip:padding-box;
+}
+.eb-user-picker{
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+  min-height:360px;
+  max-height:360px;
+  padding:12px;
+  border-radius:var(--eb-radius-md);
+  border:1px solid var(--eb-border-default);
+  background:rgba(19,30,52,0.42);
+}
+.eb-user-search{
+  flex-shrink:0;
+}
+.eb-user-list-empty{
+  display:none;
+  padding:14px;
+  border-radius:var(--eb-radius-md);
+  border:1px dashed var(--eb-border-default);
+  color:var(--eb-text-muted);
+  font-size:12px;
+  text-align:center;
+}
+.eb-user-row{
+  display:flex;
+  align-items:center;
+  gap:12px;
+  padding:12px 14px;
+  border-radius:var(--eb-radius-md);
+  border:1px solid var(--eb-border-default);
+  background:var(--eb-bg-input);
+  cursor:pointer;
+  transition:border-color .15s ease, background .15s ease;
+}
+.eb-user-row:hover{
+  border-color:var(--eb-border-strong);
+  background:var(--eb-bg-card);
+}
+.eb-user-row.is-selected{
+  border-color:var(--eb-brand-orange);
+  background:var(--eb-bg-card);
+}
+.eb-user-row input[type="radio"]{
+  accent-color:var(--eb-brand-orange);
+  width:16px;
+  height:16px;
+  flex-shrink:0;
+  margin:0;
+}
+.eb-user-row-info{
+  flex:1;
+  min-width:0;
+}
+.eb-user-row-name{
+  font-size:15px;
+  font-weight:600;
+  color:var(--eb-text-primary);
+}
+.eb-user-row-type{
+  margin-top:2px;
+  font-size:12px;
+  color:var(--eb-text-muted);
+}
+.eb-user-row--static{
+  cursor:default;
+}
+@media (max-width:640px){
+  .eb-auth-shell{padding:16px}
+  .eb-auth-card{padding:24px 20px}
+  .eb-auth-title{font-size:26px}
+  .eb-auth-glow{left:22px;right:22px;bottom:-36px}
+}
+`
+
+func writeLocalAgentPageStart(w io.Writer, title string) {
 	_, _ = io.WriteString(w, `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">`)
-	_, _ = io.WriteString(w, `<title>E3 Backup Agent - Enroll</title>`)
-	_, _ = io.WriteString(w, `<style>
-*{box-sizing:border-box;}
-body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:#0b1220;color:#e2e8f0;margin:0;padding:24px;}
-.card{max-width:520px;margin:0 auto;background:#0f172a;border:1px solid #334155;border-radius:14px;padding:22px;}
-.row{margin:12px 0;}
-label{display:block;font-size:13px;color:#cbd5e1;margin-bottom:6px;}
-input{width:100%;max-width:100%;padding:10px 12px;border-radius:10px;border:1px solid #334155;background:#0b1220;color:#e2e8f0;box-sizing:border-box;}
-button{width:100%;padding:11px 12px;border-radius:10px;border:0;background:#f97316;color:#111827;font-weight:700;cursor:pointer;}
-.msg{margin-top:10px;color:#fbbf24;font-size:13px;}
-.logo{display:flex;justify-content:center;margin-bottom:14px;}
-</style></head><body>`)
-	_, _ = io.WriteString(w, `<div class="card">`)
-	_, _ = io.WriteString(w, `<div class="logo"><img src="/assets/eazybackup-logo.svg" style="height:34px" alt="eazyBackup"/></div>`)
-	_, _ = io.WriteString(w, `<h2 style="margin:0 0 6px 0;">Sign in to enroll this device</h2>`)
-	_, _ = io.WriteString(w, `<p style="margin:0 0 14px 0;color:#94a3b8;font-size:13px;">This registers your computer as an agent and enables backups.</p>`)
-	_, _ = io.WriteString(w, `<form method="post" action="/enroll">`)
-	_, _ = io.WriteString(w, `<div class="row"><label>Email</label><input name="email" type="email" autocomplete="username" required/></div>`)
-	_, _ = io.WriteString(w, `<div class="row"><label>Password</label><input name="password" type="password" autocomplete="current-password" required/></div>`)
-	_, _ = io.WriteString(w, `<button type="submit">Enroll</button>`)
-	if strings.TrimSpace(message) != "" {
-		_, _ = io.WriteString(w, `<div class="msg">`+htmlEscape(message)+`</div>`)
-	}
-	_, _ = io.WriteString(w, `</form></div></body></html>`)
+	_, _ = io.WriteString(w, `<title>`+htmlEscape(title)+`</title>`)
+	_, _ = io.WriteString(w, `<style>`+localAgentSemanticPageStyles+`</style></head><body>`)
 }
 
-func renderSuccessPage(w http.ResponseWriter, apiBaseURL string) {
+func writeLocalAgentPageEnd(w io.Writer) {
+	_, _ = io.WriteString(w, `</body></html>`)
+}
+
+func renderEnrollPage(w http.ResponseWriter, message string) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	writeLocalAgentPageStart(w, "E3 Backup Agent - Enroll")
+	_, _ = io.WriteString(w, `<div class="eb-auth-shell"><div class="eb-auth-wrap"><div class="eb-auth-glow"></div><div class="eb-auth-card">`)
+	_, _ = io.WriteString(w, `<div class="eb-logo"><img src="/assets/eazybackup-logo.svg" alt="eazyBackup"></div>`)
+	_, _ = io.WriteString(w, `<span class="eb-type-eyebrow">Local Backup Agent</span>`)
+	_, _ = io.WriteString(w, `<h1 class="eb-auth-title">Sign in to enroll this device</h1>`)
+	_, _ = io.WriteString(w, `<p class="eb-auth-description">This registers your computer as a local backup agent and enables backups for this machine.</p>`)
+	_, _ = io.WriteString(w, `<form method="post" action="/enroll" class="eb-form-stack">`)
+	_, _ = io.WriteString(w, `<div><label class="eb-field-label">Email</label><input class="eb-input" name="email" type="email" autocomplete="username" placeholder="name@example.com" required></div>`)
+	_, _ = io.WriteString(w, `<div><label class="eb-field-label">Password</label><input class="eb-input" name="password" type="password" autocomplete="current-password" placeholder="Enter your password" required></div>`)
+	if strings.TrimSpace(message) != "" {
+		_, _ = io.WriteString(w, `<div class="eb-alert"><svg class="eb-alert-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg><div>`+htmlEscape(message)+`</div></div>`)
+	}
+	_, _ = io.WriteString(w, `<button class="eb-btn" type="submit">Enroll Device</button>`)
+	_, _ = io.WriteString(w, `</form></div></div></div>`)
+	writeLocalAgentPageEnd(w)
+}
+
+func backupTypeDisplayLabel(value string) string {
+	switch strings.TrimSpace(strings.ToLower(value)) {
+	case "local":
+		return "Local Agent Backup"
+	case "both":
+		return "Cloud + Local Agent"
+	default:
+		return "Local Agent Backup"
+	}
+}
+
+func renderUserSelectPage(w http.ResponseWriter, sessionToken string, users []authUser) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	writeLocalAgentPageStart(w, "E3 Backup Agent - Select User")
+	_, _ = io.WriteString(w, `<div class="eb-auth-shell"><div class="eb-auth-wrap"><div class="eb-auth-glow"></div><div class="eb-auth-card">`)
+	_, _ = io.WriteString(w, `<div class="eb-logo"><img src="/assets/eazybackup-logo.svg" alt="eazyBackup"></div>`)
+	_, _ = io.WriteString(w, `<span class="eb-type-eyebrow">Local Backup Agent</span>`)
+	_, _ = io.WriteString(w, `<h1 class="eb-auth-title">Select a user</h1>`)
+	_, _ = io.WriteString(w, `<p class="eb-auth-description">Choose which e3 user this device should be assigned to.</p>`)
+	_, _ = io.WriteString(w, `<form method="post" action="/enroll/complete" class="eb-form-stack">`)
+	_, _ = io.WriteString(w, `<input type="hidden" name="session_token" value="`+htmlEscape(sessionToken)+`">`)
+	_, _ = io.WriteString(w, `<div class="eb-user-picker">`)
+	_, _ = io.WriteString(w, `<div class="eb-user-search"><label class="eb-field-label" for="eb-user-search-input">Search users</label><input class="eb-input" id="eb-user-search-input" type="text" placeholder="Search by username or backup type" autocomplete="off"></div>`)
+	_, _ = io.WriteString(w, `<div class="eb-user-list">`)
+	for i, user := range users {
+		rowClass := "eb-user-row"
+		if i == 0 {
+			rowClass += " is-selected"
+		}
+		checked := ""
+		if i == 0 {
+			checked = ` checked`
+		}
+		searchText := strings.ToLower(strings.TrimSpace(user.Username + " " + backupTypeDisplayLabel(user.BackupType)))
+		_, _ = io.WriteString(w, `<label class="`+rowClass+`" data-search-text="`+htmlEscape(searchText)+`">`)
+		_, _ = io.WriteString(w, `<div class="eb-user-row-info"><div class="eb-user-row-name">`+htmlEscape(user.Username)+`</div><div class="eb-user-row-type">`+htmlEscape(backupTypeDisplayLabel(user.BackupType))+`</div></div>`)
+		_, _ = io.WriteString(w, `<input type="radio" name="backup_user_id" value="`+htmlEscape(fmt.Sprintf("%d", user.ID))+`"`+checked+` required>`)
+		_, _ = io.WriteString(w, `</label>`)
+	}
+	_, _ = io.WriteString(w, `</div>`)
+	_, _ = io.WriteString(w, `<div class="eb-user-list-empty" id="ebUserListEmpty">No users match your search.</div>`)
+	_, _ = io.WriteString(w, `</div>`)
+	_, _ = io.WriteString(w, `<button class="eb-btn" id="ebUserContinueBtn" type="submit">Continue</button>`)
+	_, _ = io.WriteString(w, `</form>`)
+	_, _ = io.WriteString(w, `<script>
+(() => {
+  const searchInput = document.getElementById('eb-user-search-input');
+  const emptyState = document.getElementById('ebUserListEmpty');
+  const continueBtn = document.getElementById('ebUserContinueBtn');
+  const rows = Array.from(document.querySelectorAll('.eb-user-row'));
+  const radios = Array.from(document.querySelectorAll('input[name="backup_user_id"]'));
+  const sync = () => {
+    rows.forEach((row) => row.classList.remove('is-selected'));
+    radios.forEach((radio) => {
+      if (radio.checked) {
+        const row = radio.closest('.eb-user-row');
+        if (row) row.classList.add('is-selected');
+      }
+    });
+  };
+  const firstVisibleRadio = () => {
+    const visibleRow = rows.find((row) => row.style.display !== 'none');
+    return visibleRow ? visibleRow.querySelector('input[name="backup_user_id"]') : null;
+  };
+  const applyFilter = () => {
+    const term = String(searchInput && searchInput.value ? searchInput.value : '').trim().toLowerCase();
+    let visibleCount = 0;
+    rows.forEach((row) => {
+      const haystack = String(row.getAttribute('data-search-text') || '').toLowerCase();
+      const visible = term === '' || haystack.includes(term);
+      row.style.display = visible ? '' : 'none';
+      if (visible) visibleCount += 1;
+    });
+    const checkedRadio = radios.find((radio) => radio.checked);
+    if (!checkedRadio || checkedRadio.closest('.eb-user-row').style.display === 'none') {
+      radios.forEach((radio) => { radio.checked = false; });
+      const replacement = firstVisibleRadio();
+      if (replacement) replacement.checked = true;
+    }
+    if (emptyState) {
+      emptyState.style.display = visibleCount === 0 ? 'block' : 'none';
+    }
+    if (continueBtn) {
+      continueBtn.disabled = visibleCount === 0;
+    }
+    sync();
+  };
+  radios.forEach((radio) => radio.addEventListener('change', sync));
+  if (searchInput) {
+    searchInput.addEventListener('input', applyFilter);
+  }
+  applyFilter();
+})();
+</script>`)
+	_, _ = io.WriteString(w, `</div></div></div>`)
+	writeLocalAgentPageEnd(w)
+}
+
+func renderConfirmUserPage(w http.ResponseWriter, sessionToken string, user authUser) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	writeLocalAgentPageStart(w, "E3 Backup Agent - Confirm User")
+	_, _ = io.WriteString(w, `<div class="eb-auth-shell"><div class="eb-auth-wrap"><div class="eb-auth-glow"></div><div class="eb-auth-card">`)
+	_, _ = io.WriteString(w, `<div class="eb-logo"><img src="/assets/eazybackup-logo.svg" alt="eazyBackup"></div>`)
+	_, _ = io.WriteString(w, `<span class="eb-type-eyebrow">Local Backup Agent</span>`)
+	_, _ = io.WriteString(w, `<h1 class="eb-auth-title">Confirm user assignment</h1>`)
+	_, _ = io.WriteString(w, `<p class="eb-auth-description">This device will be assigned to the following e3 user.</p>`)
+	_, _ = io.WriteString(w, `<form method="post" action="/enroll/complete" class="eb-form-stack">`)
+	_, _ = io.WriteString(w, `<input type="hidden" name="session_token" value="`+htmlEscape(sessionToken)+`">`)
+	_, _ = io.WriteString(w, `<input type="hidden" name="backup_user_id" value="`+htmlEscape(fmt.Sprintf("%d", user.ID))+`">`)
+	_, _ = io.WriteString(w, `<div class="eb-user-row eb-user-row--static is-selected"><div class="eb-user-row-info"><div class="eb-user-row-name">`+htmlEscape(user.Username)+`</div><div class="eb-user-row-type">`+htmlEscape(backupTypeDisplayLabel(user.BackupType))+`</div></div></div>`)
+	_, _ = io.WriteString(w, `<button class="eb-btn" type="submit">Enroll Device</button>`)
+	_, _ = io.WriteString(w, `</form></div></div></div>`)
+	writeLocalAgentPageEnd(w)
+}
+
+func renderNoUsersPage(w http.ResponseWriter, sessionToken string) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	writeLocalAgentPageStart(w, "E3 Backup Agent - Create User")
+	_, _ = io.WriteString(w, `<div class="eb-auth-shell"><div class="eb-auth-wrap"><div class="eb-auth-glow"></div><div class="eb-auth-card">`)
+	_, _ = io.WriteString(w, `<div class="eb-logo"><img src="/assets/eazybackup-logo.svg" alt="eazyBackup"></div>`)
+	_, _ = io.WriteString(w, `<span class="eb-type-eyebrow">Local Backup Agent</span>`)
+	_, _ = io.WriteString(w, `<h1 class="eb-auth-title">No backup users found</h1>`)
+	_, _ = io.WriteString(w, `<p class="eb-auth-description">You do not have any users configured for local agent backups yet. We can create one automatically and continue.</p>`)
+	_, _ = io.WriteString(w, `<form method="post" action="/enroll/complete" class="eb-form-stack">`)
+	_, _ = io.WriteString(w, `<input type="hidden" name="session_token" value="`+htmlEscape(sessionToken)+`">`)
+	_, _ = io.WriteString(w, `<input type="hidden" name="auto_create_user" value="true">`)
+	_, _ = io.WriteString(w, `<button class="eb-btn" type="submit">Create User and Enroll</button>`)
+	_, _ = io.WriteString(w, `</form></div></div></div>`)
+	writeLocalAgentPageEnd(w)
+}
+
+func renderSuccessPage(w http.ResponseWriter, apiBaseURL, username, userRouteID string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 
-	// Build the jobs page URL from the API base URL
-	jobsURL := buildJobsPageURL(apiBaseURL)
+	userDetailURL := buildUserDetailPageURL(apiBaseURL, userRouteID)
+	displayName := strings.TrimSpace(username)
+	nextStepCopy := "Return to your selected user's backup page in your client area to create a backup job for this device."
+	if displayName != "" {
+		nextStepCopy = "Return to " + displayName + "'s backup page in your client area to create a backup job for this device."
+	}
 
-	_, _ = io.WriteString(w, `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">`)
-	_, _ = io.WriteString(w, `<title>E3 Backup Agent - Enrolled</title>`)
-	_, _ = io.WriteString(w, `<style>
-		body { font-family: system-ui, -apple-system, sans-serif; background: #0b1220; color: #e2e8f0; padding: 24px; margin: 0; }
-		.card { max-width: 520px; margin: 0 auto; background: #0f172a; border: 1px solid #334155; border-radius: 14px; padding: 22px; }
-		h2 { margin: 0 0 12px 0; color: #fff; }
-		p { margin: 0 0 16px 0; color: #94a3b8; line-height: 1.5; }
-		.next-step { background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 16px; margin-top: 16px; }
-		.next-step h3 { margin: 0 0 8px 0; font-size: 14px; color: #cbd5e1; }
-		.next-step p { margin: 0 0 12px 0; font-size: 13px; }
-		.btn { display: inline-block; padding: 10px 20px; background: #f97316; color: #fff; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 14px; }
-		.btn:hover { background: #ea580c; }
-		.check { color: #22c55e; font-size: 48px; text-align: center; margin-bottom: 16px; }
-	</style>`)
-	_, _ = io.WriteString(w, `</head><body>`)
-	_, _ = io.WriteString(w, `<div class="card">`)
-	_, _ = io.WriteString(w, `<div class="check">✓</div>`)
-	_, _ = io.WriteString(w, `<h2>Enrolled Successfully!</h2>`)
-	_, _ = io.WriteString(w, `<p>Your device has been enrolled. The backup service will start in the background.</p>`)
-	_, _ = io.WriteString(w, `<div class="next-step">`)
-	_, _ = io.WriteString(w, `<h3>What's Next?</h3>`)
-	_, _ = io.WriteString(w, `<p>Return to the e3 Cloud Backup Jobs page in your client area to create a new backup job for this device.</p>`)
-	_, _ = io.WriteString(w, `<a href="`+htmlEscape(jobsURL)+`" class="btn" target="_blank">Create Backup Job →</a>`)
-	_, _ = io.WriteString(w, `</div>`)
-	_, _ = io.WriteString(w, `</div></body></html>`)
+	writeLocalAgentPageStart(w, "E3 Backup Agent - Enrolled")
+	_, _ = io.WriteString(w, `<div class="eb-auth-shell"><div class="eb-auth-wrap"><div class="eb-auth-glow"></div><div class="eb-auth-card">`)
+	_, _ = io.WriteString(w, `<div class="eb-logo"><img src="/assets/eazybackup-logo.svg" alt="eazyBackup"></div>`)
+	_, _ = io.WriteString(w, `<span class="eb-type-eyebrow">Local Backup Agent</span>`)
+	_, _ = io.WriteString(w, `<h1 class="eb-auth-title">Device enrolled</h1>`)
+	_, _ = io.WriteString(w, `<p class="eb-auth-description">Your device has been enrolled successfully. The backup service will continue running in the background.</p>`)
+	_, _ = io.WriteString(w, `<div class="eb-next-step">`)
+	_, _ = io.WriteString(w, `<h2 class="eb-next-step-title">What happens next?</h2>`)
+	_, _ = io.WriteString(w, `<p class="eb-auth-description eb-next-step-copy">`+htmlEscape(nextStepCopy)+`</p>`)
+	_, _ = io.WriteString(w, `<a href="`+htmlEscape(userDetailURL)+`" class="eb-btn eb-btn-inline" target="_blank" rel="noopener noreferrer">Create Backup Job</a>`)
+	_, _ = io.WriteString(w, `</div></div></div></div>`)
+	writeLocalAgentPageEnd(w)
 }
 
 type recoveryJob struct {
@@ -2122,13 +2707,17 @@ func runPowerShellWithOutput(script string, onLine func(string)) error {
 	return nil
 }
 
-// buildJobsPageURL converts the API base URL to the backup jobs page URL.
-func buildJobsPageURL(apiBaseURL string) string {
+// buildUserDetailPageURL converts the API base URL to the user detail page URL.
+func buildUserDetailPageURL(apiBaseURL, userRouteID string) string {
+	userRouteID = strings.TrimSpace(userRouteID)
+	if userRouteID == "" {
+		return "https://accounts.eazybackup.ca/index.php?m=cloudstorage&page=e3backup&view=users"
+	}
 	u, err := url.Parse(strings.TrimRight(apiBaseURL, "/"))
 	if err != nil {
-		return "https://accounts.eazybackup.ca/index.php?m=cloudstorage&page=e3backup&view=jobs"
+		return fmt.Sprintf("https://accounts.eazybackup.ca/index.php?m=cloudstorage&page=e3backup&view=user_detail&user_id=%s#jobs", url.QueryEscape(userRouteID))
 	}
-	return fmt.Sprintf("%s://%s/index.php?m=cloudstorage&page=e3backup&view=jobs", u.Scheme, u.Host)
+	return fmt.Sprintf("%s://%s/index.php?m=cloudstorage&page=e3backup&view=user_detail&user_id=%s#jobs", u.Scheme, u.Host, url.QueryEscape(userRouteID))
 }
 
 func htmlEscape(s string) string {

@@ -639,6 +639,120 @@ body {
   </div>
 
 
+  <!-- ═══════════════ §0 — PRODUCTION CLASSES (eazyBackup semantic theme) ═══════════════ -->
+  <div class="guide-section">
+    <div class="section-label">Section 00 — Implementation</div>
+    <h2 class="section-title">Production: <code style="font-size:0.85em;">eb-job-*</code> class names</h2>
+    <p class="section-desc">This file uses self-contained demo classes (<code>job-card</code>, <code>job-meta-label</code>, etc.) so the guide renders in a browser without the WHMCS theme. In the live client area, the same layout and visuals are implemented with <strong>eazyBackup semantic classes</strong> defined in <code>accounts/templates/eazyBackup/css/tailwind.src.css</code> (compiled to <code>tailwind.css</code>). Tokens and global rules follow <strong>SEMANTIC-THEME-REFERENCE.md</strong>. The backup jobs list markup lives in <code>modules/addons/cloudstorage/templates/e3backup_jobs.tpl</code>.</p>
+
+    <table class="spec-table">
+      <thead>
+        <tr>
+          <th>Style guide (demo)</th>
+          <th>Production (semantic)</th>
+          <th>Notes</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>job-card</code></td>
+          <td><code>eb-job-card</code></td>
+          <td>Surface, border, radius, hover shadow — uses <code>var(--eb-bg-card)</code>, <code>var(--eb-border-default)</code>, etc.</td>
+        </tr>
+        <tr>
+          <td><code>job-card-header</code></td>
+          <td><code>eb-job-card-header</code></td>
+          <td>Header row with bottom divider.</td>
+        </tr>
+        <tr>
+          <td><code>job-card-identity</code></td>
+          <td><code>eb-job-card-identity</code></td>
+          <td>Icon + name + optional paused pill.</td>
+        </tr>
+        <tr>
+          <td><code>job-type-icon</code></td>
+          <td><code>eb-job-type-icon</code></td>
+          <td>Neutral 36×36 icon shell; SVG stroke uses <code>var(--eb-text-muted)</code>.</td>
+        </tr>
+        <tr>
+          <td><code>job-card-name</code></td>
+          <td><code>eb-job-card-name</code></td>
+          <td>Job title (Outfit, ellipsis).</td>
+        </tr>
+        <tr>
+          <td><code>job-status-paused</code> / <code>pause-dot</code></td>
+          <td><code>eb-job-status-paused</code> / <code>eb-job-status-paused-dot</code></td>
+          <td>Shown only when the job is paused (warning tokens).</td>
+        </tr>
+        <tr>
+          <td><code>job-card-actions</code></td>
+          <td><code>eb-job-card-actions</code></td>
+          <td>Action cluster; icon buttons use <code>eb-btn eb-btn-icon eb-btn-sm</code> with rules scoped under <code>.eb-job-card</code> (32×32, square corners).</td>
+        </tr>
+        <tr>
+          <td><code>btn-run</code></td>
+          <td><code>eb-btn eb-btn-primary eb-btn-sm</code></td>
+          <td>Primary CTA — semantic button, not an <code>eb-job-*</code> prefix.</td>
+        </tr>
+        <tr>
+          <td><code>btn-icon.is-paused</code></td>
+          <td><code>eb-job-action-icon--paused</code></td>
+          <td>Modifier on the pause/resume icon button when the job is paused.</td>
+        </tr>
+        <tr>
+          <td><code>job-card-body</code></td>
+          <td><code>eb-job-card-body</code></td>
+          <td>Responsive 6 → 3 → 2 column grid; breakpoints 1280px / 768px.</td>
+        </tr>
+        <tr>
+          <td><code>job-meta-item</code></td>
+          <td><code>eb-job-meta-item</code></td>
+          <td>One metadata column with vertical dividers.</td>
+        </tr>
+        <tr>
+          <td><code>job-meta-label</code></td>
+          <td><code>eb-job-meta-label</code></td>
+          <td>Uppercase caption label.</td>
+        </tr>
+        <tr>
+          <td><code>job-meta-value</code></td>
+          <td><code>eb-job-meta-value</code></td>
+          <td>Primary value line.</td>
+        </tr>
+        <tr>
+          <td><code>job-meta-value .sub</code></td>
+          <td><code>eb-job-meta-sub</code></td>
+          <td>Secondary line (e.g. source type, path prefix).</td>
+        </tr>
+        <tr>
+          <td><code>schedule-manual</code></td>
+          <td><code>eb-job-schedule-manual</code></td>
+          <td>Italic muted schedule when type is manual (active jobs).</td>
+        </tr>
+        <tr>
+          <td><code>last-run-status</code></td>
+          <td><code>eb-job-last-run-status</code></td>
+          <td>Dot + label row under last-run time.</td>
+        </tr>
+        <tr>
+          <td><code>status-dot.success</code> (etc.)</td>
+          <td><code>eb-job-last-run-dot</code> + <code>eb-job-last-run-dot--success</code> / <code>--failed</code> / <code>--warning</code> / <code>--running</code> / <code>--neutral</code></td>
+          <td><code>--running</code> uses a pulse animation aligned with the guide.</td>
+        </tr>
+        <tr>
+          <td><code>status-label.success</code> (etc.)</td>
+          <td><code>eb-job-last-run-label</code> + <code>eb-job-last-run-label--success</code> / <code>--failed</code> / <code>--warning</code> / <code>--running</code> / <code>--neutral</code></td>
+          <td>Semantic text colours per status family.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="rationale">
+      <strong>Unrelated prefix.</strong> The stylesheet also defines <code>eb-job-chip</code> and <code>eb-job-chip-dot*</code> for other job-list UI (e.g. filters). Those are not part of this card component.
+    </div>
+  </div>
+
+
   <!-- ═══════════════ §1 — DESIGN AUDIT ═══════════════ -->
   <div class="guide-section">
     <div class="section-label">Section 01 — Analysis</div>

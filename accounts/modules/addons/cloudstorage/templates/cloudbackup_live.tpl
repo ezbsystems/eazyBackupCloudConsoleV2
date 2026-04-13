@@ -1,9 +1,33 @@
-{capture assign=ebE3Icon}
-    <span class="eb-icon-box eb-icon-box--sm eb-icon-box--info">
-        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M13 10V3L4 14h7v7l9-11h-7z"/>
-        </svg>
-    </span>
+{assign var=ebLiveRunsUrl value="index.php?m=cloudstorage&page=e3backup&view=runs&job_id="|cat:$job.job_id}
+
+{capture assign=ebE3TitleHtml}
+<div class="min-w-0 flex-1">
+    <nav class="eb-breadcrumb mb-1" aria-label="Breadcrumb">
+        <a href="index.php?m=cloudstorage&page=e3backup&view=jobs" class="eb-breadcrumb-link">Jobs</a>
+        <span class="eb-breadcrumb-separator">/</span>
+        <a href="{$ebLiveRunsUrl|escape:'html'}" class="eb-breadcrumb-link">{if $job.name}{$job.name|escape:'html'}{else}Unnamed job{/if}</a>
+        <span class="eb-breadcrumb-separator">/</span>
+        <a href="{$ebLiveRunsUrl|escape:'html'}" class="eb-breadcrumb-link">Runs</a>
+        <span class="eb-breadcrumb-separator">/</span>
+        <span class="eb-breadcrumb-current">{if $is_restore}Live restore{else}Live{/if}</span>
+    </nav>
+    <div class="flex flex-wrap items-center gap-2.5 gap-y-1">
+        <h1 class="eb-app-header-title">{if $job.name}{$job.name|escape:'html'}{else}Unnamed job{/if}</h1>
+        <span id="liveHeaderBadge" class="eb-badge eb-badge--info eb-badge--dot">{$run.status|ucfirst|escape:'html'}</span>
+    </div>
+</div>
+{/capture}
+
+{capture assign=ebE3Actions}
+    <button
+        id="cancelButton"
+        type="button"
+        onclick="cancelRun('{$run.run_id}')"
+        class="eb-btn eb-btn-danger eb-btn-sm hidden"
+        style="display: none;"
+    >
+        Cancel Run
+    </button>
 {/capture}
 
 {capture assign=ebE3Content}
@@ -11,75 +35,26 @@
     {assign var="showFilesMetric" value=(!$is_restore && $job.engine ne 'disk_image' && $job.engine ne 'hyperv')}
 
     <div class="eb-live-page">
-        <section class="eb-card-raised eb-live-identity-card">
-            <div class="eb-live-identity">
-                <div class="eb-live-identity-main">
-                    <a href="index.php?m=cloudstorage&page=e3backup&view=runs&job_id={$job.job_id}" class="eb-btn eb-btn-ghost eb-btn-sm">
-                        <svg class="eb-live-icon-sm" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
-                        </svg>
-                        <span>Back to Runs</span>
-                    </a>
-                    <div class="eb-live-identity-copy">
-                        <div class="eb-type-eyebrow">{if $is_restore}Live Restore{else}Live Backup{/if}</div>
-                        <h2 class="eb-live-job-title">{if $job.name}{$job.name}{else}Unnamed job{/if}</h2>
-                    </div>
-                </div>
+        <div id="errorSummaryContainer" class="eb-live-alert eb-live-alert--danger hidden" role="status" aria-live="polite">
+            <p class="eb-live-alert-title">Startup Error</p>
+            <p id="errorSummaryText" class="eb-live-alert-copy"></p>
+        </div>
 
-                <div class="eb-live-chip-row">
-                    <span class="eb-live-status-chip">
-                        <span id="statusTopDot" class="status-dot status-dot--lg is-blue animate-status-pulse"></span>
-                        <span id="statusTopText" class="eb-live-status-chip-text">{$run.status|ucfirst}</span>
-                    </span>
-                    <span class="eb-badge eb-badge--neutral eb-live-meta-badge">
-                        <span class="eb-live-meta-label">Agent:</span>
-                        <span class="eb-live-meta-value">
-                            {if $job.source_type eq 'local_agent'}
-                                {if $agent_name}{$agent_name}{elseif $agent_uuid}{$agent_uuid}{else}Agent unavailable{/if}
-                            {else}
-                                Cloud Backup
-                            {/if}
-                        </span>
-                    </span>
-                    <span class="eb-badge eb-badge--neutral eb-live-meta-badge">
-                        <span class="eb-live-meta-label">Job:</span>
-                        <span class="eb-live-meta-value">{if $job.name}{$job.name}{else}Unnamed job{/if}</span>
-                    </span>
-                    <button
-                        id="cancelButton"
-                        onclick="cancelRun('{$run.run_id}')"
-                        class="eb-btn eb-btn-danger eb-btn-sm hidden"
-                        style="display: none;"
-                    >
-                        Cancel Run
-                    </button>
+        <section class="eb-live-progress" x-data="{ isRunning: {if $isRunningStatus}true{else}false{/if} }" id="liveProgressStrip">
+            <div class="eb-live-progress-top">
+                <div class="eb-live-percent" aria-live="polite">
+                    <span id="progressPercentValue">{if $run.progress_pct}{$run.progress_pct|string_format:"%.2f"}{else}0.00{/if}</span><span class="unit">%</span>
                 </div>
-            </div>
-        </section>
-
-        <section class="eb-card-raised eb-live-hero" x-data="{ isRunning: {if $isRunningStatus}true{else}false{/if} }">
-            <div class="eb-live-hero-top">
-                <div>
-                    <div class="eb-type-eyebrow">Progress</div>
-                    <div class="eb-live-progress-value" id="progressPercent">
-                        {if $run.progress_pct}
-                            {$run.progress_pct|string_format:"%.2f"}%
-                        {else}
-                            0.00%
-                        {/if}
-                    </div>
-                </div>
-                <div class="eb-live-stage-block">
-                    <div class="eb-type-eyebrow">Stage</div>
-                    <div id="stageLabel" class="eb-live-stage-value">
-                        {if $run.stage}{$run.stage}{else}{$run.status|ucfirst}{/if}
-                    </div>
+                <div class="eb-live-stage">
+                    <span id="stageStatusDot" class="eb-status-dot eb-status-dot--pending"></span>
+                    <span id="stageLabel" style="color: var(--eb-info-text); font-weight: 600;">{if $run.stage}{$run.stage|escape:'html'}{else}{$run.status|ucfirst|escape:'html'}{/if}</span>
+                    <span id="stageEta" class="eb-live-stage-eta"></span>
                 </div>
             </div>
 
-            <div class="eb-progress-track eb-live-progress-track">
+            <div class="eb-live-bar" aria-hidden="true">
                 <div
-                    class="eb-progress-fill eb-live-progress-fill is-running"
+                    class="eb-live-bar-fill running"
                     id="progressBar"
                     style="width: {if $run.progress_pct}{$run.progress_pct}{else}0{/if}%"
                     role="progressbar"
@@ -87,874 +62,279 @@
                     aria-valuemin="0"
                     aria-valuemax="100"
                     aria-valuenow="{if $run.progress_pct}{$run.progress_pct|string_format:"%.2f"}{else}0.00{/if}"
-                >
-                    <div class="eb-live-progress-stripes" x-show="isRunning"></div>
-                    <div class="eb-live-progress-shimmer" x-show="isRunning"></div>
-                </div>
+                ></div>
             </div>
 
-            <div class="eb-live-hero-meta">
-                <div class="eb-live-hero-meta-item">
-                    <span class="eb-live-meta-label">Status</span>
-                    <span id="statusMicroDot" class="status-dot status-dot--sm is-blue"></span>
-                    <span id="statusMicroText" class="eb-live-meta-strong">{$run.status|ucfirst}</span>
-                </div>
-                <div class="eb-live-hero-meta-item">
-                    <span class="eb-live-meta-label">ETA</span>
-                    <span class="eb-live-meta-strong" id="etaTop">
-                        {if $run.eta_seconds}
-                            {assign var="hours" value=$run.eta_seconds/3600|floor}
-                            {assign var="minutes" value=($run.eta_seconds%3600)/60|floor}
-                            {assign var="seconds" value=$run.eta_seconds%60|string_format:"%.0f"}
-                            {if $hours > 0}{$hours}h {/if}{if $minutes > 0}{$minutes}m {/if}{$seconds}s
+            <div class="eb-live-stats">
+                <div class="eb-live-stat">
+                    <div class="eb-live-stat-label">Speed</div>
+                    <div class="eb-live-stat-value highlight" id="speedValue">
+                        {if $run.speed_bytes_per_sec}
+                            {\WHMCS\Module\Addon\CloudStorage\Client\HelperController::formatSizeUnits($run.speed_bytes_per_sec)}/s
                         {else}
-                            -
+                            —
                         {/if}
-                    </span>
+                    </div>
+                    <p id="speedHint" class="eb-live-stat-hint"></p>
                 </div>
-                <div class="eb-live-hero-meta-item">
-                    <span class="eb-live-meta-label">Duration</span>
-                    <span class="eb-live-meta-strong" id="durationValue">-</span>
-                    <span id="durationLabel" class="eb-live-meta-label">Elapsed</span>
-                </div>
-            </div>
-        </section>
-
-        <section class="eb-live-metric-grid {if $showFilesMetric}is-four{else}is-three{/if}">
-            <div class="eb-card eb-live-metric-card">
-                <div class="eb-type-eyebrow">Speed</div>
-                <div class="eb-live-metric-value" id="speedValue">
-                    {if $run.speed_bytes_per_sec}
-                        {\WHMCS\Module\Addon\CloudStorage\Client\HelperController::formatSizeUnits($run.speed_bytes_per_sec)}/s
-                    {else}
-                        -
-                    {/if}
-                </div>
-                <p id="speedHint" class="eb-live-metric-help"></p>
-            </div>
-
-            <div class="eb-card eb-live-metric-card">
-                <div class="eb-type-eyebrow">Processed</div>
-                <div class="eb-live-metric-value" id="bytesProcessedValue">
-                    {if $run.bytes_processed}
-                        {\WHMCS\Module\Addon\CloudStorage\Client\HelperController::formatSizeUnits($run.bytes_processed)}
-                    {elseif $run.bytes_transferred}
-                        {\WHMCS\Module\Addon\CloudStorage\Client\HelperController::formatSizeUnits($run.bytes_transferred)}
-                    {else}
-                        0.00 Bytes
-                    {/if}
-                </div>
-            </div>
-
-            <div class="eb-card eb-live-metric-card">
-                <div class="eb-type-eyebrow">Uploaded</div>
-                <div class="eb-live-metric-value" id="bytesTransferredValue">
-                    {if $run.bytes_transferred}
-                        {\WHMCS\Module\Addon\CloudStorage\Client\HelperController::formatSizeUnits($run.bytes_transferred)}
-                    {else}
-                        0.00 Bytes
-                    {/if}
-                </div>
-                <p id="uploadedSavings" class="eb-live-metric-help"></p>
-            </div>
-
-            {if $showFilesMetric}
-                <div class="eb-card eb-live-metric-card">
-                    <div class="eb-type-eyebrow">Files & Folders</div>
-                    <div class="eb-live-metric-pairs">
-                        <div class="eb-live-detail-row">
-                            <span class="eb-live-meta-label">Files</span>
-                            <span class="eb-live-meta-strong" id="filesValue">-</span>
-                        </div>
-                        <div class="eb-live-detail-row">
-                            <span class="eb-live-meta-label">Folders</span>
-                            <span class="eb-live-meta-strong" id="foldersValue">—</span>
-                        </div>
+                <div class="eb-live-stat">
+                    <div class="eb-live-stat-label">Processed</div>
+                    <div class="eb-live-stat-value" id="bytesProcessedValue">
+                        {if $run.bytes_processed}
+                            {\WHMCS\Module\Addon\CloudStorage\Client\HelperController::formatSizeUnits($run.bytes_processed)}
+                        {elseif $run.bytes_transferred}
+                            {\WHMCS\Module\Addon\CloudStorage\Client\HelperController::formatSizeUnits($run.bytes_transferred)}
+                        {else}
+                            0.00 Bytes
+                        {/if}
                     </div>
                 </div>
-            {/if}
+                <div class="eb-live-stat">
+                    <div class="eb-live-stat-label">Uploaded</div>
+                    <div class="eb-live-stat-value" id="bytesTransferredValue">
+                        {if $run.bytes_transferred}
+                            {\WHMCS\Module\Addon\CloudStorage\Client\HelperController::formatSizeUnits($run.bytes_transferred)}
+                        {else}
+                            0.00 Bytes
+                        {/if}
+                    </div>
+                    <p id="uploadedSavings" class="eb-live-stat-hint"></p>
+                </div>
+                <div class="eb-live-stat">
+                    <div class="eb-live-stat-label">Files</div>
+                    <div class="eb-live-stat-value" id="filesValue">{if $showFilesMetric}-{else}—{/if}</div>
+                </div>
+                <div class="eb-live-stat">
+                    <div class="eb-live-stat-label">Folders</div>
+                    <div class="eb-live-stat-value" id="foldersValue">{if $showFilesMetric}—{else}—{/if}</div>
+                </div>
+                <div class="eb-live-stat">
+                    <div class="eb-live-stat-label" id="durationStatLabel">{if $isRunningStatus}Elapsed{else}Duration{/if}</div>
+                    <div class="eb-live-stat-value mono" id="durationValue">—</div>
+                </div>
+            </div>
+
+            <div class="eb-live-current-file" id="currentFileRow" x-show="isRunning" x-cloak>
+                <span class="file-spinner" aria-hidden="true"></span>
+                <span class="file-label">{if $is_restore}Restoring{else}Processing{/if}</span>
+                <span id="currentItem" class="file-path">{if $run.current_item}{$run.current_item|escape:'html'}{else}—{/if}</span>
+            </div>
+            <div id="currentItemEmpty" class="hidden" aria-hidden="true"></div>
         </section>
 
-        <div id="errorSummaryContainer" class="eb-live-alert eb-live-alert--danger hidden" role="status" aria-live="polite">
-            <p class="eb-live-alert-title">Startup Error</p>
-            <p id="errorSummaryText" class="eb-live-alert-copy"></p>
+        <div class="eb-live-details" id="liveDetailsStrip">
+            <div class="eb-live-detail">
+                <div class="eb-live-detail-label">Agent</div>
+                <div class="eb-live-detail-value" id="detailsAgent">
+                    {if $job.source_type eq 'local_agent'}
+                        {if $agent_name}{$agent_name|escape:'html'}{elseif $agent_uuid}{$agent_uuid|escape:'html'}{else}Agent unavailable{/if}
+                    {else}
+                        Cloud Backup
+                    {/if}
+                </div>
+            </div>
+            <div class="eb-live-detail">
+                <div class="eb-live-detail-label">Job</div>
+                <div class="eb-live-detail-value min-w-0 max-w-full overflow-hidden text-ellipsis whitespace-nowrap" id="detailsJob">{if $job.name}{$job.name|escape:'html'}{else}Unnamed job{/if}</div>
+            </div>
+            <div class="eb-live-detail">
+                <div class="eb-live-detail-label">Run ID</div>
+                <div class="eb-live-detail-value eb-live-detail-value--mono" id="detailsRunId" title="{$run.run_id|escape:'html'}">{$run.run_id|escape:'html'}</div>
+            </div>
+            <div class="eb-live-detail">
+                <div class="eb-live-detail-label">Started</div>
+                <div class="eb-live-detail-value" id="detailsStartedAt">{$run.started_at|default:'-'|escape:'html'}</div>
+            </div>
+            <div class="eb-live-detail">
+                <div class="eb-live-detail-label">Finished</div>
+                <div class="eb-live-detail-value" id="detailsFinishedAt">{$run.finished_at|default:'-'|escape:'html'}</div>
+            </div>
+            <div class="eb-live-detail">
+                <div class="eb-live-detail-label">Mode</div>
+                <div class="eb-live-detail-value">{$job.backup_mode|default:$job.engine|default:'-'|escape:'html'}</div>
+            </div>
+            <div class="eb-live-detail">
+                <div class="eb-live-detail-label">Destination</div>
+                <div class="eb-live-detail-value min-w-0 max-w-full overflow-hidden text-ellipsis whitespace-nowrap">
+                    {if isset($job.dest_bucket_name) && $job.dest_bucket_name}
+                        {$job.dest_bucket_name|escape:'html'}{if $job.dest_prefix} / {$job.dest_prefix|escape:'html'}{/if}
+                    {elseif isset($job.dest_local_path) && $job.dest_local_path}
+                        {$job.dest_local_path|escape:'html'}
+                    {elseif isset($job.dest_bucket_id) && $job.dest_bucket_id}
+                        Bucket #{$job.dest_bucket_id}{if $job.dest_prefix} / {$job.dest_prefix|escape:'html'}{/if}
+                    {else}
+                        —
+                    {/if}
+                </div>
+            </div>
         </div>
 
-        <section class="eb-live-lower-grid">
-            <div class="eb-card-raised eb-live-current-card">
-                <div class="eb-card-header eb-card-header--divided eb-live-card-header">
-                    <div>
-                        <div class="eb-type-eyebrow">Now Backing Up</div>
-                        <p class="eb-card-subtitle">Current file</p>
-                    </div>
-                    <button type="button" onclick="copyCurrentFile()" class="eb-btn eb-btn-secondary eb-btn-xs">
-                        Copy
-                    </button>
+        {if $is_restore && $restore_metadata}
+            <div class="eb-live-alert eb-live-alert--success">
+                {if $is_hyperv_restore}
+                    <p class="eb-live-alert-title">Hyper-V Restore</p>
+                    <p class="eb-live-alert-copy">VM <span class="eb-live-inline-strong">{$restore_metadata.vm_name|escape:'html'}</span> to <span class="eb-live-inline-strong">{$restore_metadata.target_path|escape:'html'}</span></p>
+                {else}
+                    <p class="eb-live-alert-title">Restore</p>
+                    <p class="eb-live-alert-copy">Snapshot {$restore_metadata.manifest_id|truncate:16:'...'|escape:'html'} to {$restore_metadata.target_path|escape:'html'}</p>
+                {/if}
+            </div>
+        {/if}
+
+        <div class="eb-live-alert eb-live-alert--warning">
+            <p class="eb-live-alert-title">Cloud Backup (Beta)</p>
+            <p class="eb-live-alert-copy">Cloud Backup is in beta. Keep a primary backup strategy in place and contact support if you notice any issues.</p>
+        </div>
+
+        <div class="eb-live-log" id="ebLiveLogPanel">
+            <div class="eb-live-log-toolbar">
+                <div class="eb-live-log-title">
+                    <span id="logLiveDot" class="live-dot" style="display: none;" aria-hidden="true"></span>
+                    <span id="logPauseIndicator" class="eb-type-caption" style="display: none; color: var(--eb-text-muted);">Paused</span>
+                    <svg id="logStaticIcon" class="eb-live-log-title-icon" style="display: none;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                    </svg>
+                    <span id="logPanelTitle">Live Logs</span>
                 </div>
-                <div class="eb-live-current-body">
-                    <div id="currentItem" class="eb-live-current-item">
-                        {if $run.current_item}{$run.current_item}{else}-{/if}
-                    </div>
-                    <div id="currentItemEmpty" class="eb-live-current-empty {if $run.current_item}hidden{/if}">
-                        Waiting for file updates...
-                    </div>
-                </div>
+                <input id="logSearchInput" type="search" class="eb-live-log-search" placeholder="Search logs…" autocomplete="off" oninput="setLogSearch(this.value)">
+                <button type="button" id="pauseUpdatesBtn" class="eb-log-btn" onclick="togglePauseUpdates()">
+                    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="5" y="4" width="4" height="16" rx="1"/><rect x="15" y="4" width="4" height="16" rx="1"/></svg>
+                    Pause
+                </button>
+                <button type="button" class="eb-log-btn" onclick="copyLogs()">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+                    Copy
+                </button>
+                <button type="button" class="eb-log-btn" onclick="clearLogs()">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14z"/></svg>
+                    Clear
+                </button>
+                <button id="forceCancelButton" type="button" class="eb-log-btn" style="display: none;" onclick="cancelRun('{$run.run_id}', true)">
+                    Force Cancel
+                </button>
             </div>
 
-            <div class="eb-card-raised eb-live-log-card">
-                <div x-data="{ tab: 'logs' }">
-                    <div class="eb-card-header eb-card-header--divided eb-live-card-header">
-                        <div class="eb-live-tab-group">
-                            <button type="button" class="eb-pill" :class="tab === 'logs' && 'is-active'" @click="tab = 'logs'">
-                                <span class="eb-pill-dot"></span>
-                                <span>Live Logs</span>
-                            </button>
-                            <button type="button" class="eb-pill" :class="tab === 'details' && 'is-active'" @click="tab = 'details'">
-                                <span>Details</span>
-                            </button>
-                        </div>
+            <div class="eb-live-log-output" id="liveLogs">
+                <div class="eb-type-caption italic px-4 py-3" id="liveLogsEmpty" style="color: var(--eb-text-muted);">Waiting for log data…</div>
+            </div>
 
-                        <div class="eb-live-log-tools" x-show="tab === 'logs'" x-cloak>
-                            <div class="eb-input-wrap eb-live-search">
-                                <div class="eb-input-icon">
-                                    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" aria-hidden="true">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M14.5 14.5L18 18M8.75 15.5a6.75 6.75 0 1 1 0-13.5a6.75 6.75 0 0 1 0 13.5z"/>
-                                    </svg>
-                                </div>
-                                <input id="logSearchInput" type="text" placeholder="Search logs" oninput="setLogSearch(this.value)" class="eb-input eb-input-has-icon">
-                            </div>
-                            <button type="button" id="pauseUpdatesBtn" onclick="togglePauseUpdates()" class="eb-btn eb-btn-secondary eb-btn-xs">
-                                Pause
-                            </button>
-                            <button type="button" onclick="toggleAutoScrollLogs()" class="eb-btn eb-btn-secondary eb-btn-xs">
-                                Autoscroll: <span id="autoScrollLabel">On</span>
-                            </button>
-                            <button type="button" onclick="copyLogs()" class="eb-btn eb-btn-secondary eb-btn-xs">
-                                Copy
-                            </button>
-                            <button type="button" onclick="clearLogs()" class="eb-btn eb-btn-secondary eb-btn-xs">
-                                Clear
-                            </button>
-                            <button id="forceCancelButton" type="button" onclick="cancelRun('{$run.run_id}', true)" class="eb-btn eb-btn-danger eb-btn-xs hidden">
-                                Force Cancel
-                            </button>
-                        </div>
-                    </div>
-
-                    <div class="eb-live-log-content" x-show="tab === 'logs'" x-cloak>
-                        <div class="eb-live-log-shell" id="liveLogs">
-                            <div class="eb-live-log-empty" id="liveLogsEmpty">
-                                Waiting for log data...
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="eb-live-details" x-show="tab === 'details'" x-cloak>
-                        <div class="eb-live-details-grid">
-                            <div class="eb-live-detail-row">
-                                <span class="eb-live-meta-label">Status</span>
-                                <span id="detailsStatus" class="eb-live-meta-strong">{$run.status|ucfirst}</span>
-                            </div>
-                            <div class="eb-live-detail-row">
-                                <span class="eb-live-meta-label">Agent</span>
-                                <span id="detailsAgent" class="eb-live-meta-strong">
-                                    {if $job.source_type eq 'local_agent'}
-                                        {if $agent_name}{$agent_name}{elseif $agent_uuid}{$agent_uuid}{else}Agent unavailable{/if}
-                                    {else}
-                                        Cloud Backup
-                                    {/if}
-                                </span>
-                            </div>
-                            <div class="eb-live-detail-row">
-                                <span class="eb-live-meta-label">Job</span>
-                                <span id="detailsJob" class="eb-live-meta-strong eb-live-text-truncate">{if $job.name}{$job.name}{else}Unnamed job{/if}</span>
-                            </div>
-                            <div class="eb-live-detail-row">
-                                <span class="eb-live-meta-label">Run ID</span>
-                                <span id="detailsRunId" class="eb-live-meta-strong eb-live-code">{$run.run_id}</span>
-                            </div>
-                            <div class="eb-live-detail-row">
-                                <span class="eb-live-meta-label">Started</span>
-                                <span id="detailsStartedAt" class="eb-live-meta-strong">{$run.started_at|default:'-'}</span>
-                            </div>
-                            <div class="eb-live-detail-row">
-                                <span class="eb-live-meta-label">Finished</span>
-                                <span id="detailsFinishedAt" class="eb-live-meta-strong">{$run.finished_at|default:'-'}</span>
-                            </div>
-                        </div>
-
-                        {if $is_restore && $restore_metadata}
-                            <div class="eb-live-alert eb-live-alert--success">
-                                {if $is_hyperv_restore}
-                                    <p class="eb-live-alert-title">Hyper-V Restore</p>
-                                    <p class="eb-live-alert-copy">VM <span class="eb-live-inline-strong">{$restore_metadata.vm_name}</span> to <span class="eb-live-inline-strong">{$restore_metadata.target_path}</span></p>
-                                {else}
-                                    <p class="eb-live-alert-title">Restore</p>
-                                    <p class="eb-live-alert-copy">Snapshot {$restore_metadata.manifest_id|truncate:16:'...'} to {$restore_metadata.target_path}</p>
-                                {/if}
-                            </div>
-                        {/if}
-
-                        <div class="eb-live-alert eb-live-alert--warning">
-                            <p class="eb-live-alert-title">Cloud Backup (Beta)</p>
-                            <p class="eb-live-alert-copy">Cloud Backup is in beta. Keep a primary backup strategy in place and contact support if you notice any issues.</p>
-                        </div>
-                    </div>
+            <div class="eb-live-log-footer">
+                <span id="logFooterSummary">0 lines</span>
+                <div class="eb-log-page-controls" id="logPaginationWrap">
+                    <button type="button" class="eb-log-page-btn" id="logPageNewer" disabled onclick="goLogPage(-1)">← Newer</button>
+                    <span class="eb-log-page-current" id="logPageCurrent">Page 1 / 1</span>
+                    <button type="button" class="eb-log-page-btn" id="logPageOlder" disabled onclick="goLogPage(1)">Older →</button>
                 </div>
             </div>
-        </section>
+        </div>
+    </div>
+
+    <div id="cancelRunConfirmModal"
+         class="fixed inset-0 z-[2200] hidden items-center justify-center p-4"
+         role="dialog"
+         aria-modal="true"
+         aria-labelledby="cancelRunConfirmTitle"
+         aria-describedby="cancelRunConfirmMessage">
+        <div class="eb-modal-backdrop absolute inset-0" onclick="closeCancelConfirmModal()" aria-hidden="true"></div>
+        <div class="eb-modal eb-modal--confirm relative z-10 !p-0 overflow-hidden" onclick="event.stopPropagation()">
+            <div class="eb-modal-header">
+                <div>
+                    <h3 class="eb-modal-title" id="cancelRunConfirmTitle">Cancel run?</h3>
+                    <p class="eb-modal-subtitle" id="cancelRunConfirmMessage">This will ask the agent to stop the active run.</p>
+                </div>
+                <button type="button" class="eb-modal-close" onclick="closeCancelConfirmModal()" aria-label="Close cancel confirmation">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
+            </div>
+            <div class="eb-modal-body">
+                <div class="eb-alert eb-alert--warning">
+                    <svg class="eb-alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m0 3.75h.01M10.29 3.86l-7.5 13A1 1 0 003.66 18h16.68a1 1 0 00.87-1.5l-7.5-13a1 1 0 00-1.74 0z"/>
+                    </svg>
+                    <div id="cancelRunConfirmDetail">The run will stop on the agent's next command poll.</div>
+                </div>
+            </div>
+            <div class="eb-modal-footer">
+                <button type="button" class="eb-btn eb-btn-secondary eb-btn-sm" id="cancelRunConfirmDismiss" onclick="closeCancelConfirmModal()">Keep Running</button>
+                <button type="button" class="eb-btn eb-btn-danger-solid eb-btn-sm" id="cancelRunConfirmSubmit" onclick="submitCancelRun()">
+                    Confirm Cancel
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div id="cancelRunStatusModal"
+         class="fixed inset-0 z-[2200] hidden items-center justify-center p-4"
+         role="dialog"
+         aria-modal="true"
+         aria-labelledby="cancelRunStatusTitle"
+         aria-describedby="cancelRunStatusMessage">
+        <div class="eb-modal-backdrop absolute inset-0" onclick="closeCancelStatusModal()" aria-hidden="true"></div>
+        <div class="eb-modal eb-modal--confirm relative z-10 !p-0 overflow-hidden" onclick="event.stopPropagation()">
+            <div class="eb-modal-header">
+                <div>
+                    <h3 class="eb-modal-title" id="cancelRunStatusTitle">Cancel request submitted</h3>
+                    <p class="eb-modal-subtitle" id="cancelRunStatusSubtitle">The run will refresh shortly.</p>
+                </div>
+                <button type="button" class="eb-modal-close" onclick="closeCancelStatusModal()" aria-label="Close cancel status message">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
+            </div>
+            <div class="eb-modal-body">
+                <div id="cancelRunStatusAlert" class="eb-alert eb-alert--info">
+                    <svg id="cancelRunStatusIcon" class="eb-alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 16v-4m0-4h.01M22 12A10 10 0 1 1 2 12a10 10 0 0 1 20 0Z"/>
+                    </svg>
+                    <div id="cancelRunStatusMessage">The agent will stop the run on its next command poll.</div>
+                </div>
+            </div>
+            <div class="eb-modal-footer">
+                <button type="button" class="eb-btn eb-btn-primary eb-btn-sm" onclick="closeCancelStatusModal()">OK</button>
+            </div>
+        </div>
     </div>
 {/capture}
-
-{if $is_restore}
-    {assign var="ebLivePageTitle" value="Live Restore"}
-{else}
-    {assign var="ebLivePageTitle" value="Live Backup"}
-{/if}
 
 {include
     file="modules/addons/cloudstorage/templates/partials/e3backup_shell.tpl"
     ebE3SidebarPage="jobs"
-    ebE3Title=$ebLivePageTitle
-    ebE3Description="Monitor progress, telemetry, and live events for the selected run."
-    ebE3Icon=$ebE3Icon
+    ebE3Title=""
+    ebE3Description=""
+    ebE3TitleHtml=$ebE3TitleHtml
+    ebE3Actions=$ebE3Actions
     ebE3Content=$ebE3Content
 }
 
-<style>
-.eb-live-page {
-    display: flex;
-    flex-direction: column;
-    gap: 1.5rem;
-}
-
-.eb-live-identity-card,
-.eb-live-hero,
-.eb-live-current-card,
-.eb-live-log-card {
-    overflow: hidden;
-}
-
-.eb-live-card-header {
-    margin-bottom: 0 !important;
-}
-
-.eb-live-icon-sm {
-    width: 1rem;
-    height: 1rem;
-}
-
-.eb-live-identity {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: space-between;
-    gap: 1rem;
-}
-
-.eb-live-identity-main {
-    display: flex;
-    align-items: center;
-    gap: 1rem;
-    min-width: 0;
-}
-
-.eb-live-identity-copy {
-    min-width: 0;
-}
-
-.eb-live-job-title {
-    margin: 0.35rem 0 0;
-    color: var(--eb-text-primary);
-    font-family: var(--eb-type-heading-family);
-    font-size: clamp(1.625rem, 2vw, 2.25rem);
-    font-weight: 600;
-    line-height: 1.05;
-    letter-spacing: -0.02em;
-}
-
-.eb-live-chip-row {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.625rem;
-}
-
-.eb-live-status-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.625rem;
-    min-height: 34px;
-    padding: 0.45rem 0.85rem;
-    border: 1px solid var(--eb-border-muted);
-    border-radius: 999px;
-    background: var(--eb-bg-elevated);
-    color: var(--eb-text-primary);
-    box-shadow: inset 0 1px 0 rgba(255,255,255,0.02);
-}
-
-.eb-live-status-chip-text,
-.eb-live-meta-strong {
-    color: var(--eb-text-primary);
-    font-size: 0.85rem;
-    font-weight: 600;
-}
-
-.eb-live-meta-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.45rem;
-    min-height: 34px;
-}
-
-.eb-live-meta-label {
-    color: var(--eb-text-muted);
-    font-size: 0.72rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.12em;
-}
-
-.eb-live-meta-value {
-    color: var(--eb-text-primary);
-    font-weight: 500;
-    text-transform: none;
-    letter-spacing: normal;
-}
-
-.eb-live-hero {
-    display: flex;
-    flex-direction: column;
-    gap: 1.25rem;
-}
-
-.eb-live-hero-top {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: flex-end;
-    justify-content: space-between;
-    gap: 1rem;
-}
-
-.eb-live-progress-value {
-    margin-top: 0.45rem;
-    color: var(--eb-text-primary);
-    font-family: var(--eb-type-heading-family);
-    font-size: clamp(2.1rem, 3.75vw, 3.375rem);
-    font-weight: 600;
-    line-height: 0.95;
-    letter-spacing: -0.04em;
-}
-
-.eb-live-stage-block {
-    text-align: right;
-}
-
-.eb-live-stage-value {
-    margin-top: 0.45rem;
-    color: var(--eb-text-primary);
-    font-size: 1.05rem;
-    font-weight: 600;
-}
-
-.eb-live-progress-track {
-    position: relative;
-    overflow: hidden;
-    min-height: 18px;
-    background: color-mix(in srgb, var(--eb-bg-card) 78%, black 22%);
-}
-
-.eb-live-progress-fill {
-    position: relative;
-    min-height: 18px;
-    border-radius: inherit;
-    transition: width 0.5s ease, background 0.25s ease, box-shadow 0.25s ease;
-}
-
-.eb-live-progress-fill.is-running {
-    background: linear-gradient(90deg, var(--eb-info-strong) 0%, color-mix(in srgb, var(--eb-info-strong) 78%, white 22%) 100%);
-}
-
-.eb-live-progress-fill.is-success {
-    background: linear-gradient(90deg, var(--eb-success-strong) 0%, color-mix(in srgb, var(--eb-success-strong) 78%, white 22%) 100%);
-}
-
-.eb-live-progress-fill.is-warning {
-    background: linear-gradient(90deg, var(--eb-warning-strong) 0%, color-mix(in srgb, var(--eb-warning-strong) 78%, white 22%) 100%);
-}
-
-.eb-live-progress-fill.is-danger {
-    background: linear-gradient(90deg, var(--eb-danger-strong) 0%, color-mix(in srgb, var(--eb-danger-strong) 78%, white 18%) 100%);
-}
-
-.eb-live-progress-fill.is-neutral {
-    background: linear-gradient(90deg, color-mix(in srgb, var(--eb-border-subtle) 75%, var(--eb-text-muted) 25%) 0%, color-mix(in srgb, var(--eb-border-muted) 68%, var(--eb-text-secondary) 32%) 100%);
-}
-
-.eb-live-progress-fill.is-indeterminate {
-    background: linear-gradient(90deg, color-mix(in srgb, var(--eb-border-subtle) 78%, var(--eb-bg-card) 22%) 0%, color-mix(in srgb, var(--eb-border-muted) 78%, var(--eb-bg-card) 22%) 50%, color-mix(in srgb, var(--eb-border-subtle) 78%, var(--eb-bg-card) 22%) 100%);
-}
-
-.eb-live-progress-stripes,
-.eb-live-progress-shimmer {
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-}
-
-@keyframes shimmer {
-    0% {
-        transform: translateX(-100%);
-    }
-    100% {
-        transform: translateX(100%);
-    }
-}
-
-.eb-live-progress-shimmer {
-    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.18), transparent);
-    animation: shimmer 2s infinite;
-}
-
-@keyframes stripes {
-    0% { background-position: 0 0; }
-    100% { background-position: 40px 0; }
-}
-
-.eb-live-progress-stripes {
-    background-image: linear-gradient(
-        45deg,
-        rgba(255,255,255,0.12) 25%,
-        transparent 25%,
-        transparent 50%,
-        rgba(255,255,255,0.12) 50%,
-        rgba(255,255,255,0.12) 75%,
-        transparent 75%,
-        transparent
-    );
-    background-size: 40px 40px;
-    animation: stripes 1s linear infinite;
-}
-
-.eb-live-hero-meta {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 1.25rem;
-}
-
-.eb-live-hero-meta-item {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.55rem;
-}
-
-.eb-live-metric-grid {
-    display: grid;
-    gap: 1rem;
-}
-
-.eb-live-metric-grid.is-three {
-    grid-template-columns: repeat(1, minmax(0, 1fr));
-}
-
-.eb-live-metric-grid.is-four {
-    grid-template-columns: repeat(1, minmax(0, 1fr));
-}
-
-.eb-live-metric-card {
-    display: flex;
-    flex-direction: column;
-    gap: 0.65rem;
-}
-
-.eb-live-metric-value {
-    color: var(--eb-text-primary);
-    font-family: var(--eb-type-heading-family);
-    font-size: 1.65rem;
-    font-weight: 600;
-    line-height: 1;
-    letter-spacing: -0.02em;
-}
-
-.eb-live-metric-help {
-    margin: 0;
-    color: var(--eb-text-muted);
-    font-size: 0.75rem;
-}
-
-.eb-live-metric-pairs {
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
-    margin-top: 0.25rem;
-}
-
-.eb-live-alert {
-    padding: 1rem 1.1rem;
-    border: 1px solid var(--eb-border-muted);
-    border-radius: var(--eb-radius-lg);
-}
-
-.eb-live-alert--danger {
-    background: color-mix(in srgb, var(--eb-danger-weak) 78%, transparent 22%);
-    border-color: color-mix(in srgb, var(--eb-danger-strong) 35%, var(--eb-border-muted) 65%);
-    color: var(--eb-danger-text);
-}
-
-.eb-live-alert--success {
-    background: color-mix(in srgb, var(--eb-success-weak) 78%, transparent 22%);
-    border-color: color-mix(in srgb, var(--eb-success-strong) 35%, var(--eb-border-muted) 65%);
-    color: var(--eb-success-text);
-}
-
-.eb-live-alert--warning {
-    background: color-mix(in srgb, var(--eb-warning-weak) 78%, transparent 22%);
-    border-color: color-mix(in srgb, var(--eb-warning-strong) 35%, var(--eb-border-muted) 65%);
-    color: var(--eb-warning-text);
-}
-
-.eb-live-alert-title {
-    margin: 0;
-    font-size: 0.74rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.14em;
-}
-
-.eb-live-alert-copy {
-    margin: 0.35rem 0 0;
-    font-size: 0.82rem;
-    line-height: 1.5;
-}
-
-.eb-live-inline-strong {
-    font-weight: 700;
-}
-
-.eb-live-lower-grid {
-    display: grid;
-    gap: 1.5rem;
-}
-
-.eb-live-current-card,
-.eb-live-log-card {
-    height: 100%;
-}
-
-.eb-live-current-body,
-.eb-live-log-content,
-.eb-live-details {
-    padding: 1.25rem;
-}
-
-.eb-live-log-content {
-    padding: 1.25rem 0 0;
-}
-
-.eb-live-current-body {
-    padding: 1.25rem 0 0;
-}
-
-.eb-live-current-body {
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
-}
-
-.eb-live-current-item {
-    padding: 0.9rem 1rem;
-    border: 1px solid var(--eb-border-subtle);
-    border-radius: var(--eb-radius-lg);
-    background: color-mix(in srgb, var(--eb-bg-card) 82%, black 18%);
-    color: var(--eb-text-secondary);
-    font-family: var(--eb-type-mono-family, "IBM Plex Mono", monospace);
-    font-size: 0.77rem;
-    word-break: break-word;
-}
-
-.eb-live-current-empty,
-.eb-live-log-empty {
-    color: var(--eb-text-muted);
-    font-size: 0.8rem;
-    font-style: italic;
-}
-
-.eb-live-tab-group {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.5rem;
-}
-
-.eb-live-log-tools {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.5rem;
-}
-
-.eb-live-search {
-    min-width: min(100%, 220px);
-}
-
-.eb-live-search .eb-input {
-    min-height: 34px;
-    font-size: 0.78rem;
-}
-
-.eb-live-log-shell {
-    min-height: 420px;
-    max-height: 420px;
-    overflow-y: auto;
-    padding: 1rem;
-    border: 1px solid var(--eb-border-subtle);
-    border-radius: var(--eb-radius-lg);
-    background: color-mix(in srgb, var(--eb-bg-card) 76%, black 24%);
-    color: var(--eb-text-secondary);
-    font-family: var(--eb-type-mono-family, "IBM Plex Mono", monospace);
-    font-size: 0.77rem;
-}
-
-.log-line {
-    display: flex;
-    align-items: flex-start;
-    gap: 0.5rem;
-    margin-bottom: 0.35rem;
-    word-break: break-word;
-}
-
-.log-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.25rem;
-    padding: 0.15rem 0.45rem;
-    border-radius: 999px;
-    font-size: 0.66rem;
-    font-weight: 700;
-    line-height: 1;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    white-space: nowrap;
-}
-
-.log-badge-error {
-    background: color-mix(in srgb, var(--eb-danger-weak) 78%, transparent 22%);
-    color: var(--eb-danger-text);
-}
-
-.log-badge-warn {
-    background: color-mix(in srgb, var(--eb-warning-weak) 78%, transparent 22%);
-    color: var(--eb-warning-text);
-}
-
-.log-badge-info {
-    background: color-mix(in srgb, var(--eb-info-weak) 78%, transparent 22%);
-    color: var(--eb-info-text);
-}
-
-.log-badge-ok {
-    background: color-mix(in srgb, var(--eb-success-weak) 78%, transparent 22%);
-    color: var(--eb-success-text);
-}
-
-.eb-live-log-entry {
-    margin-bottom: 0.35rem;
-    word-break: break-word;
-}
-
-.eb-live-log-entry--default {
-    color: var(--eb-text-secondary);
-}
-
-.eb-live-log-entry--error {
-    color: var(--eb-danger-text);
-}
-
-.eb-live-log-entry--warning {
-    color: var(--eb-warning-text);
-}
-
-.eb-live-log-entry--success {
-    color: var(--eb-success-text);
-}
-
-.eb-live-log-entry--info {
-    color: var(--eb-info-text);
-}
-
-.eb-live-details {
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
-}
-
-.eb-live-details-grid {
-    display: grid;
-    gap: 0.75rem 1rem;
-}
-
-.eb-live-detail-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 1rem;
-}
-
-.eb-live-code {
-    font-family: var(--eb-type-mono-family, "IBM Plex Mono", monospace);
-    font-size: 0.76rem;
-    word-break: break-all;
-}
-
-.eb-live-text-truncate {
-    min-width: 0;
-    max-width: 100%;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.status-dot {
-    display: inline-block;
-    flex: 0 0 auto;
-    border-radius: 999px;
-    transition: transform 0.2s ease, background-color 0.2s ease;
-}
-
-.status-dot--lg {
-    width: 0.7rem;
-    height: 0.7rem;
-}
-
-.status-dot--sm {
-    width: 0.5rem;
-    height: 0.5rem;
-}
-
-.status-dot.is-green {
-    background: var(--eb-success-strong);
-}
-
-.status-dot.is-red {
-    background: var(--eb-danger-strong);
-}
-
-.status-dot.is-blue {
-    background: var(--eb-info-strong);
-}
-
-.status-dot.is-yellow {
-    background: var(--eb-warning-strong);
-}
-
-.status-dot.is-gray {
-    background: var(--eb-text-muted);
-}
-
-.animate-status-pulse {
-    animation: statusPulse 1.8s ease-in-out infinite;
-}
-
-@keyframes statusPulse {
-    0% { transform: scale(1); opacity: 0.8; }
-    50% { transform: scale(1.35); opacity: 0.45; }
-    100% { transform: scale(1); opacity: 0.8; }
-}
-
-.eb-live-value-refresh {
-    opacity: 0.42;
-}
-
-@media (min-width: 768px) {
-    .eb-live-metric-grid.is-three {
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-    }
-
-    .eb-live-metric-grid.is-four {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-
-    .eb-live-details-grid {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-}
-
-@media (min-width: 1200px) {
-    .eb-live-metric-grid.is-four {
-        grid-template-columns: repeat(4, minmax(0, 1fr));
-    }
-
-    .eb-live-lower-grid {
-        grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
-    }
-}
-
-@media (max-width: 767px) {
-    .eb-live-stage-block {
-        text-align: left;
-    }
-
-    .eb-live-detail-row {
-        align-items: flex-start;
-        flex-direction: column;
-        gap: 0.35rem;
-    }
-
-    .eb-live-log-tools {
-        width: 100%;
-    }
-
-    .eb-live-search {
-        width: 100%;
-    }
-}
-
-@media (prefers-reduced-motion: reduce) {
-    .animate-status-pulse,
-    .eb-live-progress-stripes,
-    .eb-live-progress-shimmer {
-        animation: none;
-    }
-}
-</style>
-
 <script>
 let progressInterval;
-let logsInterval;
 let eventsInterval;
 {assign var="isRunningStatus" value=($run.status eq 'running' || $run.status eq 'starting' || $run.status eq 'queued')}
 let isRunning = {if $isRunningStatus}true{else}false{/if};
 const RUN_UUID = '{$run.run_id}';
+const SHOW_FILES_METRIC = {if $showFilesMetric}true{else}false{/if};
 let lastLogsHash = null;
 let lastEventId = 0;
 const errorSummaryContainer = document.getElementById('errorSummaryContainer');
 const errorSummaryText = document.getElementById('errorSummaryText');
 const forceCancelButton = document.getElementById('forceCancelButton');
+const LOG_PAGE_SIZE = 200;
+const MAX_STORED_LOG_LINES = 20000;
+
 const STATUS_CONFIGS = {
-    'success': { text: 'Success', color: 'green', pulse: false },
-    'failed': { text: 'Failed', color: 'red', pulse: false },
-    'running': { text: 'Running', color: 'blue', pulse: true },
-    'starting': { text: 'Starting', color: 'blue', pulse: true },
-    'queued': { text: 'Queued', color: 'yellow', pulse: true },
-    'warning': { text: 'Warning', color: 'yellow', pulse: false },
-    'cancelled': { text: 'Cancelled', color: 'gray', pulse: false },
-    'partial_success': { text: 'Partial Success', color: 'yellow', pulse: false }
+    'success': { text: 'Success', bar: 'success', badge: 'eb-badge eb-badge--success eb-badge--dot', stageColor: 'var(--eb-success-text)', dot: 'active' },
+    'failed': { text: 'Failed', bar: 'failed', badge: 'eb-badge eb-badge--danger eb-badge--dot', stageColor: 'var(--eb-danger-text)', dot: 'error' },
+    'running': { text: 'Running', bar: 'running', badge: 'eb-badge eb-badge--info eb-badge--dot', stageColor: 'var(--eb-info-text)', dot: 'pending' },
+    'starting': { text: 'Starting', bar: 'running', badge: 'eb-badge eb-badge--info eb-badge--dot', stageColor: 'var(--eb-info-text)', dot: 'pending' },
+    'queued': { text: 'Queued', bar: 'running', badge: 'eb-badge eb-badge--warning eb-badge--dot', stageColor: 'var(--eb-warning-text)', dot: 'pending' },
+    'warning': { text: 'Warning', bar: 'warning', badge: 'eb-badge eb-badge--warning eb-badge--dot', stageColor: 'var(--eb-warning-text)', dot: 'warning' },
+    'cancelled': { text: 'Cancelled', bar: 'neutral', badge: 'eb-badge eb-badge--neutral eb-badge--dot', stageColor: 'var(--eb-text-muted)', dot: 'inactive' },
+    'partial_success': { text: 'Partial Success', bar: 'warning', badge: 'eb-badge eb-badge--warning eb-badge--dot', stageColor: 'var(--eb-warning-text)', dot: 'warning' }
 };
-const STATUS_DOT_CLASSES = {
-    'green': 'is-green',
-    'red': 'is-red',
-    'blue': 'is-blue',
-    'yellow': 'is-yellow',
-    'gray': 'is-gray'
-};
-const STATUS_GLOW_COLORS = {
-    'green': 'rgba(34, 197, 94, 0.55)',
-    'red': 'rgba(239, 68, 68, 0.55)',
-    'blue': 'rgba(59, 130, 246, 0.55)',
-    'yellow': 'rgba(234, 179, 8, 0.55)',
-    'gray': 'rgba(148, 163, 184, 0.45)'
-};
+
 const STAGE_FALLBACKS = {
     'running': 'Uploading',
     'starting': 'Preparing',
@@ -965,19 +345,24 @@ const STAGE_FALLBACKS = {
     'cancelled': 'Cancelled',
     'partial_success': 'Partial Success'
 };
+
 const TERMINAL_STATUSES = ['success', 'failed', 'cancelled', 'warning', 'partial_success'];
+
 let durationStartMs = null;
 let durationEndMs = null;
 let durationTimer = null;
-let autoScrollLogs = true;
 let isPaused = false;
 let logEntries = [];
 let logSearchQuery = '';
-const MAX_LOG_LINES = 800;
+let logPage = 1;
+let pausedLogBuffer = [];
+let cancelRequestInFlight = false;
+let pendingCancelRunId = '';
+let pendingCancelForce = false;
 
 let currentPct = (() => {
-    const label = document.getElementById('progressPercent');
-    const txt = (label && label.textContent ? label.textContent.replace('%','') : '0') || '0';
+    const label = document.getElementById('progressPercentValue');
+    const txt = (label && label.textContent ? label.textContent : '0') || '0';
     return parseFloat(txt) || 0;
 })();
 let tweenId;
@@ -985,7 +370,7 @@ let tweenId;
 function smoothProgressTo(targetPct, duration = 600) {
     if (tweenId) cancelAnimationFrame(tweenId);
     const bar = document.getElementById('progressBar');
-    const label = document.getElementById('progressPercent');
+    const label = document.getElementById('progressPercentValue');
     const start = performance.now();
     const from = Math.max(0, Math.min(100, currentPct));
     const to = Math.max(from, Math.min(100, targetPct));
@@ -999,16 +384,20 @@ function smoothProgressTo(targetPct, duration = 600) {
             bar.setAttribute('aria-valuenow', v.toFixed(2));
         }
         if (label) {
-            label.textContent = v.toFixed(2) + '%';
+            label.textContent = v.toFixed(2);
         }
         if (t < 1) tweenId = requestAnimationFrame(step);
     })(start);
 }
 
-function setProgressBarTone(bar, tone) {
+function setLiveBarFillState(bar, state) {
     if (!bar) return;
-    bar.classList.remove('is-running', 'is-success', 'is-warning', 'is-danger', 'is-neutral', 'is-indeterminate');
-    bar.classList.add(tone);
+    bar.className = 'eb-live-bar-fill';
+    if (state === 'running') bar.classList.add('running');
+    else if (state === 'failed') bar.classList.add('failed');
+    else if (state === 'warning') bar.classList.add('eb-live-bar-fill--warning');
+    else if (state === 'neutral') bar.classList.add('eb-live-bar-fill--neutral');
+    else if (state === 'indeterminate') bar.classList.add('eb-live-bar-fill--indeterminate');
 }
 
 const etaModel = {
@@ -1040,6 +429,27 @@ function parseRunTimestamp(value) {
             cancelButton.classList.remove('hidden');
             cancelButton.style.display = '';
         }
+    }
+})();
+
+(function initBarFromServer() {
+    const bar = document.getElementById('progressBar');
+    const st = '{$run.status}';
+    const cfg = STATUS_CONFIGS[st];
+    if (cfg) {
+        if (cfg.bar === 'running') setLiveBarFillState(bar, 'running');
+        else if (cfg.bar === 'failed') setLiveBarFillState(bar, 'failed');
+        else if (cfg.bar === 'warning') setLiveBarFillState(bar, 'warning');
+        else if (cfg.bar === 'neutral') setLiveBarFillState(bar, 'neutral');
+        else setLiveBarFillState(bar, 'success');
+    }
+    const dot = document.getElementById('stageStatusDot');
+    if (dot && cfg) {
+        dot.className = 'eb-status-dot eb-status-dot--' + (cfg.dot === 'pending' ? 'pending' : cfg.dot === 'active' ? 'active' : cfg.dot === 'error' ? 'error' : cfg.dot === 'warning' ? 'warning' : 'inactive');
+    }
+    const stageEl = document.getElementById('stageLabel');
+    if (stageEl && cfg) {
+        stageEl.style.color = cfg.stageColor;
     }
 })();
 
@@ -1082,47 +492,39 @@ function updateProgress() {
                 }
 
                 const progressBar = document.getElementById('progressBar');
-                const progressPercent = document.getElementById('progressPercent');
+                const progressPercentValue = document.getElementById('progressPercentValue');
 
-                if (progressPercent) {
-                    progressPercent.textContent = (progressPct > 0 ? progressPct : 0).toFixed(2) + '%';
+                if (progressPercentValue) {
+                    progressPercentValue.textContent = (progressPct > 0 ? progressPct : 0).toFixed(2);
                 }
 
                 const isFinished = ['success', 'failed', 'cancelled', 'warning', 'partial_success'].includes(run.status);
 
                 if (!isFinished) {
                     if (progressPct > 0.01) {
-                        setProgressBarTone(progressBar, 'is-running');
+                        setLiveBarFillState(progressBar, 'running');
                         smoothProgressTo(progressPct);
-                        if (progressBar) {
-                            progressBar.style.boxShadow = '0 0 10px rgba(56, 189, 248, 0.38)';
-                            setTimeout(() => { if (progressBar) progressBar.style.boxShadow = ''; }, 300);
-                        }
                     } else {
                         if (progressBar) {
                             progressBar.style.width = '100%';
                             progressBar.setAttribute('aria-valuenow', '0.00');
-                            setProgressBarTone(progressBar, 'is-indeterminate');
+                            setLiveBarFillState(progressBar, 'indeterminate');
                         }
-                        if (progressPercent) {
-                            progressPercent.textContent = progressPct.toFixed(2) + '%';
+                        if (progressPercentValue) {
+                            progressPercentValue.textContent = progressPct.toFixed(2);
                         }
                     }
                 } else {
                     if (run.status === 'success') {
                         smoothProgressTo(100, 800);
-                        if (progressBar) {
-                            setProgressBarTone(progressBar, 'is-success');
-                            progressBar.style.boxShadow = '0 0 10px rgba(16, 185, 129, 0.4)';
-                            setTimeout(() => { if (progressBar) progressBar.style.boxShadow = ''; }, 400);
-                        }
+                        setLiveBarFillState(progressBar, 'success');
                     } else if (progressBar) {
                         if (run.status === 'failed') {
-                            setProgressBarTone(progressBar, 'is-danger');
+                            setLiveBarFillState(progressBar, 'failed');
                         } else if (run.status === 'cancelled') {
-                            setProgressBarTone(progressBar, 'is-neutral');
+                            setLiveBarFillState(progressBar, 'neutral');
                         } else {
-                            setProgressBarTone(progressBar, 'is-warning');
+                            setLiveBarFillState(progressBar, 'warning');
                         }
                     }
                 }
@@ -1152,64 +554,74 @@ function updateProgress() {
 
                 const speedValueEl = document.getElementById('speedValue');
                 if (speedValueEl) {
-                    speedValueEl.textContent = run.speed_bytes_per_sec ? (formatBytes(run.speed_bytes_per_sec) + '/s') : '-';
+                    if (isFinished) {
+                        speedValueEl.textContent = '—';
+                        speedValueEl.classList.remove('highlight');
+                    } else {
+                        speedValueEl.textContent = run.speed_bytes_per_sec ? (formatBytes(run.speed_bytes_per_sec) + '/s') : '—';
+                        if (run.speed_bytes_per_sec) speedValueEl.classList.add('highlight');
+                        else speedValueEl.classList.remove('highlight');
+                    }
                 }
                 const speedHintEl = document.getElementById('speedHint');
                 if (speedHintEl) {
-                    speedHintEl.textContent = run.speed_bytes_per_sec ? 'Instantaneous' : '';
+                    speedHintEl.textContent = (!isFinished && run.speed_bytes_per_sec) ? 'Instantaneous' : '';
                 }
 
-                const filesValueEl = document.getElementById('filesValue');
-                const foldersValueEl = document.getElementById('foldersValue');
-                if (filesValueEl) {
-                    const filesDone = (run.files_done !== undefined && run.files_done !== null) ? run.files_done : (run.objects_transferred || 0);
-                    const filesTotal = (run.files_total !== undefined && run.files_total !== null) ? run.files_total : (run.objects_total || 0);
-                    if (filesTotal > 0) {
-                        filesValueEl.textContent = formatCount(filesDone) + ' / ' + formatCount(filesTotal);
-                    } else {
-                        filesValueEl.textContent = formatCount(filesDone);
+                if (SHOW_FILES_METRIC) {
+                    const filesValueEl = document.getElementById('filesValue');
+                    const foldersValueEl = document.getElementById('foldersValue');
+                    if (filesValueEl) {
+                        const filesDone = (run.files_done !== undefined && run.files_done !== null) ? run.files_done : (run.objects_transferred || 0);
+                        const filesTotal = (run.files_total !== undefined && run.files_total !== null) ? run.files_total : (run.objects_total || 0);
+                        if (filesTotal > 0) {
+                            filesValueEl.textContent = formatCount(filesDone) + ' / ' + formatCount(filesTotal);
+                        } else {
+                            filesValueEl.textContent = formatCount(filesDone);
+                        }
                     }
-                }
-                if (foldersValueEl) {
-                    if (run.folders_done !== undefined && run.folders_done !== null) {
-                        foldersValueEl.textContent = formatCount(run.folders_done);
-                    } else {
-                        foldersValueEl.textContent = '—';
+                    if (foldersValueEl) {
+                        if (run.folders_done !== undefined && run.folders_done !== null) {
+                            foldersValueEl.textContent = formatCount(run.folders_done);
+                        } else {
+                            foldersValueEl.textContent = '—';
+                        }
                     }
                 }
 
-                const etaTopEl = document.getElementById('etaTop');
-                if (isFinished) {
-                    if (etaTopEl) etaTopEl.textContent = '-';
-                } else if (run.eta_seconds !== undefined && run.eta_seconds !== null) {
-                    if (etaTopEl) {
-                        etaTopEl.textContent = formatEta(run.eta_seconds);
-                        etaTopEl.classList.add('eb-live-value-refresh');
-                        setTimeout(() => etaTopEl.classList.remove('eb-live-value-refresh'), 50);
+                const stageEtaEl = document.getElementById('stageEta');
+                if (stageEtaEl) {
+                    if (isFinished) {
+                        stageEtaEl.textContent = '';
+                    } else if (run.eta_seconds !== undefined && run.eta_seconds !== null && run.eta_seconds >= 0) {
+                        stageEtaEl.textContent = ' — ETA ' + formatEta(run.eta_seconds);
+                        stageEtaEl.classList.add('eb-live-value-refresh');
+                        setTimeout(() => stageEtaEl.classList.remove('eb-live-value-refresh'), 50);
+                    } else {
+                        stageEtaEl.textContent = '';
                     }
                 }
 
                 const currentItemEl = document.getElementById('currentItem');
-                const currentItemEmpty = document.getElementById('currentItemEmpty');
                 if (currentItemEl) {
                     if (run.current_item) {
                         currentItemEl.textContent = run.current_item;
-                        if (currentItemEmpty) currentItemEmpty.classList.add('hidden');
                     } else {
-                        currentItemEl.textContent = '-';
-                        if (currentItemEmpty) currentItemEmpty.classList.remove('hidden');
+                        currentItemEl.textContent = '—';
                     }
                 }
 
                 const detailsStarted = document.getElementById('detailsStartedAt');
                 if (detailsStarted && run.started_at) detailsStarted.textContent = run.started_at;
                 const detailsFinished = document.getElementById('detailsFinishedAt');
-                if (detailsFinished) detailsFinished.textContent = run.finished_at || '-';
+                if (detailsFinished) detailsFinished.textContent = run.finished_at || '—';
 
                 const statusConfig = STATUS_CONFIGS[run.status] || {
                     text: run.status ? (run.status.charAt(0).toUpperCase() + run.status.slice(1)) : 'Unknown',
-                    color: 'gray',
-                    pulse: false
+                    bar: 'neutral',
+                    badge: 'eb-badge eb-badge--neutral eb-badge--dot',
+                    stageColor: 'var(--eb-text-muted)',
+                    dot: 'inactive'
                 };
                 updateStatusDisplay(statusConfig);
                 updateStageLabel(run);
@@ -1227,7 +639,7 @@ function updateProgress() {
                     }
                 }
 
-                const container = document.querySelector('[x-data*="isRunning"]');
+                const container = document.getElementById('liveProgressStrip');
                 const newIsRunning = ['running', 'starting', 'queued'].includes(run.status);
 
                 if (container && window.Alpine) {
@@ -1241,6 +653,7 @@ function updateProgress() {
                     }
                 }
                 isRunning = newIsRunning;
+                syncLogPanelChrome(newIsRunning);
 
                 if (TERMINAL_STATUSES.includes(run.status)) {
                     if (progressInterval) {
@@ -1262,10 +675,7 @@ function updateProgress() {
                             console.warn('Error updating Alpine.js isRunning on completion:', e);
                         }
                     }
-
-                    if (run.status === 'success') {
-                        console.log('Backup completed successfully');
-                    }
+                    syncLogPanelChrome(false);
                 }
             }
         })
@@ -1293,7 +703,7 @@ function formatCount(value) {
 
 function formatEta(secondsTotal) {
     const s = Math.max(0, Math.floor(Number(secondsTotal) || 0));
-    if (s <= 0) return '-';
+    if (s <= 0) return '—';
     const h = Math.floor(s / 3600);
     const m = Math.floor((s % 3600) / 60);
     const sec = s % 60;
@@ -1304,80 +714,544 @@ function formatEta(secondsTotal) {
     return out.trim();
 }
 
+function syncLogPanelChrome(live) {
+    const dot = document.getElementById('logLiveDot');
+    const icon = document.getElementById('logStaticIcon');
+    const title = document.getElementById('logPanelTitle');
+    const pauseBtn = document.getElementById('pauseUpdatesBtn');
+    if (title) {
+        title.textContent = live ? 'Live Logs' : 'Run Logs';
+    }
+    if (dot) {
+        dot.style.display = live ? '' : 'none';
+    }
+    if (icon) {
+        icon.style.display = live ? 'none' : '';
+    }
+    if (pauseBtn) {
+        pauseBtn.style.display = live ? '' : 'none';
+    }
+}
+
+function setCancelButtonsBusy(isBusy) {
+    const cancelButton = document.getElementById('cancelButton');
+    const forceButton = document.getElementById('forceCancelButton');
+
+    if (cancelButton) {
+        cancelButton.disabled = isBusy;
+        cancelButton.textContent = isBusy ? 'Cancelling...' : 'Cancel Run';
+    }
+    if (forceButton) {
+        forceButton.disabled = isBusy;
+        forceButton.textContent = isBusy ? 'Cancelling...' : 'Force Cancel';
+    }
+}
+
+function openCancelConfirmModal(runId, forceCancel = false) {
+    const runIdentifier = (runId || '').trim();
+    if (!runIdentifier || cancelRequestInFlight) {
+        return;
+    }
+
+    pendingCancelRunId = runIdentifier;
+    pendingCancelForce = !!forceCancel;
+
+    const modal = document.getElementById('cancelRunConfirmModal');
+    const title = document.getElementById('cancelRunConfirmTitle');
+    const message = document.getElementById('cancelRunConfirmMessage');
+    const detail = document.getElementById('cancelRunConfirmDetail');
+    const submit = document.getElementById('cancelRunConfirmSubmit');
+    if (!modal || !title || !message || !detail || !submit) {
+        return;
+    }
+
+    if (pendingCancelForce) {
+        title.textContent = 'Force cancel run?';
+        message.textContent = 'This will mark the run cancelled immediately if the agent does not respond.';
+        detail.textContent = 'Use force cancel only when the run is stuck and a normal cancel is not clearing it.';
+        submit.textContent = 'Force Cancel';
+    } else {
+        title.textContent = 'Cancel run?';
+        message.textContent = 'This will ask the agent to stop the active run.';
+        detail.textContent = 'The run will stop on the agent\'s next command poll.';
+        submit.textContent = 'Confirm Cancel';
+    }
+
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+}
+
+function closeCancelConfirmModal(forceClose = false) {
+    if (cancelRequestInFlight && !forceClose) {
+        return;
+    }
+    const modal = document.getElementById('cancelRunConfirmModal');
+    if (modal) {
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+    }
+    pendingCancelRunId = '';
+    pendingCancelForce = false;
+}
+
+function openCancelStatusModal(options = {}) {
+    const modal = document.getElementById('cancelRunStatusModal');
+    const title = document.getElementById('cancelRunStatusTitle');
+    const subtitle = document.getElementById('cancelRunStatusSubtitle');
+    const message = document.getElementById('cancelRunStatusMessage');
+    const alertBox = document.getElementById('cancelRunStatusAlert');
+    const icon = document.getElementById('cancelRunStatusIcon');
+    if (!modal || !title || !subtitle || !message || !alertBox || !icon) {
+        return;
+    }
+
+    const variant = options.variant || 'info';
+    title.textContent = options.title || 'Cancel request submitted';
+    subtitle.textContent = options.subtitle || 'The run will refresh shortly.';
+    message.textContent = options.message || '';
+
+    alertBox.className = 'eb-alert';
+    if (variant === 'danger') {
+        alertBox.classList.add('eb-alert--danger');
+        icon.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m0 3.75h.01M10.29 3.86l-7.5 13A1 1 0 0 0 3.66 18h16.68a1 1 0 0 0 .87-1.5l-7.5-13a1 1 0 0 0-1.74 0z"/>';
+    } else if (variant === 'success') {
+        alertBox.classList.add('eb-alert--success');
+        icon.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/>';
+    } else {
+        alertBox.classList.add('eb-alert--info');
+        icon.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" d="M12 16v-4m0-4h.01M22 12A10 10 0 1 1 2 12a10 10 0 0 1 20 0Z"/>';
+    }
+
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+}
+
+function closeCancelStatusModal() {
+    const modal = document.getElementById('cancelRunStatusModal');
+    if (modal) {
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+    }
+}
+
+function cancelRun(runId, forceCancel = false) {
+    openCancelConfirmModal(runId, forceCancel);
+}
+
+function submitCancelRun() {
+    const runIdentifier = pendingCancelRunId;
+    const forceCancel = pendingCancelForce;
+    if (!runIdentifier || cancelRequestInFlight) {
+        return;
+    }
+
+    cancelRequestInFlight = true;
+    setCancelButtonsBusy(true);
+
+    fetch('modules/addons/cloudstorage/api/cloudbackup_cancel_run.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+            run_id: runIdentifier,
+            force: forceCancel ? '1' : '0'
+        }),
+        credentials: 'same-origin'
+    })
+        .then(response => response.json())
+        .then(data => {
+            if (!data || data.status !== 'success') {
+                throw new Error((data && data.message) ? data.message : 'Cancel request failed');
+            }
+
+            closeCancelConfirmModal(true);
+            updateProgress();
+            updateEventLogs();
+
+            if (forceCancel) {
+                openCancelStatusModal({
+                    variant: 'success',
+                    title: 'Force cancel submitted',
+                    subtitle: 'The run will refresh shortly.',
+                    message: 'The run was marked for immediate cancellation because the agent did not clear it normally.'
+                });
+            } else {
+                openCancelStatusModal({
+                    variant: 'info',
+                    title: 'Cancel request submitted',
+                    subtitle: 'Waiting for agent acknowledgement.',
+                    message: 'The agent will stop the run on its next command poll.'
+                });
+            }
+        })
+        .catch(error => {
+            console.error('Error cancelling run:', error);
+            openCancelStatusModal({
+                variant: 'danger',
+                title: 'Cancel request failed',
+                subtitle: 'The run is still active.',
+                message: 'Failed to cancel run: ' + (error && error.message ? error.message : 'Unknown error')
+            });
+        })
+        .finally(() => {
+            cancelRequestInFlight = false;
+            setCancelButtonsBusy(false);
+        });
+}
+
+document.addEventListener('keydown', function (event) {
+    if (event.key !== 'Escape') {
+        return;
+    }
+    const modal = document.getElementById('cancelRunConfirmModal');
+    if (modal && !modal.classList.contains('hidden')) {
+        closeCancelConfirmModal();
+        return;
+    }
+    const statusModal = document.getElementById('cancelRunStatusModal');
+    if (statusModal && !statusModal.classList.contains('hidden')) {
+        closeCancelStatusModal();
+    }
+});
+
 function setLogSearch(value) {
     logSearchQuery = (value || '').toLowerCase().trim();
-    renderLogEntries();
+    renderLogPage();
 }
 
 function togglePauseUpdates() {
     isPaused = !isPaused;
     const btn = document.getElementById('pauseUpdatesBtn');
-    if (btn) btn.textContent = isPaused ? 'Resume' : 'Pause';
+    const ind = document.getElementById('logPauseIndicator');
+    if (btn) {
+        btn.textContent = isPaused ? 'Resume' : 'Pause';
+        btn.classList.toggle('is-active', isPaused);
+    }
+    if (ind) {
+        ind.style.display = isPaused ? '' : 'none';
+    }
     if (!isPaused) {
+        flushPausedLogBuffer();
         updateProgress();
         updateEventLogs();
     }
 }
 
-function appendLogEntry(entry) {
-    logEntries.push(entry);
-    if (logEntries.length > MAX_LOG_LINES) {
-        logEntries = logEntries.slice(logEntries.length - MAX_LOG_LINES);
+function flushPausedLogBuffer() {
+    if (!pausedLogBuffer.length) return;
+    for (let i = pausedLogBuffer.length - 1; i >= 0; i--) {
+        logEntries.unshift(pausedLogBuffer[i]);
+    }
+    pausedLogBuffer = [];
+    trimLogStore();
+    if (logPage === 1) {
+        renderLogPage();
+    } else {
+        updateLogFooterOnly();
     }
 }
 
-function renderLogEntries() {
-    const liveLogsContainer = document.getElementById('liveLogs');
-    const liveLogsEmpty = document.getElementById('liveLogsEmpty');
-    if (!liveLogsContainer) return;
-    liveLogsContainer.removeAttribute('data-formatted');
-    while (liveLogsContainer.firstChild) liveLogsContainer.removeChild(liveLogsContainer.firstChild);
+function trimLogStore() {
+    if (logEntries.length > MAX_STORED_LOG_LINES) {
+        logEntries.length = MAX_STORED_LOG_LINES;
+    }
+}
 
-    let filtered = logEntries;
+function logEntryKey(entry) {
+    return JSON.stringify({
+        l: entry.level || '',
+        t: entry.ts || '',
+        m: entry.message || ''
+    });
+}
+
+function appendLogEntry(entry) {
+    const key = logEntryKey(entry);
+    if (processedLogHashes.has(key)) {
+        return;
+    }
+    processedLogHashes.add(key);
+
+    if (isPaused) {
+        pausedLogBuffer.push(entry);
+        return;
+    }
+
+    logEntries.unshift(entry);
+    trimLogStore();
+
+    if (logPage === 1) {
+        renderLogPage();
+    } else {
+        updateLogFooterOnly();
+    }
+}
+
+function getLogPageSlice() {
+    const start = (logPage - 1) * LOG_PAGE_SIZE;
+    return logEntries.slice(start, start + LOG_PAGE_SIZE);
+}
+
+function renderLogPage() {
+    const liveLogsContainer = document.getElementById('liveLogs');
+    if (!liveLogsContainer) return;
+
+    liveLogsContainer.removeAttribute('data-formatted');
+
+    let slice = getLogPageSlice();
     if (logSearchQuery) {
-        filtered = logEntries.filter(entry => {
+        slice = slice.filter(entry => {
             const hay = (entry.message || '') + ' ' + (entry.level || '') + ' ' + (entry.ts || '');
             return hay.toLowerCase().includes(logSearchQuery);
         });
     }
-    if (!filtered.length) {
-        if (liveLogsEmpty) liveLogsEmpty.style.display = 'block';
+
+    while (liveLogsContainer.firstChild) {
+        liveLogsContainer.removeChild(liveLogsContainer.firstChild);
+    }
+
+    if (!slice.length) {
+        const empty = document.createElement('div');
+        empty.id = 'liveLogsEmpty';
+        empty.className = 'eb-type-caption italic px-4 py-3';
+        empty.style.color = 'var(--eb-text-muted)';
+        empty.textContent = logSearchQuery ? 'No matches on this page.' : 'Waiting for log data…';
+        liveLogsContainer.appendChild(empty);
+        updateLogFooterOnly();
         return;
     }
-    if (liveLogsEmpty) liveLogsEmpty.style.display = 'none';
 
-    filtered.forEach(entry => {
+    slice.forEach((entry, idx) => {
         const line = document.createElement('div');
-        line.className = 'log-line';
-        const badge = document.createElement('span');
-        badge.className = 'log-badge ' + (
-            entry.level === 'error' ? 'log-badge-error' :
-            entry.level === 'warn' ? 'log-badge-warn' :
-            entry.level === 'ok' ? 'log-badge-ok' : 'log-badge-info'
-        );
-        badge.textContent = (entry.level || 'info').toUpperCase();
-        const text = document.createElement('span');
-        const ts = entry.ts ? '[' + entry.ts + '] ' : '';
-        text.textContent = ts + (entry.message || '');
-        line.appendChild(badge);
-        line.appendChild(text);
+        line.className = 'eb-log-line' + (logPage === 1 && idx === 0 && !logSearchQuery ? ' is-newest' : '');
+
+        const levelNorm = normalizeLevel(entry.level);
+        const levelSpan = document.createElement('span');
+        levelSpan.className = 'eb-log-level ' + levelNorm;
+        levelSpan.textContent = (entry.level || 'info').toUpperCase();
+
+        const tsSpan = document.createElement('span');
+        tsSpan.className = 'eb-log-timestamp';
+        tsSpan.textContent = entry.ts ? '[' + entry.ts + ']' : '';
+
+        const msgSpan = document.createElement('span');
+        msgSpan.className = 'eb-log-message';
+        msgSpan.textContent = entry.message || '';
+
+        line.appendChild(levelSpan);
+        line.appendChild(tsSpan);
+        line.appendChild(msgSpan);
         liveLogsContainer.appendChild(line);
     });
-    if (autoScrollLogs) {
-        liveLogsContainer.scrollTop = liveLogsContainer.scrollHeight;
+
+    updateLogFooterOnly();
+}
+
+function normalizeLevel(level) {
+    const l = (level || 'info').toLowerCase();
+    if (l === 'warning') return 'warn';
+    if (l === 'warn' || l === 'error' || l === 'debug' || l === 'ok' || l === 'info') return l;
+    return 'info';
+}
+
+function updateLogFooterOnly() {
+    const total = logEntries.length;
+    const totalPages = Math.max(1, Math.ceil(total / LOG_PAGE_SIZE) || 1);
+    if (logPage > totalPages) {
+        logPage = totalPages;
+    }
+
+    const summary = document.getElementById('logFooterSummary');
+    const cur = document.getElementById('logPageCurrent');
+    const newer = document.getElementById('logPageNewer');
+    const older = document.getElementById('logPageOlder');
+    const wrap = document.getElementById('logPaginationWrap');
+
+    const startIdx = (logPage - 1) * LOG_PAGE_SIZE;
+    const showing = Math.min(LOG_PAGE_SIZE, Math.max(0, total - startIdx));
+
+    if (summary) {
+        if (logSearchQuery) {
+            summary.textContent = 'Filtering visible page (' + showing + ' line' + (showing === 1 ? '' : 's') + ' shown)';
+        } else if (total === 0) {
+            summary.textContent = '0 lines';
+        } else if (logPage === 1) {
+            summary.textContent = 'Showing latest ' + showing + ' of ' + total + ' line' + (total === 1 ? '' : 's');
+        } else {
+            const from = startIdx + 1;
+            const to = startIdx + showing;
+            summary.textContent = 'Showing lines ' + from + '–' + to + ' of ' + total;
+        }
+    }
+
+    if (cur) {
+        cur.textContent = 'Page ' + logPage + ' / ' + totalPages;
+    }
+    if (newer) {
+        newer.disabled = logPage <= 1;
+    }
+    if (older) {
+        older.disabled = logPage >= totalPages || totalPages <= 1;
+    }
+    if (wrap) {
+        wrap.style.display = total > LOG_PAGE_SIZE ? '' : 'none';
     }
 }
 
-function copyCurrentFile() {
-    const currentItemEl = document.getElementById('currentItem');
-    if (!currentItemEl) return;
-    const text = (currentItemEl.textContent || '').trim();
-    if (!text || text === '-') return;
+function goLogPage(delta) {
+    const totalPages = Math.max(1, Math.ceil(logEntries.length / LOG_PAGE_SIZE) || 1);
+    const next = logPage + delta;
+    if (next < 1 || next > totalPages) return;
+    logPage = next;
+    renderLogPage();
+}
+
+let processedLogHashes = new Set();
+
+function setFormattedLogs(text) {
+    const lines = (text || '').split(/\r?\n/).filter(Boolean);
+    logEntries = lines
+        .slice()
+        .reverse()
+        .map(line => ({
+            level: 'info',
+            ts: '',
+            message: line
+        }));
+    processedLogHashes = new Set(logEntries.map(logEntryKey));
+    logPage = 1;
+    renderLogPage();
+}
+
+function setStructuredLogs(entries) {
+    if (!Array.isArray(entries) || !entries.length) {
+        logEntries = [];
+        processedLogHashes.clear();
+        logPage = 1;
+        renderLogPage();
+        return;
+    }
+    const list = entries.map(e => ({
+        level: (e.level || 'info').toLowerCase(),
+        ts: e.time || e.ts || '',
+        message: e.msg || e.message || ''
+    }));
+    list.reverse();
+    logEntries = [];
+    processedLogHashes.clear();
+    list.forEach(entry => {
+        const key = logEntryKey(entry);
+        if (processedLogHashes.has(key)) return;
+        processedLogHashes.add(key);
+        logEntries.push(entry);
+    });
+    trimLogStore();
+    logPage = 1;
+    renderLogPage();
+}
+
+function updateFormattedLogs() {
+    let url = 'modules/addons/cloudstorage/api/cloudbackup_get_live_logs.php?run_uuid={$run.run_id}&ts=' + Date.now();
+    if (lastLogsHash) {
+        url += '&hash=' + encodeURIComponent(lastLogsHash);
+    }
+    fetch(url, { cache: 'no-store' })
+        .then(r => r.json())
+        .then(d => {
+            if (d.status === 'success' && !d.unchanged) {
+                if (Array.isArray(d.entries) && d.entries.length > 0) {
+                    setStructuredLogs(d.entries);
+                    lastLogsHash = d.hash || lastLogsHash;
+                } else if (typeof d.formatted_log !== 'undefined') {
+                    setFormattedLogs(d.formatted_log || '');
+                    lastLogsHash = d.hash || lastLogsHash;
+                }
+            }
+        })
+        .catch(() => {});
+}
+
+let terminalEventSeen = false;
+
+function updateEventLogs() {
+    if (isPaused) return;
+    let url = 'modules/addons/cloudstorage/api/cloudbackup_get_run_events.php?run_uuid={$run.run_id}&limit=500&ts=' + Date.now();
+    if (lastEventId > 0) {
+        url += '&since_id=' + encodeURIComponent(String(lastEventId));
+    }
+    fetch(url, { cache: 'no-store' })
+        .then(r => r.json())
+        .then(d => {
+            if (d.status !== 'success' || !Array.isArray(d.events)) return;
+            if (d.events.length === 0) return;
+
+            const newEvents = [];
+            d.events.forEach(ev => {
+                if (terminalEventSeen) return;
+                newEvents.push(ev);
+                if (typeof ev.id === 'number' && ev.id > lastEventId) {
+                    lastEventId = ev.id;
+                }
+                const evType = (ev.type || '').toLowerCase();
+                if (['cancelled', 'summary'].includes(evType) || /backup cancelled/i.test(ev.message || '')) {
+                    terminalEventSeen = true;
+                }
+            });
+
+            newEvents.sort((a, b) => {
+                const ida = typeof a.id === 'number' ? a.id : 0;
+                const idb = typeof b.id === 'number' ? b.id : 0;
+                return ida - idb;
+            });
+
+            newEvents.forEach(ev => {
+                appendLogEntry({
+                    id: ev.id || null,
+                    level: ev.level || 'info',
+                    ts: ev.ts || '',
+                    message: ev.message || ''
+                });
+            });
+        })
+        .catch(() => {});
+}
+
+function clearLogs() {
+    logEntries = [];
+    pausedLogBuffer = [];
+    processedLogHashes.clear();
+    logPage = 1;
+    lastLogsHash = null;
+    lastEventId = 0;
+    terminalEventSeen = false;
+    renderLogPage();
+}
+
+function copyLogs() {
+    const liveLogsContainer = document.getElementById('liveLogs');
+    if (!liveLogsContainer) return;
+    const text = Array.from(liveLogsContainer.querySelectorAll('.eb-log-line'))
+        .map(row => {
+            const lvl = row.querySelector('.eb-log-level');
+            const ts = row.querySelector('.eb-log-timestamp');
+            const msg = row.querySelector('.eb-log-message');
+            return [lvl && lvl.textContent, ts && ts.textContent, msg && msg.textContent].filter(Boolean).join(' ').trim();
+        })
+        .join('\n')
+        .trim();
+    if (!text) return;
     if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(text);
+        navigator.clipboard.writeText(text).then(() => {
+            alert('Logs copied to clipboard');
+        }).catch(() => {
+            fallbackCopy(text);
+        });
     } else {
+        fallbackCopy(text);
+    }
+
+    function fallbackCopy(value) {
         const textarea = document.createElement('textarea');
-        textarea.value = text;
+        textarea.value = value;
         textarea.setAttribute('readonly', 'readonly');
         textarea.style.position = 'absolute';
         textarea.style.opacity = '0';
@@ -1385,6 +1259,7 @@ function copyCurrentFile() {
         textarea.select();
         document.execCommand('copy');
         document.body.removeChild(textarea);
+        alert('Logs copied to clipboard');
     }
 }
 
@@ -1446,7 +1321,7 @@ function stopDurationTicker() {
 
 function updateDuration(run) {
     const durationValueEl = document.getElementById('durationValue');
-    const durationLabelEl = document.getElementById('durationLabel');
+    const durationLabelEl = document.getElementById('durationStatLabel');
     if (!durationValueEl || !durationLabelEl) return;
     ensureDurationStart(run);
     const now = Date.now();
@@ -1479,329 +1354,43 @@ function updateStageLabel(run) {
     if (!stageEl) return;
     const fallback = STAGE_FALLBACKS[run.status] || toTitleCase(run.status || '');
     stageEl.textContent = run.stage || fallback || 'Pending';
+    const cfg = STATUS_CONFIGS[run.status];
+    if (cfg) {
+        stageEl.style.color = cfg.stageColor;
+    }
 }
 
 function updateStatusDisplay(statusConfig) {
-    const statusTextEl = document.getElementById('statusTopText');
-    const statusDotEl = document.getElementById('statusTopDot');
-    const microTextEl = document.getElementById('statusMicroText');
-    const microDotEl = document.getElementById('statusMicroDot');
-    const detailsStatusEl = document.getElementById('detailsStatus');
-    if (statusTextEl) {
-        statusTextEl.textContent = statusConfig.text;
+    const badgeEl = document.getElementById('liveHeaderBadge');
+    const stageDot = document.getElementById('stageStatusDot');
+    if (badgeEl) {
+        badgeEl.className = statusConfig.badge || 'eb-badge eb-badge--neutral eb-badge--dot';
+        badgeEl.textContent = statusConfig.text;
     }
-    if (detailsStatusEl) {
-        detailsStatusEl.textContent = statusConfig.text;
-    }
-    if (microTextEl) {
-        microTextEl.textContent = statusConfig.text;
-    }
-    if (!statusDotEl) return;
-    statusDotEl.className = 'status-dot status-dot--lg';
-    const colorClass = STATUS_DOT_CLASSES[statusConfig.color] || STATUS_DOT_CLASSES.gray;
-    statusDotEl.classList.add(colorClass);
-    if (statusConfig.pulse) {
-        statusDotEl.classList.add('animate-status-pulse');
-    } else {
-        statusDotEl.classList.remove('animate-status-pulse');
-    }
-    const glowColor = STATUS_GLOW_COLORS[statusConfig.color] || STATUS_GLOW_COLORS.gray;
-    statusDotEl.style.boxShadow = '0 0 8px ' + glowColor;
-    if (microDotEl) {
-        microDotEl.className = 'status-dot status-dot--sm';
-        microDotEl.classList.add(colorClass);
-        microDotEl.style.boxShadow = '0 0 6px ' + glowColor;
+    if (stageDot) {
+        const d = statusConfig.dot || 'inactive';
+        stageDot.className = 'eb-status-dot eb-status-dot--' + (d === 'pending' ? 'pending' : d === 'active' ? 'active' : d === 'error' ? 'error' : d === 'warning' ? 'warning' : 'inactive');
     }
 }
 
-let processedLogHashes = new Set();
-
-function updateLiveLogs(logLines) {
-    const liveLogsContainer = document.getElementById('liveLogs');
-    const liveLogsEmpty = document.getElementById('liveLogsEmpty');
-
-    if (!liveLogsContainer) return;
-
-    if (liveLogsContainer.getAttribute('data-formatted') === '1') {
-        return;
+(function applyInitialStatusBadge() {
+    const cfg = STATUS_CONFIGS['{$run.status}'];
+    if (cfg) {
+        updateStatusDisplay(cfg);
     }
-
-    if (logLines && logLines.length > 0 && liveLogsEmpty) {
-        liveLogsEmpty.style.display = 'none';
-    }
-
-    if (!logLines || logLines.length === 0) {
-        return;
-    }
-
-    logLines.forEach(logEntry => {
-        if (!logEntry || typeof logEntry !== 'object') return;
-
-        const logHash = JSON.stringify(logEntry);
-        if (processedLogHashes.has(logHash)) {
-            return;
-        }
-        processedLogHashes.add(logHash);
-
-        const msg = logEntry.msg || logEntry.message || '';
-        const time = logEntry.time || '';
-        const level = (logEntry.level || 'info').toLowerCase();
-
-        let timestamp = '';
-        if (time) {
-            try {
-                const date = new Date(time);
-                timestamp = date.toLocaleTimeString();
-            } catch (e) {
-                timestamp = time;
-            }
-        }
-
-        let formattedMsg = msg;
-        const replacements = [
-            [/Starting sync/i, '🔄 Starting backup'],
-            [/Starting copy/i, '🔄 Starting copy'],
-            [/There was nothing to transfer/i, '✅ No files to transfer'],
-            [/nothing to transfer/i, '✅ No files to transfer'],
-            [/Completed sync/i, '✅ Backup completed'],
-            [/Transferred:/i, '📤 Transferred:'],
-            [/error/i, '❌ Error'],
-            [/failed/i, '❌ Failed'],
-        ];
-
-        replacements.forEach(([pattern, replacement]) => {
-            formattedMsg = formattedMsg.replace(pattern, replacement);
-        });
-
-        let logColor = 'eb-live-log-entry--default';
-        if (level === 'error') {
-            logColor = 'eb-live-log-entry--error';
-        } else if (level === 'warning') {
-            logColor = 'eb-live-log-entry--warning';
-        } else if (formattedMsg.includes('✅') || formattedMsg.includes('Success')) {
-            logColor = 'eb-live-log-entry--success';
-        } else if (formattedMsg.includes('🔄') || formattedMsg.includes('📤')) {
-            logColor = 'eb-live-log-entry--info';
-        }
-
-        const logEntryEl = document.createElement('div');
-        logEntryEl.className = 'eb-live-log-entry ' + logColor;
-
-        let logText = '';
-        if (timestamp) {
-            logText = '[' + timestamp + '] ';
-        }
-        logText += formattedMsg;
-
-        logEntryEl.textContent = logText;
-        liveLogsContainer.appendChild(logEntryEl);
-    });
-
-    if (autoScrollLogs) {
-        liveLogsContainer.scrollTop = liveLogsContainer.scrollHeight;
-    }
-}
-
-function setFormattedLogs(text) {
-    const liveLogsContainer = document.getElementById('liveLogs');
-    const liveLogsEmpty = document.getElementById('liveLogsEmpty');
-    if (!liveLogsContainer) return;
-    liveLogsContainer.setAttribute('data-formatted', '1');
-    if (liveLogsEmpty) liveLogsEmpty.style.display = 'none';
-    liveLogsContainer.textContent = text || '';
-    if (autoScrollLogs) {
-        liveLogsContainer.scrollTop = liveLogsContainer.scrollHeight;
-    }
-}
-
-function setStructuredLogs(entries) {
-    const liveLogsContainer = document.getElementById('liveLogs');
-    const liveLogsEmpty = document.getElementById('liveLogsEmpty');
-    if (!liveLogsContainer) return;
-    liveLogsContainer.removeAttribute('data-formatted');
-    if (liveLogsEmpty) liveLogsEmpty.style.display = 'none';
-
-    while (liveLogsContainer.firstChild) liveLogsContainer.removeChild(liveLogsContainer.firstChild);
-
-    entries.forEach(e => {
-        const line = document.createElement('div');
-        line.className = 'log-line';
-
-        const time = e.time ? '[' + e.time + '] ' : '';
-        const badge = document.createElement('span');
-        badge.className = 'log-badge ' + (
-            e.level === 'error' ? 'log-badge-error' :
-            e.level === 'warn' ? 'log-badge-warn' :
-            e.level === 'ok' ? 'log-badge-ok' : 'log-badge-info'
-        );
-        badge.textContent = (e.level || 'info').toUpperCase();
-
-        const text = document.createElement('span');
-        text.textContent = time + (e.message || '');
-
-        line.appendChild(badge);
-        line.appendChild(text);
-        liveLogsContainer.appendChild(line);
-    });
-
-    if (autoScrollLogs) {
-        liveLogsContainer.scrollTop = liveLogsContainer.scrollHeight;
-    }
-}
-
-function updateFormattedLogs() {
-    let url = 'modules/addons/cloudstorage/api/cloudbackup_get_live_logs.php?run_uuid={$run.run_id}&ts=' + Date.now();
-    if (lastLogsHash) {
-        url += '&hash=' + encodeURIComponent(lastLogsHash);
-    }
-    fetch(url, { cache: 'no-store' })
-        .then(r => r.json())
-        .then(d => {
-            if (d.status === 'success' && !d.unchanged) {
-                if (Array.isArray(d.entries) && d.entries.length > 0) {
-                    setStructuredLogs(d.entries);
-                    lastLogsHash = d.hash || lastLogsHash;
-                } else if (typeof d.formatted_log !== 'undefined') {
-                    setFormattedLogs(d.formatted_log || '');
-                    lastLogsHash = d.hash || lastLogsHash;
-                }
-            }
-        })
-        .catch(() => {});
-}
-
-let terminalEventSeen = false;
-function updateEventLogs() {
-    if (isPaused) return;
-    let url = 'modules/addons/cloudstorage/api/cloudbackup_get_run_events.php?run_uuid={$run.run_id}&limit=500&ts=' + Date.now();
-    if (lastEventId > 0) {
-        url += '&since_id=' + encodeURIComponent(String(lastEventId));
-    }
-    fetch(url, { cache: 'no-store' })
-        .then(r => r.json())
-        .then(d => {
-            if (d.status !== 'success' || !Array.isArray(d.events)) return;
-            if (d.events.length === 0) return;
-            d.events.forEach(ev => {
-                if (terminalEventSeen) return;
-                appendLogEntry({
-                    id: ev.id || null,
-                    level: ev.level || 'info',
-                    ts: ev.ts || '',
-                    message: ev.message || ''
-                });
-                if (typeof ev.id === 'number' && ev.id > lastEventId) {
-                    lastEventId = ev.id;
-                }
-                const evType = (ev.type || '').toLowerCase();
-                if (['cancelled', 'summary'].includes(evType) || /backup cancelled/i.test(ev.message || '')) {
-                    terminalEventSeen = true;
-                }
-            });
-            renderLogEntries();
-        })
-        .catch(() => {});
-}
-
-function clearLogs() {
-    const liveLogsContainer = document.getElementById('liveLogs');
-    const liveLogsEmpty = document.getElementById('liveLogsEmpty');
-
-    if (liveLogsContainer) {
-        while (liveLogsContainer.firstChild) {
-            liveLogsContainer.removeChild(liveLogsContainer.firstChild);
-        }
-        if (liveLogsEmpty) {
-            liveLogsEmpty.style.display = 'block';
-        }
-    }
-
-    processedLogHashes.clear();
-    logEntries = [];
-}
-
-function toggleAutoScrollLogs() {
-    autoScrollLogs = !autoScrollLogs;
-    const label = document.getElementById('autoScrollLabel');
-    if (label) {
-        label.textContent = autoScrollLogs ? 'On' : 'Off';
-    }
-}
-
-function copyLogs() {
-    const liveLogsContainer = document.getElementById('liveLogs');
-    if (!liveLogsContainer) return;
-    const text = Array.from(liveLogsContainer.children)
-        .map(child => child.textContent || '')
-        .join('\n')
-        .trim();
-    if (!text) return;
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(text).then(() => {
-            alert('Logs copied to clipboard');
-        }).catch(() => {
-            fallbackCopy(text);
-        });
-    } else {
-        fallbackCopy(text);
-    }
-
-    function fallbackCopy(value) {
-        const textarea = document.createElement('textarea');
-        textarea.value = value;
-        textarea.setAttribute('readonly', 'readonly');
-        textarea.style.position = 'absolute';
-        textarea.style.opacity = '0';
-        document.body.appendChild(textarea);
-        textarea.select();
-        document.execCommand('copy');
-        document.body.removeChild(textarea);
-        alert('Logs copied to clipboard');
-    }
-}
-
-function cancelRun(runId, force = false) {
-    const promptText = force
-        ? 'The run appears stuck. Force cancellation to clear it?'
-        : 'Are you sure you want to cancel this run?';
-    if (!confirm(promptText)) {
-        return;
-    }
-
-    const btn = document.getElementById('cancelButton');
-    if (btn) {
-        btn.disabled = true;
-        btn.textContent = force ? 'Force cancel requested...' : 'Cancel requested...';
-    }
-
-    fetch('modules/addons/cloudstorage/api/cloudbackup_cancel_run.php', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: new URLSearchParams([
-            ['run_id', runId],
-            ['force', force ? '1' : '0'],
-        ])
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.status === 'success') {
-            alert('Run cancellation requested');
-            updateProgress();
-        } else {
-            alert(data.message || 'Failed to cancel run');
-            if (btn) { btn.disabled = false; btn.textContent = 'Cancel Run'; }
-        }
-    });
-}
+})();
 
 {if $run.status eq 'running' || $run.status eq 'starting' || $run.status eq 'queued'}
+    clearLogs();
+    syncLogPanelChrome(true);
     updateProgress();
     updateEventLogs();
     progressInterval = setInterval(updateProgress, 2000);
     eventsInterval = setInterval(updateEventLogs, 2000);
 {else}
+    clearLogs();
+    syncLogPanelChrome(false);
     updateProgress();
+    updateFormattedLogs();
 {/if}
 </script>

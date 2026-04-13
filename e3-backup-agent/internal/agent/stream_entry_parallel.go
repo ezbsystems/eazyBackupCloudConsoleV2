@@ -4,14 +4,23 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log"
 	"math"
+	"os"
 	"runtime"
+	"strconv"
 	"sync"
+	"sync/atomic"
+	"time"
 )
 
 const (
 	defaultParallelChunkSize = 8 * 1024 * 1024 // 8 MiB
 	defaultParallelWorkers   = 8               // capped to NumCPU
+	defaultReadOpTimeoutSecs = 60              // 1 minute per individual f.Read() syscall
+	tailReadTimeoutSecs      = 5               // shorter timeout for tail-region reads
+	// Percentage of file size from end that is considered "tail" for zero-fill on timeout
+	tailZeroFillPercent = 2
 )
 
 type parallelDeviceReader struct {
@@ -22,6 +31,13 @@ type parallelDeviceReader struct {
 	physicalSource  bool
 	warningCallback diskReadWarningCallback
 
+	// tailStalled is set to 1 after the first tail-region read times out.
+	// Once set, all subsequent tail reads are zero-filled immediately without
+	// opening the file, preventing orphaned goroutine accumulation that
+	// saturates the Windows I/O queue and blocks all further file operations.
+	tailStalled int32
+
+	parentCtx     context.Context // immutable root context from constructor
 	mu            sync.Mutex
 	ctx           context.Context
 	cancel        context.CancelFunc
@@ -51,7 +67,7 @@ type readSeekCloser interface {
 	io.Closer
 }
 
-func newParallelDeviceReader(ctx context.Context, path string, size int64, physicalSource bool, warningCallback diskReadWarningCallback) (readSeekCloser, error) {
+func newParallelDeviceReader(ctx context.Context, path string, size int64, physicalSource bool, warningCallback diskReadWarningCallback, skipTailReads bool) (readSeekCloser, error) {
 	chunkSize := int64(defaultParallelChunkSize)
 	workers := defaultParallelWorkers
 	if workers > runtime.NumCPU() {
@@ -71,7 +87,12 @@ func newParallelDeviceReader(ctx context.Context, path string, size int64, physi
 		workers:         workers,
 		physicalSource:  physicalSource,
 		warningCallback: warningCallback,
+		parentCtx:       ctx,
 		pending:         make(map[int64][]byte),
+	}
+	if skipTailReads {
+		atomic.StoreInt32(&pdr.tailStalled, 1)
+		log.Printf("agent: parallel reader pre-marking tail as stalled (live file, tail reads will be zero-filled)")
 	}
 	pdr.resetPipeline(ctx, 0)
 	return pdr, nil
@@ -101,8 +122,47 @@ func (r *parallelDeviceReader) resetPipeline(ctx context.Context, startOffset in
 	r.fillWindow()
 }
 
+// getReadOpTimeout returns the timeout for a single f.Read() syscall.
+// Configurable via AGENT_READ_OP_TIMEOUT_SECS environment variable.
+func getReadOpTimeout() time.Duration {
+	val := os.Getenv("AGENT_READ_OP_TIMEOUT_SECS")
+	if val != "" {
+		if secs, err := strconv.Atoi(val); err == nil && secs > 0 {
+			return time.Duration(secs) * time.Second
+		}
+	}
+	return time.Duration(defaultReadOpTimeoutSecs) * time.Second
+}
+
+// isNearTail returns true if the given offset is within the tail region of the file.
+// The tail region is where VHDX metadata/BAT/log structures live and may be
+// locked by Hyper-V on a running VM.
+func (r *parallelDeviceReader) isNearTail(offset int64) bool {
+	if r.size <= 0 {
+		return false
+	}
+	tailThreshold := r.size * tailZeroFillPercent / 100
+	if tailThreshold < 64*1024*1024 {
+		tailThreshold = 64 * 1024 * 1024 // minimum 64 MiB tail region
+	}
+	return offset >= r.size-tailThreshold
+}
+
+// readResult is used to pass results from the read goroutine back to the worker.
+type readResult struct {
+	n   int
+	err error
+}
+
 func (r *parallelDeviceReader) worker() {
 	for offset := range r.tasks {
+		select {
+		case <-r.ctx.Done():
+			r.results <- chunkResult{offset: offset, data: nil, n: 0, err: r.ctx.Err()}
+			return
+		default:
+		}
+
 		bufSize := r.chunkSize
 		if remain := r.size - offset; remain < bufSize {
 			bufSize = remain
@@ -112,51 +172,171 @@ func (r *parallelDeviceReader) worker() {
 			continue
 		}
 
-		f, err := openDeviceOptimized(r.path)
-		if err != nil {
-			r.results <- chunkResult{offset: offset, data: nil, n: 0, err: err}
+		// Fast path: if the tail is already known to be stalled (a previous
+		// tail read timed out), zero-fill immediately without opening the file.
+		// This avoids orphaning more goroutines with stuck ReadFile syscalls
+		// that saturate the Windows I/O queue and block all further file ops.
+		if r.isNearTail(offset) && atomic.LoadInt32(&r.tailStalled) == 1 {
+			zeroBuf := make([]byte, bufSize)
+			r.results <- chunkResult{offset: offset, data: zeroBuf, n: int(bufSize), err: nil}
 			continue
 		}
 
-		_, err = f.Seek(offset, io.SeekStart)
-		if err != nil {
-			_ = f.Close()
-			r.results <- chunkResult{offset: offset, data: nil, n: 0, err: err}
-			continue
-		}
+		r.results <- r.readChunkWithTimeout(offset, bufSize)
+	}
+}
 
-		buf := make([]byte, bufSize)
-		n, readErr := io.ReadFull(f, buf)
-		if readErr != nil && isWindowsSectorNotFound(readErr) && r.physicalSource {
-			requestedEnd := offset + bufSize
-			if isStrictReadErrors() {
-				// Keep original readErr in strict mode.
-			} else if shouldTreatSectorNotFoundAsEOF(r.size, requestedEnd) {
-				r.emitReadWarning(offset, bufSize, int64(n), 0, true, readErr)
-				readErr = io.EOF
-			} else {
-				zeroFilled := bufSize - int64(n)
-				if zeroFilled < 0 {
-					zeroFilled = 0
-				}
-				for i := n; i < int(bufSize); i++ {
-					buf[i] = 0
-				}
-				n = int(bufSize)
-				r.emitReadWarning(offset, bufSize, int64(n)-zeroFilled, zeroFilled, false, readErr)
-				readErr = nil
-			}
-		}
-		if readErr == io.ErrUnexpectedEOF || readErr == io.EOF {
-			// partial chunk ok
-		} else if readErr != nil {
-			_ = f.Close()
-			r.results <- chunkResult{offset: offset, data: nil, n: n, err: readErr}
-			continue
-		}
+// readChunkWithTimeout reads a chunk from the file with per-read timeout protection.
+//
+// CRITICAL WINDOWS BEHAVIOR: On Windows, calling f.Close() does NOT reliably
+// unblock a pending synchronous ReadFile() syscall. The goroutine running the
+// read may be permanently stuck in the kernel. Therefore:
+//   - We NEVER wait for the read goroutine after a timeout (<-ch would block forever)
+//   - The goroutine owns the file handle and closes it when/if the read returns
+//   - We allocate a FRESH buffer for zero-fill results (the stuck goroutine owns the original)
+//   - The orphaned goroutine will be cleaned up when the process exits
+func (r *parallelDeviceReader) readChunkWithTimeout(offset, bufSize int64) chunkResult {
+	f, err := openDeviceOptimized(r.path)
+	if err != nil {
+		return chunkResult{offset: offset, data: nil, n: 0, err: err}
+	}
+
+	if _, err := f.Seek(offset, io.SeekStart); err != nil {
 		_ = f.Close()
+		return chunkResult{offset: offset, data: nil, n: 0, err: err}
+	}
 
-		r.results <- chunkResult{offset: offset, data: buf[:n], n: n, err: readErr}
+	buf := make([]byte, bufSize)
+	readOpTimeout := getReadOpTimeout()
+	nearTail := r.isNearTail(offset)
+
+	// Use a much shorter timeout for tail reads. Tail regions of live VHDX
+	// files are almost always locked by Hyper-V; waiting 60s per chunk just
+	// orphans goroutines whose stuck ReadFile syscalls saturate the Windows
+	// I/O queue and block all subsequent file operations on that path.
+	if nearTail {
+		readOpTimeout = time.Duration(tailReadTimeoutSecs) * time.Second
+	}
+
+	// The read goroutine owns both `f` and `buf`. It closes the file when done.
+	// We must NOT access `buf` after a timeout (the goroutine may still be writing to it).
+	ch := make(chan readResult, 1)
+	go func() {
+		n, readErr := io.ReadFull(f, buf)
+		_ = f.Close()
+		ch <- readResult{n: n, err: readErr}
+	}()
+
+	select {
+	case <-r.ctx.Done():
+		// Context cancelled. The goroutine will eventually close f and exit.
+		// Do NOT wait for it -- f.Close() won't unblock the read on Windows.
+		return chunkResult{offset: offset, data: nil, n: 0, err: r.ctx.Err()}
+
+	case res := <-ch:
+		// Normal completion -- the goroutine is done, we safely own buf.
+		return r.processChunkReadResult(offset, bufSize, buf, res.n, res.err)
+
+	case <-time.After(readOpTimeout):
+		// Read timed out. The goroutine is stuck in the kernel.
+		// We CANNOT wait for it (<-ch would block forever on Windows).
+		// The goroutine still owns `buf` and `f` -- do not touch them.
+		log.Printf("agent: parallel reader f.Read() timed out at offset %d after %v (near_tail=%v, remaining=%d bytes)",
+			offset, readOpTimeout, nearTail, r.size-offset)
+
+		if nearTail {
+			// Mark the tail as stalled so subsequent tail chunks are zero-filled
+			// instantly by workers without opening the file (no more orphaned goroutines).
+			atomic.StoreInt32(&r.tailStalled, 1)
+
+			zeroBuf := make([]byte, bufSize)
+			log.Printf("agent: parallel reader zero-filling %d bytes at offset %d (tail stalled, total_size=%d, remaining tail chunks will be zero-filled immediately)",
+				bufSize, offset, r.size)
+			r.emitReadWarning(offset, bufSize, 0, bufSize, true,
+				fmt.Errorf("read timed out at tail offset %d after %v, zero-filled %d bytes", offset, readOpTimeout, bufSize))
+			return chunkResult{offset: offset, data: zeroBuf, n: int(bufSize), err: nil}
+		}
+
+		// Not near tail: retry once with a fresh file handle
+		log.Printf("agent: parallel reader retrying read at offset %d (not near tail)", offset)
+		retryResult := r.retryChunkRead(offset, bufSize)
+		if retryResult.err == nil {
+			return retryResult
+		}
+
+		r.emitReadWarning(offset, bufSize, 0, 0, false,
+			fmt.Errorf("read timed out at offset %d after %v and retry failed: %v", offset, readOpTimeout, retryResult.err))
+		return chunkResult{offset: offset, data: nil, n: 0,
+			err: fmt.Errorf("read timed out at offset %d (file may be locked by another process)", offset)}
+	}
+}
+
+// processChunkReadResult handles the various outcomes of a successful (non-timed-out) chunk read.
+func (r *parallelDeviceReader) processChunkReadResult(offset, bufSize int64, buf []byte, totalRead int, readErr error) chunkResult {
+	if readErr != nil && isWindowsSectorNotFound(readErr) && r.physicalSource {
+		requestedEnd := offset + bufSize
+		if isStrictReadErrors() {
+			// Keep original error in strict mode
+		} else if shouldTreatSectorNotFoundAsEOF(r.size, requestedEnd) {
+			r.emitReadWarning(offset, bufSize, int64(totalRead), 0, true, readErr)
+			readErr = io.EOF
+		} else {
+			zeroFilled := bufSize - int64(totalRead)
+			if zeroFilled < 0 {
+				zeroFilled = 0
+			}
+			for i := totalRead; i < int(bufSize); i++ {
+				buf[i] = 0
+			}
+			totalRead = int(bufSize)
+			r.emitReadWarning(offset, bufSize, int64(totalRead)-zeroFilled, zeroFilled, false, readErr)
+			readErr = nil
+		}
+	}
+
+	if readErr == io.ErrUnexpectedEOF || readErr == io.EOF {
+		if totalRead > 0 {
+			readErr = nil
+		}
+	} else if readErr != nil {
+		return chunkResult{offset: offset, data: nil, n: totalRead, err: readErr}
+	}
+
+	return chunkResult{offset: offset, data: buf[:totalRead], n: totalRead, err: readErr}
+}
+
+// retryChunkRead makes one more attempt to read a chunk with a fresh file handle.
+// Same timeout/orphan semantics as readChunkWithTimeout.
+func (r *parallelDeviceReader) retryChunkRead(offset, bufSize int64) chunkResult {
+	f, err := openDeviceOptimized(r.path)
+	if err != nil {
+		return chunkResult{offset: offset, data: nil, n: 0, err: err}
+	}
+	if _, err := f.Seek(offset, io.SeekStart); err != nil {
+		_ = f.Close()
+		return chunkResult{offset: offset, data: nil, n: 0, err: err}
+	}
+
+	buf := make([]byte, bufSize)
+	readOpTimeout := getReadOpTimeout()
+
+	ch := make(chan readResult, 1)
+	go func() {
+		n, readErr := io.ReadFull(f, buf)
+		_ = f.Close()
+		ch <- readResult{n: n, err: readErr}
+	}()
+
+	select {
+	case <-r.ctx.Done():
+		return chunkResult{offset: offset, data: nil, n: 0, err: r.ctx.Err()}
+	case res := <-ch:
+		return r.processChunkReadResult(offset, bufSize, buf, res.n, res.err)
+	case <-time.After(readOpTimeout):
+		log.Printf("agent: parallel reader retry also timed out at offset %d after %v", offset, readOpTimeout)
+		// Do NOT wait for goroutine -- same Windows limitation
+		return chunkResult{offset: offset, data: nil, n: 0,
+			err: fmt.Errorf("retry read also timed out at offset %d after %v", offset, readOpTimeout)}
 	}
 }
 
@@ -169,15 +349,80 @@ func (r *parallelDeviceReader) fillWindow() {
 }
 
 func (r *parallelDeviceReader) fetchNextChunk() error {
+	// Fast path: when the tail is known to be stalled, zero-fill directly in
+	// the consumer without waiting for workers. Workers may be permanently
+	// stuck in CreateFile/ReadFile kernel calls due to Windows oplock
+	// negotiation with Hyper-V and will never produce results.
+	if r.isNearTail(r.expected) && atomic.LoadInt32(&r.tailStalled) == 1 {
+		remaining := r.size - r.expected
+		if remaining <= 0 {
+			return io.EOF
+		}
+		fillSize := r.chunkSize
+		if remaining < fillSize {
+			fillSize = remaining
+		}
+		zeroBuf := make([]byte, fillSize)
+		r.curBuf = zeroBuf
+		r.curPos = 0
+		r.chunkStart = r.expected
+		r.expected += r.chunkSize
+		return nil
+	}
+
+	safetyTimeout := getReadOpTimeout() * 3
+
+	// Use a shorter safety timeout for tail-region chunks even on the first
+	// attempt. Workers use a 5s read timeout for tail reads, but they may
+	// get stuck in CreateFile (Windows oplock negotiation with Hyper-V)
+	// BEFORE reaching the timer. A 15s safety catches this without waiting
+	// the full 3 minutes.
+	if r.isNearTail(r.expected) {
+		safetyTimeout = time.Duration(tailReadTimeoutSecs*3) * time.Second
+	}
+
+	timeoutCh := time.After(safetyTimeout)
+
 	for {
 		select {
 		case <-r.ctx.Done():
 			return r.ctx.Err()
+
+		case <-timeoutCh:
+			if r.isNearTail(r.expected) {
+				remaining := r.size - r.expected
+				if remaining <= 0 {
+					return io.EOF
+				}
+				atomic.StoreInt32(&r.tailStalled, 1)
+
+				fillSize := r.chunkSize
+				if remaining < fillSize {
+					fillSize = remaining
+				}
+				log.Printf("agent: parallel reader safety timeout at tail offset %d, zero-filling %d bytes and continuing",
+					r.expected, fillSize)
+				r.emitTimeoutWarning(r.expected, 1, safetyTimeout)
+				zeroBuf := make([]byte, fillSize)
+				r.curBuf = zeroBuf
+				r.curPos = 0
+				r.chunkStart = r.expected
+				r.expected += r.chunkSize
+				return nil
+			}
+
+			log.Printf("agent: parallel reader safety timeout waiting for chunk at offset %d (after %v)",
+				r.expected, safetyTimeout)
+			r.emitTimeoutWarning(r.expected, 1, safetyTimeout)
+			return fmt.Errorf("parallel reader: safety timeout waiting for chunk at offset %d after %v",
+				r.expected, safetyTimeout)
+
 		case res, ok := <-r.results:
 			if !ok {
 				return io.EOF
 			}
 			r.inflight--
+
 			if res.err != nil && res.err != io.EOF && res.err != io.ErrUnexpectedEOF {
 				r.err = res.err
 			}
@@ -194,15 +439,14 @@ func (r *parallelDeviceReader) fetchNextChunk() error {
 				r.expected += r.chunkSize
 				return nil
 			}
-			// No expected chunk available and no more workers/tasks in flight:
-			// avoid waiting forever when a worker returned EOF/short read without data.
 			if r.inflight == 0 && r.nextSend >= r.size {
 				if r.err != nil {
 					return r.err
 				}
 				return io.EOF
 			}
-			// Otherwise continue waiting
+
+			timeoutCh = time.After(safetyTimeout)
 		}
 	}
 }
@@ -265,7 +509,11 @@ func (r *parallelDeviceReader) Seek(offset int64, whence int) (int64, error) {
 		newPos = r.size
 	}
 
-	r.resetPipeline(r.ctx, newPos)
+	// Use parentCtx (the original root context) rather than r.ctx.
+	// resetPipeline cancels the old r.ctx before deriving a new child;
+	// passing r.ctx here would create a child of an already-cancelled
+	// context, immediately killing all new workers.
+	r.resetPipeline(r.parentCtx, newPos)
 	// Skip bytes within first chunk if starting mid-chunk
 	if newPos%r.chunkSize != 0 {
 		if err := r.fetchNextChunk(); err != nil {
@@ -311,6 +559,22 @@ func (r *parallelDeviceReader) emitReadWarning(offsetBytes, requestedBytes, read
 	})
 }
 
+// emitTimeoutWarning emits a warning when chunk reads are timing out.
+func (r *parallelDeviceReader) emitTimeoutWarning(expectedOffset int64, timeoutCount int, timeout time.Duration) {
+	if r.warningCallback == nil {
+		return
+	}
+	r.warningCallback(diskReadWarning{
+		Path:           r.path,
+		Reader:         "parallel",
+		OffsetBytes:    expectedOffset,
+		RequestedBytes: r.chunkSize,
+		ReadBytes:      0,
+		NearTail:       expectedOffset+r.chunkSize >= r.size,
+		Error:          fmt.Sprintf("chunk read timeout #%d at offset %d (timeout: %v)", timeoutCount, expectedOffset, timeout),
+	})
+}
+
 // compile-time check
 var _ interface {
 	io.Reader
@@ -318,7 +582,6 @@ var _ interface {
 	io.Closer
 } = (*parallelDeviceReader)(nil)
 
-// Utility for optional tuning via env (future extension)
 func minInt(a, b int) int {
 	if a < b {
 		return a

@@ -21,6 +21,7 @@ type deviceEntry struct {
 	modTime         time.Time
 	forceSequential bool
 	physicalSource  bool
+	skipTailReads   bool // pre-mark tail region as stalled (e.g., live VHDX locked by Hyper-V)
 	warningCallback diskReadWarningCallback
 }
 
@@ -53,7 +54,7 @@ func (d *deviceEntry) LocalFilesystemPath() string { return d.path }
 func (d *deviceEntry) Open(ctx context.Context) (kopiafs.Reader, error) {
 	// Optional parallel reader (feature flag)
 	if !d.forceSequential && useParallelReader() {
-		pr, err := newParallelDeviceReader(ctx, d.path, d.size, d.physicalSource, d.warningCallback)
+		pr, err := newParallelDeviceReader(ctx, d.path, d.size, d.physicalSource, d.warningCallback, d.skipTailReads)
 		if err != nil {
 			return nil, err
 		}

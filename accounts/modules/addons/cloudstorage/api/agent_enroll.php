@@ -193,6 +193,9 @@ try {
             $existing = $q->lockForUpdate()->first();
         }
 
+        $hasBackupUserId = Capsule::schema()->hasColumn('s3_cloudbackup_agents', 'backup_user_id');
+        $tokenBackupUserId = isset($tok->backup_user_id) ? ($tok->backup_user_id ? (int) $tok->backup_user_id : null) : null;
+
         if ($existing) {
             $agentUuid = trim((string) ($existing->agent_uuid ?? ''));
             if ($agentUuid === '') {
@@ -209,6 +212,9 @@ try {
                 'last_seen_at' => Capsule::raw('NOW()'),
                 'updated_at' => Capsule::raw('NOW()'),
             ];
+            if ($hasBackupUserId && $tokenBackupUserId !== null) {
+                $update['backup_user_id'] = $tokenBackupUserId;
+            }
             if ($hasAgentVersion) {
                 $update['agent_version'] = $agentVersion !== '' ? $agentVersion : ($existing->agent_version ?? null);
             }
@@ -245,6 +251,9 @@ try {
                 'created_at' => Capsule::raw('NOW()'),
                 'updated_at' => Capsule::raw('NOW()'),
             ];
+            if ($hasBackupUserId && $tokenBackupUserId !== null) {
+                $insert['backup_user_id'] = $tokenBackupUserId;
+            }
             if ($hasAgentVersion) {
                 $insert['agent_version'] = $agentVersion !== '' ? $agentVersion : null;
             }

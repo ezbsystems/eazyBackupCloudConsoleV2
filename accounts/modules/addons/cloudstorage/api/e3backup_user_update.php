@@ -51,31 +51,36 @@ $tenantTable = MspController::getTenantTableName();
 $mspId = MspController::getMspIdForClient($clientId);
 $tenantOwnerId = ($tenantTable === 'eb_tenants') ? (int)($mspId ?? 0) : (int)$clientId;
 $tenantOwnerSelect = $tenantTable === 'eb_tenants' ? 't.msp_id as tenant_owner_id' : 't.client_id as tenant_owner_id';
-$userId = (int) ($_POST['user_id'] ?? 0);
+$userIdRaw = trim((string) ($_POST['user_id'] ?? ''));
+$hasPublicIdCol = Capsule::schema()->hasColumn('s3_backup_users', 'public_id');
 
-if ($userId <= 0) {
+if ($userIdRaw === '') {
     userUpdateFail('Invalid user ID.', 400, ['user_id' => 'Invalid user ID']);
 }
 
-$currentUser = Capsule::table('s3_backup_users as u')
+$updateLookup = Capsule::table('s3_backup_users as u')
     ->leftJoin($tenantTable . ' as t', 'u.tenant_id', '=', 't.id')
-    ->where('u.id', $userId)
-    ->where('u.client_id', $clientId)
-    ->select([
-        'u.id',
-        'u.client_id',
-        'u.tenant_id',
-        'u.username',
-        'u.email',
-        'u.status',
-        Capsule::raw($tenantOwnerSelect),
-        't.status as tenant_status',
-    ])
-    ->first();
+    ->where('u.client_id', $clientId);
+if ($hasPublicIdCol && !ctype_digit($userIdRaw)) {
+    $updateLookup->where('u.public_id', $userIdRaw);
+} else {
+    $updateLookup->where('u.id', (int) $userIdRaw);
+}
+$currentUser = $updateLookup->select([
+    'u.id',
+    'u.client_id',
+    'u.tenant_id',
+    'u.username',
+    'u.email',
+    'u.status',
+    Capsule::raw($tenantOwnerSelect),
+    't.status as tenant_status',
+])->first();
 
 if (!$currentUser) {
     userUpdateFail('User not found.', 404);
 }
+$userId = (int) $currentUser->id;
 
 if (!$isMsp && !empty($currentUser->tenant_id)) {
     userUpdateFail('User not found.', 404);
@@ -96,6 +101,8 @@ if ($isMsp) {
 $username = normalizeUserNameForUpdate((string) ($_POST['username'] ?? $currentUser->username));
 $email = strtolower(trim((string) ($_POST['email'] ?? $currentUser->email)));
 $status = strtolower(trim((string) ($_POST['status'] ?? $currentUser->status)));
+$backupTypeProvided = array_key_exists('backup_type', $_POST);
+$backupType = $backupTypeProvided ? strtolower(trim((string) $_POST['backup_type'])) : null;
 $tenantIdRaw = array_key_exists('tenant_id', $_POST) ? trim((string) $_POST['tenant_id']) : null;
 $currentTenantId = $currentUser->tenant_id !== null ? (int) $currentUser->tenant_id : null;
 $tenantId = $currentTenantId;
@@ -166,6 +173,10 @@ if (!in_array($status, ['active', 'disabled'], true)) {
     $errors['status'] = 'Invalid status.';
 }
 
+if ($backupTypeProvided && $backupType !== null && !in_array($backupType, ['cloud_only', 'local', 'both'], true)) {
+    $errors['backup_type'] = 'Invalid backup type.';
+}
+
 if (!$isMsp && $tenantId !== null) {
     $errors['tenant_id'] = 'Direct accounts cannot assign tenants.';
 }
@@ -219,17 +230,21 @@ if ($existing) {
 }
 
 try {
-    Capsule::connection()->transaction(function () use ($userId, $clientId, $tenantId, $username, $email, $status, $isMsp, $canonicalTenantProvided, $canonicalTenantId, $storageIdentifier) {
+    Capsule::connection()->transaction(function () use ($userId, $clientId, $tenantId, $username, $email, $status, $backupTypeProvided, $backupType, $isMsp, $canonicalTenantProvided, $canonicalTenantId, $storageIdentifier) {
+        $updateData = [
+            'tenant_id' => $tenantId,
+            'username' => $username,
+            'email' => $email,
+            'status' => $status,
+            'updated_at' => Capsule::raw('NOW()'),
+        ];
+        if ($backupTypeProvided && $backupType !== null && Capsule::schema()->hasColumn('s3_backup_users', 'backup_type')) {
+            $updateData['backup_type'] = $backupType;
+        }
         Capsule::table('s3_backup_users')
             ->where('id', $userId)
             ->where('client_id', $clientId)
-            ->update([
-                'tenant_id' => $tenantId,
-                'username' => $username,
-                'email' => $email,
-                'status' => $status,
-                'updated_at' => Capsule::raw('NOW()'),
-            ]);
+            ->update($updateData);
 
         if ($isMsp && $canonicalTenantProvided) {
             $linkResult = eb_tenant_storage_links_upsert_for_client((int) $clientId, $storageIdentifier, $canonicalTenantId);

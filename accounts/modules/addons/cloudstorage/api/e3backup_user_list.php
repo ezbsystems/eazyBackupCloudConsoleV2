@@ -22,11 +22,6 @@ function userListFail(string $message, int $httpCode = 400, array $errors = []):
     exit;
 }
 
-function scopeKeyFromTenant($tenantId): string
-{
-    return empty($tenantId) ? 'direct' : ('tenant_' . (int) $tenantId);
-}
-
 function getOnlineThresholdSeconds(): int
 {
     try {
@@ -43,20 +38,39 @@ function getOnlineThresholdSeconds(): int
     }
 }
 
-function getScopedMetrics(int $clientId, bool $isMsp, ?int $tenantFilter, bool $directOnly): array
+function emptyUserMetrics(): array
 {
-    $metricsByScope = [];
+    return [
+        'vaults_count' => 0,
+        'jobs_count' => 0,
+        'agents_count' => 0,
+        'online_devices' => 0,
+        'last_backup_at' => null,
+    ];
+}
+
+function getScopedMetricsByUserId(int $clientId, array $userIds): array
+{
+    $metricsByUserId = [];
     $onlineThresholdSeconds = getOnlineThresholdSeconds();
+    $userIds = array_values(array_unique(array_map('intval', $userIds)));
+
+    if (empty($userIds)) {
+        return $metricsByUserId;
+    }
 
     $hasAgents = Capsule::schema()->hasTable('s3_cloudbackup_agents');
     $hasJobs = Capsule::schema()->hasTable('s3_cloudbackup_jobs');
     $hasRuns = Capsule::schema()->hasTable('s3_cloudbackup_runs');
+    $hasAgentBackupUserId = $hasAgents && Capsule::schema()->hasColumn('s3_cloudbackup_agents', 'backup_user_id');
+    $hasJobBackupUserId = $hasJobs && Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'backup_user_id');
 
-    if ($hasAgents) {
+    if ($hasAgents && $hasAgentBackupUserId) {
         $agentQuery = Capsule::table('s3_cloudbackup_agents as a')
             ->where('a.client_id', $clientId)
+            ->whereIn('a.backup_user_id', $userIds)
             ->select([
-                'a.tenant_id',
+                'a.backup_user_id',
                 Capsule::raw('COUNT(*) as agents_count'),
                 Capsule::raw(
                     'SUM(CASE WHEN a.last_seen_at IS NOT NULL AND TIMESTAMPDIFF(SECOND, a.last_seen_at, NOW()) <= ' .
@@ -64,78 +78,67 @@ function getScopedMetrics(int $clientId, bool $isMsp, ?int $tenantFilter, bool $
                     ' THEN 1 ELSE 0 END) as online_devices'
                 ),
             ])
-            ->groupBy('a.tenant_id');
-
-        if ($directOnly) {
-            $agentQuery->whereNull('a.tenant_id');
-        } elseif ($tenantFilter !== null) {
-            if ($tenantFilter > 0) {
-                $agentQuery->where('a.tenant_id', $tenantFilter);
-            } else {
-                $agentQuery->whereNull('a.tenant_id');
-            }
-        } elseif (!$isMsp) {
-            $agentQuery->whereNull('a.tenant_id');
-        }
+            ->groupBy('a.backup_user_id');
 
         $agentRows = $agentQuery->get();
         foreach ($agentRows as $row) {
-            $scopeKey = scopeKeyFromTenant($row->tenant_id ?? null);
-            if (!isset($metricsByScope[$scopeKey])) {
-                $metricsByScope[$scopeKey] = [
-                    'vaults_count' => 0,
-                    'jobs_count' => 0,
-                    'agents_count' => 0,
-                    'online_devices' => 0,
-                    'last_backup_at' => null,
-                ];
+            $userId = (int) ($row->backup_user_id ?? 0);
+            if ($userId <= 0) {
+                continue;
             }
-            $metricsByScope[$scopeKey]['agents_count'] = (int) ($row->agents_count ?? 0);
-            $metricsByScope[$scopeKey]['online_devices'] = (int) ($row->online_devices ?? 0);
+            if (!isset($metricsByUserId[$userId])) {
+                $metricsByUserId[$userId] = emptyUserMetrics();
+            }
+            $metricsByUserId[$userId]['agents_count'] = (int) ($row->agents_count ?? 0);
+            $metricsByUserId[$userId]['online_devices'] = (int) ($row->online_devices ?? 0);
         }
     }
 
     if ($hasJobs && $hasAgents) {
         $hasJobIdPk = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'job_id');
         $jobCountExpr = $hasJobIdPk ? 'COUNT(j.job_id)' : 'COUNT(j.id)';
-        $hasAgentUuid = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'agent_uuid');
         $jobQuery = Capsule::table('s3_cloudbackup_jobs as j')
-            ->leftJoin('s3_cloudbackup_agents as a', $hasAgentUuid ? 'j.agent_uuid' : 'j.agent_id', '=', $hasAgentUuid ? 'a.agent_uuid' : 'a.id')
+            ->leftJoin('s3_cloudbackup_agents as a', 'j.agent_uuid', '=', 'a.agent_uuid')
             ->where('j.client_id', $clientId)
             ->where('j.status', '!=', 'deleted')
             ->select([
-                'a.tenant_id',
+                Capsule::raw($hasJobBackupUserId && $hasAgentBackupUserId
+                    ? 'COALESCE(j.backup_user_id, a.backup_user_id) as backup_user_id'
+                    : ($hasJobBackupUserId ? 'j.backup_user_id as backup_user_id' : 'a.backup_user_id as backup_user_id')),
                 Capsule::raw($jobCountExpr . ' as jobs_count'),
                 Capsule::raw('COUNT(DISTINCT j.dest_bucket_id) as vaults_count'),
             ])
-            ->groupBy('a.tenant_id');
+            ->groupBy('backup_user_id');
 
-        if ($directOnly) {
-            $jobQuery->whereNull('a.tenant_id');
-        } elseif ($tenantFilter !== null) {
-            if ($tenantFilter > 0) {
-                $jobQuery->where('a.tenant_id', $tenantFilter);
-            } else {
-                $jobQuery->whereNull('a.tenant_id');
-            }
-        } elseif (!$isMsp) {
-            $jobQuery->whereNull('a.tenant_id');
+        if ($hasJobBackupUserId && $hasAgentBackupUserId) {
+            $jobQuery->where(function ($scoped) use ($userIds) {
+                $scoped->whereIn('j.backup_user_id', $userIds)
+                    ->orWhere(function ($legacy) use ($userIds) {
+                        $legacy->whereNull('j.backup_user_id')
+                            ->whereIn('a.backup_user_id', $userIds);
+                    });
+            });
+        } elseif ($hasJobBackupUserId) {
+            $jobQuery->whereIn('j.backup_user_id', $userIds);
+        } elseif ($hasAgentBackupUserId) {
+            $jobQuery->whereIn('a.backup_user_id', $userIds);
+        } else {
+            $jobQuery = null;
         }
 
-        $jobRows = $jobQuery->get();
-        foreach ($jobRows as $row) {
-            $scopeKey = scopeKeyFromTenant($row->tenant_id ?? null);
-            if (!isset($metricsByScope[$scopeKey])) {
-                $metricsByScope[$scopeKey] = [
-                    'vaults_count' => 0,
-                    'jobs_count' => 0,
-                    'agents_count' => 0,
-                    'online_devices' => 0,
-                    'last_backup_at' => null,
-                ];
+        if ($jobQuery !== null) {
+            $jobRows = $jobQuery->get();
+            foreach ($jobRows as $row) {
+                $userId = (int) ($row->backup_user_id ?? 0);
+                if ($userId <= 0) {
+                    continue;
+                }
+                if (!isset($metricsByUserId[$userId])) {
+                    $metricsByUserId[$userId] = emptyUserMetrics();
+                }
+                $metricsByUserId[$userId]['jobs_count'] = (int) ($row->jobs_count ?? 0);
+                $metricsByUserId[$userId]['vaults_count'] = (int) ($row->vaults_count ?? 0);
             }
-            $metricsByScope[$scopeKey]['jobs_count'] = (int) ($row->jobs_count ?? 0);
-            $metricsByScope[$scopeKey]['vaults_count'] = (int) ($row->vaults_count ?? 0);
         }
     }
 
@@ -144,45 +147,50 @@ function getScopedMetrics(int $clientId, bool $isMsp, ?int $tenantFilter, bool $
         $runJobJoin = $hasJobIdPkRuns ? 'j.job_id' : 'j.id';
         $lastBackupQuery = Capsule::table('s3_cloudbackup_runs as r')
             ->join('s3_cloudbackup_jobs as j', 'r.job_id', '=', $runJobJoin)
-            ->leftJoin('s3_cloudbackup_agents as a', $hasAgentUuid ? 'j.agent_uuid' : 'j.agent_id', '=', $hasAgentUuid ? 'a.agent_uuid' : 'a.id')
+            ->leftJoin('s3_cloudbackup_agents as a', 'j.agent_uuid', '=', 'a.agent_uuid')
             ->where('j.client_id', $clientId)
             ->whereNotNull('r.finished_at')
             ->whereIn('r.status', ['success', 'warning'])
             ->select([
-                'a.tenant_id',
+                Capsule::raw($hasJobBackupUserId && $hasAgentBackupUserId
+                    ? 'COALESCE(j.backup_user_id, a.backup_user_id) as backup_user_id'
+                    : ($hasJobBackupUserId ? 'j.backup_user_id as backup_user_id' : 'a.backup_user_id as backup_user_id')),
                 Capsule::raw('MAX(r.finished_at) as last_backup_at'),
             ])
-            ->groupBy('a.tenant_id');
+            ->groupBy('backup_user_id');
 
-        if ($directOnly) {
-            $lastBackupQuery->whereNull('a.tenant_id');
-        } elseif ($tenantFilter !== null) {
-            if ($tenantFilter > 0) {
-                $lastBackupQuery->where('a.tenant_id', $tenantFilter);
-            } else {
-                $lastBackupQuery->whereNull('a.tenant_id');
-            }
-        } elseif (!$isMsp) {
-            $lastBackupQuery->whereNull('a.tenant_id');
+        if ($hasJobBackupUserId && $hasAgentBackupUserId) {
+            $lastBackupQuery->where(function ($scoped) use ($userIds) {
+                $scoped->whereIn('j.backup_user_id', $userIds)
+                    ->orWhere(function ($legacy) use ($userIds) {
+                        $legacy->whereNull('j.backup_user_id')
+                            ->whereIn('a.backup_user_id', $userIds);
+                    });
+            });
+        } elseif ($hasJobBackupUserId) {
+            $lastBackupQuery->whereIn('j.backup_user_id', $userIds);
+        } elseif ($hasAgentBackupUserId) {
+            $lastBackupQuery->whereIn('a.backup_user_id', $userIds);
+        } else {
+            $lastBackupQuery = null;
         }
 
-        $lastBackupRows = $lastBackupQuery->get();
-        foreach ($lastBackupRows as $row) {
-            $scopeKey = scopeKeyFromTenant($row->tenant_id ?? null);
-            if (!isset($metricsByScope[$scopeKey])) {
-                $metricsByScope[$scopeKey] = [
-                    'vaults_count' => 0,
-                    'jobs_count' => 0,
-                    'agents_count' => 0,
-                    'online_devices' => 0,
-                    'last_backup_at' => null,
-                ];
+        if ($lastBackupQuery !== null) {
+            $lastBackupRows = $lastBackupQuery->get();
+            foreach ($lastBackupRows as $row) {
+                $userId = (int) ($row->backup_user_id ?? 0);
+                if ($userId <= 0) {
+                    continue;
+                }
+                if (!isset($metricsByUserId[$userId])) {
+                    $metricsByUserId[$userId] = emptyUserMetrics();
+                }
+                $metricsByUserId[$userId]['last_backup_at'] = $row->last_backup_at ?? null;
             }
-            $metricsByScope[$scopeKey]['last_backup_at'] = $row->last_backup_at ?? null;
         }
     }
 
-    return $metricsByScope;
+    return $metricsByUserId;
 }
 
 $ca = new ClientArea();
@@ -241,7 +249,7 @@ $userQuery = Capsule::table('s3_backup_users as u')
         }
     })
     ->where('u.client_id', $clientId)
-    ->select([
+    ->select(array_merge([
         'u.id',
         'u.client_id',
         'u.tenant_id as storage_tenant_id',
@@ -252,7 +260,7 @@ $userQuery = Capsule::table('s3_backup_users as u')
         'u.created_at',
         'u.updated_at',
         't.name as tenant_name',
-    ]);
+    ], Capsule::schema()->hasColumn('s3_backup_users', 'public_id') ? ['u.public_id'] : []));
 
 if ($directOnly) {
     $userQuery->whereNull('u.tenant_id');
@@ -265,21 +273,19 @@ if ($directOnly) {
 }
 
 $users = $userQuery->orderBy('u.username')->get();
-$metricsByScope = getScopedMetrics($clientId, $isMsp, $tenantFilter, $directOnly);
+$userIds = [];
+foreach ($users as $user) {
+    $userIds[] = (int) $user->id;
+}
+$metricsByUserId = getScopedMetricsByUserId($clientId, $userIds);
 
 $normalizedUsers = [];
 foreach ($users as $user) {
-    $scopeKey = scopeKeyFromTenant($user->storage_tenant_id ?? null);
-    $scopeMetrics = $metricsByScope[$scopeKey] ?? [
-        'vaults_count' => 0,
-        'jobs_count' => 0,
-        'agents_count' => 0,
-        'online_devices' => 0,
-        'last_backup_at' => null,
-    ];
+    $scopeMetrics = $metricsByUserId[(int) $user->id] ?? emptyUserMetrics();
 
     $normalizedUsers[] = [
         'id' => (int) $user->id,
+        'public_id' => (string) ($user->public_id ?? ''),
         'client_id' => (int) $user->client_id,
         'tenant_id' => $user->tenant_id !== null ? (string) $user->tenant_id : null,
         'username' => (string) $user->username,
@@ -293,7 +299,7 @@ foreach ($users as $user) {
         'agents_count' => (int) $scopeMetrics['agents_count'],
         'last_backup_at' => $scopeMetrics['last_backup_at'],
         'online_devices' => (int) $scopeMetrics['online_devices'],
-        'metrics_mode' => 'derived_scope',
+        'metrics_mode' => 'derived_user',
     ];
 }
 

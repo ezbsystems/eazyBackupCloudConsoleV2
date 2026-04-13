@@ -5,13 +5,15 @@ AppPublisher=EazyBackup
 DefaultDirName={autopf}\E3Backup
 DefaultGroupName=E3 Backup Agent
 DisableProgramGroupPage=yes
-ArchitecturesAllowed=x64
-ArchitecturesInstallIn64BitMode=x64
+ArchitecturesAllowed=x64compatible
+ArchitecturesInstallIn64BitMode=x64compatible
 Compression=lzma2
 SolidCompression=yes
 PrivilegesRequired=admin
 OutputBaseFilename=e3-backup-agent-setup
 WizardStyle=modern
+CloseApplications=force
+CloseApplicationsFilter=e3-backup-agent.exe,e3-backup-tray.exe
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -38,8 +40,14 @@ Source: "..\..\e3-cloudbackup-worker\assets\tray_logo-drk-orange120x120.png"; De
 Source: "..\..\e3-cloudbackup-worker\assets\tray_logo-drk-orange.svg"; DestDir: "{app}"; DestName: "tray_logo-drk-orange.svg"; Flags: ignoreversion
 
 [Registry]
-; Auto-run tray helper for all users (important for MSP/RMM installs that run elevated/SYSTEM)
-Root: HKLM; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "E3BackupTray"; ValueData: """{app}\e3-backup-tray.exe"" -config ""{commonappdata}\E3Backup\agent.conf"""; Tasks: autorun_tray; Flags: uninsdeletevalue
+; Auto-run tray helper in the current user's session (non-elevated).
+; HKCU ensures the tray starts with the user's filtered (non-elevated) token,
+; which is required so that drive mappings (WNetAddConnection2) land in the
+; same logon session as explorer.exe and appear in "This PC".
+; HKLM\...\Run would work for all users but the process may inherit an
+; elevated token on UAC-enabled systems, causing drive mappings to be
+; invisible in the non-elevated Explorer shell.
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "E3BackupTray"; ValueData: """{app}\e3-backup-tray.exe"" -config ""{commonappdata}\E3Backup\agent.conf"""; Tasks: autorun_tray; Flags: uninsdeletevalue
 
 [Run]
 ; Write initial config to ProgramData\E3Backup\agent.conf
@@ -68,6 +76,33 @@ Type: filesandordirs; Name: "{app}"
 var
   EnvPage: TWizardPage;
   UseDevCheckbox: TNewCheckBox;
+
+// PrepareToInstall runs before any files are copied. It stops the running
+// service and tray so the installer can replace the locked EXE files.
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  RC: Integer;
+begin
+  Result := '';
+  NeedsRestart := False;
+
+  // Kill the tray helper (user-mode process that locks the EXE)
+  Exec(ExpandConstant('{cmd}'), '/c taskkill /F /IM e3-backup-tray.exe >nul 2>&1',
+       '', SW_HIDE, ewWaitUntilTerminated, RC);
+
+  // Stop the Windows service via sc.exe (works even if the agent binary is being replaced)
+  Exec(ExpandConstant('{cmd}'), '/c sc stop e3-backup-agent >nul 2>&1',
+       '', SW_HIDE, ewWaitUntilTerminated, RC);
+
+  // Wait for the service process to fully exit and release file handles
+  Sleep(3000);
+
+  // If the EXE is still locked, try harder: kill the process directly
+  Exec(ExpandConstant('{cmd}'), '/c taskkill /F /IM e3-backup-agent.exe >nul 2>&1',
+       '', SW_HIDE, ewWaitUntilTerminated, RC);
+
+  Sleep(1000);
+end;
 
 function GetDefaultApiBase: string;
 begin
@@ -158,7 +193,7 @@ end;
 
 function GetYamlValue(const Text, Key: string): string;
 var
-  P, E, NL: Integer;
+  P, NL: Integer;
   Line: string;
 begin
   Result := '';

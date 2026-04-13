@@ -36,10 +36,31 @@ if ($commandId <= 0) {
     respond(['status' => 'fail', 'message' => 'command_id is required'], 400);
 }
 
-$cmd = Capsule::table('s3_cloudbackup_run_commands as c')
-    ->join('s3_cloudbackup_agents as a', 'c.agent_id', '=', 'a.id')
-    ->where('c.id', $commandId)
-    ->where('a.client_id', $clientId)
+$hasCommandAgentUuid = Capsule::schema()->hasColumn('s3_cloudbackup_run_commands', 'agent_uuid');
+$hasCommandAgentId = Capsule::schema()->hasColumn('s3_cloudbackup_run_commands', 'agent_id');
+
+$cmdQuery = Capsule::table('s3_cloudbackup_run_commands as c')
+    ->where('c.id', $commandId);
+
+if ($hasCommandAgentId && $hasCommandAgentUuid) {
+    $cmdQuery
+        ->leftJoin('s3_cloudbackup_agents as ai', 'c.agent_id', '=', 'ai.id')
+        ->leftJoin('s3_cloudbackup_agents as au', 'c.agent_uuid', '=', 'au.agent_uuid')
+        ->where(function ($query) use ($clientId) {
+            $query->where('ai.client_id', $clientId)
+                ->orWhere('au.client_id', $clientId);
+        });
+} elseif ($hasCommandAgentUuid) {
+    $cmdQuery
+        ->join('s3_cloudbackup_agents as a', 'c.agent_uuid', '=', 'a.agent_uuid')
+        ->where('a.client_id', $clientId);
+} else {
+    $cmdQuery
+        ->join('s3_cloudbackup_agents as a', 'c.agent_id', '=', 'a.id')
+        ->where('a.client_id', $clientId);
+}
+
+$cmd = $cmdQuery
     ->select('c.status', 'c.result_message', 'c.type')
     ->first();
 

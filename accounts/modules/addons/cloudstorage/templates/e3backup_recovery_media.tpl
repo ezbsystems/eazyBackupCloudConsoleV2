@@ -36,70 +36,80 @@
                 <div class="space-y-4">
                     <div>
                         <label class="eb-field-label">Source Agent</label>
-                        <div class="relative" @click.away="sourceAgentMenuOpen = false">
+                        <div class="relative">
                             <button type="button"
-                                    @click="sourceAgentMenuOpen = !sourceAgentMenuOpen"
+                                    x-ref="sourceAgentTrigger"
+                                    @click="toggleSourceAgentMenu()"
                                     class="eb-btn eb-btn-secondary eb-btn-sm flex w-full items-center justify-between gap-2">
                                 <span class="min-w-0 truncate text-left" x-text="sourceAgentLabel()"></span>
                                 <svg class="h-4 w-4 shrink-0 transition-transform" :class="sourceAgentMenuOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
                                     <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
                                 </svg>
                             </button>
-                            <div x-show="sourceAgentMenuOpen"
-                                 x-transition
-                                 class="eb-dropdown-menu absolute left-0 z-50 mt-2 w-full overflow-hidden"
-                                 style="display: none;">
-                                <div class="eb-menu-label">Select source agent</div>
-                                <div class="max-h-72 overflow-auto p-1">
-                                    <button type="button"
-                                            class="eb-menu-option"
-                                            :class="isSourceAgentSelected('') ? 'is-active' : ''"
-                                            @click="setSourceAgent(''); sourceAgentMenuOpen = false;">
-                                        Select a source agent
-                                    </button>
-                                    <template x-for="agent in agents" :key="agent.agent_uuid || agent.id">
+                            <template x-teleport="body">
+                                <div x-show="sourceAgentMenuOpen"
+                                     x-transition
+                                     @click.outside="if (!$refs.sourceAgentTrigger || !$refs.sourceAgentTrigger.contains($event.target)) sourceAgentMenuOpen = false"
+                                     class="eb-dropdown-menu !min-w-0 overflow-hidden !p-0"
+                                     style="display: none;"
+                                     :style="{ position: 'fixed', top: sourceAgentMenuTop + 'px', left: sourceAgentMenuLeft + 'px', width: sourceAgentMenuWidth + 'px', minWidth: sourceAgentMenuWidth + 'px', zIndex: 200, maxHeight: 'min(60vh, 22rem)' }">
+                                    <div class="eb-menu-label">Select source agent</div>
+                                    <div class="max-h-72 overflow-auto p-1">
                                         <button type="button"
                                                 class="eb-menu-option"
-                                                :class="isSourceAgentSelected(agent.agent_uuid || '') ? 'is-active' : ''"
-                                                @click="setSourceAgent(agent.agent_uuid || ''); sourceAgentMenuOpen = false;">
-                                            <span x-text="agent.hostname || agent.device_name || agent.agent_uuid || 'Unknown agent'"></span>
+                                                :class="isSourceAgentSelected('') ? 'is-active' : ''"
+                                                @click="setSourceAgent(''); sourceAgentMenuOpen = false;">
+                                            Select a source agent
                                         </button>
-                                    </template>
+                                        <template x-for="agent in agents" :key="agent.agent_uuid || agent.id">
+                                            <button type="button"
+                                                    class="eb-menu-option"
+                                                    :class="isSourceAgentSelected(agent.agent_uuid || '') ? 'is-active' : ''"
+                                                    @click="setSourceAgent(agent.agent_uuid || ''); sourceAgentMenuOpen = false;">
+                                                <span x-text="agent.hostname || agent.device_name || agent.agent_uuid || 'Unknown agent'"></span>
+                                            </button>
+                                        </template>
+                                    </div>
                                 </div>
-                            </div>
+                            </template>
                         </div>
                     </div>
                     <div>
                         <label class="eb-field-label">Build Mode</label>
-                        <div class="relative" @click.away="modeMenuOpen = false">
+                        <div class="relative">
                             <button type="button"
-                                    @click="modeMenuOpen = !modeMenuOpen"
+                                    x-ref="modeTrigger"
+                                    @click="toggleModeMenu()"
                                     class="eb-btn eb-btn-secondary eb-btn-sm flex w-full items-center justify-between gap-2">
                                 <span class="min-w-0 truncate text-left" x-text="modeLabel()"></span>
                                 <svg class="h-4 w-4 shrink-0 transition-transform" :class="modeMenuOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
                                     <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
                                 </svg>
                             </button>
-                            <div x-show="modeMenuOpen"
-                                 x-transition
-                                 class="eb-dropdown-menu absolute left-0 z-50 mt-2 w-full overflow-hidden"
-                                 style="display: none;">
-                                <div class="eb-menu-label">Build mode</div>
-                                <div class="p-1">
-                                    <button type="button"
-                                            class="eb-menu-option"
-                                            :class="isModeSelected('fast') ? 'is-active' : ''"
-                                            @click="setMode('fast'); modeMenuOpen = false;">
-                                        Fast / Same Hardware
-                                    </button>
-                                    <button type="button"
-                                            class="eb-menu-option"
-                                            :class="isModeSelected('dissimilar') ? 'is-active' : ''"
-                                            @click="setMode('dissimilar'); modeMenuOpen = false;">
-                                        Dissimilar Hardware
-                                    </button>
+                            <template x-teleport="body">
+                                <div x-show="modeMenuOpen"
+                                     x-transition
+                                     @click.outside="if (!$refs.modeTrigger || !$refs.modeTrigger.contains($event.target)) modeMenuOpen = false"
+                                     class="eb-dropdown-menu !min-w-0 overflow-hidden !p-0"
+                                     style="display: none;"
+                                     :style="{ position: 'fixed', top: modeMenuTop + 'px', left: modeMenuLeft + 'px', width: modeMenuWidth + 'px', minWidth: modeMenuWidth + 'px', zIndex: 200 }">
+                                    <div class="eb-menu-label">Build mode</div>
+                                    <div class="p-1">
+                                        <button type="button"
+                                                class="eb-menu-option"
+                                                :class="isModeSelected('fast') ? 'is-active' : ''"
+                                                @click="setMode('fast'); modeMenuOpen = false;">
+                                            Fast / Same Hardware
+                                        </button>
+                                        <button type="button"
+                                                class="eb-menu-option"
+                                                :class="isModeSelected('dissimilar') ? 'is-active' : ''"
+                                                @click="setMode('dissimilar'); modeMenuOpen = false;">
+                                            Dissimilar Hardware
+                                        </button>
+                                    </div>
                                 </div>
-                            </div>
+                            </template>
                         </div>
                     </div>
                     <div class="eb-alert eb-alert--info">
@@ -171,13 +181,49 @@ function recoveryMediaPage() {
     agents: {/literal}{if $agents}{$agents|json_encode nofilter}{else}[]{/if}{literal},
     sourceAgentUuid: '',
     sourceAgentMenuOpen: false,
+    sourceAgentMenuTop: 0,
+    sourceAgentMenuLeft: 0,
+    sourceAgentMenuWidth: 0,
     mode: 'fast',
     modeMenuOpen: false,
+    modeMenuTop: 0,
+    modeMenuLeft: 0,
+    modeMenuWidth: 0,
     token: '',
     expiresText: '',
     copyStatus: '',
     busy: false,
     init() {},
+    syncSourceAgentMenuPos() {
+      const el = this.$refs.sourceAgentTrigger;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      this.sourceAgentMenuTop = r.bottom + 8;
+      this.sourceAgentMenuLeft = r.left;
+      this.sourceAgentMenuWidth = r.width;
+    },
+    toggleSourceAgentMenu() {
+      this.sourceAgentMenuOpen = !this.sourceAgentMenuOpen;
+      if (this.sourceAgentMenuOpen) {
+        this.modeMenuOpen = false;
+        this.$nextTick(() => this.syncSourceAgentMenuPos());
+      }
+    },
+    syncModeMenuPos() {
+      const el = this.$refs.modeTrigger;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      this.modeMenuTop = r.bottom + 8;
+      this.modeMenuLeft = r.left;
+      this.modeMenuWidth = r.width;
+    },
+    toggleModeMenu() {
+      this.modeMenuOpen = !this.modeMenuOpen;
+      if (this.modeMenuOpen) {
+        this.sourceAgentMenuOpen = false;
+        this.$nextTick(() => this.syncModeMenuPos());
+      }
+    },
     setSourceAgent(agentUuid) {
       this.sourceAgentUuid = String(agentUuid || '');
     },

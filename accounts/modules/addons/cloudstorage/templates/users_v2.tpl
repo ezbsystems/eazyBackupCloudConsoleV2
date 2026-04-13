@@ -1,498 +1,454 @@
-<style>
-  [x-cloak] { display: none !important; }
-  .table-row-hover:hover { background-color: #1e293b; }
-</style>
 <!-- ebLoader -->
 <script src="{$WEB_ROOT}/modules/addons/eazybackup/templates/assets/js/ui.js"></script>
 
-<div class="min-h-screen bg-slate-950 text-gray-300 overflow-x-hidden" x-data="usersV2Manager()" x-init="init()">
+<div class="eb-page overflow-x-hidden" x-data="usersV2Manager()" x-init="init()">
   {* <div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,_#1f293780,_transparent_60%)]"></div> *}
-  <div class="container mx-auto max-w-full px-4 pb-10 pt-6 relative pointer-events-auto">
+  <div class="eb-page-inner relative max-w-full pb-10">
 
-    <!-- Card -->
-    <div class="w-full max-w-full min-w-0 overflow-hidden rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)] px-6 py-6">
-      <div class="-mx-6 -mt-6 mb-6 rounded-t-3xl border-b border-slate-800/80 bg-slate-900/50 px-6 py-3">
-        <nav class="flex flex-wrap items-center gap-1" aria-label="Cloud Storage Navigation">
-          <a href="index.php?m=cloudstorage&page=dashboard"
-             class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 {if $smarty.get.page == 'dashboard' || !$smarty.get.page}bg-white/10 text-white ring-1 ring-white/20{else}text-slate-400 hover:text-white hover:bg-white/5{/if}">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 flex-shrink-0">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M7.5 14.25v2.25m3-4.5v4.5m3-6.75v6.75m3-9v9M6 20.25h12A2.25 2.25 0 0 0 20.25 18V6A2.25 2.25 0 0 0 18 3.75H6A2.25 2.25 0 0 0 3.75 6v12A2.25 2.25 0 0 0 6 20.25Z" />
-            </svg>
-            <span class="text-sm font-medium">Dashboard</span>
-          </a>
-          <a href="index.php?m=cloudstorage&page=buckets"
-             class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 {if $smarty.get.page == 'buckets'}bg-white/10 text-white ring-1 ring-white/20{else}text-slate-400 hover:text-white hover:bg-white/5{/if}">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 flex-shrink-0">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
-            </svg>
-            <span class="text-sm font-medium">Buckets</span>
-          </a>
-          <a href="index.php?m=cloudstorage&page=access_keys"
-             class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 {if $smarty.get.page == 'access_keys'}bg-white/10 text-white ring-1 ring-white/20{else}text-slate-400 hover:text-white hover:bg-white/5{/if}">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 flex-shrink-0">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 5.25a3 3 0 0 1 3 3m3 0a6 6 0 0 1-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1 1 21.75 8.25Z" />
-            </svg>
-            <span class="text-sm font-medium">Access Keys</span>
-          </a>
-          <a href="index.php?m=cloudstorage&page=users"
-             class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 {if $smarty.get.page == 'users'}bg-white/10 text-white ring-1 ring-white/20{else}text-slate-400 hover:text-white hover:bg-white/5{/if}">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 flex-shrink-0">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 0 1 8.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0 1 11.964-3.07M12 6.375a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0Zm8.25 2.25a2.625 2.625 0 1 1-5.25 0 2.625 2.625 0 0 1 5.25 0Z" />
-            </svg>
-            <span class="text-sm font-medium">Users</span>
-          </a>
-          <a href="index.php?m=cloudstorage&page=billing"
-             class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 {if $smarty.get.page == 'billing'}bg-white/10 text-white ring-1 ring-white/20{else}text-slate-400 hover:text-white hover:bg-white/5{/if}">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 flex-shrink-0">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
-            </svg>
-            <span class="text-sm font-medium">Billing</span>
-          </a>
-          <a href="index.php?m=cloudstorage&page=history"
-             class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 {if $smarty.get.page == 'history'}bg-white/10 text-white ring-1 ring-white/20{else}text-slate-400 hover:text-white hover:bg-white/5{/if}">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 flex-shrink-0">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6l4 2m5-2a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
-            </svg>
-            <span class="text-sm font-medium">Historical Stats</span>
-          </a>
-        </nav>
+    <div class="eb-panel">
+      <div class="eb-panel-nav">
+        {include file="modules/addons/cloudstorage/templates/partials/core_nav.tpl" cloudstorageActivePage='users'}
       </div>
 
-      <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 gap-4">
-        <div class="flex items-center">
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6 mr-2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 0 1 8.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0 1 11.964-3.07M12 6.375a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0Zm8.25 2.25a2.625 2.625 0 1 1-5.25 0 2.625 2.625 0 0 1 5.25 0Z" />
-          </svg>
-          <h1 class="text-2xl font-semibold text-white">Users</h1>
-          <span class="ml-3 px-2 py-1 bg-slate-700 text-slate-300 text-sm rounded" x-text="filteredUsers.length + ' users'"></span>
+      <div class="eb-page-header">
+        <div class="flex min-w-0 flex-1 flex-wrap items-center gap-3">
+          <span class="eb-icon-box eb-icon-box--sm eb-icon-box--orange shrink-0" aria-hidden="true">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-5 w-5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 0 1 8.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0 1 11.964-3.07M12 6.375a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0Zm8.25 2.25a2.625 2.625 0 1 1-5.25 0 2.625 2.625 0 0 1 5.25 0Z" />
+            </svg>
+          </span>
+          <div class="min-w-0">
+            <h1 class="eb-page-title">Users</h1>
+          </div>
+          <span class="eb-badge eb-badge--neutral shrink-0" x-text="filteredUsers.length + ' users'"></span>
         </div>
 
-        <div class="flex flex-col sm:flex-row gap-3 w-full lg:w-auto min-w-0">
-          <div class="relative">
-            <input type="text" x-model="searchTerm" placeholder="Search users..."
-                   class="bg-slate-800 text-gray-300 placeholder-slate-400 focus:ring-sky-500 focus:border-sky-500 block w-full sm:w-48 lg:w-64 px-4 py-2 border border-slate-600 rounded-md focus:outline-none">
-            <svg class="absolute right-3 top-2.5 h-5 w-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
-            </svg>
+        <form class="contents" autocomplete="off" onsubmit="return false;" aria-label="User list actions">
+          <div class="flex w-full min-w-0 flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center lg:w-auto">
+          <div class="eb-input-wrap w-full sm:w-48 lg:w-64">
+            <div class="eb-input-icon">
+              <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+              </svg>
+            </div>
+            <input id="users-v2-search-filter"
+                   type="search"
+                   name="cloudstorage_users_filter"
+                   autocomplete="search"
+                   autocorrect="off"
+                   autocapitalize="off"
+                   spellcheck="false"
+                   x-model="searchTerm"
+                   placeholder="Search users..."
+                   class="eb-input eb-input-has-icon w-full">
           </div>
 
-          <button @click="openDeleteSelectedUsers()"
+          <button type="button" @click="openDeleteSelectedUsers()"
                   :disabled="!canDeleteSelectedUsers"
-                  class="px-4 py-2 rounded-md bg-slate-900 border border-slate-700 hover:bg-slate-800/60 text-slate-100 text-sm font-semibold inline-flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap">
+                  class="eb-btn eb-btn-secondary eb-btn-sm whitespace-nowrap disabled:cursor-not-allowed">
             Delete
           </button>
 
-          <button @click="openCreateUser()"
-                  class="px-4 py-2 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold inline-flex items-center gap-2 whitespace-nowrap">
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <button type="button" @click="openCreateUser()" class="eb-btn eb-btn-success eb-btn-sm inline-flex items-center gap-2 whitespace-nowrap">
+            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
             </svg>
             Create User
           </button>
         </div>
+        </form>
       </div>
 
-      <!-- Users Table (styled like Agents table) -->
-      <div class="overflow-x-auto rounded-lg border border-slate-800">
-        <table class="min-w-full divide-y divide-slate-800 text-sm">
-          <thead class="bg-slate-900/80 text-slate-300">
-            <tr>
-              <th class="px-4 py-3 text-left font-medium w-10" @click.stop>
-                <input type="checkbox" class="text-sky-600" :checked="allSelectableChecked" @change="toggleSelectAll($event)">
-              </th>
-              <th class="px-4 py-3 text-left font-medium">Username</th>
-              <th class="px-4 py-3 text-left font-medium">Account ID</th>
-              <th class="px-4 py-3 text-left font-medium">Buckets</th>
-              <th class="px-4 py-3 text-left font-medium">Storage</th>
-              <th class="px-4 py-3 text-left font-medium">Access keys</th>
-              <th class="px-4 py-3 text-right font-medium">Actions</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-slate-800">
-            <template x-for="u in filteredUsers" :key="u.username">
-              <tr class="hover:bg-slate-800/50 cursor-pointer" @click="openUser(u)">
-                <td class="px-4 py-3" @click.stop>
-                  <input type="checkbox"
-                         class="text-sky-600"
-                         :disabled="(u.total_buckets || 0) > 0 || u.is_root || u.manage_locked"
-                         :checked="selectedUsernames.includes(u.username)"
-                         @change="toggleUserSelection(u, $event)">
-                </td>
-                <td class="px-4 py-3 text-slate-200">
-                  <div class="flex items-center gap-2">
-                    <span x-text="u.display_name || u.username"></span>
-                    <span x-show="u.is_system_managed" x-cloak class="inline-flex items-center rounded-full bg-indigo-900/40 text-indigo-300 text-[11px] px-2 py-0.5 border border-indigo-700/40">
-                      System Managed
-                    </span>
+      <div class="eb-table-shell">
+        <div class="overflow-x-auto">
+          <table class="eb-table min-w-full">
+            <thead>
+              <tr>
+                <th class="w-10" @click.stop>
+                  <input type="checkbox" class="eb-check-input" :checked="allSelectableChecked" @change="toggleSelectAll($event)">
+                </th>
+                <th>Username</th>
+                <th>Account ID</th>
+                <th>Buckets</th>
+                <th>Storage</th>
+                <th>Access keys</th>
+                <th class="text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="u in filteredUsers" :key="u.username">
+                <tr class="cursor-pointer" @click="openUser(u)">
+                  <td @click.stop>
+                    <input type="checkbox"
+                           class="eb-check-input"
+                           :disabled="(u.total_buckets || 0) > 0 || u.is_root || u.manage_locked"
+                           :checked="selectedUsernames.includes(u.username)"
+                           @change="toggleUserSelection(u, $event)">
+                  </td>
+                  <td class="eb-table-primary">
+                    <span x-text="publicUserLabel(u)"></span>
+                  </td>
+                  <td><span class="eb-table-mono" x-text="publicAccountIdText(u)"></span></td>
+                  <td x-text="u.total_buckets || 0"></td>
+                  <td x-html="u.total_storage || '0 B'"></td>
+                  <td x-text="(u.access_keys || []).length"></td>
+                  <td class="text-right" @click.stop>
+                    <template x-if="!u.manage_locked">
+                      <button type="button" class="eb-link text-sm" @click="openUser(u)">Manage</button>
+                    </template>
+                    <template x-if="u.manage_locked">
+                      <span class="eb-type-disabled text-xs">Locked</span>
+                    </template>
+                  </td>
+                </tr>
+              </template>
+              <tr x-show="filteredUsers.length === 0" x-cloak>
+                <td colspan="7" class="!p-0">
+                  <div class="eb-app-empty">
+                    <div class="eb-app-empty-title">No users found</div>
+                    <p class="eb-app-empty-copy">Try another search or create a user to get started.</p>
                   </div>
                 </td>
-                <td class="px-4 py-3">
-                  <span class="font-mono text-slate-200" x-text="u.tenant_id ? String(u.tenant_id) : '—'"></span>
-                </td>
-                <td class="px-4 py-3 text-slate-200" x-text="u.total_buckets || 0"></td>
-                <td class="px-4 py-3 text-slate-200" x-html="u.total_storage || '0 B'"></td>
-                <td class="px-4 py-3 text-slate-200" x-text="(u.access_keys || []).length"></td>
-                <td class="px-4 py-3 text-right" @click.stop>
-                  <template x-if="!u.manage_locked">
-                    <button class="text-sky-400 hover:underline" @click="openUser(u)">Manage</button>
-                  </template>
-                  <template x-if="u.manage_locked">
-                    <span class="text-slate-500 text-xs">Locked</span>
-                  </template>
-                </td>
               </tr>
-            </template>
-            <tr x-show="filteredUsers.length === 0" x-cloak>
-              <td colspan="7" class="px-4 py-8 text-center text-slate-400">No users found.</td>
-            </tr>
-          </tbody>
-        </table>
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   </div>
 
-  <!-- Toast (visible above modals) -->
-  <div class="fixed top-4 right-4 z-[9999]" x-cloak>
+  <div class="pointer-events-none fixed right-4 top-4 z-[9999]" x-cloak>
     <div x-show="toast.visible" x-transition
-         class="rounded-md px-4 py-3 text-white shadow-lg min-w-[260px]"
+         class="pointer-events-auto eb-toast min-w-[260px]"
          :class="{
-            'bg-green-600': toast.type==='success',
-            'bg-red-600': toast.type==='error',
-            'bg-blue-600': toast.type==='info'
+            'eb-toast--success': toast.type==='success',
+            'eb-toast--danger': toast.type==='error',
+            'eb-toast--info': toast.type==='info'
          }">
-      <div class="flex items-start justify-between">
-        <div class="pr-2" x-text="toast.message"></div>
-        <button type="button" class="ml-2 text-white/80 hover:text-white" @click="toast.visible=false" aria-label="Close">
-          <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
-          </svg>
-        </button>
-      </div>
+      <span class="min-w-0 flex-1" x-text="toast.message"></span>
+      <button type="button" class="eb-btn eb-btn-ghost eb-btn-xs shrink-0 !px-2 !py-1" @click="toast.visible=false" aria-label="Close">
+        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+        </svg>
+      </button>
     </div>
   </div>
 
-  <!-- Right-side panel: User details -->
-  <div x-show="panel.open" x-cloak class="fixed inset-0 z-50">
-    <div class="absolute inset-0 bg-black/70" @click="closeUser()"></div>
-    <div class="absolute right-0 top-0 h-full w-full max-w-3xl bg-slate-950 border-l border-slate-800/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)] overflow-y-auto">
-      <div class="flex items-center justify-between p-4 border-b border-slate-800">
+  <div x-show="panel.open" x-cloak class="fixed inset-0 z-50 flex justify-end">
+    <div class="eb-drawer-backdrop fixed inset-0" @click="closeUser()" aria-hidden="true"></div>
+    <div class="eb-drawer eb-drawer--panel relative z-10 h-full w-full !max-w-3xl overflow-y-auto">
+      <div class="eb-drawer-header">
         <div class="min-w-0">
-          <div class="text-white font-semibold text-lg truncate" x-text="panel.user?.display_name || panel.user?.username || 'User'"></div>
-          <div class="text-xs text-slate-400 mt-1">
-            <span class="text-slate-500">Account ID:</span>
-            <span class="font-mono text-slate-200" x-text="panel.user?.tenant_id ? String(panel.user.tenant_id) : '—'"></span>
-          </div>
-          <div x-show="panel.user?.is_system_managed" x-cloak class="mt-2">
-            <span class="inline-flex items-center rounded-full bg-indigo-900/40 text-indigo-300 text-[11px] px-2 py-0.5 border border-indigo-700/40">System Managed</span>
+          <h2 class="eb-drawer-title truncate" x-text="panel.user ? publicUserLabel(panel.user) : 'User'"></h2>
+          <div class="eb-user-meta-line mt-1" x-show="panel.user && !isRootStorageUser(panel.user)" x-cloak>
+            <span>Account ID</span>
+            <span class="eb-table-mono" x-text="publicAccountIdText(panel.user)"></span>
           </div>
         </div>
-        <button class="text-slate-300 hover:text-white" @click="closeUser()">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <button type="button" class="eb-modal-close shrink-0" @click="closeUser()" aria-label="Close">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
           </svg>
         </button>
       </div>
 
-      <div class="p-4 space-y-4">
-        <!-- Summary -->
-        <div class="rounded-2xl border border-slate-800 bg-slate-900/40 p-4">
-          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      <div class="eb-drawer-body space-y-4">
+        <div class="eb-subpanel !p-4">
+          <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <div>
-              <div class="text-xs text-slate-500">Buckets</div>
-              <div class="text-sm text-slate-100" x-text="panel.user?.total_buckets || 0"></div>
+              <div class="eb-type-caption">Buckets</div>
+              <div class="eb-type-body mt-0.5" x-text="panel.user?.total_buckets || 0"></div>
             </div>
             <div>
-              <div class="text-xs text-slate-500">Storage</div>
-              <div class="text-sm text-slate-100" x-html="panel.user?.total_storage || '0 B'"></div>
+              <div class="eb-type-caption">Storage</div>
+              <div class="eb-type-body mt-0.5" x-html="panel.user?.total_storage || '0 B'"></div>
             </div>
             <div>
-              <div class="text-xs text-slate-500">Access keys</div>
-              <div class="text-sm text-slate-100" x-text="(panel.user?.access_keys || []).length"></div>
+              <div class="eb-type-caption">Access keys</div>
+              <div class="eb-type-body mt-0.5" x-text="(panel.user?.access_keys || []).length"></div>
             </div>
           </div>
         </div>
 
-        <!-- Access keys card -->
-        <div class="rounded-2xl border border-slate-800 bg-slate-900/40 p-4">
-          <div class="flex items-center justify-between mb-3">
-            <h3 class="text-sm font-semibold text-white">Access keys</h3>
-            <button class="text-xs bg-sky-600 hover:bg-sky-700 text-white px-3 py-2 rounded-md"
+        <div class="eb-subpanel !p-4">
+          <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <h3 class="eb-type-h4">Access keys</h3>
+            <button type="button" class="eb-btn eb-btn-primary eb-btn-xs"
                     :disabled="panel.user?.manage_locked"
-                    :class="{ 'opacity-50 cursor-not-allowed': panel.user?.manage_locked }"
+                    :class="{ 'pointer-events-none opacity-50': panel.user?.manage_locked }"
                     @click="openCreateKey(panel.user)"
                     x-text="panel.user?.is_root ? (panel.user?.has_root_key ? 'Rotate access key' : 'Create access key') : '+ Create access key'">
             </button>
           </div>
 
           <div x-show="panel.user?.is_root" x-cloak>
-            <div class="overflow-x-auto">
-              <table class="min-w-full divide-y divide-slate-800">
-                <thead class="text-xs text-slate-400">
-                  <tr>
-                    <th class="py-2 pr-4 text-left">Key</th>
-                    <th class="py-2 pr-4 text-left">Created</th>
-                  </tr>
-                </thead>
-                <tbody class="divide-y divide-slate-800 text-sm">
-                  <tr>
-                    <td class="py-2 pr-4 font-mono text-slate-200" x-text="panel.user?.root_access_key_hint || '—'"></td>
-                    <td class="py-2 pr-4 text-slate-400" x-text="formatDate(panel.user?.root_access_key_created_at)"></td>
-                  </tr>
-                </tbody>
-              </table>
+            <div class="eb-table-shell">
+              <div class="overflow-x-auto">
+                <table class="eb-table min-w-full">
+                  <thead>
+                    <tr>
+                      <th>Key</th>
+                      <th>Created</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td class="eb-table-mono" x-text="panel.user?.root_access_key_hint || '—'"></td>
+                      <td class="eb-type-caption" x-text="formatDate(panel.user?.root_access_key_created_at)"></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
             </div>
-            <div class="mt-3 text-xs text-slate-400">
-              For security, the secret key is shown <span class="text-slate-200 font-semibold">only once</span> when you rotate the key.
-            </div>
+            <p class="eb-field-help mt-3">For security, the secret key is shown <span class="eb-meta-strong">only once</span> when you rotate the key.</p>
           </div>
 
           <div x-show="!panel.user?.is_root" x-cloak>
-            <div class="overflow-x-auto">
-              <table class="min-w-full divide-y divide-slate-800">
-                <thead class="text-xs text-slate-400">
-                  <tr>
-                    <th class="py-2 pr-4 text-left">Key</th>
-                    <th class="py-2 pr-4 text-left">Description</th>
-                    <th class="py-2 pr-4 text-left">Permission</th>
-                    <th class="py-2 pr-4 text-left">Created</th>
-                    <th class="py-2 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody class="divide-y divide-slate-800 text-sm">
-                  <template x-for="k in (panel.user?.access_keys || [])" :key="k.key_id">
+            <div class="eb-table-shell">
+              <div class="overflow-x-auto">
+                <table class="eb-table min-w-full">
+                  <thead>
                     <tr>
-                      <td class="py-2 pr-4 font-mono text-slate-200" x-text="k.access_key_hint || '—'"></td>
-                      <td class="py-2 pr-4 text-slate-200" x-text="k.description || '—'"></td>
-                      <td class="py-2 pr-4 text-slate-200" x-text="permissionLabel(k.permission)"></td>
-                      <td class="py-2 pr-4 text-slate-400" x-text="formatDate(k.created_at)"></td>
-                      <td class="py-2 text-right">
-                        <button class="text-rose-400 hover:text-rose-300 text-sm"
-                                :disabled="panel.user?.manage_locked"
-                                :class="{ 'opacity-50 cursor-not-allowed hover:text-rose-400': panel.user?.manage_locked }"
-                                @click="confirmDeleteKey(panel.user, k)">
-                          Delete
-                        </button>
+                      <th>Key</th>
+                      <th>Description</th>
+                      <th>Permission</th>
+                      <th>Created</th>
+                      <th class="text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <template x-for="k in (panel.user?.access_keys || [])" :key="k.key_id">
+                      <tr>
+                        <td class="eb-table-mono" x-text="k.access_key_hint || '—'"></td>
+                        <td x-text="k.description || '—'"></td>
+                        <td x-text="permissionLabel(k.permission)"></td>
+                        <td class="eb-type-caption" x-text="formatDate(k.created_at)"></td>
+                        <td class="text-right">
+                          <button type="button" class="eb-btn eb-btn-danger eb-btn-xs"
+                                  :disabled="panel.user?.manage_locked"
+                                  :class="{ 'pointer-events-none opacity-50': panel.user?.manage_locked }"
+                                  @click="confirmDeleteKey(panel.user, k)">
+                            Delete
+                          </button>
+                        </td>
+                      </tr>
+                    </template>
+                    <tr x-show="(panel.user?.access_keys || []).length === 0" x-cloak>
+                      <td colspan="5" class="!p-0">
+                        <div class="eb-app-empty !py-6">
+                          <p class="eb-app-empty-copy">No access keys yet.</p>
+                        </div>
                       </td>
                     </tr>
-                  </template>
-                  <tr x-show="(panel.user?.access_keys || []).length === 0" x-cloak>
-                    <td colspan="5" class="py-4 text-center text-slate-400 text-sm">No access keys yet.</td>
-                  </tr>
-                </tbody>
-              </table>
+                  </tbody>
+                </table>
+              </div>
             </div>
-
-            <div class="mt-3 text-xs text-slate-400">
-              For security, the secret key is shown <span class="text-slate-200 font-semibold">only once</span> when you create a key.
-            </div>
+            <p class="eb-field-help mt-3">For security, the secret key is shown <span class="eb-meta-strong">only once</span> when you create a key.</p>
           </div>
         </div>
       </div>
     </div>
   </div>
 
-  <!-- Create User modal -->
-  <div x-show="modals.createUser" x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-black/75">
-    <div class="w-full max-w-lg rounded-2xl border border-slate-800 bg-slate-950 p-6" @click.away="modals.createUser = false">
-      <div class="flex items-center justify-between mb-4">
-        <h3 class="text-lg font-semibold text-white">Create User</h3>
-        <button class="text-slate-300 hover:text-white" @click="modals.createUser = false">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        </button>
-      </div>
-      <div class="space-y-3">
+  <div x-show="modals.createUser" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div class="eb-modal-backdrop fixed inset-0" @click="modals.createUser = false" aria-hidden="true"></div>
+    <div class="eb-modal relative z-10 w-full max-w-lg" role="dialog" aria-modal="true" aria-labelledby="users-v2-create-user-title" @click.away="modals.createUser = false">
+      <div class="eb-modal-header">
         <div>
-          <label class="block text-sm text-slate-300 mb-1">Username</label>
-          <input type="text" x-model="createUserForm.username" placeholder="e.g., acme-corp"
-                 class="w-full bg-slate-900 border border-slate-700 text-slate-200 rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-sky-500">
-          <div class="text-xs text-slate-500 mt-1">This is the user identifier shown in your dashboard.</div>
+          <h2 id="users-v2-create-user-title" class="eb-modal-title">Create User</h2>
+        </div>
+        <button type="button" class="eb-modal-close" @click="modals.createUser = false" aria-label="Close">&times;</button>
+      </div>
+      <div class="eb-modal-body">
+        <div>
+          <label class="eb-field-label" for="users-v2-create-username">Username</label>
+          <input id="users-v2-create-username" type="text" name="cloudstorage_new_user_id" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" x-model="createUserForm.username" placeholder="e.g., acme-corp" class="eb-input w-full">
+          <p class="eb-field-help">This is the user identifier shown in your dashboard.</p>
         </div>
       </div>
-      <div class="flex justify-end gap-2 mt-6">
-        <button class="bg-slate-800 hover:bg-slate-700 text-slate-200 px-4 py-2 rounded-md" @click="modals.createUser = false">Cancel</button>
-        <button class="px-4 py-2 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold inline-flex items-center gap-2" @click="submitCreateUser()">Create</button>
+      <div class="eb-modal-footer">
+        <button type="button" class="eb-btn eb-btn-secondary eb-btn-sm" @click="modals.createUser = false">Cancel</button>
+        <button type="button" class="eb-btn eb-btn-success eb-btn-sm" @click="submitCreateUser()">Create</button>
       </div>
     </div>
   </div>
 
-  <!-- Create Access Key modal -->
-  <div x-show="modals.createKey" x-cloak class="fixed inset-0 z-50 flex items-center justify-center">
-    <div class="w-full max-w-xl rounded-2xl border border-slate-800 bg-slate-950 p-6" @click.away="modals.createKey = false">
-      <div class="flex items-center justify-between mb-4">
-        <h3 class="text-lg font-semibold text-white">Create access key</h3>
-        <button class="text-slate-300 hover:text-white" @click="modals.createKey = false">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        </button>
+  <div x-show="modals.createKey" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div class="eb-modal-backdrop fixed inset-0" @click="modals.createKey = false" aria-hidden="true"></div>
+    <div class="eb-modal relative z-10 w-full max-w-xl" role="dialog" aria-modal="true" aria-labelledby="users-v2-create-key-title" @click.away="modals.createKey = false">
+      <div class="eb-modal-header">
+        <div>
+          <h2 id="users-v2-create-key-title" class="eb-modal-title">Create access key</h2>
+        </div>
+        <button type="button" class="eb-modal-close" @click="modals.createKey = false" aria-label="Close">&times;</button>
       </div>
-
-      <div class="space-y-4">
-        <div class="text-sm text-slate-300">
-          Creating a new key will show the secret key <span class="text-slate-100 font-semibold">once</span>. Save it securely.
+      <div class="eb-modal-body space-y-4">
+        <p class="eb-type-body">Creating a new key will show the secret key <span class="eb-meta-strong">once</span>. Save it securely.</p>
+        <div>
+          <label class="eb-field-label" for="users-v2-key-description">Description</label>
+          <input id="users-v2-key-description" type="text" name="cloudstorage_key_description" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" x-model="createKeyForm.description" placeholder="e.g., backup server" class="eb-input w-full">
         </div>
         <div>
-          <label class="block text-sm text-slate-300 mb-1">Description</label>
-          <input type="text" x-model="createKeyForm.description" placeholder="e.g., backup server"
-                 class="w-full bg-slate-900 border border-slate-700 text-slate-200 rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-sky-500">
-        </div>
-        <div>
-          <label class="block text-sm text-slate-300 mb-1">Permission</label>
-          <div class="relative" x-data="{ open:false }">
-            <button type="button"
-                    class="w-full bg-slate-900 border border-slate-700 text-slate-200 rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-sky-500 flex items-center justify-between"
+          <span class="eb-field-label">Permission</span>
+          <div class="relative mt-1" x-data="{ open:false }">
+            <button type="button" class="eb-menu-trigger"
                     @click="open=!open">
               <span x-text="permissionLabel(createKeyForm.permission)"></span>
-              <svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg class="h-4 w-4 shrink-0 opacity-70" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
               </svg>
             </button>
             <div x-show="open" x-cloak @click.away="open=false"
-                 class="absolute z-50 mt-2 w-full rounded-md bg-slate-900 border border-slate-700 shadow-lg overflow-hidden">
-              <button type="button" class="w-full text-left px-3 py-2 hover:bg-slate-800/60"
+                 class="eb-dropdown-menu absolute z-50 mt-2 w-full overflow-hidden p-1">
+              <button type="button" class="eb-menu-item !h-auto w-full !flex-col !items-start !gap-1 !py-2 text-left"
                       @click="createKeyForm.permission='full'; open=false">
-                <div class="flex flex-col">
-                  <span class="text-sm font-medium text-slate-100">Full</span>
-                  <span class="text-xs text-slate-400 mt-0.5">Read + write + list + manage buckets.</span>
-                </div>
+                <span class="eb-type-body">Full</span>
+                <span class="eb-type-caption mt-0.5">Read + write + list + manage buckets.</span>
               </button>
-              <button type="button" class="w-full text-left px-3 py-2 hover:bg-slate-800/60"
+              <button type="button" class="eb-menu-item !h-auto w-full !flex-col !items-start !gap-1 !py-2 text-left"
                       @click="createKeyForm.permission='read'; open=false">
-                <div class="flex flex-col">
-                  <span class="text-sm font-medium text-slate-100">Read</span>
-                  <span class="text-xs text-slate-400 mt-0.5">Download and list objects.</span>
-                </div>
+                <span class="eb-type-body">Read</span>
+                <span class="eb-type-caption mt-0.5">Download and list objects.</span>
               </button>
-              <button type="button" class="w-full text-left px-3 py-2 hover:bg-slate-800/60"
+              <button type="button" class="eb-menu-item !h-auto w-full !flex-col !items-start !gap-1 !py-2 text-left"
                       @click="createKeyForm.permission='write'; open=false">
-                <div class="flex flex-col">
-                  <span class="text-sm font-medium text-slate-100">Write</span>
-                  <span class="text-xs text-slate-400 mt-0.5">Upload objects.</span>
-                </div>
+                <span class="eb-type-body">Write</span>
+                <span class="eb-type-caption mt-0.5">Upload objects.</span>
               </button>
-              <button type="button" class="w-full text-left px-3 py-2 hover:bg-slate-800/60"
+              <button type="button" class="eb-menu-item !h-auto w-full !flex-col !items-start !gap-1 !py-2 text-left"
                       @click="createKeyForm.permission='readwrite'; open=false">
-                <div class="flex flex-col">
-                  <span class="text-sm font-medium text-slate-100">Read/Write</span>
-                  <span class="text-xs text-slate-400 mt-0.5">Upload + download + list objects.</span>
-                </div>
+                <span class="eb-type-body">Read/Write</span>
+                <span class="eb-type-caption mt-0.5">Upload + download + list objects.</span>
               </button>
             </div>
           </div>
         </div>
       </div>
-
-      <div class="flex justify-end gap-2 mt-6">
-        <button class="bg-slate-800 hover:bg-slate-700 text-slate-200 px-4 py-2 rounded-md" @click="modals.createKey = false">Cancel</button>
-        <button class="bg-sky-600 hover:bg-sky-700 text-white px-4 py-2 rounded-md" @click="submitCreateKey()">Create key</button>
+      <div class="eb-modal-footer">
+        <button type="button" class="eb-btn eb-btn-secondary eb-btn-sm" @click="modals.createKey = false">Cancel</button>
+        <button type="button" class="eb-btn eb-btn-primary eb-btn-sm" @click="submitCreateKey()">Create key</button>
       </div>
     </div>
   </div>
 
-  <!-- Show new key modal (one-time) -->
-  <div x-show="modals.showKey" x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-black/75">
-    <div class="w-full max-w-2xl rounded-2xl border border-slate-800 bg-slate-950 p-6" @click.away="modals.showKey = false">
-      <div class="flex items-center justify-between mb-4">
-        <h3 class="text-lg font-semibold text-white">Save your access key</h3>
-        <button class="text-slate-300 hover:text-white" @click="modals.showKey = false">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        </button>
-      </div>
-
-      <div class="rounded-xl border border-amber-700/60 bg-amber-900/10 p-3 text-amber-200 text-sm mb-4">
-        This is the <strong>only</strong> time you can view the secret key. Store it securely.
-      </div>
-
-      <div class="space-y-3">
+  <div x-show="modals.showKey" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div class="eb-modal-backdrop fixed inset-0" @click="modals.showKey = false" aria-hidden="true"></div>
+    <div class="eb-modal relative z-10 w-full max-w-2xl" role="dialog" aria-modal="true" aria-labelledby="users-v2-show-key-title" @click.away="modals.showKey = false">
+      <div class="eb-modal-header">
         <div>
-          <label class="block text-xs text-slate-400 mb-1">Access key</label>
-          <div class="flex gap-2">
-            <input type="text" readonly :value="newKey.access_key"
-                   class="w-full rounded-md bg-slate-900 border border-gray-600 rounded-md shadow-sm cursor-default px-3 py-2 focus:outline-none focus:ring-1 focus:ring-sky-500 focus:border-sky-500 text-sm text-slate-200 font-mono">
-            <button class="bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-2 rounded-md text-sm"
-                    @click="copyText(newKey.access_key)">Copy</button>
+          <h2 id="users-v2-show-key-title" class="eb-modal-title">Save your access key</h2>
+        </div>
+        <button type="button" class="eb-modal-close" @click="modals.showKey = false" aria-label="Close">&times;</button>
+      </div>
+      <div class="eb-modal-body space-y-4">
+        <div class="eb-alert eb-alert--warning" role="status">
+          <svg class="eb-alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z" />
+          </svg>
+          <div>
+            <div class="eb-alert-title">One-time display</div>
+            <p>This is the <strong>only</strong> time you can view the secret key. Store it securely.</p>
           </div>
         </div>
         <div>
-          <label class="block text-xs text-slate-400 mb-1">Secret key</label>
-          <div class="flex gap-2">
-            <input type="text" readonly :value="newKey.secret_key"
-                   class="w-full rounded-md bg-slate-900 border border-gray-600 rounded-md shadow-sm cursor-default px-3 py-2 focus:outline-none focus:ring-1 focus:ring-sky-500 focus:border-sky-500 text-sm text-slate-200 font-mono">
-            <button class="bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-2 rounded-md text-sm"
-                    @click="copyText(newKey.secret_key)">Copy</button>
+          <label class="eb-field-label" for="users-v2-new-access-key">Access key</label>
+          <div class="flex flex-wrap gap-2">
+            <input id="users-v2-new-access-key" type="text" name="cloudstorage_display_access_key" autocomplete="off" readonly :value="newKey.access_key" class="eb-input eb-type-mono min-w-0 flex-1 cursor-default">
+            <button type="button" class="eb-btn eb-btn-copy eb-btn-sm shrink-0" @click="copyText(newKey.access_key)">Copy</button>
+          </div>
+        </div>
+        <div>
+          <label class="eb-field-label" for="users-v2-new-secret-key">Secret key</label>
+          <div class="flex flex-wrap gap-2">
+            <input id="users-v2-new-secret-key" type="text" name="cloudstorage_display_secret_key" autocomplete="off" readonly :value="newKey.secret_key" class="eb-input eb-type-mono min-w-0 flex-1 cursor-default">
+            <button type="button" class="eb-btn eb-btn-copy eb-btn-sm shrink-0" @click="copyText(newKey.secret_key)">Copy</button>
           </div>
         </div>
       </div>
-
-      <div class="flex justify-end mt-6">
-        <button class="bg-sky-600 hover:bg-sky-700 text-white px-4 py-2 rounded-md" @click="modals.showKey = false">Done</button>
+      <div class="eb-modal-footer">
+        <button type="button" class="eb-btn eb-btn-primary eb-btn-sm" @click="modals.showKey = false">Done</button>
       </div>
     </div>
   </div>
 
-  <!-- Password modal -->
-  <div x-show="modals.password" x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-black/75">
-    <div class="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-950 p-6" @click.away="modals.password = false">
-      <div class="flex items-center justify-between mb-4">
-        <h3 class="text-lg font-semibold text-white">Verify password</h3>
-        <button class="text-slate-300 hover:text-white" @click="modals.password = false">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+  <div x-show="modals.password" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div class="eb-modal-backdrop fixed inset-0" @click="modals.password = false" aria-hidden="true"></div>
+    <div class="eb-modal relative z-10 w-full max-w-md" role="dialog" aria-modal="true" aria-labelledby="users-v2-password-title" @click.away="modals.password = false">
+      <div class="eb-modal-header">
+        <div>
+          <h2 id="users-v2-password-title" class="eb-modal-title">Verify password</h2>
+        </div>
+        <button type="button" class="eb-modal-close" @click="modals.password = false" aria-label="Close">&times;</button>
+      </div>
+      <div class="eb-modal-body">
+        <p class="eb-type-body mb-3">Enter your account password to continue.</p>
+        <div x-show="passwordError" x-cloak class="eb-alert eb-alert--danger mb-3" role="alert">
+          <svg class="eb-alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z" />
           </svg>
-        </button>
+          <div x-text="passwordError"></div>
+        </div>
+        <label class="eb-field-label" for="users-v2-account-pw">Account password</label>
+        <input id="users-v2-account-pw" type="password" name="cloudstorage_account_verify_pw" autocomplete="current-password" x-model="passwordForm.password" placeholder="Account password" class="eb-input w-full">
       </div>
-      <div class="text-sm text-slate-300 mb-3">Enter your account password to continue.</div>
-      <div x-show="passwordError" x-cloak class="bg-rose-600 text-white px-3 py-2 rounded mb-3 text-sm" x-text="passwordError"></div>
-      <input type="password" x-model="passwordForm.password" placeholder="Account password"
-             class="w-full bg-slate-900 border border-slate-700 text-slate-200 rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-sky-500">
-      <div class="flex justify-end gap-2 mt-4">
-        <button class="bg-slate-800 hover:bg-slate-700 text-slate-200 px-4 py-2 rounded-md" @click="modals.password = false">Cancel</button>
-        <button class="bg-sky-600 hover:bg-sky-700 text-white px-4 py-2 rounded-md" @click="submitPassword()">Verify</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Confirm delete key modal -->
-  <div x-show="modals.confirmDelete" x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-black/75">
-    <div class="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-950 p-6" @click.away="modals.confirmDelete = false">
-      <div class="flex items-center gap-3 mb-3">
-        <svg class="w-6 h-6 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4.5c-.77-.833-2.694-.833-3.464 0L3.35 16.5c-.77.833.192 2.5 1.732 2.5z"></path>
-        </svg>
-        <h3 class="text-lg font-semibold text-white">Delete access key</h3>
-      </div>
-      <div class="text-sm text-slate-300">
-        Delete key <span class="font-mono text-slate-100" x-text="deleteTarget.key?.access_key_hint || ''"></span>?
-        This may break apps using it.
-      </div>
-      <div class="flex justify-end gap-2 mt-5">
-        <button class="bg-slate-800 hover:bg-slate-700 text-slate-200 px-4 py-2 rounded-md" @click="modals.confirmDelete = false">Cancel</button>
-        <button class="bg-rose-600 hover:bg-rose-700 text-white px-4 py-2 rounded-md" @click="requestDeleteKey()">Delete</button>
+      <div class="eb-modal-footer">
+        <button type="button" class="eb-btn eb-btn-secondary eb-btn-sm" @click="modals.password = false">Cancel</button>
+        <button type="button" class="eb-btn eb-btn-primary eb-btn-sm" @click="submitPassword()">Verify</button>
       </div>
     </div>
   </div>
 
-  <!-- Confirm delete users modal -->
-  <div x-show="modals.confirmDeleteUsers" x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-black/75">
-    <div class="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-950 p-6" @click.away="modals.confirmDeleteUsers = false">
-      <div class="flex items-center gap-3 mb-3">
-        <svg class="w-6 h-6 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4.5c-.77-.833-2.694-.833-3.464 0L3.35 16.5c-.77.833.192 2.5 1.732 2.5z"></path>
-        </svg>
-        <h3 class="text-lg font-semibold text-white">Delete users</h3>
+  <div x-show="modals.confirmDelete" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div class="eb-modal-backdrop fixed inset-0" @click="modals.confirmDelete = false" aria-hidden="true"></div>
+    <div class="eb-modal eb-modal--confirm relative z-10 w-full" role="dialog" aria-modal="true" aria-labelledby="users-v2-confirm-delete-key-title" @click.away="modals.confirmDelete = false">
+      <div class="eb-modal-header">
+        <div class="flex min-w-0 items-start gap-3">
+          <span class="eb-icon-box eb-icon-box--sm eb-icon-box--orange shrink-0" aria-hidden="true">
+            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4.5c-.77-.833-2.694-.833-3.464 0L3.35 16.5c-.77.833.192 2.5 1.732 2.5z"></path>
+            </svg>
+          </span>
+          <h2 id="users-v2-confirm-delete-key-title" class="eb-modal-title">Delete access key</h2>
+        </div>
+        <button type="button" class="eb-modal-close" @click="modals.confirmDelete = false" aria-label="Close">&times;</button>
       </div>
-      <div class="text-sm text-slate-300">
-        Delete <span class="text-slate-100 font-semibold" x-text="selectedUsernames.length"></span> selected users?
-        This cannot be undone.
+      <div class="eb-modal-body">
+        <p class="eb-type-body">
+          Delete key <span class="eb-table-mono" x-text="deleteTarget.key?.access_key_hint || ''"></span>?
+          This may break apps using it.
+        </p>
       </div>
-      
-      <div class="flex justify-end gap-2 mt-5">
-        <button class="bg-slate-800 hover:bg-slate-700 text-slate-200 px-4 py-2 rounded-md" @click="modals.confirmDeleteUsers = false">Cancel</button>
-        <button class="bg-rose-600 hover:bg-rose-700 text-white px-4 py-2 rounded-md" @click="requestDeleteSelectedUsers()">Delete</button>
+      <div class="eb-modal-footer">
+        <button type="button" class="eb-btn eb-btn-secondary eb-btn-sm" @click="modals.confirmDelete = false">Cancel</button>
+        <button type="button" class="eb-btn eb-btn-danger-solid eb-btn-sm" @click="requestDeleteKey()">Delete</button>
+      </div>
+    </div>
+  </div>
+
+  <div x-show="modals.confirmDeleteUsers" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div class="eb-modal-backdrop fixed inset-0" @click="modals.confirmDeleteUsers = false" aria-hidden="true"></div>
+    <div class="eb-modal eb-modal--confirm relative z-10 w-full" role="dialog" aria-modal="true" aria-labelledby="users-v2-confirm-delete-users-title" @click.away="modals.confirmDeleteUsers = false">
+      <div class="eb-modal-header">
+        <div class="flex min-w-0 items-start gap-3">
+          <span class="eb-icon-box eb-icon-box--sm eb-icon-box--orange shrink-0" aria-hidden="true">
+            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4.5c-.77-.833-2.694-.833-3.464 0L3.35 16.5c-.77.833.192 2.5 1.732 2.5z"></path>
+            </svg>
+          </span>
+          <h2 id="users-v2-confirm-delete-users-title" class="eb-modal-title">Delete users</h2>
+        </div>
+        <button type="button" class="eb-modal-close" @click="modals.confirmDeleteUsers = false" aria-label="Close">&times;</button>
+      </div>
+      <div class="eb-modal-body">
+        <p class="eb-type-body">
+          Delete <span class="eb-meta-strong" x-text="selectedUsernames.length"></span> selected users?
+          This cannot be undone.
+        </p>
+      </div>
+      <div class="eb-modal-footer">
+        <button type="button" class="eb-btn eb-btn-secondary eb-btn-sm" @click="modals.confirmDeleteUsers = false">Cancel</button>
+        <button type="button" class="eb-btn eb-btn-danger-solid eb-btn-sm" @click="requestDeleteSelectedUsers()">Delete</button>
       </div>
     </div>
   </div>
@@ -562,13 +518,26 @@ function usersV2Manager() {
       });
     },
 
+    isRootStorageUser(u) {
+      return !!(u && (u.is_root || u.is_system_managed));
+    },
+    publicUserLabel(u) {
+      if (this.isRootStorageUser(u)) return 'Root user';
+      return (u.display_name || u.username || '');
+    },
+    publicAccountIdText(u) {
+      if (!u || this.isRootStorageUser(u)) return '—';
+      return u.tenant_id != null && u.tenant_id !== '' ? String(u.tenant_id) : '—';
+    },
+
     get filteredUsers() {
       const term = (this.searchTerm || '').trim().toLowerCase();
       if (!term) return this.users;
       return this.users.filter(u => {
         const name = (u.username || '').toLowerCase();
         const label = (u.display_name || '').toLowerCase();
-        return name.includes(term) || label.includes(term);
+        const publicLabel = (this.publicUserLabel(u) || '').toLowerCase();
+        return name.includes(term) || label.includes(term) || publicLabel.includes(term);
       });
     },
 

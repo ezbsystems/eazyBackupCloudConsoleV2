@@ -49,6 +49,7 @@
 - `s3_cloudbackup_run_commands`: queued commands for agents (`cancel`, `maintenance_quick/full`, `restore`, `mount`, `nas_mount`, `nas_unmount`, `list_hyperv_vms`, `reset_agent`).
 - `s3_cloudbackup_restore_points`: persistent restore registry (manifest_id, agent/tenant/job metadata, source/dest details, Hyper-V VM context). Designed to survive job deletion.
 - `s3_backup_users`: e3 Cloud Backup Username registry (`client_id`, nullable `tenant_id`, `username`, `password_hash`, `email`, `status`, timestamps) with scoped uniqueness by `(client_id, tenant_id, username)`.
+- `s3_agent_login_sessions`: 10-minute tray enrollment sessions used between credential validation and e3 User selection.
 - **Hyper-V specific tables**:
   - `s3_hyperv_vms`: VM registry (id, client_id, agent_id, vm_guid, vm_name, state, generation, rct_enabled, last_seen_at).
   - `s3_hyperv_vm_disks`: VM disk details (id, vm_id, disk_path, size_bytes, rct_id, controller_type).
@@ -62,6 +63,27 @@
 - Commands: server enqueues in `s3_cloudbackup_run_commands`; agent polls `agent_poll_pending_commands.php`; completion via `agent_complete_command.php`. Supported: cancel, maintenance_quick/full, restore, nas_mount, nas_unmount, reset_agent.
 - Start (manual/UI): `cloudbackup_start_run.php` → `CloudBackupController::startRun()` inserts queued run, binds to agent for `local_agent`, optionally stores engine/dest fields; workers should ignore local_agent runs.
 - Reclaim/watchdog: reclaim stale in-progress for same agent within grace; watchdog cron fails truly stale runs.
+
+### Tray enrollment contract
+
+Interactive tray enrollment now uses a two-step `agent_login.php` flow:
+
+1. `mode=authenticate`
+   - validates WHMCS credentials
+   - resolves the owning `client_id`
+   - returns eligible e3 Users (`backup_type` = `local` or `both`)
+   - stores hostname/device metadata in `s3_agent_login_sessions`
+2. `mode=complete`
+   - accepts `session_token` plus either `backup_user_id` or `auto_create_user=true`
+   - creates or rekeys the agent with both `backup_user_id` and the selected user's `tenant_id`
+   - returns `agent_uuid`, `agent_token`, and `api_base_url` for `agent.conf`
+
+Tray UX rules:
+
+- Zero eligible users: offer auto-create and continue.
+- One eligible user: show a confirmation step.
+- Multiple eligible users: show a compact scrollable username list with backup type as subtext.
+- Success CTA opens the User Detail page on the Jobs tab instead of the deprecated standalone Jobs view.
 
 ### UUIDv7 Cutover Verification
 
@@ -624,9 +646,22 @@ Cloud NAS allows clients to mount S3 buckets as local Windows drive letters. The
 - **Embedded rclone S3 backend** – connects to S3-compatible storage
 - **rclone VFS (Virtual File System)** – provides filesystem abstraction with caching
 - **Embedded WebDAV server** – serves the VFS over HTTP on localhost
-- **Windows WebDAV client** – maps network drive via `net use`
+- **Win32 WNetAddConnection2W** – maps the drive in Explorer's logon session via the tray helper
 
-**No external dependencies required** – everything is embedded in the single agent binary.
+**No external dependencies required** – everything is embedded in the agent service + tray binaries.
+
+### Drive mapping architecture (session isolation)
+
+Windows drive mappings are per-logon-session, not per-user. With UAC enabled, the interactive desktop has two logon sessions: an elevated token and a filtered (non-elevated) token. `explorer.exe` always runs with the filtered token. For a mapped drive to appear in "This PC" / Explorer, the `WNetAddConnection2W` call must be made from a process sharing that same filtered-token logon session.
+
+The agent **service** runs as SYSTEM in Session 0 and cannot create visible drive mappings. Instead, the service delegates drive mapping to the **tray helper** (`e3-backup-tray.exe`), which runs non-elevated in the interactive desktop session. The tray calls `WNetAddConnection2W` and `SHChangeNotify` directly via Win32 syscalls (no PowerShell intermediary), ensuring the mapping lands in Explorer's logon session.
+
+Key files:
+- `cmd/tray/cloudnas_control_windows.go` – `wnetAddConnection2()`, `wnetCancelConnection2()`, `notifyShellDriveAdded()`, `notifyShellDriveRemovedDirect()`
+- `internal/agent/nas_tray_control_windows.go` – service-to-tray IPC (`mapNASDriveViaTray`, `unmapNASDriveViaTray`)
+- `internal/agent/nas.go` – WebDAV server lifecycle, mount/unmount orchestration
+
+The tray auto-start is registered in `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` (not HKLM) to ensure it inherits the user's non-elevated token.
 
 ## Architecture Flow
 
@@ -656,7 +691,7 @@ Cloud NAS allows clients to mount S3 buckets as local Windows drive letters. The
           │ (commands: nas_mount, nas_unmount, nas_mount_snapshot)
           ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│                     Windows Backup Agent                             │
+│           Agent Service (Session 0, SYSTEM)                          │
 │                                                                       │
 │  ┌─────────────────────────────────────────────────────────────┐    │
 │  │                    Polling Loop (5s)                         │    │
@@ -666,24 +701,40 @@ Cloud NAS allows clients to mount S3 buckets as local Windows drive letters. The
 │                             ▼                                        │
 │  ┌─────────────────────────────────────────────────────────────┐    │
 │  │                   nas.go - mountNASDrive()                   │    │
-│  │                                                               │    │
 │  │  1. Create S3 filesystem (rclone s3.NewFs)                   │    │
 │  │  2. Wrap in VFS with cache mode                              │    │
 │  │  3. Start WebDAV server on 127.0.0.1:random_port             │    │
-│  │  4. Run: net use Y: http://127.0.0.1:PORT/ /persistent:no    │    │
-│  │  5. Notify Explorer via SHChangeNotify                       │    │
-│  │  6. Report status back to cloudnas_update_status.php         │    │
-│  └─────────────────────────────────────────────────────────────┘    │
+│  │  4. Ensure WebClient service is running                      │    │
+│  │  5. Send mount request to tray via HTTP IPC ──────────┐      │    │
+│  │  6. Report status back to cloudnas_update_status.php  │      │    │
+│  └───────────────────────────────────────────────────────┘      │    │
+└──────────────────────────────────────────────────────────┼──────────┘
+                                                           │
+           ┌───────────────────────────────────────────────┘
+           │  HTTP localhost IPC (/control/cloudnas/mount)
+           ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│   Tray Helper (User's Desktop Session, non-elevated)                 │
 │                                                                       │
-│         ┌───────────────────────────────────────────────┐           │
-│         │           Active Mount (in memory)            │           │
-│         │                                                │           │
-│         │   WebDAV Server ←─── VFS ←─── S3 Backend      │           │
-│         │         ▲                                      │           │
-│         │         │ http://127.0.0.1:PORT/              │           │
-│         │         ▼                                      │           │
-│         │   Windows Drive Letter (Y:)                   │           │
-│         └───────────────────────────────────────────────┘           │
+│  cloudnas_control_windows.go:                                        │
+│  1. WNetAddConnection2W(Y:, \\127.0.0.1@PORT\DavWWWRoot)           │
+│     → Maps in Explorer's logon session (filtered token)              │
+│  2. registry.SetStringValue(_LabelFromReg, "Cloud NAS (bucket)")    │
+│  3. SHChangeNotify(SHCNE_DRIVEADD, ...)  → Explorer refreshes       │
+│  4. explorer.exe Y:\ → opens drive in Explorer                      │
+│  5. Verify: os.ReadDir(Y:\) succeeds                                │
+│  6. Return success + diagnostics to agent service                    │
+└─────────────────────────────────────────────────────────────────────┘
+           │
+           ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│         Active Mount (agent process memory)                          │
+│                                                                       │
+│   WebDAV Server ←─── VFS ←─── S3 Backend                            │
+│         ▲                                                            │
+│         │ http://127.0.0.1:PORT/                                    │
+│         ▼                                                            │
+│   Windows Drive Letter (Y:) ← visible in Explorer                   │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 

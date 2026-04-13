@@ -1,19 +1,17 @@
-{capture assign=ebE3Actions}
-    <div class="flex flex-wrap items-center justify-end gap-2">
-        <button type="button"
-                class="eb-btn eb-btn-primary eb-btn-sm"
-                onclick="window.dispatchEvent(new CustomEvent('eb-e3-token-create-open'))">
-            Generate Token
-        </button>
+{capture assign=ebE3Description}
+    Manage your backup agents, enrollment tokens{if $isMspClient}, tenants, and users{/if}.
+{/capture}
+
+{capture assign=ebE3TokensBreadcrumb}
+    <div class="eb-breadcrumb">
+        <a href="index.php?m=cloudstorage&page=e3backup&view=dashboard" class="eb-breadcrumb-link">e3 Cloud Backup</a>
+        <span class="eb-breadcrumb-separator">/</span>
+        <span class="eb-breadcrumb-current">Enrollment Tokens</span>
     </div>
 {/capture}
 
-{capture assign=ebE3Description}
-    Generate enrollment tokens for agent onboarding and use them for silent deployment through your preferred RMM workflow.
-{/capture}
-
 {capture assign=ebE3Icon}
-    <span class="eb-icon-box eb-icon-box--success eb-icon-box--sm">
+    <span class="eb-icon-box eb-icon-box--sm eb-icon-box--orange">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 5.25a3 3 0 0 1 3 3m3 0a6 6 0 0 1-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1 1 21.75 8.25Z" />
         </svg>
@@ -25,6 +23,21 @@
          x-init="init()"
          @eb-e3-token-create-open.window="showCreateModal = true"
          class="space-y-6">
+        <div class="eb-page-header">
+            <div>
+                {$ebE3TokensBreadcrumb nofilter}
+                <h2 class="eb-page-title">Enrollment Tokens</h2>
+                <p class="eb-page-description">Generate enrollment tokens for agent onboarding and use them for silent deployment through your preferred RMM workflow.</p>
+            </div>
+            <div class="shrink-0">
+                <button type="button"
+                        class="eb-btn eb-btn-primary eb-btn-sm"
+                        onclick="window.dispatchEvent(new CustomEvent('eb-e3-token-create-open'))">
+                    Generate Token
+                </button>
+            </div>
+        </div>
+
         <div class="space-y-3">
             <div x-show="successMessage" x-cloak class="eb-alert eb-alert--success" role="status" aria-live="polite">
                 <svg class="eb-alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -41,16 +54,16 @@
             </div>
         </div>
 
-        <section class="eb-card-raised !p-0 overflow-hidden">
-            <div class="eb-card-header eb-card-header--divided !-mx-0 !-mt-0 !mb-0 !px-6 !py-5">
-                <div>
-                    <h2 class="eb-card-title !text-base">Enrollment Token Library</h2>
-                    <p class="eb-card-subtitle">Create, search, copy, and revoke enrollment tokens for workstation and server rollouts.</p>
+        <div class="eb-subpanel space-y-5">
+            <div class="flex flex-wrap items-start justify-between gap-3">
+                <div class="eb-section-intro !mb-0 min-w-0">
+                    <h3 class="eb-section-title">Enrollment Token Library</h3>
+                    <p class="eb-section-description !mt-1">Create, search, copy, and revoke enrollment tokens for workstation and server rollouts.</p>
                 </div>
-                <span class="eb-badge eb-badge--success" x-text="tokenCountBadge()"></span>
+                <span class="eb-badge eb-badge--success shrink-0" x-text="tokenCountBadge()"></span>
             </div>
 
-            <div class="p-6">
+            <div>
                 <div class="eb-table-toolbar">
                     <div class="relative" x-data="{ isOpen: false }" @click.away="isOpen = false">
                         <button type="button"
@@ -207,7 +220,7 @@
                                         :disabled="currentPage <= 1">
                                     Previous
                                 </button>
-                                <span class="text-[var(--eb-text-primary)]" x-text="'Page ' + currentPage + ' / ' + totalPages()"></span>
+                                <span class="eb-type-caption text-[var(--eb-text-primary)]" x-text="'Page ' + currentPage + ' / ' + totalPages()"></span>
                                 <button type="button"
                                         class="eb-table-pagination-button"
                                         @click="nextPage()"
@@ -219,7 +232,7 @@
                     </div>
                 </template>
             </div>
-        </section>
+        </div>
 
         <section class="eb-card">
             <div class="flex items-start gap-4">
@@ -407,10 +420,9 @@
 
 {include file="modules/addons/cloudstorage/templates/partials/e3backup_shell.tpl"
     ebE3SidebarPage='tokens'
-    ebE3Title='Enrollment Tokens'
+    ebE3Title='e3 Cloud Backup'
     ebE3Description=$ebE3Description
     ebE3Icon=$ebE3Icon
-    ebE3Actions=$ebE3Actions
     ebE3Content=$ebE3Content
 }
 

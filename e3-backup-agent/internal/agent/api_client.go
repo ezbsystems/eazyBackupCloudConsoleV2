@@ -861,6 +861,62 @@ func (c *Client) UpdateNASMountStatus(mountID int64, status, errorMsg string) er
 	return nil
 }
 
+type PreparedNASMount struct {
+	MountID     int64  `json:"mount_id"`
+	Bucket      string `json:"bucket"`
+	BucketName  string `json:"bucket_name"`
+	Prefix      string `json:"prefix"`
+	DriveLetter string `json:"drive_letter"`
+	ReadOnly    bool   `json:"read_only"`
+	CacheMode   string `json:"cache_mode"`
+	Persistent  bool   `json:"persistent"`
+	Status      string `json:"status"`
+	Endpoint    string `json:"endpoint"`
+	AccessKey   string `json:"access_key"`
+	SecretKey   string `json:"secret_key"`
+	Region      string `json:"region"`
+}
+
+// PollPreparedNASMounts returns Cloud NAS mounts the agent should keep ready.
+// activeMountIDs tells the server which mounts already have a live WebDAV
+// instance so temp credentials are only minted when a fresh mount needs to be
+// prepared.
+func (c *Client) PollPreparedNASMounts(activeMountIDs []int64) ([]PreparedNASMount, error) {
+	endpoint := c.baseURL + "/cloudnas_pending_mounts.php"
+	body := map[string]any{
+		"active_mount_ids": activeMountIDs,
+	}
+	buf, _ := json.Marshal(body)
+	req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(buf))
+	if err != nil {
+		return nil, err
+	}
+	c.authHeaders(req)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("poll prepared NAS mounts status %d", resp.StatusCode)
+	}
+
+	var out struct {
+		Status  string             `json:"status"`
+		Message string             `json:"message,omitempty"`
+		Mounts  []PreparedNASMount `json:"mounts"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, err
+	}
+	if out.Status != "success" {
+		return nil, fmt.Errorf("poll prepared NAS mounts failed: %s", out.Message)
+	}
+	return out.Mounts, nil
+}
+
 // PendingCommand represents a command waiting to be executed (restore, maintenance).
 type PendingCommand struct {
 	CommandID  int64          `json:"command_id"`

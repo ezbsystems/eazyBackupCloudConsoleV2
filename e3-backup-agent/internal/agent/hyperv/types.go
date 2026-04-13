@@ -26,9 +26,10 @@ type DiskInfo struct {
 	ControllerNumber int    `json:"controller_number"`
 	ControllerLoc    int    `json:"controller_location"`
 	Path             string `json:"path"`              // Full path to VHDX
-	SizeBytes        int64  `json:"size_bytes"`        // Virtual size
-	UsedBytes        int64  `json:"used_bytes"`        // Actual data size (file size)
+	SizeBytes        int64  `json:"size_bytes"`        // Actual file size on disk (FileSize)
+	UsedBytes        int64  `json:"used_bytes"`        // Same as SizeBytes (file size)
 	VHDFormat        string `json:"vhd_format"`        // VHDX, VHD
+	VirtualSize      int64  `json:"virtual_size"`      // Virtual disk capacity (max guest-visible size)
 	RCTEnabled       bool   `json:"rct_enabled"`
 	RCTID            string `json:"rct_id"`            // Current RCT tracking ID
 }

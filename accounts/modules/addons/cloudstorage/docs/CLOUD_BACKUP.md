@@ -7,6 +7,7 @@ The Cloud-to-Cloud Backup feature extends the existing Cloud Storage WHMCS addon
 ## Architecture
 
 ### Control Plane (WHMCS Addon)
+
 - **Location**: `accounts/modules/addons/cloudstorage/`
 - **Responsibilities**:
   - Job definition and management
@@ -16,6 +17,7 @@ The Cloud-to-Cloud Backup feature extends the existing Cloud Storage WHMCS addon
   - Progress tracking (reads from database)
 
 ### Data Plane (Worker VM)
+
 - **Location**: Separate VM (e.g., `/opt/e3-cloudbackup-worker/`)
 - **Responsibilities**:
   - Polls database for queued jobs
@@ -29,12 +31,15 @@ The Cloud-to-Cloud Backup feature extends the existing Cloud Storage WHMCS addon
 ### Tables
 
 #### `s3_cloudbackup_jobs`
+
 Stores backup job definitions.
 
 **Key Fields**:
+
 - `job_id` - Primary key (BINARY(16), UUIDv7)
 - `client_id` - WHMCS client ID (FK to `tblclients.id`)
 - `s3_user_id` - S3 user ID (FK to `s3_users.id`)
+- `backup_user_id` - Nullable FK to `s3_backup_users.id`. Set when a job is created from a User Detail page. Legacy jobs have this as NULL and rely on tenant scope derivation.
 - `name` - Job display name
 - `source_type` - Enum: `s3_compatible`, `sftp`, `google_drive`, `dropbox`, `smb`, `nas`
 - `source_display_name` - User-friendly source name
@@ -58,9 +63,11 @@ Stores backup job definitions.
 - `status` - Enum: `active`, `paused`, `deleted`
 
 #### `s3_cloudbackup_runs`
+
 Tracks individual execution records.
 
 **Key Fields**:
+
 - `run_id` - Primary key (BINARY(16), UUIDv7)
 - `job_id` - FK to `s3_cloudbackup_jobs.job_id` (BINARY(16), UUIDv7)
 - `trigger_type` - Enum: `manual`, `schedule`, `validation`
@@ -86,9 +93,11 @@ Tracks individual execution records.
 - `validation_log_excerpt` - Validation log excerpt
 
 #### `s3_cloudbackup_run_events`
+
 Stores sanitized, structured, customer‑facing events for each run. This table powers all client‑visible logs.
 
 **Key Fields**:
+
 - `id` - Primary key (BIGINT)
 - `run_id` - FK to `s3_cloudbackup_runs.run_id` (BINARY(16), UUIDv7)
 - `ts` - Event timestamp (microsecond precision)
@@ -102,9 +111,11 @@ Stores sanitized, structured, customer‑facing events for each run. This table 
 A daily cron prunes events beyond the configured retention days (see “Cron Jobs”).
 
 #### `s3_cloudbackup_settings`
+
 Per-client notification defaults.
 
 **Key Fields**:
+
 - `id` - Primary key
 - `client_id` - Unique client ID (FK to `tblclients.id`)
 - `default_notify_emails` - Comma-separated or JSON array
@@ -121,9 +132,10 @@ Per-client notification defaults.
 **Release notes**: This release uses a **big-bang reset** for cloud backup job and run identities. There is **no backward compatibility** with numeric IDs. A **strict minimum agent version** is required—old agents are blocked. The API contract is **UUID-only**: all `job_id` and `run_id` parameters must be UUIDv7 strings. See [CLOUDBACKUP_UUIDV7_CUTOVER.md](CLOUDBACKUP_UUIDV7_CUTOVER.md) for full release notes and manual verification.
 
 **Verification checklist**:
-- [ ] Numeric `job_id` rejected by `cloudbackup_start_run.php`
-- [ ] Numeric `run_id` rejected by `agent_update_run.php`
-- [ ] UUID job/run flow passes create → run → progress → cancel
+
+- Numeric `job_id` rejected by `cloudbackup_start_run.php`
+- Numeric `run_id` rejected by `agent_update_run.php`
+- UUID job/run flow passes create → run → progress → cancel
 
 ## File Structure
 
@@ -170,7 +182,8 @@ accounts/modules/addons/cloudstorage/
 accounts/crons/
 ├── s3cloudbackup_notify.php          # Email notification cron
 ├── s3cloudbackup_events_prune.php    # Prune s3_cloudbackup_run_events by retention
-└── s3cloudbackup_retention.php       # Retention policy cleanup cron (Cloud Backup only)
+├── s3cloudbackup_retention.php       # Retention policy cleanup cron (Cloud Backup only)
+└── s3cloudbackup_scheduler.php       # Evaluates schedules and queues runs
 ```
 
 **Cloud-only retention path**: The `s3cloudbackup_retention.php` cron and its object-delete/prefix-delete flow (`CloudBackupController::applyRetentionPolicy()`) are **Cloud Backup only**. They do not process Local Agent jobs. Local Agent Kopia retention uses a separate repo-native queue and agent execution path; see `LOCAL_AGENT_OVERVIEW.md` and `KOPIA_RETENTION_ARCHITECTURE.md`.
@@ -181,23 +194,24 @@ accounts/crons/
 
 Located in `cloudstorage_config()`:
 
-- **`cloudbackup_enabled`** (yesno) - Enable/disable feature
-- **`cloudbackup_worker_host`** (text) - Worker VM hostname identifier
-- **`cloudbackup_global_max_concurrent_jobs`** (text) - Max concurrent jobs globally
-- **`cloudbackup_global_max_bandwidth_kbps`** (text) - Global bandwidth limit in KB/s
-- **`cloudbackup_encryption_key`** (password) - Optional separate encryption key
-- **`cloudbackup_email_template`** (dropdown) - WHMCS email template for notifications
-- **`cloudbackup_event_retention_days`** (text) - Days to retain event logs (default: 60)
-- **`cloudbackup_event_max_per_run`** (text) - Max events recorded per run (default: 5000)
-- **`cloudbackup_event_progress_interval_seconds`** (text) - Throttle for progress events (default: 2s)
-- **`cloudbackup_google_client_id`** (text) - Google OAuth Client ID used for Drive listing API
-- **`cloudbackup_google_client_secret`** (password) - Google OAuth Client Secret used for Drive listing API
+- `**cloudbackup_enabled`** (yesno) - Enable/disable feature
+- `**cloudbackup_worker_host`** (text) - Worker VM hostname identifier
+- `**cloudbackup_global_max_concurrent_jobs`** (text) - Max concurrent jobs globally
+- `**cloudbackup_global_max_bandwidth_kbps**` (text) - Global bandwidth limit in KB/s
+- `**cloudbackup_encryption_key**` (password) - Optional separate encryption key
+- `**cloudbackup_email_template**` (dropdown) - WHMCS email template for notifications
+- `**cloudbackup_event_retention_days**` (text) - Days to retain event logs (default: 60)
+- `**cloudbackup_event_max_per_run**` (text) - Max events recorded per run (default: 5000)
+- `**cloudbackup_event_progress_interval_seconds**` (text) - Throttle for progress events (default: 2s)
+- `**cloudbackup_google_client_id**` (text) - Google OAuth Client ID used for Drive listing API
+- `**cloudbackup_google_client_secret**` (password) - Google OAuth Client Secret used for Drive listing API
 
 ## Client Area Routes
 
 Access via: `index.php?m=cloudstorage&page=e3backup&view=<view>`
 
 **Views**:
+
 - `jobs` - Job list and creation wizard
 - `runs` - Run history for a specific job
 - `live` - Live progress view for a running job
@@ -269,7 +283,6 @@ if (isset($_POST['status'])) {
 
 - Trash (Delete)
   - Soft‑deletes the job (marks it as `deleted`) via `api/cloudbackup_delete_job.php`. Historical runs remain for audit/history; the job no longer appears in the default list.
-
 - View logs
   - Quick link to the Run History / logs for the job (`cloudbackup_runs` view). From there you can open a specific run’s details or navigate to the Live view for an active run.
 
@@ -294,8 +307,10 @@ public static function cancelRun($runId, $clientId)
 All endpoints require WHMCS client authentication and return JSON responses.
 
 ### `api/cloudbackup_create_job.php`
+
 **Method**: POST  
 **Parameters**:
+
 - `name` - Job name
 - `source_type` - Source type (s3_compatible, aws, sftp)
 - `source_display_name` - Display name
@@ -314,38 +329,47 @@ All endpoints require WHMCS client authentication and return JSON responses.
 - Additional notification fields
 
 ### `api/cloudbackup_update_job.php`
+
 **Method**: POST  
 **Parameters**: Same as create, plus `job_id` (UUIDv7 string)
 
 ### `api/cloudbackup_delete_job.php`
+
 **Method**: POST  
 **Parameters**: `job_id` (UUIDv7 string)
 
 ### `api/cloudbackup_start_run.php`
+
 **Method**: POST  
 **Parameters**: `job_id` (UUIDv7 string), `trigger_type` (optional)
 
 ### `api/cloudbackup_cancel_run.php`
+
 **Method**: POST  
 **Parameters**: `run_id` (UUIDv7 string)
 
 ### `api/cloudbackup_progress.php`
+
 **Method**: GET  
 **Parameters**: `run_id` (UUIDv7 string)  
 **Returns**: JSON with current progress data
 
 ### `api/cloudbackup_get_run_events.php`
+
 **Method**: GET  
 **Parameters**: `run_id` (UUIDv7 string, required), `since_id` (optional), `limit` (optional; default 250, max 1000)  
 **Returns**: JSON array of sanitized, user‑facing events for the run. Preferred for all client‑visible logs.
 
 ### `api/cloudbackup_get_run_logs.php`
+
 Legacy endpoint for formatted rclone logs. Used only for older runs without events or for admin diagnostics; the client UI prefers the events endpoint.
 
 ## Source Configuration
 
 ### S3-Compatible Storage
+
 Encrypted JSON stored in `source_config_enc`:
+
 ```json
 {
   "endpoint": "https://s3.wasabisys.com",
@@ -357,7 +381,9 @@ Encrypted JSON stored in `source_config_enc`:
 ```
 
 ### SFTP/SSH
+
 Encrypted JSON stored in `source_config_enc`:
+
 ```json
 {
   "host": "sftp.example.com",
@@ -368,13 +394,17 @@ Encrypted JSON stored in `source_config_enc`:
 ```
 
 ### Google Drive (OAuth)
+
 Jobs store only minimal Google Drive configuration in `source_config_enc`:
+
 ```json
 {
   "root_folder_id": "optional-folder-id"
 }
 ```
+
 The reusable OAuth connection (per client) is stored in `s3_cloudbackup_sources` with an encrypted `refresh_token_enc`. The worker assembles the full rclone Drive configuration at runtime using:
+
 - App credentials (client ID/secret) from environment on the worker
 - The decrypted refresh token from the saved source connection
 - Optional `root_folder_id` from the job
@@ -394,6 +424,7 @@ Scopes: `https://www.googleapis.com/auth/drive.readonly`
   - Clears Path so users may optionally set a sub‑path under that root
 
 Control‑plane API: `modules/addons/cloudstorage/api/cloudbackup_gdrive_list.php`
+
 - Validates WHMCS client ownership and active Google Drive connection (`s3_cloudbackup_sources`)
 - Exchanges the saved `refresh_token_enc` for an `access_token` using addon settings:
   - `cloudbackup_google_client_id`, `cloudbackup_google_client_secret`
@@ -408,6 +439,7 @@ Control‑plane API: `modules/addons/cloudstorage/api/cloudbackup_gdrive_list.ph
 - Includes basic session rate‑limiting and error logging via `logModuleCall`
 
 Why IDs not names:
+
 - IDs are immutable and unambiguous, avoiding rename/duplication issues and improving reliability.
 
 ## Google Drive Backup – Flow, OAuth, and Debugging
@@ -542,7 +574,7 @@ ORDER BY updated_at DESC LIMIT 1;
   - Restart service after edits; confirm with preflight warnings in logs.
 - **Wrapper overwrites config**:
   - Worker now writes and enforces both `rclone.conf` and `eazyBackup.conf`.
-  - Worker also injects `RCLONE_CONFIG_SOURCE_*` env overrides at process start.
+  - Worker also injects `RCLONE_CONFIG_SOURCE_`* env overrides at process start.
 - **invalid_client / invalid_grant during OAuth**:
   - Ensure the refresh token belongs to the same OAuth app (client_id/secret) configured.
   - Re‑authorize Drive connection in the portal if the refresh token is revoked/expired.
@@ -554,18 +586,22 @@ ORDER BY updated_at DESC LIMIT 1;
 ## Encryption
 
 ### Source Credential Encryption
+
 Source credentials are encrypted using AES-256-CBC with the encryption key from module config (`cloudbackup_encryption_key` or fallback to `encryption_key`). The `HelperController::encryptKey()` and `HelperController::decryptKey()` methods handle encryption/decryption.
 
 ### Backup Data Encryption (Crypt Backend)
+
 When `encryption_enabled` is set to `1` for a job, the worker VM wraps the destination remote with rclone's crypt backend. This encrypts all backup data at rest. The encryption password is managed by the worker VM and stored separately from source credentials. **Note**: Once encryption is enabled for a job, it cannot be disabled without re-uploading all data.
 
 ## Email Notifications
 
 ### Configuration
+
 - Admin selects email template from General category in addon settings
 - Template stored as template ID in `cloudbackup_email_template` setting
 
 ### Notification Logic
+
 1. Check if template is configured
 2. Verify job/client notification settings (success/warning/failure toggles)
 3. Get recipient emails (job override → client defaults → client email)
@@ -574,6 +610,7 @@ When `encryption_enabled` is set to `1` for a job, the worker VM wraps the desti
 6. Mark run as notified (`notified_at` timestamp)
 
 ### Merge Variables Available
+
 - `{$job_name}`, `{$job_id}`, `{$run_id}`, `{$run_status}`
 - `{$source_display_name}`, `{$source_type}`
 - `{$dest_bucket_id}`, `{$dest_bucket_name}`, `{$dest_prefix}`
@@ -585,7 +622,6 @@ When `encryption_enabled` is set to `1` for a job, the worker VM wraps the desti
 - `{$client_id}`, `{$client_name}`, `{$client_email}`
 - `{$job_log_report}` — Newline‑delimited, sanitized job event report (INFO/WARN/ERROR), e.g.:
 - `{$job_log_report_html}` — Same report preformatted with `<br>` tags for HTML templates.
-
   ```
   INFO[2025-11-21 13:57:03] Starting backup.
   INFO[2025-11-21 13:57:03] Backup completed — no files to transfer.
@@ -595,19 +631,34 @@ When `encryption_enabled` is set to `1` for a job, the worker VM wraps the desti
 ### Cron Jobs
 
 #### Email Notification Cron
+
 `accounts/crons/s3cloudbackup_notify.php` runs every 5-10 minutes to:
+
 - Find completed runs from last hour
 - Send notifications based on settings
 - Mark runs as notified
 
 #### Retention Policy Cleanup Cron (Cloud Backup only)
+
 `accounts/crons/s3cloudbackup_retention.php` runs daily or every few hours to:
+
 - Find all active **Cloud Backup** jobs with retention policies enabled (`keep_last_n` or `keep_days`)
 - Apply retention policies using `CloudBackupController::applyRetentionPolicy()`
 - Delete old backup data from destination buckets via object/prefix deletion
 - Update run records
+- Resolve UUIDv7 job identifiers from `job_id` before invoking retention logic
 
 This cron and its object-delete path are **cloud-only**. Local Agent jobs (`source_type=local_agent`) and Kopia-family engines are excluded; they use the repo-native retention path instead (see `LOCAL_AGENT_OVERVIEW.md`).
+
+#### Scheduler Cron
+
+`accounts/crons/s3cloudbackup_scheduler.php` should run every 5 minutes to:
+
+- Load active jobs and resolve schedule settings from columns plus `schedule_json`
+- Evaluate `hourly`, `daily`, `weekly`, and `cron` schedule types
+- Support standard 5-field cron expressions for `schedule_type=cron`
+- Queue scheduled runs through `CloudBackupController::startRun()`
+- Skip duplicate runs within the same schedule slot and avoid overlapping in-flight runs
 
 ## Worker VM Integration
 
@@ -621,12 +672,15 @@ The worker VM service (separate project) should:
 6. **Trigger Notification**: Optionally call `CloudBackupController::sendRunNotification()` or let cron handle it
 
 ### Rclone Configuration
+
 Worker builds rclone config files per job:
+
 - Source remote (S3/SFTP based on `source_type` and decrypted `source_config_enc`)
 - Destination remote (e3 endpoint with bucket/prefix)
 - Crypt wrapper (if `encryption_enabled` is true)
 
 For Google Drive sources, the worker now always writes a complete Drive remote with:
+
 - `scope = drive.readonly`
 - `client_id`/`client_secret` from worker environment
 - `token` JSON containing a valid `refresh_token` (and placeholder `access_token`/`expiry`), allowing rclone to auto‑refresh without manual reconnects.
@@ -649,30 +703,36 @@ Retention policies automatically clean up old backup data based on job configura
 ### Retention Modes
 
 #### `keep_last_n`
+
 Keeps only the N most recent successful backup runs. Older runs are automatically deleted from the destination bucket.
 
 #### `keep_days`
+
 Keeps backup data for N days. Data older than the specified number of days is automatically deleted.
 
 ### Implementation (cloud cron and object-delete path)
+
 - Retention cleanup is performed by the `s3cloudbackup_retention.php` cron job
 - Uses `CloudBackupController::applyRetentionPolicy()` method
 - Deletes objects from destination bucket using S3 API (object/prefix deletion)
 - Supports batch deletion (up to 1000 objects per request)
 - Handles both run-based prefixes (`run_<id>/`) and date-based prefixes (`YYYY-MM-DD/`)
 - **Scope**: Cloud Backup source types only (e.g. `s3_compatible`, `aws`, `sftp`, `google_drive`). Local Agent and Kopia-family jobs are excluded.
+- On UUIDv7 schemas, the cron resolves `BIN_TO_UUID(job_id)` before applying retention so job lookups use the correct identifier.
 
 ## Validation
 
 Post-run validation uses rclone's `check` command to verify data integrity after backup completion.
 
 ### Configuration
+
 - Set `validation_mode` to `post_run` in job configuration
 - Worker VM executes `rclone check` after successful backup
 - Validation status stored in `s3_cloudbackup_runs.validation_status`
 - Validation log excerpt stored in `s3_cloudbackup_runs.validation_log_excerpt`
 
 ### Validation Status Values
+
 - `not_run` - Validation not configured or not yet executed
 - `running` - Validation in progress
 - `success` - Validation passed
@@ -683,6 +743,7 @@ Post-run validation uses rclone's `check` command to verify data integrity after
 Archive mode creates compressed archive files instead of syncing individual files.
 
 ### Configuration
+
 - Set `backup_mode` to `archive` in job configuration
 - Worker VM creates tar+compressed stream for archive jobs
 - Uploads single archive file per run to destination
@@ -701,26 +762,24 @@ To avoid exposing sensitive implementation details or raw rclone output, the cli
   - `e3-cloudbackup-worker/internal/jobs/runner.go` updates progress in `s3_cloudbackup_runs` every few seconds and delegates user‑facing log emission to an event emitter.
   - `e3-cloudbackup-worker/internal/jobs/events.go` maps rclone messages to stable codes and message IDs, redacts sensitive details, throttles progress events, and inserts rows into `s3_cloudbackup_run_events`.
   - `e3-cloudbackup-worker/internal/db/db.go` provides `InsertRunEvent` and addon settings access (retention, max per run, progress interval).
-
 - Database
   - `s3_cloudbackup_run_events` holds the sanitized stream: `id`, `ts`, `type`, `level`, `code`, `message_id`, `params_json`.
-
 - API
   - `accounts/modules/addons/cloudstorage/api/cloudbackup_get_run_events.php` authenticates the client, validates run ownership, loads events (optionally incremental via `since_id`), and returns them.
-
 - Formatter (PHP)
   - `accounts/modules/addons/cloudstorage/lib/Client/CloudBackupEventFormatter.php` renders end‑user messages from `message_id` and `params`, using `HelperController::formatSizeUnitsPlain()` for sizes/speeds (no HTML).
-
 - UI
   - Live: `accounts/modules/addons/cloudstorage/templates/cloudbackup_live.tpl` polls `cloudbackup_progress.php` for metrics and `cloudbackup_get_run_events.php` for lines. Only sanitized events are displayed.
   - Run Details modal: `accounts/modules/addons/cloudstorage/templates/cloudbackup_runs.tpl` fetches `cloudbackup_get_run_events.php` and renders the same sanitized event list.
   - Transition helper: `api/cloudbackup_get_live_logs.php` prefers events where available and otherwise returns legacy formatted text for older runs (admin/diagnostics).
 
 #### Safe identifiers and redaction
+
 - Allowed: source/destination bucket names and truncated prefixes.
 - Redacted: internal endpoints, credentials, full system paths, and explicit rclone flags.
 
 #### Examples
+
 ```
 [11:09:52] Starting backup.
 [11:10:05] Transferred 250.00 MiB/1.99 GiB (12.56%), 40.00 MiB/s, ETA 43s.
@@ -737,6 +796,7 @@ To avoid exposing sensitive implementation details or raw rclone output, the cli
 Access via: `addonmodules.php?module=cloudstorage&action=cloudbackup_admin`
 
 **Features**:
+
 - **Metrics Dashboard**: Total jobs, active jobs, running jobs vs limit, success rate (24h)
 - **Enhanced Filtering**: Filter by client, job name, status, source type, date range
 - **Job Management**: View all jobs across all clients with detailed information
@@ -757,12 +817,14 @@ See `CLOUD_BACKUP_TASKS.md` for detailed phase breakdown.
 ## Troubleshooting
 
 ### Jobs Not Running
+
 - Check worker VM is running and polling database
 - Verify `cloudbackup_enabled` is enabled
 - Check job status is `active`
 - Verify worker hostname matches config
 
 ### Email Notifications Not Sending
+
 - Verify email template is selected in addon settings
 - Check job/client notification toggles are enabled
 - Verify email addresses are configured
@@ -770,11 +832,13 @@ See `CLOUD_BACKUP_TASKS.md` for detailed phase breakdown.
 - Review WHMCS Email Log for errors
 
 ### Progress Not Updating
+
 - Verify worker is updating database fields
 - Check `worker_host` matches configured hostname
 - Review worker logs for errors
 
 ### Encryption Issues
+
 - Verify encryption key is set in module config
 - Check `HelperController` encryption methods are working
 - Ensure worker has access to encryption key (if decrypting on worker)
@@ -783,11 +847,11 @@ See `CLOUD_BACKUP_TASKS.md` for detailed phase breakdown.
 
 Cloud backup jobs and runs use UUIDv7 as the sole identifier for job and run identity. The cutover is a big-bang reset: there is no migration from legacy numeric IDs.
 
-- **`s3_cloudbackup_jobs.job_id`**: `BINARY(16)` primary key (UUIDv7)
-- **`s3_cloudbackup_runs.run_id`**: `BINARY(16)` primary key (UUIDv7)
-- **`s3_cloudbackup_runs.job_id`**: `BINARY(16)` foreign key referencing `jobs.job_id`
-- **`s3_cloudbackup_restore_points.job_id`**, **`run_id`**: `BINARY(16)` nullable FKs to jobs/runs
-- **`s3_cloudbackup_recovery_tokens.session_run_id`**: `BINARY(16)` nullable FK to runs
+- `**s3_cloudbackup_jobs.job_id`**: `BINARY(16)` primary key (UUIDv7)
+- `**s3_cloudbackup_runs.run_id`**: `BINARY(16)` primary key (UUIDv7)
+- `**s3_cloudbackup_runs.job_id`**: `BINARY(16)` foreign key referencing `jobs.job_id`
+- `**s3_cloudbackup_restore_points.job_id**`, `**run_id**`: `BINARY(16)` nullable FKs to jobs/runs
+- `**s3_cloudbackup_recovery_tokens.session_run_id**`: `BINARY(16)` nullable FK to runs
 
 To apply the reset (drops and recreates all cloud backup job/run tables):
 

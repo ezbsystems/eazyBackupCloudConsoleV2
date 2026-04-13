@@ -14,7 +14,7 @@ function cloudstorage_config()
         'description' => 'This module show the usage of your buckets.',
         'author' => 'eazybackup',
         'language' => 'english',
-        'version' => '2.1.10',
+        'version' => '2.1.13',
         'fields' => [
             's3_region' => [
                 'FriendlyName' => 'S3 Region',
@@ -675,6 +675,84 @@ function cloudstorage_generate_unique_agent_uuid_value(int $maxAttempts = 10): s
 }
 
 /**
+ * Generate a ULID (Crockford Base32, 26 chars) for use as a public identifier.
+ * Compatible with eazybackup_generate_ulid() but self-contained so the
+ * cloudstorage module can run migrations independently.
+ */
+function cloudstorage_generate_ulid(): string
+{
+    $alphabet = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
+    try {
+        $time = (int) floor(microtime(true) * 1000);
+    } catch (\Throwable $__) {
+        $time = (int) (time() * 1000);
+    }
+    $timeBytes = '';
+    for ($i = 5; $i >= 0; $i--) {
+        $timeBytes .= chr(($time >> ($i * 8)) & 0xFF);
+    }
+    try {
+        $rand = random_bytes(10);
+    } catch (\Throwable $__) {
+        $rand = substr(hash('sha256', uniqid('', true), true), 0, 10);
+    }
+    $bin = $timeBytes . $rand;
+    $bits = '';
+    for ($i = 0; $i < 16; $i++) {
+        $bits .= str_pad(decbin(ord($bin[$i])), 8, '0', STR_PAD_LEFT);
+    }
+    $out = '';
+    for ($i = 0; $i < 26; $i++) {
+        $chunk = substr($bits, $i * 5, 5);
+        if ($chunk === '') {
+            $chunk = '00000';
+        }
+        $idx = bindec(str_pad($chunk, 5, '0'));
+        $out .= $alphabet[$idx];
+    }
+    return $out;
+}
+
+/**
+ * Backfill public_id for s3_backup_users rows that are missing one.
+ */
+function cloudstorage_backfill_backup_user_public_ids(string $context = 'activate'): void
+{
+    if (!Capsule::schema()->hasTable('s3_backup_users') || !Capsule::schema()->hasColumn('s3_backup_users', 'public_id')) {
+        return;
+    }
+    $rows = Capsule::table('s3_backup_users')
+        ->where(function ($q) {
+            $q->whereNull('public_id')->orWhere('public_id', '');
+        })
+        ->orderBy('id', 'asc')
+        ->get(['id']);
+
+    foreach ($rows as $row) {
+        $rowId = (int) ($row->id ?? 0);
+        if ($rowId <= 0) {
+            continue;
+        }
+        for ($attempt = 0; $attempt < 5; $attempt++) {
+            $publicId = cloudstorage_generate_ulid();
+            try {
+                $updated = Capsule::table('s3_backup_users')
+                    ->where('id', $rowId)
+                    ->where(function ($q) {
+                        $q->whereNull('public_id')->orWhere('public_id', '');
+                    })
+                    ->update(['public_id' => $publicId]);
+                if ((int) $updated > 0) {
+                    break;
+                }
+            } catch (\Throwable $__) {
+            }
+        }
+    }
+    logModuleCall('cloudstorage', $context, [], 'Backfilled public_id on s3_backup_users', [], []);
+}
+
+/**
  * Repair agent_uuid schema + backfill for existing installs.
  *
  * This is intentionally idempotent and safe to run multiple times.
@@ -757,6 +835,338 @@ function cloudstorage_repair_agent_uuid_schema(string $context = 'activate'): vo
         'agent_uuid_backfilled' => $backfilled,
         'agent_uuid_deduped' => $deduped,
     ], [], []);
+}
+
+/**
+ * Ensure a column exists on an existing table.
+ */
+function cloudstorage_ensure_table_column(string $tableName, string $columnName, callable $adder, string $context = 'activate'): void
+{
+    $schema = Capsule::schema();
+    if (!$schema->hasTable($tableName) || $schema->hasColumn($tableName, $columnName)) {
+        return;
+    }
+
+    try {
+        $schema->table($tableName, function ($table) use ($adder) {
+            $adder($table);
+        });
+        logModuleCall('cloudstorage', $context, [], "Ensured {$columnName} on {$tableName}", [], []);
+    } catch (\Throwable $e) {
+        logModuleCall('cloudstorage', "{$context}_ensure_{$tableName}_{$columnName}", [], $e->getMessage(), [], []);
+    }
+}
+
+/**
+ * Ensure an index exists. Duplicate/index-exists failures are ignored.
+ */
+function cloudstorage_ensure_table_index(string $tableName, callable $indexer, string $indexLabel, string $context = 'activate'): void
+{
+    $schema = Capsule::schema();
+    if (!$schema->hasTable($tableName)) {
+        return;
+    }
+
+    try {
+        $schema->table($tableName, function ($table) use ($indexer) {
+            $indexer($table);
+        });
+        logModuleCall('cloudstorage', $context, [], "Ensured {$indexLabel} on {$tableName}", [], []);
+    } catch (\Throwable $e) {
+        // Best effort only; index may already exist under the same or another compatible name.
+    }
+}
+
+/**
+ * Ensure Hyper-V schema objects exist and are updated additively.
+ */
+function cloudstorage_ensure_hyperv_schema(string $context = 'activate'): void
+{
+    $schema = Capsule::schema();
+
+    if ($schema->hasTable('s3_cloudbackup_jobs')) {
+        cloudstorage_ensure_table_column('s3_cloudbackup_jobs', 'hyperv_enabled', function ($table) {
+            $table->boolean('hyperv_enabled')->default(false);
+        }, $context);
+        cloudstorage_ensure_table_column('s3_cloudbackup_jobs', 'hyperv_config', function ($table) {
+            $table->json('hyperv_config')->nullable();
+        }, $context);
+    }
+
+    if ($schema->hasTable('s3_cloudbackup_runs')) {
+        cloudstorage_ensure_table_column('s3_cloudbackup_runs', 'disk_manifests_json', function ($table) {
+            $table->json('disk_manifests_json')->nullable();
+        }, $context);
+    }
+
+    foreach (['s3_cloudbackup_jobs', 's3_cloudbackup_runs'] as $engineTable) {
+        if (!$schema->hasTable($engineTable) || !$schema->hasColumn($engineTable, 'engine')) {
+            continue;
+        }
+        try {
+            $columnMeta = Capsule::select("SHOW COLUMNS FROM `{$engineTable}` WHERE Field = 'engine'");
+            $typeStr = strtolower((string) ($columnMeta[0]->Type ?? ''));
+            if ($typeStr !== '' && strpos($typeStr, "enum(") !== false && (strpos($typeStr, "'disk_image'") === false || strpos($typeStr, "'hyperv'") === false)) {
+                Capsule::statement("ALTER TABLE `{$engineTable}` MODIFY COLUMN `engine` ENUM('sync', 'kopia', 'disk_image', 'hyperv') NOT NULL DEFAULT 'sync'");
+                logModuleCall('cloudstorage', $context, [], "Extended engine enum on {$engineTable}", [], []);
+            }
+        } catch (\Throwable $e) {
+            logModuleCall('cloudstorage', "{$context}_extend_engine_enum_{$engineTable}", [], $e->getMessage(), [], []);
+        }
+    }
+
+    if (!$schema->hasTable('s3_hyperv_vms') && $schema->hasTable('s3_cloudbackup_jobs')) {
+        try {
+            $schema->create('s3_hyperv_vms', function ($table) {
+                $table->increments('id');
+                $table->char('job_id', 16)->charset('binary');
+                $table->string('vm_name', 255);
+                $table->string('vm_guid', 64)->nullable();
+                $table->tinyInteger('generation')->default(2);
+                $table->boolean('is_linux')->default(false);
+                $table->boolean('integration_services')->default(true);
+                $table->boolean('rct_enabled')->default(false);
+                $table->boolean('backup_enabled')->default(true);
+                $table->timestamp('created_at')->useCurrent();
+                $table->timestamp('updated_at')->useCurrent();
+                $table->unique(['job_id', 'vm_guid'], 'uk_job_vm');
+                $table->index(['job_id', 'backup_enabled'], 'idx_job_enabled');
+                $table->foreign('job_id')->references('job_id')->on('s3_cloudbackup_jobs')->onDelete('cascade');
+            });
+            logModuleCall('cloudstorage', $context, [], 'Created s3_hyperv_vms table', [], []);
+        } catch (\Throwable $e) {
+            logModuleCall('cloudstorage', "{$context}_create_s3_hyperv_vms", [], $e->getMessage(), [], []);
+        }
+    }
+
+    $hypervVmColumns = [
+        'job_id' => function ($table) { $table->char('job_id', 16)->charset('binary'); },
+        'vm_name' => function ($table) { $table->string('vm_name', 255); },
+        'vm_guid' => function ($table) { $table->string('vm_guid', 64)->nullable(); },
+        'generation' => function ($table) { $table->tinyInteger('generation')->default(2); },
+        'is_linux' => function ($table) { $table->boolean('is_linux')->default(false); },
+        'integration_services' => function ($table) { $table->boolean('integration_services')->default(true); },
+        'rct_enabled' => function ($table) { $table->boolean('rct_enabled')->default(false); },
+        'backup_enabled' => function ($table) { $table->boolean('backup_enabled')->default(true); },
+        'created_at' => function ($table) { $table->timestamp('created_at')->useCurrent(); },
+        'updated_at' => function ($table) { $table->timestamp('updated_at')->useCurrent(); },
+    ];
+    foreach ($hypervVmColumns as $columnName => $adder) {
+        cloudstorage_ensure_table_column('s3_hyperv_vms', $columnName, $adder, $context);
+    }
+    cloudstorage_ensure_table_index('s3_hyperv_vms', function ($table) {
+        $table->unique(['job_id', 'vm_guid'], 'uk_job_vm');
+    }, 'uk_job_vm', $context);
+    cloudstorage_ensure_table_index('s3_hyperv_vms', function ($table) {
+        $table->index(['job_id', 'backup_enabled'], 'idx_job_enabled');
+    }, 'idx_job_enabled', $context);
+
+    if (!$schema->hasTable('s3_hyperv_vm_disks') && $schema->hasTable('s3_hyperv_vms')) {
+        try {
+            $schema->create('s3_hyperv_vm_disks', function ($table) {
+                $table->increments('id');
+                $table->unsignedInteger('vm_id');
+                $table->string('disk_path', 1024);
+                $table->enum('controller_type', ['SCSI', 'IDE'])->default('SCSI');
+                $table->integer('controller_number')->default(0);
+                $table->integer('controller_location')->default(0);
+                $table->enum('vhd_format', ['VHDX', 'VHD'])->default('VHDX');
+                $table->unsignedBigInteger('size_bytes')->nullable();
+                $table->unsignedBigInteger('used_bytes')->nullable();
+                $table->boolean('rct_enabled')->default(false);
+                $table->string('current_rct_id', 128)->nullable();
+                $table->timestamp('created_at')->useCurrent();
+                $table->timestamp('updated_at')->useCurrent();
+                $table->index('vm_id', 'idx_vm_id');
+                $table->foreign('vm_id')->references('id')->on('s3_hyperv_vms')->onDelete('cascade');
+            });
+            logModuleCall('cloudstorage', $context, [], 'Created s3_hyperv_vm_disks table', [], []);
+        } catch (\Throwable $e) {
+            logModuleCall('cloudstorage', "{$context}_create_s3_hyperv_vm_disks", [], $e->getMessage(), [], []);
+        }
+    }
+
+    $hypervDiskColumns = [
+        'vm_id' => function ($table) { $table->unsignedInteger('vm_id'); },
+        'disk_path' => function ($table) { $table->string('disk_path', 1024); },
+        'controller_type' => function ($table) { $table->enum('controller_type', ['SCSI', 'IDE'])->default('SCSI'); },
+        'controller_number' => function ($table) { $table->integer('controller_number')->default(0); },
+        'controller_location' => function ($table) { $table->integer('controller_location')->default(0); },
+        'vhd_format' => function ($table) { $table->enum('vhd_format', ['VHDX', 'VHD'])->default('VHDX'); },
+        'size_bytes' => function ($table) { $table->unsignedBigInteger('size_bytes')->nullable(); },
+        'used_bytes' => function ($table) { $table->unsignedBigInteger('used_bytes')->nullable(); },
+        'rct_enabled' => function ($table) { $table->boolean('rct_enabled')->default(false); },
+        'current_rct_id' => function ($table) { $table->string('current_rct_id', 128)->nullable(); },
+        'created_at' => function ($table) { $table->timestamp('created_at')->useCurrent(); },
+        'updated_at' => function ($table) { $table->timestamp('updated_at')->useCurrent(); },
+    ];
+    foreach ($hypervDiskColumns as $columnName => $adder) {
+        cloudstorage_ensure_table_column('s3_hyperv_vm_disks', $columnName, $adder, $context);
+    }
+    cloudstorage_ensure_table_index('s3_hyperv_vm_disks', function ($table) {
+        $table->index('vm_id', 'idx_vm_id');
+    }, 'idx_vm_id', $context);
+
+    if (!$schema->hasTable('s3_hyperv_checkpoints') && $schema->hasTable('s3_hyperv_vms')) {
+        try {
+            $schema->create('s3_hyperv_checkpoints', function ($table) {
+                $table->increments('id');
+                $table->unsignedInteger('vm_id');
+                $table->char('run_id', 16)->charset('binary')->nullable();
+                $table->string('checkpoint_id', 64);
+                $table->string('checkpoint_name', 255)->nullable();
+                $table->enum('checkpoint_type', ['Production', 'Standard', 'Reference'])->default('Production');
+                $table->json('rct_ids')->nullable();
+                $table->boolean('is_active')->default(true);
+                $table->timestamp('created_at')->useCurrent();
+                $table->timestamp('merged_at')->nullable();
+                $table->index(['vm_id', 'is_active'], 'idx_vm_active');
+                $table->index('run_id', 'idx_run_id');
+                $table->foreign('vm_id')->references('id')->on('s3_hyperv_vms')->onDelete('cascade');
+            });
+            logModuleCall('cloudstorage', $context, [], 'Created s3_hyperv_checkpoints table', [], []);
+        } catch (\Throwable $e) {
+            logModuleCall('cloudstorage', "{$context}_create_s3_hyperv_checkpoints", [], $e->getMessage(), [], []);
+        }
+    }
+
+    $hypervCheckpointColumns = [
+        'vm_id' => function ($table) { $table->unsignedInteger('vm_id'); },
+        'run_id' => function ($table) { $table->char('run_id', 16)->charset('binary')->nullable(); },
+        'checkpoint_id' => function ($table) { $table->string('checkpoint_id', 64); },
+        'checkpoint_name' => function ($table) { $table->string('checkpoint_name', 255)->nullable(); },
+        'checkpoint_type' => function ($table) { $table->enum('checkpoint_type', ['Production', 'Standard', 'Reference'])->default('Production'); },
+        'rct_ids' => function ($table) { $table->json('rct_ids')->nullable(); },
+        'is_active' => function ($table) { $table->boolean('is_active')->default(true); },
+        'created_at' => function ($table) { $table->timestamp('created_at')->useCurrent(); },
+        'merged_at' => function ($table) { $table->timestamp('merged_at')->nullable(); },
+    ];
+    foreach ($hypervCheckpointColumns as $columnName => $adder) {
+        cloudstorage_ensure_table_column('s3_hyperv_checkpoints', $columnName, $adder, $context);
+    }
+    cloudstorage_ensure_table_index('s3_hyperv_checkpoints', function ($table) {
+        $table->index(['vm_id', 'is_active'], 'idx_vm_active');
+    }, 'idx_vm_active', $context);
+    cloudstorage_ensure_table_index('s3_hyperv_checkpoints', function ($table) {
+        $table->index('run_id', 'idx_run_id');
+    }, 'idx_run_id', $context);
+
+    if (!$schema->hasTable('s3_hyperv_backup_points') && $schema->hasTable('s3_hyperv_vms') && $schema->hasTable('s3_cloudbackup_runs')) {
+        try {
+            $schema->create('s3_hyperv_backup_points', function ($table) {
+                $table->increments('id');
+                $table->unsignedInteger('vm_id');
+                $table->char('run_id', 16)->charset('binary');
+                $table->enum('backup_type', ['Full', 'Incremental']);
+                $table->string('manifest_id', 128);
+                $table->unsignedInteger('parent_backup_id')->nullable();
+                $table->json('vm_config_json')->nullable();
+                $table->json('disk_manifests')->nullable();
+                $table->unsignedBigInteger('total_size_bytes')->nullable();
+                $table->unsignedBigInteger('changed_size_bytes')->nullable();
+                $table->unsignedInteger('duration_seconds')->nullable();
+                $table->enum('consistency_level', ['Crash', 'Application', 'CrashNoCheckpoint'])->default('Application');
+                $table->json('warnings_json')->nullable();
+                $table->string('warning_code', 64)->nullable();
+                $table->boolean('has_warnings')->default(false);
+                $table->timestamp('created_at')->useCurrent();
+                $table->timestamp('expires_at')->nullable();
+                $table->index(['vm_id', 'created_at'], 'idx_vm_created');
+                $table->index('manifest_id', 'idx_manifest');
+                $table->index('run_id', 'idx_bp_run_id');
+                $table->index('has_warnings', 'idx_has_warnings');
+                $table->foreign('vm_id')->references('id')->on('s3_hyperv_vms')->onDelete('cascade');
+                $table->foreign('run_id')->references('run_id')->on('s3_cloudbackup_runs')->onDelete('cascade');
+            });
+            logModuleCall('cloudstorage', $context, [], 'Created s3_hyperv_backup_points table', [], []);
+        } catch (\Throwable $e) {
+            logModuleCall('cloudstorage', "{$context}_create_s3_hyperv_backup_points", [], $e->getMessage(), [], []);
+        }
+    }
+
+    $hypervBackupPointColumns = [
+        'vm_id' => function ($table) { $table->unsignedInteger('vm_id'); },
+        'run_id' => function ($table) { $table->char('run_id', 16)->charset('binary'); },
+        'backup_type' => function ($table) { $table->enum('backup_type', ['Full', 'Incremental']); },
+        'manifest_id' => function ($table) { $table->string('manifest_id', 128); },
+        'parent_backup_id' => function ($table) { $table->unsignedInteger('parent_backup_id')->nullable(); },
+        'vm_config_json' => function ($table) { $table->json('vm_config_json')->nullable(); },
+        'disk_manifests' => function ($table) { $table->json('disk_manifests')->nullable(); },
+        'total_size_bytes' => function ($table) { $table->unsignedBigInteger('total_size_bytes')->nullable(); },
+        'changed_size_bytes' => function ($table) { $table->unsignedBigInteger('changed_size_bytes')->nullable(); },
+        'duration_seconds' => function ($table) { $table->unsignedInteger('duration_seconds')->nullable(); },
+        'consistency_level' => function ($table) { $table->enum('consistency_level', ['Crash', 'Application', 'CrashNoCheckpoint'])->default('Application'); },
+        'warnings_json' => function ($table) { $table->json('warnings_json')->nullable(); },
+        'warning_code' => function ($table) { $table->string('warning_code', 64)->nullable(); },
+        'has_warnings' => function ($table) { $table->boolean('has_warnings')->default(false); },
+        'created_at' => function ($table) { $table->timestamp('created_at')->useCurrent(); },
+        'expires_at' => function ($table) { $table->timestamp('expires_at')->nullable(); },
+    ];
+    foreach ($hypervBackupPointColumns as $columnName => $adder) {
+        cloudstorage_ensure_table_column('s3_hyperv_backup_points', $columnName, $adder, $context);
+    }
+    cloudstorage_ensure_table_index('s3_hyperv_backup_points', function ($table) {
+        $table->index(['vm_id', 'created_at'], 'idx_vm_created');
+    }, 'idx_vm_created', $context);
+    cloudstorage_ensure_table_index('s3_hyperv_backup_points', function ($table) {
+        $table->index('manifest_id', 'idx_manifest');
+    }, 'idx_manifest', $context);
+    cloudstorage_ensure_table_index('s3_hyperv_backup_points', function ($table) {
+        $table->index('run_id', 'idx_bp_run_id');
+    }, 'idx_bp_run_id', $context);
+    cloudstorage_ensure_table_index('s3_hyperv_backup_points', function ($table) {
+        $table->index('has_warnings', 'idx_has_warnings');
+    }, 'idx_has_warnings', $context);
+
+    if (!$schema->hasTable('s3_hyperv_instant_restore_sessions') && $schema->hasTable('s3_hyperv_backup_points')) {
+        try {
+            $schema->create('s3_hyperv_instant_restore_sessions', function ($table) {
+                $table->increments('id');
+                $table->unsignedInteger('backup_point_id');
+                $table->string('target_host', 255)->nullable();
+                $table->string('restored_vm_name', 255)->nullable();
+                $table->enum('session_type', ['NBD', 'iSCSI', 'Direct'])->default('NBD');
+                $table->string('nbd_address', 64)->nullable();
+                $table->string('iscsi_target_iqn', 255)->nullable();
+                $table->string('differential_vhdx_path', 1024)->nullable();
+                $table->enum('status', ['Starting', 'Active', 'Migrating', 'Completed', 'Failed'])->default('Starting');
+                $table->integer('migration_progress')->default(0);
+                $table->text('error_message')->nullable();
+                $table->timestamp('started_at')->useCurrent();
+                $table->timestamp('completed_at')->nullable();
+                $table->index('status', 'idx_status');
+                $table->index('backup_point_id', 'idx_backup_point');
+                $table->foreign('backup_point_id')->references('id')->on('s3_hyperv_backup_points')->onDelete('cascade');
+            });
+            logModuleCall('cloudstorage', $context, [], 'Created s3_hyperv_instant_restore_sessions table', [], []);
+        } catch (\Throwable $e) {
+            logModuleCall('cloudstorage', "{$context}_create_s3_hyperv_instant_restore_sessions", [], $e->getMessage(), [], []);
+        }
+    }
+
+    $hypervRestoreSessionColumns = [
+        'backup_point_id' => function ($table) { $table->unsignedInteger('backup_point_id'); },
+        'target_host' => function ($table) { $table->string('target_host', 255)->nullable(); },
+        'restored_vm_name' => function ($table) { $table->string('restored_vm_name', 255)->nullable(); },
+        'session_type' => function ($table) { $table->enum('session_type', ['NBD', 'iSCSI', 'Direct'])->default('NBD'); },
+        'nbd_address' => function ($table) { $table->string('nbd_address', 64)->nullable(); },
+        'iscsi_target_iqn' => function ($table) { $table->string('iscsi_target_iqn', 255)->nullable(); },
+        'differential_vhdx_path' => function ($table) { $table->string('differential_vhdx_path', 1024)->nullable(); },
+        'status' => function ($table) { $table->enum('status', ['Starting', 'Active', 'Migrating', 'Completed', 'Failed'])->default('Starting'); },
+        'migration_progress' => function ($table) { $table->integer('migration_progress')->default(0); },
+        'error_message' => function ($table) { $table->text('error_message')->nullable(); },
+        'started_at' => function ($table) { $table->timestamp('started_at')->useCurrent(); },
+        'completed_at' => function ($table) { $table->timestamp('completed_at')->nullable(); },
+    ];
+    foreach ($hypervRestoreSessionColumns as $columnName => $adder) {
+        cloudstorage_ensure_table_column('s3_hyperv_instant_restore_sessions', $columnName, $adder, $context);
+    }
+    cloudstorage_ensure_table_index('s3_hyperv_instant_restore_sessions', function ($table) {
+        $table->index('status', 'idx_status');
+    }, 'idx_status', $context);
+    cloudstorage_ensure_table_index('s3_hyperv_instant_restore_sessions', function ($table) {
+        $table->index('backup_point_id', 'idx_backup_point');
+    }, 'idx_backup_point', $context);
 }
 
 /**
@@ -1225,6 +1635,7 @@ function cloudstorage_activate() {
                 $table->unsignedInteger('client_id');
                 $table->unsignedInteger('tenant_id')->nullable();
                 $table->unsignedInteger('tenant_user_id')->nullable();
+                $table->unsignedInteger('backup_user_id')->nullable();
                 $table->string('agent_token', 191);
                 $table->unsignedInteger('enrollment_token_id')->nullable();
                 $table->string('hostname', 191)->nullable();
@@ -1250,6 +1661,7 @@ function cloudstorage_activate() {
                 $table->index('client_id');
                 $table->index('tenant_id');
                 $table->index('tenant_user_id');
+                $table->index('backup_user_id');
                 $table->unique(['client_id', 'tenant_id', 'device_id'], 'uniq_agent_device_scope');
             });
         }
@@ -1262,6 +1674,7 @@ function cloudstorage_activate() {
             $table->unsignedInteger('tenant_id')->nullable();
             $table->string('repository_id', 64)->nullable();
             $table->unsignedInteger('s3_user_id');
+            $table->unsignedInteger('backup_user_id')->nullable();
             $table->string('name', 191);
             $table->enum('source_type', ['s3_compatible', 'aws', 'sftp', 'google_drive', 'dropbox', 'smb', 'nas', 'local_agent'])->default('s3_compatible');
             $table->string('source_display_name', 191);
@@ -1293,6 +1706,7 @@ function cloudstorage_activate() {
             $table->index('tenant_id');
             $table->index('repository_id');
             $table->index('s3_user_id');
+            $table->index('backup_user_id');
             $table->index('dest_bucket_id');
             $table->index(['schedule_type', 'status']);
             $table->foreign('s3_user_id')->references('id')->on('s3_users')->onDelete('cascade');
@@ -1382,6 +1796,7 @@ function cloudstorage_activate() {
                 $table->unsignedInteger('tenant_id')->nullable();
                 $table->string('repository_id', 64)->nullable();
                 $table->unsignedInteger('tenant_user_id')->nullable();
+                $table->unsignedInteger('backup_user_id')->nullable();
                 $table->string('agent_uuid', 36)->nullable();
                 $table->char('job_id', 16)->charset('binary')->nullable();   // BINARY(16) UUIDv7 FK -> jobs.job_id
                 $table->string('job_name', 191)->nullable();
@@ -1414,6 +1829,7 @@ function cloudstorage_activate() {
                 $table->index('client_id');
                 $table->index('tenant_id');
                 $table->index('repository_id');
+                $table->index('backup_user_id');
                 $table->index('agent_uuid');
                 $table->index('manifest_id');
                 $table->index('run_id');
@@ -1430,6 +1846,13 @@ function cloudstorage_activate() {
                 $table->index('repository_id');
             });
             logModuleCall('cloudstorage', 'activate', [], 'Added repository_id to s3_cloudbackup_restore_points', [], []);
+        }
+        if (Capsule::schema()->hasTable('s3_cloudbackup_restore_points') && !Capsule::schema()->hasColumn('s3_cloudbackup_restore_points', 'backup_user_id')) {
+            Capsule::schema()->table('s3_cloudbackup_restore_points', function ($table) {
+                $table->unsignedInteger('backup_user_id')->nullable()->after('tenant_user_id');
+                $table->index('backup_user_id');
+            });
+            logModuleCall('cloudstorage', 'activate', [], 'Added backup_user_id to s3_cloudbackup_restore_points', [], []);
         }
 
         // Cloud Backup reusable sources table
@@ -1535,15 +1958,18 @@ function cloudstorage_activate() {
         if (!Capsule::schema()->hasTable('s3_backup_users')) {
             Capsule::schema()->create('s3_backup_users', function ($table) {
                 $table->increments('id');
+                $table->char('public_id', 26)->nullable();
                 $table->unsignedInteger('client_id');
                 $table->unsignedInteger('tenant_id')->nullable();
                 $table->string('username', 191);
                 $table->string('password_hash', 255);
                 $table->string('email', 255);
                 $table->enum('status', ['active', 'disabled'])->default('active');
+                $table->enum('backup_type', ['cloud_only', 'local', 'both'])->default('both');
                 $table->timestamp('created_at')->useCurrent();
                 $table->timestamp('updated_at')->useCurrent();
 
+                $table->unique('public_id');
                 $table->unique(['client_id', 'tenant_id', 'username'], 'uniq_backup_users_scope_username');
                 $table->index('client_id');
                 $table->index('tenant_id');
@@ -1555,12 +1981,14 @@ function cloudstorage_activate() {
 
         if (Capsule::schema()->hasTable('s3_backup_users')) {
             $backupUserColDefs = [
+                'public_id' => function ($table) { $table->char('public_id', 26)->nullable(); },
                 'client_id' => function ($table) { $table->unsignedInteger('client_id'); },
                 'tenant_id' => function ($table) { $table->unsignedInteger('tenant_id')->nullable(); },
                 'username' => function ($table) { $table->string('username', 191); },
                 'password_hash' => function ($table) { $table->string('password_hash', 255); },
                 'email' => function ($table) { $table->string('email', 255); },
                 'status' => function ($table) { $table->enum('status', ['active', 'disabled'])->default('active'); },
+                'backup_type' => function ($table) { $table->enum('backup_type', ['cloud_only', 'local', 'both'])->default('both'); },
                 'created_at' => function ($table) { $table->timestamp('created_at')->useCurrent(); },
                 'updated_at' => function ($table) { $table->timestamp('updated_at')->useCurrent(); },
             ];
@@ -1601,6 +2029,12 @@ function cloudstorage_activate() {
                     $table->index('email');
                 });
             } catch (\Throwable $e) { /* index exists */ }
+            try {
+                Capsule::schema()->table('s3_backup_users', function ($table) {
+                    $table->unique('public_id');
+                });
+            } catch (\Throwable $e) { /* index exists */ }
+            cloudstorage_backfill_backup_user_public_ids('activate');
         }
 
         if (!Capsule::schema()->hasTable('s3_agent_enrollment_tokens')) {
@@ -1608,6 +2042,7 @@ function cloudstorage_activate() {
                 $table->increments('id');
                 $table->unsignedInteger('client_id');              // MSP/client who owns the token
                 $table->unsignedInteger('tenant_id')->nullable();  // Scoped to tenant (NULL = direct client)
+                $table->unsignedInteger('backup_user_id')->nullable(); // Scoped to backup user
                 $table->string('token', 64);                       // ENR-xxxxxxxx
                 $table->string('description', 255)->nullable();    // Friendly label
                 $table->unsignedInteger('max_uses')->nullable();   // NULL = unlimited
@@ -1619,9 +2054,44 @@ function cloudstorage_activate() {
                 $table->unique('token');
                 $table->index('client_id');
                 $table->index('tenant_id');
+                $table->index('backup_user_id');
                 $table->index('expires_at');
             });
             logModuleCall('cloudstorage', 'activate', [], 'Created s3_agent_enrollment_tokens table', [], []);
+        }
+        if (Capsule::schema()->hasTable('s3_agent_enrollment_tokens')) {
+            if (!Capsule::schema()->hasColumn('s3_agent_enrollment_tokens', 'backup_user_id')) {
+                Capsule::schema()->table('s3_agent_enrollment_tokens', function ($table) {
+                    $table->unsignedInteger('backup_user_id')->nullable()->after('tenant_id');
+                    $table->index('backup_user_id');
+                });
+                logModuleCall('cloudstorage', 'activate', [], 'Added backup_user_id to s3_agent_enrollment_tokens', [], []);
+            }
+        }
+
+        if (!Capsule::schema()->hasTable('s3_agent_login_sessions')) {
+            Capsule::schema()->create('s3_agent_login_sessions', function ($table) {
+                $table->increments('id');
+                $table->string('session_token', 64);
+                $table->unsignedInteger('client_id');
+                $table->string('hostname', 255)->nullable();
+                $table->string('device_id', 128)->nullable();
+                $table->string('install_id', 128)->nullable();
+                $table->string('device_name', 255)->nullable();
+                $table->string('agent_version', 64)->nullable();
+                $table->string('agent_os', 32)->nullable();
+                $table->string('agent_arch', 32)->nullable();
+                $table->string('agent_build', 64)->nullable();
+                $table->timestamp('created_at')->useCurrent();
+                $table->dateTime('expires_at');
+                $table->dateTime('consumed_at')->nullable();
+
+                $table->unique('session_token');
+                $table->index('client_id');
+                $table->index('expires_at');
+                $table->index('consumed_at');
+            });
+            logModuleCall('cloudstorage', 'activate', [], 'Created s3_agent_login_sessions table', [], []);
         }
 
         if (!Capsule::schema()->hasTable('s3_cloudbackup_recovery_tokens')) {
@@ -1800,6 +2270,13 @@ function cloudstorage_activate() {
                 });
                 logModuleCall('cloudstorage', 'activate', [], 'Added metadata_updated_at to s3_cloudbackup_agents', [], []);
             }
+            if (!Capsule::schema()->hasColumn('s3_cloudbackup_agents', 'backup_user_id')) {
+                Capsule::schema()->table('s3_cloudbackup_agents', function ($table) {
+                    $table->unsignedInteger('backup_user_id')->nullable()->after('tenant_user_id');
+                    $table->index('backup_user_id');
+                });
+                logModuleCall('cloudstorage', 'activate', [], 'Added backup_user_id to s3_cloudbackup_agents', [], []);
+            }
         }
 
         // Add source_connection_id to jobs if missing
@@ -1830,6 +2307,13 @@ function cloudstorage_activate() {
                     $table->json('source_paths_json')->nullable()->after('source_path');
                 });
                 logModuleCall('cloudstorage', 'activate', [], 'Added source_paths_json to s3_cloudbackup_jobs', [], []);
+            }
+            if (!\WHMCS\Database\Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'backup_user_id')) {
+                \WHMCS\Database\Capsule::schema()->table('s3_cloudbackup_jobs', function ($table) {
+                    $table->unsignedInteger('backup_user_id')->nullable()->after('s3_user_id');
+                    $table->index('backup_user_id');
+                });
+                logModuleCall('cloudstorage', 'activate', [], 'Added backup_user_id to s3_cloudbackup_jobs', [], []);
             }
             // Add agent_uuid for local agent binding (nullable to preserve existing jobs)
             if (!\WHMCS\Database\Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'agent_uuid')) {
@@ -2180,159 +2664,7 @@ function cloudstorage_activate() {
             logModuleCall('cloudstorage', 'activate', [], 'Created s3_kopia_repo_locks table', [], []);
         }
 
-        // -----------------------------
-        // Hyper-V Backup Engine tables
-        // -----------------------------
-
-        // Add hyperv_enabled and hyperv_config columns to jobs table if missing
-        if (Capsule::schema()->hasTable('s3_cloudbackup_jobs')) {
-            if (!Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'hyperv_enabled')) {
-                Capsule::schema()->table('s3_cloudbackup_jobs', function ($table) {
-                    $table->boolean('hyperv_enabled')->default(false)->after('compression');
-                    $table->json('hyperv_config')->nullable()->after('hyperv_enabled');
-                });
-                logModuleCall('cloudstorage', 'activate', [], 'Added hyperv_enabled and hyperv_config to s3_cloudbackup_jobs', [], []);
-            }
-        }
-
-        // Add disk_manifests_json column to runs table if missing
-        if (Capsule::schema()->hasTable('s3_cloudbackup_runs')) {
-            if (!Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'disk_manifests_json')) {
-                Capsule::schema()->table('s3_cloudbackup_runs', function ($table) {
-                    $table->json('disk_manifests_json')->nullable()->after('log_ref');
-                });
-                logModuleCall('cloudstorage', 'activate', [], 'Added disk_manifests_json to s3_cloudbackup_runs', [], []);
-            }
-        }
-
-        // Hyper-V VM Registry: tracks VMs configured for backup
-        if (!Capsule::schema()->hasTable('s3_hyperv_vms')) {
-            Capsule::schema()->create('s3_hyperv_vms', function ($table) {
-                $table->increments('id');
-                $table->char('job_id', 16)->charset('binary');  // BINARY(16) FK -> jobs.job_id
-                $table->string('vm_name', 255);
-                $table->string('vm_guid', 64)->nullable();
-                $table->tinyInteger('generation')->default(2);
-                $table->boolean('is_linux')->default(false);
-                $table->boolean('integration_services')->default(true);
-                $table->boolean('rct_enabled')->default(false);
-                $table->boolean('backup_enabled')->default(true);
-                $table->timestamp('created_at')->useCurrent();
-                $table->timestamp('updated_at')->useCurrent();
-
-                $table->unique(['job_id', 'vm_guid'], 'uk_job_vm');
-                $table->index(['job_id', 'backup_enabled'], 'idx_job_enabled');
-                $table->foreign('job_id')->references('job_id')->on('s3_cloudbackup_jobs')->onDelete('cascade');
-            });
-            logModuleCall('cloudstorage', 'activate', [], 'Created s3_hyperv_vms table', [], []);
-        }
-
-        // Hyper-V Checkpoints: tracks backup reference points for RCT
-        if (!Capsule::schema()->hasTable('s3_hyperv_checkpoints')) {
-            Capsule::schema()->create('s3_hyperv_checkpoints', function ($table) {
-                $table->increments('id');
-                $table->unsignedInteger('vm_id');
-                $table->char('run_id', 16)->charset('binary')->nullable();  // BINARY(16) FK -> runs.run_id
-                $table->string('checkpoint_id', 64);
-                $table->string('checkpoint_name', 255)->nullable();
-                $table->enum('checkpoint_type', ['Production', 'Standard', 'Reference'])->default('Production');
-                $table->json('rct_ids')->nullable();
-                $table->boolean('is_active')->default(true);
-                $table->timestamp('created_at')->useCurrent();
-                $table->timestamp('merged_at')->nullable();
-
-                $table->index(['vm_id', 'is_active'], 'idx_vm_active');
-                $table->index('run_id', 'idx_run_id');
-                $table->foreign('vm_id')->references('id')->on('s3_hyperv_vms')->onDelete('cascade');
-            });
-            logModuleCall('cloudstorage', 'activate', [], 'Created s3_hyperv_checkpoints table', [], []);
-        }
-
-        // Hyper-V Backup Points: tracks backup metadata for restore
-        if (!Capsule::schema()->hasTable('s3_hyperv_backup_points')) {
-            Capsule::schema()->create('s3_hyperv_backup_points', function ($table) {
-                $table->increments('id');
-                $table->unsignedInteger('vm_id');
-                $table->char('run_id', 16)->charset('binary');  // BINARY(16) FK -> runs.run_id
-                $table->enum('backup_type', ['Full', 'Incremental']);
-                $table->string('manifest_id', 128);
-                $table->unsignedInteger('parent_backup_id')->nullable();
-                $table->json('vm_config_json')->nullable();
-                $table->json('disk_manifests')->nullable();
-                $table->unsignedBigInteger('total_size_bytes')->nullable();
-                $table->unsignedBigInteger('changed_size_bytes')->nullable();
-                $table->unsignedInteger('duration_seconds')->nullable();
-                $table->enum('consistency_level', ['Crash', 'Application', 'CrashNoCheckpoint'])->default('Application');
-                $table->json('warnings_json')->nullable();
-                $table->string('warning_code', 64)->nullable();
-                $table->boolean('has_warnings')->default(false);
-                $table->timestamp('created_at')->useCurrent();
-                $table->timestamp('expires_at')->nullable();
-
-                $table->index(['vm_id', 'created_at'], 'idx_vm_created');
-                $table->index('manifest_id', 'idx_manifest');
-                $table->index('run_id', 'idx_bp_run_id');
-                $table->index('has_warnings', 'idx_has_warnings');
-                $table->foreign('vm_id')->references('id')->on('s3_hyperv_vms')->onDelete('cascade');
-                $table->foreign('run_id')->references('run_id')->on('s3_cloudbackup_runs')->onDelete('cascade');
-            });
-            logModuleCall('cloudstorage', 'activate', [], 'Created s3_hyperv_backup_points table', [], []);
-        }
-
-        // Add missing columns to s3_hyperv_backup_points if they don't exist
-        if (Capsule::schema()->hasTable('s3_hyperv_backup_points')) {
-            if (!Capsule::schema()->hasColumn('s3_hyperv_backup_points', 'warnings_json')) {
-                Capsule::schema()->table('s3_hyperv_backup_points', function ($table) {
-                    $table->json('warnings_json')->nullable()->after('consistency_level');
-                });
-                logModuleCall('cloudstorage', 'activate', [], 'Added warnings_json to s3_hyperv_backup_points', [], []);
-            }
-            if (!Capsule::schema()->hasColumn('s3_hyperv_backup_points', 'warning_code')) {
-                Capsule::schema()->table('s3_hyperv_backup_points', function ($table) {
-                    $table->string('warning_code', 64)->nullable()->after('warnings_json');
-                });
-                logModuleCall('cloudstorage', 'activate', [], 'Added warning_code to s3_hyperv_backup_points', [], []);
-            }
-            if (!Capsule::schema()->hasColumn('s3_hyperv_backup_points', 'has_warnings')) {
-                Capsule::schema()->table('s3_hyperv_backup_points', function ($table) {
-                    $table->boolean('has_warnings')->default(false)->after('warning_code');
-                    $table->index('has_warnings', 'idx_has_warnings');
-                });
-                logModuleCall('cloudstorage', 'activate', [], 'Added has_warnings to s3_hyperv_backup_points', [], []);
-            }
-        }
-
-        // Extend engine enum to include disk_image and hyperv if the column exists
-        if (Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'engine')) {
-            try {
-                // Check current enum values by querying column type
-                $colType = Capsule::select("SHOW COLUMNS FROM s3_cloudbackup_jobs WHERE Field = 'engine'");
-                if (!empty($colType) && isset($colType[0]->Type)) {
-                    $typeStr = $colType[0]->Type;
-                    // If hyperv is not in the enum, alter the column to add it
-                    if (strpos($typeStr, 'hyperv') === false || strpos($typeStr, 'disk_image') === false) {
-                        Capsule::statement("ALTER TABLE s3_cloudbackup_jobs MODIFY COLUMN engine ENUM('sync', 'kopia', 'disk_image', 'hyperv') NOT NULL DEFAULT 'sync'");
-                        logModuleCall('cloudstorage', 'activate', [], 'Extended engine enum in s3_cloudbackup_jobs to include disk_image and hyperv', [], []);
-                    }
-                }
-            } catch (\Throwable $e) {
-                logModuleCall('cloudstorage', 'activate_engine_enum_jobs', [], $e->getMessage(), [], []);
-            }
-        }
-        if (Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'engine')) {
-            try {
-                $colType = Capsule::select("SHOW COLUMNS FROM s3_cloudbackup_runs WHERE Field = 'engine'");
-                if (!empty($colType) && isset($colType[0]->Type)) {
-                    $typeStr = $colType[0]->Type;
-                    if (strpos($typeStr, 'hyperv') === false || strpos($typeStr, 'disk_image') === false) {
-                        Capsule::statement("ALTER TABLE s3_cloudbackup_runs MODIFY COLUMN engine ENUM('sync', 'kopia', 'disk_image', 'hyperv') NOT NULL DEFAULT 'sync'");
-                        logModuleCall('cloudstorage', 'activate', [], 'Extended engine enum in s3_cloudbackup_runs to include disk_image and hyperv', [], []);
-                    }
-                }
-            } catch (\Throwable $e) {
-                logModuleCall('cloudstorage', 'activate_engine_enum_runs', [], $e->getMessage(), [], []);
-            }
-        }
+        cloudstorage_ensure_hyperv_schema('activate');
 
         // Create Tenant Portal Email Templates if they don't exist
         cloudstorage_create_email_templates();
@@ -2627,6 +2959,14 @@ function cloudstorage_upgrade($vars) {
                 logModuleCall('cloudstorage', 'upgrade', [], 'Added repository_id to s3_cloudbackup_restore_points', [], []);
             }
 
+            if ($schema->hasTable('s3_cloudbackup_restore_points') && !$schema->hasColumn('s3_cloudbackup_restore_points', 'backup_user_id')) {
+                $schema->table('s3_cloudbackup_restore_points', function ($table) {
+                    $table->unsignedInteger('backup_user_id')->nullable()->after('tenant_user_id');
+                    $table->index('backup_user_id');
+                });
+                logModuleCall('cloudstorage', 'upgrade', [], 'Added backup_user_id to s3_cloudbackup_restore_points', [], []);
+            }
+
             if (!$schema->hasTable('s3_cloudbackup_repositories')) {
                 $schema->create('s3_cloudbackup_repositories', function ($table) {
                     $table->bigIncrements('id');
@@ -2853,6 +3193,79 @@ function cloudstorage_upgrade($vars) {
                     }
                 }
                 logModuleCall('cloudstorage', 'upgrade_backfill_restore_points_repository_id', [], ['updated' => $updatedRestoreRepos], [], []);
+            }
+
+            if (
+                $schema->hasTable('s3_cloudbackup_restore_points') &&
+                $schema->hasTable('s3_cloudbackup_jobs') &&
+                $schema->hasColumn('s3_cloudbackup_restore_points', 'backup_user_id') &&
+                $schema->hasColumn('s3_cloudbackup_restore_points', 'job_id') &&
+                $schema->hasColumn('s3_cloudbackup_jobs', 'backup_user_id')
+            ) {
+                $updatedRestoreUsersFromJobs = 0;
+                $lastRestoreUserId = 0;
+                $chunk = 500;
+                $rpJobJoin = $schema->hasColumn('s3_cloudbackup_jobs', 'job_id') ? 'j.job_id' : 'j.id';
+                while (true) {
+                    $rows = \WHMCS\Database\Capsule::table('s3_cloudbackup_restore_points as rp')
+                        ->join('s3_cloudbackup_jobs as j', $rpJobJoin, '=', 'rp.job_id')
+                        ->where('rp.id', '>', $lastRestoreUserId)
+                        ->whereNull('rp.backup_user_id')
+                        ->whereNotNull('j.backup_user_id')
+                        ->select(['rp.id as restore_id', 'j.backup_user_id'])
+                        ->orderBy('rp.id', 'asc')
+                        ->limit($chunk)
+                        ->get();
+                    if (!$rows || count($rows) === 0) {
+                        break;
+                    }
+                    foreach ($rows as $row) {
+                        $lastRestoreUserId = (int) $row->restore_id;
+                        try {
+                            $updatedRestoreUsersFromJobs += (int) \WHMCS\Database\Capsule::table('s3_cloudbackup_restore_points')
+                                ->where('id', (int) $row->restore_id)
+                                ->whereNull('backup_user_id')
+                                ->update(['backup_user_id' => (int) $row->backup_user_id]);
+                        } catch (\Throwable $__) {}
+                    }
+                }
+                logModuleCall('cloudstorage', 'upgrade_backfill_restore_points_backup_user_id_jobs', [], ['updated' => $updatedRestoreUsersFromJobs], [], []);
+            }
+
+            if (
+                $schema->hasTable('s3_cloudbackup_restore_points') &&
+                $schema->hasTable('s3_cloudbackup_agents') &&
+                $schema->hasColumn('s3_cloudbackup_restore_points', 'backup_user_id') &&
+                $schema->hasColumn('s3_cloudbackup_restore_points', 'agent_uuid') &&
+                $schema->hasColumn('s3_cloudbackup_agents', 'backup_user_id')
+            ) {
+                $updatedRestoreUsersFromAgents = 0;
+                $lastRestoreAgentUserId = 0;
+                $chunk = 500;
+                while (true) {
+                    $rows = \WHMCS\Database\Capsule::table('s3_cloudbackup_restore_points as rp')
+                        ->join('s3_cloudbackup_agents as a', 'a.agent_uuid', '=', 'rp.agent_uuid')
+                        ->where('rp.id', '>', $lastRestoreAgentUserId)
+                        ->whereNull('rp.backup_user_id')
+                        ->whereNotNull('a.backup_user_id')
+                        ->select(['rp.id as restore_id', 'a.backup_user_id'])
+                        ->orderBy('rp.id', 'asc')
+                        ->limit($chunk)
+                        ->get();
+                    if (!$rows || count($rows) === 0) {
+                        break;
+                    }
+                    foreach ($rows as $row) {
+                        $lastRestoreAgentUserId = (int) $row->restore_id;
+                        try {
+                            $updatedRestoreUsersFromAgents += (int) \WHMCS\Database\Capsule::table('s3_cloudbackup_restore_points')
+                                ->where('id', (int) $row->restore_id)
+                                ->whereNull('backup_user_id')
+                                ->update(['backup_user_id' => (int) $row->backup_user_id]);
+                        } catch (\Throwable $__) {}
+                    }
+                }
+                logModuleCall('cloudstorage', 'upgrade_backfill_restore_points_backup_user_id_agents', [], ['updated' => $updatedRestoreUsersFromAgents], [], []);
             }
         } catch (\Throwable $e) {
             logModuleCall('cloudstorage', 'upgrade_phase1_schema_guardrails_fail', [], $e->getMessage(), [], []);
@@ -3229,6 +3642,7 @@ function cloudstorage_upgrade($vars) {
                 $table->unsignedInteger('tenant_id')->nullable();
                 $table->string('repository_id', 64)->nullable();
                 $table->unsignedInteger('s3_user_id');
+                $table->unsignedInteger('backup_user_id')->nullable();
                 $table->string('name', 191);
                 $table->enum('source_type', ['s3_compatible', 'aws', 'sftp', 'google_drive', 'dropbox', 'smb', 'nas', 'local_agent'])->default('s3_compatible');
                 $table->string('source_display_name', 191);
@@ -3260,6 +3674,7 @@ function cloudstorage_upgrade($vars) {
                 $table->index('tenant_id');
                 $table->index('repository_id');
                 $table->index('s3_user_id');
+                $table->index('backup_user_id');
                 $table->index('source_connection_id');
                 $table->index('dest_bucket_id');
                 $table->index(['schedule_type', 'status']);
@@ -3298,6 +3713,17 @@ function cloudstorage_upgrade($vars) {
                     logModuleCall('cloudstorage', 'upgrade', [], 'Added source_connection_id to s3_cloudbackup_jobs', [], []);
                 } catch (\Exception $e) {
                     logModuleCall('cloudstorage', 'upgrade_add_source_connection_id', [], $e->getMessage(), [], []);
+                }
+            }
+            if (!\WHMCS\Database\Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'backup_user_id')) {
+                try {
+                    \WHMCS\Database\Capsule::schema()->table('s3_cloudbackup_jobs', function ($table) {
+                        $table->unsignedInteger('backup_user_id')->nullable()->after('s3_user_id');
+                        $table->index('backup_user_id');
+                    });
+                    logModuleCall('cloudstorage', 'upgrade', [], 'Added backup_user_id to s3_cloudbackup_jobs', [], []);
+                } catch (\Exception $e) {
+                    logModuleCall('cloudstorage', 'upgrade_add_backup_user_id', [], $e->getMessage(), [], []);
                 }
             }
         }
@@ -3590,6 +4016,7 @@ function cloudstorage_upgrade($vars) {
                 $table->unsignedInteger('tenant_id')->nullable();
                 $table->string('repository_id', 64)->nullable();
                 $table->unsignedInteger('tenant_user_id')->nullable();
+                $table->unsignedInteger('backup_user_id')->nullable();
                 $table->string('agent_uuid', 36)->nullable();
                 $table->char('job_id', 16)->charset('binary')->nullable();   // BINARY(16) UUIDv7 FK -> jobs.job_id
                 $table->string('job_name', 191)->nullable();
@@ -3622,6 +4049,7 @@ function cloudstorage_upgrade($vars) {
                 $table->index('client_id');
                 $table->index('tenant_id');
                 $table->index('repository_id');
+                $table->index('backup_user_id');
                 $table->index('agent_uuid');
                 $table->index('manifest_id');
                 $table->index('run_id');
@@ -3635,6 +4063,18 @@ function cloudstorage_upgrade($vars) {
 
         // Add disk layout metadata columns on upgrades
         if (\WHMCS\Database\Capsule::schema()->hasTable('s3_cloudbackup_restore_points')) {
+            if (!\WHMCS\Database\Capsule::schema()->hasColumn('s3_cloudbackup_restore_points', 'backup_user_id')) {
+                try {
+                    \WHMCS\Database\Capsule::schema()->table('s3_cloudbackup_restore_points', function ($table) {
+                        $table->unsignedInteger('backup_user_id')->nullable()->after('tenant_user_id');
+                        $table->index('backup_user_id');
+                    });
+                    logModuleCall('cloudstorage', 'upgrade', [], 'Added backup_user_id to s3_cloudbackup_restore_points', [], []);
+                } catch (\Exception $e) {
+                    logModuleCall('cloudstorage', 'upgrade_add_restore_points_backup_user_id_error', [], $e->getMessage(), [], []);
+                }
+            }
+
             if (!\WHMCS\Database\Capsule::schema()->hasColumn('s3_cloudbackup_restore_points', 'disk_layout_json')) {
                 try {
                     \WHMCS\Database\Capsule::schema()->table('s3_cloudbackup_restore_points', function ($table) {
@@ -4027,14 +4467,17 @@ function cloudstorage_upgrade($vars) {
             if (!$schema->hasTable('s3_backup_users')) {
                 $schema->create('s3_backup_users', function ($table) {
                     $table->increments('id');
+                    $table->char('public_id', 26)->nullable();
                     $table->unsignedInteger('client_id');
                     $table->unsignedInteger('tenant_id')->nullable();
                     $table->string('username', 191);
                     $table->string('password_hash', 255);
                     $table->string('email', 255);
                     $table->enum('status', ['active', 'disabled'])->default('active');
+                    $table->enum('backup_type', ['cloud_only', 'local', 'both'])->default('both');
                     $table->timestamp('created_at')->useCurrent();
                     $table->timestamp('updated_at')->useCurrent();
+                    $table->unique('public_id');
                     $table->unique(['client_id', 'tenant_id', 'username'], 'uniq_backup_users_scope_username');
                     $table->index('client_id');
                     $table->index('tenant_id');
@@ -4045,12 +4488,14 @@ function cloudstorage_upgrade($vars) {
             }
 
             $backupUserColDefs = [
+                'public_id' => function ($table) { $table->char('public_id', 26)->nullable(); },
                 'client_id' => function ($table) { $table->unsignedInteger('client_id'); },
                 'tenant_id' => function ($table) { $table->unsignedInteger('tenant_id')->nullable(); },
                 'username' => function ($table) { $table->string('username', 191); },
                 'password_hash' => function ($table) { $table->string('password_hash', 255); },
                 'email' => function ($table) { $table->string('email', 255); },
                 'status' => function ($table) { $table->enum('status', ['active', 'disabled'])->default('active'); },
+                'backup_type' => function ($table) { $table->enum('backup_type', ['cloud_only', 'local', 'both'])->default('both'); },
                 'created_at' => function ($table) { $table->timestamp('created_at')->useCurrent(); },
                 'updated_at' => function ($table) { $table->timestamp('updated_at')->useCurrent(); },
             ];
@@ -4092,10 +4537,73 @@ function cloudstorage_upgrade($vars) {
                     $table->index('email');
                 });
             } catch (\Throwable $e) {}
+            try {
+                $schema->table('s3_backup_users', function ($table) {
+                    $table->unique('public_id');
+                });
+            } catch (\Throwable $e) {}
+            cloudstorage_backfill_backup_user_public_ids('upgrade');
         } catch (\Throwable $e) {
             logModuleCall('cloudstorage', 'upgrade_s3_backup_users_fail', [], $e->getMessage(), [], []);
         }
 
+        // Add backup_user_id to agents and enrollment tokens for per-user scoping
+        if (\WHMCS\Database\Capsule::schema()->hasTable('s3_cloudbackup_agents')) {
+            if (!\WHMCS\Database\Capsule::schema()->hasColumn('s3_cloudbackup_agents', 'backup_user_id')) {
+                try {
+                    \WHMCS\Database\Capsule::schema()->table('s3_cloudbackup_agents', function ($table) {
+                        $table->unsignedInteger('backup_user_id')->nullable()->after('tenant_user_id');
+                        $table->index('backup_user_id');
+                    });
+                    logModuleCall('cloudstorage', 'upgrade', [], 'Added backup_user_id to s3_cloudbackup_agents', [], []);
+                } catch (\Exception $e) {
+                    logModuleCall('cloudstorage', 'upgrade_add_agents_backup_user_id', [], $e->getMessage(), [], []);
+                }
+            }
+        }
+        if (\WHMCS\Database\Capsule::schema()->hasTable('s3_agent_enrollment_tokens')) {
+            if (!\WHMCS\Database\Capsule::schema()->hasColumn('s3_agent_enrollment_tokens', 'backup_user_id')) {
+                try {
+                    \WHMCS\Database\Capsule::schema()->table('s3_agent_enrollment_tokens', function ($table) {
+                        $table->unsignedInteger('backup_user_id')->nullable()->after('tenant_id');
+                        $table->index('backup_user_id');
+                    });
+                    logModuleCall('cloudstorage', 'upgrade', [], 'Added backup_user_id to s3_agent_enrollment_tokens', [], []);
+                } catch (\Exception $e) {
+                    logModuleCall('cloudstorage', 'upgrade_add_tokens_backup_user_id', [], $e->getMessage(), [], []);
+                }
+            }
+        }
+        if (!\WHMCS\Database\Capsule::schema()->hasTable('s3_agent_login_sessions')) {
+            try {
+                \WHMCS\Database\Capsule::schema()->create('s3_agent_login_sessions', function ($table) {
+                    $table->increments('id');
+                    $table->string('session_token', 64);
+                    $table->unsignedInteger('client_id');
+                    $table->string('hostname', 255)->nullable();
+                    $table->string('device_id', 128)->nullable();
+                    $table->string('install_id', 128)->nullable();
+                    $table->string('device_name', 255)->nullable();
+                    $table->string('agent_version', 64)->nullable();
+                    $table->string('agent_os', 32)->nullable();
+                    $table->string('agent_arch', 32)->nullable();
+                    $table->string('agent_build', 64)->nullable();
+                    $table->timestamp('created_at')->useCurrent();
+                    $table->dateTime('expires_at');
+                    $table->dateTime('consumed_at')->nullable();
+
+                    $table->unique('session_token');
+                    $table->index('client_id');
+                    $table->index('expires_at');
+                    $table->index('consumed_at');
+                });
+                logModuleCall('cloudstorage', 'upgrade', [], 'Created s3_agent_login_sessions table', [], []);
+            } catch (\Exception $e) {
+                logModuleCall('cloudstorage', 'upgrade_create_agent_login_sessions', [], $e->getMessage(), [], []);
+            }
+        }
+
+        cloudstorage_ensure_hyperv_schema('upgrade');
         return ['status' => 'success'];
     } catch (\Exception $e) {
         logModuleCall('cloudstorage', 'upgrade', $vars, $e->getMessage());
@@ -4293,11 +4801,6 @@ function cloudstorage_clientarea($vars) {
                     $pagetitle = 'e3 Cloud Backup - Jobs';
                     $templatefile = 'templates/e3backup_jobs';
                     $viewVars = require 'pages/e3backup_jobs.php';
-                    break;
-                case 'restores':
-                    $pagetitle = 'e3 Cloud Backup - Restores';
-                    $templatefile = 'templates/e3backup_restores';
-                    $viewVars = require 'pages/e3backup_restores.php';
                     break;
                 case 'runs':
                     $pagetitle = 'e3 Cloud Backup - Run History';
@@ -4620,4 +5123,3 @@ function cloudstorage_get_welcome_sso_redirect(): ?string
     cloudstorage_clear_trial_sso_session();
     return null;
 }
-

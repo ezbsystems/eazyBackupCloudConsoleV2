@@ -5,9 +5,12 @@ package agent
 
 import (
 	"fmt"
+	"log"
 	"strings"
 	"syscall"
 	"unsafe"
+
+	"golang.org/x/sys/windows/registry"
 )
 
 const (
@@ -37,6 +40,7 @@ func enumerateVolumes() ([]VolumeInfo, error) {
 		return nil, fmt.Errorf("GetLogicalDrives failed: %v", callErr)
 	}
 
+	seen := make(map[string]bool) // track drive letters already added
 	var vols []VolumeInfo
 	for i := 0; i < 26; i++ {
 		if mask&(1<<uint(i)) == 0 {
@@ -62,7 +66,6 @@ func enumerateVolumes() ([]VolumeInfo, error) {
 		}
 
 		if dType == driveRemote {
-			// Network/mapped drive - resolve to UNC path
 			vol.Type = "network"
 			vol.IsNetwork = true
 			if uncPath := getUNCPath(driveLetter); uncPath != "" {
@@ -75,9 +78,88 @@ func enumerateVolumes() ([]VolumeInfo, error) {
 			vol.Type = "fixed"
 		}
 
+		seen[string(rune('A'+i))] = true
 		vols = append(vols, vol)
 	}
+
+	// Discover network drives mapped in interactive user sessions via registry.
+	// The service runs in session 0 and cannot see user-session mappings via
+	// GetLogicalDrives, but HKEY_USERS\<SID>\Network is accessible.
+	for letter, uncPath := range enumerateUserNetworkDrives() {
+		if seen[letter] {
+			continue
+		}
+		vol := VolumeInfo{
+			Path:      letter + ":",
+			Type:      "network",
+			IsNetwork: true,
+			UNCPath:   uncPath,
+		}
+		if uncPath != "" {
+			vol.Label = uncPath
+		}
+		vols = append(vols, vol)
+	}
+
 	return vols, nil
+}
+
+// enumerateUserNetworkDrives scans HKEY_USERS\<SID>\Network to discover
+// persistent network drive mappings from all loaded user profiles. This lets
+// the service detect mapped drives (NAS, file server, etc.) that are only
+// visible in the interactive user's session.
+func enumerateUserNetworkDrives() map[string]string {
+	result := make(map[string]string)
+
+	usersKey, err := registry.OpenKey(registry.USERS, "", registry.ENUMERATE_SUB_KEYS)
+	if err != nil {
+		log.Printf("agent: cannot open HKEY_USERS for network drive scan: %v", err)
+		return result
+	}
+	defer usersKey.Close()
+
+	sids, err := usersKey.ReadSubKeyNames(-1)
+	if err != nil {
+		return result
+	}
+
+	for _, sid := range sids {
+		if strings.HasSuffix(sid, "_Classes") || sid == ".DEFAULT" {
+			continue
+		}
+
+		networkKey, err := registry.OpenKey(registry.USERS, sid+`\Network`, registry.ENUMERATE_SUB_KEYS)
+		if err != nil {
+			continue
+		}
+
+		letters, err := networkKey.ReadSubKeyNames(-1)
+		networkKey.Close()
+		if err != nil {
+			continue
+		}
+
+		for _, letter := range letters {
+			upper := strings.ToUpper(letter)
+			if len(upper) != 1 || upper[0] < 'A' || upper[0] > 'Z' {
+				continue
+			}
+			if _, exists := result[upper]; exists {
+				continue
+			}
+
+			letterKey, err := registry.OpenKey(registry.USERS, sid+`\Network\`+letter, registry.QUERY_VALUE)
+			if err != nil {
+				result[upper] = ""
+				continue
+			}
+			remotePath, _, _ := letterKey.GetStringValue("RemotePath")
+			letterKey.Close()
+			result[upper] = remotePath
+		}
+	}
+
+	return result
 }
 
 func getDriveType(path string) uint32 {

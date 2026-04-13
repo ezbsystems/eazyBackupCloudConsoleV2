@@ -249,9 +249,13 @@
                                 @click="open = !open"
                                 class="eb-sidebar-link w-full text-left {if ($smarty.server.REQUEST_URI|strstr:'index.php?m=cloudstorage&page=dashboard') || ($smarty.server.REQUEST_URI|strstr:'index.php?m=cloudstorage&page=buckets') || ($smarty.server.REQUEST_URI|strstr:'index.php?m=cloudstorage&page=browse') || ($smarty.server.REQUEST_URI|strstr:'index.php?m=cloudstorage&page=access_keys') || ($smarty.server.REQUEST_URI|strstr:'index.php?m=cloudstorage&page=users') || ($smarty.server.REQUEST_URI|strstr:'index.php?m=cloudstorage&page=billing') || ($smarty.server.REQUEST_URI|strstr:'index.php?m=cloudstorage&page=history')}is-active{/if}"
                             >
-                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                {* <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                                     <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 15a4.5 4.5 0 0 0 4.5 4.5H18a3.75 3.75 0 0 0 1.332-7.257 3 3 0 0 0-3.758-3.848 5.25 5.25 0 0 0-10.233 2.33A4.502 4.502 0 0 0 2.25 15Z" />
+                                </svg> *}
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="m20.25 7.5-.625 10.632a2.25 2.25 0 0 1-2.247 2.118H6.622a2.25 2.25 0 0 1-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125Z" />
                                 </svg>
+
                                 e3 Object Storage
                                 <svg class="eb-sidebar-chevron" :style="{ldelim} transform: open ? 'rotate(180deg)' : 'rotate(0deg)' {rdelim}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
@@ -266,40 +270,16 @@
                                 <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=history" class="eb-sidebar-sublink {if $smarty.server.REQUEST_URI|strstr:'page=history'}is-active{/if}">Historical Stats</a>
                             </div>
                         </div>
-
-                        {if $e3Allowed}
-                        <div x-data="{ open: ['index.php?m=cloudstorage&page=e3backup'].some(path => window.location.href.includes(path)) }" class="space-y-1">
-                            <button
-                                @click="open = !open"
-                                class="eb-sidebar-link w-full text-left {if $smarty.server.REQUEST_URI|strstr:'index.php?m=cloudstorage&page=e3backup'}is-active{/if}"
-                            >
-                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                                    <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
-                                </svg>
-                                e3 Cloud Backup
-                                <svg class="eb-sidebar-chevron" :style="{ldelim} transform: open ? 'rotate(180deg)' : 'rotate(0deg)' {rdelim}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
-                                </svg>
-                            </button>
-                            <div x-show="open" x-cloak class="eb-sidebar-subnav">
-                                <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=e3backup" class="eb-sidebar-sublink {if $smarty.get.page == 'e3backup' && empty($smarty.get.view)}is-active{/if}">Dashboard</a>
-                                <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=e3backup&view=users" class="eb-sidebar-sublink {if $smarty.get.view == 'users' || $smarty.get.view == 'user_detail'}is-active{/if}">Users</a>
-                                <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=e3backup&view=agents" class="eb-sidebar-sublink {if $smarty.get.view == 'agents'}is-active{/if}">Agents</a>
-                                <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=e3backup&view=jobs" class="eb-sidebar-sublink {if $smarty.get.view == 'jobs'}is-active{/if}">Jobs</a>
-                                <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=e3backup&view=restores" class="eb-sidebar-sublink {if $smarty.get.view == 'restores'}is-active{/if}">Restores</a>
-                                <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=e3backup&view=cloudnas" class="eb-sidebar-sublink {if $smarty.get.view == 'cloudnas'}is-active{/if}">Cloud NAS</a>
-                                <button id="e3backup-download-trigger" class="eb-sidebar-sublink w-full text-left">Download Agent</button>
-                                <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=e3backup&view=hyperv" class="eb-sidebar-sublink {if $smarty.get.view == 'hyperv' || $smarty.get.view == 'hyperv_restore'}is-active{/if}">Hyper-V</a>
-                                <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=e3backup&view=tokens" class="eb-sidebar-sublink {if $smarty.get.view == 'tokens'}is-active{/if}">Enrollment Tokens</a>
-                                {if $isMspClient}
-                                <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=e3backup&view=tenants" class="eb-sidebar-sublink {if $smarty.get.view == 'tenants' || $smarty.get.view == 'tenant_detail'}is-active{/if}">Tenants</a>
-                                <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=e3backup&view=tenant_members" class="eb-sidebar-sublink {if $smarty.get.view == 'tenant_members' || $smarty.get.view == 'tenant_users'}is-active{/if}">Tenant Members</a>
-                                {/if}
-                            </div>
-                        </div>
+                        
+                        <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=e3backup"
+                           class="eb-sidebar-link {if $smarty.server.REQUEST_URI|strstr:'index.php?m=cloudstorage&page=e3backup'}is-active{/if}">
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960" class="eb-sidebar-link-icon--filled" aria-hidden="true">
+                                <path fill="currentColor" d="M260-160q-91 0-155.5-63T40-377q0-78 47-139t123-78q25-92 100-149t170-57q117 0 198.5 81.5T760-520q69 8 114.5 59.5T920-340q0 75-52.5 127.5T740-160H520q-33 0-56.5-23.5T440-240v-206l-64 62-56-56 160-160 160 160-56 56-64-62v206h220q42 0 71-29t29-71q0-42-29-71t-71-29h-60v-80q0-83-58.5-141.5T480-720q-83 0-141.5 58.5T280-520h-20q-58 0-99 41t-41 99q0 58 41 99t99 41h100v80H260Zm220-280Z"/>
+                            </svg>
+                            e3 Cloud Backup
+                        </a>
                         {/if}
-                        </div>
-                    {/if}
+                        </div>                    
                     </nav>
 
                     <!-- Secondary Navigation (User Info and Logout) -->

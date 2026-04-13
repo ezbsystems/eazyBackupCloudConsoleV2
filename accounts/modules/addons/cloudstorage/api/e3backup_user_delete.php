@@ -45,27 +45,32 @@ $tenantTable = MspController::getTenantTableName();
 $mspId = MspController::getMspIdForClient($clientId);
 $tenantOwnerId = ($tenantTable === 'eb_tenants') ? (int)($mspId ?? 0) : (int)$clientId;
 $tenantOwnerSelect = $tenantTable === 'eb_tenants' ? 't.msp_id as tenant_owner_id' : 't.client_id as tenant_owner_id';
-$userId = (int) ($_POST['user_id'] ?? 0);
+$userIdRaw = trim((string) ($_POST['user_id'] ?? ''));
+$hasPublicIdCol = Capsule::schema()->hasColumn('s3_backup_users', 'public_id');
 
-if ($userId <= 0) {
+if ($userIdRaw === '') {
     userDeleteFail('Invalid user ID.', 400, ['user_id' => 'Invalid user ID']);
 }
 
-$user = Capsule::table('s3_backup_users as u')
+$deleteLookup = Capsule::table('s3_backup_users as u')
     ->leftJoin($tenantTable . ' as t', 'u.tenant_id', '=', 't.id')
-    ->where('u.id', $userId)
-    ->where('u.client_id', $clientId)
-    ->select([
-        'u.id',
-        'u.tenant_id',
-        Capsule::raw($tenantOwnerSelect),
-        't.status as tenant_status',
-    ])
-    ->first();
+    ->where('u.client_id', $clientId);
+if ($hasPublicIdCol && !ctype_digit($userIdRaw)) {
+    $deleteLookup->where('u.public_id', $userIdRaw);
+} else {
+    $deleteLookup->where('u.id', (int) $userIdRaw);
+}
+$user = $deleteLookup->select([
+    'u.id',
+    'u.tenant_id',
+    Capsule::raw($tenantOwnerSelect),
+    't.status as tenant_status',
+])->first();
 
 if (!$user) {
     userDeleteFail('User not found.', 404);
 }
+$userId = (int) $user->id;
 
 if (!$isMsp && !empty($user->tenant_id)) {
     userDeleteFail('User not found.', 404);

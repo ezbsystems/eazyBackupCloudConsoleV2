@@ -472,6 +472,7 @@ function tenantDetailApp() {
 
         showCreateMemberModal: false,
         showCreateModal: false,
+        showRecoveryKeyCloseWarning: false,
         memberSaving: false,
         saving: false,
         memberFormError: '',
@@ -791,15 +792,22 @@ function tenantDetailApp() {
             this.redirectToPartnerHub('storage_users');
         },
 
-        closeCreateModal() {
-            if (this.form.encryption_mode === 'strict' && !this.form.recovery_key_downloaded) {
-                const proceed = window.confirm('You haven\'t downloaded the recovery key. If you continue, you will not be able to recover encrypted data later.');
-                if (!proceed) {
-                    return;
-                }
+        closeCreateModal(force = false) {
+            if (!force && this.form.encryption_mode === 'strict' && !this.form.recovery_key_downloaded) {
+                this.showRecoveryKeyCloseWarning = true;
+                return;
             }
+            this.showRecoveryKeyCloseWarning = false;
             this.showCreateModal = false;
             this.saving = false;
+        },
+
+        cancelRecoveryKeyCloseWarning() {
+            this.showRecoveryKeyCloseWarning = false;
+        },
+
+        confirmCloseCreateWithoutRecoveryKey() {
+            this.closeCreateModal(true);
         },
 
         validateCreateForm() {

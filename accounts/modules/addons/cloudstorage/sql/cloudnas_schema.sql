@@ -14,6 +14,8 @@ CREATE TABLE IF NOT EXISTS `s3_cloudnas_mounts` (
     `cache_mode` VARCHAR(20) DEFAULT 'full',
     `status` VARCHAR(20) DEFAULT 'unmounted',
     `error` TEXT DEFAULT NULL,
+    `temp_access_key` VARCHAR(128) DEFAULT NULL,
+    `temp_key_ceph_uid` VARCHAR(255) DEFAULT NULL,
     `last_mounted_at` DATETIME DEFAULT NULL,
     `created_at` DATETIME NOT NULL,
     `updated_at` DATETIME NOT NULL,

@@ -467,7 +467,6 @@
                                                         <li role="separator" class="divider"></li>
                                                         <li><a href="addonmodules.php?module=cloudstorage&action=cloudbackup_admin&tab=runs&agent_uuid={$agent.agent_uuid|escape:'url'}">View This Agent's Runs</a></li>
                                                         <li><a href="index.php?m=cloudstorage&page=e3backup&view=jobs&open_create=1&prefill_source=local_agent&prefill_agent_uuid={$agent.agent_uuid|escape:'url'}" target="_blank" rel="noopener">Create Job (Prefilled)</a></li>
-                                                        <li><a href="index.php?m=cloudstorage&page=e3backup&view=restores&agent_uuid={$agent.agent_uuid|escape:'url'}" target="_blank" rel="noopener">Restore Points For Agent</a></li>
                                                     </ul>
                                                 </div>
                                             </td>
@@ -661,10 +660,6 @@
                         <tr>
                             <td><strong>Create Job (Prefilled)</strong></td>
                             <td>Opens the e3 Backup job wizard with local-agent source and this agent preselected.</td>
-                        </tr>
-                        <tr>
-                            <td><strong>Restore Points For Agent</strong></td>
-                            <td>Opens restore points scoped to the selected agent.</td>
                         </tr>
                     </tbody>
                 </table>

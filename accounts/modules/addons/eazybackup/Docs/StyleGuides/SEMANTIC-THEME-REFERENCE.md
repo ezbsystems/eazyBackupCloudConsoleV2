@@ -12,6 +12,9 @@ This document is the single source of truth for the eazyBackup `eb-*` semantic s
 | Global CSS load | `templates/eazyBackup/includes/head.tpl` |
 | Root theme shell | `templates/eazyBackup/header.tpl` |
 | Shared UI partials | `templates/eazyBackup/includes/ui/` |
+| User management / e3 user detail (narrative, wireframes, class inventory) | `modules/addons/eazybackup/Docs/StyleGuides/User-management-redesign-guide.md` |
+| Live backup / restore progress UI (layout intent, state behaviour, log UX) | `modules/addons/eazybackup/Docs/StyleGuides/Live-progress-redesign-guide.html` |
+| Live progress client template (reference implementation) | `modules/addons/cloudstorage/templates/cloudbackup_live.tpl` |
 
 ---
 
@@ -1165,6 +1168,125 @@ The `eb-richtext` class styles nested `<a>`, `<p>`, etc. with proper theme color
 </div>
 ```
 
+### Live backup progress (`cloudbackup_live`)
+
+Use these classes for the **e3 Cloud Backup live run** experience (real-time backup or restore progress, always-visible run metadata, and high-volume logs). They are implemented in `templates/eazyBackup/css/tailwind.src.css` and composed on `modules/addons/cloudstorage/templates/cloudbackup_live.tpl`. UX intent, state tables, and log pagination strategy are described in [**Live-progress-redesign-guide.html**](./Live-progress-redesign-guide.html).
+
+**Vertical stack:** Wrap the progress strip, details row, optional alerts, and log panel in `eb-live-page` (flex column with consistent gap).
+
+#### Progress strip
+
+| Class | Element | Purpose |
+|-------|---------|---------|
+| `eb-live-progress` | `div` | Container card for the entire progress section (border, radius, card background, padding). |
+| `eb-live-progress-top` | `div` | Flex row: large percentage left, stage / ETA cluster right. |
+| `eb-live-percent` | `div` | Display font, **36px**, weight **800**, primary text. Holds the numeric percent and a child **`span.unit`** for the `%` sign (smaller, muted). |
+| `eb-live-stage` | `div` | Flex row: status dot (e.g. `eb-status-dot`) + stage label + optional ETA fragment. |
+| `eb-live-stage-eta` | `span` (typical) | Muted caption-sized ETA text (e.g. ` — ETA 4m 22s`). Optional. |
+| `eb-live-bar` | `div` | **6px** tall progress track; chrome background, **3px** radius, full width. |
+| `eb-live-bar-fill` | `div` | Coloured fill; width set inline (e.g. `style="width: N%"`). See modifiers below. |
+| `eb-live-stats` | `div` | **Six-column** grid of metrics under the bar. Responsive: **3×2** at **≤1280px**, **2×3** at **≤768px**. |
+| `eb-live-stat` | `div` | One metric cell: vertical stack with right-border divider between cells (first/last padding adjusted). |
+| `eb-live-stat-label` | `div` | **10px** uppercase, bold, muted label. |
+| `eb-live-stat-value` | `div` | Display font **15px**, weight **600**, primary text. Add **`.highlight`** for accent emphasis (e.g. live speed). Add **`.mono`** for monospace values (e.g. duration). |
+| `eb-live-stat-hint` | `p` / `div` | Optional **11px** muted line under a stat (e.g. deduplication savings). |
+| `eb-live-current-file` | `div` | Optional row below stats: top border, spinner + label + path. **Show only while the run is active** (e.g. Alpine `x-show`). |
+| `eb-live-current-file .file-spinner` | `span` | **12px** circular spinner; uses global **`eb-spin`** animation. |
+| `eb-live-current-file .file-label` | `span` | Uppercase micro-label (e.g. “Processing” / “Restoring”). |
+| `eb-live-current-file .file-path` | `span` | Monospace path, ellipsis overflow. |
+
+#### Progress bar fill modifiers (`eb-live-bar-fill`)
+
+Apply **one** visual state in addition to the base class. Colours use semantic tokens (`--eb-success-*`, `--eb-info-*`, `--eb-danger-*`, etc.).
+
+| Modifier | When to use |
+|----------|-------------|
+| *(none)* | **Completed success** — green gradient (solid, no pulse). |
+| `.running` | **Running / starting / queued** — blue gradient + **`eb-bar-pulse`** animation. |
+| `.failed` | **Failed** — red gradient. |
+| `.eb-live-bar-fill--warning` | **Warning** or **partial success** — amber-style gradient. |
+| `.eb-live-bar-fill--neutral` | **Cancelled** or neutral terminal state — muted gray gradient. |
+| `.eb-live-bar-fill--indeterminate` | **0%** or unknown progress while still active — soft striped neutral fill. |
+
+Global keyframes: **`@keyframes eb-bar-pulse`** (live bar), **`@keyframes eb-live-pulse-dot`** (optional pulsing indicator in log title). Prefer **`prefers-reduced-motion: reduce`** to disable pulse/spinner animation where applied in CSS.
+
+#### Run metadata strip (`eb-live-details`)
+
+| Class | Element | Purpose |
+|-------|---------|---------|
+| `eb-live-details` | `div` | Auto-fill grid (`minmax(160px, 1fr)`), card background + border; always-visible agent, job, run id, timestamps, mode, destination. |
+| `eb-live-detail` | `div` | One field: label + value, with vertical dividers between cells (responsive rules mirror stats). |
+| `eb-live-detail-label` | `div` | **10px** uppercase muted label. |
+| `eb-live-detail-value` | `div` | **13px** medium weight primary value. |
+| `eb-live-detail-value--mono` | `div` | Monospace, slightly smaller, muted (e.g. run UUID). |
+
+#### Log panel (`eb-live-log`)
+
+| Class | Element | Purpose |
+|-------|---------|---------|
+| `eb-live-log` | `div` | Card shell: column flex; toolbar, scrollable output, footer. |
+| `eb-live-log-toolbar` | `div` | Chrome background, bottom border; single compact row for title, search, actions. |
+| `eb-live-log-title` | `div` | **13px** semibold title row (e.g. “Live Logs” vs “Run Logs”). |
+| `eb-live-log-title .live-dot` | `span` | Small pulsing dot when streaming (**`eb-live-pulse-dot`**). |
+| `eb-live-log-title-icon` | `svg` | Optional static icon when not live (e.g. clipboard). |
+| `eb-log-btn` | `button` | Compact toolbar control (**11.5px**); overlay background + border. Add **`.is-active`** for toggled state (e.g. paused). |
+| `eb-live-log-search` | `input` | **~180px** search field (full width on small breakpoints); filters the **visible page** client-side unless a server search API exists. |
+| `eb-live-log-output` | `div` | Scroll area; **max-height 420px**; monospace body text. |
+| `eb-live-log-footer` | `div` | Chrome strip: line-count summary + pagination controls. |
+| `eb-log-page-controls` | `div` | Flex row for **Newer** / **Older** paging. |
+| `eb-log-page-btn` | `button` | Pagination control; **`:disabled`** for first/last page. |
+| `eb-log-page-current` | `span` | **Page X / Y** indicator. |
+
+#### Log line layout (inside `eb-live-log-output`)
+
+| Class | Element | Purpose |
+|-------|---------|---------|
+| `eb-log-line` | `div` | Flex row for one entry. Add **`.is-newest`** on the first line when showing the latest page (subtle info tint). |
+| `eb-log-level` | `span` | Fixed width (~**42px**), semibold level tag. Modifiers: **`.info`**, **`.warn`**, **`.error`**, **`.debug`**, **`.ok`**. |
+| `eb-log-timestamp` | `span` | Fixed width (~**155px**), disabled-tone timestamp. |
+| `eb-log-message` | `span` | Flexible message column; secondary text; `word-break`. |
+
+#### Live page alerts and utilities
+
+| Class | Purpose |
+|-------|---------|
+| `eb-live-alert` | Bordered panel for inline errors or informational blocks on the live page. |
+| `eb-live-alert--danger` | Error / startup failure styling. |
+| `eb-live-alert--success` | Success / restore context styling. |
+| `eb-live-alert--warning` | Warning / beta notice styling. |
+| `eb-live-alert-title` | Uppercase micro title inside an alert. |
+| `eb-live-alert-copy` | Body copy inside an alert. |
+| `eb-live-inline-strong` | Emphasis span inside alert copy. |
+| `eb-live-value-refresh` | Optional short opacity flash class for live-updating values (e.g. ETA). |
+
+#### Minimal composition example
+
+```html
+<div class="eb-live-page">
+  <section class="eb-live-progress">
+    <div class="eb-live-progress-top">
+      <div class="eb-live-percent"><span id="pct">0.00</span><span class="unit">%</span></div>
+      <div class="eb-live-stage">
+        <span class="eb-status-dot eb-status-dot--pending"></span>
+        <span style="color: var(--eb-info-text); font-weight: 600;">Uploading</span>
+        <span class="eb-live-stage-eta"> — ETA 2m</span>
+      </div>
+    </div>
+    <div class="eb-live-bar" aria-hidden="true">
+      <div class="eb-live-bar-fill running" style="width: 42%"></div>
+    </div>
+    <div class="eb-live-stats"><!-- six eb-live-stat cells --></div>
+    <div class="eb-live-current-file">
+      <span class="file-spinner"></span>
+      <span class="file-label">Processing</span>
+      <span class="file-path">C:\path\to\file</span>
+    </div>
+  </section>
+  <div class="eb-live-details"><!-- eb-live-detail cells --></div>
+  <div class="eb-live-log">...</div>
+</div>
+```
+
 ### Order Flow Components
 
 | Class | Purpose |
@@ -1450,6 +1572,14 @@ Use this checklist for every template you convert. Do not skip steps.
 - [ ] Replace color utilities with token-based values or semantic classes.
 - [ ] Replace raw font-size declarations with `eb-type-*` classes where applicable.
 
+### Live backup live view (`cloudbackup_live`)
+
+- [ ] Use **`eb-live-page`** as the vertical stack wrapper; avoid legacy hero + separate metric cards for the six stats.
+- [ ] Progress UI uses **`eb-live-progress`** → **`eb-live-bar`** / **`eb-live-bar-fill`** with the correct state class (`.running`, `.failed`, or modifiers in §13).
+- [ ] Always-visible metadata uses **`eb-live-details`** / **`eb-live-detail`** (no tab toggle for the same fields).
+- [ ] Logs use **`eb-live-log`** primitives (`eb-log-line`, `eb-log-level`, **`eb-log-btn`**, **`eb-live-log-search`**, footer pagination row).
+- [ ] Do not duplicate these patterns in a template-local `<style>` block; extend **`tailwind.src.css`** if a new variant is required.
+
 ### Final Verification
 
 - [ ] Visual check: does the page look consistent with other migrated pages?
@@ -1613,3 +1743,126 @@ Use this checklist for every template you convert. Do not skip steps.
     <p class="eb-field-help">We'll never share your email.</p>
 </div>
 ```
+
+---
+
+## 16. User management semantic styling
+
+This section codifies rules introduced with the **e3 Cloud Backup user detail** experience (tabbed user page: overview, agents, jobs, vaults, billing). It complements the full visual specification, HTML demos, and extended notes in [**User-management-redesign-guide.md**](./User-management-redesign-guide.md). When the two conflict on **behavior or class names**, prefer this document and **`tailwind.src.css`** as implemented in production; use the redesign guide for context, hierarchy diagrams, and UX intent.
+
+### 16.1 Goals and information architecture
+
+- **Single place for the User → Agent → Job relationship.** The user detail screen is the primary surface for per–backup-user administration: identity, quotas, agents (with expandable rows), jobs, vaults, and billing KPIs.
+- **Global list pages remain valid** for MSP-wide views (e.g. all users, all agents). The redesign guide’s rule still applies: where a **User** column exists, show the backup username as an accent link (see §12 Links) to the user detail route.
+- **Tab state** should be driven in JS (e.g. Alpine.js): one active section, `x-show` (or equivalent) on each `eb-tab-body`, and **clickable stat tiles** in the user summary that set the same active section as the corresponding tab (Vaults, Jobs, Agents).
+- **Expandable agent rows** use `eb-expand-row` / `eb-expand-detail` with local `open` state; the chevron uses `eb-expand-chevron` and rotates when the row has `is-open`.
+- **Jobs on the user detail page** should use the same **`eb-job-card`** pattern and semantic job actions as the Jobs experience (run, edit, logs, delete, restore), scoped to that user’s data. Reuse shared partials/scripts where possible; do not duplicate one-off job styling.
+
+### 16.2 Layout wrappers
+
+| Class | Purpose |
+|-------|---------|
+| `eb-section-stack` | Vertical stack with consistent gap between major blocks (summary, tab stack, etc.). |
+| `eb-tab-stack` | Rounds and clips the combined tab bar + tab bodies. Pair with `eb-tab-stack--responsive` for the user-detail pattern. |
+| `eb-tab-stack--responsive` | Below **922px**: shows `eb-tab-mobile-switcher` (menu) and hides the desktop tab bar; from **922px** up: desktop `eb-tab-bar` only. |
+
+### 16.3 User summary header
+
+| Class | Element | Purpose |
+|-------|---------|---------|
+| `eb-user-summary` | `div` | Card shell: `eb-bg-card`, border, `eb-radius-lg`. Uses **`overflow: visible`** so header actions (e.g. `eb-dropdown-menu` for **Create Job**) are not clipped. Do not revert to `overflow: hidden` without an alternative stacking/portaling strategy. |
+| `eb-user-summary-header` | `div` | Flex row: identity left, actions right; bottom border. |
+| `eb-user-summary-identity` | `div` | Flex: avatar + text block. |
+| `eb-user-avatar` | `div` | Initials avatar; token-driven background/border. |
+| `eb-user-name` | `div` | Display name; display font, primary text. |
+| `eb-user-meta-line` | `div` | Secondary line (email, tenant, etc.). Use child `span.sep` for dot separators between meta fragments. |
+| `eb-user-summary-actions` | `div` | Flex row for primary actions (e.g. `eb-btn`, dropdown wrapper). |
+| `eb-user-summary-stats` | `div` | Grid of stat tiles (default five columns; responsive breakpoints collapse to three, then two). |
+| `eb-user-stat` | `button` / `div` | One stat. Add **`is-clickable`** when it should navigate to a tab; use **`eb-user-stat-value--compact`** for long date/value lines. |
+| `eb-user-stat-value` | `div` | Large numeric or primary value. |
+| `eb-user-stat-label` | `div` | Uppercase muted label. |
+
+**Badges** on the meta line use existing table/dot variants (e.g. `eb-badge eb-badge--table eb-badge--dot` with `eb-badge--success` / `eb-badge--neutral`) per §9.
+
+### 16.4 Tab bar (desktop) and mobile switcher
+
+| Class | Purpose |
+|-------|---------|
+| `eb-tab-mobile-switcher` | Narrow viewports: section label + trigger + `eb-menu` list of sections; options use `eb-menu-option` and optional `eb-tab-count`. |
+| `eb-tab-bar--user-detail` | Desktop bar: min-height, horizontal scroll only, no vertical scrollbar. |
+| `eb-tab-bar--user-detail-desktop` | Used with `eb-tab-stack--responsive` so the bar is hidden below **922px** width. |
+| `eb-tab-bar` | Flex row, bottom border, active tab uses **`border-bottom-color: var(--eb-primary)`**. |
+| `eb-tab` | Tab control; **`is-active`** for selected section. |
+| `eb-tab-icon` | Optional leading icon; stroke `currentColor`. |
+| `eb-tab-count` | Pill count; active tab tints with `eb-primary-soft` / accent text. |
+| `eb-tab-body` | Panel below tabs: surface background, border, padding, bottom radius. |
+
+Use `role="tablist"` / `role="tab"` / `role="tabpanel"` (or equivalent) for accessibility where applicable.
+
+### 16.5 Overview tab
+
+| Class | Purpose |
+|-------|---------|
+| `eb-section-intro` | Optional title + description block above a section. |
+| `eb-section-title` / `eb-section-description` | Heading and muted copy. |
+| `eb-quota-grid` | Responsive grid of quota cards (`minmax` columns per guide). |
+| `eb-quota-card`, `eb-quota-card-header`, `eb-quota-label` | Card shell and header row. |
+| `eb-quota-badge` | Status pill: modifiers **`.within`**, **`.near-limit`**, **`.exceeded`**, **`.unlimited`**. |
+| `eb-quota-usage`, `eb-quota-current`, `eb-quota-limit` | Usage line. |
+| `eb-quota-bar`, `eb-quota-bar-fill` | Progress track and fill (colour via tokens / inline gradient only where documented). |
+| `eb-quota-input-row` | Limit field + save control row. |
+| `eb-overview-grid` | Two-column overview layout (forms + side column). |
+| `eb-overview-form-stack` | Vertical spacing for stacked forms. |
+| `eb-subpanel`, `eb-subpanel--overflow-visible` | Nested panels; use **`eb-subpanel--overflow-visible`** when inner dropdowns/menus must escape the panel bounds. |
+| `eb-danger-panel`, `eb-danger-panel-title`, `eb-danger-panel-copy` | Destructive action region (e.g. delete user). |
+
+Forms use **`eb-field-label`**, **`eb-input`**, **`eb-field-error`**, **`eb-field-help`**, **`eb-btn`**, **`eb-alert`** as elsewhere (§§6–7, 9).
+
+### 16.6 Agents tab (table + expand)
+
+Reuse **§8 Tables** primitives, plus:
+
+| Class | Purpose |
+|-------|---------|
+| `eb-table-chevron-col` / `eb-table-chevron-cell` | Narrow column for expand chevron. |
+| `eb-expand-chevron` | SVG chevron; parent row **`is-open`** rotates it. |
+| `eb-expand-row` | Clickable body row; hover and **`is-open`** background. |
+| `eb-expand-detail` | Detail `<tr>`; chrome background. |
+| `eb-expand-detail-inner` | Padded inner content (indented to align with table body). |
+| `eb-expand-detail-header` | Small uppercase header above nested content. |
+| `eb-connection-status`, `eb-connection-status--online` / `--offline` | Online/offline line with `eb-status-dot`. |
+| `eb-connection-age` | Optional suffix (e.g. offline days). |
+| `eb-mini-job` | Compact job row inside expanded agent area. |
+| `eb-mini-job-name`, `eb-mini-job-meta`, `eb-mini-job-status` | Job title, metadata columns, status + dot. |
+
+### 16.7 Vaults tab
+
+| Class | Purpose |
+|-------|---------|
+| `eb-vault-grid` | Responsive grid of vault cards. |
+| `eb-vault-card`, `eb-vault-card-header` | Card and top row. |
+| `eb-vault-icon` | Icon container for provider glyph. |
+| `eb-vault-name`, `eb-vault-provider` | Title and muted provider line. |
+| `eb-vault-stats`, `eb-vault-stat`, `eb-vault-stat-label`, `eb-vault-stat-value` | Two-column stat grid. |
+
+### 16.8 Billing tab
+
+| Class | Purpose |
+|-------|---------|
+| `eb-billing-tenant-card`, `eb-billing-tenant-header`, `eb-billing-tenant-name`, `eb-billing-tenant-meta`, `eb-billing-tenant-actions` | Linked tenant summary block. |
+| `eb-billing-kpi-grid`, `eb-billing-kpi`, `eb-billing-kpi-value`, `eb-billing-kpi-label`, `eb-billing-kpi-unit` | KPI tiles (e.g. agents, storage, guest counts). |
+
+### 16.9 Implementation rules (from the redesign guide)
+
+1. **Tokens only** for colours, borders, and radii in these components — use `var(--eb-*)` and existing semantic classes; no raw hex in templates for this UI (see §1).
+2. **Source of truth for CSS** is **`templates/eazyBackup/css/tailwind.src.css`** (`@layer components`), not duplicated rules in addon templates except where a feature-specific override is explicitly documented (e.g. wizard partials).
+3. **Alpine (or equivalent)** for tab index, mobile menu open state, and per-row expand state; keep class names **`is-active`**, **`is-open`**, **`is-clickable`** aligned with this reference.
+4. **Empty states** inside tabs: use **`eb-app-empty`**, **`eb-app-empty-title`**, **`eb-app-empty-copy`** (§13) when a section has no data.
+
+### 16.10 Invalid or misleading token names
+
+Do **not** use **`--eb-border-primary`** — it is not defined in **`_ui-tokens.tpl`**. Use **`--eb-border-default`**, **`--eb-border-subtle`**, **`--eb-border-emphasis`**, or accent tokens such as **`--eb-primary-border`** / **`--eb-border-orange`** when a primary-tinted border is intended (see job wizard and choice cards in production).
+
+---
+
+**Reference:** [User-management-redesign-guide.md](./User-management-redesign-guide.md) — Sections 1–6 (context, components, tab content, global lists, class reference tables, implementation notes).
