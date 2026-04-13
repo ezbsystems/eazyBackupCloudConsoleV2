@@ -27,8 +27,8 @@
         <div><div class="eb-text-muted">Version</div><div id="jrm-version" class="text-[var(--eb-text-primary)]"></div></div>
       </div>
       <div class="eb-table-shell overflow-hidden">
-        <div class="eb-table-toolbar flex items-center justify-between px-3 py-2 text-xs">
-          <div class="flex items-center gap-2">
+        <div class="eb-table-toolbar flex flex-col gap-2 px-3 py-2 text-xs sm:flex-row sm:items-center sm:justify-between">
+          <div class="flex flex-wrap items-center gap-2">
             <span class="text-[var(--eb-text-secondary)]">Log entries</span>
             <select id="jrm-filter" class="eb-select py-1 text-xs">
               <option value="all">All</option>
@@ -36,7 +36,12 @@
               <option value="error">Errors</option>
             </select>
           </div>
-          <input id="jrm-search" type="text" placeholder="Search…" class="eb-input w-64 py-1 text-xs">
+          <div class="flex flex-wrap items-center gap-2 min-w-0">
+            <button id="jrm-export" type="button" class="eb-btn eb-btn-outline eb-btn-xs shrink-0" title="Download all entries for this job as a CSV file" aria-label="Export job log as CSV">
+              Export CSV
+            </button>
+            <input id="jrm-search" type="text" placeholder="Search…" class="eb-input min-w-0 w-full py-1 text-xs sm:w-64">
+          </div>
         </div>
         <div id="jrm-logs" class="max-h-96 overflow-y-auto divide-y divide-[var(--eb-border-default)] text-sm"></div>
       </div>

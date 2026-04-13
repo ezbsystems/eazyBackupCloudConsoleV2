@@ -28,9 +28,64 @@
     return primary;
   }
 
+  function jobLogSeverityLabel(sevRaw){
+    const sev = (sevRaw || '').toUpperCase();
+    if (sev === 'I') return 'Information';
+    if (sev === 'W') return 'Warning';
+    if (sev === 'E') return 'Error';
+    return String(sevRaw || '');
+  }
+
+  function csvEscapeCell(v){
+    const s = String(v ?? '');
+    if (/[",\r\n]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+    return s;
+  }
+
+  function buildJobLogCsv(rows){
+    const header = ['UnixTime', 'Timestamp', 'Severity', 'Message'];
+    const lines = [header.map(csvEscapeCell).join(',')];
+    for (const e of rows){
+      const unix = Number(e.Time) || 0;
+      const ts = (window.EB && EB.fmtTs) ? EB.fmtTs(unix) : (unix ? new Date(unix * 1000).toISOString() : '');
+      const sev = jobLogSeverityLabel(e.Severity);
+      const msg = String(e.Message ?? '');
+      lines.push([csvEscapeCell(unix), csvEscapeCell(ts), csvEscapeCell(sev), csvEscapeCell(msg)].join(','));
+    }
+    return '\ufeff' + lines.join('\r\n');
+  }
+
+  function triggerTextDownload(filename, text, mime){
+    const blob = new Blob([text], { type: mime || 'text/csv;charset=utf-8' });
+    const u = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = u;
+    a.download = filename;
+    a.rel = 'noopener';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(u);
+  }
+
+  function exportJobLogFromModal(){
+    const modal = document.getElementById('job-report-modal');
+    if (!modal) return;
+    const rows = modal._ebJobLogRows;
+    const jobId = (modal.querySelector('#jrm-current-job') || {}).value || 'job';
+    if (!Array.isArray(rows)){
+      try { window.showToast?.('Log data is not loaded yet. Open a job report first.', 'info'); } catch (_) { alert('Log data is not loaded yet.'); }
+      return;
+    }
+    const safeId = String(jobId).replace(/[^a-zA-Z0-9._-]+/g, '_').replace(/^_|_$/g, '').slice(0, 80) || 'job';
+    const csv = buildJobLogCsv(rows);
+    triggerTextDownload(`job-${safeId}-log.csv`, csv, 'text/csv;charset=utf-8');
+  }
+
   async function openJobModal(serviceId, username, jobId){
     const modal = document.getElementById('job-report-modal');
     if(!modal) return;
+    modal._ebJobLogRows = [];
     modal.classList.remove('hidden');
     modal.querySelector('#jrm-title').textContent = `Job`;
     modal.querySelector('#jrm-subtitle').textContent = `${username}`;
@@ -75,23 +130,29 @@
       const box = modal.querySelector('#jrm-logs');
       box.innerHTML = '';
       if(logs && logs.status==='success' && Array.isArray(logs.rows)){
+        modal._ebJobLogRows = logs.rows.slice();
         for(const e of logs.rows){
           const row = document.createElement('div');
-          row.className = 'px-3 py-2 grid grid-cols-12 gap-2';
-          const t = document.createElement('div'); t.className='col-span-3 text-xs text-slate-400'; t.textContent = (window.EB && EB.fmtTs ? EB.fmtTs(e.Time) : '');
-          const s = document.createElement('div'); s.className='col-span-2 text-xs';
+          row.className = 'eb-log-line px-3 py-2';
+          const t = document.createElement('span');
+          t.className = 'eb-log-timestamp text-xs shrink-0';
+          t.textContent = (window.EB && EB.fmtTs ? EB.fmtTs(e.Time) : '');
+          const s = document.createElement('span');
+          s.className = 'eb-log-level';
           const sev = (e.Severity||'').toUpperCase();
-          if(sev==='I'){ s.classList.add('text-slate-400'); s.textContent = 'Information'; }
-          else if(sev==='W'){ s.classList.add('text-amber-400'); s.textContent = 'Warning'; }
-          else if(sev==='E'){ s.classList.add('text-rose-400'); s.textContent = 'Error'; }
-          else { s.classList.add('text-slate-300'); s.textContent = e.Severity||''; }
-          const m = document.createElement('div'); m.className='col-span-7 text-slate-200'; m.textContent = e.Message;
+          if(sev==='I'){ s.classList.add('info'); s.textContent = 'Information'; }
+          else if(sev==='W'){ s.classList.add('warn'); s.textContent = 'Warning'; }
+          else if(sev==='E'){ s.classList.add('error'); s.textContent = 'Error'; }
+          else { s.classList.add('debug'); s.textContent = e.Severity||''; }
+          const m = document.createElement('span');
+          m.className = 'eb-log-message text-sm min-w-0 flex-1';
+          m.textContent = e.Message;
           row.dataset.sev = (e.Severity||'').toLowerCase();
           row.appendChild(t); row.appendChild(s); row.appendChild(m);
           box.appendChild(row);
         }
       }
-    } catch(_){ }
+    } catch(_){ modal._ebJobLogRows = []; }
   }
 
   function attachModalControls(){
@@ -99,7 +160,11 @@
     if(!modal) return;
     const closeBtn = modal.querySelector('#jrm-close');
     closeBtn && closeBtn.addEventListener('click', () => modal.classList.add('hidden'));
-    modal.addEventListener('click', (e) => { if(e.target === modal) modal.classList.add('hidden'); });
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal || (e.target && e.target.classList && e.target.classList.contains('eb-modal-backdrop'))) {
+        modal.classList.add('hidden');
+      }
+    });
 
     const filter = modal.querySelector('#jrm-filter');
     const search = modal.querySelector('#jrm-search');
@@ -107,13 +172,23 @@
       const want = (filter.value||'all').toLowerCase();
       const q = (search.value||'').toLowerCase();
       modal.querySelectorAll('#jrm-logs > div').forEach(el => {
-        const sevOk = (want==='all') || (el.dataset.sev===want);
+        const raw = (el.dataset.sev || '').toLowerCase();
+        const sevOk = (want === 'all')
+          || (want === 'warning' && (raw === 'w' || raw === 'warning'))
+          || (want === 'error' && (raw === 'e' || raw === 'error'))
+          || (want !== 'warning' && want !== 'error' && raw === want);
         const text = el.textContent.toLowerCase();
         el.style.display = (sevOk && (q==='' || text.includes(q))) ? '' : 'none';
       });
     };
     filter && filter.addEventListener('change', applyFilter);
     search && search.addEventListener('input', applyFilter);
+
+    const exportBtn = modal.querySelector('#jrm-export');
+    exportBtn && exportBtn.addEventListener('click', (ev) => {
+      ev.preventDefault();
+      exportJobLogFromModal();
+    });
   }
 
   function attachRowOpeners(){
@@ -641,7 +716,8 @@
           const tr = document.createElement('tr');
           tr.className = 'hover:bg-slate-800/50 cursor-pointer';
           tr.setAttribute('data-job-id', r.JobID);
-          tr.setAttribute('data-service-id', String(r.ServiceId != null ? r.ServiceId : (opts.serviceId || document.body.getAttribute('data-eb-serviceid') || '')));
+          const rowServiceId = (r.ServiceID != null ? r.ServiceID : r.ServiceId);
+          tr.setAttribute('data-service-id', String(rowServiceId != null ? rowServiceId : (opts.serviceId || document.body.getAttribute('data-eb-serviceid') || '')));
           tr.setAttribute('data-username', String(r.Username || ''));
           const cells = [
             r.Username,
