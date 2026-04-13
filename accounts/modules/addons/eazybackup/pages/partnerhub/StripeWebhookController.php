@@ -243,6 +243,26 @@ function eb_ph_mark_account_deauthorized(string $acctId): void
         ]);
 }
 
+function eb_ph_webhook_send_email(int $mspId, ?object $tenant, string $templateKey, array $extraVars = []): void
+{
+    if ($mspId <= 0 || !$tenant) return;
+    $toEmail = (string)($tenant->contact_email ?? '');
+    if ($toEmail === '') return;
+    try {
+        require_once __DIR__ . '/../../lib/PartnerHub/SettingsService.php';
+        require_once __DIR__ . '/../../lib/PartnerHub/MailService.php';
+        $vars = array_merge([
+            'customer' => [
+                'name' => (string)($tenant->contact_name ?? $tenant->name ?? ''),
+                'email' => $toEmail,
+            ],
+        ], $extraVars);
+        \PartnerHub\MailService::sendTemplate($mspId, $templateKey, $toEmail, $vars);
+    } catch (\Throwable $e) {
+        try { if (function_exists('logModuleCall')) { @logModuleCall('eazybackup', 'webhook-email-' . $templateKey, ['msp' => $mspId, 'to' => $toEmail], $e->getMessage()); } } catch (\Throwable $__) {}
+    }
+}
+
 function eb_ph_stripe_webhook(): void
 {
     $payload = file_get_contents('php://input');
@@ -250,9 +270,8 @@ function eb_ph_stripe_webhook(): void
     // Secret from addon settings
     $secret = (string)(Capsule::table('tbladdonmodules')->where('module','eazybackup')->where('setting','stripe_webhook_secret')->value('value') ?? '');
     if ($secret === '') {
-        // Log once per hit to aid ops; avoid leaking details to client area
-        try { if (function_exists('logActivity')) { @logActivity('eazybackup: stripe webhook secret not configured'); } } catch (\Throwable $__) { /* ignore */ }
-        http_response_code(200); echo 'ok'; return;
+        try { if (function_exists('logActivity')) { @logActivity('eazybackup: stripe webhook secret not configured — rejecting event'); } } catch (\Throwable $__) {}
+        http_response_code(400); echo 'webhook-secret-not-configured'; return;
     }
 
     // Verify signature (prefer stripe-php if available)
@@ -295,8 +314,15 @@ function eb_ph_stripe_webhook(): void
         try {
             Capsule::table('eb_stripe_events')->insert(['event_id'=>$eid, 'created_at'=>date('Y-m-d H:i:s')]);
         } catch (\Throwable $__dup) {
-            http_response_code(200);
-            echo 'duplicate';
+            $dupMsg = strtolower($__dup->getMessage());
+            if (strpos($dupMsg, 'duplicate') !== false || strpos($dupMsg, 'unique') !== false || strpos($dupMsg, '1062') !== false) {
+                http_response_code(200);
+                echo 'duplicate';
+                return;
+            }
+            try { if (function_exists('logActivity')) { @logActivity('eazybackup: stripe webhook idempotency insert error: '.$__dup->getMessage()); } } catch (\Throwable $__) {}
+            http_response_code(500);
+            echo 'error';
             return;
         }
     }
@@ -359,6 +385,8 @@ function eb_ph_stripe_webhook(): void
                 $status = (string)($obj['status'] ?? '');
                 $customerId = (string)($obj['customer'] ?? '');
                 $mspId = eb_ph_webhook_msp_id_for_account($acctId);
+                $subTenant = ($customerId !== '') ? eb_ph_webhook_tenant_for_customer($customerId) : null;
+                if ($mspId <= 0 && $subTenant) { $mspId = (int)($subTenant->msp_id ?? 0); }
                 if ($subId !== '') {
                     Capsule::table('eb_subscriptions')->where('stripe_subscription_id',$subId)->update([
                         'stripe_status' => $status,
@@ -380,6 +408,11 @@ function eb_ph_stripe_webhook(): void
                 }
                 if ($type === 'customer.subscription.deleted' && $mspId > 0 && $subId !== '') {
                     eb_ph_resolve_trial_notice($mspId, $subId);
+                }
+                if ($mspId > 0 && $subTenant && in_array($type, ['customer.subscription.updated', 'customer.subscription.deleted'], true)) {
+                    eb_ph_webhook_send_email($mspId, $subTenant, 'subscription_changed', [
+                        'subscription' => ['id' => $subId, 'status' => $status],
+                    ]);
                 }
                 break;
             case 'customer.subscription.trial_will_end':
@@ -471,17 +504,19 @@ function eb_ph_stripe_webhook(): void
                     $stripeCustomer = (string)($obj['customer'] ?? '');
                     $tenantId = null;
                     $mspId = eb_ph_webhook_msp_id_for_account($acctId);
+                    $tenant = null;
                     if ($stripeCustomer !== '') {
-                        $tenant = Capsule::table('eb_tenants')->where('stripe_customer_id',$stripeCustomer)->first(['id', 'msp_id', 'name']);
+                        $tenant = Capsule::table('eb_tenants')->where('stripe_customer_id',$stripeCustomer)->first(['id', 'msp_id', 'name', 'contact_email', 'contact_name']);
                         $tenantId = (int)($tenant->id ?? 0);
                         if ($mspId <= 0) {
                             $mspId = (int)($tenant->msp_id ?? 0);
                         }
                     }
+                    $effectiveTenantId = ($tenantId !== null && $tenantId > 0) ? $tenantId : null;
                     Capsule::table('eb_invoice_cache')->updateOrInsert(
                         ['stripe_invoice_id' => $invId],
                         [
-                            'tenant_id' => (int)($tenantId ?? 0),
+                            'tenant_id' => $effectiveTenantId,
                             'amount_total' => (int)($obj['amount_total'] ?? 0),
                             'amount_tax' => (int)($obj['tax'] ?? 0),
                             'status' => (string)($obj['status'] ?? ''),
@@ -493,7 +528,11 @@ function eb_ph_stripe_webhook(): void
                     );
                     if ($type === 'invoice.payment_failed' && $mspId > 0) {
                         $tenantName = isset($tenant) ? (string)($tenant->name ?? '') : 'A customer';
-                        eb_ph_store_billing_notice((int)$mspId, $tenantId ?: null, 'payment_failed', $tenantName, $invId);
+                        eb_ph_store_billing_notice((int)$mspId, $effectiveTenantId, 'payment_failed', $tenantName, $invId);
+                        eb_ph_webhook_send_email($mspId, $tenant, 'payment_failed', ['invoice' => ['id' => $invId, 'amount' => (string)($obj['amount_due'] ?? 0), 'url' => (string)($obj['hosted_invoice_url'] ?? '')]]);
+                    }
+                    if ($type === 'invoice.created' && $mspId > 0 && $tenant) {
+                        eb_ph_webhook_send_email($mspId, $tenant, 'new_invoice', ['invoice' => ['id' => $invId, 'amount' => (string)($obj['amount_due'] ?? 0), 'url' => (string)($obj['hosted_invoice_url'] ?? '')]]);
                     }
                 }
                 break;
@@ -510,7 +549,7 @@ function eb_ph_stripe_webhook(): void
                     Capsule::table('eb_payment_cache')->updateOrInsert(
                         ['stripe_payment_intent_id' => $pi],
                         [
-                            'tenant_id' => (int)($tenantId ?? 0),
+                            'tenant_id' => ($tenantId !== null && $tenantId > 0) ? (int)$tenantId : null,
                             'amount' => (int)($obj['amount'] ?? 0),
                             'currency' => (string)($obj['currency'] ?? 'usd'),
                             'status' => (string)($obj['status'] ?? ''),
@@ -536,7 +575,7 @@ function eb_ph_stripe_webhook(): void
                     Capsule::table('eb_payment_cache')->updateOrInsert(
                         ['stripe_payment_intent_id' => $pi],
                         [
-                            'tenant_id' => (int)($tenantId ?? 0),
+                            'tenant_id' => ($tenantId !== null && $tenantId > 0) ? (int)$tenantId : null,
                             'amount' => (int)($obj['amount'] ?? 0),
                             'currency' => (string)($obj['currency'] ?? 'usd'),
                             'status' => (string)($obj['status'] ?? ''),

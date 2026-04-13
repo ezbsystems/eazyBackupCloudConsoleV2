@@ -1251,6 +1251,7 @@ function eazybackup_migrate_schema(): void {
             $t->char('country', 2)->nullable();
             $t->string('stripe_customer_id', 255)->nullable()->index();
             $t->string('status', 32)->default('active');
+            $t->json('branding_json')->nullable();
             $t->timestamp('created_at')->nullable()->useCurrent();
             $t->timestamp('updated_at')->nullable()->useCurrent()->useCurrentOnUpdate();
             $t->unique('public_id', 'idx_eb_tenants_public_id');
@@ -1273,6 +1274,7 @@ function eazybackup_migrate_schema(): void {
         eb_add_column_if_missing('eb_tenants','country', fn(Blueprint $t)=>$t->char('country', 2)->nullable());
         eb_add_column_if_missing('eb_tenants','stripe_customer_id', fn(Blueprint $t)=>$t->string('stripe_customer_id', 255)->nullable()->index());
         eb_add_column_if_missing('eb_tenants','status', fn(Blueprint $t)=>$t->string('status', 32)->default('active'));
+        eb_add_column_if_missing('eb_tenants','branding_json', fn(Blueprint $t)=>$t->json('branding_json')->nullable());
         eb_add_column_if_missing('eb_tenants','created_at', fn(Blueprint $t)=>$t->timestamp('created_at')->nullable()->useCurrent());
         eb_add_column_if_missing('eb_tenants','updated_at', fn(Blueprint $t)=>$t->timestamp('updated_at')->nullable()->useCurrent()->useCurrentOnUpdate());
     }
@@ -1335,6 +1337,8 @@ function eazybackup_migrate_schema(): void {
         eb_add_column_if_missing('eb_tenant_users','created_at', fn(Blueprint $t)=>$t->timestamp('created_at')->nullable()->useCurrent());
         eb_add_column_if_missing('eb_tenant_users','updated_at', fn(Blueprint $t)=>$t->timestamp('updated_at')->nullable()->useCurrent()->useCurrentOnUpdate());
     }
+    eb_add_column_if_missing('eb_tenant_users','password_reset_token', fn(Blueprint $t)=>$t->string('password_reset_token', 64)->nullable());
+    eb_add_column_if_missing('eb_tenant_users','password_reset_expires', fn(Blueprint $t)=>$t->timestamp('password_reset_expires')->nullable());
     eb_require_index(
         'eb_tenant_users',
         'uq_eb_tenant_users_tenant_email',
@@ -1349,6 +1353,18 @@ function eazybackup_migrate_schema(): void {
         ['tenant_id', 'role'],
         false
     );
+
+    if (!$schema->hasTable('eb_tenant_portal_tokens')) {
+        $schema->create('eb_tenant_portal_tokens', function (Blueprint $t) {
+            $t->bigIncrements('id');
+            $t->string('token', 64)->unique();
+            $t->bigInteger('tenant_user_id');
+            $t->integer('msp_client_id');
+            $t->timestamp('expires_at');
+            $t->timestamp('used_at')->nullable();
+            $t->timestamp('created_at')->nullable()->useCurrent();
+        });
+    }
 
     if (!$schema->hasTable('eb_tenant_comet_accounts')) {
         $schema->create('eb_tenant_comet_accounts', function (Blueprint $t) {
@@ -1561,6 +1577,8 @@ function eazybackup_migrate_schema(): void {
         eb_add_column_if_missing('eb_msp_accounts','onboarded_at', fn(Blueprint $t)=>$t->timestamp('onboarded_at')->nullable());
         eb_add_column_if_missing('eb_msp_accounts','last_verification_check', fn(Blueprint $t)=>$t->timestamp('last_verification_check')->nullable());
         eb_add_column_if_missing('eb_msp_accounts','default_fee_percent', fn(Blueprint $t)=>$t->decimal('default_fee_percent',5,2)->nullable());
+        eb_add_column_if_missing('eb_msp_accounts','default_currency', fn(Blueprint $t)=>$t->char('default_currency',3)->nullable());
+        eb_add_column_if_missing('eb_msp_accounts','invoice_branding_json', fn(Blueprint $t)=>$t->json('invoice_branding_json')->nullable());
     }
 
     // eb_customers
@@ -1950,6 +1968,7 @@ function eazybackup_migrate_schema(): void {
             $t->json('checkout_json');
             $t->json('tax_json')->nullable();
             $t->json('email_json')->nullable();
+            $t->json('portal_branding_json')->nullable();
             $t->timestamp('created_at')->nullable()->useCurrent();
             $t->timestamp('updated_at')->nullable()->useCurrent()->useCurrentOnUpdate();
         });
@@ -1957,6 +1976,7 @@ function eazybackup_migrate_schema(): void {
         eb_add_column_if_missing('eb_msp_settings','checkout_json', fn(Blueprint $t)=>$t->json('checkout_json'));
         eb_add_column_if_missing('eb_msp_settings','tax_json', fn(Blueprint $t)=>$t->json('tax_json')->nullable());
         eb_add_column_if_missing('eb_msp_settings','email_json', fn(Blueprint $t)=>$t->json('email_json')->nullable());
+        eb_add_column_if_missing('eb_msp_settings','portal_branding_json', fn(Blueprint $t)=>$t->json('portal_branding_json')->nullable());
         eb_add_column_if_missing('eb_msp_settings','created_at', fn(Blueprint $t)=>$t->timestamp('created_at')->nullable()->useCurrent());
         eb_add_column_if_missing('eb_msp_settings','updated_at', fn(Blueprint $t)=>$t->timestamp('updated_at')->nullable()->useCurrent()->useCurrentOnUpdate());
     }
@@ -4812,6 +4832,18 @@ function eazybackup_clientarea(array $vars)
     } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-email-restore-default') {
         require_once __DIR__ . '/pages/partnerhub/EmailSettingsController.php';
         eb_ph_email_restore_default($vars); exit;
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-settings-portal-branding') {
+        require_once __DIR__ . '/pages/partnerhub/PortalBrandingController.php';
+        return eb_ph_settings_portal_branding_show($vars);
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-settings-portal-branding-save') {
+        require_once __DIR__ . '/pages/partnerhub/PortalBrandingController.php';
+        eb_ph_settings_portal_branding_save($vars); exit;
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-portal-branding-check-dns') {
+        require_once __DIR__ . '/pages/partnerhub/PortalBrandingController.php';
+        eb_ph_portal_branding_check_dns($vars); exit;
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-portal-branding-attach-domain') {
+        require_once __DIR__ . '/pages/partnerhub/PortalBrandingController.php';
+        eb_ph_portal_branding_attach_domain($vars); exit;
     } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-catalog-product-unarchive-stripe') {
         require_once __DIR__ . '/pages/partnerhub/CatalogProductsController.php';
         eb_ph_catalog_product_unarchive_stripe($vars); exit;
@@ -4913,6 +4945,9 @@ function eazybackup_clientarea(array $vars)
     } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-disputes-refresh') {
         require_once __DIR__ . '/pages/partnerhub/BackfillController.php';
         eb_ph_disputes_refresh($vars); exit;
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-tenant-impersonate') {
+        require_once __DIR__ . '/pages/partnerhub/TenantsController.php';
+        eb_ph_tenant_impersonate($vars); exit;
     } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'ph-client-profile-update') {
         require_once __DIR__ . '/pages/partnerhub/ProfileController.php';
         eb_ph_client_profile_update($vars); exit;
@@ -6383,7 +6418,7 @@ function eazybackup_output($vars)
                     foreach ($rows as $r) {
                         $serviceLink = 'clientsservices.php?userid=' . (int)$r['user_id'] . '&id=' . (int)$r['service_id'];
 
-                        // Storage: compute units by TiB with ±0.05 TiB tolerance (or exempt)
+                        // Storage: each tier covers up to N.08 TB (0.08 TB buffer above each whole-number boundary)
                         $storageExempt = !empty($r['storage_exempt']);
                         $devicesExempt = !empty($r['devices_exempt']);
                         $tbDivisor = pow(1024, 4);
@@ -6397,13 +6432,7 @@ function eazybackup_output($vars)
                             $sDeltaText = '-';
                             $storageExemptLabel = ' <span class="text-muted">(exempt)</span>';
                         } else {
-                            if ($sRatio > $storageUnits + 0.05) {
-                                $computedStorageUnits = max(1, (int)ceil($sRatio - 0.05));
-                            } elseif ($storageUnits > 1 && $sRatio < $storageUnits - 0.05) {
-                                $computedStorageUnits = max(1, (int)floor($sRatio + 0.05));
-                            } else {
-                                $computedStorageUnits = $storageUnits;
-                            }
+                        $computedStorageUnits = max(1, (int)ceil($sRatio - 0.08));
                             $sLabelStart = '';
                             $sLabelEnd = '';
                             if ($computedStorageUnits > $storageUnits) { $sLabelStart = '<span class="label label-danger" style="display:inline-block;padding:4px 6px">'; $sLabelEnd = '</span>'; }

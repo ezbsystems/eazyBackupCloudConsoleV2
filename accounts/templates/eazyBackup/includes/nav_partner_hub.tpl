@@ -1,6 +1,7 @@
 {* Partner Hub — single link to Partner Hub landing (overview or branding-list). Full nav: sidebar_partner_hub.tpl *}
 {if !isset($eb_partner_hub_enabled) || $eb_partner_hub_enabled}
   <a
+    id="sidebar-partner-hub-link"
     href="{$WEB_ROOT}/index.php?m=eazybackup&amp;a={if !isset($eb_ph_show_overview) || $eb_ph_show_overview}ph-overview{else}whitelabel-branding{/if}"
     class="eb-sidebar-link {if ($smarty.get.a|default:''|strstr:'ph-') || ($smarty.get.a|default:''|strstr:'whitelabel')}is-active{/if}"
   >
@@ -8,6 +9,7 @@
       <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 7.125C2.25 6.504 2.754 6 3.375 6h6c.621 0 1.125.504 1.125 1.125v3.75c0 .621-.504 1.125-1.125 1.125h-6a1.125 1.125 0 0 1-1.125-1.125v-3.75ZM14.25 8.625c0-.621.504-1.125 1.125-1.125h5.25c.621 0 1.125.504 1.125 1.125v8.25c0 .621-.504 1.125-1.125 1.125h-5.25a1.125 1.125 0 0 1-1.125-1.125v-8.25ZM3.75 16.125c0-.621.504-1.125 1.125-1.125h5.25c.621 0 1.125.504 1.125 1.125v2.25c0 .621-.504 1.125-1.125 1.125h-5.25a1.125 1.125 0 0 1-1.125-1.125v-2.25Z" />
     </svg>
     Partner Hub
+    <span class="eb-badge eb-badge--warning" style="font-size:9px;padding:1px 5px;margin-left:auto;">BETA</span>
   </a>
   {*
     --- Previous expandable Partner Hub submenu (commented out; duplicated Partner Hub sidebar) ---

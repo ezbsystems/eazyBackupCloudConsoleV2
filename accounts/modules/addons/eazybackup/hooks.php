@@ -97,11 +97,15 @@ add_hook('ClientAreaHeadOutput', 1, function ($vars) {
 add_hook('ClientAreaPage', 1, function ($vars) {
     try {
         $clientId = (int)($_SESSION['uid'] ?? 0);
+        $defaultBase = (string)(Capsule::table('tbladdonmodules')->where('module','eazybackup')->where('setting','default_download_base')->value('value') ?? '');
+        $defaultProduct = (string)(Capsule::table('tbladdonmodules')->where('module','eazybackup')->where('setting','default_product_name')->value('value') ?? '');
+        if ($defaultBase === '') { $defaultBase = 'https://panel.obcbackup.com/'; }
+        if ($defaultProduct === '') { $defaultProduct = 'Cloud Backup Client'; }
         $out = [
-            'base' => 'https://panel.obcbackup.com/',
-            'base_urlenc' => rawurlencode('https://panel.obcbackup.com/'),
-            'productName' => 'OBC Branded Client',
-            'accent' => '#4f46e5', // indigo-600
+            'base' => $defaultBase,
+            'base_urlenc' => rawurlencode($defaultBase),
+            'productName' => $defaultProduct,
+            'accent' => '#4f46e5',
             'isBranded' => 0,
         ];
         if ($clientId > 0) {

@@ -11,28 +11,42 @@
 {/capture}
 {capture assign=ebPhActions}
   <div class="flex flex-wrap items-center justify-end gap-2">
+    {if $portal_admin.exists|default:false && $portal_admin.status|default:'' eq 'active'}
+    <a href="{$modulelink}&a=ph-tenant-impersonate&tenant_id={$tenant.public_id|escape:'url'}" class="eb-btn eb-btn-info eb-btn-sm" title="Log in to the tenant portal as this tenant's admin user">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15m3 0 3-3m0 0-3-3m3 3H9" />
+        </svg>
+        Login as Tenant
+    </a>
+    {/if}
     <a href="{$modulelink}&a=ph-tenants-manage" class="eb-btn eb-btn-secondary eb-btn-sm">Back to Customer Tenants</a>
   </div>
 {/capture}
 
 {capture assign=ebPhContent}
       <div class="eb-panel-nav">
-        <nav class="flex flex-wrap items-center gap-1" aria-label="Tenant detail tabs">
-          <a href="{$tab_links.profile|default:'#'|escape}" class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 {if $activeTab eq 'profile'}bg-white/10 text-white ring-1 ring-white/20{else}text-slate-400 hover:text-white hover:bg-white/5{/if}">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 flex-shrink-0"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998-0A4.5 4.5 0 0 0 12 16.5h-1.5a4.5 4.5 0 0 0-4.499 3.618Z" /></svg>
-            <span class="text-sm font-medium">Profile</span>
+        <nav class="flex flex-wrap gap-2" aria-label="Tenant detail tabs">
+          <a href="{$tab_links.profile|default:'#'|escape}" class="eb-tab {if $activeTab eq 'profile'}is-active{/if}">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-4 w-4 shrink-0"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998-0A4.5 4.5 0 0 0 12 16.5h-1.5a4.5 4.5 0 0 0-4.499 3.618Z" /></svg>
+            <span>Profile</span>
           </a>
-          <a href="{$tab_links.members|default:'#'|escape}" class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 {if $activeTab eq 'members'}bg-white/10 text-white ring-1 ring-white/20{else}text-slate-400 hover:text-white hover:bg-white/5{/if}">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 flex-shrink-0"><path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 0 0 3.741-.479 3 3 0 0 0-4.682-2.72m.94 3.198.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0 1 12 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 0 1 6 18.719m12 0a5.971 5.971 0 0 0-.941-3.197m0 0A5.995 5.995 0 0 0 12 12.75a5.995 5.995 0 0 0-5.058 2.772m0 0a3 3 0 0 0-4.681 2.72 8.986 8.986 0 0 0 3.74.477m.94-3.197a5.971 5.971 0 0 0-.94 3.197M15 6.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm6 3a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Zm-13.5 0a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Z" /></svg>
-            <span class="text-sm font-medium">Members</span>
+          <a href="{$tab_links.members|default:'#'|escape}" class="eb-tab {if $activeTab eq 'members'}is-active{/if}">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-4 w-4 shrink-0"><path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 0 0 3.741-.479 3 3 0 0 0-4.682-2.72m.94 3.198.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0 1 12 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 0 1 6 18.719m12 0a5.971 5.971 0 0 0-.941-3.197m0 0A5.995 5.995 0 0 0 12 12.75a5.995 5.995 0 0 0-5.058 2.772m0 0a3 3 0 0 0-4.681 2.72 8.986 8.986 0 0 0 3.74.477m.94-3.197a5.971 5.971 0 0 0-.94 3.197M15 6.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm6 3a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Zm-13.5 0a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Z" /></svg>
+            <span>Members</span>
           </a>
-          <a href="{$tab_links.billing|default:'#'|escape}" class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 {if $activeTab eq 'billing'}bg-white/10 text-white ring-1 ring-white/20{else}text-slate-400 hover:text-white hover:bg-white/5{/if}">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 flex-shrink-0"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" /></svg>
-            <span class="text-sm font-medium">Billing</span>
+          <a href="{$tab_links.billing|default:'#'|escape}" class="eb-tab {if $activeTab eq 'billing'}is-active{/if}">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-4 w-4 shrink-0"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" /></svg>
+            <span>Billing</span>
           </a>
-          <a href="{$tab_links.white_label|default:'#'|escape}" class="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 {if $activeTab eq 'white_label'}bg-white/10 text-white ring-1 ring-white/20{else}text-slate-400 hover:text-white hover:bg-white/5{/if}">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 flex-shrink-0"><path stroke-linecap="round" stroke-linejoin="round" d="M9.53 16.122a3 3 0 0 0-5.78 1.128 2.25 2.25 0 0 1-2.4 2.245 4.5 4.5 0 0 0 8.4-2.245c0-.399-.078-.78-.22-1.128Zm0 0a15.998 15.998 0 0 0 3.388-1.62m-5.043-.025a15.994 15.994 0 0 1 1.622-3.395m3.38 1.677a15.995 15.995 0 0 1 4.764-4.764m3.38 1.677a6.004 6.004 0 0 0-4.764-4.764m3.38 1.677a6.004 6.004 0 0 1 4.764 4.764" /></svg>
-            <span class="text-sm font-medium">White Label</span>
+          <a href="{$tab_links.storage_users|default:'#'|escape}" class="eb-tab {if $activeTab eq 'storage_users'}is-active{/if}">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-4 w-4 shrink-0"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 15a4.5 4.5 0 0 0 4.5 4.5H18a3.75 3.75 0 0 0 1.332-7.257 3 3 0 0 0-3.758-3.848 5.25 5.25 0 0 0-10.233 2.33A4.502 4.502 0 0 0 2.25 15Z" /></svg>
+            <span>Cloud Storage</span>
+          </a>
+          <a href="{$tab_links.white_label|default:'#'|escape}" class="eb-tab {if $activeTab eq 'white_label'}is-active{/if}">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-4 w-4 shrink-0">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9.53 16.122a3 3 0 0 0-5.78 1.128 2.25 2.25 0 0 1-2.4 2.245 4.5 4.5 0 0 0 8.4-2.245c0-.399-.078-.78-.22-1.128Zm0 0a15.998 15.998 0 0 0 3.388-1.62m-5.043-.025a15.994 15.994 0 0 1 1.622-3.395m3.42 3.42a15.995 15.995 0 0 0 4.764-4.648l3.876-5.814a1.151 1.151 0 0 0-1.597-1.597L14.146 6.32a15.996 15.996 0 0 0-4.649 4.763m3.42 3.42a6.776 6.776 0 0 0-3.42-3.42" />
+            </svg>
+            <span>White Label</span>
           </a>
         </nav>
       </div>
@@ -40,28 +54,33 @@
     {if $notice neq '' || $error neq '' || (isset($legacy_notice) && $legacy_notice neq '')}
       <div class="mb-6 space-y-3">
         {if $notice neq ''}
-          <div class="rounded-xl bg-emerald-500/20 ring-1 ring-emerald-400/30 px-4 py-3 text-sm text-white">
-            Tenant updated.
+          <div class="eb-alert eb-alert--success">
+            <svg class="eb-alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg>
+            <div>Tenant updated.</div>
           </div>
         {/if}
         {if $error eq 'stripe_sync_warning'}
-          <div class="rounded-xl bg-amber-500/10 ring-1 ring-amber-400/30 px-4 py-3 text-sm text-amber-100">
-            Tenant saved locally, but the Stripe customer profile could not be updated. Billing details in Stripe may be temporarily out of sync.
+          <div class="eb-alert eb-alert--warning">
+            <svg class="eb-alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" /></svg>
+            <div>Tenant saved locally, but the Stripe customer profile could not be updated. Billing details in Stripe may be temporarily out of sync.</div>
           </div>
         {/if}
         {if $error eq 'portal_admin_password_short'}
-          <div class="rounded-xl bg-amber-500/10 ring-1 ring-amber-400/30 px-4 py-3 text-sm text-amber-100">
-            Tenant created, but the portal admin was not added. Passwords must be at least 8 characters.
+          <div class="eb-alert eb-alert--warning">
+            <svg class="eb-alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" /></svg>
+            <div>Tenant created, but the portal admin was not added. Passwords must be at least 8 characters.</div>
           </div>
         {/if}
         {if $error neq '' && $error neq 'stripe_sync_warning' && $error neq 'portal_admin_password_short'}
-          <div class="rounded-xl bg-rose-500/10 ring-1 ring-rose-400/20 px-4 py-3 text-sm text-rose-200">
-            Unable to process the request ({$error|escape}).
+          <div class="eb-alert eb-alert--danger">
+            <svg class="eb-alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m9.75 9.75 4.5 4.5m0-4.5-4.5 4.5M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg>
+            <div>Unable to process the request ({$error|escape}).</div>
           </div>
         {/if}
         {if isset($legacy_notice) && $legacy_notice neq ''}
-          <div class="rounded-xl bg-amber-500/10 ring-1 ring-amber-400/30 px-4 py-3 text-sm text-amber-100">
-            You were redirected here from a legacy e3 tenant URL ({$legacy_notice|escape}). This Partner Hub page is the canonical tenant view.
+          <div class="eb-alert eb-alert--info">
+            <svg class="eb-alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m11.25 11.25.041-.02a.75.75 0 0 1 1.063.852l-.708 2.836a.75.75 0 0 0 1.063.853l.041-.021M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9-3.75h.008v.008H12V8.25Z" /></svg>
+            <div>You were redirected here from a legacy e3 tenant URL ({$legacy_notice|escape}). This Partner Hub page is the canonical tenant view.</div>
           </div>
         {/if}
       </div>
@@ -95,14 +114,21 @@
                     <span class="eb-field-label">Slug</span>
                     <input name="slug" value="{$tenant.slug|escape}" required class="eb-input eb-type-mono mt-2 w-full" />
                   </label>
-                  <label class="block">
+                  <div class="block" x-data="{literal}{ open: false, value: '{/literal}{$tenant.status|escape:'javascript'}{literal}' }{/literal}">
                     <span class="eb-field-label">Status</span>
-                    <select name="status" class="eb-select mt-2 w-full">
-                      {foreach from=$statuses item=s}
-                        <option value="{$s|escape}" {if $tenant.status == $s}selected{/if}>{$s|escape}</option>
-                      {/foreach}
-                    </select>
-                  </label>
+                    <input type="hidden" name="status" :value="value" />
+                    <div class="relative mt-2">
+                      <button type="button" class="eb-menu-trigger w-full" @click="open = !open" @keydown.escape.window="open = false">
+                        <span x-text="value"></span>
+                        <svg class="w-4 h-4 transition-transform" :class="open && 'rotate-180'" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" /></svg>
+                      </button>
+                      <div class="eb-dropdown-menu absolute left-0 right-0 z-20 mt-1" x-show="open" x-transition @click.outside="open = false" style="display:none;">
+                        {foreach from=$statuses item=s}
+                          <button type="button" class="eb-menu-option w-full" :class="value === '{$s|escape:'javascript'}' && 'is-active'" @click="value = '{$s|escape:'javascript'}'; open = false;">{$s|escape}</button>
+                        {/foreach}
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -154,13 +180,20 @@
                       <span class="eb-field-label">Admin Name</span>
                       <input type="text" name="portal_admin_name" value="{$portal_admin.name|default:''|escape}" class="eb-input mt-2 w-full" />
                     </label>
-                    <label class="block">
+                    <div class="block" x-data="{literal}{ open: false, value: '{/literal}{$portal_admin.status|default:'active'|escape:'javascript'}{literal}' }{/literal}">
                       <span class="eb-field-label">Admin Status</span>
-                      <select name="portal_admin_status" class="eb-select mt-2 w-full">
-                        <option value="active" {if $portal_admin.status|default:'active' eq 'active'}selected{/if}>active</option>
-                        <option value="disabled" {if $portal_admin.status eq 'disabled'}selected{/if}>disabled</option>
-                      </select>
-                    </label>
+                      <input type="hidden" name="portal_admin_status" :value="value" />
+                      <div class="relative mt-2">
+                        <button type="button" class="eb-menu-trigger w-full" @click="open = !open" @keydown.escape.window="open = false">
+                          <span x-text="value"></span>
+                          <svg class="w-4 h-4 transition-transform" :class="open && 'rotate-180'" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" /></svg>
+                        </button>
+                        <div class="eb-dropdown-menu absolute left-0 right-0 z-20 mt-1" x-show="open" x-transition @click.outside="open = false" style="display:none;">
+                          <button type="button" class="eb-menu-option w-full" :class="value === 'active' && 'is-active'" @click="value = 'active'; open = false;">active</button>
+                          <button type="button" class="eb-menu-option w-full" :class="value === 'disabled' && 'is-active'" @click="value = 'disabled'; open = false;">disabled</button>
+                        </div>
+                      </div>
+                    </div>
                     <div class="block">
                       <span class="eb-field-label">Password</span>
                       <div class="mt-2 space-y-2 rounded-lg border border-[var(--eb-border-default)] bg-[var(--eb-bg-surface)] p-3">
@@ -324,17 +357,151 @@
         {/if}
       </section>
     {elseif $activeTab eq 'storage_users'}
-      <section class="eb-card-raised !p-0 overflow-hidden">
-        <div class="border-b border-[var(--eb-border-subtle)] px-6 py-5">
-          <h2 class="eb-card-title text-lg font-semibold">Storage Users</h2>
+      {* -- Stat cards -- *}
+      <div class="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3">
+        <div class="eb-stat-card">
+          <div class="eb-stat-label">Assigned Plans</div>
+          <div class="eb-type-stat mt-1">{$storage_stats.assigned_count|default:0}</div>
         </div>
-        <div class="px-6 py-5">
-          <div class="eb-alert eb-alert--info !mb-0">
-            Storage Users is currently unavailable in Partner Hub.
-            <a href="{$tab_links.billing|default:($modulelink|cat:'&a=ph-tenant&id='|cat:$tenant.public_id|cat:'&tab=billing')|escape}" class="ml-1 text-[var(--eb-primary)] hover:underline">Return to Billing</a>
+        <div class="eb-stat-card">
+          <div class="eb-stat-label">S3 Accounts</div>
+          <div class="eb-type-stat mt-1">{$storage_stats.msp_s3_accounts_count|default:0}</div>
+        </div>
+        <div class="eb-stat-card">
+          <div class="eb-stat-label">Total Storage Used</div>
+          <div class="eb-type-stat mt-1" x-data x-text="(() => { const b = {$storage_stats.total_usage_bytes|default:0}; if (b === 0) return '0 B'; const k = 1024; const s = ['B','KB','MB','GB','TB']; const i = Math.floor(Math.log(b) / Math.log(k)); return parseFloat((b / Math.pow(k, i)).toFixed(2)) + ' ' + s[i]; })()">
+            {$storage_stats.total_usage_bytes|default:0} B
           </div>
         </div>
+      </div>
+
+      {if $storage_users_error neq ''}
+        <div class="eb-alert eb-alert--warning mb-4">
+          <div>
+            {if $storage_users_error eq 'storage_users_table_missing'}
+              The Cloud Storage module tables are not available. Ensure the Cloud Storage addon is installed and activated.
+            {else}
+              Could not load storage user data. Please try again later.
+            {/if}
+          </div>
+        </div>
+      {/if}
+
+      {* -- Section 1: Assigned Storage Plans -- *}
+      <section class="eb-card-raised !p-0 overflow-hidden mb-6">
+        <div class="border-b border-[var(--eb-border-subtle)] px-6 py-4">
+          <h2 class="eb-card-title text-base font-semibold">Assigned Storage Plans</h2>
+          <p class="eb-card-subtitle mt-1">e3 Object Storage plans currently assigned to this tenant via billing.</p>
+        </div>
+        {if $storage_assigned_plans|@count > 0}
+          <div class="eb-table-shell">
+            <table class="eb-table">
+              <thead>
+                <tr>
+                  <th>S3 User</th>
+                  <th>Plan</th>
+                  <th>Status</th>
+                  <th>Storage Used</th>
+                  <th>Assigned</th>
+                </tr>
+              </thead>
+              <tbody>
+                {foreach from=$storage_assigned_plans item=ap}
+                  <tr>
+                    <td class="eb-table-primary">
+                      {if $ap.s3_user}
+                        {$ap.s3_user.display_label|escape}
+                      {else}
+                        <span class="text-[var(--eb-text-muted)]">S3 user #{$ap.s3_user_id|escape}</span>
+                      {/if}
+                    </td>
+                    <td>{$ap.plan_name|escape}</td>
+                    <td>
+                      {if $ap.status eq 'active'}
+                        <span class="eb-badge eb-badge--success">Active</span>
+                      {elseif $ap.status eq 'trialing'}
+                        <span class="eb-badge eb-badge--info">Trialing</span>
+                      {elseif $ap.status eq 'past_due'}
+                        <span class="eb-badge eb-badge--warning">Past Due</span>
+                      {elseif $ap.status eq 'canceled' || $ap.status eq 'cancelled'}
+                        <span class="eb-badge eb-badge--danger">Canceled</span>
+                      {else}
+                        <span class="eb-badge eb-badge--neutral">{$ap.status|escape|default:'Unknown'}</span>
+                      {/if}
+                    </td>
+                    <td>
+                      <span x-data x-text="(() => { const b = {$ap.usage_bytes|default:0}; if (b === 0) return '0 B'; const k = 1024; const s = ['B','KB','MB','GB','TB']; const i = Math.floor(Math.log(b) / Math.log(k)); return parseFloat((b / Math.pow(k, i)).toFixed(2)) + ' ' + s[i]; })()">
+                        {$ap.usage_bytes|default:0} B
+                      </span>
+                    </td>
+                    <td class="text-[var(--eb-text-muted)]">{$ap.created_at|escape|truncate:10:''}</td>
+                  </tr>
+                {/foreach}
+              </tbody>
+            </table>
+          </div>
+        {else}
+          <div class="px-6 py-8">
+            <div class="eb-app-empty">
+              <div class="eb-app-empty-title">No storage plans assigned</div>
+              <p class="eb-app-empty-copy">Assign an e3 Object Storage billing plan from the <a href="{$tab_links.billing|default:'#'|escape}" class="text-[var(--eb-primary)] hover:underline">Billing</a> tab.</p>
+            </div>
+          </div>
+        {/if}
       </section>
+
+      {* -- Section 2: MSP S3 Accounts -- *}
+      <section class="eb-card-raised !p-0 overflow-hidden">
+        <div class="border-b border-[var(--eb-border-subtle)] px-6 py-4">
+          <h2 class="eb-card-title text-base font-semibold">MSP Storage Accounts</h2>
+          <p class="eb-card-subtitle mt-1">S3 storage accounts available from your active hosting services. These accounts are used when assigning e3 billing plans.</p>
+        </div>
+        {if $storage_msp_s3_users|@count > 0}
+          <div class="eb-table-shell">
+            <table class="eb-table">
+              <thead>
+                <tr>
+                  <th>Account</th>
+                  <th>Storage Used</th>
+                  <th>Billing Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {foreach from=$storage_msp_s3_users item=s3u}
+                  <tr>
+                    <td class="eb-table-primary">{$s3u.short_label|escape}</td>
+                    <td>
+                      <span x-data x-text="(() => { const b = {$s3u.usage_bytes|default:0}; if (b === 0) return '0 B'; const k = 1024; const s = ['B','KB','MB','GB','TB']; const i = Math.floor(Math.log(b) / Math.log(k)); return parseFloat((b / Math.pow(k, i)).toFixed(2)) + ' ' + s[i]; })()">
+                        {$s3u.usage_bytes|default:0} B
+                      </span>
+                    </td>
+                    <td>
+                      {if $s3u.assigned}
+                        <span class="eb-badge eb-badge--success eb-badge--dot" style="gap: 6px;">Assigned to plan</span>
+                      {else}
+                        <span class="eb-badge eb-badge--neutral eb-badge--dot" style="gap: 6px;">Unassigned</span>
+                      {/if}
+                    </td>
+                  </tr>
+                {/foreach}
+              </tbody>
+            </table>
+          </div>
+        {else}
+          <div class="px-6 py-8">
+            <div class="eb-app-empty">
+              <div class="eb-app-empty-title">No S3 accounts found</div>
+              <p class="eb-app-empty-copy">No active storage hosting services were found on your account. S3 storage accounts are required to assign e3 billing plans.</p>
+            </div>
+          </div>
+        {/if}
+      </section>
+
+      <div class="mt-4">
+        <div class="eb-alert eb-alert--info !mb-0">
+          <div>To assign an e3 Object Storage billing plan to this tenant, go to the <a href="{$tab_links.billing|default:'#'|escape}" class="text-[var(--eb-primary)] hover:underline">Billing</a> tab, click Assign Plan, and select an e3 storage plan. The S3 user picker will appear automatically.</div>
+        </div>
+      </div>
     {elseif $activeTab eq 'billing'}
       <section class="eb-card-raised !p-0 overflow-hidden">
         <div class="border-b border-[var(--eb-border-subtle)] px-6 py-5">

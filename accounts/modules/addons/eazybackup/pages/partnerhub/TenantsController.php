@@ -192,7 +192,9 @@ function eb_ph_tenants_require_context(array $vars): array
             }
         }
     } catch (\Throwable $__) {
-        // Keep existing fail-open behavior for reseller lookup issues.
+        try { if (function_exists('logActivity')) { @logActivity('eazybackup: reseller group gate query failed: '.$__->getMessage()); } } catch (\Throwable $___) {}
+        header('HTTP/1.1 403 Forbidden');
+        exit;
     }
 
     $msp = Capsule::table('eb_msp_accounts')->where('whmcs_client_id', $clientId)->first();
@@ -1214,7 +1216,7 @@ function eb_ph_tenant_storage_users(array $vars)
 {
     [$clientId, $msp, $tenantId, $tenant] = eb_ph_tenant_require_owned($vars);
 
-    $rows = [];
+    $backupUsers = [];
     $error = '';
     try {
         if (!Capsule::schema()->hasTable('s3_backup_users')) {
@@ -1234,16 +1236,173 @@ function eb_ph_tenant_storage_users(array $vars)
                     'updated_at',
                 ]);
             foreach ($result as $row) {
-                $rows[] = (array)$row;
+                $backupUsers[] = (array)$row;
             }
         }
     } catch (\Throwable $__) {
         $error = 'storage_users_query_failed';
     }
 
+    $assignedPlans = [];
+    try {
+        if (Capsule::schema()->hasTable('eb_plan_instances') && Capsule::schema()->hasTable('eb_plan_templates')) {
+            $instances = Capsule::table('eb_plan_instances')
+                ->join('eb_plan_templates', 'eb_plan_templates.id', '=', 'eb_plan_instances.plan_template_id')
+                ->where('eb_plan_instances.tenant_id', $tenantId)
+                ->where('eb_plan_instances.comet_user_id', 'LIKE', 'e3:%')
+                ->orderBy('eb_plan_instances.created_at', 'desc')
+                ->get([
+                    'eb_plan_instances.id as instance_id',
+                    'eb_plan_instances.comet_user_id',
+                    'eb_plan_instances.stripe_subscription_id',
+                    'eb_plan_instances.status',
+                    'eb_plan_instances.created_at',
+                    'eb_plan_templates.id as plan_id',
+                    'eb_plan_templates.name as plan_name',
+                ]);
+
+            foreach ($instances as $inst) {
+                $s3IdStr = substr((string)$inst->comet_user_id, 3);
+                $s3Id = (int)$s3IdStr;
+                $s3User = null;
+                if ($s3Id > 0 && Capsule::schema()->hasTable('s3_users')) {
+                    $s3Row = Capsule::table('s3_users')->where('id', $s3Id)->first(['id', 'username', 'name']);
+                    if ($s3Row) {
+                        $rawName = trim((string)($s3Row->name ?? ''));
+                        $rawUsername = trim((string)($s3Row->username ?? ''));
+                        $shortUsername = $rawUsername;
+                        if (strpos($shortUsername, '$') !== false) {
+                            $parts = explode('$', $shortUsername, 2);
+                            $shortUsername = trim((string)($parts[1] ?? $shortUsername));
+                        }
+                        $displayLabel = $rawName !== '' ? $rawName : $shortUsername;
+                        $s3User = [
+                            'id' => (int)$s3Row->id,
+                            'username' => $shortUsername,
+                            'display_label' => $displayLabel,
+                        ];
+                    }
+                }
+
+                $usageBytes = 0;
+                if ($s3Id > 0 && Capsule::schema()->hasTable('s3_historical_stats')) {
+                    $latestStat = Capsule::table('s3_historical_stats')
+                        ->where('user_id', $s3Id)
+                        ->orderBy('date', 'desc')
+                        ->first(['total_storage']);
+                    if ($latestStat) {
+                        $usageBytes = (int)($latestStat->total_storage ?? 0);
+                    }
+                }
+
+                $assignedPlans[] = [
+                    'instance_id' => (int)$inst->instance_id,
+                    'plan_id' => (int)$inst->plan_id,
+                    'plan_name' => (string)($inst->plan_name ?? ''),
+                    'stripe_subscription_id' => (string)($inst->stripe_subscription_id ?? ''),
+                    'status' => (string)($inst->status ?? ''),
+                    'created_at' => (string)($inst->created_at ?? ''),
+                    's3_user_id' => $s3Id,
+                    's3_user' => $s3User,
+                    'usage_bytes' => $usageBytes,
+                ];
+            }
+        }
+    } catch (\Throwable $__) {}
+
+    $assignedS3Ids = array_column($assignedPlans, 's3_user_id');
+
+    $mspS3Users = eb_ph_discover_msp_s3_users($clientId);
+    $hasHistStats = false;
+    try { $hasHistStats = Capsule::schema()->hasTable('s3_historical_stats'); } catch (\Throwable $__) {}
+
+    $totalUsageBytes = 0;
+    foreach ($mspS3Users as &$s3u) {
+        $s3u['assigned'] = in_array((int)$s3u['id'], $assignedS3Ids, true);
+        $shortName = trim((string)($s3u['name'] ?? ''));
+        if ($shortName === '') {
+            $rawUn = trim((string)($s3u['username'] ?? ''));
+            if (strpos($rawUn, '$') !== false) {
+                $parts = explode('$', $rawUn, 2);
+                $rawUn = trim((string)($parts[1] ?? $rawUn));
+            }
+            $shortName = $rawUn;
+        }
+        $s3u['short_label'] = $shortName !== '' ? $shortName : (string)($s3u['display_label'] ?? '');
+
+        $s3u['usage_bytes'] = 0;
+        if ($hasHistStats && (int)$s3u['id'] > 0) {
+            try {
+                $latestStat = Capsule::table('s3_historical_stats')
+                    ->where('user_id', (int)$s3u['id'])
+                    ->orderBy('date', 'desc')
+                    ->first(['total_storage']);
+                if ($latestStat) {
+                    $s3u['usage_bytes'] = (int)($latestStat->total_storage ?? 0);
+                }
+            } catch (\Throwable $__) {}
+        }
+        $totalUsageBytes += (int)$s3u['usage_bytes'];
+    }
+    unset($s3u);
+
+    $stats = [
+        'assigned_count' => count($assignedPlans),
+        'backup_users_count' => count($backupUsers),
+        'msp_s3_accounts_count' => count($mspS3Users),
+        'total_usage_bytes' => $totalUsageBytes,
+    ];
+
     return eb_ph_tenant_shell_response($vars, (array)$msp, (array)$tenant, 'storage_users', [
-        'storage_users' => $rows,
+        'storage_users' => $backupUsers,
         'storage_users_error' => $error,
+        'storage_assigned_plans' => $assignedPlans,
+        'storage_msp_s3_users' => $mspS3Users,
+        'storage_stats' => $stats,
     ]);
+}
+
+function eb_ph_tenant_impersonate(array $vars): void
+{
+    if (!isset($_SESSION['uid']) || (int)$_SESSION['uid'] <= 0) { header('Location: clientarea.php'); exit; }
+    $clientId = (int)$_SESSION['uid'];
+    $msp = Capsule::table('eb_msp_accounts')->where('whmcs_client_id', $clientId)->first();
+    if (!$msp) { header('Location: ' . $vars['modulelink'] . '&a=ph-tenants-manage'); exit; }
+
+    $tenantPublicId = trim((string)($_GET['tenant_id'] ?? $_POST['tenant_id'] ?? ''));
+    $tenant = eb_ph_tenants_find_owned_tenant_by_public_id((int)$msp->id, $tenantPublicId);
+    if (!$tenant) { header('Location: ' . $vars['modulelink'] . '&a=ph-tenants-manage'); exit; }
+
+    $adminUser = Capsule::table('eb_tenant_users')
+        ->where('tenant_id', (int)$tenant->id)
+        ->where('role', 'admin')
+        ->where('status', 'active')
+        ->orderBy('id', 'asc')
+        ->first(['id', 'email', 'name']);
+    if (!$adminUser) {
+        $adminUser = Capsule::table('eb_tenant_users')
+            ->where('tenant_id', (int)$tenant->id)
+            ->where('status', 'active')
+            ->orderBy('id', 'asc')
+            ->first(['id', 'email', 'name']);
+    }
+    if (!$adminUser) { header('Location: ' . $vars['modulelink'] . '&a=ph-tenants-manage&impersonate_error=no_user'); exit; }
+
+    $token = bin2hex(random_bytes(32));
+    $expiresAt = date('Y-m-d H:i:s', time() + 300);
+
+    Capsule::table('eb_tenant_portal_tokens')->insert([
+        'token' => hash('sha256', $token),
+        'tenant_user_id' => (int)$adminUser->id,
+        'msp_client_id' => $clientId,
+        'expires_at' => $expiresAt,
+        'created_at' => date('Y-m-d H:i:s'),
+    ]);
+
+    $systemUrl = rtrim((string)(Capsule::table('tblconfiguration')->where('setting', 'SystemURL')->value('value') ?? ''), '/');
+    $portalUrl = $systemUrl . '/portal/index.php?impersonate=' . urlencode($token);
+
+    header('Location: ' . $portalUrl);
+    exit;
 }
 

@@ -37,7 +37,7 @@ if ($tenantId <= 0 || $userId <= 0) {
     portal_json(['status' => 'fail', 'message' => 'Invalid session'], 401);
 }
 
-$user = Capsule::table('s3_backup_tenant_users')
+$user = Capsule::table(portal_tenant_users_table())
     ->where('id', $userId)
     ->where('tenant_id', $tenantId)
     ->first();
@@ -46,7 +46,7 @@ if (!$user || !password_verify($currentPassword, (string) ($user->password_hash 
     portal_json(['status' => 'fail', 'message' => 'Current password is incorrect'], 400);
 }
 
-$updated = Capsule::table('s3_backup_tenant_users')
+$updated = Capsule::table(portal_tenant_users_table())
     ->where('id', $userId)
     ->where('tenant_id', $tenantId)
     ->update([

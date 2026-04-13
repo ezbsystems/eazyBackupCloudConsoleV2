@@ -139,7 +139,7 @@ function eb_ph_settings_tax_save(array $vars): void
     $mspId = (int)$msp->id;
 
     $token = (string)($_POST['token'] ?? '');
-    if (function_exists('check_token')) { try { if (!check_token('plain', $token)) { echo json_encode(['status'=>'error','message'=>'csrf']); return; } } catch (\Throwable $__) {} }
+    if (function_exists('check_token')) { try { if (!check_token('plain', $token)) { echo json_encode(['status'=>'error','message'=>'csrf']); return; } } catch (\Throwable $__) { echo json_encode(['status'=>'error','message'=>'csrf']); return; } }
 
     // Payload parse (same robustness as checkout)
     $payload = [];
@@ -207,7 +207,7 @@ function eb_ph_tax_registration_upsert(array $vars): void
     if (!$msp) { echo json_encode(['status'=>'error','message'=>'msp']); return; }
     $mspId = (int)$msp->id;
     $token = (string)($_POST['token'] ?? '');
-    if (function_exists('check_token')) { try { if (!check_token('plain', $token)) { echo json_encode(['status'=>'error','message'=>'csrf']); return; } } catch (\Throwable $__) {} }
+    if (function_exists('check_token')) { try { if (!check_token('plain', $token)) { echo json_encode(['status'=>'error','message'=>'csrf']); return; } } catch (\Throwable $__) { echo json_encode(['status'=>'error','message'=>'csrf']); return; } }
 
     $reg = [
         'id' => (int)($_POST['id'] ?? 0),

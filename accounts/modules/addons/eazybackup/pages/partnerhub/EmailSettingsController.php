@@ -52,7 +52,7 @@ function eb_ph_settings_email_save(array $vars): void
     $mspId = (int)$msp->id;
 
     $token = (string)($_POST['token'] ?? '');
-    if (function_exists('check_token')) { try { if (!check_token('plain', $token)) { echo json_encode(['status'=>'error','message'=>'csrf']); return; } } catch (\Throwable $__) {} }
+    if (function_exists('check_token')) { try { if (!check_token('plain', $token)) { echo json_encode(['status'=>'error','message'=>'csrf']); return; } } catch (\Throwable $__) { echo json_encode(['status'=>'error','message'=>'csrf']); return; } }
 
     $raw = (string)($_POST['payload'] ?? '');
     $rawTrim = trim($raw);
@@ -89,7 +89,7 @@ function eb_ph_email_test(array $vars): void
     $msp = Capsule::table('eb_msp_accounts')->where('whmcs_client_id',$clientId)->first();
     if (!$msp) { echo json_encode(['status'=>'error','message'=>'msp']); return; }
     $token = (string)($_POST['token'] ?? '');
-    if (function_exists('check_token')) { try { if (!check_token('plain', $token)) { echo json_encode(['status'=>'error','message'=>'csrf']); return; } } catch (\Throwable $__) {} }
+    if (function_exists('check_token')) { try { if (!check_token('plain', $token)) { echo json_encode(['status'=>'error','message'=>'csrf']); return; } } catch (\Throwable $__) { echo json_encode(['status'=>'error','message'=>'csrf']); return; } }
 
     $tplKey = preg_replace('/[^a-z_]/','', (string)($_POST['template'] ?? 'welcome'));
     $to = (string)($_POST['to'] ?? '');
@@ -118,7 +118,7 @@ function eb_ph_email_restore_default(array $vars): void
     $msp = Capsule::table('eb_msp_accounts')->where('whmcs_client_id',$clientId)->first();
     if (!$msp) { echo json_encode(['status'=>'error','message'=>'msp']); return; }
     $token = (string)($_POST['token'] ?? '');
-    if (function_exists('check_token')) { try { if (!check_token('plain', $token)) { echo json_encode(['status'=>'error','message'=>'csrf']); return; } } catch (\Throwable $__) {} }
+    if (function_exists('check_token')) { try { if (!check_token('plain', $token)) { echo json_encode(['status'=>'error','message'=>'csrf']); return; } } catch (\Throwable $__) { echo json_encode(['status'=>'error','message'=>'csrf']); return; } }
     $key = preg_replace('/[^a-z_]/','', (string)($_POST['template'] ?? 'welcome'));
     $settings = SettingsService::getEmailSettings((int)$msp->id);
     $defaults = (new \ReflectionClass(\PartnerHub\SettingsService::class)); // not directly accessible; recompose
