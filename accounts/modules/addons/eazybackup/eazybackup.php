@@ -1142,6 +1142,23 @@ function eazybackup_migrate_schema(): void {
         eb_add_column_if_missing('eb_password_onboarding','completed_at', fn(Blueprint $t)=>$t->timestamp('completed_at')->nullable());
     }
 
+    // --- eb_msp_onboarding (per-MSP welcome-tour + legal acceptance flow) ---
+    if (!$schema->hasTable('eb_msp_onboarding')) {
+        $schema->create('eb_msp_onboarding', function (Blueprint $t) {
+            $t->integer('client_id')->unsigned();
+            $t->tinyInteger('must_complete')->default(1);
+            $t->string('step', 32)->default('welcome');
+            $t->timestamp('created_at')->nullable()->useCurrent();
+            $t->timestamp('completed_at')->nullable();
+            $t->primary('client_id');
+        });
+    } else {
+        eb_add_column_if_missing('eb_msp_onboarding','must_complete', fn(Blueprint $t)=>$t->tinyInteger('must_complete')->default(1));
+        eb_add_column_if_missing('eb_msp_onboarding','step',          fn(Blueprint $t)=>$t->string('step',32)->default('welcome'));
+        eb_add_column_if_missing('eb_msp_onboarding','created_at',    fn(Blueprint $t)=>$t->timestamp('created_at')->nullable()->useCurrent());
+        eb_add_column_if_missing('eb_msp_onboarding','completed_at',  fn(Blueprint $t)=>$t->timestamp('completed_at')->nullable());
+    }
+
     // --- eb_billing_grace ---
     if (!$schema->hasTable('eb_billing_grace')) {
         $schema->create('eb_billing_grace', function (Blueprint $t) {
@@ -2657,6 +2674,25 @@ function eazybackup_config()
                 'Type' => 'text',
                 'Size' => '10',
                 'Description' => 'Client ID to associate custom test emails with WHMCS Email Log',
+            ],
+            'ws_alert_enabled' => [
+                'FriendlyName' => 'WS Stall Alert',
+                'Type' => 'yesno',
+                'Description' => 'Send a WHMCS admin email when a websocket worker stops receiving frames and reconnects',
+                'Default' => 'on',
+            ],
+            'ws_alert_admin_email' => [
+                'FriendlyName' => 'WS Alert Recipient(s)',
+                'Type' => 'text',
+                'Size' => '200',
+                'Description' => 'Optional CSV/SSV admin email override. Leave blank to send to active WHMCS admin email addresses.',
+            ],
+            'ws_alert_cooldown_min' => [
+                'FriendlyName' => 'WS Alert Cooldown (min)',
+                'Type' => 'text',
+                'Size' => '5',
+                'Default' => '30',
+                'Description' => 'Minimum minutes between repeated websocket stall alerts for the same profile',
             ],
             // Template selectors
             'tpl_storage_warning' => [
@@ -4527,16 +4563,112 @@ function eazybackup_clientarea(array $vars)
             "forcessl" => true,  // if needed
         ];
 
-    } else if ($_REQUEST["a"] == "msp-welcome") {
+    } else if ($_REQUEST["a"] == "msp-onboarding") {
+        // Guided MSP onboarding: platform tour (step 1) + legal acceptance (step 2).
+        // On accept we record TOS/Privacy acceptances, clear the onboarding flag,
+        // and redirect the MSP to the cloudstorage welcome page for product choice.
+        $clientId = (int)($_SESSION['uid'] ?? 0);
+        if ($clientId <= 0) {
+            header('Location: clientarea.php'); exit;
+        }
+
+        $tos = null;
+        $privacy = null;
+        try { $tos = Capsule::table('eb_tos_versions')->where('is_active', 1)->orderBy('published_at', 'desc')->first(); } catch (\Throwable $_) {}
+        try { $privacy = Capsule::table('eb_privacy_versions')->where('is_active', 1)->orderBy('published_at', 'desc')->first(); } catch (\Throwable $_) {}
+
+        $requireTos = ($tos && (int)($tos->require_acceptance ?? 0) === 1) ? 1 : 0;
+        $requirePrivacy = ($privacy && (int)($privacy->require_acceptance ?? 0) === 1) ? 1 : 0;
+
+        // Starting step — allow ?step=terms for deep-linking back to step 2.
+        $stepParam = isset($_GET['step']) ? strtolower(trim((string)$_GET['step'])) : 'welcome';
+        $initialStep = ($stepParam === 'terms') ? 'terms' : 'welcome';
+
         return [
-            "pagetitle" => "MSP Welcome",
+            "pagetitle" => "Welcome to eazyBackup",
             "breadcrumb" => ["index.php?m=eazybackup" => "eazyBackup"],
-            "templatefile" => "templates/msp-welcome",
+            "templatefile" => "templates/msp-onboarding",
             "requirelogin" => true,
             "forcessl" => true,
             "vars" => array_merge($vars, [
+                "tos" => $tos,
+                "privacy" => $privacy,
+                "require_tos" => $requireTos,
+                "require_privacy" => $requirePrivacy,
+                "initial_step" => $initialStep,
             ]),
         ];
+
+    } else if ($_REQUEST["a"] == "msp-onboarding-accept") {
+        // POST target from step 2 (Terms & Privacy) of the MSP onboarding flow.
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') { header('Location: index.php?m=eazybackup&a=msp-onboarding'); exit; }
+        if (!function_exists('check_token') || !check_token('WHMCS.clientarea.default')) { header('Location: index.php?m=eazybackup&a=msp-onboarding'); exit; }
+
+        $clientId = (int)($_SESSION['uid'] ?? 0);
+        if ($clientId <= 0) { header('Location: clientarea.php'); exit; }
+        $contactId = (int)($_SESSION['cid'] ?? 0);
+
+        $tosVersion = (string)($_POST['tos_version'] ?? '');
+        $privacyVersion = (string)($_POST['privacy_version'] ?? '');
+        if ($tosVersion === '') {
+            try {
+                $activeTos = Capsule::table('eb_tos_versions')->where('is_active', 1)->orderBy('published_at', 'desc')->first();
+                $tosVersion = $activeTos ? (string)$activeTos->version : '';
+            } catch (\Throwable $_) {}
+        }
+        if ($privacyVersion === '') {
+            try {
+                $activePriv = Capsule::table('eb_privacy_versions')->where('is_active', 1)->orderBy('published_at', 'desc')->first();
+                $privacyVersion = $activePriv ? (string)$activePriv->version : '';
+            } catch (\Throwable $_) {}
+        }
+
+        $ip = (string)($_SERVER['REMOTE_ADDR'] ?? '');
+        $ua = (string)($_SERVER['HTTP_USER_AGENT'] ?? '');
+
+        $recordAcceptance = function (string $clientTable, string $userTable, string $versionField, string $version) use ($clientId, $contactId, $ip, $ua) {
+            if ($version === '') { return; }
+            try {
+                Capsule::table($clientTable)->updateOrInsert(
+                    ['client_id' => $clientId, $versionField => $version],
+                    ['accepted_at' => date('Y-m-d H:i:s'), 'ip_address' => $ip, 'user_agent' => $ua]
+                );
+            } catch (\Throwable $_) {}
+            try {
+                $conds = ['client_id' => $clientId, $versionField => $version];
+                if ($contactId > 0) { $conds['contact_id'] = $contactId; }
+                else { $conds['user_id'] = null; $conds['contact_id'] = null; }
+                Capsule::table($userTable)->updateOrInsert(
+                    $conds,
+                    ['accepted_at' => date('Y-m-d H:i:s'), 'ip_address' => $ip, 'user_agent' => $ua]
+                );
+            } catch (\Throwable $_) {}
+        };
+
+        $recordAcceptance('eb_tos_client_acceptances',     'eb_tos_user_acceptances',     'tos_version',     $tosVersion);
+        $recordAcceptance('eb_privacy_client_acceptances', 'eb_privacy_user_acceptances', 'privacy_version', $privacyVersion);
+
+        // Clear the MSP onboarding gate so the ClientAreaPage hook stops redirecting.
+        try {
+            Capsule::table('eb_msp_onboarding')
+                ->where('client_id', $clientId)
+                ->update([
+                    'must_complete' => 0,
+                    'step' => 'complete',
+                    'completed_at' => date('Y-m-d H:i:s'),
+                ]);
+        } catch (\Throwable $e) {
+            logModuleCall('eazybackup', 'msp_onboarding_accept', ['client_id' => $clientId], $e->getMessage(), $e->getTraceAsString());
+        }
+
+        // Finish by sending the MSP to the product-selection welcome page.
+        header('Location: index.php?m=cloudstorage&page=welcome');
+        exit;
+
+    } else if ($_REQUEST["a"] == "msp-welcome") {
+        // Back-compat shim: the legacy MSP welcome route now forwards to the new onboarding flow.
+        header('Location: index.php?m=eazybackup&a=msp-onboarding');
+        exit;
 
     } else if ($_REQUEST["a"] == "knowledgebase") {
 
@@ -5446,13 +5578,30 @@ function eazybackup_clientarea(array $vars)
 
                     $note = localAPI("AddClientNote", ["userid" => $clientid, "notes" => $notes]);
 
+                    // Flag this MSP for the guided onboarding flow (welcome tour + T&C).
+                    // The ClientAreaPage gate keeps them on a=msp-onboarding until they finish.
+                    try {
+                        Capsule::table('eb_msp_onboarding')->updateOrInsert(
+                            ['client_id' => (int)$clientid],
+                            [
+                                'must_complete' => 1,
+                                'step' => 'welcome',
+                                'created_at' => date('Y-m-d H:i:s'),
+                                'completed_at' => null,
+                            ]
+                        );
+                    } catch (\Throwable $e) {
+                        logModuleCall('eazybackup', 'reseller_flag_onboarding', ['client_id' => $clientid], $e->getMessage(), $e->getTraceAsString());
+                    }
+
                     $adminUser = 'API';
 
                     $ssoResult = localAPI('CreateSsoToken', [
                         'client_id' => $clientid,
                         'destination' => 'sso:custom_redirect',
-                        // Adjust the sso_redirect_path as needed. Here we redirect to the download page.
-                        'sso_redirect_path' => 'index.php?m=eazybackup&a=msp-welcome',
+                        // Send new MSPs into the guided onboarding flow (welcome + T&C)
+                        // which then redirects to cloudstorage welcome for product choice.
+                        'sso_redirect_path' => 'index.php?m=eazybackup&a=msp-onboarding',
                     ], $adminUser);
                     // Log the SSO token response for debugging:
                     customFileLog("Reseller SSO Token Debug", $ssoResult);

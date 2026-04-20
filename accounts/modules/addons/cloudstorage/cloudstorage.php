@@ -215,6 +215,20 @@ function cloudstorage_config()
                 'Size' => '10',
                 'Description' => 'WHMCS Product ID for e3 Cloud Storage (used after Welcome selection).',
             ],
+            'storage_base_fee_cad' => [
+                'FriendlyName' => 'Storage Base Fee (CAD / month)',
+                'Type' => 'text',
+                'Size' => '10',
+                'Default' => '9.00',
+                'Description' => 'Flat monthly base fee covering the first 1 TiB of object storage usage. Default: 9.00.',
+            ],
+            'storage_overage_per_gib_cad' => [
+                'FriendlyName' => 'Storage Overage Rate (CAD / GiB / month)',
+                'Type' => 'text',
+                'Size' => '12',
+                'Default' => '0.008789',
+                'Description' => 'Per-GiB rate billed for usage above the first 1 TiB. Default: 0.008789 (≈ $9 per TiB).',
+            ],
             'default_logging_prefix' => [
                 'FriendlyName' => 'Default Logging Prefix',
                 'Type' => 'text',

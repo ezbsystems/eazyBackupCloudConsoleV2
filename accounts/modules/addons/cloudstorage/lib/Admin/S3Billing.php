@@ -36,6 +36,14 @@ class S3Billing {
         $cephAdminAccessKey = $module->where('setting', 'ceph_access_key')->pluck('value')->first();
         $cephAdminSecretKey = $module->where('setting', 'ceph_secret_key')->pluck('value')->first();
         $encryptionKey = $module->where('setting', 'encryption_key')->pluck('value')->first();
+        $storageBaseFeeRaw = $module->where('setting', 'storage_base_fee_cad')->pluck('value')->first();
+        $storageOverageRateRaw = $module->where('setting', 'storage_overage_per_gib_cad')->pluck('value')->first();
+        $storageBaseFee = (is_numeric($storageBaseFeeRaw) && (float)$storageBaseFeeRaw > 0)
+            ? (float)$storageBaseFeeRaw
+            : 9.00;
+        $storageOverageRate = (is_numeric($storageOverageRateRaw) && (float)$storageOverageRateRaw > 0)
+            ? (float)$storageOverageRateRaw
+            : 0.008789;
         $currentTime = (new DateTime())->format('Y-m-d H:i:s');
         $currentDate = (new DateTime())->format('Y-m-d');
         $moduleSettings = [
@@ -43,7 +51,9 @@ class S3Billing {
             'cephAdminUser' => $cephAdminUser,
             'cephAdminAccessKey' => $cephAdminAccessKey,
             'cephAdminSecretKey' => $cephAdminSecretKey,
-            'encryptionKey' => $encryptionKey
+            'encryptionKey' => $encryptionKey,
+            'storageBaseFee' => $storageBaseFee,
+            'storageOverageRate' => $storageOverageRate,
         ];
 
         foreach ($products as $product) {
@@ -150,7 +160,7 @@ class S3Billing {
 
             // handle tenants
             $totalBucketSize += $this->handleTenants($moduleSettings, $userId, $currentTime);
-            $updateResults[] = $this->updateProductPrice($product, $totalBucketSize, $userId);
+            $updateResults[] = $this->updateProductPrice($product, $totalBucketSize, $userId, $storageBaseFee, $storageOverageRate);
 
             $billingData[$username] = ['bucket_size' => $totalBucketSize];
         }
@@ -165,7 +175,7 @@ class S3Billing {
      *
      * @return object|null
      */
-    private function updateProductPrice($product, $totalBucketSize, $userId)
+    private function updateProductPrice($product, $totalBucketSize, $userId, $baseFee = 9.00, $overageRatePerGiB = 0.008789)
     {
         $result = [
             'userid' => $product->userid,
@@ -173,25 +183,44 @@ class S3Billing {
             'update_status' => false
         ];
 
-        // Convert bucket size from bytes to TiB and GiB
-        $bucketSizeTiB = $totalBucketSize / (1024 * 1024 * 1024 * 1024);
-        $bucketSizeGiB = $totalBucketSize / (1024 * 1024 * 1024); // Convert to GiB for precise charging after 1TiB
+        // Defensive defaults if callers pass non-positive values
+        if (!is_numeric($baseFee) || (float)$baseFee <= 0) {
+            $baseFee = 9.00;
+        }
+        if (!is_numeric($overageRatePerGiB) || (float)$overageRatePerGiB <= 0) {
+            $overageRatePerGiB = 0.008789;
+        }
+        $baseFee = (float)$baseFee;
+        $overageRatePerGiB = (float)$overageRatePerGiB;
 
-        // Ensure a minimum charge for 1 TiB
+        // Convert bucket size from bytes to TiB and GiB (binary units)
+        $bucketSizeTiB = $totalBucketSize / (1024 * 1024 * 1024 * 1024);
+        $bucketSizeGiB = $totalBucketSize / (1024 * 1024 * 1024);
+
         if ($bucketSizeTiB <= 1) {
-            $amount = 9.00; // Base fee for up to 1 TiB
+            // First 1 TiB is always covered by the flat base fee
+            $amount = $baseFee;
         } else {
-            // Subtract 1 TiB (in GiB) from total usage
+            // Charge configured overage rate per GiB beyond the first 1 TiB
             $excessGiB = $bucketSizeGiB - 1024;
-            // Fee per additional GiB
-            $additionalCharge = $excessGiB * 0.009765;
-            // Total amount including base fee and additional charge
-            $amount = 9 + $additionalCharge;
+            $additionalCharge = $excessGiB * $overageRatePerGiB;
+            $amount = $baseFee + $additionalCharge;
         }
 
         // Round up to the nearest cent
         $amount = ceil($amount * 100) / 100;
         $result['new_amount'] = $amount;
+
+        logModuleCall(self::$module, __FUNCTION__, [
+            'user_id' => $userId,
+            'service_id' => $product->id ?? null,
+            'usage_bytes' => (int)$totalBucketSize,
+            'usage_tib' => round($bucketSizeTiB, 6),
+            'base_fee_cad' => $baseFee,
+            'overage_rate_per_gib_cad' => $overageRatePerGiB,
+        ], [
+            'computed_amount' => $amount,
+        ]);
 
         try {
             // Record the computed amount snapshot for this run
