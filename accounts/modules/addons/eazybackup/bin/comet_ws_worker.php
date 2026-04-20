@@ -141,6 +141,177 @@ function db(): PDO {
     return $pdo;
 }
 
+function addonSetting(PDO $pdo, string $key, string $default = ''): string {
+    try {
+        $stmt = $pdo->prepare("SELECT value FROM tbladdonmodules WHERE module = 'eazybackup' AND setting = ? LIMIT 1");
+        $stmt->execute([$key]);
+        $val = $stmt->fetchColumn();
+        return ($val === false || $val === null) ? $default : (string)$val;
+    } catch (Throwable $e) {
+        return $default;
+    }
+}
+
+function addonBool(PDO $pdo, string $key, bool $default = false): bool {
+    $v = strtolower(trim(addonSetting($pdo, $key, $default ? 'on' : '')));
+    return in_array($v, ['1', 'on', 'yes', 'true'], true);
+}
+
+function wsAlertRecipients(PDO $pdo): array {
+    $csv = trim(addonSetting($pdo, 'ws_alert_admin_email', ''));
+    $candidates = [];
+    if ($csv !== '') {
+        $candidates = preg_split('/[\s,;]+/', $csv) ?: [];
+    } else {
+        try {
+            $rows = $pdo->query("SELECT email FROM tbladmins WHERE disabled = 0 AND email IS NOT NULL AND TRIM(email) <> ''")->fetchAll(PDO::FETCH_COLUMN) ?: [];
+            $candidates = array_map('strval', $rows);
+        } catch (Throwable $e) {
+            $candidates = [];
+        }
+    }
+    $valid = [];
+    foreach ($candidates as $email) {
+        $email = strtolower(trim((string)$email));
+        if ($email !== '' && filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            $valid[$email] = true;
+        }
+    }
+    return array_keys($valid);
+}
+
+function wsAlertCooldownSeconds(PDO $pdo): int {
+    $mins = (int)trim(addonSetting($pdo, 'ws_alert_cooldown_min', '30'));
+    if ($mins < 1) { $mins = 30; }
+    return $mins * 60;
+}
+
+function wsAlertStateFile(string $profile, string $kind): string {
+    $safeProfile = preg_replace('/[^a-zA-Z0-9_.-]+/', '_', $profile) ?: 'unknown';
+    $safeKind = preg_replace('/[^a-zA-Z0-9_.-]+/', '_', $kind) ?: 'unknown';
+    return rtrim(sys_get_temp_dir(), '/') . "/eazybackup-ws-alert-{$safeProfile}-{$safeKind}.json";
+}
+
+function shouldSendWsAlert(PDO $pdo, string $profile, string $kind, string $fingerprint): bool {
+    $path = wsAlertStateFile($profile, $kind);
+    $cooldown = wsAlertCooldownSeconds($pdo);
+    $now = time();
+    if (is_file($path)) {
+        $raw = @file_get_contents($path);
+        $data = is_string($raw) ? json_decode($raw, true) : null;
+        if (is_array($data)) {
+            $prevFingerprint = (string)($data['fingerprint'] ?? '');
+            $prevTs = (int)($data['ts'] ?? 0);
+            if ($prevFingerprint === $fingerprint && ($now - $prevTs) < $cooldown) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+function markWsAlertSent(string $profile, string $kind, string $fingerprint): void {
+    $path = wsAlertStateFile($profile, $kind);
+    $payload = json_encode(['fingerprint' => $fingerprint, 'ts' => time()], JSON_UNESCAPED_SLASHES);
+    if ($payload !== false) {
+        @file_put_contents($path, $payload);
+    }
+}
+
+function throwableSummary(Throwable $e): string {
+    $parts = [];
+    $cur = $e;
+    while ($cur !== null) {
+        $msg = trim($cur->getMessage());
+        $parts[] = ($msg !== '' ? $msg : get_class($cur));
+        $cur = $cur->getPrevious();
+    }
+    return implode(' | caused by: ', $parts);
+}
+
+function isWsIdleTimeout(Throwable $e): bool {
+    $cur = $e;
+    while ($cur !== null) {
+        if ($cur instanceof \Amp\TimeoutException) {
+            return true;
+        }
+        $msg = $cur->getMessage();
+        if (str_contains($msg, 'No websocket frames received for') || str_contains($msg, 'Timed out waiting for auth response')) {
+            return true;
+        }
+        $cur = $cur->getPrevious();
+    }
+    return false;
+}
+
+function sendWsAdminAlert(PDO $pdo, string $profile, string $kind, string $reason): void {
+    if (!addonBool($pdo, 'ws_alert_enabled', true)) {
+        return;
+    }
+    if (!function_exists('localAPI')) {
+        return;
+    }
+    $fingerprint = sha1($profile . '|' . $kind . '|' . $reason);
+    if (!shouldSendWsAlert($pdo, $profile, $kind, $fingerprint)) {
+        return;
+    }
+
+    $recipients = wsAlertRecipients($pdo);
+    if (empty($recipients)) {
+        logLine($profile, "WS alert suppressed: no admin recipients resolved");
+        return;
+    }
+
+    $cursorTs = '';
+    try {
+        $stmt = $pdo->prepare("SELECT last_ts FROM eb_event_cursor WHERE source = ? LIMIT 1");
+        $stmt->execute(["comet-ws:{$profile}"]);
+        $ts = $stmt->fetchColumn();
+        if ($ts !== false && $ts !== null && (int)$ts > 0) {
+            $cursorTs = gmdate('Y-m-d H:i:s', (int)$ts) . ' UTC';
+        }
+    } catch (Throwable $e) { /* ignore */ }
+
+    $host = gethostname() ?: php_uname('n');
+    $subject = "[EazyBackup] WebSocket worker stalled: {$profile}";
+    $body = "The eazyBackup websocket worker detected a stalled websocket stream and forced a reconnect.\n\n"
+        . "Host: {$host}\n"
+        . "Profile: {$profile}\n"
+        . "Condition: {$kind}\n"
+        . "Idle timeout: " . EB_WS_IDLE_TIMEOUT . " seconds\n"
+        . "Last cursor timestamp: " . ($cursorTs !== '' ? $cursorTs : 'unknown') . "\n"
+        . "Time: " . gmdate('Y-m-d H:i:s') . " UTC\n\n"
+        . "Reason:\n{$reason}\n";
+
+    $sent = false;
+    foreach ($recipients as $to) {
+        $resp = @localAPI('SendAdminEmail', [
+            'customsubject' => $subject,
+            'custommessage' => $body,
+            'to' => $to,
+        ]);
+        if (!is_array($resp) || ($resp['result'] ?? '') !== 'success') {
+            $resp = @localAPI('SendEmail', [
+                'customtype' => 'general',
+                'customsubject' => $subject,
+                'custommessage' => $body,
+                'to' => $to,
+            ]);
+        }
+        if (is_array($resp) && ($resp['result'] ?? '') === 'success') {
+            $sent = true;
+        } else if (EB_WS_DEBUG) {
+            error_log("[{$profile}] WS alert send failed to {$to}: " . json_encode($resp));
+        }
+    }
+
+    if ($sent) {
+        markWsAlertSent($profile, $kind, $fingerprint);
+        try { logActivity("[ws-alert] profile={$profile} kind={$kind} recipients=" . implode(',', $recipients)); } catch (Throwable $e) { /* ignore */ }
+        logLine($profile, "WS admin alert sent kind={$kind} recipients=" . implode(',', $recipients));
+    }
+}
+
 /////////////////////////
 // Persistence helpers //
 /////////////////////////
@@ -1227,6 +1398,8 @@ function handleEvent(PDO $pdo, string $profile, array $evt): void {
 /////////////////////
 // Heartbeat interval in seconds (check device online status every 60 seconds)
 define('EB_HEARTBEAT_INTERVAL', (int)(getenv('EB_HEARTBEAT_INTERVAL') ?: 60));
+// If no websocket frames arrive for too long, force a reconnect instead of hanging forever.
+define('EB_WS_IDLE_TIMEOUT', (int)(getenv('EB_WS_IDLE_TIMEOUT') ?: 300));
 
 function runOneProfile(PDO $pdo, array $cfg): never {
     $profile = $cfg['server_id'];
@@ -1257,6 +1430,7 @@ function runOneProfile(PDO $pdo, array $cfg): never {
     }
 
     while (true) {
+        $conn = null;
         try {
             // Build handshake and set Origin header.
             $hs = (new WebsocketHandshake($url))
@@ -1264,6 +1438,7 @@ function runOneProfile(PDO $pdo, array $cfg): never {
 
             // Connect (returns Amp\Websocket\Client\Connection)
             $conn = connect($hs);
+            logLine($profile, "WS connected url={$url}");
 
             // Comet auth: 5 text frames
             $conn->sendText($user);
@@ -1273,7 +1448,7 @@ function runOneProfile(PDO $pdo, array $cfg): never {
             $conn->sendText($totp);
 
             // Expect "200 OK"
-            $hello = $conn->receive();
+            $hello = $conn->receive(new \Amp\TimeoutCancellation((float) EB_WS_IDLE_TIMEOUT, "Timed out waiting for auth response from {$profile}"));
             if ($hello === null) {
                 throw new RuntimeException("No auth response from {$profile}");
             }
@@ -1281,9 +1456,10 @@ function runOneProfile(PDO $pdo, array $cfg): never {
             if ($txt !== '200 OK') {
                 throw new RuntimeException("Auth failed on {$profile}: {$txt}");
             }
+            logLine($profile, "WS authenticated; idle_timeout=" . EB_WS_IDLE_TIMEOUT . "s");
 
             // Stream events forever
-            while ($msg = $conn->receive()) {
+            while ($msg = $conn->receive(new \Amp\TimeoutCancellation((float) EB_WS_IDLE_TIMEOUT, "No websocket frames received for " . EB_WS_IDLE_TIMEOUT . "s on {$profile}"))) {
                 $raw = $msg->buffer();
                 if (EB_WS_DEBUG) { logLine($profile, 'RAW ' . substr($raw, 0, 800)); }
                 $evt = json_decode($raw, true);            
@@ -1294,7 +1470,16 @@ function runOneProfile(PDO $pdo, array $cfg): never {
                 handleEvent($pdo, $profile, $evt);
             }
         } catch (Throwable $e) {
-            error_log("[{$profile}] WS error: {$e->getMessage()}");
+            $summary = throwableSummary($e);
+            error_log("[{$profile}] WS error: {$summary}");
+            if (isWsIdleTimeout($e)) {
+                sendWsAdminAlert($pdo, $profile, 'idle-timeout', $summary);
+            }
+        } finally {
+            if ($conn !== null) {
+                try { $conn->close(); } catch (Throwable $_) { /* ignore */ }
+            }
+            logLine($profile, "WS reconnecting in 2s");
         }
         // backoff
         \Amp\delay(2.0);

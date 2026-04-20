@@ -156,6 +156,8 @@
 <style>
     .eb-service-grid-shell {
         position: relative;
+        /* Cancel the parent .eb-panel horizontal padding (px-6 = 1.5rem) so the
+           shell's background fills edge-to-edge inside the panel border. */
         margin-inline: -1.5rem;
         padding: 1.5rem;
         border-top: 1px solid var(--eb-border-subtle);
@@ -165,7 +167,8 @@
 
     @media (min-width: 640px) {
         .eb-service-grid-shell {
-            margin-inline: -2rem;
+            /* Inner padding can grow while the outer negative margin stays
+               matched to the panel's 1.5rem horizontal padding. */
             padding: 2rem;
         }
     }

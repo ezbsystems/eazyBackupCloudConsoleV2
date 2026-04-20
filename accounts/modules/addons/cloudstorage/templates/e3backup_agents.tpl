@@ -30,7 +30,9 @@
 {/capture}
 
 {capture assign=ebE3Content}
-<div x-data="agentsApp()" class="space-y-6">
+<div x-data="agentsApp()"
+     class="space-y-6"
+     @keydown.escape.window="deleteModalOpen && !deleteSubmitting && closeDeleteAgentModal()">
     {include file="$template/includes/ui/page-header.tpl"
         ebBreadcrumb=$ebE3AgentsBreadcrumb
         ebPageTitle='Registered Agents'
@@ -191,11 +193,79 @@
                                 </td>
                                 <td x-text="agent.last_seen_at || '—'"></td>
                                 <td x-text="agent.created_at"></td>
-                                <td>
-                                    <div class="flex flex-wrap gap-2">
-                                        <button type="button" @click="openManage(agent)" class="eb-btn eb-btn-info eb-btn-xs">Manage</button>
-                                        <button type="button" @click="toggleAgent(agent)" class="eb-btn eb-btn-secondary eb-btn-xs" x-text="agent.status === 'active' ? 'Disable' : 'Enable'"></button>
-                                        <button type="button" @click="deleteAgent(agent)" class="eb-btn eb-btn-danger eb-btn-xs">Delete</button>
+                                <td class="text-right" @click.stop>
+                                    <div class="inline-flex justify-end" x-data="agentRowActionsDropdown()">
+                                        <button type="button"
+                                                x-ref="trigger"
+                                                class="eb-btn eb-btn-icon eb-btn-sm"
+                                                @click.stop="toggle($refs.trigger)"
+                                                :aria-expanded="isOpen"
+                                                aria-haspopup="menu"
+                                                :aria-label="'Actions for ' + (agent.hostname || agent.agent_uuid || 'agent')">
+                                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                                                <circle cx="12" cy="5" r="1"></circle>
+                                                <circle cx="12" cy="12" r="1"></circle>
+                                                <circle cx="12" cy="19" r="1"></circle>
+                                            </svg>
+                                        </button>
+                                        <template x-teleport="body">
+                                            <div x-show="isOpen"
+                                                 x-cloak
+                                                 x-transition
+                                                 class="eb-dropdown-menu fixed z-[2100] w-52 overflow-hidden"
+                                                 style="display: none;"
+                                                 :style="menuPositionStyle"
+                                                 role="menu"
+                                                 @click.outside="if (!$refs.trigger || !$refs.trigger.contains($event.target)) closeMenu()"
+                                                 @keydown.escape.window="if (isOpen) closeMenu()">
+                                                <div class="eb-menu-label">Actions</div>
+                                                <button type="button"
+                                                        role="menuitem"
+                                                        class="eb-menu-item"
+                                                        @click="closeMenu(); openManage(agent)">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.292.24-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.139.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.634 6.634 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.077-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z"></path>
+                                                        <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                                                    </svg>
+                                                    Manage
+                                                </button>
+                                                <template x-if="agent.status === 'active'">
+                                                    <button type="button"
+                                                            role="menuitem"
+                                                            class="eb-menu-item is-warning"
+                                                            @click="closeMenu(); toggleAgent(agent)">
+                                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                                                            <rect x="6" y="4" width="4" height="16"></rect>
+                                                            <rect x="14" y="4" width="4" height="16"></rect>
+                                                        </svg>
+                                                        Disable
+                                                    </button>
+                                                </template>
+                                                <template x-if="agent.status !== 'active'">
+                                                    <button type="button"
+                                                            role="menuitem"
+                                                            class="eb-menu-item"
+                                                            style="color: var(--eb-success-text);"
+                                                            @click="closeMenu(); toggleAgent(agent)">
+                                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                                                            <polygon points="5 3 19 12 5 21"></polygon>
+                                                        </svg>
+                                                        Enable
+                                                    </button>
+                                                </template>
+                                                <div class="eb-menu-divider"></div>
+                                                <button type="button"
+                                                        role="menuitem"
+                                                        class="eb-menu-item is-danger"
+                                                        @click="closeMenu(); openDeleteAgentModal(agent)">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                                                        <polyline points="3 6 5 6 21 6"></polyline>
+                                                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                                                    </svg>
+                                                    Delete
+                                                </button>
+                                            </div>
+                                        </template>
                                     </div>
                                 </td>
                             </tr>
@@ -281,6 +351,56 @@
             </div>
         </div>
     </div>
+
+    <div x-show="deleteModalOpen"
+         x-cloak
+         class="fixed inset-0 z-50 flex items-center justify-center p-4"
+         role="presentation">
+        <div class="eb-modal-backdrop fixed inset-0" @click="!deleteSubmitting && closeDeleteAgentModal()" aria-hidden="true"></div>
+        <div class="eb-modal eb-modal--confirm relative z-10 w-full"
+             role="dialog"
+             aria-modal="true"
+             aria-labelledby="e3-agents-delete-modal-title"
+             @click.outside="!deleteSubmitting && closeDeleteAgentModal()">
+            <div class="eb-modal-header">
+                <div class="flex min-w-0 items-start gap-3">
+                    <span class="eb-icon-box eb-icon-box--sm eb-icon-box--danger shrink-0" aria-hidden="true">
+                        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4.5c-.77-.833-2.694-.833-3.464 0L3.35 16.5c-.77.833.192 2.5 1.732 2.5z"></path>
+                        </svg>
+                    </span>
+                    <div class="min-w-0">
+                        <h2 id="e3-agents-delete-modal-title" class="eb-modal-title">Delete agent?</h2>
+                        <p class="eb-modal-subtitle mt-1 truncate"
+                           x-show="agentPendingDelete && (agentPendingDelete.hostname || agentPendingDelete.device_name || agentPendingDelete.agent_uuid)"
+                           x-text="agentPendingDelete ? (agentPendingDelete.hostname || agentPendingDelete.device_name || agentPendingDelete.agent_uuid || '') : ''"></p>
+                    </div>
+                </div>
+                <button type="button"
+                        class="eb-modal-close"
+                        :disabled="deleteSubmitting"
+                        @click="closeDeleteAgentModal()"
+                        aria-label="Close">&times;</button>
+            </div>
+            <div class="eb-modal-body">
+                <p class="eb-type-body">This will permanently remove this agent and the device will need to re-enroll.</p>
+            </div>
+            <div class="eb-modal-footer">
+                <button type="button"
+                        class="eb-btn eb-btn-secondary eb-btn-sm"
+                        :disabled="deleteSubmitting"
+                        @click="closeDeleteAgentModal()">
+                    Cancel
+                </button>
+                <button type="button"
+                        class="eb-btn eb-btn-danger-solid eb-btn-sm"
+                        :disabled="deleteSubmitting"
+                        @click="confirmDeleteAgent()">
+                    <span x-text="deleteSubmitting ? 'Deleting…' : 'Delete agent'"></span>
+                </button>
+            </div>
+        </div>
+    </div>
 </div>
 {/capture}
 
@@ -295,6 +415,50 @@
 
 {literal}
 <script>
+/**
+ * Row actions menu for agents: teleports to body + fixed positioning so it is not clipped by .eb-table-shell overflow-x-auto.
+ */
+function agentRowActionsDropdown() {
+    return {
+        isOpen: false,
+        menuPositionStyle: '',
+        MENU_WIDTH_PX: 208,
+        GAP_PX: 8,
+        closeMenu() {
+            this.isOpen = false;
+            this.menuPositionStyle = '';
+        },
+        toggle(triggerEl) {
+            if (this.isOpen) {
+                this.closeMenu();
+                return;
+            }
+            if (!triggerEl) {
+                return;
+            }
+            const rect = triggerEl.getBoundingClientRect();
+            const margin = 8;
+            let left = rect.right - this.MENU_WIDTH_PX;
+            if (left < margin) {
+                left = margin;
+            }
+            const maxLeft = window.innerWidth - this.MENU_WIDTH_PX - margin;
+            if (left > maxLeft) {
+                left = Math.max(margin, maxLeft);
+            }
+            let top = rect.bottom + this.GAP_PX;
+            const estH = 220;
+            const vwH = window.innerHeight;
+            if (top + estH > vwH - margin) {
+                top = Math.max(margin, rect.top - estH - this.GAP_PX);
+            }
+            this.menuPositionStyle =
+                'top:' + Math.round(top) + 'px;left:' + Math.round(left) + 'px;width:' + this.MENU_WIDTH_PX + 'px';
+            this.isOpen = true;
+        }
+    };
+}
+
 function agentsApp() {
     return {
         agents: [],
@@ -308,7 +472,10 @@ function agentsApp() {
         columnsOpen: false,
         manageOpen: false,
         selectedAgent: null,
-        
+        deleteModalOpen: false,
+        agentPendingDelete: null,
+        deleteSubmitting: false,
+
         init() {
             // Persisted column preferences
             try {
@@ -409,9 +576,25 @@ function agentsApp() {
             }
         },
         
-        async deleteAgent(agent) {
-            if (!confirm('Delete this agent? This will permanently remove it and the device will need to re-enroll.')) return;
-            
+        openDeleteAgentModal(agent) {
+            this.agentPendingDelete = agent || null;
+            this.deleteModalOpen = true;
+        },
+
+        closeDeleteAgentModal() {
+            if (this.deleteSubmitting) {
+                return;
+            }
+            this.deleteModalOpen = false;
+            this.agentPendingDelete = null;
+        },
+
+        async confirmDeleteAgent() {
+            const agent = this.agentPendingDelete;
+            if (!agent || this.deleteSubmitting) {
+                return;
+            }
+            this.deleteSubmitting = true;
             try {
                 const payload = new URLSearchParams();
                 payload.append('agent_uuid', agent.agent_uuid || '');
@@ -422,15 +605,19 @@ function agentsApp() {
                 });
                 const data = await res.json();
                 if (data.status === 'success') {
-                    this.loadAgents();
+                    this.deleteModalOpen = false;
+                    this.agentPendingDelete = null;
+                    await this.loadAgents();
                 } else {
                     alert(data.message || 'Failed to delete agent');
                 }
             } catch (e) {
                 alert('Failed to delete agent');
+            } finally {
+                this.deleteSubmitting = false;
             }
-        }
-        ,
+        },
+
         openManage(agent) {
             this.selectedAgent = agent;
             this.manageOpen = true;

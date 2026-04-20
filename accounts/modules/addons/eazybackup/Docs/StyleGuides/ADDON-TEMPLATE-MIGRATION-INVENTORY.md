@@ -95,7 +95,7 @@ Outstanding migration targets:
   - `templates/trialsignup2.tpl`
   - `templates/trialsignup-obc.tpl`
   - `templates/whitelabel-signup.tpl`
-  - `templates/msp-welcome.tpl`
+  - `templates/msp-onboarding.tpl`
   - `templates/tos-block.tpl`
   - `templates/tos-view.tpl`
   - `templates/privacy-view.tpl`

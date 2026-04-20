@@ -196,7 +196,7 @@ add_hook('ClientAreaPage', 2, function ($vars) {
         // Whitelist acceptance routes and login-related pages to avoid loops
         $reqUri = (string)($_SERVER['REQUEST_URI'] ?? '');
         $qs = (string)($_SERVER['QUERY_STRING'] ?? '');
-        $isModuleLegal = (isset($_GET['m']) && $_GET['m'] === 'eazybackup' && isset($_GET['a']) && in_array($_GET['a'], ['tos-block','tos-accept','legal-accept','tos-view','privacy-view'], true));
+        $isModuleLegal = (isset($_GET['m']) && $_GET['m'] === 'eazybackup' && isset($_GET['a']) && in_array($_GET['a'], ['tos-block','tos-accept','legal-accept','tos-view','privacy-view','msp-onboarding','msp-onboarding-accept','msp-welcome'], true));
         $isLoginOrLogout = (strpos($reqUri, 'logout.php') !== false) || (strpos($reqUri, 'pwreset') !== false);
         if ($isModuleLegal || $isLoginOrLogout) {
             return;
