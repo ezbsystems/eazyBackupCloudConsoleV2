@@ -30,7 +30,7 @@
         {elseif $status24hTotal == 0}
             {assign var=statusColor value='default'}
         {/if}
-        <a href="index.php?m=cloudstorage&page=e3backup&view=jobs" class="block eb-card-raised group h-full transition-all duration-200 hover:-translate-y-0.5 hover:border-[var(--eb-{$statusColor}-border)]">
+        <a href="index.php?m=cloudstorage&page=e3backup&view=jobs" class="block eb-card-raised group h-full transition-all duration-200 hover:-translate-y-0.5 {if $statusColor == 'success'}hover:border-[var(--eb-success-border)]{elseif $statusColor == 'danger'}hover:border-[var(--eb-danger-border)]{elseif $statusColor == 'warning'}hover:border-[var(--eb-warning-border)]{else}hover:border-[var(--eb-border-default)]{/if}">
             <div class="flex items-start justify-between gap-3">
                 <div>
                     <div class="eb-stat-label">Backup Status (24h)</div>
