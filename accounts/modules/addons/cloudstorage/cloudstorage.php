@@ -14,7 +14,7 @@ function cloudstorage_config()
         'description' => 'This module show the usage of your buckets.',
         'author' => 'eazybackup',
         'language' => 'english',
-        'version' => '2.1.13',
+        'version' => '2.1.14',
         'fields' => [
             's3_region' => [
                 'FriendlyName' => 'S3 Region',
@@ -1291,10 +1291,25 @@ function cloudstorage_activate() {
             $table->increments('id');
             $table->unsignedInteger('user_id');
             $table->decimal('amount', 10, 2)->default(0.00);
+            $table->unsignedBigInteger('usage_bytes')->nullable()->default(0);
             $table->timestamp('created_at')->useCurrent();
 
             $table->foreign('user_id')->references('id')->on('s3_users')->onDelete('cascade');
+            $table->index(['user_id', 'created_at'], 'idx_s3_prices_user_created');
             });
+        } else {
+            try {
+                if (!Capsule::schema()->hasColumn('s3_prices', 'usage_bytes')) {
+                    Capsule::schema()->table('s3_prices', function ($table) {
+                        $table->unsignedBigInteger('usage_bytes')->nullable()->default(0)->after('amount');
+                    });
+                }
+            } catch (\Throwable $e) { /* column exists or unsupported */ }
+            try {
+                Capsule::schema()->table('s3_prices', function ($table) {
+                    $table->index(['user_id', 'created_at'], 'idx_s3_prices_user_created');
+                });
+            } catch (\Throwable $e) { /* index already exists */ }
         }
 
         if (!Capsule::schema()->hasTable('s3_user_access_keys')) {
@@ -2892,6 +2907,27 @@ function cloudstorage_upgrade($vars) {
             } catch (\Throwable $e) {
                 logModuleCall('cloudstorage', 'upgrade_s3_users_tenant_id_bigint_fail', [], $e->getMessage(), [], []);
             }
+        }
+
+        // Ensure s3_prices.usage_bytes exists so the billing recompute can rebuild amounts
+        // from stored usage when the storage rate or base fee changes.
+        try {
+            $schema = \WHMCS\Database\Capsule::schema();
+            if ($schema->hasTable('s3_prices')) {
+                if (!$schema->hasColumn('s3_prices', 'usage_bytes')) {
+                    $schema->table('s3_prices', function ($table) {
+                        $table->unsignedBigInteger('usage_bytes')->nullable()->default(0)->after('amount');
+                    });
+                    logModuleCall('cloudstorage', 'upgrade_s3_prices_add_usage_bytes', [], 'Added usage_bytes column to s3_prices', [], []);
+                }
+                try {
+                    $schema->table('s3_prices', function ($table) {
+                        $table->index(['user_id', 'created_at'], 'idx_s3_prices_user_created');
+                    });
+                } catch (\Throwable $__) { /* index already exists */ }
+            }
+        } catch (\Throwable $e) {
+            logModuleCall('cloudstorage', 'upgrade_s3_prices_add_usage_bytes_fail', [], $e->getMessage(), [], []);
         }
 
         // Phase 1 guardrails: schema additions for system-managed users, tenant snapshots, and agent destinations.
