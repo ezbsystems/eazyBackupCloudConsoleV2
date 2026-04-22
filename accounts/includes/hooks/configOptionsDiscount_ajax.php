@@ -5,16 +5,17 @@ require_once __DIR__ . "/../../init.php";
 use WHMCS\Database\Capsule;
 use WHMCS\Session;
 
-// Only handle direct AJAX calls; do nothing when this file is included during normal WHMCS requests.
-if (!isset($_REQUEST['ajax_action'])) {
-    // If invoked directly without ajax_action, return a JSON error for debugging
-    $isDirect = (basename($_SERVER['SCRIPT_FILENAME'] ?? '') === basename(__FILE__));
-    if ($isDirect) {
-        header('Content-Type: application/json');
-        echo json_encode(['status' => false, 'message' => 'Missing ajax_action']);
-        exit;
-    }
+// Only handle direct AJAX calls; do nothing when this file is included during normal WHMCS requests
+// (e.g. when another hook script in /includes/hooks/ requires init.php, which auto-loads every hook file).
+$isDirect = (basename($_SERVER['SCRIPT_FILENAME'] ?? '') === basename(__FILE__));
+if (!$isDirect) {
     return;
+}
+
+if (!isset($_REQUEST['ajax_action'])) {
+    header('Content-Type: application/json');
+    echo json_encode(['status' => false, 'message' => 'Missing ajax_action']);
+    exit;
 }
 
 header('Content-Type: application/json');
