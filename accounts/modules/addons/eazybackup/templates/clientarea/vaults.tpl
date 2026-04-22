@@ -383,7 +383,7 @@
                                                         {assign var=cpSize value=$row.usedBytes}
                                                         {assign var=cpStart value=0}
                                                         {assign var=cpEnd value=$row.usedMeasuredEnd}
-                                                        <button type="button" class="eb-btn eb-btn-info eb-btn-xs cursor-pointer" title="View vault usage breakdown" data-eb-stats-trigger="1" data-vault-id="{if $row.vaultId}{$row.vaultId}{else}{$row.vaultName}{/if}" data-vault-name="{$row.vaultName|escape}" data-size-bytes="{$cpSize}" data-measure-start="{$cpStart}" data-measure-end="{$cpEnd}" data-service-id="{$row.serviceId}" data-username="{$row.username}">
+                                                        <button type="button" class="inline w-auto max-w-full cursor-pointer border-0 bg-transparent p-0 text-left text-sm font-normal text-slate-300 shadow-none ring-0 hover:text-slate-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/50 focus-visible:ring-offset-0 rounded-sm" title="View vault usage breakdown" data-eb-stats-trigger="1" data-vault-id="{if $row.vaultId}{$row.vaultId}{else}{$row.vaultName}{/if}" data-vault-name="{$row.vaultName|escape}" data-size-bytes="{$cpSize}" data-measure-start="{$cpStart}" data-measure-end="{$cpEnd}" data-service-id="{$row.serviceId}" data-username="{$row.username}">
                                                             {\WHMCS\Module\Addon\Eazybackup\Helper::humanFileSize($cpSize, 2)}
                                                         </button>
                                                         <script type="application/json" class="eb-components">{$row.componentsJson}</script>
