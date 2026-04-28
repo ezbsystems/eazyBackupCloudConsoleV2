@@ -121,6 +121,11 @@
         modal.querySelector('#jrm-version').textContent  = j.ClientVersion || '';
         // Title as protected item name
         modal.querySelector('#jrm-title').textContent = j.ProtectedItemDescription || `Job ${jobId}`;
+        try {
+          document.dispatchEvent(new CustomEvent('eb:job-loaded', {
+            detail: { serviceId, username, jobId, status: label, job: j }
+          }));
+        } catch (_) {}
       }
     } catch(_){ }
 
@@ -131,6 +136,11 @@
       box.innerHTML = '';
       if(logs && logs.status==='success' && Array.isArray(logs.rows)){
         modal._ebJobLogRows = logs.rows.slice();
+        try {
+          document.dispatchEvent(new CustomEvent('eb:job-logs-loaded', {
+            detail: { serviceId, username, jobId, rows: modal._ebJobLogRows }
+          }));
+        } catch (_) {}
         for(const e of logs.rows){
           const row = document.createElement('div');
           row.className = 'eb-log-line px-3 py-2';

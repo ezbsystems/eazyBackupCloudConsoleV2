@@ -1,38 +1,54 @@
 ;(function(){
   if (window.ebShowLoader && window.ebHideLoader) return;
-  function ensureStyles(){
-    // No-op: Tailwind classes used; keep hook if we need custom CSS later
-  }
-  function makeOverlay(message){
+  function makeOverlay(message, contained){
     const wrap = document.createElement('div');
-    wrap.className = 'fixed inset-0 z-[12000] flex items-center justify-center bg-black/60';
+    wrap.className = 'eb-loading-overlay' + (contained ? ' is-contained' : '');
     wrap.setAttribute('data-eb-loader', '1');
-    var inner = '';
-    inner += '<div class="flex flex-col items-center gap-3 px-6 py-4 rounded-lg border border-slate-700 bg-slate-900/90 shadow-xl">';
-    inner += '<span class="inline-flex h-10 w-10 rounded-full border-2 border-sky-500 border-t-transparent animate-spin"></span>';
-    if (message) inner += '<div class="text-slate-200 text-sm">' + String(message) + '</div>';
-    inner += '</div>';
-    wrap.innerHTML = inner;
+    const card = document.createElement('div');
+    card.className = 'eb-loading-card';
+    const spinner = document.createElement('div');
+    spinner.className = 'eb-loading-spinner';
+    card.appendChild(spinner);
+    const msg = document.createElement('span');
+    msg.className = 'eb-type-caption';
+    msg.setAttribute('data-eb-loader-msg', '1');
+    msg.textContent = message ? String(message) : '';
+    if (!message) msg.style.display = 'none';
+    card.appendChild(msg);
+    wrap.appendChild(card);
     return wrap;
   }
   window.ebShowLoader = function(targetEl, message){
     try {
-      ensureStyles();
       const host = targetEl || document.body;
+      const contained = !!targetEl && host !== document.body;
       let overlay = host.querySelector(':scope > [data-eb-loader="1"]');
       if (!overlay) {
-        overlay = makeOverlay(message);
-        // Position relative container if needed
-        const computed = getComputedStyle(host);
-        if (computed.position === 'static') {
-          host.classList.add('relative');
+        overlay = makeOverlay(message, contained);
+        if (contained) {
+          const computed = getComputedStyle(host);
+          if (computed.position === 'static') {
+            host.style.position = 'relative';
+            host.setAttribute('data-eb-loader-pos', '1');
+          }
         }
         host.appendChild(overlay);
       } else if (message) {
-        const msg = overlay.querySelector('div.text-slate-200');
-        if (msg) msg.textContent = message;
+        window.ebUpdateLoader(host, message);
       }
       return overlay;
+    } catch (_) {}
+  };
+  window.ebUpdateLoader = function(targetEl, message){
+    try {
+      const host = targetEl || document.body;
+      const overlay = host.querySelector(':scope > [data-eb-loader="1"]');
+      if (!overlay) return;
+      const msg = overlay.querySelector('[data-eb-loader-msg]');
+      if (msg) {
+        msg.textContent = message ? String(message) : '';
+        msg.style.display = message ? '' : 'none';
+      }
     } catch (_) {}
   };
   window.ebHideLoader = function(targetEl){
@@ -40,6 +56,10 @@
       const host = targetEl || document.body;
       const overlay = host.querySelector(':scope > [data-eb-loader="1"]');
       if (overlay) overlay.remove();
+      if (host.getAttribute && host.getAttribute('data-eb-loader-pos') === '1') {
+        host.style.position = '';
+        host.removeAttribute('data-eb-loader-pos');
+      }
     } catch (_) {}
   };
 })();

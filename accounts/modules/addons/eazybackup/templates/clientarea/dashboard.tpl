@@ -928,8 +928,8 @@
                     </div>
                 </div>
                 <div x-show="activeTab === 'users'" x-transition x-cloak>
-                    <h2 class="text-xl font-semibold text-gray-800 dark:text-gray-300 mb-4">Users</h2>
-                    <div class="bg-slate-950/70 rounded-2xl border border-slate-800/80 p-4"
+                    <h2 class="eb-section-title mb-4 px-2">Users</h2>
+                    <div
                          x-data="{
                             columnsOpen: false,
                             entriesOpen: false,
@@ -1045,11 +1045,11 @@
                             }
                          }"
                          x-init="init()">
-                        <div class="mb-4 flex flex-col xl:flex-row xl:items-center gap-3">
+                        <div class="eb-table-toolbar flex flex-col xl:flex-row xl:items-center gap-3">
                             <div class="relative" @click.away="entriesOpen=false">
                                 <button type="button"
                                         @click="entriesOpen=!entriesOpen"
-                                        class="inline-flex items-center gap-2 rounded-md bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:outline-none hover:border-slate-600 hover:bg-slate-900/80">
+                                        class="eb-menu-trigger">
                                     <span x-text="'Show ' + entriesPerPage"></span>
                                     <svg class="w-4 h-4 transition-transform" :class="entriesOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
                                         <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
@@ -1062,12 +1062,12 @@
                                      x-transition:leave="transition ease-in duration-75"
                                      x-transition:leave-start="opacity-100 scale-100"
                                      x-transition:leave-end="opacity-0 scale-95"
-                                     class="absolute left-0 mt-2 w-40 rounded-xl border border-slate-700 bg-slate-900 shadow-2xl z-50 overflow-hidden"
+                                     class="eb-dropdown-menu absolute left-0 mt-2 w-40 z-50"
                                      style="display: none;">
                                     <template x-for="size in [10,25,50,100]" :key="'dashboard-user-entries-' + size">
                                         <button type="button"
-                                                class="w-full px-4 py-2 text-left text-sm transition"
-                                                :class="entriesPerPage === size ? 'bg-slate-800/70 text-white' : 'text-slate-200 hover:bg-slate-800/60'"
+                                                class="eb-menu-option"
+                                                :class="entriesPerPage === size ? 'is-active' : ''"
                                                 @click="setEntries(size); entriesOpen=false;">
                                             <span x-text="size"></span>
                                         </button>
@@ -1078,7 +1078,7 @@
                             <div class="relative" @click.away="columnsOpen=false">
                                 <button type="button"
                                         @click="columnsOpen=!columnsOpen"
-                                        class="inline-flex items-center gap-2 rounded-md bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:outline-none hover:border-slate-600 hover:bg-slate-900/80">
+                                        class="eb-menu-trigger">
                                     Columns
                                     <svg class="w-4 h-4 transition-transform" :class="columnsOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
                                         <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
@@ -1091,105 +1091,111 @@
                                      x-transition:leave="transition ease-in duration-75"
                                      x-transition:leave-start="opacity-100 scale-100"
                                      x-transition:leave-end="opacity-0 scale-95"
-                                     class="absolute left-0 mt-2 w-72 rounded-xl border border-slate-700 bg-slate-900 shadow-2xl z-50 overflow-hidden p-2"
+                                     class="eb-dropdown-menu absolute left-0 mt-2 w-72 z-50 p-2"
                                      style="display: none;">
-                                    <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>Username</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-sky-500" x-model="cols.username"></label>
-                                    <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>Account name</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-sky-500" x-model="cols.name"></label>
-                                    <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>Email Address</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-sky-500" x-model="cols.emails"></label>
-                                    <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>Email Reports</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-sky-500" x-model="cols.reports"></label>
-                                    <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>Total Devices</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-sky-500" x-model="cols.devices"></label>
-                                    <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>Total Protected Items</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-sky-500" x-model="cols.items"></label>
-                                    <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>Storage Vaults</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-sky-500" x-model="cols.vaults"></label>
-                                    <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>Storage</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-sky-500" x-model="cols.storage"></label>
-                                    <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>Hyper-V Count</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-sky-500" x-model="cols.hv"></label>
-                                    <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>VMware Count</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-sky-500" x-model="cols.vmw"></label>
-                                    <label class="flex items-center justify-between rounded px-2 py-2 text-sm hover:bg-slate-800/60 cursor-pointer"><span>MS365 Protected Accounts</span><input type="checkbox" class="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-sky-500" x-model="cols.m365"></label>
+                                    <label class="eb-inline-choice justify-between w-full px-2 py-2 cursor-pointer rounded"><span>Username</span><input type="checkbox" class="eb-check-input" x-model="cols.username"></label>
+                                    <label class="eb-inline-choice justify-between w-full px-2 py-2 cursor-pointer rounded"><span>Account name</span><input type="checkbox" class="eb-check-input" x-model="cols.name"></label>
+                                    <label class="eb-inline-choice justify-between w-full px-2 py-2 cursor-pointer rounded"><span>Email Address</span><input type="checkbox" class="eb-check-input" x-model="cols.emails"></label>
+                                    <label class="eb-inline-choice justify-between w-full px-2 py-2 cursor-pointer rounded"><span>Email Reports</span><input type="checkbox" class="eb-check-input" x-model="cols.reports"></label>
+                                    <label class="eb-inline-choice justify-between w-full px-2 py-2 cursor-pointer rounded"><span>Total Devices</span><input type="checkbox" class="eb-check-input" x-model="cols.devices"></label>
+                                    <label class="eb-inline-choice justify-between w-full px-2 py-2 cursor-pointer rounded"><span>Total Protected Items</span><input type="checkbox" class="eb-check-input" x-model="cols.items"></label>
+                                    <label class="eb-inline-choice justify-between w-full px-2 py-2 cursor-pointer rounded"><span>Storage Vaults</span><input type="checkbox" class="eb-check-input" x-model="cols.vaults"></label>
+                                    <label class="eb-inline-choice justify-between w-full px-2 py-2 cursor-pointer rounded"><span>Storage</span><input type="checkbox" class="eb-check-input" x-model="cols.storage"></label>
+                                    <label class="eb-inline-choice justify-between w-full px-2 py-2 cursor-pointer rounded"><span>Hyper-V Count</span><input type="checkbox" class="eb-check-input" x-model="cols.hv"></label>
+                                    <label class="eb-inline-choice justify-between w-full px-2 py-2 cursor-pointer rounded"><span>VMware Count</span><input type="checkbox" class="eb-check-input" x-model="cols.vmw"></label>
+                                    <label class="eb-inline-choice justify-between w-full px-2 py-2 cursor-pointer rounded"><span>MS365 Protected Accounts</span><input type="checkbox" class="eb-check-input" x-model="cols.m365"></label>
                                 </div>
                             </div>
 
                             <div class="flex-1"></div>
-                            <input type="text"
-                                   x-model.debounce.200ms="search"
-                                   placeholder="Search username, email, or account"
-                                   class="w-full xl:w-80 rounded-full bg-slate-900/70 border border-slate-700 px-4 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none hover:border-slate-600 hover:bg-slate-900/80">
+                            <div class="eb-input-wrap w-full xl:w-80">
+                                <div class="eb-input-icon">
+                                    <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                                    </svg>
+                                </div>
+                                <input type="text"
+                                       x-model.debounce.200ms="search"
+                                       placeholder="Search username, email, or account"
+                                       class="eb-input eb-input-has-icon w-full">
+                            </div>
                         </div>
 
-                        <div class="overflow-x-auto rounded-lg border border-slate-800">
-                            <table class="min-w-full divide-y divide-slate-800 text-sm">
-                                <thead class="bg-slate-900/80 text-slate-300">
+                        <div class="eb-table-shell">
+                            <table class="eb-table">
+                                <thead>
                                     <tr>
-                                        <th x-show="cols.username" class="px-4 py-3 text-left font-medium">
-                                            <button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('username')">
+                                        <th x-show="cols.username">
+                                            <button type="button" class="eb-table-sort-button" @click="setSort('username')">
                                                 Username
-                                                <span x-text="sortIndicator('username')"></span>
+                                                <span class="eb-sort-indicator" x-text="sortIndicator('username') || '↕'"></span>
                                             </button>
                                         </th>
-                                        <th x-show="cols.name" class="px-4 py-3 text-left font-medium">
-                                            <button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('name')">
+                                        <th x-show="cols.name">
+                                            <button type="button" class="eb-table-sort-button" @click="setSort('name')">
                                                 Account name
-                                                <span x-text="sortIndicator('name')"></span>
+                                                <span class="eb-sort-indicator" x-text="sortIndicator('name') || '↕'"></span>
                                             </button>
                                         </th>
-                                        <th x-show="cols.emails" class="px-4 py-3 text-left font-medium">
-                                            <button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('emails')">
+                                        <th x-show="cols.emails">
+                                            <button type="button" class="eb-table-sort-button" @click="setSort('emails')">
                                                 Email Address
-                                                <span x-text="sortIndicator('emails')"></span>
+                                                <span class="eb-sort-indicator" x-text="sortIndicator('emails') || '↕'"></span>
                                             </button>
                                         </th>
-                                        <th x-show="cols.reports" class="px-4 py-3 text-left font-medium">
-                                            <button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('reports')">
+                                        <th x-show="cols.reports">
+                                            <button type="button" class="eb-table-sort-button" @click="setSort('reports')">
                                                 Email Reports
-                                                <span x-text="sortIndicator('reports')"></span>
+                                                <span class="eb-sort-indicator" x-text="sortIndicator('reports') || '↕'"></span>
                                             </button>
                                         </th>
-                                        <th x-show="cols.devices" class="px-4 py-3 text-left font-medium">
-                                            <button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('devices')">
+                                        <th x-show="cols.devices">
+                                            <button type="button" class="eb-table-sort-button" @click="setSort('devices')">
                                                 Total Devices
-                                                <span x-text="sortIndicator('devices')"></span>
+                                                <span class="eb-sort-indicator" x-text="sortIndicator('devices') || '↕'"></span>
                                             </button>
                                         </th>
-                                        <th x-show="cols.items" class="px-4 py-3 text-left font-medium">
-                                            <button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('items')">
+                                        <th x-show="cols.items">
+                                            <button type="button" class="eb-table-sort-button" @click="setSort('items')">
                                                 Total Protected Items
-                                                <span x-text="sortIndicator('items')"></span>
+                                                <span class="eb-sort-indicator" x-text="sortIndicator('items') || '↕'"></span>
                                             </button>
                                         </th>
-                                        <th x-show="cols.vaults" class="px-4 py-3 text-left font-medium">
-                                            <button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('vaults')">
+                                        <th x-show="cols.vaults">
+                                            <button type="button" class="eb-table-sort-button" @click="setSort('vaults')">
                                                 Storage Vaults
-                                                <span x-text="sortIndicator('vaults')"></span>
+                                                <span class="eb-sort-indicator" x-text="sortIndicator('vaults') || '↕'"></span>
                                             </button>
                                         </th>
-                                        <th x-show="cols.storage" class="px-4 py-3 text-left font-medium">
-                                            <button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('storage')">
+                                        <th x-show="cols.storage">
+                                            <button type="button" class="eb-table-sort-button" @click="setSort('storage')">
                                                 Storage
-                                                <span x-text="sortIndicator('storage')"></span>
+                                                <span class="eb-sort-indicator" x-text="sortIndicator('storage') || '↕'"></span>
                                             </button>
                                         </th>
-                                        <th x-show="cols.hv" class="px-4 py-3 text-left font-medium">
-                                            <button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('hv')">
+                                        <th x-show="cols.hv">
+                                            <button type="button" class="eb-table-sort-button" @click="setSort('hv')">
                                                 Hyper-V Count
-                                                <span x-text="sortIndicator('hv')"></span>
+                                                <span class="eb-sort-indicator" x-text="sortIndicator('hv') || '↕'"></span>
                                             </button>
                                         </th>
-                                        <th x-show="cols.vmw" class="px-4 py-3 text-left font-medium">
-                                            <button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('vmw')">
+                                        <th x-show="cols.vmw">
+                                            <button type="button" class="eb-table-sort-button" @click="setSort('vmw')">
                                                 VMware Count
-                                                <span x-text="sortIndicator('vmw')"></span>
+                                                <span class="eb-sort-indicator" x-text="sortIndicator('vmw') || '↕'"></span>
                                             </button>
                                         </th>
-                                        <th x-show="cols.m365" class="px-4 py-3 text-left font-medium">
-                                            <button type="button" class="inline-flex items-center gap-1 hover:text-white" @click="setSort('m365')">
+                                        <th x-show="cols.m365">
+                                            <button type="button" class="eb-table-sort-button" @click="setSort('m365')">
                                                 MS365 Protected Accounts
-                                                <span x-text="sortIndicator('m365')"></span>
+                                                <span class="eb-sort-indicator" x-text="sortIndicator('m365') || '↕'"></span>
                                             </button>
                                         </th>
                                     </tr>
                                 </thead>
-                                <tbody class="divide-y divide-slate-800" x-ref="tbody">
+                                <tbody x-ref="tbody">
                                     {foreach from=$accounts item=account}
-                                        <tr class="hover:bg-slate-800/50"
-                                            data-account-row="1"
+                                        <tr data-account-row="1"
                                             data-sort-username="{$account.username|default:''|escape:'html'}"
                                             data-sort-name="{$account.name|default:$account.account_name|default:$account.AccountName|default:''|escape:'html'}"
                                             data-sort-emails="{if isset($account.report_emails) && $account.report_emails}{$account.report_emails|escape:'html'}{elseif isset($account.email_reports) && (isset($account.email_reports.recipients) || isset($account.email_reports.Recipients))}{if isset($account.email_reports.recipients)}{$account.email_reports.recipients|escape:'html'}{else}{$account.email_reports.Recipients|escape:'html'}{/if}{elseif isset($account.emailReports) && isset($account.emailReports.Recipients)}{$account.emailReports.Recipients|escape:'html'}{/if}"
@@ -1201,13 +1207,13 @@
                                             data-sort-hv="{$account.hv_vm_count|default:0|escape:'html'}"
                                             data-sort-vmw="{$account.vmw_vm_count|default:0|escape:'html'}"
                                             data-sort-m365="{$account.m365_accounts|default:0|escape:'html'}">
-                                            <td x-show="cols.username" class="px-4 py-3 whitespace-nowrap text-sm">
-                                                <a href="{$modulelink}&a=user-profile&username={$account.username}&serviceid={$account.id}" class="text-sky-400 hover:underline">{$account.username}</a>
+                                            <td x-show="cols.username" class="eb-table-primary whitespace-nowrap">
+                                                <a href="{$modulelink}&a=user-profile&username={$account.username}&serviceid={$account.id}" class="eb-link-subtle">{$account.username}</a>
                                             </td>
-                                            <td x-show="cols.name" class="px-4 py-3 whitespace-nowrap text-sm text-slate-300">
+                                            <td x-show="cols.name" class="whitespace-nowrap">
                                                 {$account.name|default:$account.account_name|default:$account.AccountName|default:'-'}
                                             </td>
-                                            <td x-show="cols.emails" class="px-4 py-3 whitespace-nowrap text-sm text-slate-300">
+                                            <td x-show="cols.emails" class="whitespace-nowrap">
                                                 {if isset($account.report_emails) && $account.report_emails}
                                                     {$account.report_emails}
                                                 {elseif isset($account.email_reports) && (isset($account.email_reports.recipients) || isset($account.email_reports.Recipients))}
@@ -1215,52 +1221,57 @@
                                                 {elseif isset($account.emailReports) && isset($account.emailReports.Recipients)}
                                                     {$account.emailReports.Recipients}
                                                 {else}
-                                                    <span class="text-slate-400">-</span>
+                                                    <span style="color: var(--eb-text-muted)">-</span>
                                                 {/if}
                                             </td>
-                                            <td x-show="cols.reports" class="px-4 py-3 whitespace-nowrap text-sm text-slate-300">
+                                            <td x-show="cols.reports" class="whitespace-nowrap">
                                                 {if isset($account.email_reports_enabled) && $account.email_reports_enabled}
-                                                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-900/50 text-emerald-300">Enabled</span>
+                                                    <span class="eb-badge eb-badge--success">Enabled</span>
                                                 {elseif isset($account.email_reports) && isset($account.email_reports.Enabled) && $account.email_reports.Enabled}
-                                                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-900/50 text-emerald-300">Enabled</span>
+                                                    <span class="eb-badge eb-badge--success">Enabled</span>
                                                 {elseif isset($account.emailReports) && isset($account.emailReports.Enabled) && $account.emailReports.Enabled}
-                                                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-900/50 text-emerald-300">Enabled</span>
+                                                    <span class="eb-badge eb-badge--success">Enabled</span>
                                                 {elseif isset($account.email_reports_enabled)}
-                                                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-700 text-slate-300">Disabled</span>
+                                                    <span class="eb-badge eb-badge--neutral">Disabled</span>
                                                 {else}
-                                                    <span class="text-slate-400">-</span>
+                                                    <span style="color: var(--eb-text-muted)">-</span>
                                                 {/if}
                                             </td>
-                                            <td x-show="cols.devices" class="px-4 py-3 whitespace-nowrap text-sm text-slate-300">{$account.total_devices}</td>
-                                            <td x-show="cols.items" class="px-4 py-3 whitespace-nowrap text-sm text-slate-300">{$account.total_protected_items}</td>
-                                            <td x-show="cols.vaults" class="px-4 py-3 whitespace-nowrap text-sm text-slate-300">{if $account.vaults}{$account.vaults|@count}{else}0{/if}</td>
-                                            <td x-show="cols.storage" class="px-4 py-3 whitespace-nowrap text-sm text-slate-300">{$account.total_storage_used|default:'0.00 B'}</td>
-                                            <td x-show="cols.hv" class="px-4 py-3 whitespace-nowrap text-sm text-slate-300">{$account.hv_vm_count|default:0}</td>
-                                            <td x-show="cols.vmw" class="px-4 py-3 whitespace-nowrap text-sm text-slate-300">{$account.vmw_vm_count|default:0}</td>
-                                            <td x-show="cols.m365" class="px-4 py-3 whitespace-nowrap text-sm text-slate-300">{$account.m365_accounts|default:0}</td>
+                                            <td x-show="cols.devices" class="whitespace-nowrap">{$account.total_devices}</td>
+                                            <td x-show="cols.items" class="whitespace-nowrap">{$account.total_protected_items}</td>
+                                            <td x-show="cols.vaults" class="whitespace-nowrap">{if $account.vaults}{$account.vaults|@count}{else}0{/if}</td>
+                                            <td x-show="cols.storage" class="whitespace-nowrap">{$account.total_storage_used|default:'0.00 B'}</td>
+                                            <td x-show="cols.hv" class="whitespace-nowrap">{$account.hv_vm_count|default:0}</td>
+                                            <td x-show="cols.vmw" class="whitespace-nowrap">{$account.vmw_vm_count|default:0}</td>
+                                            <td x-show="cols.m365" class="whitespace-nowrap">{$account.m365_accounts|default:0}</td>
                                         </tr>
                                     {/foreach}
                                     <tr x-ref="noResults" style="display:none;">
-                                        <td colspan="11" class="text-center py-8 text-slate-400">No users found.</td>
+                                        <td colspan="11">
+                                            <div class="eb-app-empty">
+                                                <div class="eb-app-empty-title">No users found</div>
+                                                <p class="eb-app-empty-copy">Try adjusting your search to see more results.</p>
+                                            </div>
+                                        </td>
                                     </tr>
                                 </tbody>
                             </table>
                         </div>
 
-                        <div class="mt-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-slate-400">
-                            <div x-text="pageSummary()"></div>
+                        <div class="eb-table-pagination">
+                            <span x-text="pageSummary()"></span>
                             <div class="flex items-center gap-2">
                                 <button type="button"
+                                        class="eb-table-pagination-button"
                                         @click="prevPage()"
-                                        :disabled="currentPage <= 1"
-                                        class="px-3 py-1.5 rounded border border-slate-700 bg-slate-900/70 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed">
+                                        :disabled="currentPage <= 1">
                                     Prev
                                 </button>
-                                <span class="text-slate-300" x-text="'Page ' + currentPage + ' / ' + totalPages()"></span>
+                                <span style="color: var(--eb-text-secondary)" x-text="'Page ' + currentPage + ' / ' + totalPages()"></span>
                                 <button type="button"
+                                        class="eb-table-pagination-button"
                                         @click="nextPage()"
-                                        :disabled="currentPage >= totalPages()"
-                                        class="px-3 py-1.5 rounded border border-slate-700 bg-slate-900/70 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed">
+                                        :disabled="currentPage >= totalPages()">
                                     Next
                                 </button>
                             </div>
@@ -2078,6 +2089,8 @@
     <!-- Load shared UI helpers before any script that uses EB.* -->
     <script src="modules/addons/eazybackup/assets/js/eazybackup-ui-helpers.js" defer></script>
     <script src="modules/addons/eazybackup/assets/js/job-reports.js" defer></script>
+    <script>window.EB_WEB_ROOT = '{$WEB_ROOT}';</script>
+    <script src="modules/addons/eazybackup/templates/assets/js/job-ticket.js" defer></script>
     <script>
       // Initialize job reports helpers once ready
       (function(){

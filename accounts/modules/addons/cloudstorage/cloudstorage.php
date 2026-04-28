@@ -326,8 +326,57 @@ function cloudstorage_config()
                 'FriendlyName' => 'Progress Event Interval (s)',
                 'Type' => 'text',
                 'Size' => '10',
-                'Default' => '2',
-                'Description' => 'Minimum seconds between progress events from worker.'
+                'Default' => '30',
+                'Description' => 'Minimum seconds between progress events from worker/agent.'
+            ],
+            'cloudbackup_event_progress_pct_step' => [
+                'FriendlyName' => 'Progress Event Pct Step',
+                'Type' => 'text',
+                'Size' => '10',
+                'Default' => '1.0',
+                'Description' => 'Minimum percent change between progress events (in addition to the time interval).'
+            ],
+            'cloudbackup_run_logs_retention_days' => [
+                'FriendlyName' => 'Run Logs Retention (days)',
+                'Type' => 'text',
+                'Size' => '10',
+                'Default' => '60',
+                'Description' => 'How many days to retain s3_cloudbackup_run_logs rows.'
+            ],
+            'cloudbackup_agent_events_retention_days' => [
+                'FriendlyName' => 'Agent Events Retention (days)',
+                'Type' => 'text',
+                'Size' => '10',
+                'Default' => '90',
+                'Description' => 'How many days to retain s3_cloudbackup_agent_events rows.'
+            ],
+            'cloudbackup_agent_events_max_per_day_per_agent' => [
+                'FriendlyName' => 'Agent Events Max/Day/Agent',
+                'Type' => 'text',
+                'Size' => '10',
+                'Default' => '1000',
+                'Description' => 'Hard cap on agent_events rows accepted per agent per UTC day.'
+            ],
+            'cloudbackup_chunks_max_per_run' => [
+                'FriendlyName' => 'Admin Log Chunks Max/Run',
+                'Type' => 'text',
+                'Size' => '10',
+                'Default' => '60',
+                'Description' => 'Maximum admin-only verbose log chunks accepted per run (~1 MB each).'
+            ],
+            'cloudbackup_admin_chunks_retention_days' => [
+                'FriendlyName' => 'Admin Log Chunks Retention (days)',
+                'Type' => 'text',
+                'Size' => '10',
+                'Default' => '14',
+                'Description' => 'How many days to retain s3_cloudbackup_admin_log_chunks rows.'
+            ],
+            'cloudbackup_min_local_agent_version' => [
+                'FriendlyName' => 'Minimum Local Agent Version',
+                'Type' => 'text',
+                'Size' => '20',
+                'Default' => '',
+                'Description' => 'Strict minimum local backup agent version. Older agents are rejected with HTTP 426. Leave blank to disable the gate.'
             ],
             'msp_client_groups' => [
                 'FriendlyName' => 'MSP Client Groups',
@@ -2565,6 +2614,57 @@ function cloudstorage_activate() {
             }
         }
 
+        // Agent/tray health events (non-run lifecycle)
+        if (!Capsule::schema()->hasTable('s3_cloudbackup_agent_events')) {
+            Capsule::schema()->create('s3_cloudbackup_agent_events', function ($table) {
+                $table->bigIncrements('id');
+                $table->string('agent_uuid', 36);
+                $table->unsignedInteger('client_id');
+                $table->unsignedInteger('tenant_id')->nullable();
+                $table->unsignedInteger('backup_user_id')->nullable();
+                $table->dateTime('ts');
+                $table->enum('source', ['agent', 'tray'])->default('agent');
+                $table->enum('level', ['info', 'warn', 'error'])->default('info');
+                $table->string('code', 64);
+                $table->string('message_id', 64);
+                $table->mediumText('params_json')->nullable();
+                $table->string('dedupe_key', 191)->nullable();
+                $table->timestamp('created_at')->useCurrent();
+                $table->index(['agent_uuid', 'ts'], 'idx_agent_ts');
+                $table->index(['client_id', 'ts'], 'idx_client_ts');
+                $table->index(['agent_uuid', 'dedupe_key', 'ts'], 'idx_agent_dedupe_ts');
+                $table->index(['source', 'ts'], 'idx_source_ts');
+            });
+            logModuleCall('cloudstorage', 'activate', [], 'Created s3_cloudbackup_agent_events table', [], []);
+        }
+
+        // Admin-only verbose run log chunks (gzipped)
+        if (!Capsule::schema()->hasTable('s3_cloudbackup_admin_log_chunks')) {
+            Capsule::schema()->create('s3_cloudbackup_admin_log_chunks', function ($table) {
+                $table->bigIncrements('id');
+                $table->char('run_id', 16)->charset('binary');
+                $table->unsignedInteger('chunk_seq');
+                $table->enum('source', ['agent', 'tray', 'run'])->default('run');
+                $table->dateTime('first_ts');
+                $table->dateTime('last_ts');
+                $table->string('encoding', 16)->default('gzip');
+                $table->binary('content_blob');
+                $table->unsignedInteger('line_count')->default(0);
+                $table->unsignedInteger('byte_count')->default(0);
+                $table->timestamp('created_at')->useCurrent();
+                $table->unique(['run_id', 'chunk_seq'], 'uniq_run_chunk');
+                $table->index(['run_id', 'first_ts'], 'idx_run_first_ts');
+                $table->foreign('run_id')->references('run_id')->on('s3_cloudbackup_runs')->onDelete('cascade');
+            });
+            // Switch the BLOB column to LONGBLOB explicitly (Laravel ->binary() defaults to BLOB which caps at 64KB)
+            try {
+                Capsule::statement('ALTER TABLE s3_cloudbackup_admin_log_chunks MODIFY content_blob LONGBLOB NOT NULL');
+            } catch (\Throwable $e) {
+                logModuleCall('cloudstorage', 'activate', [], 's3_cloudbackup_admin_log_chunks MODIFY content_blob LONGBLOB skipped: ' . $e->getMessage(), [], []);
+            }
+            logModuleCall('cloudstorage', 'activate', [], 'Created s3_cloudbackup_admin_log_chunks table', [], []);
+        }
+
         // Trial signup email verification table
         if (!Capsule::schema()->hasTable('cloudstorage_trial_verifications')) {
             Capsule::schema()->create('cloudstorage_trial_verifications', function ($table) {
@@ -3926,6 +4026,56 @@ function cloudstorage_upgrade($vars) {
                     logModuleCall('cloudstorage', 'upgrade_add_run_type_error', [], $e->getMessage(), [], []);
                 }
             }
+        }
+
+        // Create agent/tray health events table if missing on upgrade
+        if (!\WHMCS\Database\Capsule::schema()->hasTable('s3_cloudbackup_agent_events')) {
+            \WHMCS\Database\Capsule::schema()->create('s3_cloudbackup_agent_events', function ($table) {
+                $table->bigIncrements('id');
+                $table->string('agent_uuid', 36);
+                $table->unsignedInteger('client_id');
+                $table->unsignedInteger('tenant_id')->nullable();
+                $table->unsignedInteger('backup_user_id')->nullable();
+                $table->dateTime('ts');
+                $table->enum('source', ['agent', 'tray'])->default('agent');
+                $table->enum('level', ['info', 'warn', 'error'])->default('info');
+                $table->string('code', 64);
+                $table->string('message_id', 64);
+                $table->mediumText('params_json')->nullable();
+                $table->string('dedupe_key', 191)->nullable();
+                $table->timestamp('created_at')->useCurrent();
+                $table->index(['agent_uuid', 'ts'], 'idx_agent_ts');
+                $table->index(['client_id', 'ts'], 'idx_client_ts');
+                $table->index(['agent_uuid', 'dedupe_key', 'ts'], 'idx_agent_dedupe_ts');
+                $table->index(['source', 'ts'], 'idx_source_ts');
+            });
+            logModuleCall('cloudstorage', 'upgrade', [], 'Created s3_cloudbackup_agent_events table', [], []);
+        }
+
+        // Create admin verbose log chunks table if missing on upgrade
+        if (!\WHMCS\Database\Capsule::schema()->hasTable('s3_cloudbackup_admin_log_chunks')) {
+            \WHMCS\Database\Capsule::schema()->create('s3_cloudbackup_admin_log_chunks', function ($table) {
+                $table->bigIncrements('id');
+                $table->char('run_id', 16)->charset('binary');
+                $table->unsignedInteger('chunk_seq');
+                $table->enum('source', ['agent', 'tray', 'run'])->default('run');
+                $table->dateTime('first_ts');
+                $table->dateTime('last_ts');
+                $table->string('encoding', 16)->default('gzip');
+                $table->binary('content_blob');
+                $table->unsignedInteger('line_count')->default(0);
+                $table->unsignedInteger('byte_count')->default(0);
+                $table->timestamp('created_at')->useCurrent();
+                $table->unique(['run_id', 'chunk_seq'], 'uniq_run_chunk');
+                $table->index(['run_id', 'first_ts'], 'idx_run_first_ts');
+                $table->foreign('run_id')->references('run_id')->on('s3_cloudbackup_runs')->onDelete('cascade');
+            });
+            try {
+                \WHMCS\Database\Capsule::statement('ALTER TABLE s3_cloudbackup_admin_log_chunks MODIFY content_blob LONGBLOB NOT NULL');
+            } catch (\Throwable $e) {
+                logModuleCall('cloudstorage', 'upgrade', [], 's3_cloudbackup_admin_log_chunks MODIFY content_blob LONGBLOB skipped: ' . $e->getMessage(), [], []);
+            }
+            logModuleCall('cloudstorage', 'upgrade', [], 'Created s3_cloudbackup_admin_log_chunks table', [], []);
         }
 
         // Create run logs table if missing on upgrade

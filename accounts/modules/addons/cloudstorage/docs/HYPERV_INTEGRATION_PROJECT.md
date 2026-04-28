@@ -507,11 +507,16 @@ Get-VM | Select-Object Name, State, Generation, VMId
 # Create production checkpoint (VSS)
 Checkpoint-VM -Name "MyVM" -SnapshotName "Backup" -SnapshotType Production
 
-# Query changed blocks
-Get-VMHardDiskDriveChangedBlockInformation -VMHardDiskDrive $disk -BaseSnapshot $checkpoint
-
-# Enable RCT
-Set-VMHardDiskDrive -VMHardDiskDrive $disk -SupportPersistentReservations $true
+# Query changed blocks (Server 2025-compatible WMI path; the legacy
+# Get-VMHardDiskDriveChangedBlockInformation cmdlet was removed in
+# Hyper-V module v2.0.0.0 and the agent no longer uses it).
+$svc = Get-CimInstance -Namespace root/virtualization/v2 -ClassName Msvm_ImageManagementService
+Invoke-CimMethod -InputObject $svc -MethodName GetVirtualDiskChanges -Arguments @{
+    Path       = $disk.Path
+    LimitId    = $priorRctId   # captured at the previous reference point
+    ByteOffset = [uint64]0
+    ByteLength = [uint64](Get-Item $disk.Path).Length
+}
 ```
 
 ---

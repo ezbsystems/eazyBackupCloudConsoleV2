@@ -1,8 +1,8 @@
 # Hyper-V Backup Engine – Technical Design Document
 
-**Version:** 1.1  
-**Last Updated:** December 2025  
-**Status:** Planning/Design Phase
+**Version:** 1.2
+**Last Updated:** April 2026
+**Status:** Implemented (RCT/incremental path live for Server 2016 → Server 2025)
 
 ---
 
@@ -506,132 +506,141 @@ func escapePSString(s string) string {
 
 ### 2. RCT Engine (`internal/agent/hyperv/rct.go`)
 
-Handles change tracking queries:
+Handles change-tracking queries. The engine no longer shells out to the
+removed `Get-VMHardDiskDriveChangedBlockInformation` cmdlet; it dispatches
+to the WMI layer described in §3 below.
 
 ```go
 package hyperv
 
-import (
-    "context"
-    "fmt"
-)
+import "context"
 
-// ChangedBlockRange represents a range of changed bytes in a VHDX
+// ChangedBlockRange represents a range of changed bytes in a VHDX.
 type ChangedBlockRange struct {
-    Offset int64 `json:"offset"` // Byte offset from start of disk
-    Length int64 `json:"length"` // Number of changed bytes
+    Offset int64 `json:"offset"`
+    Length int64 `json:"length"`
 }
 
-// RCTInfo contains RCT metadata for a disk
+// RCTInfo contains RCT metadata for a single disk.
 type RCTInfo struct {
     DiskPath      string              `json:"disk_path"`
-    RCTID         string              `json:"rct_id"`          // Current RCT tracking ID
+    RCTID         string              `json:"rct_id"`         // RCT generation we queried against
     ChangedBlocks []ChangedBlockRange `json:"changed_blocks"`
-    TotalChanged  int64               `json:"total_changed"`   // Sum of all changed bytes
+    TotalChanged  int64               `json:"total_changed"`
+    Valid         bool                `json:"valid"`          // false ⇒ caller must fall back to Full
+    Error         string              `json:"error,omitempty"`
 }
 
-// RCTEngine handles Resilient Change Tracking operations
-type RCTEngine struct {
-    manager *Manager
-}
+// RCTEngine wraps RCT operations for one Hyper-V Manager.
+type RCTEngine struct{ manager *Manager }
 
-// NewRCTEngine creates a new RCT engine
-func NewRCTEngine(mgr *Manager) *RCTEngine {
-    return &RCTEngine{manager: mgr}
-}
+func NewRCTEngine(mgr *Manager) *RCTEngine { return &RCTEngine{manager: mgr} }
 
-// GetChangedBlocks returns changed block ranges since the reference checkpoint
-func (e *RCTEngine) GetChangedBlocks(ctx context.Context, vmName string, baseCheckpointID string) ([]RCTInfo, error) {
-    script := fmt.Sprintf(`
-        $vm = Get-VM -Name '%s'
-        $baseCheckpoint = Get-VMSnapshot -VM $vm | Where-Object { $_.Id -eq '%s' }
-        
-        if (-not $baseCheckpoint) {
-            throw "Base checkpoint not found"
-        }
-        
-        $results = @()
-        
-        Get-VMHardDiskDrive -VM $vm | ForEach-Object {
-            $disk = $_
-            $vhdPath = $disk.Path
-            
-            # Get changed regions using RCT
-            try {
-                $changes = Get-VMHardDiskDriveChangedBlockInformation `
-                    -VMHardDiskDrive $disk `
-                    -BaseSnapshot $baseCheckpoint
-                
-                $changedBlocks = @()
-                $totalChanged = 0
-                
-                foreach ($region in $changes.ChangedByteRanges) {
-                    $changedBlocks += @{
-                        Offset = $region.Offset
-                        Length = $region.Length
-                    }
-                    $totalChanged += $region.Length
-                }
-                
-                $results += @{
-                    DiskPath = $vhdPath
-                    RCTID = $changes.ResilientChangeTrackingId
-                    ChangedBlocks = $changedBlocks
-                    TotalChanged = $totalChanged
-                }
-            } catch {
-                # If RCT query fails, return null to indicate full backup needed
-                $results += @{
-                    DiskPath = $vhdPath
-                    RCTID = ""
-                    ChangedBlocks = $null
-                    TotalChanged = -1
-                }
-            }
-        }
-        
-        $results | ConvertTo-Json -Depth 4
-    `, escapePSString(vmName), baseCheckpointID)
-    
-    return e.manager.runPSJson[[]RCTInfo](ctx, script)
-}
+// GetChangedBlocks returns the changed byte ranges per disk since the prior
+// per-disk RCT IDs captured at the previous backup's reference point. Disks
+// whose prior RCT ID is empty, or for which Hyper-V refuses the WMI call
+// (chain broken, file moved, etc.), come back with Valid=false so the
+// caller can fall back to a full read for that disk only.
+func (e *RCTEngine) GetChangedBlocks(
+    ctx context.Context,
+    vmName string,
+    perDiskPriorRCTIDs map[string]string,
+) ([]RCTInfo, error)
 
-// GetCurrentRCTIDs returns current RCT tracking IDs for all disks
-func (e *RCTEngine) GetCurrentRCTIDs(ctx context.Context, vmName string) (map[string]string, error) {
-    script := fmt.Sprintf(`
-        $vm = Get-VM -Name '%s'
-        $result = @{}
-        
-        Get-VMHardDiskDrive -VM $vm | ForEach-Object {
-            $rctInfo = Get-VHD -Path $_.Path | Select-Object -ExpandProperty ResilientChangeTrackingId
-            $result[$_.Path] = $rctInfo
-        }
-        
-        $result | ConvertTo-Json
-    `, escapePSString(vmName))
-    
-    return e.manager.runPSJson[map[string]string](ctx, script)
-}
+// GetCurrentRCTIDs returns the RCT generation IDs Hyper-V currently advertises
+// for each VHDX on the VM (read via Get-VHD; works on every supported host).
+func (e *RCTEngine) GetCurrentRCTIDs(ctx context.Context, vmName string) (map[string]string, error)
 
-// ValidateRCTChain validates that RCT tracking is continuous (no gaps)
-func (e *RCTEngine) ValidateRCTChain(ctx context.Context, vmName string, expectedRCTID string) (bool, error) {
-    currentIDs, err := e.GetCurrentRCTIDs(ctx, vmName)
-    if err != nil {
-        return false, err
-    }
-    
-    for _, id := range currentIDs {
-        if id != expectedRCTID {
-            return false, nil // RCT chain broken, need full backup
-        }
-    }
-    return true, nil
-}
+// ValidateRCTChain pre-flight checks that every expected disk still has a
+// non-empty, matching RCT ID on the live VHDX. Cheaper than a per-disk WMI
+// round-trip when the chain has obviously already been invalidated.
+func (e *RCTEngine) ValidateRCTChain(
+    ctx context.Context, vmName string, expectedRCTIDs map[string]string,
+) (bool, error)
 ```
+
+`GetChangedBlocks` iterates the VM's disks and calls
+`getVirtualDiskChangesWMI(diskPath, priorRCTID, diskSize)` from
+`rct_wmi.go` for each disk, summing `ChangedBlockRange.Length` into
+`TotalChanged`. The `RCTID` returned in each `RCTInfo` is the *input* ID
+(the LimitId we passed); the *new* per-disk RCT IDs are captured later, at
+reference-point conversion time, by `Manager.ReferencePointDiskRCTIDs`.
+
+### 3. WMI Layer (`internal/agent/hyperv/wmi.go`, `reference_point.go`, `rct_wmi.go`)
+
+Windows Server 2025 ships Hyper-V module v2.0.0.0, which **removed**
+`Get-VMHardDiskDriveChangedBlockInformation`. The engine therefore drives
+the `root\virtualization\v2` WMI namespace directly via go-ole and (where
+documented to be more reliable) via `Invoke-CimMethod` shelled from
+PowerShell. All three files are gated `//go:build windows` and have
+matching `_stub.go` files for cross-platform compilation.
+
+| File | Responsibility |
+|------|----------------|
+| `wmi.go` | go-ole/SWbem plumbing: `runtime.LockOSThread` + `CoInitializeEx(MULTITHREADED)` lifecycle, connect to `root\virtualization\v2`, `ExecMethod_` wrapper that builds typed in-parameter VARIANTs via `SpawnInstance_`, `__PATH` resolution through `SWbemObject.Path_.RelPath`, integer-aware `VARIANT → string` conversion for method return codes, CIM job polling (`waitForJob`), and a class-existence probe used for capability detection. The `_NewEnum`/`IEnumVARIANT` walker correctly treats `S_FALSE` (HRESULT `0x00000001` — the source of go-ole's confusing "Incorrect function" message) as end-of-iteration, not as a fatal error. |
+| `reference_point.go` | Wraps `Msvm_VirtualSystemReferencePointService`. Exposes `Manager.CreateReferencePoint`, `DestroyReferencePoint`, `ListReferencePoints`, and `ReferencePointDiskRCTIDs`, plus a process-wide cached `HostHasReferencePointService(ctx)` capability probe. The reference-point lifecycle methods are issued via `Invoke-CimMethod` from a small PowerShell script the agent emits at runtime — direct SWbem `ExecMethod_` calls reproducibly returned WMI job error 32775 ("Element Not Available") on Server 2025 hosts even with identical arguments, while the equivalent `Invoke-CimMethod` call succeeds. The settings parameter is passed as a serialized `Msvm_VirtualSystemReferencePointSettingData` instance with `ConsistencyLevel = 1` (Application). `ReferencePointType` is always `1` (RCT-based) — `0` (Log-based) is for replication, not backup. |
+| `rct_wmi.go` | Wraps `Msvm_ImageManagementService::GetVirtualDiskChanges`. Per-disk: submits `(Path, LimitId, ByteOffset=0, ByteLength=diskSize)`, polls the resulting `CIM_ConcreteJob`, and parses the returned `ChangedRanges[]` strings (`"offset:length"`) into `[]ChangedBlockRange`. This is the canonical replacement for the removed PowerShell cmdlet and is the single hot path that the e3 lab `windows-hyperv-incremental` scenario exercises on iteration 2. |
+
+**Capability matrix.** `HostHasReferencePointService` is the gate the
+orchestrator (`hyperv_backup.go`) consults before deciding to attempt an
+incremental backup:
+
+| Host | `Msvm_VirtualSystemReferencePointService` | RCT incremental path |
+|------|-------------------------------------------|----------------------|
+| Windows Server 2012R2 / Windows 8.1 | Absent | Always Full (no RCT support in Hyper-V) |
+| Windows Server 2016 / 2019 / 2022, Win10/11 | Present | WMI path, incremental supported |
+| Windows Server 2025, Win11 24H2 | Present | WMI path, incremental supported (the legacy PS cmdlet is gone — this is the only path that works) |
+
+**Reference-point lifecycle per backup.**
+
+```
+┌─ Production checkpoint via Checkpoint-VM (PowerShell)
+│      │
+│      ▼ (parent VHDX is now read-only, AVHDX redirects writes)
+├─ Stream parent VHDX → Kopia
+│      │
+│      ▼
+├─ Merge production checkpoint via PS (AVHDX collapses into parent)
+│      │
+│      ▼
+├─ CreateReferencePoint via WMI (RCT-based, Application consistency)
+│      │   ─ pinned reference point now anchors RCT generation for next run
+│      ▼
+├─ ReferencePointDiskRCTIDs → per-disk LimitId for next GetVirtualDiskChanges
+│      │
+│      ▼
+└─ DestroyReferencePoint(prior) – best effort; failures are logged, non-fatal
+```
+
+The reference point itself is metadata-only: Hyper-V keeps a tiny RCT
+marker per disk, no AVHDX. Leaving a stale reference point alive is
+harmless; we still tear it down once the new one has been recorded by the
+server so the host doesn't accumulate them indefinitely.
+
+If `CreateReferencePoint` fails for any reason, the orchestrator clears
+`HyperVVMResult.CheckpointID` so the server records `null`. The next
+`agent_next_run.php` payload for that VM will therefore omit
+`last_checkpoint_id` and the agent will perform a Full backup, which
+re-establishes the RCT chain naturally.
 
 ---
 
 ## RCT (Resilient Change Tracking)
+
+> **Status (Apr 2026)**: The agent's RCT incremental path is implemented
+> against the WMI surface (`Msvm_VirtualSystemReferencePointService` +
+> `Msvm_ImageManagementService::GetVirtualDiskChanges`) and works on every
+> supported host from Windows Server 2016 through Windows Server 2025. The
+> deprecated `Get-VMHardDiskDriveChangedBlockInformation` PowerShell cmdlet
+> is no longer referenced anywhere in the agent. See
+> [§3 WMI Layer](#3-wmi-layer-internalagenthypervwmigo-reference_pointgo-rct_wmigo) for the
+> implementation, and [§Agent Implementation](#agent-implementation) for
+> the orchestration that calls into it.
+>
+> Hosts that lack the reference-point service entirely (Windows Server
+> 2012R2 and older Windows 8.1 — RCT does not exist by spec there) are
+> detected via `HostHasReferencePointService` and stay on Full backups
+> with immediate-merge cleanup, exactly as before.
 
 ### Overview
 
@@ -653,19 +662,23 @@ RCT is Microsoft's block-level change tracking for Hyper-V, introduced in Window
 │                                                                 │
 │  INITIAL BACKUP (Full)                                          │
 │  ─────────────────────                                          │
-│  1. Enable RCT on VM disks                                      │
-│  2. Create reference checkpoint (CP-0)                          │
-│  3. Back up entire VHDX to Kopia                                │
-│  4. Store CP-0 ID + RCT ID in database                          │
-│  5. Merge CP-0 (checkpoint becomes reference point only)        │
+│  1. Probe HostHasReferencePointService (capability gate)        │
+│  2. Create production checkpoint (Checkpoint-VM)                │
+│  3. Stream parent VHDX → Kopia                                  │
+│  4. Merge production checkpoint (AVHDX → parent)                │
+│  5. WMI: CreateReferencePoint (RCT, Application consistency)    │
+│  6. WMI: ReferencePointDiskRCTIDs → per-disk RCT IDs            │
+│  7. Persist (checkpoint_id = ref-point GUID, rct_ids JSON)      │
 │                                                                 │
 │  INCREMENTAL BACKUP                                             │
 │  ─────────────────────                                          │
-│  1. Create new checkpoint (CP-N)                                │
-│  2. Query changed blocks since CP-(N-1)                         │
-│  3. Stream only changed blocks to Kopia                         │
-│  4. Update database with new RCT ID                             │
-│  5. Remove old checkpoint, keep CP-N as new reference           │
+│  1. ListReferencePoints — confirm prior RP still resident       │
+│  2. WMI: GetVirtualDiskChanges per disk, LimitId = prior RCT ID │
+│  3. Create production checkpoint                                │
+│  4. Stream changed ranges (only) from parent VHDX → Kopia       │
+│  5. Merge production checkpoint                                 │
+│  6. CreateReferencePoint → capture new per-disk RCT IDs         │
+│  7. DestroyReferencePoint(prior)  (best effort, non-fatal)      │
 │                                                                 │
 │  FULL BACKUP (Forced or RCT Reset)                              │
 │  ──────────────────────────────────                             │
@@ -1330,14 +1343,19 @@ e3-backup-agent/
 │       ├── hyperv_backup.go    # NEW: runHyperV() and orchestration
 │       ├── hyperv_stub.go      # NEW: Build tag !windows stub
 │       │
-│       └── hyperv/             # NEW: Hyper-V package
-│           ├── manager.go      # Hyper-V WMI/PowerShell operations
-│           ├── rct.go          # RCT change tracking
-│           ├── vss.go          # VSS integration
-│           ├── vhdx.go         # VHDX file handling
-│           ├── backup.go       # Backup orchestration types
-│           ├── restore.go      # Restore operations
-│           └── instant.go      # Instant restore (NBD/iSCSI)
+│       └── hyperv/                       # Hyper-V package
+│           ├── manager.go                 # Hyper-V PowerShell wrappers (Checkpoint-VM, Get-VM, …)
+│           ├── manager_stub.go            # Non-Windows build stubs for Manager
+│           ├── types.go                   # VMInfo / DiskInfo / CheckpointInfo / RCTInfo
+│           ├── rct.go                     # RCTEngine (routes through WMI layer)
+│           ├── rct_stub.go                # Non-Windows stub for RCTEngine
+│           ├── wmi.go                     # go-ole/SWbem plumbing for root\virtualization\v2
+│           ├── reference_point.go         # Msvm_VirtualSystemReferencePointService wrappers
+│           ├── reference_point_stub.go    # Non-Windows stub
+│           ├── rct_wmi.go                 # Msvm_ImageManagementService::GetVirtualDiskChanges
+│           ├── vhdx.go                    # VHDX reader (full + sparse)
+│           ├── restore.go                 # Restore operations
+│           └── instant.go                 # Instant restore (NBD/iSCSI)
 └── go.mod
 ```
 
@@ -1900,11 +1918,30 @@ Get-VMHardDiskDrive -VM $vm | ForEach-Object {
 # Create production (app-consistent) checkpoint
 Checkpoint-VM -Name "MyVM" -SnapshotName "Backup" -SnapshotType Production
 
-# Query changed blocks since checkpoint
-$vm = Get-VM -Name "MyVM"
-$checkpoint = Get-VMSnapshot -VM $vm | Where-Object { $_.Name -eq "Backup" }
-Get-VMHardDiskDrive -VM $vm | ForEach-Object {
-    Get-VMHardDiskDriveChangedBlockInformation -VMHardDiskDrive $_ -BaseSnapshot $checkpoint
+# Query changed blocks since the prior reference point's RCT generation.
+# (Get-VMHardDiskDriveChangedBlockInformation was removed in Server 2025's
+# Hyper-V module v2.0.0.0; the agent uses the WMI call below directly.)
+$svc = Get-CimInstance -Namespace root/virtualization/v2 -ClassName Msvm_ImageManagementService
+$vhd = "C:\VMs\MyVM\Virtual Hard Disks\MyVM.vhdx"
+$priorRctId = "<RCT id captured at the previous reference point for this disk>"
+$len = (Get-Item $vhd).Length
+Invoke-CimMethod -InputObject $svc -MethodName GetVirtualDiskChanges -Arguments @{
+    Path       = $vhd
+    LimitId    = $priorRctId
+    ByteOffset = [uint64]0
+    ByteLength = [uint64]$len
+} | Select-Object ReturnValue, ChangedRanges
+
+# Pin a new RCT reference point for the next incremental query.
+$vm  = Get-CimInstance -Namespace root/virtualization/v2 -ClassName Msvm_ComputerSystem -Filter "ElementName='MyVM'"
+$rps = Get-CimInstance -Namespace root/virtualization/v2 -ClassName Msvm_VirtualSystemReferencePointService
+$set = New-CimInstance -Namespace root/virtualization/v2 -ClassName Msvm_VirtualSystemReferencePointSettingData -ClientOnly -Property @{ ConsistencyLevel = [byte]1 }
+$ser = [Microsoft.Management.Infrastructure.Serialization.CimSerializer]::Create()
+$mof = [System.Text.Encoding]::Unicode.GetString($ser.Serialize($set, [Microsoft.Management.Infrastructure.Serialization.InstanceSerializationOptions]::None))
+Invoke-CimMethod -InputObject $rps -MethodName CreateReferencePoint -Arguments @{
+    AffectedSystem         = $vm
+    ReferencePointSettings = $mof
+    ReferencePointType     = [uint16]1   # 1 = RCT-based, 0 = Log-based (replication)
 }
 
 # Export VM configuration
@@ -1966,3 +2003,4 @@ func (r *Runner) mountNASDrive(ctx context.Context, payload MountNASPayload) err
 |---------|------|--------|---------|
 | 1.0 | Dec 2025 | EazyBackup Team | Initial design document |
 | 1.1 | Dec 2025 | EazyBackup Team | Added agent integration section, Windows Service mode, Cloud NAS session isolation, aligned with existing runner.go/kopia.go patterns, removed KopiaSnapshotter interface in favor of Runner methods |
+| 1.2 | Apr 2026 | EazyBackup Team | Replaced the deprecated `Get-VMHardDiskDriveChangedBlockInformation` PowerShell path (removed in Server 2025's Hyper-V module v2.0.0.0) with the native WMI layer (`internal/agent/hyperv/wmi.go`, `reference_point.go`, `rct_wmi.go`) built on `Msvm_VirtualSystemReferencePointService::CreateReferencePoint` and `Msvm_ImageManagementService::GetVirtualDiskChanges`. Added §3 WMI Layer, capability-matrix, refreshed RCT lifecycle and PowerShell reference commands, updated file-structure listing, and refreshed `RCTEngine.GetChangedBlocks` signature to take per-disk prior RCT IDs. |

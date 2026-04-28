@@ -9,6 +9,110 @@ if (!defined('WHMCS')) { die('This file cannot be accessed directly'); }
 
 header('Content-Type: application/json');
 
+/**
+ * Async job store helpers (table: mod_eazybackup_async_jobs).
+ *
+ * The wizard uses these to fall back to a background job whenever a
+ * synchronous Comet dispatcher request looks like it might exceed the
+ * client's patience (e.g. snapshot listing for very large vaults).
+ */
+function eb_async_jobs_ensure_table() {
+    static $checked = false;
+    if ($checked) return;
+    try {
+        Capsule::statement("CREATE TABLE IF NOT EXISTS `mod_eazybackup_async_jobs` (
+            `id` CHAR(36) NOT NULL PRIMARY KEY,
+            `client_id` INT UNSIGNED NOT NULL,
+            `service_id` INT UNSIGNED NOT NULL,
+            `username` VARCHAR(190) NOT NULL,
+            `action` VARCHAR(64) NOT NULL,
+            `status` ENUM('queued','running','done','error') NOT NULL DEFAULT 'queued',
+            `payload_json` MEDIUMTEXT NULL,
+            `result_json` LONGTEXT NULL,
+            `error_message` TEXT NULL,
+            `created_at` INT UNSIGNED NOT NULL,
+            `started_at` INT UNSIGNED NULL,
+            `updated_at` INT UNSIGNED NOT NULL,
+            `finished_at` INT UNSIGNED NULL,
+            INDEX `idx_eb_jobs_client` (`client_id`, `created_at`),
+            INDEX `idx_eb_jobs_status` (`status`, `created_at`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    } catch (\Throwable $e) {}
+    $checked = true;
+}
+
+function eb_async_job_create($clientId, $serviceId, $username, $action, array $payload) {
+    eb_async_jobs_ensure_table();
+    $id = strtolower(bin2hex(random_bytes(8))).'-'.dechex(time());
+    // Pad to a UUID-ish length the column will accept
+    $id = substr(str_pad($id, 36, '0'), 0, 36);
+    $now = time();
+    Capsule::table('mod_eazybackup_async_jobs')->insert([
+        'id' => $id,
+        'client_id' => (int)$clientId,
+        'service_id' => (int)$serviceId,
+        'username' => (string)$username,
+        'action' => (string)$action,
+        'status' => 'queued',
+        'payload_json' => json_encode($payload, JSON_UNESCAPED_SLASHES),
+        'created_at' => $now,
+        'updated_at' => $now,
+    ]);
+    return $id;
+}
+
+function eb_async_job_get($id, $clientId) {
+    eb_async_jobs_ensure_table();
+    $row = Capsule::table('mod_eazybackup_async_jobs')
+        ->where('id', $id)
+        ->where('client_id', (int)$clientId)
+        ->first();
+    return $row;
+}
+
+function eb_async_job_update($id, array $fields) {
+    $fields['updated_at'] = time();
+    Capsule::table('mod_eazybackup_async_jobs')->where('id', $id)->update($fields);
+}
+
+function eb_async_job_run($id, callable $worker) {
+    try {
+        eb_async_job_update($id, [
+            'status' => 'running',
+            'started_at' => time(),
+        ]);
+        $result = $worker();
+        eb_async_job_update($id, [
+            'status' => 'done',
+            'result_json' => json_encode($result, JSON_UNESCAPED_SLASHES),
+            'finished_at' => time(),
+        ]);
+    } catch (\Throwable $e) {
+        eb_async_job_update($id, [
+            'status' => 'error',
+            'error_message' => substr($e->getMessage(), 0, 65000),
+            'finished_at' => time(),
+        ]);
+    }
+}
+
+/**
+ * Send the JSON response, then keep PHP running in the background to do work.
+ * Falls back to inline execution when fastcgi_finish_request is unavailable.
+ */
+function eb_send_and_continue(array $body, callable $afterResponse) {
+    echo json_encode($body);
+    if (function_exists('fastcgi_finish_request')) {
+        fastcgi_finish_request();
+        try { $afterResponse(); } catch (\Throwable $e) {}
+    } else {
+        // No FastCGI - try to keep going after flushing
+        @ob_end_flush();
+        @flush();
+        try { $afterResponse(); } catch (\Throwable $e) {}
+    }
+}
+
 try {
     $post = json_decode(file_get_contents('php://input'), true);
     if (!is_array($post)) { echo json_encode(['status' => 'error', 'message' => 'Invalid JSON payload']); exit; }
@@ -34,6 +138,29 @@ try {
     $params = comet_ServiceParams($serviceId);
     $params['username'] = $username;
     $server = comet_Server($params);
+
+    // Endpoints that may take a long time (large vaults / dispatcher round-trips).
+    // Lift the PHP wall-clock and Guzzle HTTP timeouts for these, so the user gets
+    // either a real result or a real Comet error instead of a silent 504.
+    $LONG_ACTIONS = ['vaultSnapshots','browseSnapshot','browseFs','runRestore','vaultSnapshotsAsync','jobStatus','jobRun'];
+    if (in_array($action, $LONG_ACTIONS, true)) {
+        @set_time_limit(0);
+        @ignore_user_abort(true);
+        try {
+            if ($server instanceof \Comet\Server) {
+                $server->setClient(new \GuzzleHttp\Client([
+                    'headers' => [
+                        'User-Agent' => 'comet-php-sdk/1.x',
+                        'Accept-Encoding' => 'gzip',
+                    ],
+                    'allow_redirects' => false,
+                    'decode_content' => true,
+                    'timeout' => 600,
+                    'connect_timeout' => 15,
+                ]));
+            }
+        } catch (\Throwable $e) {}
+    }
 
     // Resolve live dispatcher TargetID (connection GUID) from a DeviceID
     $findTarget = function(\Comet\Server $server, string $username, string $deviceId): ?string {
@@ -255,29 +382,54 @@ try {
         }
         case 'listProtectedItems': {
             $deviceId = (string)($post['deviceId'] ?? '');
-            if ($deviceId === '') { echo json_encode(['status'=>'error','message'=>'deviceId required']); break; }
+            $includeAll = !empty($post['includeAll']);
+            if ($deviceId === '' && !$includeAll) { echo json_encode(['status'=>'error','message'=>'deviceId required']); break; }
             $ph = $server->AdminGetUserProfileAndHash($username);
             if (!$ph || !$ph->Profile) { echo json_encode(['status'=>'error','message'=>'Profile not found']); break; }
             $profile = $ph->Profile;
-            $out = [];
-            // Prefer global Sources filtered by OwnerDevice
-            if (isset($profile->Sources)) {
-                foreach ((array)$profile->Sources as $sid => $src) {
-                    if (is_object($src)) {
-                        $owner = isset($src->OwnerDevice) ? (string)$src->OwnerDevice : '';
-                        if ($owner === $deviceId) {
-                            $name = isset($src->Description) ? $src->Description : (string)$sid;
-                            $out[] = [ 'id' => (string)$sid, 'name' => (string)$name ];
-                        }
+
+            // Build a deviceId -> friendly name map so callers can show
+            // which device each Protected Item belongs to (used by the
+            // restore wizard when restoring across devices).
+            $deviceNames = [];
+            if (isset($profile->Devices)) {
+                foreach ((array)$profile->Devices as $did => $dev) {
+                    if (is_object($dev)) {
+                        $fn = isset($dev->FriendlyName) ? trim((string)$dev->FriendlyName) : '';
+                        $deviceNames[(string)$did] = ($fn !== '') ? $fn : (string)$did;
                     }
                 }
             }
-            // Fallback: device-local Sources if present
-            if (empty($out) && isset($profile->Devices[$deviceId]) && isset($profile->Devices[$deviceId]->Sources)) {
+
+            $out = [];
+            // Prefer global Sources. When includeAll is set, return every
+            // Protected Item in the account (so the restore wizard can offer
+            // items that were backed up from a different/offline device).
+            if (isset($profile->Sources)) {
+                foreach ((array)$profile->Sources as $sid => $src) {
+                    if (!is_object($src)) continue;
+                    $owner = isset($src->OwnerDevice) ? (string)$src->OwnerDevice : '';
+                    if (!$includeAll && $owner !== $deviceId) continue;
+                    $name = isset($src->Description) ? (string)$src->Description : (string)$sid;
+                    $out[] = [
+                        'id' => (string)$sid,
+                        'name' => $name,
+                        'ownerDeviceId' => $owner,
+                        'ownerDeviceName' => isset($deviceNames[$owner]) ? $deviceNames[$owner] : '',
+                    ];
+                }
+            }
+            // Fallback: device-local Sources if present (legacy profiles)
+            if (empty($out) && !$includeAll && isset($profile->Devices[$deviceId]) && isset($profile->Devices[$deviceId]->Sources)) {
                 foreach ((array)$profile->Devices[$deviceId]->Sources as $sourceId => $sourceInfo) {
                     if (is_object($sourceInfo)) {
-                        $name = isset($sourceInfo->Description) ? $sourceInfo->Description : (string)$sourceId;
-                        $out[] = [ 'id' => (string)$sourceId, 'name' => (string)$name ];
+                        $name = isset($sourceInfo->Description) ? (string)$sourceInfo->Description : (string)$sourceId;
+                        $out[] = [
+                            'id' => (string)$sourceId,
+                            'name' => $name,
+                            'ownerDeviceId' => $deviceId,
+                            'ownerDeviceName' => isset($deviceNames[$deviceId]) ? $deviceNames[$deviceId] : '',
+                        ];
                     }
                 }
             }
@@ -307,8 +459,67 @@ try {
             $targetId = $findTarget($server, $username, $deviceId);
             if (!$targetId) { echo json_encode(['status'=>'error','message'=>'Device is not online (no live connection)']); break; }
             $resp = $server->AdminDispatcherRequestVaultSnapshots($targetId, $vaultId);
-            // Response contains Snapshots array; return as-is for the UI to group by SourceGUID
             echo json_encode(['status'=>'success','snapshots' => $resp ? $resp->toArray(true) : []]);
+            break;
+        }
+        case 'vaultSnapshotsAsync': {
+            $deviceId = (string)($post['deviceId'] ?? '');
+            $vaultId  = (string)($post['vaultId'] ?? '');
+            if ($deviceId === '' || $vaultId === '') { echo json_encode(['status'=>'error','message'=>'deviceId and vaultId required']); break; }
+            $targetId = $findTarget($server, $username, $deviceId);
+            if (!$targetId) { echo json_encode(['status'=>'error','message'=>'Device is not online (no live connection)']); break; }
+            $jobId = eb_async_job_create($clientId, $serviceId, $username, 'vaultSnapshots', [
+                'deviceId' => $deviceId,
+                'vaultId' => $vaultId,
+                'targetId' => $targetId,
+            ]);
+            // Capture closures BEFORE we detach so they survive the request.
+            $svc = $serviceId; $u = $username;
+            eb_send_and_continue(
+                ['status' => 'success', 'jobId' => $jobId],
+                function() use ($jobId, $svc, $u, $targetId, $vaultId) {
+                    eb_async_job_run($jobId, function() use ($svc, $u, $targetId, $vaultId) {
+                        $params = comet_ServiceParams($svc);
+                        $params['username'] = $u;
+                        $srv = comet_Server($params);
+                        if ($srv instanceof \Comet\Server) {
+                            $srv->setClient(new \GuzzleHttp\Client([
+                                'headers' => [ 'User-Agent' => 'comet-php-sdk/1.x', 'Accept-Encoding' => 'gzip' ],
+                                'allow_redirects' => false,
+                                'decode_content' => true,
+                                'timeout' => 1800,
+                                'connect_timeout' => 15,
+                            ]));
+                        }
+                        $resp = $srv->AdminDispatcherRequestVaultSnapshots($targetId, $vaultId);
+                        return ['snapshots' => $resp ? $resp->toArray(true) : []];
+                    });
+                }
+            );
+            return; // already responded
+        }
+        case 'jobStatus': {
+            $jobId = (string)($post['jobId'] ?? '');
+            if ($jobId === '') { echo json_encode(['status'=>'error','message'=>'jobId required']); break; }
+            $row = eb_async_job_get($jobId, $clientId);
+            if (!$row) { echo json_encode(['status'=>'error','message'=>'Job not found']); break; }
+            $out = [
+                'status' => 'success',
+                'job' => [
+                    'id' => $row->id,
+                    'state' => $row->status,
+                    'createdAt' => (int)$row->created_at,
+                    'startedAt' => isset($row->started_at) ? (int)$row->started_at : null,
+                    'finishedAt' => isset($row->finished_at) ? (int)$row->finished_at : null,
+                    'elapsed' => time() - (int)$row->created_at,
+                ],
+            ];
+            if ($row->status === 'done' && $row->result_json) {
+                $out['result'] = json_decode($row->result_json, true);
+            } else if ($row->status === 'error') {
+                $out['error'] = (string)$row->error_message;
+            }
+            echo json_encode($out);
             break;
         }
         case 'browseFs': {
@@ -362,15 +573,26 @@ try {
             }
 
             $entries = [];
+            $isRootLevel = ($treeId === '');
             if ($resp && is_array($resp->StoredObjects)) {
                 foreach ($resp->StoredObjects as $obj) {
                     $isDir = false;
                     try {
                         $isDir = (isset($obj->Subtree) && (string)$obj->Subtree !== '');
                     } catch (\Throwable $e) { $isDir = false; }
+                    $rawName = (string)$obj->Name;
+                    $displayName = (string)($obj->DisplayName ?: $obj->Name);
+                    // At the snapshot root, Comet exposes Windows volumes with a
+                    // sanitized name like "C__" (and an empty DisplayName).
+                    // Translate that to the actual on-disk root "C:\" so the
+                    // UI shows real paths and selections sent to the agent
+                    // resolve against the snapshot index correctly.
+                    if ($isRootLevel && preg_match('/^([A-Za-z])__$/', $displayName, $m)) {
+                        $displayName = $m[1] . ':\\';
+                    }
                     $entries[] = [
-                        'name' => (string)($obj->DisplayName ?: $obj->Name),
-                        'rawName' => (string)$obj->Name,
+                        'name' => $displayName,
+                        'rawName' => $rawName,
                         'isDir' => $isDir,
                         'subtree' => (string)($obj->Subtree ?: ''),
                         'type' => (string)($obj->Type ?? ''),
@@ -441,20 +663,50 @@ try {
             $sourceId  = (string)($post['sourceId'] ?? '');
             $vaultId   = (string)($post['vaultId'] ?? '');
             $snapshot  = (string)($post['snapshot'] ?? '');
-            $type      = isset($post['type']) ? (int)$post['type'] : null; // RESTORETYPE_
+            $type      = isset($post['type']) ? (int)$post['type'] : null;
             $destPath  = (string)($post['destPath'] ?? '');
-            $overwrite = (string)($post['overwrite'] ?? 'none'); // none|ifNewer|ifDifferent|always
+            $overwrite = (string)($post['overwrite'] ?? 'none');
             if ($deviceId === '' || $sourceId === '' || $vaultId === '' || $type === null) {
                 echo json_encode(['status'=>'error','message'=>'deviceId, sourceId, vaultId and type are required']); break;
             }
             $targetId = $findTarget($server, $username, $deviceId);
             if (!$targetId) { echo json_encode(['status'=>'error','message'=>'Device is not online (no live connection)']); break; }
 
-            // Build RestoreJobAdvancedOptions
+            // Sanity-check the requested restore type against the protected item's engine.
+            // Sending the wrong RESTORETYPE makes the agent abort with a generic engine error,
+            // so we'd rather return a friendly message here.
+            $engine = '';
+            try {
+                $ph = $server->AdminGetUserProfileAndHash($username);
+                if ($ph && $ph->Profile && isset($ph->Profile->Sources) && isset($ph->Profile->Sources[$sourceId])) {
+                    $engine = (string)($ph->Profile->Sources[$sourceId]->Engine ?? '');
+                }
+            } catch (\Throwable $e) { $engine = ''; }
+            if ($engine !== '') {
+                $eng = strtolower($engine);
+                // RESTORETYPE_ values: 0=FILE, 1=NULL/SIMULATE, 4=WINDISK, 5=FILE_ARCHIVE, 6=PROCESS_PERFILE, 7=PROCESS_ARCHIVE
+                $allowed = [0, 1, 5];
+                if ($eng === 'engine1/windisk') { $allowed = [0, 1, 4, 5]; }
+                if (!in_array($type, $allowed, true)) {
+                    echo json_encode(['status'=>'error','message'=>"Restore type {$type} is not compatible with protected item type ({$engine})."]);
+                    break;
+                }
+            }
+
             $opt = new \Comet\RestoreJobAdvancedOptions();
             $opt->Type = $type;
-            if ($destPath !== '') { $opt->DestPath = $destPath; }
-            // Overwrite mapping
+
+            // Empty destination path means "restore to original location" - the engine
+            // requires this flag to be set, otherwise it aborts with a generic error.
+            $destTrim = trim($destPath);
+            if ($destTrim === '') {
+                $opt->DestIsOriginalLocation = true;
+                $opt->DestPath = '';
+            } else {
+                $opt->DestIsOriginalLocation = false;
+                $opt->DestPath = $destTrim;
+            }
+
             if ($overwrite === 'always') {
                 $opt->OverwriteExistingFiles = true;
                 $opt->OverwriteIfNewer = false;
@@ -467,7 +719,7 @@ try {
                 $opt->OverwriteExistingFiles = true;
                 $opt->OverwriteIfNewer = false;
                 $opt->OverwriteIfDifferentContent = true;
-            } else { // none
+            } else {
                 $opt->OverwriteExistingFiles = false;
                 $opt->OverwriteIfNewer = false;
                 $opt->OverwriteIfDifferentContent = false;
@@ -481,14 +733,65 @@ try {
                     $clean = [];
                     foreach ($incoming as $p) {
                         $p = trim((string)$p);
+                        if ($p === '') continue;
+                        // Comet's snapshot tree exposes Windows volume roots in a
+                        // sanitized form ("C__" instead of "C:\"). The agent's
+                        // restore engine, however, matches against the literal
+                        // on-disk path. Translate the sanitized prefix back so
+                        // selections like "C__\Users\Brian\Desktop" resolve to
+                        // "C:\Users\Brian\Desktop".
+                        if (preg_match('/^([A-Za-z])__(?:$|[\\\\\/])/', $p, $m)) {
+                            $rest = substr($p, 3); // after "X__"
+                            $rest = ltrim($rest, "/\\");
+                            $p = $m[1] . ':\\' . $rest;
+                        }
+                        // Strip a single trailing path separator: Comet expects the folder
+                        // entry without a trailing slash/backslash (it recurses by default).
+                        $last = substr($p, -1);
+                        if ($last === '/' || $last === '\\') {
+                            // ...but keep "C:\" as-is so a drive root remains valid.
+                            if (!preg_match('/^[A-Za-z]:[\\/]$/', $p) && $p !== '/') {
+                                $p = rtrim($p, "/\\");
+                            }
+                        }
                         if ($p !== '') { $clean[] = $p; }
                     }
                     if (!empty($clean)) { $paths = array_values(array_unique($clean)); }
                 }
             }
 
-            $resp = $server->AdminDispatcherRunRestoreCustom($targetId, $sourceId, $vaultId, $opt, ($snapshot !== '' ? $snapshot : null), $paths, null, null, null);
-            echo json_encode(['status'=> ($resp->Status < 400 ? 'success' : 'error'), 'message'=>$resp->Message, 'code'=>$resp->Status]);
+            // Capture full request payload + Comet response so we can diagnose
+            // future agent-side aborts ("backup engine encountered a problem").
+            $logRequest = [
+                'targetId' => $targetId,
+                'sourceId' => $sourceId,
+                'vaultId'  => $vaultId,
+                'snapshot' => $snapshot,
+                'engine'   => $engine,
+                'paths'    => $paths,
+                'options'  => $opt->toArray(true),
+            ];
+            try {
+                $resp = $server->AdminDispatcherRunRestoreCustom(
+                    $targetId, $sourceId, $vaultId, $opt,
+                    ($snapshot !== '' ? $snapshot : null),
+                    $paths, null, null, null
+                );
+                $logResponse = ['status' => $resp->Status, 'message' => $resp->Message];
+                if (function_exists('logModuleCall')) {
+                    @logModuleCall('eazybackup', 'runRestore', $logRequest, $logResponse);
+                }
+                echo json_encode([
+                    'status'  => ($resp->Status < 400 ? 'success' : 'error'),
+                    'message' => $resp->Message,
+                    'code'    => $resp->Status,
+                ]);
+            } catch (\Throwable $e) {
+                if (function_exists('logModuleCall')) {
+                    @logModuleCall('eazybackup', 'runRestore', $logRequest, [ 'exception' => $e->getMessage() ]);
+                }
+                echo json_encode(['status'=>'error','message'=>$e->getMessage()]);
+            }
             break;
         }
         case 'runBackup': {

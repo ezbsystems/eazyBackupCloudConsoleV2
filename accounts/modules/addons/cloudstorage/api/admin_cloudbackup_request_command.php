@@ -28,7 +28,7 @@ if ($payloadRaw) {
     }
 }
 
-if (!in_array($type, ['maintenance_quick', 'maintenance_full', 'reset_agent', 'refresh_inventory'], true)) {
+if (!in_array($type, ['maintenance_quick', 'maintenance_full', 'reset_agent', 'refresh_inventory', 'enable_verbose_admin_logging'], true)) {
     (new JsonResponse(['status' => 'fail', 'message' => 'Invalid command type'], 200))->send();
     exit;
 }

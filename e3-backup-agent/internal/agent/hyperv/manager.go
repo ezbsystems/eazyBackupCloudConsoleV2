@@ -373,7 +373,20 @@ func (m *Manager) CreateLinuxConsistentCheckpoint(ctx context.Context, vmName st
 	return m.CreateVSSCheckpoint(ctx, vmName)
 }
 
-// MergeCheckpoint removes a checkpoint, merging it with its parent.
+// MergeCheckpoint removes a checkpoint, merging it with its parent. The
+// merge is committed synchronously: Remove-VMSnapshot returns as soon as
+// Hyper-V queues the AVHDX merge, but the AVHDX file lingers on disk and
+// the VM keeps redirecting writes through it until the merge actually
+// finishes. Any subsequent Msvm_VirtualSystemReferencePointService::
+// CreateReferencePoint issued while AVHDX files are still attached fails
+// on every Hyper-V version (ErrorCode 32775 "Element Not Available"), and
+// Server 2025 surfaces the failure as JobState=10 with no usable error
+// detail. To stay compatible from Server 2012R2 through Server 2025 we
+// poll until: the snapshot record is gone, the VM's Status no longer
+// reports a Merging/Backing Up operation, and no attached VHD path ends
+// in .avhdx. Hosts older than 2016 still satisfy these conditions
+// (Status is just "Operating normally" and there are no AVHDX files), so
+// the wait is essentially zero-cost there.
 func (m *Manager) MergeCheckpoint(ctx context.Context, vmName, checkpointID string) error {
 	script := fmt.Sprintf(`
 $ErrorActionPreference = 'Stop'
@@ -382,7 +395,45 @@ $cp = Get-VMSnapshot -VM $vm | Where-Object { $_.Id.ToString() -eq '%s' }
 if ($cp) {
     Remove-VMSnapshot -VMSnapshot $cp -ErrorAction Stop
 }
-`, escapePSString(vmName), checkpointID)
+
+$deadline = (Get-Date).AddMinutes(60)
+while ((Get-Date) -lt $deadline) {
+    try {
+        $vmNow = Get-VM -Name '%s' -ErrorAction Stop
+    } catch {
+        Start-Sleep -Seconds 1
+        continue
+    }
+
+    $stillSnapshot = $false
+    try {
+        $stillSnapshot = [bool](Get-VMSnapshot -VM $vmNow -ErrorAction SilentlyContinue | Where-Object { $_.Id.ToString() -eq '%s' })
+    } catch {}
+
+    $statusBusy = $false
+    foreach ($s in @($vmNow.Status)) {
+        if ($null -ne $s -and ($s -match 'Merging' -or $s -match 'Backing\s*Up' -or $s -match 'In\s*Progress' -or $s -match 'Saving')) {
+            $statusBusy = $true
+            break
+        }
+    }
+
+    $hasAvhdx = $false
+    try {
+        foreach ($d in (Get-VMHardDiskDrive -VM $vmNow)) {
+            if ($d.Path -match '\.avhdx?$') { $hasAvhdx = $true; break }
+        }
+    } catch {}
+
+    if (-not $stillSnapshot -and -not $statusBusy -and -not $hasAvhdx) {
+        exit 0
+    }
+
+    Start-Sleep -Seconds 1
+}
+
+throw "Timed out waiting for checkpoint merge to complete on '%s'"
+`, escapePSString(vmName), checkpointID, escapePSString(vmName), checkpointID, escapePSString(vmName))
 
 	_, err := m.runPS(ctx, script)
 	if err != nil {

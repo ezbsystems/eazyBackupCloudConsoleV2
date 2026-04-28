@@ -532,29 +532,57 @@ func (r *Runner) backupHyperVVM(
 		return result, fmt.Errorf("VM in unsupported state: %s", vm.State)
 	}
 
-	// Determine backup type
+	// Determine backup type. We rely on Microsoft's RCT WMI surface here:
+	// Msvm_VirtualSystemReferencePointService keeps the per-disk RCT
+	// generation alive across backups, and Msvm_ImageManagementService::
+	// GetVirtualDiskChanges (issued from internal/agent/hyperv/rct_wmi.go)
+	// reports the changed byte ranges for each disk relative to the prior
+	// reference point.
+	//
+	// On hosts without the reference-point service (Windows Server 2012R2
+	// and older) we always do a Full backup; that is also the documented
+	// upper bound of where RCT exists at all on the Hyper-V platform.
 	backupType := hyperv.BackupTypeFull
 	var rctInfos []hyperv.RCTInfo
+	hostHasRefPoints := hyperv.HostHasReferencePointService(ctx)
 
-	if vmRun.LastCheckpointID != "" && run.HyperVConfig.EnableRCT && len(vmRun.LastRCTIDs) > 0 {
-		// Try to validate RCT chain for incremental backup
-		valid, err := rct.ValidateRCTChain(ctx, vmRun.VMName, vmRun.LastRCTIDs)
-		if err != nil {
-			log.Printf("agent: hyperv RCT validation error for %s, falling back to full: %v", vmRun.VMName, err)
-		} else if valid {
-			// Get changed blocks
-			rctInfos, err = rct.GetChangedBlocks(ctx, vmRun.VMName, vmRun.LastCheckpointID)
+	if !hostHasRefPoints {
+		log.Printf("agent: hyperv host lacks Msvm_VirtualSystemReferencePointService for %s; performing full backup (RCT unavailable on this Windows version)", vmRun.VMName)
+	} else if vmRun.LastCheckpointID != "" && run.HyperVConfig.EnableRCT && len(vmRun.LastRCTIDs) > 0 {
+		// Confirm the previous reference point is still resident on the host.
+		// If Hyper-V evicted it (live migration, host reboot edge cases,
+		// administrator cleanup) the RCT chain is broken and we MUST fall
+		// back to Full. Cheaper than a per-disk WMI round-trip just to
+		// discover the same thing.
+		priorAlive := false
+		if rps, err := mgr.ListReferencePoints(ctx, vmRun.VMName); err != nil {
+			log.Printf("agent: hyperv list reference points failed for %s, performing full: %v", vmRun.VMName, err)
+		} else {
+			for _, rp := range rps {
+				if rp.InstanceID == vmRun.LastCheckpointID {
+					priorAlive = true
+					break
+				}
+			}
+		}
+		if !priorAlive {
+			log.Printf("agent: hyperv prior reference point %s for %s is no longer resident on host; performing full", vmRun.LastCheckpointID, vmRun.VMName)
+		} else {
+			rctInfos, err = rct.GetChangedBlocks(ctx, vmRun.VMName, vmRun.LastRCTIDs)
 			if err != nil {
-				log.Printf("agent: hyperv get changed blocks failed for %s, falling back to full: %v", vmRun.VMName, err)
+				log.Printf("agent: hyperv GetVirtualDiskChanges failed for %s, performing full: %v", vmRun.VMName, err)
 			} else if hyperv.AreAllDisksRCTValid(rctInfos) {
 				backupType = hyperv.BackupTypeIncremental
 				result.ChangedBytes = hyperv.CalculateTotalChangedBytes(rctInfos)
 				log.Printf("agent: hyperv incremental backup for %s, changed bytes: %d", vmRun.VMName, result.ChangedBytes)
 			} else {
-				log.Printf("agent: hyperv RCT data invalid for some disks of %s, falling back to full", vmRun.VMName)
+				for _, info := range rctInfos {
+					if !info.Valid {
+						log.Printf("agent: hyperv RCT data invalid for disk %s of %s: %s", info.DiskPath, vmRun.VMName, info.Error)
+					}
+				}
+				log.Printf("agent: hyperv RCT data invalid for some disks of %s, performing full", vmRun.VMName)
 			}
-		} else {
-			log.Printf("agent: hyperv RCT chain broken for %s, performing full backup", vmRun.VMName)
 		}
 	}
 	result.BackupType = string(backupType)
@@ -715,8 +743,83 @@ func (r *Runner) backupHyperVVM(
 		log.Printf("agent: hyperv disk %s backed up, manifest=%s", disk.Path, manifestID)
 	}
 
-	// Get current RCT IDs for next incremental
-	if run.HyperVConfig.EnableRCT {
+	priorRefPointID := vmRun.LastCheckpointID
+	// Clear the production-checkpoint ID we recorded earlier; the only thing
+	// that survives this backup is the RCT reference point we are about to
+	// (try to) pin. If we cannot pin one we leave CheckpointID empty so the
+	// server records null and the next run runs as Full.
+	result.CheckpointID = ""
+
+	// Merge the production checkpoint BEFORE creating the new reference
+	// point. Hyper-V's Msvm_VirtualSystemReferencePointService refuses to
+	// create a reference point while the VM has an active production
+	// checkpoint with redirected writes (it returns ErrorCode 32775,
+	// "Element Not Available"). After the merge the live VHDX contains
+	// the backed-up state plus whatever guest writes happened during the
+	// backup window; the RCT generation we anchor here therefore covers
+	// "everything we just wrote to Kopia". The next incremental backup
+	// uses GetVirtualDiskChanges with this RCT ID, picking up only
+	// whatever changes occur from now on.
+	if checkpoint != nil {
+		if err := mgr.MergeCheckpoint(ctx, vmRun.VMName, checkpoint.ID); err != nil {
+			log.Printf("agent: hyperv warning: failed to merge checkpoint for %s: %v", vmRun.VMName, err)
+		}
+	}
+
+	if hostHasRefPoints && run.HyperVConfig.EnableRCT && checkpoint != nil {
+		// Try the application-consistent path first; this is what
+		// Microsoft's RCT samples use and it carries any guest VSS state
+		// captured during the just-merged production checkpoint into the
+		// reference-point marker. If the guest can't quiesce (Linux
+		// without a working hv_vss_daemon, Windows guests where the VSS
+		// writer rejects the freeze, or Server 2025 hosts where the
+		// Application path is occasionally rejected with state=10/no
+		// detail), retry once with the crash-consistent ConsistencyLevel.
+		// Either yields a usable RCT generation for GetVirtualDiskChanges,
+		// so we can still pin the chain instead of forcing the next run
+		// back to Full.
+		newRP, rpErr := mgr.CreateReferencePointWithConsistency(ctx, vmRun.VMName, hyperv.RefPointApplication)
+		if rpErr != nil {
+			log.Printf("agent: hyperv CreateReferencePoint(application) failed for %s, retrying crash-consistent: %v", vmRun.VMName, rpErr)
+			var rpErr2 error
+			newRP, rpErr2 = mgr.CreateReferencePointWithConsistency(ctx, vmRun.VMName, hyperv.RefPointCrash)
+			if rpErr2 != nil {
+				log.Printf("agent: hyperv CreateReferencePoint(crash) also failed for %s; next run will be Full: %v", vmRun.VMName, rpErr2)
+				rpErr = rpErr2
+			} else {
+				rpErr = nil
+				log.Printf("agent: hyperv reference point pinned crash-consistent for %s: %s", vmRun.VMName, newRP.InstanceID)
+			}
+		}
+		if rpErr != nil {
+			// keep the existing log above as the final failure marker
+		} else {
+			result.CheckpointID = newRP.InstanceID
+			// The reference point's per-disk RCT IDs are what
+			// GetVirtualDiskChanges will demand as LimitId next time round;
+			// these always supersede whatever Get-VHD reports against the
+			// live VHDX (which may have advanced again since we read it).
+			if rpRCTIDs, err := mgr.ReferencePointDiskRCTIDs(ctx, newRP.InstanceID); err == nil {
+				for diskPath, id := range rpRCTIDs {
+					result.RCTIDs[diskPath] = id
+				}
+			} else {
+				log.Printf("agent: hyperv ReferencePointDiskRCTIDs(%s) failed for %s: %v", newRP.InstanceID, vmRun.VMName, err)
+			}
+			// Best-effort cleanup of the prior reference point. A leftover
+			// reference point is harmless (Hyper-V keeps a tiny RCT marker,
+			// no AVHDX), but accumulating them indefinitely is wasteful.
+			if priorRefPointID != "" && priorRefPointID != newRP.InstanceID {
+				if err := mgr.DestroyReferencePoint(ctx, priorRefPointID); err != nil {
+					log.Printf("agent: hyperv DestroyReferencePoint(%s) for %s failed: %v", priorRefPointID, vmRun.VMName, err)
+				}
+			}
+		}
+	}
+
+	// As a backstop, fill in any per-disk RCT IDs we did not capture from the
+	// reference point (e.g. crash-consistent fallback path with no checkpoint).
+	if run.HyperVConfig.EnableRCT && len(result.RCTIDs) == 0 {
 		currentRCTIDs, err := rct.GetCurrentRCTIDs(ctx, vmRun.VMName)
 		if err == nil {
 			for diskPath, rctID := range currentRCTIDs {
@@ -724,14 +827,6 @@ func (r *Runner) backupHyperVVM(
 					result.RCTIDs[diskPath] = rctID
 				}
 			}
-		}
-	}
-
-	// Merge/remove checkpoint (only if we created one)
-	if checkpoint != nil {
-		if err := mgr.MergeCheckpoint(ctx, vmRun.VMName, checkpoint.ID); err != nil {
-			log.Printf("agent: hyperv warning: failed to merge checkpoint for %s: %v", vmRun.VMName, err)
-			// Don't fail the backup for this
 		}
 	}
 

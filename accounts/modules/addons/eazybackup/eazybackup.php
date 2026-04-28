@@ -298,6 +298,36 @@ function eazybackup_activate()
             try { logActivity('eazybackup_activate: mod_rd_discountConfigOptions ensure failed: ' . $e->getMessage()); } catch (\Throwable $__) {}
         }
 
+        // Ensure the eb_job_id support ticket custom field exists (for the
+        // Job Modal -> Open Ticket handoff feature). Admin-only text field
+        // attached to deptid=1 (Technical Support).
+        try {
+            $exists = Capsule::table('tblcustomfields')
+                ->where('type', 'support')
+                ->where('fieldname', 'eb_job_id')
+                ->exists();
+            if (!$exists) {
+                Capsule::table('tblcustomfields')->insert([
+                    'type'        => 'support',
+                    'relid'       => 1,
+                    'fieldname'   => 'eb_job_id',
+                    'fieldtype'   => 'text',
+                    'description' => 'Backup Job ID (auto-populated by eazyBackup)',
+                    'fieldoptions'=> '',
+                    'regexpr'     => '',
+                    'adminonly'   => 'on',
+                    'required'    => '',
+                    'showorder'   => '',
+                    'showinvoice' => '',
+                    'sortorder'   => 0,
+                    'created_at'  => date('Y-m-d H:i:s'),
+                    'updated_at'  => date('Y-m-d H:i:s'),
+                ]);
+            }
+        } catch (\Throwable $e) {
+            try { logActivity('eazybackup_activate: eb_job_id custom field ensure failed: ' . $e->getMessage()); } catch (\Throwable $__) {}
+        }
+
         // Keep your original create logic for brand-new installs…
         eazybackup_migrate_schema(); // …and make sure existing installs get patched too.
         // Attempt to restore saved addon settings (if any) so config survives deactivate/activate cycles
@@ -2315,6 +2345,45 @@ function eazybackup_migrate_schema(): void {
             });
         }
     } catch (\Throwable $e) { /* ignore */ }
+
+    // --- eb_notifications (admin-managed client area announcements) ---
+    try {
+        if (!$schema->hasTable('eb_notifications')) {
+            $schema->create('eb_notifications', function (Blueprint $t) {
+                $t->increments('id');
+                $t->string('title', 191);
+                $t->text('body');
+                $t->enum('status', ['draft','published'])->default('draft');
+                $t->enum('audience_type', ['all','filtered'])->default('all');
+                $t->unsignedInteger('created_by')->nullable();
+                $t->timestamp('created_at')->nullable();
+                $t->timestamp('updated_at')->nullable();
+                $t->timestamp('published_at')->nullable();
+                $t->index(['status','published_at'], 'idx_status_published');
+            });
+        }
+    } catch (\Throwable $e) { /* ignore */ }
+
+    // --- eb_notification_targets (filtered audience rows) ---
+    try {
+        if (!$schema->hasTable('eb_notification_targets')) {
+            $schema->create('eb_notification_targets', function (Blueprint $t) {
+                $t->increments('id');
+                $t->unsignedInteger('notification_id');
+                $t->enum('target_type', ['product','client_group','client']);
+                $t->unsignedInteger('target_id');
+                $t->unique(['notification_id','target_type','target_id'], 'uniq_notif_target');
+                $t->index(['target_type','target_id'], 'idx_target_lookup');
+                $t->index('notification_id', 'idx_target_notif');
+            });
+        }
+    } catch (\Throwable $e) { /* ignore */ }
+
+    // Helpful index on dismissals for the active-notifications JOIN
+    try {
+        eb_add_index_if_missing('mod_eazybackup_dismissals',
+            "CREATE INDEX IF NOT EXISTS idx_dismiss_key ON mod_eazybackup_dismissals (announcement_key)");
+    } catch (\Throwable $e) { /* ignore */ }
 }
 
 // ULID generator for public tenant IDs (Crockford Base32, 26 chars)
@@ -3376,6 +3445,94 @@ function eazybackup_partnerhub_block_hidden_page(array $vars, string $pageKey, s
 
     header('Location: ' . eazybackup_partnerhub_hidden_redirect_url($vars));
     exit;
+}
+
+/**
+ * Return all published notifications visible to the given client/user that
+ * have not yet been dismissed. Used by the ClientAreaPage hook to render a
+ * single consolidated dismissable modal.
+ *
+ * @return array<int,array{id:int,title:string,body_html:string,published_at:?string}>
+ */
+function eb_get_active_notifications_for_client(int $clientId, ?int $userId = null): array
+{
+    if ($clientId <= 0 && (!$userId || $userId <= 0)) {
+        return [];
+    }
+    try {
+        $client = $clientId > 0 ? \WHMCS\Database\Capsule::table('tblclients')->where('id', $clientId)->first(['id','groupid']) : null;
+        $groupId = $client ? (int)($client->groupid ?? 0) : 0;
+
+        // Pull all published notifications and filter in PHP so we can apply
+        // OR-style audience matching across product / client_group / client.
+        $notifs = \WHMCS\Database\Capsule::table('eb_notifications')
+            ->where('status', 'published')
+            ->orderBy('published_at', 'desc')
+            ->get();
+        if (count($notifs) === 0) return [];
+
+        $allIds = array_map(fn($n) => (int)$n->id, iterator_to_array($notifs));
+
+        // Already-dismissed ids for this client OR user
+        $dismissedKeys = \WHMCS\Database\Capsule::table('mod_eazybackup_dismissals')
+            ->whereIn('announcement_key', array_map(fn($i) => 'notif:' . $i, $allIds))
+            ->where(function ($q) use ($clientId, $userId) {
+                if ($clientId > 0) $q->orWhere('client_id', $clientId);
+                if ($userId && $userId > 0) $q->orWhere('user_id', $userId);
+            })
+            ->pluck('announcement_key')->all();
+        $dismissed = [];
+        foreach ($dismissedKeys as $k) { $dismissed[(int)substr((string)$k, 6)] = true; }
+
+        // Active product ids for this client (Active or Suspended)
+        $activeProductIds = [];
+        if ($clientId > 0) {
+            $activeProductIds = \WHMCS\Database\Capsule::table('tblhosting')
+                ->where('userid', $clientId)
+                ->whereIn('domainstatus', ['Active','Suspended'])
+                ->pluck('packageid')->map('intval')->unique()->all();
+        }
+
+        // Filtered targeting rows
+        $filteredIds = [];
+        foreach ($notifs as $n) {
+            if ($n->audience_type === 'filtered') $filteredIds[] = (int)$n->id;
+        }
+        $targetsByNotif = [];
+        if (!empty($filteredIds)) {
+            $tRows = \WHMCS\Database\Capsule::table('eb_notification_targets')
+                ->whereIn('notification_id', $filteredIds)->get();
+            foreach ($tRows as $t) {
+                $targetsByNotif[(int)$t->notification_id][] = ['type' => (string)$t->target_type, 'id' => (int)$t->target_id];
+            }
+        }
+
+        $out = [];
+        foreach ($notifs as $n) {
+            $nid = (int)$n->id;
+            if (isset($dismissed[$nid])) continue;
+            if ($n->audience_type === 'all') {
+                $match = true;
+            } else {
+                $match = false;
+                foreach (($targetsByNotif[$nid] ?? []) as $t) {
+                    if ($t['type'] === 'client' && $clientId > 0 && $t['id'] === $clientId) { $match = true; break; }
+                    if ($t['type'] === 'client_group' && $groupId > 0 && $t['id'] === $groupId) { $match = true; break; }
+                    if ($t['type'] === 'product' && in_array($t['id'], $activeProductIds, true)) { $match = true; break; }
+                }
+            }
+            if (!$match) continue;
+            $out[] = [
+                'id' => $nid,
+                'title' => (string)$n->title,
+                'body_html' => nl2br(htmlspecialchars((string)$n->body, ENT_QUOTES, 'UTF-8')),
+                'published_at' => $n->published_at ? (string)$n->published_at : null,
+            ];
+        }
+        return $out;
+    } catch (\Throwable $e) {
+        return [];
+    }
 }
 
 function eazybackup_clientarea(array $vars)
@@ -5855,6 +6012,7 @@ function eazybackup_output($vars)
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=terms">Terms</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=privacy">Privacy</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=whitelabel">White-Label</a></li>'
+                      . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=notifications">Notifications</a></li>'
                       . '</ul>';
 
                 // Test notification UI
@@ -6029,6 +6187,7 @@ function eazybackup_output($vars)
                    . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=terms">Terms</a></li>'
                    . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=privacy">Privacy</a></li>'
                    . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=whitelabel">White-Label</a></li>'
+                   . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=notifications">Notifications</a></li>'
                    . '<li class="nav-item"><a class="nav-link active" href="#">Partner Hub</a></li>'
                    . '</ul>';
                 echo ($data['notice'] ?? '');
@@ -6085,6 +6244,7 @@ function eazybackup_output($vars)
                    . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=terms">Terms</a></li>'
                    . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=privacy">Privacy</a></li>'
                    . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=whitelabel">White-Label</a></li>'
+                   . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=notifications">Notifications</a></li>'
                    . '</ul>';
 
                 echo ($data['notice'] ?? '');
@@ -6221,6 +6381,7 @@ function eazybackup_output($vars)
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=terms">Terms</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=privacy">Privacy</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=whitelabel">White-Label</a></li>'
+                      . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=notifications">Notifications</a></li>'
                       . '</ul>';
 
                 $html .= '<form method="get" class="mb-3 form-inline" style="margin-bottom:15px">'
@@ -6394,6 +6555,7 @@ function eazybackup_output($vars)
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=terms">Terms</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=privacy">Privacy</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=whitelabel">White-Label</a></li>'
+                      . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=notifications">Notifications</a></li>'
                       . '</ul>';
 
                 $html .= '<form method="get" class="mb-3 form-inline" style="margin-bottom:15px">'
@@ -6503,6 +6665,7 @@ function eazybackup_output($vars)
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=terms">Terms</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=privacy">Privacy</a></li>'
                       . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=whitelabel">White-Label</a></li>'
+                      . '<li class="nav-item"><a class="nav-link" href="addonmodules.php?module=eazybackup&action=powerpanel&view=notifications">Notifications</a></li>'
                       . '</ul>';
 
                 $html .= '<form method="get" class="mb-3 form-inline" style="margin-bottom:15px">'
@@ -6737,6 +6900,10 @@ function eazybackup_output($vars)
                 echo $html;
                 return;
             }
+            case 'notifications': {
+                require __DIR__ . '/pages/admin/notifications.php';
+                return;
+            }
             default:
                 // Admin white-label tenants view
                 if ($view === 'whitelabel') {
@@ -6788,6 +6955,7 @@ function eazybackup_sidebar($vars)
         . '<a href="' . $base . '&action=powerpanel&view=billing" class="list-group-item"><i class="fa fa-balance-scale"></i> Power Panel: Billing</a>'
         . '<a href="' . $base . '&action=powerpanel&view=terms" class="list-group-item"><i class="fa fa-file-text-o"></i> Power Panel: Terms</a>'
         . '<a href="' . $base . '&action=powerpanel&view=privacy" class="list-group-item"><i class="fa fa-user-secret"></i> Power Panel: Privacy</a>'
+        . '<a href="' . $base . '&action=powerpanel&view=notifications" class="list-group-item"><i class="fa fa-bullhorn"></i> Power Panel: Notifications</a>'
         . '</div>';
     return $sidebar;
 }

@@ -193,22 +193,8 @@ class S3Billing {
         $baseFee = (float)$baseFee;
         $overageRatePerGiB = (float)$overageRatePerGiB;
 
-        // Convert bucket size from bytes to TiB and GiB (binary units)
         $bucketSizeTiB = $totalBucketSize / (1024 * 1024 * 1024 * 1024);
-        $bucketSizeGiB = $totalBucketSize / (1024 * 1024 * 1024);
-
-        if ($bucketSizeTiB <= 1) {
-            // First 1 TiB is always covered by the flat base fee
-            $amount = $baseFee;
-        } else {
-            // Charge configured overage rate per GiB beyond the first 1 TiB
-            $excessGiB = $bucketSizeGiB - 1024;
-            $additionalCharge = $excessGiB * $overageRatePerGiB;
-            $amount = $baseFee + $additionalCharge;
-        }
-
-        // Round up to the nearest cent
-        $amount = ceil($amount * 100) / 100;
+        $amount = $this->computeAmountForBytes($totalBucketSize, $baseFee, $overageRatePerGiB);
         $result['new_amount'] = $amount;
 
         logModuleCall(self::$module, __FUNCTION__, [
@@ -237,6 +223,21 @@ class S3Billing {
             $rangeStart = $displayPeriod['start'] ?? date('Y-m-d', strtotime('-1 month'));
             $rangeEnd = $displayPeriod['end_for_queries'] ?? date('Y-m-d'); // today
 
+            // Capture the in-window MAX before the self-healing recompute, for audit visibility.
+            $priorMax = DBController::getHighestAmount($userId, $rangeStart, $rangeEnd);
+
+            // Self-healing recompute: rebuild amount from each in-cycle row's usage_bytes using
+            // the current base fee + overage rate so a rate change in addon settings takes effect
+            // on the very next cron run. Historical (pre-migration) rows with usage_bytes = 0
+            // and rows outside the window are never touched.
+            $recompute = $this->recomputeInWindowPrices(
+                (int)$userId,
+                $rangeStart,
+                $rangeEnd,
+                $baseFee,
+                $overageRatePerGiB
+            );
+
             $highestAmount = DBController::getHighestAmount($userId, $rangeStart, $rangeEnd);
             if (empty($highestAmount)) {
                 $highestAmount = $amount;
@@ -244,6 +245,22 @@ class S3Billing {
 
             Capsule::table('tblhosting')->where('id', $product->id)->update(['amount' => $highestAmount]);
             $result['update_status'] = true;
+
+            logModuleCall(self::$module, 'updateProductPrice_recompute', [
+                'user_id' => $userId,
+                'service_id' => $product->id ?? null,
+                'package_id' => $product->packageid ?? null,
+                'window_start' => $rangeStart,
+                'window_end' => $rangeEnd,
+                'base_fee_cad' => $baseFee,
+                'overage_rate_per_gib_cad' => $overageRatePerGiB,
+            ], [
+                'prior_max' => $priorMax,
+                'rows_updated' => $recompute['updated'] ?? 0,
+                'recompute_skipped_reason' => $recompute['skipped_reason'] ?? null,
+                'post_recompute_max' => $highestAmount,
+                'final_amount_written' => $highestAmount,
+            ]);
         } catch (\Exception $e) {
             logModuleCall(self::$module, __FUNCTION__, [
                 $product,
@@ -253,6 +270,106 @@ class S3Billing {
         }
 
         return $result;
+    }
+
+    /**
+     * Compute the billable monthly amount (CAD) for a given usage in bytes,
+     * using the configured base fee and per-GiB overage rate.
+     *
+     * Pricing model:
+     *   - <= 1 TiB: flat $baseFee (covers the first 1 TiB)
+     *   - > 1 TiB:  $baseFee + (excess GiB * $overageRatePerGiB)
+     *
+     * Result is rounded UP to the next cent to match prior behavior. The math
+     * here is intentionally mirrored in recomputeInWindowPrices()'s SQL so the
+     * single-row PHP path and the bulk SQL path produce identical cents.
+     *
+     * @param int|float $bytes
+     * @param float $baseFee
+     * @param float $overageRatePerGiB
+     * @return float
+     */
+    private function computeAmountForBytes($bytes, $baseFee, $overageRatePerGiB)
+    {
+        $bytes = (int)$bytes;
+        $tib = $bytes / (1024 * 1024 * 1024 * 1024);
+        $gib = $bytes / (1024 * 1024 * 1024);
+
+        if ($tib <= 1) {
+            $amount = (float)$baseFee;
+        } else {
+            $amount = (float)$baseFee + ($gib - 1024) * (float)$overageRatePerGiB;
+        }
+
+        return ceil($amount * 100) / 100;
+    }
+
+    /**
+     * Recompute s3_prices.amount for one user's in-cycle snapshots from each
+     * row's stored usage_bytes using the live base fee + overage rate.
+     *
+     * Atomic single-statement UPDATE. Restricted to:
+     *   - the given user_id,
+     *   - rows where usage_bytes > 0 (excludes pre-migration / default rows),
+     *   - rows whose created_at falls within the rolling display window.
+     *
+     * The CASE expression mirrors computeAmountForBytes() exactly:
+     *   - usage_bytes <= 1 TiB (1024^4 = 1099511627776) -> flat base fee
+     *   - otherwise           -> base + (gib - 1024) * rate
+     * CEIL(... * 100) / 100 mirrors PHP's ceil($amount * 100) / 100.
+     *
+     * @param int $userId
+     * @param string $rangeStart  Y-m-d
+     * @param string $rangeEnd    Y-m-d
+     * @param float $baseFee
+     * @param float $overageRatePerGiB
+     * @return array{updated:int, skipped_reason?:string}
+     */
+    private function recomputeInWindowPrices($userId, $rangeStart, $rangeEnd, $baseFee, $overageRatePerGiB)
+    {
+        try {
+            if (!Capsule::schema()->hasColumn('s3_prices', 'usage_bytes')) {
+                return ['updated' => 0, 'skipped_reason' => 'usage_bytes_missing'];
+            }
+        } catch (\Throwable $e) {
+            return ['updated' => 0, 'skipped_reason' => 'schema_check_failed'];
+        }
+
+        $sql = "
+            UPDATE s3_prices
+            SET amount = CEIL(
+                CASE
+                    WHEN usage_bytes <= 1099511627776
+                        THEN ?
+                    ELSE ? + ((usage_bytes / 1073741824.0) - 1024) * ?
+                END * 100
+            ) / 100
+            WHERE user_id = ?
+              AND usage_bytes > 0
+              AND created_at >= ?
+              AND created_at <= ?
+        ";
+
+        try {
+            $updated = Capsule::connection()->affectingStatement($sql, [
+                (float)$baseFee,
+                (float)$baseFee,
+                (float)$overageRatePerGiB,
+                (int)$userId,
+                $rangeStart . ' 00:00:00',
+                $rangeEnd   . ' 23:59:59',
+            ]);
+            return ['updated' => (int)$updated];
+        } catch (\Throwable $e) {
+            logModuleCall(self::$module, 'recomputeInWindowPrices_fail', [
+                'user_id' => $userId,
+                'window_start' => $rangeStart,
+                'window_end' => $rangeEnd,
+                'base_fee_cad' => $baseFee,
+                'overage_rate_per_gib_cad' => $overageRatePerGiB,
+            ], $e->getMessage());
+            return ['updated' => 0, 'skipped_reason' => 'sql_error'];
+        }
     }
 
     /**

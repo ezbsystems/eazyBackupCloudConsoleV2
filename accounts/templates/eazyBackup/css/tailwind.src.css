@@ -802,11 +802,31 @@
     display: flex;
     flex-direction: column;
     align-items: stretch;
-    gap: 6px;
-    margin-top: 8px;
-    margin-bottom: 4px;
-    width: 100%;
-    padding-top: 2px;
+    gap: 2px;
+    margin: 4px 10px 8px 18px;
+    width: auto;
+    padding: 4px 0 4px 6px;
+    border-left: 2px solid var(--eb-primary);
+    background: color-mix(in srgb, var(--eb-bg-hover) 55%, transparent);
+    border-radius: 0 var(--eb-radius-md) var(--eb-radius-md) 0;
+  }
+
+  .eb-sidebar-subnav--collapsed .eb-sidebar-sublink {
+    padding: 5px 4px;
+    justify-content: center;
+    border-radius: var(--eb-radius-sm);
+  }
+
+  .eb-sidebar-subnav--collapsed .eb-sidebar-sublink svg {
+    width: 13px;
+    height: 13px;
+    opacity: 0.75;
+    transition: opacity 0.14s ease;
+  }
+
+  .eb-sidebar-subnav--collapsed .eb-sidebar-sublink:hover svg,
+  .eb-sidebar-subnav--collapsed .eb-sidebar-sublink.is-active svg {
+    opacity: 1;
   }
 
   .eb-sidebar-sublink {
@@ -1875,6 +1895,26 @@
     align-items: center;
     justify-content: center;
     background: var(--eb-backdrop-modal);
+  }
+
+  .eb-loading-overlay.is-contained {
+    position: absolute;
+    z-index: 20;
+    background: transparent;
+    border-radius: inherit;
+  }
+
+  .eb-loading-overlay.is-contained .eb-loading-card {
+    padding: 12px 16px;
+    gap: 10px;
+    background: var(--eb-bg-raised);
+    border: 1px solid var(--eb-border-default);
+    box-shadow: var(--eb-shadow-md);
+  }
+
+  .eb-loading-overlay.is-contained .eb-loading-spinner {
+    width: 28px;
+    height: 28px;
   }
 
   .eb-loading-card {
@@ -3861,6 +3901,18 @@
     color: var(--eb-text-muted);
   }
 
+  .eb-text-danger {
+    color: var(--eb-status-danger-text, #f87171);
+  }
+
+  .eb-text-success {
+    color: var(--eb-status-success-text, #34d399);
+  }
+
+  .eb-text-warning {
+    color: var(--eb-status-warning-text, #fbbf24);
+  }
+
   .eb-status-dot {
     width: 8px;
     height: 8px;
@@ -4432,6 +4484,16 @@
 
   .eb-modal--confirm {
     max-width: var(--eb-modal-width-confirm);
+  }
+
+  .eb-modal-lg {
+    max-width: min(1100px, 96vw);
+    overflow: visible;
+  }
+
+  .eb-modal-lg .eb-modal-body {
+    overflow: visible;
+    max-height: none;
   }
 
   .eb-modal-header {

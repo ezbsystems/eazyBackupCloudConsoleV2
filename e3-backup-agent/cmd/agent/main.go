@@ -12,6 +12,7 @@ import (
 
 	"github.com/kardianos/service"
 	"github.com/your-org/e3-backup-agent/internal/agent"
+	"github.com/your-org/e3-backup-agent/internal/applog"
 )
 
 func main() {
@@ -56,6 +57,10 @@ func main() {
 		log.Printf("config missing enrollment credentials; waiting for enrollment")
 	}
 
+	if cfg != nil && cfg.LogLevel != "" {
+		applog.SetLevel(applog.ParseLevel(cfg.LogLevel))
+	}
+
 	log.Printf("e3-backup-agent starting (client_id=%s, agent_uuid=%s, api=%s)", cfg.ClientID, cfg.AgentUUID, cfg.APIBaseURL)
 
 	r := agent.NewRunner(cfg, *configPath)
@@ -90,6 +95,9 @@ func (p *program) run() {
 	}
 	if errors.Is(err, agent.ErrMissingEnrollment) {
 		log.Printf("service: config missing enrollment credentials; waiting for enrollment")
+	}
+	if cfg != nil && cfg.LogLevel != "" {
+		applog.SetLevel(applog.ParseLevel(cfg.LogLevel))
 	}
 	log.Printf("service: e3-backup-agent starting (client_id=%s, agent_uuid=%s, api=%s)", cfg.ClientID, cfg.AgentUUID, cfg.APIBaseURL)
 	r := agent.NewRunner(cfg, p.configPath)
@@ -142,10 +150,24 @@ func setupWindowsFileLogging() {
 	_ = os.MkdirAll(logDir, 0o755)
 	logPath := filepath.Join(logDir, "agent.log")
 
-	f, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
-	if err != nil {
-		return
+	// Default level is warn (production-safe). The agent runner reads
+	// AgentConfig.LogLevel and may relax this with applog.SetLevel later.
+	level := applog.LevelWarn
+	if v := os.Getenv("E3_AGENT_LOG_LEVEL"); v != "" {
+		level = applog.ParseLevel(v)
 	}
-	log.SetOutput(f)
-	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds)
+
+	if err := applog.Init(applog.Options{
+		Path:    logPath,
+		MaxSize: 5 * 1024 * 1024,
+		Keep:    3,
+		Level:   level,
+		Mode:    0o600,
+	}); err != nil {
+		// Fall back to a plain file if rotation init fails.
+		if f, ferr := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600); ferr == nil {
+			log.SetOutput(f)
+			log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds)
+		}
+	}
 }

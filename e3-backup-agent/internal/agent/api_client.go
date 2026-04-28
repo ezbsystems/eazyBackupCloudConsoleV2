@@ -15,6 +15,7 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -29,6 +30,13 @@ type Client struct {
 	deviceName           string
 	userAgent            string
 	recoverySessionToken string
+
+	// versionTooOld is set after any ingest endpoint returns HTTP 426. While
+	// set, ingest calls short-circuit immediately so the agent stops spamming
+	// the server. Cleared only by restarting the agent (which presumably loads
+	// a newer binary).
+	versionTooOld bool
+	verMu         sync.Mutex
 }
 
 func NewClient(cfg *AgentConfig) *Client {
@@ -63,7 +71,49 @@ func (c *Client) authHeaders(req *http.Request) {
 	req.Header.Set("X-Agent-UUID", c.agentUUID)
 	req.Header.Set("X-Agent-Token", c.token)
 	req.Header.Set("Content-Type", "application/json")
+	if v := c.AgentVersion(); v != "" {
+		req.Header.Set("X-Agent-Version", v)
+	}
 	c.applyUserAgent(req)
+}
+
+// ErrAgentVersionTooOld is returned by ingest pushes when the server's strict
+// minimum local agent version gate rejects this binary. Callers should stop
+// pushing and surface a "Please update" notification to the user.
+var ErrAgentVersionTooOld = errors.New("agent_version_too_old")
+
+// MarkVersionTooOld records that the server has rejected this binary's
+// version. After this point all ingest calls short-circuit with the same
+// error to avoid hammering the server.
+func (c *Client) MarkVersionTooOld() {
+	c.verMu.Lock()
+	c.versionTooOld = true
+	c.verMu.Unlock()
+	notifyVersionTooOld()
+}
+
+// IsVersionTooOld reports whether this client has been tripped by a 426.
+func (c *Client) IsVersionTooOld() bool {
+	c.verMu.Lock()
+	defer c.verMu.Unlock()
+	return c.versionTooOld
+}
+
+// AgentVersion returns the version embedded in the configured User-Agent
+// string. The server uses this for the UUIDv7-style minimum-version cutover.
+func (c *Client) AgentVersion() string {
+	ua := strings.TrimSpace(c.userAgent)
+	if idx := strings.Index(ua, "e3-backup-agent/"); idx >= 0 {
+		v := strings.TrimSpace(ua[idx+len("e3-backup-agent/"):])
+		if sp := strings.IndexAny(v, " \t"); sp > -1 {
+			v = v[:sp]
+		}
+		return v
+	}
+	if idx := strings.LastIndex(ua, "/"); idx > -1 && idx < len(ua)-1 {
+		return strings.TrimSpace(ua[idx+1:])
+	}
+	return ""
 }
 
 type jsonString string
@@ -452,6 +502,8 @@ type RunUpdate struct {
 	// Hyper-V specific fields
 	DiskManifestsJSON map[string]string `json:"disk_manifests_json,omitempty"`
 	HyperVResults     []HyperVVMResult  `json:"hyperv_results,omitempty"`
+	// Stamped client-side so the server can apply the strict minimum-version gate.
+	AgentVersion string `json:"agent_version,omitempty"`
 }
 
 // HyperVVMResult contains the result of backing up a single VM.
@@ -497,7 +549,13 @@ func (c *Client) UpdateRun(u RunUpdate) error {
 		return nil
 	}
 
+	if c.IsVersionTooOld() {
+		return ErrAgentVersionTooOld
+	}
 	endpoint := c.baseURL + "/agent_update_run.php"
+	if u.AgentVersion == "" {
+		u.AgentVersion = c.AgentVersion()
+	}
 	buf, _ := json.Marshal(u)
 	var lastErr error
 	for attempt := 0; attempt < 3; attempt++ {
@@ -521,6 +579,10 @@ func (c *Client) UpdateRun(u RunUpdate) error {
 
 		if resp.StatusCode == http.StatusOK {
 			return nil
+		}
+		if resp.StatusCode == http.StatusUpgradeRequired {
+			c.MarkVersionTooOld()
+			return ErrAgentVersionTooOld
 		}
 		lastErr = fmt.Errorf("update run status %d body=%s", resp.StatusCode, strings.TrimSpace(string(body)))
 		if !shouldRetryStatus(resp.StatusCode) || attempt == 2 {
@@ -549,6 +611,9 @@ type RunLogEntry struct {
 func (c *Client) PushEvents(runID string, events []RunEvent) error {
 	if len(events) == 0 {
 		return nil
+	}
+	if c.IsVersionTooOld() {
+		return ErrAgentVersionTooOld
 	}
 	compactEvents := compactEventsForTransport(events)
 	if c.recoverySessionToken != "" {
@@ -591,6 +656,9 @@ func (c *Client) PushEvents(runID string, events []RunEvent) error {
 	if payloadErr != nil {
 		return payloadErr
 	}
+	if v := c.AgentVersion(); v != "" {
+		payload["agent_version"] = v
+	}
 	lastErr := error(nil)
 	for attempt := 0; attempt < 4; attempt++ {
 		buf, _ := json.Marshal(payload)
@@ -614,6 +682,11 @@ func (c *Client) PushEvents(runID string, events []RunEvent) error {
 
 		if resp.StatusCode == http.StatusOK {
 			return nil
+		}
+
+		if resp.StatusCode == http.StatusUpgradeRequired {
+			c.MarkVersionTooOld()
+			return ErrAgentVersionTooOld
 		}
 
 		msg := strings.TrimSpace(string(b))
@@ -1271,4 +1344,156 @@ func ExchangeMediaBuildToken(apiBaseURL, token string) (*MediaBuildManifest, err
 		return nil, errors.New(out.Message)
 	}
 	return &out.Manifest, nil
+}
+
+// AgentEvent is a non-run-scoped lifecycle / health event emitted by the agent
+// or tray. They are batched, deduplicated, and forwarded to
+// agent_push_agent_events.php. Compared to RunEvent these omit run_id and add
+// `source` (agent|tray) and `dedupe_key`.
+type AgentEvent struct {
+	Source     string         `json:"source,omitempty"`
+	TS         string         `json:"ts,omitempty"`
+	Level      string         `json:"level,omitempty"`
+	Code       string         `json:"code,omitempty"`
+	MessageID  string         `json:"message_id,omitempty"`
+	ParamsJSON map[string]any `json:"params_json,omitempty"`
+	DedupeKey  string         `json:"dedupe_key,omitempty"`
+}
+
+// PushAgentEvents sends a batch of AgentEvents to the server. The server caps
+// volume per agent per UTC day and applies a 60-second dedupe window keyed by
+// (agent_uuid, dedupe_key). Returns ErrAgentVersionTooOld when the strict
+// minimum-version gate rejects the binary.
+func (c *Client) PushAgentEvents(events []AgentEvent) error {
+	if len(events) == 0 {
+		return nil
+	}
+	if c.IsVersionTooOld() {
+		return ErrAgentVersionTooOld
+	}
+	endpoint := c.baseURL + "/agent_push_agent_events.php"
+	body := map[string]any{"events": events}
+	if v := c.AgentVersion(); v != "" {
+		body["agent_version"] = v
+	}
+	buf, _ := json.Marshal(body)
+
+	// Compress when payload is large to keep WAFs/proxies happy.
+	useCompact := len(buf) > 48*1024
+	if useCompact {
+		raw, _ := json.Marshal(events)
+		var gz bytes.Buffer
+		zw := gzip.NewWriter(&gz)
+		_, _ = zw.Write(raw)
+		_ = zw.Close()
+		body = map[string]any{
+			"events_b64":      base64.StdEncoding.EncodeToString(gz.Bytes()),
+			"events_encoding": "gzip+base64",
+		}
+		if v := c.AgentVersion(); v != "" {
+			body["agent_version"] = v
+		}
+		buf, _ = json.Marshal(body)
+	}
+
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(buf))
+		if err != nil {
+			return err
+		}
+		c.authHeaders(req)
+
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			lastErr = err
+			if !isTransientNetErr(err) || attempt == 2 {
+				return err
+			}
+			time.Sleep(time.Duration(attempt+1) * 300 * time.Millisecond)
+			continue
+		}
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 900))
+		resp.Body.Close()
+
+		if resp.StatusCode == http.StatusOK {
+			return nil
+		}
+		if resp.StatusCode == http.StatusUpgradeRequired {
+			c.MarkVersionTooOld()
+			return ErrAgentVersionTooOld
+		}
+		msg := strings.TrimSpace(string(b))
+		lastErr = fmt.Errorf("push agent events status %d body=%s", resp.StatusCode, msg)
+		if !shouldRetryStatus(resp.StatusCode) || attempt == 2 {
+			return lastErr
+		}
+		time.Sleep(time.Duration(attempt+1) * 300 * time.Millisecond)
+	}
+	return lastErr
+}
+
+// PushLogChunk uploads a single gzipped admin-only verbose log chunk for a
+// run. Used only when the admin has temporarily enabled verbose admin logging
+// for that run via the run command queue.
+func (c *Client) PushLogChunk(runID string, chunkSeq int, source string, gzippedBlob []byte, lineCount int, firstTS, lastTS time.Time) error {
+	if runID == "" || chunkSeq < 0 || len(gzippedBlob) == 0 {
+		return errors.New("invalid push log chunk arguments")
+	}
+	if c.IsVersionTooOld() {
+		return ErrAgentVersionTooOld
+	}
+	endpoint := c.baseURL + "/agent_push_log_chunk.php"
+	body := map[string]any{
+		"run_id":      runID,
+		"chunk_seq":   chunkSeq,
+		"source":      source,
+		"encoding":    "gzip",
+		"content_b64": base64.StdEncoding.EncodeToString(gzippedBlob),
+		"line_count":  lineCount,
+		"first_ts":    firstTS.UTC().Format(time.RFC3339),
+		"last_ts":     lastTS.UTC().Format(time.RFC3339),
+	}
+	if v := c.AgentVersion(); v != "" {
+		body["agent_version"] = v
+	}
+	buf, _ := json.Marshal(body)
+
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(buf))
+		if err != nil {
+			return err
+		}
+		c.authHeaders(req)
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			lastErr = err
+			if !isTransientNetErr(err) || attempt == 2 {
+				return err
+			}
+			time.Sleep(time.Duration(attempt+1) * 300 * time.Millisecond)
+			continue
+		}
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 900))
+		resp.Body.Close()
+
+		if resp.StatusCode == http.StatusOK {
+			return nil
+		}
+		if resp.StatusCode == http.StatusUpgradeRequired {
+			c.MarkVersionTooOld()
+			return ErrAgentVersionTooOld
+		}
+		// 429 = chunks_cap_reached. Caller should disable verbose mode.
+		if resp.StatusCode == http.StatusTooManyRequests {
+			return fmt.Errorf("push log chunk: chunks cap reached")
+		}
+		lastErr = fmt.Errorf("push log chunk status %d body=%s", resp.StatusCode, strings.TrimSpace(string(b)))
+		if !shouldRetryStatus(resp.StatusCode) || attempt == 2 {
+			return lastErr
+		}
+		time.Sleep(time.Duration(attempt+1) * 300 * time.Millisecond)
+	}
+	return lastErr
 }

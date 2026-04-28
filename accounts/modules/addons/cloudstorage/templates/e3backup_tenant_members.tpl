@@ -1,48 +1,51 @@
-<div class="min-h-screen bg-slate-950 text-gray-100 overflow-x-hidden" x-data="tenantMembersApp()">
-    <div class="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top,_#1f293780,_transparent_60%)]"></div>
-    <div class="container mx-auto max-w-full px-4 pb-8 pt-6 relative pointer-events-auto">
+{include file="modules/addons/eazybackup/templates/partials/_ui-tokens.tpl"}
+
+<div class="eb-page" x-data="tenantMembersApp()">
+    <div class="eb-page-inner">
         {assign var="activeNav" value="tenant_members"}
         {include file="modules/addons/cloudstorage/templates/partials/e3backup_nav.tpl"}
 
-        <div class="rounded-3xl border border-slate-800/80 bg-slate-950/80 shadow-[0_18px_60px_rgba(0,0,0,0.6)] px-6 py-6">
-            <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6">
+        <div class="eb-panel">
+            <div class="eb-page-header">
                 <div>
-                    <div class="flex items-center gap-2 mb-1">
-                        <a href="index.php?m=cloudstorage&page=e3backup" class="text-slate-400 hover:text-white text-sm">e3 Cloud Backup</a>
-                        <span class="text-slate-600">/</span>
-                        <a href="index.php?m=eazybackup&a=ph-tenants-manage" class="text-slate-400 hover:text-white text-sm">Partner Hub Tenants</a>
-                        <span class="text-slate-600">/</span>
-                        <span class="text-white text-sm font-medium">Tenant Members</span>
+                    <div class="eb-breadcrumb">
+                        <a href="index.php?m=cloudstorage&page=e3backup" class="eb-breadcrumb-link">e3 Cloud Backup</a>
+                        <span class="eb-breadcrumb-separator">/</span>
+                        <a href="index.php?m=eazybackup&a=ph-tenants-manage" class="eb-breadcrumb-link">Partner Hub Tenants</a>
+                        <span class="eb-breadcrumb-separator">/</span>
+                        <span class="eb-breadcrumb-current">Tenant Members</span>
                     </div>
-                    <h2 class="text-2xl font-semibold text-white">Tenant Members</h2>
-                    <p class="text-xs text-slate-400 mt-1">Manage members who can access the tenant portal to manage backups and perform restores.</p>
+                    <h1 class="eb-page-title">Tenant Members</h1>
+                    <p class="eb-page-description">Manage members who can access the tenant portal to manage backups and perform restores.</p>
                 </div>
-                <button @click="openPartnerHub('members')" class="mt-4 sm:mt-0 px-4 py-2 rounded-md bg-amber-600 text-white text-sm font-semibold hover:bg-amber-500">
-                    Manage in Partner Hub
-                </button>
-            </div>
-
-            <div class="mb-5 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm">
-                <p class="text-amber-100 font-medium">Legacy compatibility view</p>
-                <p class="text-amber-200/90 mt-1">
-                    This page remains available for bookmarked legacy URLs. Member create/edit/reset/delete actions are now handled only in Partner Hub to avoid divergent tenant writes.
-                </p>
-                <div class="mt-3 flex flex-wrap gap-2">
-                    <a href="index.php?m=eazybackup&a=ph-tenants-manage"
-                       class="inline-flex px-3 py-1.5 rounded-md border border-amber-400/40 text-amber-100 hover:bg-amber-400/10">
-                        Partner Hub Tenant List
-                    </a>
-                    <button type="button"
-                            @click="openPartnerHub('members')"
-                            class="inline-flex px-3 py-1.5 rounded-md border border-amber-400/40 text-amber-100 hover:bg-amber-400/10">
-                        Partner Hub Tenant Members
+                <div class="flex items-center gap-2">
+                    <button @click="openPartnerHub('members')" class="eb-btn eb-btn-primary eb-btn-sm">
+                        Manage in Partner Hub
                     </button>
                 </div>
             </div>
 
-            <div class="mb-4 flex items-center gap-4">
-                <label class="text-sm text-slate-400">Tenant:</label>
-                <select x-model="tenantFilter" @change="syncTenantFilterToUrl(); loadUsers()" class="w-full max-w-xs px-3 py-2.5 rounded-lg bg-slate-800 text-sm text-slate-100 placeholder:text-gray-400 text-white outline-1 -outline-offset-1 outline-white/10 focus:outline-2 focus:-outline-offset-2 focus:outline-sky-700 transition">
+            <div class="eb-alert eb-alert--warning mb-5">
+                <svg class="eb-alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+                </svg>
+                <div>
+                    <div class="eb-alert-title">Legacy compatibility view</div>
+                    <p>This page remains available for bookmarked legacy URLs. Member create/edit/reset/delete actions are now handled only in Partner Hub to avoid divergent tenant writes.</p>
+                    <div class="mt-3 flex flex-wrap gap-2">
+                        <a href="index.php?m=eazybackup&a=ph-tenants-manage" class="eb-btn eb-btn-secondary eb-btn-xs">
+                            Partner Hub Tenant List
+                        </a>
+                        <button type="button" @click="openPartnerHub('members')" class="eb-btn eb-btn-secondary eb-btn-xs">
+                            Partner Hub Tenant Members
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="eb-table-toolbar">
+                <label class="eb-field-label" style="margin-bottom: 0;">Tenant</label>
+                <select x-model="tenantFilter" @change="syncTenantFilterToUrl(); loadUsers()" class="eb-select w-full max-w-xs">
                     <option value="">All Tenants</option>
                     {foreach from=$tenants item=tenant}
                     <option value="{$tenant->public_id|escape}">{$tenant->name|escape}</option>
@@ -50,61 +53,59 @@
                 </select>
             </div>
 
-            <div class="overflow-x-auto rounded-lg border border-slate-800">
-                <table class="min-w-full divide-y divide-slate-800 text-sm">
-                    <thead class="bg-slate-900/80 text-slate-300">
+            <div class="eb-table-shell">
+                <table class="eb-table">
+                    <thead>
                         <tr>
-                            <th class="px-4 py-3 text-left font-medium">Name</th>
-                            <th class="px-4 py-3 text-left font-medium">Email</th>
-                            <th class="px-4 py-3 text-left font-medium">Tenant</th>
-                            <th class="px-4 py-3 text-left font-medium">Role</th>
-                            <th class="px-4 py-3 text-left font-medium">Status</th>
-                            <th class="px-4 py-3 text-left font-medium">Last Login</th>
-                            <th class="px-4 py-3 text-left font-medium">Canonical Action</th>
+                            <th>Name</th>
+                            <th>Email</th>
+                            <th>Tenant</th>
+                            <th>Role</th>
+                            <th>Status</th>
+                            <th>Last Login</th>
+                            <th>Canonical Action</th>
                         </tr>
                     </thead>
-                    <tbody class="divide-y divide-slate-800">
+                    <tbody>
                         <template x-if="loading">
                             <tr>
-                                <td colspan="7" class="px-4 py-8 text-center text-slate-400">
-                                    <svg class="animate-spin h-6 w-6 mx-auto text-amber-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                    </svg>
+                                <td colspan="7">
+                                    <div class="eb-app-empty">
+                                        <p class="eb-app-empty-copy">Loading members...</p>
+                                    </div>
                                 </td>
                             </tr>
                         </template>
                         <template x-if="!loading && users.length === 0">
                             <tr>
-                                <td colspan="7" class="px-4 py-8 text-center text-slate-400">
-                                    No members found. Click "Create Member" to add a tenant member.
+                                <td colspan="7">
+                                    <div class="eb-app-empty">
+                                        <div class="eb-app-empty-title">No members found</div>
+                                        <p class="eb-app-empty-copy">Use Partner Hub to add a tenant member.</p>
+                                    </div>
                                 </td>
                             </tr>
                         </template>
                         <template x-for="user in users" :key="user.id">
-                            <tr class="hover:bg-slate-800/50">
-                                <td class="px-4 py-3 text-slate-200" x-text="user.name"></td>
-                                <td class="px-4 py-3 text-slate-300" x-text="user.email"></td>
-                                <td class="px-4 py-3 text-slate-300" x-text="user.tenant_name"></td>
-                                <td class="px-4 py-3">
-                                    <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium"
-                                          :class="user.role === 'admin' ? 'bg-violet-500/15 text-violet-200' : 'bg-slate-700 text-slate-300'"
+                            <tr>
+                                <td class="eb-table-primary" x-text="user.name"></td>
+                                <td x-text="user.email"></td>
+                                <td x-text="user.tenant_name"></td>
+                                <td>
+                                    <span class="eb-badge"
+                                          :class="user.role === 'admin' ? 'eb-badge--premium' : 'eb-badge--neutral'"
                                           x-text="user.role"></span>
                                 </td>
-                                <td class="px-4 py-3">
-                                    <span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold"
-                                          :class="user.status === 'active' ? 'bg-emerald-500/15 text-emerald-200' : 'bg-slate-700 text-slate-300'">
-                                        <span class="h-1.5 w-1.5 rounded-full" :class="user.status === 'active' ? 'bg-emerald-400' : 'bg-slate-500'"></span>
-                                        <span x-text="user.status"></span>
-                                    </span>
+                                <td>
+                                    <span class="eb-badge eb-badge--dot"
+                                          :class="user.status === 'active' ? 'eb-badge--success' : 'eb-badge--neutral'"
+                                          x-text="user.status"></span>
                                 </td>
-                                <td class="px-4 py-3 text-slate-300" x-text="user.last_login_at || 'Never'"></td>
-                                <td class="px-4 py-3">
-                                    <div class="flex gap-1">
-                                        <button type="button" @click="openPartnerHubForUser(user, 'members')" class="px-3 py-1.5 text-xs bg-slate-700 rounded text-white hover:bg-slate-600 cursor-pointer">
-                                            Open in Partner Hub
-                                        </button>
-                                    </div>
+                                <td x-text="user.last_login_at || 'Never'"></td>
+                                <td>
+                                    <button type="button" @click="openPartnerHubForUser(user, 'members')" class="eb-btn eb-btn-secondary eb-btn-xs">
+                                        Open in Partner Hub
+                                    </button>
                                 </td>
                             </tr>
                         </template>

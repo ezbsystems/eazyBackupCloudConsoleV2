@@ -39,6 +39,12 @@ type AgentConfig struct {
 
 	LogLevel         string `yaml:"log_level" json:"log_level,omitempty"`
 	PollIntervalSecs int    `yaml:"poll_interval_secs" json:"poll_interval_secs,omitempty"`
+
+	// Throttling controls for durable server-side progress events.
+	// Live UpdateRun heartbeats are unaffected. Defaults: 30 seconds and 1.0%.
+	ProgressEventIntervalSeconds int     `yaml:"progress_event_interval_secs,omitempty" json:"progress_event_interval_secs,omitempty"`
+	ProgressEventPctStep         float64 `yaml:"progress_event_pct_step,omitempty" json:"progress_event_pct_step,omitempty"`
+
 	RunDir           string `yaml:"run_dir" json:"run_dir,omitempty"`
 	RcloneBinary     string `yaml:"rclone_binary" json:"rclone_binary,omitempty"`
 	DestEndpoint     string `yaml:"dest_endpoint" json:"dest_endpoint,omitempty"`

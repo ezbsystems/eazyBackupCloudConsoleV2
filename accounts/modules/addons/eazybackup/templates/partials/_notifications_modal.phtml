@@ -1,0 +1,138 @@
+<?php
+/**
+ * Consolidated client-area notifications modal.
+ *
+ * Rendered globally via the ClientAreaFooterOutput hook in hooks.php.
+ * Styled per Docs/StyleGuides/SEMANTIC-THEME-REFERENCE.md (section 11).
+ *
+ * Inputs (set by the hook):
+ *   - $ebActiveNotifications : array<int,array{id:int,title:string,body_html:string,published_at:?string}>
+ *   - $ebNotifCsrf           : string
+ *   - $ebNotifEndpoint       : string
+ */
+if (empty($ebActiveNotifications) || !is_array($ebActiveNotifications)) return;
+$e = function ($s) { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); };
+$itemsJson = json_encode(
+    array_map(fn($n) => ['id' => (int)$n['id']], $ebActiveNotifications),
+    JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE
+) ?: '[]';
+?>
+<div
+    x-data="ebNotifModal(<?= $e($itemsJson) ?>, <?= $e(json_encode($ebNotifEndpoint)) ?>, <?= $e(json_encode($ebNotifCsrf)) ?>)"
+    x-show="open"
+    x-cloak
+    class="fixed inset-0 z-50 flex items-center justify-center p-4"
+    style="display:none"
+    x-transition.opacity
+>
+    <div class="eb-modal-backdrop fixed inset-0" @click="closeAll()"></div>
+    <div class="eb-modal relative z-10" style="max-width:560px;width:100%;">
+        <div class="eb-modal-header">
+            <div>
+                <h2 class="eb-modal-title">What's New</h2>
+                <p class="eb-modal-subtitle" x-text="remainingCount + ' new ' + (remainingCount === 1 ? 'update' : 'updates')"></p>
+            </div>
+            <button type="button" class="eb-modal-close" @click="closeAll()" aria-label="Close">&times;</button>
+        </div>
+        <div class="eb-modal-body" style="max-height:60vh;overflow-y:auto;">
+            <?php foreach ($ebActiveNotifications as $n):
+                $nid = (int)$n['id']; ?>
+                <div class="eb-card mb-3" x-show="!dismissed[<?= $nid ?>]" data-notif-id="<?= $nid ?>">
+                    <div class="p-4">
+                        <div class="flex items-start justify-between gap-3">
+                            <div class="min-w-0 flex-1">
+                                <div class="eb-card-title"><?= $e($n['title']) ?></div>
+                                <?php if (!empty($n['published_at'])): ?>
+                                    <div class="eb-card-subtitle" style="font-size:12px;color:var(--eb-text-muted);">
+                                        <?= $e((string)$n['published_at']) ?>
+                                    </div>
+                                <?php endif; ?>
+                            </div>
+                            <button type="button"
+                                class="eb-btn eb-btn-secondary eb-btn-xs"
+                                @click="dismiss(<?= $nid ?>)"
+                                :disabled="busy[<?= $nid ?>]">
+                                <span x-show="!busy[<?= $nid ?>]">Dismiss</span>
+                                <span x-show="busy[<?= $nid ?>]">…</span>
+                            </button>
+                        </div>
+                        <div class="mt-2 eb-type-body" style="color:var(--eb-text-secondary);">
+                            <?= $n['body_html'] /* already escaped + nl2br */ ?>
+                        </div>
+                    </div>
+                </div>
+            <?php endforeach; ?>
+        </div>
+        <div class="eb-modal-footer">
+            <button type="button" class="eb-btn eb-btn-secondary eb-btn-sm" @click="closeAll()">Close</button>
+            <button type="button" class="eb-btn eb-btn-primary eb-btn-sm"
+                @click="dismissAll()"
+                :disabled="busyAll">
+                <span x-show="!busyAll">Dismiss All</span>
+                <span x-show="busyAll">Dismissing…</span>
+            </button>
+        </div>
+    </div>
+</div>
+<script>
+(function(){
+    if (window.__ebNotifModalInit) return;
+    window.__ebNotifModalInit = true;
+    function init() {
+        if (typeof window.Alpine === 'undefined') { setTimeout(init, 50); return; }
+        if (window.Alpine.data && !window.__ebNotifDataReg) {
+            window.__ebNotifDataReg = true;
+            window.Alpine.data('ebNotifModal', function (items, endpoint, token) {
+                return {
+                    items: items || [],
+                    endpoint: endpoint,
+                    token: token,
+                    open: true,
+                    busy: {},
+                    busyAll: false,
+                    dismissed: {},
+                    get remainingCount() {
+                        return this.items.filter(function(it){ return !this.dismissed[it.id]; }, this).length;
+                    },
+                    closeAll() { this.open = false; },
+                    async dismiss(id) {
+                        if (this.busy[id] || this.dismissed[id]) return;
+                        this.busy[id] = true;
+                        try {
+                            const body = new URLSearchParams();
+                            body.set('notification_id', String(id));
+                            body.set('token', this.token);
+                            const r = await fetch(this.endpoint, {
+                                method: 'POST',
+                                credentials: 'same-origin',
+                                headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' },
+                                body: body.toString()
+                            });
+                            const j = await r.json().catch(function(){ return {ok:false}; });
+                            if (j && j.ok) {
+                                this.dismissed[id] = true;
+                                if (this.remainingCount <= 0) this.open = false;
+                            }
+                        } catch (e) { /* silent */ }
+                        finally { this.busy[id] = false; }
+                    },
+                    async dismissAll() {
+                        if (this.busyAll) return;
+                        this.busyAll = true;
+                        try {
+                            for (const it of this.items) {
+                                if (this.dismissed[it.id]) continue;
+                                await this.dismiss(it.id);
+                            }
+                        } finally {
+                            this.busyAll = false;
+                        }
+                    }
+                };
+            });
+        }
+    }
+    document.addEventListener('alpine:init', init);
+    init();
+})();
+</script>

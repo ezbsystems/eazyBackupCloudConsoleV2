@@ -291,6 +291,30 @@ document.addEventListener('DOMContentLoaded', function () {
     } catch (_) { return 1; }
   }
 
+  function rsModalCard(){
+    try { return restoreModal && (restoreModal.querySelector('.eb-modal') || restoreModal.querySelector('.eb-modal')); } catch (_) { return null; }
+  }
+
+  function rsGotoJobLogs(){
+    try {
+      const link = document.querySelector('.eb-sidebar-link[\\@click\\.prevent="activeSubTab = \'jobLogs\'"]')
+                || Array.from(document.querySelectorAll('.eb-sidebar-link')).find(a => /jobLogs/.test(a.getAttribute('@click.prevent') || ''));
+      if (link) { link.click(); }
+      else {
+        try { window.dispatchEvent(new CustomEvent('eb:goto-tab', { detail: { tab: 'jobLogs' } })); } catch (_) {}
+      }
+    } catch (_) {}
+    try {
+      let tries = 0;
+      const tick = () => {
+        tries++;
+        try { window.__ebJobsApi && window.__ebJobsApi.reload && window.__ebJobsApi.reload(); } catch (_) {}
+        if (tries < 6) setTimeout(tick, 2500);
+      };
+      setTimeout(tick, 1500);
+    } catch (_) {}
+  }
+
   function rsShow(step) {
     try { rsStep1 && rsStep1.classList.toggle('hidden', step !== 1); } catch (_) {}
     try { rsStep2 && rsStep2.classList.toggle('hidden', step !== 2); } catch (_) {}
@@ -299,6 +323,16 @@ document.addEventListener('DOMContentLoaded', function () {
     try { rsBack && rsBack.classList.toggle('hidden', step === 1); } catch (_) {}
     try { rsNext && rsNext.classList.toggle('hidden', !(step === 1 || step === 2 || step === 3)); } catch (_) {}
     try { rsStart && rsStart.classList.toggle('hidden', step !== 4); } catch (_) {}
+    try {
+      const bar = document.getElementById('restore-steps');
+      if (bar) {
+        bar.setAttribute('data-current-step', String(step));
+        bar.querySelectorAll('[data-rs-step]').forEach(p => {
+          const n = parseInt(p.getAttribute('data-rs-step'), 10) || 0;
+          p.classList.toggle('is-active', n === step);
+        });
+      }
+    } catch (_) {}
   }
 
   // Selected paths for "Select items" flow
@@ -320,8 +354,8 @@ document.addEventListener('DOMContentLoaded', function () {
         const row = document.createElement('div');
         row.className = 'flex items-center gap-2 px-3 py-2';
         row.innerHTML = `
-          <div class="flex-1 min-w-0 truncate text-slate-200">${escapeHtml(p)}</div>
-          <button type="button" class="text-xs text-slate-300 hover:text-white px-2 py-1 rounded bg-slate-800 hover:bg-slate-700" data-rs-remove="1">Remove</button>
+          <div class="flex-1 min-w-0 truncate text-[var(--eb-text-primary)]" title="${escapeHtml(p)}">${escapeHtml(p)}</div>
+          <button type="button" class="eb-btn eb-btn-secondary eb-btn-sm" data-rs-remove="1">Remove</button>
         `;
         row.querySelector('[data-rs-remove="1"]')?.addEventListener('click', () => {
           rsSelectedPathsSet.delete(p);
@@ -335,6 +369,44 @@ document.addEventListener('DOMContentLoaded', function () {
   }
   function escapeHtml(s){
     try { return String(s).replace(/[&<>"']/g, (c)=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])); } catch (_) { return s; }
+  }
+
+  // Normalize the set of restore paths before submitting:
+  //   1. Strip a single trailing separator off folder paths so the engine doesn't
+  //      mistake "C:\\Users\\" for a literal name with a trailing slash.
+  //   2. Drop any paths that live inside another selected directory - Comet
+  //      recurses on folder entries automatically and duplicates can cause
+  //      "backup engine encountered a problem" aborts on some agents.
+  function rsNormalizeRestorePaths(paths) {
+    const cleaned = [];
+    const seen = new Set();
+    for (let p of (paths || [])) {
+      if (typeof p !== 'string') continue;
+      p = p.trim();
+      if (!p) continue;
+      // Preserve drive root ("C:\") and POSIX root ("/") as-is, otherwise rstrip separators.
+      if (!/^[A-Za-z]:[\\/]$/.test(p) && p !== '/') {
+        p = p.replace(/[\\/]+$/, '') || p;
+      }
+      if (!seen.has(p)) { seen.add(p); cleaned.push(p); }
+    }
+    // Detect separator from contents (Comet snapshots are single-OS per source)
+    const sep = cleaned.some(p => p.includes('\\') || /^[A-Za-z]:/.test(p)) ? '\\' : '/';
+    // Sort shortest-first so parents are visited before their children.
+    cleaned.sort((a, b) => a.length - b.length);
+    const kept = [];
+    for (const p of cleaned) {
+      const insideExisting = kept.some(parent => {
+        if (parent === p) return true;
+        // case-insensitive on Windows-style separators
+        const a = sep === '\\' ? parent.toLowerCase() : parent;
+        const b = sep === '\\' ? p.toLowerCase() : p;
+        const aWithSep = a.endsWith(sep) ? a : a + sep;
+        return b.startsWith(aWithSep);
+      });
+      if (!insideExisting) kept.push(p);
+    }
+    return kept;
   }
 
   function rsBuildScopeOptions(){
@@ -352,18 +424,18 @@ document.addEventListener('DOMContentLoaded', function () {
       ];
 
       options.forEach(opt => {
-        const card = document.createElement('div');
-        card.className = 'group border border-slate-700 rounded p-3 hover:bg-slate-800/60 cursor-pointer';
+        const card = document.createElement('button');
+        card.type = 'button';
+        card.className = 'eb-choice-card w-full text-left cursor-pointer';
         if (opt.disabled) {
           card.classList.add('opacity-60','cursor-not-allowed');
+          card.setAttribute('aria-disabled', 'true');
         }
         card.innerHTML = `
-          <div class="flex items-start gap-3">
-            <div class="mt-0.5">${opt.icon || ''}</div>
-            <div class="min-w-0">
-              <div class="text-slate-200 font-semibold">${opt.label}</div>
-              ${opt.desc ? `<div class="text-slate-400 text-xs mt-1">${escapeHtml(opt.desc)}</div>` : ''}
-            </div>
+          <div class="eb-choice-card-control">${opt.icon || ''}</div>
+          <div class="min-w-0">
+            <div class="eb-choice-card-title">${escapeHtml(opt.label)}</div>
+            ${opt.desc ? `<div class="eb-choice-card-description">${escapeHtml(opt.desc)}</div>` : ''}
           </div>
         `;
         card.addEventListener('click', () => {
@@ -379,9 +451,7 @@ document.addEventListener('DOMContentLoaded', function () {
         try {
           options.forEach(o => {
             if (!o._card) return;
-            const isSel = (selected === o.v);
-            o._card.classList.toggle('border-emerald-500', isSel);
-            o._card.classList.toggle('bg-emerald-500/10', isSel);
+            o._card.classList.toggle('is-selected', selected === o.v);
           });
           if (rsScopeHidden) rsScopeHidden.value = selected;
           if (rsScopeSelectWrap) rsScopeSelectWrap.classList.toggle('hidden', selected !== 'select');
@@ -417,14 +487,31 @@ document.addEventListener('DOMContentLoaded', function () {
             a.addEventListener('click', async (e) => {
               e.preventDefault();
               const name = a.getAttribute('data-rs-vault-name') || a.textContent.trim();
+              const prev = rsSelectedVault ? String(rsSelectedVault.value || '') : '';
               if (rsSelectedVault) rsSelectedVault.value = vid;
               if (rsVaultSelectedLabel) rsVaultSelectedLabel.textContent = name;
+              if (prev && prev !== vid) {
+                try {
+                  rsSnapshotsData = [];
+                  rsSnapshotsVaultId = '';
+                  if (rsSelectedItem) rsSelectedItem.value = '';
+                  if (rsSelectedSnap) rsSelectedSnap.value = '';
+                  if (rsEngine) rsEngine.value = '';
+                  const itemLabel = document.getElementById('rs-item-selected-label');
+                  if (itemLabel) itemLabel.textContent = 'Choose a protected item\u2026';
+                  if (rsSnapshots) rsSnapshots.innerHTML = '<div class="px-3 py-2 text-slate-400">Select a protected item to see snapshots\u2026</div>';
+                  rsSelectedPathsSet.clear();
+                  rsSyncPathsHidden();
+                  rsRenderSelectedItems();
+                } catch (_) {}
+              }
               // Do not auto-advance; user clicks Next to proceed
             }, { once:false });
           });
         }
       } catch (_) {}
       restoreModal.classList.remove('hidden');
+      try { rsShow(1); } catch (_) {}
     });
     rsClose?.addEventListener('click', () => { restoreModal.classList.add('hidden'); });
     rsBack?.addEventListener('click', () => {
@@ -438,7 +525,7 @@ document.addEventListener('DOMContentLoaded', function () {
         const onStep3 = !rsStep3?.classList.contains('hidden');
         if (onStep1) {
           if (!rsSelectedVault.value) { toast('Select a Storage Vault first.', 'warning'); return; }
-          const modalCard = restoreModal.querySelector('.relative.mx-auto');
+          const modalCard = restoreModal.querySelector('.eb-modal');
           window.ebShowLoader?.(modalCard, 'Loading protected items…');
           try {
             await rsLoadItems();
@@ -591,31 +678,66 @@ document.addEventListener('DOMContentLoaded', function () {
       const menu = document.querySelector('#rs-item-menu-list ul');
       const label = document.getElementById('rs-item-selected-label');
       if (menu) menu.innerHTML = '<li><span class="block px-3 py-2 text-slate-400">Loading…</span></li>';
-      const r = await call('listProtectedItems');
+      // includeAll lets the wizard offer Protected Items that belong to
+      // any of the customer's devices, not just the one being managed.
+      // This is essential for cross-device restores (e.g. restoring data
+      // from a failed/offline computer onto a brand-new computer).
+      const r = await call('listProtectedItems', { includeAll: 1 });
       const items = (r && r.items) ? r.items : [];
       const snapshotInfo = await rsPeekSnapshotsByItem();
       if (menu) menu.innerHTML = '';
       if (!items.length) {
-        if (menu) menu.innerHTML = '<li><span class="block px-3 py-2 text-slate-400">No protected items for this device.</span></li>';
+        if (menu) menu.innerHTML = '<li><span class="block px-3 py-2 text-slate-400">No protected items found for this account.</span></li>';
         return;
       }
-      items.forEach(it => {
+      // Prefer items that have snapshots in the selected vault, then the
+      // ones from the current device, so the most relevant entries surface
+      // at the top of the list.
+      const sorted = items.slice().sort((a, b) => {
+        const aHas = snapshotInfo[a.id] ? 1 : 0;
+        const bHas = snapshotInfo[b.id] ? 1 : 0;
+        if (aHas !== bHas) return bHas - aHas;
+        const aMine = (a.ownerDeviceId === currentDeviceId) ? 1 : 0;
+        const bMine = (b.ownerDeviceId === currentDeviceId) ? 1 : 0;
+        if (aMine !== bMine) return bMine - aMine;
+        return String(a.name || '').localeCompare(String(b.name || ''));
+      });
+      sorted.forEach(it => {
         const li = document.createElement('li');
         const a = document.createElement('a');
         const hasSnaps = !!snapshotInfo[it.id];
         a.href = '#';
-        a.className = 'block px-3 py-2 rounded';
-        a.textContent = it.name || it.id;
+        a.className = 'flex items-center justify-between gap-3 px-3 py-2 rounded';
+
+        const nameSpan = document.createElement('span');
+        nameSpan.className = 'truncate';
+        nameSpan.textContent = it.name || it.id;
+        a.appendChild(nameSpan);
+
+        const ownerName = (it.ownerDeviceName || '').trim();
+        if (ownerName) {
+          const meta = document.createElement('span');
+          meta.className = 'shrink-0 text-xs text-[var(--eb-text-muted)]';
+          meta.textContent = ownerName;
+          if (it.ownerDeviceId && it.ownerDeviceId !== currentDeviceId) {
+            meta.title = 'Backed up from a different device';
+          }
+          a.appendChild(meta);
+        }
+
         if (!hasSnaps) {
           a.classList.add('text-slate-500','cursor-not-allowed','opacity-60');
           a.setAttribute('aria-disabled','true');
+          a.title = 'No snapshots for this Protected Item in the selected Storage Vault';
         } else {
           a.classList.add('hover:bg-slate-700');
           a.addEventListener('click', (e) => {
             e.preventDefault();
             rsSelectedItem.value = it.id;
-            if (label) label.textContent = it.name || it.id;
-            // close Alpine dropdown by emulating a click on the button (if present)
+            if (label) {
+              const suffix = ownerName ? ` (${ownerName})` : '';
+              label.textContent = (it.name || it.id) + suffix;
+            }
             document.getElementById('rs-item-menu-btn')?.click();
             rsRenderSnapshotsForItem(it.id);
           });
@@ -625,23 +747,110 @@ document.addEventListener('DOMContentLoaded', function () {
       });
     } catch (_) {
       const menu = document.querySelector('#rs-item-menu-list ul');
-      if (menu) menu.innerHTML = '<li><span class="block px-3 py-2 text-rose-400">Failed to load items.</span></li>';
+      if (menu) menu.innerHTML = '<li><span class="block px-3 py-2 eb-text-danger">Failed to load items.</span></li>';
     }
   }
 
   let rsSnapshotsData = [];
-  async function rsLoadSnapshots() {
+  let rsSnapshotsVaultId = '';
+
+  // Rotating progress messages for long-running snapshot loads.
+  function rsProgressMessage(elapsedMs) {
+    if (elapsedMs < 10000) return 'Loading snapshots\u2026';
+    if (elapsedMs < 30000) return 'Still working \u2014 large vaults can take a moment\u2026';
+    if (elapsedMs < 90000) return 'Indexing snapshot list on the server\u2026';
+    return 'Almost done \u2014 this is taking longer than usual\u2026';
+  }
+
+  function rsStartLoadingMessages(host, baseStart) {
+    if (!host) return null;
+    const start = baseStart || Date.now();
+    let last = '';
+    const tick = () => {
+      const msg = rsProgressMessage(Date.now() - start);
+      if (msg !== last) {
+        last = msg;
+        try { window.ebUpdateLoader?.(host, msg); } catch (_) {}
+      }
+    };
+    tick();
+    const handle = setInterval(tick, 2500);
+    return () => clearInterval(handle);
+  }
+
+  // Race a sync request against an abort timer; if it doesn't resolve in
+  // time, kick off an async job and poll jobStatus until done.
+  async function rsLoadSnapshotsResilient(vaultId, modalCard) {
+    const SYNC_RACE_MS = 25000;
+    const POLL_MS = 3000;
+    const started = Date.now();
+    const stopMessages = rsStartLoadingMessages(modalCard, started);
+    const ctl = new AbortController();
+    const syncPromise = fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action:'vaultSnapshots', serviceId, username, deviceId: currentDeviceId, vaultId }),
+      signal: ctl.signal,
+    }).then(r => r.json());
+    const raceTimer = new Promise(resolve => setTimeout(() => resolve('__timeout__'), SYNC_RACE_MS));
+    const winner = await Promise.race([syncPromise.catch(e => ({ __error: e })), raceTimer]);
+
     try {
-      rsSnapshots.innerHTML = '<div class="px-3 py-2 text-slate-400">Loading snapshots…</div>';
+      if (winner && winner !== '__timeout__' && !winner.__error) {
+        return winner;
+      }
+      // Sync request was too slow (or errored) - move to background job.
+      try { ctl.abort(); } catch (_) {}
+      const startResp = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action:'vaultSnapshotsAsync', serviceId, username, deviceId: currentDeviceId, vaultId }),
+      }).then(r => r.json());
+      if (!startResp || startResp.status !== 'success' || !startResp.jobId) {
+        throw new Error(startResp && startResp.message ? startResp.message : 'Failed to start background snapshot job');
+      }
+      const jobId = startResp.jobId;
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        await new Promise(r => setTimeout(r, POLL_MS));
+        const status = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action:'jobStatus', serviceId, username, jobId }),
+        }).then(r => r.json());
+        if (!status || status.status !== 'success' || !status.job) {
+          throw new Error(status && status.message ? status.message : 'Lost connection to background job');
+        }
+        if (status.job.state === 'done') {
+          const result = status.result || {};
+          return { status: 'success', snapshots: result.snapshots || {} };
+        }
+        if (status.job.state === 'error') {
+          throw new Error(status.error || 'Background job failed');
+        }
+      }
+    } finally {
+      try { stopMessages && stopMessages(); } catch (_) {}
+    }
+  }
+
+  async function rsLoadSnapshots() {
+    const modalCard = restoreModal?.querySelector('.eb-modal');
+    try {
+      rsSnapshots.innerHTML = '<div class="px-3 py-2 text-slate-400">Loading snapshots\u2026</div>';
       const vaultId = rsSelectedVault.value;
       if (!vaultId) { rsSnapshots.innerHTML = '<div class="px-3 py-2 text-slate-400">Select a vault first.</div>'; return; }
-      const res = await fetch(endpoint, { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ action:'vaultSnapshots', serviceId, username, deviceId: currentDeviceId, vaultId }) });
-      const data = await res.json();
+      window.ebShowLoader?.(modalCard, 'Loading snapshots\u2026');
+      const data = await rsLoadSnapshotsResilient(vaultId, modalCard);
       const arr = (data && data.snapshots && data.snapshots.Snapshots) ? data.snapshots.Snapshots : [];
       rsSnapshotsData = arr;
+      rsSnapshotsVaultId = vaultId;
       rsRenderSnapshots();
-    } catch (_) {
-      rsSnapshots.innerHTML = '<div class="px-3 py-2 text-rose-400">Failed to load snapshots.</div>';
+    } catch (err) {
+      const msg = (err && err.message) ? err.message : 'Failed to load snapshots.';
+      rsSnapshots.innerHTML = '<div class="px-3 py-2 eb-text-danger">' + escapeHtml(msg) + '</div>';
+    } finally {
+      window.ebHideLoader?.(modalCard);
     }
   }
 
@@ -656,7 +865,7 @@ document.addEventListener('DOMContentLoaded', function () {
     subset.forEach(s => {
       const row = document.createElement('a');
       row.href = '#';
-      row.className = 'block px-3 py-2 hover:bg-slate-800';
+      row.className = 'eb-menu-option';
       const when = s.CreateTime ? new Date(s.CreateTime*1000).toLocaleString() : s.Snapshot;
       row.textContent = `${when}`;
       row.addEventListener('click', (e)=>{
@@ -666,9 +875,8 @@ document.addEventListener('DOMContentLoaded', function () {
         const friendly = engineToLabel[(s.EngineType||'').toLowerCase?.() ? (s.EngineType||'').toLowerCase() : (s.EngineType||'') ] || s.EngineType || '';
         rsHint.textContent = friendly ? `Type: ${friendly}` : '';
         if (rsEngineFriendly) { rsEngineFriendly.textContent = friendly ? `Protected Item Type: ${friendly}` : ''; }
-        list.querySelectorAll('a').forEach(x => x.classList.remove('bg-slate-800'));
-        row.classList.add('bg-slate-800');
-        // advance to step 3 via Next button
+        list.querySelectorAll('a').forEach(x => x.classList.remove('is-active'));
+        row.classList.add('is-active');
         rsNext?.classList.remove('hidden');
       });
       list.appendChild(row);
@@ -685,17 +893,22 @@ document.addEventListener('DOMContentLoaded', function () {
   }
 
   async function rsPeekSnapshotsByItem(){
-    // Load all snapshots once for the vault and build a map of itemId -> true if has snapshot
     try {
       const vaultId = rsSelectedVault.value;
       if (!vaultId) return {};
-      const res = await fetch(endpoint, { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ action:'vaultSnapshots', serviceId, username, deviceId: currentDeviceId, vaultId }) });
-      const data = await res.json();
+      // Reuse the cached snapshot list ONLY when it belongs to the currently selected vault.
+      if (rsSnapshotsVaultId === vaultId && Array.isArray(rsSnapshotsData)) {
+        const map = {};
+        rsSnapshotsData.forEach(s => { if (s && s.Source) map[s.Source] = true; });
+        return map;
+      }
+      const modalCard = restoreModal?.querySelector('.eb-modal');
+      const data = await rsLoadSnapshotsResilient(vaultId, modalCard);
       const arr = (data && data.snapshots && data.snapshots.Snapshots) ? data.snapshots.Snapshots : [];
       const map = {};
       arr.forEach(s => { if (s.Source) map[s.Source] = true; });
-      // keep for later detailed render
       rsSnapshotsData = arr;
+      rsSnapshotsVaultId = vaultId;
       return map;
     } catch (_) { return {}; }
   }
@@ -747,20 +960,26 @@ document.addEventListener('DOMContentLoaded', function () {
     if (scope === 'select') {
       paths = Array.from(rsSelectedPathsSet.values());
       if (!paths.length) { toast('Select at least one file or folder to restore.', 'warning'); return; }
+      paths = rsNormalizeRestorePaths(paths);
     }
 
     try {
-      const modalCard = restoreModal.querySelector('.relative.mx-auto');
+      const modalCard = restoreModal.querySelector('.eb-modal');
       window.ebShowLoader?.(modalCard, 'Submitting restore job…');
       const payload = { action:'runRestore', serviceId, username, deviceId: currentDeviceId, sourceId, vaultId, snapshot, type, destPath, overwrite };
       if (paths && paths.length) { payload.paths = paths; }
       const res = await fetch(endpoint, { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(payload) });
       const data = await res.json();
-      toast(data.message || (data.status === 'success' ? 'Restore requested.' : 'Restore failed'), data.status === 'success' ? 'success' : 'error');
-      if (data.status === 'success') { restoreModal.classList.add('hidden'); }
+      if (data.status === 'success') {
+        try { restoreModal.classList.add('hidden'); } catch (_) {}
+        toast('Restore queued. Opening Job Logs…', 'success');
+        try { rsGotoJobLogs(); } catch (_) {}
+      } else {
+        toast(data.message || 'Restore failed', 'error');
+      }
     } catch (_) {
       toast('Network error while requesting restore.', 'error');
-    } finally { window.ebHideLoader?.(restoreModal.querySelector('.relative.mx-auto')); }
+    } finally { window.ebHideLoader?.(restoreModal.querySelector('.eb-modal')); }
   });
 
   function rsBuildMethodOptions() {
@@ -792,27 +1011,21 @@ document.addEventListener('DOMContentLoaded', function () {
     // Render block cards clickable anywhere; highlight on selection
     let selected = document.querySelector('input[name="rs-method"]:checked')?.value || options[0]?.v;
     options.forEach((opt, idx) => {
-      const id = `rs-m-${opt.v}`;
-      const card = document.createElement('div');
-      card.className = 'group border border-slate-700 rounded p-3 hover:bg-slate-800/60 cursor-pointer';
+      const card = document.createElement('button');
+      card.type = 'button';
+      card.className = 'eb-choice-card w-full text-left cursor-pointer';
       card.innerHTML = `
-        <div class="flex items-start gap-3">
-          <div class="mt-0.5">${opt.icon || ''}</div>
-          <div class="min-w-0">
-            <div class="text-slate-200 font-semibold">${opt.label}</div>
-            ${opt.desc ? `<div class=\"text-slate-400 text-xs mt-1\">${opt.desc}</div>` : ''}
-          </div>
+        <div class="eb-choice-card-control">${opt.icon || ''}</div>
+        <div class="min-w-0">
+          <div class="eb-choice-card-title">${escapeHtml(opt.label)}</div>
+          ${opt.desc ? `<div class="eb-choice-card-description">${escapeHtml(opt.desc)}</div>` : ''}
         </div>`;
-      function applyState(){
-        const isSel = (selected === opt.v);
-        card.classList.toggle('border-emerald-500', isSel);
-        card.classList.toggle('bg-emerald-500/10', isSel);
-      }
       card.addEventListener('click', () => { selected = opt.v; applyAll(); });
       wrap.appendChild(card);
       opt._card = card;
     });
-    function applyAll(){ options.forEach(o => { if (o._card){ o._card.classList.remove('border-emerald-500','bg-emerald-500/10'); } }); options.forEach(o => { if (o._card){ const isSel = (selected===o.v); o._card.classList.toggle('border-emerald-500', isSel); o._card.classList.toggle('bg-emerald-500/10', isSel); } });
+    function applyAll(){
+      options.forEach(o => { if (o._card) o._card.classList.toggle('is-selected', selected === o.v); });
       // ensure a hidden input mirrors selection for submission
       let hid = document.getElementById('rs-method-hidden');
       if (!hid) { hid = document.createElement('input'); hid.type = 'hidden'; hid.id = 'rs-method-hidden'; wrap.parentElement.appendChild(hid); }
@@ -857,11 +1070,11 @@ document.addEventListener('DOMContentLoaded', function () {
 
     async function load(path){
       try {
-        const card = modal.querySelector('.relative.mx-auto');
+        const card = modal.querySelector('.eb-modal');
         window.ebShowLoader?.(card, 'Loading...');
         const res = await fetch(endpoint, { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ action:'browseFs', serviceId, username, deviceId: currentDeviceId, path }) });
         const data = await res.json();
-        if (!data || data.status !== 'success') { fsbList.innerHTML = '<div class="px-3 py-2 text-rose-400 text-sm">Failed to browse.</div>'; return; }
+        if (!data || data.status !== 'success') { fsbList.innerHTML = '<div class="px-3 py-2 eb-text-danger text-sm">Failed to browse.</div>'; return; }
         currentPath = data.path || '';
         renderPath();
         // keep selected path in sync with current folder
@@ -902,9 +1115,9 @@ document.addEventListener('DOMContentLoaded', function () {
           fsbList.appendChild(row);
         });
       } catch (e) {
-        fsbList.innerHTML = '<div class="px-3 py-2 text-rose-400 text-sm">Failed to browse.</div>';
+        fsbList.innerHTML = '<div class="px-3 py-2 eb-text-danger text-sm">Failed to browse.</div>';
       } finally {
-        window.ebHideLoader?.(modal.querySelector('.relative.mx-auto'));
+        window.ebHideLoader?.(modal.querySelector('.eb-modal'));
       }
     }
 
@@ -968,26 +1181,36 @@ document.addEventListener('DOMContentLoaded', function () {
       const p = cur().path || 'Snapshot root';
       if (ssbPath) ssbPath.textContent = p;
     }
+    // Build a snapshot path that matches what the Comet engine recorded at backup time.
+    // Avoids producing things like "C:\\file" or "//home/user/x" by normalizing
+    // any trailing/leading separator on either side of the join.
     function joinPath(base, name){
-      if (!base) return name || '';
-      if (!name) return base;
+      const n = (name == null) ? '' : String(name);
+      const b = (base == null) ? '' : String(base);
+      if (!b) return n;
+      if (!n) return b;
       if (sep === '\\') {
-        if (base.endsWith('\\')) return base + name;
-        if (base.endsWith(':')) return base + '\\' + name;
-        return base + '\\' + name;
+        // Strip trailing backslashes/forward-slashes from base, leading from name.
+        const cleanBase = b.replace(/[\\/]+$/, '');
+        const cleanName = n.replace(/^[\\/]+/, '');
+        // Drive root special case: "C:" -> "C:\file"
+        if (/^[A-Za-z]:$/.test(cleanBase)) return cleanBase + '\\' + cleanName;
+        return cleanBase + '\\' + cleanName;
       }
       // POSIX
-      const b = String(base);
-      if (b === '/') return '/' + name;
-      return b.replace(/\/+$/,'') + '/' + name;
+      if (b === '/') return '/' + n.replace(/^\/+/, '');
+      return b.replace(/\/+$/, '') + '/' + n.replace(/^\/+/, '');
     }
+
     function guessSepFrom(entries){
       if (sepGuessed) return;
       try {
-        const names = (entries || []).map(e => (e && (e.rawName || e.name)) ? String(e.rawName || e.name) : '');
-        if (names.some(n => n === '/' || n.startsWith('/'))) { sep = '/'; sepGuessed = true; return; }
-        if (names.some(n => n.includes(':'))) { sep = '\\'; sepGuessed = true; return; }
-        // default: Windows-style for safety with drive roots, but allow '/' if it looks posixy
+        const names = (entries || []).map(e => (e && (e.name || e.rawName)) ? String(e.name || e.rawName) : '');
+        // POSIX-style if any entry is the root or starts with "/" (and doesn't include backslashes)
+        if (names.some(n => n === '/' || (n.startsWith('/') && !n.includes('\\')))) { sep = '/'; sepGuessed = true; return; }
+        // Windows: any drive-letter root or backslash usage
+        if (names.some(n => /^[A-Za-z]:[\\/]?$/.test(n) || n.includes('\\') || /:[\\/]/.test(n))) { sep = '\\'; sepGuessed = true; return; }
+        // Default to backslash (most Comet F&F deployments are Windows)
         sep = '\\';
         sepGuessed = true;
       } catch (_) {}
@@ -1015,14 +1238,14 @@ document.addEventListener('DOMContentLoaded', function () {
       try {
         const vaultId = rsSelectedVault?.value || '';
         const snapshotId = rsSelectedSnap?.value || '';
-        if (!vaultId || !snapshotId) { ssbList.innerHTML = '<div class="px-3 py-2 text-rose-400 text-sm">Missing vault or snapshot.</div>'; return; }
-        const card = modal.querySelector('.relative.mx-auto');
+        if (!vaultId || !snapshotId) { ssbList.innerHTML = '<div class="px-3 py-2 eb-text-danger text-sm">Missing vault or snapshot.</div>'; return; }
+        const card = modal.querySelector('.eb-modal');
         window.ebShowLoader?.(card, 'Loading snapshot index…');
         const body = { action:'browseSnapshot', serviceId, username, deviceId: currentDeviceId, vaultId, snapshotId };
         if (treeId) body.treeId = treeId;
         const res = await fetch(endpoint, { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(body) });
         const data = await res.json();
-        if (!data || data.status !== 'success') { ssbList.innerHTML = '<div class="px-3 py-2 text-rose-400 text-sm">Failed to browse snapshot.</div>'; return; }
+        if (!data || data.status !== 'success') { ssbList.innerHTML = '<div class="px-3 py-2 eb-text-danger text-sm">Failed to browse snapshot.</div>'; return; }
         const entries = Array.isArray(data.entries) ? data.entries : [];
         guessSepFrom(entries);
         renderPath();
@@ -1039,7 +1262,7 @@ document.addEventListener('DOMContentLoaded', function () {
         });
 
         entries.forEach(e => {
-          const fullPath = joinPath(cur().path, e.rawName || e.name);
+          const fullPath = joinPath(cur().path, e.name || e.rawName);
           const row = document.createElement('div');
           row.className = 'grid grid-cols-12 items-center px-3 py-2 hover:bg-slate-800';
           const icon = e.isDir
@@ -1053,15 +1276,15 @@ document.addEventListener('DOMContentLoaded', function () {
           const when = e.mtime ? new Date(e.mtime*1000).toLocaleString() : '';
           const checked = rsSelectedPathsSet.has(fullPath);
           const chevron = e.isDir
-            ? `<svg class="h-4 w-4 text-slate-400 group-hover:text-slate-200" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>`
+            ? `<svg class="h-4 w-4 eb-text-muted group-hover:text-[var(--eb-text-primary)]" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>`
             : '';
           row.innerHTML = `
             <div class="col-span-1">
-              <input type="checkbox" class="h-4 w-4 rounded border-slate-600 bg-slate-800 text-sky-600 focus:ring-0 focus:outline-none" ${checked ? 'checked' : ''}>
+              <input type="checkbox" class="eb-check-input" ${checked ? 'checked' : ''}>
             </div>
-            <div class="col-span-7 truncate text-slate-200 leading-5 cursor-pointer flex items-center gap-1 min-w-0 group">${icon}<span class="truncate">${escapeHtml(e.name || e.rawName || '')}</span><span class="ml-auto shrink-0">${chevron}</span></div>
-            <div class="col-span-1 text-slate-400 text-xs">${typeLabel}</div>
-            <div class="col-span-3 text-slate-400 text-xs text-right">${when}</div>
+            <div class="col-span-7 truncate text-[var(--eb-text-primary)] leading-5 cursor-pointer flex items-center gap-1 min-w-0 group">${icon}<span class="truncate">${escapeHtml(e.name || e.rawName || '')}</span><span class="ml-auto shrink-0">${chevron}</span></div>
+            <div class="col-span-1 eb-text-muted text-xs">${typeLabel}</div>
+            <div class="col-span-3 eb-text-muted text-xs text-right">${when}</div>
           `;
           const chk = row.querySelector('input[type="checkbox"]');
           chk?.addEventListener('change', () => {
@@ -1074,7 +1297,7 @@ document.addEventListener('DOMContentLoaded', function () {
           row.querySelector('.col-span-7')?.addEventListener('click', () => {
             if (e.isDir && e.subtree) {
               // enter folder
-              const nextPath = joinPath(cur().path, e.rawName || e.name);
+              const nextPath = joinPath(cur().path, e.name || e.rawName);
               stack.push({ treeId: e.subtree, path: nextPath });
               renderPath();
               load(e.subtree);
@@ -1085,9 +1308,9 @@ document.addEventListener('DOMContentLoaded', function () {
 
         rsUpdateSnapSelectedCount();
       } catch (e) {
-        ssbList.innerHTML = '<div class="px-3 py-2 text-rose-400 text-sm">Failed to browse snapshot.</div>';
+        ssbList.innerHTML = '<div class="px-3 py-2 eb-text-danger text-sm">Failed to browse snapshot.</div>';
       } finally {
-        window.ebHideLoader?.(modal.querySelector('.relative.mx-auto'));
+        window.ebHideLoader?.(modal.querySelector('.eb-modal'));
       }
     }
 

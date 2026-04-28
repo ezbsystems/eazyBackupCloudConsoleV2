@@ -1,30 +1,16 @@
 <?php
 
 require_once __DIR__ . '/../../../../init.php';
+require_once __DIR__ . '/../lib/Client/AgentIngestSupport.php';
 
 use Illuminate\Database\Capsule\Manager as Capsule;
-use WHMCS\Module\Addon\CloudStorage\Client\UuidBinary;
 use Symfony\Component\HttpFoundation\JsonResponse;
+use WHMCS\Module\Addon\CloudStorage\Client\UuidBinary;
+use WHMCS\Module\Addon\CloudStorage\Client\AgentIngestSupport;
 
 if (!defined("WHMCS")) {
     die("This file cannot be accessed directly");
 }
-
-// #region agent log
-function debugLog(string $message, array $data, string $hypothesisId): void
-{
-    $entry = [
-        'id' => uniqid('log_', true),
-        'timestamp' => (int) round(microtime(true) * 1000),
-        'location' => 'agent_push_events.php:debug',
-        'message' => $message,
-        'data' => $data,
-        'runId' => isset($data['run_id']) ? ('run_' . $data['run_id']) : 'run_unknown',
-        'hypothesisId' => $hypothesisId,
-    ];
-    @file_put_contents('/var/www/eazybackup.ca/.cursor/debug.log', json_encode($entry) . PHP_EOL, FILE_APPEND);
-}
-// #endregion
 
 function respond(array $data, int $httpCode = 200): void
 {
@@ -109,6 +95,11 @@ if ((!is_array($events) || empty($events)) && (!is_array($logEntries) || empty($
 
 $agent = authenticateAgent();
 
+$gate = AgentIngestSupport::checkMinAgentVersion($agent, $body);
+if ($gate !== null) {
+    respond($gate[0], $gate[1]);
+}
+
 $run = Capsule::table('s3_cloudbackup_runs as r')
     ->join('s3_cloudbackup_jobs as j', 'r.job_id', '=', 'j.job_id')
     ->whereRaw('r.run_id = ' . UuidBinary::toDbExpr(UuidBinary::normalize($runId)))
@@ -124,80 +115,87 @@ if (!empty($run->agent_uuid) && (string) $run->agent_uuid !== (string) $agent->a
     respond(['status' => 'fail', 'message' => 'Run not assigned to this agent'], 403);
 }
 
+// Enforce per-run cap. Once we hit the cap, drop additional events and record
+// a single EVENTS_TRUNCATED row (idempotent: skip if one already exists for run).
+$maxPerRun = AgentIngestSupport::maxEventsPerRun();
+$runIdExpr = UuidBinary::toDbExpr(UuidBinary::normalize($runId));
+$currentCount = (int) Capsule::table('s3_cloudbackup_run_events')
+    ->whereRaw('run_id = ' . $runIdExpr)
+    ->count();
+
 $rows = [];
 $nowMicro = microtime(true);
-$eventCodes = [];
-$interestingCodes = [
-    'KOPIA_PROGRESS_UPDATE' => true,
-    'DISK_IMAGE_STALLED' => true,
-    'DISK_IMAGE_FINALIZING_SLOW' => true,
-    'DISK_IMAGE_FINALIZING_STALLED' => true,
-    'DISK_IMAGE_STREAM_START' => true,
-    'DISK_IMAGE_STREAM_COMPLETED' => true,
-    'KOPIA_UPLOAD_START' => true,
-    'KOPIA_UPLOAD_CALL_START' => true,
-    'KOPIA_UPLOAD_CALL_DONE' => true,
-    'KOPIA_UPLOAD_FINISHED' => true,
-    'KOPIA_UPLOAD_FAILED' => true,
-    'KOPIA_PREVIOUS_SNAPSHOTS' => true,
-    'CANCEL_REQUESTED' => true,
-    'CANCELLED' => true,
-];
+$truncated = false;
+$dropped = 0;
 
-foreach ($events as $event) {
-    if (!is_array($event)) {
-        continue;
-    }
-    $code = $event['code'] ?? null;
-    if ($code === null) {
-        // Fall back to message_id when code is absent (agent events often omit code)
-        $code = $event['message_id'] ?? '';
-    }
-    $params = $event['params_json'] ?? null;
-    if (is_array($params)) {
-        $params = json_encode($params);
-    }
-    if ($params === null) {
-        // Ensure params_json is never NULL for DB insert
-        $params = '';
-    }
-
-    $rows[] = [
-        'run_id' => Capsule::raw(UuidBinary::toDbExpr(UuidBinary::normalize($runId))),
-        'ts' => date('Y-m-d H:i:s.u', $nowMicro),
-        'type' => $event['type'] ?? 'info',
-        'level' => $event['level'] ?? 'info',
-        'code' => $code,
-        'message_id' => $event['message_id'] ?? null,
-        'params_json' => $params,
-    ];
-    $eventCodes[] = (string) $code;
-    if (isset($interestingCodes[$code])) {
-        $paramsPreview = '';
-        $paramsDecoded = null;
-        if (is_string($params) && $params !== '') {
-            $paramsPreview = strlen($params) > 400 ? substr($params, 0, 400) . '…' : $params;
-            $decoded = json_decode($params, true);
-            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
-                $paramsDecoded = $decoded;
-            }
+if ($currentCount >= $maxPerRun) {
+    $truncated = true;
+    $dropped = is_array($events) ? count($events) : 0;
+} else {
+    $allowed = max(0, $maxPerRun - $currentCount);
+    foreach ($events as $idx => $event) {
+        if (!is_array($event)) {
+            continue;
         }
-        // #region agent log
-        debugLog('agent_event', [
-            'run_id' => $runId,
-            'code' => (string) $code,
-            'type' => (string) ($event['type'] ?? ''),
-            'level' => (string) ($event['level'] ?? ''),
-            'has_params' => $params !== '',
-            'params_preview' => $paramsPreview,
-            'params_decoded' => $paramsDecoded,
-        ], 'H1');
-        // #endregion
+        if (count($rows) >= $allowed) {
+            $truncated = true;
+            $dropped++;
+            continue;
+        }
+        $code = $event['code'] ?? null;
+        if ($code === null) {
+            // Fall back to message_id when code is absent (agent events often omit code)
+            $code = $event['message_id'] ?? '';
+        }
+        $params = $event['params_json'] ?? null;
+        if (is_array($params)) {
+            $params = json_encode($params);
+        }
+        if ($params === null) {
+            $params = '';
+        }
+
+        $rows[] = [
+            'run_id' => Capsule::raw($runIdExpr),
+            'ts' => date('Y-m-d H:i:s.u', $nowMicro),
+            'type' => $event['type'] ?? 'info',
+            'level' => $event['level'] ?? 'info',
+            'code' => $code,
+            'message_id' => $event['message_id'] ?? null,
+            'params_json' => $params,
+        ];
     }
 }
 
 if (!empty($rows)) {
     Capsule::table('s3_cloudbackup_run_events')->insert($rows);
+}
+
+if ($truncated) {
+    // Idempotent EVENTS_TRUNCATED marker: ensure at most one per run.
+    $existsTrunc = Capsule::table('s3_cloudbackup_run_events')
+        ->whereRaw('run_id = ' . $runIdExpr)
+        ->where('code', 'EVENTS_TRUNCATED')
+        ->limit(1)
+        ->exists();
+    if (!$existsTrunc) {
+        try {
+            Capsule::table('s3_cloudbackup_run_events')->insert([
+                'run_id' => Capsule::raw($runIdExpr),
+                'ts' => date('Y-m-d H:i:s.u', microtime(true)),
+                'type' => 'warning',
+                'level' => 'warn',
+                'code' => 'EVENTS_TRUNCATED',
+                'message_id' => 'EVENTS_TRUNCATED',
+                'params_json' => json_encode([
+                    'cap' => $maxPerRun,
+                    'note' => 'Per-run event cap reached; further events dropped.',
+                ]),
+            ]);
+        } catch (\Throwable $e) {
+            logModuleCall('cloudstorage', 'agent_push_events_truncated_marker_error', ['run_id' => $runId], $e->getMessage());
+        }
+    }
 }
 
 // Optional: store structured logs for this run
@@ -231,15 +229,11 @@ if ($logRef !== null && Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'log
         ->update(['log_ref' => $logRef, 'updated_at' => Capsule::raw('NOW()')]);
 }
 
-// #region agent log
-debugLog('agent_events_batch', [
-    'run_id' => $runId,
-    'events_count' => is_array($events) ? count($events) : 0,
-    'logs_count' => is_array($logEntries) ? count($logEntries) : 0,
-    'log_ref' => $logRef !== null ? (string) $logRef : null,
-    'codes_sample' => array_slice($eventCodes, 0, 5),
-], 'H2');
-// #endregion
-
-respond(['status' => 'success', 'inserted' => count($rows), 'logs_inserted' => $logRowsInserted, 'log_ref' => $logRef]);
-
+respond([
+    'status' => 'success',
+    'inserted' => count($rows),
+    'dropped' => $dropped,
+    'truncated' => $truncated,
+    'logs_inserted' => $logRowsInserted,
+    'log_ref' => $logRef,
+]);

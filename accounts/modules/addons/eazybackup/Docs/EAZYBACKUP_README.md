@@ -1888,3 +1888,327 @@ tblhostingconfigoptions.optionid links to the tblpricing.relid
 ## Table tblpricing:
 tblpricing stores pricing information for the products and configurable options.
 tblpricing.relid links to the tblhostingconfigoptions.optionid
+
+## Developer Notes – Job Modal "Open Support Ticket" Handoff
+
+### Overview
+- One-click handoff from a problematic backup job (Warning / Error / Missed / Timeout) to the WHMCS create-ticket flow.
+- The customer stays inside `submitticket.php?step=2` so all WHMCS rules (department routing, captcha, custom fields, validation) still apply.
+- Subject and message body are pre-filled. The full job log is auto-attached as both a human-readable `.txt` and a machine-friendly `.csv`.
+- Up to 3 KB hint links from `docs.eazybackup.com` are surfaced inside the modal before the redirect (curated mappings first, GitBook live index second), so customers can self-help when applicable.
+- An open-ticket dedupe check warns the customer if they already have an open ticket about the same Job ID in the last 7 days.
+
+### High-Level Flow
+
+```
+Job Report Modal (status ∈ Warning|Error|Missed|Timeout)
+   ▼  click "Open Support Ticket"
+job-ticket.js:
+  - POST ?a=job-reports&action=ticketContext  → subject, body, deptId, kbHints, customFieldId, jobMeta
+  - POST ?a=job-reports&action=ticketDuplicateCheck → existing ticket if any
+  - Renders preview/dedupe panel inside the modal (KB links + dedupe warning)
+   ▼  click "Continue to ticket"
+  - Builds job-<id>.txt + job-<id>.csv from modal._ebJobLogRows (the same array used by Export CSV)
+  - sessionStorage.setItem('eb_ticket_<jobId>', { subject, body, deptId, customFieldId, files:[…base64…] })
+  - window.location → submitticket.php?step=2&deptid=1&subject=…&eb_job=<jobId>
+   ▼
+WHMCS create-ticket form loads the eazyBackup steptwo template
+ticket-prefill.js:
+  - Reads sessionStorage['eb_ticket_<jobId>']
+  - Hydrates #inputSubject + #inputMessage (fallback if Smarty did not pre-render)
+  - Reconstructs File objects from base64 and assigns them to #inputAttachments via DataTransfer
+  - For the second file, calls the existing extraTicketAttachment() helper to spawn another <input type=file> slot
+  - Writes a hidden customfield[<id>]=<jobId> input so the new ticket is tagged with eb_job_id
+  - Reveals the green "Backup log auto-attached" banner (or amber fallback banner if it had to download)
+  - sessionStorage.removeItem on success
+```
+
+### Files Involved
+
+Backend:
+- `accounts/modules/addons/eazybackup/pages/console/job-reports.php`
+  - `case 'ticketContext'` — composes subject + body, resolves friendly device/vault/protected-item names, computes priority (`High` for Error, `Medium` otherwise), invokes `KbSuggester`, returns the `eb_job_id` custom-field id.
+  - `case 'ticketDuplicateCheck'` — joins `tblcustomfieldsvalues` × `tbltickets` for the logged-in client, last 7 days, status != Closed, value == jobId.
+- `accounts/modules/addons/eazybackup/lib/KbSuggester.php` — hybrid KB lookup (curated map first, GitBook site-index keyword scoring second).
+- `accounts/modules/addons/eazybackup/data/kb-curated.json` — admin-editable starter mappings (VSS, locked file, network/UNC, quota, vault auth, antivirus, M365, Hyper-V, Disk Image).
+- `accounts/modules/addons/eazybackup/cache/kb-search/` — file cache for KB suggestions and the GitBook site-index. One JSON file per signature, sha256-keyed, TTL embedded.
+- `accounts/modules/addons/eazybackup/eazybackup.php` — `eazybackup_activate()` ensures the `eb_job_id` support custom field exists (Technical Support, admin-only text).
+- `accounts/includes/hooks/eb_ticket_enrichment.php` — optional `TicketOpen` hook that auto-posts an admin-only ticket note with last 5 jobs / device state / vault summary when the ticket has `eb_job_id` set.
+
+Frontend (modal side):
+- `accounts/modules/addons/eazybackup/templates/console/partials/job-report-modal.tpl` — owns the toolbar (now uses an Alpine `eb-menu-trigger` for the Log entries filter) and the full-width preview/dedupe panel directly under the toolbar.
+- `accounts/modules/addons/eazybackup/templates/console/partials/job-report-ticket-button.tpl` — the trigger button include (lives inside the toolbar).
+- `accounts/modules/addons/eazybackup/assets/js/job-reports.js` — emits two `CustomEvent`s consumed by the new feature:
+  - `eb:job-loaded` (after summary load) → `{ serviceId, username, jobId, status, job }`
+  - `eb:job-logs-loaded` (after log rows load) → `{ serviceId, username, jobId, rows }`
+- `accounts/modules/addons/eazybackup/templates/assets/js/job-ticket.js` — listens to those events, decides eligibility, owns the preview/dedupe panel, builds the log files and sessionStorage payload, redirects.
+- `accounts/modules/addons/eazybackup/templates/clientarea/dashboard.tpl` and `accounts/modules/addons/eazybackup/templates/console/user-profile.tpl` — load `job-ticket.js` and expose `window.EB_WEB_ROOT` for the redirect.
+
+Frontend (ticket form side):
+- `accounts/templates/eazyBackup/supportticketsubmit-steptwo.tpl` — green/amber banner placeholder + privacy note (only when `?eb_job=` is present) and the `ticket-prefill.js` script tag.
+- `accounts/modules/addons/eazybackup/templates/assets/js/ticket-prefill.js` — drains sessionStorage, attaches files, populates the hidden custom field, handles fallbacks.
+
+### Database
+
+- `tblcustomfields` — a single row added by activation:
+  - `type='support'`, `relid=1` (Technical Support), `fieldname='eb_job_id'`, `fieldtype='text'`, `adminonly='on'`.
+  - Used to tag tickets with their originating Job ID so the dedupe check and the optional enrichment hook can find them.
+- `tblcustomfieldsvalues` — populated by WHMCS on ticket submit because the form posts `customfield[<id>]=<jobId>` (set by `ticket-prefill.js`).
+- No new tables.
+
+### Subject + Body Templates
+
+Subject (server-composed):
+```
+Backup {Status}: {DeviceFriendlyName} - {ProtectedItemDescription} - {Y-m-d}
+```
+Examples:
+- `Backup Warning: ACME-PC1 - Files and Folders - 2026-04-28`
+- `Backup Error: SERVER01 - SQL Daily - 2026-04-28`
+
+Body:
+```
+Hello eazyBackup Support,
+
+I noticed a backup job on my account finished with a {Status} and would
+appreciate someone taking a look. The full job log is attached.
+
+Backup account: {Username}
+Device:         {DeviceFriendlyName}
+Protected Item: {ProtectedItemDescription}
+Storage Vault:  {VaultDescription}
+Job Type:       {FriendlyJobType}
+Job Status:     {Status}
+Started:        {Started}
+Ended:          {Ended}
+Duration:       {Duration}
+Client Version: {ClientVersion}
+Job ID:         {jobId}
+
+Thanks,
+{ClientFirstName}
+```
+
+### Attachments
+
+- Built in the browser from `modal._ebJobLogRows` (the same array `Export CSV` already uses).
+- `job-<id>.txt` — `YYYY-MM-DD HH:MM:SS UTC  WARNING  <message>` lines, with a header block of job metadata. Capped at ~1.5 MB; if exceeded, only Warning + Error lines are kept and a header note explains the truncation.
+- `job-<id>.csv` — `UnixTime, Timestamp, Severity, Message`. Also size-capped.
+- The full payload (subject + body + base64 file blobs) is stashed in `sessionStorage` under `eb_ticket_<jobId>` and capped at ~3 MB. If exceeded (or if `sessionStorage.setItem` throws a quota error), `job-ticket.js` automatically downloads both files and sets a `downloadedFallback` flag on the payload, which triggers an amber "please attach the downloaded files" banner on the ticket form.
+- Browser support for populating `<input type=file>` is via `DataTransfer`. If the runtime doesn't support it (very old browsers), `ticket-prefill.js` falls back to downloading + amber banner.
+
+### KB Suggestions (Hybrid)
+
+- `KbSuggester::suggest($logRows, $jobType, $status)` returns up to 3 hints with shape `{ title, url, source: 'curated'|'gitbook', matchedPattern?, snippet? }`.
+- Step 1 — signature extraction: the helper groups all `Severity ∈ {W, E}` messages, normalizes them (lowercase, strip Windows/POSIX/UNC paths, GUIDs, hex literals, large numeric IDs, timestamps, collapse whitespace, truncate to 200 chars) and keeps the top 3 by frequency. If the log has no warnings/errors, falls back to `<status> <jobType>` as a single seed signature.
+- Step 2 — curated lookup: for each signature, walks `data/kb-curated.json` (an array of `{ name, patterns[], title, url }` objects). Patterns are PHP-compatible regex, case-insensitive. First match wins per entry.
+- Step 3 — GitBook live lookup: for any signature without a curated hit, hits `https://docs.eazybackup.com/~gitbook/site-index` (a small `~33 KB` static JSON returned by the GitBook hosted site at v2). Each `{title, pathname}` page is tokenized and scored by keyword overlap with the signature. Top 3 by score (tie-break on shorter title) are returned.
+  - Important: GitBook's `/~gitbook/search` endpoint returns 405 on direct GETs and is not used. The site-index endpoint is the public, reliable source we hit instead.
+- File cache layout (under `accounts/modules/addons/eazybackup/cache/kb-search/`):
+  - One JSON per cache key; `{ written_at, expires_at, data }`.
+  - Per-signature: 6h TTL on hits, 30 min TTL on empty results so a temporary GitBook hiccup doesn't stick.
+  - Site-index entry: 1h TTL.
+  - All keys include the cache-version suffix `EB_KB_CACHE_VER` so the entire cache can be busted by bumping it.
+- Circuit breaker: 3 GitBook failures within a 10-minute window flip a flag that suppresses live calls for 1 hour. Curated lookups continue to work in suppressed mode.
+
+### Configuration (`.env`)
+
+```
+# All optional; defaults shown
+EB_KB_GITBOOK_URL=https://docs.eazybackup.com    # base URL for the site-index fetch
+EB_KB_DISABLE=0                                  # 1 = curated only, no live calls
+EB_KB_CACHE_TTL=21600                            # per-signature hit TTL (seconds)
+EB_KB_CACHE_VER=1                                # bump to invalidate all cached results
+EB_TICKET_ENRICHMENT=0                           # 1 = enable the TicketOpen enrichment hook
+```
+
+### Eligibility Rules
+
+- The "Open Support Ticket" button only renders for status `Warning`, `Error`, `Missed`, or `Timeout` (status is normalized via `EB.humanStatus()`).
+- It is hidden for `Success`, `Running`, `Skipped`, `Cancelled`, `Unknown`.
+- Clicking the button hides the trigger and reveals a full-width preview panel directly under the modal toolbar. The Cancel button (or any modal close action) restores the trigger button.
+
+### Self-Help / Dedupe Panel
+
+The panel rendered before the redirect contains:
+- The composed subject (read-only preview).
+- Up to 3 KB hint links, each labeled `Curated` (emerald) or `docs.eazybackup.com` (slate) so customers can tell apart human-curated and live-index suggestions.
+- If `ticketDuplicateCheck` returned an existing open ticket for the same Job ID in the last 7 days, an amber banner with a deep link to `viewticket.php?tid=<tid>`.
+- A primary "Continue to ticket" button and a secondary Cancel.
+
+### Security / Scoping
+
+- `ticketContext` and `ticketDuplicateCheck` live inside the existing `pages/console/job-reports.php` switch which already verifies `tblhosting.userid == current uid`. No new attack surface.
+- The dedupe SQL joins `tblcustomfieldsvalues` × `tbltickets` and filters by `t.userid = $clientId`, so a customer cannot discover other customers' tickets.
+- `ticket-prefill.js` only reads `sessionStorage` keys it created (`eb_ticket_*`) and removes them after a successful or fallback attach.
+- Privacy disclosure shown on the ticket form: "The attached log may contain file and folder names from the affected device. Remove any details you do not want to share before submitting."
+
+### Optional: TicketOpen Enrichment Hook
+
+`accounts/includes/hooks/eb_ticket_enrichment.php` is shipped disabled. When enabled (set `EB_TICKET_ENRICHMENT=1` or define `EB_TICKET_ENRICHMENT_ENABLED`), it fires on `TicketOpen` and, for any ticket that has the `eb_job_id` custom field populated, posts an admin-only ticket note via `localAPI('AddTicketNote')` containing:
+- Service id + product + status
+- Last 5 entries from `eb_jobs_recent_24h` for that username (and device when known)
+- Device row from `comet_devices` (online state, OS, last update)
+- Vault summary from `comet_vaults` (count + total GiB + per-vault size)
+
+### UI Conventions Used
+
+- Modal: `eb-modal`, `eb-modal-backdrop`, `eb-modal-header`, `eb-modal-title`, `eb-modal-body`.
+- Buttons: `eb-btn`, `eb-btn-primary`, `eb-btn-outline`, `eb-btn-xs`.
+- Log entries filter (Alpine): `eb-menu-trigger` + `eb-dropdown-menu` + `eb-menu-option` with `is-active` for the selected option (per `Docs/StyleGuides/SEMANTIC-THEME-REFERENCE.md` §10). A hidden `<select id="jrm-filter">` shim is preserved so the existing `applyFilter()` listener in `assets/js/job-reports.js` keeps working without modification.
+- KB hint badges: `bg-emerald-500/15 text-emerald-300` for curated, `bg-slate-500/20 text-slate-300` for GitBook.
+
+### Test Plan
+
+- Visibility: open jobs of each status from the dashboard timeline pop-overs; confirm the trigger button only shows for Warning / Error / Missed / Timeout.
+- Curated path: open a Warning job containing a VSS line; expect the curated VSS article with the "Curated" label.
+- Live path: open a job with a novel error; expect 1-3 GitBook links, sourced from the site-index.
+- Cache: open the same job twice in quick succession; verify a `<sha256>.json` appears under `cache/kb-search/`.
+- Kill switch: set `EB_KB_DISABLE=1`, re-open the job; expect curated-only output and zero outbound calls.
+- Dedupe: submit a ticket from a job, then re-open the same job within 7 days; expect the amber dedupe banner with a working link.
+- Attachment success: submit the ticket end-to-end and verify both `job-<id>.txt` and `job-<id>.csv` appear on the admin ticket page; the `eb_job_id` custom field shows the Job ID.
+- Attachment fallback: in DevTools set `window.DataTransfer = undefined` before clicking Continue; expect the browser to download both files and the form to show the amber "please attach" banner.
+- Hide-on-open UX: click "Open Support Ticket" — trigger button disappears, panel renders below toolbar. Click Cancel — panel disappears, trigger reappears (still eligible).
+- Optional enrichment: set `EB_TICKET_ENRICHMENT=1`, open a ticket from a job; verify an admin-only note appears on the new ticket with the context block.
+
+## Developer Notes – Client Area Notifications ("What's New")
+
+### Overview
+- Admin-managed announcements that appear as a single consolidated dismissable modal on every WHMCS client area page for matching, undismissed clients.
+- Authoring lives under WHMCS admin → eazyBackup Power Panel → **Notifications** tab.
+- Two-state lifecycle (`draft`, `published`) with optional audience targeting (all clients, specific products, client groups, or individual client IDs).
+- Per-client/per-user dismissal that persists across pages and devices.
+
+### Where it appears
+- The modal is rendered globally by `ClientAreaFooterOutput` so it shows on any client area page (dashboard, billing, services, support, etc.) until the customer dismisses each card.
+- The modal title is "What's New" with a subtitle showing the count of remaining undismissed notifications. The customer can dismiss cards one at a time or close the modal entirely (open cards reappear on the next page load).
+
+### Files Involved
+
+Backend:
+- `accounts/modules/addons/eazybackup/eazybackup.php`
+  - `eazybackup_migrate_schema()` creates `eb_notifications` and `eb_notification_targets` if missing, plus a helpful index on `mod_eazybackup_dismissals`.
+  - `eb_get_active_notifications_for_client(int $clientId, ?int $userId)` returns all published, undismissed notifications visible to a given client/user, applying audience filtering in PHP for OR-style matches across product / client_group / client.
+- `accounts/modules/addons/eazybackup/hooks.php`
+  - `ClientAreaPage` hook (priority 1): resolves the active client + user, calls `eb_get_active_notifications_for_client`, exposes `$ebActiveNotifications` and `$ebNotifCsrf` to the template scope.
+  - `ClientAreaFooterOutput` hook (priority 1): includes the modal partial when `$ebActiveNotifications` is non-empty.
+- `accounts/modules/addons/eazybackup/pages/admin/notifications.php` — admin UI: list / new / edit / publish / unpublish / delete. Routed via the eazyBackup Power Panel ( `addonmodules.php?module=eazybackup&action=powerpanel&view=notifications` ). Validates CSRF on POST.
+- `accounts/modules/addons/eazybackup/endpoints/dismiss_notification.php` — JSON dismissal endpoint. Requires WHMCS session + valid CSRF token. Writes to `mod_eazybackup_dismissals` keyed by `notif:<id>` for both `user_id` and `client_id` so dismissals follow the user across logins.
+
+Frontend:
+- `accounts/modules/addons/eazybackup/templates/partials/_notifications_modal.phtml` — the consolidated modal markup (Alpine `ebNotifModal()` component). Styled per `Docs/StyleGuides/SEMANTIC-THEME-REFERENCE.md` §11 (`eb-modal`, `eb-modal-backdrop`, `eb-card`).
+
+### Database
+
+`eb_notifications`:
+| column | type | notes |
+| --- | --- | --- |
+| `id` | INT AUTO_INCREMENT | PK |
+| `title` | VARCHAR(191) | |
+| `body` | TEXT | plain text; `nl2br` + `htmlspecialchars` applied at render time |
+| `status` | ENUM('draft','published') | only `published` rows are exposed to clients |
+| `audience_type` | ENUM('all','filtered') | |
+| `created_by` | INT | admin id |
+| `created_at`, `updated_at`, `published_at` | TIMESTAMP | |
+| KEY `idx_status_published (status, published_at)` | | |
+
+`eb_notification_targets` (only used when `audience_type='filtered'`):
+| column | type | notes |
+| --- | --- | --- |
+| `id` | INT AUTO_INCREMENT | PK |
+| `notification_id` | INT | FK -> `eb_notifications.id` |
+| `target_type` | ENUM('product','client_group','client') | |
+| `target_id` | INT | tblproducts.id / tblclientgroups.id / tblclients.id |
+| UNIQUE `uniq_notif_target (notification_id, target_type, target_id)` | | |
+
+`mod_eazybackup_dismissals` (shared across multiple announcement features):
+| column | type | notes |
+| --- | --- | --- |
+| `user_id` | INT NULL | when dismissed via WHMCS user session |
+| `client_id` | INT NULL | when dismissed via tblclients session |
+| `announcement_key` | VARCHAR(191) | for this feature, `notif:<notificationId>` |
+| `dismissed_at` | TIMESTAMP | |
+| UNIQUE `uniq_user_announcement (user_id, announcement_key)` | | |
+| UNIQUE `uniq_client_announcement (client_id, announcement_key)` | | |
+
+### Audience Targeting
+
+- `audience_type='all'` — visible to every logged-in client until dismissed.
+- `audience_type='filtered'` — match is OR-style across all rows in `eb_notification_targets` for the notification:
+  - `product` — matches if the client has at least one `Active` or `Suspended` service in `tblhosting` for that product id.
+  - `client_group` — matches if `tblclients.groupid` equals the target id.
+  - `client` — matches the specific client id.
+- Filtered notifications must have at least one target row, otherwise the admin save fails validation.
+
+### Lifecycle
+
+```
+admin "New" / "Edit"
+        │
+        ▼
+   eb_notifications (status=draft|published)
+        │ ClientAreaPage hook
+        ▼
+eb_get_active_notifications_for_client()
+   - filter by status=published
+   - filter out dismissed (notif:<id> in mod_eazybackup_dismissals for this client/user)
+   - apply audience targeting
+        │ ClientAreaFooterOutput hook
+        ▼
+_notifications_modal.phtml (Alpine ebNotifModal)
+        │ user clicks Dismiss
+        ▼
+POST /modules/addons/eazybackup/endpoints/dismiss_notification.php
+   - check_token / WHMCS\Security\Token validation
+   - INSERT INTO mod_eazybackup_dismissals (notif:<id>) for both user_id + client_id
+        │ next page load
+        ▼
+   notification no longer surfaces
+```
+
+### Admin Workflow
+
+1. WHMCS admin → eazyBackup Power Panel → **Notifications**.
+2. Click **New Notification**.
+3. Fill in:
+   - **Title** — short headline (max 191 chars).
+   - **Body** — plain text; line breaks preserved, HTML is escaped (no rich formatting).
+   - **Audience** — `All clients` or `Filtered`. For `Filtered`, choose any combination of products, client groups, and specific client IDs.
+4. Save options:
+   - **Save Draft** — keeps `status='draft'`; not visible to clients.
+   - **Save & Publish** — sets `status='published'` and stamps `published_at`.
+5. Existing notifications can be Published / Unpublished / Deleted from the list view. Deleting also removes related rows in `eb_notification_targets` and the matching `mod_eazybackup_dismissals` records (so re-creating with the same id won't surface as dismissed).
+6. The list view shows a per-notification reach count (distinct clients/users who have already dismissed it) computed from `mod_eazybackup_dismissals`.
+
+### Suggested Authoring Conventions
+
+- Keep the **title** under ~60 chars so it reads cleanly on mobile (`eb-card-title` truncates gracefully but shorter is better).
+- Keep the **body** to ~50-90 words. The modal scrolls but customers do not.
+- Use a stable mental "key" per announcement (e.g. `support-ticket-handoff-2026-04`) when planning, even though the actual `announcement_key` is auto-derived as `notif:<id>`. This keeps a paper trail in your release notes.
+- Do not edit the body of a published notification to switch topic — re-dismissed customers will miss the new content. Publish a new notification instead.
+- For feature launches that benefit a sub-segment (e.g. MSPs), filter by client group or by the relevant product so non-impacted customers don't see noise.
+
+### Security
+
+- Admin write paths validate the WHMCS admin CSRF token (`check_token('WHMCS.admin.default')`) and require `$_SESSION['adminid'] > 0`.
+- The dismissal endpoint requires an authenticated client/user session and a valid CSRF token (the modal partial injects `$ebNotifCsrf` for the Alpine component).
+- Body is plain text; rendering uses `htmlspecialchars(..., ENT_QUOTES, 'UTF-8')` followed by `nl2br()`. There is no HTML/JS injection surface for admins or customers.
+- The dismissal endpoint will only accept `notification_id` values that resolve to a `published` row, blocking attempts to dismiss draft or deleted ids.
+
+### UI Conventions
+
+- Modal: `eb-modal`, `eb-modal-backdrop`, `eb-modal-header`, `eb-modal-title`, `eb-modal-subtitle`, `eb-modal-close`, `eb-modal-body` (per `Docs/StyleGuides/SEMANTIC-THEME-REFERENCE.md` §11).
+- Each notification card uses `eb-card` + `eb-card-title`, with a small `published_at` line under the title. Dismiss action is a button styled as a quiet outline action.
+- Alpine component (`ebNotifModal`) tracks `dismissed[id]` locally for instant UI response and only opens when there is at least one undismissed item.
+
+### Test Plan
+
+- Create a draft, verify it does not appear in the client area.
+- Publish to `All clients`; verify it appears for any logged-in client.
+- Filter to a product, verify only clients with active/suspended services for that product see it.
+- Filter to a client group, verify only members see it.
+- Filter to specific client IDs, verify only those clients see it.
+- Dismiss a notification as a logged-in client; verify it disappears, and the row exists in `mod_eazybackup_dismissals` keyed by `notif:<id>`.
+- Log out and back in as the same client; verify the notification stays dismissed (dismissal is per-user/client, not per-session).
+- Delete the notification from admin; verify the dismissal rows are cleaned up so a future notification with the same id starts fresh.
+- POST to the dismiss endpoint without a session → 401; with an invalid CSRF token → 400; with an unknown id → 404.

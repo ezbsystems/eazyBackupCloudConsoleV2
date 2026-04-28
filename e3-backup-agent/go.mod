@@ -6,12 +6,14 @@ toolchain go1.24.10
 
 require (
 	github.com/getlantern/systray v1.2.2
+	github.com/go-ole/go-ole v1.3.0
 	github.com/hpcloud/tail v1.0.0
 	github.com/kardianos/service v1.2.2
 	github.com/kopia/kopia v0.9.8
 	github.com/mxk/go-vss v1.2.0
 	github.com/rclone/rclone v1.67.0
 	golang.org/x/net v0.26.0
+	golang.org/x/sys v0.38.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -37,7 +39,6 @@ require (
 	github.com/getlantern/ops v0.0.0-20190325191751-d70cb0d6f85f // indirect
 	github.com/go-chi/chi/v5 v5.0.12 // indirect
 	github.com/go-git/go-billy/v5 v5.5.0 // indirect
-	github.com/go-ole/go-ole v1.3.0 // indirect
 	github.com/go-stack/stack v1.8.0 // indirect
 	github.com/gofrs/flock v0.8.1 // indirect
 	github.com/golang/protobuf v1.5.3 // indirect
@@ -85,7 +86,6 @@ require (
 	golang.org/x/crypto v0.24.0 // indirect
 	golang.org/x/exp v0.0.0-20240506185415-9bf2ced13842 // indirect
 	golang.org/x/sync v0.7.0 // indirect
-	golang.org/x/sys v0.38.0 // indirect
 	golang.org/x/term v0.21.0 // indirect
 	golang.org/x/text v0.16.0 // indirect
 	golang.org/x/time v0.5.0 // indirect

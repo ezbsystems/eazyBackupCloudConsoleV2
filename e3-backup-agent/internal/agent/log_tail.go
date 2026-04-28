@@ -17,8 +17,26 @@ const (
 )
 
 var (
-	reSensitiveKV = regexp.MustCompile(`(?i)\b(access[_-]?key|secret|token|password|authorization)\b\s*[:=]\s*([^\s,;]+)`)
+	reSensitiveKV = regexp.MustCompile(`(?i)\b(access[_-]?key|secret|token|password|authorization|enrollment[_-]?token|agent[_-]?token|api[_-]?key|enroll[_-]?password|enroll[_-]?email|aws[_-]?secret[_-]?access[_-]?key|aws[_-]?access[_-]?key[_-]?id)\b\s*[:=]\s*([^\s,;]+)`)
+	// Strip URL credentials of the form scheme://user:pass@host
+	reURLBasicAuth = regexp.MustCompile(`(?i)([a-z][a-z0-9+\-.]*:\/\/)([^\s:@\/]+):([^\s@\/]+)@`)
+	// Bearer / Basic in headers
+	reBearer = regexp.MustCompile(`(?i)(Bearer|Basic)\s+[A-Za-z0-9._\-+/=]+`)
+	// Query-string secrets like ?token=... or ?enrollment_token=...
+	reQuerySecret = regexp.MustCompile(`(?i)([?&](?:token|enrollment[_-]?token|agent[_-]?token|api[_-]?key|sig|signature)=)([^&\s]+)`)
 )
+
+// redactSensitive applies the agent's redaction passes to a block of log text.
+// It is conservative (replaces values with [redacted]) and is intentionally
+// defensive: extra patterns here shrink the surface area of the live tail
+// without affecting structured server-side events.
+func redactSensitive(content string) string {
+	content = reSensitiveKV.ReplaceAllString(content, `$1=[redacted]`)
+	content = reURLBasicAuth.ReplaceAllString(content, `$1[redacted]:[redacted]@`)
+	content = reBearer.ReplaceAllString(content, `$1 [redacted]`)
+	content = reQuerySecret.ReplaceAllString(content, `$1[redacted]`)
+	return content
+}
 
 func executeLogTail(path string, maxBytes int) (string, bool, error) {
 	allowed := map[string]struct{}{
@@ -72,7 +90,7 @@ func executeLogTail(path string, maxBytes int) (string, bool, error) {
 	}
 
 	content := string(bytes.ToValidUTF8(b, []byte("?")))
-	content = reSensitiveKV.ReplaceAllString(content, `$1=[redacted]`)
+	content = redactSensitive(content)
 	return content, truncated, nil
 }
 

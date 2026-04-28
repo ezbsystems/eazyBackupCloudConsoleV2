@@ -4,6 +4,7 @@ use WHMCS\Database\Capsule;
 use WHMCS\Session;
 
 require_once __DIR__ . '/../../../../../modules/servers/comet/functions.php';
+require_once __DIR__ . '/../../lib/KbSuggester.php';
 
 if (!defined('WHMCS')) { die('This file cannot be accessed directly'); }
 
@@ -259,6 +260,197 @@ try {
                 ];
             }
             echo json_encode(['status'=>'success','rows'=>$rows]);
+            break;
+        }
+        case 'ticketContext': {
+            $jobId = (string)($post['jobId'] ?? '');
+            if ($jobId === '') { echo json_encode(['status'=>'error','message'=>'jobId required']); break; }
+
+            $job = $server->AdminGetJobProperties($jobId);
+            if (!$job) { echo json_encode(['status'=>'error','message'=>'Job not found']); break; }
+
+            $friendlyStatus = $normalizeStatus($mapStatus((int)($job->Status ?? 0)));
+            $friendlyType   = \Comet\JobType::toString($job->Classification ?? 0);
+
+            // Resolve friendly device + vault names + protected item description
+            $deviceName = '';
+            $vaultName  = '';
+            $itemDesc   = 'Unknown Item';
+            try {
+                $ph = $server->AdminGetUserProfileAndHash($username);
+                if ($ph && $ph->Profile) {
+                    $devId = (string)($job->DeviceID ?? '');
+                    if ($devId && isset($ph->Profile->Devices[$devId])) {
+                        $deviceName = (string)($ph->Profile->Devices[$devId]->FriendlyName ?? '');
+                    }
+                    $dGuid = (string)($job->DestinationGUID ?? '');
+                    if ($dGuid && isset($ph->Profile->Destinations[$dGuid])) {
+                        $vaultName = (string)($ph->Profile->Destinations[$dGuid]->Description ?? '');
+                    }
+                }
+                $descMap = \Comet\CometItem::getProtectedItemDescriptions($server, $username, [(string)($job->SourceGUID ?? '')]);
+                if (isset($descMap[(string)($job->SourceGUID ?? '')])) {
+                    $itemDesc = (string)$descMap[(string)($job->SourceGUID ?? '')];
+                }
+            } catch (\Throwable $e) {}
+
+            // Pull log entries for KB suggester + size hint
+            $logRows = [];
+            try {
+                $entries = $server->AdminGetJobLogEntries($jobId);
+                foreach ($entries as $e) {
+                    $logRows[] = [
+                        'Time'     => (int)($e->Time ?? 0),
+                        'Severity' => (string)($e->Severity ?? ''),
+                        'Message'  => (string)($e->Message ?? ''),
+                    ];
+                }
+            } catch (\Throwable $e) {}
+
+            // Client first name for body signature
+            $firstName = '';
+            try {
+                $client = Capsule::table('tblclients')->where('id', $clientId)->select('firstname')->first();
+                if ($client) { $firstName = (string)($client->firstname ?? ''); }
+            } catch (\Throwable $e) {}
+
+            $startedTs = (int)($job->StartTime ?? 0);
+            $endedTs   = (int)($job->EndTime ?? 0);
+            $fmtTs = function ($ts) {
+                if (!$ts) return '';
+                return date('Y-m-d H:i:s', (int)$ts);
+            };
+            $fmtDur = function ($s) {
+                $s = max(0, (int)$s);
+                if ($s < 60) return $s . 's';
+                if ($s < 3600) return floor($s/60) . 'm ' . ($s%60) . 's';
+                $h = floor($s/3600); $m = floor(($s%3600)/60);
+                return $h . 'h ' . $m . 'm';
+            };
+            $durationStr = ($startedTs && $endedTs) ? $fmtDur($endedTs - $startedTs) : '';
+            $dateStr     = $startedTs ? date('Y-m-d', $startedTs) : date('Y-m-d');
+
+            $deviceForSubject = $deviceName !== '' ? $deviceName : (string)($job->Device ?? '');
+            $itemForSubject   = $itemDesc !== '' ? $itemDesc : 'Backup Job';
+
+            $subject = trim(sprintf(
+                'Backup %s: %s - %s - %s',
+                $friendlyStatus,
+                $deviceForSubject !== '' ? $deviceForSubject : 'Device',
+                $itemForSubject,
+                $dateStr
+            ));
+
+            $bodyLines = [];
+            $bodyLines[] = "Hello eazyBackup Support,";
+            $bodyLines[] = "";
+            $bodyLines[] = "I noticed a backup job on my account finished with a {$friendlyStatus} and would";
+            $bodyLines[] = "appreciate someone taking a look. The full job log is attached.";
+            $bodyLines[] = "";
+            $bodyLines[] = "Backup account: {$username}";
+            $bodyLines[] = "Device:         " . ($deviceForSubject !== '' ? $deviceForSubject : '(unknown)');
+            $bodyLines[] = "Protected Item: {$itemForSubject}";
+            $bodyLines[] = "Storage Vault:  " . ($vaultName !== '' ? $vaultName : '(unknown)');
+            $bodyLines[] = "Job Type:       {$friendlyType}";
+            $bodyLines[] = "Job Status:     {$friendlyStatus}";
+            $bodyLines[] = "Started:        " . $fmtTs($startedTs);
+            $bodyLines[] = "Ended:          " . $fmtTs($endedTs);
+            $bodyLines[] = "Duration:       {$durationStr}";
+            $bodyLines[] = "Client Version: " . (string)($job->ClientVersion ?? '');
+            $bodyLines[] = "Job ID:         {$jobId}";
+            $bodyLines[] = "";
+            $bodyLines[] = "Thanks,";
+            $bodyLines[] = $firstName !== '' ? $firstName : '';
+            $bodyMarkdown = implode("\n", $bodyLines);
+
+            // Priority hint
+            $priority = 'Medium';
+            if (strcasecmp($friendlyStatus, 'Error') === 0) $priority = 'High';
+
+            // KB hints (curated + GitBook site-index)
+            $kbHints = [];
+            try {
+                $kb = new \EazyBackup\Lib\KbSuggester(__DIR__ . '/../..');
+                $kbHints = $kb->suggest($logRows, $friendlyType, $friendlyStatus);
+            } catch (\Throwable $e) {}
+
+            // Custom field id (may be 0 if module hasn't been re-activated yet)
+            $customFieldId = 0;
+            try {
+                $cf = Capsule::table('tblcustomfields')
+                    ->where('type', 'support')
+                    ->where('fieldname', 'eb_job_id')
+                    ->select('id')->first();
+                if ($cf) { $customFieldId = (int)$cf->id; }
+            } catch (\Throwable $e) {}
+
+            $errorCount = 0; $warnCount = 0;
+            foreach ($logRows as $r) {
+                $sev = strtoupper((string)($r['Severity'] ?? ''));
+                if ($sev === 'E') $errorCount++;
+                elseif ($sev === 'W') $warnCount++;
+            }
+
+            echo json_encode([
+                'status'        => 'success',
+                'subject'       => $subject,
+                'bodyMarkdown'  => $bodyMarkdown,
+                'deptId'        => 1,
+                'priority'      => $priority,
+                'jobMeta'       => [
+                    'jobId'       => $jobId,
+                    'status'      => $friendlyStatus,
+                    'type'        => $friendlyType,
+                    'device'      => $deviceForSubject,
+                    'item'        => $itemForSubject,
+                    'vault'       => $vaultName,
+                    'started'     => $startedTs,
+                    'ended'       => $endedTs,
+                    'duration'    => ($startedTs && $endedTs) ? max(0, $endedTs - $startedTs) : 0,
+                    'username'    => $username,
+                    'errorCount'  => $errorCount,
+                    'warnCount'   => $warnCount,
+                ],
+                'kbHints'       => $kbHints,
+                'customFieldId' => $customFieldId,
+            ]);
+            break;
+        }
+        case 'ticketDuplicateCheck': {
+            $jobId = (string)($post['jobId'] ?? '');
+            if ($jobId === '') { echo json_encode(['status'=>'error','message'=>'jobId required']); break; }
+
+            // Find the eb_job_id custom field
+            $cf = Capsule::table('tblcustomfields')
+                ->where('type', 'support')
+                ->where('fieldname', 'eb_job_id')
+                ->select('id')->first();
+            if (!$cf) { echo json_encode(['status'=>'success','ticket'=>null]); break; }
+
+            $cutoff = date('Y-m-d H:i:s', time() - 7 * 86400);
+            $row = Capsule::table('tblcustomfieldsvalues as cfv')
+                ->join('tbltickets as t', 't.id', '=', 'cfv.relid')
+                ->where('cfv.fieldid', (int)$cf->id)
+                ->where('cfv.value', $jobId)
+                ->where('t.userid', $clientId)
+                ->where('t.date', '>=', $cutoff)
+                ->whereNotIn('t.status', ['Closed'])
+                ->orderBy('t.date', 'desc')
+                ->select('t.id as id', 't.tid as tid', 't.status as status', 't.title as title', 't.date as date')
+                ->first();
+
+            if (!$row) { echo json_encode(['status'=>'success','ticket'=>null]); break; }
+
+            echo json_encode([
+                'status' => 'success',
+                'ticket' => [
+                    'id'     => (int)$row->id,
+                    'tid'    => (string)$row->tid,
+                    'status' => (string)$row->status,
+                    'title'  => (string)$row->title,
+                    'date'   => (string)$row->date,
+                ],
+            ]);
             break;
         }
         default:
