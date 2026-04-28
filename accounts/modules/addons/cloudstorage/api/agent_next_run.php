@@ -263,7 +263,7 @@ try {
                 ->first();
 
             if (!$run) {
-                logModuleCall('cloudstorage', 'agent_next_run', ['agent_uuid' => $agent->agent_uuid, 'debug' => $debugInfo], 'no_run');
+                // No queued run for this agent; suppress log to avoid polluting module log on each poll.
                 return;
             }
 
@@ -287,13 +287,12 @@ try {
 
             if (!$updated) {
                 $debugInfo['claim_failed'] = true;
-                logModuleCall('cloudstorage', 'agent_next_run', ['agent_uuid' => $agent->agent_uuid, 'debug' => $debugInfo], 'no_run_claim_failed');
+                // Race with another worker claiming the same queued run; suppress log to avoid noise on every poll.
                 return;
             }
         }
 
         if (!$run) {
-            logModuleCall('cloudstorage', 'agent_next_run', ['agent_uuid' => $agent->agent_uuid, 'debug' => $debugInfo], 'no_run');
             return;
         }
 
@@ -613,7 +612,7 @@ try {
     });
 
     if (!$runData) {
-        logModuleCall('cloudstorage', 'agent_next_run', ['agent_uuid' => $agent->agent_uuid, 'debug' => $debugInfo], 'no_run');
+        // Common, expected response on every agent poll; do not log to avoid module log spam.
         respond(['status' => 'no_run']);
     }
 

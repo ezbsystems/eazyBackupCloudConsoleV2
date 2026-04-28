@@ -19,8 +19,8 @@ func NewRCTEngine(mgr *Manager) *RCTEngine {
 	return &RCTEngine{manager: mgr}
 }
 
-// GetChangedBlocks returns changed block ranges since the reference checkpoint.
-func (e *RCTEngine) GetChangedBlocks(ctx context.Context, vmName string, baseCheckpointID string) ([]RCTInfo, error) {
+// GetChangedBlocks returns changed block ranges since the prior per-disk RCT IDs.
+func (e *RCTEngine) GetChangedBlocks(ctx context.Context, vmName string, perDiskPriorRCTIDs map[string]string) ([]RCTInfo, error) {
 	return nil, fmt.Errorf("hyper-v is only supported on Windows")
 }
 

@@ -1,0 +1,93 @@
+[
+  {
+    "name": "VSS / Volume Shadow Copy errors",
+    "patterns": [
+      "vss\\s+(error|writer|snapshot)",
+      "volume\\s+shadow\\s+copy",
+      "0x800423"
+    ],
+    "title": "Troubleshooting VSS Snapshot Errors",
+    "url": "https://docs.eazybackup.com/troubleshooting/vss-errors"
+  },
+  {
+    "name": "File locked / in use",
+    "patterns": [
+      "file (is )?(locked|in use)",
+      "could not (read|access).*locked",
+      "sharing violation"
+    ],
+    "title": "Files Skipped Because They Were Locked or In Use",
+    "url": "https://docs.eazybackup.com/troubleshooting/locked-files"
+  },
+  {
+    "name": "Network share / UNC path errors",
+    "patterns": [
+      "network\\s+path.*not found",
+      "the network path",
+      "unc\\s+path",
+      "could not connect to.*\\\\\\\\"
+    ],
+    "title": "How to Backup Windows Network Shares and UNC Paths",
+    "url": "https://docs.eazybackup.com/guides/how-to-backup-windows-network-shares-and-unc-paths"
+  },
+  {
+    "name": "Quota exceeded",
+    "patterns": [
+      "quota.*exceed",
+      "storage.*quota",
+      "out of (storage|space)"
+    ],
+    "title": "Storage Quota Exceeded",
+    "url": "https://docs.eazybackup.com/troubleshooting/storage-quota"
+  },
+  {
+    "name": "Vault authentication / connection",
+    "patterns": [
+      "(could not|unable to) (connect|authenticate).*vault",
+      "vault.*auth.*fail",
+      "destination.*credentials",
+      "401\\s+unauthorized"
+    ],
+    "title": "Storage Vault Connection or Authentication Issues",
+    "url": "https://docs.eazybackup.com/troubleshooting/vault-connection"
+  },
+  {
+    "name": "Antivirus interference",
+    "patterns": [
+      "antivirus",
+      "defender.*block",
+      "permission denied.*\\.exe"
+    ],
+    "title": "Antivirus Software Interfering With Backups",
+    "url": "https://docs.eazybackup.com/troubleshooting/antivirus-exclusions"
+  },
+  {
+    "name": "Microsoft 365 authentication",
+    "patterns": [
+      "office\\s*365.*auth",
+      "microsoft\\s*365.*auth",
+      "consent.*revoked",
+      "token.*expired"
+    ],
+    "title": "Microsoft 365 Backup Authentication",
+    "url": "https://docs.eazybackup.com/guides/microsoft-365-cloud-backup-guide"
+  },
+  {
+    "name": "Hyper-V backup errors",
+    "patterns": [
+      "hyper-?v.*(error|fail)",
+      "vm.*snapshot.*fail"
+    ],
+    "title": "Hyper-V Backup Troubleshooting",
+    "url": "https://docs.eazybackup.com/troubleshooting/hyper-v"
+  },
+  {
+    "name": "Disk Image backup errors",
+    "patterns": [
+      "disk\\s*image.*(error|fail)",
+      "windisk.*fail"
+    ],
+    "title": "Disk Image Backup Guide",
+    "url": "https://docs.eazybackup.com/guides/disk-image-backup-guide"
+  }
+]

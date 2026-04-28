@@ -183,6 +183,68 @@ add_hook('ClientAreaPage', 1, function ($vars) {
 
 
 /**
+ * Expose admin-managed client-area notifications to every client area page.
+ * Sets $ebActiveNotifications (array) and $ebNotifCsrf for the modal partial.
+ */
+add_hook('ClientAreaPage', 1, function ($vars) {
+    try {
+        $clientId = (int)($_SESSION['uid'] ?? 0);
+        $userId = 0;
+        try {
+            if (class_exists('\\WHMCS\\User\\User')) {
+                $u = \WHMCS\User\User::fromSession();
+                if ($u && $u->id) { $userId = (int)$u->id; }
+            }
+        } catch (\Throwable $e) { /* ignore */ }
+        if ($clientId <= 0 && $userId <= 0) return [];
+        if (!function_exists('eb_get_active_notifications_for_client')) return [];
+
+        $list = eb_get_active_notifications_for_client($clientId, $userId ?: null);
+        if (empty($list)) return ['ebActiveNotifications' => []];
+
+        $token = '';
+        try {
+            if (class_exists('\\WHMCS\\Security\\Token')) {
+                $token = (string)\WHMCS\Security\Token::getToken();
+            }
+        } catch (\Throwable $e) { /* ignore */ }
+
+        return [
+            'ebActiveNotifications' => $list,
+            'ebNotifCsrf' => $token,
+        ];
+    } catch (\Throwable $e) {
+        return [];
+    }
+});
+
+/**
+ * Inject the consolidated notifications modal at the end of every client area
+ * page when there are undismissed notifications for the logged-in client.
+ */
+add_hook('ClientAreaFooterOutput', 1, function ($vars) {
+    try {
+        $list = $vars['ebActiveNotifications'] ?? null;
+        if (!is_array($list) || empty($list)) return '';
+        $token = (string)($vars['ebNotifCsrf'] ?? '');
+        $webRoot = rtrim((string)\WHMCS\Config\Setting::getValue('SystemURL'), '/');
+        $endpoint = $webRoot . '/modules/addons/eazybackup/endpoints/dismiss_notification.php';
+
+        ob_start();
+        $tplVars = [
+            'ebActiveNotifications' => $list,
+            'ebNotifCsrf' => $token,
+            'ebNotifEndpoint' => $endpoint,
+        ];
+        extract($tplVars, EXTR_SKIP);
+        include __DIR__ . '/templates/partials/_notifications_modal.phtml';
+        return (string)ob_get_clean();
+    } catch (\Throwable $e) {
+        return '';
+    }
+});
+
+/**
  * Client-area Legal Agreements gating (entire portal) when active versions require acceptance.
  */
 add_hook('ClientAreaPage', 2, function ($vars) {

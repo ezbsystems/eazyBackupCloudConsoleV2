@@ -219,8 +219,8 @@
                   <td class="px-4 py-3 text-[var(--eb-text-secondary)]">{$row.included_qty|escape}</td>
                   <td class="px-4 py-3">
                     <div class="font-medium text-[var(--eb-text-primary)]">{$row.used_qty|escape}</div>
-                    <div class="mt-2 h-2 overflow-hidden rounded-full bg-slate-800">
-                      <div class="h-full {if $row.usage_pct >= 100}bg-rose-500{elseif $row.usage_pct >= 80}bg-amber-400{else}bg-emerald-400{/if}" style="width: {if $row.usage_pct > 100}100{else}{$row.usage_pct|default:0}{/if}%"></div>
+                    <div class="eb-progress-track mt-2">
+                      <div class="eb-progress-fill" style="width: {if $row.usage_pct > 100}100{else}{$row.usage_pct|default:0}{/if}%; background: {if $row.usage_pct >= 100}var(--eb-danger-strong){elseif $row.usage_pct >= 80}var(--eb-warning-strong){else}var(--eb-success-strong){/if};"></div>
                     </div>
                     <div class="mt-2 text-xs text-[var(--eb-text-muted)]">
                       {if $row.overage_qty > 0}Overage: {$row.overage_qty|escape}{else}Within included quantity{/if}
@@ -238,7 +238,7 @@
                   </td>
                 </tr>
                 <tr x-show="open" x-cloak>
-                  <td colspan="8" class="px-4 py-4 bg-slate-950/30">
+                  <td colspan="8" class="px-4 py-4" style="background: var(--eb-bg-chrome);">
                     <div class="flex flex-wrap items-center justify-between gap-3">
                       <div class="text-sm text-[var(--eb-text-secondary)]">
                         <span class="font-medium text-[var(--eb-text-primary)]">Recent usage log</span>
@@ -251,31 +251,31 @@
                       </div>
                     </div>
                     {if $row.detail_logs|@count > 0}
-                      <div class="mt-4 overflow-x-auto rounded-lg border border-slate-800">
-                        <table class="min-w-full divide-y divide-slate-800 text-sm">
-                          <thead class="bg-slate-900/80 text-slate-300">
+                      <div class="mt-4 eb-table-shell">
+                        <table class="eb-table">
+                          <thead>
                             <tr>
-                              <th class="px-4 py-3 text-left font-medium">Window</th>
-                              <th class="px-4 py-3 text-left font-medium">Qty</th>
-                              <th class="px-4 py-3 text-left font-medium">Source</th>
-                              <th class="px-4 py-3 text-left font-medium">Pushed</th>
+                              <th>Window</th>
+                              <th>Qty</th>
+                              <th>Source</th>
+                              <th>Pushed</th>
                             </tr>
                           </thead>
-                          <tbody class="divide-y divide-slate-800">
+                          <tbody>
                             {foreach from=$row.detail_logs item=log}
-                              <tr class="hover:bg-slate-800/40">
-                                <td class="px-4 py-3 text-[var(--eb-text-secondary)]">{$log.period_start|date_format:'%Y-%m-%d %H:%M'} to {$log.period_end|date_format:'%Y-%m-%d %H:%M'}</td>
-                                <td class="px-4 py-3 font-mono text-[var(--eb-text-primary)]">{$log.qty|default:0|escape}</td>
-                                <td class="px-4 py-3 text-[var(--eb-text-secondary)]">{$log.source|default:'-'|escape}</td>
-                                <td class="px-4 py-3 text-[var(--eb-text-secondary)]">{if $log.pushed_to_stripe_at|default:'' neq ''}{$log.pushed_to_stripe_at|date_format:'%Y-%m-%d %H:%M'}{else}Not pushed{/if}</td>
+                              <tr>
+                                <td>{$log.period_start|date_format:'%Y-%m-%d %H:%M'} to {$log.period_end|date_format:'%Y-%m-%d %H:%M'}</td>
+                                <td class="eb-table-mono">{$log.qty|default:0|escape}</td>
+                                <td>{$log.source|default:'-'|escape}</td>
+                                <td>{if $log.pushed_to_stripe_at|default:'' neq ''}{$log.pushed_to_stripe_at|date_format:'%Y-%m-%d %H:%M'}{else}Not pushed{/if}</td>
                               </tr>
                             {/foreach}
                           </tbody>
                         </table>
                       </div>
                     {else}
-                      <div class="mt-4 rounded-lg border border-dashed border-slate-700 px-4 py-6 text-sm text-[var(--eb-text-muted)]">
-                        No ledger rows found yet for this metered item.
+                      <div class="mt-4 eb-app-empty">
+                        <p class="eb-app-empty-copy">No ledger rows found yet for this metered item.</p>
                       </div>
                     {/if}
                   </td>

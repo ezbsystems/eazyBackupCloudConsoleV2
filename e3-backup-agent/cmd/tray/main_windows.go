@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/getlantern/systray"
+	"github.com/your-org/e3-backup-agent/internal/applog"
 	"github.com/your-org/e3-backup-agent/internal/recoverymedia"
 	"gopkg.in/yaml.v3"
 )
@@ -119,11 +120,35 @@ func main() {
 	configPath := flag.String("config", defaultConfigPath(), "Path to agent.conf")
 	flag.Parse()
 
+	setupTrayFileLogging()
+
 	app := &trayApp{
 		configPath:     *configPath,
 		cloudNASMounts: make(map[string]*cloudNASPendingMount),
 	}
 	systray.Run(app.onReady, app.onExit)
+}
+
+func setupTrayFileLogging() {
+	pd := os.Getenv("ProgramData")
+	if pd == "" {
+		pd = `C:\ProgramData`
+	}
+	logDir := filepath.Join(pd, "E3Backup", "logs")
+	_ = os.MkdirAll(logDir, 0o755)
+	logPath := filepath.Join(logDir, "tray.log")
+
+	level := applog.LevelWarn
+	if v := os.Getenv("E3_TRAY_LOG_LEVEL"); v != "" {
+		level = applog.ParseLevel(v)
+	}
+	_ = applog.Init(applog.Options{
+		Path:    logPath,
+		MaxSize: 5 * 1024 * 1024,
+		Keep:    3,
+		Level:   level,
+		Mode:    0o600,
+	})
 }
 
 type trayApp struct {
@@ -796,26 +821,34 @@ func deviceIDOrDash(s string) string {
 	return s
 }
 
-// logDebug writes debug messages to a log file in ProgramData\E3Backup\logs.
+// logDebug routes a verbose tray diagnostic through the leveled logger.
+// In production (LevelWarn default) these are suppressed entirely; tray.log
+// only records state transitions, errors, and explicit Info events.
 func logDebug(format string, args ...interface{}) {
-	pd := os.Getenv("ProgramData")
-	if pd == "" {
-		pd = `C:\ProgramData`
-	}
-	logDir := filepath.Join(pd, "E3Backup", "logs")
-	_ = os.MkdirAll(logDir, 0o755)
-	logPath := filepath.Join(logDir, "tray.log")
-
-	f, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
-	if err != nil {
-		return
-	}
-	defer f.Close()
-
-	msg := fmt.Sprintf(format, args...)
-	timestamp := time.Now().Format("2006-01-02 15:04:05.000")
-	fmt.Fprintf(f, "%s  %s\n", timestamp, msg)
+	applog.Debugf("tray", format, args...)
 }
+
+// logTrayInfo records a tray state-transition event (e.g. enrollment,
+// connection-state change). Always written at Info level so it survives the
+// production default Warn threshold via the state-transition allow-list.
+func logTrayInfo(format string, args ...interface{}) {
+	applog.Infof("tray", format, args...)
+}
+
+// logTrayWarn records a recoverable tray issue.
+func logTrayWarn(format string, args ...interface{}) {
+	applog.Warnf("tray", format, args...)
+}
+
+// logTrayError records a tray failure that needs attention.
+func logTrayError(format string, args ...interface{}) {
+	applog.Errorf("tray", format, args...)
+}
+
+// silence references to fmt/time in case logDebug used to be the only reason
+// they were imported in some build flavors.
+var _ = fmt.Sprintf
+var _ = time.Now
 
 const localAgentSemanticPageStyles = `
 :root{

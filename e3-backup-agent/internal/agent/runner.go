@@ -16,6 +16,7 @@ import (
 	"time"
 
 	kopiafs "github.com/kopia/kopia/fs"
+	"github.com/your-org/e3-backup-agent/internal/applog"
 	"github.com/rclone/rclone/fs"
 	"github.com/rclone/rclone/fs/accounting"
 	"github.com/rclone/rclone/fs/config"
@@ -29,6 +30,19 @@ type Runner struct {
 	cfg    *AgentConfig
 	// configPath is where agent.conf is stored; used to persist enrollment results.
 	configPath string
+
+	// schedulerWasBusy tracks whether the previous poll observed a queued run.
+	// Used to emit "scheduler idle" only on the first idle poll after activity,
+	// instead of every poll cycle. Access from the polling goroutine only.
+	schedulerWasBusy bool
+
+	// health pushes lifecycle/state events to agent_push_agent_events.php.
+	// Nil before Start() / for short-lived helper Runners.
+	health *HealthEmitter
+
+	// verbose tracks opt-in admin verbose-logging windows per run_id, populated
+	// by the enable_verbose_admin_logging run command.
+	verbose *VerboseRegistry
 }
 
 func NewRunner(cfg *AgentConfig, configPath string) *Runner {
@@ -36,6 +50,7 @@ func NewRunner(cfg *AgentConfig, configPath string) *Runner {
 		client:     NewClient(cfg),
 		cfg:        cfg,
 		configPath: configPath,
+		verbose:    NewVerboseRegistry(),
 	}
 }
 
@@ -45,6 +60,7 @@ func NewRunnerWithClient(cfg *AgentConfig, client *Client, configPath string) *R
 		client:     client,
 		cfg:        cfg,
 		configPath: configPath,
+		verbose:    NewVerboseRegistry(),
 	}
 }
 
@@ -75,17 +91,32 @@ func (r *Runner) Start(stop <-chan struct{}) {
 	t := time.NewTicker(interval)
 	defer t.Stop()
 
+	r.health = NewHealthEmitter(r.client)
+	r.health.Start(stop)
+	r.health.ServiceStarted(r.client.AgentVersion())
+	r.health.ServerConnectionState("connected")
+
 	go r.reportVolumesLoop(stop)
 	go r.commandLoop(stop)
 	go r.cloudNASPrepareLoop(stop)
 
+	prevConnOK := true
 	for {
 		if err := r.pollOnce(); err != nil {
-			log.Printf("agent: poll error: %v", err)
+			applog.Warnf("scheduler", "poll error: %v", err)
+			if prevConnOK {
+				r.health.ServerConnectionState("disconnected")
+				prevConnOK = false
+			}
+		} else if !prevConnOK {
+			r.health.ServerConnectionState("restored")
+			prevConnOK = true
 		}
 		select {
 		case <-stop:
-			log.Printf("agent: stopping")
+			applog.Infof("lifecycle", "agent stopping")
+			r.health.ServiceStopping("signal")
+			r.health.Stop()
 			return
 		case <-t.C:
 		}
@@ -217,11 +248,43 @@ func (r *Runner) pollOnce() error {
 		return err
 	}
 	if run == nil {
-		log.Printf("agent: no queued runs")
+		// Only log on the busy -> idle transition. The idle steady state was
+		// previously logged every poll (~5s), which dominated agent.log.
+		if r.schedulerWasBusy {
+			applog.Infof("scheduler", "no queued runs (idle)")
+			r.schedulerWasBusy = false
+		}
 		return nil
 	}
-	log.Printf("agent: starting run %s for job %s", run.RunID, run.JobID)
-	return r.runRun(run)
+	r.schedulerWasBusy = true
+	applog.Infof("scheduler", "starting run %s for job %s", run.RunID, run.JobID)
+	if r.health != nil {
+		r.health.RunStarted(run.RunID, run.JobID)
+	}
+	err = r.runRun(run)
+	if r.health != nil {
+		status := "success"
+		if err != nil {
+			status = "failed"
+		}
+		r.health.RunFinished(run.RunID, status)
+	}
+	r.flushVerboseRun(run.RunID)
+	return err
+}
+
+// flushVerboseRun ships any buffered admin verbose chunk and closes the window.
+func (r *Runner) flushVerboseRun(runID string) {
+	if r.verbose == nil || runID == "" {
+		return
+	}
+	seq, source, gz, lc, fts, lts, ok := r.verbose.FlushChunk(runID)
+	if ok {
+		if err := r.client.PushLogChunk(runID, seq, source, gz, lc, fts, lts); err != nil {
+			applog.Warnf("agent.verbose", "push verbose chunk for run %s failed: %v", runID, err)
+		}
+	}
+	r.verbose.Close(runID)
 }
 
 // commandLoop polls pending commands and repo operations frequently to reduce UI latency.
@@ -1405,6 +1468,27 @@ func (r *Runner) handleCommand(ctx context.Context, run *NextRunResponse, cmd Ru
 			msg = err.Error()
 		}
 		_ = r.client.CompleteCommand(cmd.CommandID, status, msg)
+	case "enable_verbose_admin_logging":
+		ttl := 30 * time.Minute
+		if cmd.Payload != nil {
+			if v, ok := cmd.Payload["ttl_minutes"].(float64); ok && v > 0 && v <= 240 {
+				ttl = time.Duration(v) * time.Minute
+			}
+		}
+		if r.verbose == nil {
+			r.verbose = NewVerboseRegistry()
+		}
+		runID := ""
+		if run != nil {
+			runID = run.RunID
+		}
+		if runID == "" {
+			_ = r.client.CompleteCommand(cmd.CommandID, "failed", "missing run context")
+			return
+		}
+		r.verbose.Enable(runID, "run", ttl)
+		applog.Infof("agent.verbose", "enabled verbose admin logging for run %s for %s", runID, ttl)
+		_ = r.client.CompleteCommand(cmd.CommandID, "completed", fmt.Sprintf("verbose admin logging enabled for %s", ttl))
 	default:
 		// Unknown command: mark failed to avoid loops
 		_ = r.client.CompleteCommand(cmd.CommandID, "failed", "unknown command")

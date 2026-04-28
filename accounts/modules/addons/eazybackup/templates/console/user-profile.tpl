@@ -697,7 +697,7 @@
               <tbody class="divide-y divide-[var(--eb-border-default)]" x-ref="tbody">
                 {if $protectedItems|@count > 0}
                   {foreach from=$protectedItems item=item}
-                    <tr class="hover:bg-[color:var(--eb-bg-overlay)]" data-protected-row="1"
+                    <tr data-protected-row="1"
                         data-sort-name="{$item.name|default:''|escape:'html'}"
                         data-sort-type="{$item.type|default:''|escape:'html'}"
                         data-sort-size="{$item.total_bytes|default:0|escape:'html'}">
@@ -1045,7 +1045,7 @@
                             {/if}
                             {assign var=typeCode value=$vault.Destination.Type|default:$vault.Type|default:''}
                             {assign var=typeLabel value=$vault.TypeFriendly|default:''}
-                            <tr class="hover:bg-[var(--eb-bg-overlay)]"
+                            <tr
                                 data-vault-row="1"
                                 data-sort-name="{$vault.Description|default:'-'|escape:'html'}"
                                 data-used-bytes="{$usedBytes}"
@@ -1369,7 +1369,7 @@
                 <tbody class="divide-y divide-[var(--eb-border-default)]" x-ref="tbody">
                     {if $devices|@count > 0}
                       {foreach from=$devices item=device}
-                        <tr class="hover:bg-[var(--eb-bg-overlay)]" data-device-row="1"
+                        <tr data-device-row="1"
                             data-sort-status="{$device.status|default:''|escape:'html'}"
                             data-sort-name="{$device.device_name|default:''|escape:'html'}"
                             data-sort-id="{$device.device_id|default:''|escape:'html'}"
@@ -2647,6 +2647,8 @@ function quotaCtrl(){
 </script>
 <script src="modules/addons/eazybackup/assets/js/eazybackup-ui-helpers.js" defer></script>
 <script src="modules/addons/eazybackup/assets/js/job-reports.js" defer></script>
+<script>window.EB_WEB_ROOT = '{$WEB_ROOT}';</script>
+<script src="modules/addons/eazybackup/templates/assets/js/job-ticket.js" defer></script>
 <script>
   try { window.EB_MODULE_LINK = '{$modulelink}'; } catch(e) {}
   try {
@@ -2679,6 +2681,7 @@ try {
         pagerEl: document.getElementById('jobs-pager'),
         searchInput: document.getElementById('jobs-search'),
       });
+      window.__ebJobsApi = api;
       api && api.reload && api.reload();
     } catch (e) {}
   };
@@ -2693,10 +2696,10 @@ try {
     </div><!-- /App Shell -->
 
 <!-- Restore Wizard Modal -->
-<div id="restore-wizard" class="fixed inset-0 z-50 hidden">
-  <div class="eb-modal-backdrop absolute inset-0"></div>
+<div id="restore-wizard" class="fixed inset-0 z-50 hidden overflow-y-auto">
+  <div class="eb-modal-backdrop fixed inset-0"></div>
   <div class="relative flex min-h-full items-start justify-center p-6">
-  <div class="eb-modal max-w-4xl">
+  <div class="eb-modal eb-modal-lg mx-auto">
     <div class="eb-modal-header">
       <h3 class="eb-modal-title flex items-center gap-2">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6">
@@ -2709,27 +2712,39 @@ try {
       </button>
     </div>
     <div class="eb-modal-body">
+      <div id="restore-steps" class="mb-4 flex flex-wrap items-center gap-2" data-current-step="1">
+        <span class="eb-pill is-active" data-rs-step="1">1. Vault</span>
+        <span class="eb-pill" data-rs-step="2">2. Snapshot</span>
+        <span class="eb-pill" data-rs-step="3">3. Method</span>
+        <span class="eb-pill" data-rs-step="4">4. Confirm</span>
+      </div>
       <div id="restore-step1">
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <div class="mb-1 text-sm text-[var(--eb-text-primary)]">Select an online device to control</div>
-            <div class="text-xs text-[var(--eb-text-muted)]">Using the device selected in the Devices panel.</div>
-          </div>
-          <div x-data="{ open:false }" class="relative">
-            <label class="eb-field-label">Select a Storage Vault to restore from</label>
-            <button id="rs-vault-menu-btn" type="button" @click="open=!open" class="eb-menu-trigger">
-              <span id="rs-vault-selected-label">Choose a vault…</span>
+        <div class="mx-auto max-w-xl">
+          <h4 class="text-base font-semibold text-[var(--eb-text-primary)]">Choose a Storage Vault</h4>
+          <p class="mt-1 text-sm text-[var(--eb-text-muted)]">
+            Pick the vault that holds the backup you'd like to restore. You can change your selection later.
+          </p>
+          <div x-data="{ open:false }" @click.away="open=false" class="relative mt-4">
+            <label class="eb-field-label">Storage Vault</label>
+            <button id="rs-vault-menu-btn" type="button" @click="open=!open" class="eb-menu-trigger w-full justify-between">
+              <span id="rs-vault-selected-label">Choose a vault&hellip;</span>
+              <svg class="h-4 w-4 opacity-60 transition-transform" :class="open ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.24 4.5a.75.75 0 01-1.08 0l-4.24-4.5a.75.75 0 01.02-1.06z" clip-rule="evenodd"/></svg>
             </button>
-            <div id="rs-vault-menu-list" x-show="open" x-transition class="eb-menu absolute mt-1 max-h-56 w-full overflow-y-auto z-10">
+            <div id="rs-vault-menu-list" x-show="open" x-transition x-cloak class="eb-menu absolute left-0 right-0 mt-1 max-h-64 w-full overflow-y-auto z-20">
               <ul class="py-1 text-sm text-[var(--eb-text-primary)]">
                 {foreach from=$vaults item=vault key=vaultId}
                   <li>
                     <a href="#" class="eb-menu-option" data-rs-vault-id="{$vaultId}" data-rs-vault-name="{$vault.Description}" @click.prevent="open=false">{$vault.Description}</a>
                   </li>
+                {foreachelse}
+                  <li><span class="block px-3 py-2 text-[var(--eb-text-muted)]">No storage vaults found for this account.</span></li>
                 {/foreach}
               </ul>
             </div>
           </div>
+          <p class="mt-3 text-xs text-[var(--eb-text-muted)]">
+            The restore will run on the device currently selected in the Devices panel.
+          </p>
         </div>
       </div>
       <div id="restore-step2" class="hidden">
@@ -2770,15 +2785,59 @@ try {
               <input id="rs-archive-name" type="text" class="eb-input w-full" placeholder="backup.zip">
               <div class="mt-1 text-xs text-[var(--eb-text-muted)]">Enter the output archive filename (e.g., backup.zip).</div>
             </div>
-            <div>
+            {literal}
+            <div x-data="{
+                  open:false,
+                  value:'none',
+                  options:[
+                    {v:'none',        l:'Do not overwrite'},
+                    {v:'ifNewer',     l:'If the restored file is newer'},
+                    {v:'ifDifferent', l:'If the restored file is different'},
+                    {v:'always',      l:'Always overwrite'}
+                  ],
+                  pick(v){
+                    this.value = v;
+                    this.open = false;
+                    const inp = document.getElementById('rs-overwrite');
+                    if (inp) { inp.value = v; inp.dispatchEvent(new Event('change', { bubbles:true })); }
+                  },
+                  label(){ return (this.options.find(o => o.v === this.value) || this.options[0]).l; }
+                }"
+                @click.outside="open=false"
+                class="relative">
               <label class="eb-field-label">Overwrite</label>
-              <select id="rs-overwrite" class="eb-select w-full">
-                <option value="none">Do not overwrite</option>
-                <option value="ifNewer">If the restored file is newer</option>
-                <option value="ifDifferent">If the restored file is different</option>
-                <option value="always">Always overwrite</option>
-              </select>
+              <button id="rs-overwrite-btn" type="button"
+                class="eb-menu-trigger w-full"
+                :aria-expanded="open"
+                @click="open=!open">
+                <span x-text="label()"></span>
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor"
+                  :class="open ? 'rotate-180' : ''">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                </svg>
+              </button>
+              <div x-show="open" x-transition x-cloak
+                class="eb-dropdown-menu eb-menu absolute mt-1 w-full z-20"
+                role="listbox"
+                aria-labelledby="rs-overwrite-btn">
+                <ul class="py-1 text-sm">
+                  <template x-for="o in options" :key="o.v">
+                    <li>
+                      <button type="button"
+                        class="eb-menu-item w-full text-left"
+                        :class="{ 'is-active': value === o.v }"
+                        role="option"
+                        :aria-selected="value === o.v"
+                        @click="pick(o.v)">
+                        <span x-text="o.l"></span>
+                      </button>
+                    </li>
+                  </template>
+                </ul>
+              </div>
+              <input type="hidden" id="rs-overwrite" value="none">
             </div>
+            {/literal}
           </div>
         </div>
       </div>
@@ -2828,10 +2887,10 @@ try {
 <div id="toast-container" class="fixed bottom-4 right-4 z-50 space-y-2"></div>
 
 <!-- Remote Filesystem Browser Modal -->
-<div id="fs-browser" class="fixed inset-0 z-50 hidden">
-  <div class="eb-modal-backdrop absolute inset-0"></div>
+<div id="fs-browser" class="fixed inset-0 z-50 hidden overflow-y-auto">
+  <div class="eb-modal-backdrop fixed inset-0"></div>
   <div class="relative flex min-h-full items-start justify-center p-6">
-  <div class="eb-modal max-w-3xl">
+  <div class="eb-modal max-w-3xl mx-auto">
     <div class="eb-modal-header">
       <h3 class="eb-modal-title">Browse Destination</h3>
       <button id="fsb-close" class="eb-modal-close">
@@ -2863,10 +2922,10 @@ try {
 </div>
 
 <!-- Snapshot Browser Modal (Select items to restore) -->
-<div id="snap-browser" class="fixed inset-0 z-50 hidden">
-  <div class="eb-modal-backdrop absolute inset-0"></div>
+<div id="snap-browser" class="fixed inset-0 z-50 hidden overflow-y-auto">
+  <div class="eb-modal-backdrop fixed inset-0"></div>
   <div class="relative flex min-h-full items-start justify-center p-6">
-  <div class="eb-modal max-w-4xl">
+  <div class="eb-modal max-w-4xl mx-auto">
     <div class="eb-modal-header">
       <h3 class="eb-modal-title">Browse Snapshot</h3>
       <button id="ssb-close" class="eb-modal-close">

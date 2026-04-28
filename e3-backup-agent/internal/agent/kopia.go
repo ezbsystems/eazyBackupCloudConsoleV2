@@ -20,6 +20,7 @@ import (
 	"time"
 
 	kopiafs "github.com/kopia/kopia/fs"
+	"github.com/your-org/e3-backup-agent/internal/applog"
 	"github.com/kopia/kopia/fs/localfs"
 	"github.com/kopia/kopia/fs/virtualfs"
 	"github.com/kopia/kopia/repo"
@@ -1174,6 +1175,13 @@ type kopiaProgressCounter struct {
 	// Optional external progress callback (for Hyper-V cumulative progress)
 	externalProgressCb func(bytesProcessed int64, bytesUploaded int64)
 	skipRunUpdate      bool
+
+	// Throttle state for server-side KOPIA_PROGRESS_UPDATE events. Live
+	// UpdateRun heartbeats stay at the original ~2s cadence so the admin UI
+	// gets snappy progress; durable run events are emitted on >=30s OR
+	// >=1% step (whichever comes first) or on a phase/status change.
+	lastEventAt  time.Time
+	lastEventPct float64
 }
 
 func newKopiaProgressCounter(r *Runner, runID string) *kopiaProgressCounter {
@@ -1326,7 +1334,9 @@ func (p *kopiaProgressCounter) Error(path string, err error, isIgnored bool) {
 func (p *kopiaProgressCounter) UploadedBytes(numBytes int64) {
 	newTotal := atomic.AddInt64(&p.bytesUploaded, numBytes)
 	atomic.StoreInt64(&p.lastUploadAt, time.Now().UnixNano())
-	log.Printf("agent: kopia UploadedBytes callback: +%d bytes (total: %d)", numBytes, newTotal)
+	if applog.IsDebug() {
+		applog.Debugf("kopia", "UploadedBytes callback: +%d bytes (total: %d)", numBytes, newTotal)
+	}
 	p.reportProgress(false)
 }
 
@@ -1436,22 +1446,69 @@ func (p *kopiaProgressCounter) reportProgressLocked(force bool) {
 		})
 	}
 
-	p.runner.pushEvents(p.runID, RunEvent{
-		Type:      "progress",
-		Level:     "info",
-		MessageID: "KOPIA_PROGRESS_UPDATE",
-		ParamsJSON: map[string]any{
-			"pct":             progressPct,
-			"bytes_processed": bytesHashed,   // Source bytes scanned
-			"bytes_uploaded":  bytesUploaded, // Actual upload (with dedup)
-			"bytes_total":     totalBytes,
-			"files_done":      filesHashed + filesCached,
-			"files_total":     totalFiles,
-			"speed_bps":       speed,
-			"eta_seconds":     etaSeconds,
-			"current":         currentItem,
-		},
-	})
+	if p.shouldEmitProgressEvent(force, progressPct, now) {
+		p.lastEventAt = now
+		p.lastEventPct = progressPct
+		p.runner.pushEvents(p.runID, RunEvent{
+			Type:      "progress",
+			Level:     "info",
+			MessageID: "KOPIA_PROGRESS_UPDATE",
+			ParamsJSON: map[string]any{
+				"pct":             progressPct,
+				"bytes_processed": bytesHashed,   // Source bytes scanned
+				"bytes_uploaded":  bytesUploaded, // Actual upload (with dedup)
+				"bytes_total":     totalBytes,
+				"files_done":      filesHashed + filesCached,
+				"files_total":     totalFiles,
+				"speed_bps":       speed,
+				"eta_seconds":     etaSeconds,
+				"current":         currentItem,
+			},
+		})
+	}
+}
+
+// shouldEmitProgressEvent decides whether a durable progress event row should
+// be inserted. It throttles to: >=progressEventInterval seconds OR
+// >=progressEventPctStep change OR force=true (phase/status change).
+func (p *kopiaProgressCounter) shouldEmitProgressEvent(force bool, pct float64, now time.Time) bool {
+	if force {
+		return true
+	}
+	interval := progressEventInterval(p.runner)
+	step := progressEventPctStep(p.runner)
+	if p.lastEventAt.IsZero() {
+		return true
+	}
+	if now.Sub(p.lastEventAt) >= interval {
+		return true
+	}
+	delta := pct - p.lastEventPct
+	if delta < 0 {
+		delta = -delta
+	}
+	if delta >= step {
+		return true
+	}
+	return false
+}
+
+// progressEventInterval returns the minimum interval between server-side
+// progress events. Defaults to 30s when no override is configured.
+func progressEventInterval(r *Runner) time.Duration {
+	if r != nil && r.cfg != nil && r.cfg.ProgressEventIntervalSeconds > 0 {
+		return time.Duration(r.cfg.ProgressEventIntervalSeconds) * time.Second
+	}
+	return 30 * time.Second
+}
+
+// progressEventPctStep returns the minimum percent change between server-side
+// progress events. Defaults to 1.0% when no override is configured.
+func progressEventPctStep(r *Runner) float64 {
+	if r != nil && r.cfg != nil && r.cfg.ProgressEventPctStep > 0 {
+		return r.cfg.ProgressEventPctStep
+	}
+	return 1.0
 }
 
 // kopiaRestore provides a restore entry point (not yet wired to server commands).

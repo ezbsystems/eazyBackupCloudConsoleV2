@@ -32,7 +32,7 @@ func walkDevices(devs []lsblkDevice, out *[]VolumeInfo) {
 			walkDevices(d.Children, out)
 			continue
 		}
-		size := uint64(parseInt64(d.Size))
+		size := uint64(parseInt64(d.Size.String()))
 		*out = append(*out, VolumeInfo{
 			Path:       path,
 			Label:      strings.TrimSpace(d.Label),

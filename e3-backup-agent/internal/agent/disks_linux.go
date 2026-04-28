@@ -23,7 +23,7 @@ func enumerateDisks() ([]DiskInfo, error) {
 			Serial:         d.Serial,
 			BusType:        d.Tran,
 			PartitionStyle: normalizePartitionStyle(d.PTType),
-			SizeBytes:      uint64(parseInt64(d.Size)),
+			SizeBytes:      uint64(parseInt64(d.Size.String())),
 		}
 		for _, p := range flat {
 			if p.Type != "part" || p.PkName != d.Name {
@@ -33,12 +33,16 @@ func enumerateDisks() ([]DiskInfo, error) {
 			if blockSize == 0 {
 				blockSize = 512
 			}
-			startBytes := parseInt64(p.Start) * blockSize
+			startSectors := parseInt64(p.Start.String())
+			if startSectors == 0 {
+				startSectors = readPartitionStart(p.Name)
+			}
+			startBytes := startSectors * blockSize
 			part := DiskPartitionSummary{
 				Name:       p.Name,
 				Path:       p.Path,
 				StartBytes: startBytes,
-				SizeBytes:  parseInt64(p.Size),
+				SizeBytes:  parseInt64(p.Size.String()),
 				FileSystem: strings.ToLower(strings.TrimSpace(p.Fstype)),
 				Label:      p.Label,
 				PartType:   p.PartType,

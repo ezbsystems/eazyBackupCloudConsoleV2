@@ -22,6 +22,18 @@
         {/if}
 
         <form method="post" action="{$smarty.server.PHP_SELF}?step=3" enctype="multipart/form-data" class="space-y-6">
+            {if $smarty.get.eb_job}
+                <div id="ebTicketAttachBanner"
+                     class="hidden rounded-md border px-3 py-2 text-sm border-emerald-500/40 bg-emerald-500/10 text-emerald-200"
+                     role="status"
+                     aria-live="polite">
+                    Preparing your backup log attachment...
+                </div>
+                <p class="text-xs text-[var(--eb-text-muted,#94a3b8)]">
+                    The attached log may contain file and folder names from the affected device. Remove any details you do not want to share before submitting.
+                </p>
+            {/if}
+
             <div>
                 <label for="inputSubject" class="eb-field-label">{$LANG.supportticketsticketsubject}</label>
                 <input type="text" name="subject" id="inputSubject" value="{$subject}" class="eb-input">
@@ -129,6 +141,7 @@
 }
 
 <script src="{$WEB_ROOT}/modules/addons/eazybackup/templates/assets/js/ui.js"></script>
+<script src="{$WEB_ROOT}/modules/addons/eazybackup/templates/assets/js/ticket-prefill.js" defer></script>
 
 <script>
 function extraTicketAttachment() {

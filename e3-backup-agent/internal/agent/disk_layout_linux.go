@@ -19,12 +19,16 @@ type lsblkOutput struct {
 	Blockdevices []lsblkDevice `json:"blockdevices"`
 }
 
+// lsblkDevice mirrors a single device entry from `lsblk -J`. Numeric columns
+// (SIZE, START) are decoded as flexNumber to accept both string-encoded values
+// (older util-linux releases) and JSON numbers (util-linux >=2.37 emits raw
+// integers when invoked with `-b`).
 type lsblkDevice struct {
 	Name       string        `json:"name"`
 	Path       string        `json:"path"`
 	Type       string        `json:"type"`
-	Size       string        `json:"size"`
-	Start      string        `json:"start"`
+	Size       flexNumber    `json:"size"`
+	Start      flexNumber    `json:"start"`
 	Fstype     string        `json:"fstype"`
 	Mountpoint string        `json:"mountpoint"`
 	Label      string        `json:"label"`
@@ -39,6 +43,25 @@ type lsblkDevice struct {
 	PTType     string        `json:"pttype"`
 	Children   []lsblkDevice `json:"children"`
 }
+
+// flexNumber accepts a JSON value that may be an integer, a quoted integer, or
+// null and exposes it as a string for downstream parseInt64 calls.
+type flexNumber string
+
+func (f *flexNumber) UnmarshalJSON(data []byte) error {
+	s := strings.TrimSpace(string(data))
+	if s == "" || s == "null" {
+		*f = ""
+		return nil
+	}
+	if len(s) >= 2 && s[0] == '"' && s[len(s)-1] == '"' {
+		s = s[1 : len(s)-1]
+	}
+	*f = flexNumber(s)
+	return nil
+}
+
+func (f flexNumber) String() string { return string(f) }
 
 func collectDiskLayout(source string) (*DiskLayout, error) {
 	devs, err := readLsblk()
@@ -70,7 +93,7 @@ func collectDiskLayout(source string) (*DiskLayout, error) {
 		Serial:         diskDevice.Serial,
 		BusType:        diskDevice.Tran,
 		PartitionStyle: normalizePartitionStyle(diskDevice.PTType),
-		TotalBytes:     parseInt64(diskDevice.Size),
+		TotalBytes:     parseInt64(diskDevice.Size.String()),
 	}
 
 	for _, d := range flat {
@@ -80,13 +103,17 @@ func collectDiskLayout(source string) (*DiskLayout, error) {
 		if d.PkName != diskDevice.Name {
 			continue
 		}
-		startBytes := parseInt64(d.Start) * diskBlockSize
+		startSectors := parseInt64(d.Start.String())
+		if startSectors == 0 {
+			startSectors = readPartitionStart(d.Name)
+		}
+		startBytes := startSectors * diskBlockSize
 		part := DiskPartition{
 			Index:      parsePartitionIndex(d.Name),
 			Name:       d.Name,
 			Path:       d.Path,
 			StartBytes: startBytes,
-			SizeBytes:  parseInt64(d.Size),
+			SizeBytes:  parseInt64(d.Size.String()),
 			FileSystem: strings.ToLower(strings.TrimSpace(d.Fstype)),
 			Label:      d.Label,
 			PartType:   d.PartType,
@@ -114,19 +141,68 @@ func collectDiskLayout(source string) (*DiskLayout, error) {
 	return layout, nil
 }
 
+// lsblkColumns lists the columns we request from lsblk in priority order.
+// On older util-linux releases (<2.38) some columns (notably START) are not
+// recognized; we degrade gracefully by retrying without the unsupported
+// columns instead of failing the entire backup.
+var lsblkColumns = []string{
+	"NAME", "PATH", "TYPE", "SIZE", "START", "FSTYPE", "MOUNTPOINT",
+	"LABEL", "PARTUUID", "UUID", "PARTTYPE", "PARTLABEL", "PKNAME",
+	"MODEL", "SERIAL", "TRAN", "PTTYPE",
+}
+
 func readLsblk() (*lsblkOutput, error) {
-	cmd := exec.Command("lsblk", "-J", "-b", "-o", "NAME,PATH,TYPE,SIZE,START,FSTYPE,MOUNTPOINT,LABEL,PARTUUID,UUID,PARTTYPE,PARTLABEL,PKNAME,MODEL,SERIAL,TRAN,PTTYPE")
-	var buf bytes.Buffer
-	cmd.Stdout = &buf
-	cmd.Stderr = &buf
-	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("lsblk failed: %v (%s)", err, buf.String())
+	cols := append([]string(nil), lsblkColumns...)
+	for {
+		cmd := exec.Command("lsblk", "-J", "-b", "-o", strings.Join(cols, ","))
+		var buf bytes.Buffer
+		cmd.Stdout = &buf
+		cmd.Stderr = &buf
+		if err := cmd.Run(); err != nil {
+			dropped, ok := dropUnknownLsblkColumns(buf.String(), cols)
+			if ok && len(dropped) > 0 && len(dropped) < len(cols) {
+				cols = dropped
+				continue
+			}
+			return nil, fmt.Errorf("lsblk failed: %v (%s)", err, strings.TrimSpace(buf.String()))
+		}
+		var out lsblkOutput
+		if err := json.Unmarshal(buf.Bytes(), &out); err != nil {
+			return nil, fmt.Errorf("lsblk parse failed: %w", err)
+		}
+		return &out, nil
 	}
-	var out lsblkOutput
-	if err := json.Unmarshal(buf.Bytes(), &out); err != nil {
-		return nil, fmt.Errorf("lsblk parse failed: %w", err)
+}
+
+// dropUnknownLsblkColumns parses lsblk's "unknown column" error output and
+// returns the column list with the offending names removed. The second return
+// value is false if no unknown column message was found.
+func dropUnknownLsblkColumns(stderr string, cols []string) ([]string, bool) {
+	const marker = "unknown column:"
+	idx := strings.Index(stderr, marker)
+	if idx < 0 {
+		return cols, false
 	}
-	return &out, nil
+	rest := strings.TrimSpace(stderr[idx+len(marker):])
+	rest = strings.SplitN(rest, "\n", 2)[0]
+	bad := map[string]struct{}{}
+	for _, name := range strings.Split(rest, ",") {
+		name = strings.TrimSpace(name)
+		if name != "" {
+			bad[strings.ToUpper(name)] = struct{}{}
+		}
+	}
+	if len(bad) == 0 {
+		return cols, false
+	}
+	kept := make([]string, 0, len(cols))
+	for _, c := range cols {
+		if _, drop := bad[strings.ToUpper(c)]; drop {
+			continue
+		}
+		kept = append(kept, c)
+	}
+	return kept, true
 }
 
 func flattenLsblk(out *lsblkOutput) []lsblkDevice {
@@ -145,13 +221,33 @@ func flattenLsblk(out *lsblkOutput) []lsblkDevice {
 }
 
 func findDiskForSource(flat []lsblkDevice, source string) *lsblkDevice {
+	candidates := map[string]struct{}{source: {}}
+	if resolved, err := filepath.EvalSymlinks(source); err == nil && resolved != "" {
+		candidates[resolved] = struct{}{}
+	}
+
+	matchPath := func(d lsblkDevice) bool {
+		if _, ok := candidates[d.Path]; ok {
+			return true
+		}
+		return false
+	}
+
 	for i := range flat {
-		if flat[i].Path == source && flat[i].Type == "disk" {
+		if matchPath(flat[i]) && flat[i].Type == "disk" {
+			return &flat[i]
+		}
+	}
+	// Logical volumes (LVM2) and device-mapper targets are valid disk-image
+	// sources too. Treat the LV itself as the "disk" — it has no partitions of
+	// its own, but we still need its size, label, and filesystem metadata.
+	for i := range flat {
+		if matchPath(flat[i]) && (flat[i].Type == "lvm" || flat[i].Type == "crypt" || flat[i].Type == "raid0" || flat[i].Type == "raid1" || flat[i].Type == "raid5" || flat[i].Type == "raid6" || flat[i].Type == "raid10") {
 			return &flat[i]
 		}
 	}
 	for i := range flat {
-		if flat[i].Path == source && flat[i].Type == "part" {
+		if matchPath(flat[i]) && flat[i].Type == "part" {
 			parent := flat[i].PkName
 			if parent == "" {
 				continue
@@ -176,6 +272,31 @@ func readBlockSize(diskName string) int64 {
 		return 0
 	}
 	return parseInt64(strings.TrimSpace(string(b)))
+}
+
+// readPartitionStart returns a partition's starting LBA (in 512-byte sectors)
+// from sysfs. This is used as a fallback when lsblk does not expose the START
+// column (older util-linux releases such as Ubuntu 22.04's 2.37.2).
+func readPartitionStart(partName string) int64 {
+	if partName == "" {
+		return 0
+	}
+	candidates := []string{
+		filepath.Join("/sys/class/block", partName, "start"),
+	}
+	if entries, err := os.ReadDir("/sys/block"); err == nil {
+		for _, e := range entries {
+			candidates = append(candidates, filepath.Join("/sys/block", e.Name(), partName, "start"))
+		}
+	}
+	for _, p := range candidates {
+		if b, err := os.ReadFile(p); err == nil {
+			if n := parseInt64(strings.TrimSpace(string(b))); n > 0 {
+				return n
+			}
+		}
+	}
+	return 0
 }
 
 func parseInt64(raw string) int64 {

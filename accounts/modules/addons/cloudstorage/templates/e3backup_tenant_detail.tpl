@@ -237,57 +237,64 @@
                         </div>
 
                         <div x-show="activeTab === 'tenant_members'" x-cloak>
-                            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
-                                <div>
-                                    <h3 class="text-lg font-semibold text-white">Tenant Members</h3>
-                                    <p class="text-xs text-slate-400">Portal access accounts for this tenant.</p>
+                            <div class="eb-table-toolbar">
+                                <div class="flex-1">
+                                    <h3 class="eb-card-title">Tenant Members</h3>
+                                    <p class="eb-card-subtitle">Portal access accounts for this tenant.</p>
                                 </div>
                                 <button type="button"
                                         @click="redirectToPartnerHub('members')"
-                                        class="px-4 py-2 rounded-md bg-amber-600 text-white text-sm font-semibold hover:bg-amber-500">
+                                        class="eb-btn eb-btn-primary eb-btn-sm">
                                     Manage in Partner Hub
                                 </button>
                             </div>
 
-                            <div class="overflow-x-auto rounded-lg border border-slate-800">
-                                <table class="min-w-full divide-y divide-slate-800 text-sm">
-                                    <thead class="bg-slate-900/80 text-slate-300">
+                            <div class="eb-table-shell">
+                                <table class="eb-table">
+                                    <thead>
                                         <tr>
-                                            <th class="px-4 py-3 text-left font-medium">Name</th>
-                                            <th class="px-4 py-3 text-left font-medium">Email</th>
-                                            <th class="px-4 py-3 text-left font-medium">Role</th>
-                                            <th class="px-4 py-3 text-left font-medium">Status</th>
-                                            <th class="px-4 py-3 text-left font-medium">Last Login</th>
+                                            <th>Name</th>
+                                            <th>Email</th>
+                                            <th>Role</th>
+                                            <th>Status</th>
+                                            <th>Last Login</th>
                                         </tr>
                                     </thead>
-                                    <tbody class="divide-y divide-slate-800">
+                                    <tbody>
                                         <template x-if="loadingMembers">
                                             <tr>
-                                                <td colspan="5" class="px-4 py-8 text-center text-slate-400">Loading tenant members...</td>
+                                                <td colspan="5">
+                                                    <div class="eb-app-empty">
+                                                        <p class="eb-app-empty-copy">Loading tenant members...</p>
+                                                    </div>
+                                                </td>
                                             </tr>
                                         </template>
                                         <template x-if="!loadingMembers && members.length === 0">
                                             <tr>
-                                                <td colspan="5" class="px-4 py-8 text-center text-slate-400">No tenant members found.</td>
+                                                <td colspan="5">
+                                                    <div class="eb-app-empty">
+                                                        <div class="eb-app-empty-title">No tenant members found</div>
+                                                        <p class="eb-app-empty-copy">Add a member from the Partner Hub to get started.</p>
+                                                    </div>
+                                                </td>
                                             </tr>
                                         </template>
                                         <template x-for="member in members" :key="'member-' + member.id">
-                                            <tr class="hover:bg-slate-800/40">
-                                                <td class="px-4 py-3 text-slate-100" x-text="member.name"></td>
-                                                <td class="px-4 py-3 text-slate-300" x-text="member.email"></td>
-                                                <td class="px-4 py-3">
-                                                    <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium"
-                                                          :class="member.role === 'admin' ? 'bg-violet-500/15 text-violet-200' : 'bg-slate-700 text-slate-300'"
+                                            <tr>
+                                                <td class="eb-table-primary" x-text="member.name"></td>
+                                                <td x-text="member.email"></td>
+                                                <td>
+                                                    <span class="eb-badge"
+                                                          :class="member.role === 'admin' ? 'eb-badge--premium' : 'eb-badge--neutral'"
                                                           x-text="member.role"></span>
                                                 </td>
-                                                <td class="px-4 py-3">
-                                                    <span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold"
-                                                          :class="member.status === 'active' ? 'bg-emerald-500/15 text-emerald-200' : 'bg-slate-700 text-slate-300'">
-                                                        <span class="h-1.5 w-1.5 rounded-full" :class="member.status === 'active' ? 'bg-emerald-400' : 'bg-slate-500'"></span>
-                                                        <span x-text="member.status"></span>
-                                                    </span>
+                                                <td>
+                                                    <span class="eb-badge eb-badge--dot"
+                                                          :class="member.status === 'active' ? 'eb-badge--success' : 'eb-badge--neutral'"
+                                                          x-text="member.status"></span>
                                                 </td>
-                                                <td class="px-4 py-3 text-slate-300" x-text="member.last_login_at || 'Never'"></td>
+                                                <td x-text="member.last_login_at || 'Never'"></td>
                                             </tr>
                                         </template>
                                     </tbody>
@@ -296,58 +303,63 @@
                         </div>
 
                         <div x-show="activeTab === 'backup_users'" x-cloak>
-                            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
-                                <div>
-                                    <h3 class="text-lg font-semibold text-white">Backup Users</h3>
-                                    <p class="text-xs text-slate-400">Backup identities scoped to this tenant.</p>
+                            <div class="eb-table-toolbar">
+                                <div class="flex-1">
+                                    <h3 class="eb-card-title">Backup Users</h3>
+                                    <p class="eb-card-subtitle">Backup identities scoped to this tenant.</p>
                                 </div>
                                 <button type="button"
                                         @click="redirectToPartnerHub('storage_users')"
-                                        class="px-4 py-2 rounded-md bg-amber-600 text-white text-sm font-semibold hover:bg-amber-500">
+                                        class="eb-btn eb-btn-primary eb-btn-sm">
                                     Manage in Partner Hub
                                 </button>
                             </div>
 
-                            <div class="overflow-x-auto rounded-lg border border-slate-800">
-                                <table class="min-w-full divide-y divide-slate-800 text-sm">
-                                    <thead class="bg-slate-900/80 text-slate-300">
+                            <div class="eb-table-shell">
+                                <table class="eb-table">
+                                    <thead>
                                         <tr>
-                                            <th class="px-4 py-3 text-left font-medium">Username</th>
-                                            <th class="px-4 py-3 text-left font-medium">Email</th>
-                                            <th class="px-4 py-3 text-left font-medium"># Vaults</th>
-                                            <th class="px-4 py-3 text-left font-medium"># Jobs</th>
-                                            <th class="px-4 py-3 text-left font-medium"># Agents</th>
-                                            <th class="px-4 py-3 text-left font-medium">Last Backup</th>
-                                            <th class="px-4 py-3 text-left font-medium">Status</th>
+                                            <th>Username</th>
+                                            <th>Email</th>
+                                            <th># Vaults</th>
+                                            <th># Jobs</th>
+                                            <th># Agents</th>
+                                            <th>Last Backup</th>
+                                            <th>Status</th>
                                         </tr>
                                     </thead>
-                                    <tbody class="divide-y divide-slate-800">
+                                    <tbody>
                                         <template x-if="loadingBackupUsers">
                                             <tr>
-                                                <td colspan="7" class="px-4 py-8 text-center text-slate-400">Loading backup users...</td>
+                                                <td colspan="7">
+                                                    <div class="eb-app-empty">
+                                                        <p class="eb-app-empty-copy">Loading backup users...</p>
+                                                    </div>
+                                                </td>
                                             </tr>
                                         </template>
                                         <template x-if="!loadingBackupUsers && backupUsers.length === 0">
                                             <tr>
-                                                <td colspan="7" class="px-4 py-8 text-center text-slate-400">No backup users found.</td>
+                                                <td colspan="7">
+                                                    <div class="eb-app-empty">
+                                                        <div class="eb-app-empty-title">No backup users found</div>
+                                                        <p class="eb-app-empty-copy">Provision a backup user from the Partner Hub to get started.</p>
+                                                    </div>
+                                                </td>
                                             </tr>
                                         </template>
                                         <template x-for="user in backupUsers" :key="'backup-user-' + user.id">
-                                            <tr class="hover:bg-slate-800/40">
-                                                <td class="px-4 py-3">
-                                                    <div class="font-medium text-slate-100" x-text="user.username"></div>
-                                                </td>
-                                                <td class="px-4 py-3 text-slate-300" x-text="user.email"></td>
-                                                <td class="px-4 py-3 text-slate-300" x-text="user.vaults_count"></td>
-                                                <td class="px-4 py-3 text-slate-300" x-text="user.jobs_count"></td>
-                                                <td class="px-4 py-3 text-slate-300" x-text="user.agents_count"></td>
-                                                <td class="px-4 py-3 text-slate-300" x-text="formatDate(user.last_backup_at)"></td>
-                                                <td class="px-4 py-3">
-                                                    <span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold"
-                                                          :class="user.status === 'active' ? 'bg-emerald-500/15 text-emerald-200' : 'bg-slate-700 text-slate-300'">
-                                                        <span class="h-1.5 w-1.5 rounded-full" :class="user.status === 'active' ? 'bg-emerald-400' : 'bg-slate-500'"></span>
-                                                        <span x-text="user.status"></span>
-                                                    </span>
+                                            <tr>
+                                                <td class="eb-table-primary" x-text="user.username"></td>
+                                                <td x-text="user.email"></td>
+                                                <td x-text="user.vaults_count"></td>
+                                                <td x-text="user.jobs_count"></td>
+                                                <td x-text="user.agents_count"></td>
+                                                <td x-text="formatDate(user.last_backup_at)"></td>
+                                                <td>
+                                                    <span class="eb-badge eb-badge--dot"
+                                                          :class="user.status === 'active' ? 'eb-badge--success' : 'eb-badge--neutral'"
+                                                          x-text="user.status"></span>
                                                 </td>
                                             </tr>
                                         </template>

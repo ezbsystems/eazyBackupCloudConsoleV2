@@ -712,22 +712,44 @@
                 <ul class="nav nav-tabs">
                     <li class="active"><a href="#agentLogsTab" data-toggle="tab">Agent Logs</a></li>
                     <li><a href="#trayLogsTab" data-toggle="tab">Tray Logs</a></li>
+                    <li><a href="#runLogsTab" data-toggle="tab">Run Logs</a></li>
                     <li><a href="#agentDiagnosticsTab" data-toggle="tab">Diagnostics</a></li>
                 </ul>
                 <div class="tab-content" style="margin-top: 15px;">
                     <div class="tab-pane active" id="agentLogsTab">
                         <div style="margin-bottom:8px;">
-                            <button type="button" class="btn btn-default btn-xs" onclick="refreshAgentLogTab()">Refresh Agent Log</button>
+                            <button type="button" class="btn btn-default btn-xs" onclick="refreshAgentEvents('agent')">Refresh</button>
+                            <button type="button" class="btn btn-warning btn-xs" onclick="fetchEndpointTail('agent')" title="Fetch a live tail of agent.log from the customer PC. Requires agent to be online.">Fetch Endpoint Tail (live)</button>
+                            <span class="text-muted small" style="margin-left:8px;">Server-side durable agent events. Live tail is for online-agent diagnostics only.</span>
                         </div>
                         <div id="agentLogMeta" class="text-muted small" style="margin-bottom:8px;"></div>
                         <pre id="agentLogContent" style="max-height: 420px; overflow-y: auto; background: #f5f5f5; padding: 10px; border-radius: 4px;">Select Agent Logs to load content.</pre>
                     </div>
                     <div class="tab-pane" id="trayLogsTab">
                         <div style="margin-bottom:8px;">
-                            <button type="button" class="btn btn-default btn-xs" onclick="refreshTrayLogTab()">Refresh Tray Log</button>
+                            <button type="button" class="btn btn-default btn-xs" onclick="refreshAgentEvents('tray')">Refresh</button>
+                            <button type="button" class="btn btn-warning btn-xs" onclick="fetchEndpointTail('tray')" title="Fetch a live tail of tray.log from the customer PC. Requires agent to be online.">Fetch Endpoint Tail (live)</button>
+                            <span class="text-muted small" style="margin-left:8px;">Server-side durable tray events. Live tail is for online-agent diagnostics only.</span>
                         </div>
                         <div id="trayLogMeta" class="text-muted small" style="margin-bottom:8px;"></div>
                         <pre id="trayLogContent" style="max-height: 420px; overflow-y: auto; background: #f5f5f5; padding: 10px; border-radius: 4px;">Select Tray Logs to load content.</pre>
+                    </div>
+                    <div class="tab-pane" id="runLogsTab">
+                        <div style="margin-bottom:8px;">
+                            <button type="button" class="btn btn-default btn-xs" onclick="loadAgentRuns()">Refresh Runs</button>
+                            <span class="text-muted small" style="margin-left:8px;">Recent runs for this agent. Click a run to view events &amp; verbose admin chunks.</span>
+                        </div>
+                        <div id="agentRunsList" style="max-height: 180px; overflow-y: auto; background: #f5f5f5; padding: 8px; border-radius: 4px; margin-bottom: 10px;">Loading runs...</div>
+                        <div id="agentRunDetail" style="border-top: 1px solid #ddd; padding-top: 10px;">
+                            <div id="agentRunDetailHeader" class="text-muted small" style="margin-bottom:6px;">Select a run above.</div>
+                            <div style="margin-bottom:6px;">
+                                <button type="button" class="btn btn-default btn-xs" onclick="loadRunEventsForSelected()" id="btnRefreshRunEvents" disabled>Refresh Events</button>
+                                <button type="button" class="btn btn-info btn-xs" onclick="enableVerboseAdminLogging()" id="btnEnableVerbose" disabled title="Tell the agent to capture verbose, admin-only diagnostics for this run for the next 30 minutes.">Enable Verbose Admin Logging (30 min)</button>
+                                <button type="button" class="btn btn-default btn-xs" onclick="loadRunChunksForSelected()" id="btnRefreshRunChunks" disabled>List Verbose Chunks</button>
+                            </div>
+                            <pre id="agentRunEventsContent" style="max-height: 240px; overflow-y: auto; background: #f5f5f5; padding: 10px; border-radius: 4px;">No run selected.</pre>
+                            <div id="agentRunChunksContent" class="small text-muted"></div>
+                        </div>
                     </div>
                     <div class="tab-pane" id="agentDiagnosticsTab">
                         <div id="agentDiagnosticsMeta" class="text-muted small" style="margin-bottom:8px;">
@@ -901,27 +923,187 @@ function formatLogMeta(data) {
     return details.join(' | ');
 }
 
-function fetchAgentLogTail(agentUuid, logKind, contentEl, metaEl) {
-    const contentNode = document.getElementById(contentEl);
-    const metaNode = document.getElementById(metaEl);
-    if (!contentNode || !metaNode) {
-        return;
-    }
-    contentNode.textContent = 'Loading...';
+// Server-side agent events (Agent Logs / Tray Logs default view).
+function loadAgentEvents(source) {
+    if (!agentManageCurrentAgentUuid) return;
+    const contentId = source === 'tray' ? 'trayLogContent' : 'agentLogContent';
+    const metaId = source === 'tray' ? 'trayLogMeta' : 'agentLogMeta';
+    const contentNode = document.getElementById(contentId);
+    const metaNode = document.getElementById(metaId);
+    if (!contentNode || !metaNode) return;
+    contentNode.textContent = 'Loading server-side events...';
     metaNode.textContent = '';
-    fetch('/modules/addons/cloudstorage/api/admin_cloudbackup_fetch_log_tail.php?agent_uuid=' + encodeURIComponent(agentUuid) + '&log_kind=' + encodeURIComponent(logKind))
+    const url = '/modules/addons/cloudstorage/api/admin_cloudbackup_agent_events.php'
+        + '?agent_uuid=' + encodeURIComponent(agentManageCurrentAgentUuid)
+        + '&source=' + encodeURIComponent(source)
+        + '&limit=200';
+    fetch(url)
         .then(r => r.json())
         .then(data => {
             if (data.status !== 'success') {
-                contentNode.textContent = data.message || 'Failed to load log';
+                contentNode.textContent = data.message || 'Failed to load events';
                 return;
             }
-            metaNode.textContent = formatLogMeta(data);
+            const events = data.events || [];
+            metaNode.textContent = events.length + ' of ' + (data.total || events.length) + ' events';
+            if (events.length === 0) {
+                contentNode.textContent = '[no server-side ' + source + ' events recorded yet]';
+                return;
+            }
+            // Render newest-first as the API returns DESC.
+            const lines = events.map(function (e) {
+                const params = e.params ? (typeof e.params === 'string' ? e.params : JSON.stringify(e.params)) : '';
+                return '[' + (e.ts || '-') + '] [' + (e.level || 'info').toUpperCase() + '] '
+                    + (e.code || 'EVENT') + (params ? ' ' + params : '');
+            });
+            contentNode.textContent = lines.join('\n');
+        })
+        .catch(() => {
+            contentNode.textContent = 'Failed to load events';
+        });
+}
+
+function refreshAgentEvents(source) {
+    loadAgentEvents(source);
+}
+
+// Break-glass: live tail from the customer PC. Only useful when the agent is online.
+function fetchEndpointTail(logKind) {
+    if (!agentManageCurrentAgentUuid) return;
+    const contentId = logKind === 'tray' ? 'trayLogContent' : 'agentLogContent';
+    const metaId = logKind === 'tray' ? 'trayLogMeta' : 'agentLogMeta';
+    const contentNode = document.getElementById(contentId);
+    const metaNode = document.getElementById(metaId);
+    if (!contentNode || !metaNode) return;
+    contentNode.textContent = 'Requesting live tail from agent (this may take up to 15 seconds)...';
+    metaNode.textContent = '';
+    fetch('/modules/addons/cloudstorage/api/admin_cloudbackup_fetch_log_tail.php?agent_uuid=' + encodeURIComponent(agentManageCurrentAgentUuid) + '&log_kind=' + encodeURIComponent(logKind))
+        .then(r => r.json())
+        .then(data => {
+            if (data.status !== 'success') {
+                contentNode.textContent = data.message || 'Failed to load live tail';
+                return;
+            }
+            metaNode.textContent = 'LIVE TAIL ' + formatLogMeta(data);
             contentNode.textContent = data.content || '[empty log]';
         })
         .catch(() => {
-            contentNode.textContent = 'Failed to load log';
+            contentNode.textContent = 'Failed to load live tail';
         });
+}
+
+// Run logs tab.
+let agentManageSelectedRunId = '';
+
+function loadAgentRuns() {
+    if (!agentManageCurrentAgentUuid) return;
+    const list = document.getElementById('agentRunsList');
+    list.textContent = 'Loading runs...';
+    fetch('/modules/addons/cloudstorage/api/admin_cloudbackup_agent_runs.php?agent_uuid=' + encodeURIComponent(agentManageCurrentAgentUuid) + '&limit=50')
+        .then(r => r.json())
+        .then(data => {
+            if (data.status !== 'success') {
+                list.textContent = data.message || 'Failed to load runs';
+                return;
+            }
+            const runs = data.runs || [];
+            if (runs.length === 0) {
+                list.textContent = 'No runs recorded for this agent.';
+                return;
+            }
+            const html = runs.map(function (r) {
+                const label = (r.run_id || '').slice(0, 8) + '… ' + (r.status || '?')
+                    + ' | ' + (r.run_type || 'backup')
+                    + ' | ' + (r.started_at || '-') + ' → ' + (r.finished_at || '(running)')
+                    + (r.job_name ? (' | ' + r.job_name) : '');
+                return '<div><a href="#" onclick="selectRun(\'' + r.run_id + '\'); return false;">' + label + '</a></div>';
+            });
+            list.innerHTML = html.join('');
+        })
+        .catch(() => { list.textContent = 'Failed to load runs'; });
+}
+
+function selectRun(runId) {
+    agentManageSelectedRunId = String(runId || '');
+    document.getElementById('agentRunDetailHeader').textContent = 'Run ' + agentManageSelectedRunId;
+    document.getElementById('btnRefreshRunEvents').disabled = false;
+    document.getElementById('btnEnableVerbose').disabled = false;
+    document.getElementById('btnRefreshRunChunks').disabled = false;
+    loadRunEventsForSelected();
+    loadRunChunksForSelected();
+}
+
+function loadRunEventsForSelected() {
+    if (!agentManageSelectedRunId) return;
+    const out = document.getElementById('agentRunEventsContent');
+    out.textContent = 'Loading events...';
+    fetch('/modules/addons/cloudstorage/api/cloudbackup_get_run_events.php?run_id=' + encodeURIComponent(agentManageSelectedRunId) + '&limit=300')
+        .then(r => r.json())
+        .then(data => {
+            if (data.status !== 'success') {
+                out.textContent = data.message || 'Failed to load events';
+                return;
+            }
+            const events = data.events || [];
+            if (!events.length) { out.textContent = '[no events]'; return; }
+            const lines = events.map(function (e) {
+                const params = e.params_json ? (typeof e.params_json === 'string' ? e.params_json : JSON.stringify(e.params_json)) : '';
+                return '[' + (e.ts || '-') + '] [' + (e.level || 'info').toUpperCase() + '] '
+                    + (e.code || e.message_id || 'EVENT') + (params ? ' ' + params : '');
+            });
+            out.textContent = lines.join('\n');
+        })
+        .catch(() => { out.textContent = 'Failed to load events'; });
+}
+
+function loadRunChunksForSelected() {
+    if (!agentManageSelectedRunId) return;
+    const out = document.getElementById('agentRunChunksContent');
+    out.textContent = 'Loading verbose chunks...';
+    fetch('/modules/addons/cloudstorage/api/admin_cloudbackup_run_chunks.php?run_id=' + encodeURIComponent(agentManageSelectedRunId))
+        .then(r => r.json())
+        .then(data => {
+            if (data.status !== 'success') {
+                out.textContent = data.message || 'No verbose chunks';
+                return;
+            }
+            const chunks = data.chunks || [];
+            if (!chunks.length) {
+                out.textContent = 'No verbose admin chunks recorded for this run.';
+                return;
+            }
+            const html = chunks.map(function (c) {
+                const dl = '/modules/addons/cloudstorage/api/admin_cloudbackup_run_chunk_download.php?run_id='
+                    + encodeURIComponent(agentManageSelectedRunId) + '&chunk_seq=' + c.chunk_seq + '&download=1';
+                const view = '/modules/addons/cloudstorage/api/admin_cloudbackup_run_chunk_download.php?run_id='
+                    + encodeURIComponent(agentManageSelectedRunId) + '&chunk_seq=' + c.chunk_seq + '&decompress=1';
+                return '<div>chunk ' + c.chunk_seq + ' (' + c.source + ', ' + c.line_count + ' lines, ' + c.byte_count + ' bytes, ' + c.first_ts + ' → ' + c.last_ts + ') '
+                    + ' <a href="' + view + '" target="_blank">view</a> '
+                    + ' | <a href="' + dl + '" target="_blank">download</a></div>';
+            });
+            out.innerHTML = html.join('');
+        })
+        .catch(() => { out.textContent = 'Failed to load verbose chunks'; });
+}
+
+function enableVerboseAdminLogging() {
+    if (!agentManageSelectedRunId) return;
+    if (!confirm('Enable verbose admin logging for run ' + agentManageSelectedRunId + ' for 30 minutes? This captures detailed diagnostics on the customer PC and uploads them to the server.')) return;
+    const payload = { run_id: agentManageSelectedRunId, type: 'enable_verbose_admin_logging', payload_json: JSON.stringify({ ttl_minutes: 30 }) };
+    fetch('/modules/addons/cloudstorage/api/admin_cloudbackup_request_command.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams(payload)
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.status === 'success') {
+            alert('Verbose admin logging enabled for run ' + agentManageSelectedRunId + ' for the next 30 minutes.');
+        } else {
+            alert(data.message || 'Failed to enable verbose admin logging');
+        }
+    })
+    .catch(() => alert('Failed to enable verbose admin logging'));
 }
 
 function loadAgentDiagnostics(agentUuid) {
@@ -949,19 +1131,8 @@ function loadAgentDiagnostics(agentUuid) {
         });
 }
 
-function refreshAgentLogTab() {
-    if (!agentManageCurrentAgentUuid) {
-        return;
-    }
-    fetchAgentLogTail(agentManageCurrentAgentUuid, 'agent', 'agentLogContent', 'agentLogMeta');
-}
-
-function refreshTrayLogTab() {
-    if (!agentManageCurrentAgentUuid) {
-        return;
-    }
-    fetchAgentLogTail(agentManageCurrentAgentUuid, 'tray', 'trayLogContent', 'trayLogMeta');
-}
+function refreshAgentLogTab() { refreshAgentEvents('agent'); }
+function refreshTrayLogTab() { refreshAgentEvents('tray'); }
 
 function clearAgentLogAutoRefreshTimer() {
     if (agentManageAutoRefreshTimer) {
@@ -1010,6 +1181,9 @@ function initAgentManageModalHandlers() {
         } else if (href === '#trayLogsTab') {
             agentManageCurrentLogKind = 'tray';
             refreshTrayLogTab();
+        } else if (href === '#runLogsTab') {
+            agentManageCurrentLogKind = '';
+            loadAgentRuns();
         } else {
             agentManageCurrentLogKind = '';
         }
@@ -1022,7 +1196,7 @@ function openAgentLogs(agentUuid) {
     document.getElementById('agentManageTitle').textContent = '(' + agentManageCurrentAgentUuid + ')';
     $('#agentManageModal').modal('show');
     $('#agentManageModal ul.nav-tabs a[href="#agentLogsTab"]').tab('show');
-    fetchAgentLogTail(agentManageCurrentAgentUuid, 'agent', 'agentLogContent', 'agentLogMeta');
+    loadAgentEvents('agent');
     loadAgentDiagnostics(agentManageCurrentAgentUuid);
     updateAgentLogAutoRefresh();
 }
@@ -1033,7 +1207,7 @@ function openTrayLogs(agentUuid) {
     document.getElementById('agentManageTitle').textContent = '(' + agentManageCurrentAgentUuid + ')';
     $('#agentManageModal').modal('show');
     $('#agentManageModal ul.nav-tabs a[href="#trayLogsTab"]').tab('show');
-    fetchAgentLogTail(agentManageCurrentAgentUuid, 'tray', 'trayLogContent', 'trayLogMeta');
+    loadAgentEvents('tray');
     loadAgentDiagnostics(agentManageCurrentAgentUuid);
     updateAgentLogAutoRefresh();
 }

@@ -866,3 +866,19 @@ Script path: `accounts/modules/addons/cloudstorage/scripts/cloudbackup_uuidv7_bi
 - [README.md](../README.md) - Main module documentation
 - [CLOUD_BACKUP_TASKS.md](CLOUD_BACKUP_TASKS.md) - Phase task breakdown
 
+
+## Logging architecture (server-side cutover)
+
+As of the agent logging cutover, durable agent/tray health and run logs live
+server-side. See [CLOUDBACKUP_AGENT_LOGGING_CUTOVER.md](CLOUDBACKUP_AGENT_LOGGING_CUTOVER.md)
+for the full plan. Summary:
+
+- Local logs on the customer PC are now health-only, rotated, and redacted.
+- Run events go to `s3_cloudbackup_run_events` (throttled and capped).
+- Agent/tray health events go to the new `s3_cloudbackup_agent_events`.
+- Optional admin verbose chunks (gzipped) go to `s3_cloudbackup_admin_log_chunks`.
+- Admin → CloudStorage → Cloud Backup → Agents → Manage exposes Agent Logs,
+  Tray Logs, and Run Logs tabs sourced from the durable server-side tables.
+  "Fetch Endpoint Tail" remains as a live break-glass action.
+- A strict `cloudbackup_min_local_agent_version` gate returns HTTP 426 to
+  older agents.

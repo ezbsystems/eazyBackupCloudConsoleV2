@@ -54,10 +54,11 @@ type ChangedBlockRange struct {
 // RCTInfo contains RCT metadata for a disk.
 type RCTInfo struct {
 	DiskPath      string              `json:"disk_path"`
-	RCTID         string              `json:"rct_id"`           // Current RCT tracking ID
+	RCTID         string              `json:"rct_id"`        // Current RCT tracking ID
 	ChangedBlocks []ChangedBlockRange `json:"changed_blocks"`
-	TotalChanged  int64               `json:"total_changed"`    // Sum of all changed bytes
-	Valid         bool                `json:"valid"`            // Whether RCT data is valid
+	TotalChanged  int64               `json:"total_changed"` // Sum of all changed bytes
+	Valid         bool                `json:"valid"`         // Whether RCT data is valid
+	Error         string              `json:"error,omitempty"`
 }
 
 // BackupType indicates whether a backup is full or incremental.
