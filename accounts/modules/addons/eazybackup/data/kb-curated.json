@@ -20,12 +20,23 @@
     "url": "https://docs.eazybackup.com/troubleshooting/locked-files"
   },
   {
+    "name": "Warning Missing - items removed from disk",
+    "patterns": [
+      "warning\\s*missing",
+      "warningmissing",
+      "items?\\s+removed\\s+from\\s+disk"
+    ],
+    "title": "Resolving \"Warning Missing\" Errors for Items Removed from Disk",
+    "url": "https://docs.eazybackup.com/troubleshooting/resolving-warning-missing-errors-for-items-removed-from-disk"
+  },
+  {
     "name": "Network share / UNC path errors",
     "patterns": [
       "network\\s+path.*not found",
       "the network path",
-      "unc\\s+path",
-      "could not connect to.*\\\\\\\\"
+      "could not connect to.*\\\\\\\\",
+      "lstat.*\\\\\\\\\\?\\\\unc",
+      "access\\s+is\\s+denied.*\\\\\\\\"
     ],
     "title": "How to Backup Windows Network Shares and UNC Paths",
     "url": "https://docs.eazybackup.com/guides/how-to-backup-windows-network-shares-and-unc-paths"

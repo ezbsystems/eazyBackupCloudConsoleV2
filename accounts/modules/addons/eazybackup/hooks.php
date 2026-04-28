@@ -204,8 +204,8 @@ add_hook('ClientAreaPage', 1, function ($vars) {
 
         $token = '';
         try {
-            if (class_exists('\\WHMCS\\Security\\Token')) {
-                $token = (string)\WHMCS\Security\Token::getToken();
+            if (function_exists('generate_token')) {
+                $token = (string)generate_token('plain');
             }
         } catch (\Throwable $e) { /* ignore */ }
 
