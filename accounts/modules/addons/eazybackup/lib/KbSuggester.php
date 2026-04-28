@@ -61,20 +61,23 @@ class KbSuggester
      */
     public function suggest(array $logRows, string $jobType = '', string $status = ''): array
     {
-        $signatures = $this->extractSignatures($logRows);
+        $entries = $this->extractSignatureEntries($logRows);
 
         // Fallback seed: if the log has no warning/error messages, use job type + status.
-        if (empty($signatures) && ($jobType !== '' || $status !== '')) {
-            $signatures[] = $this->normalizeSignature($status . ' ' . $jobType);
+        if (empty($entries) && ($jobType !== '' || $status !== '')) {
+            $seed = trim($status . ' ' . $jobType);
+            $entries[] = ['signature' => $this->normalizeSignature($seed), 'raw' => $seed];
         }
-        if (empty($signatures)) {
+        if (empty($entries)) {
             return [];
         }
 
         $hints   = [];
         $seenUrl = [];
-        foreach ($signatures as $sig) {
+        foreach ($entries as $entry) {
             if (count($hints) >= self::MAX_HINTS) break;
+            $sig = $entry['signature'];
+            $raw = $entry['raw'];
             $cached = $this->cacheGet($sig);
             if (is_array($cached)) {
                 foreach ($cached as $hint) {
@@ -87,9 +90,9 @@ class KbSuggester
                 continue;
             }
 
-            $perSig = $this->lookupCurated($sig);
+            $perSig = $this->lookupCurated($sig, $raw);
             if (empty($perSig)) {
-                $perSig = $this->lookupGitBookIndex($sig);
+                $perSig = $this->lookupGitBookIndex($raw);
             }
 
             $this->cachePut($sig, $perSig, empty($perSig) ? self::EMPTY_TTL_SECS : self::cacheTtl());
@@ -108,11 +111,23 @@ class KbSuggester
     // ---------- signature extraction ----------
 
     /**
-     * Group warning/error messages by normalized text and return top signatures by frequency.
+     * Backward-compatible: return only the normalized signatures (top N by frequency).
      */
     public function extractSignatures(array $logRows): array
     {
-        $counts = [];
+        return array_map(function ($e) { return $e['signature']; }, $this->extractSignatureEntries($logRows));
+    }
+
+    /**
+     * Group warning/error messages by normalized text and return top entries by frequency.
+     * Each entry preserves the original (raw) message used for keyword tokenization so
+     * that synthetic placeholders never become search terms.
+     *
+     * @return array<int,array{signature:string,raw:string,count:int}>
+     */
+    public function extractSignatureEntries(array $logRows): array
+    {
+        $byKey = [];
         foreach ($logRows as $row) {
             $sev = strtoupper((string)($row['Severity'] ?? ''));
             if ($sev !== 'W' && $sev !== 'E' && $sev !== 'WARNING' && $sev !== 'ERROR') {
@@ -121,11 +136,16 @@ class KbSuggester
             $msg = (string)($row['Message'] ?? '');
             $sig = $this->normalizeSignature($msg);
             if ($sig === '') continue;
-            $counts[$sig] = ($counts[$sig] ?? 0) + 1;
+            if (!isset($byKey[$sig])) {
+                $byKey[$sig] = ['signature' => $sig, 'raw' => $msg, 'count' => 0];
+            }
+            $byKey[$sig]['count']++;
         }
-        if (empty($counts)) return [];
-        arsort($counts);
-        return array_slice(array_keys($counts), 0, self::MAX_SIGNATURES);
+        if (empty($byKey)) return [];
+        usort($byKey, function ($a, $b) {
+            return $b['count'] <=> $a['count'];
+        });
+        return array_slice($byKey, 0, self::MAX_SIGNATURES);
     }
 
     private function normalizeSignature(string $msg): string
@@ -153,7 +173,7 @@ class KbSuggester
 
     // ---------- curated lookup ----------
 
-    private function lookupCurated(string $signature): array
+    private function lookupCurated(string $signature, string $rawMessage = ''): array
     {
         static $cached = null;
         if ($cached === null) {
@@ -164,12 +184,24 @@ class KbSuggester
                 if (is_array($j)) $cached = $j;
             }
         }
+        // Match against both the normalized signature (where placeholders like
+        // <unc> live) AND the raw message (which still contains the original
+        // wording). This lets curated regex authors target whichever is more
+        // convenient, e.g. "warning\s*missing" against the raw text.
+        $haystacks = array_filter([
+            $signature,
+            $rawMessage !== '' ? strtolower($rawMessage) : '',
+        ]);
         $hits = [];
         foreach ($cached as $entry) {
             $patterns = (array)($entry['patterns'] ?? []);
             foreach ($patterns as $p) {
                 if (!is_string($p) || $p === '') continue;
-                if (@preg_match('/' . $p . '/i', $signature)) {
+                $matched = false;
+                foreach ($haystacks as $h) {
+                    if (@preg_match('/' . $p . '/i', $h)) { $matched = true; break; }
+                }
+                if ($matched) {
                     $hits[] = [
                         'title'          => (string)($entry['title'] ?? ''),
                         'url'            => (string)($entry['url'] ?? ''),
@@ -187,26 +219,45 @@ class KbSuggester
 
     // ---------- GitBook site-index scoring ----------
 
-    private function lookupGitBookIndex(string $signature): array
+    private function lookupGitBookIndex(string $rawMessage): array
     {
         if ($this->isLiveDisabled()) return [];
         $pages = $this->fetchSiteIndex();
         if (empty($pages)) return [];
 
-        $tokens = $this->tokenize($signature);
+        $tokens = $this->tokenize($rawMessage);
         if (empty($tokens)) return [];
 
+        $rawLower = strtolower($rawMessage);
         $scored = [];
         foreach ($pages as $p) {
             $title = (string)($p['title'] ?? '');
             $path  = (string)($p['pathname'] ?? '');
             if ($title === '' || $path === '') continue;
-            $titleTokens  = $this->tokenize($title . ' ' . str_replace(['-', '/'], ' ', $path));
-            if (empty($titleTokens)) continue;
+            $titleTokens = $this->tokenize($title);
+            $pathTokens  = $this->tokenize(str_replace(['-', '/'], ' ', $path));
+            if (empty($titleTokens) && empty($pathTokens)) continue;
             $score = 0;
+            // Title-token matches are weighted higher than path-only matches.
             foreach ($tokens as $t) {
                 if (in_array($t, $titleTokens, true)) {
-                    $score++;
+                    $score += 2;
+                } elseif (in_array($t, $pathTokens, true)) {
+                    $score += 1;
+                }
+            }
+            // Phrase bonus: if the (lowercased) raw message contains the title
+            // verbatim, that is a very strong signal (e.g. "warning missing").
+            $titleLower = strtolower($title);
+            if ($titleLower !== '' && strpos($rawLower, $titleLower) !== false) {
+                $score += 5;
+            }
+            // Bigram bonus: reward titles whose adjacent word pairs appear in
+            // the raw message as a phrase ("warning missing", "items removed").
+            for ($i = 0, $n = count($titleTokens) - 1; $i < $n; $i++) {
+                $bigram = $titleTokens[$i] . ' ' . $titleTokens[$i + 1];
+                if (strpos($rawLower, $bigram) !== false) {
+                    $score += 3;
                 }
             }
             if ($score > 0) {
@@ -237,10 +288,21 @@ class KbSuggester
 
     private function tokenize(string $s): array
     {
-        $s    = strtolower($s);
-        $s    = preg_replace('/[^a-z0-9]+/', ' ', $s);
-        $stop = ['a','an','and','or','of','the','to','for','in','on','with','from','at','by','is','it','was','be','this','that','i','my','we','our','as','if','can','could','would','should','have','has','had','not'];
-        $out  = [];
+        // Split CamelCase / PascalCase boundaries so e.g. "WarningMissing" -> "Warning Missing".
+        // Two passes: lower->Upper boundary, and Upper->Upper+lower boundary (e.g. "HTTPRequest").
+        $s = preg_replace('/([a-z0-9])([A-Z])/', '$1 $2', $s);
+        $s = preg_replace('/([A-Z]+)([A-Z][a-z])/', '$1 $2', $s);
+        $s = strtolower($s);
+        $s = preg_replace('/[^a-z0-9]+/', ' ', $s);
+        // Stop words + synthetic placeholders left over from normalizeSignature()
+        // ("unc", "path", "guid", "hex", "ts", "n") so they never become search terms.
+        $stop = [
+            'a','an','and','or','of','the','to','for','in','on','with','from','at','by','is','it',
+            'was','be','this','that','i','my','we','our','as','if','can','could','would','should',
+            'have','has','had','not',
+            'unc','path','guid','hex',
+        ];
+        $out = [];
         foreach (preg_split('/\s+/', trim($s)) as $tok) {
             if ($tok === '') continue;
             if (strlen($tok) < 3) continue;
