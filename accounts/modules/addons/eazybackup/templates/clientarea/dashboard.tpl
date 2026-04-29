@@ -2013,16 +2013,17 @@
                 return dates;
             },
             summaryForDate(device, date) {
+                const toMs = (window.EB && EB.toMs) ? EB.toMs : ((v) => Number(v) || 0);
                 const jobsForDay = (device.jobs || []).filter(job => {
                     if (!job.ended_at) return false;
-                    const jobDate = new Date(job.ended_at);
+                    const jobDate = new Date(toMs(job.ended_at));
                     jobDate.setHours(0,0,0,0);
                     return jobDate.getTime() === date.getTime();
                 });
                 if (jobsForDay.length === 0) return null;
                 return {
                     worstStatus: this.getWorstStatus(jobsForDay),
-                    jobs: jobsForDay.sort((a, b) => new Date(a.started_at) - new Date(b.started_at))
+                    jobs: jobsForDay.sort((a, b) => toMs(a.started_at) - toMs(b.started_at))
                 };
             },
             getWorstStatus(jobs) {
@@ -2039,7 +2040,8 @@
                 return worstStatus;
             },
             calculateJobPosition(startTime) {
-                const jobTime = new Date(startTime);
+                const ms = (window.EB && EB.toMs) ? EB.toMs(startTime) : (Number(startTime) || 0);
+                const jobTime = new Date(ms);
                 const hours = jobTime.getHours();
                 const minutes = jobTime.getMinutes();
                 const totalMinutesInDay = 24 * 60;
@@ -2048,7 +2050,8 @@
             },
             formatSingleJobTooltip(job) {
                 const statusText = (window.EB && EB.humanStatus ? EB.humanStatus(job.status) : '');
-                const startTime = new Date(job.started_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                const _ms = (window.EB && EB.toMs) ? EB.toMs(job.started_at) : (Number(job.started_at) || 0);
+                const startTime = new Date(_ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
                 return `<div class="text-left">
                             <div class="font-semibold">${statusText} @ ${startTime}</div>
                             <div class="text-xs text-gray-600">${job.protecteditem}</div>
@@ -2060,7 +2063,8 @@
                 let content = `<div class="text-left max-w-xs"><strong>${jobs.length} job(s) on this date:</strong><hr class="my-1">`;
                 jobs.forEach(job => {
                     const statusText = (window.EB && EB.humanStatus ? EB.humanStatus(job.status) : '');
-                    const startTime = new Date(job.started_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                    const _ms = (window.EB && EB.toMs) ? EB.toMs(job.started_at) : (Number(job.started_at) || 0);
+                    const startTime = new Date(_ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
                     content += `
                         <div class="py-1 border-b border-gray-200 last:border-b-0">
                             <div class="font-semibold">${statusText} @ ${startTime}</div>
