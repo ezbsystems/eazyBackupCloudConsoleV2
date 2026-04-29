@@ -200,6 +200,18 @@ add_hook('ClientAreaPage', 1, function ($vars) {
         if (!function_exists('eb_get_active_notifications_for_client')) return [];
 
         $list = eb_get_active_notifications_for_client($clientId, $userId ?: null);
+        // Tag global cards with kind=global for the per-card dispatcher.
+        foreach ($list as &$__c) { if (!isset($__c['kind'])) $__c['kind'] = 'global'; }
+        unset($__c);
+
+        // Merge per-client inbox messages eligible for the modal.
+        if (function_exists('eb_get_inbox_messages_for_modal') && $clientId > 0) {
+            $inbox = eb_get_inbox_messages_for_modal($clientId);
+            if (!empty($inbox)) {
+                $list = array_merge($inbox, $list);
+            }
+        }
+
         if (empty($list)) return ['ebActiveNotifications' => []];
 
         $token = '';
@@ -219,6 +231,68 @@ add_hook('ClientAreaPage', 1, function ($vars) {
 });
 
 /**
+ * Inject a "Notifications" tab into the WHMCS admin clientssummary.php page.
+ * The tab loads pages/admin/client_notifications.php inside an iframe scoped
+ * to the currently viewed client.
+ */
+add_hook('AdminAreaFooterOutput', 1, function ($vars) {
+    try {
+        $script = $_SERVER['SCRIPT_NAME'] ?? '';
+        if (stripos($script, 'clientssummary.php') === false) return '';
+        $clientId = isset($_GET['userid']) ? (int)$_GET['userid'] : 0;
+        if ($clientId <= 0) return '';
+        $iframeUrl = 'addonmodules.php?module=eazybackup&action=client_notifications_panel&clientid=' . $clientId;
+        $iframeUrlJs = json_encode($iframeUrl);
+        return <<<HTML
+<script>
+(function(){
+    if (window.__ebClientNotifTabInit) return;
+    window.__ebClientNotifTabInit = true;
+
+    function inject(){
+        var tabsList = document.querySelector('ul.nav-tabs');
+        var tabContent = document.querySelector('.tab-content');
+        if (!tabsList || !tabContent) return false;
+        if (document.getElementById('ebClientNotificationsTabLi')) return true;
+
+        var li = document.createElement('li');
+        li.id = 'ebClientNotificationsTabLi';
+        li.className = 'nav-item';
+        li.innerHTML = '<a class="nav-link" data-toggle="tab" href="#ebClientNotificationsTab" role="tab"><i class="fas fa-bell"></i> Notifications</a>';
+        tabsList.appendChild(li);
+
+        var pane = document.createElement('div');
+        pane.id = 'ebClientNotificationsTab';
+        pane.className = 'tab-pane fade';
+        pane.setAttribute('role', 'tabpanel');
+        pane.innerHTML = '<iframe id="ebClientNotificationsFrame" src="about:blank" style="width:100%;min-height:640px;border:0;background:#fff;"></iframe>';
+        tabContent.appendChild(pane);
+
+        var loaded = false;
+        var url = {$iframeUrlJs};
+        li.querySelector('a').addEventListener('click', function(){
+            if (loaded) return;
+            loaded = true;
+            document.getElementById('ebClientNotificationsFrame').src = url;
+        });
+        return true;
+    }
+
+    if (inject()) return;
+    var attempts = 0;
+    var interval = setInterval(function(){
+        attempts++;
+        if (inject() || attempts > 40) clearInterval(interval);
+    }, 250);
+})();
+</script>
+HTML;
+    } catch (\Throwable $e) {
+        return '';
+    }
+});
+
+/**
  * Inject the consolidated notifications modal at the end of every client area
  * page when there are undismissed notifications for the logged-in client.
  */
@@ -229,12 +303,14 @@ add_hook('ClientAreaFooterOutput', 1, function ($vars) {
         $token = (string)($vars['ebNotifCsrf'] ?? '');
         $webRoot = rtrim((string)\WHMCS\Config\Setting::getValue('SystemURL'), '/');
         $endpoint = $webRoot . '/modules/addons/eazybackup/endpoints/dismiss_notification.php';
+        $inboxEndpoint = $webRoot . '/modules/addons/eazybackup/endpoints/inbox_dismiss.php';
 
         ob_start();
         $tplVars = [
             'ebActiveNotifications' => $list,
             'ebNotifCsrf' => $token,
             'ebNotifEndpoint' => $endpoint,
+            'ebInboxEndpoint' => $inboxEndpoint,
         ];
         extract($tplVars, EXTR_SKIP);
         include __DIR__ . '/templates/partials/_notifications_modal.phtml';

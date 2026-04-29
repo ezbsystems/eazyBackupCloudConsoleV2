@@ -7,9 +7,16 @@
         <div class="eb-modal-title truncate" id="jrm-title">Job</div>
         <div class="eb-modal-subtitle mt-0.5" id="jrm-subtitle"></div>
       </div>
+      <div class="flex items-center gap-2">
+      <button id="jrm-cancel" type="button"
+              class="eb-btn eb-btn-danger eb-btn-sm hidden"
+              title="Cancel this running backup job">
+        Cancel job
+      </button>
       <button id="jrm-close" class="eb-modal-close" aria-label="Close job report">
         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
       </button>
+      </div>
     </div>
     <div class="eb-modal-body space-y-4">
       <div id="jrm-summary" class="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">

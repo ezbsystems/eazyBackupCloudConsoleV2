@@ -853,24 +853,26 @@
                                                     </div>
                                                 </template>
                                                 <!-- Persistent hover pop-over listing last 24h jobs -->
-                                                <div x-show="open" x-cloak class="absolute z-40 right-0 top-full w-96 bg-gray-800 border border-gray-700 rounded shadow-lg p-2"
+                                                <div x-show="open" x-cloak class="eb-dropdown-menu absolute z-40 right-0 top-full w-96 p-2"
                                                         @mouseenter="hovering=true; open=true; if(closeTimer){ clearTimeout(closeTimer); closeTimer=null; }"
                                                         @mouseleave="hovering=false; scheduleClose()">
                                                 
-                                                    <div class="text-xs text-gray-400 mb-1">Jobs (last 24h)</div>
+                                                    <div class="eb-menu-label">Jobs (last 24h)</div>
                                                 
                                                     <template x-for="(raw, idx) in jobs24h()" :key="(raw.GUID || raw.JobID || raw.id || raw.started_at || raw.ended_at || idx)">
-                                                    <button type="button" class="w-full text-left px-2 py-1 rounded hover:bg-gray-700 flex items-center gap-2"
+                                                    <button type="button" class="eb-menu-item w-full cursor-pointer"
                                                             x-data="{ j: EB.normalizeJob(raw) }"
                                                             @click.stop="window.EB_JOBREPORTS && EB_JOBREPORTS.openJobModal(String((window.serviceIdForUsername && serviceIdForUsername(device.username)) || svc()), String(device.username||''), j.id)">
                                                         <span :class="EB.statusDot(j.status)" class="w-2 h-2 rounded-full inline-block"></span>
-                                                        <span class="flex-1 text-sm text-gray-300 truncate" x-text="j.name"></span>
-                                                        <span class="text-[11px] text-gray-400" x-text="EB.fmtTs(j.start) + ' – ' + EB.fmtTs(j.end)"></span>
+                                                        <span class="flex-1 text-sm truncate" style="color: var(--eb-text-primary)" x-text="j.name"></span>
+                                                        <span class="text-[11px]" style="color: var(--eb-text-muted)" x-text="EB.fmtTs(j.start)"></span>
+                                                        <span class="eb-btn eb-btn-secondary eb-btn-xs shrink-0"
+                                                              @click.stop="window.EB_JOBREPORTS && EB_JOBREPORTS.openJobModal(String((window.serviceIdForUsername && serviceIdForUsername(device.username)) || svc()), String(device.username||''), j.id)">View Log</span>
                                                     </button>
                                                     </template>
                                                 
                                                     <template x-if="jobs24h().length===0">
-                                                    <div class="text-gray-500 text-xs px-2 py-1">No jobs.</div>
+                                                    <div class="text-xs px-2 py-1" style="color: var(--eb-text-muted)">No jobs.</div>
                                                     </template>
                                                 </div>
                                             </div>
@@ -900,20 +902,21 @@
                                                             <div :class="(window.EB && EB.statusDot) ? EB.statusDot(summaryForDate(device, timelineDates()[i-1]).worstStatus) : ''" class="w-2.5 h-2.5 rounded-full"></div>
                                                         </template>
                                                         <!-- Persistent pop-over for this date's jobs -->
-                                                        <div x-show="open" x-cloak class="absolute z-40 right-0 top-full w-96 bg-gray-800 border border-gray-700 rounded shadow-lg p-2"
+                                                        <div x-show="open" x-cloak class="eb-dropdown-menu absolute z-40 right-0 top-full w-96 p-2"
                                                              @mouseenter="hovering=true; open=true; if(closeTimer){ clearTimeout(closeTimer); closeTimer=null; }"
                                                              @mouseleave="hovering=false; scheduleClose()">
-                                                            <div class="text-xs text-gray-400 mb-1" x-text="(jobs().length||0) + ' job(s) on ' + new Date(timelineDates()[i-1]).toLocaleDateString()"></div>
+                                                            <div class="eb-menu-label" x-text="(jobs().length||0) + ' job(s) on ' + new Date(timelineDates()[i-1]).toLocaleDateString()"></div>
                                                             <template x-for="(j, idx) in jobs()" :key="(j.JobID||j.job_id||j.id||j.GUID||j.guid||idx)">
-                                                                <button type="button" class="w-full text-left px-2 py-1 rounded hover:bg-gray-700 flex items-center gap-2"
+                                                                <button type="button" class="eb-menu-item w-full cursor-pointer"
                                                                         @click.stop="window.EB_JOBREPORTS && window.EB_JOBREPORTS.openJobModal(String((window.serviceIdForUsername && serviceIdForUsername(device.username)) || svc()), String(device.username||''), (j.JobID||j.job_id||j.id||j.GUID||j.guid||''))">
                                                                     <span :class="(window.EB && EB.statusDot) ? EB.statusDot(j.status) : ''" class="w-2 h-2 rounded-full inline-block"></span>
-                                                                    <span class="flex-1 text-sm text-gray-300 truncate" x-text="(j.ProtectedItem||j.protecteditem||'')"></span>
-                                                                    <span id="jrm-end" class="text-[11px] text-gray-400" x-text="(window.EB && EB.fmtTs) ? EB.fmtTs(j.started_at||j.ended_at||0) : ''"></span>
-                                                                    <span class="text-[11px] text-gray-400" x-text="(window.EB && EB.fmtTs) ? EB.fmtTs(j.started_at||j.ended_at||0) : ''"></span>
+                                                                    <span class="flex-1 text-sm truncate" style="color: var(--eb-text-primary)" x-text="(j.ProtectedItem||j.protecteditem||'')"></span>
+                                                                    <span class="text-[11px]" style="color: var(--eb-text-muted)" x-text="(window.EB && EB.fmtTs) ? EB.fmtTs(j.started_at||0) : ''"></span>
+                                                                    <span class="eb-btn eb-btn-secondary eb-btn-xs shrink-0"
+                                                                          @click.stop="window.EB_JOBREPORTS && window.EB_JOBREPORTS.openJobModal(String((window.serviceIdForUsername && serviceIdForUsername(device.username)) || svc()), String(device.username||''), (j.JobID||j.job_id||j.id||j.GUID||j.guid||''))">View Log</span>
                                                                 </button>
                                                             </template>
-                                                            <template x-if="jobs().length===0"><div class="text-gray-500 text-xs px-2 py-1">No jobs.</div></template>
+                                                            <template x-if="jobs().length===0"><div class="text-xs px-2 py-1" style="color: var(--eb-text-muted)">No jobs.</div></template>
                                                         </div>
                                                     </div>
                                                 </template>
