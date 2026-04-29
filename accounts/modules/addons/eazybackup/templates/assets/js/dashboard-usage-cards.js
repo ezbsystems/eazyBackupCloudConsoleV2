@@ -187,6 +187,11 @@
     var chart = window.bb.generate({
       bindto: el,
       size: { height: 180 },
+      // Disable Billboard's built-in tooltip + nearest-point interaction so the
+      // donut popover only opens when the cursor is precisely over an arc path
+      // (not when hovering the donut's inner hole or bounding box).
+      tooltip: { show: false },
+      interaction: { enabled: true },
       data: {
         columns: columns,
         type: 'donut',
@@ -218,17 +223,60 @@
         padAngle: 0
       },
       legend: { show: false },
-      tooltip: {
-        format: {
-          title: function (id) { return String(id || 'Status'); },
-          value: function (value) { return String(Math.round(Number(value || 0))); }
-        }
-      },
       transition: { duration: 250 }
     });
 
     window.__ebUsageCharts = window.__ebUsageCharts || {};
     window.__ebUsageCharts.status24h = chart;
+
+    // Bind precise per-arc hover detection on the rendered SVG paths.
+    bindArcHoverDispatch(el);
+  }
+
+  // After the donut renders, attach DOM-level mouseover/mouseout/click handlers
+  // directly to each <path class="bb-arc bb-arc-<Status>"> element. This gives
+  // pixel-precise hit-testing on the actual arc shape, instead of Billboard's
+  // chart-region "nearest segment" interaction which fires for the inner hole
+  // and bounding box too.
+  function bindArcHoverDispatch(rootEl) {
+    if (!rootEl) return;
+    var attempts = 0;
+    var iv = setInterval(function () {
+      attempts++;
+      var paths = rootEl.querySelectorAll('.bb-chart-arcs path.bb-arc');
+      if (paths && paths.length) {
+        clearInterval(iv);
+        paths.forEach(function (p) {
+          // Read status id from the SVG class name (e.g. "bb-arc-Success").
+          var status = '';
+          try {
+            var cls = (p.getAttribute('class') || '').split(/\s+/);
+            for (var i = 0; i < cls.length; i++) {
+              if (cls[i].indexOf('bb-arc-') === 0 && cls[i] !== 'bb-arc') {
+                status = cls[i].substring('bb-arc-'.length);
+                break;
+              }
+            }
+          } catch (_) {}
+          if (!status && p.__data__ && p.__data__.data && p.__data__.data.id) {
+            status = String(p.__data__.data.id);
+          }
+          if (!status) return;
+          p.style.cursor = 'pointer';
+          p.addEventListener('mouseover', function () { dispatchDonutEvent('eb:donut-status-over', status); });
+          p.addEventListener('mouseout',  function () { dispatchDonutEvent('eb:donut-status-out',  status); });
+          p.addEventListener('click',     function () { dispatchDonutEvent('eb:donut-status-click', status); });
+        });
+      } else if (attempts > 40) {
+        clearInterval(iv);
+      }
+    }, 50);
+  }
+
+  function dispatchDonutEvent(name, status) {
+    try {
+      window.dispatchEvent(new CustomEvent(name, { detail: { status: status || '' } }));
+    } catch (_) {}
   }
 
   function load() {

@@ -17,12 +17,14 @@ All users share the same **Account ID** (shown in the client area). Billing and 
 
 ## Root User vs. Users
 
-| | Root user | Users (subusers) |
-|---|-----------|------------------|
-| **Access keys** | Exactly **one** key pair. Cannot create more; you can only rotate/replace it. | Can create **multiple** access key pairs. |
-| **Key permissions** | Always **full** access (read, write, list, manage buckets). | You choose per key: **Full**, **Read/Write**, **Read**, or **Write**. |
-| **Buckets** | Owns its own buckets only. | Each user owns only their own buckets. |
-| **Cross-access** | Root user **cannot** access a User’s buckets. | Users **cannot** access each other’s buckets or the Root user’s buckets. |
+
+|                     | Root user                                                                     | Users (subusers)                                                         |
+| ------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| **Access keys**     | Exactly **one** key pair. Cannot create more; you can only rotate/replace it. | Can create **multiple** access key pairs.                                |
+| **Key permissions** | Always **full** access (read, write, list, manage buckets).                   | You choose per key: **Full**, **Read/Write**, **Read**, or **Write**.    |
+| **Buckets**         | Owns its own buckets only.                                                    | Each user owns only their own buckets.                                   |
+| **Cross-access**    | Root user **cannot** access a User’s buckets.                                 | Users **cannot** access each other’s buckets or the Root user’s buckets. |
+
 
 Summary:
 
@@ -65,10 +67,10 @@ Each user operates in a strictly isolated space:
 1. Log in to the client area and open **My Services**.
 2. Open your **e3 Object Storage** service.
 3. Use the top navigation or the left sidebar under **e3 Object Storage**:
-   - **Dashboard** — Overview and quick links  
-   - **Buckets** — Create and manage buckets  
-   - **Access Keys** — Create and manage API keys (for Root or for a selected user)  
-   - **Users** — Create and manage Users (subusers)
+  - **Dashboard** — Overview and quick links  
+  - **Buckets** — Create and manage buckets  
+  - **Access Keys** — Create and manage API keys (for Root or for a selected user)  
+  - **Users** — Create and manage Users (subusers)
 
 The **Users** page lists all users (including the Root user), their Account ID, bucket count, storage used, and access key count.
 
@@ -79,8 +81,8 @@ The **Users** page lists all users (including the Root user), their Account ID, 
 1. Go to **e3 Object Storage → Users**.
 2. Click **+ Create User** (green button near the top right).
 3. In the **Create User** modal, enter:
-   - **Username** — A unique name for this user (e.g. `backup-server`, `team-member`).
-   - Any other required fields (e.g. password if prompted).
+  - **Username** — A unique name for this user (e.g. `backup-server`, `team-member`).
+  - Any other required fields (e.g. password if prompted).
 4. Submit the form. The new user appears in the Users list with 0 buckets and 0 access keys.
 
 To manage that user’s keys and buckets, click **Manage** next to their name to open their detail view.
@@ -91,18 +93,18 @@ To manage that user’s keys and buckets, click **Manage** next to their name to
 
 1. On the **Users** page, click **Manage** for the user you created (or the user you want to add a key for).
 2. In the user detail view you’ll see:
-   - **Buckets**, **Storage**, and **Access keys** summary cards.
-   - An **Access keys** section with a **+ Create access key** button.
+  - **Buckets**, **Storage**, and **Access keys** summary cards.
+  - An **Access keys** section with a **+ Create access key** button.
 3. Click **+ Create access key**.
 4. If prompted, complete **Verify password**:
-   - Enter your **account password** and click **Verify**. This is required for creating keys.
+  - Enter your **account password** and click **Verify**. This is required for creating keys.
 5. In the **Create access key** dialog:
-   - **Description** — Optional label (e.g. “backup server”, “CI/CD”) so you can tell keys apart.
-   - **Permission** — Choose:
-     - **Full** — Read + write + list + manage buckets.  
-     - **Read/Write** — Upload + download + list objects (no bucket create/delete).  
-     - **Read** — Download and list only.  
-     - **Write** — Upload only.
+  - **Description** — Optional label (e.g. “backup server”, “CI/CD”) so you can tell keys apart.
+  - **Permission** — Choose:
+    - **Full** — Read + write + list + manage buckets.  
+    - **Read/Write** — Upload + download + list objects (no bucket create/delete).  
+    - **Read** — Download and list only.  
+    - **Write** — Upload only.
 6. Click **Create key** (or equivalent). The **secret key** is shown **once**. Copy and store it securely; you cannot view it again from the UI.
 
 The new key appears in the Access keys table with its key hint, description, permission, and created date. You can create more keys for the same user with different descriptions and permissions.
@@ -114,10 +116,10 @@ The new key appears in the Access keys table with its key hint, description, per
 1. Go to **e3 Object Storage → Buckets**.
 2. Click **Create Bucket** (or **+ Create Bucket**).
 3. In the **Create Bucket** modal:
-   - **Bucket Name** — Enter a unique name for the bucket.
-   - **Select Bucket Owner** — Choose the **user** you created (e.g. `demouser`) from the dropdown.  
-     Do **not** select **Root user** if you want this bucket to belong to the new user.
-   - Optionally set **Enable Versioning** and **Enable Object Locking** as needed.
+  - **Bucket Name** — Enter a unique name for the bucket.
+  - **Select Bucket Owner** — Choose the **user** you created (e.g. `demouser`) from the dropdown.  
+  Do **not** select **Root user** if you want this bucket to belong to the new user.
+  - Optionally set **Enable Versioning** and **Enable Object Locking** as needed.
 4. Click **Submit**.
 
 The bucket is created and owned by the selected user. Only that user’s access keys can access it; the Root user and other users cannot.
@@ -126,11 +128,13 @@ The bucket is created and owned by the selected user. Only that user’s access 
 
 ## Summary
 
-| Goal | Where to go | Action |
-|------|-------------|--------|
-| Create a user | **Users** → **+ Create User** | Fill username (and any required fields), submit. |
-| Create keys for a user | **Users** → **Manage** (user) → **Access keys** → **+ Create access key** | Verify password, set description and permission, create key and save the secret once. |
-| Create a bucket for a user | **Buckets** → **Create Bucket** | Enter bucket name, **Select Bucket Owner** = the user, then submit. |
+
+| Goal                       | Where to go                                                               | Action                                                                                |
+| -------------------------- | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| Create a user              | **Users** → **+ Create User**                                             | Fill username (and any required fields), submit.                                      |
+| Create keys for a user     | **Users** → **Manage** (user) → **Access keys** → **+ Create access key** | Verify password, set description and permission, create key and save the secret once. |
+| Create a bucket for a user | **Buckets** → **Create Bucket**                                           | Enter bucket name, **Select Bucket Owner** = the user, then submit.                   |
+
 
 - **Root user**: one full-access key pair only; cannot access a User’s buckets.  
 - **Users**: multiple keys per user, optional permissions; each user’s buckets are isolated from Root and from other users.  

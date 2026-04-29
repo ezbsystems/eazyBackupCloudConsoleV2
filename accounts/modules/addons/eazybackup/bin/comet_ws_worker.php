@@ -533,8 +533,12 @@ function upsertCometJobStart(PDO $pdo, string $profile, array $data): void {
         $msAc   = (int)($data['TotalAccountsCount'] ?? 0);
         $start  = (int)($data['StartTime'] ?? time());
         $end    = (int)($data['EndTime'] ?? 0);
-        $startedAt = date('Y-m-d H:i:s', $start);
-        $endedAt   = $end > 0 ? date('Y-m-d H:i:s', $end) : null;
+        // Use gmdate() so the strings written to MySQL TIMESTAMP columns are
+        // always UTC. Previously date() formatted in PHP's local timezone,
+        // which MySQL then re-interpreted in its own session timezone,
+        // producing a UTC offset skew when the two timezones differ.
+        $startedAt = gmdate('Y-m-d H:i:s', $start);
+        $endedAt   = $end > 0 ? gmdate('Y-m-d H:i:s', $end) : null;
         $lastAt    = $endedAt ?: $startedAt;
         $cometDeviceHash = $devId !== '' ? hash('sha256', (string)$clientId . $devId) : '';
         $content = json_encode($data, JSON_UNESCAPED_SLASHES);
@@ -576,8 +580,10 @@ function upsertCometJobComplete(PDO $pdo, string $profile, array $data): void {
         $msAc   = (int)($data['TotalAccountsCount'] ?? 0);
         $start  = (int)($data['StartTime'] ?? time());
         $end    = (int)($data['EndTime'] ?? time());
-        $startedAt = date('Y-m-d H:i:s', $start);
-        $endedAt   = $end > 0 ? date('Y-m-d H:i:s', $end) : null;
+        // See upsertCometJobStart(): TIMESTAMP columns must receive UTC strings
+        // so they round-trip correctly regardless of MySQL session timezone.
+        $startedAt = gmdate('Y-m-d H:i:s', $start);
+        $endedAt   = $end > 0 ? gmdate('Y-m-d H:i:s', $end) : null;
         $lastAt    = $endedAt ?: $startedAt;
         $cometDeviceHash = $devId !== '' ? hash('sha256', (string)$clientId . $devId) : '';
         $content = json_encode($data, JSON_UNESCAPED_SLASHES);

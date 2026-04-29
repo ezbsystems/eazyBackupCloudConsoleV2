@@ -4438,14 +4438,15 @@ function eazybackup_clientarea(array $vars)
                 ->select(
                     'comet_jobs.id as job_guid',
                     'comet_jobs.status',
-                    // Return real UTC unix seconds so the JS layer renders in
-                    // the visitor's local timezone consistently with the Comet
-                    // API (which already returns Unix epoch integers). MySQL
-                    // TIMESTAMP columns serialize to a string with no TZ, which
-                    // browsers double-convert through UTC and skew by the
-                    // viewer's UTC offset.
-                    Capsule::raw('UNIX_TIMESTAMP(comet_jobs.started_at) as started_at'),
-                    Capsule::raw('UNIX_TIMESTAMP(comet_jobs.ended_at) as ended_at'),
+                    // Pull the original Comet UTC Unix seconds from the
+                    // archived `content` JSON. The `started_at` / `ended_at`
+                    // TIMESTAMP columns are written by the worker via
+                    // PHP's date() and are therefore subject to PHP-vs-MySQL
+                    // session-timezone skew (typically off by the viewer's
+                    // UTC offset). The JSON content is the original Comet
+                    // API payload and is immune to that mismatch.
+                    Capsule::raw("CAST(JSON_UNQUOTE(JSON_EXTRACT(comet_jobs.content, '$.StartTime')) AS UNSIGNED) as started_at"),
+                    Capsule::raw("CAST(JSON_UNQUOTE(JSON_EXTRACT(comet_jobs.content, '$.EndTime'))   AS UNSIGNED) as ended_at"),
                     'comet_jobs.total_bytes',
                     'comet_jobs.upload_bytes',
                     'comet_jobs.total_files',

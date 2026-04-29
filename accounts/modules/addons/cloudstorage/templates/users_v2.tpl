@@ -276,7 +276,7 @@
 
   <div x-show="modals.createKey" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4">
     <div class="eb-modal-backdrop fixed inset-0" @click="modals.createKey = false" aria-hidden="true"></div>
-    <div class="eb-modal relative z-10 w-full max-w-xl" role="dialog" aria-modal="true" aria-labelledby="users-v2-create-key-title" @click.away="modals.createKey = false">
+    <div class="eb-modal relative z-10 w-full max-w-xl !overflow-visible" role="dialog" aria-modal="true" aria-labelledby="users-v2-create-key-title" @click.away="modals.createKey = false">
       <div class="eb-modal-header">
         <div>
           <h2 id="users-v2-create-key-title" class="eb-modal-title">Create access key</h2>
