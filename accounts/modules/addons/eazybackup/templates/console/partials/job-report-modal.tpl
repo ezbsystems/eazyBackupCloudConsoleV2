@@ -130,3 +130,55 @@
   <input type="hidden" id="jrm-username" value="{$username}" />
 </div>
 
+{* Themed confirm/notice dialog used by the job cancellation flow *}
+<div id="jrm-confirm" class="fixed inset-0 z-[60] hidden">
+  <div class="absolute inset-0 eb-modal-backdrop" data-jrm-confirm-dismiss></div>
+  <div class="eb-modal relative mx-auto my-16 w-full max-w-md">
+    <div class="eb-modal-header">
+      <div class="min-w-0">
+        <div class="eb-modal-title" id="jrm-confirm-title">Confirm</div>
+      </div>
+      <button type="button" class="eb-modal-close" data-jrm-confirm-dismiss aria-label="Close dialog">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <div class="eb-modal-body">
+      <p id="jrm-confirm-message" class="text-sm" style="color: var(--eb-text-secondary)"></p>
+    </div>
+    <div class="eb-modal-footer flex items-center justify-end gap-2">
+      <button type="button" id="jrm-confirm-cancel" class="eb-btn eb-btn-secondary eb-btn-sm">Cancel</button>
+      <button type="button" id="jrm-confirm-ok" class="eb-btn eb-btn-danger eb-btn-sm">Confirm</button>
+    </div>
+  </div>
+</div>
+
+{* Cancellation progress dialog with step-by-step feedback *}
+<div id="jrm-cancel-progress" class="fixed inset-0 z-[60] hidden">
+  <div class="absolute inset-0 eb-modal-backdrop"></div>
+  <div class="eb-modal relative mx-auto my-16 w-full max-w-lg">
+    <div class="eb-modal-header">
+      <div class="min-w-0">
+        <div class="eb-modal-title">Cancelling backup job</div>
+        <div id="jrm-cancel-subtitle" class="eb-modal-subtitle mt-0.5"></div>
+      </div>
+      <button id="jrm-cancel-close" type="button" class="eb-modal-close hidden" aria-label="Close dialog">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <div class="eb-modal-body space-y-3">
+      <div id="jrm-cancel-overall" class="flex items-center gap-2 text-sm" style="color: var(--eb-text-secondary)">
+        <svg id="jrm-cancel-spinner" class="h-4 w-4 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" aria-hidden="true">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 0 1 8-8v4a4 4 0 0 0-4 4H4z"></path>
+        </svg>
+        <span id="jrm-cancel-overall-text">Working...</span>
+      </div>
+      <ul id="jrm-cancel-steps" class="space-y-1.5 text-sm"></ul>
+    </div>
+    <div class="eb-modal-footer flex items-center justify-end gap-2">
+      <button type="button" id="jrm-cancel-force" class="eb-btn eb-btn-danger eb-btn-sm hidden">Force cancel</button>
+      <button type="button" id="jrm-cancel-done" class="eb-btn eb-btn-primary eb-btn-sm hidden">Done</button>
+    </div>
+  </div>
+</div>
+

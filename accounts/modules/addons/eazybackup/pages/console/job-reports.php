@@ -263,72 +263,80 @@ try {
             break;
         }
         case 'cancelJob': {
+            // Graceful cancel only. Sends a cancel request to the live-connected
+            // device. The device may take several seconds to actually flip the
+            // job status, so the frontend is responsible for polling jobDetail
+            // and (if needed) calling abandonJob as a fallback.
             $jobId = (string)($post['jobId'] ?? '');
             if ($jobId === '') { echo json_encode(['status'=>'error','message'=>'jobId required']); break; }
 
             $job = $server->AdminGetJobProperties($jobId);
             if (!$job) { echo json_encode(['status'=>'error','message'=>'Job not found']); break; }
 
-            // Defense-in-depth: confirm job belongs to this user
             $jobUser = (string)($job->Username ?? '');
             if ($jobUser !== '' && $jobUser !== $username) {
                 echo json_encode(['status'=>'error','message'=>'Access denied']); break;
             }
 
             $statusCode = (int)($job->Status ?? 0);
-            $isRunning = in_array($statusCode, [6000, 6001, 6002], true);
-            if (!$isRunning) {
+            if (!in_array($statusCode, [6000, 6001, 6002], true)) {
                 echo json_encode(['status'=>'error','message'=>'Job is not running']); break;
             }
 
-            $cancelOk = false;
-            $cancelErr = '';
             try {
                 $resp = $server->AdminJobCancel($username, $jobId);
                 $rs = (int)($resp->Status ?? 0);
                 if ($rs >= 200 && $rs < 300) {
-                    // Verify the job actually moved out of the running state
-                    try {
-                        $after = $server->AdminGetJobProperties($jobId);
-                        $afterCode = (int)($after->Status ?? 0);
-                        if (!in_array($afterCode, [6000, 6001, 6002], true)) {
-                            $cancelOk = true;
-                        }
-                    } catch (\Throwable $e) { /* fall through to abandon */ }
+                    echo json_encode([
+                        'status' => 'success',
+                        'method' => 'cancel',
+                        'notice' => 'Cancellation request sent to the device.',
+                    ]);
                 } else {
-                    $cancelErr = (string)($resp->Message ?? '');
+                    echo json_encode([
+                        'status'  => 'error',
+                        'message' => (string)($resp->Message ?? 'Comet returned an error status'),
+                        'apiStatus' => $rs,
+                    ]);
                 }
             } catch (\Throwable $e) {
-                $cancelErr = $e->getMessage();
+                echo json_encode(['status'=>'error','message'=>$e->getMessage()]);
+            }
+            break;
+        }
+        case 'abandonJob': {
+            // Force cancel (server-side). Marks the job ABANDONED in the Comet
+            // server database. Works without any live device connection. The
+            // device, if it later reconnects, may continue the job locally.
+            $jobId = (string)($post['jobId'] ?? '');
+            if ($jobId === '') { echo json_encode(['status'=>'error','message'=>'jobId required']); break; }
+
+            $job = $server->AdminGetJobProperties($jobId);
+            if (!$job) { echo json_encode(['status'=>'error','message'=>'Job not found']); break; }
+
+            $jobUser = (string)($job->Username ?? '');
+            if ($jobUser !== '' && $jobUser !== $username) {
+                echo json_encode(['status'=>'error','message'=>'Access denied']); break;
             }
 
-            if ($cancelOk) {
-                echo json_encode([
-                    'status' => 'success',
-                    'method' => 'cancel',
-                    'notice' => 'Cancellation request sent to the device.',
-                ]);
-                break;
-            }
-
-            // Fallback: force-mark abandoned (works without live device connection)
             try {
-                $resp2 = $server->AdminJobAbandon($username, $jobId);
-                $rs2 = (int)($resp2->Status ?? 0);
-                if ($rs2 >= 200 && $rs2 < 300) {
+                $resp = $server->AdminJobAbandon($username, $jobId);
+                $rs = (int)($resp->Status ?? 0);
+                if ($rs >= 200 && $rs < 300) {
                     echo json_encode([
                         'status' => 'success',
                         'method' => 'abandon',
-                        'notice' => 'Device was unreachable; job was force-marked as abandoned. The device may continue running locally until it reconnects.',
+                        'notice' => 'Job was force-marked as abandoned on the server. If the device is still online, it may continue running locally until it reconnects.',
                     ]);
                 } else {
                     echo json_encode([
-                        'status' => 'error',
-                        'message' => 'Unable to cancel job: ' . ((string)($resp2->Message ?? $cancelErr ?: 'unknown error')),
+                        'status'  => 'error',
+                        'message' => (string)($resp->Message ?? 'Comet returned an error status'),
+                        'apiStatus' => $rs,
                     ]);
                 }
             } catch (\Throwable $e) {
-                echo json_encode(['status'=>'error','message'=>'Unable to cancel job: ' . $e->getMessage()]);
+                echo json_encode(['status'=>'error','message'=>$e->getMessage()]);
             }
             break;
         }
