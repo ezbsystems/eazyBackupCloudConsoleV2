@@ -262,6 +262,76 @@ try {
             echo json_encode(['status'=>'success','rows'=>$rows]);
             break;
         }
+        case 'cancelJob': {
+            $jobId = (string)($post['jobId'] ?? '');
+            if ($jobId === '') { echo json_encode(['status'=>'error','message'=>'jobId required']); break; }
+
+            $job = $server->AdminGetJobProperties($jobId);
+            if (!$job) { echo json_encode(['status'=>'error','message'=>'Job not found']); break; }
+
+            // Defense-in-depth: confirm job belongs to this user
+            $jobUser = (string)($job->Username ?? '');
+            if ($jobUser !== '' && $jobUser !== $username) {
+                echo json_encode(['status'=>'error','message'=>'Access denied']); break;
+            }
+
+            $statusCode = (int)($job->Status ?? 0);
+            $isRunning = in_array($statusCode, [6000, 6001, 6002], true);
+            if (!$isRunning) {
+                echo json_encode(['status'=>'error','message'=>'Job is not running']); break;
+            }
+
+            $cancelOk = false;
+            $cancelErr = '';
+            try {
+                $resp = $server->AdminJobCancel($username, $jobId);
+                $rs = (int)($resp->Status ?? 0);
+                if ($rs >= 200 && $rs < 300) {
+                    // Verify the job actually moved out of the running state
+                    try {
+                        $after = $server->AdminGetJobProperties($jobId);
+                        $afterCode = (int)($after->Status ?? 0);
+                        if (!in_array($afterCode, [6000, 6001, 6002], true)) {
+                            $cancelOk = true;
+                        }
+                    } catch (\Throwable $e) { /* fall through to abandon */ }
+                } else {
+                    $cancelErr = (string)($resp->Message ?? '');
+                }
+            } catch (\Throwable $e) {
+                $cancelErr = $e->getMessage();
+            }
+
+            if ($cancelOk) {
+                echo json_encode([
+                    'status' => 'success',
+                    'method' => 'cancel',
+                    'notice' => 'Cancellation request sent to the device.',
+                ]);
+                break;
+            }
+
+            // Fallback: force-mark abandoned (works without live device connection)
+            try {
+                $resp2 = $server->AdminJobAbandon($username, $jobId);
+                $rs2 = (int)($resp2->Status ?? 0);
+                if ($rs2 >= 200 && $rs2 < 300) {
+                    echo json_encode([
+                        'status' => 'success',
+                        'method' => 'abandon',
+                        'notice' => 'Device was unreachable; job was force-marked as abandoned. The device may continue running locally until it reconnects.',
+                    ]);
+                } else {
+                    echo json_encode([
+                        'status' => 'error',
+                        'message' => 'Unable to cancel job: ' . ((string)($resp2->Message ?? $cancelErr ?: 'unknown error')),
+                    ]);
+                }
+            } catch (\Throwable $e) {
+                echo json_encode(['status'=>'error','message'=>'Unable to cancel job: ' . $e->getMessage()]);
+            }
+            break;
+        }
         case 'ticketContext': {
             $jobId = (string)($post['jobId'] ?? '');
             if ($jobId === '') { echo json_encode(['status'=>'error','message'=>'jobId required']); break; }

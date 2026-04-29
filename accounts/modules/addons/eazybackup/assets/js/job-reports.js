@@ -92,6 +92,12 @@
     modal.querySelector('#jrm-current-job').value = jobId;
     modal.querySelector('#jrm-service-id').value = String(serviceId||'');
     modal.querySelector('#jrm-username').value = String(username||'');
+    const cancelBtn = modal.querySelector('#jrm-cancel');
+    if (cancelBtn) {
+      cancelBtn.classList.add('hidden');
+      cancelBtn.disabled = false;
+      cancelBtn.textContent = 'Cancel job';
+    }
 
     // Load summary
     try {
@@ -107,6 +113,10 @@
             statusEl.classList.remove('text-slate-200','text-emerald-400','text-sky-400','text-amber-400','text-rose-400','text-fuchsia-400','text-gray-300','text-green-500','text-sky-500','text-amber-500','text-red-500','text-gray-500','text-gray-400');
             if (cls) statusEl.classList.add(cls);
           } catch(_) {}
+        }
+        if (cancelBtn) {
+          if (String(label).toLowerCase() === 'running') cancelBtn.classList.remove('hidden');
+          else cancelBtn.classList.add('hidden');
         }
         modal.querySelector('#jrm-type').textContent     = j.FriendlyJobType || '';
         modal.querySelector('#jrm-device').textContent   = (j.DeviceFriendlyName || j.Device || '');
@@ -198,6 +208,41 @@
     exportBtn && exportBtn.addEventListener('click', (ev) => {
       ev.preventDefault();
       exportJobLogFromModal();
+    });
+
+    const cancelBtn = modal.querySelector('#jrm-cancel');
+    cancelBtn && cancelBtn.addEventListener('click', async (ev) => {
+      ev.preventDefault();
+      const ok = window.confirm('Cancel this running backup job? If the device is offline or unresponsive, it will be force-marked as abandoned.');
+      if (!ok) return;
+      const serviceId = parseInt(modal.querySelector('#jrm-service-id').value || '0', 10);
+      const username  = modal.querySelector('#jrm-username').value || '';
+      const jobId     = modal.querySelector('#jrm-current-job').value || '';
+      if (!serviceId || !username || !jobId) return;
+      const origLabel = cancelBtn.textContent;
+      cancelBtn.disabled = true;
+      cancelBtn.textContent = 'Cancelling…';
+      try {
+        const resp = await apiModal('cancelJob', { action:'cancelJob', serviceId, username, jobId });
+        if (resp && resp.status === 'success') {
+          const msg = resp.notice || (resp.method === 'abandon'
+            ? 'Job was force-marked as abandoned.'
+            : 'Job cancellation requested.');
+          try { window.showToast?.(msg, resp.method === 'abandon' ? 'warning' : 'success'); }
+          catch (_) { /* no-op */ }
+          // Reload job summary so Status/Cancel button reflect the new state
+          openJobModal(serviceId, username, jobId);
+        } else {
+          const err = (resp && resp.message) || 'Failed to cancel job';
+          try { window.showToast?.(err, 'error'); } catch (_) { alert(err); }
+          cancelBtn.disabled = false;
+          cancelBtn.textContent = origLabel;
+        }
+      } catch (e) {
+        try { window.showToast?.(e.message || 'Failed to cancel job', 'error'); } catch (_) { alert(e.message || 'Failed to cancel job'); }
+        cancelBtn.disabled = false;
+        cancelBtn.textContent = origLabel;
+      }
     });
   }
 

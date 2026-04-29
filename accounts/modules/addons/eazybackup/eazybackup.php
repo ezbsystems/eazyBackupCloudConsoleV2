@@ -2384,6 +2384,33 @@ function eazybackup_migrate_schema(): void {
         eb_add_index_if_missing('mod_eazybackup_dismissals',
             "CREATE INDEX IF NOT EXISTS idx_dismiss_key ON mod_eazybackup_dismissals (announcement_key)");
     } catch (\Throwable $e) { /* ignore */ }
+
+    // --- eb_notifications: per-notification expiry (Part 2) ---
+    try {
+        eb_add_column_if_missing('eb_notifications','expires_at', fn(Blueprint $t)=>$t->timestamp('expires_at')->nullable());
+        eb_add_index_if_missing('eb_notifications',
+            "CREATE INDEX IF NOT EXISTS idx_status_pub_exp ON eb_notifications (status, published_at, expires_at)");
+    } catch (\Throwable $e) { /* ignore */ }
+
+    // --- eb_client_messages (per-client inbox messages) ---
+    try {
+        if (!$schema->hasTable('eb_client_messages')) {
+            $schema->create('eb_client_messages', function (Blueprint $t) {
+                $t->increments('id');
+                $t->unsignedInteger('client_id');
+                $t->string('title', 191);
+                $t->text('body');
+                $t->timestamp('expires_at')->nullable();
+                $t->unsignedInteger('created_by')->nullable();
+                $t->timestamp('created_at')->nullable();
+                $t->timestamp('updated_at')->nullable();
+                $t->timestamp('viewed_at')->nullable();
+                $t->timestamp('deleted_at')->nullable();
+                $t->index(['client_id','deleted_at'], 'idx_inbox_client');
+                $t->index(['client_id','viewed_at','deleted_at','expires_at'], 'idx_modal_lookup');
+            });
+        }
+    } catch (\Throwable $e) { /* ignore */ }
 }
 
 // ULID generator for public tenant IDs (Crockford Base32, 26 chars)
@@ -2634,7 +2661,7 @@ function eazybackup_config()
         'description' => 'WHMCS addon module for eazyBackup',
         'author'      => 'eazyBackup Systems Ltd.',
         'language'    => 'english',
-        'version'     => '1.5.1', // Password on signup
+        'version'     => '1.5.3', 
         'fields'      => [
             'trialsignupgid' => [
                 'FriendlyName' => 'Trial Signup Product Group',
@@ -3460,15 +3487,36 @@ function eb_get_active_notifications_for_client(int $clientId, ?int $userId = nu
         return [];
     }
     try {
-        $client = $clientId > 0 ? \WHMCS\Database\Capsule::table('tblclients')->where('id', $clientId)->first(['id','groupid']) : null;
+        $client = $clientId > 0 ? \WHMCS\Database\Capsule::table('tblclients')->where('id', $clientId)->first(['id','groupid','datecreated']) : null;
         $groupId = $client ? (int)($client->groupid ?? 0) : 0;
+
+        // Per-viewer baseline: prefer the WHMCS user's created_at (so sub-account
+        // contacts get their own cutoff), fall back to the parent client's datecreated.
+        $baseline = null;
+        if ($userId && $userId > 0) {
+            try {
+                $u = \WHMCS\Database\Capsule::table('tblusers')->where('id', $userId)->first(['created_at']);
+                if ($u && !empty($u->created_at)) { $baseline = (string)$u->created_at; }
+            } catch (\Throwable $e) { /* ignore */ }
+        }
+        if ($baseline === null && $client && !empty($client->datecreated)) {
+            $baseline = (string)$client->datecreated;
+        }
 
         // Pull all published notifications and filter in PHP so we can apply
         // OR-style audience matching across product / client_group / client.
-        $notifs = \WHMCS\Database\Capsule::table('eb_notifications')
+        $now = date('Y-m-d H:i:s');
+        $q = \WHMCS\Database\Capsule::table('eb_notifications')
             ->where('status', 'published')
-            ->orderBy('published_at', 'desc')
-            ->get();
+            ->whereNotNull('published_at');
+        if ($baseline !== null) {
+            $q->where('published_at', '>=', $baseline);
+        }
+        // Expiry: NULL means no expiry; otherwise must still be in the future.
+        $q->where(function ($w) use ($now) {
+            $w->whereNull('expires_at')->orWhere('expires_at', '>', $now);
+        });
+        $notifs = $q->orderBy('published_at', 'desc')->get();
         if (count($notifs) === 0) return [];
 
         $allIds = array_map(fn($n) => (int)$n->id, iterator_to_array($notifs));
@@ -3530,6 +3578,134 @@ function eb_get_active_notifications_for_client(int $clientId, ?int $userId = nu
             ];
         }
         return $out;
+    } catch (\Throwable $e) {
+        return [];
+    }
+}
+
+/**
+ * Count distinct clients matching a notification audience selection.
+ * Used by the admin authoring UI's live audience reach counter.
+ */
+function eb_count_notification_audience(string $audienceType, array $productIds = [], array $groupIds = [], array $clientIds = []): int
+{
+    try {
+        if ($audienceType === 'all') {
+            return (int)\WHMCS\Database\Capsule::table('tblclients')
+                ->where('status', 'Active')->count();
+        }
+        $productIds = array_values(array_unique(array_map('intval', $productIds)));
+        $groupIds   = array_values(array_unique(array_map('intval', $groupIds)));
+        $clientIds  = array_values(array_unique(array_map('intval', $clientIds)));
+
+        $matched = [];
+        if (!empty($productIds)) {
+            $rows = \WHMCS\Database\Capsule::table('tblhosting')
+                ->whereIn('packageid', $productIds)
+                ->whereIn('domainstatus', ['Active','Suspended'])
+                ->pluck('userid')->all();
+            foreach ($rows as $uid) { $matched[(int)$uid] = true; }
+        }
+        if (!empty($groupIds)) {
+            $rows = \WHMCS\Database\Capsule::table('tblclients')
+                ->whereIn('groupid', $groupIds)
+                ->pluck('id')->all();
+            foreach ($rows as $cid) { $matched[(int)$cid] = true; }
+        }
+        if (!empty($clientIds)) {
+            $rows = \WHMCS\Database\Capsule::table('tblclients')
+                ->whereIn('id', $clientIds)
+                ->pluck('id')->all();
+            foreach ($rows as $cid) { $matched[(int)$cid] = true; }
+        }
+        return count($matched);
+    } catch (\Throwable $e) {
+        return 0;
+    }
+}
+
+/**
+ * Per-client inbox messages: rows eligible for the "What's New" modal
+ * (unread, not deleted, not expired). Returns the same shape as
+ * eb_get_active_notifications_for_client() with a 'kind' discriminator.
+ */
+function eb_get_inbox_messages_for_modal(int $clientId): array
+{
+    if ($clientId <= 0) return [];
+    try {
+        $now = date('Y-m-d H:i:s');
+        $rows = \WHMCS\Database\Capsule::table('eb_client_messages')
+            ->where('client_id', $clientId)
+            ->whereNull('viewed_at')
+            ->whereNull('deleted_at')
+            ->where(function ($w) use ($now) {
+                $w->whereNull('expires_at')->orWhere('expires_at', '>', $now);
+            })
+            ->orderBy('created_at', 'desc')
+            ->get();
+        $out = [];
+        foreach ($rows as $r) {
+            $out[] = [
+                'id' => (int)$r->id,
+                'kind' => 'inbox',
+                'title' => (string)$r->title,
+                'body_html' => nl2br(htmlspecialchars((string)$r->body, ENT_QUOTES, 'UTF-8')),
+                'published_at' => $r->created_at ? (string)$r->created_at : null,
+            ];
+        }
+        return $out;
+    } catch (\Throwable $e) {
+        return [];
+    }
+}
+
+/**
+ * All non-deleted inbox messages for the client area Inbox page.
+ * Adds is_read and is_expired flags for rendering.
+ */
+function eb_get_inbox_messages_for_client(int $clientId): array
+{
+    if ($clientId <= 0) return [];
+    try {
+        $now = date('Y-m-d H:i:s');
+        $rows = \WHMCS\Database\Capsule::table('eb_client_messages')
+            ->where('client_id', $clientId)
+            ->whereNull('deleted_at')
+            ->orderBy('created_at', 'desc')
+            ->get();
+        $out = [];
+        foreach ($rows as $r) {
+            $out[] = [
+                'id' => (int)$r->id,
+                'title' => (string)$r->title,
+                'body' => (string)$r->body,
+                'body_html' => nl2br(htmlspecialchars((string)$r->body, ENT_QUOTES, 'UTF-8')),
+                'created_at' => $r->created_at ? (string)$r->created_at : null,
+                'viewed_at' => $r->viewed_at ? (string)$r->viewed_at : null,
+                'expires_at' => $r->expires_at ? (string)$r->expires_at : null,
+                'is_read' => !empty($r->viewed_at),
+                'is_expired' => !empty($r->expires_at) && (string)$r->expires_at <= $now,
+            ];
+        }
+        return $out;
+    } catch (\Throwable $e) {
+        return [];
+    }
+}
+
+/**
+ * Raw rows for the admin clientssummary Notifications tab. Includes
+ * soft-deleted rows so the admin can restore them.
+ */
+function eb_admin_list_client_messages(int $clientId): array
+{
+    if ($clientId <= 0) return [];
+    try {
+        $rows = \WHMCS\Database\Capsule::table('eb_client_messages')
+            ->where('client_id', $clientId)
+            ->orderBy('id', 'desc')
+            ->get();
+        return is_array($rows) ? $rows : iterator_to_array($rows);
     } catch (\Throwable $e) {
         return [];
     }
@@ -3655,6 +3831,32 @@ function eazybackup_clientarea(array $vars)
         // Simple client list of recent notifications (scoped)
         require_once __DIR__ . "/pages/notifications.php";
         exit; // script outputs HTML
+    } else if ($_REQUEST["a"] == "inbox") {
+        $clientId = (int)($_SESSION['uid'] ?? 0);
+        if ($clientId <= 0) {
+            return [
+                'pagetitle' => 'Inbox',
+                'templatefile' => 'templates/error',
+                'requirelogin' => true,
+                'vars' => ['error' => 'Not authenticated'],
+            ];
+        }
+        $messages = function_exists('eb_get_inbox_messages_for_client')
+            ? eb_get_inbox_messages_for_client($clientId)
+            : [];
+        $webRoot = rtrim((string)\WHMCS\Config\Setting::getValue('SystemURL'), '/');
+        $token = function_exists('generate_token') ? (string)generate_token('plain') : '';
+        return [
+            'pagetitle'    => 'Inbox',
+            'templatefile' => 'templates/clientarea/inbox',
+            'requirelogin' => true,
+            'vars' => array_merge($vars, [
+                'inboxMessages'        => $messages,
+                'inboxDismissEndpoint' => $webRoot . '/modules/addons/eazybackup/endpoints/inbox_dismiss.php',
+                'inboxDeleteEndpoint'  => $webRoot . '/modules/addons/eazybackup/endpoints/inbox_delete.php',
+                'inboxCsrf'            => $token,
+            ]),
+        ];
     } else if ($_REQUEST["a"] == "notify-settings") {
         // Client-managed notification preferences
         try {
@@ -5941,6 +6143,21 @@ function eazybackup_output($vars)
         require_once __DIR__ . '/pages/admin/workers.php';
         exit; // prevent WHMCS from wrapping HTML around JSON
     }
+    if ($action === 'client_notifications_panel') {
+        // Standalone HTML panel for the clientssummary "Notifications" tab iframe.
+        if (empty($_SESSION['adminid']) || (int)$_SESSION['adminid'] <= 0) {
+            http_response_code(401);
+            echo 'Not authorized'; exit;
+        }
+        // Ensure WHMCS admin helpers (generate_token / check_token) are available
+        // -- addonmodules.php does not always autoload them for custom actions.
+        if (!function_exists('generate_token') || !function_exists('check_token')) {
+            $adminFns = __DIR__ . '/../../../includes/adminfunctions.php';
+            if (is_file($adminFns)) { @require_once $adminFns; }
+        }
+        require_once __DIR__ . '/pages/admin/client_notifications.php';
+        exit;
+    }
     if ($action === '') {
         $_REQUEST['action'] = $action = 'powerpanel';
         if (!isset($_REQUEST['view']) || $_REQUEST['view'] === '') {
@@ -6902,6 +7119,10 @@ function eazybackup_output($vars)
             }
             case 'notifications': {
                 require __DIR__ . '/pages/admin/notifications.php';
+                return;
+            }
+            case 'client_notifications': {
+                require __DIR__ . '/pages/admin/client_notifications.php';
                 return;
             }
             default:

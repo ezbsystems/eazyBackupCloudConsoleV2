@@ -65,6 +65,16 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
                 $groups        = isset($_POST['target_groups']) && is_array($_POST['target_groups']) ? array_map('intval', $_POST['target_groups']) : [];
                 $clients       = $parseClientIds((string)($_POST['target_clients'] ?? ''));
 
+                $expiresAtRaw  = trim((string)($_POST['expires_at'] ?? ''));
+                $expiresAt = null;
+                if ($expiresAtRaw !== '') {
+                    $ts = strtotime($expiresAtRaw);
+                    if ($ts === false) {
+                        throw new \RuntimeException('Invalid Expires at date/time.');
+                    }
+                    $expiresAt = date('Y-m-d H:i:s', $ts);
+                }
+
                 if ($title === '') throw new \RuntimeException('Title is required.');
                 if ($body === '')  throw new \RuntimeException('Body is required.');
                 if ($audienceType === 'filtered' && empty($products) && empty($groups) && empty($clients)) {
@@ -77,6 +87,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
                         'title' => $title,
                         'body'  => $body,
                         'audience_type' => $audienceType,
+                        'expires_at' => $expiresAt,
                         'updated_at' => $now,
                     ];
                     if ($publish) {
@@ -96,6 +107,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
                         'created_at' => $now,
                         'updated_at' => $now,
                         'published_at' => $publish ? $now : null,
+                        'expires_at' => $expiresAt,
                     ]);
                     $saveTargets($nid, $audienceType, $products, $groups, $clients);
                 }
@@ -159,6 +171,11 @@ if ($op === 'edit' || $op === 'new') {
     $body     = $row->body  ?? '';
     $audience = $row->audience_type ?? 'all';
     $status   = $row->status ?? 'draft';
+    $expiresAtVal = '';
+    if (!empty($row->expires_at)) {
+        $ts = strtotime((string)$row->expires_at);
+        if ($ts) { $expiresAtVal = date('Y-m-d\TH:i', $ts); }
+    }
 
     $products = Capsule::table('tblproducts')->select('id','name','gid')->orderBy('name')->get();
     $groups   = Capsule::table('tblclientgroups')->select('id','groupname')->orderBy('groupname')->get();
@@ -191,11 +208,11 @@ if ($op === 'edit' || $op === 'new') {
 
                 <div class="form-group">
                     <label>Audience</label><br/>
-                    <label class="radio-inline"><input type="radio" name="audience_type" value="all" <?= $audience === 'all' ? 'checked' : '' ?>/> All clients</label>
-                    <label class="radio-inline"><input type="radio" name="audience_type" value="filtered" <?= $audience === 'filtered' ? 'checked' : '' ?>/> Filtered (specific products / groups / clients)</label>
+                    <label class="radio-inline"><input type="radio" name="audience_type" id="ebAudienceAll" value="all" <?= $audience === 'all' ? 'checked' : '' ?>/> All clients</label>
+                    <label class="radio-inline"><input type="radio" name="audience_type" id="ebAudienceFiltered" value="filtered" <?= $audience === 'filtered' ? 'checked' : '' ?>/> Filtered (specific products / groups / clients)</label>
                 </div>
 
-                <fieldset style="border:1px solid #eee;padding:10px;border-radius:4px;">
+                <fieldset id="ebFilteredFieldset" style="border:1px solid #eee;padding:10px;border-radius:4px;">
                     <legend style="width:auto;border:0;font-size:14px;padding:0 6px;">Filtered targeting</legend>
                     <div class="row">
                         <div class="col-md-6">
@@ -231,6 +248,20 @@ if ($op === 'edit' || $op === 'new') {
                     </div>
                 </fieldset>
 
+                <div class="form-group" style="margin-top:10px;">
+                    <label>Estimated audience</label>
+                    <div class="form-control-static" id="ebAudienceCount">
+                        <span class="text-muted">Calculating&hellip;</span>
+                    </div>
+                    <p class="help-block">Distinct clients matched by the current audience selection. For "All clients" this counts active WHMCS clients.</p>
+                </div>
+
+                <div class="form-group">
+                    <label>Expires at</label>
+                    <input type="datetime-local" name="expires_at" class="form-control" value="<?= $e($expiresAtVal) ?>" style="max-width:280px;"/>
+                    <p class="help-block">Leave blank for no expiry. After this time the notification is hidden for everyone, regardless of dismissal.</p>
+                </div>
+
                 <hr/>
                 <button type="submit" name="save_draft" value="1" class="btn btn-default">Save Draft</button>
                 <button type="submit" name="save_publish" value="1" class="btn btn-primary">Save &amp; Publish</button>
@@ -248,6 +279,76 @@ if ($op === 'edit' || $op === 'new') {
             </form>
         </div>
     </div>
+    <script>
+    (function(){
+        var form = document.querySelector('form[action*="view=notifications"]');
+        if (!form) return;
+        var radioAll = document.getElementById('ebAudienceAll');
+        var radioFiltered = document.getElementById('ebAudienceFiltered');
+        var fs = document.getElementById('ebFilteredFieldset');
+        var countBox = document.getElementById('ebAudienceCount');
+        var endpoint = '<?= $e(rtrim((string)\WHMCS\Config\Setting::getValue('SystemURL'), '/')) ?>/modules/addons/eazybackup/endpoints/audience_count.php';
+        var tokenInput = form.querySelector('input[name="token"]');
+        var csrf = tokenInput ? tokenInput.value : '';
+
+        function applyDisabled(){
+            if (!fs) return;
+            var disabled = radioAll && radioAll.checked;
+            fs.disabled = !!disabled;
+            fs.style.opacity = disabled ? '0.5' : '';
+            fs.style.pointerEvents = disabled ? 'none' : '';
+        }
+
+        var debounceTimer = null;
+        function scheduleRecalc(){
+            if (debounceTimer) clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(recalc, 300);
+        }
+
+        function recalc(){
+            if (!countBox) return;
+            countBox.innerHTML = '<span class="text-muted">Recalculating&hellip;</span>';
+            var fd = new FormData();
+            fd.append('token', csrf);
+            fd.append('audience_type', radioAll && radioAll.checked ? 'all' : 'filtered');
+            var prods = form.querySelector('select[name="target_products[]"]');
+            if (prods) {
+                Array.prototype.forEach.call(prods.selectedOptions || [], function(o){ fd.append('target_products[]', o.value); });
+            }
+            var grps = form.querySelector('select[name="target_groups[]"]');
+            if (grps) {
+                Array.prototype.forEach.call(grps.selectedOptions || [], function(o){ fd.append('target_groups[]', o.value); });
+            }
+            var cli = form.querySelector('input[name="target_clients"]');
+            fd.append('target_clients', cli ? cli.value : '');
+
+            fetch(endpoint, { method: 'POST', credentials: 'same-origin', body: fd })
+                .then(function(r){ return r.json(); })
+                .then(function(j){
+                    if (j && j.ok) {
+                        countBox.innerHTML = '<strong>' + j.count + '</strong> client' + (j.count === 1 ? '' : 's');
+                    } else {
+                        countBox.innerHTML = '<span class="text-danger">Unable to calculate.</span>';
+                    }
+                })
+                .catch(function(){
+                    countBox.innerHTML = '<span class="text-danger">Unable to calculate.</span>';
+                });
+        }
+
+        if (radioAll) radioAll.addEventListener('change', function(){ applyDisabled(); scheduleRecalc(); });
+        if (radioFiltered) radioFiltered.addEventListener('change', function(){ applyDisabled(); scheduleRecalc(); });
+        ['target_products[]','target_groups[]'].forEach(function(name){
+            var el = form.querySelector('select[name="' + name + '"]');
+            if (el) el.addEventListener('change', scheduleRecalc);
+        });
+        var cliInput = form.querySelector('input[name="target_clients"]');
+        if (cliInput) cliInput.addEventListener('input', scheduleRecalc);
+
+        applyDisabled();
+        recalc();
+    })();
+    </script>
     <?php
     echo '</div>';
     return;
