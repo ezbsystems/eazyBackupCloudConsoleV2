@@ -172,7 +172,9 @@
                 <div x-show="activeTab === 'dashboard'" x-transition x-cloak>
                     <h2 class="eb-section-title mb-4 px-2">Usage overview</h2>
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div class="eb-app-card">
+                        <div class="eb-app-card relative"
+                             x-data="donutPopover()"
+                             @mouseleave="scheduleClose()">
                             <div class="eb-app-card-header">
                                 <span class="eb-usage-icon-badge">
                                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="eb-usage-icon-svg">
@@ -182,9 +184,7 @@
                                 <h3 class="eb-app-card-title">Last 24 Hours (Status)</h3>
                             </div>
                             <div class="eb-app-card-body eb-usage-content-inset">
-                                <div id="eb-status24h-donut" class="mt-3 w-full rounded overflow-hidden" style="height:180px;">
-                                    <div class="h-full w-full flex items-center justify-center text-xs text-slate-500">Loading chart...</div>
-                                </div>
+                                <div id="eb-status24h-donut" class="mt-3 w-full rounded overflow-hidden" style="height:180px;"></div>
                                 <div class="mt-3">
                                     <div id="eb-status24h-legend-wrap" class="mx-auto max-w-[30rem]">
                                         <div id="eb-status24h-legend" class="text-slate-200">
@@ -195,6 +195,33 @@
                                             <div class="eb-legend-item"><span class="eb-legend-dot" style="background: rgb(0, 166, 244);"></span><span>Running <span data-status-count="running">0</span></span></div>
                                         </div>
                                     </div>
+                                </div>
+                            </div>
+
+                            {* Hover popover listing all jobs matching the hovered donut slice *}
+                            <div x-show="open" x-cloak
+                                 class="eb-dropdown-menu fixed z-50 w-96 p-2 flex flex-col"
+                                 :style="popoverStyle()"
+                                 @mouseenter="hovering=true; open=true; if(closeTimer){ clearTimeout(closeTimer); closeTimer=null; }"
+                                 @mouseleave="hovering=false; scheduleClose()">
+                                <div class="eb-menu-label shrink-0">
+                                    <span x-text="hoverStatus || 'Jobs'"></span>
+                                    <span x-text="'(' + (filteredJobs().length||0) + ')'"></span>
+                                </div>
+                                <div class="overflow-y-auto pr-1" style="max-height: 60vh;">
+                                    <template x-for="(j, idx) in filteredJobs()" :key="(j.id || j.start || idx)">
+                                        <button type="button" class="eb-menu-item w-full cursor-pointer"
+                                                @click.stop="openJob(j)">
+                                            <span :class="(window.EB && EB.statusDot) ? EB.statusDot(j.status) : ''" class="w-2 h-2 rounded-full inline-block"></span>
+                                            <span class="flex-1 text-sm truncate" style="color: var(--eb-text-primary)" x-text="(j.name || j.deviceName || j.username || '(job)')"></span>
+                                            <span class="text-[11px]" style="color: var(--eb-text-muted)" x-text="(window.EB && EB.fmtTs) ? EB.fmtTs(j.start) : ''"></span>
+                                            <span class="eb-btn eb-btn-secondary eb-btn-xs shrink-0"
+                                                  @click.stop="openJob(j)">View Log</span>
+                                        </button>
+                                    </template>
+                                    <template x-if="filteredJobs().length===0">
+                                        <div class="text-xs px-2 py-1" style="color: var(--eb-text-muted)">No jobs.</div>
+                                    </template>
                                 </div>
                             </div>
                         </div>
@@ -1440,6 +1467,100 @@
         }
     }
 
+    function donutPopover() {
+        return {
+            open: false,
+            hovering: false,
+            closeTimer: null,
+            hoverStatus: '',
+            jobsByStatus: {},
+            // Live cursor while hovering the donut.
+            mouseX: 0,
+            mouseY: 0,
+            // Anchor position locked the moment a popover opens for a status.
+            // The popover does NOT re-position while open; this prevents it
+            // from "chasing" the cursor as the user moves toward it.
+            anchorX: 0,
+            anchorY: 0,
+            popWidth: 384,
+            init() {
+                if (window.__EB_JOBS_24H && typeof window.__EB_JOBS_24H === 'object') {
+                    this.jobsByStatus = window.__EB_JOBS_24H;
+                }
+                window.addEventListener('eb:jobs-24h', (ev) => {
+                    this.jobsByStatus = (ev && ev.detail) ? ev.detail : {};
+                });
+                window.addEventListener('eb:donut-status-over', (ev) => {
+                    const s = (ev && ev.detail && ev.detail.status) ? String(ev.detail.status) : '';
+                    if (!s) return;
+                    if (this.closeTimer) { clearTimeout(this.closeTimer); this.closeTimer = null; }
+                    // Only re-anchor when the popover is opening fresh or when
+                    // the hovered status changes. Once anchored, the popover
+                    // stays put so the user can move their cursor into it.
+                    if (!this.open || this.hoverStatus !== s) {
+                        this.anchorX = this.mouseX;
+                        this.anchorY = this.mouseY;
+                    }
+                    this.hoverStatus = s;
+                    this.open = true;
+                });
+                window.addEventListener('eb:donut-status-out', () => {
+                    this.scheduleClose();
+                });
+                window.addEventListener('eb:donut-status-click', (ev) => {
+                    const s = (ev && ev.detail && ev.detail.status) ? String(ev.detail.status) : '';
+                    if (!s) return;
+                    if (!this.open || this.hoverStatus !== s) {
+                        this.anchorX = this.mouseX;
+                        this.anchorY = this.mouseY;
+                    }
+                    this.hoverStatus = s;
+                    this.open = true;
+                });
+                // Track cursor position while hovering the donut so we know
+                // where to anchor the popover the next time it opens.
+                const donutEl = document.getElementById('eb-status24h-donut');
+                if (donutEl) {
+                    donutEl.addEventListener('mousemove', (e) => {
+                        this.mouseX = e.clientX;
+                        this.mouseY = e.clientY;
+                    }, { passive: true });
+                }
+                window.addEventListener('scroll', () => { if (this.open) this.open = false; }, { passive: true });
+            },
+            scheduleClose() {
+                if (this.closeTimer) { clearTimeout(this.closeTimer); }
+                this.closeTimer = setTimeout(() => {
+                    if (!this.hovering) { this.open = false; }
+                }, 250);
+            },
+            filteredJobs() {
+                const map = this.jobsByStatus || {};
+                const arr = Array.isArray(map[this.hoverStatus]) ? map[this.hoverStatus] : [];
+                return arr;
+            },
+            popoverStyle() {
+                const margin = 12;
+                const vw = window.innerWidth || document.documentElement.clientWidth || 0;
+                const vh = window.innerHeight || document.documentElement.clientHeight || 0;
+                const w = this.popWidth;
+                let left = this.anchorX + margin;
+                if (left + w + margin > vw) left = Math.max(margin, this.anchorX - w - margin);
+                let top = this.anchorY + margin;
+                const maxH = Math.floor(vh * 0.6) + 60;
+                if (top + maxH + margin > vh) top = Math.max(margin, vh - maxH - margin);
+                return `top:${Math.round(top)}px; left:${Math.round(left)}px;`;
+            },
+            openJob(j) {
+                try {
+                    if (window.EB_JOBREPORTS && j && j.serviceId && j.username && j.id) {
+                        window.EB_JOBREPORTS.openJobModal(String(j.serviceId), String(j.username), String(j.id));
+                    }
+                } catch(_) {}
+            }
+        };
+    }
+
     function deviceFilter(data) {
         return {
             devices: data.devices,
@@ -1763,6 +1884,55 @@
                     window.__EB_SUMMARY_COUNTS_24H = payload;
                     window.dispatchEvent(new CustomEvent('eb:summary-counts-24h', { detail: payload }));
                 } catch(_) {}
+                try {
+                    const jobsByStatus = this.computeJobsByStatus24h();
+                    window.__EB_JOBS_24H = jobsByStatus;
+                    window.dispatchEvent(new CustomEvent('eb:jobs-24h', { detail: jobsByStatus }));
+                } catch(_) {}
+            },
+
+            computeJobsByStatus24h() {
+                const labels = ['Error','Missed','Warning','Timeout','Cancelled','Running','Skipped','Success','Unknown'];
+                const out = {};
+                labels.forEach(l => out[l] = []);
+                const list = Array.isArray(this.devices) ? this.devices : [];
+                const sidFor = (uname) => {
+                    try {
+                        if (typeof window.serviceIdForUsername === 'function') return window.serviceIdForUsername(uname);
+                    } catch(_) {}
+                    for (const d of list) {
+                        if (d && (d.username === uname)) return (d.serviceid || d.service_id || d.ServiceID || '');
+                    }
+                    return '';
+                };
+                for (const device of list) {
+                    if (!this.isVisibleDevice(device)) continue;
+                    if (!this.searchMatchDevice(device)) continue;
+                    const jobs = this.jobsInLast24h(device);
+                    for (const raw of jobs) {
+                        const st = this.statusLabelForJob(raw);
+                        if (!st || out[st] === undefined) continue;
+                        const j = (window.EB && EB.normalizeJob) ? EB.normalizeJob(raw) : (raw || {});
+                        out[st].push({
+                            id: j.id || '',
+                            name: j.name || '',
+                            status: st,
+                            start: j.start || 0,
+                            end: j.end || 0,
+                            username: String(device.username || ''),
+                            deviceName: String(device.name || ''),
+                            serviceId: String(sidFor(device.username) || device.serviceid || device.service_id || device.ServiceID || ''),
+                        });
+                    }
+                }
+                for (const k of labels) {
+                    out[k].sort((a,b) => {
+                        const as = (window.EB && EB.toMs) ? EB.toMs(a.start) : Number(a.start) || 0;
+                        const bs = (window.EB && EB.toMs) ? EB.toMs(b.start) : Number(b.start) || 0;
+                        return bs - as;
+                    });
+                }
+                return out;
             },
 
             get hasActiveFilters() {
