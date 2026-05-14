@@ -116,3 +116,10 @@
 
 # Extra safety: never track these log fragments anywhere
 *.log.filepart
+
+# ---------------------- test/coverage artifacts ----------------------
+# PHPUnit cache + coverage reports for the eazyBackup addon
+/accounts/modules/addons/eazybackup/.phpunit.cache/
+/accounts/modules/addons/eazybackup/.phpunit.cache/**
+/accounts/modules/addons/eazybackup/tests/_coverage/
+/accounts/modules/addons/eazybackup/tests/_coverage/**

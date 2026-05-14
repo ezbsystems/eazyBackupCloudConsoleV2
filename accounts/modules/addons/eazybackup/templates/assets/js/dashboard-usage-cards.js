@@ -28,6 +28,34 @@
     return (i ? val.toFixed(1) : Math.round(val)) + ' ' + units[i];
   }
 
+  function formatDateLabel(d) {
+    if (!d) return '';
+    var s = String(d);
+    var parts = s.split('-');
+    if (parts.length < 3) return s;
+    var dt = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+    if (isNaN(dt.getTime())) return s;
+    var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    return months[dt.getMonth()] + ' ' + dt.getDate();
+  }
+
+  // Sparse x-axis labels: show first, last, and roughly weekly ticks; blank others.
+  function makeSparseXLabelFormatter(categories) {
+    var n = (categories && categories.length) || 0;
+    var step = n > 14 ? 7 : (n > 7 ? 3 : 1);
+    var lastIdx = n - 1;
+    return function (value, timestamp, opts) {
+      var idx = (opts && typeof opts.dataPointIndex === 'number')
+        ? opts.dataPointIndex
+        : categories.indexOf(value);
+      if (idx < 0) return '';
+      if (idx === 0 || idx === lastIdx || idx % step === 0) {
+        return formatDateLabel(categories[idx]);
+      }
+      return '';
+    };
+  }
+
   function destroyIfNeeded(key) {
     try {
       window.__ebUsageCharts = window.__ebUsageCharts || {};
@@ -93,13 +121,27 @@
       dataLabels: { enabled: false },
       xaxis: {
         categories: categories,
-        labels: { show: true, rotate: -45, style: { colors: '#94a3b8', fontSize: '10px' } },
+        tickPlacement: 'on',
+        labels: {
+          show: true,
+          rotate: 0,
+          hideOverlappingLabels: true,
+          trim: false,
+          style: { colors: '#94a3b8', fontSize: '10px' },
+          formatter: makeSparseXLabelFormatter(categories)
+        },
         axisBorder: { show: false },
         axisTicks: { show: false }
       },
       yaxis: { labels: { style: { colors: '#94a3b8', fontSize: '10px' } } },
       grid: { borderColor: '#334155' },
-      tooltip: { theme: 'dark' },
+      tooltip: {
+        theme: 'dark',
+        x: { formatter: function (_v, opts) {
+          var i = opts && opts.dataPointIndex;
+          return formatDateLabel(categories[i]);
+        } }
+      },
       legend: { show: false },
       noData: { text: 'No history yet' }
     });
@@ -133,7 +175,15 @@
       dataLabels: { enabled: false },
       xaxis: {
         categories: categories,
-        labels: { show: true, rotate: -45, style: { colors: '#94a3b8', fontSize: '10px' } },
+        tickPlacement: 'on',
+        labels: {
+          show: true,
+          rotate: 0,
+          hideOverlappingLabels: true,
+          trim: false,
+          style: { colors: '#94a3b8', fontSize: '10px' },
+          formatter: makeSparseXLabelFormatter(categories)
+        },
         axisBorder: { show: false },
         axisTicks: { show: false }
       },
@@ -146,6 +196,10 @@
       grid: { borderColor: '#334155' },
       tooltip: {
         theme: 'dark',
+        x: { formatter: function (_v, opts) {
+          var i = opts && opts.dataPointIndex;
+          return formatDateLabel(categories[i]);
+        } },
         y: { formatter: function (v) { return fmtBytes(v); } }
       },
       legend: { show: false },

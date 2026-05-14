@@ -2703,7 +2703,18 @@ function eazybackup_config()
                 'Type'         => 'textarea',
                 'Rows'         => '3',
                 'Cols'         => '60',
-                'Description'  => eazybackup_AdminGroupsDescription(),
+                'Description'  => eazybackup_AdminGroupsDescription('resellergroups', 'Reseller groups'),
+            ],
+            'partnerhub_groups' => [
+                'FriendlyName' => 'Partner Hub Client Groups',
+                'Type'         => 'textarea',
+                'Rows'         => '3',
+                'Cols'         => '60',
+                'Description'  => eazybackup_AdminGroupsDescription(
+                    'partnerhub_groups',
+                    'Partner Hub groups',
+                    'Clients in any of these groups can see the Partner Hub navigation link and access Partner Hub pages. Leave empty to disable Partner Hub for all clients.'
+                ),
             ],
 
             // ---- Notifications: module-level defaults ----
@@ -3291,13 +3302,19 @@ function eazybackup_EndReminderTemplateLoader(): array
 
 
 
-/** Build a helper description for admin settings showing client groups with ids */
-function eazybackup_AdminGroupsDescription(): string {
+/** Build a helper description for admin settings showing client groups with ids.
+ *
+ * Renders a dual-pane group picker for an addon module setting. Multiple
+ * instances may co-exist on the same admin config page; each instance must
+ * pass a unique $settingKey (which becomes the stored CSV column name in
+ * tbladdonmodules) and is rendered with DOM ids namespaced by $settingKey.
+ */
+function eazybackup_AdminGroupsDescription(string $settingKey = 'resellergroups', string $selectedTitle = 'Reseller groups', string $tip = ''): string {
     try {
         $rows = Capsule::table('tblclientgroups')->select('id','groupname')->orderBy('id')->get();
         $savedCsv = Capsule::table('tbladdonmodules')
             ->where('module','eazybackup')
-            ->where('setting','resellergroups')
+            ->where('setting',$settingKey)
             ->value('value');
         $selected = [];
         if (is_string($savedCsv) && $savedCsv !== '') {
@@ -3308,13 +3325,25 @@ function eazybackup_AdminGroupsDescription(): string {
         }
 
         $available = [];
-        $resellers = [];
+        $chosen = [];
         foreach ($rows as $r) {
             $entry = [ 'id' => (int)$r->id, 'name' => (string)$r->groupname ];
-            if (isset($selected[$entry['id']])) { $resellers[] = $entry; } else { $available[] = $entry; }
+            if (isset($selected[$entry['id']])) { $chosen[] = $entry; } else { $available[] = $entry; }
         }
 
-        // Build dual-pane UI; synchronize to the textarea named 'resellergroups'
+        // DOM-id namespace so multiple pickers can render on the same page.
+        $ns = preg_replace('/[^a-z0-9_-]+/i', '-', $settingKey);
+        $rootId   = 'eb-groups-ui-' . $ns;
+        $hiddenId = 'eb-groups-' . $ns;
+        $availId  = 'eb-pane-available-' . $ns;
+        $selId    = 'eb-pane-selected-' . $ns;
+        $btnRId   = 'eb-move-right-' . $ns;
+        $btnLId   = 'eb-move-left-' . $ns;
+
+        if ($tip === '') {
+            $tip = 'Tip: Click to select; double‑click to move. The selected IDs are saved to the hidden field when you click Save Changes.';
+        }
+
         ob_start();
         ?>
 <style>
@@ -3329,10 +3358,10 @@ function eazybackup_AdminGroupsDescription(): string {
   .eb-dual .actions button { padding:6px 10px; }
   .eb-muted { color:#64748b; font-size:12px; margin-top:6px; }
 </style>
-<div id="eb-reseller-groups-ui">
-  <input type="hidden" name="resellergroups" id="eb-resellergroups" value="<?= htmlspecialchars($savedCsv ?? '', ENT_QUOTES, 'UTF-8'); ?>" />
+<div id="<?= htmlspecialchars($rootId, ENT_QUOTES, 'UTF-8'); ?>">
+  <input type="hidden" name="<?= htmlspecialchars($settingKey, ENT_QUOTES, 'UTF-8'); ?>" id="<?= htmlspecialchars($hiddenId, ENT_QUOTES, 'UTF-8'); ?>" value="<?= htmlspecialchars($savedCsv ?? '', ENT_QUOTES, 'UTF-8'); ?>" />
   <div class="eb-dual">
-    <div class="pane" id="eb-pane-available">
+    <div class="pane" id="<?= htmlspecialchars($availId, ENT_QUOTES, 'UTF-8'); ?>">
       <h4>Available groups</h4>
       <ul>
         <?php foreach ($available as $g): ?>
@@ -3341,45 +3370,49 @@ function eazybackup_AdminGroupsDescription(): string {
       </ul>
     </div>
     <div class="actions">
-      <button type="button" id="eb-move-right" class="btn btn-default">&gt;&gt;</button>
-      <button type="button" id="eb-move-left" class="btn btn-default">&lt;&lt;</button>
+      <button type="button" id="<?= htmlspecialchars($btnRId, ENT_QUOTES, 'UTF-8'); ?>" class="btn btn-default">&gt;&gt;</button>
+      <button type="button" id="<?= htmlspecialchars($btnLId, ENT_QUOTES, 'UTF-8'); ?>" class="btn btn-default">&lt;&lt;</button>
     </div>
-    <div class="pane" id="eb-pane-selected">
-      <h4>Reseller groups</h4>
+    <div class="pane" id="<?= htmlspecialchars($selId, ENT_QUOTES, 'UTF-8'); ?>">
+      <h4><?= htmlspecialchars($selectedTitle, ENT_QUOTES, 'UTF-8'); ?></h4>
       <ul>
-        <?php foreach ($resellers as $g): ?>
+        <?php foreach ($chosen as $g): ?>
           <li data-id="<?= (int)$g['id'] ?>"><?php echo (int)$g['id']; ?> — <?php echo htmlspecialchars($g['name'], ENT_QUOTES, 'UTF-8'); ?></li>
         <?php endforeach; ?>
       </ul>
     </div>
   </div>
-  <div class="eb-muted">Tip: Click to select; double‑click to move. The selected IDs are saved to the hidden field when you click Save Changes.</div>
+  <div class="eb-muted"><?= htmlspecialchars($tip, ENT_QUOTES, 'UTF-8'); ?></div>
 </div>
 <script>
   (function(){
+    var SETTING = <?= json_encode($settingKey); ?>;
+    var ROOT = <?= json_encode('#' . $rootId); ?>;
+    var HIDDEN = <?= json_encode('#' . $hiddenId); ?>;
+    var AVAIL = <?= json_encode('#' . $availId); ?>;
+    var SEL = <?= json_encode('#' . $selId); ?>;
+    var BTN_R = <?= json_encode('#' . $btnRId); ?>;
+    var BTN_L = <?= json_encode('#' . $btnLId); ?>;
     function q(sel){ return document.querySelector(sel); }
     function all(sel,root){ return Array.prototype.slice.call((root||document).querySelectorAll(sel)); }
-    function findField(){ return document.querySelector('[name$="[resellergroups]"]') || document.querySelector('[name="resellergroups"]'); }
-    function val(){ var h = q('#eb-resellergroups'); if (h && h.value) return h.value; var f = findField(); return f ? f.value : ''; }
-    function setVal(v){ var h = q('#eb-resellergroups'); if (h){ h.value = v; } var f = findField(); if (f){ f.value = v; } }
-    function sync(){ var ids = all('#eb-pane-selected ul li').map(function(li){ return li.getAttribute('data-id'); }); setVal(ids.join(', ')); }
+    function findField(){ return document.querySelector('[name$="['+SETTING+']"]') || document.querySelector('[name="'+SETTING+'"]'); }
+    function setVal(v){ var h = q(HIDDEN); if (h){ h.value = v; } var f = findField(); if (f && f !== h){ f.value = v; } }
+    function sync(){ var ids = all(SEL+' ul li').map(function(li){ return li.getAttribute('data-id'); }); setVal(ids.join(', ')); }
     function move(fromSel, toSel){ var sel = all(fromSel+' ul li.eb-selected'); sel.forEach(function(li){ li.classList.remove('eb-selected'); q(toSel+' ul').appendChild(li); }); sync(); }
     function toggle(li){ li.classList.toggle('eb-selected'); }
     function dbl(fromSel, toSel){ return function(ev){ var li = ev.target.closest('li'); if (!li) return; q(toSel+' ul').appendChild(li); sync(); }}
     function clk(ev){ var li = ev.target.closest('li'); if (!li) return; toggle(li); }
-    var avail = q('#eb-pane-available'); var sel = q('#eb-pane-selected'); if (!avail || !sel) return;
-    // hide the raw textarea
-    var ta = findField(); if (ta) { ta.style.display='none'; }
+    var avail = q(AVAIL); var sel = q(SEL); if (!avail || !sel) return;
+    // hide WHMCS's auto-rendered textarea (the visible label/field for this setting).
+    all('[name$="['+SETTING+']"]').forEach(function(el){ if (el.id !== q(HIDDEN).id) { el.style.display='none'; } });
     avail.addEventListener('click', clk); sel.addEventListener('click', clk);
-    avail.addEventListener('dblclick', dbl('#eb-pane-available','#eb-pane-selected'));
-    sel.addEventListener('dblclick', dbl('#eb-pane-selected','#eb-pane-available'));
-    var btnR = q('#eb-move-right'); var btnL = q('#eb-move-left');
-    if (btnR) btnR.addEventListener('click', function(){ move('#eb-pane-available','#eb-pane-selected'); });
-    if (btnL) btnL.addEventListener('click', function(){ move('#eb-pane-selected','#eb-pane-available'); });
-    // ensure textarea reflects current selected list on load
+    avail.addEventListener('dblclick', dbl(AVAIL, SEL));
+    sel.addEventListener('dblclick', dbl(SEL, AVAIL));
+    var btnR = q(BTN_R); var btnL = q(BTN_L);
+    if (btnR) btnR.addEventListener('click', function(){ move(AVAIL, SEL); });
+    if (btnL) btnL.addEventListener('click', function(){ move(SEL, AVAIL); });
     sync();
-    // ensure value is synced at submit time
-    var form = q('#eb-reseller-groups-ui');
+    var form = q(ROOT);
     while (form && form.tagName !== 'FORM') { form = form.parentElement; }
     if (form) { form.addEventListener('submit', function(){ sync(); }); }
   })();
@@ -3387,10 +3420,59 @@ function eazybackup_AdminGroupsDescription(): string {
 <?php
         return ob_get_clean();
     } catch (\Throwable $e) {
-        return 'Enter a comma-separated list of client group IDs to classify as resellers.';
+        return 'Enter a comma-separated list of client group IDs.';
     }
 }
 
+
+/**
+ * Return the configured Partner Hub client group IDs (from addon setting
+ * 'partnerhub_groups'). Result is parsed once per request.
+ *
+ * @return int[]
+ */
+function eazybackup_partnerhub_group_ids(): array
+{
+    static $cached = null;
+    if (is_array($cached)) { return $cached; }
+    $cached = [];
+    try {
+        $csv = (string)(Capsule::table('tbladdonmodules')
+            ->where('module', 'eazybackup')
+            ->where('setting', 'partnerhub_groups')
+            ->value('value') ?? '');
+        if ($csv === '') { return $cached; }
+        foreach (explode(',', $csv) as $v) {
+            $id = (int)trim($v);
+            if ($id > 0) { $cached[$id] = $id; }
+        }
+        $cached = array_values($cached);
+    } catch (\Throwable $__) {
+        $cached = [];
+    }
+    return $cached;
+}
+
+/**
+ * Determine whether a given WHMCS client is permitted to use Partner Hub.
+ *
+ * Access is gated by addon setting 'partnerhub_groups' (a list of WHMCS
+ * client-group IDs). If no groups are configured, Partner Hub is closed for
+ * everyone.
+ */
+function eazybackup_client_can_access_partnerhub(int $clientId): bool
+{
+    if ($clientId <= 0) { return false; }
+    $allowed = eazybackup_partnerhub_group_ids();
+    if (empty($allowed)) { return false; }
+    try {
+        $gid = (int)(Capsule::table('tblclients')->where('id', $clientId)->value('groupid') ?? 0);
+    } catch (\Throwable $__) {
+        return false;
+    }
+    if ($gid <= 0) { return false; }
+    return in_array($gid, $allowed, true);
+}
 
 /**
  * Client Area Output.

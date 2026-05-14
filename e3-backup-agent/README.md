@@ -91,6 +91,7 @@ e3-cloudbackup-worker/
 ### Component Responsibilities
 
 #### `cmd/worker/main.go`
+
 - Service entry point
 - Loads configuration
 - Initializes database connection
@@ -98,6 +99,7 @@ e3-cloudbackup-worker/
 - Starts scheduler
 
 #### `internal/config/config.go`
+
 - YAML configuration parsing
 - Default value application
 - Configuration validation
@@ -105,12 +107,14 @@ e3-cloudbackup-worker/
 - Encryption key retrieval from environment
 
 #### `internal/crypto/crypto.go`
+
 - AES-256-CBC decryption implementation
 - Matches PHP `HelperController::decryptKey()` format
 - Handles base64(IV + ciphertext) format
 - PKCS7 padding removal
 
 #### `internal/db/db.go`
+
 - Database connection management
 - Job and run queries
 - Progress updates
@@ -118,12 +122,14 @@ e3-cloudbackup-worker/
 - Cancellation flag checking
 
 #### `internal/jobs/scheduler.go`
+
 - Polls database for queued jobs
 - Manages concurrency (respects `max_concurrent_jobs`)
 - Tracks running jobs
 - Distributes jobs to runners
 
 #### `internal/jobs/runner.go`
+
 - Executes individual backup jobs
 - Decrypts source and destination credentials
 - Generates rclone config files
@@ -134,12 +140,14 @@ e3-cloudbackup-worker/
 - Manages status transitions
 
 #### `internal/logs/tail.go`
+
 - Tails rclone JSON log files
 - Parses rclone stats JSON format
 - Normalizes progress updates
 - Handles log file rotation
 
 #### `internal/rclone/rclone.go`
+
 - Generates rclone configuration files
 - Supports S3-compatible and SFTP sources
 - Configures destination S3 remotes
@@ -159,19 +167,20 @@ e3-cloudbackup-worker/
 
 1. **Go 1.21+**: [Install Go](https://golang.org/doc/install)
 2. **rclone**: [Install rclone](https://rclone.org/install/)
-   ```bash
+  ```bash
    curl https://rclone.org/install.sh | sudo bash
-   ```
+  ```
 3. **MySQL Client**: For testing database connectivity
-   ```bash
+  ```bash
    sudo apt-get install mysql-client
-   ```
+  ```
 
 ### Database Access
 
 The worker needs read/write access to the WHMCS database. See `WORKER_VM_SETUP.md` for detailed database user setup instructions.
 
 Required permissions:
+
 - `SELECT, INSERT, UPDATE` on `s3_cloudbackup_jobs`
 - `SELECT, INSERT, UPDATE` on `s3_cloudbackup_runs`
 - `SELECT` on `s3_buckets`, `s3_users`, `s3_user_access_keys`, `tbladdonmodules`
@@ -235,11 +244,12 @@ GOOS=linux GOARCH=arm64 go build -o bin/e3-cloudbackup-worker-arm64 cmd/worker/m
 ### Configuration File
 
 1. Copy the example configuration:
+
 ```bash
 cp config/config.yaml.example config/config.yaml
 ```
 
-2. Edit `config/config.yaml` with your settings:
+1. Edit `config/config.yaml` with your settings:
 
 ```yaml
 # Database Configuration
@@ -282,7 +292,8 @@ logging:
   max_age_days: 30
 ```
 
-3. Set secure permissions:
+1. Set secure permissions:
+
 ```bash
 chmod 600 config/config.yaml
 chown e3backup:e3backup config/config.yaml
@@ -291,9 +302,11 @@ chown e3backup:e3backup config/config.yaml
 ### Environment Variables
 
 **Required:**
+
 - `CLOUD_BACKUP_ENCRYPTION_KEY`: Encryption key matching WHMCS module config
 
 Set via:
+
 ```bash
 export CLOUD_BACKUP_ENCRYPTION_KEY="your-encryption-key-here"
 ```
@@ -303,6 +316,7 @@ Or in systemd service file (see Running section).
 ### Configuration Validation
 
 The worker validates configuration on startup:
+
 - Required fields must be present
 - Database port must be 1-65535
 - Worker hostname must be set
@@ -328,21 +342,25 @@ export CLOUD_BACKUP_ENCRYPTION_KEY="your-key-here"
 ### Systemd Service (Recommended)
 
 1. **Copy service file:**
+
 ```bash
 sudo cp e3-cloudbackup-worker.service /etc/systemd/system/
 ```
 
-2. **Edit service file to set encryption key:**
+1. **Edit service file to set encryption key:**
+
 ```bash
 sudo nano /etc/systemd/system/e3-cloudbackup-worker.service
 ```
 
 Update the `Environment` line:
+
 ```ini
 Environment="CLOUD_BACKUP_ENCRYPTION_KEY=your-actual-encryption-key"
 ```
 
-3. **Create required directories:**
+1. **Create required directories:**
+
 ```bash
 sudo mkdir -p /var/log/e3-cloudbackup
 sudo mkdir -p /var/lib/e3-cloudbackup/runs
@@ -350,7 +368,8 @@ sudo chown -R e3backup:e3backup /var/log/e3-cloudbackup
 sudo chown -R e3backup:e3backup /var/lib/e3-cloudbackup
 ```
 
-4. **Install binary:**
+1. **Install binary:**
+
 ```bash
 sudo make install
 # Or manually:
@@ -359,19 +378,22 @@ sudo chown root:root /usr/local/bin/e3-cloudbackup-worker
 sudo chmod 755 /usr/local/bin/e3-cloudbackup-worker
 ```
 
-5. **Enable and start service:**
+1. **Enable and start service:**
+
 ```bash
 sudo systemctl daemon-reload
 sudo systemctl enable e3-cloudbackup-worker
 sudo systemctl start e3-cloudbackup-worker
 ```
 
-6. **Check status:**
+1. **Check status:**
+
 ```bash
 sudo systemctl status e3-cloudbackup-worker
 ```
 
-7. **View logs:**
+1. **View logs:**
+
 ```bash
 # Recent logs
 sudo journalctl -u e3-cloudbackup-worker -n 50
@@ -413,18 +435,21 @@ sudo systemctl disable e3-cloudbackup-worker
 ### Development Setup
 
 1. **Clone repository:**
+
 ```bash
 git clone <repository-url>
 cd e3-cloudbackup-worker
 ```
 
-2. **Install Go dependencies:**
+1. **Install Go dependencies:**
+
 ```bash
 go mod download
 go mod tidy
 ```
 
-3. **Set up development environment:**
+1. **Set up development environment:**
+
 ```bash
 # Create local config
 cp config/config.yaml.example config/config.yaml
@@ -438,10 +463,10 @@ export CLOUD_BACKUP_ENCRYPTION_KEY="test-key"
 
 The codebase follows standard Go project layout:
 
-- **`cmd/`**: Application entry points
-- **`internal/`**: Private application code (not importable)
-- **`config/`**: Configuration files
-- **`go.mod`**: Go module definition
+- `**cmd/**`: Application entry points
+- `**internal/**`: Private application code (not importable)
+- `**config/**`: Configuration files
+- `**go.mod**`: Go module definition
 
 ### Key Design Decisions
 
@@ -456,13 +481,11 @@ The codebase follows standard Go project layout:
 #### Adding a New Source Type
 
 1. Update `internal/rclone/rclone.go`:
-   - Add struct for source config (e.g., `GoogleDriveSource`)
-   - Add case in `GenerateRcloneConfig()` switch statement
-   - Generate appropriate rclone remote config
-
+  - Add struct for source config (e.g., `GoogleDriveSource`)
+  - Add case in `GenerateRcloneConfig()` switch statement
+  - Generate appropriate rclone remote config
 2. Update `internal/db/db.go`:
-   - Ensure `GetJobConfig()` handles new source type
-
+  - Ensure `GetJobConfig()` handles new source type
 3. Update documentation
 
 #### Adding Job Validation
@@ -497,21 +520,22 @@ go test ./internal/crypto
 
 #### Manual Testing Checklist
 
-- [ ] Worker connects to database successfully
-- [ ] Worker polls for queued jobs
-- [ ] Encryption/decryption works correctly
-- [ ] Rclone config generation is correct
-- [ ] Rclone process starts and executes
-- [ ] Progress updates are written to database
-- [ ] Job cancellation works
-- [ ] Status transitions are correct
-- [ ] Graceful shutdown works (SIGTERM)
+- Worker connects to database successfully
+- Worker polls for queued jobs
+- Encryption/decryption works correctly
+- Rclone config generation is correct
+- Rclone process starts and executes
+- Progress updates are written to database
+- Job cancellation works
+- Status transitions are correct
+- Graceful shutdown works (SIGTERM)
 
 ### Debugging
 
 #### Enable Debug Logging
 
 Set log level to DEBUG in `config.yaml`:
+
 ```yaml
 logging:
   level: "DEBUG"
@@ -547,12 +571,14 @@ journalctl -u e3-cloudbackup-worker -f
 **Symptoms**: Jobs remain in `queued` status
 
 **Possible Causes**:
+
 1. Worker not running
 2. Database connection issues
 3. Worker hostname mismatch
 4. All job slots full
 
 **Solutions**:
+
 ```bash
 # Check service status
 sudo systemctl status e3-cloudbackup-worker
@@ -573,11 +599,13 @@ mysql -h DB_HOST -u DB_USER -p -e "SELECT COUNT(*) FROM s3_cloudbackup_runs WHER
 **Symptoms**: Jobs fail with "decrypt failed" error
 
 **Possible Causes**:
+
 1. Encryption key not set or incorrect
 2. Encrypted data format mismatch
 3. Key length issues
 
 **Solutions**:
+
 ```bash
 # Verify encryption key is set
 echo $CLOUD_BACKUP_ENCRYPTION_KEY
@@ -594,12 +622,14 @@ echo $CLOUD_BACKUP_ENCRYPTION_KEY
 **Symptoms**: Jobs fail with "rclone failed" error
 
 **Possible Causes**:
+
 1. Rclone binary not found
 2. Invalid rclone config
 3. Network connectivity issues
 4. Invalid credentials
 
 **Solutions**:
+
 ```bash
 # Verify rclone exists
 which rclone
@@ -624,12 +654,14 @@ cat /var/lib/e3-cloudbackup/runs/{run_id}/rclone.json
 **Symptoms**: Worker fails to start or can't query database
 
 **Possible Causes**:
+
 1. Incorrect database credentials
 2. Network connectivity issues
 3. Database user permissions
 4. Firewall blocking connection
 
 **Solutions**:
+
 ```bash
 # Test connection manually
 mysql -h DB_HOST -u DB_USER -p DB_NAME
@@ -647,11 +679,13 @@ mysql -h DB_HOST -u root -p -e "SHOW GRANTS FOR 'e3backup_worker'@'worker-hostna
 **Symptoms**: Worker consumes excessive memory
 
 **Possible Causes**:
+
 1. Too many concurrent jobs
 2. Large log files being buffered
 3. Memory leaks
 
 **Solutions**:
+
 ```bash
 # Reduce max_concurrent_jobs in config.yaml
 worker:
@@ -688,6 +722,8 @@ watch -n 1 'ps aux | grep e3-cloudbackup-worker'
 ## Support
 
 For issues and questions:
+
 - Check `WORKER_VM_SETUP.md` for deployment instructions
 - Review logs: `journalctl -u e3-cloudbackup-worker`
 - Check WHMCS module logs for related errors
+

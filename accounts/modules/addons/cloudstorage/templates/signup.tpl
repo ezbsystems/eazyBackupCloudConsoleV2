@@ -378,12 +378,17 @@
                 {/if}
                 <div class="eb-subpanel border-emerald-500/40 bg-emerald-500/10">
                   <p class="text-base text-[var(--eb-text-secondary)]">
-                    We’ve sent a verification link to <span class="eb-type-mono text-emerald-300">{$smarty.post.email|default:$email|escape}</span>.
-                    Open the link to verify your address and continue — then you can choose your product.
+                    We’ve sent next steps to <span class="eb-type-mono text-emerald-300">{$smarty.post.email|default:$email|escape}</span>.
+                    Open the email to continue — then you can choose your product.
                   </p>
                 </div>
+                <div class="rounded-2xl border border-[var(--eb-border-default)] bg-[var(--eb-surface-elevated)] px-5 py-4 text-sm leading-relaxed text-[var(--eb-text-secondary)]">
+                  Already have an eazyBackup account with this email?
+                  <a href="https://accounts.eazybackup.ca/" class="font-medium text-[var(--eb-brand-orange)] underline underline-offset-2 hover:text-[var(--eb-primary-hover)]">Log in to your account</a>
+                  to continue — no new trial is needed.
+                </div>
                 <p class="text-sm text-[var(--eb-text-muted)]">
-                  If you don’t see the email within a few minutes, check spam or junk. You can close this page; the link will remain valid.
+                  If you don’t see the email within a few minutes, check spam or junk. You can close this page; any link we sent will remain valid.
                 </p>
                 <form action="index.php?m=cloudstorage&amp;page=resendtrial" method="post" class="text-sm text-[var(--eb-text-muted)]">
                   <input type="hidden" name="email" value="{$smarty.post.email|default:$email|escape}" />

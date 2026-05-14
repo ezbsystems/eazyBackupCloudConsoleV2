@@ -310,18 +310,30 @@ function generateAdminHTML($vars) {
         <div class="col">
             <div class="card">
                 <div class="card-body">
-                    <div class="d-flex justify-content-between align-items-center mb-2">
-                        <h5 class="card-title mb-0">Ceph Pool Forecast (80% threshold)</h5>
-                        <div class="d-flex gap-2 align-items-center">
+                    <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+                        <h5 class="card-title mb-0">Ceph Pool Forecast (<span id="poolThresholdLabel">80%</span> threshold)</h5>
+                        <div class="d-flex gap-2 align-items-center flex-wrap">
+                            <label class="mb-0 small text-muted" for="poolHistoryDays">History:</label>
                             <select id="poolHistoryDays" class="form-select" style="width: auto;">
                                 <option value="30">30 days</option>
                                 <option value="90" selected>90 days</option>
+                                <option value="120">120 days</option>
                                 <option value="180">180 days</option>
                             </select>
+                            <label class="mb-0 small text-muted" for="poolForecastDays">Forecast:</label>
                             <select id="poolForecastDays" class="form-select" style="width: auto;">
                                 <option value="90">+90 days</option>
                                 <option value="180" selected>+180 days</option>
                                 <option value="365">+365 days</option>
+                            </select>
+                            <label class="mb-0 small text-muted" for="poolTargetPercent">Limit:</label>
+                            <select id="poolTargetPercent" class="form-select" style="width: auto;" title="Target pool fullness used for the threshold line and ETA">
+                                <option value="60">60%</option>
+                                <option value="65">65%</option>
+                                <option value="70">70%</option>
+                                <option value="75">75%</option>
+                                <option value="80" selected>80%</option>
+                                <option value="85">85%</option>
                             </select>
                         </div>
                     </div>
@@ -347,7 +359,7 @@ function generateAdminHTML($vars) {
                         </div>
                         <div class="col-md-3">
                             <div class="border rounded p-2">
-                                <div class="text-muted small">ETA to 80%</div>
+                                <div class="text-muted small">ETA to <span id="poolEtaTarget">80%</span></div>
                                 <div><strong id="poolEtaLabel">—</strong></div>
                             </div>
                         </div>
@@ -355,7 +367,10 @@ function generateAdminHTML($vars) {
 
                     <div id="poolChart" style="height: 420px;"></div>
                     <div class="text-muted mt-2">
-                        <small>This chart is based on the Ceph pool usage history collected by the cron. Forecast uses a robust trend (Theil–Sen) over daily max values.</small>
+                        <small>
+                            This chart is based on the Ceph pool usage history collected by the cron. Forecast uses a robust trend (Theil–Sen) over daily max values, anchored at the latest sample, with a 95% prediction band derived from residual variability.
+                            <span id="poolFitInfo" class="ms-1"></span>
+                        </small>
                     </div>
                 </div>
             </div>
@@ -517,6 +532,12 @@ function setupEventListeners() {
     document.getElementById("poolForecastDays").addEventListener("change", function() {
         updatePoolChart();
     });
+    document.getElementById("poolTargetPercent").addEventListener("change", function() {
+        const pct = this.value;
+        document.getElementById("poolThresholdLabel").textContent = pct + "%";
+        document.getElementById("poolEtaTarget").textContent = pct + "%";
+        updatePoolChart();
+    });
 }
 
 // Load bucket data
@@ -674,7 +695,9 @@ function initializePoolChart() {
     const options = {
         series: [
             { name: "Actual Used", data: [] },
-            { name: "Forecast Used", data: [] }
+            { name: "Forecast Used", data: [] },
+            { name: "Forecast Lower (95%)", data: [] },
+            { name: "Forecast Upper (95%)", data: [] }
         ],
         chart: {
             type: "line",
@@ -682,10 +705,11 @@ function initializePoolChart() {
             zoom: { enabled: true },
             animations: { enabled: false }
         },
+        colors: ["#0d6efd", "#fd7e14", "#fd7e14", "#fd7e14"],
         stroke: {
             curve: "smooth",
-            width: [2, 2],
-            dashArray: [0, 6]
+            width: [2, 2, 1, 1],
+            dashArray: [0, 6, 4, 4]
         },
         dataLabels: { enabled: false },
         xaxis: {
@@ -700,6 +724,9 @@ function initializePoolChart() {
         tooltip: {
             x: { format: "MMM dd, yyyy" },
             y: { formatter: function (val) { return formatBytesTB(val); } }
+        },
+        legend: {
+            showForSingleSeries: true
         },
         annotations: {
             yaxis: []
@@ -719,6 +746,7 @@ function initializePoolChart() {
 function updatePoolChart() {
     const days = document.getElementById("poolHistoryDays").value;
     const forecastDays = document.getElementById("poolForecastDays").value;
+    const targetPercent = document.getElementById("poolTargetPercent").value || "80";
 
     fetch("' . $vars['module_url'] . '", {
         method: "POST",
@@ -729,7 +757,7 @@ function updatePoolChart() {
             action: "get_pool_forecast",
             days: days,
             forecast_days: forecastDays,
-            target_percent: "80"
+            target_percent: targetPercent
         })
     })
     .then(response => response.json())
@@ -754,19 +782,42 @@ function updatePoolChart() {
             document.getElementById("poolCapacityLabel").textContent = "—";
         }
 
+        // Resolve effective target percent (from server, fall back to UI)
+        const effectivePct = (typeof data.target_percent === "number" && data.target_percent > 0)
+            ? data.target_percent
+            : Number(targetPercent);
+        const pctText = `${effectivePct}%`;
+        document.getElementById("poolThresholdLabel").textContent = pctText;
+        document.getElementById("poolEtaTarget").textContent = pctText;
+
         const eta = data.eta_to_target || null;
         if (!eta) {
             document.getElementById("poolEtaLabel").textContent = "—";
         } else if (eta.status === "already_reached") {
-            document.getElementById("poolEtaLabel").textContent = "Already ≥ 80%";
+            document.getElementById("poolEtaLabel").textContent = `Already ≥ ${pctText}`;
         } else {
             document.getElementById("poolEtaLabel").textContent = (eta.date || "—") + (typeof eta.days === "number" ? (" (" + eta.days + "d)") : "");
         }
 
+        // Forecast confidence text
+        const fitInfo = document.getElementById("poolFitInfo");
+        if (data.model && typeof data.model.r_squared === "number") {
+            const r2 = (data.model.r_squared * 100).toFixed(1);
+            const quality = (data.model.fit_quality || "").toString();
+            const qLabel = quality.charAt(0).toUpperCase() + quality.slice(1);
+            const colorMap = { good: "text-success", fair: "text-warning", poor: "text-danger" };
+            const cls = colorMap[quality] || "text-muted";
+            fitInfo.innerHTML = `Fit quality: <span class="${cls}"><strong>${qLabel || "—"}</strong></span> (R²: ${r2}% · n=${data.model.history_points || 0})`;
+        } else {
+            fitInfo.textContent = "";
+        }
+
         const actual = data.used_bytes_series || [];
         const forecast = data.forecast_series || [];
+        const forecastLower = data.forecast_lower_series || [];
+        const forecastUpper = data.forecast_upper_series || [];
 
-        // Add/Update 80% threshold line
+        // Add/Update threshold line at the user-selected percent
         const thresholdBytes = data.threshold_bytes;
         const annotations = [];
         if (typeof thresholdBytes === "number" && thresholdBytes > 0) {
@@ -776,7 +827,7 @@ function updatePoolChart() {
                 label: {
                     borderColor: "#dc3545",
                     style: { color: "#fff", background: "#dc3545" },
-                    text: "80% threshold"
+                    text: pctText + " threshold"
                 }
             });
         }
@@ -787,7 +838,9 @@ function updatePoolChart() {
 
         poolChart.updateSeries([
             { name: "Actual Used", data: actual },
-            { name: "Forecast Used", data: forecast }
+            { name: "Forecast Used", data: forecast },
+            { name: "Forecast Lower (95%)", data: forecastLower },
+            { name: "Forecast Upper (95%)", data: forecastUpper }
         ]);
     })
     .catch(error => {

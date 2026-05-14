@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"syscall"
 )
 
 type lsblkOutput struct {
@@ -93,6 +94,7 @@ func collectDiskLayout(source string) (*DiskLayout, error) {
 		Serial:         diskDevice.Serial,
 		BusType:        diskDevice.Tran,
 		PartitionStyle: normalizePartitionStyle(diskDevice.PTType),
+		BootMode:       detectLinuxBootMode(),
 		TotalBytes:     parseInt64(diskDevice.Size.String()),
 	}
 
@@ -136,6 +138,46 @@ func collectDiskLayout(source string) (*DiskLayout, error) {
 			}
 		}
 		layout.Partitions = append(layout.Partitions, part)
+	}
+
+	// Whole-volume sources (LVM LVs, device-mapper targets, software RAID
+	// volumes, LUKS containers) have no partition table — the "disk" itself
+	// is a single filesystem. The readiness gate expects at least one
+	// partition to describe the restorable region, so synthesize a single
+	// whole-volume pseudo-partition that mirrors the LV's own extents.
+	if len(layout.Partitions) == 0 && (diskDevice.Type == "lvm" || diskDevice.Type == "crypt" || strings.HasPrefix(diskDevice.Type, "raid")) {
+		whole := DiskPartition{
+			Index:      1,
+			Name:       diskDevice.Name,
+			Path:       diskDevice.Path,
+			StartBytes: 0,
+			SizeBytes:  parseInt64(diskDevice.Size.String()),
+			FileSystem: strings.ToLower(strings.TrimSpace(diskDevice.Fstype)),
+			Label:      diskDevice.Label,
+			PartUUID:   diskDevice.UUID,
+			Mountpoint: diskDevice.Mountpoint,
+		}
+		if used, ok := usedMap[diskDevice.Path]; ok {
+			whole.UsedBytes = used
+		}
+		if whole.FileSystem == "ext4" {
+			blockSize := ext4BlockSize(diskDevice.Path)
+			if blockSize > 0 {
+				whole.ClusterBytes = blockSize
+			}
+			extents, err := ext4UsedExtents(diskDevice.Path, blockSize)
+			if err == nil && len(extents) > 0 {
+				whole.UsedExtents = extents
+				layout.BlockMapSource = "ext4_bmap2extent"
+			}
+		}
+		layout.Partitions = append(layout.Partitions, whole)
+		// A whole-volume source has no partition table; normalize the
+		// style to "mbr" so the readiness gate accepts it. "unknown"
+		// would otherwise be rejected by verifyDiskImageRestoreReadiness.
+		if layout.PartitionStyle == "unknown" || layout.PartitionStyle == "" {
+			layout.PartitionStyle = "mbr"
+		}
 	}
 
 	return layout, nil
@@ -220,21 +262,36 @@ func flattenLsblk(out *lsblkOutput) []lsblkDevice {
 	return res
 }
 
+// findDiskForSource locates the lsblk entry backing the caller's source path.
+//
+// The caller often passes in an LVM symlink (e.g. /dev/e3-lab/test-volume ->
+// /dev/dm-0) while lsblk reports the canonical /dev/mapper/VG-LV path. Matching
+// strictly by string would miss this and leave disk_layout empty (which lands
+// as restore_readiness=metadata_incomplete on the server). Instead we match by
+// the underlying device node: stat(2)'s Rdev (major/minor) uniquely identifies
+// the block device regardless of which alias we use to reach it.
 func findDiskForSource(flat []lsblkDevice, source string) *lsblkDevice {
-	candidates := map[string]struct{}{source: {}}
+	candidatePaths := map[string]struct{}{source: {}}
 	if resolved, err := filepath.EvalSymlinks(source); err == nil && resolved != "" {
-		candidates[resolved] = struct{}{}
+		candidatePaths[resolved] = struct{}{}
 	}
 
-	matchPath := func(d lsblkDevice) bool {
-		if _, ok := candidates[d.Path]; ok {
+	sourceRdev, sourceRdevOK := statRdev(source)
+
+	matchDevice := func(d lsblkDevice) bool {
+		if _, ok := candidatePaths[d.Path]; ok {
 			return true
+		}
+		if sourceRdevOK {
+			if devRdev, ok := statRdev(d.Path); ok && devRdev == sourceRdev {
+				return true
+			}
 		}
 		return false
 	}
 
 	for i := range flat {
-		if matchPath(flat[i]) && flat[i].Type == "disk" {
+		if matchDevice(flat[i]) && flat[i].Type == "disk" {
 			return &flat[i]
 		}
 	}
@@ -242,12 +299,12 @@ func findDiskForSource(flat []lsblkDevice, source string) *lsblkDevice {
 	// sources too. Treat the LV itself as the "disk" — it has no partitions of
 	// its own, but we still need its size, label, and filesystem metadata.
 	for i := range flat {
-		if matchPath(flat[i]) && (flat[i].Type == "lvm" || flat[i].Type == "crypt" || flat[i].Type == "raid0" || flat[i].Type == "raid1" || flat[i].Type == "raid5" || flat[i].Type == "raid6" || flat[i].Type == "raid10") {
+		if matchDevice(flat[i]) && (flat[i].Type == "lvm" || flat[i].Type == "crypt" || flat[i].Type == "raid0" || flat[i].Type == "raid1" || flat[i].Type == "raid5" || flat[i].Type == "raid6" || flat[i].Type == "raid10") {
 			return &flat[i]
 		}
 	}
 	for i := range flat {
-		if matchPath(flat[i]) && flat[i].Type == "part" {
+		if matchDevice(flat[i]) && flat[i].Type == "part" {
 			parent := flat[i].PkName
 			if parent == "" {
 				continue
@@ -260,6 +317,36 @@ func findDiskForSource(flat []lsblkDevice, source string) *lsblkDevice {
 		}
 	}
 	return nil
+}
+
+// statRdev returns the device's (major<<32 | minor) identifier via stat(2).
+// Returns false if the path is not a block/char device or stat fails.
+func statRdev(path string) (uint64, bool) {
+	if path == "" {
+		return 0, false
+	}
+	fi, err := os.Stat(path)
+	if err != nil {
+		return 0, false
+	}
+	sys, ok := fi.Sys().(*syscall.Stat_t)
+	if !ok || sys == nil {
+		return 0, false
+	}
+	if sys.Rdev == 0 {
+		return 0, false
+	}
+	return uint64(sys.Rdev), true
+}
+
+// detectLinuxBootMode reports the firmware mode the host booted under.
+// /sys/firmware/efi exists only when the kernel was loaded by a UEFI firmware,
+// so its presence is a reliable uefi/bios signal on Linux.
+func detectLinuxBootMode() string {
+	if fi, err := os.Stat("/sys/firmware/efi"); err == nil && fi.IsDir() {
+		return "uefi"
+	}
+	return "bios"
 }
 
 func readBlockSize(diskName string) int64 {

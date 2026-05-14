@@ -1,0 +1,17 @@
+{
+    "id": "evt_placeholder",
+    "object": "event",
+    "type": "charge.succeeded",
+    "account": "acct_test_placeholder",
+    "data": {
+        "object": {
+            "id": "ch_placeholder",
+            "object": "charge",
+            "payment_intent": "pi_placeholder",
+            "customer": "cus_placeholder",
+            "amount": 12500,
+            "currency": "cad",
+            "status": "succeeded"
+        }
+    }
+}

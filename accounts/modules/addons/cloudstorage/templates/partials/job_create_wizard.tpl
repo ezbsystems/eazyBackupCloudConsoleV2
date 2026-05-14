@@ -1434,6 +1434,7 @@
                                     if (hid) hid.value = this.selectedId;
                                     if (window.localWizardState?.data) {
                                         window.localWizardState.data.tenant_id = this.selectedId;
+                                        window.localWizardState.data.tenant_name = this.selectedName;
                                     }
                                     // Filter agents based on tenant selection
                                     this.filterAgentsByTenant(this.selectedId);
@@ -1581,6 +1582,10 @@
                                 selectedId: '',
                                 selectedAgent: null,
                                 tenantFilter: '',
+                                menuTop: 0,
+                                menuLeft: 0,
+                                menuWidth: 0,
+                                _scrollHandler: null,
                                 init() {
                                     this.load();
                                     const component = this;
@@ -1588,6 +1593,32 @@
                                         component.tenantFilter = e.detail?.tenantId || '';
                                         component.applyTenantFilter();
                                     });
+                                    window.addEventListener('local-wizard-closed', () => {
+                                        component.isOpen = false;
+                                    });
+                                },
+                                syncMenuPos() {
+                                    const el = this.$refs.agentTrigger;
+                                    if (!el) return;
+                                    const r = el.getBoundingClientRect();
+                                    this.menuTop = r.bottom + 4;
+                                    this.menuLeft = r.left;
+                                    this.menuWidth = r.width;
+                                },
+                                toggleMenu() {
+                                    this.isOpen = !this.isOpen;
+                                    if (this.isOpen) {
+                                        this.$nextTick(() => this.syncMenuPos());
+                                        if (!this._scrollHandler) {
+                                            this._scrollHandler = () => this.syncMenuPos();
+                                            window.addEventListener('scroll', this._scrollHandler, true);
+                                            window.addEventListener('resize', this._scrollHandler);
+                                        }
+                                    } else if (this._scrollHandler) {
+                                        window.removeEventListener('scroll', this._scrollHandler, true);
+                                        window.removeEventListener('resize', this._scrollHandler);
+                                        this._scrollHandler = null;
+                                    }
                                 },
                                 get filtered() {
                                     const q = (this.search || '').toLowerCase();
@@ -1668,6 +1699,9 @@
                                         const match = this.options.find(a => String(a.agent_uuid || '') === String(this.selectedId));
                                         if (match) {
                                             this.selectedAgent = match;
+                                            if (window.localWizardState?.data) {
+                                                window.localWizardState.data.agent_hostname = match.hostname || '';
+                                            }
                                         }
                                     }
                                 },
@@ -1678,6 +1712,7 @@
                                     if (hid) hid.value = this.selectedId;
                                     if (window.localWizardState?.data) {
                                         window.localWizardState.data.agent_uuid = this.selectedId;
+                                        window.localWizardState.data.agent_hostname = opt.hostname || '';
                                     }
                                     localWizardOnAgentSelected(this.selectedId);
                                     this.isOpen = false;
@@ -1686,8 +1721,12 @@
                                 <label class="eb-field-label">Agent</label>
                                 <input type="hidden" id="localWizardAgentId">
                                 <div class="relative">
-                                    <button type="button" class="eb-menu-trigger flex items-center justify-between"
-                                            @click="isOpen = !isOpen">
+                                    <button type="button"
+                                            x-ref="agentTrigger"
+                                            class="eb-menu-trigger flex items-center justify-between"
+                                            @click="toggleMenu()"
+                                            aria-haspopup="listbox"
+                                            :aria-expanded="isOpen">
                                         <span class="flex items-center gap-2">
                                             <template x-if="selectedAgent">
                                                 <span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold"
@@ -1698,28 +1737,36 @@
                                             </template>
                                             <span x-text="selectedAgent ? agentLabel(selectedAgent) : (loading ? 'Loading agents…' : 'Select agent')"></span>
                                         </span>
-                                        <svg class="h-4 w-4 text-[var(--eb-text-muted)]" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <svg class="h-4 w-4 text-[var(--eb-text-muted)] transition-transform" :class="isOpen && 'rotate-180'" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
                                         </svg>
                                     </button>
-                                    <div x-show="isOpen" class="eb-dropdown-menu absolute z-10 mt-1 w-full overflow-hidden" style="display:none;">
-                                        <div class="p-2">
-                                            <input type="text" x-model="search" placeholder="Search agents..." class="eb-input">
-                                        </div>
-                                        <div class="max-h-60 overflow-auto py-1 text-sm scrollbar_thin">
-                                        <template x-for="opt in filtered" :key="opt.agent_uuid">
-                                            <div class="eb-menu-option flex cursor-pointer items-center gap-2" @click="choose(opt)">
-                                                <span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold"
-                                                      :class="statusBadgeClass(opt.online_status)">
-                                                    <span class="h-1.5 w-1.5 rounded-full" :class="statusDotClass(opt.online_status)"></span>
-                                                    <span x-text="statusText(opt.online_status)"></span>
-                                                </span>
-                                                <span x-text="agentLabel(opt)"></span>
+                                    <template x-teleport="body">
+                                        <div x-show="isOpen"
+                                             x-transition.opacity
+                                             @click.outside="if (!$refs.agentTrigger || !$refs.agentTrigger.contains($event.target)) isOpen = false"
+                                             class="eb-dropdown-menu fixed flex flex-col overflow-hidden !p-0"
+                                             style="display:none;"
+                                             role="listbox"
+                                             :style="{ top: menuTop + 'px', left: menuLeft + 'px', width: menuWidth + 'px', minWidth: menuWidth + 'px', zIndex: 2200, maxHeight: 'min(60vh, 22rem)' }">
+                                            <div class="shrink-0 border-b border-[var(--eb-border-subtle)] p-2">
+                                                <input type="text" x-model="search" placeholder="Search agents..." class="eb-input !py-2 text-xs">
                                             </div>
-                                        </template>
-                                        <div class="px-3 py-2 text-xs text-[var(--eb-text-muted)]" x-show="!loading && filtered.length===0">No active agents found.</div>
+                                            <div class="overflow-y-auto py-1 text-sm scrollbar_thin" style="max-height: min(48vh, 16rem);">
+                                                <template x-for="opt in filtered" :key="opt.agent_uuid">
+                                                    <div class="eb-menu-option flex cursor-pointer items-center gap-2" @click="choose(opt)">
+                                                        <span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold"
+                                                              :class="statusBadgeClass(opt.online_status)">
+                                                            <span class="h-1.5 w-1.5 rounded-full" :class="statusDotClass(opt.online_status)"></span>
+                                                            <span x-text="statusText(opt.online_status)"></span>
+                                                        </span>
+                                                        <span x-text="agentLabel(opt)"></span>
+                                                    </div>
+                                                </template>
+                                                <div class="px-3 py-2 text-xs text-[var(--eb-text-muted)]" x-show="!loading && filtered.length===0">No active agents found.</div>
+                                            </div>
                                         </div>
-                                    </div>
+                                    </template>
                                 </div>
                                 <p class="eb-field-help">Select your registered local agent.</p>
                             </div>
@@ -3028,10 +3075,88 @@
                     </div>
 
                     <!-- Step 5 -->
-                    <div class="wizard-step hidden" data-step="5">
-                        <div class="rounded-xl border border-slate-800 bg-slate-900 px-4 py-3 text-slate-100">
-                            <p class="text-sm font-semibold mb-2">Review</p>
-                            <pre id="localWizardReview" class="text-xs whitespace-pre-wrap leading-5 bg-slate-950 border border-slate-800 rounded-lg p-3 overflow-auto max-h-64"></pre>
+                    <div class="wizard-step hidden" data-step="5" x-data="{ showJson: false }">
+                        <div class="space-y-4">
+                            <div class="rounded-xl border border-slate-800 bg-slate-900 px-4 py-4 text-slate-100">
+                                <div class="flex items-start justify-between gap-3 mb-4">
+                                    <div>
+                                        <p class="eb-type-eyebrow">Summary</p>
+                                        <h3 class="text-base font-semibold text-slate-100">Review your backup job</h3>
+                                        <p class="text-xs text-slate-500 mt-1">Confirm the settings below before saving. You can go back to any step to make changes.</p>
+                                    </div>
+                                    <span id="localWizardReviewEngine" class="inline-flex items-center gap-1.5 rounded-full bg-cyan-500/15 px-3 py-1 text-xs font-semibold text-cyan-200 shrink-0">eazyBackup</span>
+                                </div>
+
+                                <div class="space-y-3">
+                                    <!-- Job basics -->
+                                    <section class="rounded-lg border border-slate-800 bg-slate-950/40 p-3">
+                                        <p class="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-2">Job</p>
+                                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                                            <div>
+                                                <p class="text-xs text-slate-500">Name</p>
+                                                <p id="localWizardReviewName" class="text-slate-100 break-words">—</p>
+                                            </div>
+                                            <div>
+                                                <p class="text-xs text-slate-500">Agent</p>
+                                                <p id="localWizardReviewAgent" class="text-slate-100 break-words">—</p>
+                                            </div>
+                                            <div id="localWizardReviewTenantWrap" class="hidden">
+                                                <p class="text-xs text-slate-500">Tenant</p>
+                                                <p id="localWizardReviewTenant" class="text-slate-100 break-words">—</p>
+                                            </div>
+                                        </div>
+                                    </section>
+
+                                    <!-- Source -->
+                                    <section class="rounded-lg border border-slate-800 bg-slate-950/40 p-3">
+                                        <p class="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-2">Source</p>
+                                        <div id="localWizardReviewSource" class="text-sm text-slate-100 space-y-2">—</div>
+                                    </section>
+
+                                    <!-- Destination -->
+                                    <section class="rounded-lg border border-slate-800 bg-slate-950/40 p-3">
+                                        <p class="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-2">Destination</p>
+                                        <div id="localWizardReviewDestination" class="text-sm text-slate-100">—</div>
+                                    </section>
+
+                                    <!-- Schedule -->
+                                    <section class="rounded-lg border border-slate-800 bg-slate-950/40 p-3">
+                                        <p class="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-2">Schedule</p>
+                                        <div id="localWizardReviewSchedule" class="text-sm text-slate-100">—</div>
+                                    </section>
+
+                                    <!-- Retention -->
+                                    <section class="rounded-lg border border-slate-800 bg-slate-950/40 p-3">
+                                        <p class="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-2">Retention Policy</p>
+                                        <div id="localWizardReviewRetention" class="text-sm text-slate-100">—</div>
+                                    </section>
+
+                                    <!-- Advanced -->
+                                    <section class="rounded-lg border border-slate-800 bg-slate-950/40 p-3">
+                                        <p class="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-2">Advanced Settings</p>
+                                        <div id="localWizardReviewAdvanced" class="text-sm text-slate-100">—</div>
+                                    </section>
+                                </div>
+                            </div>
+
+                            <!-- Advanced (JSON) toggle for support / power users -->
+                            <div class="rounded-xl border border-slate-800 bg-slate-900 px-4 py-3">
+                                <div class="flex items-center justify-between gap-3">
+                                    <div class="min-w-0">
+                                        <p class="text-sm font-semibold text-slate-200">Advanced — show raw JSON</p>
+                                        <p class="text-xs text-slate-500">Reveals the underlying JSON payload. Useful when sharing details with support.</p>
+                                    </div>
+                                    <button type="button" class="eb-toggle shrink-0" @click="showJson = !showJson" :aria-pressed="showJson">
+                                        <div class="eb-toggle-track" :class="showJson && 'is-on'">
+                                            <div class="eb-toggle-thumb"></div>
+                                        </div>
+                                        <span class="eb-toggle-label" x-text="showJson ? 'On' : 'Off'"></span>
+                                    </button>
+                                </div>
+                                <div x-show="showJson" x-transition class="mt-3" style="display:none;">
+                                    <pre id="localWizardReview" class="text-xs whitespace-pre-wrap leading-5 bg-slate-950 border border-slate-800 rounded-lg p-3 overflow-auto max-h-64"></pre>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>

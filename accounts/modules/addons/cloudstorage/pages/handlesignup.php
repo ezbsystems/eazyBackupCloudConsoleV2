@@ -12,6 +12,156 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
+function cloudstorageSignupEmailHash($email)
+{
+    return substr(hash('sha256', strtolower(trim((string) $email))), 0, 16);
+}
+
+function cloudstorageSignupMaskedEmail($email)
+{
+    $email = trim((string) $email);
+    if (strpos($email, '@') === false) {
+        return '***';
+    }
+
+    return preg_replace('/(^.).*(@.*$)/', '$1***$2', $email);
+}
+
+function cloudstorageSignupBaseUrl()
+{
+    $systemUrl = Setting::getValue('SystemURL');
+    if (!$systemUrl) {
+        return 'https://accounts.eazybackup.ca/';
+    }
+    if (substr($systemUrl, -1) !== '/') {
+        $systemUrl .= '/';
+    }
+
+    return $systemUrl;
+}
+
+function cloudstorageSignupFindClientIdByEmail($email, $activeOnly = true)
+{
+    $email = trim((string) $email);
+    if ($email === '') {
+        return 0;
+    }
+
+    try {
+        $clientQuery = Capsule::table('tblclients')->where('email', $email);
+        if ($activeOnly && Capsule::schema()->hasColumn('tblclients', 'status')) {
+            $clientQuery->where('status', 'Active');
+        }
+        $clientId = (int) $clientQuery->value('id');
+        if ($clientId > 0) {
+            return $clientId;
+        }
+
+        if (!Capsule::schema()->hasTable('tblusers') || !Capsule::schema()->hasTable('tblusers_clients')) {
+            return 0;
+        }
+
+        $userIds = Capsule::table('tblusers')
+            ->where('email', $email)
+            ->pluck('id')
+            ->map(function ($id) {
+                return (int) $id;
+            })
+            ->filter()
+            ->values()
+            ->all();
+
+        if (empty($userIds)) {
+            return 0;
+        }
+
+        $linkUserColumn = Capsule::schema()->hasColumn('tblusers_clients', 'auth_user_id') ? 'auth_user_id' : 'userid';
+        $linkClientColumn = Capsule::schema()->hasColumn('tblusers_clients', 'client_id') ? 'client_id' : 'clientid';
+
+        $linkedQuery = Capsule::table('tblusers_clients')
+            ->join('tblclients', 'tblclients.id', '=', 'tblusers_clients.' . $linkClientColumn)
+            ->whereIn('tblusers_clients.' . $linkUserColumn, $userIds);
+
+        if ($activeOnly && Capsule::schema()->hasColumn('tblclients', 'status')) {
+            $linkedQuery->where('tblclients.status', 'Active');
+        }
+        if (Capsule::schema()->hasColumn('tblusers_clients', 'owner')) {
+            $linkedQuery->orderBy('tblusers_clients.owner', 'desc');
+        }
+
+        return (int) $linkedQuery->value('tblclients.id');
+    } catch (\Throwable $e) {
+        logModuleCall('cloudstorage', 'signup_existing_client_lookup_error', ['email_hash' => cloudstorageSignupEmailHash($email)], $e->getMessage());
+        return 0;
+    }
+}
+
+function cloudstorageSignupSendExistingAccountEmail($clientId, $existingAccountTemplateId)
+{
+    $clientId = (int) $clientId;
+    if ($clientId <= 0 || empty($existingAccountTemplateId)) {
+        return;
+    }
+
+    try {
+        $templates = function_exists('cloudstorage_get_email_templates') ? cloudstorage_get_email_templates() : [];
+        $templateName = $templates[$existingAccountTemplateId] ?? null;
+        if (empty($templateName)) {
+            return;
+        }
+
+        $baseUrl = cloudstorageSignupBaseUrl();
+        $sendEmailParams = [
+            'messagename' => $templateName,
+            'id'          => $clientId,
+            'customvars'  => base64_encode(serialize([
+                'login_url' => $baseUrl,
+                'reset_password_url' => $baseUrl . 'pwreset.php',
+            ])),
+        ];
+        $emailResult = localAPI('SendEmail', $sendEmailParams, 'API');
+        logModuleCall('cloudstorage', 'SendEmailExistingAccount', $sendEmailParams, $emailResult);
+    } catch (\Throwable $e) {
+        logModuleCall('cloudstorage', 'signup_existing_account_email_error', [], $e->getMessage());
+    }
+}
+
+function cloudstorageSignupExistingAccountResponse($email, $clientId, $existingAccountTemplateId, $turnstileSiteKey, $reason)
+{
+    logModuleCall(
+        'cloudstorage',
+        'signup_existing_email_neutralized',
+        [
+            'email_masked' => cloudstorageSignupMaskedEmail($email),
+            'email_hash' => cloudstorageSignupEmailHash($email),
+            'client_id' => (int) $clientId,
+        ],
+        $reason
+    );
+
+    cloudstorageSignupSendExistingAccountEmail($clientId, $existingAccountTemplateId);
+    unset($_SESSION['POST']);
+
+    return [
+        'POST'                 => ['email' => $email],
+        'emailSent'            => true,
+        'TURNSTILE_SITE_KEY'   => $turnstileSiteKey ?? '',
+        'message'              => 'Please check your email for next steps.',
+    ];
+}
+
+function cloudstorageSignupAddClientFailedBecauseEmailExists(array $addClientResult)
+{
+    $message = strtolower((string) ($addClientResult['message'] ?? ''));
+
+    return strpos($message, 'email') !== false
+        && (
+            strpos($message, 'already') !== false
+            || strpos($message, 'exists') !== false
+            || strpos($message, 'in use') !== false
+        );
+}
+
 function validateTurnstile($cfToken, $secretKey)
 {
     if (!$secretKey) {
@@ -197,6 +347,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $cephAdminSecretKey = $module->where('setting', 'ceph_secret_key')->pluck('value')->first();
         $encryptionKey      = $module->where('setting', 'encryption_key')->pluck('value')->first();
         $verificationTemplateId = $module->where('setting', 'trial_verification_email_template')->pluck('value')->first();
+        $existingAccountTemplateId = $module->where('setting', 'trial_existing_account_email_template')->pluck('value')->first();
 
         if (empty($verificationTemplateId)) {
             $errors['module'] = "Trial verification email template is not configured. Please contact support.";
@@ -285,6 +436,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'notes'       => $clientNotes,
     ];
 
+    // --------------------------------------------------------------------------------------------
+    // 5a) If an active WHMCS client already exists with this email, do NOT create a duplicate.
+    //     Return the same neutral "check your email" success state so the public form cannot be
+    //     used to enumerate registered emails. Optionally notify the real account holder via
+    //     email so they receive actionable guidance to log in.
+    // --------------------------------------------------------------------------------------------
+    $existingClientId = cloudstorageSignupFindClientIdByEmail($email, true);
+
+    if ($existingClientId > 0) {
+        return cloudstorageSignupExistingAccountResponse(
+            $email,
+            $existingClientId,
+            $existingAccountTemplateId,
+            $turnstileSiteKey ?? '',
+            'Existing active WHMCS client found; returning neutral success without provisioning.'
+        );
+    }
+
     $addClientResult = localAPI('AddClient', $addClientData, $adminUser);
 
     // Always log the API call for post-mortem
@@ -296,6 +465,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     );
 
     if ($addClientResult['result'] !== 'success') {
+        if (cloudstorageSignupAddClientFailedBecauseEmailExists($addClientResult)) {
+            $fallbackClientId = cloudstorageSignupFindClientIdByEmail($email, false);
+            return cloudstorageSignupExistingAccountResponse(
+                $email,
+                $fallbackClientId,
+                $existingAccountTemplateId,
+                $turnstileSiteKey ?? '',
+                'AddClient reported an existing email/user; returning neutral success without provisioning.'
+            );
+        }
+
         // Generic, non-leaking error for the user
         $_SESSION['message'] = "We couldn’t create your account right now. Please try again later.";
         

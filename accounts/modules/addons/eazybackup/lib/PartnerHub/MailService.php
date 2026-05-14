@@ -6,6 +6,44 @@ use WHMCS\Database\Capsule;
 
 class MailService
 {
+    /**
+     * Optional test/integration transport. When set, sendTemplate() will hand
+     * the rendered message off to this callable INSTEAD of doing a real PHPMailer
+     * or PHP mail() send. Production never sets this; only tests do.
+     *
+     * Signature:
+     *   function (array $message): array {
+     *     // $message has keys: msp_id, to, from_name, from_address, reply_to,
+     *     //                    cc, subject, html, alt_body, key, settings
+     *     // Return value is forwarded to the caller of sendTemplate().
+     *     return ['ok' => true, ...];
+     *   }
+     *
+     * @var callable|null
+     */
+    private static $transport = null;
+
+    /**
+     * Install a transport spy/stub. Tests use this to capture sends without
+     * touching a real SMTP server. Returns the previously-installed transport
+     * (if any) so tests can restore it on tear-down.
+     */
+    public static function setTransport(?callable $transport): ?callable
+    {
+        $previous = self::$transport;
+        self::$transport = $transport;
+        return $previous;
+    }
+
+    /**
+     * Remove any installed transport. After this call, sendTemplate() falls
+     * back to the production code path (PHPMailer or PHP mail()).
+     */
+    public static function clearTransport(): void
+    {
+        self::$transport = null;
+    }
+
     private static function getEmailSettings(int $mspId): array
     {
         return SettingsService::getEmailSettings($mspId);
@@ -108,6 +146,32 @@ class MailService
         $fromAddr = (string)($settings['sender']['from_address'] ?? 'no-reply@example.com');
         $replyTo = (string)($settings['sender']['reply_to'] ?? '');
         $cc = (array)($settings['sender']['cc_finance'] ?? []);
+
+        // Test seam: if a transport spy/stub is installed, hand off the rendered
+        // message and skip both PHPMailer and PHP mail(). Default behaviour
+        // (production) is unchanged.
+        if (self::$transport !== null) {
+            $message = [
+                'msp_id' => $mspId,
+                'key' => $key,
+                'to' => $toEmail,
+                'from_name' => $fromName,
+                'from_address' => $fromAddr,
+                'reply_to' => $replyTo,
+                'cc' => $cc,
+                'subject' => $subject,
+                'html' => $html,
+                'alt_body' => strip_tags($bodyMd),
+                'settings' => $settings,
+                'vars' => $vars,
+            ];
+            try {
+                $result = (self::$transport)($message);
+                return is_array($result) ? $result : ['ok' => true];
+            } catch (\Throwable $e) {
+                return ['ok' => false, 'error' => $e->getMessage()];
+            }
+        }
 
         $mailer = self::buildMailer((array)($settings['smtp'] ?? []));
         try {

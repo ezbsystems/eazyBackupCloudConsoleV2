@@ -2006,6 +2006,10 @@ func (s *singleFileRestoreOutput) writeFileSequential(ctx context.Context, e kop
 		}
 	}
 
+	if syncErr := outFile.Sync(); syncErr != nil {
+		log.Printf("agent: kopia VHDX restore sequential fsync warning for %s: %v", s.targetPath, syncErr)
+	}
+
 	log.Printf("agent: kopia VHDX restore sequential complete: %d bytes to %s", totalWritten, s.targetPath)
 	return nil
 }
@@ -2246,6 +2250,15 @@ func (s *singleFileRestoreOutput) writeFileParallel(ctx context.Context, e kopia
 		return fmt.Errorf("parallel restore failed: %w", firstErr)
 	}
 
+	// Open one final handle to fsync the file so all writes are durably on disk
+	// before any consumer (Hyper-V Add-VMHardDiskDrive, antivirus, mount tools)
+	// tries to open it. On Windows the per-worker Close() above does NOT flush
+	// the OS file cache; without Sync the very next Add-VMHardDiskDrive call
+	// can race AV/indexer file handles and fail with "file in use".
+	if syncErr := fsyncTargetFile(s.targetPath); syncErr != nil {
+		log.Printf("agent: kopia VHDX restore fsync warning for %s: %v", s.targetPath, syncErr)
+	}
+
 	elapsed := time.Since(startTime)
 	speedMBps := float64(bytesWritten) / elapsed.Seconds() / (1024 * 1024)
 	speedGbps := speedMBps * 8 / 1000 // Convert MB/s to Gbps
@@ -2253,6 +2266,23 @@ func (s *singleFileRestoreOutput) writeFileParallel(ctx context.Context, e kopia
 	log.Printf("agent: kopia VHDX parallel restore complete: %d bytes (%.2f GB) to %s using %d workers in %.1fs (%.1f MB/s = %.2f Gbps)",
 		bytesWritten, float64(bytesWritten)/(1024*1024*1024), s.targetPath, numWorkers, elapsed.Seconds(), speedMBps, speedGbps)
 	return nil
+}
+
+// fsyncTargetFile opens the target file once more, flushes its OS cache to
+// disk, and closes the handle cleanly. Used after parallel restores to ensure
+// the file is fully released before downstream consumers (e.g. Hyper-V
+// Add-VMHardDiskDrive) attempt to attach it.
+func fsyncTargetFile(path string) error {
+	f, err := os.OpenFile(path, os.O_RDWR, 0)
+	if err != nil {
+		return err
+	}
+	syncErr := f.Sync()
+	closeErr := f.Close()
+	if syncErr != nil {
+		return syncErr
+	}
+	return closeErr
 }
 
 // FileExists checks if the target file already exists

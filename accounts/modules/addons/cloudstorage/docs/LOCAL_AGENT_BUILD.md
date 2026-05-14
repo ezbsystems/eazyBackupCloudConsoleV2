@@ -1,18 +1,23 @@
 # Local Backup Agent – Build & Deploy
 
-This guide walks you through building and deploying the E3 Backup Agent for Windows.
+This guide walks you through building and deploying the E3 Backup Agent for Windows and Linux.
 
 ---
 
 ## Quick Start (TL;DR)
 
 ```bash
-# 1. Build both Windows binaries
+# Linux agent
 cd /var/www/eazybackup.ca/e3-backup-agent
+make build
+sudo make install
+
+# Windows agent
 make build-windows
 
-# 2. Copy to Windows machine and compile installer with Inno Setup
-# 3. Run installer on target Windows machine
+# Then:
+# - Linux: create /etc/e3-backup-agent/agent.conf and a systemd service
+# - Windows: copy to Windows machine and compile installer with Inno Setup
 ```
 
 ---
@@ -20,17 +25,220 @@ make build-windows
 ## Prerequisites
 
 
-| Requirement     | Details                                      |
-| --------------- | -------------------------------------------- |
-| Go toolchain    | Version 1.24.x or later                      |
-| Source code     | `/var/www/eazybackup.ca/e3-backup-agent/`    |
-| Target platform | Windows amd64 (CGO_ENABLED=0)                |
-| Inno Setup      | Required on Windows to compile the installer |
+| Requirement    | Details                                                   |
+| -------------- | --------------------------------------------------------- |
+| Go toolchain   | Version 1.24.x or later                                   |
+| Source code    | `/var/www/eazybackup.ca/e3-backup-agent/`                 |
+| Linux target   | Linux amd64, native or cross-compiled with `GOOS=linux`   |
+| Windows target | Windows amd64, cross-compiled with `CGO_ENABLED=0`        |
+| Inno Setup     | Required only on Windows to compile the Windows installer |
 
+
+Linux runtime notes:
+
+- Run as `root` when backing up protected paths or disk devices.
+- Install `lvm2` when using disk-image backups for LVM volumes; the agent will try `lvcreate` snapshots and fall back to direct device reads when snapshots are unavailable.
+- The agent stores run state under `/var/lib/e3-backup-agent/runs` by default.
 
 ---
 
-## Step 1: Build Windows Binaries (Linux Build Host)
+## Step 1: Build Linux Agent
+
+Use this section when publishing or testing the Linux local agent.
+
+### Option A: Use Makefile (Recommended)
+
+```bash
+cd /var/www/eazybackup.ca/e3-backup-agent
+make build
+```
+
+This outputs:
+
+```text
+bin/e3-backup-agent
+```
+
+The Makefile target builds for the current host platform. On the WHMCS development server this is the Linux agent build.
+
+### Option B: Manual Build Command
+
+Use an explicit target when building from another OS or when you want a reproducible Linux amd64 artifact:
+
+```bash
+cd /var/www/eazybackup.ca/e3-backup-agent
+mkdir -p bin
+
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+  go build -trimpath -ldflags="-s -w" \
+  -o bin/e3-backup-agent ./cmd/agent
+```
+
+### Verify Linux Build Output
+
+```bash
+ls -la bin/e3-backup-agent
+file bin/e3-backup-agent
+```
+
+Expected result: an executable Linux amd64 binary.
+
+### Install on a Linux Machine
+
+For local installs on the build host:
+
+```bash
+cd /var/www/eazybackup.ca/e3-backup-agent
+sudo make install
+```
+
+This copies the binary to:
+
+```text
+/usr/local/bin/e3-backup-agent
+```
+
+For a remote Linux machine:
+
+```bash
+scp bin/e3-backup-agent root@linux-host:/usr/local/bin/e3-backup-agent
+ssh root@linux-host 'chown root:root /usr/local/bin/e3-backup-agent && chmod 755 /usr/local/bin/e3-backup-agent'
+```
+
+### Publish Linux Download Artifact
+
+To make the Linux binary available from the WHMCS download path:
+
+```bash
+mkdir -p /var/www/eazybackup.ca/accounts/client_installer
+cp /var/www/eazybackup.ca/e3-backup-agent/bin/e3-backup-agent \
+  /var/www/eazybackup.ca/accounts/client_installer/e3-backup-agent-linux
+chmod 644 /var/www/eazybackup.ca/accounts/client_installer/e3-backup-agent-linux
+```
+
+Download URL:
+
+```text
+https://accounts.eazybackup.ca/client_installer/e3-backup-agent-linux
+```
+
+---
+
+## Step 2: Configure and Run Linux Agent
+
+### Create Directories
+
+```bash
+sudo mkdir -p /etc/e3-backup-agent /var/lib/e3-backup-agent/runs
+sudo chmod 700 /etc/e3-backup-agent /var/lib/e3-backup-agent
+```
+
+### Create `agent.conf`
+
+Create `/etc/e3-backup-agent/agent.conf` with either an enrollment token or already-issued agent credentials.
+
+Pre-enrollment example:
+
+```yaml
+api_base_url: "https://accounts.eazybackup.ca/modules/addons/cloudstorage/api"
+enrollment_token: "0123456789abcdef0123456789abcdef01234567"
+device_name: "linux-server-01"
+poll_interval_secs: 5
+run_dir: "/var/lib/e3-backup-agent/runs"
+```
+
+Post-enrollment example:
+
+```yaml
+api_base_url: "https://accounts.eazybackup.ca/modules/addons/cloudstorage/api"
+client_id: "42"
+agent_uuid: "6f78c615-3d2f-4b7f-8f5b-56dc0a3da781"
+agent_token: "deadbeef...40-hex..."
+device_name: "linux-server-01"
+poll_interval_secs: 5
+run_dir: "/var/lib/e3-backup-agent/runs"
+```
+
+Protect the config because it contains enrollment material or agent credentials:
+
+```bash
+sudo chown root:root /etc/e3-backup-agent/agent.conf
+sudo chmod 600 /etc/e3-backup-agent/agent.conf
+```
+
+### Run in Foreground for Testing
+
+```bash
+sudo /usr/local/bin/e3-backup-agent \
+  -config /etc/e3-backup-agent/agent.conf
+```
+
+Use foreground mode for first-run validation. Stop it with `Ctrl+C` after confirming the agent starts and reaches the API.
+
+### Install as a systemd Service
+
+Create `/etc/systemd/system/e3-backup-agent.service`:
+
+```ini
+[Unit]
+Description=E3 Backup Agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/e3-backup-agent -config /etc/e3-backup-agent/agent.conf
+Restart=always
+RestartSec=10
+User=root
+Group=root
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Enable and start it:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now e3-backup-agent
+sudo systemctl status e3-backup-agent
+```
+
+View logs:
+
+```bash
+sudo journalctl -u e3-backup-agent -f
+```
+
+Stop, restart, or remove the service:
+
+```bash
+sudo systemctl stop e3-backup-agent
+sudo systemctl restart e3-backup-agent
+sudo systemctl disable --now e3-backup-agent
+sudo rm -f /etc/systemd/system/e3-backup-agent.service
+sudo systemctl daemon-reload
+```
+
+### Linux Disk Image Runtime Requirements
+
+For disk-image jobs:
+
+- Run the service as `root`; normal users cannot read block devices such as `/dev/sda` or `/dev/mapper/vg-root`.
+- Install `lvm2` for LVM snapshot support:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y lvm2
+```
+
+- Ensure the source volume has enough free space in the volume group for snapshots. The current Linux implementation attempts an LVM snapshot when possible and otherwise reads the live device directly.
+- Use Linux device paths in disk-image jobs, for example `/dev/sda`, `/dev/nvme0n1`, or `/dev/mapper/vg-root`.
+
+---
+
+## Step 3: Build Windows Binaries (Linux Build Host)
 
 You must build **TWO executables**:
 
@@ -87,7 +295,7 @@ ls -la bin/
 
 ---
 
-## Step 2: Prepare Installer Assets
+## Step 4: Prepare Windows Installer Assets
 
 The Inno Setup installer requires icon assets from the worker repo.
 
@@ -99,8 +307,8 @@ Copy these to your Windows build machine, preserving the folder structure:
 your-build-folder/
 ├── e3-backup-agent/
 │   ├── bin/
-│   │   ├── e3-backup-agent.exe    ← Built in Step 1
-│   │   └── e3-backup-tray.exe     ← Built in Step 1
+│   │   ├── e3-backup-agent.exe    ← Built in Step 3
+│   │   └── e3-backup-tray.exe     ← Built in Step 3
 │   └── installer/
 │       └── e3-backup-agent.iss    ← Installer script
 └── e3-cloudbackup-worker/
@@ -119,7 +327,7 @@ scp -r /var/www/eazybackup.ca/e3-cloudbackup-worker user@windows-pc:C:/src/eazyb
 
 ---
 
-## Step 3: Compile Windows Installer (Inno Setup)
+## Step 5: Compile Windows Installer (Inno Setup)
 
 ### Install Inno Setup
 
@@ -337,7 +545,7 @@ Validate these before release:
 
 ---
 
-## Step 4: Install on Target Windows Machine
+## Step 6: Install on Target Windows Machine
 
 ### Interactive Install (End Users)
 
@@ -363,7 +571,7 @@ e3-backup-agent-setup.exe /VERYSILENT /TOKEN=abc123... /API=https://your-server.
 
 ## Installed Files
 
-After installation, files are located at:
+After Windows installation, files are located at:
 
 
 | Location                             | Contents                                                  |
@@ -372,6 +580,18 @@ After installation, files are located at:
 | `C:\ProgramData\E3Backup\agent.conf` | Configuration file                                        |
 | `C:\ProgramData\E3Backup\runs\`      | Backup run data                                           |
 | `C:\ProgramData\E3Backup\logs\`      | Log files (`agent.log`, `tray.log`)                       |
+
+
+After Linux installation with the commands above, files are located at:
+
+
+| Location                                      | Contents                                         |
+| --------------------------------------------- | ------------------------------------------------ |
+| `/usr/local/bin/e3-backup-agent`              | Linux agent binary                               |
+| `/etc/e3-backup-agent/agent.conf`             | Configuration file                               |
+| `/var/lib/e3-backup-agent/runs/`              | Backup run data                                  |
+| `/etc/systemd/system/e3-backup-agent.service` | systemd service unit, if installed manually      |
+| `journald`                                    | Service logs via `journalctl -u e3-backup-agent` |
 
 
 ---
@@ -408,7 +628,7 @@ run_dir: "C:\\ProgramData\\E3Backup\\runs"
 
 ---
 
-## Manual Service Commands
+## Manual Windows Service Commands
 
 ```powershell
 # Install service
@@ -493,3 +713,116 @@ run_dir: "C:\\ProgramData\\E3Backup\\runs"
   - `dest_prefix/driver-bundles/<agentid>/<profile>.zip`
 - Driver bundle downloads in media manifests are pre-signed (12-hour TTL), so generated URLs are intentionally temporary.
 
+---
+
+## Automated Builds from the WHMCS Admin Area
+
+The cloudstorage addon now ships an "Agent Builds" admin page that drives the
+entire pipeline (cross-compile, Inno Setup, Azure code signing, publish) from
+WHMCS. The runner uses the local Linux build host plus SSH to a Windows build
+host (default: lab Server 2025 at `192.168.92.210`).
+
+### Admin URL
+
+```
+WHMCS Admin -> Addons -> Cloud Storage -> Agent Builds
+```
+
+Tabs: Dashboard, New Build, Build History, Build Detail, Releases, Settings.
+
+### One-time Windows build host prerequisites (Server 2025, 192.168.92.210)
+
+1. **OpenSSH Server** enabled. Verify from the WHMCS host:
+   ```bash
+   ssh -i /root/.ssh/windows_server_ed25519 Administrator@192.168.92.210 powershell -Command "Write-Output ok"
+   ```
+   The lab's existing `~/.ssh/windows_server_ed25519` key already authorizes this user; reuse it for the runner.
+
+2. **Inno Setup 6** installed at the default path `C:\Program Files (x86)\Inno Setup 6\ISCC.exe`. Override the path in Agent Builds -> Settings if needed.
+
+3. **AzureSignTool** placed at `C:\Tools\AzureSignTool\AzureSignTool.exe`:
+   ```powershell
+   New-Item -ItemType Directory -Force C:\Tools\AzureSignTool | Out-Null
+   # Download a self-contained AzureSignTool release (.NET 8 runtime included) from
+   # https://github.com/vcsjones/AzureSignTool/releases  and place it at the path above.
+   ```
+
+4. **Azure setup (one-time):**
+   - In the Azure portal create (or reuse) an App Registration and add a client secret.
+   - On the Key Vault that holds the code-signing certificate, grant the App registration `Get` and `Sign` permissions on certificates and keys (access policy or RBAC role `Key Vault Crypto User` + `Key Vault Certificate User`).
+   - Note the tenant ID, client ID, client secret, vault URL, and certificate name.
+
+5. **Configure WHMCS Agent Builds -> Settings** with all of the above. The client secret is stored encrypted by WHMCS.
+
+6. **Click "Test Connection"** on the Settings tab to verify SSH reachability, ISCC presence, AzureSignTool presence, and config completeness.
+
+### Schedule the runner
+
+The runner is a CLI script with `flock` single-instance protection:
+
+```text
+accounts/modules/addons/cloudstorage/crons/agent_build_runner.php
+```
+
+Recommended systemd schedule (preferred over WHMCS cron because it gives you live logs and fine-grained timing):
+
+```ini
+# /etc/systemd/system/e3-agent-build-runner.service
+[Unit]
+Description=e3 Agent Build Runner (one-shot)
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=www-data
+WorkingDirectory=/var/www/eazybackup.ca/accounts
+ExecStart=/usr/bin/php /var/www/eazybackup.ca/accounts/modules/addons/cloudstorage/crons/agent_build_runner.php
+```
+
+```ini
+# /etc/systemd/system/e3-agent-build-runner.timer
+[Unit]
+Description=Tick the e3 Agent Build Runner every minute
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=60s
+AccuracySec=5s
+Unit=e3-agent-build-runner.service
+
+[Install]
+WantedBy=timers.target
+```
+
+Enable:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now e3-agent-build-runner.timer
+```
+
+WHMCS cron alternative (if systemd is undesired):
+
+```cron
+* * * * * www-data /usr/bin/php /var/www/eazybackup.ca/accounts/modules/addons/cloudstorage/crons/agent_build_runner.php
+```
+
+### What gets published
+
+On a successful build with **Publish** checked, the runner writes versioned and "latest" filenames into the configured publish directory (default `/var/www/eazybackup.ca/accounts/client_installer/`):
+
+| Platform | Versioned | Latest alias |
+| -------- | --------- | ------------ |
+| Linux    | `e3-backup-agent-linux-<version>` | `e3-backup-agent-linux` |
+| Windows  | `e3-backup-agent-setup-<version>.exe` | `e3-backup-agent-setup.exe` |
+| Recovery | `e3-recovery-agent-<version>.exe` | `e3-recovery-agent.exe` |
+
+A row is inserted in `s3_agent_releases` for each artifact (sha256, size, signed metadata, version, commit, download URL). The Releases tab lets admins promote any prior versioned file back to "latest".
+
+### Troubleshooting
+
+- **Build stays "queued":** the systemd timer/cron is not running. Run the script manually as `www-data` and watch stderr.
+- **`windows_stage` fails:** SSH key likely belongs to `root` only; copy it to the runner user's home or override the path in Settings.
+- **`windows_inno` fails with "missing AssetsDir":** the staged assets directory is missing or the `.iss` references unstaged paths. The runner stages `tray_logo-drk-orange120x120.png` and `.svg` from `/var/www/eazybackup.ca/e3-cloudbackup-worker/assets/`; confirm these exist.
+- **`windows_sign` fails with HTTP 401/403 from Key Vault:** the App registration is missing Key Vault permissions, or the client secret expired; rotate via Settings.
+- **`publish` fails with "permission denied":** the runner user (`www-data` by default) cannot write to `/accounts/client_installer/`. Either chown the directory to `www-data` or run the runner as a user that can.

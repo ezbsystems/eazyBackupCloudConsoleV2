@@ -1,0 +1,16 @@
+{
+    "id": "evt_placeholder",
+    "object": "event",
+    "type": "payment_intent.succeeded",
+    "account": "acct_test_placeholder",
+    "data": {
+        "object": {
+            "id": "pi_placeholder",
+            "object": "payment_intent",
+            "customer": "cus_placeholder",
+            "amount": 12500,
+            "currency": "cad",
+            "status": "succeeded"
+        }
+    }
+}

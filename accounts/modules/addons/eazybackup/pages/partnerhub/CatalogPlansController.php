@@ -517,43 +517,76 @@ function eb_ph_plan_component_add(array $vars): void
     echo json_encode(['status'=>'success','id'=>$id]);
 }
 
-function eb_ph_plan_assign(array $vars): void
-{
-    header('Content-Type: application/json');
-    if (!isset($_SESSION['uid']) || (int)$_SESSION['uid'] <= 0) { echo json_encode(['status'=>'error','message'=>'auth']); return; }
-    if (function_exists('check_token')) { try { check_token('WHMCS.default'); } catch (\Throwable $__) { echo json_encode(['status'=>'error','message'=>'csrf']); return; } }
-    $clientId = (int)$_SESSION['uid'];
-    $msp = Capsule::table('eb_msp_accounts')->where('whmcs_client_id',$clientId)->first();
-    if (!$msp) { echo json_encode(['status'=>'error','message'=>'msp']); return; }
+/**
+ * Pure-function backend for `eb_ph_plan_assign`.
+ *
+ * Performs every check the HTTP handler does (scope, plan-active, tenant
+ * ownership, comet-user / s3-user validation, duplicate guard) and, on
+ * success, creates a Stripe subscription via CatalogService + persists the
+ * eb_plan_instances + eb_plan_instance_items + eb_plan_instance_usage_map
+ * rows. Returns ['status' => 'success'|'error', 'message' => string|null,
+ * ...].
+ *
+ * Does NOT touch $_POST, $_SESSION, header(), echo, or json_encode.
+ *
+ * Optional `$stripeService` / `$catalogService` allow tests to inject doubles
+ * (TestableStripeService / TestableCatalogService). Production callers omit
+ * them and real services are constructed internally.
+ *
+ * @param array $args {
+ *   tenant_public_id: string,
+ *   comet_user_id: string (ignored when mode == e3_storage),
+ *   s3_user_id: int (ignored unless mode == e3_storage),
+ *   plan_id: int,
+ *   application_fee_percent: ?float,
+ * }
+ * @return array{status: string, message?: ?string, subscription_id?: string, plan_instance_id?: int}
+ */
+function eb_ph_plan_assign_for_msp(
+    int $mspId,
+    int $whmcsClientId,
+    array $args,
+    ?\PartnerHub\StripeService $stripeService = null,
+    ?\PartnerHub\CatalogService $catalogService = null
+): array {
+    $tenantPublicId = trim((string)($args['tenant_public_id'] ?? ''));
+    $cometUserId = (string)($args['comet_user_id'] ?? '');
+    $s3UserId = (int)($args['s3_user_id'] ?? 0);
+    $planId = (int)($args['plan_id'] ?? 0);
+    $feePercent = isset($args['application_fee_percent']) && $args['application_fee_percent'] !== ''
+        ? (float)$args['application_fee_percent']
+        : null;
 
-    try { if (!Capsule::schema()->hasTable('eb_plan_instances') && function_exists('eazybackup_migrate_schema')) { @eazybackup_migrate_schema(); } } catch (\Throwable $__) {}
-
-    $tenantPublicId = trim((string)($_POST['tenant_id'] ?? ''));
-    $cometUserId = (string)($_POST['comet_user_id'] ?? '');
-    $s3UserId = (int)($_POST['s3_user_id'] ?? 0);
-    $planId = (int)($_POST['plan_id'] ?? 0);
-    $feePercent = isset($_POST['application_fee_percent']) && $_POST['application_fee_percent'] !== '' ? (float)$_POST['application_fee_percent'] : null;
-
-    if ($tenantPublicId === '' || $planId <= 0) { echo json_encode(['status'=>'error','message'=>'invalid']); return; }
-
-    $plan = Capsule::table('eb_plan_templates')->where('id',$planId)->first();
-    if (!$plan || (int)$plan->msp_id !== (int)$msp->id) { echo json_encode(['status'=>'error','message'=>'scope']); return; }
-    if (eb_ph_plan_normalize_status($plan->status ?? ($plan->active ? 'active' : 'draft')) !== 'active') {
-        echo json_encode(['status'=>'error','message'=>'plan_not_active']); return;
+    if ($tenantPublicId === '' || $planId <= 0) {
+        return ['status' => 'error', 'message' => 'invalid'];
     }
-    $tenant = eb_ph_catalog_plans_resolve_tenant_for_msp((int)$msp->id, $tenantPublicId);
-    if (!$tenant) { echo json_encode(['status'=>'error','message'=>'tenant_not_found']); return; }
+
+    $msp = Capsule::table('eb_msp_accounts')->where('id', $mspId)->first();
+    if (!$msp) { return ['status' => 'error', 'message' => 'msp']; }
+
+    $plan = Capsule::table('eb_plan_templates')->where('id', $planId)->first();
+    if (!$plan || (int)$plan->msp_id !== $mspId) {
+        return ['status' => 'error', 'message' => 'scope'];
+    }
+    if (eb_ph_plan_normalize_status($plan->status ?? ($plan->active ? 'active' : 'draft')) !== 'active') {
+        return ['status' => 'error', 'message' => 'plan_not_active'];
+    }
+    $tenant = eb_ph_catalog_plans_resolve_tenant_for_msp($mspId, $tenantPublicId);
+    if (!$tenant) { return ['status' => 'error', 'message' => 'tenant_not_found']; }
     $tenantId = (int)$tenant->id;
+
     $assignmentMode = eb_ph_plan_assignment_mode((int)$plan->id);
     if (($assignmentMode['mode'] ?? 'comet_user') === 'e3_storage') {
-        if ($s3UserId <= 0) { echo json_encode(['status'=>'error','message'=>'invalid']); return; }
+        if ($s3UserId <= 0) { return ['status' => 'error', 'message' => 'invalid']; }
 
-        $ownedS3Users = eb_ph_discover_msp_s3_users($clientId);
+        $ownedS3Users = eb_ph_discover_msp_s3_users($whmcsClientId);
         $ownedS3UserIds = [];
         foreach ($ownedS3Users as $ownedS3User) {
             $ownedS3UserIds[(int)($ownedS3User['id'] ?? 0)] = true;
         }
-        if (!isset($ownedS3UserIds[$s3UserId])) { echo json_encode(['status'=>'error','message'=>'s3_user_not_found']); return; }
+        if (!isset($ownedS3UserIds[$s3UserId])) {
+            return ['status' => 'error', 'message' => 's3_user_not_found'];
+        }
 
         $cometUserId = 'e3:' . $s3UserId;
         $existingStorageInstanceForUser = Capsule::table('eb_plan_instances')
@@ -561,11 +594,12 @@ function eb_ph_plan_assign(array $vars): void
             ->whereIn('status', ['active', 'trialing', 'past_due', 'paused'])
             ->first();
         if ($existingStorageInstanceForUser) {
-            echo json_encode(['status'=>'error','message'=>'This S3 user is already assigned to another active storage plan.']);
-            return;
+            return ['status' => 'error', 'message' => 'This S3 user is already assigned to another active storage plan.'];
         }
     } else {
-        if ($assignmentMode['requires_comet_user'] && $cometUserId === '') { echo json_encode(['status'=>'error','message'=>'invalid']); return; }
+        if ($assignmentMode['requires_comet_user'] && $cometUserId === '') {
+            return ['status' => 'error', 'message' => 'invalid'];
+        }
 
         $ownedCometAccount = null;
         try {
@@ -573,7 +607,7 @@ function eb_ph_plan_assign(array $vars): void
                 $ownedCometAccount = Capsule::table('eb_tenant_comet_accounts as tca')
                     ->join('eb_tenants as t', 't.id', '=', 'tca.tenant_id')
                     ->where('t.id', $tenantId)
-                    ->where('t.msp_id', (int)$msp->id)
+                    ->where('t.msp_id', $mspId)
                     ->where('t.status', '!=', 'deleted')
                     ->where(function ($query) use ($cometUserId) {
                         $query->where('tca.comet_user_id', $cometUserId)
@@ -586,24 +620,29 @@ function eb_ph_plan_assign(array $vars): void
             $ownedCometAccount = Capsule::table('eb_service_links as sl')
                 ->join('eb_tenants as t', 't.id', '=', 'sl.tenant_id')
                 ->where('t.id', $tenantId)
-                ->where('t.msp_id', (int)$msp->id)
+                ->where('t.msp_id', $mspId)
                 ->where('t.status', '!=', 'deleted')
                 ->where('sl.comet_user_id', $cometUserId)
                 ->first(['sl.id']);
         }
         if (!$ownedCometAccount) {
-            $whmcsUsernames = eb_ph_discover_msp_comet_usernames($clientId);
+            $whmcsUsernames = eb_ph_discover_msp_comet_usernames($whmcsClientId);
             if (in_array($cometUserId, $whmcsUsernames, true)) {
                 $ownedCometAccount = (object)['id' => 0];
             }
         }
-        if (!$ownedCometAccount) { echo json_encode(['status'=>'error','message'=>'comet_user_not_found']); return; }
+        if (!$ownedCometAccount) {
+            return ['status' => 'error', 'message' => 'comet_user_not_found'];
+        }
     }
-    $components = Capsule::table('eb_plan_components')->where('plan_id',$planId)->get();
-    if (count($components) === 0) { echo json_encode(['status'=>'error','message'=>'no_components']); return; }
+
+    $components = Capsule::table('eb_plan_components')->where('plan_id', $planId)->get();
+    if (count($components) === 0) {
+        return ['status' => 'error', 'message' => 'no_components'];
+    }
 
     $acct = (string)($msp->stripe_connect_id ?? '');
-    if ($acct === '') { echo json_encode(['status'=>'error','message'=>'not_connected']); return; }
+    if ($acct === '') { return ['status' => 'error', 'message' => 'not_connected']; }
 
     $existingInstance = Capsule::table('eb_plan_instances')
         ->where('tenant_id', $tenantId)
@@ -612,17 +651,17 @@ function eb_ph_plan_assign(array $vars): void
         ->whereIn('status', ['active', 'trialing', 'past_due', 'paused'])
         ->first();
     if ($existingInstance) {
-        echo json_encode(['status'=>'error','message'=>'This plan is already assigned to this tenant with this backup user.']);
-        return;
+        return ['status' => 'error', 'message' => 'This plan is already assigned to this tenant with this backup user.'];
     }
 
     try {
-        $svc = new StripeService();
-        $cSvc = new CatalogService();
+        $svc = $stripeService ?? new StripeService();
+        $cSvc = $catalogService ?? new CatalogService();
         $scus = $svc->ensureStripeCustomerFor($tenantId, $acct);
 
-        // Build items
-        $priceRows = Capsule::table('eb_catalog_prices')->whereIn('id', array_map(function($c){ return (int)$c->price_id; }, iterator_to_array($components)))->get();
+        $priceRows = Capsule::table('eb_catalog_prices')
+            ->whereIn('id', array_map(function ($c) { return (int)$c->price_id; }, iterator_to_array($components)))
+            ->get();
         $byId = [];
         foreach ($priceRows as $pr) { $byId[$pr->id] = $pr; }
         $items = [];
@@ -635,14 +674,14 @@ function eb_ph_plan_assign(array $vars): void
             }
             $items[] = $it;
         }
-        if (count($items) === 0) { echo json_encode(['status'=>'error','message'=>'no_items']); return; }
+        if (count($items) === 0) { return ['status' => 'error', 'message' => 'no_items']; }
 
         $sub = $cSvc->createSubscriptionMulti($scus, $items, $acct, $feePercent, (int)$plan->trial_days ?: null);
         $subId = (string)($sub['id'] ?? '');
-        if ($subId === '') { echo json_encode(['status'=>'error','message'=>'sub_failed']); return; }
+        if ($subId === '') { return ['status' => 'error', 'message' => 'sub_failed']; }
 
-        $instanceId = Capsule::table('eb_plan_instances')->insertGetId([
-            'msp_id' => (int)$msp->id,
+        $instanceId = (int) Capsule::table('eb_plan_instances')->insertGetId([
+            'msp_id' => $mspId,
             'tenant_id' => $tenantId,
             'comet_user_id' => $cometUserId,
             'plan_id' => (int)$plan->id,
@@ -656,14 +695,17 @@ function eb_ph_plan_assign(array $vars): void
             'updated_at' => date('Y-m-d H:i:s'),
         ]);
 
-        // Persist item mapping
         $itemsData = (array)($sub['items']['data'] ?? []);
         foreach ($components as $c) {
             $pr = $byId[$c->price_id] ?? null;
             if (!$pr) { continue; }
-            // try find matching item by price
             $match = null;
-            foreach ($itemsData as $sid) { if ((string)($sid['price']['id'] ?? '') === (string)$pr->stripe_price_id) { $match = $sid; break; } }
+            foreach ($itemsData as $sid) {
+                if ((string)($sid['price']['id'] ?? '') === (string)$pr->stripe_price_id) {
+                    $match = $sid;
+                    break;
+                }
+            }
             if ($match) {
                 $instanceItemId = Capsule::table('eb_plan_instance_items')->insertGetId([
                     'plan_instance_id' => $instanceId,
@@ -687,14 +729,37 @@ function eb_ph_plan_assign(array $vars): void
                 }
             }
         }
-        try { if (function_exists('logModuleCall')) { @logModuleCall('eazybackup','ph-plan-assign',[ 'tenant_public_id'=>$tenantPublicId,'plan_id'=>$planId,'items'=>count($items) ],[ 'subscription_id'=>$subId,'plan_instance_id'=>$instanceId ]); } } catch (\Throwable $__) {}
-        echo json_encode(['status'=>'success','subscription_id'=>$subId,'plan_instance_id'=>$instanceId]);
-        return;
+        try { if (function_exists('logModuleCall')) { @logModuleCall('eazybackup','ph-plan-assign', $args, ['subscription_id' => $subId, 'plan_instance_id' => $instanceId]); } } catch (\Throwable $__) {}
+        return ['status' => 'success', 'subscription_id' => $subId, 'plan_instance_id' => $instanceId];
     } catch (\Throwable $e) {
-        try { if (function_exists('logModuleCall')) { @logModuleCall('eazybackup','ph-plan-assign-error',[ 'tenant_public_id'=>$tenantPublicId,'plan_id'=>$planId ], $e->getMessage()); } } catch (\Throwable $__) {}
-        echo json_encode(['status'=>'error','message'=>$e->getMessage()]);
-        return;
+        try { if (function_exists('logModuleCall')) { @logModuleCall('eazybackup','ph-plan-assign-error', $args, $e->getMessage()); } } catch (\Throwable $__) {}
+        return ['status' => 'error', 'message' => $e->getMessage()];
     }
+}
+
+function eb_ph_plan_assign(array $vars): void
+{
+    header('Content-Type: application/json');
+    if (!isset($_SESSION['uid']) || (int)$_SESSION['uid'] <= 0) { echo json_encode(['status'=>'error','message'=>'auth']); return; }
+    if (function_exists('check_token')) { try { check_token('WHMCS.default'); } catch (\Throwable $__) { echo json_encode(['status'=>'error','message'=>'csrf']); return; } }
+    $clientId = (int)$_SESSION['uid'];
+    $msp = Capsule::table('eb_msp_accounts')->where('whmcs_client_id',$clientId)->first();
+    if (!$msp) { echo json_encode(['status'=>'error','message'=>'msp']); return; }
+
+    try { if (!Capsule::schema()->hasTable('eb_plan_instances') && function_exists('eazybackup_migrate_schema')) { @eazybackup_migrate_schema(); } } catch (\Throwable $__) {}
+
+    $result = eb_ph_plan_assign_for_msp(
+        (int) $msp->id,
+        $clientId,
+        [
+            'tenant_public_id' => (string)($_POST['tenant_id'] ?? ''),
+            'comet_user_id' => (string)($_POST['comet_user_id'] ?? ''),
+            's3_user_id' => (int)($_POST['s3_user_id'] ?? 0),
+            'plan_id' => (int)($_POST['plan_id'] ?? 0),
+            'application_fee_percent' => $_POST['application_fee_percent'] ?? null,
+        ]
+    );
+    echo json_encode($result);
 }
 
 function eb_ph_plan_template_get(array $vars): void
@@ -1380,6 +1445,48 @@ function eb_ph_plan_subscriptions_list(array $vars): void
     echo json_encode(['status'=>'success','subscriptions'=>$arr]);
 }
 
+/**
+ * Pure-function backend for `eb_ph_plan_subscription_cancel`.
+ *
+ * Cancels the Stripe subscription and stamps the plan instance as canceled.
+ * Returns ['status' => 'success'|'error', 'message' => string|null].
+ *
+ * @return array{status: string, message?: ?string}
+ */
+function eb_ph_plan_subscription_cancel_for_msp(
+    int $mspId,
+    int $instanceId,
+    string $reason = '',
+    ?\PartnerHub\StripeService $stripeService = null
+): array {
+    if ($mspId <= 0 || $instanceId <= 0) {
+        return ['status' => 'error', 'message' => 'invalid'];
+    }
+    $instance = Capsule::table('eb_plan_instances')->where('id', $instanceId)->first();
+    if (!$instance || (int)$instance->msp_id !== $mspId) {
+        return ['status' => 'error', 'message' => 'scope'];
+    }
+    if ((string)$instance->status === 'canceled') {
+        return ['status' => 'error', 'message' => 'already_canceled'];
+    }
+
+    try {
+        $svc = $stripeService ?? new StripeService();
+        $svc->cancelSubscription((string)$instance->stripe_subscription_id, (string)$instance->stripe_account_id);
+    } catch (\Throwable $e) {
+        try { if (function_exists('logModuleCall')) { @logModuleCall('eazybackup','ph-plan-sub-cancel-error',['instance'=>$instanceId],$e->getMessage()); } } catch (\Throwable $__) {}
+        return ['status' => 'error', 'message' => 'stripe_cancel_failed'];
+    }
+
+    Capsule::table('eb_plan_instances')->where('id', $instanceId)->update([
+        'status' => 'canceled',
+        'cancelled_at' => date('Y-m-d H:i:s'),
+        'cancel_reason' => $reason !== '' ? $reason : null,
+        'updated_at' => date('Y-m-d H:i:s'),
+    ]);
+    return ['status' => 'success'];
+}
+
 function eb_ph_plan_subscription_cancel(array $vars): void
 {
     header('Content-Type: application/json');
@@ -1388,25 +1495,12 @@ function eb_ph_plan_subscription_cancel(array $vars): void
     $clientId = (int)$_SESSION['uid'];
     $msp = Capsule::table('eb_msp_accounts')->where('whmcs_client_id',$clientId)->first();
     if (!$msp) { echo json_encode(['status'=>'error','message'=>'msp']); return; }
-    $instanceId = (int)($_POST['instance_id'] ?? 0);
-    $reason = trim((string)($_POST['reason'] ?? ''));
-    $instance = Capsule::table('eb_plan_instances')->where('id',$instanceId)->first();
-    if (!$instance || (int)$instance->msp_id !== (int)$msp->id) { echo json_encode(['status'=>'error','message'=>'scope']); return; }
-    if ((string)$instance->status === 'canceled') { echo json_encode(['status'=>'error','message'=>'already_canceled']); return; }
-
-    try {
-        $svc = new StripeService();
-        $svc->cancelSubscription((string)$instance->stripe_subscription_id, (string)$instance->stripe_account_id);
-    } catch (\Throwable $e) {
-        try { if (function_exists('logModuleCall')) { @logModuleCall('eazybackup','ph-plan-sub-cancel-error',['instance'=>$instanceId],$e->getMessage()); } } catch (\Throwable $__) {}
-        echo json_encode(['status'=>'error','message'=>'stripe_cancel_failed']);
-        return;
-    }
-
-    Capsule::table('eb_plan_instances')->where('id',$instanceId)->update([
-        'status' => 'canceled', 'cancelled_at' => date('Y-m-d H:i:s'), 'cancel_reason' => $reason !== '' ? $reason : null, 'updated_at' => date('Y-m-d H:i:s'),
-    ]);
-    echo json_encode(['status'=>'success']);
+    $result = eb_ph_plan_subscription_cancel_for_msp(
+        (int) $msp->id,
+        (int)($_POST['instance_id'] ?? 0),
+        trim((string)($_POST['reason'] ?? ''))
+    );
+    echo json_encode($result);
 }
 
 function eb_ph_plan_export(array $vars): void

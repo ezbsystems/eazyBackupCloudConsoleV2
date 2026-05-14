@@ -6,12 +6,14 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/your-org/e3-backup-agent/internal/agent"
 )
@@ -58,7 +60,13 @@ type exchangeStorage struct {
 func main() {
 	listen := flag.String("listen", "0.0.0.0:8080", "listen address")
 	apiBase := flag.String("api", defaultRecoveryAPI, "API base URL")
+	startupCfg := flag.String("startup-config", "", "path to JSON startup config; auto-runs exchange+start when auto_start=true")
 	flag.Parse()
+
+	cfg := loadStartupConfig(*startupCfg)
+	if cfg != nil && strings.TrimSpace(cfg.APIBase) != "" {
+		*apiBase = cfg.APIBase
+	}
 
 	state := &recoveryState{
 		apiBaseURL:   *apiBase,
@@ -82,9 +90,104 @@ func main() {
 
 	log.Printf("recovery UI listening on %s", *listen)
 	log.Printf("recovery API base %s", *apiBase)
+
+	if cfg != nil && cfg.AutoStart {
+		go runStartupAutoStart(*listen, cfg)
+	}
+
 	if err := http.ListenAndServe(*listen, mux); err != nil {
 		log.Fatal(err)
 	}
+}
+
+// startupConfig describes the JSON delivered into a WinPE recovery boot
+// (typically via a virtual floppy at A:\winpe-startup.json) so the operator
+// does not have to manually type a one-time recovery token.
+type startupConfig struct {
+	Token         string `json:"token"`
+	APIBase       string `json:"api_base"`
+	TargetDisk    string `json:"target_disk"`
+	ShrinkEnabled bool   `json:"shrink_enabled"`
+	AutoStart     bool   `json:"auto_start"`
+}
+
+// loadStartupConfig auto-discovers a startup config from (in order):
+// 1. explicit -startup-config path,
+// 2. A:\winpe-startup.json (virtual floppy),
+// 3. X:\winpe-startup.json (WinPE scratch root),
+// 4. %E3_RECOVERY_STARTUP_CONFIG% env var.
+func loadStartupConfig(explicit string) *startupConfig {
+	candidates := []string{}
+	if strings.TrimSpace(explicit) != "" {
+		candidates = append(candidates, explicit)
+	}
+	candidates = append(candidates,
+		`A:\winpe-startup.json`,
+		`X:\winpe-startup.json`,
+	)
+	if env := strings.TrimSpace(os.Getenv("E3_RECOVERY_STARTUP_CONFIG")); env != "" {
+		candidates = append(candidates, env)
+	}
+	for _, p := range candidates {
+		data, err := os.ReadFile(p)
+		if err != nil {
+			continue
+		}
+		var c startupConfig
+		if err := json.Unmarshal(data, &c); err != nil {
+			log.Printf("startup-config %s: parse error: %v", p, err)
+			continue
+		}
+		if strings.TrimSpace(c.Token) == "" {
+			log.Printf("startup-config %s: token is empty, ignoring", p)
+			continue
+		}
+		log.Printf("startup-config loaded from %s (auto_start=%v)", p, c.AutoStart)
+		return &c
+	}
+	return nil
+}
+
+// runStartupAutoStart drives /api/exchange then /api/start against this
+// recovery agent's own listener, so an unattended WinPE boot can begin a
+// restore without operator intervention.
+func runStartupAutoStart(listen string, cfg *startupConfig) {
+	host := listen
+	if strings.HasPrefix(host, "0.0.0.0:") {
+		host = "127.0.0.1:" + strings.TrimPrefix(host, "0.0.0.0:")
+	}
+	base := "http://" + host
+	// Wait for our own listener to be ready before issuing requests.
+	time.Sleep(750 * time.Millisecond)
+	exBody, _ := json.Marshal(map[string]any{"token": cfg.Token})
+	resp, err := http.Post(base+"/api/exchange", "application/json", bytes.NewReader(exBody))
+	if err != nil {
+		log.Printf("startup auto_start: /api/exchange error: %v", err)
+		return
+	}
+	io.Copy(io.Discard, resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		log.Printf("startup auto_start: /api/exchange status %d", resp.StatusCode)
+		return
+	}
+	log.Printf("startup auto_start: token exchanged; starting restore on %s", cfg.TargetDisk)
+	stBody, _ := json.Marshal(map[string]any{
+		"target_disk":    cfg.TargetDisk,
+		"shrink_enabled": cfg.ShrinkEnabled,
+	})
+	resp2, err := http.Post(base+"/api/start", "application/json", bytes.NewReader(stBody))
+	if err != nil {
+		log.Printf("startup auto_start: /api/start error: %v", err)
+		return
+	}
+	io.Copy(io.Discard, resp2.Body)
+	resp2.Body.Close()
+	if resp2.StatusCode >= 400 {
+		log.Printf("startup auto_start: /api/start status %d", resp2.StatusCode)
+		return
+	}
+	log.Printf("startup auto_start: restore queued")
 }
 
 func (s *recoveryState) handleIndex(w http.ResponseWriter, r *http.Request) {

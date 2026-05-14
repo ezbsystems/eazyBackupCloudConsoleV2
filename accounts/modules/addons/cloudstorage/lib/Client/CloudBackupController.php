@@ -780,6 +780,49 @@ class CloudBackupController {
                 }
             }
 
+            // Phase 2C — overlapping-run guard. Reject a new run when the same
+            // job already has a non-terminal run in flight. Prevents two
+            // concurrent backups against the same source from racing for the
+            // same Kopia repo lock and from creating duplicate restore points.
+            try {
+                $hasJobIdPkRun = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'job_id');
+                if ($hasJobIdPkRun) {
+                    $hasRunIdPkForGuard = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'run_id');
+                    $isUuidJobGuard = UuidBinary::isUuid($jobId);
+                    $jobIdNormGuard = $isUuidJobGuard ? UuidBinary::normalize($jobId) : null;
+                    $jobBinding = ($hasRunIdPkForGuard && $isUuidJobGuard)
+                        ? Capsule::raw(UuidBinary::toDbExpr($jobIdNormGuard))
+                        : $jobId;
+                    $activeStatuses = ['queued', 'starting', 'running'];
+                    $existing = Capsule::table('s3_cloudbackup_runs')
+                        ->where('job_id', $jobBinding)
+                        ->whereIn('status', $activeStatuses)
+                        ->orderByDesc('id')
+                        ->first();
+                    if ($existing) {
+                        $existingRunIdent = $hasRunIdPkForGuard && !empty($existing->run_id)
+                            ? bin2hex($existing->run_id)
+                            : (string) ($existing->id ?? '');
+                        logModuleCall(self::$module, 'startRun_already_running', [
+                            'job_id' => $jobId,
+                            'client_id' => $clientId,
+                            'existing_run_status' => $existing->status ?? null,
+                        ], 'Rejected: another run is already in flight');
+                        return [
+                            'status'  => 'fail',
+                            'code'    => 'ALREADY_RUNNING',
+                            'message' => 'Another run for this job is already in progress.',
+                            'existing_run_status' => $existing->status ?? null,
+                            'existing_run_ident'  => $existingRunIdent,
+                        ];
+                    }
+                }
+            } catch (\Throwable $eGuard) {
+                // Guard failure must not silently swallow - log and continue so
+                // a transient lookup error does not block legitimate runs.
+                logModuleCall(self::$module, 'startRun_overlap_guard_error', ['job_id' => $jobId], $eGuard->getMessage());
+            }
+
             // Run insert payload (gate optional columns by schema)
             $hasRunIdCol = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'run_id');
             $hasDestTypeCol = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'dest_type');

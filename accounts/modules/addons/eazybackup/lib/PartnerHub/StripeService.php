@@ -29,7 +29,12 @@ class StripeService
         return $this->getSetting('stripe_platform_publishable_key');
     }
 
-    private function request(string $method, string $path, array $params = [], ?string $apiKey = null, ?string $stripeAccount = null, ?array $extraHeaders = null): array
+    /**
+     * Single low-level HTTP entry point. Marked `protected` so test doubles can
+     * override and capture/return canned responses without touching curl.
+     * Production callers MUST go through the public methods.
+     */
+    protected function request(string $method, string $path, array $params = [], ?string $apiKey = null, ?string $stripeAccount = null, ?array $extraHeaders = null): array
     {
         $apiKey = $apiKey ?: $this->getSecret();
         $url = rtrim($this->apiBase,'/').$path;
@@ -195,6 +200,77 @@ class StripeService
             'payment_method_types[]' => 'card',
             'usage' => 'off_session',
         ], null, $stripeAccount);
+    }
+
+    /**
+     * Resolve the application_fee_percent for a subscription using the canonical 4-tier cascade.
+     *
+     * Order of precedence (matches Partner Hub fee-defaults documentation):
+     *   1. Subscription override (e.g. value submitted via the subscription form).
+     *   2. Plan price default       — `eb_plan_prices.application_fee_percent` for the matched stripe_price_id.
+     *   3. MSP default              — `eb_msp_accounts.default_fee_percent` for the MSP.
+     *   4. Module default           — `tbladdonmodules` row keyed by `partnerhub_default_fee_percent`.
+     *
+     * Returns `null` when no positive value is found at any tier (caller may then omit the
+     * `application_fee_percent` parameter from the Stripe call).
+     *
+     * Tier values are accepted only when they are a positive float. Zero / negative / non-numeric
+     * values are skipped so an explicit "no fee" configuration at a higher tier doesn't silently
+     * mask a real fee at a lower tier; pass an explicit override of 0.0 if you truly want no fee.
+     */
+    public static function resolveApplicationFeePercent(
+        ?float $override,
+        ?string $stripePriceId,
+        int $mspId,
+        string $moduleName = 'eazybackup'
+    ): ?float {
+        $accept = static function ($value): ?float {
+            if ($value === null) { return null; }
+            if (!is_numeric($value)) { return null; }
+            $float = (float) $value;
+            return $float > 0.0 ? $float : null;
+        };
+
+        // Tier 1: explicit override
+        if ($override !== null && $override > 0.0) {
+            return $override;
+        }
+
+        // Tier 2: plan price default
+        if ($stripePriceId !== null && trim($stripePriceId) !== '') {
+            try {
+                $row = Capsule::table('eb_plan_prices')
+                    ->where('stripe_price_id', $stripePriceId)
+                    ->first(['application_fee_percent']);
+                if ($row && property_exists($row, 'application_fee_percent')) {
+                    $resolved = $accept($row->application_fee_percent);
+                    if ($resolved !== null) { return $resolved; }
+                }
+            } catch (\Throwable $__) { /* fall through */ }
+        }
+
+        // Tier 3: MSP default
+        if ($mspId > 0) {
+            try {
+                $value = Capsule::table('eb_msp_accounts')
+                    ->where('id', $mspId)
+                    ->value('default_fee_percent');
+                $resolved = $accept($value);
+                if ($resolved !== null) { return $resolved; }
+            } catch (\Throwable $__) { /* fall through */ }
+        }
+
+        // Tier 4: module-wide default
+        try {
+            $value = Capsule::table('tbladdonmodules')
+                ->where('module', $moduleName)
+                ->where('setting', 'partnerhub_default_fee_percent')
+                ->value('value');
+            $resolved = $accept($value);
+            if ($resolved !== null) { return $resolved; }
+        } catch (\Throwable $__) { /* fall through */ }
+
+        return null;
     }
 
     public function createSubscription(string $stripeCustomerId, string $priceId, string $mspAccountId, ?float $applicationFeePercent = null): array

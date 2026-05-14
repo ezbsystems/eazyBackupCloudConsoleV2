@@ -157,7 +157,7 @@ function localWizardScheduleUI() {
 // ========================================
 function localWizardRetentionUI() {
     return {
-        mode: 'none',
+        mode: 'keep_last',
         retentionDropdownOpen: false,
         keepLast: 30,
         keepDaily: 7,
@@ -1748,7 +1748,7 @@ function resetLocalWizardFields() {
         source_paths: [],
         tenant_id: '',
         schedule_json: null, // Reset schedule data for new jobs
-        retention_json: null, // Reset retention data for new jobs
+        retention_json: { keep_last: 30 }, // Default: Keep last 30 backups
     };
     const idsToClear = [
         'localWizardName','localWizardAgentId','localWizardBucketId','localWizardPrefix',
@@ -1812,6 +1812,7 @@ function closeLocalJobWizard() {
     window.localWizardState.jobId = '';
     window.localWizardState.loading = false;
     resetLocalWizardFields();
+    window.dispatchEvent(new CustomEvent('local-wizard-closed'));
 }
 
 function openLocalJobWizardForEdit(jobId) {
@@ -3033,6 +3034,223 @@ function localWizardBuildReview() {
         }
         review.textContent = JSON.stringify(displayData, null, 2);
     }
+
+    // Render the friendly, human-readable summary alongside the JSON.
+    try { localWizardBuildHumanReview(s); } catch (e) { /* non-fatal */ }
+}
+
+// ========================================
+// Local Wizard: human-readable Step 5 review
+// ========================================
+function localWizardEngineLabel(engine) {
+    switch ((engine || '').toLowerCase()) {
+        case 'kopia':      return 'eazyBackup (Archive)';
+        case 'sync':       return 'eazyBackup (Sync)';
+        case 'disk_image': return 'eazyBackup (Disk Image)';
+        case 'hyperv':     return 'Hyper-V VM Backup';
+        default:           return engine || '—';
+    }
+}
+
+function localWizardWeekdayName(n) {
+    const map = { 1:'Monday', 2:'Tuesday', 3:'Wednesday', 4:'Thursday', 5:'Friday', 6:'Saturday', 7:'Sunday' };
+    return map[Number(n)] || '';
+}
+
+function localWizardFormatTime(timeStr) {
+    if (!timeStr) return '';
+    const m = String(timeStr).match(/^(\d{1,2}):(\d{2})/);
+    if (!m) return String(timeStr);
+    const h = parseInt(m[1], 10);
+    const mm = m[2];
+    const ampm = h >= 12 ? 'PM' : 'AM';
+    const h12 = h % 12 === 0 ? 12 : h % 12;
+    return `${h12}:${mm} ${ampm}`;
+}
+
+function localWizardFormatSchedule(s) {
+    const sj = (s.schedule_json && typeof s.schedule_json === 'object') ? s.schedule_json : {};
+    const type = (sj.type || s.schedule_type || 'manual').toLowerCase();
+    if (type === 'manual' || !type) {
+        return 'Manual — runs on demand only.';
+    }
+    if (type === 'hourly') {
+        const minute = (typeof sj.minute === 'number') ? sj.minute : 0;
+        return `Hourly — at :${String(minute).padStart(2, '0')} past every hour.`;
+    }
+    if (type === 'daily') {
+        const t = sj.time || s.schedule_time || '';
+        return t ? `Daily — at ${localWizardFormatTime(t)}.` : 'Daily.';
+    }
+    if (type === 'weekly') {
+        const t = sj.time || s.schedule_time || '';
+        let days = [];
+        if (Array.isArray(sj.weekday) && sj.weekday.length) {
+            days = sj.weekday.map(localWizardWeekdayName).filter(Boolean);
+        } else if (s.schedule_weekday) {
+            String(s.schedule_weekday).split(',').forEach(d => {
+                const name = localWizardWeekdayName(parseInt(d, 10));
+                if (name) days.push(name);
+            });
+        }
+        const dayLabel = days.length ? days.join(', ') : 'selected days';
+        return t ? `Weekly — ${dayLabel} at ${localWizardFormatTime(t)}.` : `Weekly — ${dayLabel}.`;
+    }
+    if (type === 'cron') {
+        const expr = sj.cron || s.schedule_cron || '';
+        return expr ? `Custom cron — \`${expr}\`` : 'Custom cron schedule.';
+    }
+    return type;
+}
+
+function localWizardFormatRetention(s) {
+    const r = (s.retention_json && typeof s.retention_json === 'object') ? s.retention_json : null;
+    if (!r) return 'No retention — keep all backups indefinitely.';
+    if (typeof r.keep_last === 'number' && r.keep_last > 0) {
+        return `Keep the last <strong>${r.keep_last}</strong> backup${r.keep_last === 1 ? '' : 's'}. Older backups are removed automatically.`;
+    }
+    if (typeof r.keep_daily === 'number' && r.keep_daily > 0) {
+        return `Keep the last <strong>${r.keep_daily}</strong> daily backup${r.keep_daily === 1 ? '' : 's'} (one per day, older days are removed).`;
+    }
+    if (typeof r.keep_within === 'string' && r.keep_within) {
+        const m = r.keep_within.match(/^(\d+)([dwmy])$/i);
+        if (m) {
+            const n = parseInt(m[1], 10);
+            const unitMap = { d: 'day', w: 'week', m: 'month', y: 'year' };
+            const unit = unitMap[m[2].toLowerCase()] || m[2];
+            return `Keep all backups from the last <strong>${n} ${unit}${n === 1 ? '' : 's'}</strong>.`;
+        }
+        return `Keep all backups within ${r.keep_within}.`;
+    }
+    return 'No retention — keep all backups indefinitely.';
+}
+
+function localWizardEscapeHtml(str) {
+    return String(str == null ? '' : str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function localWizardBuildHumanReview(s) {
+    const setText = (id, val) => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = (val === undefined || val === null || val === '') ? '—' : String(val);
+    };
+    const setHtml = (id, html) => {
+        const el = document.getElementById(id);
+        if (el) el.innerHTML = html || '—';
+    };
+    const esc = localWizardEscapeHtml;
+
+    const engineLabel = localWizardEngineLabel(s.engine);
+    setText('localWizardReviewEngine', engineLabel);
+
+    setText('localWizardReviewName', s.name || '—');
+    const agentLabel = s.agent_hostname
+        ? `${s.agent_hostname}${s.agent_uuid ? ` (${s.agent_uuid})` : ''}`
+        : (s.agent_uuid || '—');
+    setText('localWizardReviewAgent', agentLabel);
+
+    const tenantWrap = document.getElementById('localWizardReviewTenantWrap');
+    if (tenantWrap) {
+        const tenantName = (s.tenant_name && s.tenant_name !== 'No Tenant (Direct)') ? s.tenant_name : '';
+        if (tenantName || (s.tenant_id && String(s.tenant_id).trim() !== '')) {
+            tenantWrap.classList.remove('hidden');
+            setText('localWizardReviewTenant', tenantName || s.tenant_id);
+        } else {
+            tenantWrap.classList.add('hidden');
+        }
+    }
+
+    // ----- Source -----
+    let sourceHtml = '';
+    const engine = (s.engine || '').toLowerCase();
+    if (engine === 'disk_image') {
+        const vol = s.disk_source_volume || s.source_path || '';
+        const fmt = (s.disk_image_format || '').toUpperCase();
+        const tmp = s.disk_temp_dir || '';
+        sourceHtml += `<div><span class="text-xs text-slate-500">Volume:</span> <span class="text-slate-100">${esc(vol) || '—'}</span></div>`;
+        if (fmt) sourceHtml += `<div><span class="text-xs text-slate-500">Image format:</span> <span class="text-slate-100">${esc(fmt)}</span></div>`;
+        if (tmp) sourceHtml += `<div><span class="text-xs text-slate-500">Temp directory:</span> <span class="text-slate-100">${esc(tmp)}</span></div>`;
+    } else if (engine === 'hyperv') {
+        const vms = Array.isArray(s.hyperv_vms) ? s.hyperv_vms : [];
+        const vmNames = vms.map(v => v.name || v.id).filter(Boolean);
+        sourceHtml += `<div><span class="text-xs text-slate-500">Virtual machines:</span> <span class="text-slate-100">${vmNames.length ? vmNames.length + ' selected' : '—'}</span></div>`;
+        if (vmNames.length) {
+            const list = vmNames.slice(0, 8).map(n => `<li>${esc(n)}</li>`).join('');
+            const more = vmNames.length > 8 ? `<li class="text-slate-500">…and ${vmNames.length - 8} more</li>` : '';
+            sourceHtml += `<ul class="list-disc list-inside text-slate-100 space-y-0.5">${list}${more}</ul>`;
+        }
+        const consistency = s.hyperv_consistency_level || 'application';
+        sourceHtml += `<div class="text-xs text-slate-500 mt-1">Consistency: <span class="text-slate-300">${esc(consistency)}</span> · RCT: <span class="text-slate-300">${s.hyperv_enable_rct === false ? 'disabled' : 'enabled'}</span></div>`;
+    } else {
+        const paths = Array.isArray(s.source_paths) ? s.source_paths.filter(Boolean) : [];
+        const all = paths.length ? paths : (s.source_path ? [s.source_path] : []);
+        if (all.length) {
+            const list = all.slice(0, 8).map(p => `<li><code class="text-slate-100">${esc(p)}</code></li>`).join('');
+            const more = all.length > 8 ? `<li class="text-slate-500">…and ${all.length - 8} more</li>` : '';
+            sourceHtml += `<div class="text-xs text-slate-500 mb-1">Selected ${all.length === 1 ? 'path' : 'paths'} (${all.length}):</div>`;
+            sourceHtml += `<ul class="list-disc list-inside space-y-0.5">${list}${more}</ul>`;
+        } else {
+            sourceHtml += `<div class="text-slate-400">No source paths selected.</div>`;
+        }
+        if (s.include) {
+            sourceHtml += `<div class="text-xs text-slate-500 mt-2">Include: <code class="text-slate-300">${esc(s.include)}</code></div>`;
+        }
+        if (s.exclude) {
+            sourceHtml += `<div class="text-xs text-slate-500">Exclude: <code class="text-slate-300">${esc(s.exclude)}</code></div>`;
+        }
+        if (s.network_domain || s.network_username) {
+            const cred = s.network_username ? `${s.network_domain ? esc(s.network_domain) + '\\' : ''}${esc(s.network_username)}` : '';
+            sourceHtml += `<div class="text-xs text-slate-500 mt-2">Network credentials: <span class="text-slate-300">${cred || '—'}</span></div>`;
+        }
+    }
+    setHtml('localWizardReviewSource', sourceHtml);
+
+    // ----- Destination -----
+    let destHtml = '';
+    const destType = (s.dest_type || 's3').toLowerCase();
+    if (destType === 'local') {
+        destHtml += `<div><span class="text-xs text-slate-500">Local path:</span> <span class="text-slate-100">${esc(s.dest_local_path) || '—'}</span></div>`;
+    } else {
+        destHtml += `<div><span class="text-xs text-slate-500">Storage:</span> <span class="text-slate-100">e3 (S3-compatible)</span></div>`;
+        destHtml += `<div class="text-xs text-slate-500 mt-1">Bucket and root prefix are assigned automatically from the agent's destination policy.</div>`;
+    }
+    const encMode = (s.encryption_mode || 'repokey');
+    destHtml += `<div class="text-xs text-slate-500 mt-2">Encryption: <span class="text-slate-300">${esc(encMode)}</span></div>`;
+    setHtml('localWizardReviewDestination', destHtml);
+
+    // ----- Schedule -----
+    setHtml('localWizardReviewSchedule', `<span>${esc(localWizardFormatSchedule(s))}</span>`);
+
+    // ----- Retention -----
+    setHtml('localWizardReviewRetention', `<span>${localWizardFormatRetention(s)}</span>`);
+
+    // ----- Advanced settings -----
+    const policy = (s.policy_json && typeof s.policy_json === 'object') ? s.policy_json : {};
+    const bw = parseInt(s.bandwidth_limit_kbps, 10);
+    const bwLabel = (!isNaN(bw) && bw > 0) ? `${bw.toLocaleString()} KB/s` : 'Unlimited';
+    const par = policy.parallel_uploads || s.parallelism || '';
+    const parLabel = par ? String(par) : '16';
+    const compression = policy.compression || s.compression || (s.compression_enabled ? 'zstd-default' : 'none');
+    let advHtml = '';
+    advHtml += `<div class="grid grid-cols-1 sm:grid-cols-3 gap-2">`;
+    advHtml += `<div><span class="text-xs text-slate-500">Bandwidth:</span><br><span class="text-slate-100">${esc(bwLabel)}</span></div>`;
+    advHtml += `<div><span class="text-xs text-slate-500">Parallel uploads:</span><br><span class="text-slate-100">${esc(parLabel)}</span></div>`;
+    advHtml += `<div><span class="text-xs text-slate-500">Compression:</span><br><span class="text-slate-100">${esc(compression || 'none')}</span></div>`;
+    advHtml += `</div>`;
+    const flags = [];
+    if (policy.debug_logs) flags.push('Debug logs enabled');
+    if (policy.parallel_disk_reads === false) flags.push('Parallel disk reads disabled');
+    if (flags.length) {
+        advHtml += `<ul class="list-disc list-inside text-xs text-slate-400 mt-2 space-y-0.5">` +
+                   flags.map(f => `<li>${esc(f)}</li>`).join('') +
+                   `</ul>`;
+    }
+    setHtml('localWizardReviewAdvanced', advHtml);
 }
 
 function safeParseJSON(txt) {

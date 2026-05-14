@@ -1,0 +1,12 @@
+{
+    "id": "evt_placeholder",
+    "object": "event",
+    "type": "account.application.deauthorized",
+    "account": "acct_test_placeholder",
+    "data": {
+        "object": {
+            "id": "ca_placeholder",
+            "object": "application"
+        }
+    }
+}

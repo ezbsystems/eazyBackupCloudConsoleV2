@@ -66,6 +66,98 @@ $checks = [
             "stripe authoritative invoices mention" => 'Stripe is the authoritative source of invoice state',
         ],
     ],
+    // Phase B test seams — these protect the unit-test suite from regressing.
+    'StripeService Phase B markers' => [
+        'path' => $repoRoot . '/accounts/modules/addons/eazybackup/lib/PartnerHub/StripeService.php',
+        'markers' => [
+            "request() is protected (test seam)" => 'protected function request(',
+            "fee cascade helper signature" => 'public static function resolveApplicationFeePercent(',
+            "fee cascade module default lookup" => "'partnerhub_default_fee_percent'",
+        ],
+    ],
+    'CatalogService Phase B markers' => [
+        'path' => $repoRoot . '/accounts/modules/addons/eazybackup/lib/PartnerHub/CatalogService.php',
+        'markers' => [
+            "request() is protected (test seam)" => 'protected function request(',
+        ],
+    ],
+    'SubscriptionsController fee cascade delegation' => [
+        'path' => $repoRoot . '/accounts/modules/addons/eazybackup/pages/partnerhub/SubscriptionsController.php',
+        'markers' => [
+            "delegates fee cascade to StripeService" => 'StripeService::resolveApplicationFeePercent(',
+        ],
+    ],
+    // Phase C webhook test seams — these helpers are independently invokable so unit
+    // tests can drive every event handler without going through curl + signing the
+    // wire. Removing them silently reverts the whole integration suite.
+    'StripeWebhookController Phase C markers' => [
+        'path' => $repoRoot . '/accounts/modules/addons/eazybackup/pages/partnerhub/StripeWebhookController.php',
+        'markers' => [
+            "verify_signature helper" => 'function eb_ph_webhook_verify_signature(',
+            "record_idempotent helper" => 'function eb_ph_webhook_record_idempotent(',
+            "dispatch_event helper" => 'function eb_ph_webhook_dispatch_event(',
+            "tenant_id NULL-on-no-match contract" => "'tenant_id' => \$effectiveTenantId,",
+        ],
+    ],
+    // Phase C2 webhook seams — extra injection points so capability.updated, the
+    // HTTP entry-point glue, and email dispatch can be exercised in tests.
+    'StripeWebhookController Phase C2 markers' => [
+        'path' => $repoRoot . '/accounts/modules/addons/eazybackup/pages/partnerhub/StripeWebhookController.php',
+        'markers' => [
+            "dispatch_event accepts optional StripeService" => '?\PartnerHub\StripeService $stripeService = null',
+            "capability.updated uses injected service" => '$svc = $stripeService ?? new StripeService();',
+            "pure-function entry-point handler" => 'function eb_ph_stripe_webhook_handle(',
+            "entry-point handler returns status+body array" => "return ['status' =>",
+            "thin entry point delegates to handler" => 'eb_ph_stripe_webhook_handle($payload, $sig, $secret);',
+        ],
+    ],
+    'MailService Phase C2 transport seam' => [
+        'path' => $repoRoot . '/accounts/modules/addons/eazybackup/lib/PartnerHub/MailService.php',
+        'markers' => [
+            "transport setter" => 'public static function setTransport(',
+            "transport clearer" => 'public static function clearTransport(',
+            "transport short-circuit in sendTemplate" => 'if (self::$transport !== null)',
+        ],
+    ],
+    // Phase F seams — public signup validators extracted so abuse controls can be
+    // unit-tested without going through $_POST + $_SERVER + Turnstile + localAPI.
+    'PublicSignupController Phase F markers' => [
+        'path' => $repoRoot . '/accounts/modules/addons/eazybackup/pages/whitelabel/PublicSignupController.php',
+        'markers' => [
+            "validate_basic_input helper" => 'function eb_signup_validate_basic_input(',
+            "domain filter helper" => 'function eb_signup_check_domain_filters(',
+            "rate limit helper" => 'function eb_signup_check_rate_limits(',
+            "existing event state helper" => 'function eb_signup_existing_event_state(',
+            "controller delegates to validate helper" => 'eb_signup_validate_basic_input(',
+            "controller delegates to domain filter helper" => 'eb_signup_check_domain_filters(',
+            "controller delegates to rate limit helper" => 'eb_signup_check_rate_limits(',
+            "controller delegates to existing event helper" => 'eb_signup_existing_event_state(',
+        ],
+    ],
+    // Phase G seams — pure-function backends for assign-plan + cancel-subscription
+    // so the canonical billing state machine can be tested with injected services.
+    'CatalogPlansController Phase G markers' => [
+        'path' => $repoRoot . '/accounts/modules/addons/eazybackup/pages/partnerhub/CatalogPlansController.php',
+        'markers' => [
+            "assign-for-msp helper signature" => 'function eb_ph_plan_assign_for_msp(',
+            "assign-for-msp accepts injected StripeService" => '?\PartnerHub\StripeService $stripeService = null',
+            "assign-for-msp accepts injected CatalogService" => '?\PartnerHub\CatalogService $catalogService = null',
+            "assign HTTP wrapper delegates" => 'eb_ph_plan_assign_for_msp(',
+            "cancel-for-msp helper signature" => 'function eb_ph_plan_subscription_cancel_for_msp(',
+            "cancel HTTP wrapper delegates" => 'eb_ph_plan_subscription_cancel_for_msp(',
+        ],
+    ],
+    // Phase H seams — usage push orchestration extracted so allowance + Stripe
+    // dispatch can be exercised in isolation.
+    'UsageController Phase H markers' => [
+        'path' => $repoRoot . '/accounts/modules/addons/eazybackup/pages/partnerhub/UsageController.php',
+        'markers' => [
+            "push-for-tenant helper signature" => 'function eb_ph_usage_push_for_tenant(',
+            "push-for-tenant accepts injected StripeService" => '?\PartnerHub\StripeService $stripeService = null',
+            "push HTTP wrapper delegates" => 'eb_ph_usage_push_for_tenant(',
+            "ledger upsert by idempotency key" => "['idempotency_key' => \$idKey]",
+        ],
+    ],
 ];
 
 $contractChecks = [
@@ -114,6 +206,36 @@ foreach ($contractChecks as $checkName => $check) {
     if (strpos($joinedOutput, $check['expected']) === false) {
         $detail = $joinedOutput !== '' ? $joinedOutput : 'no output';
         $failures[] = "FAIL: {$checkName} command missing success marker {$check['expected']}: {$detail}";
+    }
+}
+
+// PHPUnit unit suite (Phase A onwards). Skipped when EB_GATE_SKIP_PHPUNIT=1 to avoid
+// recursion when the gate is itself invoked from inside PHPUnit (see tests/Unit/
+// MspBillingReleaseGateRunsCleanTest.php). Also skipped cleanly when phpunit isn't
+// installed (e.g. fresh checkout without `composer install --dev`).
+$skipPhpunit = (string) getenv('EB_GATE_SKIP_PHPUNIT') === '1';
+$addonRoot = $repoRoot . '/accounts/modules/addons/eazybackup';
+$phpunitBinary = $addonRoot . '/vendor/bin/phpunit';
+if (!$skipPhpunit && is_file($phpunitBinary) && is_executable($phpunitBinary)) {
+    $phpBinary = PHP_BINARY !== '' ? PHP_BINARY : 'php';
+    $phpunitCommand = sprintf(
+        '%s %s --testsuite unit --no-coverage --colors=never 2>&1',
+        escapeshellarg($phpBinary),
+        escapeshellarg($phpunitBinary)
+    );
+
+    $cwd = getcwd();
+    chdir($addonRoot);
+    $output = [];
+    $exitCode = 0;
+    exec($phpunitCommand, $output, $exitCode);
+    if ($cwd !== false) {
+        chdir($cwd);
+    }
+
+    if ($exitCode !== 0) {
+        $detail = trim(implode(PHP_EOL, $output));
+        $failures[] = "FAIL: phpunit unit suite failed (exit {$exitCode}):\n{$detail}";
     }
 }
 

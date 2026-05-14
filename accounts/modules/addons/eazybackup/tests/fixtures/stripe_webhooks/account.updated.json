@@ -1,0 +1,22 @@
+{
+    "id": "evt_placeholder",
+    "object": "event",
+    "type": "account.updated",
+    "account": "acct_test_placeholder",
+    "data": {
+        "object": {
+            "id": "acct_test_placeholder",
+            "object": "account",
+            "charges_enabled": true,
+            "payouts_enabled": true,
+            "capabilities": {
+                "card_payments": "active",
+                "transfers": "active"
+            },
+            "requirements": {
+                "currently_due": [],
+                "past_due": []
+            }
+        }
+    }
+}

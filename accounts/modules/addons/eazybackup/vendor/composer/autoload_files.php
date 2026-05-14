@@ -6,6 +6,7 @@ $vendorDir = dirname(dirname(__FILE__));
 $baseDir = dirname($vendorDir);
 
 return array(
+    'ec07570ca5a812141189b1fa81503674' => $vendorDir . '/phpunit/phpunit/src/Framework/Assert/Functions.php',
     '88254829cb0eed057c30eaabb6d8edc4' => $vendorDir . '/amphp/amp/src/functions.php',
     '429ae5f14a13a9076791c19422e10996' => $vendorDir . '/amphp/amp/src/Future/functions.php',
     'c8601a4144b50a7b548da082c89c4dc1' => $vendorDir . '/amphp/amp/src/Internal/functions.php',
@@ -29,6 +30,9 @@ return array(
     '3d05d4f147c95ba663000bd908d45656' => $vendorDir . '/amphp/websocket/src/functions.php',
     '37a3dc5111fe8f707ab4c132ef1dbc62' => $vendorDir . '/guzzlehttp/guzzle/src/functions_include.php',
     'b067bc7112e384b61c701452d53a14a8' => $vendorDir . '/mtdowling/jmespath.php/src/JmesPath.php',
+    '6124b4c8570aa390c21fafd04a26c69f' => $vendorDir . '/myclabs/deep-copy/src/DeepCopy/deep_copy.php',
     '4be4fbd9f5a89207b1fd1c85ae339dd7' => $vendorDir . '/amphp/websocket-client/src/functions.php',
     '8a9dc1de0ca7e01f3e08231539562f61' => $vendorDir . '/aws/aws-sdk-php/src/functions.php',
+    'c72349b1fe8d0deeedd3a52e8aa814d8' => $vendorDir . '/mockery/mockery/library/helpers.php',
+    'ce9671a430e4846b44e1c68c7611f9f5' => $vendorDir . '/mockery/mockery/library/Mockery.php',
 );

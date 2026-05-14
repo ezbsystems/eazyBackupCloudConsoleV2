@@ -263,72 +263,108 @@ function eb_ph_webhook_send_email(int $mspId, ?object $tenant, string $templateK
     }
 }
 
-function eb_ph_stripe_webhook(): void
+/**
+ * Verify a Stripe webhook signature header against the raw payload.
+ *
+ * Returns ['ok' => bool, 'event' => array|null, 'error' => string].
+ * `error` is one of: '' | 'invalid-sig' | 'missing-sig' | 'sig-timeout' | 'invalid'.
+ *
+ * Uses Stripe\Webhook::constructEvent() when the SDK is available (production
+ * path), and falls back to a self-contained HMAC SHA-256 verifier otherwise.
+ * Marked seam-friendly so unit tests can drive it with hand-signed payloads.
+ */
+function eb_ph_webhook_verify_signature(string $payload, string $sigHeader, string $secret, int $tolerance = 300): array
 {
-    $payload = file_get_contents('php://input');
-    $sig = $_SERVER['HTTP_STRIPE_SIGNATURE'] ?? '';
-    // Secret from addon settings
-    $secret = (string)(Capsule::table('tbladdonmodules')->where('module','eazybackup')->where('setting','stripe_webhook_secret')->value('value') ?? '');
-    if ($secret === '') {
-        try { if (function_exists('logActivity')) { @logActivity('eazybackup: stripe webhook secret not configured — rejecting event'); } } catch (\Throwable $__) {}
-        http_response_code(400); echo 'webhook-secret-not-configured'; return;
-    }
-
-    // Verify signature (prefer stripe-php if available)
-    $event = null;
-    $tolerance = 300; // seconds
     if (class_exists('Stripe\\Webhook')) {
         try {
-            // Lazy init API version handling left to Stripe\Webhook
-            $event = \Stripe\Webhook::constructEvent($payload, $sig, $secret, $tolerance);
-            $event = json_decode(json_encode($event), true); // normalize to array
+            $event = \Stripe\Webhook::constructEvent($payload, $sigHeader, $secret, $tolerance);
+            $event = json_decode(json_encode($event), true);
+            return ['ok' => true, 'event' => is_array($event) ? $event : null, 'error' => ''];
         } catch (\Throwable $e) {
-            http_response_code(400); echo 'invalid-sig'; return;
+            // Stripe SDK throws SignatureVerificationException for both missing and
+            // invalid-signature cases; collapse them into invalid-sig at this layer.
+            return ['ok' => false, 'event' => null, 'error' => 'invalid-sig'];
         }
-    } else {
-        // Lightweight verifier
-        if ($sig === '') { http_response_code(400); echo 'missing-sig'; return; }
-        $parts = [];
-        foreach (explode(',', (string)$sig) as $p) {
-            $kv = explode('=', trim($p), 2);
-            if (count($kv) === 2) { $parts[$kv[0]] = $kv[1]; }
-        }
-        $ts = isset($parts['t']) ? (int)$parts['t'] : 0;
-        $v1 = $parts['v1'] ?? '';
-        if ($ts <= 0 || $v1 === '') { http_response_code(400); echo 'invalid-sig'; return; }
-        if (abs(time() - $ts) > $tolerance) { http_response_code(400); echo 'sig-timeout'; return; }
-        $signedPayload = $ts . '.' . $payload;
-        $expected = hash_hmac('sha256', $signedPayload, $secret);
-        // Constant-time compare
-        if (!hash_equals($expected, $v1)) { http_response_code(400); echo 'invalid-sig'; return; }
-        $event = json_decode($payload, true);
-        if (!is_array($event)) { http_response_code(400); echo 'invalid'; return; }
     }
+
+    if ($sigHeader === '') {
+        return ['ok' => false, 'event' => null, 'error' => 'missing-sig'];
+    }
+    $parts = [];
+    foreach (explode(',', (string)$sigHeader) as $p) {
+        $kv = explode('=', trim($p), 2);
+        if (count($kv) === 2) { $parts[$kv[0]] = $kv[1]; }
+    }
+    $ts = isset($parts['t']) ? (int)$parts['t'] : 0;
+    $v1 = $parts['v1'] ?? '';
+    if ($ts <= 0 || $v1 === '') {
+        return ['ok' => false, 'event' => null, 'error' => 'invalid-sig'];
+    }
+    if (abs(time() - $ts) > $tolerance) {
+        return ['ok' => false, 'event' => null, 'error' => 'sig-timeout'];
+    }
+    $expected = hash_hmac('sha256', $ts . '.' . $payload, $secret);
+    if (!hash_equals($expected, $v1)) {
+        return ['ok' => false, 'event' => null, 'error' => 'invalid-sig'];
+    }
+    $event = json_decode($payload, true);
+    if (!is_array($event)) {
+        return ['ok' => false, 'event' => null, 'error' => 'invalid'];
+    }
+    return ['ok' => true, 'event' => $event, 'error' => ''];
+}
+
+/**
+ * Stamp an event_id into eb_stripe_events for idempotency. Returns one of:
+ *   - 'fresh'     — the row was inserted; safe to dispatch.
+ *   - 'duplicate' — the event was already processed; return 200 'duplicate'.
+ *   - 'error'     — unexpected DB error; return 500.
+ *   - 'skip'      — event_id was empty; dispatch but do not stamp.
+ */
+function eb_ph_webhook_record_idempotent(string $eventId): string
+{
+    if ($eventId === '') {
+        return 'skip';
+    }
+    try {
+        Capsule::table('eb_stripe_events')->insert([
+            'event_id'   => $eventId,
+            'created_at' => date('Y-m-d H:i:s'),
+        ]);
+        return 'fresh';
+    } catch (\Throwable $e) {
+        $msg = strtolower($e->getMessage());
+        if (strpos($msg, 'duplicate') !== false || strpos($msg, 'unique') !== false || strpos($msg, '1062') !== false) {
+            return 'duplicate';
+        }
+        try { if (function_exists('logActivity')) { @logActivity('eazybackup: stripe webhook idempotency insert error: '.$e->getMessage()); } } catch (\Throwable $__) {}
+        return 'error';
+    }
+}
+
+/**
+ * Dispatch a verified Stripe event to its handler. Pure logic — no HTTP
+ * concerns, no signature work. Tests call this directly with fixture events
+ * to drive every code path without going near php://input or curl.
+ *
+ * Caller is responsible for catching exceptions; this helper does NOT swallow
+ * them so test failures surface clearly. The HTTP entry point (eb_ph_stripe_webhook)
+ * still wraps in try/catch + logActivity to preserve production error tolerance.
+ *
+ * The optional second argument is a `StripeService` (or any subclass) used by
+ * handlers that need to call back into Stripe — currently `capability.updated`,
+ * which retrieves a fresh account snapshot. Production callers omit it (a real
+ * `StripeService` is constructed on demand); tests pass a TestableStripeService
+ * with canned responses.
+ */
+function eb_ph_webhook_dispatch_event(array $event, ?\PartnerHub\StripeService $stripeService = null): void
+{
     $type = (string)($event['type'] ?? '');
     $obj  = $event['data']['object'] ?? [];
-    $acctId = eb_ph_webhook_account_id($event, is_array($obj) ? $obj : []);
+    if (!is_array($obj)) { $obj = []; }
+    $acctId = eb_ph_webhook_account_id($event, $obj);
 
-    // Idempotency: skip if event already processed
-    $eid = (string)($event['id'] ?? '');
-    if ($eid !== '') {
-        try {
-            Capsule::table('eb_stripe_events')->insert(['event_id'=>$eid, 'created_at'=>date('Y-m-d H:i:s')]);
-        } catch (\Throwable $__dup) {
-            $dupMsg = strtolower($__dup->getMessage());
-            if (strpos($dupMsg, 'duplicate') !== false || strpos($dupMsg, 'unique') !== false || strpos($dupMsg, '1062') !== false) {
-                http_response_code(200);
-                echo 'duplicate';
-                return;
-            }
-            try { if (function_exists('logActivity')) { @logActivity('eazybackup: stripe webhook idempotency insert error: '.$__dup->getMessage()); } } catch (\Throwable $__) {}
-            http_response_code(500);
-            echo 'error';
-            return;
-        }
-    }
-
-    try {
-        switch ($type) {
+    switch ($type) {
             case 'account.updated':
                 if ($acctId !== '') {
                     $charges = (int)($obj['charges_enabled'] ?? 0) ? 1 : 0;
@@ -352,9 +388,11 @@ function eb_ph_stripe_webhook(): void
                 break;
             case 'capability.updated':
                 if ($acctId !== '') {
-                    // Pull fresh account snapshot to sync flags, capabilities, and requirements
+                    // Pull fresh account snapshot to sync flags, capabilities, and requirements.
+                    // Uses the injected StripeService when present (tests pass a stub); falls back
+                    // to a freshly-instantiated service in production.
                     try {
-                        $svc = new StripeService();
+                        $svc = $stripeService ?? new StripeService();
                         $acct = $svc->retrieveAccount($acctId);
                         $charges = (int)($acct['charges_enabled'] ?? 0) ? 1 : 0;
                         $payoutFlag = $acct['payouts_enabled'] ?? ($acct['transfers_enabled'] ?? 0);
@@ -590,16 +628,83 @@ function eb_ph_stripe_webhook(): void
                 break;
             default:
                 break;
-        }
+    }
+}
+
+/**
+ * Pure-function form of the webhook entry point. Accepts the raw payload, the
+ * Stripe-Signature header, and the configured webhook secret; returns
+ * `['status' => int, 'body' => string]`. Does NOT touch php://input, $_SERVER,
+ * http_response_code(), or echo.
+ *
+ * This function exists so the orchestration glue (verify -> idempotent -> dispatch)
+ * can be exercised in isolation by integration tests. The real entry point
+ * eb_ph_stripe_webhook() is a one-screen adapter that gathers inputs and emits
+ * the HTTP response around this core.
+ *
+ * The optional `$stripeService` is forwarded to eb_ph_webhook_dispatch_event so
+ * tests can inject a TestableStripeService for handlers that call back into
+ * Stripe (e.g. `capability.updated`).
+ */
+function eb_ph_stripe_webhook_handle(
+    string $payload,
+    string $sigHeader,
+    string $secret,
+    ?\PartnerHub\StripeService $stripeService = null
+): array {
+    if ($secret === '') {
+        try { if (function_exists('logActivity')) { @logActivity('eazybackup: stripe webhook secret not configured — rejecting event'); } } catch (\Throwable $__) {}
+        return ['status' => 400, 'body' => 'webhook-secret-not-configured'];
+    }
+
+    $verified = eb_ph_webhook_verify_signature($payload, $sigHeader, $secret);
+    if (!$verified['ok']) {
+        return ['status' => 400, 'body' => $verified['error']];
+    }
+    $event = $verified['event'];
+    if (!is_array($event)) {
+        return ['status' => 400, 'body' => 'invalid'];
+    }
+
+    $idempState = eb_ph_webhook_record_idempotent((string)($event['id'] ?? ''));
+    if ($idempState === 'duplicate') {
+        return ['status' => 200, 'body' => 'duplicate'];
+    }
+    if ($idempState === 'error') {
+        return ['status' => 500, 'body' => 'error'];
+    }
+
+    try {
+        eb_ph_webhook_dispatch_event($event, $stripeService);
     } catch (\Throwable $e) {
-        // Avoid noisy failures; log if available
+        // Production behaviour: swallow + log so a single bad handler doesn't make
+        // Stripe retry forever. Tests assert on DB side-effects rather than throws.
         if (function_exists('logActivity')) {
             @logActivity('eazybackup: stripe webhook error: '.$e->getMessage());
         }
     }
 
-    http_response_code(200);
-    echo 'ok';
+    return ['status' => 200, 'body' => 'ok'];
+}
+
+/**
+ * HTTP entry point. Reads php://input + Stripe-Signature header, looks up the
+ * configured secret, calls eb_ph_stripe_webhook_handle, and emits the
+ * resulting HTTP status + body. Production behaviour preserved bit-for-bit.
+ */
+function eb_ph_stripe_webhook(): void
+{
+    $payload = (string) file_get_contents('php://input');
+    $sig = (string) ($_SERVER['HTTP_STRIPE_SIGNATURE'] ?? '');
+    $secret = (string)(Capsule::table('tbladdonmodules')
+        ->where('module', 'eazybackup')
+        ->where('setting', 'stripe_webhook_secret')
+        ->value('value') ?? '');
+
+    $result = eb_ph_stripe_webhook_handle($payload, $sig, $secret);
+
+    http_response_code((int) $result['status']);
+    echo (string) $result['body'];
 }
 
 

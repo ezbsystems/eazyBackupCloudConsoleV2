@@ -17,12 +17,33 @@
     "league/uri": "^7.5",
     "league/uri-components": "^7.5"
   },
+  "require-dev": {
+    "phpunit/phpunit": "^10.5",
+    "mockery/mockery": "^1.6"
+  },
   "autoload": {
     "psr-4": {
       "eazyBackup\\CometCompat\\": "lib/CometCompat/",
       "PartnerHub\\": "lib/PartnerHub/",
       "EazyBackup\\Billing\\": "lib/Billing/"
     }
+  },
+  "autoload-dev": {
+    "psr-4": {
+      "EazyBackup\\Tests\\": "tests/"
+    }
+  },
+  "scripts": {
+    "test": "phpunit --testsuite unit --no-coverage",
+    "test:integration": "phpunit --testsuite integration --no-coverage",
+    "test:full": "phpunit --no-coverage",
+    "test:coverage": "phpunit --testsuite unit --coverage-html tests/_coverage/html",
+    "test:contract": "php bin/dev/msp_billing_release_gate.php",
+    "test:all": [
+      "@test:contract",
+      "@test",
+      "@test:integration"
+    ]
   },
   "minimum-stability": "stable",
   "prefer-stable": true

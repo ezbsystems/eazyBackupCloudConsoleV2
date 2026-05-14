@@ -1,25 +1,38 @@
 .PHONY: build build-windows build-agent-windows build-tray-windows install test clean deps lint
 
+# Version metadata (overridable via environment, e.g. `VERSION=1.2.3 make build`)
+VERSION ?= dev
+COMMIT  := $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
+LDFLAGS := -s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT)
+LDFLAGS_GUI := $(LDFLAGS) -H=windowsgui
+
 # Build the agent binary (linux/amd64 by default)
 build:
-	@echo "Building e3-backup-agent..."
+	@echo "Building e3-backup-agent (version=$(VERSION) commit=$(COMMIT))..."
 	@mkdir -p bin
-	@go build -o bin/e3-backup-agent ./cmd/agent
+	@go build -trimpath -ldflags="$(LDFLAGS)" -o bin/e3-backup-agent ./cmd/agent
 	@echo "Build complete: bin/e3-backup-agent"
 
 # Cross-compile Windows agent binary (service only)
 build-agent-windows:
-	@echo "Building e3-backup-agent (windows/amd64)..."
+	@echo "Building e3-backup-agent (windows/amd64) version=$(VERSION) commit=$(COMMIT)..."
 	@mkdir -p bin
-	@CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o bin/e3-backup-agent.exe ./cmd/agent
+	@CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags="$(LDFLAGS)" -o bin/e3-backup-agent.exe ./cmd/agent
 	@echo "Build complete: bin/e3-backup-agent.exe"
 
 # Cross-compile Windows tray binary (GUI app)
 build-tray-windows:
-	@echo "Building e3-backup-tray (windows/amd64)..."
+	@echo "Building e3-backup-tray (windows/amd64) version=$(VERSION) commit=$(COMMIT)..."
 	@mkdir -p bin
-	@CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags="-s -w -H=windowsgui" -o bin/e3-backup-tray.exe ./cmd/tray
+	@CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags="$(LDFLAGS_GUI)" -o bin/e3-backup-tray.exe ./cmd/tray
 	@echo "Build complete: bin/e3-backup-tray.exe"
+
+# Cross-compile recovery binary for WinPE / lab use (windows/amd64)
+build-recovery-windows:
+	@echo "Building e3-recovery-agent (windows/amd64) version=$(VERSION) commit=$(COMMIT)..."
+	@mkdir -p bin
+	@CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags="$(LDFLAGS)" -o bin/e3-recovery-agent.exe ./cmd/recovery
+	@echo "Build complete: bin/e3-recovery-agent.exe"
 
 # Cross-compile ALL Windows binaries (agent + tray) for installer
 build-windows: build-agent-windows build-tray-windows

@@ -1,0 +1,16 @@
+{
+    "id": "evt_placeholder",
+    "object": "event",
+    "type": "payout.paid",
+    "account": "acct_test_placeholder",
+    "data": {
+        "object": {
+            "id": "po_placeholder",
+            "object": "payout",
+            "amount": 25000,
+            "currency": "cad",
+            "status": "paid",
+            "arrival_date": 1735689600
+        }
+    }
+}

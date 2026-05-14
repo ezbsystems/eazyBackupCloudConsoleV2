@@ -453,8 +453,8 @@
                                     <span class="eb-badge eb-badge--success">{$status|capitalize}</span>
                                     {elseif $status eq 'failed' || $status eq 'error'}
                                     <span class="eb-badge eb-badge--danger">{$status|capitalize}</span>
-                                    {elseif $status eq 'warning'}
-                                    <span class="eb-badge eb-badge--warning">{$status|capitalize}</span>
+                                    {elseif $status eq 'warning' || $status eq 'partial_success'}
+                                    <span class="eb-badge eb-badge--warning">{if $status eq 'partial_success'}Partial Success{else}{$status|capitalize}{/if}</span>
                                     {elseif $status eq 'cancelled'}
                                     <span class="eb-badge eb-badge--default">{$status|capitalize}</span>
                                     {else}

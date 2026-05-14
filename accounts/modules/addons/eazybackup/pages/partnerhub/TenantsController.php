@@ -175,32 +175,67 @@ function eb_ph_tenants_require_context(array $vars): array
 
     $clientId = (int)$_SESSION['uid'];
 
-    // Preserve reseller-group gating used across Partner Hub pages.
+    // Partner Hub access is gated by the addon setting 'partnerhub_groups'
+    // (a list of WHMCS client-group IDs). Holding a white-label/Comet product
+    // is no longer a prerequisite — billing-only MSPs are first-class.
+    $allowed = false;
     try {
-        $resellerGroupsSetting = (string)(Capsule::table('tbladdonmodules')
-            ->where('module', 'eazybackup')
-            ->where('setting', 'resellergroups')
-            ->value('value') ?? '');
-        if ($resellerGroupsSetting !== '') {
-            $gid = (int)(Capsule::table('tblclients')->where('id', $clientId)->value('groupid') ?? 0);
-            if ($gid > 0) {
-                $ids = array_map('intval', array_filter(array_map('trim', explode(',', $resellerGroupsSetting))));
-                if (!in_array($gid, $ids, true)) {
-                    header('HTTP/1.1 403 Forbidden');
-                    exit;
-                }
-            }
-        }
+        $allowed = function_exists('eazybackup_client_can_access_partnerhub')
+            && eazybackup_client_can_access_partnerhub($clientId);
     } catch (\Throwable $__) {
-        try { if (function_exists('logActivity')) { @logActivity('eazybackup: reseller group gate query failed: '.$__->getMessage()); } } catch (\Throwable $___) {}
-        header('HTTP/1.1 403 Forbidden');
+        $allowed = false;
+    }
+
+    if (!$allowed) {
+        try { if (function_exists('logActivity')) { @logActivity('eazybackup: Partner Hub access denied for client ' . (int)$clientId . ' (group not in partnerhub_groups)'); } } catch (\Throwable $___) {}
+        // Bounce non-allowed clients to the standard client area. Never
+        // redirect back to a Partner Hub route here — every Partner Hub page
+        // calls this gate, so doing so would create a redirect loop.
+        header('Location: clientarea.php');
         exit;
     }
 
+    // Ensure the canonical eb_msp_accounts row exists for this client. Many
+    // downstream Partner Hub controllers rely on $msp->id for scoping.
     $msp = Capsule::table('eb_msp_accounts')->where('whmcs_client_id', $clientId)->first();
     if (!$msp) {
-        header('Location: ' . eb_ph_tenants_base_link($vars) . '&a=ph-tenants-manage');
-        exit;
+        try {
+            $now = date('Y-m-d H:i:s');
+            $name = '';
+            try {
+                $row = Capsule::table('tblclients')
+                    ->where('id', $clientId)
+                    ->first(['companyname', 'firstname', 'lastname', 'email']);
+                if ($row) {
+                    $company = trim((string)($row->companyname ?? ''));
+                    if ($company !== '') {
+                        $name = $company;
+                    } else {
+                        $name = trim(((string)($row->firstname ?? '')) . ' ' . ((string)($row->lastname ?? '')));
+                        if ($name === '') { $name = (string)($row->email ?? ('client-' . $clientId)); }
+                    }
+                }
+            } catch (\Throwable $___) {}
+            if ($name === '') { $name = 'client-' . $clientId; }
+
+            Capsule::table('eb_msp_accounts')->insert([
+                'whmcs_client_id' => $clientId,
+                'name'            => $name,
+                'status'          => 'active',
+                'billing_mode'    => 'stripe_connect',
+                'created_at'      => $now,
+                'updated_at'      => $now,
+            ]);
+            try { if (function_exists('logActivity')) { @logActivity('eazybackup: auto-provisioned eb_msp_accounts row for client ' . (int)$clientId . ' on Partner Hub access'); } } catch (\Throwable $___) {}
+        } catch (\Throwable $__) {
+            // ignore (race / unique-violation will be re-read below)
+        }
+        $msp = Capsule::table('eb_msp_accounts')->where('whmcs_client_id', $clientId)->first();
+        if (!$msp) {
+            try { if (function_exists('logActivity')) { @logActivity('eazybackup: Partner Hub gate failed to load eb_msp_accounts for client ' . (int)$clientId); } } catch (\Throwable $___) {}
+            header('Location: clientarea.php');
+            exit;
+        }
     }
 
     return [$clientId, $msp];

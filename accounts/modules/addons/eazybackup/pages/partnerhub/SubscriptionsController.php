@@ -32,7 +32,7 @@ function eb_ph_stripe_subscribe(array $vars)
     if (!$tenant || trim((string)($tenant->public_id ?? '')) === '') {
         header('Location: '.$vars['modulelink'].'&a=ph-tenants-manage'); exit;
     }
-    eb_ph_tenants_require_csrf_or_redirect($vars, $token, (string)$tenant->public_id);
+    eb_ph_tenants_require_csrf_or_redirect($vars, $token, trim((string)($tenant->public_id ?? '')));
     if ($priceId === '') {
         if ($tenant && trim((string)($tenant->public_id ?? '')) !== '') {
             eb_ph_tenant_redirect($vars, (string)$tenant->public_id);
@@ -44,15 +44,13 @@ function eb_ph_stripe_subscribe(array $vars)
         $svc = new StripeService();
         $acct = (string)($msp->stripe_connect_id ?? '');
         $scus = $svc->ensureStripeCustomerFor((int)$tenant->id, $acct ?: null);
-        if ($applicationFeePercent === null) {
-            $priceRow = Capsule::table('eb_plan_prices')->where('stripe_price_id',$priceId)->first();
-            if ($priceRow && $priceRow->application_fee_percent !== null) {
-                $applicationFeePercent = (float)$priceRow->application_fee_percent;
-            } else {
-                $modDefault = (string)(Capsule::table('tbladdonmodules')->where('module','eazybackup')->where('setting','partnerhub_default_fee_percent')->value('value') ?? '0');
-                $applicationFeePercent = (float)$modDefault;
-            }
-        }
+        // Canonical 4-tier fee cascade. Centralised so other payment paths reuse it
+        // and so the math is unit-tested in isolation. See StripeService::resolveApplicationFeePercent.
+        $applicationFeePercent = StripeService::resolveApplicationFeePercent(
+            $applicationFeePercent,
+            $priceId,
+            (int) $msp->id
+        );
         $sub = $svc->createSubscription($scus, $priceId, $acct, $applicationFeePercent);
         $sid = (string)($sub['id'] ?? '');
         if ($sid !== '') {

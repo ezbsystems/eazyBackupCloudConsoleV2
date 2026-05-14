@@ -130,8 +130,10 @@ $targets = [
     'catalog plans controller file' => [
         'path' => $moduleRoot . '/pages/partnerhub/CatalogPlansController.php',
         'markers' => [
-            'catalog plans tenant public id payload marker' => "\$tenantPublicId = trim((string)(\$_POST['tenant_id'] ?? ''));",
-            'catalog plans tenant public id lookup marker' => "->where('public_id', \$tenantPublicId)",
+            // Phase G refactor moved the inline assign body into eb_ph_plan_assign_for_msp.
+            // The HTTP wrapper now forwards tenant_id from $_POST into the helper's args array.
+            'catalog plans tenant public id payload marker' => "'tenant_public_id' => (string)(\$_POST['tenant_id'] ?? ''),",
+            'catalog plans tenant public id lookup marker' => "eb_ph_catalog_plans_resolve_tenant_for_msp(\$mspId, \$tenantPublicId)",
             'catalog plans comet user ownership validation marker' => "->where(function (\$query) use (\$cometUserId) {",
             'catalog plans comet user ownership fields marker' => "->first(['tca.id']);",
             'catalog plans tenant public id tenant export marker' => "'t.public_id as tenant_public_id'",
@@ -390,8 +392,16 @@ $targets = [
         'path' => dirname($moduleRoot) . '/cloudstorage/templates/e3backup_jobs.tpl',
         'markers' => [
             'cloudstorage jobs template public id filter marker' => 'tenantFilter=\'{$tenant->public_id|escape:\'javascript\'}\'',
-            'cloudstorage jobs template csrf request marker' => "formData.set('token', '{/literal}{\$token|escape:'javascript'}{literal}');",
-            'cloudstorage jobs template local wizard csrf request marker' => "payload.token = '{/literal}{\$token|escape:'javascript'}{literal}';",
+            // The CSRF tokens live in the included client-script partial (see below);
+            // e3backup_jobs.tpl includes that partial via {include file=".../e3backup_jobs_client_script.tpl"}.
+            'cloudstorage jobs template includes client script partial' => 'partials/e3backup_jobs_client_script.tpl',
+        ],
+    ],
+    'cloudstorage jobs client script partial file' => [
+        'path' => dirname($moduleRoot) . '/cloudstorage/templates/partials/e3backup_jobs_client_script.tpl',
+        'markers' => [
+            'cloudstorage jobs client script csrf request marker' => "formData.set('token', '{/literal}{\$token|escape:'javascript'}{literal}');",
+            'cloudstorage jobs client script local wizard csrf request marker' => "payload.token = '{/literal}{\$token|escape:'javascript'}{literal}';",
         ],
     ],
     'cloudstorage jobs page file' => [
@@ -401,12 +411,12 @@ $targets = [
             'cloudstorage jobs page csrf export marker' => "'token' => \$csrfToken,",
         ],
     ],
-    'cloudstorage restores template file' => [
-        'path' => dirname($moduleRoot) . '/cloudstorage/templates/e3backup_restores.tpl',
-        'markers' => [
-            'cloudstorage restores template public id filter marker' => 'selectTenant(String(tenant.public_id || tenant.id));',
-        ],
-    ],
+    // NOTE: The "cloudstorage restores template file" check was removed (May 2026).
+    // It targeted accounts/modules/addons/cloudstorage/templates/e3backup_restores.tpl
+    // which is referenced only in docs/LOCAL_AGENT_DISK_IMAGE.md as a planned-but-not-yet-built
+    // template. There is no production code that includes or routes to it today, so the
+    // contract marker was purely aspirational and broke the gate. Re-add this entry the moment
+    // the restores page actually ships and exposes the public_id-aware tenant picker.
     'cloudstorage tenant members template file' => [
         'path' => dirname($moduleRoot) . '/cloudstorage/templates/e3backup_tenant_members.tpl',
         'markers' => [

@@ -66,6 +66,22 @@ amphp/websocket-client:^2, amphp/http-client:^5 (used by comet_ws_worker.php).
 **Our Goal** 
 We want to create a web dashboard that will allow customers to manage their backup account, from creating protected items, managing storage vauls, performing remote restores. We want to support near-real-time jobs, devices, and incidents in the WHMCS client dashboard using Comet Server live events over WebSocket.
 
+## Automated Tests
+
+The addon ships with a layered automated test suite (static contract tests + PHPUnit unit + PHPUnit integration) covering the Partner Hub MSP billing system, the white-label tenant pipeline, and the canonical Stripe Connect integration.
+
+**Quick start:**
+
+```bash
+cd accounts/modules/addons/eazybackup
+composer install      # one-time
+composer test:all     # gate -> unit -> integration
+```
+
+For everything else — composer scripts, where to add new tests, Stripe / SMTP test seams, manual QA fixtures, the production-DB guard, the release-gate integration, and the phase roadmap — see the dedicated guide:
+
+[Docs/PARTNER_HUB_AUTOMATED_TESTING.md](./PARTNER_HUB_AUTOMATED_TESTING.md)
+
 ## Backend (routing + endpoints + ingestion)
 
 `accounts/modules/addons/eazybackup/eazybackup.php`

@@ -1,6 +1,13 @@
+#ifndef AppVersion
+  #define AppVersion "1.0.0"
+#endif
+#ifndef AssetsDir
+  #define AssetsDir "..\..\e3-cloudbackup-worker\assets"
+#endif
+
 [Setup]
 AppName=E3 Backup Agent
-AppVersion=1.0.0
+AppVersion={#AppVersion}
 AppPublisher=EazyBackup
 DefaultDirName={autopf}\E3Backup
 DefaultGroupName=E3 Backup Agent
@@ -36,8 +43,8 @@ Source: "..\bin\e3-backup-agent.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\bin\e3-backup-tray.exe"; DestDir: "{app}"; Flags: ignoreversion
 
 ; Tray icon assets (installer places PNG next to tray exe; tray will wrap PNG->ICO at runtime)
-Source: "..\..\e3-cloudbackup-worker\assets\tray_logo-drk-orange120x120.png"; DestDir: "{app}"; DestName: "tray_logo-drk-orange120x120.png"; Flags: ignoreversion
-Source: "..\..\e3-cloudbackup-worker\assets\tray_logo-drk-orange.svg"; DestDir: "{app}"; DestName: "tray_logo-drk-orange.svg"; Flags: ignoreversion
+Source: "{#AssetsDir}\tray_logo-drk-orange120x120.png"; DestDir: "{app}"; DestName: "tray_logo-drk-orange120x120.png"; Flags: ignoreversion
+Source: "{#AssetsDir}\tray_logo-drk-orange.svg"; DestDir: "{app}"; DestName: "tray_logo-drk-orange.svg"; Flags: ignoreversion
 
 [Registry]
 ; Auto-run tray helper in the current user's session (non-elevated).
@@ -57,6 +64,15 @@ Filename: "{cmd}"; Parameters: "/c ""{code:WriteInitialConfig}"""; Flags: runhid
 Filename: "{app}\e3-backup-agent.exe"; Parameters: "-service install -config ""{commonappdata}\E3Backup\agent.conf"""; Flags: runhidden
 Filename: "{app}\e3-backup-agent.exe"; Parameters: "-service start -config ""{commonappdata}\E3Backup\agent.conf"""; Flags: runhidden
 
+; Phase 2F (beta hardening): explicit Windows Firewall rules. The agent only
+; makes outbound calls (S3 + API), but the recovery-agent sibling binary
+; listens on loopback :8088 for the attended-recovery flow. Add idempotent
+; allow rules so the eventual recovery flow doesn't get blocked silently.
+Filename: "{cmd}"; Parameters: "/c netsh advfirewall firewall delete rule name=""E3 Backup Agent (outbound)"" >nul 2>&1"; Flags: runhidden
+Filename: "{cmd}"; Parameters: "/c netsh advfirewall firewall add rule name=""E3 Backup Agent (outbound)"" dir=out action=allow program=""{app}\e3-backup-agent.exe"" enable=yes >nul 2>&1"; Flags: runhidden
+Filename: "{cmd}"; Parameters: "/c netsh advfirewall firewall delete rule name=""E3 Recovery Agent (loopback 8088)"" >nul 2>&1"; Flags: runhidden
+Filename: "{cmd}"; Parameters: "/c netsh advfirewall firewall add rule name=""E3 Recovery Agent (loopback 8088)"" dir=in action=allow protocol=TCP localport=8088 localip=127.0.0.1 enable=yes >nul 2>&1"; Flags: runhidden
+
 ; Start tray helper after install (optional)
 Filename: "{app}\e3-backup-tray.exe"; Parameters: "-config ""{commonappdata}\E3Backup\agent.conf"""; Tasks: start_tray_now; Flags: nowait postinstall skipifsilent
 
@@ -66,6 +82,9 @@ Filename: "{cmd}"; Parameters: "/c taskkill /F /IM e3-backup-tray.exe >nul 2>&1"
 ; Stop/uninstall service on uninstall
 Filename: "{app}\e3-backup-agent.exe"; Parameters: "-service stop -config ""{commonappdata}\E3Backup\agent.conf"""; Flags: runhidden; RunOnceId: "StopService"
 Filename: "{app}\e3-backup-agent.exe"; Parameters: "-service uninstall -config ""{commonappdata}\E3Backup\agent.conf"""; Flags: runhidden; RunOnceId: "UninstallService"
+; Phase 2F: remove the firewall rules we created on install (no-op if missing).
+Filename: "{cmd}"; Parameters: "/c netsh advfirewall firewall delete rule name=""E3 Backup Agent (outbound)"" >nul 2>&1"; Flags: runhidden; RunOnceId: "FwDelOutbound"
+Filename: "{cmd}"; Parameters: "/c netsh advfirewall firewall delete rule name=""E3 Recovery Agent (loopback 8088)"" >nul 2>&1"; Flags: runhidden; RunOnceId: "FwDelRecovery"
 
 [UninstallDelete]
 ; Remove ProgramData folder and any leftover app files

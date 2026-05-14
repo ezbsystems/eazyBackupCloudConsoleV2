@@ -156,8 +156,20 @@ add_hook('ClientAreaPage', 1, function ($vars) {
         $showTenantPortalBilling = $get('partnerhub_show_tenant_portal_billing', true);
         $showTenantPortalServices = $get('partnerhub_show_tenant_portal_services', true);
         $showTenantPortalCloudStorage = $get('partnerhub_show_tenant_portal_cloud_storage', true);
+
+        // Only expose Partner Hub navigation to clients whose group is listed
+        // in the addon setting 'partnerhub_groups'. Membership in eb_msp_accounts
+        // is no longer required — billing-only MSPs (no white-label) are
+        // first-class Partner Hub users. See TenantsController
+        // eb_ph_tenants_require_context().
+        $clientId = (int)($_SESSION['uid'] ?? 0);
+        $canAccessPartnerHub = function_exists('eazybackup_client_can_access_partnerhub')
+            ? eazybackup_client_can_access_partnerhub($clientId)
+            : false;
+
         return [
-            'eb_partner_hub_enabled' => $get('partnerhub_nav_enabled', true),
+            'eb_partner_hub_enabled' => $canAccessPartnerHub && $get('partnerhub_nav_enabled', true),
+            'eb_partner_hub_allowed' => $canAccessPartnerHub,
             'eb_ph_show_overview'    => $get('partnerhub_show_overview', true),
             'eb_ph_show_clients'     => $get('partnerhub_show_clients', true),
             'eb_ph_show_catalog'     => $get('partnerhub_show_catalog', true),
