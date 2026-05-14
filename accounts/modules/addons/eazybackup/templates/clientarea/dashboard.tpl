@@ -120,6 +120,26 @@
     .eb-usage-content-inset {
         padding-left: 0.625rem;
     }
+
+    /* Trend chart wrapper: keep border/rounded look, but do NOT clip
+       ApexCharts tooltips that extend outside the chart box. */
+    .eb-trend-chart {
+        border: 1px solid rgb(30 41 59);
+        border-radius: 0.25rem;
+        overflow: visible;
+        position: relative;
+    }
+    .eb-trend-chart .apexcharts-tooltip,
+    .eb-trend-chart .apexcharts-xaxistooltip,
+    .eb-trend-chart .apexcharts-yaxistooltip {
+        z-index: 60;
+    }
+    .eb-trend-meta {
+        font-size: 10px;
+        color: #64748b;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+    }
 </style>
 {/literal}
 
@@ -338,7 +358,10 @@
                                     <span class="text-slate-400">Offline {$offlineDevices|default:0}</span>
                                 </div>
                             </div>
-                            <div id="eb-devices-chart" class="mt-3 h-32 w-full border border-slate-800 rounded overflow-hidden">
+                            <div class="mt-3 flex items-center justify-between">
+                                <span class="eb-trend-meta">Last 30 days</span>
+                            </div>
+                            <div id="eb-devices-chart" class="mt-1 h-32 w-full eb-trend-chart">
                                 <div class="h-full w-full flex items-center justify-center text-xs text-slate-500">Loading trend...</div>
                             </div>
                             </div>
@@ -360,7 +383,10 @@
                                 <div class="text-2xl font-bold">{$totalStorageUsed|default:'0.00 B'}</div>
                                 <div class="text-sm text-slate-400 pb-1">Used</div>
                             </div>
-                            <div id="eb-storage-chart-dashboard" class="mt-3 h-32 w-full border border-slate-800 rounded overflow-hidden">
+                            <div class="mt-3 flex items-center justify-between">
+                                <span class="eb-trend-meta">Last 30 days</span>
+                            </div>
+                            <div id="eb-storage-chart-dashboard" class="mt-1 h-32 w-full eb-trend-chart">
                                 <div class="h-full w-full flex items-center justify-center text-xs text-slate-500">Loading trend...</div>
                             </div>
                             </div>

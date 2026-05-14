@@ -1,0 +1,12 @@
+{
+    "id": "evt_placeholder",
+    "object": "event",
+    "type": "customer.deleted",
+    "account": "acct_test_placeholder",
+    "data": {
+        "object": {
+            "id": "cus_placeholder",
+            "object": "customer"
+        }
+    }
+}

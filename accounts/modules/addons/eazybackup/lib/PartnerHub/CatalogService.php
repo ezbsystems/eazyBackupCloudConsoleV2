@@ -19,7 +19,12 @@ class CatalogService
         } catch (\Throwable $__) { return ''; }
     }
 
-    private function request(string $method, string $path, array $params = [], ?string $stripeAccount = null, ?array $extraHeaders = null): array
+    /**
+     * Single low-level HTTP entry point. Marked `protected` so test doubles can
+     * override and capture/return canned responses without touching curl.
+     * Production callers MUST go through the public methods.
+     */
+    protected function request(string $method, string $path, array $params = [], ?string $stripeAccount = null, ?array $extraHeaders = null): array
     {
         $apiKey = $this->getSetting('stripe_platform_secret');
         $url = rtrim($this->apiBase,'/').$path;

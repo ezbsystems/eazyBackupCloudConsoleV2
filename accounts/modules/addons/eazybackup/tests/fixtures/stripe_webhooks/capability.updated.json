@@ -1,0 +1,15 @@
+{
+    "id": "evt_placeholder",
+    "object": "event",
+    "type": "capability.updated",
+    "account": "acct_test_placeholder",
+    "data": {
+        "object": {
+            "id": "card_payments",
+            "object": "capability",
+            "account": "acct_test_placeholder",
+            "status": "active",
+            "requested": true
+        }
+    }
+}

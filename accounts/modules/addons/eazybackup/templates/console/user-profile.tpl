@@ -525,7 +525,7 @@
                 sortDirection: 'asc',
                 filteredCount: 0,
                 rows: [],
-                cols: { name: true, type: true, size: true },
+                cols: { name: true, type: true, size: true, actions: true },
                 init() {
                   this.rows = Array.from(this.$refs.tbody.querySelectorAll('tr[data-protected-row]'));
                   this.$watch('search', () => {
@@ -660,6 +660,7 @@
                 <label class="eb-menu-checklist-item"><span>Name</span><input type="checkbox" class="eb-checkbox" x-model="cols.name"></label>
                 <label class="eb-menu-checklist-item"><span>Type</span><input type="checkbox" class="eb-checkbox" x-model="cols.type"></label>
                 <label class="eb-menu-checklist-item"><span>Size</span><input type="checkbox" class="eb-checkbox" x-model="cols.size"></label>
+                <label class="eb-menu-checklist-item"><span>Actions</span><input type="checkbox" class="eb-checkbox" x-model="cols.actions"></label>
               </div>
             </div>
 
@@ -668,6 +669,11 @@
                    x-model.debounce.200ms="search"
                    placeholder="Search protected items..."
                    class="eb-input eb-app-toolbar-search">
+            <button type="button"
+                    class="eb-btn eb-btn-primary eb-btn-sm"
+                    @click="window.openProtectedItemWizard && window.openProtectedItemWizard('create')">
+              + New Protected Item
+            </button>
           </div>
 
           <div class="eb-table-shell overflow-x-auto">
@@ -692,23 +698,57 @@
                         <span x-text="sortIndicator('size')"></span>
                       </button>
                     </th>
+                    <th x-show="cols.actions" class="px-4 py-3 text-right font-medium">Actions</th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-[var(--eb-border-default)]" x-ref="tbody">
                 {if $protectedItems|@count > 0}
                   {foreach from=$protectedItems item=item}
+                    {assign var=piRulesJson value=$item.rules|json_encode}
                     <tr data-protected-row="1"
+                        data-pi-id="{$item.id|default:''|escape:'html'}"
+                        data-pi-name="{$item.name|default:''|escape:'html'}"
+                        data-pi-engine="{$item.engine|default:''|escape:'html'}"
+                        data-pi-device="{$item.ownerDeviceId|default:''|escape:'html'}"
+                        data-pi-rules="{$piRulesJson|escape:'html'}"
                         data-sort-name="{$item.name|default:''|escape:'html'}"
                         data-sort-type="{$item.type|default:''|escape:'html'}"
                         data-sort-size="{$item.total_bytes|default:0|escape:'html'}">
                       <td x-show="cols.name" class="eb-table-primary px-4 py-3 whitespace-nowrap text-sm">{$item.name}</td>
                       <td x-show="cols.type" class="px-4 py-3 whitespace-nowrap text-sm text-[var(--eb-text-secondary)]">{$item.type}</td>
                       <td x-show="cols.size" class="px-4 py-3 whitespace-nowrap text-sm text-[var(--eb-text-secondary)]">{\WHMCS\Module\Addon\Eazybackup\Helper::humanFileSize($item.total_bytes)}</td>
+                      <td x-show="cols.actions" class="px-4 py-3 whitespace-nowrap text-right">
+                        <div class="inline-flex items-center gap-2">
+                          <button type="button" class="eb-btn eb-btn-success eb-btn-xs"
+                                  data-pi-action="run"
+                                  data-pi-id="{$item.id|default:''|escape:'html'}"
+                                  data-pi-device="{$item.ownerDeviceId|default:''|escape:'html'}"
+                                  data-pi-rules="{$piRulesJson|escape:'html'}"
+                                  data-pi-name="{$item.name|default:''|escape:'html'}">
+                            Run Backup
+                          </button>
+                          <button type="button" class="eb-btn eb-btn-icon eb-btn-sm"
+                                  data-pi-action="edit"
+                                  data-pi-id="{$item.id|default:''|escape:'html'}"
+                                  data-pi-device="{$item.ownerDeviceId|default:''|escape:'html'}"
+                                  aria-label="Edit">
+                            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125"/></svg>
+                          </button>
+                          <button type="button" class="eb-btn eb-btn-icon eb-btn-sm is-danger"
+                                  data-pi-action="delete"
+                                  data-pi-id="{$item.id|default:''|escape:'html'}"
+                                  data-pi-name="{$item.name|default:''|escape:'html'}"
+                                  data-pi-rules="{$piRulesJson|escape:'html'}"
+                                  aria-label="Delete">
+                            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"/></svg>
+                          </button>
+                        </div>
+                      </td>
                     </tr>
                   {/foreach}
                 {/if}
                 <tr x-ref="noResults" {if $protectedItems|@count > 0}style="display:none;"{/if}>
-                  <td colspan="3" class="py-8 text-center text-sm text-[var(--eb-text-muted)]">No protected items found for this user.</td>
+                  <td colspan="4" class="py-8 text-center text-sm text-[var(--eb-text-muted)]">No protected items found for this user.</td>
                 </tr>
               </tbody>
             </table>
@@ -2569,6 +2609,9 @@ window.EB_DEVICE_ENDPOINT = '{$modulelink}&a=device-actions';
 </script>
 <script src="modules/addons/eazybackup/templates/assets/js/ui.js"></script>
 <script src="modules/addons/eazybackup/assets/js/device-actions.js"></script>
+<script src="modules/addons/eazybackup/assets/js/retention-factory.js"></script>
+<script src="modules/addons/eazybackup/assets/js/pi-wizard.js"></script>
+<script src="modules/addons/eazybackup/assets/js/protected-items-table.js"></script>
 <script>
 // Lightweight caller for quota controls; reuses the same endpoint as device-actions
 async function call(action, extra){
@@ -2663,6 +2706,8 @@ function quotaCtrl(){
   } catch(e) {}
 </script>
 {include file="modules/addons/eazybackup/templates/console/partials/job-report-modal.tpl"}
+{include file="modules/addons/eazybackup/templates/console/partials/pi-wizard.tpl"}
+{include file="modules/addons/eazybackup/templates/console/partials/pi-delete-modal.tpl"}
 <script>
 try {
   window.EB_JOBREPORTS_ENDPOINT = '{$modulelink}&a=job-reports';

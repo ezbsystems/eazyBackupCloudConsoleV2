@@ -805,6 +805,483 @@ try {
             echo json_encode(['status' => ($resp->Status < 400 ? 'success' : 'error'), 'message' => $resp->Message, 'code' => $resp->Status]);
             break;
         }
+        case 'piListDevices': {
+            $ph = $server->AdminGetUserProfileAndHash($username);
+            if (!$ph || !$ph->Profile) { echo json_encode(['status'=>'error','message'=>'Profile not found']); break; }
+            $profile = $ph->Profile;
+            $devices = [];
+            $online = [];
+            try {
+                $active = $server->AdminDispatcherListActive($username);
+                if (is_array($active)) {
+                    foreach ($active as $connId => $conn) {
+                        if (isset($conn->DeviceID)) { $online[(string)$conn->DeviceID] = true; }
+                    }
+                }
+            } catch (\Throwable $e) {}
+            if (isset($profile->Devices)) {
+                foreach ((array)$profile->Devices as $did => $dev) {
+                    if (!is_object($dev)) continue;
+                    $name = isset($dev->FriendlyName) ? trim((string)$dev->FriendlyName) : '';
+                    $os = '';
+                    if (isset($dev->PlatformVersion) && is_object($dev->PlatformVersion)) {
+                        $pv = $dev->PlatformVersion;
+                        $parts = [];
+                        if (!empty($pv->os)) $parts[] = (string)$pv->os;
+                        if (!empty($pv->arch)) $parts[] = (string)$pv->arch;
+                        $os = implode(' / ', $parts);
+                    }
+                    $devices[] = [
+                        'id' => (string)$did,
+                        'friendlyName' => ($name !== '' ? $name : (string)$did),
+                        'osInfo' => $os,
+                        'online' => !empty($online[(string)$did]),
+                    ];
+                }
+            }
+            echo json_encode(['status'=>'success','devices'=>$devices]);
+            break;
+        }
+        case 'piEngineCatalog': {
+            // Resolve engine list this user is allowed to create.
+            // v1 supports: engine1/file, engine1/hyperv, engine1/vmware, engine1/proxmox.
+            $catalog = [
+                ['id' => 'engine1/file',    'label' => 'Files and Folders',  'icon' => 'folder',   'category' => 'files'],
+                ['id' => 'engine1/windisk', 'label' => 'Disk Image',         'icon' => 'disk',     'category' => 'disk',  'comingSoon' => true],
+                ['id' => 'engine1/hyperv',  'label' => 'Microsoft Hyper-V',  'icon' => 'server',   'category' => 'vm'],
+                ['id' => 'engine1/mssql',   'label' => 'Microsoft SQL Server','icon' => 'database','category' => 'db',    'comingSoon' => true],
+                ['id' => 'engine1/mysql',   'label' => 'MySQL',              'icon' => 'database', 'category' => 'db',    'comingSoon' => true],
+                ['id' => 'engine1/proxmox', 'label' => 'Proxmox',            'icon' => 'server',   'category' => 'vm'],
+                ['id' => 'engine1/vmware',  'label' => 'VMware vSphere',     'icon' => 'server',   'category' => 'vm'],
+            ];
+
+            $restrict = false;
+            $allowed = [];
+            try {
+                $ph = $server->AdminGetUserProfileAndHash($username);
+                if ($ph && $ph->Profile) {
+                    $policyId = isset($ph->Profile->PolicyID) ? (string)$ph->Profile->PolicyID : '';
+                    if ($policyId !== '') {
+                        $pr = $server->AdminPoliciesGet($policyId);
+                        if ($pr && isset($pr->Policy) && isset($pr->Policy->ProtectedItemEngineTypePolicy)) {
+                            $eep = $pr->Policy->ProtectedItemEngineTypePolicy;
+                            $restrict = !empty($eep->ShouldRestrictEngineTypeList);
+                            if ($restrict && is_array($eep->AllowedEngineTypeWhenRestricted)) {
+                                foreach ($eep->AllowedEngineTypeWhenRestricted as $eid) {
+                                    $allowed[(string)$eid] = true;
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (\Throwable $e) {}
+
+            $out = [];
+            foreach ($catalog as $row) {
+                $allowedByPolicy = !$restrict || isset($allowed[$row['id']]);
+                $row['allowedByPolicy'] = $allowedByPolicy;
+                $row['supported'] = !($row['comingSoon'] ?? false);
+                $row['enabled'] = $allowedByPolicy && $row['supported'];
+                $out[] = $row;
+            }
+            echo json_encode(['status'=>'success','engines'=>$out,'restrict'=>$restrict]);
+            break;
+        }
+        case 'piBrowseVMs': {
+            $deviceId = (string)($post['deviceId'] ?? '');
+            $engine   = (string)($post['engine'] ?? '');
+            if ($deviceId === '' || $engine === '') { echo json_encode(['status'=>'error','message'=>'deviceId and engine required']); break; }
+            $targetId = $findTarget($server, $username, $deviceId);
+            if (!$targetId) { echo json_encode(['status'=>'error','message'=>'Device is not online (no live connection)']); break; }
+            try {
+                if ($engine === 'engine1/hyperv') {
+                    $resp = $server->AdminDispatcherRequestBrowseHyperv($targetId);
+                    $vms = [];
+                    if ($resp && is_array($resp->VirtualMachines ?? null)) {
+                        foreach ($resp->VirtualMachines as $vm) {
+                            $vms[] = [
+                                'id' => (string)($vm->ID ?? ''),
+                                'name' => (string)($vm->DisplayName ?? $vm->ID ?? ''),
+                            ];
+                        }
+                    }
+                    echo json_encode(['status'=>'success','engine'=>$engine,'vms'=>$vms]);
+                    break;
+                }
+                if ($engine === 'engine1/vmware') {
+                    $host = (string)($post['host'] ?? '');
+                    $user = (string)($post['user'] ?? '');
+                    $pass = (string)($post['password'] ?? '');
+                    if ($host === '' || $user === '') { echo json_encode(['status'=>'error','message'=>'VMware host and user are required to browse VMs']); break; }
+                    $vsphere = new \Comet\VSphereConnection();
+                    $vsphere->Hostname = $host;
+                    $vsphere->Username = $user;
+                    $vsphere->Password = $pass;
+                    $vsphere->AllowInvalidCertificate = !empty($post['allowInvalidCert']);
+                    $cred = new \Comet\VMwareConnection();
+                    $cred->ConnectionType = 'vsphere';
+                    $cred->VSphere = $vsphere;
+                    $resp = $server->AdminDispatcherRequestBrowseVmware($targetId, $cred);
+                    $vms = [];
+                    if ($resp && is_array($resp->VirtualMachines ?? null)) {
+                        foreach ($resp->VirtualMachines as $vm) {
+                            $vms[] = [
+                                'id' => (string)($vm->Name ?? ''),
+                                'name' => (string)($vm->Name ?? ''),
+                            ];
+                        }
+                    }
+                    echo json_encode(['status'=>'success','engine'=>$engine,'vms'=>$vms]);
+                    break;
+                }
+                if ($engine === 'engine1/proxmox') {
+                    // Proxmox guest discovery is currently delegated to the agent; in v1 we fall back to manual VM IDs.
+                    echo json_encode(['status'=>'success','engine'=>$engine,'vms'=>[],'manualOnly'=>true]);
+                    break;
+                }
+                echo json_encode(['status'=>'error','message'=>'Engine not supported for VM browse']);
+            } catch (\Throwable $e) {
+                echo json_encode(['status'=>'error','message'=>$e->getMessage()]);
+            }
+            break;
+        }
+        case 'piGet': {
+            $itemId = (string)($post['itemId'] ?? '');
+            if ($itemId === '') { echo json_encode(['status'=>'error','message'=>'itemId required']); break; }
+            $ph = $server->AdminGetUserProfileAndHash($username);
+            if (!$ph || !$ph->Profile) { echo json_encode(['status'=>'error','message'=>'Profile not found']); break; }
+            $profile = $ph->Profile;
+            if (!isset($profile->Sources[$itemId])) { echo json_encode(['status'=>'error','message'=>'Protected Item not found']); break; }
+            $source = $profile->Sources[$itemId];
+
+            // Find rules referencing this source so the wizard can show them in the Schedule step.
+            $rules = [];
+            if (isset($profile->BackupRules)) {
+                foreach ((array)$profile->BackupRules as $rid => $rule) {
+                    if (!is_object($rule)) continue;
+                    if ((string)($rule->Source ?? '') !== $itemId) continue;
+                    $rules[(string)$rid] = $rule->toArray(true);
+                }
+            }
+            // Per-vault retention overrides on this item
+            $overrides = [];
+            if (isset($source->OverrideDestinationRetention) && is_array($source->OverrideDestinationRetention)) {
+                foreach ($source->OverrideDestinationRetention as $vid => $rp) {
+                    $overrides[(string)$vid] = is_object($rp) ? $rp->toArray(true) : $rp;
+                }
+            }
+            echo json_encode([
+                'status' => 'success',
+                'item' => $source->toArray(true),
+                'rules' => $rules,
+                'retentionOverrides' => $overrides,
+                'hash' => (string)$ph->ProfileHash,
+            ]);
+            break;
+        }
+        case 'piSave': {
+            // Create or update a Protected Item (SourceConfig).
+            $itemId      = (string)($post['itemId'] ?? '');
+            $deviceId    = (string)($post['deviceId'] ?? '');
+            $engine      = (string)($post['engine'] ?? '');
+            $description = trim((string)($post['description'] ?? ''));
+            $hash        = (string)($post['hash'] ?? '');
+            if ($deviceId === '' || $engine === '' || $description === '') {
+                echo json_encode(['status'=>'error','message'=>'deviceId, engine and description are required']);
+                break;
+            }
+
+            $ph = $server->AdminGetUserProfileAndHash($username);
+            if (!$ph || !$ph->Profile) { echo json_encode(['status'=>'error','message'=>'Profile not found']); break; }
+            if ($hash !== '' && $hash !== (string)$ph->ProfileHash) {
+                echo json_encode(['status'=>'error','code'=>'hash_mismatch','message'=>'Profile changed; please reload']);
+                break;
+            }
+            $profile = $ph->Profile;
+
+            $isNew = false;
+            if ($itemId === '') {
+                $isNew = true;
+                try {
+                    $itemId = strtoupper(bin2hex(random_bytes(8)).'-'.bin2hex(random_bytes(2)).'-'.bin2hex(random_bytes(2)).'-'.bin2hex(random_bytes(6)));
+                } catch (\Throwable $e) {
+                    $itemId = strtoupper(uniqid('', true));
+                }
+            }
+
+            $source = isset($profile->Sources[$itemId]) ? $profile->Sources[$itemId] : new \Comet\SourceConfig();
+            $source->Engine = $engine;
+            $source->Description = $description;
+            if ($isNew) {
+                $source->OwnerDevice = $deviceId;
+                if (empty($source->CreateTime)) { $source->CreateTime = time(); }
+            } else if ($source->OwnerDevice === '') {
+                $source->OwnerDevice = $deviceId;
+            }
+            $source->ModifyTime = time();
+
+            // Engine-specific props/paths
+            $existingProps = is_array($source->EngineProps) ? $source->EngineProps : [];
+            // Drop any keys we manage so toggles can be cleared by absence.
+            $managedFlags = ['USE_WIN_VSS','CONFIRM_EFS','RESCAN_UNCHANGED','EXTRA_ATTRIBUTES','BACKUP_TYPE','VMWARE_HOST','VMWARE_USER','VMWARE_ALLOW_INVALID_CERT'];
+            foreach ($managedFlags as $k) { unset($existingProps[$k]); }
+            // Drop INCLUDE/EXCLUDE keys when we are about to rebuild file selection.
+            if ($engine === 'engine1/file') {
+                foreach (array_keys($existingProps) as $k) {
+                    if (strpos($k, 'INCLUDE') === 0 || strpos($k, 'EXCLUDE') === 0 || strpos($k, 'REXCLUDE') === 0) {
+                        unset($existingProps[$k]);
+                    }
+                }
+            }
+            // Drop VM list keys when rebuilding VM selection
+            if ($engine === 'engine1/hyperv' || $engine === 'engine1/vmware' || $engine === 'engine1/proxmox') {
+                foreach (array_keys($existingProps) as $k) {
+                    if (strpos($k, 'VM-') === 0) { unset($existingProps[$k]); }
+                }
+            }
+
+            if ($engine === 'engine1/file') {
+                $fileSel = $post['fileSelection'] ?? [];
+                $includes = isset($fileSel['includes']) && is_array($fileSel['includes']) ? $fileSel['includes'] : [];
+                $excludes = isset($fileSel['excludes']) && is_array($fileSel['excludes']) ? $fileSel['excludes'] : [];
+                $i = 0;
+                foreach ($includes as $p) {
+                    $p = trim((string)$p); if ($p === '') continue;
+                    $existingProps['INCLUDE-'.$i] = $p; $i++;
+                }
+                $i = 0;
+                foreach ($excludes as $p) {
+                    $p = trim((string)$p); if ($p === '') continue;
+                    $existingProps['EXCLUDE-'.$i] = $p; $i++;
+                }
+                $opts = $post['fileOptions'] ?? [];
+                if (!empty($opts['takeFilesystemSnapshot']))   { $existingProps['USE_WIN_VSS']      = '1'; }
+                if (!empty($opts['rescanUnchanged']))          { $existingProps['RESCAN_UNCHANGED'] = '1'; }
+                if (!empty($opts['dismissEFS']))               { $existingProps['CONFIRM_EFS']      = '1'; }
+                if (!empty($opts['extraAttributes']))          { $existingProps['EXTRA_ATTRIBUTES'] = '1'; }
+            } else if ($engine === 'engine1/hyperv' || $engine === 'engine1/vmware' || $engine === 'engine1/proxmox') {
+                $vmSel = $post['vmSelection'] ?? [];
+                $vms = isset($vmSel['vms']) && is_array($vmSel['vms']) ? $vmSel['vms'] : [];
+                $i = 0;
+                foreach ($vms as $vm) {
+                    $vm = trim((string)$vm); if ($vm === '') continue;
+                    $existingProps['VM-'.$i] = $vm; $i++;
+                }
+                $backupType = isset($vmSel['backupType']) ? (string)$vmSel['backupType'] : 'cbt';
+                if (!in_array($backupType, ['cbt','standard','all'], true)) { $backupType = 'cbt'; }
+                $existingProps['BACKUP_TYPE'] = $backupType;
+                if ($engine === 'engine1/vmware') {
+                    $cred = $post['vmwareCredentials'] ?? [];
+                    if (is_array($cred)) {
+                        if (!empty($cred['host'])) { $existingProps['VMWARE_HOST'] = (string)$cred['host']; }
+                        if (!empty($cred['user'])) { $existingProps['VMWARE_USER'] = (string)$cred['user']; }
+                        if (!empty($cred['allowInvalidCert'])) { $existingProps['VMWARE_ALLOW_INVALID_CERT'] = '1'; }
+                        // Note: password is sent live to AdminDispatcherRequestBrowseVmware; not persisted here.
+                    }
+                }
+            }
+
+            $source->EngineProps = $existingProps;
+            if (!is_array($profile->Sources)) { $profile->Sources = []; }
+            $profile->Sources[$itemId] = $source;
+
+            $resp = $server->AdminSetUserProfileHash($username, $profile, (string)$ph->ProfileHash);
+            if ($resp && $resp->Status < 400) {
+                $ph2 = $server->AdminGetUserProfileAndHash($username);
+                echo json_encode(['status'=>'success','itemId'=>$itemId,'hash'=>($ph2 ? $ph2->ProfileHash : '')]);
+            } else if ($resp && $resp->Status === 409) {
+                echo json_encode(['status'=>'error','code'=>'hash_mismatch','message'=>'Profile changed; please reload']);
+            } else {
+                echo json_encode(['status'=>'error','message'=>($resp ? $resp->Message : 'Failed to save Protected Item')]);
+            }
+            break;
+        }
+        case 'piDelete': {
+            $itemId = (string)($post['itemId'] ?? '');
+            $hash   = (string)($post['hash'] ?? '');
+            if ($itemId === '') { echo json_encode(['status'=>'error','message'=>'itemId required']); break; }
+            $ph = $server->AdminGetUserProfileAndHash($username);
+            if (!$ph || !$ph->Profile) { echo json_encode(['status'=>'error','message'=>'Profile not found']); break; }
+            if ($hash !== '' && $hash !== (string)$ph->ProfileHash) {
+                echo json_encode(['status'=>'error','code'=>'hash_mismatch','message'=>'Profile changed; please reload']); break;
+            }
+            $profile = $ph->Profile;
+            if (isset($profile->Sources[$itemId])) { unset($profile->Sources[$itemId]); }
+            // Remove rules referencing this source
+            if (isset($profile->BackupRules) && is_array($profile->BackupRules)) {
+                foreach ($profile->BackupRules as $rid => $rule) {
+                    if (is_object($rule) && (string)($rule->Source ?? '') === $itemId) {
+                        unset($profile->BackupRules[$rid]);
+                    }
+                }
+            }
+            $resp = $server->AdminSetUserProfileHash($username, $profile, (string)$ph->ProfileHash);
+            if ($resp && $resp->Status < 400) {
+                $ph2 = $server->AdminGetUserProfileAndHash($username);
+                echo json_encode(['status'=>'success','hash'=>($ph2 ? $ph2->ProfileHash : '')]);
+            } else if ($resp && $resp->Status === 409) {
+                echo json_encode(['status'=>'error','code'=>'hash_mismatch','message'=>'Profile changed; please reload']);
+            } else {
+                echo json_encode(['status'=>'error','message'=>($resp ? $resp->Message : 'Failed to delete Protected Item')]);
+            }
+            break;
+        }
+        case 'piScheduleSave': {
+            // Create or update a single BackupRule for a Protected Item.
+            $ruleId  = (string)($post['ruleId'] ?? '');
+            $itemId  = (string)($post['itemId'] ?? '');
+            $vaultId = (string)($post['vaultId'] ?? '');
+            $name    = trim((string)($post['name'] ?? ''));
+            $hash    = (string)($post['hash'] ?? '');
+            $schedules = isset($post['schedules']) && is_array($post['schedules']) ? $post['schedules'] : [];
+            $triggers  = isset($post['triggers']) && is_array($post['triggers']) ? $post['triggers'] : [];
+
+            if ($itemId === '' || $vaultId === '' || $name === '') {
+                echo json_encode(['status'=>'error','message'=>'itemId, vaultId and name are required']); break;
+            }
+
+            $ph = $server->AdminGetUserProfileAndHash($username);
+            if (!$ph || !$ph->Profile) { echo json_encode(['status'=>'error','message'=>'Profile not found']); break; }
+            if ($hash !== '' && $hash !== (string)$ph->ProfileHash) {
+                echo json_encode(['status'=>'error','code'=>'hash_mismatch','message'=>'Profile changed']); break;
+            }
+            $profile = $ph->Profile;
+            if (!isset($profile->Sources[$itemId])) { echo json_encode(['status'=>'error','message'=>'Protected Item not found']); break; }
+            if (!isset($profile->Destinations[$vaultId])) { echo json_encode(['status'=>'error','message'=>'Storage Vault not found']); break; }
+
+            if ($ruleId === '') {
+                try {
+                    $ruleId = strtoupper(bin2hex(random_bytes(8)).'-'.bin2hex(random_bytes(2)).'-'.bin2hex(random_bytes(2)).'-'.bin2hex(random_bytes(6)));
+                } catch (\Throwable $e) { $ruleId = strtoupper(uniqid('', true)); }
+            }
+            $rule = isset($profile->BackupRules[$ruleId]) ? $profile->BackupRules[$ruleId] : new \Comet\BackupRuleConfig();
+            $rule->Description = $name;
+            $rule->Source = $itemId;
+            $rule->Destination = $vaultId;
+            if (empty($rule->CreateTime)) { $rule->CreateTime = time(); }
+            $rule->ModifyTime = time();
+
+            $sched = [];
+            foreach ($schedules as $s) {
+                if (!is_array($s)) continue;
+                $sc = new \Comet\ScheduleConfig();
+                $sc->FrequencyType = (int)($s['FrequencyType'] ?? 0);
+                $sc->SecondsPast   = (int)($s['SecondsPast'] ?? 0);
+                $sc->Offset        = (int)($s['Offset'] ?? 0);
+                $sc->RandomDelaySecs = (int)($s['RandomDelaySecs'] ?? 0);
+                if (isset($s['DaysSelect']) && is_array($s['DaysSelect'])) {
+                    $dsc = new \Comet\DaysOfWeekConfig();
+                    foreach (['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'] as $d) {
+                        if (property_exists($dsc, $d)) { $dsc->{$d} = !empty($s['DaysSelect'][$d]); }
+                    }
+                    $sc->DaysSelect = $dsc;
+                }
+                if (!empty($s['SelectedDay']))   { $sc->SelectedDay   = (int)$s['SelectedDay']; }
+                if (!empty($s['SelectedMonth'])) { $sc->SelectedMonth = (int)$s['SelectedMonth']; }
+                $sched[] = $sc;
+            }
+            $rule->Schedules = $sched;
+
+            $et = new \Comet\BackupRuleEventTriggers();
+            $et->OnPCBoot = !empty($triggers['onPCBoot']);
+            $et->OnPCBootIfLastJobMissed = !empty($triggers['ifLastMissed']);
+            $et->OnLastJobFailDoRetry = !empty($triggers['retryOnFail']);
+            $et->LastJobFailDoRetryCount = (int)($triggers['retryCount'] ?? 0);
+            $et->LastJobFailDoRetryTime  = (int)($triggers['retryMinutes'] ?? 0);
+            $rule->EventTriggers = $et;
+
+            if (!is_array($profile->BackupRules)) { $profile->BackupRules = []; }
+            $profile->BackupRules[$ruleId] = $rule;
+
+            $resp = $server->AdminSetUserProfileHash($username, $profile, (string)$ph->ProfileHash);
+            if ($resp && $resp->Status < 400) {
+                $ph2 = $server->AdminGetUserProfileAndHash($username);
+                echo json_encode(['status'=>'success','ruleId'=>$ruleId,'hash'=>($ph2 ? $ph2->ProfileHash : '')]);
+            } else if ($resp && $resp->Status === 409) {
+                echo json_encode(['status'=>'error','code'=>'hash_mismatch','message'=>'Profile changed']);
+            } else {
+                echo json_encode(['status'=>'error','message'=>($resp ? $resp->Message : 'Failed to save schedule')]);
+            }
+            break;
+        }
+        case 'piScheduleDelete': {
+            $ruleId = (string)($post['ruleId'] ?? '');
+            $hash   = (string)($post['hash'] ?? '');
+            if ($ruleId === '') { echo json_encode(['status'=>'error','message'=>'ruleId required']); break; }
+            $ph = $server->AdminGetUserProfileAndHash($username);
+            if (!$ph || !$ph->Profile) { echo json_encode(['status'=>'error','message'=>'Profile not found']); break; }
+            if ($hash !== '' && $hash !== (string)$ph->ProfileHash) {
+                echo json_encode(['status'=>'error','code'=>'hash_mismatch','message'=>'Profile changed']); break;
+            }
+            $profile = $ph->Profile;
+            if (isset($profile->BackupRules[$ruleId])) { unset($profile->BackupRules[$ruleId]); }
+            $resp = $server->AdminSetUserProfileHash($username, $profile, (string)$ph->ProfileHash);
+            if ($resp && $resp->Status < 400) {
+                $ph2 = $server->AdminGetUserProfileAndHash($username);
+                echo json_encode(['status'=>'success','hash'=>($ph2 ? $ph2->ProfileHash : '')]);
+            } else if ($resp && $resp->Status === 409) {
+                echo json_encode(['status'=>'error','code'=>'hash_mismatch','message'=>'Profile changed']);
+            } else {
+                echo json_encode(['status'=>'error','message'=>($resp ? $resp->Message : 'Failed to delete schedule')]);
+            }
+            break;
+        }
+        case 'piRetentionSet': {
+            // Per-Protected-Item retention override per Storage Vault.
+            $itemId  = (string)($post['itemId'] ?? '');
+            $vaultId = (string)($post['vaultId'] ?? '');
+            $override = !empty($post['override']);
+            $mode = (int)($post['mode'] ?? 801);
+            $rangesRaw = $post['ranges'] ?? [];
+            $hash = (string)($post['hash'] ?? '');
+            if ($itemId === '' || $vaultId === '') { echo json_encode(['status'=>'error','message'=>'itemId and vaultId required']); break; }
+            $ph = $server->AdminGetUserProfileAndHash($username);
+            if (!$ph || !$ph->Profile) { echo json_encode(['status'=>'error','message'=>'Profile not found']); break; }
+            if ($hash !== '' && $hash !== (string)$ph->ProfileHash) {
+                echo json_encode(['status'=>'error','code'=>'hash_mismatch','message'=>'Profile changed']); break;
+            }
+            $profile = $ph->Profile;
+            if (!isset($profile->Sources[$itemId])) { echo json_encode(['status'=>'error','message'=>'Protected Item not found']); break; }
+            $source = $profile->Sources[$itemId];
+            if (!is_array($source->OverrideDestinationRetention)) { $source->OverrideDestinationRetention = []; }
+            if (!$override) {
+                if (isset($source->OverrideDestinationRetention[$vaultId])) { unset($source->OverrideDestinationRetention[$vaultId]); }
+            } else {
+                $rp = new \Comet\RetentionPolicy();
+                $rp->Mode = $mode;
+                $rp->Ranges = [];
+                $ranges = is_array($rangesRaw) ? $rangesRaw : [];
+                foreach ($ranges as $r) {
+                    $ra = is_array($r) ? $r : (is_object($r) ? (array)$r : null);
+                    if (!is_array($ra)) continue;
+                    $type = (int)($ra['Type'] ?? 0); if ($type <= 0) continue;
+                    $o = new \Comet\RetentionRange();
+                    $o->Type = $type;
+                    $o->Timestamp = (int)($ra['Timestamp'] ?? 0);
+                    $o->Jobs = (int)($ra['Jobs'] ?? 0);
+                    $o->Days = (int)($ra['Days'] ?? 0);
+                    $o->Weeks = (int)($ra['Weeks'] ?? 0);
+                    $o->Months = (int)($ra['Months'] ?? 0);
+                    $o->Years = (int)($ra['Years'] ?? 0);
+                    $o->WeekOffset = (int)($ra['WeekOffset'] ?? 0);
+                    $o->MonthOffset = (int)($ra['MonthOffset'] ?? 1);
+                    $o->YearOffset = (int)($ra['YearOffset'] ?? 1);
+                    $rp->Ranges[] = $o;
+                }
+                $source->OverrideDestinationRetention[$vaultId] = $rp;
+            }
+            $profile->Sources[$itemId] = $source;
+            $resp = $server->AdminSetUserProfileHash($username, $profile, (string)$ph->ProfileHash);
+            if ($resp && $resp->Status < 400) {
+                $ph2 = $server->AdminGetUserProfileAndHash($username);
+                echo json_encode(['status'=>'success','hash'=>($ph2 ? $ph2->ProfileHash : '')]);
+            } else if ($resp && $resp->Status === 409) {
+                echo json_encode(['status'=>'error','code'=>'hash_mismatch','message'=>'Profile changed']);
+            } else {
+                echo json_encode(['status'=>'error','message'=>($resp ? $resp->Message : 'Failed to save retention')]);
+            }
+            break;
+        }
         case 'renameDevice': {
             $deviceId = (string)($post['deviceId'] ?? '');
             $newName  = (string)($post['newName'] ?? '');

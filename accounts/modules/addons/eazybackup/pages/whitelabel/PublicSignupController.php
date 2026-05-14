@@ -5,6 +5,117 @@ use PartnerHub\StripeService;
 use PartnerHub\TenantCustomerService;
 
 /**
+ * Validate the basic POST input for the public signup form.
+ *
+ * Pure function: no DB, no $_POST, no $_SERVER. Tests pass an array; production
+ * passes the trimmed/normalised $_POST values.
+ *
+ * @return array<int,string> List of error codes ('name', 'email', 'username',
+ *   'password', 'agree', 'product'). Empty array means "OK".
+ */
+function eb_signup_validate_basic_input(array $input): array
+{
+    $errs = [];
+    $first = trim((string)($input['first_name'] ?? ''));
+    $last = trim((string)($input['last_name'] ?? ''));
+    $email = trim((string)($input['email'] ?? ''));
+    $username = trim((string)($input['username'] ?? ''));
+    $password = (string)($input['password'] ?? '');
+    $confirm = (string)($input['confirm_password'] ?? '');
+    $agree = !empty($input['agree']);
+    $pid = (int)($input['product_pid'] ?? 0);
+
+    if ($first === '' || $last === '') { $errs[] = 'name'; }
+    if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) { $errs[] = 'email'; }
+    if ($username === '') { $errs[] = 'username'; }
+    if ($password === '' || $password !== $confirm) { $errs[] = 'password'; }
+    if (!$agree) { $errs[] = 'agree'; }
+    if ($pid <= 0) { $errs[] = 'product'; }
+    return $errs;
+}
+
+/**
+ * Apply per-tenant allow / deny domain filters to the submitted email.
+ *
+ * Returns null when the email passes (or no filters are configured), or one of
+ * 'blocked_not_in_allow' / 'blocked_in_deny' on a violation.
+ *
+ * Pure function: pass the parsed allow/deny lists rather than the raw flow row
+ * so tests can drive every branch without seeding eb_whitelabel_signup_flows.
+ */
+function eb_signup_check_domain_filters(string $email, string $allowCsv, string $denyCsv): ?string
+{
+    $domain = strtolower(substr(strrchr($email, '@') ?: '', 1));
+    $allow = array_values(array_filter(array_map('trim', explode(',', $allowCsv))));
+    $deny = array_values(array_filter(array_map('trim', explode(',', $denyCsv))));
+
+    if (!empty($allow) && $domain !== '' && !in_array($domain, $allow, true)) {
+        return 'blocked_not_in_allow';
+    }
+    if (!empty($deny) && $domain !== '' && in_array($domain, $deny, true)) {
+        return 'blocked_in_deny';
+    }
+    return null;
+}
+
+/**
+ * Apply 1-hour-window per-IP and per-email rate limits against
+ * eb_whitelabel_signup_events.
+ *
+ * Returns null when within limits, or one of 'rate_ip' / 'rate_email' on
+ * exceed. Limits of 0 (or less) mean "no limit".
+ */
+function eb_signup_check_rate_limits(int $tenantId, string $ip, string $email, int $rateIp, int $rateEmail): ?string
+{
+    if ($tenantId <= 0) { return null; }
+    $cutoff = date('Y-m-d H:i:s', time() - 3600);
+
+    if ($rateIp > 0 && $ip !== '') {
+        $cnt = (int) Capsule::table('eb_whitelabel_signup_events')
+            ->where('tenant_id', $tenantId)
+            ->where('ip', $ip)
+            ->where('created_at', '>', $cutoff)
+            ->count();
+        if ($cnt >= $rateIp) { return 'rate_ip'; }
+    }
+    if ($rateEmail > 0 && $email !== '') {
+        $cnt = (int) Capsule::table('eb_whitelabel_signup_events')
+            ->where('tenant_id', $tenantId)
+            ->where('email', $email)
+            ->where('created_at', '>', $cutoff)
+            ->count();
+        if ($cnt >= $rateEmail) { return 'rate_email'; }
+    }
+    return null;
+}
+
+/**
+ * Look up an existing eb_whitelabel_signup_events row for (tenant, email) and
+ * classify the resulting state as one of:
+ *   - null              — no prior submission, proceed.
+ *   - 'pending_approval' — show "we received it" UI.
+ *   - 'completed'        — terminal success states; 302 to download page.
+ *   - 'in_progress'      — non-terminal, non-pending state (rare; treat as proceed).
+ *   - 'failed'           — prior attempt failed (treat as proceed; UI may surface).
+ */
+function eb_signup_existing_event_state(int $tenantId, string $email): ?string
+{
+    if ($tenantId <= 0 || $email === '') { return null; }
+    $row = Capsule::table('eb_whitelabel_signup_events')
+        ->where('tenant_id', $tenantId)
+        ->where('email', $email)
+        ->first(['status']);
+    if (!$row) { return null; }
+    $status = (string) ($row->status ?? '');
+    if ($status === 'pending_approval') { return 'pending_approval'; }
+    if (in_array($status, ['emailed', 'completed', 'provisioned', 'accepted'], true)) {
+        return 'completed';
+    }
+    if ($status === 'failed') { return 'failed'; }
+    return 'in_progress';
+}
+
+/**
  * Public Signup Controller (GET/POST)
  * - Host-guarded; no login required
  */
@@ -82,14 +193,17 @@ function eazybackup_public_signup(array $vars)
     $planPriceId = (int)($flow->plan_price_id ?? 0);
     $requireCard  = (int)($flow->require_card ?? 0);
 
-    // Basic validation
-    $errs = [];
-    if ($first === '' || $last === '') { $errs[] = 'name'; }
-    if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) { $errs[] = 'email'; }
-    if ($username === '') { $errs[] = 'username'; }
-    if ($password === '' || $password !== $confirm) { $errs[] = 'password'; }
-    if (!$agree) { $errs[] = 'agree'; }
-    if ($pid <= 0) { $errs[] = 'product'; }
+    // Basic validation (delegated to pure helper for testability — see eb_signup_validate_basic_input)
+    $errs = eb_signup_validate_basic_input([
+        'first_name' => $first,
+        'last_name' => $last,
+        'email' => $email,
+        'username' => $username,
+        'password' => $password,
+        'confirm_password' => $confirm,
+        'agree' => $agree,
+        'product_pid' => $pid,
+    ]);
     if (!empty($errs)) {
         return [ 'pagetitle'=>'Start your trial', 'templatefile'=>'templates/whitelabel/public-signup', 'vars'=>['errors'=>$errs, 'tenant'=>(array)$tenant, 'host'=>$host] ];
     }
@@ -117,64 +231,48 @@ function eazybackup_public_signup(array $vars)
     $ip = (string)($_SERVER['REMOTE_ADDR'] ?? '');
     $ua = (string)($_SERVER['HTTP_USER_AGENT'] ?? '');
 
-    // Abuse controls: domain allow/deny
-    try {
-        $domain = strtolower(substr(strrchr($email, '@') ?: '', 1));
-        $allow = array_filter(array_map('trim', explode(',', (string)($flow->allow_domains ?? ''))));
-        $deny  = array_filter(array_map('trim', explode(',', (string)($flow->deny_domains ?? ''))));
-        if (!empty($allow) && $domain !== '' && !in_array($domain, $allow, true)) {
-            try { logModuleCall('eazybackup','signup_post',['tenant_id'=>(int)$tenant->id,'email'=>$email,'domain'=>$domain],'blocked_not_in_allow'); } catch (\Throwable $__) {}
-            return [ 'pagetitle'=>'Start your trial', 'templatefile'=>'templates/whitelabel/public-signup', 'vars'=>['errors'=>['email_domain'], 'tenant'=>(array)$tenant, 'host'=>$host] ];
-        }
-        if (!empty($deny) && $domain !== '' && in_array($domain, $deny, true)) {
-            try { logModuleCall('eazybackup','signup_post',['tenant_id'=>(int)$tenant->id,'email'=>$email,'domain'=>$domain],'blocked_in_deny'); } catch (\Throwable $__) {}
-            return [ 'pagetitle'=>'Start your trial', 'templatefile'=>'templates/whitelabel/public-signup', 'vars'=>['errors'=>['email_domain'], 'tenant'=>(array)$tenant, 'host'=>$host] ];
-        }
-    } catch (\Throwable $__) {}
-
-    // Idempotency: if an event already exists for this tenant+email, avoid duplicate order
-    $existing = Capsule::table('eb_whitelabel_signup_events')->where('tenant_id',(int)$tenant->id)->where('email',$email)->first();
-    if ($existing) {
-        // If pending approval, show confirmation state. If terminal, redirect to download.
-        $st = (string)($existing->status ?? '');
-        if ($st === 'pending_approval') {
-            return [
-                'pagetitle' => 'Signup received',
-                'templatefile' => 'templates/whitelabel/public-signup',
-                'forcessl' => true,
-                'vars' => [
-                    'signup_state' => 'pending_approval',
-                    'tenant' => (array)$tenant,
-                    'host' => $host,
-                    'flow' => $flow ? (array)$flow : [],
-                ],
-            ];
-        }
-        if (in_array($st, ['emailed','completed','provisioned','accepted'], true)) {
-            header('Location: index.php?m=eazybackup&a=public-download&existing=1'); exit;
-        }
+    // Abuse controls: domain allow/deny (delegated to pure helper)
+    $domainViolation = eb_signup_check_domain_filters(
+        $email,
+        (string)($flow->allow_domains ?? ''),
+        (string)($flow->deny_domains ?? '')
+    );
+    if ($domainViolation !== null) {
+        try { logModuleCall('eazybackup','signup_post',['tenant_id'=>(int)$tenant->id,'email'=>$email],$domainViolation); } catch (\Throwable $__) {}
+        return [ 'pagetitle'=>'Start your trial', 'templatefile'=>'templates/whitelabel/public-signup', 'vars'=>['errors'=>['email_domain'], 'tenant'=>(array)$tenant, 'host'=>$host] ];
     }
 
-    // Rate limiting: per-IP and per-email in last hour
-    try {
-        $cutoff = date('Y-m-d H:i:s', time() - 3600);
-        $rateIp    = (int)($flow->rate_ip ?? 0);
-        $rateEmail = (int)($flow->rate_email ?? 0);
-        if ($rateIp > 0) {
-            $cntIp = (int)Capsule::table('eb_whitelabel_signup_events')->where('tenant_id',(int)$tenant->id)->where('ip',$ip)->where('created_at','>',$cutoff)->count();
-            if ($cntIp >= $rateIp) {
-                try { logModuleCall('eazybackup','signup_post',['tenant_id'=>(int)$tenant->id,'ip'=>$ip,'count'=>$cntIp],'rate_limited_ip'); } catch (\Throwable $__) {}
-                return [ 'pagetitle'=>'Start your trial', 'templatefile'=>'templates/whitelabel/public-signup', 'vars'=>['errors'=>['rate_ip'], 'tenant'=>(array)$tenant, 'host'=>$host] ];
-            }
-        }
-        if ($rateEmail > 0) {
-            $cntEmail = (int)Capsule::table('eb_whitelabel_signup_events')->where('tenant_id',(int)$tenant->id)->where('email',$email)->where('created_at','>',$cutoff)->count();
-            if ($cntEmail >= $rateEmail) {
-                try { logModuleCall('eazybackup','signup_post',['tenant_id'=>(int)$tenant->id,'email'=>$email,'count'=>$cntEmail],'rate_limited_email'); } catch (\Throwable $__) {}
-                return [ 'pagetitle'=>'Start your trial', 'templatefile'=>'templates/whitelabel/public-signup', 'vars'=>['errors'=>['rate_email'], 'tenant'=>(array)$tenant, 'host'=>$host] ];
-            }
-        }
-    } catch (\Throwable $__) {}
+    // Idempotency: if an event already exists for this tenant+email, avoid duplicate order
+    $existingState = eb_signup_existing_event_state((int)$tenant->id, $email);
+    if ($existingState === 'pending_approval') {
+        return [
+            'pagetitle' => 'Signup received',
+            'templatefile' => 'templates/whitelabel/public-signup',
+            'forcessl' => true,
+            'vars' => [
+                'signup_state' => 'pending_approval',
+                'tenant' => (array)$tenant,
+                'host' => $host,
+                'flow' => $flow ? (array)$flow : [],
+            ],
+        ];
+    }
+    if ($existingState === 'completed') {
+        header('Location: index.php?m=eazybackup&a=public-download&existing=1'); exit;
+    }
+
+    // Rate limiting: per-IP and per-email in last hour (delegated to pure helper)
+    $rateViolation = eb_signup_check_rate_limits(
+        (int)$tenant->id,
+        $ip,
+        $email,
+        (int)($flow->rate_ip ?? 0),
+        (int)($flow->rate_email ?? 0)
+    );
+    if ($rateViolation !== null) {
+        try { logModuleCall('eazybackup','signup_post',['tenant_id'=>(int)$tenant->id,'ip'=>$ip,'email'=>$email],'rate_limited:'.$rateViolation); } catch (\Throwable $__) {}
+        return [ 'pagetitle'=>'Start your trial', 'templatefile'=>'templates/whitelabel/public-signup', 'vars'=>['errors'=>[$rateViolation], 'tenant'=>(array)$tenant, 'host'=>$host] ];
+    }
 
     $now = date('Y-m-d H:i:s');
     $eventId = null;

@@ -69,6 +69,92 @@ function eb_usage_clamp_usage_timestamp(int $periodStart, int $periodEnd, ?int $
     return $upperBound;
 }
 
+/**
+ * Pure-function backend for `eb_ph_usage_push`. No HTTP, no $_SESSION, no $_POST.
+ *
+ * Records a usage data point in `eb_usage_ledger` (idempotent via the
+ * `idempotency_key` UNIQUE column) and, if the tenant has an active plan
+ * instance with a metered item for that metric, pushes the billable quantity
+ * to Stripe and stamps `pushed_to_stripe_at` on the ledger row.
+ *
+ * Returns ['status' => 'success'|'error', 'message' => string|null].
+ *
+ * The optional `$stripeService` lets tests pass a `TestableStripeService` to
+ * capture the Stripe call without going over the network. Production callers
+ * pass null and a real `StripeService` is constructed internally.
+ *
+ * @return array{status: string, message: ?string, billable_qty?: int, idempotency_key?: string}
+ */
+function eb_ph_usage_push_for_tenant(
+    int $tenantId,
+    int $mspId,
+    string $stripeAccountId,
+    string $metric,
+    int $rawQty,
+    int $periodStart,
+    int $periodEnd,
+    ?\PartnerHub\StripeService $stripeService = null
+): array {
+    $metric = trim($metric);
+    if ($tenantId <= 0 || $metric === '' || $rawQty < 0) {
+        return ['status' => 'error', 'message' => 'invalid'];
+    }
+
+    try {
+        [$resolvedStart, $resolvedEnd] = eb_usage_normalize_period_bounds($periodStart, $periodEnd);
+    } catch (\InvalidArgumentException $e) {
+        return ['status' => 'error', 'message' => $e->getMessage()];
+    }
+
+    $idKey = eb_usage_tenant_period_idempotency_key($tenantId, $metric, $resolvedStart, $resolvedEnd);
+
+    Capsule::table('eb_usage_ledger')->updateOrInsert(
+        ['idempotency_key' => $idKey],
+        [
+            'tenant_id' => $tenantId,
+            'metric' => $metric,
+            'qty' => $rawQty,
+            'period_start' => date('Y-m-d H:i:s', $resolvedStart),
+            'period_end' => date('Y-m-d H:i:s', $resolvedEnd),
+            'source' => 'manual',
+            'pushed_to_stripe_at' => null,
+            'created_at' => date('Y-m-d H:i:s'),
+        ]
+    );
+
+    $meteredItem = resolveActivePlanInstanceMeteredItem($tenantId, $metric);
+    if (!$meteredItem) {
+        return ['status' => 'success', 'message' => 'recorded-only', 'idempotency_key' => $idKey];
+    }
+
+    $billableQty = computeBillableMeteredUsage(
+        $rawQty,
+        (int) ($meteredItem['default_qty'] ?? 0),
+        (string) ($meteredItem['overage_mode'] ?? 'bill_all')
+    );
+
+    $svc = $stripeService ?? new StripeService();
+    $usageTimestamp = eb_usage_clamp_usage_timestamp($resolvedStart, $resolvedEnd);
+    try {
+        $svc->createUsageRecord(
+            (string) $meteredItem['stripe_subscription_item_id'],
+            $billableQty,
+            $usageTimestamp,
+            $stripeAccountId !== '' ? $stripeAccountId : null,
+            $idKey
+        );
+    } catch (\Throwable $e) {
+        return ['status' => 'error', 'message' => $e->getMessage(), 'idempotency_key' => $idKey];
+    }
+
+    Capsule::table('eb_usage_ledger')->where('idempotency_key', $idKey)->update([
+        'qty' => $billableQty,
+        'pushed_to_stripe_at' => date('Y-m-d H:i:s'),
+    ]);
+
+    return ['status' => 'success', 'billable_qty' => $billableQty, 'idempotency_key' => $idKey];
+}
+
 function eb_ph_usage_push(array $vars): void
 {
     header('Content-Type: application/json');
@@ -85,54 +171,26 @@ function eb_ph_usage_push(array $vars): void
     $qty = (int)($_POST['qty'] ?? 0);
     $periodStart = (int)($_POST['period_start'] ?? 0);
     $periodEnd = (int)($_POST['period_end'] ?? 0);
-    if ($tenantPublicId === '' || $metric === '' || $qty < 0) { echo json_encode(['status'=>'error','message'=>'invalid']); return; }
-    try {
-        $tenant = eb_ph_tenants_find_owned_tenant_by_public_id((int)$msp->id, $tenantPublicId);
-        if (!$tenant) {
-            echo json_encode(['status'=>'error','message'=>'tenant']);
-            return;
-        }
 
-        $tenantId = (int)($tenant->id ?? 0);
-        if ($tenantId <= 0) {
-            echo json_encode(['status'=>'error','message'=>'tenant']);
-            return;
-        }
-
-        [$resolvedPeriodStart, $resolvedPeriodEnd] = eb_usage_normalize_period_bounds($periodStart, $periodEnd);
-        $idKey = eb_usage_tenant_period_idempotency_key((int)$tenant->id, $metric, $resolvedPeriodStart, $resolvedPeriodEnd);
-
-        Capsule::table('eb_usage_ledger')->updateOrInsert(
-            ['idempotency_key' => $idKey],
-            [
-                'tenant_id' => (int)$tenant->id,
-                'metric' => $metric,
-                'qty' => $qty,
-                'period_start' => date('Y-m-d H:i:s', $resolvedPeriodStart),
-                'period_end' => date('Y-m-d H:i:s', $resolvedPeriodEnd),
-                'source' => 'manual',
-                'pushed_to_stripe_at' => null,
-                'created_at' => date('Y-m-d H:i:s'),
-            ]
-        );
-
-        $meteredItem = resolveActivePlanInstanceMeteredItem($tenantId, $metric);
-        if (!$meteredItem) { echo json_encode(['status'=>'success','message'=>'recorded-only']); return; }
-        $billableQty = computeBillableMeteredUsage($qty, (int) ($meteredItem['default_qty'] ?? 0), (string) ($meteredItem['overage_mode'] ?? 'bill_all'));
-        $svc = new StripeService();
-        $stripeAccountId = (string) ($msp->stripe_connect_id ?? '');
-        $usageTimestamp = eb_usage_clamp_usage_timestamp($resolvedPeriodStart, $resolvedPeriodEnd);
-        $svc->createUsageRecord((string) $meteredItem['stripe_subscription_item_id'], $billableQty, $usageTimestamp, $stripeAccountId !== '' ? $stripeAccountId : null, $idKey);
-        Capsule::table('eb_usage_ledger')->where('idempotency_key',$idKey)->update([
-            'qty' => $billableQty,
-            'pushed_to_stripe_at' => date('Y-m-d H:i:s'),
-        ]);
-        echo json_encode(['status'=>'success']);
-        return;
-    } catch (\Throwable $e) {
-        echo json_encode(['status'=>'error','message'=>$e->getMessage()]);
+    $tenant = eb_ph_tenants_find_owned_tenant_by_public_id((int)$msp->id, $tenantPublicId);
+    if (!$tenant) {
+        echo json_encode(['status'=>'error','message'=>'tenant']);
         return;
     }
+
+    $result = eb_ph_usage_push_for_tenant(
+        (int) ($tenant->id ?? 0),
+        (int) $msp->id,
+        (string) ($msp->stripe_connect_id ?? ''),
+        $metric,
+        $qty,
+        $periodStart,
+        $periodEnd
+    );
+    // Strip internal-only metadata from the wire response (preserves prior shape).
+    if (isset($result['idempotency_key'])) { unset($result['idempotency_key']); }
+    if (isset($result['billable_qty'])) { unset($result['billable_qty']); }
+    echo json_encode($result);
 }
 
 

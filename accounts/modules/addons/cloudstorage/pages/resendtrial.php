@@ -44,8 +44,9 @@ try {
 }
 
 if (!$record) {
-    $vars['resendMessage'] = 'We could not find an active verification for that email. Please start a new trial signup.';
-    $vars['resendStatus'] = 'error';
+    // Neutral response: do not disclose whether an active verification exists for this email.
+    $vars['resendMessage'] = 'If there is an active verification for that address, we’ve sent it again. Please check your inbox.';
+    $vars['resendStatus'] = 'success';
     return $vars;
 }
 

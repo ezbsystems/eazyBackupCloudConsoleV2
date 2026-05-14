@@ -1,0 +1,19 @@
+{
+    "id": "evt_placeholder",
+    "object": "event",
+    "type": "invoice.paid",
+    "account": "acct_test_placeholder",
+    "data": {
+        "object": {
+            "id": "in_placeholder",
+            "object": "invoice",
+            "customer": "cus_placeholder",
+            "amount_total": 12500,
+            "amount_due": 12500,
+            "tax": 1500,
+            "status": "paid",
+            "hosted_invoice_url": "https://invoice.stripe.test/in_placeholder",
+            "currency": "cad"
+        }
+    }
+}

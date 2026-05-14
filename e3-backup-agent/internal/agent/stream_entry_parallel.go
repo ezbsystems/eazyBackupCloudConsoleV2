@@ -37,6 +37,13 @@ type parallelDeviceReader struct {
 	// saturates the Windows I/O queue and blocks all further file operations.
 	tailStalled int32
 
+	// liveDisk indicates the underlying file is locked / actively being written
+	// (e.g. a Hyper-V VHDX backed up without a checkpoint). On these sources
+	// any chunk that times out is treated as best-effort and zero-filled
+	// instead of failing the backup, because the data integrity contract is
+	// already crash-consistent-only.
+	liveDisk bool
+
 	parentCtx     context.Context // immutable root context from constructor
 	mu            sync.Mutex
 	ctx           context.Context
@@ -89,6 +96,7 @@ func newParallelDeviceReader(ctx context.Context, path string, size int64, physi
 		warningCallback: warningCallback,
 		parentCtx:       ctx,
 		pending:         make(map[int64][]byte),
+		liveDisk:        skipTailReads,
 	}
 	if skipTailReads {
 		atomic.StoreInt32(&pdr.tailStalled, 1)
@@ -401,6 +409,41 @@ func (r *parallelDeviceReader) fetchNextChunk() error {
 					fillSize = remaining
 				}
 				log.Printf("agent: parallel reader safety timeout at tail offset %d, zero-filling %d bytes and continuing",
+					r.expected, fillSize)
+				r.emitTimeoutWarning(r.expected, 1, safetyTimeout)
+				zeroBuf := make([]byte, fillSize)
+				r.curBuf = zeroBuf
+				r.curPos = 0
+				r.chunkStart = r.expected
+				r.expected += r.chunkSize
+				return nil
+			}
+
+			// On a live (no-checkpoint) source the entire file is best-effort
+			// crash-consistent already; zero-fill any non-tail chunk that
+			// times out rather than failing the whole backup. This matches
+			// the contract documented to the user when checkpoints are
+			// disabled and prevents one slow region near (but not within)
+			// the tail window from killing a multi-VM run.
+			// liveDisk extension: only zero-fill non-tail timeouts when the
+			// offset is in the broad "rear half-GiB" of the file. Zero-filling
+			// a structurally critical sector in the middle of a live VHDX
+			// produces a file that Hyper-V refuses to attach with
+			// "corrupted and unreadable" — observed on windows2019 Hyper-V
+			// restore. Restricting to the trailing region keeps the
+			// "ubuntu26 near-tail" case fixed (the original 1B regression)
+			// without risking structural corruption of the rest of the disk.
+			const liveDiskExtendedTailBytes int64 = 1024 * 1024 * 1024
+			if r.liveDisk && (r.size-r.expected) <= liveDiskExtendedTailBytes {
+				remaining := r.size - r.expected
+				if remaining <= 0 {
+					return io.EOF
+				}
+				fillSize := r.chunkSize
+				if remaining < fillSize {
+					fillSize = remaining
+				}
+				log.Printf("agent: parallel reader safety timeout at offset %d on live source (extended tail), zero-filling %d bytes and continuing",
 					r.expected, fillSize)
 				r.emitTimeoutWarning(r.expected, 1, safetyTimeout)
 				zeroBuf := make([]byte, fillSize)

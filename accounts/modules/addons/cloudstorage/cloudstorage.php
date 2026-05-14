@@ -186,6 +186,12 @@ function cloudstorage_config()
                 'Options' => cloudstorage_get_email_templates(),
                 'Description' => 'Select the WHMCS email template from the General category to use for e3 trial email verification.',
             ],
+            'trial_existing_account_email_template' => [
+                'FriendlyName' => 'Trial Existing Account Email Template',
+                'Type' => 'dropdown',
+                'Options' => cloudstorage_get_email_templates(),
+                'Description' => 'Optional. When a trial signup is attempted with an email that already belongs to a WHMCS client, this General-category template is sent to that client with a login link. Leave blank to skip this notification.',
+            ],
             'object_lock_force_delete_email_template' => [
                 'FriendlyName' => 'Object Lock Force Delete Email Template',
                 'Type' => 'dropdown',
@@ -410,6 +416,112 @@ function cloudstorage_config()
                 'Type' => 'text',
                 'Size' => '250',
                 'Description' => 'Pinned to repos at creation; Comet-style tiers in JSON.',
+            ],
+            // ==== Agent Builds (e3 local agent build automation) ====
+            'agent_build_repo_path' => [
+                'FriendlyName' => 'Agent Repo Path',
+                'Type' => 'text',
+                'Size' => '191',
+                'Default' => '/var/www/eazybackup.ca/e3-backup-agent',
+                'Description' => 'Local checkout of the e3-backup-agent repository on the WHMCS host.',
+            ],
+            'agent_build_default_git_ref' => [
+                'FriendlyName' => 'Default Git Ref',
+                'Type' => 'text',
+                'Size' => '100',
+                'Default' => 'main',
+                'Description' => 'Default branch/tag to build when admin does not override.',
+            ],
+            'agent_build_publish_dir' => [
+                'FriendlyName' => 'Publish Directory',
+                'Type' => 'text',
+                'Size' => '191',
+                'Default' => '/var/www/eazybackup.ca/accounts/client_installer',
+                'Description' => 'Where signed artifacts are copied for customer download.',
+            ],
+            'agent_build_windows_host' => [
+                'FriendlyName' => 'Windows Build Host',
+                'Type' => 'text',
+                'Size' => '100',
+                'Default' => '192.168.92.210',
+                'Description' => 'Hostname or IP for the Windows build/sign host (Server 2025).',
+            ],
+            'agent_build_windows_user' => [
+                'FriendlyName' => 'Windows Build User',
+                'Type' => 'text',
+                'Size' => '100',
+                'Default' => 'Administrator',
+                'Description' => 'SSH user on the Windows build host.',
+            ],
+            'agent_build_windows_ssh_key' => [
+                'FriendlyName' => 'Windows SSH Key Path',
+                'Type' => 'text',
+                'Size' => '191',
+                'Default' => '/root/.ssh/windows_server_ed25519',
+                'Description' => 'Path on the WHMCS host to the SSH private key for the Windows build host.',
+            ],
+            'agent_build_windows_work_dir' => [
+                'FriendlyName' => 'Windows Work Directory',
+                'Type' => 'text',
+                'Size' => '191',
+                'Default' => 'C:\\E3Build',
+                'Description' => 'Staging directory on the Windows build host (per-job subdirectories created here).',
+            ],
+            'agent_build_iscc_path' => [
+                'FriendlyName' => 'Inno Setup Compiler Path (Windows)',
+                'Type' => 'text',
+                'Size' => '191',
+                'Default' => 'C:\\Program Files (x86)\\Inno Setup 6\\ISCC.exe',
+                'Description' => 'Full path to ISCC.exe on the Windows build host.',
+            ],
+            'agent_build_signing_enabled' => [
+                'FriendlyName' => 'Enable Code Signing',
+                'Type' => 'yesno',
+                'Description' => 'If enabled, run AzureSignTool against produced Windows binaries and the installer.',
+            ],
+            'agent_build_azure_tenant_id' => [
+                'FriendlyName' => 'Azure Tenant ID',
+                'Type' => 'text',
+                'Size' => '100',
+                'Description' => 'Azure AD tenant ID used to authenticate AzureSignTool.',
+            ],
+            'agent_build_azure_client_id' => [
+                'FriendlyName' => 'Azure Client ID',
+                'Type' => 'text',
+                'Size' => '100',
+                'Description' => 'Azure AD application (client) ID with Sign+Get on the Key Vault certificate.',
+            ],
+            'agent_build_azure_client_secret' => [
+                'FriendlyName' => 'Azure Client Secret',
+                'Type' => 'password',
+                'Size' => '191',
+                'Description' => 'Client secret for the Azure AD app. Stored encrypted by WHMCS.',
+            ],
+            'agent_build_azure_kv_url' => [
+                'FriendlyName' => 'Azure Key Vault URL',
+                'Type' => 'text',
+                'Size' => '191',
+                'Description' => 'Example: https://eazybackup-kv.vault.azure.net/',
+            ],
+            'agent_build_azure_kv_cert_name' => [
+                'FriendlyName' => 'Azure Key Vault Certificate Name',
+                'Type' => 'text',
+                'Size' => '100',
+                'Description' => 'Certificate name in the Key Vault to use for Authenticode signing.',
+            ],
+            'agent_build_signing_timestamp_url' => [
+                'FriendlyName' => 'Signing Timestamp URL',
+                'Type' => 'text',
+                'Size' => '191',
+                'Default' => 'http://timestamp.digicert.com',
+                'Description' => 'RFC 3161 timestamp authority used by AzureSignTool.',
+            ],
+            'agent_build_azuresigntool_path' => [
+                'FriendlyName' => 'AzureSignTool Path (Windows)',
+                'Type' => 'text',
+                'Size' => '191',
+                'Default' => 'C:\\Tools\\AzureSignTool\\AzureSignTool.exe',
+                'Description' => 'Full path to AzureSignTool.exe on the Windows build host.',
             ],
         ]
     ];
@@ -1799,7 +1911,7 @@ function cloudstorage_activate() {
             $table->unsignedInteger('tenant_id')->nullable();
             $table->string('repository_id', 64)->nullable();
             $table->enum('trigger_type', ['manual', 'schedule', 'validation'])->default('manual');
-            $table->enum('status', ['queued', 'starting', 'running', 'success', 'warning', 'failed', 'cancelled'])->default('queued');
+            $table->enum('status', ['queued', 'starting', 'running', 'success', 'warning', 'failed', 'cancelled', 'partial_success'])->default('queued');
             $table->timestamp('created_at')->useCurrent();
             $table->timestamp('started_at')->nullable();
             $table->timestamp('finished_at')->nullable();
@@ -2794,6 +2906,7 @@ function cloudstorage_activate() {
         }
 
         cloudstorage_ensure_hyperv_schema('activate');
+        cloudstorage_ensure_agent_build_schema('activate');
 
         // Create Tenant Portal Email Templates if they don't exist
         cloudstorage_create_email_templates();
@@ -3886,7 +3999,7 @@ function cloudstorage_upgrade($vars) {
                 $table->unsignedInteger('tenant_id')->nullable();
                 $table->string('repository_id', 64)->nullable();
                 $table->enum('trigger_type', ['manual', 'schedule', 'validation'])->default('manual');
-                $table->enum('status', ['queued', 'starting', 'running', 'success', 'warning', 'failed', 'cancelled'])->default('queued');
+                $table->enum('status', ['queued', 'starting', 'running', 'success', 'warning', 'failed', 'cancelled', 'partial_success'])->default('queued');
                 $table->timestamp('created_at')->useCurrent();
                 $table->timestamp('started_at')->nullable();
                 $table->timestamp('finished_at')->nullable();
@@ -3974,6 +4087,85 @@ function cloudstorage_upgrade($vars) {
                 }
             } catch (\Throwable $e) {
                 logModuleCall('cloudstorage', 'upgrade_extend_runs_engine_enum_fail', [], $e->getMessage(), [], []);
+            }
+            // Ensure status enum includes partial_success (Hyper-V multi-VM partial outcomes).
+            try {
+                $colType = \WHMCS\Database\Capsule::select("SHOW COLUMNS FROM s3_cloudbackup_runs WHERE Field = 'status'");
+                if (!empty($colType)) {
+                    $type = strtolower((string) ($colType[0]->Type ?? ''));
+                    if (strpos($type, "enum(") !== false && strpos($type, "'partial_success'") === false) {
+                        \WHMCS\Database\Capsule::statement("ALTER TABLE s3_cloudbackup_runs MODIFY COLUMN status ENUM('queued','starting','running','success','warning','failed','cancelled','partial_success') NOT NULL DEFAULT 'queued'");
+                        logModuleCall('cloudstorage', 'upgrade_extend_runs_status_enum', [], 'Extended runs.status enum to include partial_success', [], []);
+                    }
+                }
+            } catch (\Throwable $e) {
+                logModuleCall('cloudstorage', 'upgrade_extend_runs_status_enum_fail', [], $e->getMessage(), [], []);
+            }
+
+            // Phase 2A (beta hardening): widen narrow columns the agent now writes to so
+            // that strict-mode MySQL inserts do not start silently failing on customer
+            // DBs. These ALTERs are idempotent (LIKE-checked) and run once at upgrade.
+            $widenChecks = [
+                // table => [column, target type, predicate (sub-string of current Type
+                // that means we should leave it alone)]
+                ['table' => 's3_cloudbackup_run_events',   'col' => 'message_id',    'type' => 'VARCHAR(128)', 'skip_if' => 'varchar(128'],
+                ['table' => 's3_cloudbackup_run_events',   'col' => 'level',         'type' => 'VARCHAR(16)',  'skip_if' => 'varchar(16'],
+                ['table' => 's3_cloudbackup_run_events',   'col' => 'type',          'type' => 'VARCHAR(32)',  'skip_if' => 'varchar(32'],
+                ['table' => 's3_cloudbackup_run_events',   'col' => 'code',          'type' => 'VARCHAR(128)', 'skip_if' => 'varchar(128'],
+                ['table' => 's3_cloudbackup_run_commands', 'col' => 'type',          'type' => 'VARCHAR(64)',  'skip_if' => 'varchar(64'],
+                ['table' => 's3_cloudbackup_runs',         'col' => 'current_item',  'type' => 'VARCHAR(1024)', 'skip_if' => 'varchar(1024'],
+            ];
+            foreach ($widenChecks as $w) {
+                try {
+                    if (!\WHMCS\Database\Capsule::schema()->hasTable($w['table'])) {
+                        continue;
+                    }
+                    $col = \WHMCS\Database\Capsule::select(
+                        "SHOW COLUMNS FROM `{$w['table']}` WHERE Field = ?",
+                        [$w['col']]
+                    );
+                    if (empty($col)) {
+                        continue;
+                    }
+                    $type = strtolower((string) ($col[0]->Type ?? ''));
+                    if ($type === '' || strpos($type, $w['skip_if']) !== false) {
+                        continue;
+                    }
+                    // Only widen, never narrow: only proceed when the column is a
+                    // smaller varchar than the target.
+                    if (strpos($type, 'varchar(') !== 0) {
+                        continue;
+                    }
+                    \WHMCS\Database\Capsule::statement(
+                        "ALTER TABLE `{$w['table']}` MODIFY COLUMN `{$w['col']}` {$w['type']}"
+                    );
+                    logModuleCall(
+                        'cloudstorage',
+                        'upgrade_widen_column',
+                        ['table' => $w['table'], 'col' => $w['col'], 'from' => $type, 'to' => $w['type']],
+                        'Widened column for strict-mode safety',
+                        [],
+                        []
+                    );
+                } catch (\Throwable $e) {
+                    logModuleCall('cloudstorage', 'upgrade_widen_column_fail', $w, $e->getMessage(), [], []);
+                }
+            }
+
+            // Ensure run_commands.status ENUM includes 'cancelled' so a server-side
+            // cancel from a guard / overlap-rejection path can be recorded without
+            // truncation when strict mode is on.
+            try {
+                $colType = \WHMCS\Database\Capsule::select("SHOW COLUMNS FROM s3_cloudbackup_run_commands WHERE Field = 'status'");
+                if (!empty($colType)) {
+                    $type = strtolower((string) ($colType[0]->Type ?? ''));
+                    if (strpos($type, "enum(") !== false && strpos($type, "'cancelled'") === false) {
+                        \WHMCS\Database\Capsule::statement("ALTER TABLE s3_cloudbackup_run_commands MODIFY COLUMN status ENUM('pending','processing','completed','failed','cancelled') NOT NULL DEFAULT 'pending'");
+                        logModuleCall('cloudstorage', 'upgrade_extend_run_commands_status_enum', [], 'Extended run_commands.status enum to include cancelled', [], []);
+                    }
+                }
+            } catch (\Throwable $e) {
+                logModuleCall('cloudstorage', 'upgrade_extend_run_commands_status_enum_fail', [], $e->getMessage(), [], []);
             }
         }
 
@@ -4804,6 +4996,7 @@ function cloudstorage_upgrade($vars) {
         }
 
         cloudstorage_ensure_hyperv_schema('upgrade');
+        cloudstorage_ensure_agent_build_schema('upgrade');
         return ['status' => 'success'];
     } catch (\Exception $e) {
         logModuleCall('cloudstorage', 'upgrade', $vars, $e->getMessage());
@@ -5149,6 +5342,10 @@ function cloudstorage_output($vars)
             require_once __DIR__ . '/pages/admin/bucket_monitor.php';
             cloudstorage_admin_bucket_monitor($vars);
             break;
+        case 'agent_builds':
+            require_once __DIR__ . '/pages/admin/agent_builds.php';
+            cloudstorage_admin_agent_builds($vars);
+            break;
         default:
             // Default overview / entry page with navigation tabs
             echo '<div class="content-padded">';
@@ -5161,6 +5358,7 @@ function cloudstorage_output($vars)
             echo '  <li><a href="' . htmlspecialchars($baseUrl . '&action=cloudbackup_admin') . '">Cloud Backup Admin</a></li>';
             echo '  <li><a href="' . htmlspecialchars($baseUrl . '&action=deprovision') . '">Deprovision Cloud Storage Customer</a></li>';
             echo '  <li><a href="' . htmlspecialchars($baseUrl . '&action=reconcile') . '">Reconciliation</a></li>';
+            echo '  <li><a href="' . htmlspecialchars($baseUrl . '&action=agent_builds') . '">Agent Builds</a></li>';
             echo '</ul>';
 
             echo '<div class="panel panel-default">';
@@ -5202,6 +5400,9 @@ function cloudstorage_sidebar($vars)
         </a>
         <a href="' . $_SERVER['PHP_SELF'] . '?module=cloudstorage&action=reconcile" class="list-group-item">
             <i class="fa fa-exchange"></i> Reconciliation
+        </a>
+        <a href="' . $_SERVER['PHP_SELF'] . '?module=cloudstorage&action=agent_builds" class="list-group-item">
+            <i class="fa fa-cogs"></i> Agent Builds
         </a>
     </div>';
     
@@ -5322,4 +5523,93 @@ function cloudstorage_get_welcome_sso_redirect(): ?string
     }
     cloudstorage_clear_trial_sso_session();
     return null;
+}
+
+/**
+ * Ensure schema for the e3 agent build automation system.
+ *
+ * Creates s3_agent_build_jobs, s3_agent_build_steps, s3_agent_releases tables
+ * (idempotent) and the storage/builds directory used for per-step log files.
+ */
+function cloudstorage_ensure_agent_build_schema(string $context = 'activate'): void
+{
+    try {
+        $schema = \WHMCS\Database\Capsule::schema();
+
+        if (!$schema->hasTable('s3_agent_build_jobs')) {
+            $schema->create('s3_agent_build_jobs', function ($t) {
+                $t->bigIncrements('id');
+                $t->unsignedInteger('created_by_admin_id')->nullable();
+                $t->enum('platform', ['linux', 'windows', 'both', 'recovery_iso'])->default('both');
+                $t->string('git_ref', 191)->default('main');
+                $t->string('git_commit', 64)->nullable();
+                $t->string('version_label', 64)->nullable();
+                $t->text('flags_json')->nullable();
+                $t->enum('status', ['queued', 'running', 'succeeded', 'failed', 'cancelled'])->default('queued');
+                $t->string('current_step', 64)->nullable();
+                $t->text('error_message')->nullable();
+                $t->string('host_runner', 191)->nullable();
+                $t->dateTime('started_at')->nullable();
+                $t->dateTime('ended_at')->nullable();
+                $t->timestamp('created_at')->useCurrent();
+                $t->timestamp('updated_at')->useCurrent();
+                $t->index('status');
+                $t->index('created_at');
+            });
+            logModuleCall('cloudstorage', $context, [], 'Created s3_agent_build_jobs', [], []);
+        }
+
+        if (!$schema->hasTable('s3_agent_build_steps')) {
+            $schema->create('s3_agent_build_steps', function ($t) {
+                $t->bigIncrements('id');
+                $t->unsignedBigInteger('job_id');
+                $t->string('step_key', 64);
+                $t->unsignedInteger('seq')->default(0);
+                $t->enum('status', ['pending', 'running', 'succeeded', 'failed', 'skipped'])->default('pending');
+                $t->integer('exit_code')->nullable();
+                $t->dateTime('started_at')->nullable();
+                $t->dateTime('ended_at')->nullable();
+                $t->string('log_path', 1024)->nullable();
+                $t->unsignedBigInteger('bytes_logged')->default(0);
+                $t->text('summary')->nullable();
+                $t->timestamp('created_at')->useCurrent();
+                $t->timestamp('updated_at')->useCurrent();
+                $t->index(['job_id', 'seq']);
+                $t->unique(['job_id', 'step_key']);
+            });
+            logModuleCall('cloudstorage', $context, [], 'Created s3_agent_build_steps', [], []);
+        }
+
+        if (!$schema->hasTable('s3_agent_releases')) {
+            $schema->create('s3_agent_releases', function ($t) {
+                $t->bigIncrements('id');
+                $t->unsignedBigInteger('job_id')->nullable();
+                $t->enum('platform', ['linux', 'windows', 'recovery_iso'])->default('linux');
+                $t->string('artifact_filename', 191);
+                $t->string('version_label', 64)->nullable();
+                $t->string('git_commit', 64)->nullable();
+                $t->string('sha256', 64)->nullable();
+                $t->unsignedBigInteger('size_bytes')->nullable();
+                $t->string('signed_subject', 255)->nullable();
+                $t->dateTime('signed_at')->nullable();
+                $t->tinyInteger('is_latest')->default(0);
+                $t->string('download_url', 1024)->nullable();
+                $t->dateTime('published_at')->nullable();
+                $t->timestamp('created_at')->useCurrent();
+                $t->index(['platform', 'is_latest']);
+                $t->index('published_at');
+            });
+            logModuleCall('cloudstorage', $context, [], 'Created s3_agent_releases', [], []);
+        }
+
+        // Ensure storage/builds directory exists with reasonable perms
+        $storageDir = __DIR__ . '/storage/builds';
+        if (!is_dir($storageDir)) {
+            @mkdir($storageDir, 0750, true);
+        }
+    } catch (\Throwable $e) {
+        try {
+            logModuleCall('cloudstorage', 'ensure_agent_build_schema', [], $e->getMessage(), [], []);
+        } catch (\Throwable $_) {}
+    }
 }

@@ -68,8 +68,8 @@
                                     <span class="eb-badge eb-badge--success">{$metrics.last_run_status|ucfirst}</span>
                                 {elseif $metrics.last_run_status eq 'failed'}
                                     <span class="eb-badge eb-badge--danger">{$metrics.last_run_status|ucfirst}</span>
-                                {elseif $metrics.last_run_status eq 'cancelled'}
-                                    <span class="eb-badge eb-badge--warning">{$metrics.last_run_status|ucfirst}</span>
+                                {elseif $metrics.last_run_status eq 'cancelled' || $metrics.last_run_status eq 'warning' || $metrics.last_run_status eq 'partial_success'}
+                                    <span class="eb-badge eb-badge--warning">{if $metrics.last_run_status eq 'partial_success'}Partial Success{else}{$metrics.last_run_status|ucfirst}{/if}</span>
                                 {else}
                                     <span class="eb-badge eb-badge--neutral">{$metrics.last_run_status|ucfirst}</span>
                                 {/if}
@@ -137,8 +137,8 @@
                                         <span class="eb-badge eb-badge--danger">{$run.status|ucfirst}</span>
                                     {elseif $run.status eq 'running' || $run.status eq 'starting'}
                                         <span class="eb-badge eb-badge--info">{$run.status|ucfirst}</span>
-                                    {elseif $run.status eq 'warning' || $run.status eq 'cancelled'}
-                                        <span class="eb-badge eb-badge--warning">{$run.status|ucfirst}</span>
+                                    {elseif $run.status eq 'warning' || $run.status eq 'cancelled' || $run.status eq 'partial_success'}
+                                        <span class="eb-badge eb-badge--warning">{if $run.status eq 'partial_success'}Partial Success{else}{$run.status|ucfirst}{/if}</span>
                                     {else}
                                         <span class="eb-badge eb-badge--neutral">{$run.status|ucfirst}</span>
                                     {/if}
@@ -237,8 +237,8 @@
                                     <span class="eb-badge eb-badge--success">{$metrics.last_run_status|ucfirst}</span>
                                 {elseif $metrics.last_run_status eq 'failed'}
                                     <span class="eb-badge eb-badge--danger">{$metrics.last_run_status|ucfirst}</span>
-                                {elseif $metrics.last_run_status eq 'cancelled'}
-                                    <span class="eb-badge eb-badge--warning">{$metrics.last_run_status|ucfirst}</span>
+                                {elseif $metrics.last_run_status eq 'cancelled' || $metrics.last_run_status eq 'warning' || $metrics.last_run_status eq 'partial_success'}
+                                    <span class="eb-badge eb-badge--warning">{if $metrics.last_run_status eq 'partial_success'}Partial Success{else}{$metrics.last_run_status|ucfirst}{/if}</span>
                                 {else}
                                     <span class="eb-badge eb-badge--neutral">{$metrics.last_run_status|ucfirst}</span>
                                 {/if}

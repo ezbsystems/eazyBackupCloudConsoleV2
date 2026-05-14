@@ -230,30 +230,51 @@ class BucketSizeMonitor {
                 ->pluck('name')
                 ->toArray();
 
-            // Get the latest collection time for each bucket with parent user information
+            // Get the latest collection time for each bucket with parent user information.
+            //
+            // De-duplication strategy:
+            // After moving to tenanted Ceph user accounts, both `s3_users.username` and
+            // `s3_buckets.name` can have duplicate values in the wild (legacy rows that
+            // still exist alongside re-provisioned tenanted rows, or buckets recorded
+            // under multiple owner-name forms). Previously the joins below fanned out
+            // those duplicates, causing the same bucket to appear multiple times in the
+            // Bucket Monitor table.
+            //
+            // We now collapse each lookup table to one canonical row per join key by
+            // selecting the lowest `id` per `username` / `name`, so each bucket history
+            // row joins to exactly one user and one bucket record.
             $latestDataQuery = Capsule::table('s3_bucket_sizes_history as h1')
                 ->select([
                     'h1.bucket_name',
-                    'h1.bucket_owner', 
+                    'h1.bucket_owner',
                     'h1.bucket_size_bytes',
                     'h1.bucket_object_count',
                     'h1.collected_at',
                     'owner_user.parent_id as owner_parent_id',
                     'parent_user.username as parent_username',
-                    Capsule::raw('CASE WHEN s3_buckets.id IS NOT NULL THEN 1 ELSE 0 END as is_whmcs_bucket')
+                    Capsule::raw('CASE WHEN sb_unique.id IS NOT NULL THEN 1 ELSE 0 END as is_whmcs_bucket')
                 ])
                 ->join(Capsule::raw('(
-                    SELECT bucket_name, bucket_owner, MAX(collected_at) as max_collected_at 
-                    FROM s3_bucket_sizes_history 
+                    SELECT bucket_name, bucket_owner, MAX(collected_at) as max_collected_at
+                    FROM s3_bucket_sizes_history
                     GROUP BY bucket_name, bucket_owner
                 ) h2'), function($join) {
                     $join->on('h1.bucket_name', '=', 'h2.bucket_name')
                          ->on('h1.bucket_owner', '=', 'h2.bucket_owner')
                          ->on('h1.collected_at', '=', 'h2.max_collected_at');
                 })
-                ->leftJoin('s3_users as owner_user', 'h1.bucket_owner', '=', 'owner_user.username')
+                ->leftJoin(Capsule::raw('(
+                    SELECT username, MIN(id) AS id
+                    FROM s3_users
+                    GROUP BY username
+                ) ulu'), 'h1.bucket_owner', '=', 'ulu.username')
+                ->leftJoin('s3_users as owner_user', 'owner_user.id', '=', 'ulu.id')
                 ->leftJoin('s3_users as parent_user', 'owner_user.parent_id', '=', 'parent_user.id')
-                ->leftJoin('s3_buckets', 'h1.bucket_name', '=', 's3_buckets.name');
+                ->leftJoin(Capsule::raw('(
+                    SELECT name, MIN(id) AS id
+                    FROM s3_buckets
+                    GROUP BY name
+                ) sb_unique'), 'h1.bucket_name', '=', 'sb_unique.name');
 
             // Apply filter type
             if ($filterType === 'whmcs') {
@@ -298,6 +319,23 @@ class BucketSizeMonitor {
                 }
             }
             
+            // Defensive de-duplication: even with the canonical-row joins above, we
+            // guarantee one row per (bucket_name, bucket_owner) here so the rendered
+            // table can never repeat the same bucket. This protects against any
+            // residual fan-out (e.g. multiple history rows sharing the exact same
+            // collected_at for a bucket).
+            $seenKeys = [];
+            $deduped = [];
+            foreach ($results as $row) {
+                $key = ($row->bucket_name ?? '') . '|' . ($row->bucket_owner ?? '');
+                if (isset($seenKeys[$key])) {
+                    continue;
+                }
+                $seenKeys[$key] = true;
+                $deduped[] = $row;
+            }
+            $results = $deduped;
+
             // Format the results with growth calculations
             $buckets = [];
             $totalSize = 0;

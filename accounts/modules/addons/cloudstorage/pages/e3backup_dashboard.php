@@ -126,6 +126,10 @@ try {
             $status24h[$s] = (int) $row->cnt;
         } elseif ($s === 'starting' || $s === 'queued') {
             $status24h['running'] += (int) $row->cnt;
+        } elseif ($s === 'partial_success') {
+            // Phase 2D: surface partial_success as a warning so dashboard
+            // chrome doesn't render a half-failed multi-VM Hyper-V run as green.
+            $status24h['warning'] += (int) $row->cnt;
         }
     }
 } catch (\Exception $e) {

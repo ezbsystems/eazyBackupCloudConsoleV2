@@ -1,0 +1,17 @@
+{
+    "id": "evt_placeholder",
+    "object": "event",
+    "type": "charge.dispute.closed",
+    "account": "acct_test_placeholder",
+    "data": {
+        "object": {
+            "id": "dp_placeholder",
+            "object": "dispute",
+            "amount": 12500,
+            "currency": "cad",
+            "reason": "fraudulent",
+            "status": "lost",
+            "charge": "ch_disputed_placeholder"
+        }
+    }
+}

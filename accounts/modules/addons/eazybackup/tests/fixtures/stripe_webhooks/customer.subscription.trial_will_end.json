@@ -1,0 +1,15 @@
+{
+    "id": "evt_placeholder",
+    "object": "event",
+    "type": "customer.subscription.trial_will_end",
+    "account": "acct_test_placeholder",
+    "data": {
+        "object": {
+            "id": "sub_trial",
+            "object": "subscription",
+            "status": "trialing",
+            "customer": "cus_placeholder",
+            "trial_end": 1735689600
+        }
+    }
+}

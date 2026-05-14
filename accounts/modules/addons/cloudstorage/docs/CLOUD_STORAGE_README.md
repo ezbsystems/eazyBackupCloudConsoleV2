@@ -207,14 +207,24 @@ It provides two independent views:
   - The backend aggregates to **one point per day per bucket** (daily MAX) to avoid over-counting when multiple samples exist in a day.
   - Those per-bucket daily max values are summed across buckets to produce the daily total time-series.
 
-### 2) Pool forecast chart (“Ceph Pool Forecast (80% threshold)”)
+### 2) Pool forecast chart (“Ceph Pool Forecast (configurable threshold)”)
 
-- **What it shows**: actual Ceph pool used bytes + a forecast forward in time + the **80% threshold** line.
-- **What it answers**: “When will `default.rgw.buckets.data` reach 80% full?”
+- **What it shows**: actual Ceph pool used bytes + a forecast forward in time + a user-selected fullness threshold line + a 95% prediction band.
+- **What it answers**: “When will `default.rgw.buckets.data` reach the chosen fullness threshold?”
 - **Data source**: time-series stored in `ceph_pool_usage_history`, collected by `accounts/crons/ceph_pool_monitor.php`.
 - **Why this is better than summing bucket sizes**:
   - Pool fullness is a **Ceph capacity** question (includes EC overhead/behaviour and cluster-wide constraints).
   - The forecast uses the pool’s **used_bytes** and **max_avail_bytes** as reported by Ceph metrics.
+
+#### Forecast controls (admin UI)
+
+The pool forecast card exposes three dropdowns:
+
+- **History** — how much past data is fed into the trend fit. Options: `30 / 90 / 120 / 180` days. Larger windows smooth out short-term noise but are slower to react to recent changes in growth rate.
+- **Forecast** — how far forward the forecast line and prediction band are extrapolated. Options: `+90 / +180 / +365` days.
+- **Limit** — the storage fullness threshold used for the threshold line and the “ETA to N%” box. Options: `60 / 65 / 70 / 75 / 80 / 85` percent. Lower limits give earlier warnings (typical for capacity-planning runbooks) and higher limits represent the “hard” danger zone.
+
+The chart title (“Ceph Pool Forecast (N% threshold)”), the threshold annotation label, the ETA card heading, and the “Already ≥ N%” label all update live to match the selected **Limit**. The threshold value (`threshold_bytes`) is recomputed server-side from the latest `capacity_bytes` snapshot multiplied by the requested percent.
 
 ## Pool usage collection sources (CLI vs Prometheus)
 
@@ -225,9 +235,9 @@ The pool monitor supports multiple sources (configured in WHMCS addon settings):
 
 > Important: the “Prometheus Base URL” must point to the **Prometheus server API** (often `:9090` or your Ceph-managed `:9095`), not a `ceph-exporter` `:9283/metrics` endpoint.
 
-## Forecast / prediction model (how “ETA to 80%” is computed)
+## Forecast / prediction model (how “ETA to N%” is computed)
 
-The goal is to estimate the date \(t\) when the monitored pool crosses a target percent (default **80%**).
+The goal is to estimate the date \(t\) when the monitored pool crosses a user-selected fullness threshold (default **80%**, configurable in the admin UI).
 
 ### Inputs
 
@@ -236,33 +246,69 @@ For each collection point we store:
 - **max_avail_bytes**
 - **capacity_bytes** = used_bytes + max_avail_bytes
 
-The **80% threshold** is computed from the latest capacity snapshot:
-- **threshold_bytes** = 0.8 × capacity_bytes
+The threshold is computed from the latest capacity snapshot:
+- **threshold_bytes** = (target_percent / 100) × capacity_bytes
 
 ### Preprocessing
 
 To reduce noise, forecasting operates on **daily maxima**:
 - For each day, take the **MAX(used_bytes)** observed that day.
 
-### Trend fit (robust)
+### Trend fit (robust Theil–Sen)
 
 We estimate a growth rate using a robust linear trend on daily points:
-- **Theil–Sen** slope (median slope across point pairs), which is resistant to outliers/spikes.
+- **Theil–Sen** slope \(m\) = median of pairwise slopes across all daily samples (resistant to outliers/spikes).
+- **Theil–Sen intercept** \(b\) = median of \(y_i - m \cdot x_i\) — paired with the slope to form the standard Theil–Sen estimator.
+- Both medians are computed correctly for even-sized arrays (average of the two middle values), avoiding a small bias that previously favored the upper-middle value.
 
-This yields:
-- \(m\) = slope in bytes/day
-- \(b\) = intercept in bytes
+### Anchored forecast (continuous with the latest sample)
+
+Rather than plotting the model line \(m x + b\) directly into the future (which can produce a visible step where the actual line ends and the forecast begins, when the linear fit doesn’t pass exactly through the most recent point), the forecast and ETA are **anchored at the latest observed sample**:
+
+- \(y_{last}\) = used_bytes at the most recent daily point
+- \(t_{last}\) = its timestamp
+- For \(k = 0, 1, …, \text{forecastDays}\):
+  - forecast value = \(y_{last} + m \cdot k\)
+  - timestamp = \(t_{last} + k \cdot 86400\) seconds
+
+This makes the actual / forecast lines join smoothly and ensures the ETA is calculated from the actual current state of the pool, not from where the historical fit happens to land.
+
+### Prediction band (95%)
+
+To convey forecast uncertainty, the API now also returns lower / upper bounds:
+
+1. Compute residuals \(r_i = y_i - (m x_i + b)\) on the historical fit.
+2. Compute the **median absolute deviation** (MAD) of \(r_i\).
+3. Convert MAD to a Gaussian-equivalent standard deviation using the standard scaling: \(\sigma_{robust} = 1.4826 \cdot \text{MAD}\).
+4. For each forecast point at offset \(k\) days, the band width is \(1.96 \cdot \sigma_{robust} \cdot \sqrt{\max(1, k)}\) (≈ 95% under a Gaussian residual assumption, growing with horizon to reflect rising uncertainty).
+
+The chart renders the bounds as two thin dashed lines (`Forecast Lower (95%)` / `Forecast Upper (95%)`) above and below the main forecast line.
+
+### Goodness-of-fit indicator
+
+The API additionally returns:
+
+- `model.r_squared` — coefficient of determination of the historical fit, in `[0, 1]`.
+- `model.fit_quality` — heuristic label derived from R²: `good` (≥ 0.85), `fair` (≥ 0.6), otherwise `poor`.
+- `model.history_points` — number of daily samples used (`n`).
+- `model.mad_bytes` / `model.sigma_robust_bytes` — the robust noise estimate exposed for inspection.
+
+The admin UI shows this inline below the chart as “Fit quality: Good (R²: 91.7% · n=91)”.
 
 ### ETA computation
 
-If \(m \le 0\), we do not report an ETA (pool is stable or shrinking).
+The ETA is computed from the anchored forecast (not from the model line):
 
-Otherwise, solve for the day index when predicted used bytes crosses the threshold:
-- \(m \cdot d + b = \text{threshold\_bytes}\)
+- If \(y_{last} \ge \text{threshold\_bytes}\): the threshold is already reached.
+- If \(m \le 0\): no ETA is reported (pool is stable or shrinking).
+- Otherwise: \(\text{daysAhead} = \lceil (\text{threshold\_bytes} - y_{last}) / m \rceil\), and the projected date is \(t_{last} + \text{daysAhead}\) days.
 
 The UI shows:
+
 - forecast line (dashed)
-- “ETA to 80%” as a date and “(Nd)” days away
+- 95% prediction band (two dashed thin lines)
+- “ETA to N%” as a date and “(Nd)” days away, where N is the selected limit
+- Fit-quality summary (`Good / Fair / Poor`, R², `n`)
 
 ## Required crons (recommended schedules + examples)
 
@@ -329,6 +375,43 @@ crontab -l | grep ceph_pool_monitor.php
 - **Pool cron says “No data returned”**:
   - Your PromQL label key may be different. Some Ceph deployments key pool metrics by `pool_id`.
   - The implementation includes a fallback join via `ceph_pool_metadata{name="..."}` for common Ceph exporter layouts.
+
+## Recent updates: Bucket Monitor (forecast model + table de-duplication)
+
+This update improves accuracy and reliability of the **Cloud Storage Bucket Monitor** admin page (`addonmodules.php?module=cloudstorage&action=bucket_monitor`).
+
+### 1) Forecast controls
+
+Three dropdowns are exposed in the pool forecast card. See [Forecast / prediction model](#forecast--prediction-model-how-eta-to-n-is-computed) above for the model details.
+
+- **History**: `30 / 90 / 120 / 180` days (a new **120 days** option was added between 90 and 180 to give an additional medium-term window).
+- **Forecast**: `+90 / +180 / +365` days.
+- **Limit**: `60 / 65 / 70 / 75 / 80 / 85` percent. Drives the threshold line, the “ETA to N%” box, the chart title, and the threshold annotation. The previous fixed “80%” threshold remains the default.
+
+### 2) Forecast model improvements (`CephPoolMonitor::getForecast`)
+
+- **Anchored forecast**: the forecast line and ETA are anchored at the latest observed sample, so the actual / forecast lines join smoothly and the ETA is computed from the actual current state of the pool rather than from where the linear fit happens to land.
+- **Proper median**: median selection in the Theil–Sen slope and intercept calculations now correctly averages the two middle values for even-sized arrays (previous implementation had a small bias toward the upper-middle value).
+- **95% prediction band**: residuals from the historical fit are summarized via MAD (median absolute deviation) scaled to a Gaussian-equivalent σ. Upper and lower forecast series grow with `√k` to convey rising uncertainty over the forecast horizon. The chart now renders these as two thin dashed lines around the main forecast.
+- **Goodness-of-fit metric**: the API returns `r_squared`, `mad_bytes`, `sigma_robust_bytes`, `history_points`, and a heuristic `fit_quality` label (`good / fair / poor`). The admin UI shows this inline as e.g. “Fit quality: Good (R²: 91.7% · n=91)”.
+- **Backwards-compatible response**: the existing keys (`used_bytes_series`, `forecast_series`, `threshold_bytes`, `target_percent`, `eta_to_target`, `latest`, `model.*`) are unchanged. New keys (`forecast_lower_series`, `forecast_upper_series`, additional `model.*` fields) are additive.
+
+### 3) Bucket Details table de-duplication
+
+Some tenanted buckets (and a few legacy buckets that share names like `restic` / `backup`) appeared **twice** in the Bucket Details table. The cause was join fan-out in `BucketSizeMonitor::getCurrentBucketSizes()`:
+
+- After moving to tenanted Ceph user accounts, `s3_users.username` can have multiple rows with the same value (e.g. legacy + re-provisioned tenanted rows for the same uid). The previous query left-joined on `bucket_owner = s3_users.username`, multiplying matched rows.
+- `s3_buckets.name` similarly has occasional duplicate rows (legacy + new rows sharing the same name), and the left join on `name` multiplied those too.
+- A small number of `s3_bucket_sizes_history` rows share the exact same `(bucket_name, bucket_owner, collected_at)` tuple, which the inner `MAX(collected_at)` join also multiplied.
+
+Fix:
+
+- The `s3_users` and `s3_buckets` joins are now done through canonical-row subqueries (`SELECT username, MIN(id) AS id FROM s3_users GROUP BY username`, and the analogous query for `s3_buckets`). This guarantees each history row joins to **exactly one** user record and one bucket record.
+- A defensive PHP-side de-duplication step also enforces one row per `(bucket_name, bucket_owner)` after the SQL query, so any residual fan-out (e.g. from duplicate history rows with identical timestamps) cannot leak into the rendered table.
+
+The `is_whmcs_bucket` flag, parent username resolution, growth metrics, and totals are otherwise unchanged.
+
+> Note: the duplicate rows in `s3_users` / `s3_buckets` / `s3_bucket_sizes_history` themselves are not modified by this change. They are pre-existing and can be cleaned up safely as a separate maintenance task; the monitor page is now robust to them.
 
 ## Recent updates: Users & Access Keys (Client Area UX + security)
 

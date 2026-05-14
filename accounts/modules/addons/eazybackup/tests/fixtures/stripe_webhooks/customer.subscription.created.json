@@ -1,0 +1,14 @@
+{
+    "id": "evt_placeholder",
+    "object": "event",
+    "type": "customer.subscription.created",
+    "account": "acct_test_placeholder",
+    "data": {
+        "object": {
+            "id": "sub_placeholder",
+            "object": "subscription",
+            "status": "active",
+            "customer": "cus_placeholder"
+        }
+    }
+}

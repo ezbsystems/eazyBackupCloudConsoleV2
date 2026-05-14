@@ -138,6 +138,21 @@ Full-page Partner Hub views use a fixed left vertical sidebar for navigation. Th
 - Addon setting `ops_whmcs_upstream` is used by HostOps when writing HTTPS vhosts for signup domains.
 - Public routes resolve tenant by Host header; unknown hosts show an invalid-host page.
 
+### Partner Hub Access Control (client groups)
+- Addon setting `partnerhub_groups` (Admin → Setup → Addon Modules → eazyBackup) is a
+  CSV/dual-pane list of WHMCS client-group IDs. Only clients whose `tblclients.groupid`
+  is in that list see the Partner Hub navigation link and can load Partner Hub routes
+  (`a=ph-*`). Holding a white-label/Comet product is **not** a prerequisite — billing-only
+  MSPs are first-class Partner Hub users.
+- Helpers: `eazybackup_partnerhub_group_ids()` and
+  `eazybackup_client_can_access_partnerhub(int $clientId)` in `eazybackup.php`.
+- Enforcement points: nav visibility in `hooks.php` (`eb_partner_hub_enabled`,
+  `eb_partner_hub_allowed`) and the server-side gate
+  `eb_ph_tenants_require_context()` in `pages/partnerhub/TenantsController.php`. The
+  gate auto-provisions an `eb_msp_accounts` row for an allowed client on first access.
+- If `partnerhub_groups` is empty, Partner Hub is closed for everyone (the nav link is
+  hidden and direct hits to `a=ph-*` redirect to `clientarea.php`).
+
 ## Public-Facing Pages
 - Public Signup
   - Route: `index.php?m=eazybackup&a=public-signup`

@@ -11,6 +11,8 @@
 
   function renderSimpleChart(el, data){
     if (!el) return;
+    // Cache the latest data on the element so we can re-render on resize.
+    el.__ebChartData = data;
     const w = el.clientWidth || 600;
     const h = el.clientHeight || 160;
     let pad = { l: 40, r: 10, t: 12, b: 24 };
@@ -18,9 +20,16 @@
     let innerH = Math.max(10, h - pad.t - pad.b);
 
     el.innerHTML = '';
+    // Constrain the host so the SVG can never overflow its container.
+    el.style.overflow = 'hidden';
+    el.style.maxWidth = '100%';
     const svg = document.createElementNS('http://www.w3.org/2000/svg','svg');
     svg.setAttribute('width', String(w));
     svg.setAttribute('height', String(h));
+    svg.setAttribute('viewBox', '0 0 ' + w + ' ' + h);
+    svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+    svg.style.display = 'block';
+    svg.style.maxWidth = '100%';
     el.appendChild(svg);
 
     if (!data || data.length === 0){
@@ -179,10 +188,33 @@
       const endpoint = window.EB_MODULE_LINK;
       const days = 180;
       if (!endpoint || !username) return;
+
+      // Re-render the chart whenever the chart container changes size (e.g.
+      // window resize, sidebar toggle, or when the parent tab first becomes
+      // visible and the element gains a non-zero width). This keeps the SVG
+      // in sync with the available width so lines never overflow the card.
+      let lastW = 0, rafId = 0;
+      const rerender = () => {
+        if (!chartEl || !chartEl.__ebChartData) return;
+        const w = chartEl.clientWidth || 0;
+        if (w === lastW) return;
+        lastW = w;
+        renderSimpleChart(chartEl, chartEl.__ebChartData);
+      };
+      const scheduleRerender = () => {
+        if (rafId) return;
+        rafId = window.requestAnimationFrame(() => { rafId = 0; rerender(); });
+      };
+      if (chartEl && typeof window.ResizeObserver === 'function') {
+        try { new ResizeObserver(scheduleRerender).observe(chartEl); } catch(e) {}
+      }
+      window.addEventListener('resize', scheduleRerender);
+
       fetchHistory(endpoint, username, days).then((resp)=>{
         if (!resp || resp.status !== 'success') return;
         const data = resp.data || [];
         renderSimpleChart(chartEl, data);
+        lastW = chartEl ? (chartEl.clientWidth || 0) : 0;
       }).catch(()=>{});
     } catch(e) {}
   }

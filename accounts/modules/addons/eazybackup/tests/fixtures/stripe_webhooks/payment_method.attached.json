@@ -1,0 +1,14 @@
+{
+    "id": "evt_placeholder",
+    "object": "event",
+    "type": "payment_method.attached",
+    "account": "acct_test_placeholder",
+    "data": {
+        "object": {
+            "id": "pm_placeholder",
+            "object": "payment_method",
+            "type": "card",
+            "customer": "cus_placeholder"
+        }
+    }
+}

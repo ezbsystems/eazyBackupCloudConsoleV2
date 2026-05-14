@@ -288,12 +288,25 @@ class CephPoolMonitor
 
     /**
      * Forecast when the pool hits a target percent (default 80%) using the last N days.
-     * Uses Theil–Sen (median slope) on daily max points for robustness.
+     *
+     * The model is a robust linear trend on daily-max used bytes:
+     *   1. Theil–Sen median slope across all pairwise points (resistant to outliers).
+     *   2. Intercept set to median(y - slope*x) so the line is the Theil–Sen estimator.
+     *
+     * Improvements applied to keep the chart and ETA consistent and actionable:
+     *   - Forecast is anchored at the latest observed sample, so the forecast line
+     *     starts from the actual current value (no visual gap when the fit doesn't
+     *     pass exactly through the last point).
+     *   - ETA is derived from the same anchor: days_to_target = (threshold - last) / slope.
+     *   - A 95% prediction band is returned as upper/lower series, derived from
+     *     the residual MAD (robust noise estimate, scaled to a Gaussian-equivalent
+     *     standard deviation) and growing modestly over the forecast horizon.
+     *   - R² on the historical fit is returned so the UI can show forecast confidence.
      *
      * @param string $poolName
-     * @param int $historyDays
-     * @param int $forecastDays
-     * @param float $targetPercent
+     * @param int    $historyDays
+     * @param int    $forecastDays
+     * @param float  $targetPercent
      * @return array
      */
     public static function getForecast($poolName, $historyDays = 90, $forecastDays = 180, $targetPercent = 80.0)
@@ -302,6 +315,9 @@ class CephPoolMonitor
         $historyDays = max(7, (int)$historyDays);
         $forecastDays = max(30, (int)$forecastDays);
         $targetPercent = (float)$targetPercent;
+        if ($targetPercent <= 0 || $targetPercent >= 100) {
+            $targetPercent = 80.0;
+        }
 
         $history = self::getDailyHistory($poolName, $historyDays);
         if (($history['status'] ?? '') !== 'success') {
@@ -310,13 +326,16 @@ class CephPoolMonitor
 
         $actual = $history['used_bytes_series'] ?? [];
         $latest = $history['latest'] ?? null;
+        $n = count($actual);
 
-        if (!$latest || count($actual) < 7) {
+        if (!$latest || $n < 7) {
             return [
                 'status' => 'success',
                 'pool_name' => $poolName,
                 'used_bytes_series' => $actual,
                 'forecast_series' => [],
+                'forecast_lower_series' => [],
+                'forecast_upper_series' => [],
                 'threshold_bytes' => null,
                 'target_percent' => $targetPercent,
                 'eta_to_target' => null,
@@ -328,9 +347,7 @@ class CephPoolMonitor
         $capacityBytes = (int)($latest['capacity_bytes'] ?? 0);
         $thresholdBytes = $capacityBytes > 0 ? (int)round(($targetPercent / 100.0) * $capacityBytes) : null;
 
-        // Build x (day index) and y (used bytes) arrays
         $y = array_map(function ($pt) { return (int)($pt['y'] ?? 0); }, $actual);
-        $n = count($y);
         $x = range(0, $n - 1);
 
         // Theil–Sen median slope
@@ -342,50 +359,94 @@ class CephPoolMonitor
                 $slopes[] = ($y[$j] - $y[$i]) / $dx;
             }
         }
-        sort($slopes);
-        $slope = $slopes ? (float)$slopes[(int)floor(count($slopes) / 2)] : 0.0;
+        $slope = self::medianFloat($slopes);
 
-        // Intercept as median(y - slope*x)
-        $intercepts = [];
+        // Theil–Sen intercept = median(y_i - slope*x_i)
+        $resOffsets = [];
         for ($i = 0; $i < $n; $i++) {
-            $intercepts[] = $y[$i] - ($slope * $x[$i]);
+            $resOffsets[] = $y[$i] - ($slope * $x[$i]);
         }
-        sort($intercepts);
-        $intercept = $intercepts ? (float)$intercepts[(int)floor(count($intercepts) / 2)] : (float)$y[$n - 1];
+        $intercept = self::medianFloat($resOffsets);
+        if ($intercept === null) {
+            $intercept = (float)$y[$n - 1];
+        }
 
-        // Compute forecast series (bytes) from last actual point forward
+        // Residuals + goodness-of-fit
+        $residuals = [];
+        $absResiduals = [];
+        $ssRes = 0.0;
+        for ($i = 0; $i < $n; $i++) {
+            $pred = $intercept + ($slope * $x[$i]);
+            $r = (float)$y[$i] - $pred;
+            $residuals[] = $r;
+            $absResiduals[] = abs($r);
+            $ssRes += $r * $r;
+        }
+        $yMean = array_sum($y) / $n;
+        $ssTot = 0.0;
+        for ($i = 0; $i < $n; $i++) {
+            $diff = (float)$y[$i] - $yMean;
+            $ssTot += $diff * $diff;
+        }
+        $rSquared = $ssTot > 0 ? max(0.0, min(1.0, 1.0 - ($ssRes / $ssTot))) : 0.0;
+
+        // Robust noise estimate: MAD scaled to a Gaussian-equivalent std-dev.
+        $mad = self::medianFloat($absResiduals) ?: 0.0;
+        $sigmaRobust = 1.4826 * $mad;
+
+        // Anchor the forecast at the latest observed sample so the chart is
+        // continuous and the ETA is computed from the actual current state,
+        // not from where the fit happens to land at day n-1.
         $lastTs = (int)($actual[$n - 1]['x'] ?? 0);
-        $dayMs = 86400 * 1000;
+        $yLast  = (int)($actual[$n - 1]['y'] ?? 0);
+        $dayMs  = 86400 * 1000;
+
+        // ~95% prediction band (1.96 sigma). Width grows mildly with horizon
+        // (sqrt(k)) to convey rising uncertainty further into the future.
+        $bandFactor = 1.96;
+
         $forecast = [];
-        for ($d = $n - 1; $d <= $n - 1 + $forecastDays; $d++) {
-            $ts = $lastTs + (($d - ($n - 1)) * $dayMs);
-            $pred = $intercept + ($slope * $d);
-            $forecast[] = [
-                'x' => $ts,
-                'y' => max(0, (int)round($pred)),
-            ];
+        $forecastLower = [];
+        $forecastUpper = [];
+        for ($k = 0; $k <= $forecastDays; $k++) {
+            $ts = $lastTs + ($k * $dayMs);
+            $predY = $yLast + ($slope * $k);
+            $predClamped = max(0, (int)round($predY));
+
+            $bandWidth = $bandFactor * $sigmaRobust * sqrt(max(1, $k));
+            $forecast[]      = ['x' => $ts, 'y' => $predClamped];
+            $forecastLower[] = ['x' => $ts, 'y' => max(0, (int)round($predY - $bandWidth))];
+            $forecastUpper[] = ['x' => $ts, 'y' => max(0, (int)round($predY + $bandWidth))];
         }
 
-        // ETA calculation
+        // ETA anchored at last actual sample
         $eta = null;
-        if ($thresholdBytes !== null && $slope > 0) {
-            $dTarget = ($thresholdBytes - $intercept) / $slope;
-            $dTargetCeil = (int)ceil($dTarget);
-            if ($dTargetCeil <= ($n - 1)) {
+        if ($thresholdBytes !== null) {
+            if ($yLast >= $thresholdBytes) {
                 $eta = [
                     'status' => 'already_reached',
-                    'date' => date('Y-m-d', $lastTs / 1000),
-                    'days' => 0,
+                    'date'   => date('Y-m-d', (int)($lastTs / 1000)),
+                    'days'   => 0,
                 ];
-            } else {
-                $daysAhead = $dTargetCeil - ($n - 1);
+            } elseif ($slope > 0) {
+                $daysAhead = (int)ceil(($thresholdBytes - $yLast) / $slope);
+                if ($daysAhead < 1) { $daysAhead = 1; }
                 $etaTs = $lastTs + ($daysAhead * $dayMs);
                 $eta = [
                     'status' => 'forecast',
-                    'date' => date('Y-m-d', $etaTs / 1000),
-                    'days' => $daysAhead,
+                    'date'   => date('Y-m-d', (int)($etaTs / 1000)),
+                    'days'   => $daysAhead,
                 ];
             }
+        }
+
+        // Heuristic fit-quality label. R² is a useful first-order indicator on
+        // a single-bucket time-series; we expose both raw R² and the label.
+        $quality = 'poor';
+        if ($rSquared >= 0.85) {
+            $quality = 'good';
+        } elseif ($rSquared >= 0.6) {
+            $quality = 'fair';
         }
 
         return [
@@ -393,18 +454,45 @@ class CephPoolMonitor
             'pool_name' => $poolName,
             'used_bytes_series' => $actual,
             'forecast_series' => $forecast,
+            'forecast_lower_series' => $forecastLower,
+            'forecast_upper_series' => $forecastUpper,
             'threshold_bytes' => $thresholdBytes,
             'target_percent' => $targetPercent,
             'eta_to_target' => $eta,
             'model' => [
-                'method' => 'theil_sen_daily_max',
+                'method' => 'theil_sen_anchored',
                 'slope_bytes_per_day' => $slope,
                 'intercept_bytes' => $intercept,
                 'history_points' => $n,
                 'capacity_bytes' => $capacityBytes,
+                'r_squared' => $rSquared,
+                'mad_bytes' => $mad,
+                'sigma_robust_bytes' => $sigmaRobust,
+                'fit_quality' => $quality,
             ],
             'latest' => $latest,
         ];
+    }
+
+    /**
+     * Numerically stable median (average of the two middle values for even-length arrays).
+     * Returns null when the array is empty.
+     *
+     * @param array<int|float> $values
+     * @return float|null
+     */
+    private static function medianFloat(array $values)
+    {
+        $cnt = count($values);
+        if ($cnt === 0) {
+            return null;
+        }
+        sort($values);
+        $mid = (int)floor($cnt / 2);
+        if ($cnt % 2 === 1) {
+            return (float)$values[$mid];
+        }
+        return ((float)$values[$mid - 1] + (float)$values[$mid]) / 2.0;
     }
 
     /**
