@@ -16,6 +16,7 @@ if (!function_exists('eb_notifications_service')) {
         require_once __DIR__ . '/src/RecipientResolver.php';
         require_once __DIR__ . '/src/StorageThresholds.php';
         require_once __DIR__ . '/src/IdempotencyStore.php';
+        require_once __DIR__ . '/src/NotificationFailureAlerter.php';
         require_once __DIR__ . '/src/PricingCalculator.php';
         require_once __DIR__ . '/src/TemplateRenderer.php';
         require_once __DIR__ . '/src/NotificationService.php';

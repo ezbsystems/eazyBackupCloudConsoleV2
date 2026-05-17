@@ -100,19 +100,26 @@ final class IdempotencyStore
 
     public static function markFailed(int $id, string $error, ?\PDO $pdo = null): void
     {
+        $marked = false;
         try {
             Capsule::table('eb_notifications_sent')->where('id', $id)->update([
                 'status' => 'failed',
                 'error' => $error,
                 'updated_at' => date('Y-m-d H:i:s'),
             ]);
+            $marked = true;
         } catch (\Throwable $e) {
             if ($pdo) {
                 try {
                     $stmt = $pdo->prepare("UPDATE eb_notifications_sent SET status='failed', error=:err, updated_at=:u WHERE id=:id");
                     $stmt->execute([':err'=>$error, ':u'=>date('Y-m-d H:i:s'), ':id'=>$id]);
+                    $marked = true;
                 } catch (\Throwable $_) { /* ignore */ }
             }
+        }
+
+        if ($marked && class_exists(NotificationFailureAlerter::class, false)) {
+            NotificationFailureAlerter::alert($id, $error, $pdo);
         }
     }
 
