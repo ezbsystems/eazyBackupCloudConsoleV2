@@ -986,7 +986,7 @@ function eazybackup_migrate_schema(): void {
             $t->text('recipients');
             $t->json('merge_json');
             $t->unsignedInteger('email_log_id')->nullable();
-            $t->enum('status', ['sent','failed'])->default('sent');
+            $t->enum('status', ['pending','sent','failed'])->default('pending');
             $t->dateTime('acknowledged_at')->nullable();
             $t->text('error')->nullable();
             $t->timestamp('created_at')->useCurrent();
@@ -999,7 +999,14 @@ function eazybackup_migrate_schema(): void {
         eb_add_index_if_missing('eb_notifications_sent', "CREATE UNIQUE INDEX IF NOT EXISTS uq_user_cat_key ON eb_notifications_sent (username, category, threshold_key)");
         eb_add_index_if_missing('eb_notifications_sent', "CREATE INDEX IF NOT EXISTS idx_service_created ON eb_notifications_sent (service_id, created_at)");
         eb_add_column_if_missing('eb_notifications_sent','acknowledged_at', fn(Blueprint $t)=>$t->dateTime('acknowledged_at')->nullable());
+        eb_add_column_if_missing('eb_notifications_sent','error', fn(Blueprint $t)=>$t->text('error')->nullable());
         eb_add_index_if_missing('eb_notifications_sent', "CREATE INDEX IF NOT EXISTS idx_notifications_ack ON eb_notifications_sent (acknowledged_at)");
+        try {
+            Capsule::statement("ALTER TABLE eb_notifications_sent MODIFY COLUMN status ENUM('pending','sent','failed') NOT NULL DEFAULT 'pending'");
+        } catch (\Throwable $e) {
+            try { if (function_exists('logModuleCall')) { @logModuleCall('eazybackup', 'schema:notifications-sent-status-enum-alter', [], ['error' => $e->getMessage()]); } } catch (\Throwable $__) {}
+            try { if (function_exists('customFileLog')) { customFileLog('schema enum alter failed for eb_notifications_sent.status', $e->getMessage()); } } catch (\Throwable $__) {}
+        }
     }
 
     // --- eb_module_settings (addon config backup store) ---

@@ -15,6 +15,8 @@ function eb_disable_time_limit(): void {
 }
 eb_disable_time_limit();
 
+require_once __DIR__ . '/whmcs_cli_context.php';
+eb_apply_whmcs_cli_server_context();
 
 // Load ONLY the addon vendor autoloader and pin it to the front of SPL stack.
 $loader = require __DIR__ . '/../vendor/autoload.php';

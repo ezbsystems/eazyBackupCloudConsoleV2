@@ -20,6 +20,34 @@ final class TemplateRenderer
         error_log($msg);
     }
 
+    private static function sendFailureMessage(string $templateName, $response): string
+    {
+        if (is_array($response)) {
+            $message = trim((string)($response['message'] ?? $response['error'] ?? ''));
+            if ($message !== '') {
+                return 'SendEmail failed for template ' . $templateName . ': ' . $message;
+            }
+
+            $json = json_encode($response, JSON_UNESCAPED_SLASHES);
+            if (is_string($json) && $json !== '') {
+                return 'SendEmail failed for template ' . $templateName . ': ' . $json;
+            }
+        }
+
+        return 'SendEmail failed for template ' . $templateName . ': invalid WHMCS response';
+    }
+
+    private static function assertSendSuccess(string $templateName, $response): array
+    {
+        if (!is_array($response) || ($response['result'] ?? '') !== 'success') {
+            $message = self::sendFailureMessage($templateName, $response);
+            self::logEvent($message);
+            throw new \RuntimeException($message);
+        }
+
+        return $response;
+    }
+
     /** Send using WHMCS Local API SendEmail with a given template name and merge vars. */
     public static function send(string $templateSettingKey, array $mergeVars): array
     {
@@ -36,7 +64,7 @@ final class TemplateRenderer
         // and send to explicit email(s) without requiring a related client ID.
         if (Config::bool('notify_test_mode', false)) {
             $csv = (string)Config::get('notify_test_recipient', '');
-            if ($csv === '') { return ['result'=>'error','message'=>'Test mode has no recipients']; }
+            if ($csv === '') { throw new \RuntimeException('Test mode has no recipients'); }
             // Fetch template body/subject and perform a simple token replacement for {$key}
             $tpl = \WHMCS\Database\Capsule::table('tblemailtemplates')->where('name', $templateName)->first(['subject','message']);
             $subj = is_object($tpl) ? (string)$tpl->subject : '';
@@ -49,8 +77,8 @@ final class TemplateRenderer
                 $body = str_replace($token, (string)$v, $body);
             }
             $recips = array_filter(array_map('trim', preg_split('/[;,]+/', $csv) ?: []));
-            if (empty($recips)) { return ['result'=>'error','message'=>'Test mode recipients invalid']; }
-            $last = null; $all = [];
+            if (empty($recips)) { throw new \RuntimeException('Test mode recipients invalid'); }
+            $all = [];
             $testClientId = (int)Config::get('notify_test_client_id', 0);
             foreach ($recips as $addr) {
                 $payload = [
@@ -61,13 +89,15 @@ final class TemplateRenderer
                 ];
                 if ($testClientId > 0) { $payload['id'] = $testClientId; }
                 if (getenv('EB_WS_DEBUG') === '1') { error_log('[notify] SendEmail TEST payload -> ' . json_encode($payload)); }
-                $resp = localAPI('SendEmail', $payload);
-                if (($resp['result'] ?? '') !== 'success') {
-                    self::logEvent('Test-mode SendEmail failed for template ' . $templateName . ': ' . json_encode($resp));
+                try {
+                    $resp = localAPI('SendEmail', $payload);
+                } catch (\Throwable $e) {
+                    self::logEvent('Test-mode SendEmail threw for template ' . $templateName . ': ' . $e->getMessage());
+                    throw $e;
                 }
-                $last = $resp; $all[] = $resp;
+                $all[] = self::assertSendSuccess($templateName, $resp);
             }
-            return ['result'=>($last['result'] ?? 'success'), 'responses'=>$all];
+            return ['result'=>'success', 'responses'=>$all];
         } else {
             // Normal mode: associate with client when available so built-in merge fields can resolve
             if (isset($mergeVars['client_id']) && (int)$mergeVars['client_id'] > 0) {
@@ -101,9 +131,7 @@ final class TemplateRenderer
             self::logEvent('SendEmail threw for template ' . $templateName . ': ' . $e->getMessage());
             throw $e;
         }
-        if (($resp['result'] ?? '') !== 'success') {
-            self::logEvent('SendEmail returned non-success for template ' . $templateName . ': ' . json_encode($resp));
-        }
+        $resp = self::assertSendSuccess($templateName, $resp);
         if (getenv('EB_WS_DEBUG') === '1') {
             error_log('[notify] SendEmail resp=' . json_encode($resp));
         }
