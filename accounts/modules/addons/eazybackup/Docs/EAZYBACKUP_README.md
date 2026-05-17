@@ -363,6 +363,11 @@ Wants=network-online.target
 Type=simple
 WorkingDirectory=/var/www/eazybackup.ca/accounts/modules/addons/eazybackup
 Environment=COMET_PROFILE=%i
+Environment=WHMCS_SERVER_NAME=accounts.eazybackup.ca
+Environment=SERVER_NAME=accounts.eazybackup.ca
+Environment=HTTP_HOST=accounts.eazybackup.ca
+Environment=HTTPS=on
+Environment=SERVER_PORT=443
 
 # Optional debug toggles:
 
@@ -374,7 +379,7 @@ Environment=COMET_PROFILE=%i
 
 # Stable production launch uses runuser + clean env.
 
-ExecStart=/bin/bash -lc 'exec runuser -u www-data -- /bin/bash -lc "cd /var/www/eazybackup.ca/accounts/modules/addons/eazybackup && exec env -i COMET_PROFILE=%i HOME=/var/www PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin LANG=en_US.UTF-8 /usr/bin/php -dopcache.enable_cli=0 bin/comet_ws_worker.php"'
+ExecStart=/bin/bash -lc 'exec runuser -u www-data -- /bin/bash -lc "cd /var/www/eazybackup.ca/accounts/modules/addons/eazybackup && exec env -i COMET_PROFILE=%i WHMCS_SERVER_NAME=accounts.eazybackup.ca SERVER_NAME=accounts.eazybackup.ca HTTP_HOST=accounts.eazybackup.ca HTTPS=on SERVER_PORT=443 HOME=/var/www PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin LANG=en_US.UTF-8 /usr/bin/php -dopcache.enable_cli=0 bin/comet_ws_worker.php"'
 Restart=always
 RestartSec=5
 
@@ -2395,4 +2400,3 @@ admin: clientssummary -> Notifications tab -> New / Edit
 - Log out and back in as the same client; verify the notification stays dismissed (dismissal is per-user/client, not per-session).
 - Delete the notification from admin; verify the dismissal rows are cleaned up so a future notification with the same id starts fresh.
 - POST to the dismiss endpoint without a session → 401; with an invalid CSRF token → 400; with an unknown id → 404.
-
