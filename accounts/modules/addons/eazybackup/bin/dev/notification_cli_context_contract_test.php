@@ -20,6 +20,18 @@ $checks = [
         $root . '/lib/Notifications/src/TemplateRenderer.php',
         "throw new \\RuntimeException(\$message);",
     ],
+    'failed notification rows trigger admin alert hook' => [
+        $root . '/lib/Notifications/src/IdempotencyStore.php',
+        'NotificationFailureAlerter::alert($id, $error, $pdo);',
+    ],
+    'notification failure alerter is loaded by bootstrap' => [
+        $root . '/lib/Notifications/bootstrap.php',
+        "require_once __DIR__ . '/src/NotificationFailureAlerter.php';",
+    ],
+    'notification failure alerts reuse websocket recipients' => [
+        $root . '/lib/Notifications/src/NotificationFailureAlerter.php',
+        "Config::get('ws_alert_admin_email', '')",
+    ],
     'systemd clean env includes WHMCS server name' => [
         $root . '/Docs/EAZYBACKUP_README.md',
         'env -i COMET_PROFILE=%i WHMCS_SERVER_NAME=accounts.eazybackup.ca SERVER_NAME=accounts.eazybackup.ca HTTP_HOST=accounts.eazybackup.ca HTTPS=on SERVER_PORT=443',
@@ -35,4 +47,3 @@ foreach ($checks as $label => [$file, $needle]) {
 }
 
 echo "notification_cli_context_contract_test: OK\n";
-
