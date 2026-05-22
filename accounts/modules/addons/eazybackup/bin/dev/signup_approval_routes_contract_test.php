@@ -98,13 +98,11 @@ $targets = [
             'processing rejecting ui marker' => 'Rejecting in progress',
         ],
     ],
-    'partner hub nav file' => [
-        'path' => $navFile,
-        'markers' => [
-            'signup approvals nav link marker' => '&a=ph-signup-approvals',
-            'signup approvals nav label marker' => 'Signup Approvals',
-        ],
-    ],
+    // Note: the standalone "Signup Approvals" sidebar entry was removed in
+    // favour of a count-badged bell in the Partner Hub sidebar header, a
+    // per-tenant button in the White-Label slide-over, and an MSP email
+    // trigger. The active wiring for those surfaces is verified by
+    // signup_approvals_surfacing_contract_test.php.
 ];
 
 $failures = [];

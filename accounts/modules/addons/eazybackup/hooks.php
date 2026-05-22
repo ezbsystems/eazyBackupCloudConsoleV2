@@ -167,6 +167,21 @@ add_hook('ClientAreaPage', 1, function ($vars) {
             ? eazybackup_client_can_access_partnerhub($clientId)
             : false;
 
+        // Pending signup-approvals count for the bell + per-tenant badges.
+        // Cheap, indexed query; only meaningful when the client can actually
+        // access Partner Hub and the page is visible.
+        $pendingSummary = ['total' => 0, 'by_tenant_tid' => []];
+        if ($canAccessPartnerHub && $get('partnerhub_show_signup_approvals', true)) {
+            try {
+                require_once __DIR__ . '/lib/Whitelabel/SignupApprovalsCount.php';
+                if (function_exists('eb_ph_pending_signups_summary_for_client')) {
+                    $pendingSummary = eb_ph_pending_signups_summary_for_client($clientId);
+                }
+            } catch (\Throwable $__) {
+                $pendingSummary = ['total' => 0, 'by_tenant_tid' => []];
+            }
+        }
+
         return [
             'eb_partner_hub_enabled' => $canAccessPartnerHub && $get('partnerhub_nav_enabled', true),
             'eb_partner_hub_allowed' => $canAccessPartnerHub,
@@ -185,6 +200,8 @@ add_hook('ClientAreaPage', 1, function ($vars) {
             'eb_ph_show_tenant_portal_billing' => $showTenantPortal && $showTenantPortalBilling,
             'eb_ph_show_tenant_portal_services' => $showTenantPortal && $showTenantPortalServices,
             'eb_ph_show_tenant_portal_cloud_storage' => $showTenantPortal && $showTenantPortalCloudStorage,
+            'eb_ph_pending_signups_count' => (int)$pendingSummary['total'],
+            'eb_ph_pending_signups_by_tenant' => $pendingSummary['by_tenant_tid'],
         ];
     } catch (\Throwable $e) {
         return [];

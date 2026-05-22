@@ -116,6 +116,83 @@ function eb_signup_existing_event_state(int $tenantId, string $email): ?string
 }
 
 /**
+ * Notify the MSP (the WHMCS client that owns this white-label tenant) that a
+ * new public signup has landed in `pending_approval` and is waiting for them
+ * to approve or reject from the Partner Hub queue.
+ *
+ * Uses the seeded WHMCS email template "EazyBackup Pending Signup Notice"
+ * via localAPI('SendEmail', ...) so the message uses the platform's outbound
+ * mail and is logged to tblemails. Failures are swallowed at the call site —
+ * this must never break the customer-facing signup flow.
+ */
+function eb_signup_send_msp_pending_notice($tenant, string $customerEmail, int $orderId): void
+{
+    $tenantId = (int)($tenant->id ?? 0);
+    $mspClientId = (int)($tenant->client_id ?? 0);
+    if ($tenantId <= 0 || $mspClientId <= 0) { return; }
+
+    $tenantFqdn = (string)($tenant->fqdn ?? '');
+    $tenantPublicId = (string)($tenant->public_id ?? '');
+
+    // Resolve admin user for localAPI calls (mirrors SignupApprovalsController).
+    $adminUser = 'API';
+    try {
+        $configuredAdmin = (string)(Capsule::table('tbladdonmodules')
+            ->where('module', 'eazybackup')->where('setting', 'adminuser')
+            ->value('value') ?? '');
+        if ($configuredAdmin !== '') { $adminUser = $configuredAdmin; }
+        else {
+            $firstAdmin = Capsule::table('tbladmins')->where('disabled', 0)
+                ->orderBy('id', 'asc')->value('username');
+            if ($firstAdmin) { $adminUser = (string)$firstAdmin; }
+        }
+    } catch (\Throwable $__) {}
+
+    // Build the deep-link to the per-tenant approvals queue. SystemURL falls
+    // back to the request host so dev environments still get a clickable link.
+    $base = '';
+    try {
+        $sysUrl = (string)(Capsule::table('tblconfiguration')->where('setting','SystemURL')->value('value') ?? '');
+        if ($sysUrl !== '') { $base = rtrim($sysUrl, '/') . '/'; }
+    } catch (\Throwable $__) {}
+    if ($base === '') {
+        $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+        $host = (string)($_SERVER['HTTP_HOST'] ?? 'localhost');
+        $base = $scheme . '://' . $host . '/';
+    }
+    $approvalsUrl = $base . 'index.php?m=eazybackup&a=ph-signup-approvals'
+        . ($tenantPublicId !== '' ? ('&tid=' . urlencode($tenantPublicId)) : '');
+
+    $customVars = [
+        'tenant_fqdn' => $tenantFqdn,
+        'tenant_name' => (string)($tenant->name ?? $tenantFqdn),
+        'customer_email' => $customerEmail,
+        'signup_received_at' => date('Y-m-d H:i:s'),
+        'approvals_url' => $approvalsUrl,
+        'whmcs_order_id' => (string)$orderId,
+    ];
+
+    try {
+        $res = localAPI('SendEmail', [
+            'messagename' => 'EazyBackup Pending Signup Notice',
+            'id' => $mspClientId,
+            'customvars' => base64_encode(serialize($customVars)),
+        ], $adminUser);
+        $result = (string)($res['result'] ?? '');
+        try { logModuleCall('eazybackup','signup_msp_notice', [
+            'tenant_id' => $tenantId,
+            'msp_client_id' => $mspClientId,
+            'order_id' => $orderId,
+        ], $result === 'success' ? 'sent' : ('failed: ' . (string)($res['message'] ?? ''))); } catch (\Throwable $__) {}
+    } catch (\Throwable $e) {
+        try { logModuleCall('eazybackup','signup_msp_notice', [
+            'tenant_id' => $tenantId,
+            'msp_client_id' => $mspClientId,
+        ], 'exception: ' . $e->getMessage()); } catch (\Throwable $__) {}
+    }
+}
+
+/**
  * Public Signup Controller (GET/POST)
  * - Host-guarded; no login required
  */
@@ -377,6 +454,17 @@ function eazybackup_public_signup(array $vars)
             'updated_at' => date('Y-m-d H:i:s'),
         ]);
         try { logModuleCall('eazybackup','signup_post',['tenant_id'=>(int)$tenant->id,'event_id'=>$eventId,'orderId'=>$orderId],'pending_approval'); } catch (\Throwable $__) {}
+
+        // Notify the MSP that a new signup is awaiting approval. Best-effort:
+        // a failure here must never break the customer-facing signup flow.
+        try {
+            $noticeEnabled = function_exists('eazybackup_addon_bool_setting')
+                ? eazybackup_addon_bool_setting('partnerhub_signup_notice_enabled', true)
+                : true;
+            if ($noticeEnabled) {
+                eb_signup_send_msp_pending_notice((object)$tenant, $email, $orderId);
+            }
+        } catch (\Throwable $__) {}
 
         try {
             require_once __DIR__ . '/EmailTriggers.php';

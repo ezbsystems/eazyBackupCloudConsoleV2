@@ -2400,3 +2400,95 @@ admin: clientssummary -> Notifications tab -> New / Edit
 - Log out and back in as the same client; verify the notification stays dismissed (dismissal is per-user/client, not per-session).
 - Delete the notification from admin; verify the dismissal rows are cleaned up so a future notification with the same id starts fresh.
 - POST to the dismiss endpoint without a session → 401; with an invalid CSRF token → 400; with an unknown id → 404.
+
+## Lite (Reduced Storage) Plans
+
+The Lite tier offers a reduced-storage backup plan (default 250 GB, 1 device) for customers who do not need the standard 1 TB starting allocation. Lite SKUs are gated behind WHMCS client groups so they are invisible to ordinary customers and appear on the order form only for entitled clients.
+
+### Architecture summary
+
+- Each Lite tier is a dedicated WHMCS product SKU (e.g. `OBC-Lite` pid=102, `eazyBackup-Lite` pid=103).
+- Visibility on the order form is gated by client-group membership (the **entitlement** signal).
+- Enforcement of the storage cap and device limit lives on the **service** (product), not the client. A client moved out of a Lite group keeps any existing Lite services capped, but cannot order more.
+- Comet user policies on the Comet server lock down vault management (create / edit / delete) from the desktop client.
+- The addon's client-area code refuses any attempt to disable the cap or delete the vault from the WHMCS UI.
+
+### WHMCS configuration
+
+**Client groups (created via Setup → Clients → Manage Client Groups):**
+
+- `OBC-Lite` — id=15 on both dev and prod.
+- `eazyBackup-Lite` — id=16 on both dev and prod.
+
+**Products (created via Setup → Products/Services → Products/Services):**
+
+- `OBC-Lite` — pid=102, server type `comet`, product group `OBC` (gid=7).
+- `eazyBackup-Lite` — pid=103, server type `comet`, product group `eazyBackup` (gid=6).
+- Each product's Comet provisioning module `Policy Group` (configoption1) must point at the matching Lite policy on the Comet server (see below).
+- Each product needs a `Backup Account Username` and `Backup Account Password` custom field configured in *Custom Fields* (these are copied automatically when WHMCS provisions the user).
+
+**Addon module settings (Setup → Addon Modules → eazyBackup → Configure):**
+
+| Setting | Purpose | Example value |
+|---|---|---|
+| `liteobcgroups` | Client groups whose members may purchase OBC-Lite | `15` |
+| `liteeazybackupgroups` | Client groups whose members may purchase eazyBackup-Lite | `16` |
+| `lite_obc_pids` | WHMCS PIDs that represent the OBC-Lite SKU | `102` |
+| `lite_eazybackup_pids` | WHMCS PIDs that represent the eazyBackup-Lite SKU | `103` |
+| `lite_pid_caps` | CSV of `PID:GB` pairs that mark a PID as Lite and define its storage cap | `102:250,103:250` |
+
+A PID is considered "Lite" everywhere in the codebase **iff** it appears in `lite_pid_caps`. Removing a PID from that setting reverts it to a standard unlimited product on the next provisioning / profile update.
+
+### Comet server configuration (manual)
+
+Create one user policy per Lite brand on each Comet server:
+
+- `eazybackup-lite-250`
+- `obc-lite-250`
+
+Each policy must have these flags set:
+
+- `PreventRequestStorageVault = true`
+- `PreventAddCustomStorageVault = true`
+- `PreventEditStorageVault = true`
+- `PreventDeleteStorageVault = true`
+- `EnforceStorageVaultRetention = true` (recommended; keeps the standard retention defaults applied)
+
+Copy the policy GUID from Comet and paste it into each Lite product's Comet provisioning module **Policy Group** field (`configoption1`) in WHMCS Admin.
+
+### Provisioning flow
+
+When a customer in a Lite group places an order:
+
+1. `eazybackup_createorder()` (in `eazybackup.php`) verifies the client is in the matching Lite group via `eazybackup_lite_resolve()` and that the posted PID is one of the client's `allowedPids`. The POST handler also blocks Lite clients from posting the full backup SKUs (58 / 60).
+2. WHMCS provisions via the Comet module:
+   - `comet_CreateAccount()` (in `accounts/modules/servers/comet/comet.php`) creates the Comet user, then calls `comet_UpdateUser()`.
+   - `comet_UpdateUser()` (in `accounts/modules/servers/comet/functions.php`) reads the cap via `comet_LiteCapForPid()`. For Lite PIDs it sets `AllProtectedItemsQuotaEnabled = true`, `AllProtectedItemsQuotaBytes = capGB * 1024^3`, and `MaximumDevices = 1`.
+   - `comet_CreateAccount()` requests the initial Storage Vault, then walks `Profile.Destinations` and stamps `StorageLimitEnabled = true` / `StorageLimitBytes = capGB * 1024^3` on the new vault before the atomic `AdminSetUserProfileHash` call.
+
+### Client-area lockdown
+
+For any service whose `packageid` resolves to a Lite cap, the addon enforces lockdown in three places:
+
+- `templates/console/user-profile.tpl` — the **Quotas** card disables the "Maximum devices" toggle and stepper, displays a "plan-enforced limits" banner, locks the per-vault Quota controls to a read-only display of the cap, and replaces the "Delete vault" affordance with an explanatory notice.
+- `lib/Vault.php` — `updateVault()` ignores any client-supplied `vaultQuota` payload and re-stamps `StorageLimitBytes = capBytes`; `deleteVault()` returns an error.
+- `pages/console/device-actions.php` `piProfileUpdate` — clamps `MaximumDevices = 1` and re-asserts `AllProtectedItemsQuotaEnabled = true` / `AllProtectedItemsQuotaBytes = capBytes` on every save.
+
+The Comet user policy on the Comet server is the source of truth for desktop-client-side restrictions (cannot add / edit / delete vaults from the Comet Backup desktop app).
+
+### Upgrade / downgrade
+
+- **Lite → Standard** (e.g. `102` → `60`) uses WHMCS's native product upgrade flow. `comet_ChangePackage()` calls `comet_UpdateUser()`, which sees `capGB = 0` for the new PID and:
+  - Disables `AllProtectedItemsQuotaEnabled` and clears `MaximumDevices` back to 0 (unlimited).
+  - Walks `Profile.Destinations` and clears `StorageLimitEnabled` on any vault that previously had a Lite cap, so the customer is no longer capped after the upgrade.
+- **Standard → Lite** is treated as a support-assisted operation. The provisioning code will happily apply the cap, but if the existing usage exceeds it the customer's vault will immediately be over-quota. Refusing this case automatically is not currently implemented; handle through support.
+
+### Validation checklist (on dev)
+
+- Place a client in group 16 (eazyBackup-Lite). Visit `index.php?m=eazybackup&a=createorder`: sees only eazyBackup-Lite (103) + MS365 (52); does NOT see OBC-Lite (102), full eazyBackup (58), full OBC (60).
+- Place a client in group 15 (OBC-Lite). Mirror check: only OBC-Lite (102) + MS365 (52).
+- Non-Lite, non-reseller client: sees only full eazyBackup (58) + MS365 (52); no Lite SKUs.
+- Place an order for a Lite SKU. Confirm the Comet user has `AllProtectedItemsQuotaEnabled = true`, `AllProtectedItemsQuotaBytes = 268435456000` (250 GiB), `MaximumDevices = 1`, and the initial vault has `StorageLimitEnabled = true` / `StorageLimitBytes = 268435456000`.
+- On the client area Profile tab for the Lite service: the "Maximum devices" controls are disabled and the banner is visible; the vault editor's Quota tab shows the read-only Lite limit message; the vault editor's Danger tab shows "Vault deletion is disabled on this plan".
+- POST a Lite PID directly while logged in as a non-Lite client (e.g. via curl with form fields): rejected with `This product is not available for your account.`.
+- Native WHMCS upgrade Lite → Standard (e.g. 102 → 60): confirm the Comet user's `AllProtectedItemsQuotaEnabled` flips to `false` and the existing vault's `StorageLimitEnabled` flips to `false`; the client-area Quotas card unlocks.

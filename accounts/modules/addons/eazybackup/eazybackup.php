@@ -2418,6 +2418,35 @@ function eazybackup_migrate_schema(): void {
             });
         }
     } catch (\Throwable $e) { /* ignore */ }
+
+    // --- WHMCS email template: Pending Signup Approval notice for the MSP ---
+    // Seeded as a 'general' product email template so it can be used with
+    // localAPI('SendEmail', ['messagename' => ..., 'id' => $mspClientId]).
+    try {
+        $exists = Capsule::table('tblemailtemplates')
+            ->where('name', 'EazyBackup Pending Signup Notice')
+            ->exists();
+        if (!$exists) {
+            $now = date('Y-m-d H:i:s');
+            Capsule::table('tblemailtemplates')->insert([
+                'type' => 'general',
+                'name' => 'EazyBackup Pending Signup Notice',
+                'subject' => '[Action needed] New signup awaiting approval - {$tenant_fqdn}',
+                'message' => "<p>Hi {\$client_name},</p>\n<p>A new customer has signed up on your white-label tenant <strong>{\$tenant_fqdn}</strong> and is awaiting your approval before being provisioned.</p>\n<table cellpadding=\"6\" cellspacing=\"0\" style=\"border-collapse:collapse;\">\n  <tr><td><strong>Tenant</strong></td><td>{\$tenant_fqdn}</td></tr>\n  <tr><td><strong>Customer email</strong></td><td>{\$customer_email}</td></tr>\n  <tr><td><strong>Received</strong></td><td>{\$signup_received_at}</td></tr>\n</table>\n<p style=\"margin-top:16px;\"><a href=\"{\$approvals_url}\" style=\"display:inline-block;padding:10px 16px;background:#1B2C50;color:#fff;text-decoration:none;border-radius:6px;\">Review Signup</a></p>\n<p>If you do not approve or reject the signup, the customer will not be provisioned and will not be charged.</p>\n<p>Thanks,<br/>EazyBackup Partner Hub</p>",
+                'attachments' => '',
+                'fromname' => '',
+                'fromemail' => '',
+                'disabled' => 0,
+                'custom' => 1,
+                'language' => '',
+                'copyto' => '',
+                'blind_copy_to' => '',
+                'plaintext' => 0,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ]);
+        }
+    } catch (\Throwable $e) { /* ignore */ }
 }
 
 // ULID generator for public tenant IDs (Crockford Base32, 26 chars)
@@ -2723,6 +2752,47 @@ function eazybackup_config()
                     'Clients in any of these groups can see the Partner Hub navigation link and access Partner Hub pages. Leave empty to disable Partner Hub for all clients.'
                 ),
             ],
+            'liteobcgroups' => [
+                'FriendlyName' => 'OBC-Lite Client Groups',
+                'Type'         => 'textarea',
+                'Rows'         => '3',
+                'Cols'         => '60',
+                'Description'  => eazybackup_AdminGroupsDescription(
+                    'liteobcgroups',
+                    'OBC-Lite groups',
+                    'Clients in any of these groups can purchase the OBC-Lite (reduced storage) backup plan. Full OBC and full eazyBackup SKUs are hidden from these clients.'
+                ),
+            ],
+            'liteeazybackupgroups' => [
+                'FriendlyName' => 'eazyBackup-Lite Client Groups',
+                'Type'         => 'textarea',
+                'Rows'         => '3',
+                'Cols'         => '60',
+                'Description'  => eazybackup_AdminGroupsDescription(
+                    'liteeazybackupgroups',
+                    'eazyBackup-Lite groups',
+                    'Clients in any of these groups can purchase the eazyBackup-Lite (reduced storage) backup plan. Full OBC and full eazyBackup SKUs are hidden from these clients.'
+                ),
+            ],
+            'lite_pid_caps' => [
+                'FriendlyName' => 'Lite PID Storage Caps (GB)',
+                'Type'         => 'textarea',
+                'Rows'         => '3',
+                'Cols'         => '60',
+                'Description'  => 'Comma-separated list of <code>PID:GB</code> pairs that defines the storage cap (in GB) for each Lite product PID. Example: <code>102:250,103:250</code>. The presence of a PID in this list also marks it as a "Lite" product everywhere (provisioning, vault editor, quota controls). Leave empty to disable all Lite-tier enforcement.',
+            ],
+            'lite_obc_pids' => [
+                'FriendlyName' => 'OBC-Lite Product PIDs',
+                'Type'         => 'text',
+                'Size'         => '40',
+                'Description'  => 'Comma-separated WHMCS product IDs that represent the OBC-Lite SKU. Example: <code>102</code>. Used to map Lite PIDs to the OBC brand for order-form filtering.',
+            ],
+            'lite_eazybackup_pids' => [
+                'FriendlyName' => 'eazyBackup-Lite Product PIDs',
+                'Type'         => 'text',
+                'Size'         => '40',
+                'Description'  => 'Comma-separated WHMCS product IDs that represent the eazyBackup-Lite SKU. Example: <code>103</code>. Used to map Lite PIDs to the eazyBackup brand for order-form filtering.',
+            ],
 
             // ---- Notifications: module-level defaults ----
             'notify_storage' => [
@@ -2891,6 +2961,12 @@ function eazybackup_config()
                 'Type' => 'yesno',
                 'Default' => 'on',
                 'Description' => 'Show the Signup Approvals page in Partner Hub',
+            ],
+            'partnerhub_signup_notice_enabled' => [
+                'FriendlyName' => 'Partner Hub: Email MSP on Pending Signup',
+                'Type' => 'yesno',
+                'Default' => 'on',
+                'Description' => 'When ON, the MSP receives a WHMCS email each time a public white-label signup lands in pending_approval, with a link to the Signup Approvals queue.',
             ],
             'partnerhub_show_user_assignments' => [
                 'FriendlyName' => 'Partner Hub: Show User Assignments',
@@ -3308,6 +3384,143 @@ function eazybackup_EndReminderTemplateLoader(): array
 }
 
 
+
+/**
+ * Lite (reduced storage) plan helpers.
+ *
+ * The Lite tier is implemented as one or more dedicated WHMCS product SKUs
+ * whose visibility is gated by client-group membership and whose storage cap
+ * is enforced at provisioning time and in the client area. All Lite-specific
+ * configuration lives in the addon module settings so the same code works
+ * across environments where the PIDs differ.
+ */
+
+/** Read a CSV addon-module setting and return integer ids. */
+function eazybackup_lite_csv_setting(string $key): array
+{
+    try {
+        $csv = (string)(Capsule::table('tbladdonmodules')
+            ->where('module', 'eazybackup')
+            ->where('setting', $key)
+            ->value('value') ?? '');
+    } catch (\Throwable $e) {
+        return [];
+    }
+    if ($csv === '') { return []; }
+    $out = [];
+    foreach (explode(',', $csv) as $v) {
+        $v = trim($v);
+        if ($v === '') { continue; }
+        $n = (int)$v;
+        if ($n > 0) { $out[] = $n; }
+    }
+    return array_values(array_unique($out));
+}
+
+/** Parse the lite_pid_caps setting into [pid => capGB]. */
+function eazybackup_lite_pid_cap_map(): array
+{
+    try {
+        $csv = (string)(Capsule::table('tbladdonmodules')
+            ->where('module', 'eazybackup')
+            ->where('setting', 'lite_pid_caps')
+            ->value('value') ?? '');
+    } catch (\Throwable $e) {
+        return [];
+    }
+    if ($csv === '') { return []; }
+    $map = [];
+    foreach (explode(',', $csv) as $pair) {
+        $pair = trim($pair);
+        if ($pair === '' || strpos($pair, ':') === false) { continue; }
+        [$pid, $gb] = array_map('trim', explode(':', $pair, 2));
+        $pid = (int)$pid; $gb = (int)$gb;
+        if ($pid > 0 && $gb > 0) { $map[$pid] = $gb; }
+    }
+    return $map;
+}
+
+/** Return the storage cap (GB) for a product PID, or 0 if unlimited / not Lite. */
+function eazybackup_lite_cap_for_pid(int $pid): int
+{
+    if ($pid <= 0) { return 0; }
+    $map = eazybackup_lite_pid_cap_map();
+    return isset($map[$pid]) ? (int)$map[$pid] : 0;
+}
+
+/** Convenience: is this PID a Lite product? */
+function eazybackup_lite_is_pid(int $pid): bool
+{
+    return eazybackup_lite_cap_for_pid($pid) > 0;
+}
+
+/**
+ * Resolve Lite membership for a client.
+ *
+ * Returns an array with:
+ *   - isLite      bool   true if the client is in any Lite client group
+ *   - brand       string 'obc' | 'eazybackup' | '' (when both apply, eazyBackup wins)
+ *   - groupIds    int[]  the addon-configured group ids that match
+ *   - allowedPids int[]  the Lite PIDs the client is permitted to purchase
+ */
+function eazybackup_lite_resolve($clientId): array
+{
+    $out = ['isLite' => false, 'brand' => '', 'groupIds' => [], 'allowedPids' => []];
+    $clientId = (int)$clientId;
+    if ($clientId <= 0) { return $out; }
+
+    try {
+        $gid = (int)(Capsule::table('tblclients')->where('id', $clientId)->value('groupid') ?? 0);
+    } catch (\Throwable $e) {
+        $gid = 0;
+    }
+    if ($gid <= 0) { return $out; }
+
+    $obcGroups = eazybackup_lite_csv_setting('liteobcgroups');
+    $ebGroups  = eazybackup_lite_csv_setting('liteeazybackupgroups');
+    $obcPids   = eazybackup_lite_csv_setting('lite_obc_pids');
+    $ebPids    = eazybackup_lite_csv_setting('lite_eazybackup_pids');
+
+    $isObc = in_array($gid, $obcGroups, true);
+    $isEb  = in_array($gid, $ebGroups, true);
+
+    if (!$isObc && !$isEb) { return $out; }
+
+    $out['isLite'] = true;
+    if ($isEb) {
+        $out['brand'] = 'eazybackup';
+        $out['groupIds'][] = $gid;
+        $out['allowedPids'] = $ebPids;
+    } elseif ($isObc) {
+        $out['brand'] = 'obc';
+        $out['groupIds'][] = $gid;
+        $out['allowedPids'] = $obcPids;
+    }
+    return $out;
+}
+
+/**
+ * Resolve Lite membership for a specific WHMCS service (tblhosting row).
+ * A service is "Lite" iff its packageid is registered in lite_pid_caps.
+ *
+ * Returns ['isLite' => bool, 'pid' => int, 'capGb' => int].
+ */
+function eazybackup_lite_service_state(int $serviceId): array
+{
+    $out = ['isLite' => false, 'pid' => 0, 'capGb' => 0];
+    if ($serviceId <= 0) { return $out; }
+    try {
+        $pid = (int)(Capsule::table('tblhosting')->where('id', $serviceId)->value('packageid') ?? 0);
+    } catch (\Throwable $e) {
+        return $out;
+    }
+    if ($pid <= 0) { return $out; }
+    $cap = eazybackup_lite_cap_for_pid($pid);
+    $out['pid'] = $pid;
+    $out['capGb'] = $cap;
+    $out['isLite'] = $cap > 0;
+    return $out;
+}
 
 /** Build a helper description for admin settings showing client groups with ids.
  *
@@ -8121,6 +8334,20 @@ function eazybackup_createorder($vars)
                 if (!$isResellerClientPost && in_array((int)$selectedPid, [60,57,54], true)) {
                     $errors['product'] = 'This product is available to resellers only.';
                 }
+
+                // POST enforcement for Lite plans:
+                //   1) any client posting a Lite PID must be in the matching Lite group
+                //   2) Lite-group clients cannot post full backup PIDs (58 / 60)
+                $litePostState = eazybackup_lite_resolve($clientIdPost);
+                $selectedIsLite = eazybackup_lite_is_pid((int)$selectedPid);
+                if ($selectedIsLite) {
+                    if (!$litePostState['isLite'] || !in_array((int)$selectedPid, $litePostState['allowedPids'], true)) {
+                        $errors['product'] = 'This product is not available for your account.';
+                    }
+                }
+                if ($litePostState['isLite'] && in_array((int)$selectedPid, [58, 60], true)) {
+                    $errors['product'] = 'This product is not available for your account.';
+                }
             } catch (\Throwable $_) { /* fail open on error */ }
         }
 
@@ -8408,6 +8635,10 @@ function eazybackup_createorder($vars)
         } catch (\Throwable $e) { /* ignore */ }
     }
 
+    // Resolve Lite (reduced storage) plan membership for this client.
+    $liteState = eazybackup_lite_resolve($clientid);
+    $allLitePids = array_keys(eazybackup_lite_pid_cap_map());
+
     // Query the custom mapping to retrieve the product group for this client
     $mapping = Capsule::table('tbl_client_productgroup_map')
         ->where('client_id', $clientid)
@@ -8486,12 +8717,25 @@ function eazybackup_createorder($vars)
         $categories['whitelabel'] = [];
     }
 
-    // b) Include the six specified products with reseller filtering for OBC
-    $blockedOBCPids = [60, 57, 54];
+    // b) Include the six specified products with reseller filtering for OBC,
+    //    plus Lite (reduced storage) products gated by client group.
+    $blockedOBCPids   = [60, 57, 54];
+    $blockedForLite   = [58, 60]; // Hide the full backup SKUs from any Lite-group client
     foreach ($allProducts as $p) {
         $pid = (int)$p['pid'];
         // Skip OBC products for non-reseller clients
         if (!$isResellerClient && in_array($pid, $blockedOBCPids, true)) {
+            continue;
+        }
+        // Lite-tier products: only included for clients in the matching Lite group
+        if (in_array($pid, $allLitePids, true)) {
+            if (!$liteState['isLite']) { continue; }
+            if (!in_array($pid, $liteState['allowedPids'], true)) { continue; }
+            $categories['usage'][] = $p;
+            continue;
+        }
+        // For Lite clients, hide the full backup SKUs (eazyBackup 58 / OBC 60)
+        if ($liteState['isLite'] && in_array($pid, $blockedForLite, true)) {
             continue;
         }
         if ($pid === 52 || $pid === 57) { $categories['ms365'][]  = $p; }
@@ -8607,6 +8851,26 @@ function eazybackup_createorder($vars)
             'monthly'  => eazybackup_format_currency(eazybackup_get_config_unit_price((int)$cid, $currencyId, 'monthly'), $currencyId),
             'annually' => eazybackup_format_currency(eazybackup_get_config_unit_price((int)$cid, $currencyId, 'annually'), $currencyId),
         ];
+    }
+
+    // Live pricing for Lite product PIDs (flat product price, not a config option).
+    // Always built (even for non-Lite clients) so the template hydration is safe;
+    // it is only rendered when the selected product is a Lite PID.
+    $litePricing = [];
+    $liteCapGbMap = [];
+    foreach ($allLitePids as $litePid) {
+        $row = Capsule::table('tblpricing')
+            ->where('type', 'product')
+            ->where('relid', (int)$litePid)
+            ->where('currency', (int)$currencyId)
+            ->first(['monthly','annually']);
+        $monthly  = $row && (float)$row->monthly  >= 0 ? (float)$row->monthly  : 0.0;
+        $annually = $row && (float)$row->annually >= 0 ? (float)$row->annually : 0.0;
+        $litePricing[(int)$litePid] = [
+            'monthly'  => eazybackup_format_currency($monthly,  $currencyId),
+            'annually' => eazybackup_format_currency($annually, $currencyId),
+        ];
+        $liteCapGbMap[(int)$litePid] = eazybackup_lite_cap_for_pid((int)$litePid);
     }
 
     $units = [
@@ -8765,6 +9029,11 @@ function eazybackup_createorder($vars)
             "whitelabel_product_name" => $whitelabel_product_name,
             "payment" => $payment,
             "pricing" => $pricing,
+            "litePricing" => $litePricing,
+            "liteCapGbMap" => $liteCapGbMap,
+            "litePids" => $allLitePids,
+            "liteBrand" => $liteState['brand'],
+            "isLiteClient" => $liteState['isLite'],
             "units" => $units,
             "currency" => $currencyData,
             "isResellerClient" => $isResellerClient,

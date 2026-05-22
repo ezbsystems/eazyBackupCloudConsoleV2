@@ -209,19 +209,27 @@
                   </div>
                 </div>
 
+                {if $isLitePlan}
+                  <div class="px-4 py-3 border-b border-[var(--eb-border-default)] bg-amber-500/10 text-amber-200 text-sm">
+                    <strong>Plan-enforced limits:</strong> this is a Lite plan capped at
+                    <strong>{$liteCapGb} GB</strong> of storage and <strong>1 device</strong>.
+                    To raise these limits, please contact your eazyBackup account manager.
+                  </div>
+                {/if}
+
                 <div class="divide-y divide-[var(--eb-border-default)]">
                   <!-- Maximum devices -->
                   <div class="flex items-center justify-between px-4 py-3 gap-4">
                     <div class="min-w-0">
-                      <label for="q-devices" class="eb-field-label !mb-1">Maximum devices</label>
+                      <label for="q-devices" class="eb-field-label !mb-1">Maximum devices{if $isLitePlan} <span class="text-xs text-amber-300">(plan-enforced: 1)</span>{/if}</label>
                       <p class="eb-field-help !mt-0">Limit the number of devices that can register under this backup account.</p>
                     </div>
                     <div class="flex items-center gap-4">
-                      <button type="button" class="eb-toggle" @click="dev.enabled = !dev.enabled; if (!dev.enabled) { dev.count = 0 } else if (dev.count < 1) { dev.count = 1 }" :aria-pressed="dev.enabled ? 'true' : 'false'" aria-label="Toggle maximum devices">
+                      <button type="button" class="eb-toggle" {if $isLitePlan}disabled aria-disabled="true" tabindex="-1" style="opacity:.5;cursor:not-allowed"{else}@click="dev.enabled = !dev.enabled; if (!dev.enabled) { dev.count = 0 } else if (dev.count < 1) { dev.count = 1 }"{/if} :aria-pressed="dev.enabled ? 'true' : 'false'" aria-label="Toggle maximum devices">
                         <span class="eb-toggle-track" :class="{ 'is-on': dev.enabled }"><span class="eb-toggle-thumb"></span></span>
                       </button>
 
-                      <div class="eb-stepper group" :class="{ 'is-disabled': !dev.enabled }">
+                      <div class="eb-stepper group" :class="{ 'is-disabled': !dev.enabled {if $isLitePlan} || true{/if} }">
                         <input
                           id="q-devices"
                           type="number"
@@ -229,16 +237,16 @@
                           inputmode="numeric"
                           min="1" step="1"
                           x-model.number="dev.count"
-                          :disabled="!dev.enabled"
+                          :disabled="!dev.enabled{if $isLitePlan} || true{/if}"
                           :tabindex="dev.enabled ? '0' : '-1'"
                           class="eb-input eb-stepper-input no-native-spin"
                           @blur="if (dev.enabled) dev.count = Math.max(1, parseInt(dev.count || 1))"
                         />
                         <div class="eb-stepper-buttons">
-                          <button type="button" class="eb-stepper-button" @click="dev.count = Math.max(1, parseInt((dev.count ?? 1), 10) + 1)" :disabled="!dev.enabled" aria-label="Increase">
+                          <button type="button" class="eb-stepper-button" {if $isLitePlan}disabled{else}@click="dev.count = Math.max(1, parseInt((dev.count ?? 1), 10) + 1)" :disabled="!dev.enabled"{/if} aria-label="Increase">
                             <svg viewBox="0 0 24 24" class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" d="M12 5v14M5 12h14"/></svg>
                           </button>
-                          <button type="button" class="eb-stepper-button" @click="dev.count = Math.max(1, parseInt((dev.count ?? 1), 10) - 1)" :disabled="!dev.enabled" aria-label="Decrease">
+                          <button type="button" class="eb-stepper-button" {if $isLitePlan}disabled{else}@click="dev.count = Math.max(1, parseInt((dev.count ?? 1), 10) - 1)" :disabled="!dev.enabled"{/if} aria-label="Decrease">
                             <svg viewBox="0 0 24 24" class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" d="M5 12h14"/></svg>
                           </button>
                           <span class="eb-stepper-divider"></span>
@@ -1726,30 +1734,41 @@
         <!-- Quota -->
         <div class="space-y-3">
           <label class="eb-field-label !mb-0">Quota</label>
-          <div class="flex items-center gap-2">
-            <input id="vault-quota-unlimited2" type="checkbox" class="eb-checkbox">
-            <span class="text-sm text-[var(--eb-text-primary)]">Unlimited</span>
-          </div>
-          <div class="flex items-center gap-2">
-            <input id="vault-quota-size2" type="number" class="eb-input w-40" placeholder="0" />
-            <!-- Alpine unit dropdown -->
-            <div class="relative" x-data="{ open:false, unit:'GB' }" @click.away="open=false">
-              <input type="hidden" id="vault-quota-unit2" :value="unit">
-              <button type="button" @click="open=!open" class="eb-menu-trigger w-28 pr-8">
-                <span x-text="unit"></span>
-                <span class="pointer-events-none absolute inset-y-0 right-2 flex items-center text-[var(--eb-text-muted)]">
-                  <svg class="h-4 w-4 ml-2" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.24 4.5a.75.75 0 01-1.08 0l-4.24-4.5a.75.75 0 01.02-1.06z" clip-rule="evenodd"/></svg>
-                </span>
-              </button>
-              <div x-show="open" x-transition class="eb-menu absolute z-10 mt-1 w-full">
-                <ul class="py-1 text-sm text-[var(--eb-text-primary)]">
-                  <li><a href="#" class="eb-menu-option" @click.prevent="unit='GB'; open=false">GB</a></li>
-                  <li><a href="#" class="eb-menu-option" @click.prevent="unit='TB'; open=false">TB</a></li>
-                </ul>
+          {if $isLitePlan}
+            <div class="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-200">
+              <strong>Plan-enforced limit:</strong> {$liteCapGb} GB. To raise this limit, contact your eazyBackup account manager.
+            </div>
+            {* Keep the inputs in the DOM but disabled/hidden so existing JS that
+               reads them doesn't break, while preventing user changes. *}
+            <input id="vault-quota-unlimited2" type="checkbox" class="hidden" disabled>
+            <input id="vault-quota-size2" type="hidden" value="{$liteCapGb}">
+            <input id="vault-quota-unit2" type="hidden" value="GB">
+          {else}
+            <div class="flex items-center gap-2">
+              <input id="vault-quota-unlimited2" type="checkbox" class="eb-checkbox">
+              <span class="text-sm text-[var(--eb-text-primary)]">Unlimited</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <input id="vault-quota-size2" type="number" class="eb-input w-40" placeholder="0" />
+              <!-- Alpine unit dropdown -->
+              <div class="relative" x-data="{ open:false, unit:'GB' }" @click.away="open=false">
+                <input type="hidden" id="vault-quota-unit2" :value="unit">
+                <button type="button" @click="open=!open" class="eb-menu-trigger w-28 pr-8">
+                  <span x-text="unit"></span>
+                  <span class="pointer-events-none absolute inset-y-0 right-2 flex items-center text-[var(--eb-text-muted)]">
+                    <svg class="h-4 w-4 ml-2" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.24 4.5a.75.75 0 01-1.08 0l-4.24-4.5a.75.75 0 01.02-1.06z" clip-rule="evenodd"/></svg>
+                  </span>
+                </button>
+                <div x-show="open" x-transition class="eb-menu absolute z-10 mt-1 w-full">
+                  <ul class="py-1 text-sm text-[var(--eb-text-primary)]">
+                    <li><a href="#" class="eb-menu-option" @click.prevent="unit='GB'; open=false">GB</a></li>
+                    <li><a href="#" class="eb-menu-option" @click.prevent="unit='TB'; open=false">TB</a></li>
+                  </ul>
+                </div>
               </div>
             </div>
-          </div>
-          <div class="text-xs text-[var(--eb-text-muted)]">Changes apply to this vault only.</div>
+            <div class="text-xs text-[var(--eb-text-muted)]">Changes apply to this vault only.</div>
+          {/if}
         </div>
         <div class="flex justify-end border-t pt-4" style="border-color: var(--eb-border-default);">
           <button id="vault-save-all" class="eb-btn eb-btn-success">Save</button>
@@ -1985,27 +2004,41 @@
         <!-- Danger Tab -->
         <div x-show="tab==='danger'" x-transition class="px-5 py-5 space-y-4">
           <h4 class="font-semibold text-[var(--eb-danger-text)]">Danger zone</h4>
-          <div class="rounded-xl border border-rose-500/30 bg-rose-500/10 p-4">
-            <div class="flex items-start gap-3">
-              <svg class="mt-0.5 h-5 w-5 shrink-0 text-[var(--eb-danger-text)]" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
-              </svg>
-              <div>
-                <div class="font-medium text-[var(--eb-danger-text)]">Delete this vault</div>
-                <p class="mt-1 text-sm text-[var(--eb-text-primary)]">Deleting a vault cannot be undone. All data will be permanently lost.</p>
+          {if $isLitePlan}
+            <div class="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
+              <div class="flex items-start gap-3">
+                <svg class="mt-0.5 h-5 w-5 shrink-0 text-amber-300" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z" />
+                </svg>
+                <div>
+                  <div class="font-medium text-amber-200">Vault deletion is disabled on this plan</div>
+                  <p class="mt-1 text-sm text-[var(--eb-text-primary)]">Lite plans use a single plan-enforced vault. To remove this vault, please contact your eazyBackup account manager.</p>
+                </div>
               </div>
             </div>
-          </div>
-          <button id="vault-delete" class="eb-btn eb-btn-danger">Delete Vault</button>
-          <div id="vault-delete-confirm" class="hidden space-y-3 rounded-xl border p-4" style="border-color: var(--eb-border-default); background: color-mix(in srgb, var(--eb-bg-overlay) 70%, transparent);">
-            <div class="text-sm font-semibold text-[var(--eb-text-primary)]">Confirm your account password</div>
-            <div class="text-xs text-[var(--eb-text-muted)]">This is the password you use to sign in to your eazyBackup Client Area.</div>
-            <input id="vault-delete-password" type="password" class="eb-input is-error w-full" placeholder="Account password" />
-            <div class="flex justify-end gap-3 pt-2">
-              <button id="vault-delete-cancel" class="eb-btn eb-btn-secondary">Cancel</button>
-              <button id="vault-delete-confirm-btn" class="eb-btn eb-btn-danger">Confirm delete</button>
+          {else}
+            <div class="rounded-xl border border-rose-500/30 bg-rose-500/10 p-4">
+              <div class="flex items-start gap-3">
+                <svg class="mt-0.5 h-5 w-5 shrink-0 text-[var(--eb-danger-text)]" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+                </svg>
+                <div>
+                  <div class="font-medium text-[var(--eb-danger-text)]">Delete this vault</div>
+                  <p class="mt-1 text-sm text-[var(--eb-text-primary)]">Deleting a vault cannot be undone. All data will be permanently lost.</p>
+                </div>
+              </div>
             </div>
-          </div>
+            <button id="vault-delete" class="eb-btn eb-btn-danger">Delete Vault</button>
+            <div id="vault-delete-confirm" class="hidden space-y-3 rounded-xl border p-4" style="border-color: var(--eb-border-default); background: color-mix(in srgb, var(--eb-bg-overlay) 70%, transparent);">
+              <div class="text-sm font-semibold text-[var(--eb-text-primary)]">Confirm your account password</div>
+              <div class="text-xs text-[var(--eb-text-muted)]">This is the password you use to sign in to your eazyBackup Client Area.</div>
+              <input id="vault-delete-password" type="password" class="eb-input is-error w-full" placeholder="Account password" />
+              <div class="flex justify-end gap-3 pt-2">
+                <button id="vault-delete-cancel" class="eb-btn eb-btn-secondary">Cancel</button>
+                <button id="vault-delete-confirm-btn" class="eb-btn eb-btn-danger">Confirm delete</button>
+              </div>
+            </div>
+          {/if}
         </div>
       </div>
     </div>

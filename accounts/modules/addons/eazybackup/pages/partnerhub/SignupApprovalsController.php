@@ -260,11 +260,39 @@ function eb_ph_signup_approvals_index(array $vars)
 {
     [$clientId, $msp] = eb_ph_signup_approvals_context_or_redirect($vars);
 
-    $rowsCol = Capsule::table('eb_whitelabel_signup_events as e')
+    // Optional per-tenant filter via ?tid=<public_id>. The slide-over in
+    // branding-list.tpl uses this to scope the queue to a single tenant.
+    // We only honour a tid that belongs to the requesting MSP — otherwise
+    // we silently drop it (no leak across MSPs).
+    $tenantContext = null;
+    $tenantFilterId = 0;
+    $tidRaw = strtoupper(trim((string)($_GET['tid'] ?? '')));
+    if ($tidRaw !== '' && preg_match('/^[0-9A-HJ-NP-TV-Z]{26}$/', $tidRaw)) {
+        try {
+            $trow = Capsule::table('eb_whitelabel_tenants')
+                ->where('public_id', $tidRaw)
+                ->where('client_id', $clientId)
+                ->first(['id', 'public_id', 'subdomain', 'fqdn']);
+        } catch (\Throwable $__) { $trow = null; }
+        if ($trow) {
+            $tenantFilterId = (int)$trow->id;
+            $tenantContext = [
+                'public_id' => (string)$trow->public_id,
+                'fqdn' => (string)($trow->fqdn ?? ''),
+                'subdomain' => (string)($trow->subdomain ?? ''),
+            ];
+        }
+    }
+
+    $query = Capsule::table('eb_whitelabel_signup_events as e')
         ->join('eb_whitelabel_tenants as t', 't.id', '=', 'e.tenant_id')
         ->leftJoin('tblclients as wc', 'wc.id', '=', 'e.whmcs_client_id')
         ->where('t.client_id', $clientId)
-        ->whereIn('e.status', ['pending_approval', 'approving', 'rejecting'])
+        ->whereIn('e.status', ['pending_approval', 'approving', 'rejecting']);
+    if ($tenantFilterId > 0) {
+        $query->where('t.id', $tenantFilterId);
+    }
+    $rowsCol = $query
         ->orderBy('e.created_at', 'asc')
         ->get([
             'e.id',
@@ -296,6 +324,7 @@ function eb_ph_signup_approvals_index(array $vars)
             'modulelink' => eb_ph_signup_approvals_base_link($vars),
             'msp' => (array)$msp,
             'rows' => $rows,
+            'tenant_context' => $tenantContext,
             'token' => function_exists('generate_token') ? generate_token('plain') : '',
             'notice' => (string)($_GET['notice'] ?? ''),
             'error' => (string)($_GET['error'] ?? ''),
