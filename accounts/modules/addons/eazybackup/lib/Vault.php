@@ -8,13 +8,29 @@ class Vault
     private $cometServer;
     private $username;
     private $params;
+    private $isLite = false;
+    private $liteCapBytes = 0;
 
     public function __construct($params)
     {
         $this->params = $params;
         $this->username = $params['username'];
         $this->cometServer = comet_Server($params);
+
+        // Lite (reduced storage) services have a plan-enforced cap. We refuse
+        // any client-area attempt to change vault quotas or delete vaults.
+        if (function_exists('comet_LiteCapForPid')) {
+            $pid = (int)($params['pid'] ?? 0);
+            $capGb = (int)comet_LiteCapForPid($pid);
+            if ($capGb > 0) {
+                $this->isLite = true;
+                $this->liteCapBytes = $capGb * (1024 ** 3);
+            }
+        }
     }
+
+    public function isLitePlan(): bool { return $this->isLite; }
+    public function liteCapBytes(): int { return $this->liteCapBytes; }
 
     public function updateVault($vaultId, $vaultName, $vaultQuota, $retentionRules)
     {
@@ -29,13 +45,23 @@ class Vault
 
                 // Update Vault Quota
                 if ($vaultQuota !== null) {
-                    if (isset($vaultQuota['unlimited']) && $vaultQuota['unlimited']) {
+                    if ($this->isLite) {
+                        // Lite plans: always re-stamp the plan-enforced cap and
+                        // ignore any client-supplied unlimited / size overrides.
+                        $userProfile->Destinations[$vaultId]->StorageLimitEnabled = true;
+                        $userProfile->Destinations[$vaultId]->StorageLimitBytes  = $this->liteCapBytes;
+                    } else if (isset($vaultQuota['unlimited']) && $vaultQuota['unlimited']) {
                         $userProfile->Destinations[$vaultId]->StorageLimitEnabled = false;
                         $userProfile->Destinations[$vaultId]->StorageLimitBytes = 0;
                     } else {
                         $userProfile->Destinations[$vaultId]->StorageLimitEnabled = true;
                         $userProfile->Destinations[$vaultId]->StorageLimitBytes = $this->convertToBytes($vaultQuota['size'], $vaultQuota['unit']);
                     }
+                } else if ($this->isLite) {
+                    // Defensive: even when no quota payload was supplied, keep
+                    // the cap enforced on every save so it can never drift.
+                    $userProfile->Destinations[$vaultId]->StorageLimitEnabled = true;
+                    $userProfile->Destinations[$vaultId]->StorageLimitBytes  = $this->liteCapBytes;
                 }
 
                 // Apply Retention Rules
@@ -102,6 +128,10 @@ class Vault
 
     public function deleteVault($vaultId)
     {
+        if ($this->isLite) {
+            return ['status' => 'error', 'message' => 'This plan does not allow vault deletion. Please contact support to upgrade your plan.'];
+        }
+
         try {
             $userProfile = $this->cometServer->AdminGetUserProfile($this->username);
 

@@ -133,6 +133,20 @@ Full-page Partner Hub views use a fixed left vertical sidebar for navigation. Th
 
 **Adding a new Partner Hub page to the sidebar:** Add the link in `sidebar_partner_hub.tpl` with the same conditional as in `nav_partner_hub.tpl`, and set `ebPhSidebarPage` in the new template so the correct item is highlighted.
 
+**Pending signup-approvals bell:** The sidebar header renders a count-badged bell icon next to the "Partner Hub" label whenever the requesting MSP has at least one signup in `pending_approval`. The standalone "Signup Approvals" sidebar entry has been retired in favour of this exception-driven surface plus a per-tenant button in the White-Label Tenants slide-over. The count is computed once per page load by `eb_ph_pending_signups_summary_for_client()` in `lib/Whitelabel/SignupApprovalsCount.php` and injected by the `ClientAreaPage` hook in `hooks.php` as the template variables `eb_ph_pending_signups_count` (int total) and `eb_ph_pending_signups_by_tenant` (map of tenant `public_id` → count). The bell respects the addon setting `partnerhub_show_signup_approvals`.
+
+## Signup Approvals (MSP review queue)
+
+When a public white-label signup completes, `PublicSignupController` writes the order in `Pending` state and the event in `pending_approval` instead of provisioning. MSPs drain that queue from `index.php?m=eazybackup&a=ph-signup-approvals` (controller `pages/partnerhub/SignupApprovalsController.php`, template `templates/whitelabel/signup-approvals.tpl`). The page supports an optional `?tid=<tenant public_id>` query param that scopes the queue to a single tenant; the controller enforces that the `tid` belongs to the requesting MSP, so MSPs cannot see one another's queues.
+
+Three discovery surfaces feed into this page:
+
+- **Sidebar header bell** — only visible when `eb_ph_pending_signups_count > 0`.
+- **Per-tenant slide-over button** — `templates/whitelabel/branding-list.tpl` shows a "Signup Approvals" button (with a count badge) inside the tenant slide-over when the tenant has pending approvals. The link points to `&a=ph-signup-approvals&tid=<public_id>`. `BuildController::eazybackup_whitelabel_branding` decorates each row with `pending_approvals_count` from the same `eb_ph_pending_signups_summary_for_client()` helper used by the bell.
+- **MSP email notice** — when a public signup lands in `pending_approval`, `PublicSignupController` calls `localAPI('SendEmail', ['messagename' => 'EazyBackup Pending Signup Notice', 'id' => <msp client id>])`. The template is seeded by `eazybackup_migrate_schema()` and exposes the merge fields `tenant_fqdn`, `tenant_name`, `customer_email`, `signup_received_at`, `approvals_url`, `whmcs_order_id`. The notice can be turned off with the addon setting `partnerhub_signup_notice_enabled` (default on). Failures are logged via `logModuleCall('eazybackup','signup_msp_notice', ...)` and never break the customer-facing signup flow.
+
+Static-marker contract test for the surfacing wiring: `bin/dev/signup_approvals_surfacing_contract_test.php`. Approve/reject business logic is covered by `bin/dev/signup_approval_routes_contract_test.php`.
+
 ## Feature Flags & Routing
 - Addon setting `PARTNER_HUB_SIGNUP_ENABLED` gates public routes and Partner Hub nav.
 - Addon setting `ops_whmcs_upstream` is used by HostOps when writing HTTPS vhosts for signup domains.

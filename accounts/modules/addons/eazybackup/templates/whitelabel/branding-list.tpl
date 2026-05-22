@@ -94,7 +94,8 @@
                                                 class="eb-btn eb-btn-secondary eb-btn-xs btn-tenant-manage"
                                                 data-tenant-tid="{$t.public_id}"
                                                 data-fqdn="{$t.fqdn}"
-                                                data-custom-domain="{$t.custom_domain|default:''}">
+                                                data-custom-domain="{$t.custom_domain|default:''}"
+                                                data-pending-approvals="{$t.pending_approvals_count|default:0}">
                                             Manage
                                         </button>
                                     </td>
@@ -301,6 +302,10 @@
                 <a id="btn-tenant-signup-settings" href="#" class="eb-btn eb-btn-secondary eb-btn-sm w-full justify-start">
                     Registration Page
                 </a>
+                <a id="btn-tenant-signup-approvals" href="#" class="eb-btn eb-btn-secondary eb-btn-sm w-full justify-start" style="display:none;">
+                    <span>Signup Approvals</span>
+                    <span id="btn-tenant-signup-approvals-badge" class="eb-badge eb-badge--warning ml-auto" style="display:none;"></span>
+                </a>
                 <a id="btn-tenant-email-templates" href="#" class="eb-btn eb-btn-secondary eb-btn-sm w-full justify-start">
                     Email Templates
                 </a>
@@ -319,15 +324,26 @@
     var btnSignup = document.getElementById('btn-tenant-signup-settings');
     var btnBrand = document.getElementById('btn-tenant-branding');
     var btnEmail = document.getElementById('btn-tenant-email-templates');
+    var btnApprovals = document.getElementById('btn-tenant-signup-approvals');
+    var btnApprovalsBadge = document.getElementById('btn-tenant-signup-approvals-badge');
     var elFqdn = document.getElementById('tenant-panel-fqdn');
     var elCustom = document.getElementById('tenant-panel-custom');
-    function openPanel(tenantTid, fqdn, custom){
+    function openPanel(tenantTid, fqdn, custom, pendingApprovals){
       try {
         if (elFqdn) elFqdn.textContent = fqdn || '';
         if (elCustom) elCustom.textContent = custom || '-';
         if (btnSignup) btnSignup.href = modulelink + '&a=whitelabel-signup-settings&tid=' + encodeURIComponent(String(tenantTid||''));
         if (btnBrand) btnBrand.href = modulelink + '&a=whitelabel-branding&tid=' + encodeURIComponent(String(tenantTid||''));
         if (btnEmail) btnEmail.href = modulelink + '&a=whitelabel-email-templates&tid=' + encodeURIComponent(String(tenantTid||''));
+        if (btnApprovals) {
+          var n = parseInt(pendingApprovals, 10) || 0;
+          btnApprovals.href = modulelink + '&a=ph-signup-approvals&tid=' + encodeURIComponent(String(tenantTid||''));
+          btnApprovals.style.display = n > 0 ? '' : 'none';
+          if (btnApprovalsBadge) {
+            btnApprovalsBadge.textContent = n > 99 ? '99+' : String(n);
+            btnApprovalsBadge.style.display = n > 0 ? '' : 'none';
+          }
+        }
         panel.classList.remove('translate-x-full');
         panel.classList.add('translate-x-0');
       } catch(e) {}
@@ -343,7 +359,8 @@
         var tid = this.getAttribute('data-tenant-tid');
         var fqdn = this.getAttribute('data-fqdn') || '';
         var custom = this.getAttribute('data-custom-domain') || '';
-        openPanel(tid, fqdn, custom);
+        var pending = this.getAttribute('data-pending-approvals') || '0';
+        openPanel(tid, fqdn, custom, pending);
       });
     });
   } catch(e) {}

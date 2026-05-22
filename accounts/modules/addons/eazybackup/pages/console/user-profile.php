@@ -94,6 +94,15 @@ function eazybackup_user_profile(array $vars = []) {
     // **NEW: Retrieve Job Logs for this account**
     $jobLogs = getUserJobLogsDetails($username, $serviceid);
 
+    // Resolve Lite (reduced storage) plan status for this service so the
+    // template can lock down quota / vault controls accordingly.
+    $isLitePlan = false;
+    $liteCapGb  = 0;
+    if (function_exists('comet_LiteCapForPid')) {
+        $liteCapGb  = (int)comet_LiteCapForPid((int)$packageid);
+        $isLitePlan = $liteCapGb > 0;
+    }
+
     return [
         "modulelink"      => $vars['modulelink'],
         "serviceid"       => $serviceid,
@@ -110,6 +119,8 @@ function eazybackup_user_profile(array $vars = []) {
         "devices"         => getUserDevicesDetails($username, $serviceid), // Already implemented earlier
         "jobLogs"         => $jobLogs, // New key for job log details
         "userProfileJson" => htmlspecialchars(json_encode($user, JSON_PRETTY_PRINT)),
+        "isLitePlan"      => $isLitePlan,
+        "liteCapGb"       => $liteCapGb,
 
     ];
 }

@@ -220,13 +220,31 @@
                       99: { monthly: '{$pricing.99.monthly|escape:'html'}', annually: '{$pricing.99.annually|escape:'html'}' },
                       102:{ monthly: '{$pricing.102.monthly|escape:'html'}',annually: '{$pricing.102.annually|escape:'html'}' }
                     },
+                    // Lite plan hydration (flat product pricing + per-PID storage cap in GB)
+                    litePricing: {
+                      {foreach from=$litePricing key=lpid item=lp name=lpf}
+                      {$lpid}: {ldelim} monthly: '{$lp.monthly|escape:'html'}', annually: '{$lp.annually|escape:'html'}' {rdelim}{if !$smarty.foreach.lpf.last},{/if}
+                      {/foreach}
+                    },
+                    liteCaps: {
+                      {foreach from=$liteCapGbMap key=lcpid item=lcap name=lcapf}
+                      {$lcpid}: {$lcap}{if !$smarty.foreach.lcapf.last},{/if}
+                      {/foreach}
+                    },
+                    litePids: [{foreach from=$litePids item=lp name=lpidf}{$lp}{if !$smarty.foreach.lpidf.last},{/if}{/foreach}],
                     // helpers to classify the selected product by PID
                     isMs365() {
                       const pid = parseInt(this.selectedProduct || 0, 10);
                       return [52,57].includes(pid);
                     },
+                    isLite() {
+                      const pid = parseInt(this.selectedProduct || 0, 10);
+                      return this.litePids.includes(pid);
+                    },
                     isUsage() {
                       const pid = parseInt(this.selectedProduct || 0, 10);
+                      // Lite products show their own pricing card, not the usage one
+                      if (this.isLite()) return false;
                       // usage-based backup products (eazyBackup / OBC) and whitelabel/other usage SKUs
                       if ([58,60].includes(pid)) return true;
                       // treat anything that is not explicitly MS365 or VM-only as usage
@@ -236,6 +254,16 @@
                     isVm() {
                       const pid = parseInt(this.selectedProduct || 0, 10);
                       return [53,54].includes(pid);
+                    },
+                    liteCapGb() {
+                      const pid = parseInt(this.selectedProduct || 0, 10);
+                      return this.liteCaps[pid] || 0;
+                    },
+                    priceForLite() {
+                      const pid = parseInt(this.selectedProduct || 0, 10);
+                      const key = this.billingTerm === 'annual' ? 'annually' : 'monthly';
+                      const o = this.litePricing[pid];
+                      return o && o[key] ? o[key] : 'Not configured';
                     },
                     updateProductType() {
                       const pid = parseInt(this.selectedProduct || 0, 10);
@@ -249,6 +277,11 @@
                       if (this.isMs365()) {
                         this.productType = 'ms365';
                         this.forceMonthly();
+                        return;
+                      }
+                      // Lite (reduced storage) backup plans
+                      if (this.isLite()) {
+                        this.productType = 'lite';
                         return;
                       }
                       // VM‑only backup products
@@ -353,6 +386,19 @@
                       {if !empty($POST.reportemail)} this.addEmailsFromString('{$POST.reportemail|escape:'html'}'); {/if}
                       {if !$isResellerClient}
                       if ([60,57,54].includes(parseInt(this.selectedProduct||0,10))) {
+                        this.selectedProduct = '';
+                        this.selectedName='Choose a Service'; this.selectedDesc=''; this.selectedIcon=''; this.productType='';
+                      }
+                      {/if}
+                      // Reset selection if a Lite PID is selected but this client is not entitled to it
+                      {if !$isLiteClient}
+                      if (this.litePids.includes(parseInt(this.selectedProduct||0,10))) {
+                        this.selectedProduct = '';
+                        this.selectedName='Choose a Service'; this.selectedDesc=''; this.selectedIcon=''; this.productType='';
+                      }
+                      {else}
+                      // Lite clients cannot pick the full backup SKUs
+                      if ([58,60].includes(parseInt(this.selectedProduct||0,10))) {
                         this.selectedProduct = '';
                         this.selectedName='Choose a Service'; this.selectedDesc=''; this.selectedIcon=''; this.productType='';
                       }
@@ -550,28 +596,30 @@
 
                           {foreach $categories.usage as $product}
                             {if $isResellerClient || $product.pid != 60}
+                              {assign var=isLitePid value=false}
+                              {foreach from=$litePids item=lpidCheck}{if $lpidCheck == $product.pid}{assign var=isLitePid value=true}{/if}{/foreach}
                               <div @click="
                               selectedProduct = '{$product.pid}';
                                               selectedName    = `{$product.name}`;
-                                              selectedDesc    = 'Usage-based billing';
+                                              selectedDesc    = '{if $isLitePid}Reduced storage plan{else}Usage-based billing{/if}';
                               selectedIcon    = $event.currentTarget.querySelector('svg').outerHTML;
-                                              productType     = 'usage';
+                                              productType     = '{if $isLitePid}lite{else}usage{/if}';
                               open            = false
                             " class="eb-order-dropdown-item">
                               {* <span class="absolute left-0 inset-y-0 w-1 bg-sky-500 opacity-0 transition-opacity duration-200 group-hover:opacity-100"></span> *}
                                 <div class="flex-shrink-0">
                                   {* <svg xmlns="http://www.w3.org/2000/svg" x="0px" y="0px" width="24" height="24" viewBox="0 0 50 50" style="fill:currentColor;" class="mr-3 {if $product.gid == 7}text-sky-500{else}text-orange-600{/if}"><path d="M20.13,32.5c-2.79-1.69-4.53-4.77-4.53-8.04V8.9c0-1.63,0.39-3.19,1.11-4.57L7.54,9.88C4.74,11.57,3,14.65,3,17.92v14.15 c0,1.59,0.42,3.14,1.16,4.5c0.69,1.12,1.67,2.06,2.88,2.74c2.53,1.42,5.51,1.36,7.98-0.15l8.02-4.9L20.13,32.5z M42.84,27.14 l-8.44-5.05v2.29c0,3.25-1.72,6.33-4.49,8.02l-13.84,8.47c1.52,0.93,3.19,1.42-4.87,1.46l8.93,5.41c1.5,0.91,3.19,1.36,4.87,1.36 s3.37-0.45,4.87-1.36l9.08-5.5l3.52-2.13c0.27-0.16,0.53-0.34,0.78-0.54c0.08-0.05,0.16-0.11,0.23-0.16 c0.65-0.53,1.23-1.13,1.71-1.79c0.02-0.03,0.04-0.06,0.06-0.09c0.77-1.19,1.2-2.59,1.19-4.06C46.43,30.85,45.09,28.48,42.84,27.14z M42.46,9.88l-9.57-5.79l-3.02-1.83C29.45,2,29.01,1.79,28.56,1.61c-0.49-0.21-1-0.37-1.51-0.47c-1.84-0.38-3.76-0.08-5.46,0.89 c-2.5,1.43-3.99,3.99-3.99,6.87v9.6l2.8-1.65c2.84-1.67,6.36-1.66,9.19,0.03l14.28,8.54c1.29,0.78,2.35,1.81,3.12,3.02L47,17.92 C47,14.65,45.26,11.57,42.46,9.88z"></path></svg>
                                   *}
-                                {if $product.pid == 58}
-                                  {* eazyBackup brand icon pid=58 *}
+                                {if $product.gid == 6}
+                                  {* eazyBackup brand icon (pid=58, pid=103, etc.) *}
                                   <svg width="24" height="24" viewBox="0 0 256 253" fill="none" xmlns="http://www.w3.org/2000/svg" class="mr-3">
                                     <g transform="translate(0 -0)">
                                       <path d="M123.517 0.739711C135.162 3.20131 145.461 10.8791 151.254 21.3116C152.308 23.2457 154.297 27.8758 155.643 31.5682C156.989 35.2606 158.218 38.4841 158.335 38.7186C158.51 38.953 161.261 37.8394 164.421 36.257C173.491 31.6854 178.231 30.2788 185.779 29.9271C191.104 29.6927 193.094 29.8685 197.19 30.9235C209.479 33.9712 219.544 42.1765 224.927 53.4295C227.912 59.5835 228.907 63.8034 229.199 71.7156C229.55 80.1554 228.497 85.372 224.518 94.866C224.518 94.866 221.943 101.02 221.943 101.02C221.943 101.02 229.901 104.889 229.901 104.889C240.961 110.339 246.813 115.79 251.553 125.226C254.771 131.673 255.941 137.007 256 145.563C256 154.472 254.771 159.63 250.968 166.956C246.169 176.275 239.557 182.546 229.375 187.586C225.981 189.227 223.172 190.634 223.113 190.634C223.055 190.693 223.406 192.685 223.933 195.088C224.459 197.726 224.869 202.532 224.869 207.103C224.869 213.726 224.693 215.426 223.289 219.997C217.496 239.221 201.696 251.998 182.561 252.936C174.661 253.288 169.336 252.233 162.373 248.775C155.468 245.375 150.903 241.097 144.993 232.774C142.477 229.14 140.253 226.151 140.078 226.151C139.961 226.151 137.269 228.144 134.109 230.606C127.438 235.881 119.889 239.749 113.686 241.155C107.191 242.562 97.243 242.035 91.0402 239.925C81.0923 236.467 72.6658 228.847 67.8089 218.825C64.766 212.495 63.5957 207.748 62.6009 197.491C62.2498 194.092 61.9572 191.337 61.8401 191.22C61.7816 191.162 58.4462 191.748 54.4085 192.568C37.0289 196.026 23.4529 192.334 12.7443 181.257C2.67933 170.707 -1.53391 155.527 1.50898 140.699C3.38153 131.614 6.77553 125.402 14.5583 116.786C14.5583 116.786 19.7663 111.043 19.7663 111.043C19.7663 111.043 14.6168 105.592 14.6168 105.592C8.64807 99.262 5.72222 95.101 3.38153 89.533C-1.24132 78.3971 -1.12429 64.0378 3.73263 52.9606C7.7118 44.052 15.7286 35.3192 23.8625 31.0993C30.8261 27.4655 36.4437 26.0589 44.168 26.0589C51.8922 26.0589 55.4033 26.8795 64.4149 30.9821C67.9844 32.6232 71.0273 33.854 71.0859 33.7954C71.2029 33.6781 72.7243 30.6891 74.4799 27.1139C79.5708 16.9159 85.6566 10.1172 93.9075 5.48701C97.5356 3.43571 103.27 1.32581 107.366 0.505211C111.17 -0.256689 119.362 -0.139489 123.517 0.739711C123.517 0.739711 123.517 0.739711 123.517 0.739711Z" fill="#FE5000" fill-rule="evenodd" />
                                       <path d="M118.784 71.936C126.976 71.936 134.656 69.632 134.656 52.736C134.656 33.536 115.456 1.14441e-05 71.936 1.14441e-05C33.536 1.14441e-05 0 28.672 0 68.096C0 101.12 23.808 134.4 69.888 134.4C92.928 134.4 129.024 120.064 129.024 100.352C129.024 95.488 124.416 87.552 119.04 87.552C113.664 87.552 104.192 99.072 84.992 99.072C72.96 99.072 56.32 88.32 56.32 75.52C56.32 71.168 60.416 71.936 63.232 71.936C63.232 71.936 118.784 71.936 118.784 71.936C118.784 71.936 118.784 71.936 118.784 71.936ZM70.4 47.36C63.744 47.36 55.04 49.408 55.04 40.192C55.04 32 61.952 23.296 70.4 23.296C79.872 23.296 85.504 30.464 85.504 39.68C85.504 48.896 77.312 47.36 70.4 47.36C70.4 47.36 70.4 47.36 70.4 47.36Z" fill="#FFFFFF" transform="translate(55.352 57.184)" />
                                     </g>
                                   </svg>
-                                {elseif $product.pid == 60}
-                                  {* OBC brand icon pid=60 *}
+                                {elseif $product.gid == 7}
+                                  {* OBC brand icon (pid=60, pid=102, etc.) *}
                                   <svg width="24" height="24" viewBox="0 0 93.176 32" fill="none" xmlns="http://www.w3.org/2000/svg" class="mr-3">
                                     <defs>
                                       <clipPath id="clip_path_1">
@@ -597,8 +645,20 @@
                                 {/if}
                               </div>
                               <div class="min-w-0">
-                              <div class="text-sm text-[var(--eb-text-primary)]">{$product.name}</div>
-                              <div class="eb-type-caption">{if $product.pid == 60}OBC Branded Backup Client{elseif $product.pid == 58}eazyBackup Branded Backup Client{else}Usage-based billing{/if}</div>
+                              <div class="flex items-center gap-2">
+                                <div class="text-sm text-[var(--eb-text-primary)]">{$product.name}</div>
+                                {if $isLitePid}
+                                  <span class="inline-flex items-center rounded-full bg-amber-500/15 text-amber-300 ring-1 ring-amber-500/30 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide">Lite {$liteCapGbMap[$product.pid]} GB</span>
+                                {/if}
+                              </div>
+                              <div class="eb-type-caption">
+                                {if $isLitePid}
+                                  {if $product.gid == 6}eazyBackup Lite (reduced storage){elseif $product.gid == 7}OBC Lite (reduced storage){else}Reduced storage plan{/if}
+                                {elseif $product.pid == 60}OBC Branded Backup Client
+                                {elseif $product.pid == 58}eazyBackup Branded Backup Client
+                                {else}Usage-based billing
+                                {/if}
+                              </div>
                             </div>
                           </div>
                           {/if}
@@ -1397,6 +1457,24 @@
                 </ul>
                 <p class="eb-type-body mb-4">
                   You're free to use all features; charges automatically adjust each <span x-text="termLabel()"></span> to match your actual consumption.
+                </p>
+              </div>
+            </div>
+
+            <!-- Lite (reduced storage) backup plans -->
+            <div x-show="isLite()">
+              <div class="eb-order-side-card">
+                <h3 class="eb-section-title mb-4" x-text="selectedName"></h3>
+                <p class="eb-type-body mb-4">
+                  Flat-rate <strong x-text="priceForLite()"></strong> per <span x-text="termLabel()"></span>. Includes:
+                </p>
+                <ul class="list-disc list-inside eb-type-body mb-4 space-y-1">
+                  <li><span class="font-medium">Storage:</span> <span x-text="liteCapGb()"></span>&nbsp;GB (plan-enforced)</li>
+                  <li><span class="font-medium">Devices / Endpoints:</span> 1</li>
+                  <li><span class="font-medium">Retention:</span> 30 days (configurable on request)</li>
+                </ul>
+                <p class="eb-type-body mb-4">
+                  The storage cap and device limit are enforced by the plan. To increase storage or add more devices, upgrade to the standard usage-based plan or contact your eazyBackup account manager.
                 </p>
               </div>
             </div>

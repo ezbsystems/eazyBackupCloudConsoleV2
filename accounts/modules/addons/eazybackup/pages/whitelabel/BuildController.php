@@ -511,6 +511,22 @@ function eazybackup_whitelabel_branding(array $vars)
                 $tenants[] = (array)$r;
             }
         } catch (\Throwable $_) { /* ignore */ }
+        // Decorate rows with per-tenant pending-signup-approval counts so the
+        // slide-over can render a count badge next to the Signup Approvals
+        // button without a second round-trip.
+        $pendingByTid = [];
+        try {
+            require_once __DIR__ . '/../../lib/Whitelabel/SignupApprovalsCount.php';
+            if (function_exists('eb_ph_pending_signups_summary_for_client')) {
+                $summary = eb_ph_pending_signups_summary_for_client($clientId);
+                $pendingByTid = (array)($summary['by_tenant_tid'] ?? []);
+            }
+        } catch (\Throwable $__) { $pendingByTid = []; }
+        foreach ($tenants as &$tenant) {
+            $tid = (string)($tenant['public_id'] ?? '');
+            $tenant['pending_approvals_count'] = (int)($pendingByTid[$tid] ?? 0);
+        }
+        unset($tenant);
         return [
             'pagetitle' => 'Branding & Hostname',
             'breadcrumb' => ['index.php?m=eazybackup' => 'eazyBackup'],

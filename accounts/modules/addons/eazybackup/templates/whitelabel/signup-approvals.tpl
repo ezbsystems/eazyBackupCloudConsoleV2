@@ -6,10 +6,22 @@
     <div class="p-6">
     <div class="flex flex-col gap-4 border-b border-[var(--eb-border-subtle)] pb-4 sm:flex-row sm:items-center sm:justify-between">
       <div>
-        <h1 class="eb-type-h2 tracking-tight text-[var(--eb-text-primary)]">Pending Signup Approvals</h1>
-        <p class="eb-page-description mt-1">Review and approve or reject customer signups awaiting MSP action.</p>
+        <h1 class="eb-type-h2 tracking-tight text-[var(--eb-text-primary)]">
+          Pending Signup Approvals
+          {if isset($tenant_context) && $tenant_context}
+            <span class="text-[var(--eb-text-secondary)] eb-type-h4 ml-1">— {if $tenant_context.subdomain}{$tenant_context.subdomain|escape}{else}{$tenant_context.fqdn|escape}{/if}</span>
+          {/if}
+        </h1>
+        <p class="eb-page-description mt-1">
+          {if isset($tenant_context) && $tenant_context}
+            Showing signups for this tenant only.
+            <a href="{$modulelink}&a=ph-signup-approvals" class="ml-1 underline hover:no-underline">Show all tenants</a>
+          {else}
+            Review and approve or reject customer signups awaiting MSP action.
+          {/if}
+        </p>
       </div>
-      <a href="{$modulelink}&a=ph-tenants-manage" class="eb-btn eb-btn-secondary eb-btn-sm shrink-0">Back to Tenants</a>
+      <a href="{$modulelink}&a=whitelabel-branding" class="eb-btn eb-btn-secondary eb-btn-sm shrink-0">Back to Tenants</a>
     </div>
 
     {if isset($notice) && $notice == 'approved'}

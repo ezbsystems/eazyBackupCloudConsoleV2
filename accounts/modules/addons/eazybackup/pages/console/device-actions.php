@@ -211,6 +211,18 @@ try {
                 break;
             }
 
+            // Lite (reduced storage) services: clamp client-supplied quota values
+            // so a crafted POST can never disable enforcement or raise the device
+            // cap above 1.
+            $litePidCap = function_exists('comet_LiteCapForPid')
+                ? (int)comet_LiteCapForPid((int)($account->packageid ?? 0))
+                : 0;
+            if ($litePidCap > 0) {
+                if (isset($payload['MaximumDevices'])) {
+                    $payload['MaximumDevices'] = 1;
+                }
+            }
+
             $ph = $server->AdminGetUserProfileAndHash($username);
             if (!$ph || !$ph->Profile) {
                 echo json_encode(['status'=>'error','message'=>'Profile not found']);
@@ -223,6 +235,20 @@ try {
                     $ph->Profile->{$k} = $v;
                 } else {
                     error_log("Comet SDK property missing: {$k}");
+                }
+            }
+
+            // Lite plan: always re-stamp the all-protected-items quota so it
+            // can't drift even if other code paths touched the profile.
+            if ($litePidCap > 0) {
+                if (property_exists($ph->Profile, 'AllProtectedItemsQuotaEnabled')) {
+                    $ph->Profile->AllProtectedItemsQuotaEnabled = true;
+                }
+                if (property_exists($ph->Profile, 'AllProtectedItemsQuotaBytes')) {
+                    $ph->Profile->AllProtectedItemsQuotaBytes = $litePidCap * (1024 ** 3);
+                }
+                if (property_exists($ph->Profile, 'MaximumDevices')) {
+                    $ph->Profile->MaximumDevices = 1;
                 }
             }
 

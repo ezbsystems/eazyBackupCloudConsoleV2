@@ -49,7 +49,6 @@
         {/if}
         <a href="{$WEB_ROOT}/index.php?m=eazybackup&a=whitelabel-branding" class="eb-sidebar-sublink {if $smarty.get.a|default:'' == 'whitelabel-branding'}is-active{/if}">White-Label Tenants</a>
         <a href="{$WEB_ROOT}/index.php?m=eazybackup&a=ph-tenants-manage" class="eb-sidebar-sublink {if $smarty.get.a|default:'' == 'ph-tenants-manage'}is-active{/if}">Tenant Management</a>
-        <a href="{$WEB_ROOT}/index.php?m=eazybackup&a=ph-signup-approvals" class="eb-sidebar-sublink {if $smarty.get.a|default:'' == 'ph-signup-approvals'}is-active{/if}">Signup Approvals</a>
         <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=e3backup_users" class="eb-sidebar-sublink {if $smarty.get.m|default:'' == 'cloudstorage' && $smarty.get.page|default:'' == 'e3backup_users'}is-active{/if}">Storage Users (e3)</a>
   
         {if !isset($eb_ph_show_catalog) || $eb_ph_show_catalog}
