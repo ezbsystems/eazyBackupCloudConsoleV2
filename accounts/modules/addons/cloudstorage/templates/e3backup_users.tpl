@@ -167,8 +167,18 @@
 
         <template x-if="!loading && pagedUsers().length === 0">
             <div class="eb-app-empty">
-                <div class="eb-app-empty-title" x-text="searchQuery.trim() ? 'No matching users found' : 'No users found'"></div>
-                <p class="eb-app-empty-copy" x-text="searchQuery.trim() ? 'Try a different search term or clear your filters.' : 'Create your first backup user to get started.'"></p>
+                <span class="eb-icon-box eb-icon-box--lg eb-icon-box--default mb-3" aria-hidden="true" x-show="!searchQuery.trim()">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-6 w-6">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 0 1 8.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0 1 11.964-3.07M12 6.375a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0Zm8.25 2.25a2.625 2.625 0 1 1-5.25 0 2.625 2.625 0 0 1 5.25 0Z" />
+                    </svg>
+                </span>
+                <div class="eb-app-empty-title" x-text="searchQuery.trim() ? 'No matching users found' : 'Create your first backup user'"></div>
+                <p class="eb-app-empty-copy" x-text="searchQuery.trim() ? 'Try a different search term or clear your filters.' : 'A backup user is the login an agent uses to sign in. We have already created a default one for you - click below to set it up, or add another.'"></p>
+                <div class="mt-4 flex flex-wrap items-center justify-center gap-2" x-show="!searchQuery.trim()">
+                    <a href="index.php?m=cloudstorage&page=e3backup&view=getting_started" class="eb-btn eb-btn-primary eb-btn-sm">
+                        Open Getting Started
+                    </a>
+                </div>
             </div>
         </template>
 
@@ -216,7 +226,7 @@
                     </div>
                 </div>
 
-                <div class="eb-table-shell">
+                <div class="eb-table-shell" data-tour="users-table">
                     <table class="eb-table">
                         <thead>
                             <tr>
@@ -295,12 +305,13 @@
                             </tr>
                         </thead>
                         <tbody>
-                            <template x-for="user in pagedUsers()" :key="'user-row-' + userKey(user)">
+                            <template x-for="(user, userRowIndex) in pagedUsers()" :key="'user-row-' + userKey(user)">
                                 <tr class="eb-table-row-clickable"
                                     :class="{
                                         'is-selected': isUserSelected(user),
                                         'is-suspended': isUserSuspended(user)
                                     }"
+                                    :data-tour="userRowIndex === 0 ? 'users-row' : null"
                                     @click="goToDetail(user.public_id || user.id)">
                                     <td @click.stop>
                                         <button type="button"

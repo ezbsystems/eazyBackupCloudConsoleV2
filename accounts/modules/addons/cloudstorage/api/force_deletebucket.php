@@ -133,7 +133,7 @@ if ($bucketName === '') {
 // Validate client owns the product
 $packageId = ProductConfig::$E3_PRODUCT_ID;
 $product = DBController::getProduct($clientId, $packageId);
-if (is_null($product) || is_null($product->username)) {
+if (is_null($product) || empty($product->username)) {
     (new JsonResponse(['status' => 'fail', 'message' => 'User does not exist.'], 200))->send();
     exit();
 }

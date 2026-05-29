@@ -78,7 +78,7 @@ try {
     // Get user's S3 user and tenant IDs to verify bucket ownership
     $packageId = ProductConfig::$E3_PRODUCT_ID;
     $product = DBController::getProduct($clientId, $packageId);
-    if (is_null($product) || is_null($product->username)) {
+    if (is_null($product) || empty($product->username)) {
         (new JsonResponse(['status' => 'error', 'message' => 'No storage account found'], 200))->send();
         exit;
     }

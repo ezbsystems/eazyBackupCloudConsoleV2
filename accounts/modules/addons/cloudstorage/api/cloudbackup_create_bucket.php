@@ -20,7 +20,7 @@ if (!$ca->isLoggedIn()) {
 	exit();
 }
 
-$packageId = ProductConfig::$E3_PRODUCT_ID;
+$packageId = ProductConfig::e3CloudBackupPid();
 $loggedInUserId = $ca->getUserID();
 // Resolve client ID (WHMCS v8 user->client mapping)
 $clientId = 0;

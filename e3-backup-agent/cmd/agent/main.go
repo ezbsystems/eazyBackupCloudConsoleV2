@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"syscall"
+	"time"
 
 	"github.com/kardianos/service"
 	"github.com/your-org/e3-backup-agent/internal/agent"
@@ -125,13 +126,30 @@ func runServiceCommand(cmd string, configPath string) {
 	}
 	switch cmd {
 	case "install":
-		err = service.Control(s, "install")
+		// On upgrades the service already exists, which makes Control return an
+		// error. Treat that as non-fatal so a subsequent start/restart can still
+		// bring the service up; a genuinely broken install surfaces when start
+		// fails below.
+		if ierr := service.Control(s, "install"); ierr != nil {
+			log.Printf("service install: %v (continuing)", ierr)
+		}
 	case "uninstall":
 		err = service.Control(s, "uninstall")
 	case "start":
 		err = service.Control(s, "start")
 	case "stop":
 		err = service.Control(s, "stop")
+	case "restart":
+		// Stop is best-effort: the service may already be stopped (the installer's
+		// PrepareToInstall stops it, or this is a first run). We deliberately
+		// ignore the stop error and always attempt start so the freshly installed
+		// binary and any updated agent.conf are loaded. A bare "start" would be a
+		// no-op when the service is already running, leaving it on stale config.
+		if serr := service.Control(s, "stop"); serr != nil {
+			log.Printf("service restart: stop returned (continuing): %v", serr)
+		}
+		waitForServiceStopped(s, 15*time.Second)
+		err = service.Control(s, "start")
 	default:
 		log.Fatalf("unknown service command: %s", cmd)
 	}
@@ -139,6 +157,19 @@ func runServiceCommand(cmd string, configPath string) {
 		log.Fatalf("service command failed: %v", err)
 	}
 	log.Printf("service command %s: ok", cmd)
+}
+
+// waitForServiceStopped polls the SCM until the service reports Stopped or the
+// timeout elapses. This avoids the race where "start" is issued while the
+// service is still in STOP_PENDING (which the SCM rejects).
+func waitForServiceStopped(s service.Service, timeout time.Duration) {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if st, err := s.Status(); err == nil && st == service.StatusStopped {
+			return
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
 }
 
 func setupWindowsFileLogging() {

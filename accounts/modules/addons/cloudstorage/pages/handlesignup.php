@@ -557,6 +557,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     // --------------------------------------------------------------------------------------------
+    // 6.5) Dev-only: skip verification for whitelisted emails on beta hosts.
+    //      When matched, this immediately redirects to the verifytrial page so
+    //      the rest of the provisioning flow (order, Ceph user, SSO login)
+    //      proceeds with no email round-trip. ONLY honoured when HTTP_HOST is
+    //      in the configured e3backup_beta_hosts list.
+    // --------------------------------------------------------------------------------------------
+    try {
+        $betaGateFile = __DIR__ . '/../lib/Beta/BetaGate.php';
+        if (is_file($betaGateFile)) {
+            require_once $betaGateFile;
+        }
+        if (class_exists('\\WHMCS\\Module\\Addon\\CloudStorage\\Beta\\BetaGate')
+            && \WHMCS\Module\Addon\CloudStorage\Beta\BetaGate::skipVerificationFor((string) $email)) {
+            $systemUrl = Setting::getValue('SystemURL');
+            if (substr($systemUrl, -1) !== '/') {
+                $systemUrl .= '/';
+            }
+            $verificationUrl = $systemUrl . 'index.php?m=cloudstorage&page=verifytrial&token=' . urlencode($token);
+            try { logModuleCall('cloudstorage', 'handlesignup_skip_verification', ['client_id' => $clientId, 'email' => $email], $verificationUrl); } catch (\Throwable $_) {}
+            header('Location: ' . $verificationUrl);
+            exit;
+        }
+    } catch (\Throwable $_) {
+        // skip-verification is a dev convenience; ignore failures silently
+    }
+
+    // --------------------------------------------------------------------------------------------
     // 7) Send verification email using selected template
     // --------------------------------------------------------------------------------------------
     try {

@@ -148,10 +148,6 @@ if (!$user) {
 }
 $userId = (int) $user->id;
 
-if (!$isMsp && !empty($user->storage_tenant_id)) {
-    userGetFail('User not found.', 404);
-}
-
 if ($isMsp && !empty($user->storage_tenant_id)) {
     $tenantClientId = (int) ($user->tenant_owner_id ?? 0);
     $tenantStatus = strtolower((string) ($user->tenant_status ?? ''));

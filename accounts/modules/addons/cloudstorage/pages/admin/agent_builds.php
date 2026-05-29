@@ -75,6 +75,7 @@ function cloudstorage_agent_builds_save_settings(): void
 {
     $fields = [
         'agent_build_repo_path'              => $_POST['repo_path'] ?? '',
+        'agent_build_git_root'               => $_POST['git_root'] ?? '',
         'agent_build_default_git_ref'        => $_POST['default_git_ref'] ?? 'main',
         'agent_build_publish_dir'            => $_POST['publish_dir'] ?? '',
         'agent_build_windows_host'           => $_POST['win_host'] ?? '',
@@ -92,11 +93,18 @@ function cloudstorage_agent_builds_save_settings(): void
     ];
 
     foreach ($fields as $k => $v) {
+        // tbladdonmodules has no unique key on (module, setting), so
+        // updateOrInsert can produce duplicates if a prior save inserted
+        // before any row existed. Delete-then-insert keeps it idempotent.
         \WHMCS\Database\Capsule::table('tbladdonmodules')
-            ->updateOrInsert(
-                ['module' => 'cloudstorage', 'setting' => $k],
-                ['value' => (string) $v]
-            );
+            ->where('module', 'cloudstorage')
+            ->where('setting', $k)
+            ->delete();
+        \WHMCS\Database\Capsule::table('tbladdonmodules')->insert([
+            'module'  => 'cloudstorage',
+            'setting' => $k,
+            'value'   => (string) $v,
+        ]);
     }
 
     // Encrypted client secret: only update when a non-empty value is supplied.
@@ -111,9 +119,14 @@ function cloudstorage_agent_builds_save_settings(): void
                 }
             }
         } catch (\Throwable $e) {}
-        \WHMCS\Database\Capsule::table('tbladdonmodules')->updateOrInsert(
-            ['module' => 'cloudstorage', 'setting' => 'agent_build_azure_client_secret'],
-            ['value' => $encrypted]
-        );
+        \WHMCS\Database\Capsule::table('tbladdonmodules')
+            ->where('module', 'cloudstorage')
+            ->where('setting', 'agent_build_azure_client_secret')
+            ->delete();
+        \WHMCS\Database\Capsule::table('tbladdonmodules')->insert([
+            'module'  => 'cloudstorage',
+            'setting' => 'agent_build_azure_client_secret',
+            'value'   => $encrypted,
+        ]);
     }
 }

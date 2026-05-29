@@ -302,9 +302,7 @@ func (a *trayApp) onReady() {
 			case <-mStop.ClickedCh:
 				_ = a.sc("stop")
 			case <-mRestart.ClickedCh:
-				_ = a.sc("stop")
-				time.Sleep(800 * time.Millisecond)
-				_ = a.sc("start")
+				a.restartService()
 			case <-mRecovery.ClickedCh:
 				a.openRecoveryUI()
 			case <-mCopyDevice.ClickedCh:
@@ -364,6 +362,34 @@ func (a *trayApp) sc(action string) error {
 	}
 	a.setInfo(fmt.Sprintf("service %s ok", action))
 	return nil
+}
+
+// restartService cycles the agent service so it reloads agent.conf. This is
+// required after a (re-)enrollment: the running service only loads its
+// credentials (agent_uuid / agent_token) once at process start, and once it is
+// already enrolled it never re-reads the file. A bare "start" is a no-op when
+// the service is already running, so re-enrolling a device to a new user would
+// otherwise leave the service on the previous user's stale credentials and the
+// device showing offline until a manual stop/start.
+func (a *trayApp) restartService() {
+	// Stop is best-effort: on a first-time enroll the service may not be running
+	// yet, in which case sc.exe returns a benign error we intentionally ignore.
+	_ = a.sc("stop")
+	a.waitForServiceStopped(15 * time.Second)
+	_ = a.sc("start")
+}
+
+// waitForServiceStopped polls sc.exe until the service reports STOPPED or the
+// timeout elapses, so a follow-up start is not rejected while the previous
+// instance is still releasing handles (STOP_PENDING).
+func (a *trayApp) waitForServiceStopped(timeout time.Duration) {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if serviceStatus() == "service: stopped" {
+			return
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
 }
 
 func (a *trayApp) copyDeviceID() {
@@ -634,7 +660,10 @@ func (a *trayApp) handleEnrollComplete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_ = a.sc("start")
+	// Restart (not just start) so the service reloads the freshly written
+	// agent.conf. On a re-enroll the service is already running with the old
+	// user's credentials and would otherwise stay offline until a manual cycle.
+	a.restartService()
 
 	a.setInfo("enrolled successfully")
 	renderSuccessPage(w, cfg.APIBaseURL, res.User.Username, res.User.routeID())

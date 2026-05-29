@@ -174,6 +174,7 @@
                             pctColor(p){ if(p===null||p==='') return 'bg-slate-700'; if(p<70) return 'bg-emerald-500'; if(p<90) return 'bg-amber-500'; return 'bg-rose-500'; },
                             init() {
                                 this.rows = Array.from(this.$refs.tbody.querySelectorAll('tr[data-vault-row]'));
+                                try { window.EB && window.EB.bindCols && window.EB.bindCols(this, 'vaults-page'); } catch(_) {}
                                 this.$watch('search', () => {
                                     this.currentPage = 1;
                                     this.refreshRows();

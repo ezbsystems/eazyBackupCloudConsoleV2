@@ -7,7 +7,7 @@ use WHMCS\Module\Addon\CloudStorage\Client\DBController;
 use WHMCS\Module\Addon\CloudStorage\Client\MspController;
 use WHMCS\Module\Addon\CloudStorage\Client\RecoveryMediaBundleService;
 
-$packageId = ProductConfig::$E3_PRODUCT_ID;
+$packageId = ProductConfig::e3CloudBackupPid();
 $ca = new ClientArea();
 if (!$ca->isLoggedIn()) {
     header('Location: clientarea.php');
@@ -16,8 +16,8 @@ if (!$ca->isLoggedIn()) {
 
 $loggedInUserId = (int) $ca->getUserID();
 $product = DBController::getProduct($loggedInUserId, $packageId);
-if (is_null($product) || is_null($product->username)) {
-    header('Location: index.php?m=cloudstorage&page=s3storage');
+if (is_null($product) || empty($product->username)) {
+    header('Location: index.php?m=cloudstorage&page=welcome');
     exit;
 }
 

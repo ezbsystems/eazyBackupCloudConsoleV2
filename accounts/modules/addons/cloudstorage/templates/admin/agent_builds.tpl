@@ -155,10 +155,11 @@
 
     <script>
     (function(){
-      var jobId = {$job.id};
+      var jobId = {$job.id|intval};
       var apiBase = '/modules/addons/cloudstorage/api/';
       var offsets = {};
-      var pollDelay = ({$job.status} == 'running' || {$job.status} == 'queued') ? 2000 : 30000;
+      var initialStatus = {literal}"{/literal}{$job.status|escape:'javascript'}{literal}"{/literal};
+      var pollDelay = (initialStatus === 'running' || initialStatus === 'queued') ? 2000 : 30000;
 
       function fmt(s){ return (s||'').toString(); }
 
@@ -283,7 +284,11 @@
     <fieldset>
       <legend>Build Hosts &amp; Paths</legend>
       <div class="form-group"><label>Local agent repo path</label>
-        <input type="text" class="form-control" name="repo_path" value="{$settings.repo_path|escape}"></div>
+        <input type="text" class="form-control" name="repo_path" value="{$settings.repo_path|escape}">
+        <p class="help-block">Filesystem path containing the agent <code>go.mod</code>. All Go builds and Inno staging run from here.</p></div>
+      <div class="form-group"><label>Git working tree root (optional)</label>
+        <input type="text" class="form-control" name="git_root" value="{if isset($settings.git_root) && $settings.git_root != $settings.repo_path}{$settings.git_root|escape}{/if}" placeholder="leave blank if the agent repo IS its own git working tree">
+        <p class="help-block">Set this when the agent source lives inside a larger monorepo (e.g. <code>/var/www/eazybackup.ca</code>). When blank, <code>git fetch/checkout/pull</code> runs in the path above.</p></div>
       <div class="form-group"><label>Default git ref</label>
         <input type="text" class="form-control" name="default_git_ref" value="{$settings.default_git_ref|escape}"></div>
       <div class="form-group"><label>Publish directory (client_installer)</label>
@@ -347,22 +352,39 @@
 
 {if $tab eq 'new'}
 <script>
-document.getElementById('ebNewBuildForm').addEventListener('submit', function(e){
-  e.preventDefault();
-  var fd = new FormData(this);
-  var msg = document.getElementById('ebNewBuildMsg');
-  msg.textContent = 'Submitting...';
-  fetch('/modules/addons/cloudstorage/api/admin_agent_build_create.php',
-        {literal}{method:'POST', body: fd, credentials:'same-origin'}{/literal})
-    .then(function(r){ return r.json(); })
-    .then(function(d){
-      if (d.status === 'success'){
-        window.location = '{$baseUrl}&tab=detail&job_id=' + d.job_id;
-      } else {
-        msg.textContent = 'Error: ' + d.message;
-      }
-    });
-});
+(function(){
+  var form = document.getElementById('ebNewBuildForm');
+  if (!form) { return; }
+  var baseUrl = {literal}"{/literal}{$baseUrl|escape:'javascript'}{literal}"{/literal};
+  form.addEventListener('submit', function(e){
+    e.preventDefault();
+    var fd = new FormData(form);
+    var msg = document.getElementById('ebNewBuildMsg');
+    msg.textContent = 'Submitting...';
+    fetch('/modules/addons/cloudstorage/api/admin_agent_build_create.php',
+          {literal}{method:'POST', body: fd, credentials:'same-origin', headers:{'Accept':'application/json'}}{/literal})
+      .then(function(r){
+        var ct = (r.headers.get('content-type') || '').toLowerCase();
+        if (!r.ok || ct.indexOf('application/json') === -1) {
+          return r.text().then(function(t){
+            throw new Error('HTTP ' + r.status + ' (' + (ct || 'no content-type') + '): ' + t.substring(0, 400));
+          });
+        }
+        return r.json();
+      })
+      .then(function(d){
+        if (d.status === 'success'){
+          window.location = baseUrl + '&tab=detail&job_id=' + d.job_id;
+        } else {
+          msg.textContent = 'Error: ' + (d.message || 'unknown error');
+        }
+      })
+      .catch(function(err){
+        console.error('Agent build create failed:', err);
+        msg.innerHTML = '<span class="text-danger">Request failed: ' + (err && err.message ? err.message.replace(/</g,'&lt;') : err) + '</span>';
+      });
+  });
+})();
 </script>
 {/if}
 

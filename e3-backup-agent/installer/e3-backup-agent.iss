@@ -60,9 +60,13 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 ; Write initial config to ProgramData\E3Backup\agent.conf
 Filename: "{cmd}"; Parameters: "/c ""{code:WriteInitialConfig}"""; Flags: runhidden
 
-; Install/Start the Windows service
+; Install the Windows service (idempotent: non-fatal if already installed on upgrade).
 Filename: "{app}\e3-backup-agent.exe"; Parameters: "-service install -config ""{commonappdata}\E3Backup\agent.conf"""; Flags: runhidden
-Filename: "{app}\e3-backup-agent.exe"; Parameters: "-service start -config ""{commonappdata}\E3Backup\agent.conf"""; Flags: runhidden
+; Restart (stop+start) rather than a bare start. On upgrades the service may
+; still be registered as running from the SCM's perspective, so a plain start is
+; a no-op and the new binary never loads. "restart" stops it (best-effort) and
+; reliably starts it again.
+Filename: "{app}\e3-backup-agent.exe"; Parameters: "-service restart -config ""{commonappdata}\E3Backup\agent.conf"""; Flags: runhidden
 
 ; Phase 2F (beta hardening): explicit Windows Firewall rules. The agent only
 ; makes outbound calls (S3 + API), but the recovery-agent sibling binary
@@ -142,7 +146,14 @@ begin
 end;
 
 procedure InitializeWizard;
+var
+  HelpText: TNewStaticText;
 begin
+  // NOTE: All custom controls on wizard pages MUST set explicit Height and
+  // either AutoSize:=True or WordWrap:=True. At Windows text scaling of
+  // 125% / 150% the OS-rendered caption wraps but the control bounds do
+  // not, which clips the second line. Always anchor right-side so the
+  // control stretches with the wizard. See also Inno Setup docs on DPI.
   EnvPage := CreateCustomPage(
     wpSelectTasks,
     'Server Environment',
@@ -156,6 +167,23 @@ begin
   UseDevCheckbox.Left := ScaleX(0);
   UseDevCheckbox.Top := ScaleY(8);
   UseDevCheckbox.Width := EnvPage.SurfaceWidth;
+  UseDevCheckbox.Height := ScaleY(36);
+  UseDevCheckbox.WordWrap := True;
+  UseDevCheckbox.Anchors := [akLeft, akTop, akRight];
+
+  HelpText := TNewStaticText.Create(EnvPage);
+  HelpText.Parent := EnvPage.Surface;
+  HelpText.Caption :=
+    'Leave this unchecked for all production installs.' + #13#10 +
+    'Only check this if EazyBackup support has asked you to enroll against ' +
+    'our development server (dev.eazybackup.ca) for testing.';
+  HelpText.Left := ScaleX(0);
+  HelpText.Top := UseDevCheckbox.Top + UseDevCheckbox.Height + ScaleY(8);
+  HelpText.Width := EnvPage.SurfaceWidth;
+  HelpText.AutoSize := False;
+  HelpText.Height := ScaleY(60);
+  HelpText.WordWrap := True;
+  HelpText.Anchors := [akLeft, akTop, akRight];
 end;
 
 function GetParamValue(const ParamName: string): string;

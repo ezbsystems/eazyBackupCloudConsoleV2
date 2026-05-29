@@ -10,7 +10,11 @@ class GitSync extends StepBase
 {
     public function execute(array $job, ProcRunner $runner, string $logPath): int
     {
-        $repo = (string) Settings::get('agent_build_repo_path', '/var/www/eazybackup.ca/e3-backup-agent');
+        // Use the dedicated git working tree when configured (monorepo layout
+        // where the Go module lives in a subdirectory). Falls back to the
+        // module root for the legacy single-repo layout.
+        $s = Settings::all();
+        $repo = (string) ($s['git_root'] ?? $s['repo_path']);
         $ref = (string) ($job['git_ref'] ?? 'main');
 
         $rc = $runner->run(['git', '-C', $repo, 'fetch', '--all', '--tags', '--prune'], $logPath);

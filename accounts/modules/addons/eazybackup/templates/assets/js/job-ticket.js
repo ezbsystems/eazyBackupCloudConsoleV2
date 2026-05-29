@@ -2,7 +2,7 @@
  * job-ticket.js
  *
  * Adds an "Open Support Ticket" button to the Job Report Modal that:
- *   - is only shown for Warning / Error / Missed / Timeout jobs
+ *   - is only shown for Warning / Error / Missed / Timeout / Cancelled / Running jobs
  *   - composes a polite, pre-filled subject + body via the ticketContext endpoint
  *   - shows up to 3 KB hint links from docs.eazybackup.com (curated + GitBook index)
  *   - warns if a duplicate open ticket already exists for this Job ID (last 7 days)
@@ -12,7 +12,7 @@
 (function () {
     'use strict';
 
-    var ELIGIBLE = ['Warning', 'Error', 'Missed', 'Timeout'];
+    var ELIGIBLE = ['Warning', 'Error', 'Missed', 'Timeout', 'Cancelled', 'Running'];
     var SS_PREFIX = 'eb_ticket_';
     var SS_MAX_BYTES = 3 * 1024 * 1024;
     var FILE_MAX_BYTES = 1.5 * 1024 * 1024;

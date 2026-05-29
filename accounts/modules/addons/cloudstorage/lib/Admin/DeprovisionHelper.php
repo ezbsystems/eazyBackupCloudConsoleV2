@@ -705,5 +705,263 @@ class DeprovisionHelper
 
         return $assessment;
     }
+
+    /**
+     * Reset onboarding for a WHMCS client so a tester can re-run the full
+     * sign-up flow against the same client. Idempotent.
+     *
+     * Actions (each best-effort, none fatal):
+     *  - Cancel any tblhosting service whose packageid is e3 Cloud Backup,
+     *    e3 Object Storage, or eazyBackup Cloud Backup; clear username.
+     *  - Delete s3_cloudbackup_trial_state / usage snapshots / rated lines
+     *    for the client.
+     *  - Delete cloudstorage_trial_selection row.
+     *  - Reset eb_password_onboarding so the Welcome page re-prompts.
+     *  - Delete unconsumed cloudstorage_trial_verifications rows.
+     *  - Delete s3_backup_users / s3_agent_enrollment_tokens /
+     *    s3_cloudbackup_agents for this client (so re-enroll is fresh).
+     *
+     * Does NOT touch s3_users / RGW buckets - those must go through the
+     * proper deprovision queue (with Object Lock checks).
+     *
+     * @return array<string,int> Counts per action.
+     */
+    public static function resetOnboarding(int $clientId): array
+    {
+        $counts = [
+            'services_cancelled'   => 0,
+            'trial_state_deleted'  => 0,
+            'snapshots_deleted'    => 0,
+            'rated_lines_deleted'  => 0,
+            'trial_selection'      => 0,
+            'password_onboarding'  => 0,
+            'verifications'        => 0,
+            'backup_users'         => 0,
+            'enrollment_tokens'    => 0,
+            'cloudbackup_agents'   => 0,
+            'onboarding_state'     => 0,
+        ];
+
+        $module = 'cloudstorage';
+        $pids = self::resetOnboardingPids();
+
+        try {
+            if (!empty($pids)) {
+                $svcIds = Capsule::table('tblhosting')
+                    ->where('userid', $clientId)
+                    ->whereIn('packageid', $pids)
+                    ->whereIn('domainstatus', ['Active', 'Suspended', 'Pending'])
+                    ->pluck('id');
+                foreach ($svcIds as $sid) {
+                    try {
+                        Capsule::table('tblhosting')->where('id', $sid)->update([
+                            'domainstatus' => 'Cancelled',
+                            'username'     => '',
+                            'amount'       => 0,
+                            'nextduedate'  => null,
+                            'nextinvoicedate' => null,
+                        ]);
+                        $counts['services_cancelled']++;
+                    } catch (\Throwable $e) {
+                        logModuleCall($module, 'reset_onboarding_service_cancel_fail', ['service_id' => (int) $sid], $e->getMessage(), [], []);
+                    }
+                }
+            }
+        } catch (\Throwable $e) {
+            logModuleCall($module, 'reset_onboarding_services_query_fail', ['client_id' => $clientId], $e->getMessage(), [], []);
+        }
+
+        $tableDeletes = [
+            's3_cloudbackup_trial_state'      => ['client_id', 'trial_state_deleted'],
+            's3_cloudbackup_usage_snapshots'  => ['client_id', 'snapshots_deleted'],
+            's3_cloudbackup_rated_lines'      => ['client_id', 'rated_lines_deleted'],
+            'cloudstorage_trial_selection'    => ['client_id', 'trial_selection'],
+            's3_backup_users'                 => ['client_id', 'backup_users'],
+            's3_agent_enrollment_tokens'      => ['client_id', 'enrollment_tokens'],
+            's3_cloudbackup_agents'           => ['client_id', 'cloudbackup_agents'],
+            's3_e3backup_onboarding_state'    => ['client_id', 'onboarding_state'],
+        ];
+        foreach ($tableDeletes as $table => $config) {
+            [$column, $key] = $config;
+            try {
+                if (Capsule::schema()->hasTable($table)) {
+                    $counts[$key] = (int) Capsule::table($table)->where($column, $clientId)->delete();
+                }
+            } catch (\Throwable $e) {
+                logModuleCall($module, 'reset_onboarding_delete_fail', ['table' => $table, 'client_id' => $clientId], $e->getMessage(), [], []);
+            }
+        }
+
+        // Re-enable the "must set password" onboarding prompt.
+        try {
+            if (Capsule::schema()->hasTable('eb_password_onboarding')) {
+                $now = date('Y-m-d H:i:s');
+                $exists = Capsule::table('eb_password_onboarding')->where('client_id', $clientId)->exists();
+                if ($exists) {
+                    Capsule::table('eb_password_onboarding')->where('client_id', $clientId)->update([
+                        'must_set'     => 1,
+                        'completed_at' => null,
+                        'updated_at'   => $now,
+                    ]);
+                    $counts['password_onboarding'] = 1;
+                }
+            }
+        } catch (\Throwable $e) {
+            logModuleCall($module, 'reset_onboarding_password_onboarding_fail', ['client_id' => $clientId], $e->getMessage(), [], []);
+        }
+
+        // Delete only unconsumed verification rows.
+        try {
+            if (Capsule::schema()->hasTable('cloudstorage_trial_verifications')) {
+                $counts['verifications'] = (int) Capsule::table('cloudstorage_trial_verifications')
+                    ->where('client_id', $clientId)
+                    ->whereNull('consumed_at')
+                    ->delete();
+            }
+        } catch (\Throwable $e) {
+            logModuleCall($module, 'reset_onboarding_verifications_fail', ['client_id' => $clientId], $e->getMessage(), [], []);
+        }
+
+        logModuleCall($module, 'reset_onboarding_complete', ['client_id' => $clientId], $counts, [], []);
+        return $counts;
+    }
+
+    /**
+     * Return the WHMCS product IDs (tblproducts.id) for the cloudstorage
+     * addon's three product slots: eazyBackup (Comet), legacy Cloud Storage,
+     * and e3 Cloud Backup. Used by both reset-onboarding and the admin
+     * customer search so the latter can show only the services that are
+     * relevant to deprovision / reset workflows.
+     */
+    public static function cloudstorageProductIds(): array
+    {
+        $pids = [];
+        foreach (['pid_cloud_backup', 'pid_cloud_storage', 'pid_e3_cloud_backup'] as $setting) {
+            try {
+                $val = (int) Capsule::table('tbladdonmodules')
+                    ->where('module', 'cloudstorage')
+                    ->where('setting', $setting)
+                    ->value('value');
+                if ($val > 0) {
+                    $pids[] = $val;
+                }
+            } catch (\Throwable $e) {
+            }
+        }
+        return array_values(array_unique($pids));
+    }
+
+    /**
+     * Back-compat alias retained for resetOnboarding(); new callers should
+     * use cloudstorageProductIds() directly.
+     */
+    private static function resetOnboardingPids(): array
+    {
+        return self::cloudstorageProductIds();
+    }
+
+    /**
+     * Free-text search across tblclients for the admin Deprovision /
+     * Reset Onboarding tools. Matches against client id, email, first
+     * + last name, and company name. Each result is augmented with the
+     * client's relevant cloudstorage services so the admin can pick
+     * the right one without an extra lookup step.
+     *
+     * @param string $query
+     * @param int    $limit  Max clients to return (default 15)
+     * @return array<int,array<string,mixed>>
+     */
+    public static function searchCustomers(string $query, int $limit = 15): array
+    {
+        $query = trim($query);
+        if ($query === '' || strlen($query) < 2) {
+            return [];
+        }
+        $limit = max(1, min(50, $limit));
+        $like  = '%' . str_replace(['%', '_'], ['\\%', '\\_'], $query) . '%';
+        $numericId = ctype_digit($query) ? (int) $query : null;
+
+        try {
+            $base = Capsule::table('tblclients')
+                ->select('id', 'firstname', 'lastname', 'companyname', 'email', 'status', 'datecreated')
+                ->orderBy('id', 'desc')
+                ->limit($limit);
+
+            $base->where(function ($q) use ($like, $numericId) {
+                $q->where('email', 'like', $like)
+                  ->orWhere('firstname', 'like', $like)
+                  ->orWhere('lastname', 'like', $like)
+                  ->orWhere('companyname', 'like', $like)
+                  ->orWhereRaw('CONCAT(firstname, " ", lastname) LIKE ?', [$like]);
+                if ($numericId !== null) {
+                    $q->orWhere('id', '=', $numericId);
+                }
+            });
+
+            $clients = $base->get();
+        } catch (\Throwable $e) {
+            return [];
+        }
+
+        if ($clients->isEmpty()) {
+            return [];
+        }
+
+        $clientIds = $clients->pluck('id')->all();
+        $pids = self::cloudstorageProductIds();
+
+        // Build a map of product names so we can label services in the UI.
+        $productNames = [];
+        if (!empty($pids)) {
+            try {
+                $rows = Capsule::table('tblproducts')->whereIn('id', $pids)->select('id', 'name')->get();
+                foreach ($rows as $r) { $productNames[(int) $r->id] = (string) $r->name; }
+            } catch (\Throwable $e) {
+            }
+        }
+
+        // Pull all relevant services in one query, then group by client.
+        $servicesByClient = [];
+        try {
+            $svcQuery = Capsule::table('tblhosting')
+                ->whereIn('userid', $clientIds)
+                ->select('id', 'userid', 'username', 'packageid', 'domainstatus', 'regdate');
+            if (!empty($pids)) {
+                $svcQuery->whereIn('packageid', $pids);
+            }
+            $services = $svcQuery->orderBy('id', 'desc')->get();
+            foreach ($services as $svc) {
+                $cid = (int) $svc->userid;
+                if (!isset($servicesByClient[$cid])) {
+                    $servicesByClient[$cid] = [];
+                }
+                $servicesByClient[$cid][] = [
+                    'id'           => (int) $svc->id,
+                    'username'     => (string) ($svc->username ?? ''),
+                    'packageid'    => (int) $svc->packageid,
+                    'product'      => $productNames[(int) $svc->packageid] ?? ('Product #' . (int) $svc->packageid),
+                    'domainstatus' => (string) ($svc->domainstatus ?? ''),
+                    'regdate'      => (string) ($svc->regdate ?? ''),
+                ];
+            }
+        } catch (\Throwable $e) {
+        }
+
+        $results = [];
+        foreach ($clients as $c) {
+            $full = trim(((string) ($c->firstname ?? '')) . ' ' . ((string) ($c->lastname ?? '')));
+            $results[] = [
+                'id'          => (int) $c->id,
+                'name'        => $full !== '' ? $full : null,
+                'companyname' => (string) ($c->companyname ?? ''),
+                'email'       => (string) ($c->email ?? ''),
+                'status'      => (string) ($c->status ?? ''),
+                'datecreated' => (string) ($c->datecreated ?? ''),
+                'services'    => $servicesByClient[(int) $c->id] ?? [],
+            ];
+        }
+
+        return $results;
+    }
 }
 

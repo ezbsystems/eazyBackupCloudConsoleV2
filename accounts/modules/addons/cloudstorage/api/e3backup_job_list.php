@@ -307,11 +307,18 @@ try {
             $binExprs = array_map(function ($uuid) {
                 return UuidBinary::toDbExpr(UuidBinary::normalize($uuid));
             }, $jobIds);
-            $runs = Capsule::table('s3_cloudbackup_runs')
-                ->selectRaw('BIN_TO_UUID(job_id) as job_id_str, status, started_at, finished_at, bytes_transferred')
-                ->whereRaw('job_id IN (' . implode(',', $binExprs) . ')')
-                ->orderBy('started_at', 'desc')
-                ->get();
+            // Latest-run-per-job only: window the runs so we return a single row
+            // per job instead of fetching every run and deduping in PHP. Keeps
+            // the result set capped at one-per-job regardless of run history.
+            $sql = 'SELECT BIN_TO_UUID(job_id) AS job_id_str, status, started_at, finished_at, bytes_transferred'
+                . ' FROM ('
+                . '   SELECT job_id, status, started_at, finished_at, bytes_transferred,'
+                . '     ROW_NUMBER() OVER (PARTITION BY job_id ORDER BY started_at DESC, run_id DESC) AS rn'
+                . '   FROM s3_cloudbackup_runs'
+                . '   WHERE job_id IN (' . implode(',', $binExprs) . ')'
+                . ' ) ranked'
+                . ' WHERE rn = 1';
+            $runs = Capsule::select($sql);
             foreach ($runs as $r) {
                 $jid = $r->job_id_str;
                 if (!isset($lastRunByJob[$jid])) {
@@ -324,10 +331,17 @@ try {
                 }
             }
         } else {
-            $runs = Capsule::table('s3_cloudbackup_runs')
-                ->whereIn('job_id', $jobIds)
-                ->orderBy('started_at', 'desc')
-                ->get(['job_id', 'status', 'started_at', 'finished_at', 'bytes_transferred']);
+            // Latest-run-per-job only (legacy integer PK path).
+            $placeholders = implode(',', array_fill(0, count($jobIds), '?'));
+            $sql = 'SELECT job_id, status, started_at, finished_at, bytes_transferred'
+                . ' FROM ('
+                . '   SELECT job_id, status, started_at, finished_at, bytes_transferred,'
+                . '     ROW_NUMBER() OVER (PARTITION BY job_id ORDER BY started_at DESC, id DESC) AS rn'
+                . '   FROM s3_cloudbackup_runs'
+                . '   WHERE job_id IN (' . $placeholders . ')'
+                . ' ) ranked'
+                . ' WHERE rn = 1';
+            $runs = Capsule::select($sql, array_values($jobIds));
             foreach ($runs as $r) {
                 $jid = (int) $r->job_id;
                 if (!isset($lastRunByJob[$jid])) {

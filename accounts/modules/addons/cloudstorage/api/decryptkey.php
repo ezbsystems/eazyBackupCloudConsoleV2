@@ -58,7 +58,7 @@
 
     $product = DBController::getProduct($loggedInUserId, $packageId);
 
-    if (is_null($product) || is_null($product->username)) {
+    if (is_null($product) || empty($product->username)) {
         $jsonData = [
             'status' => 'fail',
             'message' => 'Something went wrong.'

@@ -85,7 +85,7 @@ try {
     // Resolve the storage user that owns the bucket
     $packageId = ProductConfig::$E3_PRODUCT_ID;
     $product = DBController::getProduct($clientId, $packageId);
-    if (is_null($product) || is_null($product->username)) {
+    if (is_null($product) || empty($product->username)) {
         failMount($mountId, 'No storage account');
         (new JsonResponse(['status' => 'error', 'message' => 'No storage account found'], 200))->send();
         exit;

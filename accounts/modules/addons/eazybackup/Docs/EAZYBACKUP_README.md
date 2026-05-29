@@ -1978,7 +1978,7 @@ tblpricing.relid links to the tblhostingconfigoptions.optionid
 
 ### Overview
 
-- One-click handoff from a problematic backup job (Warning / Error / Missed / Timeout) to the WHMCS create-ticket flow.
+- One-click handoff from a problematic backup job (Warning / Error / Missed / Timeout / Cancelled / Running) to the WHMCS create-ticket flow.
 - The customer stays inside `submitticket.php?step=2` so all WHMCS rules (department routing, captcha, custom fields, validation) still apply.
 - Subject and message body are pre-filled. The full job log is auto-attached as both a human-readable `.txt` and a machine-friendly `.csv`.
 - Up to 3 KB hint links from `docs.eazybackup.com` are surfaced inside the modal before the redirect (curated mappings first, GitBook live index second), so customers can self-help when applicable.
@@ -1987,7 +1987,7 @@ tblpricing.relid links to the tblhostingconfigoptions.optionid
 ### High-Level Flow
 
 ```
-Job Report Modal (status ∈ Warning|Error|Missed|Timeout)
+Job Report Modal (status ∈ Warning|Error|Missed|Timeout|Cancelled|Running)
    ▼  click "Open Support Ticket"
 job-ticket.js:
   - POST ?a=job-reports&action=ticketContext  → subject, body, deptId, kbHints, customFieldId, jobMeta
@@ -2029,8 +2029,8 @@ Frontend (modal side):
 - `accounts/modules/addons/eazybackup/assets/js/job-reports.js` — emits two `CustomEvent`s consumed by the new feature:
   - `eb:job-loaded` (after summary load) → `{ serviceId, username, jobId, status, job }`
   - `eb:job-logs-loaded` (after log rows load) → `{ serviceId, username, jobId, rows }`
-- `accounts/modules/addons/eazybackup/templates/assets/js/job-ticket.js` — listens to those events, decides eligibility, owns the preview/dedupe panel, builds the log files and sessionStorage payload, redirects.
-- `accounts/modules/addons/eazybackup/templates/clientarea/dashboard.tpl` and `accounts/modules/addons/eazybackup/templates/console/user-profile.tpl` — load `job-ticket.js` and expose `window.EB_WEB_ROOT` for the redirect.
+- `accounts/modules/addons/eazybackup/templates/assets/js/job-ticket.js` — listens to those events, decides eligibility (Warning / Error / Missed / Timeout / Cancelled / Running), owns the preview/dedupe panel, builds the log files and sessionStorage payload, redirects.
+- `accounts/modules/addons/eazybackup/templates/clientarea/dashboard.tpl`, `accounts/modules/addons/eazybackup/templates/console/user-profile.tpl`, and `accounts/modules/addons/eazybackup/templates/console/job-logs-global.tpl` — load `job-ticket.js` and expose `window.EB_WEB_ROOT` for the redirect.
 
 Frontend (ticket form side):
 
@@ -2117,7 +2117,7 @@ EB_TICKET_ENRICHMENT=0                           # 1 = enable the TicketOpen enr
 
 ### Eligibility Rules
 
-- The "Open Support Ticket" button only renders for status `Warning`, `Error`, `Missed`, or `Timeout` (status is normalized via `EB.humanStatus()`).
+- The "Open Support Ticket" button only renders for status `Warning`, `Error`, `Missed`, `Timeout`, `Cancelled`, or `Running` (status is normalized via `EB.humanStatus()`).
 - It is hidden for `Success`, `Running`, `Skipped`, `Cancelled`, `Unknown`.
 - Clicking the button hides the trigger and reveals a full-width preview panel directly under the modal toolbar. The Cancel button (or any modal close action) restores the trigger button.
 
@@ -2155,7 +2155,7 @@ The panel rendered before the redirect contains:
 
 ### Test Plan
 
-- Visibility: open jobs of each status from the dashboard timeline pop-overs; confirm the trigger button only shows for Warning / Error / Missed / Timeout.
+- Visibility: open jobs of each status from the dashboard timeline pop-overs; confirm the trigger button only shows for Warning / Error / Missed / Timeout / Cancelled / Running.
 - Curated path: open a Warning job containing a VSS line; expect the curated VSS article with the "Curated" label.
 - Live path: open a job with a novel error; expect 1-3 GitBook links, sourced from the site-index.
 - Cache: open the same job twice in quick succession; verify a `<sha256>.json` appears under `cache/kb-search/`.

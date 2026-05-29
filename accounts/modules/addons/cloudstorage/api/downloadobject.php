@@ -31,7 +31,7 @@ $packageId = ProductConfig::$E3_PRODUCT_ID;
 $ca = new ClientArea();
 $loggedInUserId = $ca->getUserID();
 $product = DBController::getProduct($loggedInUserId, $packageId);
-if (is_null($product) || is_null($product->username)) {
+if (is_null($product) || empty($product->username)) {
     header('HTTP/1.1 403 Forbidden');
     echo 'Permission denied';
     exit;

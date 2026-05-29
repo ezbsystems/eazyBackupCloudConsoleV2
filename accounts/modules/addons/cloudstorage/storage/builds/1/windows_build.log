@@ -1,0 +1,26 @@
+
+[2026-05-26 15:38:39] $ 'make' 'build-windows'
+Building e3-backup-agent (windows/amd64) version=2026.05.26-152636 commit=c950b374...
+go: downloading github.com/mxk/go-vss v1.2.0
+go: downloading github.com/go-ole/go-ole v1.3.0
+go: downloading github.com/yusufpapurcu/wmi v1.2.4
+Build complete: bin/e3-backup-agent.exe
+Building e3-backup-tray (windows/amd64) version=2026.05.26-152636 commit=c950b374...
+go: downloading github.com/getlantern/systray v1.2.2
+go: downloading github.com/getlantern/golog v0.0.0-20190830074920-4ef2e798c2d7
+go: downloading github.com/oxtoacart/bpool v0.0.0-20190530202638-03653db5a59c
+go: downloading github.com/getlantern/hidden v0.0.0-20190325191715-f02dbb02be55
+go: downloading github.com/getlantern/errors v0.0.0-20190325191628-abdb3e3e36f7
+go: downloading github.com/getlantern/ops v0.0.0-20190325191751-d70cb0d6f85f
+go: downloading github.com/getlantern/context v0.0.0-20190109183933-c447772a6520
+go: downloading github.com/getlantern/hex v0.0.0-20190417191902-c6586a6fe0b7
+go: downloading github.com/go-stack/stack v1.8.0
+Build complete: bin/e3-backup-tray.exe
+
+=== Windows build complete ===
+  bin/e3-backup-agent.exe  (Windows service)
+  bin/e3-backup-tray.exe   (Tray helper + enrollment UI)
+
+Next: Copy to Windows and compile installer with Inno Setup
+See: docs/LOCAL_AGENT_BUILD.md
+[2026-05-26 15:39:00] exit=0

@@ -223,7 +223,6 @@ if (!$isMsp) {
     if ($tenantFilter !== null || $directOnly) {
         userListFail('Tenant filtering is only available for MSP accounts', 403);
     }
-    $directOnly = true;
 }
 
 if ($tenantFilter !== null) {

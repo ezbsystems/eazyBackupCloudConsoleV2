@@ -317,3 +317,38 @@ add_hook('ClientChangePassword', 1, function($vars) {
     logModuleCall('cloudstorage', 'PasswordChange', $context, 'Client password changed', null, []);
 });
 
+// ==========================================================================
+// e3 Cloud Backup billing hooks
+// ==========================================================================
+//
+// 1. DailyCronJob: run the e3 Cloud Backup rater immediately before WHMCS
+//    generates the day's invoices so tblhostingconfigoptions.qty reflects the
+//    final billing-window MAX for the day.
+// 2. InvoiceCreationPreEmail: for any e3 Cloud Backup line items, override
+//    the WHMCS-computed amount with the rated_line.line_amount whenever the
+//    pricing source is NOT pure tblpricing (per-client overrides, tiered
+//    pricing, or trial periods). Updates description text for transparency.
+//
+// Both hooks defer to the lazy-loaded entry file that bootstraps the
+// E3CloudBackupBilling class to keep this hooks.php fast on every request.
+
+require_once __DIR__ . '/hooks/e3cb_invoice.php';
+
+/**
+ * Add an "Impersonate as Client" link to the WHMCS admin client profile page.
+ * The link opens the cloudstorage SSO helper which creates a one-time SSO
+ * token + redirects to the customer's Welcome page in a new tab.
+ */
+add_hook('AdminClientProfileTabFields', 1, function ($vars) {
+    $clientId = (int) ($vars['userid'] ?? ($vars['id'] ?? 0));
+    if ($clientId <= 0) {
+        return [];
+    }
+    $url = '/modules/addons/cloudstorage/api/admin/impersonate_client.php?client_id=' . $clientId;
+    $html = '<a href="' . htmlspecialchars($url) . '" target="_blank" class="btn btn-sm btn-info"><i class="fa fa-user-secret"></i> Impersonate (Welcome page)</a>';
+    return [
+        'Cloud Storage Tools' => $html,
+    ];
+});
+
+

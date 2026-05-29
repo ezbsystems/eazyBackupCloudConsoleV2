@@ -1,7 +1,7 @@
 {* Open Support Ticket button for the Job Report Modal toolbar.
-   Visibility (Warning/Error/Missed/Timeout only) is controlled by job-ticket.js.
-   The matching preview/dedupe panel lives in job-report-modal.tpl as a full-width
-   row directly under the log entries toolbar. *}
+   Visibility (Warning/Error/Missed/Timeout/Cancelled/Running only) is controlled
+   by job-ticket.js. The matching preview/dedupe panel lives in job-report-modal.tpl
+   as a full-width row directly under the log entries toolbar. *}
 <button id="jrm-open-ticket"
         type="button"
         class="eb-btn eb-btn-primary eb-btn-xs shrink-0 hidden"

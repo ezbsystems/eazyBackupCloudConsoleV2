@@ -14,17 +14,28 @@
     var self = this;
     window.addEventListener('pi-delete:open', function(e){
       var d = (e && e.detail) || {};
-      self.itemId = d.itemId || '';
+      // Coerce to string so falsy-but-valid IDs (e.g. "0") survive.
+      self.itemId = (d.itemId === undefined || d.itemId === null) ? '' : String(d.itemId);
       self.name = d.name || '';
       self.rules = Array.isArray(d.rules) ? d.rules : [];
       self.confirmText = '';
       self.submitting = false;
       self.open = true;
+      if (self.itemId === '') {
+        try { window.showToast && window.showToast('Could not identify this Protected Item (missing id). Please refresh the page and try again.', 'error'); } catch(_){ }
+      }
     });
   },
-  matches() { return this.confirmText.trim() === this.name.trim() && this.name; },
+  matches() {
+    if (!this.itemId) return false;
+    return this.confirmText.trim() === this.name.trim() && !!this.name;
+  },
   async doDelete() {
     if (!this.matches() || this.submitting) return;
+    if (!this.itemId) {
+      try { window.showToast && window.showToast('Could not identify this Protected Item (missing id). Please refresh the page and try again.', 'error'); } catch(_){ }
+      return;
+    }
     this.submitting = true;
     var endpoint = window.EB_DEVICE_ENDPOINT || '';
     var serviceId = document.body.getAttribute('data-eb-serviceid') || '';
@@ -63,6 +74,13 @@
           <strong x-text="name"></strong>. Backup data already in the Storage Vault will not be removed,
           but the Protected Item configuration will be deleted.
         </p>
+        <div x-show="!itemId" class="eb-alert eb-alert--danger mb-3">
+          <svg class="eb-alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126Z"/></svg>
+          <div>
+            <div class="eb-alert-title">This Protected Item cannot be deleted right now.</div>
+            <p class="text-sm">We couldn&rsquo;t identify the item on the server. Please refresh the page and try again.</p>
+          </div>
+        </div>
         <div x-show="rules.length" class="eb-alert eb-alert--warning mb-3">
           <svg class="eb-alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126Z"/></svg>
           <div>

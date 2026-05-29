@@ -8,7 +8,7 @@ use WHMCS\Module\Addon\CloudStorage\Admin\ProductConfig;
 use WHMCS\Module\Addon\CloudStorage\Client\DBController;
 use WHMCS\Module\Addon\CloudStorage\Client\MspController;
 
-$packageId = ProductConfig::$E3_PRODUCT_ID;
+$packageId = ProductConfig::e3CloudBackupPid();
 $ca = new ClientArea();
 if (!$ca->isLoggedIn()) {
     header('Location: clientarea.php');
@@ -17,8 +17,8 @@ if (!$ca->isLoggedIn()) {
 
 $loggedInUserId = $ca->getUserID();
 $product = DBController::getProduct($loggedInUserId, $packageId);
-if (is_null($product) || is_null($product->username)) {
-    header('Location: index.php?m=cloudstorage&page=s3storage');
+if (is_null($product) || empty($product->username)) {
+    header('Location: index.php?m=cloudstorage&page=welcome');
     exit;
 }
 
@@ -69,11 +69,6 @@ if (!$user) {
     exit;
 }
 $userId = (int) $user->id;
-
-if (!$isMspClient && !empty($user->storage_tenant_id)) {
-    header('Location: index.php?m=cloudstorage&page=e3backup&view=users');
-    exit;
-}
 
 if ($isMspClient && !empty($user->storage_tenant_id)) {
     $tenantClientId = (int) ($user->tenant_owner_id ?? 0);
@@ -220,4 +215,8 @@ return [
     'backup_user_public_id' => (string) ($user->public_id ?? ''),
     'initial_restore_job_id' => $initialRestoreJobId,
     'usernames' => $s3Tenants,
+    // Used by templates/e3backup_user_detail.tpl to gate the admin-only
+    // Quick Enroll (token snippet) panel. Regular customers enroll via the
+    // tray sign-in flow, so they should not see a raw token + curl recipe.
+    'ebIsAdminSession' => !empty($_SESSION['adminid']),
 ];

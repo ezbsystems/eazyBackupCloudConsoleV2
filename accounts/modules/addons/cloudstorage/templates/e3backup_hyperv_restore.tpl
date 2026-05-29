@@ -12,7 +12,7 @@
 {capture assign=ebE3Content}
 <div class="space-y-6" x-data="hypervRestoreApp()">
     <div class="eb-breadcrumb">
-        <a href="index.php?m=cloudstorage&page=e3backup&view=jobs" class="eb-breadcrumb-link">Jobs</a>
+        <a href="index.php?m=cloudstorage&page=e3backup&view=users" class="eb-breadcrumb-link">Users</a>
         <span class="eb-breadcrumb-separator">/</span>
         {if $vm}
             <a href="{if $vm.backup_user_route_id}index.php?m=cloudstorage&page=e3backup&view=user_detail&user_id={$vm.backup_user_route_id|escape:'url'}#hyperv{else}index.php?m=cloudstorage&page=e3backup&view=hyperv&job_id={$vm.job_id}{/if}" class="eb-breadcrumb-link">{$vm.job_name|escape}</a>

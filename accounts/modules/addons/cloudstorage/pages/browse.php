@@ -37,7 +37,7 @@
     }
 
     $product = DBController::getProduct($clientId, $packageId);
-    if (is_null($product) || is_null($product->username)) {
+    if (is_null($product) || empty($product->username)) {
         header('Location: index.php?m=cloudstorage&page=s3storage');
         exit();
     }

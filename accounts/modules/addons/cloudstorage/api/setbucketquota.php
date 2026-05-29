@@ -65,7 +65,7 @@ if ($maxObjects !== -1 && $maxObjects <= 0) {
 // Validate: caller must have an active Cloud Storage product
 $packageId = ProductConfig::$E3_PRODUCT_ID;
 $product = DBController::getProduct($loggedInUserId, $packageId);
-if (is_null($product) || is_null($product->username)) {
+if (is_null($product) || empty($product->username)) {
     (new JsonResponse(['status' => 'fail', 'message' => 'Unauthorized.'], 200))->send();
     exit;
 }

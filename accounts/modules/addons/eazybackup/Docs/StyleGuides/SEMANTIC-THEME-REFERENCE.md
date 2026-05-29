@@ -14,7 +14,7 @@ This document is the single source of truth for the eazyBackup `eb-*` semantic s
 | Shared UI partials | `templates/eazyBackup/includes/ui/` |
 | User management / e3 user detail (narrative, wireframes, class inventory) | `modules/addons/eazybackup/Docs/StyleGuides/User-management-redesign-guide.md` |
 | Live backup / restore progress UI (layout intent, state behaviour, log UX) | `modules/addons/eazybackup/Docs/StyleGuides/Live-progress-redesign-guide.html` |
-| Live progress client template (reference implementation) | `modules/addons/cloudstorage/templates/cloudbackup_live.tpl` |
+| Live progress client template (reference implementation) | `modules/addons/cloudstorage/templates/e3backup_live.tpl` |
 
 ---
 
@@ -1168,9 +1168,9 @@ The `eb-richtext` class styles nested `<a>`, `<p>`, etc. with proper theme color
 </div>
 ```
 
-### Live backup progress (`cloudbackup_live`)
+### Live backup progress (`e3backup_live`)
 
-Use these classes for the **e3 Cloud Backup live run** experience (real-time backup or restore progress, always-visible run metadata, and high-volume logs). They are implemented in `templates/eazyBackup/css/tailwind.src.css` and composed on `modules/addons/cloudstorage/templates/cloudbackup_live.tpl`. UX intent, state tables, and log pagination strategy are described in [**Live-progress-redesign-guide.html**](./Live-progress-redesign-guide.html).
+Use these classes for the **e3 Cloud Backup live run** experience (real-time backup or restore progress, always-visible run metadata, and high-volume logs). They are implemented in `templates/eazyBackup/css/tailwind.src.css` and composed on `modules/addons/cloudstorage/templates/e3backup_live.tpl`. UX intent, state tables, and log pagination strategy are described in [**Live-progress-redesign-guide.html**](./Live-progress-redesign-guide.html).
 
 **Vertical stack:** Wrap the progress strip, details row, optional alerts, and log panel in `eb-live-page` (flex column with consistent gap).
 
@@ -1572,7 +1572,7 @@ Use this checklist for every template you convert. Do not skip steps.
 - [ ] Replace color utilities with token-based values or semantic classes.
 - [ ] Replace raw font-size declarations with `eb-type-*` classes where applicable.
 
-### Live backup live view (`cloudbackup_live`)
+### Live backup live view (`e3backup_live`)
 
 - [ ] Use **`eb-live-page`** as the vertical stack wrapper; avoid legacy hero + separate metric cards for the six stats.
 - [ ] Progress UI uses **`eb-live-progress`** → **`eb-live-bar`** / **`eb-live-bar-fill`** with the correct state class (`.running`, `.failed`, or modifiers in §13).

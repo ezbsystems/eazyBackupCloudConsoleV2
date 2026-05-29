@@ -28,10 +28,31 @@ class CloudBackupBootstrapService
             }
             $existing = $q->orderBy('id', 'asc')->first();
 
-            $baseUid = 'e3cloudbackupowner' . $clientId;
+            // Name resolution strategy:
+            //   - EXISTING owner with a legacy e3cloudbackupowner<clientId> uid -> keep
+            //     it (rebranding would orphan their existing bucket).
+            //   - NEW owner -> mint an opaque token and use e3cbown-<token>.
+            //   - EXISTING owner that has already been migrated (has external_token) ->
+            //     reuse e3cbown-<token>.
+            // The opaque form removes the clientId leak that allowed external
+            // observers to estimate signup volume from bucket / uid names.
+            $existingCephUid = $existing ? trim((string) ($existing->ceph_uid ?? '')) : '';
+            $existingToken   = $existing ? trim((string) ($existing->external_token ?? '')) : '';
+            $hasTokenColumn  = Capsule::schema()->hasColumn('s3_users', 'external_token');
+
+            if ($existingCephUid !== '' && stripos($existingCephUid, 'e3cloudbackupowner') === 0) {
+                $baseUid = $existingCephUid; // legacy owner - keep
+            } elseif ($existingCephUid !== '') {
+                $baseUid = $existingCephUid; // pre-existing opaque owner - keep
+            } else {
+                $token = $existingToken !== '' ? $existingToken : self::generateOpaqueToken();
+                $baseUid = 'e3cbown-' . $token;
+            }
             $baseUid = preg_replace('/[^a-z0-9-]+/', '', strtolower($baseUid));
-            if ($baseUid === '') {
-                $baseUid = 'e3cloudbackupowner';
+            if ($baseUid === '' || $baseUid === '-') {
+                // Fallback: never let baseUid be empty - that produced cross-customer
+                // collisions historically. Mint a fresh opaque uid.
+                $baseUid = 'e3cbown-' . self::generateOpaqueToken();
             }
             $rgwUid = $tenantId ? ($tenantId . '$' . $baseUid) : $baseUid;
 
@@ -82,6 +103,14 @@ class CloudBackupBootstrapService
                 'manage_locked' => 1,
                 'deleted_at' => null,
             ];
+            // Persist the opaque token on new rows (only when the column
+            // exists, the uid is the new opaque form, and we have a token).
+            if ($hasTokenColumn && strpos($baseUid, 'e3cbown-') === 0) {
+                $token = substr($baseUid, strlen('e3cbown-'));
+                if ($token !== '') {
+                    $payload['external_token'] = $token;
+                }
+            }
             $payload = self::filterExistingColumns('s3_users', $payload);
 
             if ($existing) {
@@ -122,8 +151,18 @@ class CloudBackupBootstrapService
             }
 
             $owner = $ownerRes['owner_user'];
-            // Keep deterministic per-client bucket naming to avoid global-name collisions.
-            $bucketName = 'e3cloudbackup-' . $clientId;
+            // Bucket-name strategy:
+            //   - Owners with an opaque token (new flow) -> "e3cb-<token>".
+            //     16 hex chars of entropy, zero clientId leak.
+            //   - Legacy owners (created before the opaque-token migration)
+            //     keep their existing "e3cloudbackup-<clientId>" bucket so the
+            //     rename does not orphan their already-uploaded data.
+            $ownerToken = self::resolveOrAssignOwnerToken($owner);
+            if ($ownerToken !== '') {
+                $bucketName = 'e3cb-' . $ownerToken;
+            } else {
+                $bucketName = 'e3cloudbackup-' . $clientId;
+            }
             $bucketName = self::sanitizeBucketName($bucketName);
 
             $bucket = Capsule::table('s3_buckets')
@@ -186,12 +225,21 @@ class CloudBackupBootstrapService
 
             $baseName = trim((string) ($tenant->bucket_name ?? ''));
             if ($baseName === '') {
-                $slug = preg_replace('/[^a-z0-9-]+/', '-', strtolower((string) ($tenant->slug ?? 'tenant')));
-                $slug = trim((string) $slug, '-');
-                if ($slug === '') {
-                    $slug = 'tenant';
+                // New tenants: opaque token suffix so the bucket name does not
+                // disclose client_id / tenant_id (and therefore signup rate).
+                $ownerToken = self::resolveOrAssignOwnerToken($owner);
+                if ($ownerToken !== '') {
+                    $baseName = 'e3cb-t-' . $ownerToken . '-' . self::generateOpaqueToken();
+                } else {
+                    // Owner predates the token migration - fall back to the
+                    // legacy id-based name to avoid breaking existing data.
+                    $slug = preg_replace('/[^a-z0-9-]+/', '-', strtolower((string) ($tenant->slug ?? 'tenant')));
+                    $slug = trim((string) $slug, '-');
+                    if ($slug === '') {
+                        $slug = 'tenant';
+                    }
+                    $baseName = 'e3cb-' . $clientId . '-' . $tenantId . '-' . $slug;
                 }
-                $baseName = 'e3cb-' . $clientId . '-' . $tenantId . '-' . $slug;
             }
             $bucketName = self::sanitizeBucketName($baseName);
 
@@ -409,12 +457,29 @@ class CloudBackupBootstrapService
                 return ['status' => 'fail', 'message' => 'Invalid backup owner user id.'];
             }
 
+            $encryptionKey = self::getModuleEncryptionKey();
+
             $existing = Capsule::table('s3_user_access_keys')
                 ->where('user_id', $ownerId)
                 ->orderByDesc('id')
                 ->first(['id', 'access_key', 'secret_key']);
+
+            // Self-heal: even when a DB row exists, verify the access key is
+            // actually present on RGW. Drift between the DB and RGW (e.g. from
+            // a partial rotation, manual `radosgw-admin key rm`, or an aborted
+            // bucket-create flow) silently produces "Access Denied" errors on
+            // every agent backup until rotated. Detect + repair here.
             if ($existing && !empty($existing->access_key) && !empty($existing->secret_key)) {
-                return ['status' => 'success', 'message' => 'Backup owner access key already present.'];
+                $drift = self::detectOwnerKeyDrift($owner, $existing, $encryptionKey);
+                if ($drift === 'in_sync') {
+                    return ['status' => 'success', 'message' => 'Backup owner access key already present.'];
+                }
+                logModuleCall(self::$module, __FUNCTION__ . '_drift_detected', [
+                    'owner_id' => $ownerId,
+                    'username' => (string) ($owner->username ?? ''),
+                    'drift'    => $drift,
+                ], 'Stored backup-owner access key is not present on RGW; rotating to recover.');
+                // Fall through to rotation.
             }
 
             $controller = self::makeBucketController();
@@ -422,7 +487,6 @@ class CloudBackupBootstrapService
                 return $controller;
             }
 
-            $encryptionKey = self::getModuleEncryptionKey();
             if ($encryptionKey === '') {
                 return ['status' => 'fail', 'message' => 'Module encryption key is not configured.'];
             }
@@ -457,6 +521,133 @@ class CloudBackupBootstrapService
             logModuleCall(self::$module, __FUNCTION__, ['owner_id' => (int) ($owner->id ?? 0)], $e->getMessage());
             return ['status' => 'fail', 'message' => 'Failed to ensure backup owner access key.'];
         }
+    }
+
+    /**
+     * Check whether the persisted backup-owner access key string is actually
+     * present on the RGW user record. Returns:
+     *   'in_sync'    - DB access key is one of the RGW user's keys.
+     *   'drifted'    - DB has a key but RGW does not list it (orphan).
+     *   'no_user'    - The RGW user does not exist (caller should rotate / recreate).
+     *   'unknown'    - The probe failed for an environmental reason; treat as
+     *                  in_sync to avoid spurious rotations on transient errors.
+     */
+    private static function detectOwnerKeyDrift(object $owner, object $existingKeyRow, string $encryptionKey): string
+    {
+        try {
+            $cfg = self::getAdminSettings();
+            if (($cfg['ok'] ?? false) !== true) {
+                return 'unknown';
+            }
+            if ($encryptionKey === '') {
+                return 'unknown';
+            }
+            $decrypted = HelperController::decryptKey((string) $existingKeyRow->access_key, $encryptionKey);
+            if (!is_string($decrypted) || $decrypted === '') {
+                // Cannot decrypt - cannot reason about drift; let normal flow handle later.
+                return 'unknown';
+            }
+
+            $ownerUid = trim((string) ($owner->ceph_uid ?? ''));
+            if ($ownerUid === '') {
+                $ownerUid = trim((string) ($owner->username ?? ''));
+            }
+            if ($ownerUid === '') {
+                return 'unknown';
+            }
+            $tenantId = !empty($owner->tenant_id) ? (string) $owner->tenant_id : null;
+
+            $info = AdminOps::getUserInfo($cfg['endpoint'], $cfg['access_key'], $cfg['secret_key'], $ownerUid, $tenantId);
+            if (!is_array($info)) {
+                return 'unknown';
+            }
+            if (($info['status'] ?? '') !== 'success') {
+                // Treat NoSuchUser as drift; everything else as unknown so a
+                // transient RGW blip does not trigger surprise key rotations.
+                $msg = strtolower((string) ($info['message'] ?? ''));
+                if (strpos($msg, 'nosuchuser') !== false || strpos($msg, 'no such user') !== false) {
+                    return 'no_user';
+                }
+                return 'unknown';
+            }
+            $keys = $info['data']['keys'] ?? [];
+            if (!is_array($keys)) {
+                return 'unknown';
+            }
+            foreach ($keys as $k) {
+                if (is_array($k) && !empty($k['access_key']) && (string) $k['access_key'] === $decrypted) {
+                    return 'in_sync';
+                }
+            }
+            return 'drifted';
+        } catch (\Throwable $e) {
+            logModuleCall(self::$module, __FUNCTION__, [
+                'owner_id' => (int) ($owner->id ?? 0),
+                'username' => (string) ($owner->username ?? ''),
+            ], $e->getMessage());
+            return 'unknown';
+        }
+    }
+
+    /**
+     * Generate an opaque, lowercase-hex token used as the storage-naming
+     * suffix for cloudbackup-owner user uids and direct buckets. 16 hex chars
+     * = 64 bits of entropy; opaque enough that customer enumeration / signup
+     * counting cannot be inferred from the names.
+     */
+    public static function generateOpaqueToken(): string
+    {
+        try {
+            return bin2hex(random_bytes(8));
+        } catch (\Throwable $e) {
+            return substr(hash('sha256', uniqid('', true) . microtime(true)), 0, 16);
+        }
+    }
+
+    /**
+     * Resolve (or generate + persist) the opaque storage token attached to a
+     * given cloudbackup_owner s3_users row. Existing owners that were created
+     * before this column existed keep their legacy names; for them we return
+     * an empty string and callers fall back to legacy naming.
+     */
+    private static function resolveOrAssignOwnerToken(object $owner): string
+    {
+        try {
+            if (!Capsule::schema()->hasColumn('s3_users', 'external_token')) {
+                return '';
+            }
+            $current = trim((string) ($owner->external_token ?? ''));
+            if ($current !== '') {
+                return $current;
+            }
+
+            // Legacy owners (those whose ceph_uid already matches the old
+            // e3cloudbackupowner<clientId> pattern) keep their existing name
+            // for back-compat - rebranding them would orphan their bucket.
+            $cephUid = trim((string) ($owner->ceph_uid ?? ''));
+            if ($cephUid !== '' && stripos($cephUid, 'e3cloudbackupowner') === 0) {
+                return '';
+            }
+
+            // Brand new owner row - mint a token and persist it.
+            for ($i = 0; $i < 5; $i++) {
+                $candidate = self::generateOpaqueToken();
+                $exists = Capsule::table('s3_users')
+                    ->where('external_token', $candidate)
+                    ->exists();
+                if (!$exists) {
+                    Capsule::table('s3_users')
+                        ->where('id', (int) $owner->id)
+                        ->update(['external_token' => $candidate]);
+                    return $candidate;
+                }
+            }
+        } catch (\Throwable $e) {
+            logModuleCall(self::$module, __FUNCTION__, [
+                'owner_id' => (int) ($owner->id ?? 0),
+            ], $e->getMessage());
+        }
+        return '';
     }
 
     private static function getModuleEncryptionKey(): string

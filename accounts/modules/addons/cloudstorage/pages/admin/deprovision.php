@@ -59,8 +59,54 @@ function handleDeprovisionAjax($request)
         case 'queue':
             return json_encode(handleQueueDeprovision($request));
 
+        case 'reset_onboarding':
+            return json_encode(handleResetOnboarding($request));
+
+        case 'customer_search':
+            return json_encode(handleCustomerSearch($request));
+
         default:
             return json_encode(['status' => 'fail', 'message' => 'Unknown action.']);
+    }
+}
+
+/**
+ * Typeahead-style search across tblclients for the admin pickers.
+ * Returns matches with attached cloudstorage services so the admin can
+ * pick a specific service in one step.
+ */
+function handleCustomerSearch($request)
+{
+    $query = isset($request['q']) ? (string) $request['q'] : '';
+    if (trim($query) === '' || strlen(trim($query)) < 2) {
+        return ['status' => 'success', 'results' => []];
+    }
+    if (session_status() === PHP_SESSION_ACTIVE) {
+        @session_write_close();
+    }
+    try {
+        $results = DeprovisionHelper::searchCustomers($query, 15);
+        return ['status' => 'success', 'results' => $results];
+    } catch (\Throwable $e) {
+        try { logModuleCall('cloudstorage', 'admin_customer_search_fail', ['q' => $query], $e->getMessage()); } catch (\Throwable $_) {}
+        return ['status' => 'fail', 'message' => 'Customer search failed.', 'results' => []];
+    }
+}
+
+/**
+ * Reset a client's onboarding so they (or a tester) can re-run the Welcome -> provision flow.
+ */
+function handleResetOnboarding($request)
+{
+    $clientId = (int) ($request['client_id'] ?? 0);
+    if ($clientId <= 0) {
+        return ['status' => 'fail', 'message' => 'Missing client_id.'];
+    }
+    try {
+        $counts = DeprovisionHelper::resetOnboarding($clientId);
+        return ['status' => 'success', 'counts' => $counts];
+    } catch (\Throwable $e) {
+        return ['status' => 'fail', 'message' => $e->getMessage()];
     }
 }
 
@@ -285,6 +331,55 @@ function generateDeprovisionHTML($csrfToken, $queuedJobs)
 
     echo <<<HTML
 <style>
+    /* Page layout */
+    .cs-admin-wrap { padding-top: 1rem; }
+    .cs-admin-intro { background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 1.25rem; }
+    .cs-admin-intro h2 { margin: 0 0 .5rem 0; font-size: 1.25rem; }
+    .cs-tool-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; margin-bottom: 1.25rem; }
+    @media (max-width: 991px) { .cs-tool-grid { grid-template-columns: 1fr; } }
+
+    /* Tool cards - distinct framing for the two workflows */
+    .cs-tool-card { border: 1px solid #dee2e6; border-radius: 10px; background: #fff; overflow: hidden; box-shadow: 0 1px 2px rgba(0,0,0,.04); }
+    .cs-tool-card .cs-tool-header { padding: .9rem 1.1rem; border-bottom: 1px solid #e9ecef; display: flex; align-items: center; gap: .65rem; }
+    .cs-tool-card .cs-tool-header h3 { margin: 0; font-size: 1.05rem; font-weight: 600; }
+    .cs-tool-card .cs-tool-tag { font-size: .68rem; text-transform: uppercase; letter-spacing: .06em; font-weight: 700; padding: 2px 8px; border-radius: 999px; }
+    .cs-tool-card .cs-tool-body { padding: 1rem 1.1rem 1.1rem; }
+    .cs-tool-card .cs-tool-summary { color: #6c757d; font-size: .85rem; margin: 0 0 .85rem; }
+
+    .cs-tool--danger .cs-tool-header { background: linear-gradient(180deg, #fff5f5 0%, #ffe9e9 100%); border-bottom-color: #f1c2c2; }
+    .cs-tool--danger .cs-tool-tag { background: #dc3545; color: #fff; }
+    .cs-tool--danger .cs-tool-header h3 i { color: #c92a2a; }
+
+    .cs-tool--qa .cs-tool-header { background: linear-gradient(180deg, #fff9e6 0%, #fff1c2 100%); border-bottom-color: #f0d97a; }
+    .cs-tool--qa .cs-tool-tag { background: #e0a800; color: #1f1300; }
+    .cs-tool--qa .cs-tool-header h3 i { color: #8a6d00; }
+
+    /* Customer typeahead */
+    .cs-typeahead { position: relative; }
+    .cs-typeahead-input-wrap { position: relative; }
+    .cs-typeahead-input-wrap .cs-typeahead-spinner { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); display: none; }
+    .cs-typeahead-input-wrap.is-loading .cs-typeahead-spinner { display: inline-block; }
+    .cs-typeahead-results { position: absolute; z-index: 30; top: 100%; left: 0; right: 0; max-height: 360px; overflow-y: auto; background: #fff; border: 1px solid #ced4da; border-top: 0; border-radius: 0 0 6px 6px; box-shadow: 0 6px 18px rgba(0,0,0,.10); display: none; }
+    .cs-typeahead-results.is-open { display: block; }
+    .cs-typeahead-empty { padding: .65rem .9rem; color: #6c757d; font-size: .85rem; }
+    .cs-typeahead-item { padding: .55rem .85rem; border-bottom: 1px solid #f1f3f5; cursor: pointer; }
+    .cs-typeahead-item:last-child { border-bottom: 0; }
+    .cs-typeahead-item:hover, .cs-typeahead-item.is-active { background: #f1f8ff; }
+    .cs-typeahead-item .cs-ti-line1 { font-weight: 600; color: #212529; font-size: .9rem; }
+    .cs-typeahead-item .cs-ti-line2 { font-size: .78rem; color: #6c757d; margin-top: 2px; }
+    .cs-typeahead-item .cs-ti-id { color: #adb5bd; font-weight: 500; }
+    .cs-typeahead-item .cs-svc-pill { display: inline-block; margin: 4px 4px 0 0; padding: 2px 8px; background: #e7f5ff; color: #1864ab; border-radius: 999px; font-size: .72rem; cursor: pointer; }
+    .cs-typeahead-item .cs-svc-pill:hover { background: #d0ebff; }
+    .cs-typeahead-item .cs-svc-pill.is-cancelled { background: #f1f3f5; color: #868e96; }
+
+    .cs-selected-pill { display: inline-flex; align-items: center; gap: .5rem; background: #e7f5ff; color: #1864ab; padding: 4px 10px; border-radius: 999px; font-size: .82rem; }
+    .cs-selected-pill .cs-clear { cursor: pointer; opacity: .6; }
+    .cs-selected-pill .cs-clear:hover { opacity: 1; }
+
+    .cs-divider-or { display: flex; align-items: center; gap: .5rem; color: #adb5bd; font-size: .75rem; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; margin: 1rem 0 .65rem; }
+    .cs-divider-or:before, .cs-divider-or:after { content: ''; flex: 1; height: 1px; background: #e9ecef; }
+
+    /* Legacy classes still used by preview/jobs */
     .card { margin-bottom: 1.5rem; }
     .user-card { border-left: 4px solid #0d6efd; }
     .user-card.sub-tenant { border-left-color: #6c757d; margin-left: 20px; }
@@ -303,56 +398,130 @@ function generateDeprovisionHTML($csrfToken, $queuedJobs)
     .job-row.success { background-color: #d1e7dd; }
 </style>
 
-<div class="container-fluid mt-4">
-    <!-- Header -->
-    <div class="row mb-4">
-        <div class="col">
-            <div class="card">
-                <div class="card-body">
-                    <h1 class="card-title mb-0">
-                        <i class="fas fa-user-times text-danger"></i>
-                        Deprovision Cloud Storage Customer
-                    </h1>
-                    <p class="text-muted mb-0 mt-2">
-                        Search for a customer by Service ID or Storage Username to preview and queue deprovision.
-                        This will delete all buckets, sub-tenants, and the RGW user.
-                    </p>
-                </div>
-            </div>
-        </div>
+<div class="container-fluid cs-admin-wrap">
+
+    <!-- Intro / explainer banner -->
+    <div class="cs-admin-intro">
+        <h2><i class="fas fa-cogs text-secondary"></i> Cloud Storage Admin Tools</h2>
+        <p class="mb-1 text-muted small">
+            Two separate workflows live on this page. They <strong>do not</strong> overlap &mdash; pick the right one for the job:
+        </p>
+        <ul class="mb-0 text-muted small">
+            <li>
+                <strong style="color:#c92a2a;">Deprovision Customer</strong> &mdash; permanent. Queues deletion of
+                <em>all</em> s3_users / sub-tenants / buckets / RGW data for a real customer. Use when off-boarding.
+            </li>
+            <li>
+                <strong style="color:#8a6d00;">Reset Onboarding (Dev / QA)</strong> &mdash; cancels the client's
+                cloudstorage services + wipes onboarding state so the same WHMCS client can re-run sign-up &rarr;
+                provision &rarr; enroll. <strong>Does not touch s3_users / RGW buckets</strong>.
+            </li>
+        </ul>
     </div>
 
-    <!-- Search Form -->
-    <div class="row mb-4">
-        <div class="col-md-6">
-            <div class="card">
-                <div class="card-header">
-                    <i class="fas fa-search"></i> Lookup Customer
+    <!-- Two distinct tool cards side-by-side -->
+    <div class="cs-tool-grid">
+
+        <!-- TOOL 1: Deprovision (danger) -->
+        <section class="cs-tool-card cs-tool--danger">
+            <div class="cs-tool-header">
+                <h3><i class="fas fa-user-times"></i> Deprovision Customer</h3>
+                <span class="cs-tool-tag">Destructive</span>
+            </div>
+            <div class="cs-tool-body">
+                <p class="cs-tool-summary">
+                    Preview and queue permanent deletion of a customer's storage. Lookup by Service ID,
+                    storage username, or pick from customer search.
+                </p>
+
+                <!-- Customer typeahead -->
+                <div class="cs-typeahead" id="depCustomerSearch">
+                    <label class="form-label" for="depCustomerInput">Find customer</label>
+                    <div class="cs-typeahead-input-wrap">
+                        <input type="text" class="form-control" id="depCustomerInput"
+                               placeholder="Search by name, company, email, or client ID..."
+                               autocomplete="off">
+                        <i class="fas fa-spinner fa-spin cs-typeahead-spinner text-muted"></i>
+                    </div>
+                    <div class="cs-typeahead-results" id="depCustomerResults"></div>
+                    <small class="text-muted">
+                        Click a service pill in the results to auto-fill the form. Type at least 2 characters.
+                    </small>
                 </div>
-                <div class="card-body">
-                    <form id="lookupForm">
-                        <div class="row g-3">
-                            <div class="col-md-5">
-                                <label for="serviceId" class="form-label">WHMCS Service ID</label>
-                                <input type="number" class="form-control" id="serviceId" placeholder="e.g. 12345">
-                            </div>
-                            <div class="col-md-2 d-flex align-items-end justify-content-center">
-                                <span class="text-muted">OR</span>
-                            </div>
-                            <div class="col-md-5">
-                                <label for="username" class="form-label">Storage Username</label>
-                                <input type="text" class="form-control" id="username" placeholder="e.g. user@example.com">
-                            </div>
+
+                <div class="cs-divider-or">or by ID</div>
+
+                <form id="lookupForm">
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label for="serviceId" class="form-label">WHMCS Service ID</label>
+                            <input type="number" class="form-control" id="serviceId" placeholder="e.g. 12345">
                         </div>
-                        <div class="mt-3">
-                            <button type="submit" class="btn btn-primary" id="lookupBtn">
-                                <i class="fas fa-search"></i> Lookup
+                        <div class="col-md-6">
+                            <label for="username" class="form-label">Storage Username</label>
+                            <input type="text" class="form-control" id="username" placeholder="e.g. user@example.com">
+                        </div>
+                    </div>
+                    <div class="mt-3">
+                        <button type="submit" class="btn btn-danger" id="lookupBtn">
+                            <i class="fas fa-search"></i> Preview Deprovision
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </section>
+
+        <!-- TOOL 2: Reset Onboarding (QA) -->
+        <section class="cs-tool-card cs-tool--qa">
+            <div class="cs-tool-header">
+                <h3><i class="fas fa-redo"></i> Reset Onboarding</h3>
+                <span class="cs-tool-tag">Dev / QA</span>
+            </div>
+            <div class="cs-tool-body">
+                <p class="cs-tool-summary">
+                    Cancels the client's eazyBackup / e3 Object Storage / e3 Cloud Backup services, wipes
+                    trial state and onboarding bookkeeping, and re-enables the Welcome-page password prompt
+                    so the same WHMCS client can re-run the full sign-up &rarr; provision &rarr; enroll
+                    &rarr; first-backup flow.
+                    <strong>Does NOT</strong> touch s3_users / RGW buckets &mdash; use the Deprovision tool
+                    for that.
+                </p>
+
+                <!-- Customer typeahead -->
+                <div class="cs-typeahead" id="rstCustomerSearch">
+                    <label class="form-label" for="rstCustomerInput">Find customer</label>
+                    <div class="cs-typeahead-input-wrap">
+                        <input type="text" class="form-control" id="rstCustomerInput"
+                               placeholder="Search by name, company, email, or client ID..."
+                               autocomplete="off">
+                        <i class="fas fa-spinner fa-spin cs-typeahead-spinner text-muted"></i>
+                    </div>
+                    <div class="cs-typeahead-results" id="rstCustomerResults"></div>
+                    <small class="text-muted">
+                        Click a result to populate the Client ID. Type at least 2 characters.
+                    </small>
+                </div>
+
+                <div class="cs-divider-or">or by ID</div>
+
+                <form id="resetOnboardingForm">
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label for="resetClientId" class="form-label">Client ID</label>
+                            <input type="number" class="form-control" id="resetClientId" placeholder="e.g. 42">
+                            <div id="resetSelectedCustomer" class="mt-2"></div>
+                        </div>
+                        <div class="col-md-6 d-flex align-items-end">
+                            <button type="submit" class="btn btn-warning">
+                                <i class="fas fa-redo"></i> Reset onboarding
                             </button>
                         </div>
-                    </form>
-                </div>
+                    </div>
+                </form>
+                <div id="resetOnboardingResult" class="mt-3"></div>
             </div>
-        </div>
+        </section>
+
     </div>
 
     <!-- Preview Section (hidden initially) -->
@@ -496,6 +665,269 @@ function setupEventListeners() {
 
     // Queue button
     document.getElementById('queueBtn').addEventListener('click', queueDeprovision);
+
+    // Reset onboarding (dev tool)
+    var resetForm = document.getElementById('resetOnboardingForm');
+    if (resetForm) {
+        resetForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            performResetOnboarding();
+        });
+    }
+
+    // Customer typeahead instances - independent per tool so a stale query in
+    // one panel never affects the other.
+    initCustomerTypeahead({
+        rootId:        'depCustomerSearch',
+        inputId:       'depCustomerInput',
+        resultsId:     'depCustomerResults',
+        mode:          'deprovision'
+    });
+    initCustomerTypeahead({
+        rootId:        'rstCustomerSearch',
+        inputId:       'rstCustomerInput',
+        resultsId:     'rstCustomerResults',
+        mode:          'reset'
+    });
+}
+
+/**
+ * Generic customer typeahead.
+ *   mode='deprovision' -> clicking a service pill fills storage username +
+ *                         service ID and runs the lookup.
+ *   mode='reset'       -> clicking the customer row fills the Client ID field.
+ */
+function initCustomerTypeahead(opts) {
+    var root      = document.getElementById(opts.rootId);
+    var input     = document.getElementById(opts.inputId);
+    var results   = document.getElementById(opts.resultsId);
+    var wrap      = root ? root.querySelector('.cs-typeahead-input-wrap') : null;
+    if (!root || !input || !results || !wrap) return;
+
+    var debounceTimer = null;
+    var lastQuery = '';
+    var activeIndex = -1;
+    var currentItems = [];
+
+    input.addEventListener('input', function() {
+        if (debounceTimer) clearTimeout(debounceTimer);
+        var q = input.value.trim();
+        if (q.length < 2) {
+            results.classList.remove('is-open');
+            results.innerHTML = '';
+            currentItems = [];
+            return;
+        }
+        debounceTimer = setTimeout(function() { runSearch(q); }, 220);
+    });
+
+    input.addEventListener('focus', function() {
+        if (currentItems.length > 0) results.classList.add('is-open');
+    });
+
+    input.addEventListener('keydown', function(e) {
+        if (!results.classList.contains('is-open')) return;
+        var nodes = Array.prototype.slice.call(results.querySelectorAll('.cs-typeahead-item'));
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            activeIndex = Math.min(nodes.length - 1, activeIndex + 1);
+            applyActive(nodes);
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            activeIndex = Math.max(0, activeIndex - 1);
+            applyActive(nodes);
+        } else if (e.key === 'Enter') {
+            if (activeIndex >= 0 && nodes[activeIndex]) {
+                e.preventDefault();
+                pickItem(currentItems[activeIndex]);
+            }
+        } else if (e.key === 'Escape') {
+            results.classList.remove('is-open');
+        }
+    });
+
+    document.addEventListener('click', function(e) {
+        if (!root.contains(e.target)) {
+            results.classList.remove('is-open');
+        }
+    });
+
+    function applyActive(nodes) {
+        nodes.forEach(function(n, i) { n.classList.toggle('is-active', i === activeIndex); });
+        if (activeIndex >= 0 && nodes[activeIndex] && nodes[activeIndex].scrollIntoView) {
+            nodes[activeIndex].scrollIntoView({ block: 'nearest' });
+        }
+    }
+
+    function runSearch(q) {
+        if (q === lastQuery) return;
+        lastQuery = q;
+        wrap.classList.add('is-loading');
+        var params = new URLSearchParams();
+        params.append('cs_action', 'customer_search');
+        params.append('q', q);
+        fetch(moduleUrl + '&' + params.toString(), { credentials: 'same-origin' })
+            .then(function(r) { return r.json(); })
+            .then(function(j) {
+                wrap.classList.remove('is-loading');
+                if (j.status !== 'success') {
+                    renderEmpty(j.message || 'Search failed.');
+                    return;
+                }
+                currentItems = j.results || [];
+                renderResults(currentItems);
+            })
+            .catch(function(err) {
+                wrap.classList.remove('is-loading');
+                renderEmpty('Search error: ' + err.message);
+            });
+    }
+
+    function renderEmpty(msg) {
+        results.innerHTML = '<div class="cs-typeahead-empty">' + escapeHtml(msg) + '</div>';
+        results.classList.add('is-open');
+        currentItems = [];
+        activeIndex = -1;
+    }
+
+    function renderResults(items) {
+        if (!items.length) { renderEmpty('No matching customers.'); return; }
+        var html = '';
+        items.forEach(function(it, idx) {
+            var line1 = '';
+            if (it.name) line1 += escapeHtml(it.name);
+            if (it.companyname) line1 += (line1 ? ' &middot; ' : '') + escapeHtml(it.companyname);
+            if (!line1) line1 = escapeHtml(it.email || ('Client #' + it.id));
+            line1 += ' <span class="cs-ti-id">#' + it.id + '</span>';
+
+            var status = it.status ? '<span class="badge bg-' + getStatusColor(it.status) + ' ms-1" style="font-size:.65rem;">' + escapeHtml(it.status) + '</span>' : '';
+
+            var line2 = '<span>' + escapeHtml(it.email || '—') + '</span>' + status;
+
+            var pills = '';
+            if (opts.mode === 'deprovision') {
+                if (it.services && it.services.length) {
+                    it.services.forEach(function(svc, sidx) {
+                        var pillClass = 'cs-svc-pill';
+                        var statusLabel = svc.domainstatus ? ' (' + escapeHtml(svc.domainstatus) + ')' : '';
+                        if (svc.domainstatus && svc.domainstatus !== 'Active' && svc.domainstatus !== 'Suspended') {
+                            pillClass += ' is-cancelled';
+                        }
+                        var label = escapeHtml(svc.product || ('Product #' + svc.packageid)) + ' #' + svc.id + statusLabel;
+                        pills += '<span class="' + pillClass + '" data-item-index="' + idx + '" data-svc-index="' + sidx + '" title="Lookup this service">' + label + '</span>';
+                    });
+                } else {
+                    pills = '<span class="text-muted" style="font-size:.72rem;">No cloudstorage services.</span>';
+                }
+            }
+
+            html += '<div class="cs-typeahead-item" data-item-index="' + idx + '">';
+            html += '<div class="cs-ti-line1">' + line1 + '</div>';
+            html += '<div class="cs-ti-line2">' + line2 + '</div>';
+            if (pills) html += '<div>' + pills + '</div>';
+            html += '</div>';
+        });
+        results.innerHTML = html;
+        results.classList.add('is-open');
+        activeIndex = -1;
+
+        results.querySelectorAll('.cs-typeahead-item').forEach(function(node) {
+            node.addEventListener('mouseenter', function() {
+                activeIndex = parseInt(node.dataset.itemIndex, 10);
+                applyActive(Array.prototype.slice.call(results.querySelectorAll('.cs-typeahead-item')));
+            });
+            node.addEventListener('click', function(e) {
+                var pill = e.target.closest('.cs-svc-pill');
+                if (pill) {
+                    var i = parseInt(pill.dataset.itemIndex, 10);
+                    var s = parseInt(pill.dataset.svcIndex, 10);
+                    var svc = currentItems[i] && currentItems[i].services ? currentItems[i].services[s] : null;
+                    if (svc) pickService(currentItems[i], svc);
+                    return;
+                }
+                var idx2 = parseInt(node.dataset.itemIndex, 10);
+                pickItem(currentItems[idx2]);
+            });
+        });
+    }
+
+    function pickItem(item) {
+        if (!item) return;
+        if (opts.mode === 'reset') {
+            document.getElementById('resetClientId').value = item.id;
+            renderResetSelected(item);
+            input.value = (item.name || item.email || ('Client #' + item.id));
+        } else {
+            // Deprovision: if there's exactly one cloudstorage service, auto-pick it.
+            if (item.services && item.services.length === 1) {
+                pickService(item, item.services[0]);
+                return;
+            }
+            // Otherwise prompt the admin to click a specific service pill.
+            input.value = (item.name || item.email || ('Client #' + item.id));
+            // Keep results open so they can click a service pill.
+            return;
+        }
+        results.classList.remove('is-open');
+    }
+
+    function pickService(item, svc) {
+        if (opts.mode !== 'deprovision') return;
+        document.getElementById('serviceId').value = svc.id || '';
+        document.getElementById('username').value = svc.username || '';
+        input.value = (item.name || item.email || ('Client #' + item.id)) + ' / ' + (svc.product || '') + ' #' + svc.id;
+        results.classList.remove('is-open');
+        // Auto-trigger the existing lookup flow.
+        performLookup();
+    }
+
+    function renderResetSelected(item) {
+        var host = document.getElementById('resetSelectedCustomer');
+        if (!host) return;
+        var label = '';
+        if (item.name) label = item.name;
+        else if (item.email) label = item.email;
+        else label = 'Client #' + item.id;
+        host.innerHTML = '<span class="cs-selected-pill"><i class="fas fa-user"></i> ' +
+            escapeHtml(label) + ' <span class="cs-ti-id">#' + item.id + '</span>' +
+            '<i class="fas fa-times cs-clear" title="Clear selection"></i></span>';
+        var clear = host.querySelector('.cs-clear');
+        if (clear) clear.addEventListener('click', function() {
+            host.innerHTML = '';
+            document.getElementById('resetClientId').value = '';
+            input.value = '';
+        });
+    }
+}
+
+function performResetOnboarding() {
+    var clientId = parseInt(document.getElementById('resetClientId').value || '0', 10);
+    if (!clientId) {
+        document.getElementById('resetOnboardingResult').innerHTML = '<div class="alert alert-danger">Please enter a Client ID.</div>';
+        return;
+    }
+    if (!confirm('Reset onboarding for client #' + clientId + '? This cancels their services and clears trial state.')) {
+        return;
+    }
+    var params = new URLSearchParams();
+    params.append('cs_action', 'reset_onboarding');
+    params.append('client_id', clientId);
+    fetch(window.location.pathname + '?module=cloudstorage&action=deprovision&' + params.toString(), {credentials:'same-origin'})
+        .then(function(r){ return r.json(); })
+        .then(function(j){
+            if (j.status === 'success') {
+                var rows = '';
+                Object.keys(j.counts || {}).forEach(function(k){
+                    rows += '<li>' + k + ': <strong>' + j.counts[k] + '</strong></li>';
+                });
+                document.getElementById('resetOnboardingResult').innerHTML = '<div class="alert alert-success"><strong>Reset complete for client #' + clientId + '.</strong><ul>' + rows + '</ul></div>';
+            } else {
+                document.getElementById('resetOnboardingResult').innerHTML = '<div class="alert alert-danger">' + (j.message || 'Unknown error') + '</div>';
+            }
+        })
+        .catch(function(e){
+            document.getElementById('resetOnboardingResult').innerHTML = '<div class="alert alert-danger">Request failed: ' + e + '</div>';
+        });
 }
 
 function performLookup() {

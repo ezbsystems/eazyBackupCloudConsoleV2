@@ -1,0 +1,4 @@
+
+[2026-05-26 17:10:33] $ 'sha256sum' '/srv/agent-build/eazyBackupCloudConsoleV2/e3-backup-agent/bin/e3-backup-agent'
+c6f40f32fb576bdac07ae402f55a979e5d0d04e59e0f5af2a13c7e9f7c70c9e7  /srv/agent-build/eazyBackupCloudConsoleV2/e3-backup-agent/bin/e3-backup-agent
+[2026-05-26 17:10:34] exit=0

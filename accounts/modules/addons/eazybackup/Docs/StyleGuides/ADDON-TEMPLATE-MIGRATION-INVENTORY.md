@@ -203,7 +203,7 @@ Deferred for now:
 - Admin-only:
   - `templates/admin/cloudbackup_admin.tpl`
 - Operational or special-purpose pages that may need separate handling:
-  - `templates/cloudbackup_live.tpl`
+  - `templates/e3backup_live.tpl`
 
 ## Batch Order
 

@@ -38,7 +38,11 @@
             'product' => $prodArr
         ], '');
     } catch (\Throwable $e) {}
-    if (is_null($product) || is_null($product->username)) {
+    // After a Reset Onboarding / Deprovision, tblhosting.username is set
+    // to '' (empty string) rather than NULL - use empty() so we don't fall
+    // through and call DBController::getUser('') (which returns null,
+    // triggering a redirect to s3storage that then redirects back here).
+    if (is_null($product) || empty($product->username)) {
         try { logModuleCall('cloudstorage', 'dashboard_redirect_s3storage', ['clientId' => $clientId], ''); } catch (\Throwable $e) {}
         $_SESSION['message'] = 'You are not subscribe the product.';
         header('Location: index.php?m=cloudstorage&page=s3storage&status=fail');

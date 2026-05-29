@@ -56,8 +56,18 @@ class Settings
 
     public static function all(): array
     {
+        $repoPath = self::get('agent_build_repo_path', '/var/www/eazybackup.ca/e3-backup-agent');
+        // git_root: working tree where `git fetch/checkout/pull` runs. When the
+        // agent source lives inside a larger monorepo, set this to the repo
+        // root (e.g. /var/www/eazybackup.ca) while keeping repo_path pointed
+        // at the Go module root. Falls back to repo_path for back-compat.
+        $gitRoot = self::get('agent_build_git_root');
+        if ($gitRoot === null || $gitRoot === '') {
+            $gitRoot = $repoPath;
+        }
         return [
-            'repo_path'         => self::get('agent_build_repo_path', '/var/www/eazybackup.ca/e3-backup-agent'),
+            'repo_path'         => $repoPath,
+            'git_root'          => $gitRoot,
             'default_git_ref'   => self::get('agent_build_default_git_ref', 'main'),
             'publish_dir'       => self::get('agent_build_publish_dir', '/var/www/eazybackup.ca/accounts/client_installer'),
             'win_host'          => self::get('agent_build_windows_host', '192.168.92.210'),

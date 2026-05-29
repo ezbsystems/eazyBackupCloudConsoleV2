@@ -141,7 +141,7 @@ function resolveCanonicalHypervJobId(string $jobId, int $clientId): ?string
     return $candidate && !empty($candidate->job_id) ? (string) $candidate->job_id : null;
 }
 
-$packageId = ProductConfig::$E3_PRODUCT_ID;
+$packageId = ProductConfig::e3CloudBackupPid();
 $ca = new ClientArea();
 if (!$ca->isLoggedIn()) {
     header('Location: clientarea.php');
@@ -150,8 +150,8 @@ if (!$ca->isLoggedIn()) {
 
 $loggedInUserId = $ca->getUserID();
 $product = DBController::getProduct($loggedInUserId, $packageId);
-if (is_null($product) || is_null($product->username)) {
-    header('Location: index.php?m=cloudstorage&page=s3storage');
+if (is_null($product) || empty($product->username)) {
+    header('Location: index.php?m=cloudstorage&page=welcome');
     exit;
 }
 

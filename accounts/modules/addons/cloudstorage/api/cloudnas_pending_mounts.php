@@ -121,7 +121,7 @@ try {
 
     $packageId = ProductConfig::$E3_PRODUCT_ID;
     $product = DBController::getProduct((int) $agent->client_id, $packageId);
-    if (is_null($product) || is_null($product->username)) {
+    if (is_null($product) || empty($product->username)) {
         respondPendingMounts(['status' => 'success', 'mounts' => []]);
     }
 

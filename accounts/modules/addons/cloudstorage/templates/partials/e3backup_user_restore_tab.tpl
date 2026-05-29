@@ -125,17 +125,27 @@
                                 </td>
                             </tr>
                         </template>
-                        <template x-if="!loading && restorePoints.length === 0">
+                        <template x-if="!loading && restorePoints.length === 0 && !hasActiveFilter">
                             <tr>
                                 <td colspan="8">
                                     <div class="eb-app-empty !py-8">
-                                        <div class="eb-app-empty-title">No restore points found</div>
-                                        <p class="eb-app-empty-copy">This user does not have any restore points that match the current filters.</p>
+                                        <div class="eb-app-empty-title">Pick a job and an agent to see restore points</div>
+                                        <p class="eb-app-empty-copy">Use the filter row above to select the backup <strong>Job</strong> and the <strong>Agent</strong> that produced it &mdash; any matching restore points will appear here.</p>
                                     </div>
                                 </td>
                             </tr>
                         </template>
-                        <template x-for="point in restorePoints" :key="point.id">
+                        <template x-if="!loading && restorePoints.length === 0 && hasActiveFilter">
+                            <tr>
+                                <td colspan="8">
+                                    <div class="eb-app-empty !py-8">
+                                        <div class="eb-app-empty-title">No restore points match the current filters</div>
+                                        <p class="eb-app-empty-copy">Try clearing the date range, picking a different job, or switching the agent.</p>
+                                    </div>
+                                </td>
+                            </tr>
+                        </template>
+                        <template x-for="(point, pIdx) in restorePoints" :key="'rp-' + (point.id || pIdx)">
                             <tr>
                                 <td class="eb-table-primary">
                                     <div class="font-medium text-[var(--eb-text-primary)]" x-text="point.job_name || 'Unnamed job'"></div>
@@ -245,9 +255,48 @@
                             <label class="eb-field-label">Destination Agent</label>
                             <p class="eb-field-help mb-3">Select the computer where the data should be restored.</p>
                             <div class="space-y-3">
-                                <select id="restorePointTargetAgent" class="eb-select">
-                                    <option value="">Select an agent</option>
-                                </select>
+                                <div x-data="restorePointAgentPicker()" x-init="init()" @click.away="isOpen = false">
+                                    {* Hidden input preserves the existing
+                                       document.getElementById('restorePointTargetAgent').value
+                                       contract used throughout the restore wizard JS. *}
+                                    <input type="hidden" id="restorePointTargetAgent" x-model="selectedId">
+                                    <div class="relative">
+                                        <button type="button"
+                                                @click="isOpen = !isOpen"
+                                                class="eb-menu-trigger relative"
+                                                aria-haspopup="listbox"
+                                                :aria-expanded="isOpen">
+                                            <span class="block truncate" x-text="selectedLabel()"></span>
+                                            <span class="absolute inset-y-0 right-0 flex items-center pr-2 pointer-events-none">
+                                                <svg class="h-5 w-5 text-[var(--eb-text-muted)] transition-transform" :class="isOpen && 'rotate-180'" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                                                    <path fill-rule="evenodd" d="M10 3a1 1 0 01.707.293l3 3a1 1 0 01-1.414 1.414L10 5.414 7.707 7.707a1 1 0 01-1.414-1.414l3-3A1 1 0 0110 3zm-3.707 9.293a1 1 0 011.414 0L10 14.586l2.293-2.293a1 1 0 011.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd"/>
+                                                </svg>
+                                            </span>
+                                        </button>
+                                        <div x-show="isOpen"
+                                             x-transition:enter="transition ease-out duration-100"
+                                             x-transition:enter-start="opacity-0 scale-95"
+                                             x-transition:enter-end="opacity-100 scale-100"
+                                             class="eb-dropdown-menu absolute z-20 mt-1 w-full overflow-hidden"
+                                             role="listbox"
+                                             style="display: none;">
+                                            <div class="p-2" x-show="options.length > 6">
+                                                <input type="text" x-model="search" placeholder="Search agents..." class="eb-input">
+                                            </div>
+                                            <ul class="max-h-60 overflow-auto py-1 text-sm scrollbar_thin">
+                                                <template x-for="(opt, optIdx) in filtered" :key="'restore-agent-' + (opt.agent_uuid || optIdx)">
+                                                    <li @click="choose(opt)"
+                                                        class="eb-menu-option cursor-pointer select-none"
+                                                        :class="{ 'is-active': String(selectedId) === String(opt.agent_uuid || '') }"
+                                                        x-text="label(opt)"></li>
+                                                </template>
+                                                <template x-if="filtered.length === 0">
+                                                    <li class="px-4 py-2 text-sm text-[var(--eb-text-muted)]">No agents available.</li>
+                                                </template>
+                                            </ul>
+                                        </div>
+                                    </div>
+                                </div>
                                 <p id="restorePointAgentHint" class="eb-field-help hidden"></p>
                             </div>
                         </div>
@@ -369,6 +418,20 @@ function userRestoreTabApp() {
             });
         },
 
+        // Round 2 (Task 10a): drives the branched empty-state copy in the
+        // table. When no filters are active we coach the customer to pick a
+        // Job + Agent first; once any filter is in play and there are still
+        // zero rows we switch to the "no matches" wording.
+        get hasActiveFilter() {
+            return !!(
+                (this.selectedJobId && String(this.selectedJobId).trim() !== '')
+                || (this.agentFilter && String(this.agentFilter).trim() !== '')
+                || (this.dateFrom && String(this.dateFrom).trim() !== '')
+                || (this.dateTo && String(this.dateTo).trim() !== '')
+                || (this.searchQuery && String(this.searchQuery).trim() !== '')
+            );
+        },
+
         get filteredJobs() {
             const term = (this.jobSearch || '').toLowerCase().trim();
             const list = Array.isArray(this.jobs) ? this.jobs : [];
@@ -422,11 +485,26 @@ function userRestoreTabApp() {
                 }
                 this.agents = Array.isArray(window.restorePointAgents) ? window.restorePointAgents : [];
                 this.loadJobOptions();
-                this.loadRestorePoints(true);
+                // Filter-first: only auto-load when a filter is active (e.g.
+                // arrived here via a deep-link / restore request carrying a
+                // job_id). Otherwise show the guided empty state.
+                if (this.hasActiveFilter) {
+                    this.loadRestorePoints(true);
+                } else {
+                    this.loading = false;
+                }
             });
 
             this.loadJobOptions();
-            this.loadRestorePoints(true);
+            // Filter-first (MSP scale): do not fire the unfiltered "all jobs,
+            // all agents" query on tab open. Only auto-load when a filter is
+            // already active from a deep-link (job_id / agent_uuid / date) or
+            // an initial restore job id; otherwise render the guided state.
+            if (this.hasActiveFilter) {
+                this.loadRestorePoints(true);
+            } else {
+                this.loading = false;
+            }
         },
 
         jobLabel() {
@@ -455,7 +533,18 @@ function userRestoreTabApp() {
                 const response = await fetch('modules/addons/cloudstorage/api/e3backup_job_list.php?' + params.toString());
                 const data = await response.json();
                 if (data.status === 'success') {
-                    this.jobs = Array.isArray(data.jobs) ? data.jobs : [];
+                    // Round 2 (Task 10b): the job-list API returns the UUID as
+                    // `id` but the rest of this component (selectJob, the
+                    // option highlight, and the Restore Points list query)
+                    // all read `job.job_id`. Normalise here so manual job
+                    // selection actually filters the table. The Jobs page
+                    // applies the same one-liner.
+                    this.jobs = (Array.isArray(data.jobs) ? data.jobs : []).map(j => {
+                        if (j && !j.job_id && j.id) {
+                            j.job_id = j.id;
+                        }
+                        return j;
+                    });
                 } else {
                     this.jobs = [];
                 }
@@ -493,6 +582,16 @@ function userRestoreTabApp() {
 
         async loadRestorePoints(reset = true) {
             if (!this.scopeUserId) {
+                this.restorePoints = [];
+                this.loading = false;
+                this.hasMore = false;
+                this.offset = 0;
+                return;
+            }
+            // Filter-first guard (MSP scale): never run the unscoped "all jobs,
+            // all agents" query. When no filter is active, clear results and
+            // fall back to the guided empty state without hitting the API.
+            if (!this.hasActiveFilter) {
                 this.restorePoints = [];
                 this.loading = false;
                 this.hasMore = false;
@@ -594,6 +693,62 @@ function getCompatibleAgents(point) {
     });
 }
 
+// Alpine component backing the Destination Agent dropdown in the restore
+// snapshot modal. Styled per SEMANTIC-THEME-REFERENCE.md (eb-menu-trigger /
+// eb-dropdown-menu / eb-menu-option) instead of a native <select>. It reads
+// from window.restorePointState (populated imperatively by
+// hydrateRestorePointAgents) and writes the selection back to the state and
+// to the hidden #restorePointTargetAgent input.
+function restorePointAgentPicker() {
+    return {
+        isOpen: false,
+        search: '',
+        options: [],
+        selectedId: '',
+        init() {
+            window.__restorePointAgentPicker = this;
+            this.syncFromState();
+            window.addEventListener('restore-agents-hydrated', () => this.syncFromState());
+        },
+        syncFromState() {
+            const st = window.restorePointState || {};
+            this.options = Array.isArray(st.availableAgents) ? st.availableAgents : [];
+            this.selectedId = st.targetAgentUuid || '';
+            this.search = '';
+        },
+        label(agent) {
+            if (!agent) return '';
+            return agent.hostname || agent.device_name || agent.agent_uuid || 'Unknown agent';
+        },
+        selectedLabel() {
+            if (!this.selectedId) return 'Select an agent';
+            const match = (this.options || []).find((a) => String(a.agent_uuid || '') === String(this.selectedId));
+            return match ? this.label(match) : String(this.selectedId);
+        },
+        get filtered() {
+            const q = (this.search || '').toLowerCase().trim();
+            if (!q) return this.options;
+            return (this.options || []).filter((a) => {
+                const hay = (this.label(a) + ' ' + (a.agent_uuid || '')).toLowerCase();
+                return hay.includes(q);
+            });
+        },
+        choose(agent) {
+            const id = String(agent && agent.agent_uuid ? agent.agent_uuid : '');
+            this.selectedId = id;
+            if (window.restorePointState) {
+                window.restorePointState.targetAgentUuid = id;
+            }
+            const hidden = document.getElementById('restorePointTargetAgent');
+            if (hidden) {
+                hidden.value = id;
+                try { hidden.dispatchEvent(new Event('change')); } catch (e) {}
+            }
+            this.isOpen = false;
+        }
+    };
+}
+
 function hydrateRestorePointAgents(point) {
     const st = window.restorePointState;
     if (!point) return;
@@ -603,19 +758,16 @@ function hydrateRestorePointAgents(point) {
     if (!st.targetAgentUuid) {
         st.targetAgentUuid = originalAvailable ? String(point.agent_uuid || '') : '';
     }
-    const select = document.getElementById('restorePointTargetAgent');
-    if (select) {
-        select.innerHTML = '<option value="">Select an agent</option>';
-        st.availableAgents.forEach((agent) => {
-            const opt = document.createElement('option');
-            opt.value = String(agent.agent_uuid || '');
-            opt.textContent = agent.hostname || agent.device_name || (agent.agent_uuid || 'Unknown agent');
-            select.appendChild(opt);
-        });
-        select.value = st.targetAgentUuid || '';
-        select.onchange = () => {
-            st.targetAgentUuid = select.value || '';
-        };
+    // Keep the hidden input (read by the rest of the wizard JS) in sync, and
+    // notify the Alpine dropdown to re-read availableAgents / targetAgentUuid.
+    const hidden = document.getElementById('restorePointTargetAgent');
+    if (hidden) {
+        hidden.value = st.targetAgentUuid || '';
+    }
+    if (window.__restorePointAgentPicker && typeof window.__restorePointAgentPicker.syncFromState === 'function') {
+        window.__restorePointAgentPicker.syncFromState();
+    } else {
+        try { window.dispatchEvent(new CustomEvent('restore-agents-hydrated')); } catch (e) {}
     }
     const hint = document.getElementById('restorePointAgentHint');
     if (hint) {
