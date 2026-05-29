@@ -59,6 +59,34 @@
         ebPageActions=$ebE3AgentsHeaderActions
     }
 
+    {* Tab switch: Agents table vs Enrollment Tokens (moved here from a
+       top-level sidebar item). *}
+    <div class="eb-tab-bar" role="tablist">
+        <button type="button"
+                class="eb-tab"
+                :class="activeTab === 'agents' ? 'is-active' : ''"
+                @click="activeTab = 'agents'"
+                role="tab"
+                :aria-selected="activeTab === 'agents'">
+            <svg class="eb-tab-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 17.25v1.007a3 3 0 0 1-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0 1 15 18.257V17.25m6-12V15a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 15V5.25m18 0A2.25 2.25 0 0 0 18.75 3H5.25A2.25 2.25 0 0 0 3 5.25m18 0V12a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 12V5.25" />
+            </svg>
+            Agents
+        </button>
+        <button type="button"
+                class="eb-tab"
+                :class="activeTab === 'tokens' ? 'is-active' : ''"
+                @click="activeTab = 'tokens'"
+                role="tab"
+                :aria-selected="activeTab === 'tokens'">
+            <svg class="eb-tab-icon" viewBox="0 -960 960 960" fill="currentColor" aria-hidden="true">
+                <path d="M480-80 120-280v-400l360-200 360 200v400L480-80ZM364-590q23-24 53-37t63-13q33 0 63 13t53 37l120-67-236-131-236 131 120 67Zm76 396v-131q-54-14-87-57t-33-98q0-11 1-20.5t4-19.5l-125-70v263l240 133Zm96.5-229.5Q560-447 560-480t-23.5-56.5Q513-560 480-560t-56.5 23.5Q400-513 400-480t23.5 56.5Q447-400 480-400t56.5-23.5ZM520-194l240-133v-263l-125 70q3 10 4 19.5t1 20.5q0 55-33 98t-87 57v131Z" />
+            </svg>
+            Enrollment Tokens
+        </button>
+    </div>
+
+    <div x-show="activeTab === 'agents'">
     <div id="services-wrapper" class="eb-subpanel overflow-visible">
         <div class="eb-table-toolbar">
             {if $isMspClient}
@@ -269,7 +297,7 @@
                                                 <div class="eb-menu-label">Actions</div>
                                                 <button type="button"
                                                         role="menuitem"
-                                                        class="eb-menu-item"
+                                                        class="eb-menu-item w-full"
                                                         @click="closeMenu(); openManage(agent)">
                                                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
                                                         <path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.292.24-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.139.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.634 6.634 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.077-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z"></path>
@@ -280,7 +308,7 @@
                                                 <template x-if="agent.status === 'active'">
                                                     <button type="button"
                                                             role="menuitem"
-                                                            class="eb-menu-item is-warning"
+                                                            class="eb-menu-item is-warning w-full"
                                                             @click="closeMenu(); toggleAgent(agent)">
                                                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
                                                             <rect x="6" y="4" width="4" height="16"></rect>
@@ -292,7 +320,7 @@
                                                 <template x-if="agent.status !== 'active'">
                                                     <button type="button"
                                                             role="menuitem"
-                                                            class="eb-menu-item"
+                                                            class="eb-menu-item w-full"
                                                             style="color: var(--eb-success-text);"
                                                             @click="closeMenu(); toggleAgent(agent)">
                                                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
@@ -304,7 +332,7 @@
                                                 <div class="eb-menu-divider"></div>
                                                 <button type="button"
                                                         role="menuitem"
-                                                        class="eb-menu-item is-danger"
+                                                        class="eb-menu-item is-danger w-full"
                                                         @click="closeMenu(); openDeleteAgentModal(agent)">
                                                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
                                                         <polyline points="3 6 5 6 21 6"></polyline>
@@ -321,6 +349,15 @@
                     </tbody>
                 </table>
         </div>
+    </div>
+    </div>
+
+    <div x-show="activeTab === 'tokens'" x-cloak>
+        {include file="modules/addons/cloudstorage/templates/partials/e3backup_tokens_panel.tpl"
+            isMspClient=$isMspClient
+            tenants=$tenants
+            token=$token
+        }
     </div>
 
     <div x-show="manageOpen"
@@ -570,6 +607,7 @@ function agentsApp() {
         updatePollTimer: null,
         agentToasts: [],
         _agentToastSeq: 0,
+        activeTab: 'agents',
 
         init() {
             // Persisted column preferences

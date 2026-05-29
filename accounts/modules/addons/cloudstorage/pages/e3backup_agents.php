@@ -28,8 +28,12 @@ if ($isMspClient) {
     $tenants = MspController::getTenants($loggedInUserId);
 }
 
+// CSRF token for the embedded Enrollment Tokens panel (token create/revoke).
+$csrfToken = function_exists('generate_token') ? generate_token('plain') : '';
+
 return [
     'isMspClient' => $isMspClient,
     'tenants' => $tenants,
+    'token' => $csrfToken,
 ];
 

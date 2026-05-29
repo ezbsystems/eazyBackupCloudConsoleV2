@@ -187,10 +187,10 @@ Outstanding migration targets:
   - `templates/e3backup_hyperv.tpl`
   - `templates/e3backup_hyperv_restore.tpl`
   - `templates/e3backup_tokens.tpl`
-  - `templates/e3backup_tenants_table.tpl`
-  - `templates/e3backup_tenant_detail.tpl`
-  - `templates/e3backup_tenant_members.tpl`
-  - `templates/partials/e3backup_nav.tpl`
+  - ~~`templates/e3backup_tenants_table.tpl`~~ (removed May 2026 — replaced by Partner Hub `m=eazybackup&a=ph-tenants-manage`)
+  - ~~`templates/e3backup_tenant_detail.tpl`~~ (removed May 2026 — replaced by Partner Hub `a=ph-tenant`)
+  - ~~`templates/e3backup_tenant_members.tpl`~~ (removed May 2026 — replaced by Partner Hub `a=ph-tenant-members`)
+  - ~~`templates/partials/e3backup_nav.tpl`~~ (removed May 2026 — legacy pill-nav, no longer used)
   - `templates/partials/e3backup_create_user_modal.tpl`
   - `templates/partials/job_create_wizard.tpl`
   - `templates/partials/cloudnas_drives.tpl`

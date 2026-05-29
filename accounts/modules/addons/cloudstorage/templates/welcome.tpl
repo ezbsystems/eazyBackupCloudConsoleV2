@@ -1702,15 +1702,26 @@ if (window.csrfToken && !window.EB_CSRF_TOKEN) {
                 headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
                 body: new URLSearchParams({
                     new_password: newPw,
-                    new_password_confirm: confirmPw
+                    new_password_confirm: confirmPw,
+                    // Let the server SSO us back to exactly where we are so any
+                    // context (e.g. eb_beta=1) is preserved.
+                    return_path: window.location.pathname + window.location.search
                 })
             });
             var data = await response.json();
 
             if (data && data.status === 'success') {
-                ebUnlockProductPicker();
-                ebPortalPwClose();
-                ebShowToast('Portal password saved. Pick a product to continue.', 'success');
+                // Changing the WHMCS password invalidated this client session, so
+                // continuing with in-page AJAX (selectproduct.php) would fail auth
+                // until a reload. Navigate through the SSO URL the server minted to
+                // re-establish a valid session. On reload the must-set-password
+                // gate is cleared, so the product picker is already unlocked.
+                ebShowToast('Portal password saved. One moment…', 'success');
+                if (data.redirectUrl) {
+                    window.location.href = data.redirectUrl;
+                } else {
+                    window.location.reload();
+                }
                 return false;
             }
 

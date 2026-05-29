@@ -5499,6 +5499,43 @@ function cloudstorage_clientarea($vars) {
         case 'e3backup':
             $view = $_GET['view'] ?? 'dashboard';
 
+            // Legacy e3 tenant views (tenants / tenant_detail / tenant_members /
+            // tenant_users) were replaced by Partner Hub (m=eazybackup). The old
+            // templates have been removed; forward any bookmarked legacy URLs to
+            // the canonical Partner Hub routes so they don't dead-end.
+            if (in_array($view, ['tenants', 'tenant_detail', 'tenant_members', 'tenant_users'], true)) {
+                $ca = new \WHMCS\ClientArea();
+                if (!$ca->isLoggedIn()) {
+                    header('Location: clientarea.php');
+                    exit;
+                }
+                $loggedInUserId = (int) $ca->getUserID();
+                if (!\WHMCS\Module\Addon\CloudStorage\Client\MspController::isMspClient($loggedInUserId)) {
+                    header('Location: index.php?m=cloudstorage&page=e3backup');
+                    exit;
+                }
+                $tenantPublicId = \WHMCS\Module\Addon\CloudStorage\Client\MspController::resolveTenantPublicIdForClient((string) ($_GET['tenant_id'] ?? ''), $loggedInUserId) ?? '';
+                $mode = strtolower(trim((string) ($_GET['mode'] ?? '')));
+
+                $targetUrl = 'index.php?m=eazybackup&a=ph-tenants-manage&legacy=e3-tenants';
+                if ($view === 'tenant_detail') {
+                    if ($mode === 'create') {
+                        $targetUrl = 'index.php?m=eazybackup&a=ph-tenants-manage&legacy=e3-tenant-create';
+                    } elseif ($tenantPublicId !== '') {
+                        $targetUrl = 'index.php?m=eazybackup&a=ph-tenant&id=' . rawurlencode($tenantPublicId) . '&legacy=e3-tenant-detail';
+                    }
+                } elseif ($view === 'tenant_members' || $view === 'tenant_users') {
+                    $targetUrl = $tenantPublicId !== ''
+                        ? 'index.php?m=eazybackup&a=ph-tenant-members&id=' . rawurlencode($tenantPublicId) . '&legacy=e3-tenant-members'
+                        : 'index.php?m=eazybackup&a=ph-tenants-manage&legacy=e3-tenant-members';
+                } elseif ($tenantPublicId !== '') {
+                    $targetUrl = 'index.php?m=eazybackup&a=ph-tenant&id=' . rawurlencode($tenantPublicId) . '&legacy=e3-tenants';
+                }
+
+                header('Location: ' . $targetUrl);
+                exit;
+            }
+
             // Pre-compute onboarding/admin state once for every e3backup view so
             // the shell + sidebar can render their first-run UI without each
             // page handler having to remember to do it. Read-only and cheap.
@@ -5569,16 +5606,6 @@ function cloudstorage_clientarea($vars) {
                     $templatefile = 'templates/e3backup_tokens';
                     $viewVars = require 'pages/e3backup_tokens.php';
                     break;
-                case 'tenants':
-                    $pagetitle = 'e3 Cloud Backup - Tenants';
-                    $templatefile = 'templates/e3backup_tenants_table';
-                    $viewVars = require 'pages/e3backup_tenants.php';
-                    break;
-                case 'tenant_detail':
-                    $pagetitle = 'e3 Cloud Backup - Tenant Detail';
-                    $templatefile = 'templates/e3backup_tenant_detail';
-                    $viewVars = require 'pages/e3backup_tenant_detail.php';
-                    break;
                 case 'jobs':
                     $pagetitle = 'e3 Cloud Backup - Jobs';
                     $templatefile = 'templates/e3backup_jobs';
@@ -5588,12 +5615,6 @@ function cloudstorage_clientarea($vars) {
                     $pagetitle = 'e3 Cloud Backup - Run History';
                     $templatefile = 'templates/e3backup_runs';
                     $viewVars = require 'pages/e3backup_runs.php';
-                    break;
-                case 'tenant_members':
-                case 'tenant_users':
-                    $pagetitle = 'e3 Cloud Backup - Tenant Members';
-                    $templatefile = 'templates/e3backup_tenant_members';
-                    $viewVars = require 'pages/e3backup_tenant_members.php';
                     break;
                 case 'cloudnas':
                     $pagetitle = 'e3 Cloud Backup - Cloud NAS';

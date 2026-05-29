@@ -63,50 +63,14 @@
                 <span x-show="!sidebarCollapsed" x-transition.opacity>Agents</span>
             </a>
 
-            <a href="index.php?m=cloudstorage&page=e3backup&view=tokens" class="eb-sidebar-link {if $activeNav eq 'tokens'}is-active{/if}" :class="sidebarCollapsed && 'justify-center px-4'" :title="sidebarCollapsed ? 'Tokens' : ''">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960" class="eb-sidebar-link-icon--filled" aria-hidden="true">
-                    <path fill="currentColor" d="M480-80 120-280v-400l360-200 360 200v400L480-80ZM364-590q23-24 53-37t63-13q33 0 63 13t53 37l120-67-236-131-236 131 120 67Zm76 396v-131q-54-14-87-57t-33-98q0-11 1-20.5t4-19.5l-125-70v263l240 133Zm96.5-229.5Q560-447 560-480t-23.5-56.5Q513-560 480-560t-56.5 23.5Q400-513 400-480t23.5 56.5Q447-400 480-400t56.5-23.5ZM520-194l240-133v-263l-125 70q3 10 4 19.5t1 20.5q0 55-33 98t-87 57v131Z" />
-                </svg>
-                <span x-show="!sidebarCollapsed" x-transition.opacity>Tokens</span>
-            </a>
-
             {if $isMspClient}
-            <a href="index.php?m=cloudstorage&page=e3backup&view=tenants" class="eb-sidebar-link {if $activeNav eq 'tenants'}is-active{/if}" :class="sidebarCollapsed && 'justify-center px-4'" :title="sidebarCollapsed ? 'Tenants' : ''">
+            <a href="index.php?m=eazybackup&a=ph-tenants-manage" class="eb-sidebar-link {if $activeNav eq 'tenants'}is-active{/if}" :class="sidebarCollapsed && 'justify-center px-4'" :title="sidebarCollapsed ? 'Tenants' : ''">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 21h19.5m-18-18v18m10.5-18v18m6-13.5V21M6.75 6.75h.75m-.75 3h.75m-.75 3h.75m3-6h.75m-.75 3h.75m-.75 3h.75M6.75 21v-3.375c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21M3 3h12m-.75 4.5H21m-3.75 3.75h.008v.008h-.008v-.008Zm0 3h.008v.008h-.008v-.008Zm0 3h.008v.008h-.008v-.008Z" />
                 </svg>
                 <span x-show="!sidebarCollapsed" x-transition.opacity>Tenants</span>
             </a>
-
-            {* <a href="index.php?m=cloudstorage&page=e3backup&view=tenant_members" class="eb-sidebar-link {if $activeNav eq 'tenant_members'}is-active{/if}" :class="sidebarCollapsed && 'justify-center px-4'" :title="sidebarCollapsed ? 'Tenant Members' : ''">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 0 0 3.741-.479 3 3 0 0 0-4.682-2.72m.94 3.198.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0 1 12 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 0 1 6 18.719m12 0a5.971 5.971 0 0 0-.941-3.197m0 0A5.995 5.995 0 0 0 12 12.75a5.995 5.995 0 0 0-5.058 2.772m0 0a3 3 0 0 0-4.681 2.72 8.986 8.986 0 0 0 3.74.477m.94-3.197a5.971 5.971 0 0 0-.94 3.197M15 6.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm6 3a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Zm-13.5 0a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Z" />
-                </svg>
-                <span x-show="!sidebarCollapsed" x-transition.opacity>Tenant Members</span>
-            </a> *}
             {/if}
-
-            <a href="{if $ebE3HasAgents}index.php?m=cloudstorage&page=e3backup&view=disk_image_restore{else}#{/if}"
-               class="eb-sidebar-link {if not $ebE3HasAgents}is-disabled{elseif $activeNav eq 'disk_restore'}is-active{/if}"
-               {if not $ebE3HasAgents}aria-disabled="true" onclick="return false;" tabindex="-1" title="Available after you enroll an agent"{/if}
-               :class="sidebarCollapsed && 'justify-center px-4'"
-               :title="sidebarCollapsed ? 'Recovery' : ''">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M3.75 4.5h16.5M4.5 4.5v15a.75.75 0 0 0 .75.75h13.5a.75.75 0 0 0 .75-.75v-15" />
-                </svg>
-                <span x-show="!sidebarCollapsed" x-transition.opacity>Recovery</span>
-            </a>
-
-            <a href="{if $ebE3HasAgents}index.php?m=cloudstorage&page=e3backup&view=recovery_media{else}#{/if}"
-               class="eb-sidebar-link {if not $ebE3HasAgents}is-disabled{elseif $activeNav eq 'recovery_media'}is-active{/if}"
-               {if not $ebE3HasAgents}aria-disabled="true" onclick="return false;" tabindex="-1" title="Available after you enroll an agent"{/if}
-               :class="sidebarCollapsed && 'justify-center px-4'"
-               :title="sidebarCollapsed ? 'Media Builder' : ''">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 7.5h10.5m-10.5 4.5h10.5m-10.5 4.5h6m-9-12h12A2.25 2.25 0 0 1 18 6.75v10.5A2.25 2.25 0 0 1 15.75 19.5h-7.5A2.25 2.25 0 0 1 6 17.25V6.75A2.25 2.25 0 0 1 8.25 4.5Z" />
-                </svg>
-                <span x-show="!sidebarCollapsed" x-transition.opacity>Media Builder</span>
-            </a>
 
             <a href="{if $ebE3HasAgents}index.php?m=cloudstorage&page=e3backup&view=cloudnas{else}#{/if}"
                class="eb-sidebar-link {if not $ebE3HasAgents}is-disabled{elseif $activeNav eq 'cloudnas'}is-active{/if}"
@@ -117,6 +81,25 @@
                     <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 5.25A2.25 2.25 0 0 1 6 3h12a2.25 2.25 0 0 1 2.25 2.25v2.25A2.25 2.25 0 0 1 18 9.75H6A2.25 2.25 0 0 1 3.75 7.5V5.25Zm0 9A2.25 2.25 0 0 1 6 12h12a2.25 2.25 0 0 1 2.25 2.25v2.25A2.25 2.25 0 0 1 18 18.75H6a2.25 2.25 0 0 1-2.25-2.25v-2.25ZM7.5 6.75h.008v.008H7.5V6.75Zm0 9h.008v.008H7.5v-.008Z" />
                 </svg>
                 <span x-show="!sidebarCollapsed" x-transition.opacity>Cloud NAS</span>
+            </a>
+
+            {* Advanced: lower-prominence tools that only apply to disk-image /
+               bare-metal recovery. Disk Image Recovery itself is reached
+               contextually from User detail -> Restore (the per-snapshot
+               "Disk Recovery" action), so it is intentionally not a top-level
+               nav item. *}
+            <div x-show="!sidebarCollapsed" x-transition.opacity class="eb-type-eyebrow mb-1 mt-4 px-1">Advanced</div>
+            <div x-show="sidebarCollapsed" class="eb-sidebar-divider"></div>
+
+            <a href="{if $ebE3HasAgents}index.php?m=cloudstorage&page=e3backup&view=recovery_media{else}#{/if}"
+               class="eb-sidebar-link {if not $ebE3HasAgents}is-disabled{elseif $activeNav eq 'recovery_media'}is-active{/if}"
+               {if not $ebE3HasAgents}aria-disabled="true" onclick="return false;" tabindex="-1" title="Available after you enroll an agent"{/if}
+               :class="sidebarCollapsed && 'justify-center px-4'"
+               :title="sidebarCollapsed ? 'Media Builder' : ''">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 7.5h10.5m-10.5 4.5h10.5m-10.5 4.5h6m-9-12h12A2.25 2.25 0 0 1 18 6.75v10.5A2.25 2.25 0 0 1 15.75 19.5h-7.5A2.25 2.25 0 0 1 6 17.25V6.75A2.25 2.25 0 0 1 8.25 4.5Z" />
+                </svg>
+                <span x-show="!sidebarCollapsed" x-transition.opacity>Media Builder</span>
             </a>
 
         </nav>

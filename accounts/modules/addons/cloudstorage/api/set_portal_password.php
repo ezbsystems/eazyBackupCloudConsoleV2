@@ -187,7 +187,50 @@ try {
     // never persisted, cleared after the first successful AcceptOrder.
     $_SESSION['eb_portal_password_for_provision'] = $newPassword;
 
-    echo json_encode(['status' => 'success']);
+    // 5) Changing the WHMCS password above invalidates the current client-area
+    // session's auth hash, so the very next AJAX request (e.g. selectproduct.php)
+    // would fail isLoggedIn() until a full page reload. Mirror the canonical fix
+    // used by setpassword_and_provision.php: mint a fresh SSO token and hand the
+    // browser a redirect URL back to the welcome page. Navigating through WHMCS
+    // SSO re-establishes a valid session (session_regenerate_id preserves the
+    // $_SESSION data set above, so the cached provisioning password survives).
+    $redirectUrl = 'index.php?m=cloudstorage&page=welcome';
+    try {
+        // Prefer returning the customer to wherever they currently are so any
+        // context (e.g. eb_beta=1) is preserved. Sanitize to a relative WHMCS
+        // path for sso_redirect_path.
+        $returnPath = (string) ($_POST['return_path'] ?? '');
+        $destPath = $returnPath !== '' ? $returnPath : $redirectUrl;
+        if (preg_match('~^https?://~i', $destPath)) {
+            $u = parse_url($destPath);
+            $path = isset($u['path']) ? $u['path'] : '/';
+            $query = isset($u['query']) ? ('?' . $u['query']) : '';
+            $destPath = ltrim($path . $query, '/');
+        } else {
+            $destPath = ltrim($destPath, '/');
+        }
+        // Guard against open-redirect / unexpected destinations: only allow
+        // welcome-page returns. Anything else falls back to the default.
+        if (strpos($destPath, 'm=cloudstorage') === false || strpos($destPath, 'page=welcome') === false) {
+            $destPath = $redirectUrl;
+        }
+
+        $ssoParams = [
+            'destination'       => 'sso:custom_redirect',
+            'sso_redirect_path' => $destPath,
+        ];
+        if (!empty($userId)) {
+            $ssoParams['user_id'] = $userId;
+        } else {
+            $ssoParams['client_id'] = $clientId;
+        }
+        $sso = localAPI('CreateSsoToken', $ssoParams, $adminUser);
+        if (($sso['result'] ?? '') === 'success' && !empty($sso['redirect_url'])) {
+            $redirectUrl = $sso['redirect_url'];
+        }
+    } catch (\Throwable $e) { /* non-fatal: fall back to plain welcome reload */ }
+
+    echo json_encode(['status' => 'success', 'redirectUrl' => $redirectUrl]);
 } catch (\Throwable $e) {
     http_response_code(500);
     echo json_encode(['status' => 'error', 'message' => 'server']);
