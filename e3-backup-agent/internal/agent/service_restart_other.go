@@ -13,7 +13,8 @@ import (
 // SIGTERM) and then restarts the unit. The documented systemd unit runs as
 // root with Restart=always, so the restart succeeds and the new process loads
 // the freshly written credentials.
-func requestServiceRestart() error {
+func requestServiceRestart(configPath string) error {
+	_ = configPath // systemd identifies the unit by name, not by config path
 	systemctl := "systemctl"
 	if p, err := exec.LookPath("systemctl"); err == nil {
 		systemctl = p
