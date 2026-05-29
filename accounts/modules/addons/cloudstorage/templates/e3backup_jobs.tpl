@@ -30,21 +30,10 @@
             </button>
             <div x-show="isOpen"
                  x-transition
-                 class="eb-dropdown-menu absolute right-0 z-50 mt-2 w-72 overflow-hidden"
+                 class="eb-dropdown-menu absolute right-0 z-50 mt-2 w-80 overflow-hidden"
                  style="display: none;">
                 <div class="eb-menu-label">Select backup source</div>
                 <div class="p-1">
-                    <button type="button" @click="isOpen = false; window.openCloudBackupWizard()" class="eb-menu-item">
-                        <span class="eb-icon-box eb-icon-box--sm eb-icon-box--info">
-                            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z" />
-                            </svg>
-                        </span>
-                        <span class="flex-1 min-w-0">
-                            <span class="block text-left text-sm text-[var(--eb-text-primary)]">Cloud Backup</span>
-                            <span class="block text-left text-xs text-[var(--eb-text-muted)]">S3, AWS, SFTP, Google Drive, Dropbox</span>
-                        </span>
-                    </button>
                     <button type="button" @click="isOpen = false; window.openLocalJobWizard()" class="eb-menu-item">
                         <span class="eb-icon-box eb-icon-box--sm eb-icon-box--premium">
                             <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -52,8 +41,19 @@
                             </svg>
                         </span>
                         <span class="flex-1 min-w-0">
-                            <span class="block text-left text-sm text-[var(--eb-text-primary)]">Local Agent Backup</span>
-                            <span class="block text-left text-xs text-[var(--eb-text-muted)]">File, Disk Image, Windows Agent</span>
+                            <span class="block text-left text-sm text-[var(--eb-text-primary)]">e3 Cloud Backup</span>
+                            <span class="block text-left text-xs text-[var(--eb-text-muted)]">Files, Folders, Disk Image, Virtual Machines</span>
+                        </span>
+                    </button>
+                    <button type="button" @click="isOpen = false; window.openCloudBackupWizard()" class="eb-menu-item">
+                        <span class="eb-icon-box eb-icon-box--sm eb-icon-box--info">
+                            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z" />
+                            </svg>
+                        </span>
+                        <span class="flex-1 min-w-0">
+                            <span class="block text-left text-sm text-[var(--eb-text-primary)]">SaaS Backup (Cloud-to-Cloud)</span>
+                            <span class="block text-left text-xs text-[var(--eb-text-muted)]">Google Drive, Dropbox, SFTP, S3, AWS</span>
                         </span>
                     </button>
                 </div>
@@ -232,8 +232,23 @@
 
                 <template x-if="!loading && filteredJobs.length === 0">
                     <div class="eb-app-empty">
-                        <div class="eb-app-empty-title">No jobs found</div>
-                        <p class="eb-app-empty-copy">Try a different filter or create a new backup job.</p>
+                        <span class="eb-icon-box eb-icon-box--lg eb-icon-box--default mb-3" aria-hidden="true">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-6 w-6">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.347a1.125 1.125 0 0 1 0 1.972l-11.54 6.347a1.125 1.125 0 0 1-1.667-.986V5.653Z" />
+                            </svg>
+                        </span>
+                        <div class="eb-app-empty-title">No backup jobs yet</div>
+                        <p class="eb-app-empty-copy">
+                            Once you have enrolled an agent, open the Users page and create a job from a user's detail page to start protecting files, disks, or virtual machines.
+                        </p>
+                        <div class="mt-4 flex flex-wrap items-center justify-center gap-2">
+                            <a href="index.php?m=cloudstorage&page=e3backup&view=users" class="eb-btn eb-btn-primary eb-btn-sm">
+                                Go to Users
+                            </a>
+                            <a href="index.php?m=cloudstorage&page=e3backup&view=getting_started" class="eb-btn eb-btn-secondary eb-btn-sm">
+                                Open Getting Started
+                            </a>
+                        </div>
                     </div>
                 </template>
 

@@ -1,0 +1,2 @@
+[2026-05-26 17:10:36] [ok] published /var/www/eazybackup.ca/accounts/client_installer/e3-backup-agent-linux-2026.05.26-170918 (sha256=c6f40f32fb576bdac07ae402f55a979e5d0d04e59e0f5af2a13c7e9f7c70c9e7, size=29769912)
+[2026-05-26 17:10:36] [skip] missing artifact: /var/www/eazybackup.ca/accounts/modules/addons/cloudstorage/storage/builds/7/artifacts/e3-backup-agent-setup.exe

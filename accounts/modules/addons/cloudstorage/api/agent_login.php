@@ -171,8 +171,29 @@ function resolveClientIdByEmail(string $email): ?int
 
 function ensureClientHasBackupProduct(int $clientId): void
 {
-    $product = DBController::getProduct($clientId, ProductConfig::$E3_PRODUCT_ID);
-    if (is_null($product) || is_null($product->username)) {
+    // IMPORTANT: ProductConfig::$E3_PRODUCT_ID is the e3 *Cloud Storage*
+    // (object storage) product, NOT e3 Cloud Backup. Agent enrollment must
+    // gate on the Comet-backed e3 Cloud Backup product whose PID is
+    // persisted as the cloudstorage addon setting `pid_e3_cloud_backup`.
+    $pid = ProductConfig::e3CloudBackupPid();
+    if ($pid <= 0) {
+        debugLog('agent_login_e3cb_pid_missing', [
+            'client_id' => $clientId,
+        ], 'H3');
+        logModuleCall('cloudstorage', 'agent_login_config_missing', [
+            'client_id' => $clientId,
+        ], 'pid_e3_cloud_backup addon setting is unset; cannot validate enrollment.');
+        respond(['status' => 'fail', 'message' => 'Server is missing the e3 Cloud Backup product configuration. Please contact support.'], 500);
+    }
+
+    $product = DBController::getActiveProduct($clientId, $pid);
+    if (is_null($product) || empty($product->username)) {
+        debugLog('agent_login_no_active_product', [
+            'client_id' => $clientId,
+            'pid' => $pid,
+            'product_found' => !is_null($product),
+            'has_username' => !is_null($product) ? !empty($product->username) : false,
+        ], 'H3');
         respond(['status' => 'fail', 'message' => 'No active e3 Cloud Backup product'], 403);
     }
 }

@@ -139,6 +139,55 @@
     return { id: id, name: name, status: status, start: start, end: end };
   }
 
+  // Column visibility persistence (localStorage)
+  // Tables that expose a "Columns" picker can save the user's selection
+  // across page reloads and sessions by calling these helpers from their
+  // Alpine init() and $watch hooks.
+  var COLS_PREFIX = 'eb_cols_';
+
+  function loadCols(key, defaults){
+    var fallback = Object.assign({}, defaults || {});
+    try {
+      if (!key) return fallback;
+      var raw = window.localStorage && window.localStorage.getItem(COLS_PREFIX + key);
+      if (!raw) return fallback;
+      var saved = JSON.parse(raw);
+      if (!saved || typeof saved !== 'object') return fallback;
+      var out = fallback;
+      Object.keys(out).forEach(function(k){
+        if (typeof saved[k] === 'boolean') out[k] = saved[k];
+      });
+      return out;
+    } catch(_) { return fallback; }
+  }
+
+  function saveCols(key, cols){
+    try {
+      if (!key || !cols || typeof cols !== 'object') return;
+      if (!window.localStorage) return;
+      var safe = {};
+      Object.keys(cols).forEach(function(k){
+        if (typeof cols[k] === 'boolean') safe[k] = cols[k];
+      });
+      window.localStorage.setItem(COLS_PREFIX + key, JSON.stringify(safe));
+    } catch(_){}
+  }
+
+  // Convenience helper for Alpine x-data components.
+  // Call from init(): EB.bindCols(this, '<storage-key>')
+  // Loads any saved column state into this.cols and wires a deep watcher
+  // that persists future changes.
+  function bindCols(component, key){
+    try {
+      if (!component || !key || !component.cols) return;
+      var saved = loadCols(key, component.cols);
+      Object.assign(component.cols, saved);
+      if (typeof component.$watch === 'function') {
+        component.$watch('cols', function(value){ saveCols(key, value); });
+      }
+    } catch(_){}
+  }
+
   var EB = {
     toMs: toMs,
     fmtTs: fmtTs,
@@ -149,7 +198,10 @@
     humanStatus: humanStatus,
     statusDot: statusDot,
     statusText: statusText,
-    normalizeJob: normalizeJob
+    normalizeJob: normalizeJob,
+    loadCols: loadCols,
+    saveCols: saveCols,
+    bindCols: bindCols
   };
 
   try { Object.freeze && Object.freeze(EB); } catch(_) {}

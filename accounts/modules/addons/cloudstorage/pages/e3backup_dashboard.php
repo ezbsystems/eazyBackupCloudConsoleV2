@@ -7,7 +7,7 @@ use WHMCS\Module\Addon\CloudStorage\Client\DBController;
 use WHMCS\Module\Addon\CloudStorage\Client\HelperController;
 use WHMCS\Module\Addon\CloudStorage\Client\MspController;
 
-$packageId = ProductConfig::$E3_PRODUCT_ID;
+$packageId = ProductConfig::e3CloudBackupPid();
 $ca = new ClientArea();
 if (!$ca->isLoggedIn()) {
     header('Location: clientarea.php');
@@ -16,8 +16,12 @@ if (!$ca->isLoggedIn()) {
 
 $loggedInUserId = $ca->getUserID();
 $product = DBController::getProduct($loggedInUserId, $packageId);
-if (is_null($product) || is_null($product->username)) {
-    header('Location: index.php?m=cloudstorage&page=s3storage');
+// After a Reset Onboarding / Deprovision, tblhosting.username is set to ''
+// rather than NULL. Use empty() so we redirect off this dashboard when the
+// Ceph user has not been provisioned (matches the dashboard.php gate and
+// avoids ambiguous "logged in but no Ceph user" states).
+if (is_null($product) || empty($product->username)) {
+    header('Location: index.php?m=cloudstorage&page=welcome');
     exit;
 }
 
@@ -34,30 +38,52 @@ $hasJobIdPk = $schema->hasColumn('s3_cloudbackup_jobs', 'job_id');
 $hasRunAgentUuid = $schema->hasColumn('s3_cloudbackup_runs', 'agent_uuid');
 
 // ── Agent counts (total, online, offline) ──
+// Round 2 (Task 9): align with api/e3backup_agent_list.php so the Dashboard
+// and the Agents page always report the same Online / Offline state. The
+// previous implementation hardcoded a 15-minute PHP threshold and computed
+// the cutoff with date() — that drifted from the Agents-page MySQL-side
+// TIMESTAMPDIFF check (default 180s, configurable via the
+// cloudbackup_agent_online_threshold_seconds module setting), and could
+// also drift further when the PHP and MySQL clocks/timezones disagreed.
+$onlineThresholdSeconds = 180;
+if (function_exists('getModuleSetting')) {
+    $onlineThresholdSeconds = (int) getModuleSetting('cloudbackup_agent_online_threshold_seconds', 180);
+}
+if ($onlineThresholdSeconds <= 0) {
+    $onlineThresholdSeconds = 180;
+}
+
 $agentCount = Capsule::table('s3_cloudbackup_agents')
     ->where('client_id', $loggedInUserId)
-    ->where('status', 'active')
     ->count();
 
-$onlineThreshold = date('Y-m-d H:i:s', strtotime('-15 minutes'));
 $onlineAgents = Capsule::table('s3_cloudbackup_agents')
     ->where('client_id', $loggedInUserId)
-    ->where('status', 'active')
-    ->where('last_seen_at', '>=', $onlineThreshold)
+    ->whereNotNull('last_seen_at')
+    ->whereRaw('TIMESTAMPDIFF(SECOND, last_seen_at, NOW()) <= ?', [$onlineThresholdSeconds])
     ->count();
-$offlineAgents = $agentCount - $onlineAgents;
+$offlineAgents = max(0, $agentCount - $onlineAgents);
 
-// Recent agents for health panel (last 5)
+// Recent agents for health panel (last 5). We pull the same MySQL-side
+// seconds_since_seen value the Agents page uses so the badge is consistent.
 $recentAgents = Capsule::table('s3_cloudbackup_agents')
     ->where('client_id', $loggedInUserId)
-    ->where('status', 'active')
     ->orderByDesc('last_seen_at')
     ->limit(5)
-    ->get(['hostname', 'agent_uuid', 'agent_os', 'agent_version', 'last_seen_at']);
+    ->select([
+        'hostname',
+        'agent_uuid',
+        'agent_os',
+        'agent_version',
+        'last_seen_at',
+        Capsule::raw('TIMESTAMPDIFF(SECOND, last_seen_at, NOW()) AS seconds_since_seen'),
+    ])
+    ->get();
 if (is_object($recentAgents) && method_exists($recentAgents, 'map')) {
-    $recentAgents = $recentAgents->map(function ($row) use ($onlineThreshold) {
+    $recentAgents = $recentAgents->map(function ($row) use ($onlineThresholdSeconds) {
         $r = (array) $row;
-        $r['is_online'] = !empty($r['last_seen_at']) && $r['last_seen_at'] >= $onlineThreshold;
+        $secs = isset($r['seconds_since_seen']) ? (int) $r['seconds_since_seen'] : null;
+        $r['is_online'] = !empty($r['last_seen_at']) && $secs !== null && $secs <= $onlineThresholdSeconds;
         return $r;
     })->toArray();
 }

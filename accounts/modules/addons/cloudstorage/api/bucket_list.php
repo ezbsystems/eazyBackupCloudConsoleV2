@@ -29,7 +29,7 @@ $packageId = ProductConfig::$E3_PRODUCT_ID;
 
 // Get the user's product/account
 $product = DBController::getProduct($clientId, $packageId);
-if (is_null($product) || is_null($product->username)) {
+if (is_null($product) || empty($product->username)) {
     (new JsonResponse(['status' => 'fail', 'message' => 'No storage account found'], 200))->send();
     exit;
 }

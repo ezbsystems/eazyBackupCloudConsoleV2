@@ -47,7 +47,17 @@
                         </div> *}
 
                         <div class="eb-service-grid-shell">
-                        <div id="eb-product-select" class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+                        {if $ebMustSetPortalPassword}
+                            <div id="eb-product-lock-notice" class="eb-alert eb-alert--info mb-4">
+                                <div>
+                                    <div class="eb-alert-title">Set your portal password to continue</div>
+                                    <div>The product picker unlocks once you create the password you will use to sign in to your client portal.</div>
+                                </div>
+                            </div>
+                        {/if}
+                        <div id="eb-product-select"
+                             data-must-set-password="{if $ebMustSetPortalPassword}1{else}0{/if}"
+                             class="grid grid-cols-1 gap-4 md:grid-cols-2 {if $EB_SHOW_E3_BACKUP}xl:grid-cols-5{else}xl:grid-cols-4{/if} {if $ebMustSetPortalPassword}is-locked{/if}">
                             <button
                                 type="button"
                                 class="eb-service-option is-popular text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--eb-primary)]"
@@ -92,6 +102,31 @@
                                     </div>
                                 </div>
                             </button>
+
+                            {if $EB_SHOW_E3_BACKUP}
+                            <button
+                                type="button"
+                                class="eb-service-option is-beta text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--eb-primary)]"
+                                data-choice="e3backup"
+                                onclick="ebChooseE3Backup(this)"
+                            >
+                                <span class="eb-service-option-badge" style="background:#7c3aed;">Beta &mdash; Early Access</span>
+                                <div class="eb-service-option-inner">
+                                    <div class="eb-service-option-icon">
+                                        <img src="{$WEB_ROOT}/templates/eazyBackup/assets/icon/e3.svg" alt="" class="h-7 w-7" loading="lazy" />
+                                    </div>
+                                    <div class="eb-service-option-copy">
+                                        <h2 class="eb-service-option-title">e3 Cloud Backup</h2>
+                                        <p class="eb-service-option-body">
+                                            Next-generation eazyBackup agent powered by e3. Files, disk images, and Hyper-V VMs backed up directly to your e3 object storage bucket.
+                                        </p>
+                                        <p class="eb-service-option-note">
+                                            Best for early-access customers and internal testing. Some workflows are still under active development.
+                                        </p>
+                                    </div>
+                                </div>
+                            </button>
+                            {/if}
 
                             <button
                                 type="button"
@@ -149,7 +184,7 @@
     </div>
 </div>
 
-<div id="toast-container" class="pointer-events-none fixed right-4 top-4 z-[70] space-y-2"></div>
+<div id="toast-container" class="pointer-events-none fixed right-4 top-4 z-[120] space-y-2"></div>
 
 <script src="{$WEB_ROOT}/modules/addons/eazybackup/templates/assets/js/ui.js"></script>
 
@@ -198,6 +233,14 @@
     .eb-service-option.is-popular {
         border: 2px solid var(--eb-primary);
         box-shadow: 0 8px 32px rgba(213, 93, 29, 0.15);
+    }
+
+    .eb-service-option.is-beta {
+        border: 2px solid #7c3aed;
+        box-shadow: 0 8px 32px rgba(124, 58, 237, 0.18);
+    }
+    .eb-service-option.is-beta .eb-service-option-icon {
+        color: #7c3aed;
     }
 
     .eb-service-option-badge {
@@ -316,7 +359,145 @@
     #eb-card-overlay #stripeElements .StripeElement--invalid {
         border-color: var(--eb-warning-strong);
     }
+
+    /* Round 2: portal-password gate locks product cards until password is set. */
+    #eb-product-select.is-locked {
+        position: relative;
+        opacity: 0.55;
+        filter: saturate(0.6);
+        pointer-events: none;
+        user-select: none;
+    }
+
+    #eb-product-select.is-locked::after {
+        content: '';
+        position: absolute;
+        inset: -8px;
+        border-radius: 14px;
+        background: transparent;
+        pointer-events: auto;
+        cursor: not-allowed;
+    }
+
+    /* Round 2 fix: bulletproof the portal-password modal's hidden state so
+       it can never intercept clicks meant for the beta drawer / product
+       cards below it. The Tailwind .hidden utility usually does this for
+       us, but a custom utility or layering rule could otherwise leave the
+       modal claiming pointer events even while it's display:none. */
+    #eb-portalpw-overlay.hidden {
+        display: none !important;
+        pointer-events: none !important;
+    }
+    #eb-portalpw-overlay:not(.hidden) {
+        display: flex !important;
+        pointer-events: auto;
+    }
 </style>
+
+<div id="eb-beta-overlay" class="fixed inset-0 z-[60] hidden">
+    <div class="absolute inset-0 eb-drawer-backdrop" onclick="ebBetaClose()"></div>
+    <div
+        id="eb-beta-panel"
+        class="absolute right-0 top-0 h-full eb-drawer w-full max-w-2xl translate-x-full overflow-y-auto transition-transform duration-300 ease-out"
+    >
+        <div class="eb-drawer-header">
+            <div>
+                <div class="eb-drawer-title">e3 Cloud Backup &mdash; Beta / Early Access</div>
+                <p class="mt-1 text-sm text-[var(--eb-text-muted)]">
+                    Thanks for trying our newest product. Please review what to expect before continuing.
+                </p>
+            </div>
+            <button type="button" class="eb-modal-close" onclick="ebBetaClose()" aria-label="Close">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18 18 6M6 6l12 12" />
+                </svg>
+            </button>
+        </div>
+        <div class="eb-drawer-body">
+            <div class="rounded-md p-4 mb-4" style="background:rgba(124,58,237,0.10); border:1px solid rgba(124,58,237,0.40);">
+                <p class="text-base font-semibold mb-2" style="color:#c4b5fd;">What "beta" means here</p>
+                <ul class="text-sm text-[var(--eb-text-secondary)] space-y-2 pl-5 list-disc">
+                    <li>Some workflows are still under active development; please expect rough edges.</li>
+                    <li>Your usage is free for 30 days &mdash; we will not invoice you during the trial.</li>
+                    <li>If you decide not to continue, simply let the trial expire and you will not be charged.</li>
+                    <li>Support is best-effort during beta; email us with logs and we will respond as quickly as we can.</li>
+                </ul>
+            </div>
+            
+            <label class="flex items-start gap-2 text-sm text-[var(--eb-text-secondary)]">
+                <input type="checkbox" id="eb-beta-ack" class="mt-1">
+                <span>I understand this product is in beta and I want to continue setting up e3 Cloud Backup.</span>
+            </label>
+        </div>
+        <div class="eb-drawer-footer justify-between">
+            <button type="button" class="eb-btn eb-btn-secondary eb-btn-md" onclick="ebBetaClose()">Cancel</button>
+            <button id="eb-beta-continue" type="button" class="eb-btn eb-btn-orange eb-btn-md" onclick="ebBetaContinue()">Continue</button>
+        </div>
+    </div>
+</div>
+
+<div id="eb-portalpw-overlay"
+     class="fixed inset-0 z-[100] hidden items-center justify-center p-4"
+     hidden
+     role="dialog"
+     aria-labelledby="eb-portalpw-title"
+     aria-modal="true">
+    <div class="eb-modal-backdrop fixed inset-0"></div>
+    <div id="eb-portalpw-panel" class="eb-modal relative z-[101] flex flex-col !p-0">
+        <div class="eb-modal-header">
+            <div>
+                <div id="eb-portalpw-title" class="eb-modal-title">Create your portal password</div>
+                <p class="eb-modal-subtitle">
+                    This is the password you will use to sign in to your eazyBackup client portal.
+                </p>                
+            </div>
+        </div>
+        <div class="eb-modal-body">
+            <div id="eb-portalpw-general-error" class="eb-alert eb-alert--danger hidden">
+                <div>
+                    <div class="eb-alert-title">Unable to save password</div>
+                    <div id="eb-portalpw-general-error-body"></div>
+                </div>
+            </div>
+            <form id="eb-portalpw-form" class="space-y-5" onsubmit="return ebPortalPwSubmit(event);">
+                <div>
+                    <label for="eb-portalpw-new" class="eb-field-label">New password</label>
+                    <input
+                        id="eb-portalpw-new"
+                        name="new_password"
+                        type="password"
+                        autocomplete="new-password"
+                        class="eb-input w-full"
+                        placeholder="At least 10 characters"
+                        required
+                        minlength="10"
+                    />
+                    <p class="eb-field-help">Minimum 10 characters. Pick something you can remember.</p>
+                    <p id="eb-portalpw-err-new" class="eb-field-error hidden"></p>
+                </div>
+                <div>
+                    <label for="eb-portalpw-confirm" class="eb-field-label">Confirm password</label>
+                    <input
+                        id="eb-portalpw-confirm"
+                        name="new_password_confirm"
+                        type="password"
+                        autocomplete="new-password"
+                        class="eb-input w-full"
+                        placeholder="Re-enter your password"
+                        required
+                        minlength="10"
+                    />
+                    <p id="eb-portalpw-err-confirm" class="eb-field-error hidden"></p>
+                </div>
+            </form>
+        </div>
+        <div class="eb-modal-footer justify-end">
+            <button id="eb-portalpw-submit" type="submit" form="eb-portalpw-form" class="eb-btn eb-btn-orange eb-btn-md">
+                Save password and continue
+            </button>
+        </div>
+    </div>
+</div>
 
 <div id="eb-setpw-overlay" class="fixed inset-0 z-[60] hidden">
     <div class="absolute inset-0 eb-drawer-backdrop" onclick="ebPwClose()"></div>
@@ -326,9 +507,9 @@
     >
         <div class="eb-drawer-header">
             <div>
-                <div id="eb-setpw-title" class="eb-drawer-title">Set your account password</div>
+                <div id="eb-setpw-title" class="eb-drawer-title">Pick your backup agent username</div>
                 <p id="eb-setpw-subtitle" class="mt-1 text-sm text-[var(--eb-text-muted)]">
-                    Save the password you will use to access your new service.
+                    Choose the username your backup agent will use to sign in. Your portal password (set earlier) will also be the password for this backup agent.
                 </p>
                 <p id="eb-username-hint" class="mt-2 hidden text-sm text-[var(--eb-text-muted)]"></p>
             </div>
@@ -348,7 +529,7 @@
             <form id="eb-setpw-form" class="space-y-5" onsubmit="return ebPwSubmit(event);">
                 <input type="hidden" name="product_choice" id="eb-product-choice" value="">
                 <div id="eb-username-row" class="hidden">
-                    <label for="eb-username" class="eb-field-label">Username</label>
+                    <label for="eb-username" class="eb-field-label">Backup agent username</label>
                     <input
                         id="eb-username"
                         name="username"
@@ -357,41 +538,23 @@
                         class="eb-input w-full"
                         placeholder="Choose a username (a-z, 0-9, ., _, -)"
                     />
-                    <p class="eb-field-help">Allowed: letters, numbers, period, underscore, and dash. Minimum 8 characters.</p>
+                    <p class="eb-field-help">Allowed characters: letters, numbers, period, underscore, dash. Minimum 8 characters. You will sign in from the backup agent using this username and the portal password you just set.</p>
                     <p id="eb-err-username" class="eb-field-error hidden"></p>
                 </div>
-                <div>
-                    <label for="eb-newpw" class="eb-field-label">New password</label>
-                    <input
-                        id="eb-newpw"
-                        name="new_password"
-                        type="password"
-                        autocomplete="new-password"
-                        class="eb-input w-full"
-                        placeholder="Choose a strong password"
-                        required
-                    />
-                    <p id="eb-err-newpw" class="eb-field-error hidden"></p>
-                </div>
-                <div>
-                    <label for="eb-newpw2" class="eb-field-label">Confirm password</label>
-                    <input
-                        id="eb-newpw2"
-                        name="new_password_confirm"
-                        type="password"
-                        autocomplete="new-password"
-                        class="eb-input w-full"
-                        placeholder="Re-enter your password"
-                        required
-                    />
-                    <p id="eb-err-newpw2" class="eb-field-error hidden"></p>
+                <div id="eb-no-username-row" class="hidden">
+                    <div class="eb-alert eb-alert--info">
+                        <div>
+                            <div class="eb-alert-title">Ready to provision</div>
+                            <div>We will use the portal password you just set. Click Continue to finish provisioning this product.</div>
+                        </div>
+                    </div>
                 </div>
             </form>
         </div>
         <div class="eb-drawer-footer justify-between">
             <button type="button" class="eb-btn eb-btn-secondary eb-btn-md" onclick="ebPwClose()">Cancel</button>
             <button id="eb-pw-submit" type="submit" form="eb-setpw-form" class="eb-btn eb-btn-orange eb-btn-md">
-                Save Password and Continue
+                Continue
             </button>
         </div>
     </div>
@@ -566,10 +729,14 @@ if (window.csrfToken && !window.EB_CSRF_TOKEN) {
         panel.classList.remove('translate-x-0');
         setTimeout(function () {
             overlay.classList.add('hidden');
+            var beta = document.getElementById('eb-beta-overlay');
+            var portalPw = document.getElementById('eb-portalpw-overlay');
             if (
                 document.getElementById('eb-setpw-overlay').classList.contains('hidden') &&
                 document.getElementById('eb-storage-plan-overlay').classList.contains('hidden') &&
-                document.getElementById('eb-card-overlay').classList.contains('hidden')
+                document.getElementById('eb-card-overlay').classList.contains('hidden') &&
+                (!beta || beta.classList.contains('hidden')) &&
+                (!portalPw || portalPw.classList.contains('hidden'))
             ) {
                 document.body.classList.remove('overflow-hidden');
             }
@@ -590,6 +757,68 @@ if (window.csrfToken && !window.EB_CSRF_TOKEN) {
 
     function ebStoragePlanClose() {
         ebDrawerState('eb-storage-plan-overlay', 'eb-storage-plan-panel', false);
+    }
+
+    function ebBetaOpen() {
+        ebDrawerState('eb-beta-overlay', 'eb-beta-panel', true);
+    }
+
+    function ebBetaClose() {
+        ebDrawerState('eb-beta-overlay', 'eb-beta-panel', false);
+    }
+
+    function ebChooseE3Backup(btn) {
+        // Stage the product choice but show the beta confirmation drawer
+        // before any provisioning/password collection.
+        document.getElementById('eb-product-choice').value = 'e3backup';
+        var ack = document.getElementById('eb-beta-ack');
+        if (ack) {
+            ack.checked = false;
+        }
+        ebBetaOpen();
+    }
+
+    function ebBetaContinue() {
+        var ack = document.getElementById('eb-beta-ack');
+        if (!ack || !ack.checked) {
+            ebShowToast('Please acknowledge the beta notice to continue.', 'warning');
+            return;
+        }
+        var btn = document.getElementById('eb-beta-continue');
+        // Guard against double-submits: bail if a request is already in flight.
+        if (btn && btn.disabled) {
+            return;
+        }
+        if (btn) {
+            btn.disabled = true;
+        }
+        function ebBetaContinueReset() {
+            if (btn) {
+                btn.disabled = false;
+            }
+        }
+        // Persist selection server-side, then transition to the password drawer.
+        fetch(ebJoinRoot('/modules/addons/cloudstorage/api/selectproduct.php'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({ product_choice: 'e3backup' })
+        }).then(function(r){ return r.json(); }).then(function(data){
+            if (data && data.status === 'success') {
+                ebBetaClose();
+                ebPreparePasswordUi('e3backup');
+                setTimeout(ebPwOpen, 250);
+                ebBetaContinueReset();
+            } else if (data && data.message === 'beta_unavailable') {
+                ebShowToast('e3 Cloud Backup is not currently available for your account.', 'error');
+                ebBetaContinueReset();
+            } else {
+                ebShowToast('Unable to save selection. Please try again.', 'error');
+                ebBetaContinueReset();
+            }
+        }).catch(function(){
+            ebShowToast('Unable to save selection. Please try again.', 'error');
+            ebBetaContinueReset();
+        });
     }
 
     function ebCardOpen() {
@@ -981,18 +1210,27 @@ if (window.csrfToken && !window.EB_CSRF_TOKEN) {
     }
 
     function ebPreparePasswordUi(choice) {
-        var showUser = (choice === 'backup' || choice === 'ms365');
+        var showUser = (choice === 'backup' || choice === 'ms365' || choice === 'e3backup');
         var usernameRow = document.getElementById('eb-username-row');
+        var noUsernameRow = document.getElementById('eb-no-username-row');
         var hint = document.getElementById('eb-username-hint');
         var subtitle = document.getElementById('eb-setpw-subtitle');
         var title = document.getElementById('eb-setpw-title');
         var usernameInput = document.getElementById('eb-username');
+        var submitBtn = document.getElementById('eb-pw-submit');
 
         if (usernameRow) {
             if (showUser) {
                 usernameRow.classList.remove('hidden');
             } else {
                 usernameRow.classList.add('hidden');
+            }
+        }
+        if (noUsernameRow) {
+            if (!showUser) {
+                noUsernameRow.classList.remove('hidden');
+            } else {
+                noUsernameRow.classList.add('hidden');
             }
         }
         if (hint) {
@@ -1003,12 +1241,22 @@ if (window.csrfToken && !window.EB_CSRF_TOKEN) {
             usernameInput.value = '';
         }
 
-        if (showUser) {
-            title.textContent = 'Set your eazyBackup username and password';
-            subtitle.textContent = 'Set a Username for the backup application and your account Password';
+        if (choice === 'e3backup') {
+            title.textContent = 'Pick your e3 Cloud Backup agent username';
+            subtitle.textContent = 'Choose the username your e3 Cloud Backup agent will use to sign in. Your portal password (set earlier) is also the password for this backup agent.';
+        } else if (choice === 'backup') {
+            title.textContent = 'Pick your Cloud Backup agent username';
+            subtitle.textContent = 'Choose the username your Cloud Backup agent will use to sign in. Your portal password (set earlier) is also the password for this backup agent.';
+        } else if (choice === 'ms365') {
+            title.textContent = 'Pick your Microsoft 365 Backup username';
+            subtitle.textContent = 'Choose the username this Microsoft 365 Backup service will use. Your portal password (set earlier) is also the password for this service.';
         } else {
-            title.textContent = 'Set your account password';
-            subtitle.textContent = 'Save the password you will use to access your new service.';
+            title.textContent = 'Ready to provision';
+            subtitle.textContent = 'We will use the portal password you set earlier. Click Continue to finish provisioning.';
+        }
+
+        if (submitBtn) {
+            submitBtn.textContent = showUser ? 'Save username and continue' : 'Continue';
         }
     }
 
@@ -1283,18 +1531,14 @@ if (window.csrfToken && !window.EB_CSRF_TOKEN) {
         ev.preventDefault();
         ebSetGeneralAlert('eb-pw-general-error', 'eb-pw-general-error-body', '');
         ebSetFieldError('eb-err-username', '');
-        ebSetFieldError('eb-err-newpw', '');
-        ebSetFieldError('eb-err-newpw2', '');
         ebDisableSubmit(true);
 
         try {
             var choice = document.getElementById('eb-product-choice').value || '';
-            var username = document.getElementById('eb-username').value || '';
-            var password = document.getElementById('eb-newpw').value || '';
-            var passwordConfirm = document.getElementById('eb-newpw2').value || '';
+            var username = (document.getElementById('eb-username') || { value: '' }).value || '';
             var storageTierEl = document.getElementById('eb-storage-tier');
             var storageTier = storageTierEl ? storageTierEl.value : '';
-            var needsUser = (choice === 'backup' || choice === 'ms365');
+            var needsUser = (choice === 'backup' || choice === 'ms365' || choice === 'e3backup');
 
             if (needsUser) {
                 var reUser = /^[A-Za-z0-9_.-]{8,}$/;
@@ -1307,28 +1551,22 @@ if (window.csrfToken && !window.EB_CSRF_TOKEN) {
                 }
             }
 
-            if ((password || '').length < 8) {
-                var passwordMessage = 'Password must be at least 8 characters long.';
-                ebSetFieldError('eb-err-newpw', passwordMessage);
-                ebShowToast(passwordMessage, 'error');
-                ebDisableSubmit(false);
-                return false;
-            }
-
-            if (password !== passwordConfirm) {
-                var confirmMessage = 'Passwords do not match.';
-                ebSetFieldError('eb-err-newpw2', confirmMessage);
-                ebShowToast(confirmMessage, 'error');
-                ebDisableSubmit(false);
-                return false;
-            }
-
             try {
                 if (window.ebShowLoader) {
-                    window.ebShowLoader(document.body, 'Creating your account...');
+                    // The global loader overlay is z-index:50, which sits behind
+                    // the open product drawer (z-60). Lift it above the drawers
+                    // (but below the z-120 toast container) so it's visible while
+                    // provisioning runs.
+                    var ebLoader = window.ebShowLoader(document.body, 'Creating your account...');
+                    if (ebLoader && ebLoader.style) {
+                        ebLoader.style.zIndex = '110';
+                    }
                 }
             } catch (_) {}
 
+            // Round 2: portal password was collected by ebPortalPwSubmit and
+            // cached in the session by api/set_portal_password.php. Provision
+            // call no longer sends new_password / confirm.
             var provisionResponse = await fetch(ebJoinRoot('/modules/addons/cloudstorage/api/setpassword_and_provision.php'), {
                 method: 'POST',
                 headers: {
@@ -1337,8 +1575,6 @@ if (window.csrfToken && !window.EB_CSRF_TOKEN) {
                 body: new URLSearchParams({
                     product_choice: choice,
                     username: username,
-                    new_password: password,
-                    new_password_confirm: passwordConfirm,
                     storage_tier: storageTier
                 })
             });
@@ -1362,20 +1598,14 @@ if (window.csrfToken && !window.EB_CSRF_TOKEN) {
             if (errors.username) {
                 ebSetFieldError('eb-err-username', errors.username);
             }
-            if (errors.new_password) {
-                ebSetFieldError('eb-err-newpw', errors.new_password);
-            }
-            if (errors.new_password_confirm) {
-                ebSetFieldError('eb-err-newpw2', errors.new_password_confirm);
-            }
             if (errors.general) {
                 ebSetGeneralAlert('eb-pw-general-error', 'eb-pw-general-error-body', errors.general);
             }
-            if (!errors.general && !errors.username && !errors.new_password && !errors.new_password_confirm) {
+            if (!errors.general && !errors.username) {
                 ebSetGeneralAlert(
                     'eb-pw-general-error',
                     'eb-pw-general-error-body',
-                    (data && data.message) ? String(data.message) : 'Failed to update password.'
+                    (data && data.message) ? String(data.message) : 'Failed to provision the service.'
                 );
             }
         } catch (e) {
@@ -1391,9 +1621,142 @@ if (window.csrfToken && !window.EB_CSRF_TOKEN) {
         return false;
     }
 
+    // Round 2: portal-password modal handlers. This is a centered eb-modal
+    // (not a side drawer) so it uses simple show/hide rather than the slide
+    // transition helper used by the other welcome overlays.
+    function ebPortalPwOpen() {
+        var overlay = document.getElementById('eb-portalpw-overlay');
+        if (!overlay) return;
+        overlay.classList.remove('hidden');
+        overlay.classList.add('flex');
+        overlay.removeAttribute('hidden');
+        document.body.classList.add('overflow-hidden');
+        try { document.getElementById('eb-portalpw-new').focus(); } catch (_) {}
+    }
+
+    function ebPortalPwClose() {
+        // Closing only allowed once the password has been set (or it wasn't required).
+        var grid = document.getElementById('eb-product-select');
+        if (grid && grid.classList.contains('is-locked')) {
+            ebShowToast('Please set your portal password to continue.', 'warning');
+            return;
+        }
+        var overlay = document.getElementById('eb-portalpw-overlay');
+        if (!overlay) return;
+        overlay.classList.add('hidden');
+        overlay.classList.remove('flex');
+        overlay.setAttribute('hidden', '');
+        // Only release body scroll if no other overlay is open.
+        var beta = document.getElementById('eb-beta-overlay');
+        if (
+            document.getElementById('eb-setpw-overlay').classList.contains('hidden') &&
+            document.getElementById('eb-storage-plan-overlay').classList.contains('hidden') &&
+            document.getElementById('eb-card-overlay').classList.contains('hidden') &&
+            (!beta || beta.classList.contains('hidden'))
+        ) {
+            document.body.classList.remove('overflow-hidden');
+        }
+    }
+
+    function ebUnlockProductPicker() {
+        var grid = document.getElementById('eb-product-select');
+        if (grid) {
+            grid.classList.remove('is-locked');
+            grid.setAttribute('data-must-set-password', '0');
+        }
+        var notice = document.getElementById('eb-product-lock-notice');
+        if (notice) {
+            notice.classList.add('hidden');
+        }
+    }
+
+    async function ebPortalPwSubmit(ev) {
+        if (ev && ev.preventDefault) { ev.preventDefault(); }
+        ebSetGeneralAlert('eb-portalpw-general-error', 'eb-portalpw-general-error-body', '');
+        ebSetFieldError('eb-portalpw-err-new', '');
+        ebSetFieldError('eb-portalpw-err-confirm', '');
+        var submit = document.getElementById('eb-portalpw-submit');
+        if (submit) { submit.disabled = true; }
+
+        try {
+            var newPw = document.getElementById('eb-portalpw-new').value || '';
+            var confirmPw = document.getElementById('eb-portalpw-confirm').value || '';
+
+            if (newPw.length < 10) {
+                var msg = 'Password must be at least 10 characters long.';
+                ebSetFieldError('eb-portalpw-err-new', msg);
+                ebShowToast(msg, 'error');
+                if (submit) { submit.disabled = false; }
+                return false;
+            }
+            if (newPw !== confirmPw) {
+                var cmsg = 'Passwords do not match.';
+                ebSetFieldError('eb-portalpw-err-confirm', cmsg);
+                ebShowToast(cmsg, 'error');
+                if (submit) { submit.disabled = false; }
+                return false;
+            }
+
+            var response = await fetch(ebJoinRoot('/modules/addons/cloudstorage/api/set_portal_password.php'), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: new URLSearchParams({
+                    new_password: newPw,
+                    new_password_confirm: confirmPw
+                })
+            });
+            var data = await response.json();
+
+            if (data && data.status === 'success') {
+                ebUnlockProductPicker();
+                ebPortalPwClose();
+                ebShowToast('Portal password saved. Pick a product to continue.', 'success');
+                return false;
+            }
+
+            var errors = (data && data.errors) ? data.errors : {};
+            if (errors.new_password) {
+                ebSetFieldError('eb-portalpw-err-new', errors.new_password);
+            }
+            if (errors.new_password_confirm) {
+                ebSetFieldError('eb-portalpw-err-confirm', errors.new_password_confirm);
+            }
+            if (errors.general) {
+                ebSetGeneralAlert('eb-portalpw-general-error', 'eb-portalpw-general-error-body', errors.general);
+            }
+            if (!errors.new_password && !errors.new_password_confirm && !errors.general) {
+                ebSetGeneralAlert(
+                    'eb-portalpw-general-error',
+                    'eb-portalpw-general-error-body',
+                    (data && data.message) ? String(data.message) : 'Failed to save password.'
+                );
+            }
+        } catch (e) {
+            ebSetGeneralAlert('eb-portalpw-general-error', 'eb-portalpw-general-error-body', 'Request failed. Please try again.');
+        } finally {
+            if (submit) { submit.disabled = false; }
+        }
+        return false;
+    }
+
     document.addEventListener('DOMContentLoaded', function() {
+        // Round 2: portal-password gate. Auto-open the modal when the welcome
+        // page reports the customer still owes us a password.
+        try {
+            var grid = document.getElementById('eb-product-select');
+            if (grid && grid.getAttribute('data-must-set-password') === '1') {
+                setTimeout(ebPortalPwOpen, 50);
+            }
+        } catch (_) {}
+
         document.addEventListener('keydown', function(event) {
             if (event.key !== 'Escape') {
+                return;
+            }
+            // The portal-password modal is a hard gate; ignore Escape so the
+            // customer cannot accidentally dismiss it.
+            var portalPw = document.getElementById('eb-portalpw-overlay');
+            if (portalPw && !portalPw.classList.contains('hidden')) {
                 return;
             }
             if (!document.getElementById('eb-card-overlay').classList.contains('hidden')) {
@@ -1402,6 +1765,11 @@ if (window.csrfToken && !window.EB_CSRF_TOKEN) {
             }
             if (!document.getElementById('eb-storage-plan-overlay').classList.contains('hidden')) {
                 ebStoragePlanClose();
+                return;
+            }
+            var betaOverlay = document.getElementById('eb-beta-overlay');
+            if (betaOverlay && !betaOverlay.classList.contains('hidden')) {
+                ebBetaClose();
                 return;
             }
             if (!document.getElementById('eb-setpw-overlay').classList.contains('hidden')) {

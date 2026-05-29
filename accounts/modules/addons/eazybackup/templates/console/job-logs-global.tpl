@@ -45,7 +45,7 @@
           </div>
 
           <div class="eb-app-body">
-            <div class="eb-subpanel" x-data="{ open:false, cols:{ user:true, id:false, device:true, item:true, vault:false, ver:false, type:true, status:true, dirs:false, files:false, size:true, vsize:true, up:false, down:false, started:true, ended:true, dur:true } }">
+            <div class="eb-subpanel" x-data="{ open:false, cols:{ user:true, id:false, device:true, item:true, vault:false, ver:false, type:true, status:true, dirs:false, files:false, size:true, vsize:true, up:false, down:false, started:true, ended:true, dur:true }, init(){ try{ window.EB && window.EB.bindCols && window.EB.bindCols(this, 'global-job-logs'); }catch(_){} } }">
               <div class="border-b px-4 pt-4 pb-3" style="border-color: var(--eb-border-default);">
       <div class="flex flex-wrap items-center gap-2">
           <button type="button" data-jobs-status-chip data-status="Error" class="eb-badge eb-badge--danger eb-job-chip disabled:cursor-not-allowed">
@@ -221,6 +221,9 @@
 <script src="modules/addons/eazybackup/assets/js/eazybackup-ui-helpers.js" defer></script>
 <script src="modules/addons/eazybackup/assets/js/job-reports.js" defer></script>
 {include file="modules/addons/eazybackup/templates/console/partials/job-report-modal.tpl" serviceid="" username=""}
+
+<script>window.EB_WEB_ROOT = '{$WEB_ROOT}';</script>
+<script src="modules/addons/eazybackup/templates/assets/js/job-ticket.js" defer></script>
 
 <script>
 try {

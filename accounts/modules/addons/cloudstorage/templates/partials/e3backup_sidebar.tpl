@@ -1,5 +1,10 @@
 {assign var=activeNav value=$activeNav|default:''}
 {assign var=isMspClient value=$isMspClient|default:false}
+{assign var=ebE3HasAgents value=$ebE3HasAgents|default:false}
+{assign var=ebE3OnboardingComplete value=$ebE3OnboardingComplete|default:false}
+{assign var=ebE3OnboardingCompleted value=$ebE3OnboardingCompleted|default:0}
+{assign var=ebE3OnboardingTotal value=$ebE3OnboardingTotal|default:4}
+{assign var=ebE3OnboardingHidden value=$ebE3OnboardingHidden|default:false}
 
 <aside
     :class="sidebarCollapsed ? 'w-20' : 'w-56'"
@@ -18,7 +23,25 @@
         </div>
 
         <nav class="flex-1 space-y-1 overflow-y-auto px-3 py-3">
-            <a href="index.php?m=cloudstorage&page=e3backup" class="eb-sidebar-link {if $activeNav eq 'dashboard'}is-active{/if}" :class="sidebarCollapsed && 'justify-center px-4'" :title="sidebarCollapsed ? 'Dashboard' : ''">
+            {if not $ebE3OnboardingHidden}
+            <a href="index.php?m=cloudstorage&page=e3backup&view=getting_started"
+               data-tour="sidebar-getting-started"
+               class="eb-sidebar-link {if $activeNav eq 'getting_started'}is-active{/if}"
+               :class="sidebarCollapsed && 'justify-center px-4'"
+               :title="sidebarCollapsed ? 'Getting Started' : ''">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                </svg>
+                <span x-show="!sidebarCollapsed" x-transition.opacity>Getting Started</span>
+                <span x-show="!sidebarCollapsed" x-transition.opacity class="eb-sidebar-badge">{$ebE3OnboardingCompleted}/{$ebE3OnboardingTotal}</span>
+            </a>
+            {/if}
+
+            <a href="index.php?m=cloudstorage&page=e3backup"
+               data-tour="sidebar-dashboard"
+               class="eb-sidebar-link {if $activeNav eq 'dashboard'}is-active{/if}"
+               :class="sidebarCollapsed && 'justify-center px-4'"
+               :title="sidebarCollapsed ? 'Dashboard' : ''">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 3.75h7.5v7.5h-7.5v-7.5Zm9 0h7.5v4.5h-7.5v-4.5Zm0 6h7.5v10.5h-7.5V9.75Zm-9 3h7.5v7.5h-7.5v-7.5Z" />
                 </svg>
@@ -63,21 +86,33 @@
             </a> *}
             {/if}
 
-            <a href="index.php?m=cloudstorage&page=e3backup&view=disk_image_restore" class="eb-sidebar-link {if $activeNav eq 'disk_restore'}is-active{/if}" :class="sidebarCollapsed && 'justify-center px-4'" :title="sidebarCollapsed ? 'Recovery' : ''">
+            <a href="{if $ebE3HasAgents}index.php?m=cloudstorage&page=e3backup&view=disk_image_restore{else}#{/if}"
+               class="eb-sidebar-link {if not $ebE3HasAgents}is-disabled{elseif $activeNav eq 'disk_restore'}is-active{/if}"
+               {if not $ebE3HasAgents}aria-disabled="true" onclick="return false;" tabindex="-1" title="Available after you enroll an agent"{/if}
+               :class="sidebarCollapsed && 'justify-center px-4'"
+               :title="sidebarCollapsed ? 'Recovery' : ''">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M3.75 4.5h16.5M4.5 4.5v15a.75.75 0 0 0 .75.75h13.5a.75.75 0 0 0 .75-.75v-15" />
                 </svg>
                 <span x-show="!sidebarCollapsed" x-transition.opacity>Recovery</span>
             </a>
 
-            <a href="index.php?m=cloudstorage&page=e3backup&view=recovery_media" class="eb-sidebar-link {if $activeNav eq 'recovery_media'}is-active{/if}" :class="sidebarCollapsed && 'justify-center px-4'" :title="sidebarCollapsed ? 'Media Builder' : ''">
+            <a href="{if $ebE3HasAgents}index.php?m=cloudstorage&page=e3backup&view=recovery_media{else}#{/if}"
+               class="eb-sidebar-link {if not $ebE3HasAgents}is-disabled{elseif $activeNav eq 'recovery_media'}is-active{/if}"
+               {if not $ebE3HasAgents}aria-disabled="true" onclick="return false;" tabindex="-1" title="Available after you enroll an agent"{/if}
+               :class="sidebarCollapsed && 'justify-center px-4'"
+               :title="sidebarCollapsed ? 'Media Builder' : ''">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 7.5h10.5m-10.5 4.5h10.5m-10.5 4.5h6m-9-12h12A2.25 2.25 0 0 1 18 6.75v10.5A2.25 2.25 0 0 1 15.75 19.5h-7.5A2.25 2.25 0 0 1 6 17.25V6.75A2.25 2.25 0 0 1 8.25 4.5Z" />
                 </svg>
                 <span x-show="!sidebarCollapsed" x-transition.opacity>Media Builder</span>
             </a>
 
-            <a href="index.php?m=cloudstorage&page=e3backup&view=cloudnas" class="eb-sidebar-link {if $activeNav eq 'cloudnas'}is-active{/if}" :class="sidebarCollapsed && 'justify-center px-4'" :title="sidebarCollapsed ? 'Cloud NAS' : ''">
+            <a href="{if $ebE3HasAgents}index.php?m=cloudstorage&page=e3backup&view=cloudnas{else}#{/if}"
+               class="eb-sidebar-link {if not $ebE3HasAgents}is-disabled{elseif $activeNav eq 'cloudnas'}is-active{/if}"
+               {if not $ebE3HasAgents}aria-disabled="true" onclick="return false;" tabindex="-1" title="Available after you enroll an agent"{/if}
+               :class="sidebarCollapsed && 'justify-center px-4'"
+               :title="sidebarCollapsed ? 'Cloud NAS' : ''">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 5.25A2.25 2.25 0 0 1 6 3h12a2.25 2.25 0 0 1 2.25 2.25v2.25A2.25 2.25 0 0 1 18 9.75H6A2.25 2.25 0 0 1 3.75 7.5V5.25Zm0 9A2.25 2.25 0 0 1 6 12h12a2.25 2.25 0 0 1 2.25 2.25v2.25A2.25 2.25 0 0 1 18 18.75H6a2.25 2.25 0 0 1-2.25-2.25v-2.25ZM7.5 6.75h.008v.008H7.5V6.75Zm0 9h.008v.008H7.5v-.008Z" />
                 </svg>
@@ -87,8 +122,18 @@
         </nav>
 
         <div class="border-t border-[var(--eb-border-subtle)] px-3 py-3">
-            <button type="button" onclick="window.dispatchEvent(new Event('open-e3-download-flyout'))" class="eb-sidebar-link w-full cursor-pointer text-left" :class="sidebarCollapsed && 'justify-center px-4'" :title="sidebarCollapsed ? 'Download Agent' : ''">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <div x-show="!sidebarCollapsed" x-transition.opacity class="eb-type-eyebrow mb-2 px-1">Install agent</div>
+            {* Avoid inline object literals here - Smarty parses bare "{" as a tag.
+               The flyout's own open handler records the download_clicked event,
+               and ebE3OpenDownload() (defined in e3backup_shell.tpl) is a safe
+               brace-free wrapper that we can call from any onclick. *}
+            <button type="button"
+                    data-tour="sidebar-download"
+                    onclick="ebE3OpenDownload();"
+                    class="eb-btn eb-btn-primary eb-btn-md w-full justify-center gap-2"
+                    :class="sidebarCollapsed && '!px-2'"
+                    :title="sidebarCollapsed ? 'Download Agent' : ''">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-4 w-4">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
                 </svg>
                 <span x-show="!sidebarCollapsed" x-transition.opacity>Download Agent</span>

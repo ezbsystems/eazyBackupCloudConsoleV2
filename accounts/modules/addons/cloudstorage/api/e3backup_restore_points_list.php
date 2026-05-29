@@ -209,6 +209,12 @@ try {
     }
     $hasColumnMap = !empty($restorePointColumnMap);
 
+    // job_id and run_id are BINARY(16) columns. Selecting them raw makes
+    // JsonResponse::json_encode() throw "Malformed UTF-8 characters" (HTTP
+    // 500), because the 16 binary bytes are not valid UTF-8. Emit their
+    // textual UUID form via BIN_TO_UUID() so the payload is JSON-safe.
+    $binaryUuidColumns = ['job_id' => true, 'run_id' => true];
+
     $select = [];
     foreach ($restorePointColumns as $col) {
         if ($col === 'tenant_id') {
@@ -218,7 +224,19 @@ try {
         $exists = $hasColumnMap
             ? isset($restorePointColumnMap[$col])
             : Capsule::schema()->hasColumn('s3_cloudbackup_restore_points', $col);
-        $select[] = $exists ? ('rp.' . $col) : Capsule::raw('NULL as ' . $col);
+        if (!$exists) {
+            $select[] = Capsule::raw('NULL as ' . $col);
+            continue;
+        }
+        if (isset($binaryUuidColumns[$col])) {
+            // Guard against NULLs and non-16-byte values so a malformed row
+            // can't break the whole response.
+            $select[] = Capsule::raw(
+                "CASE WHEN rp.`{$col}` IS NULL THEN NULL ELSE BIN_TO_UUID(rp.`{$col}`) END as {$col}"
+            );
+            continue;
+        }
+        $select[] = 'rp.' . $col;
     }
 
     $query = Capsule::table('s3_cloudbackup_restore_points as rp')

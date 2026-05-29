@@ -39,19 +39,19 @@ This document tracks the implementation tasks for the Cloud-to-Cloud Backup feat
 - [x] Add `cloudbackup` route to `cloudstorage_clientarea()`
 - [x] Add `cloudbackup_jobs` sub-view
 - [x] Add `cloudbackup_runs` sub-view
-- [x] Add `cloudbackup_live` sub-view
+- [x] Add `e3backup_live` sub-view
 - [x] Add `cloudbackup_settings` sub-view
 
 ### Client Area Pages
 - [x] Create `pages/cloudbackup_jobs.php`
 - [x] Create `pages/cloudbackup_runs.php`
-- [x] Create `pages/cloudbackup_live.php`
+- [x] Create `pages/e3backup_live.php`
 - [x] Create `pages/cloudbackup_settings.php`
 
 ### Client Area Templates
 - [x] Create `templates/cloudbackup_jobs.tpl`
 - [x] Create `templates/cloudbackup_runs.tpl`
-- [x] Create `templates/cloudbackup_live.tpl`
+- [x] Create `templates/e3backup_live.tpl`
 - [x] Create `templates/cloudbackup_settings.tpl`
 - [x] Implement job creation wizard (S3-compatible and SFTP)
 - [x] Implement job list display

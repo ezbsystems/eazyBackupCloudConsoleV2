@@ -1,0 +1,5 @@
+
+[2026-05-26 17:09:55] $ 'make' 'VERSION=2026.05.26-170918' 'build'
+Building e3-backup-agent (version=2026.05.26-170918 commit=c950b374)...
+Build complete: bin/e3-backup-agent
+[2026-05-26 17:09:57] exit=0

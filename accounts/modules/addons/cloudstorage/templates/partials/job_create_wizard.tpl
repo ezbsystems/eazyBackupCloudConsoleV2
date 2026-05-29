@@ -428,7 +428,7 @@
                         <label class="eb-field-label">Agent</label>
                         <select name="agent_uuid" id="agent_uuid" class="eb-select" required>
                             <option value="">Select an agent</option>
-                            <template x-for="a in options" :key="a.agent_uuid">
+                            <template x-for="(a, aIdx) in options" :key="'agent-legacy-' + (a.agent_uuid || aIdx)">
                                 <option :value="a.agent_uuid || ''" x-text="a.hostname ? (a.hostname + ' (' + (a.agent_uuid || '') + ')') : (a.agent_uuid || 'Unknown agent')"></option>
                             </template>
                         </select>
@@ -722,7 +722,7 @@
                                     <template x-if="filteredUsernames.length === 0">
                                         <li class="px-4 py-2 text-sm text-[var(--eb-text-muted)]">No tenants found.</li>
                                     </template>
-                                    <template x-for="u in filteredUsernames" :key="u">
+                                    <template x-for="(u, uIdx) in filteredUsernames" :key="'username-' + uIdx">
                                         <li @click="selectedUsername = u; isOpen = false"
                                             class="eb-menu-option cursor-pointer select-none"
                                             x-text="u">
@@ -1107,7 +1107,20 @@
 #localJobWizardModal .local-wizard-dialog {
     width: min(80rem, 100%);
     max-width: 80rem;
-    height: min(85vh, 920px);
+    /* Round 2: take more of the viewport before scrolling kicks in. The
+       previous 85vh cap left ~15vh of dead space at the top/bottom which
+       on small screens (and at 125%/150% Windows text scaling) forced the
+       inner body to scroll just to reveal the Next button. */
+    height: min(92vh, 920px);
+}
+
+/* The shared .eb-modal-header is display:flex / justify-between so a
+   header with two direct children (title row + breadcrumb nav) ends up
+   side-by-side. The wizard intentionally wants the breadcrumb BELOW
+   the title row, with the close (X) on the title row's far right.
+   Override to stack the children vertically here. */
+#localJobWizardModal .eb-modal-header {
+    display: block;
 }
 
 #localJobWizardModal .local-wizard-surface {
@@ -1172,7 +1185,98 @@
 }
 
 #localJobWizardModal .local-wizard-engine-card {
-    min-height: 9.5rem;
+    /* Round 2: tightened to keep Step 1 above the fold on smaller screens
+       and at higher Windows text scaling. The cards still wrap their copy
+       fine at 7.5rem. */
+    min-height: 7.5rem;
+}
+
+/* Round 2: the in-modal Source / Hyper-V browsers were fixed at 420px,
+   which forced the wizard body to scroll on shorter viewports before the
+   customer could even see the Next button. Cap them to a fraction of the
+   viewport so the surrounding modal chrome (header, footer, breadcrumb)
+   always fits. */
+#localJobWizardModal .local-wizard-browser-pane {
+    height: min(420px, 52vh);
+}
+
+#localJobWizardModal .local-wizard-next-hint {
+    background: transparent;
+    border: 0;
+    padding: 0;
+    cursor: pointer;
+    text-align: left;
+    line-height: 1.3;
+}
+
+#localJobWizardModal .local-wizard-next-hint:hover {
+    color: var(--eb-text-secondary);
+}
+
+/* ---------------------------------------------------------------------
+   Round 2 — Source step folder-picker contrast (Task 6d).
+   The picker mixes inline slate-* utilities for backgrounds/borders that
+   render flat on darker monitors. These overrides retag those visuals
+   with eb-* semantic tokens so:
+     - Drive cards have a visibly stronger border at rest
+     - Hover state has a clear cyan/orange tint
+     - Folder rows show a stronger background when selected
+     - Checkboxes have a more visible empty-state border
+   Scoped strictly to the Step 2 panel so other slate-* uses in the
+   wizard are untouched.
+   --------------------------------------------------------------------- */
+#localJobWizardModal .wizard-step[data-step="2"] .volume-card {
+    border-color: var(--eb-border-emphasis) !important;
+    background: var(--eb-surface-subpanel) !important;
+}
+
+#localJobWizardModal .wizard-step[data-step="2"] .volume-card:hover {
+    border-color: var(--eb-primary) !important;
+    background: var(--eb-bg-hover) !important;
+    box-shadow: 0 0 0 1px var(--eb-primary-border);
+}
+
+/* Per-entry folder/file row inside the browser. */
+#localJobWizardModal .wizard-step[data-step="2"] .local-wizard-browser-pane > div > template + div .flex.items-center.gap-2.px-3.py-2.rounded-lg,
+#localJobWizardModal .wizard-step[data-step="2"] .local-wizard-browser-pane .flex.items-center.gap-2.px-3.py-2.rounded-lg {
+    border: 1px solid var(--eb-border-subtle);
+    margin-bottom: 2px;
+    background: var(--eb-surface-subpanel);
+}
+
+#localJobWizardModal .wizard-step[data-step="2"] .local-wizard-browser-pane .flex.items-center.gap-2.px-3.py-2.rounded-lg:hover {
+    border-color: var(--eb-border-emphasis);
+    background: var(--eb-bg-hover);
+}
+
+/* Selected folder row (Alpine adds bg-cyan-500/10 + ring). Strengthen it. */
+#localJobWizardModal .wizard-step[data-step="2"] .local-wizard-browser-pane .flex.items-center.gap-2.px-3.py-2.rounded-lg.bg-cyan-500\/10 {
+    background: var(--eb-primary-soft) !important;
+    border-color: var(--eb-primary) !important;
+    box-shadow: inset 0 0 0 1px var(--eb-border-brand);
+}
+
+/* Checkbox boxes — at-rest border was a hard-to-see slate-600. */
+#localJobWizardModal .wizard-step[data-step="2"] label.w-5.h-5.rounded.border.border-slate-600 {
+    border-color: var(--eb-border-emphasis) !important;
+    background: var(--eb-bg-input) !important;
+}
+
+/* Selected drive card variant — Alpine swaps border-cyan-500 + bg-cyan-500/10. */
+#localJobWizardModal .wizard-step[data-step="2"] .volume-card.border-cyan-500,
+#localJobWizardModal .wizard-step[data-step="2"] button.border-cyan-500.bg-cyan-500\/10 {
+    border-color: var(--eb-primary) !important;
+    background: var(--eb-primary-soft) !important;
+    box-shadow: 0 0 0 1px var(--eb-border-brand) !important;
+}
+
+/* Round 2: keep tour anchors clear of the wizard header when driver.js
+   scrolls them into view, so the title isn't hidden under the sticky
+   modal header. */
+#localJobWizardModal [data-tour="local-wizard-name"],
+#localJobWizardModal [data-tour="local-wizard-engine"],
+#localJobWizardModal [data-tour="local-wizard-agent"] {
+    scroll-margin-top: 1rem;
 }
 
 #localJobWizardModal .engine-card,
@@ -1404,7 +1508,7 @@
                     <!-- Step 1 -->
                     <div class="wizard-step" data-step="1">
                         <div class="grid md:grid-cols-2 gap-4">
-                            <div>
+                            <div data-tour="local-wizard-name">
                                 <label class="eb-field-label">Job Name</label>
                                 <input id="localWizardName" type="text" class="eb-input" placeholder="My local backup">
                             </div>
@@ -1496,7 +1600,7 @@
                                 <p class="eb-field-help">Select a tenant to scope this backup job. The job will be associated with the tenant's agents.</p>
                             </div>
                             {/if}
-                            <div class="md:col-span-2" x-data="{ showAdvanced: false }">
+                            <div class="md:col-span-2" data-tour="local-wizard-engine" x-data="{ showAdvanced: false }">
                                 <div class="flex items-center justify-between mb-3">
                                     <label class="eb-field-label !mb-0">Backup Engine</label>
                                     <button type="button" class="eb-toggle" @click="showAdvanced = !showAdvanced">
@@ -1581,6 +1685,7 @@
                                 isOpen: false,
                                 selectedId: '',
                                 selectedAgent: null,
+                                autoSelected: false,
                                 tenantFilter: '',
                                 menuTop: 0,
                                 menuLeft: 0,
@@ -1704,21 +1809,50 @@
                                             }
                                         }
                                     }
+                                    // Round 2: auto-select when there is exactly one agent in scope.
+                                    // Saves an extra click for the very common single-agent customer.
+                                    // We respect any pre-existing selection (e.g. deep-link prefill).
+                                    if (!this.selectedId && this.options && this.options.length === 1) {
+                                        this.choose(this.options[0]);
+                                        try { this.autoSelected = true; } catch (_) {}
+                                        try { localWizardUpdateView(); } catch (_) {}
+                                    } else {
+                                        try { this.autoSelected = false; } catch (_) {}
+                                    }
                                 },
                                 choose(opt) {
                                     this.selectedId = opt.agent_uuid || '';
                                     this.selectedAgent = opt;
+                                    // Manual changes (or the auto-select pass) both flow through
+                                    // here. applyTenantFilter() sets autoSelected = true around the
+                                    // call to this method when it was the auto pick; explicit clicks
+                                    // happen when the menu is open, so use that as the signal to
+                                    // hide the auto-selected badge.
+                                    if (this.isOpen) {
+                                        this.autoSelected = false;
+                                    }
                                     const hid = document.getElementById('localWizardAgentId');
                                     if (hid) hid.value = this.selectedId;
                                     if (window.localWizardState?.data) {
                                         window.localWizardState.data.agent_uuid = this.selectedId;
                                         window.localWizardState.data.agent_hostname = opt.hostname || '';
+                                        // Round 2 (Task 6f): inherit the agent's encryption_mode
+                                        // (when the agent payload carries one) so the Review step
+                                        // reflects the real policy instead of a hardcoded default.
+                                        if (opt.encryption_mode) {
+                                            window.localWizardState.data.encryption_mode = opt.encryption_mode;
+                                        }
                                     }
                                     localWizardOnAgentSelected(this.selectedId);
                                     this.isOpen = false;
                                 }
-                            }" x-init="init()">
-                                <label class="eb-field-label">Agent</label>
+                            }" x-init="init()" data-tour="local-wizard-agent">
+                                <div class="flex items-center justify-between mb-1">
+                                    <label class="eb-field-label !mb-0">Agent</label>
+                                    <span x-show="autoSelected" x-cloak class="eb-badge eb-badge--info text-[10px]">
+                                        Selected automatically &mdash; only one agent enrolled
+                                    </span>
+                                </div>
                                 <input type="hidden" id="localWizardAgentId">
                                 <div class="relative">
                                     <button type="button"
@@ -1753,7 +1887,7 @@
                                                 <input type="text" x-model="search" placeholder="Search agents..." class="eb-input !py-2 text-xs">
                                             </div>
                                             <div class="overflow-y-auto py-1 text-sm scrollbar_thin" style="max-height: min(48vh, 16rem);">
-                                                <template x-for="opt in filtered" :key="opt.agent_uuid">
+                                                <template x-for="(opt, optIdx) in filtered" :key="'agent-opt-' + (opt.agent_uuid || optIdx)">
                                                     <div class="eb-menu-option flex cursor-pointer items-center gap-2" @click="choose(opt)">
                                                         <span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold"
                                                               :class="statusBadgeClass(opt.online_status)">
@@ -1783,7 +1917,7 @@
                                     e3 Storage Location
                                     <span class="ml-1 text-xs font-normal text-[var(--eb-text-muted)]">(Policy Managed)</span>
                                 </label>
-                                <p class="eb-field-help !mb-2 !mt-0">Bucket and root prefix are assigned automatically from the enrolled agent destination policy.</p>
+                                <p class="eb-field-help !mb-2 !mt-0">e3 storage destination is assigned automatically.</p>
                                 <div
                                     id="localWizardBucketDropdown"
                                     class="hidden"
@@ -1868,14 +2002,9 @@
                                         Create new bucket
                                     </button>
                                 </div>
-                                <div class="local-wizard-panel-soft mt-2 space-y-2 p-3">
-                                    <div>
-                                        <div class="text-xs text-[var(--eb-text-muted)]">Bucket</div>
-                                        <div id="localWizardBucketLabel" class="text-sm text-[var(--eb-text-primary)]">Auto-assigned from selected agent</div>
-                                    </div>
-                                    <div>
-                                        <div class="text-xs text-[var(--eb-text-muted)]">Prefix</div>
-                                        <div id="localWizardPrefixLabel" class="text-sm text-[var(--eb-text-primary)]">Device-scoped immutable prefix</div>
+                                <div class="local-wizard-panel-soft mt-2 p-3">
+                                    <div class="text-sm text-[var(--eb-text-primary)]">
+                                        Auto-assigned: <span id="localWizardBucketLabel">assigned at creation</span><span id="localWizardPrefixLabel"></span>
                                     </div>
                                 </div>
                             </div>
@@ -1936,7 +2065,7 @@
                                     <span class="text-xs text-slate-500 ml-auto" x-text="selectedVMs.length + ' selected'"></span>
                                 </div>
 
-                                <div class="h-[420px] overflow-y-auto scrollbar_thin">
+                                <div class="local-wizard-browser-pane overflow-y-auto scrollbar_thin">
                                     <!-- Loading State -->
                                     <div x-show="loading" class="flex items-center justify-center h-full py-12">
                                         <div class="text-center">
@@ -2188,7 +2317,7 @@
                                     <span class="text-xs text-slate-500 ml-auto">Select one disk for bare‑metal backup</span>
                                 </div>
 
-                                <div class="h-[420px] overflow-y-auto scrollbar_thin">
+                                <div class="local-wizard-browser-pane overflow-y-auto scrollbar_thin">
                                     <div x-show="loading" class="flex items-center justify-center h-full py-12">
                                         <div class="text-center">
                                             <svg class="animate-spin h-8 w-8 text-cyan-500 mx-auto mb-2" viewBox="0 0 24 24" fill="none">
@@ -2518,7 +2647,8 @@
 
                     <!-- Step 3: Schedule -->
                     <div class="wizard-step hidden" data-step="3" x-data="localWizardScheduleUI()" x-init="init()">
-                        <label class="block text-sm font-medium text-slate-200 mb-3">Schedule</label>
+                        <label class="block text-sm font-medium text-slate-200 mb-2">Schedule</label>
+                        <p class="text-xs text-[var(--eb-text-muted)] mb-3">Pick how often this job should run. The schedule options below appear once you choose a type.</p>
                         
                         <!-- Hidden inputs for compatibility -->
                         <input type="hidden" id="localWizardTime" x-model="computedTime">
@@ -2571,7 +2701,7 @@
                                                     </svg>
                                                 </template>
                                             </span>
-                                            <span class="block truncate text-slate-100" x-text="scheduleTypeLabels[scheduleType] || 'Select schedule'"></span>
+                                            <span class="block truncate text-slate-100" x-text="scheduleTypeLabels[scheduleType] || 'Pick a schedule type…'"></span>
                                         </span>
                                         <span class="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
                                             <svg class="w-5 h-5 text-slate-400 transition-transform duration-200" :class="scheduleDropdownOpen ? 'rotate-180' : ''" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -2695,25 +2825,37 @@
                                 <p class="text-xs text-slate-500 mt-2">Job will run every hour at the specified minute (e.g., :15 means 1:15, 2:15, 3:15...)</p>
                             </div>
                             
-                            <!-- Daily: Hour + Minute -->
+                            <!-- Daily: Hour + Minute + AM/PM -->
                             <div x-show="scheduleType === 'daily'" x-transition class="rounded-xl border border-slate-700 bg-slate-900/50 p-4">
                                 <label class="block text-xs text-slate-400 mb-2">Run daily at</label>
                                 <div class="flex items-center gap-2">
-                                    <!-- Hour stepper -->
+                                    <!-- Hour stepper (1-12) -->
                                     <div class="flex rounded-xl overflow-hidden ring-1 ring-white/10 bg-slate-800">
-                                        <button type="button" class="px-3 py-2.5 text-white/80 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500" aria-label="Decrease hour" @click="dailyHour = (dailyHour - 1 + 24) % 24">−</button>
-                                        <input x-model.number="dailyHour" type="number" min="0" max="23" step="1" class="eb-no-spinner flex-1 text-center bg-transparent text-white/90 placeholder-white/30 focus:outline-none focus:ring-0 px-2 py-2.5 w-12" />
-                                        <button type="button" class="px-3 py-2.5 text-white/80 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500" aria-label="Increase hour" @click="dailyHour = (dailyHour + 1) % 24">+</button>
+                                        <button type="button" class="px-3 py-2.5 text-white/80 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500" aria-label="Decrease hour" @click="dailyHour = (dailyHour <= 1 ? 12 : dailyHour - 1)">−</button>
+                                        <input x-model.number="dailyHour" type="number" min="1" max="12" step="1" class="eb-no-spinner flex-1 text-center bg-transparent text-white/90 placeholder-white/30 focus:outline-none focus:ring-0 px-2 py-2.5 w-12" @change="dailyHour = Math.min(12, Math.max(1, parseInt(dailyHour, 10) || 12))" />
+                                        <button type="button" class="px-3 py-2.5 text-white/80 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500" aria-label="Increase hour" @click="dailyHour = (dailyHour >= 12 ? 1 : dailyHour + 1)">+</button>
                                     </div>
                                     <span class="text-lg text-slate-400 font-medium">:</span>
-                                    <!-- Minute stepper -->
+                                    <!-- Minute stepper (zero-padded display) -->
                                     <div class="flex rounded-xl overflow-hidden ring-1 ring-white/10 bg-slate-800">
                                         <button type="button" class="px-3 py-2.5 text-white/80 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500" aria-label="Decrease minute" @click="dailyMinute = (dailyMinute - 1 + 60) % 60">−</button>
-                                        <input x-model.number="dailyMinute" type="number" min="0" max="59" step="1" class="eb-no-spinner flex-1 text-center bg-transparent text-white/90 placeholder-white/30 focus:outline-none focus:ring-0 px-2 py-2.5 w-12" />
+                                        <input type="text" inputmode="numeric" maxlength="2"
+                                               :value="String(dailyMinute).padStart(2, '0')"
+                                               @input="dailyMinute = Math.max(0, Math.min(59, parseInt($event.target.value, 10) || 0))"
+                                               @blur="$event.target.value = String(dailyMinute).padStart(2, '0')"
+                                               class="eb-no-spinner flex-1 text-center bg-transparent text-white/90 placeholder-white/30 focus:outline-none focus:ring-0 px-2 py-2.5 w-12 font-mono" />
                                         <button type="button" class="px-3 py-2.5 text-white/80 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500" aria-label="Increase minute" @click="dailyMinute = (dailyMinute + 1) % 60">+</button>
                                     </div>
+                                    <!-- AM / PM toggle -->
+                                    <div class="flex rounded-xl overflow-hidden ring-1 ring-white/10 bg-slate-800 ml-1">
+                                        <button type="button" class="px-3 py-2.5 text-sm font-semibold"
+                                                :class="dailyMeridian === 'am' ? 'bg-cyan-500/20 text-cyan-200' : 'text-white/70 hover:bg-white/10'"
+                                                @click="dailyMeridian = 'am'">AM</button>
+                                        <button type="button" class="px-3 py-2.5 text-sm font-semibold"
+                                                :class="dailyMeridian === 'pm' ? 'bg-cyan-500/20 text-cyan-200' : 'text-white/70 hover:bg-white/10'"
+                                                @click="dailyMeridian = 'pm'">PM</button>
+                                    </div>
                                 </div>
-                                <p class="text-xs text-slate-500 mt-2">Uses 24-hour format (e.g., 14:30 = 2:30 PM)</p>
                             </div>
                             
                             <!-- Weekly: Day checkboxes + Hour + Minute -->
@@ -2733,21 +2875,33 @@
                                 <div>
                                     <label class="block text-xs text-slate-400 mb-2">At time</label>
                                     <div class="flex items-center gap-2">
-                                        <!-- Hour stepper -->
+                                        <!-- Hour stepper (1-12) -->
                                         <div class="flex rounded-xl overflow-hidden ring-1 ring-white/10 bg-slate-800">
-                                            <button type="button" class="px-3 py-2.5 text-white/80 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500" aria-label="Decrease hour" @click="weeklyHour = (weeklyHour - 1 + 24) % 24">−</button>
-                                            <input x-model.number="weeklyHour" type="number" min="0" max="23" step="1" class="eb-no-spinner flex-1 text-center bg-transparent text-white/90 placeholder-white/30 focus:outline-none focus:ring-0 px-2 py-2.5 w-12" />
-                                            <button type="button" class="px-3 py-2.5 text-white/80 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500" aria-label="Increase hour" @click="weeklyHour = (weeklyHour + 1) % 24">+</button>
+                                            <button type="button" class="px-3 py-2.5 text-white/80 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500" aria-label="Decrease hour" @click="weeklyHour = (weeklyHour <= 1 ? 12 : weeklyHour - 1)">−</button>
+                                            <input x-model.number="weeklyHour" type="number" min="1" max="12" step="1" class="eb-no-spinner flex-1 text-center bg-transparent text-white/90 placeholder-white/30 focus:outline-none focus:ring-0 px-2 py-2.5 w-12" @change="weeklyHour = Math.min(12, Math.max(1, parseInt(weeklyHour, 10) || 12))" />
+                                            <button type="button" class="px-3 py-2.5 text-white/80 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500" aria-label="Increase hour" @click="weeklyHour = (weeklyHour >= 12 ? 1 : weeklyHour + 1)">+</button>
                                         </div>
                                         <span class="text-lg text-slate-400 font-medium">:</span>
-                                        <!-- Minute stepper -->
+                                        <!-- Minute stepper (zero-padded display) -->
                                         <div class="flex rounded-xl overflow-hidden ring-1 ring-white/10 bg-slate-800">
                                             <button type="button" class="px-3 py-2.5 text-white/80 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500" aria-label="Decrease minute" @click="weeklyMinute = (weeklyMinute - 1 + 60) % 60">−</button>
-                                            <input x-model.number="weeklyMinute" type="number" min="0" max="59" step="1" class="eb-no-spinner flex-1 text-center bg-transparent text-white/90 placeholder-white/30 focus:outline-none focus:ring-0 px-2 py-2.5 w-12" />
+                                            <input type="text" inputmode="numeric" maxlength="2"
+                                                   :value="String(weeklyMinute).padStart(2, '0')"
+                                                   @input="weeklyMinute = Math.max(0, Math.min(59, parseInt($event.target.value, 10) || 0))"
+                                                   @blur="$event.target.value = String(weeklyMinute).padStart(2, '0')"
+                                                   class="eb-no-spinner flex-1 text-center bg-transparent text-white/90 placeholder-white/30 focus:outline-none focus:ring-0 px-2 py-2.5 w-12 font-mono" />
                                             <button type="button" class="px-3 py-2.5 text-white/80 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500" aria-label="Increase minute" @click="weeklyMinute = (weeklyMinute + 1) % 60">+</button>
                                         </div>
+                                        <!-- AM / PM toggle -->
+                                        <div class="flex rounded-xl overflow-hidden ring-1 ring-white/10 bg-slate-800 ml-1">
+                                            <button type="button" class="px-3 py-2.5 text-sm font-semibold"
+                                                    :class="weeklyMeridian === 'am' ? 'bg-cyan-500/20 text-cyan-200' : 'text-white/70 hover:bg-white/10'"
+                                                    @click="weeklyMeridian = 'am'">AM</button>
+                                            <button type="button" class="px-3 py-2.5 text-sm font-semibold"
+                                                    :class="weeklyMeridian === 'pm' ? 'bg-cyan-500/20 text-cyan-200' : 'text-white/70 hover:bg-white/10'"
+                                                    @click="weeklyMeridian = 'pm'">PM</button>
+                                        </div>
                                     </div>
-                                    <p class="text-xs text-slate-500 mt-2">Uses 24-hour format</p>
                                 </div>
                             </div>
                             
@@ -3163,9 +3317,15 @@
 
             </div>
 
-            <div class="eb-modal-footer shrink-0">
+            <div class="eb-modal-footer shrink-0 flex flex-wrap items-center gap-3">
                 <button type="button" class="eb-btn eb-btn-secondary eb-btn-sm" onclick="localWizardPrev()">Back</button>
-                <div class="flex gap-2">
+                <button
+                    type="button"
+                    id="localWizardNextHint"
+                    class="local-wizard-next-hint hidden text-xs text-[var(--eb-text-muted)] underline-offset-2 hover:underline"
+                    onclick="localWizardScrollToFirstMissing()"
+                ></button>
+                <div class="flex gap-2 ml-auto">
                     <button type="button" class="eb-btn eb-btn-secondary eb-btn-sm" onclick="closeLocalJobWizard()">Cancel</button>
                     <button type="button" id="localWizardNextBtn" data-local-wizard-next class="eb-btn eb-btn-primary eb-btn-sm" onclick="localWizardNext()">Next</button>
                 </div>

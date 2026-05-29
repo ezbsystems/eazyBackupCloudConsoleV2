@@ -159,7 +159,7 @@ accounts/modules/addons/cloudstorage/
 ├── templates/
 │   ├── e3backup_jobs.tpl              # Job list template
 │   ├── e3backup_runs.tpl              # Run history template
-│   ├── cloudbackup_live.tpl           # Live progress template
+│   ├── e3backup_live.tpl              # Live progress template
 │   └── admin/
 │       └── cloudbackup_admin.tpl      # Admin template
 ├── api/
@@ -286,7 +286,7 @@ if (isset($_POST['status'])) {
 - View logs
   - Quick link to the Run History / logs for the job (`cloudbackup_runs` view). From there you can open a specific run’s details or navigate to the Live view for an active run.
 
-> Stopping a running job: Cancelling an in‑flight run is performed from the Live view (`cloudbackup_live`) via the “Cancel Run” button, which calls `api/cloudbackup_cancel_run.php` and sets `cancel_requested=1` for the active run.
+> Stopping a running job: Cancelling an in‑flight run is performed from the Live view (`e3backup_live`) via the “Cancel Run” button, which calls `api/cloudbackup_cancel_run.php` and sets `cancel_requested=1` for the active run.
 
 ```371:401:accounts/modules/addons/cloudstorage/lib/Client/CloudBackupController.php
 public static function cancelRun($runId, $clientId)
@@ -769,7 +769,7 @@ To avoid exposing sensitive implementation details or raw rclone output, the cli
 - Formatter (PHP)
   - `accounts/modules/addons/cloudstorage/lib/Client/CloudBackupEventFormatter.php` renders end‑user messages from `message_id` and `params`, using `HelperController::formatSizeUnitsPlain()` for sizes/speeds (no HTML).
 - UI
-  - Live: `accounts/modules/addons/cloudstorage/templates/cloudbackup_live.tpl` polls `cloudbackup_progress.php` for metrics and `cloudbackup_get_run_events.php` for lines. Only sanitized events are displayed.
+  - Live: `accounts/modules/addons/cloudstorage/templates/e3backup_live.tpl` polls `cloudbackup_progress.php` for metrics and `cloudbackup_get_run_events.php` for lines. Only sanitized events are displayed.
   - Run Details modal: `accounts/modules/addons/cloudstorage/templates/cloudbackup_runs.tpl` fetches `cloudbackup_get_run_events.php` and renders the same sanitized event list.
   - Transition helper: `api/cloudbackup_get_live_logs.php` prefers events where available and otherwise returns legacy formatted text for older runs (admin/diagnostics).
 

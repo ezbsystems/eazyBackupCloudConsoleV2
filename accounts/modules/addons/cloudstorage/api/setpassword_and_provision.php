@@ -111,10 +111,25 @@ try {
     $newPassword = (string)($_POST['new_password'] ?? '');
     $confirmPassword = (string)($_POST['new_password_confirm'] ?? '');
     $username = (string)($_POST['username'] ?? '');
+
+    // Round 2: If the welcome flow already collected & cached the portal
+    // password via set_portal_password.php, use it. The welcome drawer no
+    // longer asks for password fields. We treat the session value as the
+    // authoritative new password and skip the WHMCS UpdateClient / UpdateUser
+    // calls below (already done by set_portal_password.php).
+    $passwordFromSession = false;
+    if (session_status() === PHP_SESSION_NONE) {
+        @session_start();
+    }
+    if ($newPassword === '' && !empty($_SESSION['eb_portal_password_for_provision'])) {
+        $newPassword = (string) $_SESSION['eb_portal_password_for_provision'];
+        $confirmPassword = $newPassword;
+        $passwordFromSession = true;
+    }
     // Storage tier for Cloud Storage product: 'trial_limited' (free, 1TiB cap) or 'trial_unlimited' (CC provided)
     $storageTier = strtolower(trim((string)($_POST['storage_tier'] ?? '')));
 
-    $valid = ['backup','cloudbackup','storage','cloudstorage','ms365','m365','cloud2cloud','cloud-to-cloud'];
+    $valid = ['backup','cloudbackup','storage','cloudstorage','ms365','m365','cloud2cloud','cloud-to-cloud','e3backup','e3_backup','e3-backup','cloudbackup_e3'];
     if ($choice === '' || !in_array($choice, $valid, true)) {
         echo json_encode(['status' => 'error', 'errors' => ['general' => 'Invalid product selection.']]);
         exit;
@@ -124,6 +139,16 @@ try {
     if (in_array($choice, ['storage','cloudstorage'], true)) $choice = 'storage';
     if (in_array($choice, ['ms365','m365'], true)) $choice = 'ms365';
     if (in_array($choice, ['cloud2cloud','cloud-to-cloud'], true)) $choice = 'cloud2cloud';
+    if (in_array($choice, ['e3backup','e3_backup','e3-backup','cloudbackup_e3'], true)) $choice = 'e3backup';
+
+    // Beta gate for e3backup
+    if ($choice === 'e3backup') {
+        require_once __DIR__ . '/../lib/Beta/BetaGate.php';
+        if (!\WHMCS\Module\Addon\CloudStorage\Beta\BetaGate::isE3BackupVisible($clientId)) {
+            echo json_encode(['status' => 'error', 'errors' => ['general' => 'e3 Cloud Backup is not available for your account yet.']]);
+            exit;
+        }
+    }
 
     // Validate and normalize storage tier for Cloud Storage
     if ($choice === 'storage') {
@@ -153,8 +178,8 @@ try {
     } elseif (strlen($newPassword) < 8) {
         $errors['new_password'] = 'Password must be at least 8 characters long.';
     }
-    // Username required for backup/ms365
-    if ($choice === 'backup' || $choice === 'ms365') {
+    // Username required for backup/ms365/e3backup
+    if ($choice === 'backup' || $choice === 'ms365' || $choice === 'e3backup') {
         if ($username === '') {
             $errors['username'] = 'Please enter a username.';
         } elseif (!preg_match('/^[A-Za-z0-9_.-]{6,}$/', $username)) {
@@ -167,14 +192,17 @@ try {
     }
 
     $adminUser = 'API';
-    // 1) Update client password (legacy)
-    $cliRes = localAPI('UpdateClient', [
-        'clientid'  => $clientId,
-        'password2' => $newPassword,
-    ], $adminUser);
-    if (($cliRes['result'] ?? '') !== 'success') {
-        echo json_encode(['status' => 'error', 'errors' => ['general' => 'Unable to update account password.']] );
-        exit;
+    // 1) Update client password (legacy) — skipped when the welcome modal
+    // already wrote the password via set_portal_password.php.
+    if (!$passwordFromSession) {
+        $cliRes = localAPI('UpdateClient', [
+            'clientid'  => $clientId,
+            'password2' => $newPassword,
+        ], $adminUser);
+        if (($cliRes['result'] ?? '') !== 'success') {
+            echo json_encode(['status' => 'error', 'errors' => ['general' => 'Unable to update account password.']] );
+            exit;
+        }
     }
 
     // 2) Update WHMCS user password (tblusers)
@@ -192,8 +220,8 @@ try {
         } catch (\Throwable $e) {}
     }
 
-    $userUpdated = false;
-    if ($userId) {
+    $userUpdated = $passwordFromSession; // set_portal_password.php already did this
+    if ($userId && !$userUpdated) {
         try {
             $u1 = localAPI('UpdateUser', ['user_id' => $userId, 'password' => $newPassword], $adminUser);
             if (($u1['result'] ?? '') === 'success') {
@@ -378,6 +406,9 @@ try {
             case 'cloud2cloud':
                 $redirectUrl = Provisioner::provisionCloudToCloud($clientId);
                 break;
+            case 'e3backup':
+                $redirectUrl = Provisioner::provisionE3CloudBackup($clientId, $username, $newPassword);
+                break;
             default:
                 echo json_encode(['status' => 'error', 'errors' => ['general' => 'Unknown product selection.']]);
                 exit;
@@ -407,6 +438,12 @@ try {
         }
     } catch (\Throwable $e) {
         // Non-fatal
+    }
+
+    // Round 2: provision succeeded — purge the cached plaintext immediately.
+    // It is no longer needed for any subsequent request in this session.
+    if (isset($_SESSION['eb_portal_password_for_provision'])) {
+        unset($_SESSION['eb_portal_password_for_provision']);
     }
 
     // If updating the password invalidated the current session, ensure continuity via SSO

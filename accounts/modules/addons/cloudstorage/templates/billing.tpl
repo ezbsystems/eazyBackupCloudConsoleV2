@@ -63,6 +63,92 @@
             </div>
         </div>
 
+        {if $cloudBackupPreview}
+        <!-- e3 Cloud Backup Usage Card -->
+        <div class="eb-app-card mb-8">
+            <div class="eb-app-card-header border-b border-[var(--eb-border-subtle)] pb-4 flex items-center justify-between">
+                <h4 class="eb-app-card-title">e3 Cloud Backup Usage</h4>
+                <span class="text-sm text-gray-400">
+                    Window: {$cloudBackupPreview.window.start} &rarr; {$cloudBackupPreview.window.end}
+                </span>
+            </div>
+            <div class="eb-app-card-body">
+                {if $cloudBackupSuspended}
+                    <div class="rounded-md p-4 mb-4" style="background:rgba(220,38,38,0.12); border:1px solid rgba(220,38,38,0.4);">
+                        <p class="text-rose-300 font-semibold mb-1">Your e3 Cloud Backup services are currently suspended.</p>
+                        <p class="text-sm text-rose-200">Add a payment method to reactivate. Your backup data has been preserved and will resume automatically once payment is on file.</p>
+                        <a href="{routePath('account-paymentmethods')}" class="eb-btn eb-btn-orange eb-btn-sm mt-3">Add Payment Method</a>
+                    </div>
+                {elseif $cloudBackupTrialState && $cloudBackupTrialState->status == 'trialing'}
+                    <div class="rounded-md p-4 mb-4" style="background:rgba(59,130,246,0.10); border:1px solid rgba(59,130,246,0.35);">
+                        <p class="text-blue-300 font-semibold mb-1">Free trial active</p>
+                        <p class="text-sm text-blue-200">
+                            You are in your e3 Cloud Backup trial period. Your trial ends on
+                            <strong>{$cloudBackupTrialState->trial_ends_at|substr:0:10}</strong>.
+                            We will only invoice you after your trial ends. The estimated first invoice below shows what your usage today would cost on a paid plan.
+                        </p>
+                    </div>
+                {/if}
+
+                <div class="overflow-x-auto">
+                    <table class="min-w-full text-sm">
+                        <thead>
+                            <tr class="text-gray-400 border-b border-[var(--eb-border-subtle)]">
+                                <th class="text-left py-2">Metric</th>
+                                <th class="text-right py-2">Qty (cycle MAX)</th>
+                                <th class="text-right py-2">Unit Price</th>
+                                <th class="text-right py-2">Line Amount</th>
+                                <th class="text-left py-2 pl-4">Pricing</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {foreach from=$cloudBackupPreview.lines item=line}
+                                <tr class="border-b border-[var(--eb-border-subtle)]">
+                                    <td class="py-2 text-white">{$line.metric_label}</td>
+                                    <td class="py-2 text-right text-white">{$line.qty}</td>
+                                    <td class="py-2 text-right text-white">${$line.unit_price|string_format:"%.4f"}</td>
+                                    <td class="py-2 text-right text-white">${$line.line_amount|string_format:"%.2f"}</td>
+                                    <td class="py-2 pl-4">
+                                        {if $line.source == 'client_override'}
+                                            <span class="eb-badge eb-badge--info">Custom pricing</span>
+                                        {elseif $line.source == 'flat_monthly'}
+                                            <span class="eb-badge eb-badge--info">Flat monthly</span>
+                                        {elseif $line.source == 'trial_zeroed'}
+                                            <span class="eb-badge eb-badge--default">Trial period</span>
+                                        {elseif $line.source == 'global_default'}
+                                            <span class="eb-badge eb-badge--default">Default</span>
+                                        {else}
+                                            <span class="text-gray-400">Standard</span>
+                                        {/if}
+                                        {if $line.tier_label}
+                                            <span class="text-xs text-gray-400 ml-2">({$line.tier_label})</span>
+                                        {/if}
+                                    </td>
+                                </tr>
+                            {/foreach}
+                        </tbody>
+                        <tfoot>
+                            <tr>
+                                <th colspan="3" class="text-right py-2 pr-3 text-white">Estimated this cycle:</th>
+                                <th class="text-right py-2 text-2xl font-semibold {if $cloudBackupTrialState && $cloudBackupTrialState->status == 'trialing'}text-blue-300{else}text-green-400{/if}">
+                                    ${$cloudBackupPreview.total_billable|string_format:"%.2f"}
+                                </th>
+                                <th></th>
+                            </tr>
+                            {if $cloudBackupTrialState && $cloudBackupTrialState->status == 'trialing'}
+                            <tr>
+                                <th colspan="3" class="text-right text-xs text-gray-400 pr-3">If paid (post-trial):</th>
+                                <th class="text-right text-sm text-gray-300">${$cloudBackupPreview.total_if_paid|string_format:"%.2f"}</th>
+                                <th></th>
+                            </tr>
+                            {/if}
+                        </tfoot>
+                    </table>
+                </div>
+            </div>
+        </div>
+        {/if}
+
         <!-- Data Usage Cards -->
         <div class="grid grid-cols-1 sm:grid-cols-3 gap-6 mb-8">
             <!-- Data Ingress Card -->

@@ -6,7 +6,7 @@
  * This provides a proper restore flow where:
  * 1. A new "restore" run is created for progress tracking
  * 2. The restore command is queued referencing the original backup run
- * 3. The UI can redirect to cloudbackup_live.tpl to show restore progress
+ * 3. The UI can redirect to e3backup_live.tpl to show restore progress
  * 4. Email notifications are sent on completion
  */
 

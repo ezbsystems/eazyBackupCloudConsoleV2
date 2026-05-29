@@ -2,6 +2,18 @@
 
 _Pair this guide with `BETA_KNOWN_LIMITATIONS.md`._
 
+## 0. First sign in
+
+After verifying your email, the Welcome page will prompt you to **create
+your portal password** before you can pick a product. This is the same
+password your e3 Cloud Backup agent will use to sign in from your
+Windows or Linux machine — choose something you can remember.
+
+Once your password is set, the product picker unlocks. Selecting
+**e3 Cloud Backup** opens a short drawer that only asks for the
+**backup agent username** you want (your portal password from the
+previous step is automatically reused as the backup agent password).
+
 ## 1. Enroll an agent
 - Linux: download `e3-backup-agent-linux`, drop into `/usr/local/bin`,
   run `e3-backup-agent -enroll -token <one-time-token>` then
@@ -11,15 +23,35 @@ _Pair this guide with `BETA_KNOWN_LIMITATIONS.md`._
   the wizard. The service starts automatically and the tray helper
   launches at next login.
 
+### Quick-enroll (recommended for testers)
+
+The user detail page (Cloud Backup -> Users -> *click row* -> Agents tab)
+now exposes a **Generate token** button. It mints a 60-minute single-use
+token and renders ready-to-paste install snippets for:
+
+- Linux
+- Windows Server 2019
+- Windows Server 2025
+
+Copy the snippet and paste it into the test box. The agent will appear in
+the Agents table on the same page within ~10 seconds.
+
 ## 2. First backup
-- Sign in to the customer portal → Cloud Backup → Jobs → New Job.
-- Pick the source (Files, Disk Image, or Hyper-V VMs), the
-  destination bucket, and the schedule. Save.
+- Sign in to the customer portal → e3 Cloud Backup → Users → click your
+  username to open the user detail page.
+- Click **Create Job → e3 Cloud Backup** (Files, Folders, Disk Image,
+  Virtual Machines). A guided tour highlights the Job Name, Backup
+  Engine, and Agent fields the first time through. Pick the source
+  (File Backup, Disk Image, or Hyper-V VMs), the destination, and the
+  schedule. Save.
 - Click **Run now** to verify enrollment + credentials before the
   scheduler picks it up.
 - A successful run renders **Success** (green). A multi-VM Hyper-V
   run with one bad VM renders **Partial Success** (amber); see the
   per-VM details in the run log.
+- The second menu option, **SaaS Backup (Cloud-to-Cloud)**, is for
+  protecting data that already lives in another cloud (Google Drive,
+  Dropbox, SFTP, S3, AWS). It does not require a local agent.
 
 ## 3. File restore
 - Cloud Backup → Restore Points → pick a row marked **Success** →

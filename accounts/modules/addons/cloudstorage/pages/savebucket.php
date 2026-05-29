@@ -31,7 +31,7 @@
     $packageId = ProductConfig::$E3_PRODUCT_ID;
     $product = DBController::getProduct($clientId, $packageId);
 
-    if (is_null($product) || is_null($product->username)) {
+    if (is_null($product) || empty($product->username)) {
         $_SESSION['message'] = 'Account not exist.';
         header('location: index.php?m=cloudstorage&page=s3storage');
         exit;

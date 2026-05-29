@@ -999,6 +999,7 @@
                             cols: { username: true, name: true, emails: true, reports: true, devices: true, items: true, vaults: true, storage: true, hv: true, vmw: true, m365: true },
                             init() {
                                 this.rows = Array.from(this.$refs.tbody.querySelectorAll('tr[data-account-row]'));
+                                try { window.EB && window.EB.bindCols && window.EB.bindCols(this, 'dashboard-users'); } catch(_) {}
                                 this.$watch('search', () => {
                                     this.currentPage = 1;
                                     this.refreshRows();

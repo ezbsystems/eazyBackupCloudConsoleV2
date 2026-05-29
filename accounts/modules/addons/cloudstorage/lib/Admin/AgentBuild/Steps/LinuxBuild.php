@@ -11,7 +11,9 @@ class LinuxBuild extends StepBase
     {
         $repo = (string) Settings::get('agent_build_repo_path', '/var/www/eazybackup.ca/e3-backup-agent');
         $version = (string) ($job['version_label'] ?: 'dev');
-        $env = array_merge($_ENV ?: [], ['VERSION' => $version, 'PATH' => getenv('PATH') ?: '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin']);
-        return $runner->run(['make', 'build'], $logPath, $repo, $env);
+        // Pass VERSION as a Make variable so we don't have to build an explicit
+        // $env array (which would mask the systemd/inherited env including
+        // PATH, HOME, GOCACHE, GOMODCACHE, GOTMPDIR).
+        return $runner->run(['make', 'VERSION=' . $version, 'build'], $logPath, $repo);
     }
 }

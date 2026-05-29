@@ -135,8 +135,21 @@
                         <tr x-show="restorePoints.length === 0">
                             <td colspan="5">
                                 <div class="eb-app-empty !py-8">
-                                    <div class="eb-app-empty-title">No disk image restore points found</div>
-                                    <p class="eb-app-empty-copy">Adjust your filters or wait for a new disk image backup to complete.</p>
+                                    <span class="eb-icon-box eb-icon-box--lg eb-icon-box--default mb-3" aria-hidden="true">
+                                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-6 w-6">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M3.75 4.5h16.5M4.5 4.5v15a.75.75 0 0 0 .75.75h13.5a.75.75 0 0 0 .75-.75v-15" />
+                                        </svg>
+                                    </span>
+                                    <div class="eb-app-empty-title">Restore points appear after your first successful backup</div>
+                                    <p class="eb-app-empty-copy">
+                                        We list every recoverable disk image snapshot here once at least one disk-image job has completed.
+                                        Adjust your filters above if you expected to see restore points.
+                                    </p>
+                                    <div class="mt-4 flex flex-wrap items-center justify-center gap-2">
+                                        <a href="index.php?m=cloudstorage&page=e3backup&view=getting_started" class="eb-btn eb-btn-primary eb-btn-sm">
+                                            Open Getting Started
+                                        </a>
+                                    </div>
                                 </div>
                             </td>
                         </tr>

@@ -2,6 +2,10 @@
 
 Cloud Storage is a WHMCS addon module that manages S3-compatible storage on a Ceph RADOS Gateway (RGW). It provides customer self-service for buckets, access keys, subusers, browsing, and usage; and it integrates with Ceph Admin Ops APIs for administrative/statistical functions and the S3 API for data operations.
 
+> **e3 Cloud Backup billing**: the new e3 Cloud Backup product (separate WHMCS PID, auto-provisioned by `cloudstorage_activate`) is metered + rated by `accounts/crons/e3_cloudbackup_billing.php` and a daily trial check at `accounts/modules/addons/cloudstorage/crons/e3_cloudbackup_trial_check.php`. See [`E3_CLOUD_BACKUP_BILLING.md`](E3_CLOUD_BACKUP_BILLING.md) for the canonical reference.
+>
+> **e3 Cloud Backup onboarding**: first-run customer experience (Getting Started page, driver.js tour, "Setup: X of 4" pill, zero-agent sidebar trim, admin-only Quick Enroll). See [`E3_CLOUD_BACKUP_ONBOARDING.md`](E3_CLOUD_BACKUP_ONBOARDING.md).
+
 ## What it does
 - Customer self-service dashboard for S3 buckets (create, list, browse, delete)
 - Access Keys and Subuser management

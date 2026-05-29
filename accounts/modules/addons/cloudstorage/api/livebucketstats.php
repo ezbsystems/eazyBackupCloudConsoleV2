@@ -17,7 +17,7 @@
     $loggedInUserId = $ca->getUserID();
     $packageId = ProductConfig::$E3_PRODUCT_ID;
     $product = DBController::getProduct($loggedInUserId, $packageId);
-    if (is_null($product) || is_null($product->username)) {
+    if (is_null($product) || empty($product->username)) {
         $response = new JsonResponse(['status' => 'fail', 'message' => 'User does not exist.'], 200);
         $response->send();
         exit();

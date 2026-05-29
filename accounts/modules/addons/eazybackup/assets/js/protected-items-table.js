@@ -41,27 +41,53 @@
     });
   }
 
+  function rowAttr(btn, name) {
+    try {
+      var row = btn && btn.closest ? btn.closest('tr[data-protected-row]') : null;
+      return row ? (row.getAttribute(name) || '') : '';
+    } catch (_) { return ''; }
+  }
+
+  function resolveItemId(btn) {
+    // Prefer the button's own data-pi-id, but fall back to the row in case
+    // a template change ever leaves the button attribute empty.
+    var fromBtn = btn.getAttribute('data-pi-id') || '';
+    if (fromBtn !== '') return fromBtn;
+    return rowAttr(btn, 'data-pi-id');
+  }
+
+  function missingIdToast(actionLabel) {
+    var msg = 'Could not identify this Protected Item (missing id). Please refresh the page and try again. If the problem persists, contact support.';
+    try {
+      if (window.showToast) window.showToast(msg, 'error');
+      else if (window.console && window.console.warn) window.console.warn('[protected-items-table] ' + actionLabel + ': empty itemId');
+    } catch (_) {}
+  }
+
   function onClick(e) {
     var btn = e.target && e.target.closest && e.target.closest('[data-pi-action]');
     if (!btn) return;
     var action = btn.getAttribute('data-pi-action');
-    var itemId = btn.getAttribute('data-pi-id') || '';
+    var itemId = resolveItemId(btn);
     var deviceId = btn.getAttribute('data-pi-device') || '';
-    var name = btn.getAttribute('data-pi-name') || '';
+    var name = btn.getAttribute('data-pi-name') || rowAttr(btn, 'data-pi-name');
 
     if (action === 'edit') {
       e.preventDefault();
+      if (!itemId) { missingIdToast('edit'); return; }
       window.openProtectedItemWizard && window.openProtectedItemWizard('edit', { itemId: itemId, deviceId: deviceId });
       return;
     }
     if (action === 'delete') {
       e.preventDefault();
+      if (!itemId) { missingIdToast('delete'); return; }
       var rules = parseRules(btn);
       window.dispatchEvent(new CustomEvent('pi-delete:open', { detail: { itemId: itemId, name: name, rules: rules } }));
       return;
     }
     if (action === 'run') {
       e.preventDefault();
+      if (!itemId) { missingIdToast('run'); return; }
       var rules = parseRules(btn);
       pickVaultForRun(rules).then(function (vaultId) {
         if (!vaultId) {

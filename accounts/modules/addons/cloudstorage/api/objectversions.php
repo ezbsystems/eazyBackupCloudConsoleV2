@@ -69,7 +69,7 @@ if ($clientId <= 0) {
 }
 
 $product = DBController::getProduct($clientId, $packageId);
-if (is_null($product) || is_null($product->username)) {
+if (is_null($product) || empty($product->username)) {
     $response = new JsonResponse(['status' => 'fail', 'message' => 'User not exist.'], 200);
     $response->send();
     exit();

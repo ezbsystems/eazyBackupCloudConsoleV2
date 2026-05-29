@@ -1,0 +1,13 @@
+
+[2026-05-26 16:11:13] $ 'go' 'test' './...'
+?   	github.com/your-org/e3-backup-agent/cmd/agent	[no test files]
+?   	github.com/your-org/e3-backup-agent/cmd/recovery	[no test files]
+?   	github.com/your-org/e3-backup-agent/cmd/tray	[no test files]
+ok  	github.com/your-org/e3-backup-agent/internal/agent	(cached)
+?   	github.com/your-org/e3-backup-agent/internal/agent/hyperv	[no test files]
+?   	github.com/your-org/e3-backup-agent/internal/agent/vhdx	[no test files]
+?   	github.com/your-org/e3-backup-agent/internal/applog	[no test files]
+?   	github.com/your-org/e3-backup-agent/internal/config	[no test files]
+?   	github.com/your-org/e3-backup-agent/internal/crypto	[no test files]
+?   	github.com/your-org/e3-backup-agent/internal/logs	[no test files]
+[2026-05-26 16:11:14] exit=0

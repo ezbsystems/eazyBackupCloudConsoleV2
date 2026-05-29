@@ -11,7 +11,6 @@ class WindowsBuild extends StepBase
     {
         $repo = (string) Settings::get('agent_build_repo_path', '/var/www/eazybackup.ca/e3-backup-agent');
         $version = (string) ($job['version_label'] ?: 'dev');
-        $env = array_merge($_ENV ?: [], ['VERSION' => $version, 'PATH' => getenv('PATH') ?: '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin']);
-        return $runner->run(['make', 'build-windows'], $logPath, $repo, $env);
+        return $runner->run(['make', 'VERSION=' . $version, 'build-windows'], $logPath, $repo);
     }
 }

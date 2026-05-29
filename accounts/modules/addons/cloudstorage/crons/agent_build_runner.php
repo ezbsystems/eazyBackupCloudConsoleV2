@@ -15,6 +15,26 @@ require_once __DIR__ . '/../lib/Admin/AgentBuild/bootstrap.php';
 
 use WHMCS\Module\Addon\CloudStorage\Admin\AgentBuild\BuildRunner;
 use WHMCS\Module\Addon\CloudStorage\Admin\AgentBuild\JobStore;
+use WHMCS\Module\Addon\CloudStorage\Admin\AgentBuild\Settings;
+
+// Ensure the Go toolchain has writable cache/tmp directories no matter how
+// this runner is invoked (systemd, cron, or interactive shell). Default the
+// caches alongside the build clone so they're owned by the runner user and
+// don't pollute the web tree. Honour any explicit env already in place.
+$cacheParent = dirname((string) Settings::get('agent_build_git_root',
+    (string) Settings::get('agent_build_repo_path', '/srv/agent-build/eazyBackupCloudConsoleV2')));
+foreach ([
+    'GOCACHE'    => $cacheParent . '/.gocache',
+    'GOMODCACHE' => $cacheParent . '/.gomodcache',
+    'GOTMPDIR'   => $cacheParent . '/.gotmp',
+] as $envKey => $defaultPath) {
+    $current = getenv($envKey);
+    if ($current === false || $current === '') {
+        @mkdir($defaultPath, 0775, true);
+        putenv($envKey . '=' . $defaultPath);
+        $_ENV[$envKey] = $defaultPath;
+    }
+}
 
 $lockPath = JobStore::storageRoot() . '/.runner.lock';
 if (!is_dir(dirname($lockPath))) {

@@ -536,6 +536,7 @@
                 cols: { name: true, type: true, size: true, actions: true },
                 init() {
                   this.rows = Array.from(this.$refs.tbody.querySelectorAll('tr[data-protected-row]'));
+                  try { window.EB && window.EB.bindCols && window.EB.bindCols(this, 'user-protected-items'); } catch(_) {}
                   this.$watch('search', () => {
                     this.currentPage = 1;
                     this.refreshRows();
@@ -713,8 +714,13 @@
                 {if $protectedItems|@count > 0}
                   {foreach from=$protectedItems item=item}
                     {assign var=piRulesJson value=$item.rules|json_encode}
+                    {* IMPORTANT: do NOT pipe $item.id through |default:''. Smarty's `default`
+                       uses PHP empty(), which treats numeric-like IDs (e.g. "0") as empty and
+                       would silently emit an empty data-pi-id, causing piDelete (and Run/Edit)
+                       to fail with "itemId required". `escape:'html'` alone preserves "0" and
+                       still produces an empty string if id is null/missing. *}
                     <tr data-protected-row="1"
-                        data-pi-id="{$item.id|default:''|escape:'html'}"
+                        data-pi-id="{$item.id|escape:'html'}"
                         data-pi-name="{$item.name|default:''|escape:'html'}"
                         data-pi-engine="{$item.engine|default:''|escape:'html'}"
                         data-pi-device="{$item.ownerDeviceId|default:''|escape:'html'}"
@@ -729,7 +735,7 @@
                         <div class="inline-flex items-center gap-2">
                           <button type="button" class="eb-btn eb-btn-success eb-btn-xs"
                                   data-pi-action="run"
-                                  data-pi-id="{$item.id|default:''|escape:'html'}"
+                                  data-pi-id="{$item.id|escape:'html'}"
                                   data-pi-device="{$item.ownerDeviceId|default:''|escape:'html'}"
                                   data-pi-rules="{$piRulesJson|escape:'html'}"
                                   data-pi-name="{$item.name|default:''|escape:'html'}">
@@ -737,14 +743,14 @@
                           </button>
                           <button type="button" class="eb-btn eb-btn-icon eb-btn-sm"
                                   data-pi-action="edit"
-                                  data-pi-id="{$item.id|default:''|escape:'html'}"
+                                  data-pi-id="{$item.id|escape:'html'}"
                                   data-pi-device="{$item.ownerDeviceId|default:''|escape:'html'}"
                                   aria-label="Edit">
                             <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125"/></svg>
                           </button>
                           <button type="button" class="eb-btn eb-btn-icon eb-btn-sm is-danger"
                                   data-pi-action="delete"
-                                  data-pi-id="{$item.id|default:''|escape:'html'}"
+                                  data-pi-id="{$item.id|escape:'html'}"
                                   data-pi-name="{$item.name|default:''|escape:'html'}"
                                   data-pi-rules="{$piRulesJson|escape:'html'}"
                                   aria-label="Delete">
@@ -880,6 +886,7 @@
               pctColor(p){ if(p===null||p==='') return 'bg-slate-700'; if(p<70) return 'bg-emerald-500'; if(p<90) return 'bg-amber-500'; return 'bg-rose-500'; },
               init() {
                 this.rows = Array.from(this.$refs.tbody.querySelectorAll('tr[data-vault-row]'));
+                try { window.EB && window.EB.bindCols && window.EB.bindCols(this, 'user-vaults'); } catch(_) {}
                 this.$watch('search', () => {
                   this.currentPage = 1;
                   this.refreshRows();
@@ -1240,6 +1247,7 @@
             cols:{ status:true, name:true, id:false, reg:true, ver:true, plat:true, items:true, actions:true },
             init() {
               this.rows = Array.from(this.$refs.tbody.querySelectorAll('tr[data-device-row]'));
+              try { window.EB && window.EB.bindCols && window.EB.bindCols(this, 'user-devices'); } catch(_) {}
               this.$watch('search', () => {
                 this.currentPage = 1;
                 this.refreshRows();
@@ -1472,7 +1480,7 @@
       </div>
       
       <div x-show="activeSubTab === 'jobLogs'" x-cloak x-transition>
-        <div class="eb-subpanel" x-data="{ open:false, search:'', cols:{ user:true, id:false, device:true, item:true, vault:false, ver:false, type:true, status:true, dirs:false, files:false, size:true, vsize:true, up:false, down:false, started:true, ended:true, dur:true } }">
+        <div class="eb-subpanel" x-data="{ open:false, search:'', cols:{ user:true, id:false, device:true, item:true, vault:false, ver:false, type:true, status:true, dirs:false, files:false, size:true, vsize:true, up:false, down:false, started:true, ended:true, dur:true }, init(){ try{ window.EB && window.EB.bindCols && window.EB.bindCols(this, 'user-job-logs'); }catch(_){} } }">
             <div class="border-b px-4 pt-4 pb-3" style="border-color: var(--eb-border-default);">
                 <div class="flex flex-wrap items-center justify-between gap-2">
                     <div class="flex flex-wrap gap-2">

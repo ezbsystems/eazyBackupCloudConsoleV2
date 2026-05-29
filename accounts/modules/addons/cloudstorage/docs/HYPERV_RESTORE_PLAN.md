@@ -284,9 +284,9 @@ Phase 1 implements the foundational restore capability for Hyper-V backups: expo
 
 #### Enhanced Live Progress Page
 
-**Page Controller**: `accounts/modules/addons/cloudstorage/pages/cloudbackup_live.php`
+**Page Controller**: `accounts/modules/addons/cloudstorage/pages/e3backup_live.php`
 
-**Template**: `accounts/modules/addons/cloudstorage/templates/cloudbackup_live.tpl`
+**Template**: `accounts/modules/addons/cloudstorage/templates/e3backup_live.tpl`
 
 **Enhancements**:
 - Detects `run_type=hyperv_restore` and `type=hyperv_restore` in stats_json
@@ -335,8 +335,8 @@ Phase 1 implements the foundational restore capability for Hyper-V backups: expo
 | `internal/agent/runner.go` | Added `hyperv_restore` case |
 | `internal/agent/kopia.go` | Added `kopiaRestoreVHDX()` function |
 | `templates/cloudbackup_hyperv.tpl` | Added Restore button |
-| `templates/cloudbackup_live.tpl` | Hyper-V restore info box |
-| `pages/cloudbackup_live.php` | Hyper-V restore detection |
+| `templates/e3backup_live.tpl` | Hyper-V restore info box |
+| `pages/e3backup_live.php` | Hyper-V restore detection |
 | `lib/Client/CloudBackupEventFormatter.php` | New event message IDs |
 | `cloudstorage.php` | Added routes for hyperv views |
 

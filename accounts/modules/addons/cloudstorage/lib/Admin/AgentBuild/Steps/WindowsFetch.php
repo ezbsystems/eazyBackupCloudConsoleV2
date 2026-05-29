@@ -20,20 +20,34 @@ class WindowsFetch extends StepBase
             @mkdir($localDir, 0750, true);
         }
 
+        // Each entry: [remote-path, local-path, required?]. The installer and
+        // the signed exes are required; the recovery binary is only required
+        // when the build was asked to include it.
         $remoteFiles = [
-            $remoteRoot . '\\Output\\e3-backup-agent-setup.exe' => $localDir . '/e3-backup-agent-setup.exe',
-            $remoteRoot . '\\bin\\e3-backup-agent.exe'          => $localDir . '/e3-backup-agent.exe',
-            $remoteRoot . '\\bin\\e3-backup-tray.exe'           => $localDir . '/e3-backup-tray.exe',
+            [$remoteRoot . '\\Output\\e3-backup-agent-setup.exe', $localDir . '/e3-backup-agent-setup.exe', true],
+            [$remoteRoot . '\\bin\\e3-backup-agent.exe',          $localDir . '/e3-backup-agent.exe',       true],
+            [$remoteRoot . '\\bin\\e3-backup-tray.exe',           $localDir . '/e3-backup-tray.exe',        true],
         ];
         if ($this->flag($job, 'include_recovery')) {
-            $remoteFiles[$remoteRoot . '\\bin\\e3-recovery-agent.exe'] = $localDir . '/e3-recovery-agent.exe';
+            $remoteFiles[] = [$remoteRoot . '\\bin\\e3-recovery-agent.exe', $localDir . '/e3-recovery-agent.exe', true];
         }
-        foreach ($remoteFiles as $rPath => $lPath) {
+
+        $hadRequiredFailure = false;
+        foreach ($remoteFiles as [$rPath, $lPath, $required]) {
             $rc = $runner->run($remote->scpDown($rPath, $lPath), $logPath);
             if ($rc !== 0) {
-                $this->appendLog($logPath, "[warn] could not fetch $rPath");
+                $level = $required ? '[error]' : '[warn]';
+                $this->appendLog($logPath, "$level could not fetch $rPath (rc=$rc)");
+                if ($required) {
+                    $hadRequiredFailure = true;
+                    continue;
+                }
+            }
+            if ($required && (!is_file($lPath) || filesize($lPath) === 0)) {
+                $this->appendLog($logPath, "[error] artifact missing or empty after fetch: $lPath");
+                $hadRequiredFailure = true;
             }
         }
-        return 0;
+        return $hadRequiredFailure ? 1 : 0;
     }
 }

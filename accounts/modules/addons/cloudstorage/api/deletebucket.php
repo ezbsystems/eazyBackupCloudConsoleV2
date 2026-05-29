@@ -41,7 +41,7 @@
 
     $packageId = ProductConfig::$E3_PRODUCT_ID;
     $product = DBController::getProduct($clientId, $packageId);
-    if (is_null($product) || is_null($product->username)) {
+    if (is_null($product) || empty($product->username)) {
         $jsonData = [
             'status' => 'fail',
             'message' => 'User does not exist.'

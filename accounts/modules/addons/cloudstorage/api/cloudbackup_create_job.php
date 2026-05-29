@@ -137,7 +137,7 @@ try {
     respondJson(['status' => 'fail', 'message' => 'CSRF validation failed.'], 400);
 }
 
-$packageId = ProductConfig::$E3_PRODUCT_ID;
+$packageId = ProductConfig::e3CloudBackupPid();
 $loggedInUserId = $ca->getUserID();
 
 $product = DBController::getProduct($loggedInUserId, $packageId);

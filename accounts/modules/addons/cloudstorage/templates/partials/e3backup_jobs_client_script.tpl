@@ -5,13 +5,18 @@
 // ========================================
 function localWizardScheduleUI() {
     return {
-        scheduleType: 'manual',
+        // Round 2: no default schedule type. The customer must explicitly
+        // pick how often the job runs before any sub-panel is revealed.
+        scheduleType: '',
         scheduleDropdownOpen: false,
         hourlyMinute: 0,
+        // 12-hour clock state for the daily/weekly pickers.
         dailyHour: 2,
         dailyMinute: 0,
+        dailyMeridian: 'am',
         weeklyHour: 2,
         weeklyMinute: 0,
+        weeklyMeridian: 'am',
         selectedWeekdays: [],
         cronExpr: '',
         scheduleTypeLabels: {
@@ -40,28 +45,36 @@ function localWizardScheduleUI() {
                 const cronEl = document.getElementById('localWizardCron');
                 
                 // Get existing values
-                const existingType = typeEl?.value || 'manual';
+                // Round 2: default is now '' (unselected). Existing edit-mode
+                // jobs still come in with a real type from typeEl, so we
+                // honour that and only blank for net-new jobs.
+                const existingType = typeEl?.value || '';
                 const existingTime = timeEl?.value || '';
                 const existingWeekday = weekdayEl?.value || '';
                 const existingCron = cronEl?.value || '';
-                
+
                 this.scheduleType = existingType;
                 this.cronExpr = existingCron;
-                
-                // Parse existing time
+
+                // Parse existing 24-hour time string into 12-hour + meridian.
                 if (existingTime) {
                     const parts = existingTime.split(':');
                     if (parts.length >= 2) {
-                        const h = parseInt(parts[0], 10) || 0;
+                        const h24 = parseInt(parts[0], 10) || 0;
                         const m = parseInt(parts[1], 10) || 0;
+                        const meridian = (h24 >= 12) ? 'pm' : 'am';
+                        let h12 = h24 % 12;
+                        if (h12 === 0) { h12 = 12; }
                         if (existingType === 'hourly') {
                             this.hourlyMinute = m;
                         } else if (existingType === 'daily') {
-                            this.dailyHour = h;
+                            this.dailyHour = h12;
                             this.dailyMinute = m;
+                            this.dailyMeridian = meridian;
                         } else if (existingType === 'weekly') {
-                            this.weeklyHour = h;
+                            this.weeklyHour = h12;
                             this.weeklyMinute = m;
+                            this.weeklyMeridian = meridian;
                         }
                     }
                 }
@@ -96,12 +109,21 @@ function localWizardScheduleUI() {
         },
         
         get computedTime() {
+            const to24 = (h12, meridian) => {
+                let h = parseInt(h12, 10);
+                if (isNaN(h) || h < 1 || h > 12) { h = 12; }
+                if ((meridian || 'am') === 'pm' && h !== 12) { h += 12; }
+                if ((meridian || 'am') === 'am' && h === 12) { h = 0; }
+                return h;
+            };
             if (this.scheduleType === 'hourly') {
                 return String(this.hourlyMinute).padStart(2, '0') + ':00';
             } else if (this.scheduleType === 'daily') {
-                return String(this.dailyHour).padStart(2, '0') + ':' + String(this.dailyMinute).padStart(2, '0');
+                const h24 = to24(this.dailyHour, this.dailyMeridian);
+                return String(h24).padStart(2, '0') + ':' + String(this.dailyMinute).padStart(2, '0');
             } else if (this.scheduleType === 'weekly') {
-                return String(this.weeklyHour).padStart(2, '0') + ':' + String(this.weeklyMinute).padStart(2, '0');
+                const h24 = to24(this.weeklyHour, this.weeklyMeridian);
+                return String(h24).padStart(2, '0') + ':' + String(this.weeklyMinute).padStart(2, '0');
             }
             return '';
         },
@@ -1762,8 +1784,9 @@ function resetLocalWizardFields() {
     });
     const week = document.getElementById('localWizardWeekday');
     if (week) week.value = '1';
+    // Round 2: no default schedule type. Customer must pick one.
     const sched = document.getElementById('localWizardScheduleType');
-    if (sched) sched.value = 'manual';
+    if (sched) sched.value = '';
     const bw = document.getElementById('localWizardBandwidth');
     if (bw) bw.value = '0';
     const par = document.getElementById('localWizardParallelism');
@@ -1781,12 +1804,25 @@ function resetLocalWizardFields() {
         if (data) {
             data.selectedId = '';
             data.selectedAgent = null;
+            data.autoSelected = false;
+            // Round 2: re-run the single-agent auto-select. The picker
+            // auto-selects on page-load init(), but this reset (which runs
+            // every time the wizard opens) clears that selection — so we
+            // re-apply it here. In edit mode, localWizardFillFromJob() runs
+            // after reset and overrides this with the saved agent.
+            if (Array.isArray(data.allAgents) && data.allAgents.length && typeof data.applyTenantFilter === 'function') {
+                data.applyTenantFilter();
+            } else if (typeof data.load === 'function') {
+                // Agents not loaded yet (async fetch fallback path) — load()
+                // ends by calling applyTenantFilter(), which auto-selects.
+                data.load();
+            }
         }
     }
     const bucketLabel = document.getElementById('localWizardBucketLabel');
-    if (bucketLabel) bucketLabel.textContent = 'Auto-assigned from selected agent';
+    if (bucketLabel) bucketLabel.textContent = 'assigned at creation';
     const prefixLabel = document.getElementById('localWizardPrefixLabel');
-    if (prefixLabel) prefixLabel.textContent = 'Device-scoped immutable prefix';
+    if (prefixLabel) prefixLabel.textContent = '';
     localWizardSet('engine', 'kopia');
 }
 
@@ -1894,14 +1930,16 @@ function localWizardFillFromJob(j, s) {
     const bucketHidden = document.getElementById('localWizardBucketId');
     if (bucketHidden) {
         bucketHidden.value = job.dest_bucket_id || '';
-    const name = job.dest_bucket_name || (job.dest_bucket_id ? `Bucket #${job.dest_bucket_id}` : 'Auto-assigned from selected agent');
+    const name = job.dest_bucket_name || (job.dest_bucket_id ? `Bucket #${job.dest_bucket_id}` : 'assigned at creation');
         const bucketLabel = document.getElementById('localWizardBucketLabel');
         if (bucketLabel) bucketLabel.textContent = name;
     }
     const prefixEl = document.getElementById('localWizardPrefix');
     if (prefixEl) prefixEl.value = job.dest_prefix || '';
     const prefixLabel = document.getElementById('localWizardPrefixLabel');
-    if (prefixLabel) prefixLabel.textContent = job.dest_prefix || 'Device-scoped immutable prefix';
+    // Prefix is rendered inline after the bucket (e.g. "bucket/prefix"), so
+    // include the leading slash here and leave it blank when absent.
+    if (prefixLabel) prefixLabel.textContent = job.dest_prefix ? ('/' + job.dest_prefix) : '';
     const localPathEl = document.getElementById('localWizardLocalPath');
     if (localPathEl) localPathEl.value = job.dest_local_path || '';
     const srcEl = document.getElementById('localWizardSource');
@@ -1947,6 +1985,12 @@ function localWizardFillFromJob(j, s) {
     const bwEl = document.getElementById('localWizardBandwidth');
     const bwVal = source.bandwidth_limit_kbps || job.local_bandwidth_limit_kbps || job.bandwidth_limit_kbps || '0';
     if (bwEl) bwEl.value = bwVal;
+    // Round 2 (Task 6f): preserve the job's existing encryption_mode so
+    // the Review step shows the matching label instead of defaulting back
+    // to "repokey" on every edit.
+    if (window.localWizardState?.data && (job.encryption_mode || source.encryption_mode)) {
+        window.localWizardState.data.encryption_mode = job.encryption_mode || source.encryption_mode;
+    }
     const policyObj = job.policy_json ? (safeParseJSON(job.policy_json) || {}) : {};
     const parEl = document.getElementById('localWizardParallelism');
     const parVal = job.parallelism || policyObj.parallel_uploads || '16';
@@ -2792,6 +2836,16 @@ function localWizardNext() {
         return;
     }
 
+    // Round 2: Step 3 (Schedule) — block advance until the customer has
+    // explicitly picked a schedule type. The schedule UI defaults to ''.
+    if (state.step === 3) {
+        const schedType = document.getElementById('localWizardScheduleType')?.value || '';
+        if (!schedType) {
+            window.toast?.error?.('Please pick a schedule type before continuing.');
+            return;
+        }
+    }
+
     if (state.step < state.totalSteps) {
         state.step += 1;
         if (state.step === state.totalSteps) {
@@ -2822,6 +2876,20 @@ function localWizardUpdateView() {
             el.classList.add('hidden');
         }
     });
+
+    // Always scroll the wizard body to the top when the visible step changes
+    // so the first field (Job Name on Step 1) is in view. The First-Job tour
+    // highlights Job Name and relies on this — otherwise customers on small
+    // screens land further down the form and miss the highlight.
+    try {
+        const body = document.querySelector('#localJobWizardModal .eb-modal-body');
+        if (body && body.scrollTop > 0 && body._lastWizardStep !== state.step) {
+            body.scrollTop = 0;
+        }
+        if (body) {
+            body._lastWizardStep = state.step;
+        }
+    } catch (_) {}
 
     const crumbs = document.querySelectorAll('#localWizardBreadcrumb .wizard-crumb');
     const step1Valid = localWizardIsStep1Valid();
@@ -2869,6 +2937,57 @@ function localWizardUpdateView() {
             }
             const finalLabel = state.editMode ? 'Save changes' : 'Create job';
             nextBtn.textContent = (state.step === state.totalSteps) ? finalLabel : 'Next';
+        }
+    }
+
+    // Round 2: surface why Next is disabled directly next to the button so
+    // customers on small screens (and at Windows 125% / 150% text scaling)
+    // don't have to scroll the wizard body to discover what's missing.
+    const hint = document.getElementById('localWizardNextHint');
+    if (hint) {
+        const reason = (state.step === 1 && !step1Valid && !state.loading)
+            ? localWizardNextBlockReason()
+            : '';
+        if (reason) {
+            hint.textContent = reason;
+            hint.classList.remove('hidden');
+        } else {
+            hint.textContent = '';
+            hint.classList.add('hidden');
+        }
+    }
+}
+
+// Returns a short, click-to-scroll explanation of why the Next button is
+// disabled on Step 1. Walks the required fields in display order and stops
+// at the first missing one.
+function localWizardNextBlockReason() {
+    const name = (document.getElementById('localWizardName')?.value || '').trim();
+    if (!name) return 'Add a job name to continue';
+    const engine = window.localWizardState?.data?.engine || '';
+    if (!engine) return 'Pick a backup engine to continue';
+    const agentId = document.getElementById('localWizardAgentId')?.value || '';
+    if (!agentId) return 'Choose an agent to continue';
+    return '';
+}
+
+// Click target for the helper text in the wizard footer — jumps the modal
+// body to the first missing field on Step 1.
+function localWizardScrollToFirstMissing() {
+    const name = (document.getElementById('localWizardName')?.value || '').trim();
+    let anchor = null;
+    if (!name) {
+        anchor = document.querySelector('#localJobWizardModal [data-tour="local-wizard-name"]');
+    } else if (!(window.localWizardState?.data?.engine || '')) {
+        anchor = document.querySelector('#localJobWizardModal [data-tour="local-wizard-engine"]');
+    } else if (!(document.getElementById('localWizardAgentId')?.value || '')) {
+        anchor = document.querySelector('#localJobWizardModal [data-tour="local-wizard-agent"]');
+    }
+    if (anchor && typeof anchor.scrollIntoView === 'function') {
+        try { anchor.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (_) { anchor.scrollIntoView(); }
+        const focusable = anchor.querySelector('input, button, select, textarea');
+        if (focusable) {
+            try { focusable.focus({ preventScroll: true }); } catch (_) { focusable.focus(); }
         }
     }
 }
@@ -3216,11 +3335,26 @@ function localWizardBuildHumanReview(s) {
     if (destType === 'local') {
         destHtml += `<div><span class="text-xs text-slate-500">Local path:</span> <span class="text-slate-100">${esc(s.dest_local_path) || '—'}</span></div>`;
     } else {
-        destHtml += `<div><span class="text-xs text-slate-500">Storage:</span> <span class="text-slate-100">e3 (S3-compatible)</span></div>`;
-        destHtml += `<div class="text-xs text-slate-500 mt-1">Bucket and root prefix are assigned automatically from the agent's destination policy.</div>`;
+        // Show the resolved bucket (and prefix when present) instead of the
+        // generic "S3-compatible" label. Falls back to "auto-assigned" when
+        // the destination has not been resolved yet (new local jobs).
+        const destBucketName = s.dest_bucket_name || '';
+        const destPrefix = s.dest_prefix ? ('/' + s.dest_prefix) : '';
+        const destLabel = destBucketName ? `e3 (${esc(destBucketName)}${esc(destPrefix)})` : 'e3 (auto-assigned)';
+        destHtml += `<div><span class="text-xs text-slate-500">Storage:</span> <span class="text-slate-100">${destLabel}</span></div>`;
+        destHtml += `<div class="text-xs text-slate-500 mt-1">Storage destination is assigned automatically.</div>`;
     }
+    // Round 2 (Task 6f): show a human label instead of the raw policy
+    // identifier ("repokey" / "managed" / "strict"). The encryption mode
+    // is sourced from the owning agent's policy and is always AES-256.
+    const ENC_LABELS = {
+        repokey: 'Encrypted with Repository Key (AES-256)',
+        managed: 'Encrypted with Managed Key (AES-256, server-side)',
+        strict:  'Encrypted with Strict Mode (per-job key, AES-256)'
+    };
     const encMode = (s.encryption_mode || 'repokey');
-    destHtml += `<div class="text-xs text-slate-500 mt-2">Encryption: <span class="text-slate-300">${esc(encMode)}</span></div>`;
+    const encLabel = ENC_LABELS[encMode] || `Encrypted (${encMode}, AES-256)`;
+    destHtml += `<div class="text-xs text-slate-500 mt-2">${esc(encLabel)}</div>`;
     setHtml('localWizardReviewDestination', destHtml);
 
     // ----- Schedule -----
@@ -3407,6 +3541,12 @@ function localWizardSubmit() {
             if (data.status === 'success') {
                 e3backupNotify('success', isEdit ? 'Local agent job updated' : 'Local agent job created');
                 closeLocalJobWizard();
+                // Round 2 (Task 7): tell the shell pill to refetch so the
+                // "Setup: X of 4" badge flips to "Step 3 of 4" within ~1s of
+                // a successful create, without a manual reload.
+                if (!isEdit) {
+                    try { window.dispatchEvent(new Event('eb-e3-onboarding-event')); } catch (_) {}
+                }
                 if (typeof e3backupReloadUserDetail === 'function') {
                     e3backupReloadUserDetail();
                 } else {

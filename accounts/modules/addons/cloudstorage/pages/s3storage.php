@@ -46,8 +46,13 @@
             'status' => $_GET['status'] ?? ''
         ], '');
     } catch (\Throwable $e) {}
-    // Only redirect when a username exists (Ceph user created)
-    if (!is_null($product) && !is_null($product->username)) {
+    // Only redirect when a username exists (Ceph user created). After a
+    // Reset Onboarding / Deprovision, tblhosting.username is set to '' (empty
+    // string) rather than NULL, so we use empty() here instead of is_null()
+    // - otherwise we redirect back to the dashboard, which redirects back here
+    // when DBController::getUser('') returns null, producing a 302 redirect
+    // loop. Mirror this pattern with the dashboard pages.
+    if (!is_null($product) && !empty($product->username)) {
         try { logModuleCall('cloudstorage', 's3storage_redirect_dashboard', ['clientId' => $clientId], ''); } catch (\Throwable $e) {}
         header('location: index.php?m=cloudstorage&page=dashboard');
         exit;

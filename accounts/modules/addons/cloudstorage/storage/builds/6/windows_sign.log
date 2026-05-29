@@ -1,0 +1,44 @@
+
+[2026-05-26 17:05:06] $ 'ssh' '-i' '/etc/eazybackup-build/windows_server_ed25519' '-o' 'BatchMode=yes' '-o' 'StrictHostKeyChecking=accept-new' '-o' 'ServerAliveInterval=30' 'Administrator@192.168.92.210' 'powershell' '-NoProfile' '-NonInteractive' '-EncodedCommand' 'JgAgACcAQwA6AFwAVABvAG8AbABzAFwAQQB6AHUAcgBlAFMAaQBnAG4AVABvAG8AbABcAEEAegB1AHIAZQBTAGkAZwBuAFQAbwBvAGwALgBlAHgAZQAnACAAcwBpAGcAbgAgAC0AawB2AHUAIAAnAGgAdAB0AHAAcwA6AC8ALwBlAGEAegB5AGIAYQBjAGsAdQBwAGsAZQB5AHYAYQB1AGwAdAAuAHYAYQB1AGwAdAAuAGEAegB1AHIAZQAuAG4AZQB0AC8AJwAgAC0AawB2AGkAIAAnAGUAYgAxAGMAOQBhADIAMQAtADYAOQAwAGUALQA0AGQAYQAwAC0AOAAzADYAZQAtADUAYgA2ADMAMgAyADgAZAA0ADAAZgAyACcAIAAtAGsAdgB0ACAAJwA0ADYANgAzADAANwBmAGEALQBhADcAYQA0AC0ANABmADMAMQAtAGEAYQBjAGUALQAyAGEANgAzAGIANQA5ADkAMAAxAGMANQAnACAALQBrAHYAcwAgACcAYwBLAHYAOABRAH4AegBOADEAQQBpAFQAaQBQAFYATQBiAGUATABHAEQAMQBJAEcANAB3AGwANwA1AFIAbQBoAFEAQwBJAEUAZgBjAE8AVQAnACAALQBrAHYAYwAgACcAZQBhAHoAeQBiAGEAYwBrAHUAcAAtAGMAbwBkAGUALQBjAGUAcgB0AGkAZgBpAGMAYQB0AGUAJwAgAC0AdAByACAAJwBoAHQAdABwADoALwAvAHQAaQBtAGUAcwB0AGEAbQBwAC4AZABpAGcAaQBjAGUAcgB0AC4AYwBvAG0AJwAgAC0AdABkACAAcwBoAGEAMgA1ADYAIAAtAGYAZAAgAHMAaABhADIANQA2ACAALQBkACAAJwBlAGEAegB5AEIAYQBjAGsAdQBwACAARQAzACAAQQBnAGUAbgB0ACcAIAAtAC0AcwBrAGkAcAAtAHMAaQBnAG4AZQBkACAAJwBDADoAXABFADMAQgB1AGkAbABkAFwANgBcAGIAaQBuAFwAZQAzAC0AYgBhAGMAawB1AHAALQBhAGcAZQBuAHQALgBlAHgAZQAnAA=='
+info: AzureSignTool.SignCommand[0]
+      => File: C:\E3Build\6\bin\e3-backup-agent.exe
+      Signing file.
+Unhandled exception. Azure.RequestFailedException: Caller is not authorized to perform action on resource.
+If role assignments, deny assignments or role definitions were changed recently, please observe propagation time.
+Caller: appid=eb1c9a21-690e-4da0-836e-5b63228d40f2;oid=e5cc25c4-61af-4804-8e62-e50f6eff49b3;iss=https://sts.windows.net/466307fa-a7a4-4f31-aace-2a63b59901c5/
+Action: 'Microsoft.KeyVault/vaults/keys/sign/action'
+Resource: '/subscriptions/11555308-52a9-4b55-a815-c598bb49f410/resourcegroups/key_vaults/providers/microsoft.keyvault/vaults/eazybackupkeyvault/keys/eazybackup-code-certificate'
+Assignment: (not found)
+DenyAssignmentId: null
+DecisionReason: null 
+Vault: eazyBackupKeyVault;location=canadaeast
+
+Status: 403 (Forbidden)
+ErrorCode: Forbidden
+
+Content:
+{"error":{"code":"Forbidden","message":"Caller is not authorized to perform action on resource.\r\nIf role assignments, deny assignments or role definitions were changed recently, please observe propagation time.\r\nCaller: appid=eb1c9a21-690e-4da0-836e-5b63228d40f2;oid=e5cc25c4-61af-4804-8e62-e50f6eff49b3;iss=https://sts.windows.net/466307fa-a7a4-4f31-aace-2a63b59901c5/\r\nAction: 'Microsoft.KeyVault/vaults/keys/sign/action'\r\nResource: '/subscriptions/11555308-52a9-4b55-a815-c598bb49f410/resourcegroups/key_vaults/providers/microsoft.keyvault/vaults/eazybackupkeyvault/keys/eazybackup-code-certificate'\r\nAssignment: (not found)\r\nDenyAssignmentId: null\r\nDecisionReason: null \r\nVault: eazyBackupKeyVault;location=canadaeast\r\n","innererror":{"code":"ForbiddenByRbac"}}}
+
+Headers:
+Cache-Control: no-cache
+Pragma: no-cache
+x-ms-keyvault-region: canadaeast
+x-ms-client-request-id: 93bdc673-4718-4f1c-900f-fb692b51f5c2
+x-ms-request-id: b01a68a2-df8f-4ed9-b3b0-e28af41be34b
+x-ms-keyvault-service-version: 1.9.3347.1
+x-ms-keyvault-network-info: conn_type=Ipv4;addr=45.45.161.146;act_addr_fam=InterNetwork;
+X-Content-Type-Options: REDACTED
+Strict-Transport-Security: REDACTED
+Date: Tue, 26 May 2026 17:05:08 GMT
+Content-Type: application/json; charset=utf-8
+Expires: -1
+Content-Length: 784
+
+   at Azure.Security.KeyVault.KeyVaultPipeline.SendRequest(Request, CancellationToken) + 0x5f
+   at Azure.Security.KeyVault.KeyVaultPipeline.SendRequest[TContent,TResult](RequestMethod, TContent, Func`1, CancellationToken, String[]) + 0xa0
+   at Azure.Security.KeyVault.Keys.Cryptography.RemoteCryptographyClient.Sign(SignatureAlgorithm, Byte[], CancellationToken) + 0x15f
+   at Azure.Security.KeyVault.Keys.Cryptography.CryptographyClient.Sign(SignatureAlgorithm, Byte[], CancellationToken) + 0x1dd
+   at Azure.Security.KeyVault.Keys.Cryptography.RSAKeyVault.SignHash(Byte[], HashAlgorithmName, RSASignaturePadding) + 0x2b
+   at AzureSign.Core.AuthenticodeKeyVaultSigner.SignCallback(IntPtr, IntPtr, UInt32, Byte[], UInt32, CRYPTOAPI_BLOB&) + 0x3b
+   at AzureSignTool!<BaseAddress>+0x4f3664
+[2026-05-26 17:05:15] exit=1

@@ -52,10 +52,24 @@ class WindowsRemote
         return array_merge($this->sshBaseArgs(), [$remoteCommand]);
     }
 
+    /** Common scp argv.
+     *  - `-O` forces the legacy SCP/RCP protocol; without it, OpenSSH 8.8+
+     *    uses SFTP which fails against Windows OpenSSH paths containing
+     *    backslashes.
+     *  - `-T` disables the strict filename check the modern scp client
+     *    performs on returned filenames. Windows OpenSSH normalises paths
+     *    server-side, so the returned filename won't byte-match the request
+     *    and the transfer aborts with "protocol error: filename does not
+     *    match request" unless this check is disabled. */
+    private function scpBaseArgs(): array
+    {
+        return ['scp', '-O', '-T', '-i', $this->sshKey, '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=accept-new'];
+    }
+
     /** scp argv: local -> remote. */
     public function scpUp(string $localPath, string $remotePath, bool $recursive = false): array
     {
-        $args = ['scp', '-i', $this->sshKey, '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=accept-new'];
+        $args = $this->scpBaseArgs();
         if ($recursive) $args[] = '-r';
         $args[] = $localPath;
         $args[] = $this->user . '@' . $this->host . ':' . $remotePath;
@@ -65,7 +79,7 @@ class WindowsRemote
     /** scp argv: remote -> local. */
     public function scpDown(string $remotePath, string $localPath, bool $recursive = false): array
     {
-        $args = ['scp', '-i', $this->sshKey, '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=accept-new'];
+        $args = $this->scpBaseArgs();
         if ($recursive) $args[] = '-r';
         $args[] = $this->user . '@' . $this->host . ':' . $remotePath;
         $args[] = $localPath;

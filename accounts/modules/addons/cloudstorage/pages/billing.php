@@ -1,16 +1,21 @@
 <?php
 
     use WHMCS\ClientArea;
+    use WHMCS\Database\Capsule;
     use WHMCS\Module\Addon\CloudStorage\Admin\ProductConfig;
     use WHMCS\Module\Addon\CloudStorage\Client\DBController;
     use WHMCS\Module\Addon\CloudStorage\Client\BucketController;
     use WHMCS\Module\Addon\CloudStorage\Client\BillingController;
 
+    require_once __DIR__ . '/../lib/Provision/E3CloudBackupProductBootstrap.php';
+    require_once __DIR__ . '/../lib/Admin/E3CloudBackupPricing.php';
+    require_once __DIR__ . '/../lib/Admin/E3CloudBackupBilling.php';
+
     $packageId = ProductConfig::$E3_PRODUCT_ID;
     $ca = new ClientArea();
     $loggedInUserId = $ca->getUserID();
     $product = DBController::getProduct($loggedInUserId, $packageId);
-    if (is_null($product) || is_null($product->username)) {
+    if (is_null($product) || empty($product->username)) {
         header('Location: index.php?m=cloudstorage&page=s3storage');
         exit;
     }
@@ -47,6 +52,27 @@
     // Fill-forward daily storage for the date range so the line continues into the current month
     $dailyUsageChart = \WHMCS\Module\Addon\CloudStorage\Client\HelperController::prepareDailyUsageChart($billingPeriod['start'], $bucketStats);
 
+    // e3 Cloud Backup preview (estimated next invoice + trial status).
+    $cloudBackupPreview = null;
+    $cloudBackupTrialState = null;
+    $cloudBackupSuspended = false;
+    try {
+        $cloudBackupPreview = \WHMCS\Module\Addon\CloudStorage\Admin\E3CloudBackupBilling::dryRun((int) $loggedInUserId);
+        if (!empty($cloudBackupPreview['service_id'])) {
+            $cloudBackupTrialState = Capsule::table('s3_cloudbackup_trial_state')
+                ->where('service_id', (int) $cloudBackupPreview['service_id'])
+                ->first();
+            $svc = Capsule::table('tblhosting')->where('id', (int) $cloudBackupPreview['service_id'])->first();
+            if ($svc && (string) $svc->domainstatus === 'Suspended') {
+                $cloudBackupSuspended = true;
+            }
+        }
+    } catch (\Throwable $e) {
+        // Best-effort. Storage billing page should still render if the e3 backup
+        // billing layer hits an issue.
+        $cloudBackupPreview = null;
+    }
+
     return [
         'firstname' => $client->firstname,
         'billingPeriod' => $billingPeriod,
@@ -54,5 +80,8 @@
         'bucketInfo' => $bucketInfo,
         'totalUsage' => $totalUsage,
         'peakUsage' => $peakUsage,
-        'bucketStats' => $dailyUsageChart
+        'bucketStats' => $dailyUsageChart,
+        'cloudBackupPreview' => $cloudBackupPreview,
+        'cloudBackupTrialState' => $cloudBackupTrialState,
+        'cloudBackupSuspended' => $cloudBackupSuspended,
     ];

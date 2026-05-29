@@ -18,8 +18,9 @@ if (empty($_SESSION['adminid'])) {
 
 $results = [];
 
-// 1. Local repo present
-$repo = (string) Settings::get('agent_build_repo_path');
+// 1. Local repo present (use git_root override when set, otherwise repo_path)
+$allSettings = Settings::all();
+$repo = (string) ($allSettings['git_root'] ?? $allSettings['repo_path']);
 $results['repo'] = [
     'name' => 'Local agent repo',
     'ok'   => is_dir($repo . '/.git'),

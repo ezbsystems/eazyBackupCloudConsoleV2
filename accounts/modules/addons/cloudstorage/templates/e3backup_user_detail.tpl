@@ -116,7 +116,10 @@
                             </div>
                         </div>
                         <div x-data="{ isOpen: false }" class="relative shrink-0" @click.away="isOpen = false">
-                            <button type="button" @click="isOpen = !isOpen" class="eb-btn eb-btn-success eb-btn-sm">
+                            <button type="button"
+                                    data-tour="user-detail-create-job-btn"
+                                    @click="isOpen = !isOpen"
+                                    class="eb-btn eb-btn-success eb-btn-sm">
                                 <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
                                 </svg>
@@ -127,33 +130,39 @@
                             </button>
                             <div x-show="isOpen"
                                  x-transition
-                                 class="eb-dropdown-menu absolute right-0 z-50 mt-2 w-72 overflow-hidden"
+                                 class="eb-dropdown-menu absolute right-0 z-50 mt-2 w-80 overflow-hidden"
                                  style="display: none;">
                                 <div class="eb-menu-label">Select backup source</div>
                                 <div class="p-1">
-                                    <template x-if="(user.backup_type || 'both') !== 'local'">
-                                    <button type="button" @click="isOpen = false; window.openCloudBackupWizard()" class="eb-menu-item">
-                                        <span class="eb-icon-box eb-icon-box--sm eb-icon-box--info">
-                                            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z" />
-                                            </svg>
-                                        </span>
-                                        <span class="flex-1 min-w-0">
-                                            <span class="block text-left text-sm text-[var(--eb-text-primary)]">Cloud Backup</span>
-                                            <span class="block text-left text-xs text-[var(--eb-text-muted)]">S3, AWS, SFTP, Google Drive, Dropbox</span>
-                                        </span>
-                                    </button>
-                                    </template>
                                     <template x-if="(user.backup_type || 'both') !== 'cloud_only'">
-                                    <button type="button" @click="isOpen = false; window.openLocalJobWizard()" class="eb-menu-item">
+                                    <button type="button"
+                                            data-tour="user-detail-create-job-local"
+                                            @click="isOpen = false; window.openLocalJobWizard()"
+                                            class="eb-menu-item">
                                         <span class="eb-icon-box eb-icon-box--sm eb-icon-box--premium">
                                             <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
                                             </svg>
                                         </span>
                                         <span class="flex-1 min-w-0">
-                                            <span class="block text-left text-sm text-[var(--eb-text-primary)]">Local Agent Backup</span>
-                                            <span class="block text-left text-xs text-[var(--eb-text-muted)]">File, Disk Image, Windows Agent</span>
+                                            <span class="block text-left text-sm text-[var(--eb-text-primary)]">e3 Cloud Backup</span>
+                                            <span class="block text-left text-xs text-[var(--eb-text-muted)]">Files, Folders, Disk Image, Virtual Machines</span>
+                                        </span>
+                                    </button>
+                                    </template>
+                                    <template x-if="(user.backup_type || 'both') !== 'local'">
+                                    <button type="button"
+                                            data-tour="user-detail-create-job-cloud"
+                                            @click="isOpen = false; window.openCloudBackupWizard()"
+                                            class="eb-menu-item">
+                                        <span class="eb-icon-box eb-icon-box--sm eb-icon-box--info">
+                                            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z" />
+                                            </svg>
+                                        </span>
+                                        <span class="flex-1 min-w-0">
+                                            <span class="block text-left text-sm text-[var(--eb-text-primary)]">SaaS Backup (Cloud-to-Cloud)</span>
+                                            <span class="block text-left text-xs text-[var(--eb-text-muted)]">Google Drive, Dropbox, SFTP, S3, AWS</span>
                                         </span>
                                     </button>
                                     </template>
@@ -454,10 +463,60 @@
                 </div>
 
                 <div class="eb-tab-body" x-show="activeTab === 'agents'" x-cloak>
+                    {if $ebIsAdminSession}
+                    <!-- Quick enroll panel (admin/dev only - token-based enrollment) -->
+                    <div x-data="ebQuickEnroll()" x-init="init()" class="rounded-md p-4 mb-4" style="background:rgba(124,58,237,0.08); border:1px solid rgba(124,58,237,0.35);">
+                        <div class="flex items-center justify-between mb-3">
+                            <div>
+                                <div class="text-base font-semibold" style="color:#c4b5fd;">Quick enroll an agent (admin only)</div>
+                                <p class="text-sm text-[var(--eb-text-secondary)] mt-1">Generate a one-time enrollment token and copy a ready-to-paste install command for your test lab box. End users sign in via the tray instead.</p>
+                            </div>
+                            <button type="button" class="eb-btn eb-btn-orange eb-btn-sm" @click="generate()">
+                                <span x-show="!loading">Generate token</span>
+                                <span x-show="loading">Generating...</span>
+                            </button>
+                        </div>
+                        <template x-if="result">
+                            <div>
+                                <div class="text-xs uppercase tracking-wider text-[var(--eb-text-muted)] mb-2">Token (valid 60 minutes, single-use)</div>
+                                <div class="font-mono text-sm bg-[var(--eb-bg-base)] border border-[var(--eb-border-subtle)] rounded p-2 mb-3" x-text="result.token"></div>
+
+                                <div class="flex gap-2 mb-3">
+                                    <button type="button" class="eb-btn eb-btn-secondary eb-btn-sm" :class="platform === 'linux' ? 'is-active' : ''" @click="platform = 'linux'">Linux</button>
+                                    <button type="button" class="eb-btn eb-btn-secondary eb-btn-sm" :class="platform === 'win2019' ? 'is-active' : ''" @click="platform = 'win2019'">Windows Server 2019</button>
+                                    <button type="button" class="eb-btn eb-btn-secondary eb-btn-sm" :class="platform === 'win2025' ? 'is-active' : ''" @click="platform = 'win2025'">Windows Server 2025</button>
+                                </div>
+
+                                <pre class="bg-[var(--eb-bg-base)] border border-[var(--eb-border-subtle)] rounded p-3 text-xs overflow-x-auto" x-text="snippet()"></pre>
+                                <button type="button" class="eb-btn eb-btn-orange eb-btn-sm mt-2" @click="copySnippet()">Copy to clipboard</button>
+                                <span class="text-xs text-[var(--eb-text-muted)] ml-2" x-show="copied">Copied!</span>
+                            </div>
+                        </template>
+                    </div>
+                    {/if}
+
                     <template x-if="!agentsDetail().length">
                         <div class="eb-app-empty">
-                            <div class="eb-app-empty-title">No agents in this scope</div>
-                            <p class="eb-app-empty-copy">Enroll agents for this tenant or direct scope to see them listed here.</p>
+                            <span class="eb-icon-box eb-icon-box--lg eb-icon-box--default mb-3" aria-hidden="true">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-6 w-6">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 17.25v1.007a3 3 0 0 1-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0 1 15 18.257V17.25m6-12V15a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 15V5.25m18 0A2.25 2.25 0 0 0 18.75 3H5.25A2.25 2.25 0 0 0 3 5.25m18 0V12a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 12V5.25" />
+                                </svg>
+                            </span>
+                            <div class="eb-app-empty-title">Install your first agent</div>
+                            <p class="eb-app-empty-copy">
+                                Run the installer on the computer you want to back up, then sign in with your portal email and password.
+                                The agent will appear here within ~10 seconds of signing in.
+                            </p>
+                            <div class="mt-4 flex flex-wrap items-center justify-center gap-2">
+                                <button type="button"
+                                        class="eb-btn eb-btn-primary eb-btn-sm"
+                                        onclick="window.dispatchEvent(new Event('open-e3-download-flyout'))">
+                                    Download Agent
+                                </button>
+                                <a href="index.php?m=cloudstorage&page=e3backup&view=getting_started" class="eb-btn eb-btn-secondary eb-btn-sm">
+                                    Open Getting Started
+                                </a>
+                            </div>
                         </div>
                     </template>
                     <template x-if="agentsDetail().length">
@@ -475,7 +534,7 @@
                                         <th>Status</th>
                                     </tr>
                                 </thead>
-                                <template x-for="agent in agentsDetail()" :key="'agent-' + agent.agent_uuid">
+                                <template x-for="(agent, aIdx) in agentsDetail()" :key="'agent-' + (agent.agent_uuid || aIdx)">
                                     <tbody x-data="{ open: false }">
                                         <tr class="eb-expand-row" :class="open ? 'is-open' : ''" @click="open = !open">
                                             <td class="eb-table-chevron-cell">
@@ -619,7 +678,7 @@
                                         </div>
                                     </template>
 
-                                    <template x-for="job in filteredJobs" :key="job.job_id">
+                                    <template x-for="(job, jIdx) in filteredJobs" :key="'job-' + (job.job_id || job.id || jIdx)">
                                         <div class="eb-job-card">
                                             <div class="eb-job-card-header">
                                                 <div class="eb-job-card-identity">
@@ -801,7 +860,7 @@
                         </div>
                     </template>
                     <div class="eb-vault-grid" x-show="vaultsDetail().length">
-                        <template x-for="vault in vaultsDetail()" :key="'vault-' + vault.id">
+                        <template x-for="(vault, vIdx) in vaultsDetail()" :key="'vault-' + (vault.id || vIdx)">
                             <div class="eb-vault-card">
                                 <div class="eb-vault-card-header">
                                     <div class="eb-vault-icon">
@@ -955,7 +1014,7 @@
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        <template x-for="vm in hypervFilteredVms()" :key="'hyperv-vm-' + vm.id">
+                                        <template x-for="(vm, vmIdx) in hypervFilteredVms()" :key="'hyperv-vm-' + (vm.id || vmIdx)">
                                             <tr>
                                                 <td class="eb-table-primary">
                                                     <div class="flex items-center gap-3">
@@ -2044,6 +2103,74 @@ function backupUserDetailApp() {
                     username: this.user.username || ''
                 }
             }));
+        }
+    };
+}
+
+function ebQuickEnroll() {
+    return {
+        loading: false,
+        result: null,
+        platform: 'linux',
+        copied: false,
+        userId: null,
+        init() {
+            try {
+                var m = location.search.match(/[?&]user_id=(\d+)/);
+                this.userId = m ? parseInt(m[1], 10) : null;
+            } catch (e) { this.userId = null; }
+        },
+        generate() {
+            if (this.loading) return;
+            this.loading = true;
+            this.result = null;
+            this.copied = false;
+            var url = 'index.php?m=cloudstorage&page=e3backup&view=user_detail&user_id=' + (this.userId || '') + '&__redirect=1';
+            fetch('modules/addons/cloudstorage/api/e3backup_token_quickstart.php', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: 'user_id=' + encodeURIComponent(this.userId || '')
+            }).then(function(r){ return r.json(); }).then((j) => {
+                this.loading = false;
+                if (j && j.status === 'success') {
+                    this.result = j;
+                } else {
+                    alert('Token request failed: ' + (j && j.message ? j.message : 'unknown'));
+                }
+            }).catch((e) => {
+                this.loading = false;
+                alert('Token request failed: ' + e);
+            });
+        },
+        snippet() {
+            if (!this.result) return '';
+            var token = this.result.token;
+            var base = this.result.download_base || (location.protocol + '//' + location.host);
+            if (this.platform === 'linux') {
+                return [
+                    '# Linux',
+                    'curl -fsSL ' + base + '/client_installer/e3-backup-agent-linux \\',
+                    '  -o /usr/local/bin/e3-backup-agent && chmod +x /usr/local/bin/e3-backup-agent',
+                    'sudo /usr/local/bin/e3-backup-agent -enroll -token ' + token,
+                    'sudo systemctl enable --now e3-backup-agent'
+                ].join('\n');
+            }
+            // Windows
+            return [
+                '# Windows Server (PowerShell as Administrator)',
+                "$u='" + base + "/client_installer/e3-backup-agent-setup.exe'",
+                "Invoke-WebRequest $u -OutFile $env:TEMP\\e3-setup.exe",
+                "Start-Process $env:TEMP\\e3-setup.exe -Wait -ArgumentList '/SILENT','/TOKEN=" + token + "'"
+            ].join('\n');
+        },
+        copySnippet() {
+            var text = this.snippet();
+            if (!text) return;
+            navigator.clipboard.writeText(text).then(() => {
+                this.copied = true;
+                setTimeout(() => this.copied = false, 1500);
+            });
         }
     };
 }

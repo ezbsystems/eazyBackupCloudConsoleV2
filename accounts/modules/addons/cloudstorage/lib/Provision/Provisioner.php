@@ -84,8 +84,16 @@ class Provisioner
             ];
         }
 
+        // Fully provisioned = active service AND non-empty tblhosting.username
+        // (which is the tenant$uid we hand off to RGW). An "active" row with
+        // an empty username is what the e3 Cloud Backup signup used to leave
+        // behind because the old AcceptOrder call passed no serviceusername
+        // and did not create the matching RGW user / s3_users row. We now
+        // treat that state as "needs provisioning" and let the full
+        // provisionCloudStorage() flow backfill the missing pieces.
         $active = DBController::getActiveProduct($clientId, $pid);
-        if ($active) {
+        $fullyProvisioned = $active && !empty($active->username);
+        if ($fullyProvisioned) {
             return [
                 'status' => 'success',
                 'service_id' => (int) ($active->id ?? 0),
@@ -97,7 +105,7 @@ class Provisioner
         if (!$autoOrder) {
             return [
                 'status' => 'fail',
-                'message' => 'Cloud Storage service is not active for this account.',
+                'message' => 'Cloud Storage service is not fully provisioned for this account.',
             ];
         }
 
@@ -105,9 +113,10 @@ class Provisioner
         $lockAcquired = self::acquireNamedDbLock($lockName, 15);
 
         try {
-            // Double-check under lock to avoid duplicate orders in concurrent calls.
+            // Re-check under lock so concurrent provisioning attempts don't
+            // double-order or both try to backfill the same row.
             $activeUnderLock = DBController::getActiveProduct($clientId, $pid);
-            if ($activeUnderLock) {
+            if ($activeUnderLock && !empty($activeUnderLock->username)) {
                 return [
                     'status' => 'success',
                     'service_id' => (int) ($activeUnderLock->id ?? 0),
@@ -116,61 +125,36 @@ class Provisioner
                 ];
             }
 
-            $adminUser = 'API';
-            $order = localAPI('AddOrder', [
-                'clientid'      => $clientId,
-                'pid'           => [$pid],
-                'billingcycle'  => ['monthly'],
-                'paymentmethod' => 'stripe',
-                'noinvoice'     => true,
-                'noemail'       => true,
-            ], $adminUser);
-
-            if (($order['result'] ?? '') !== 'success') {
-                return [
-                    'status' => 'fail',
-                    'message' => 'Unable to create Cloud Storage order: ' . ($order['message'] ?? 'unknown error'),
-                    'order_result' => $order,
-                ];
-            }
-
-            $accept = localAPI('AcceptOrder', [
-                'orderid'   => $order['orderid'],
-                'autosetup' => true,
-                'sendemail' => true,
-            ], $adminUser);
-
-            if (($accept['result'] ?? '') !== 'success') {
-                return [
-                    'status' => 'fail',
-                    'message' => 'Cloud Storage order was created but activation failed: ' . ($accept['message'] ?? 'unknown error'),
-                    'order_result' => $order,
-                    'accept_result' => $accept,
-                ];
-            }
+            // Delegate to provisionCloudStorage() so we get the full flow:
+            //   - tenant + ceph_uid derivation
+            //   - AddOrder + AcceptOrder (skipped when an active row already
+            //     exists with empty username - repair path)
+            //   - tblhosting.username writeback
+            //   - AdminOps::createUser + s3_users insert
+            //   - trial quota
+            // This unifies the e3-Cloud-Backup signup path with the
+            // standalone storage-signup path so both produce identical
+            // tblhosting / s3_users / RGW state.
+            self::provisionCloudStorage($clientId);
 
             $activeAfter = DBController::getActiveProduct($clientId, $pid);
-            if (!$activeAfter) {
+            if (!$activeAfter || empty($activeAfter->username)) {
                 return [
                     'status' => 'fail',
-                    'message' => 'Cloud Storage order was accepted but no active service was found.',
-                    'order_result' => $order,
-                    'accept_result' => $accept,
+                    'message' => 'Cloud Storage provisioning ran but did not produce a fully-provisioned service.',
                 ];
             }
 
             return [
                 'status' => 'success',
                 'service_id' => (int) ($activeAfter->id ?? 0),
-                'already_active' => false,
-                'ordered' => true,
-                'order_result' => $order,
-                'accept_result' => $accept,
+                'already_active' => $active !== null,
+                'ordered' => $active === null,
             ];
         } catch (\Throwable $e) {
             return [
                 'status' => 'fail',
-                'message' => 'Failed to ensure active Cloud Storage service: ' . $e->getMessage(),
+                'message' => 'Failed to ensure Cloud Storage provisioning: ' . $e->getMessage(),
             ];
         } finally {
             if ($lockAcquired) {
@@ -447,18 +431,30 @@ class Provisioner
             return 'index.php?m=cloudstorage&page=dashboard';
         }
         $adminUser = 'API';
-        // If client already has this product active, skip order
+        // Detect an existing Active service for this client + product.
+        //
+        // We deliberately DO NOT short-circuit on "active row exists" alone -
+        // historically that caused half-provisioned services to stay broken
+        // forever (tblhosting.username empty, no s3_users row, no RGW user).
+        // Instead we only short-circuit when the service is *fully*
+        // provisioned (active + non-empty username). Otherwise we re-enter
+        // the provisioning flow and treat AddOrder as a no-op.
+        $existingService = null;
         try {
-            $has = Capsule::table('tblhosting')
+            $existingService = Capsule::table('tblhosting')
                 ->where('userid', $clientId)
                 ->where('packageid', $pid)
                 ->where('domainstatus', 'Active')
-                ->exists();
-            if ($has) {
-                try { logModuleCall('cloudstorage', 'provision_storage_already_active', ['clientId' => $clientId, 'pid' => $pid], ''); } catch (\Throwable $e) {}
-                return 'index.php?m=cloudstorage&page=dashboard';
-            }
+                ->orderBy('id', 'desc')
+                ->first();
         } catch (\Throwable $e) {}
+        if ($existingService && !empty($existingService->username)) {
+            try { logModuleCall('cloudstorage', 'provision_storage_already_active', ['clientId' => $clientId, 'pid' => $pid, 'serviceid' => (int) $existingService->id], ''); } catch (\Throwable $e) {}
+            return 'index.php?m=cloudstorage&page=dashboard';
+        }
+        if ($existingService) {
+            try { logModuleCall('cloudstorage', 'provision_storage_repair_unprovisioned', ['clientId' => $clientId, 'pid' => $pid, 'serviceid' => (int) $existingService->id], 'Active service has empty username - running provisioning to backfill'); } catch (\Throwable $e) {}
+        }
         // Compute service username and RGW uid from email (no '@' or '.' in RGW uid).
         // The username is derived from the customer's email with '@' and '.' stripped.
         // Example: newuser@mycompany.com → newusermycompanycom
@@ -522,47 +518,58 @@ class Provisioner
 
         $serviceUsername = $tenantId !== '' ? ($tenantId . '$' . $cephBaseUid) : $cephBaseUid;
 
-        try { logModuleCall('cloudstorage', 'provision_storage_begin', ['clientId' => $clientId, 'pid' => $pid, 'serviceUsername' => $serviceUsername, 'baseUsername' => $baseUsername, 'tenant' => $tenantId], ''); } catch (\Throwable $e) {}
-        $order = localAPI('AddOrder', [
-            'clientid'      => $clientId,
-            'pid'           => [$pid],
-            'billingcycle'  => ['monthly'],
-            'paymentmethod' => 'stripe',
-            'noinvoice'     => true,
-            'noemail'       => true,
-        ], $adminUser);
-        if (($order['result'] ?? '') !== 'success') {
-            // Even if order fails, route to dashboard; Welcome page will allow retry
-            try { logModuleCall('cloudstorage', 'provision_storage_addorder_fail', ['clientId' => $clientId, 'pid' => $pid], $order); } catch (\Throwable $e) {}
-            return 'index.php?m=cloudstorage&page=dashboard';
-        }
-        try { logModuleCall('cloudstorage', 'provision_storage_addorder_ok', ['orderid' => $order['orderid'] ?? null], $order); } catch (\Throwable $e) {}
-        $accept = localAPI('AcceptOrder', [
-            'orderid'   => $order['orderid'],
-            'autosetup' => true,
-            'sendemail' => true,
-            'serviceusername' => $serviceUsername,
-        ], $adminUser);
-        try { logModuleCall('cloudstorage', 'provision_storage_accept', ['orderid' => $order['orderid'] ?? null], $accept); } catch (\Throwable $e) {}
-        if (($accept['result'] ?? '') !== 'success') {
-            // If WHMCS couldn't accept/provision the order, do not proceed with date overrides or AdminOps calls.
-            try { logModuleCall('cloudstorage', 'provision_storage_accept_fail', ['orderid' => $order['orderid'] ?? null, 'clientId' => $clientId, 'pid' => $pid], $accept); } catch (\Throwable $e) {}
-            return 'index.php?m=cloudstorage&page=dashboard';
-        }
+        try { logModuleCall('cloudstorage', 'provision_storage_begin', ['clientId' => $clientId, 'pid' => $pid, 'serviceUsername' => $serviceUsername, 'baseUsername' => $baseUsername, 'tenant' => $tenantId, 'repair' => $existingService !== null], ''); } catch (\Throwable $e) {}
 
-        // Enforce a 30-day free trial window by pushing next due/invoice date 30 days out.
-        // This keeps WHMCS automation from generating an invoice until day 31.
-        $serviceId = (int) ($accept['serviceid'] ?? 0);
-        if ($serviceId <= 0) {
-            try {
-                $serviceId = (int) Capsule::table('tblhosting')
-                    ->where('orderid', (int)($order['orderid'] ?? 0))
-                    ->where('userid', $clientId)
-                    ->where('packageid', $pid)
-                    ->orderBy('id', 'desc')
-                    ->value('id');
-            } catch (\Throwable $e) {
-                try { logModuleCall('cloudstorage', 'provision_storage_service_lookup_fail', ['orderid' => $order['orderid'] ?? null, 'clientId' => $clientId, 'pid' => $pid], $e->getMessage()); } catch (\Throwable $_) {}
+        $serviceId = 0;
+        $order = null;
+        if ($existingService) {
+            // Repair path: skip AddOrder/AcceptOrder, but still run the rest
+            // of the provisioning (username writeback, AdminOps user, s3_users
+            // insert, quota setup) so the empty-username service becomes fully
+            // usable.
+            $serviceId = (int) $existingService->id;
+        } else {
+            $order = localAPI('AddOrder', [
+                'clientid'      => $clientId,
+                'pid'           => [$pid],
+                'billingcycle'  => ['monthly'],
+                'paymentmethod' => 'stripe',
+                'noinvoice'     => true,
+                'noemail'       => true,
+            ], $adminUser);
+            if (($order['result'] ?? '') !== 'success') {
+                // Even if order fails, route to dashboard; Welcome page will allow retry
+                try { logModuleCall('cloudstorage', 'provision_storage_addorder_fail', ['clientId' => $clientId, 'pid' => $pid], $order); } catch (\Throwable $e) {}
+                return 'index.php?m=cloudstorage&page=dashboard';
+            }
+            try { logModuleCall('cloudstorage', 'provision_storage_addorder_ok', ['orderid' => $order['orderid'] ?? null], $order); } catch (\Throwable $e) {}
+            $accept = localAPI('AcceptOrder', [
+                'orderid'   => $order['orderid'],
+                'autosetup' => true,
+                'sendemail' => true,
+                'serviceusername' => $serviceUsername,
+            ], $adminUser);
+            try { logModuleCall('cloudstorage', 'provision_storage_accept', ['orderid' => $order['orderid'] ?? null], $accept); } catch (\Throwable $e) {}
+            if (($accept['result'] ?? '') !== 'success') {
+                // If WHMCS couldn't accept/provision the order, do not proceed with date overrides or AdminOps calls.
+                try { logModuleCall('cloudstorage', 'provision_storage_accept_fail', ['orderid' => $order['orderid'] ?? null, 'clientId' => $clientId, 'pid' => $pid], $accept); } catch (\Throwable $e) {}
+                return 'index.php?m=cloudstorage&page=dashboard';
+            }
+
+            // Enforce a 30-day free trial window by pushing next due/invoice date 30 days out.
+            // This keeps WHMCS automation from generating an invoice until day 31.
+            $serviceId = (int) ($accept['serviceid'] ?? 0);
+            if ($serviceId <= 0) {
+                try {
+                    $serviceId = (int) Capsule::table('tblhosting')
+                        ->where('orderid', (int)($order['orderid'] ?? 0))
+                        ->where('userid', $clientId)
+                        ->where('packageid', $pid)
+                        ->orderBy('id', 'desc')
+                        ->value('id');
+                } catch (\Throwable $e) {
+                    try { logModuleCall('cloudstorage', 'provision_storage_service_lookup_fail', ['orderid' => $order['orderid'] ?? null, 'clientId' => $clientId, 'pid' => $pid], $e->getMessage()); } catch (\Throwable $_) {}
+                }
             }
         }
         if ($serviceId > 0) {
@@ -581,19 +588,25 @@ class Provisioner
                 } catch (\Throwable $e) {
                     try { logModuleCall('cloudstorage', 'provision_storage_update_service_username_fail', ['serviceid' => $serviceId, 'username' => $serviceUsername], $e->getMessage()); } catch (\Throwable $_) {}
                 }
+                // For fresh orders, anchor the trial window 30 days out.
+                // For repair runs on an existing service we ONLY backfill the
+                // username (the trial dates were set the first time the
+                // service was created; rewriting them would shift the
+                // customer's billing schedule forward).
+                $hostingUpdate = ['username' => $serviceUsername];
+                if (!$existingService) {
+                    $hostingUpdate['nextduedate']     = $formattedDue;
+                    $hostingUpdate['nextinvoicedate'] = $formattedDue;
+                }
                 Capsule::table('tblhosting')
                     ->where('id', $serviceId)
-                    ->update([
-                        'username'        => $serviceUsername,
-                        'nextduedate'     => $formattedDue,
-                        'nextinvoicedate' => $formattedDue,
-                    ]);
-                try { logModuleCall('cloudstorage', 'provision_storage_service_username_update', ['serviceid' => $serviceId, 'username' => $serviceUsername], 'updated'); } catch (\Throwable $_) {}
+                    ->update($hostingUpdate);
+                try { logModuleCall('cloudstorage', 'provision_storage_service_username_update', ['serviceid' => $serviceId, 'username' => $serviceUsername, 'repair' => $existingService !== null], 'updated'); } catch (\Throwable $_) {}
             } catch (\Throwable $e) {
                 try { logModuleCall('cloudstorage', 'provision_storage_next_due_fail', ['serviceid' => $serviceId, 'clientId' => $clientId, 'pid' => $pid], $e->getMessage()); } catch (\Throwable $_) {}
             }
         } else {
-            try { logModuleCall('cloudstorage', 'provision_storage_service_missing_for_next_due', ['orderid' => $order['orderid'] ?? null, 'clientId' => $clientId, 'pid' => $pid], ''); } catch (\Throwable $e) {}
+            try { logModuleCall('cloudstorage', 'provision_storage_service_missing_for_next_due', ['orderid' => isset($order['orderid']) ? $order['orderid'] : null, 'clientId' => $clientId, 'pid' => $pid], ''); } catch (\Throwable $e) {}
         }
 
         // If module create didn't also create Ceph user, create via AdminOps now.
@@ -802,6 +815,239 @@ class Provisioner
         $redirect = self::provisionCloudStorage($clientId);
         // Route into the e3 backup UI
         return 'index.php?m=cloudstorage&page=e3backup&view=jobs';
+    }
+
+    /**
+     * Provision the new e3 Cloud Backup product for a client.
+     *
+     * Sequence:
+     *   1. Ensure the e3 Object Storage service is active (the agent needs a
+     *      destination bucket).
+     *   2. Create + accept a WHMCS order for the pid_e3_cloud_backup product
+     *      (zero-recurring; usage is line-itemised via config options).
+     *   3. Seed tblhostingconfigoptions rows with qty=0 so every metric appears
+     *      on the very first invoice once the trial converts.
+     *   4. Insert a s3_cloudbackup_trial_state row (trialing, 30 days).
+     *   5. Move both products' nextduedate out to the end of the trial.
+     *   6. Create a default s3_backup_users row plus a one-time enrollment
+     *      token so the customer can immediately enroll an agent.
+     *
+     * Returns the redirect URL the caller should send the user to.
+     */
+    public static function provisionE3CloudBackup(int $clientId, string $username, string $password): string
+    {
+        $bootstrapPath = __DIR__ . '/E3CloudBackupProductBootstrap.php';
+        if (is_file($bootstrapPath)) {
+            require_once $bootstrapPath;
+        }
+        $billingPath = dirname(__DIR__) . '/Admin/E3CloudBackupBilling.php';
+        $pricingPath = dirname(__DIR__) . '/Admin/E3CloudBackupPricing.php';
+        $trialPath = dirname(__DIR__) . '/Admin/E3CloudBackupTrial.php';
+        foreach ([$pricingPath, $billingPath, $trialPath] as $p) {
+            if (is_file($p)) {
+                require_once $p;
+            }
+        }
+
+        // Step 1: ensure storage product is active (idempotent).
+        try {
+            self::ensureCloudStorageProductActive($clientId, true);
+        } catch (\Throwable $e) {
+            try { logModuleCall('cloudstorage', 'provision_e3cb_storage_active_fail', ['clientId' => $clientId], $e->getMessage()); } catch (\Throwable $_) {}
+        }
+
+        // Step 2: create + accept the e3 Cloud Backup order.
+        $pid = (int) \WHMCS\Module\Addon\CloudStorage\Provision\E3CloudBackupProductBootstrap::getPid();
+        if ($pid <= 0) {
+            throw new \Exception('e3 Cloud Backup PID is not configured. Run cloudstorage_activate() to bootstrap the product.');
+        }
+
+        $existingSvc = Capsule::table('tblhosting')
+            ->where('userid', $clientId)
+            ->where('packageid', $pid)
+            ->whereIn('domainstatus', ['Active', 'Suspended', 'Pending'])
+            ->orderBy('id', 'desc')
+            ->first();
+        $serviceId = $existingSvc ? (int) $existingSvc->id : 0;
+
+        if ($serviceId <= 0) {
+            $adminUser = 'API';
+            $order = localAPI('AddOrder', [
+                'clientid'      => $clientId,
+                'pid'           => [$pid],
+                'billingcycle'  => ['monthly'],
+                'paymentmethod' => 'stripe',
+                'noinvoice'     => true,
+                'noemail'       => true,
+            ], $adminUser);
+            try { logModuleCall('cloudstorage', 'provision_e3cb_addorder', ['clientId' => $clientId, 'pid' => $pid], $order); } catch (\Throwable $_) {}
+
+            if (($order['result'] ?? '') !== 'success') {
+                throw new \Exception('e3 Cloud Backup AddOrder failed: ' . ($order['message'] ?? 'unknown'));
+            }
+            $accept = localAPI('AcceptOrder', [
+                'orderid'         => $order['orderid'],
+                'autosetup'       => false,
+                'sendemail'       => false,
+                'serviceusername' => $username,
+                'servicepassword' => $password,
+            ], $adminUser);
+            try { logModuleCall('cloudstorage', 'provision_e3cb_acceptorder', ['orderid' => $order['orderid']], $accept); } catch (\Throwable $_) {}
+
+            if (($accept['result'] ?? '') !== 'success') {
+                throw new \Exception('e3 Cloud Backup AcceptOrder failed: ' . ($accept['message'] ?? 'unknown'));
+            }
+            $serviceId = (int) ($accept['serviceid'] ?? 0);
+            if ($serviceId <= 0 && !empty($order['orderid'])) {
+                try {
+                    $serviceId = (int) Capsule::table('tblhosting')
+                        ->where('orderid', (int) $order['orderid'])
+                        ->orderBy('id', 'desc')
+                        ->value('id');
+                } catch (\Throwable $_) {}
+            }
+        }
+
+        if ($serviceId <= 0) {
+            throw new \Exception('e3 Cloud Backup service could not be resolved after provisioning.');
+        }
+
+        // Step 3: seed config option rows so the line items always exist.
+        try {
+            \WHMCS\Module\Addon\CloudStorage\Admin\E3CloudBackupBilling::applyDefaultConfigOptions($serviceId);
+        } catch (\Throwable $e) {
+            try { logModuleCall('cloudstorage', 'provision_e3cb_apply_default_config_options_fail', ['service_id' => $serviceId], $e->getMessage()); } catch (\Throwable $_) {}
+        }
+
+        // Step 4 + 5: create trial state and push nextduedate out.
+        $trialDays = (int) self::getSetting('e3cb_trial_days', 30);
+        if ($trialDays <= 0) {
+            $trialDays = 30;
+        }
+        try {
+            \WHMCS\Module\Addon\CloudStorage\Admin\E3CloudBackupTrial::startTrial($serviceId, $clientId, $trialDays);
+        } catch (\Throwable $e) {
+            try { logModuleCall('cloudstorage', 'provision_e3cb_start_trial_fail', ['service_id' => $serviceId], $e->getMessage()); } catch (\Throwable $_) {}
+        }
+
+        try {
+            $tz = new \DateTimeZone('America/Toronto');
+            $nextDue = new \DateTime('now', $tz);
+            $nextDue->add(new \DateInterval("P{$trialDays}D"));
+            $formattedDue = $nextDue->format('Y-m-d');
+            Capsule::table('tblhosting')
+                ->where('id', $serviceId)
+                ->update([
+                    'amount'          => 0.00,
+                    'nextduedate'     => $formattedDue,
+                    'nextinvoicedate' => $formattedDue,
+                    'domainstatus'    => 'Active',
+                ]);
+
+            // Mirror the trial end on the storage product too so WHMCS doesn't
+            // invoice storage early.
+            $storagePid = (int) self::getSetting('pid_cloud_storage', 0);
+            if ($storagePid > 0) {
+                Capsule::table('tblhosting')
+                    ->where('userid', $clientId)
+                    ->where('packageid', $storagePid)
+                    ->whereIn('domainstatus', ['Active', 'Pending'])
+                    ->update([
+                        'nextduedate'     => $formattedDue,
+                        'nextinvoicedate' => $formattedDue,
+                    ]);
+            }
+        } catch (\Throwable $e) {
+            try { logModuleCall('cloudstorage', 'provision_e3cb_anchor_due_fail', ['service_id' => $serviceId], $e->getMessage()); } catch (\Throwable $_) {}
+        }
+
+        // Step 6: ensure a default s3_backup_users row + a one-time enrollment token.
+        $backupUserId = self::ensureDefaultBackupUser($clientId, $username, $password);
+        if ($backupUserId > 0) {
+            try {
+                self::ensureEnrollmentToken($clientId, $backupUserId);
+            } catch (\Throwable $e) {
+                try { logModuleCall('cloudstorage', 'provision_e3cb_enrollment_token_fail', ['client_id' => $clientId], $e->getMessage()); } catch (\Throwable $_) {}
+            }
+        }
+
+        // Land the new customer on the Getting Started page (a purpose-built
+        // first-run hub). The driver.js tour auto-starts there. Customers can
+        // navigate to the user detail page via the stepper once an agent
+        // enrolls.
+        return 'index.php?m=cloudstorage&page=e3backup&view=getting_started';
+    }
+
+    /**
+     * Create or return the id of a default s3_backup_users row for this client.
+     */
+    private static function ensureDefaultBackupUser(int $clientId, string $usernameHint, string $password): int
+    {
+        try {
+            $existing = Capsule::table('s3_backup_users')
+                ->where('client_id', $clientId)
+                ->orderBy('id', 'asc')
+                ->first();
+            if ($existing) {
+                return (int) $existing->id;
+            }
+        } catch (\Throwable $e) {
+        }
+
+        $clean = preg_replace('/[^A-Za-z0-9_.-]+/', '', $usernameHint);
+        if ($clean === '' || strlen($clean) < 3) {
+            $clean = 'agent' . $clientId;
+        }
+        try {
+            $email = (string) Capsule::table('tblclients')->where('id', $clientId)->value('email');
+        } catch (\Throwable $e) {
+            $email = '';
+        }
+        $hash = password_hash($password, PASSWORD_DEFAULT);
+        $publicId = strtoupper(bin2hex(random_bytes(13))); // 26 chars
+        try {
+            $id = (int) Capsule::table('s3_backup_users')->insertGetId([
+                'public_id'     => $publicId,
+                'client_id'     => $clientId,
+                'tenant_id'     => null,
+                'username'      => $clean,
+                'password_hash' => $hash ?: '',
+                'email'         => $email,
+                'status'        => 'active',
+                'backup_type'   => 'both',
+                'created_at'    => date('Y-m-d H:i:s'),
+                'updated_at'    => date('Y-m-d H:i:s'),
+            ]);
+            try { logModuleCall('cloudstorage', 'provision_e3cb_backup_user_created', ['client_id' => $clientId, 'id' => $id], $clean); } catch (\Throwable $_) {}
+            return $id;
+        } catch (\Throwable $e) {
+            try { logModuleCall('cloudstorage', 'provision_e3cb_backup_user_insert_fail', ['client_id' => $clientId], $e->getMessage()); } catch (\Throwable $_) {}
+            return 0;
+        }
+    }
+
+    /**
+     * Create a one-time enrollment token for the given backup user.
+     */
+    private static function ensureEnrollmentToken(int $clientId, int $backupUserId): int
+    {
+        try {
+            $token = strtoupper(bin2hex(random_bytes(16)));
+            $expires = date('Y-m-d H:i:s', strtotime('+7 days'));
+            return (int) Capsule::table('s3_agent_enrollment_tokens')->insertGetId([
+                'client_id'      => $clientId,
+                'tenant_id'      => null,
+                'backup_user_id' => $backupUserId,
+                'token'          => $token,
+                'description'    => 'Auto-generated at provisioning',
+                'max_uses'       => 1,
+                'use_count'      => 0,
+                'expires_at'     => $expires,
+                'created_at'     => date('Y-m-d H:i:s'),
+            ]);
+        } catch (\Throwable $e) {
+            return 0;
+        }
     }
 }
 

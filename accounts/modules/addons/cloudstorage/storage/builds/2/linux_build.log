@@ -1,0 +1,6 @@
+
+[2026-05-26 15:47:37] $ 'make' 'build'
+Building e3-backup-agent (version=2026.05.26-154653 commit=c950b374)...
+go: module cache not found: neither GOMODCACHE nor GOPATH is set
+make: *** [Makefile:13: build] Error 1
+[2026-05-26 15:47:37] exit=2

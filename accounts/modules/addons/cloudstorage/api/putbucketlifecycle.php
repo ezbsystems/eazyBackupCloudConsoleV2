@@ -26,7 +26,7 @@ $ca = new ClientArea();
 $loggedInUserId = $ca->getUserID();
 $packageId = ProductConfig::$E3_PRODUCT_ID;
 $product = DBController::getProduct($loggedInUserId, $packageId);
-if (is_null($product) || is_null($product->username)) {
+if (is_null($product) || empty($product->username)) {
 	(new JsonResponse(['status' => 'fail', 'message' => 'Unable to save lifecycle rule. Please try again later.'], 200))->send();
 	exit;
 }

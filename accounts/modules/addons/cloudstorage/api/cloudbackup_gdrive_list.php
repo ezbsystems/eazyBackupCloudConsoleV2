@@ -40,7 +40,7 @@ if ($rl['count'] > 15) {
 }
 
 try {
-    $packageId = ProductConfig::$E3_PRODUCT_ID;
+    $packageId = ProductConfig::e3CloudBackupPid();
     $loggedInUserId = $ca->getUserID();
 
     $product = DBController::getProduct($loggedInUserId, $packageId);

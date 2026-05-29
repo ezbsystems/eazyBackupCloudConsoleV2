@@ -149,16 +149,36 @@
                         </template>
                         <template x-if="!loading && filteredAgents().length === 0">
                             <tr>
-                                <td :colspan="{if $isMspClient}9{else}8{/if} + (showDeviceId ? 1 : 0) + (showDeviceName ? 1 : 0)" class="!px-4 !py-10 text-center text-sm text-[var(--eb-text-muted)]">
+                                <td :colspan="{if $isMspClient}9{else}8{/if} + (showDeviceId ? 1 : 0) + (showDeviceName ? 1 : 0)" class="!px-4 !py-10">
                                     <template x-if="searchQuery.trim()">
-                                        <span>No agents match your current search.</span>
+                                        <div class="eb-app-empty">
+                                            <div class="eb-app-empty-title">No agents match your search</div>
+                                            <p class="eb-app-empty-copy">Try a different search term or clear the filter.</p>
+                                        </div>
                                     </template>
                                     <template x-if="!searchQuery.trim()">
-                                        <span>
-                                            No agents found.
-                                            <a href="index.php?m=cloudstorage&page=e3backup&view=tokens" class="font-medium text-[var(--eb-info-text)] hover:text-[var(--eb-text-primary)]">Generate an enrollment token</a>
-                                            to add agents.
-                                        </span>
+                                        <div class="eb-app-empty">
+                                            <span class="eb-icon-box eb-icon-box--lg eb-icon-box--default mb-3" aria-hidden="true">
+                                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-6 w-6">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 17.25v1.007a3 3 0 0 1-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0 1 15 18.257V17.25m6-12V15a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 15V5.25m18 0A2.25 2.25 0 0 0 18.75 3H5.25A2.25 2.25 0 0 0 3 5.25m18 0V12a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 12V5.25" />
+                                                </svg>
+                                            </span>
+                                            <div class="eb-app-empty-title">No agents enrolled yet</div>
+                                            <p class="eb-app-empty-copy">
+                                                Install the e3 Backup Agent on the computer you want to protect.
+                                                Sign in with your portal email + password from the installer; the agent will appear here once it connects.
+                                            </p>
+                                            <div class="mt-4 flex flex-wrap items-center justify-center gap-2">
+                                                <button type="button"
+                                                        class="eb-btn eb-btn-primary eb-btn-sm"
+                                                        onclick="window.dispatchEvent(new Event('open-e3-download-flyout'))">
+                                                    Download Agent
+                                                </button>
+                                                <a href="index.php?m=cloudstorage&page=e3backup&view=getting_started" class="eb-btn eb-btn-secondary eb-btn-sm">
+                                                    Open Getting Started
+                                                </a>
+                                            </div>
+                                        </div>
                                     </template>
                                 </td>
                             </tr>

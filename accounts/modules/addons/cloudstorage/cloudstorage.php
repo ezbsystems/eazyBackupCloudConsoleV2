@@ -523,6 +523,77 @@ function cloudstorage_config()
                 'Default' => 'C:\\Tools\\AzureSignTool\\AzureSignTool.exe',
                 'Description' => 'Full path to AzureSignTool.exe on the Windows build host.',
             ],
+            // ==== e3 Cloud Backup product + billing ====
+            'pid_e3_cloud_backup' => [
+                'FriendlyName' => 'e3 Cloud Backup Product (PID)',
+                'Type' => 'text',
+                'Size' => '10',
+                'Description' => 'WHMCS Product ID for the new e3 Cloud Backup product. Auto-filled on activation; admin can override if you have a manually created product to point to.',
+            ],
+            'e3cb_config_option_ids' => [
+                'FriendlyName' => 'e3 Cloud Backup Config Option IDs (JSON)',
+                'Type' => 'text',
+                'Size' => '250',
+                'Description' => 'Auto-managed JSON map of metric -> tblproductconfigoptions.id (endpoint, disk_image, hyperv_vm, proxmox_vm, vmware_vm). Do not edit unless reconciling.',
+            ],
+            'e3cb_trial_days' => [
+                'FriendlyName' => 'e3 Cloud Backup Trial Days',
+                'Type' => 'text',
+                'Size' => '10',
+                'Default' => '30',
+                'Description' => 'Free trial period (days) for new e3 Cloud Backup signups. Storage and compute are both free during this window.',
+            ],
+            'e3cb_included_endpoints' => [
+                'FriendlyName' => 'e3 Cloud Backup - Included Endpoints',
+                'Type' => 'text',
+                'Size' => '10',
+                'Default' => '0',
+                'Description' => 'Number of endpoints included for free per service (subtracted from billable qty before pricing).',
+            ],
+            'e3cb_trial_includes_storage' => [
+                'FriendlyName' => 'Trial Includes Storage',
+                'Type' => 'yesno',
+                'Description' => 'If enabled, the storage base fee + overage are also waived during the trial period.',
+            ],
+            'e3cb_post_trial_no_payment_action' => [
+                'FriendlyName' => 'Post-Trial Action (No Payment Method)',
+                'Type' => 'dropdown',
+                'Options' => 'suspend,terminate',
+                'Default' => 'suspend',
+                'Description' => 'What to do when a trial ends and the client has no payment method on file. suspend = keep data, freeze service; terminate = irreversibly remove (NOT recommended).',
+            ],
+            'e3cb_currency_id' => [
+                'FriendlyName' => 'e3 Cloud Backup Currency ID',
+                'Type' => 'text',
+                'Size' => '10',
+                'Default' => '1',
+                'Description' => 'tblcurrencies.id used for the e3 Cloud Backup product pricing rows. Default 1 (typically CAD).',
+            ],
+            'e3backup_beta_hosts' => [
+                'FriendlyName' => 'e3 Cloud Backup - Beta Hosts',
+                'Type' => 'text',
+                'Size' => '191',
+                'Default' => 'dev.eazybackup.ca',
+                'Description' => 'Comma-separated list of HTTP_HOST values where the e3 Cloud Backup card is visible on the Welcome page by default.',
+            ],
+            'e3backup_beta_client_ids' => [
+                'FriendlyName' => 'e3 Cloud Backup - Beta Client IDs',
+                'Type' => 'text',
+                'Size' => '191',
+                'Description' => 'Comma-separated WHMCS client IDs allowed to see the e3 Cloud Backup card regardless of host (early-access allowlist).',
+            ],
+            'e3backup_beta_admin_override' => [
+                'FriendlyName' => 'e3 Cloud Backup - Honour ?eb_beta=1 for Admins',
+                'Type' => 'yesno',
+                'Description' => 'If enabled, signed-in WHMCS admins (or SSO impersonation sessions) can force the e3 Cloud Backup card to appear by appending ?eb_beta=1.',
+            ],
+            'trial_skip_verification_emails' => [
+                'FriendlyName' => 'Trial - Skip Email Verification (Emails)',
+                'Type' => 'textarea',
+                'Rows' => '3',
+                'Cols' => '60',
+                'Description' => 'Comma- or newline-separated email addresses whose trial signups bypass the email-verification step. ONLY honoured when HTTP_HOST is in e3backup_beta_hosts (dev only).',
+            ],
         ]
     ];
 }
@@ -1055,6 +1126,199 @@ function cloudstorage_ensure_table_index(string $tableName, callable $indexer, s
 /**
  * Ensure Hyper-V schema objects exist and are updated additively.
  */
+/**
+ * Ensure the schema for the new e3 Cloud Backup billing subsystem exists.
+ * Creates four tables:
+ *   - s3_cloudbackup_usage_snapshots  (hourly metered qty per metric per service)
+ *   - s3_cloudbackup_pricing          (per-client / global price overrides)
+ *   - s3_cloudbackup_rated_lines      (computed monthly amount per metric per window)
+ *   - s3_cloudbackup_trial_state      (trialing -> converted / suspended_no_payment lifecycle)
+ *
+ * Idempotent: safe to invoke on every activate and upgrade.
+ */
+function cloudstorage_ensure_e3cb_billing_schema(string $context = 'activate'): void
+{
+    $schema = Capsule::schema();
+    $metricEnum = "ENUM('endpoint','disk_image','hyperv_vm','proxmox_vm','vmware_vm')";
+
+    // --- s3_cloudbackup_usage_snapshots ---
+    if (!$schema->hasTable('s3_cloudbackup_usage_snapshots')) {
+        try {
+            $schema->create('s3_cloudbackup_usage_snapshots', function ($table) {
+                $table->bigIncrements('id');
+                $table->unsignedInteger('service_id');
+                $table->unsignedInteger('client_id');
+                $table->enum('metric', ['endpoint', 'disk_image', 'hyperv_vm', 'proxmox_vm', 'vmware_vm']);
+                $table->unsignedInteger('qty')->default(0);
+                $table->timestamp('taken_at')->useCurrent();
+                $table->index(['service_id', 'metric', 'taken_at'], 'idx_e3cb_usage_service_metric_time');
+                $table->index(['client_id', 'taken_at'], 'idx_e3cb_usage_client_time');
+            });
+            logModuleCall('cloudstorage', $context, [], 'Created s3_cloudbackup_usage_snapshots', [], []);
+        } catch (\Throwable $e) {
+            logModuleCall('cloudstorage', "{$context}_create_s3_cloudbackup_usage_snapshots", [], $e->getMessage(), [], []);
+        }
+    }
+
+    // --- s3_cloudbackup_pricing ---
+    if (!$schema->hasTable('s3_cloudbackup_pricing')) {
+        try {
+            $schema->create('s3_cloudbackup_pricing', function ($table) {
+                $table->bigIncrements('id');
+                $table->unsignedInteger('client_id')->nullable();
+                $table->enum('metric', ['endpoint', 'disk_image', 'hyperv_vm', 'proxmox_vm', 'vmware_vm']);
+                $table->enum('mode', ['flat_unit', 'tiered', 'flat_monthly']);
+                $table->decimal('unit_price', 12, 4)->nullable();
+                $table->json('tiers_json')->nullable();
+                $table->decimal('flat_monthly', 12, 4)->nullable();
+                $table->unsignedInteger('currency_id')->default(1);
+                $table->date('effective_from');
+                $table->date('effective_to')->nullable();
+                $table->text('notes')->nullable();
+                $table->unsignedInteger('created_by_admin')->nullable();
+                $table->timestamp('created_at')->useCurrent();
+                $table->timestamp('updated_at')->useCurrent();
+                $table->index(['client_id', 'metric'], 'idx_e3cb_pricing_client_metric');
+                $table->index(['metric', 'effective_from'], 'idx_e3cb_pricing_metric_eff');
+            });
+            // Unique key including the nullable client_id - MySQL treats multiple NULLs
+            // as distinct, which is fine since we only ever have one global default row
+            // per (metric, currency_id, effective_from). Enforce uniqueness at the app
+            // level instead.
+            logModuleCall('cloudstorage', $context, [], 'Created s3_cloudbackup_pricing', [], []);
+        } catch (\Throwable $e) {
+            logModuleCall('cloudstorage', "{$context}_create_s3_cloudbackup_pricing", [], $e->getMessage(), [], []);
+        }
+    }
+
+    // --- s3_cloudbackup_rated_lines ---
+    if (!$schema->hasTable('s3_cloudbackup_rated_lines')) {
+        try {
+            $schema->create('s3_cloudbackup_rated_lines', function ($table) {
+                $table->bigIncrements('id');
+                $table->unsignedInteger('service_id');
+                $table->unsignedInteger('client_id');
+                $table->enum('metric', ['endpoint', 'disk_image', 'hyperv_vm', 'proxmox_vm', 'vmware_vm']);
+                $table->unsignedInteger('qty')->default(0);
+                $table->decimal('unit_price', 12, 4)->default(0);
+                $table->string('tier_label', 64)->nullable();
+                $table->decimal('line_amount', 12, 2)->default(0);
+                $table->unsignedInteger('currency_id')->default(1);
+                $table->date('billing_window_start');
+                $table->date('billing_window_end');
+                $table->enum('pricing_source', [
+                    'client_override',
+                    'global_default',
+                    'tblpricing',
+                    'flat_monthly',
+                    'trial_zeroed',
+                ]);
+                $table->text('notes')->nullable();
+                $table->timestamp('created_at')->useCurrent();
+                $table->timestamp('updated_at')->useCurrent();
+                $table->index(['service_id', 'billing_window_start'], 'idx_e3cb_rated_service_window');
+                $table->index(['client_id', 'billing_window_start'], 'idx_e3cb_rated_client_window');
+                $table->unique(['service_id', 'metric', 'billing_window_start'], 'uniq_e3cb_rated_service_metric_window');
+            });
+            logModuleCall('cloudstorage', $context, [], 'Created s3_cloudbackup_rated_lines', [], []);
+        } catch (\Throwable $e) {
+            logModuleCall('cloudstorage', "{$context}_create_s3_cloudbackup_rated_lines", [], $e->getMessage(), [], []);
+        }
+    }
+
+    // --- s3_cloudbackup_trial_state ---
+    if (!$schema->hasTable('s3_cloudbackup_trial_state')) {
+        try {
+            $schema->create('s3_cloudbackup_trial_state', function ($table) {
+                $table->unsignedInteger('service_id')->primary();
+                $table->unsignedInteger('client_id');
+                $table->timestamp('trial_started_at')->useCurrent();
+                $table->timestamp('trial_ends_at')->nullable();
+                $table->enum('status', ['trialing', 'converted', 'suspended_no_payment', 'cancelled'])->default('trialing');
+                $table->timestamp('converted_at')->nullable();
+                $table->timestamp('suspended_at')->nullable();
+                $table->timestamp('payment_method_seen_at')->nullable();
+                $table->timestamp('last_evaluated_at')->nullable();
+                $table->text('notes')->nullable();
+                $table->timestamp('created_at')->useCurrent();
+                $table->timestamp('updated_at')->useCurrent();
+                $table->index('client_id', 'idx_e3cb_trial_client');
+                $table->index('status', 'idx_e3cb_trial_status');
+                $table->index('trial_ends_at', 'idx_e3cb_trial_ends');
+            });
+            logModuleCall('cloudstorage', $context, [], 'Created s3_cloudbackup_trial_state', [], []);
+        } catch (\Throwable $e) {
+            logModuleCall('cloudstorage', "{$context}_create_s3_cloudbackup_trial_state", [], $e->getMessage(), [], []);
+        }
+    }
+
+    // --- s3_e3backup_onboarding_state ---
+    // Tracks per-client first-run state for the e3 Cloud Backup getting-started
+    // experience: when did the customer click Download? did they dismiss the
+    // guided tour? has the tour been completed? These are bits we can't derive
+    // from agents / jobs / runs tables.
+    if (!$schema->hasTable('s3_e3backup_onboarding_state')) {
+        try {
+            $schema->create('s3_e3backup_onboarding_state', function ($table) {
+                $table->unsignedInteger('client_id')->primary();
+                $table->timestamp('download_clicked_at')->nullable();
+                $table->timestamp('tour_started_at')->nullable();
+                $table->timestamp('tour_completed_at')->nullable();
+                $table->timestamp('tour_dismissed_at')->nullable();
+                $table->timestamp('first_job_tour_started_at')->nullable();
+                $table->timestamp('first_job_tour_completed_at')->nullable();
+                $table->timestamp('first_job_tour_dismissed_at')->nullable();
+                $table->timestamp('last_visited_getting_started_at')->nullable();
+                $table->timestamp('created_at')->useCurrent();
+                $table->timestamp('updated_at')->useCurrent();
+            });
+            logModuleCall('cloudstorage', $context, [], 'Created s3_e3backup_onboarding_state', [], []);
+        } catch (\Throwable $e) {
+            logModuleCall('cloudstorage', "{$context}_create_s3_e3backup_onboarding_state", [], $e->getMessage(), [], []);
+        }
+    } else {
+        // Extend existing installs with the first-job tour columns (added after the
+        // initial onboarding rollout). These are the write-once timestamps for the
+        // second guided tour that fires on Users / User Detail when the customer
+        // has installed an agent but not yet created their first backup job.
+        try {
+            foreach (['first_job_tour_started_at', 'first_job_tour_completed_at', 'first_job_tour_dismissed_at'] as $col) {
+                if (!$schema->hasColumn('s3_e3backup_onboarding_state', $col)) {
+                    $schema->table('s3_e3backup_onboarding_state', function ($table) use ($col) {
+                        $table->timestamp($col)->nullable()->after('tour_dismissed_at');
+                    });
+                    logModuleCall('cloudstorage', $context, [], "Added {$col} to s3_e3backup_onboarding_state", [], []);
+                }
+            }
+        } catch (\Throwable $e) {
+            logModuleCall('cloudstorage', "{$context}_extend_s3_e3backup_onboarding_state", [], $e->getMessage(), [], []);
+        }
+    }
+}
+
+/**
+ * Auto-provision the e3 Cloud Backup WHMCS product + config option group +
+ * 5 metric options + base tblpricing rows. Wraps the bootstrap class so the
+ * activation routine has a stable function reference.
+ */
+function cloudstorage_ensure_e3cb_product(string $context = 'activate'): void
+{
+    try {
+        $cls = '\\WHMCS\\Module\\Addon\\CloudStorage\\Provision\\E3CloudBackupProductBootstrap';
+        if (!class_exists($cls)) {
+            $path = __DIR__ . '/lib/Provision/E3CloudBackupProductBootstrap.php';
+            if (is_file($path)) {
+                require_once $path;
+            }
+        }
+        if (class_exists($cls)) {
+            $cls::ensure($context);
+        }
+    } catch (\Throwable $e) {
+        logModuleCall('cloudstorage', "{$context}_e3cb_product_bootstrap_exception", [], $e->getMessage(), [], []);
+    }
+}
+
 function cloudstorage_ensure_hyperv_schema(string $context = 'activate'): void
 {
     $schema = Capsule::schema();
@@ -1393,6 +1657,11 @@ function cloudstorage_activate() {
                 'is_system_managed' => function ($table) { $table->tinyInteger('is_system_managed')->default(0)->after('is_active'); },
                 'system_key' => function ($table) { $table->string('system_key', 64)->nullable()->after('is_system_managed'); },
                 'manage_locked' => function ($table) { $table->tinyInteger('manage_locked')->default(0)->after('system_key'); },
+                // Opaque per-owner storage suffix used by the e3 Cloud Backup
+                // bootstrap to compose customer-private bucket / uid names
+                // (e.g. "e3cb-<token>"). Replaces the previous client-id based
+                // names which let outsiders count signups from bucket names.
+                'external_token' => function ($table) { $table->string('external_token', 40)->nullable()->after('manage_locked'); },
                 'deleted_at' => function ($table) { $table->timestamp('deleted_at')->nullable()->after('created_at'); },
             ];
             foreach ($s3UserColDefs as $col => $adder) {
@@ -1442,6 +1711,13 @@ function cloudstorage_activate() {
                 if (Capsule::schema()->hasColumn('s3_users', 'parent_id') && Capsule::schema()->hasColumn('s3_users', 'system_key')) {
                     Capsule::schema()->table('s3_users', function ($table) {
                         $table->index(['parent_id', 'system_key'], 'idx_s3_users_parent_system_key');
+                    });
+                }
+            } catch (\Throwable $e) { /* index already exists */ }
+            try {
+                if (Capsule::schema()->hasColumn('s3_users', 'external_token')) {
+                    Capsule::schema()->table('s3_users', function ($table) {
+                        $table->unique('external_token', 'idx_s3_users_external_token');
                     });
                 }
             } catch (\Throwable $e) { /* index already exists */ }
@@ -2601,6 +2877,17 @@ function cloudstorage_activate() {
             }
         }
 
+        // Composite indexes for MSP-scale access patterns (idempotent).
+        // - restore points: scoped, time-ordered list query on the Restore tab.
+        // - runs: latest-run-per-job window query on the Jobs tab.
+        cloudstorage_ensure_table_index('s3_cloudbackup_restore_points', function ($table) {
+            $table->index(['client_id', 'backup_user_id', 'created_at'], 'idx_rp_client_user_created');
+        }, 'idx_rp_client_user_created');
+
+        cloudstorage_ensure_table_index('s3_cloudbackup_runs', function ($table) {
+            $table->index(['job_id', 'started_at'], 'idx_runs_job_started');
+        }, 'idx_runs_job_started');
+
         if (!Capsule::schema()->hasTable('s3_cloudbackup_agent_destinations')) {
             Capsule::schema()->create('s3_cloudbackup_agent_destinations', function ($table) {
                 $table->bigIncrements('id');
@@ -2907,6 +3194,8 @@ function cloudstorage_activate() {
 
         cloudstorage_ensure_hyperv_schema('activate');
         cloudstorage_ensure_agent_build_schema('activate');
+        cloudstorage_ensure_e3cb_billing_schema('activate');
+        cloudstorage_ensure_e3cb_product('activate');
 
         // Create Tenant Portal Email Templates if they don't exist
         cloudstorage_create_email_templates();
@@ -3164,6 +3453,17 @@ function cloudstorage_upgrade($vars) {
                         $table->tinyInteger('manage_locked')->default(0)->after('system_key');
                     });
                 }
+                if (!$schema->hasColumn('s3_users', 'external_token')) {
+                    $schema->table('s3_users', function ($table) {
+                        $table->string('external_token', 40)->nullable()->after('manage_locked');
+                    });
+                }
+
+                try {
+                    if ($schema->hasColumn('s3_users', 'external_token')) {
+                        $schema->table('s3_users', function ($table) { $table->unique('external_token', 'idx_s3_users_external_token'); });
+                    }
+                } catch (\Throwable $__) {}
 
                 try {
                     if ($schema->hasColumn('s3_users', 'manage_locked')) {
@@ -4484,6 +4784,20 @@ function cloudstorage_upgrade($vars) {
             }
         }
 
+        // Composite indexes for MSP-scale access patterns (idempotent). Kept in
+        // sync with cloudstorage_activate() so production code deploys that run
+        // the upgrade routine (version bump) get the same indexes as a fresh
+        // activate. The helper swallows "index already exists" errors.
+        //   - restore points: scoped, time-ordered Restore-tab list query.
+        //   - runs: latest-run-per-job window query on the Jobs tab.
+        cloudstorage_ensure_table_index('s3_cloudbackup_restore_points', function ($table) {
+            $table->index(['client_id', 'backup_user_id', 'created_at'], 'idx_rp_client_user_created');
+        }, 'idx_rp_client_user_created', 'upgrade');
+
+        cloudstorage_ensure_table_index('s3_cloudbackup_runs', function ($table) {
+            $table->index(['job_id', 'started_at'], 'idx_runs_job_started');
+        }, 'idx_runs_job_started', 'upgrade');
+
         // Ensure recovery tokens table exists on upgrades
         if (!\WHMCS\Database\Capsule::schema()->hasTable('s3_cloudbackup_recovery_tokens')) {
             \WHMCS\Database\Capsule::schema()->create('s3_cloudbackup_recovery_tokens', function ($table) {
@@ -4997,6 +5311,8 @@ function cloudstorage_upgrade($vars) {
 
         cloudstorage_ensure_hyperv_schema('upgrade');
         cloudstorage_ensure_agent_build_schema('upgrade');
+        cloudstorage_ensure_e3cb_billing_schema('upgrade');
+        cloudstorage_ensure_e3cb_product('upgrade');
         return ['status' => 'success'];
     } catch (\Exception $e) {
         logModuleCall('cloudstorage', 'upgrade', $vars, $e->getMessage());
@@ -5112,6 +5428,32 @@ function cloudstorage_clientarea($vars) {
                 header('Location: clientarea.php');
                 exit;
             }
+            // Layered beta gate for the e3 Cloud Backup card.
+            try {
+                require_once __DIR__ . '/lib/Beta/BetaGate.php';
+                $welcomeClientId = (int) $clientArea->getUserID();
+                $viewVars['EB_SHOW_E3_BACKUP'] = \WHMCS\Module\Addon\CloudStorage\Beta\BetaGate::isE3BackupVisible($welcomeClientId);
+            } catch (\Throwable $e) {
+                $viewVars['EB_SHOW_E3_BACKUP'] = false;
+            }
+            // Portal-password gate (Round 2): if the client still needs to set
+            // their client-area password, block product selection behind a
+            // modal that fires the cached-plaintext set_portal_password flow.
+            // The flag is sticky for the welcome session (we also re-arm it
+            // here if a cached plaintext is missing) so the modal still pops
+            // for sessions that pre-date this feature.
+            try {
+                $welcomeClientId = isset($welcomeClientId) ? (int) $welcomeClientId : (int) $clientArea->getUserID();
+                $needsPwSet = false;
+                if (function_exists('eazybackup_must_set_password')) {
+                    $needsPwSet = (bool) eazybackup_must_set_password($welcomeClientId);
+                }
+                $viewVars['ebMustSetPortalPassword'] = $needsPwSet;
+                $viewVars['ebPortalPasswordCached']  = !empty($_SESSION['eb_portal_password_for_provision']);
+            } catch (\Throwable $e) {
+                $viewVars['ebMustSetPortalPassword'] = false;
+                $viewVars['ebPortalPasswordCached']  = false;
+            }
             break;
 
         case 'test':
@@ -5154,6 +5496,51 @@ function cloudstorage_clientarea($vars) {
 
         case 'e3backup':
             $view = $_GET['view'] ?? 'dashboard';
+
+            // Pre-compute onboarding/admin state once for every e3backup view so
+            // the shell + sidebar can render their first-run UI without each
+            // page handler having to remember to do it. Read-only and cheap.
+            $ebE3OnboardingShared = [
+                'ebE3OnboardingState'     => null,
+                'ebE3OnboardingCompleted' => 0,
+                'ebE3OnboardingTotal'     => 4,
+                'ebE3OnboardingComplete'  => false,
+                'ebE3OnboardingHidden'    => false,
+                'ebE3HasAgents'           => false,
+                'ebIsAdminSession'        => !empty($_SESSION['adminid']),
+            ];
+            try {
+                $obStatePath = __DIR__ . '/lib/Client/OnboardingState.php';
+                if (is_file($obStatePath)) {
+                    require_once $obStatePath;
+                }
+                $obClientId = 0;
+                try {
+                    $caE3 = new \WHMCS\ClientArea();
+                    if ($caE3->isLoggedIn()) {
+                        $obClientId = (int) $caE3->getUserID();
+                    }
+                } catch (\Throwable $_) {
+                    $obClientId = 0;
+                }
+                if ($obClientId > 0 && class_exists('\\WHMCS\\Module\\Addon\\CloudStorage\\Client\\OnboardingState')) {
+                    $obState = \WHMCS\Module\Addon\CloudStorage\Client\OnboardingState::compute($obClientId);
+                    $ebE3OnboardingShared['ebE3OnboardingState']     = $obState;
+                    $ebE3OnboardingShared['ebE3OnboardingCompleted'] = (int) ($obState['completed_count'] ?? 0);
+                    $ebE3OnboardingShared['ebE3OnboardingTotal']     = (int) ($obState['total_count'] ?? 4);
+                    $ebE3OnboardingShared['ebE3OnboardingComplete']  = (bool) ($obState['all_complete'] ?? false);
+                    $ebE3OnboardingShared['ebE3HasAgents']           = !empty($obState['steps']['agent_online']['complete']);
+                    // Hide the Getting Started link once everything is done AND
+                    // the customer dismissed/completed the tour.
+                    $ebE3OnboardingShared['ebE3OnboardingHidden'] = (
+                        !empty($obState['all_complete'])
+                        && (!empty($obState['tour_completed']) || !empty($obState['tour_dismissed']))
+                    );
+                }
+            } catch (\Throwable $e) {
+                // best-effort - leave defaults
+            }
+
             switch ($view) {
                 case 'users':
                     $pagetitle = 'e3 Cloud Backup - Users';
@@ -5167,7 +5554,7 @@ function cloudstorage_clientarea($vars) {
                     break;
                 case 'live':
                     $pagetitle = 'e3 Cloud Backup - Live Progress';
-                    $templatefile = 'templates/cloudbackup_live';
+                    $templatefile = 'templates/e3backup_live';
                     $viewVars = require 'pages/e3backup_live.php';
                     break;
                 case 'agents':
@@ -5231,12 +5618,24 @@ function cloudstorage_clientarea($vars) {
                     $templatefile = 'templates/e3backup_recovery_media';
                     $viewVars = require 'pages/e3backup_recovery_media.php';
                     break;
+                case 'getting_started':
+                    $pagetitle = 'e3 Cloud Backup - Getting Started';
+                    $templatefile = 'templates/e3backup_getting_started';
+                    $viewVars = require 'pages/e3backup_getting_started.php';
+                    break;
                 case 'dashboard':
                 default:
                     $pagetitle = 'e3 Cloud Backup';
                     $templatefile = 'templates/e3backup_dashboard';
                     $viewVars = require 'pages/e3backup_dashboard.php';
                     break;
+            }
+            // Merge the shared onboarding vars into every e3backup view.
+            // Individual pages can override any key by setting it themselves.
+            if (is_array($viewVars)) {
+                $viewVars = $viewVars + $ebE3OnboardingShared;
+            } else {
+                $viewVars = $ebE3OnboardingShared;
             }
             break;
 
@@ -5346,6 +5745,14 @@ function cloudstorage_output($vars)
             require_once __DIR__ . '/pages/admin/agent_builds.php';
             cloudstorage_admin_agent_builds($vars);
             break;
+        case 'cloudbackup_trials':
+            require_once __DIR__ . '/pages/admin/cloudbackup_trials.php';
+            cloudstorage_admin_cloudbackup_trials($vars);
+            break;
+        case 'cloudbackup_pricing':
+            require_once __DIR__ . '/pages/admin/cloudbackup_pricing.php';
+            cloudstorage_admin_cloudbackup_pricing($vars);
+            break;
         default:
             // Default overview / entry page with navigation tabs
             echo '<div class="content-padded">';
@@ -5359,6 +5766,8 @@ function cloudstorage_output($vars)
             echo '  <li><a href="' . htmlspecialchars($baseUrl . '&action=deprovision') . '">Deprovision Cloud Storage Customer</a></li>';
             echo '  <li><a href="' . htmlspecialchars($baseUrl . '&action=reconcile') . '">Reconciliation</a></li>';
             echo '  <li><a href="' . htmlspecialchars($baseUrl . '&action=agent_builds') . '">Agent Builds</a></li>';
+            echo '  <li><a href="' . htmlspecialchars($baseUrl . '&action=cloudbackup_trials') . '">Cloud Backup Trials</a></li>';
+            echo '  <li><a href="' . htmlspecialchars($baseUrl . '&action=cloudbackup_pricing') . '">Cloud Backup Pricing</a></li>';
             echo '</ul>';
 
             echo '<div class="panel panel-default">';
@@ -5403,6 +5812,12 @@ function cloudstorage_sidebar($vars)
         </a>
         <a href="' . $_SERVER['PHP_SELF'] . '?module=cloudstorage&action=agent_builds" class="list-group-item">
             <i class="fa fa-cogs"></i> Agent Builds
+        </a>
+        <a href="' . $_SERVER['PHP_SELF'] . '?module=cloudstorage&action=cloudbackup_trials" class="list-group-item">
+            <i class="fa fa-hourglass-half"></i> Cloud Backup Trials
+        </a>
+        <a href="' . $_SERVER['PHP_SELF'] . '?module=cloudstorage&action=cloudbackup_pricing" class="list-group-item">
+            <i class="fa fa-tags"></i> Cloud Backup Pricing
         </a>
     </div>';
     
