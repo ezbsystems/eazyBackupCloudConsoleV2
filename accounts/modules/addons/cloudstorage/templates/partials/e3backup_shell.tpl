@@ -416,5 +416,29 @@ document.addEventListener('DOMContentLoaded', function() {
 .driver-popover.eb-e3-tour-popover .driver-popover-arrow-side-right.driver-popover-arrow {
     border-color: var(--eb-border-emphasis);
 }
+
+/* ----------------------------------------------------------------------
+   Keep the Download Agent entry points usable during the guided tour.
+
+   driver.js applies pointer-events:none to every element except the one it
+   is currently spotlighting (.driver-active *), so the sidebar "Download
+   Agent" button and the download flyout's links go dead on any step that is
+   not highlighting them. That made Step 1 (download) completable only from
+   the spotlighted Getting Started card. Re-enable interaction - and lift the
+   flyout above the dark overlay - so the customer can grab the installer
+   (and complete Step 1) from the sidebar button OR the flyout at any point
+   during the tour. The driver popover lives at z-index 1000000000. */
+.driver-active [data-tour="sidebar-download"] {
+    pointer-events: auto !important;
+    position: relative;
+    z-index: 1000000001;
+}
+.driver-active #e3-download-flyout,
+.driver-active #e3-download-flyout * {
+    pointer-events: auto !important;
+}
+.driver-active #e3-download-flyout {
+    z-index: 1000000001 !important;
+}
 {/literal}
 </style>

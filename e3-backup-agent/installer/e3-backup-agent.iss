@@ -149,11 +149,13 @@ procedure InitializeWizard;
 var
   HelpText: TNewStaticText;
 begin
-  // NOTE: All custom controls on wizard pages MUST set explicit Height and
-  // either AutoSize:=True or WordWrap:=True. At Windows text scaling of
-  // 125% / 150% the OS-rendered caption wraps but the control bounds do
-  // not, which clips the second line. Always anchor right-side so the
-  // control stretches with the wizard. See also Inno Setup docs on DPI.
+  // NOTE on text scaling (125% / 150%): TNewStaticText supports AutoSize +
+  // WordWrap and must use them so wrapped captions are not clipped. However
+  // TNewCheckBox does NOT expose a WordWrap property in Inno Setup's Pascal
+  // Script (setting it aborts the compile with "Unknown identifier
+  // 'WordWrap'"), so its caption must stay short enough to fit on one line.
+  // Keep the long explanation in the TNewStaticText help line below. Always
+  // anchor right-side so controls stretch with the wizard.
   EnvPage := CreateCustomPage(
     wpSelectTasks,
     'Server Environment',
@@ -162,13 +164,12 @@ begin
 
   UseDevCheckbox := TNewCheckBox.Create(EnvPage);
   UseDevCheckbox.Parent := EnvPage.Surface;
-  UseDevCheckbox.Caption := 'Use development server (dev.eazybackup.ca)';
+  UseDevCheckbox.Caption := 'Use development server';
   UseDevCheckbox.Checked := False;
   UseDevCheckbox.Left := ScaleX(0);
   UseDevCheckbox.Top := ScaleY(8);
   UseDevCheckbox.Width := EnvPage.SurfaceWidth;
-  UseDevCheckbox.Height := ScaleY(36);
-  UseDevCheckbox.WordWrap := True;
+  UseDevCheckbox.Height := ScaleY(24);
   UseDevCheckbox.Anchors := [akLeft, akTop, akRight];
 
   HelpText := TNewStaticText.Create(EnvPage);

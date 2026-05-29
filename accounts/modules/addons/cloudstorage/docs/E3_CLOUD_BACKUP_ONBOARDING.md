@@ -810,14 +810,20 @@ value as the API.
 ### 15.7 Windows installer text-scaling fix (Task 5)
 
 [`e3-backup-agent/installer/e3-backup-agent.iss`](../../../../e3-backup-agent/installer/e3-backup-agent.iss)
-`InitializeWizard`: the "Use development server" checkbox now sets an
-explicit `Height := ScaleY(36)`, `WordWrap := True`, and
-`Anchors := [akLeft, akTop, akRight]`. A `TNewStaticText` helper line
-("Leave this unchecked for all production installs…") gives the page
-breathing room at 125 % / 150 % Windows text scaling. The
-`PrepareToInstall` comment block at the top of the procedure documents
-the "AutoSize + WordWrap for all custom controls" pattern so the
-clipping does not return for future controls on this page.
+`InitializeWizard`: the "Use development server" checkbox sets an explicit
+`Height` and `Anchors := [akLeft, akTop, akRight]`, and a `TNewStaticText`
+helper line ("Leave this unchecked for all production installs…") carries
+the longer explanation (with the `dev.eazybackup.ca` URL) using
+`AutoSize := False` + `WordWrap := True`, which gives the page breathing
+room at 125 % / 150 % Windows text scaling.
+
+> **Compiler gotcha (fixed May 2026):** an earlier revision set
+> `WordWrap := True` on the **checkbox**. Inno Setup's `TNewCheckBox` does
+> **not** expose a `WordWrap` property, so the Pascal Script compiler
+> aborted every build at the `windows_inno` step with
+> `Unknown identifier 'WordWrap'`. Only `TNewStaticText` supports
+> `AutoSize` / `WordWrap`. Keep checkbox captions short enough to fit one
+> line and put any wrapped detail in an adjacent `TNewStaticText`.
 
 The installer must be recompiled (Inno Setup) and re-signed on the
 Windows build host before the change reaches customers.
