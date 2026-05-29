@@ -137,6 +137,12 @@ func main() {
 	setupTrayFileLogging()
 	applog.Infof("tray", "e3-backup-tray starting (version=%s commit=%s)", trayVersion(), commit)
 
+	// Enforce one tray per session. The agent service supervisor and the HKCU
+	// autorun key may both try to start the tray; the loser exits quietly.
+	if !acquireSingleInstance() {
+		return
+	}
+
 	app := &trayApp{
 		configPath:     *configPath,
 		cloudNASMounts: make(map[string]*cloudNASPendingMount),

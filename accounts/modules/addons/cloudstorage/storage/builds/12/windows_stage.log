@@ -1,0 +1,19 @@
+
+[2026-05-29 12:29:33] $ 'ssh' '-i' '/etc/eazybackup-build/windows_server_ed25519' '-o' 'BatchMode=yes' '-o' 'StrictHostKeyChecking=accept-new' '-o' 'ServerAliveInterval=30' 'Administrator@192.168.92.210' 'powershell' '-NoProfile' '-NonInteractive' '-EncodedCommand' 'TgBlAHcALQBJAHQAZQBtACAALQBJAHQAZQBtAFQAeQBwAGUAIABEAGkAcgBlAGMAdABvAHIAeQAgAC0ARgBvAHIAYwBlACAALQBQAGEAdABoACAAJwBDADoAXABFADMAQgB1AGkAbABkAFwAMQAyAFwAYgBpAG4AJwAsACcAQwA6AFwARQAzAEIAdQBpAGwAZABcADEAMgBcAGkAbgBzAHQAYQBsAGwAZQByACcALAAnAEMAOgBcAEUAMwBCAHUAaQBsAGQAXAAxADIAXABhAHMAcwBlAHQAcwAnACwAJwBDADoAXABFADMAQgB1AGkAbABkAFwAMQAyAFwATwB1AHQAcAB1AHQAJwAgAHwAIABPAHUAdAAtAE4AdQBsAGwA'
+#< CLIXML
+<Objs Version="1.1.0.1" xmlns="http://schemas.microsoft.com/powershell/2004/04"><Obj S="progress" RefId="0"><TN RefId="0"><T>System.Management.Automation.PSCustomObject</T><T>System.Object</T></TN><MS><I64 N="SourceId">1</I64><PR N="Record"><AV>Preparing modules for first use.</AV><AI>0</AI><Nil /><PI>-1</PI><PC>-1</PC><T>Completed</T><SR>-1</SR><SD> </SD></PR></MS></Obj></Objs>[2026-05-29 12:29:34] exit=0
+
+[2026-05-29 12:29:34] $ 'scp' '-O' '-T' '-i' '/etc/eazybackup-build/windows_server_ed25519' '-o' 'BatchMode=yes' '-o' 'StrictHostKeyChecking=accept-new' '/srv/agent-build/eazyBackupCloudConsoleV2/e3-backup-agent/bin/e3-backup-agent.exe' 'Administrator@192.168.92.210:C:\E3Build\12\bin\e3-backup-agent.exe'
+[2026-05-29 12:29:35] exit=0
+
+[2026-05-29 12:29:35] $ 'scp' '-O' '-T' '-i' '/etc/eazybackup-build/windows_server_ed25519' '-o' 'BatchMode=yes' '-o' 'StrictHostKeyChecking=accept-new' '/srv/agent-build/eazyBackupCloudConsoleV2/e3-backup-agent/bin/e3-backup-tray.exe' 'Administrator@192.168.92.210:C:\E3Build\12\bin\e3-backup-tray.exe'
+[2026-05-29 12:29:36] exit=0
+
+[2026-05-29 12:29:36] $ 'scp' '-O' '-T' '-i' '/etc/eazybackup-build/windows_server_ed25519' '-o' 'BatchMode=yes' '-o' 'StrictHostKeyChecking=accept-new' '/srv/agent-build/eazyBackupCloudConsoleV2/e3-backup-agent/installer/e3-backup-agent.iss' 'Administrator@192.168.92.210:C:\E3Build\12\installer\e3-backup-agent.iss'
+[2026-05-29 12:29:36] exit=0
+
+[2026-05-29 12:29:36] $ 'scp' '-O' '-T' '-i' '/etc/eazybackup-build/windows_server_ed25519' '-o' 'BatchMode=yes' '-o' 'StrictHostKeyChecking=accept-new' '/var/www/eazybackup.ca/e3-cloudbackup-worker/assets/tray_logo-drk-orange120x120.png' 'Administrator@192.168.92.210:C:\E3Build\12\assets\tray_logo-drk-orange120x120.png'
+[2026-05-29 12:29:37] exit=0
+
+[2026-05-29 12:29:37] $ 'scp' '-O' '-T' '-i' '/etc/eazybackup-build/windows_server_ed25519' '-o' 'BatchMode=yes' '-o' 'StrictHostKeyChecking=accept-new' '/var/www/eazybackup.ca/e3-cloudbackup-worker/assets/tray_logo-drk-orange.svg' 'Administrator@192.168.92.210:C:\E3Build\12\assets\tray_logo-drk-orange.svg'
+[2026-05-29 12:29:37] exit=0

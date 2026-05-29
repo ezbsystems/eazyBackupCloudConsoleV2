@@ -1,0 +1,87 @@
+
+[2026-05-29 12:29:12] $ 'git' '-C' '/srv/agent-build/eazyBackupCloudConsoleV2' 'fetch' '--all' '--tags' '--prune'
+Fetching origin
+From github.com:ezbsystems/eazyBackupCloudConsoleV2
+   60d24ec1..3f2093a9  main       -> origin/main
+[2026-05-29 12:29:18] exit=0
+
+[2026-05-29 12:29:18] $ 'git' '-C' '/srv/agent-build/eazyBackupCloudConsoleV2' 'checkout' 'main'
+Already on 'main'
+Your branch is behind 'origin/main' by 1 commit, and can be fast-forwarded.
+  (use "git pull" to update your local branch)
+[2026-05-29 12:29:18] exit=0
+
+[2026-05-29 12:29:18] $ 'git' '-C' '/srv/agent-build/eazyBackupCloudConsoleV2' 'pull' '--ff-only'
+Updating 60d24ec1..3f2093a9
+Fast-forward
+ .../cloudstorage/api/admin_agent_build_create.php  |  12 +-
+ .../api/admin_cloudbackup_agent_update_status.php  |  56 ++++
+ .../api/admin_cloudbackup_request_command.php      |  23 +-
+ .../api/agent_poll_pending_commands.php            |   8 +-
+ .../cloudstorage/api/agent_update_progress.php     |  73 +++++
+ .../addons/cloudstorage/api/agent_update_run.php   |   8 +
+ .../cloudstorage/api/e3backup_agent_list.php       |  54 ++++
+ .../api/e3backup_agent_request_update.php          |  72 +++++
+ .../api/e3backup_agent_update_status.php           |  88 ++++++
+ .../modules/addons/cloudstorage/cloudstorage.php   |  53 ++++
+ .../cloudstorage/crons/agent_update_watchdog.php   |  81 +++++
+ .../addons/cloudstorage/docs/Prompts/e3agent.md    |  39 +++
+ .../docs/Prompts/e3backup onboarding process.md    |  30 ++
+ .../cloudstorage/lib/Admin/AgentBuild/JobStore.php |  67 ++++
+ .../cloudstorage/lib/Client/AgentUpdateService.php | 338 +++++++++++++++++++++
+ .../cloudstorage/pages/admin/agent_builds.php      |   1 +
+ .../builds/11/artifacts/e3-backup-agent-setup.exe  | Bin 0 -> 11911328 bytes
+ .../builds/11/artifacts/e3-backup-agent.exe        | Bin 0 -> 31660328 bytes
+ .../storage/builds/11/artifacts/e3-backup-tray.exe | Bin 0 -> 8037672 bytes
+ .../cloudstorage/storage/builds/11/git_sync.log    |  45 +++
+ .../cloudstorage/storage/builds/11/go_test.log     |  13 +
+ .../cloudstorage/storage/builds/11/linux_build.log |   5 +
+ .../cloudstorage/storage/builds/11/publish.log     |   2 +
+ .../cloudstorage/storage/builds/11/verify.log      |  16 +
+ .../storage/builds/11/windows_build.log            |  14 +
+ .../storage/builds/11/windows_fetch.log            |   9 +
+ .../storage/builds/11/windows_inno.log             |   4 +
+ .../storage/builds/11/windows_sign.log             |  39 +++
+ .../storage/builds/11/windows_stage.log            |  19 ++
+ .../cloudstorage/templates/admin/agent_builds.tpl  |   5 +-
+ .../templates/admin/cloudbackup_admin.tpl          |  59 ++++
+ .../cloudstorage/templates/e3backup_agents.tpl     | 209 ++++++++++++-
+ e3-backup-agent/agent                              | Bin 41897418 -> 41888650 bytes
+ e3-backup-agent/cmd/agent/main.go                  |  11 +
+ e3-backup-agent/cmd/tray/main_windows.go           |  15 +
+ e3-backup-agent/internal/agent/api_client.go       |  58 +++-
+ e3-backup-agent/internal/agent/build.go            |  36 +++
+ e3-backup-agent/internal/agent/config.go           |  10 +-
+ e3-backup-agent/internal/agent/runner.go           |  81 +++++
+ .../internal/agent/selfupdate/apply_linux.go       |  85 ++++++
+ .../internal/agent/selfupdate/apply_other.go       |  10 +
+ .../internal/agent/selfupdate/apply_windows.go     |  86 ++++++
+ .../internal/agent/selfupdate/selfupdate.go        | 181 +++++++++++
+ 43 files changed, 1993 insertions(+), 22 deletions(-)
+ create mode 100644 accounts/modules/addons/cloudstorage/api/admin_cloudbackup_agent_update_status.php
+ create mode 100644 accounts/modules/addons/cloudstorage/api/agent_update_progress.php
+ create mode 100644 accounts/modules/addons/cloudstorage/api/e3backup_agent_request_update.php
+ create mode 100644 accounts/modules/addons/cloudstorage/api/e3backup_agent_update_status.php
+ create mode 100644 accounts/modules/addons/cloudstorage/crons/agent_update_watchdog.php
+ create mode 100644 accounts/modules/addons/cloudstorage/docs/Prompts/e3agent.md
+ create mode 100644 accounts/modules/addons/cloudstorage/docs/Prompts/e3backup onboarding process.md
+ create mode 100644 accounts/modules/addons/cloudstorage/lib/Client/AgentUpdateService.php
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/11/artifacts/e3-backup-agent-setup.exe
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/11/artifacts/e3-backup-agent.exe
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/11/artifacts/e3-backup-tray.exe
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/11/git_sync.log
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/11/go_test.log
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/11/linux_build.log
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/11/publish.log
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/11/verify.log
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/11/windows_build.log
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/11/windows_fetch.log
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/11/windows_inno.log
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/11/windows_sign.log
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/11/windows_stage.log
+ create mode 100644 e3-backup-agent/internal/agent/build.go
+ create mode 100644 e3-backup-agent/internal/agent/selfupdate/apply_linux.go
+ create mode 100644 e3-backup-agent/internal/agent/selfupdate/apply_other.go
+ create mode 100644 e3-backup-agent/internal/agent/selfupdate/apply_windows.go
+ create mode 100644 e3-backup-agent/internal/agent/selfupdate/selfupdate.go
+[2026-05-29 12:29:20] exit=0

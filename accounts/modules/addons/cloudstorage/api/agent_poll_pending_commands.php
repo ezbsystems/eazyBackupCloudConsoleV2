@@ -50,9 +50,16 @@ function authenticateAgent(): object
         ->where('agent_uuid', $agentUuid)
         ->update(['last_seen_at' => Capsule::raw('NOW()')]);
 
-    // Persist the version reported on this poll and finalize any in-flight
-    // remote-update job once the agent comes back online on the target version.
-    AgentUpdateService::noteAgentVersion((string) $agentUuid, $_SERVER['HTTP_X_AGENT_VERSION'] ?? null);
+    // Persist the version/platform reported on this poll and finalize any
+    // in-flight remote-update job once the agent comes back online on the
+    // target version. Backfilling OS/arch here lets the update UI detect the
+    // platform without waiting for a fresh enroll/login.
+    AgentUpdateService::noteAgentVersion(
+        (string) $agentUuid,
+        $_SERVER['HTTP_X_AGENT_VERSION'] ?? null,
+        $_SERVER['HTTP_X_AGENT_OS'] ?? null,
+        $_SERVER['HTTP_X_AGENT_ARCH'] ?? null
+    );
 
     return $agent;
 }

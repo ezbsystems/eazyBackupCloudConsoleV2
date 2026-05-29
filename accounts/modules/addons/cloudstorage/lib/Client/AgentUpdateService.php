@@ -265,14 +265,16 @@ class AgentUpdateService
      * the reported version meets the target. Safe and cheap to call on the hot
      * poll path. Best-effort: never throws.
      */
-    public static function noteAgentVersion(string $agentUuid, ?string $reportedVersion): void
+    public static function noteAgentVersion(string $agentUuid, ?string $reportedVersion, ?string $reportedOs = null, ?string $reportedArch = null): void
     {
         $reportedVersion = trim((string) $reportedVersion);
-        if ($agentUuid === '' || $reportedVersion === '') {
+        $reportedOs = trim((string) $reportedOs);
+        $reportedArch = trim((string) $reportedArch);
+        if ($agentUuid === '') {
             return;
         }
         try {
-            if (Capsule::schema()->hasColumn('s3_cloudbackup_agents', 'agent_version')) {
+            if ($reportedVersion !== '' && Capsule::schema()->hasColumn('s3_cloudbackup_agents', 'agent_version')) {
                 Capsule::table('s3_cloudbackup_agents')
                     ->where('agent_uuid', $agentUuid)
                     ->where(function ($q) use ($reportedVersion) {
@@ -284,7 +286,36 @@ class AgentUpdateService
                         'updated_at' => Capsule::raw('NOW()'),
                     ]);
             }
-            self::markSuccessIfUpgraded($agentUuid, $reportedVersion);
+
+            // Backfill OS/arch when the agent reports them and the stored value
+            // is missing or stale. This is what makes platform detection (and
+            // the update button) light up on the hot poll path.
+            if ($reportedOs !== '' && Capsule::schema()->hasColumn('s3_cloudbackup_agents', 'agent_os')) {
+                Capsule::table('s3_cloudbackup_agents')
+                    ->where('agent_uuid', $agentUuid)
+                    ->where(function ($q) use ($reportedOs) {
+                        $q->whereNull('agent_os')->orWhere('agent_os', '');
+                    })
+                    ->update([
+                        'agent_os' => $reportedOs,
+                        'updated_at' => Capsule::raw('NOW()'),
+                    ]);
+            }
+            if ($reportedArch !== '' && Capsule::schema()->hasColumn('s3_cloudbackup_agents', 'agent_arch')) {
+                Capsule::table('s3_cloudbackup_agents')
+                    ->where('agent_uuid', $agentUuid)
+                    ->where(function ($q) use ($reportedArch) {
+                        $q->whereNull('agent_arch')->orWhere('agent_arch', '');
+                    })
+                    ->update([
+                        'agent_arch' => $reportedArch,
+                        'updated_at' => Capsule::raw('NOW()'),
+                    ]);
+            }
+
+            if ($reportedVersion !== '') {
+                self::markSuccessIfUpgraded($agentUuid, $reportedVersion);
+            }
         } catch (\Throwable $e) {
             // Hot path: swallow.
         }

@@ -28,6 +28,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 [Tasks]
 Name: "autorun_tray"; Description: "Run tray helper at login (recommended)"; Flags: checkedonce
 Name: "start_tray_now"; Description: "Start tray helper after install"; Flags: checkedonce
+Name: "desktopicon"; Description: "Create a desktop shortcut"; Flags: checkedonce
 
 [Dirs]
 ; Ensure standard users can update config/logs/runs without elevation
@@ -45,6 +46,17 @@ Source: "..\bin\e3-backup-tray.exe"; DestDir: "{app}"; Flags: ignoreversion
 ; Tray icon assets (installer places PNG next to tray exe; tray will wrap PNG->ICO at runtime)
 Source: "{#AssetsDir}\tray_logo-drk-orange120x120.png"; DestDir: "{app}"; DestName: "tray_logo-drk-orange120x120.png"; Flags: ignoreversion
 Source: "{#AssetsDir}\tray_logo-drk-orange.svg"; DestDir: "{app}"; DestName: "tray_logo-drk-orange.svg"; Flags: ignoreversion
+; Prebuilt .ico used for Start Menu / desktop shortcuts (and preferred by the
+; tray's runtime icon loader over the PNG).
+Source: "{#AssetsDir}\tray_logo.ico"; DestDir: "{app}"; DestName: "tray_logo.ico"; Flags: ignoreversion
+
+[Icons]
+; Start Menu folder (DefaultGroupName) with a launcher for the tray, which is
+; the user-facing face of the agent. The background service has no UI of its own.
+Name: "{group}\E3 Backup Agent"; Filename: "{app}\e3-backup-tray.exe"; Parameters: "-config ""{commonappdata}\E3Backup\agent.conf"""; IconFilename: "{app}\tray_logo.ico"; Comment: "Open the E3 Backup agent"
+Name: "{group}\Uninstall E3 Backup Agent"; Filename: "{uninstallexe}"
+; Optional desktop shortcut.
+Name: "{autodesktop}\E3 Backup Agent"; Filename: "{app}\e3-backup-tray.exe"; Parameters: "-config ""{commonappdata}\E3Backup\agent.conf"""; IconFilename: "{app}\tray_logo.ico"; Tasks: desktopicon
 
 [Registry]
 ; Auto-run tray helper in the current user's session (non-elevated).
