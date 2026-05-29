@@ -105,6 +105,7 @@ class CloudBackupEventFormatter
             'HYPERV_VM_COMPLETE' => 'VM "{vm_name}" backed up successfully ({backup_type}, {consistency}).',
             'HYPERV_VM_FAILED' => 'VM "{vm_name}" backup failed: {message}',
             'HYPERV_CHECKPOINTS_DISABLED' => '⚠️ {message}',
+            'HYPERV_REFERENCE_POINT_FAILED' => '⚠️ {message}',
             'HYPERV_DISK_STARTING' => 'Backing up disk: {disk_path} ({size}).',
             'HYPERV_BACKUP_COMPLETE' => '{message}',
             

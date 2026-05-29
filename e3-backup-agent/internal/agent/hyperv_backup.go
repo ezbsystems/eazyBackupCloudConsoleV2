@@ -644,6 +644,19 @@ func (r *Runner) backupHyperVVM(
 	if checkpoint != nil {
 		result.CheckpointID = checkpoint.ID
 		log.Printf("agent: hyperv checkpoint created for %s: id=%s type=%s", vmRun.VMName, checkpoint.ID, checkpoint.SnapshotType)
+		// Reflect the ACTUAL checkpoint type in the reported consistency level
+		// instead of assuming the production path succeeded. Checkpoint-VM
+		// honours the VM's configured CheckpointType, so a VM set to "Standard"
+		// (or a guest without working Hyper-V VSS integration, e.g. a storage
+		// appliance) yields a crash-consistent snapshot even though we asked for
+		// the production/application-consistent path. Only a "Production*"
+		// snapshot is genuinely application-consistent. Don't override an
+		// explicit crash request or the no-checkpoint live-backup path.
+		if consistencyLevel == hyperv.ConsistencyApplication &&
+			!strings.HasPrefix(strings.ToLower(strings.TrimSpace(checkpoint.SnapshotType)), "production") {
+			log.Printf("agent: hyperv checkpoint for %s is type=%q (not Production); reporting crash-consistent", vmRun.VMName, checkpoint.SnapshotType)
+			consistencyLevel = hyperv.ConsistencyCrash
+		}
 	} else if checkpointDisabled {
 		log.Printf("agent: hyperv proceeding with live backup for %s (no checkpoint)", vmRun.VMName)
 	}
@@ -792,7 +805,33 @@ func (r *Runner) backupHyperVVM(
 			}
 		}
 		if rpErr != nil {
-			// keep the existing log above as the final failure marker
+			// keep the existing log above as the final failure marker.
+			//
+			// Surface this to the customer. The backup itself is complete and
+			// valid (all disks were already uploaded above), but without a pinned
+			// RCT reference point the next run cannot run incrementally and will
+			// read/re-scan every disk in full again. That is a performance /
+			// efficiency notice, not a data-integrity failure, so the run still
+			// completes with status "success" — the non-empty result.Warnings
+			// just flips the summary to "completed with warnings".
+			result.Warnings = append(result.Warnings, fmt.Sprintf(
+				"Change tracking (CBT) could not be enabled for VM '%s': Hyper-V refused to create a "+
+					"reference point. The backup completed successfully and is valid, but the next backup "+
+					"will be a full scan of every disk instead of an incremental.", vmRun.VMName))
+			if result.WarningCode == "" {
+				result.WarningCode = "REFERENCE_POINT_FAILED"
+			}
+			r.pushEvents(run.RunID, RunEvent{
+				Type:      "warning",
+				Level:     "warning",
+				MessageID: "HYPERV_REFERENCE_POINT_FAILED",
+				ParamsJSON: map[string]any{
+					"vm_name": vmRun.VMName,
+					"message": fmt.Sprintf("Change tracking could not be enabled for '%s'. The backup "+
+						"completed successfully, but the next backup will be a full scan instead of an "+
+						"incremental.", vmRun.VMName),
+				},
+			})
 		} else {
 			result.CheckpointID = newRP.InstanceID
 			// The reference point's per-disk RCT IDs are what
