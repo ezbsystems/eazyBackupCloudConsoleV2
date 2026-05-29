@@ -1,0 +1,7 @@
+
+[2026-05-29 10:18:40] $ 'ssh' '-i' '/etc/eazybackup-build/windows_server_ed25519' '-o' 'BatchMode=yes' '-o' 'StrictHostKeyChecking=accept-new' '-o' 'ServerAliveInterval=30' 'Administrator@192.168.92.210' 'powershell' '-NoProfile' '-NonInteractive' '-EncodedCommand' 'JgAgACcAQwA6AFwAUAByAG8AZwByAGEAbQAgAEYAaQBsAGUAcwAgACgAeAA4ADYAKQBcAEkAbgBuAG8AIABTAGUAdAB1AHAAIAA2AFwASQBTAEMAQwAuAGUAeABlACcAIAAvAFEAcAAgACIALwBEAEEAcABwAFYAZQByAHMAaQBvAG4APQAyADAAMgA2AC4AMAA1AC4AMgA5AC0AMQAwADEANwAzADIAIgAgACIALwBEAEEAcwBzAGUAdABzAEQAaQByAD0AQwA6AFwARQAzAEIAdQBpAGwAZABcADkAXABhAHMAcwBlAHQAcwAiACAAIgAvAE8AQwA6AFwARQAzAEIAdQBpAGwAZABcADkAXABPAHUAdABwAHUAdAAiACAAJwBDADoAXABFADMAQgB1AGkAbABkAFwAOQBcAGkAbgBzAHQAYQBsAGwAZQByAFwAZQAzAC0AYgBhAGMAawB1AHAALQBhAGcAZQBuAHQALgBpAHMAcwAnAA=='
+
+PreprocessingError on line 171 in C:\E3Build\9\installer\e3-backup-agent.iss: Column 18:
+Unknown identifier 'WORDWRAP'
+Compile aborted.
+[2026-05-29 10:18:42] exit=1
