@@ -1,0 +1,6 @@
+
+[2026-05-29 13:03:04] $ 'ssh' '-i' '/etc/eazybackup-build/windows_server_ed25519' '-o' 'BatchMode=yes' '-o' 'StrictHostKeyChecking=accept-new' '-o' 'ServerAliveInterval=30' 'Administrator@192.168.92.210' 'powershell' '-NoProfile' '-NonInteractive' '-EncodedCommand' 'JgAgACcAQwA6AFwAUAByAG8AZwByAGEAbQAgAEYAaQBsAGUAcwAgACgAeAA4ADYAKQBcAEkAbgBuAG8AIABTAGUAdAB1AHAAIAA2AFwASQBTAEMAQwAuAGUAeABlACcAIAAvAFEAcAAgACIALwBEAEEAcABwAFYAZQByAHMAaQBvAG4APQAxAC4AMAAuADIAIgAgACIALwBEAEEAcwBzAGUAdABzAEQAaQByAD0AQwA6AFwARQAzAEIAdQBpAGwAZABcADEAMwBcAGEAcwBzAGUAdABzACIAIAAiAC8ATwBDADoAXABFADMAQgB1AGkAbABkAFwAMQAzAFwATwB1AHQAcAB1AHQAIgAgACcAQwA6AFwARQAzAEIAdQBpAGwAZABcADEAMwBcAGkAbgBzAHQAYQBsAGwAZQByAFwAZQAzAC0AYgBhAGMAawB1AHAALQBhAGcAZQBuAHQALgBpAHMAcwAnAA=='
+
+PreprocessingError on line 51 in C:\E3Build\13\installer\e3-backup-agent.iss: Source file "C:\E3Build\13\assets\tray_logo.ico" does not exist.
+Compile aborted.
+[2026-05-29 13:03:06] exit=1
