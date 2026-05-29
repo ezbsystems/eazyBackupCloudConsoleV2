@@ -1,0 +1,81 @@
+
+[2026-05-29 20:23:17] $ 'git' '-C' '/srv/agent-build/eazyBackupCloudConsoleV2' 'fetch' '--all' '--tags' '--prune'
+Fetching origin
+From github.com:ezbsystems/eazyBackupCloudConsoleV2
+   28eea9b9..e05f6eeb  main       -> origin/main
+[2026-05-29 20:23:21] exit=0
+
+[2026-05-29 20:23:21] $ 'git' '-C' '/srv/agent-build/eazyBackupCloudConsoleV2' 'checkout' 'main'
+Already on 'main'
+Your branch is behind 'origin/main' by 1 commit, and can be fast-forwarded.
+  (use "git pull" to update your local branch)
+[2026-05-29 20:23:21] exit=0
+
+[2026-05-29 20:23:21] $ 'git' '-C' '/srv/agent-build/eazyBackupCloudConsoleV2' 'pull' '--ff-only'
+Updating 28eea9b9..e05f6eeb
+Fast-forward
+ .../cloudstorage/api/set_portal_password.php       |  45 +-
+ .../modules/addons/cloudstorage/cloudstorage.php   |  53 +-
+ .../addons/cloudstorage/pages/e3backup_agents.php  |   4 +
+ .../cloudstorage/pages/e3backup_tenant_detail.php  |  42 -
+ .../cloudstorage/pages/e3backup_tenant_members.php |  35 -
+ .../addons/cloudstorage/pages/e3backup_tenants.php |  55 --
+ .../builds/15/artifacts/e3-backup-agent-setup.exe  | Bin 0 -> 11860336 bytes
+ .../builds/15/artifacts/e3-backup-agent.exe        | Bin 0 -> 31691560 bytes
+ .../storage/builds/15/artifacts/e3-backup-tray.exe | Bin 0 -> 8039208 bytes
+ .../cloudstorage/storage/builds/15/git_sync.log    |  51 ++
+ .../cloudstorage/storage/builds/15/go_test.log     |  14 +
+ .../cloudstorage/storage/builds/15/linux_build.log |   5 +
+ .../cloudstorage/storage/builds/15/publish.log     |   2 +
+ .../cloudstorage/storage/builds/15/verify.log      |  16 +
+ .../storage/builds/15/windows_build.log            |  14 +
+ .../storage/builds/15/windows_fetch.log            |   9 +
+ .../storage/builds/15/windows_inno.log             |   4 +
+ .../storage/builds/15/windows_sign.log             |  39 +
+ .../storage/builds/15/windows_stage.log            |  28 +
+ .../cloudstorage/templates/e3backup_agents.tpl     |  46 +-
+ .../cloudstorage/templates/e3backup_dashboard.tpl  |   4 +-
+ .../templates/e3backup_tenant_detail.tpl           | 892 ---------------------
+ .../templates/e3backup_tenant_members.tpl          | 322 --------
+ .../templates/e3backup_tenants_table.tpl           | 265 ------
+ .../cloudstorage/templates/e3backup_tokens.tpl     | 729 +----------------
+ .../partials/e3backup_jobs_client_script.tpl       |  25 +
+ .../templates/partials/e3backup_nav.tpl            | 114 ---
+ .../templates/partials/e3backup_sidebar.tpl        |  45 +-
+ .../templates/partials/e3backup_tokens_panel.tpl   | 734 +++++++++++++++++
+ .../templates/partials/job_create_wizard.tpl       |   6 +-
+ .../addons/cloudstorage/templates/welcome.tpl      |  19 +-
+ .../ADDON-TEMPLATE-MIGRATION-INVENTORY.md          |   8 +-
+ .../partnerhub_tenant_public_id_contract_test.php  |  48 +-
+ .../dev/partnerhub_tenants_route_contract_test.php |  11 +-
+ .../bin/dev/tenant_storage_links_contract_test.php |  40 +-
+ e3-backup-agent/cmd/tray/main_windows.go           |   4 +
+ e3-backup-agent/internal/agent/config.go           |   9 +
+ e3-backup-agent/internal/agent/runner.go           |  50 ++
+ .../internal/agent/service_restart_other.go        |  27 +
+ .../internal/agent/service_restart_windows.go      |  12 +
+ 40 files changed, 1238 insertions(+), 2588 deletions(-)
+ delete mode 100644 accounts/modules/addons/cloudstorage/pages/e3backup_tenant_detail.php
+ delete mode 100644 accounts/modules/addons/cloudstorage/pages/e3backup_tenant_members.php
+ delete mode 100644 accounts/modules/addons/cloudstorage/pages/e3backup_tenants.php
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/15/artifacts/e3-backup-agent-setup.exe
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/15/artifacts/e3-backup-agent.exe
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/15/artifacts/e3-backup-tray.exe
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/15/git_sync.log
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/15/go_test.log
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/15/linux_build.log
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/15/publish.log
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/15/verify.log
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/15/windows_build.log
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/15/windows_fetch.log
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/15/windows_inno.log
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/15/windows_sign.log
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/15/windows_stage.log
+ delete mode 100644 accounts/modules/addons/cloudstorage/templates/e3backup_tenant_detail.tpl
+ delete mode 100644 accounts/modules/addons/cloudstorage/templates/e3backup_tenant_members.tpl
+ delete mode 100644 accounts/modules/addons/cloudstorage/templates/e3backup_tenants_table.tpl
+ delete mode 100644 accounts/modules/addons/cloudstorage/templates/partials/e3backup_nav.tpl
+ create mode 100644 accounts/modules/addons/cloudstorage/templates/partials/e3backup_tokens_panel.tpl
+ create mode 100644 e3-backup-agent/internal/agent/service_restart_other.go
+ create mode 100644 e3-backup-agent/internal/agent/service_restart_windows.go
+[2026-05-29 20:23:22] exit=0
