@@ -133,13 +133,19 @@ func (r *Runner) Start(stop <-chan struct{}) {
 
 		// Detect a re-enrollment: agent.conf rewritten to point at a different
 		// host/account. The mtime check avoids re-reading the file every tick.
+		// Logged at warn level so it is visible with the default service log
+		// level (the agent defaults to warn on Windows).
 		if !pendingReenroll {
 			if mod := configModTime(r.configPath); !mod.Equal(lastConfigMod) {
 				lastConfigMod = mod
 				if newCfg, err := LoadConfigAllowUnenrolled(r.configPath); err == nil {
 					if newCfg.AgentUUID != "" && newCfg.AgentToken != "" && newCfg.EnrolledIdentity() != enrolledIdentity {
 						pendingReenroll = true
+						applog.Warnf("lifecycle", "re-enrollment detected in %s (client_id %q->%q, agent_uuid %q->%q); will restart service to load new credentials",
+							r.configPath, r.cfg.ClientID, newCfg.ClientID, r.cfg.AgentUUID, newCfg.AgentUUID)
 					}
+				} else {
+					applog.Warnf("lifecycle", "re-enrollment check: failed to reload %s: %v", r.configPath, err)
 				}
 			}
 		}
@@ -151,8 +157,8 @@ func (r *Runner) Start(stop <-chan struct{}) {
 		if pendingReenroll {
 			if now := time.Now(); now.After(nextRestartAttempt) {
 				nextRestartAttempt = now.Add(60 * time.Second)
-				applog.Infof("lifecycle", "enrollment identity changed in %s; restarting service to load new credentials", r.configPath)
-				if rerr := requestServiceRestart(); rerr != nil {
+				applog.Warnf("lifecycle", "requesting service restart to apply re-enrollment (config=%s)", r.configPath)
+				if rerr := requestServiceRestart(r.configPath); rerr != nil {
 					applog.Warnf("lifecycle", "self-restart request after re-enrollment failed: %v", rerr)
 				}
 			}
