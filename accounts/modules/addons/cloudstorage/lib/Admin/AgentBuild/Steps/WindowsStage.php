@@ -16,6 +16,7 @@ use WHMCS\Module\Addon\CloudStorage\Admin\AgentBuild\WindowsRemote;
  *   installer\e3-backup-agent.iss
  *   assets\tray_logo-drk-orange120x120.png
  *   assets\tray_logo-drk-orange.svg
+ *   assets\tray_logo.ico
  *   Output\
  */
 class WindowsStage extends StepBase
@@ -46,7 +47,7 @@ class WindowsStage extends StepBase
         }
 
         $assetsDir = '/var/www/eazybackup.ca/e3-cloudbackup-worker/assets';
-        foreach (['tray_logo-drk-orange120x120.png', 'tray_logo-drk-orange.svg'] as $a) {
+        foreach (['tray_logo-drk-orange120x120.png', 'tray_logo-drk-orange.svg', 'tray_logo.ico'] as $a) {
             if (file_exists($assetsDir . '/' . $a)) {
                 $uploads[$assetsDir . '/' . $a] = $remoteRoot . '\\assets\\' . $a;
             }
