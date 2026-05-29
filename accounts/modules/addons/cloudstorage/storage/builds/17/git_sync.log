@@ -1,0 +1,48 @@
+
+[2026-05-29 21:01:51] $ 'git' '-C' '/srv/agent-build/eazyBackupCloudConsoleV2' 'fetch' '--all' '--tags' '--prune'
+Fetching origin
+From github.com:ezbsystems/eazyBackupCloudConsoleV2
+   e05f6eeb..bdfb513e  main       -> origin/main
+[2026-05-29 21:01:54] exit=0
+
+[2026-05-29 21:01:54] $ 'git' '-C' '/srv/agent-build/eazyBackupCloudConsoleV2' 'checkout' 'main'
+Already on 'main'
+Your branch is behind 'origin/main' by 3 commits, and can be fast-forwarded.
+  (use "git pull" to update your local branch)
+[2026-05-29 21:01:54] exit=0
+
+[2026-05-29 21:01:54] $ 'git' '-C' '/srv/agent-build/eazyBackupCloudConsoleV2' 'pull' '--ff-only'
+Updating e05f6eeb..bdfb513e
+Fast-forward
+ .../builds/16/artifacts/e3-backup-agent-setup.exe  | Bin 0 -> 11859632 bytes
+ .../builds/16/artifacts/e3-backup-agent.exe        | Bin 0 -> 31694632 bytes
+ .../storage/builds/16/artifacts/e3-backup-tray.exe | Bin 0 -> 8039208 bytes
+ .../cloudstorage/storage/builds/16/git_sync.log    |  81 +++++++++++++++++++++
+ .../cloudstorage/storage/builds/16/go_test.log     |  14 ++++
+ .../cloudstorage/storage/builds/16/linux_build.log |   5 ++
+ .../cloudstorage/storage/builds/16/publish.log     |   2 +
+ .../cloudstorage/storage/builds/16/verify.log      |  16 ++++
+ .../storage/builds/16/windows_build.log            |  14 ++++
+ .../storage/builds/16/windows_fetch.log            |   9 +++
+ .../storage/builds/16/windows_inno.log             |   4 +
+ .../storage/builds/16/windows_sign.log             |  39 ++++++++++
+ .../storage/builds/16/windows_stage.log            |  28 +++++++
+ e3-backup-agent/cmd/tray/main_windows.go           |  61 +++++++++++++++-
+ e3-backup-agent/internal/agent/runner.go           |  10 ++-
+ .../internal/agent/service_restart_other.go        |   3 +-
+ .../internal/agent/service_restart_windows.go      |  49 +++++++++++--
+ 17 files changed, 323 insertions(+), 12 deletions(-)
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/16/artifacts/e3-backup-agent-setup.exe
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/16/artifacts/e3-backup-agent.exe
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/16/artifacts/e3-backup-tray.exe
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/16/git_sync.log
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/16/go_test.log
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/16/linux_build.log
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/16/publish.log
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/16/verify.log
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/16/windows_build.log
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/16/windows_fetch.log
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/16/windows_inno.log
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/16/windows_sign.log
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/16/windows_stage.log
+[2026-05-29 21:01:55] exit=0
