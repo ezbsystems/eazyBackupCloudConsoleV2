@@ -322,31 +322,15 @@ $targets = [
             'cloudstorage tenant delete public id resolution marker' => "MspController::getTenantByPublicId(\$tenantPublicId, \$clientId)",
         ],
     ],
-    'cloudstorage tenants legacy page file' => [
-        'path' => dirname($moduleRoot) . '/cloudstorage/pages/e3backup_tenants.php',
+    // Legacy e3 tenant page controllers + templates were removed (replaced by
+    // Partner Hub). The public-id-aware redirect for bookmarked legacy URLs now
+    // lives inline in the cloudstorage router.
+    'cloudstorage legacy tenant redirect (router)' => [
+        'path' => dirname($moduleRoot) . '/cloudstorage/cloudstorage.php',
         'markers' => [
-            'cloudstorage tenants legacy page public id boundary marker' => "\$tenantPublicId = MspController::resolveTenantPublicIdForClient((string) (\$_GET['tenant_id'] ?? ''), \$loggedInUserId) ?? '';",
-            'cloudstorage tenants legacy page partner hub redirect marker' => "index.php?m=eazybackup&a=ph-tenant&id=' . rawurlencode(\$tenantPublicId) . '&legacy=e3-tenants'",
-        ],
-    ],
-    'cloudstorage tenant detail legacy page file' => [
-        'path' => dirname($moduleRoot) . '/cloudstorage/pages/e3backup_tenant_detail.php',
-        'markers' => [
-            'cloudstorage tenant detail legacy page public id boundary marker' => "\$tenantPublicId = MspController::resolveTenantPublicIdForClient((string) (\$_GET['tenant_id'] ?? ''), \$loggedInUserId) ?? '';",
-            'cloudstorage tenant detail legacy page partner hub redirect marker' => "index.php?m=eazybackup&a=ph-tenant&id=' . rawurlencode(\$tenantPublicId) . '&legacy=e3-tenant-detail'",
-        ],
-    ],
-    'cloudstorage tenant members legacy page file' => [
-        'path' => dirname($moduleRoot) . '/cloudstorage/pages/e3backup_tenant_members.php',
-        'markers' => [
-            'cloudstorage tenant members legacy page public id boundary marker' => "\$tenantPublicId = MspController::resolveTenantPublicIdForClient((string) (\$_GET['tenant_id'] ?? ''), \$loggedInUserId) ?? '';",
-            'cloudstorage tenant members legacy page partner hub redirect marker' => "index.php?m=eazybackup&a=ph-tenant-members&id=' . rawurlencode(\$tenantPublicId) . '&legacy=e3-tenant-members'",
-        ],
-    ],
-    'cloudstorage tenants table template file' => [
-        'path' => dirname($moduleRoot) . '/cloudstorage/templates/e3backup_tenants_table.tpl',
-        'markers' => [
-            'cloudstorage tenants table public id route marker' => "@click=\"goToDetail(tenant.public_id || tenant.id)\"",
+            'cloudstorage legacy tenant public id boundary marker' => "\$tenantPublicId = \\WHMCS\\Module\\Addon\\CloudStorage\\Client\\MspController::resolveTenantPublicIdForClient((string) (\$_GET['tenant_id'] ?? ''), \$loggedInUserId) ?? '';",
+            'cloudstorage legacy tenant detail partner hub redirect marker' => "index.php?m=eazybackup&a=ph-tenant&id=' . rawurlencode(\$tenantPublicId) . '&legacy=e3-tenant-detail'",
+            'cloudstorage legacy tenant members partner hub redirect marker' => "index.php?m=eazybackup&a=ph-tenant-members&id=' . rawurlencode(\$tenantPublicId) . '&legacy=e3-tenant-members'",
         ],
     ],
     'cloudstorage users template file' => [
@@ -417,17 +401,13 @@ $targets = [
     // template. There is no production code that includes or routes to it today, so the
     // contract marker was purely aspirational and broke the gate. Re-add this entry the moment
     // the restores page actually ships and exposes the public_id-aware tenant picker.
-    'cloudstorage tenant members template file' => [
-        'path' => dirname($moduleRoot) . '/cloudstorage/templates/e3backup_tenant_members.tpl',
+    // Enrollment Tokens UI was extracted into a shared partial so it can be
+    // embedded on both the standalone Tokens page and the Agents page tab.
+    'cloudstorage tokens panel partial file' => [
+        'path' => dirname($moduleRoot) . '/cloudstorage/templates/partials/e3backup_tokens_panel.tpl',
         'markers' => [
-            'cloudstorage tenant members partner hub public id marker' => "index.php?m=eazybackup&a=ph-tenant&id=' + encodeURIComponent(resolvedTenantId) + '&legacy=e3-tenant-members'",
-        ],
-    ],
-    'cloudstorage tokens template file' => [
-        'path' => dirname($moduleRoot) . '/cloudstorage/templates/e3backup_tokens.tpl',
-        'markers' => [
-            'cloudstorage tokens template public id option marker' => '<option value="{$tenant->public_id|escape}">{$tenant->name|escape}</option>',
-            'cloudstorage tokens template csrf request marker' => "token: '{/literal}{\$token|escape:'javascript'}{literal}'",
+            'cloudstorage tokens panel public id option marker' => '<option value="{$tenant->public_id|escape}">{$tenant->name|escape}</option>',
+            'cloudstorage tokens panel csrf request marker' => "token: '{/literal}{\$token|escape:'javascript'}{literal}'",
         ],
     ],
     'cloudstorage tokens page file' => [

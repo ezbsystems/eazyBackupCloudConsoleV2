@@ -684,6 +684,10 @@ func (a *trayApp) handleEnrollComplete(w http.ResponseWriter, r *http.Request) {
 	// Restart (not just start) so the service reloads the freshly written
 	// agent.conf. On a re-enroll the service is already running with the old
 	// user's credentials and would otherwise stay offline until a manual cycle.
+	// This is best-effort: the tray runs non-elevated, so sc.exe stop/start may
+	// be rejected. The agent service itself watches agent.conf and restarts
+	// (as SYSTEM) when the enrolled identity changes, so re-enrollment is picked
+	// up within one poll interval even if this fast-path restart is denied.
 	a.restartService()
 
 	a.setInfo("enrolled successfully")

@@ -1849,9 +1849,6 @@
                             }" x-init="init()" data-tour="local-wizard-agent">
                                 <div class="flex items-center justify-between mb-1">
                                     <label class="eb-field-label !mb-0">Agent</label>
-                                    <span x-show="autoSelected" x-cloak class="eb-badge eb-badge--info text-[10px]">
-                                        Selected automatically &mdash; only one agent enrolled
-                                    </span>
                                 </div>
                                 <input type="hidden" id="localWizardAgentId">
                                 <div class="relative">
@@ -1917,7 +1914,6 @@
                                     e3 Storage Location
                                     <span class="ml-1 text-xs font-normal text-[var(--eb-text-muted)]">(Policy Managed)</span>
                                 </label>
-                                <p class="eb-field-help !mb-2 !mt-0">e3 storage destination is assigned automatically.</p>
                                 <div
                                     id="localWizardBucketDropdown"
                                     class="hidden"
@@ -2004,7 +2000,7 @@
                                 </div>
                                 <div class="local-wizard-panel-soft mt-2 p-3">
                                     <div class="text-sm text-[var(--eb-text-primary)]">
-                                        Auto-assigned: <span id="localWizardBucketLabel">assigned at creation</span><span id="localWizardPrefixLabel"></span>
+                                        e3 Bucket Auto-assigned: <span id="localWizardBucketLabel">assigned at creation</span><span id="localWizardPrefixLabel"></span>
                                     </div>
                                 </div>
                             </div>

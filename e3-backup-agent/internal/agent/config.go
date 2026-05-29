@@ -51,6 +51,15 @@ type AgentConfig struct {
 	DestRegion       string `yaml:"dest_region" json:"dest_region,omitempty"`
 }
 
+// EnrolledIdentity returns a stable fingerprint of the fields that bind this
+// agent to a specific host/account: the API endpoint plus the persistent
+// enrollment credentials. A change in this value means agent.conf was rewritten
+// to point at a different account (a re-enrollment), so the running process is
+// holding stale, wrong credentials and must reload them.
+func (c *AgentConfig) EnrolledIdentity() string {
+	return fmt.Sprintf("%s\x1f%s\x1f%s\x1f%s", c.APIBaseURL, c.ClientID, c.AgentUUID, c.AgentToken)
+}
+
 // LoadConfig reads and validates the agent configuration file.
 func LoadConfig(path string) (*AgentConfig, error) {
 	data, err := os.ReadFile(path)

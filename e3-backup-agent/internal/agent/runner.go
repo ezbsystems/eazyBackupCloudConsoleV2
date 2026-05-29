@@ -106,6 +106,18 @@ func (r *Runner) Start(stop <-chan struct{}) {
 	go r.commandLoop(stop)
 	go r.cloudNASPrepareLoop(stop)
 
+	// Track agent.conf so a re-enrollment (which rewrites the file with new
+	// credentials pointing at a different host/account) is picked up without a
+	// manual service restart. The running process caches its identity in
+	// r.client at startup and never re-reads it, so we watch the file and, when
+	// the enrolled identity changes, ask the service manager to restart us. The
+	// service runs elevated (SYSTEM/root), so this works even when the
+	// re-enrollment was triggered by a non-elevated UI.
+	lastConfigMod := configModTime(r.configPath)
+	enrolledIdentity := r.cfg.EnrolledIdentity()
+	pendingReenroll := false
+	var nextRestartAttempt time.Time
+
 	prevConnOK := true
 	for {
 		if err := r.pollOnce(); err != nil {
@@ -118,6 +130,34 @@ func (r *Runner) Start(stop <-chan struct{}) {
 			r.health.ServerConnectionState("restored")
 			prevConnOK = true
 		}
+
+		// Detect a re-enrollment: agent.conf rewritten to point at a different
+		// host/account. The mtime check avoids re-reading the file every tick.
+		if !pendingReenroll {
+			if mod := configModTime(r.configPath); !mod.Equal(lastConfigMod) {
+				lastConfigMod = mod
+				if newCfg, err := LoadConfigAllowUnenrolled(r.configPath); err == nil {
+					if newCfg.AgentUUID != "" && newCfg.AgentToken != "" && newCfg.EnrolledIdentity() != enrolledIdentity {
+						pendingReenroll = true
+					}
+				}
+			}
+		}
+
+		// Keep requesting a restart on a cooldown until the process actually
+		// cycles and reloads the new credentials. The service runs elevated
+		// (SYSTEM/root), so it can restart itself even when the re-enrollment was
+		// performed by a non-elevated UI (e.g. the tray).
+		if pendingReenroll {
+			if now := time.Now(); now.After(nextRestartAttempt) {
+				nextRestartAttempt = now.Add(60 * time.Second)
+				applog.Infof("lifecycle", "enrollment identity changed in %s; restarting service to load new credentials", r.configPath)
+				if rerr := requestServiceRestart(); rerr != nil {
+					applog.Warnf("lifecycle", "self-restart request after re-enrollment failed: %v", rerr)
+				}
+			}
+		}
+
 		select {
 		case <-stop:
 			applog.Infof("lifecycle", "agent stopping")
@@ -127,6 +167,16 @@ func (r *Runner) Start(stop <-chan struct{}) {
 		case <-t.C:
 		}
 	}
+}
+
+// configModTime returns the modification time of the agent config file, or the
+// zero time if it cannot be stat'd. Used to cheaply detect that agent.conf was
+// rewritten (e.g. by a re-enrollment) before re-reading and comparing identity.
+func configModTime(path string) time.Time {
+	if fi, err := os.Stat(path); err == nil {
+		return fi.ModTime()
+	}
+	return time.Time{}
 }
 
 func (r *Runner) waitForEnrollmentIfNeeded(stop <-chan struct{}) error {

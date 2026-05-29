@@ -1,0 +1,51 @@
+
+[2026-05-29 13:31:58] $ 'git' '-C' '/srv/agent-build/eazyBackupCloudConsoleV2' 'fetch' '--all' '--tags' '--prune'
+Fetching origin
+From github.com:ezbsystems/eazyBackupCloudConsoleV2
+   d45351b1..28eea9b9  main       -> origin/main
+[2026-05-29 13:32:02] exit=0
+
+[2026-05-29 13:32:02] $ 'git' '-C' '/srv/agent-build/eazyBackupCloudConsoleV2' 'checkout' 'main'
+Already on 'main'
+Your branch is behind 'origin/main' by 1 commit, and can be fast-forwarded.
+  (use "git pull" to update your local branch)
+[2026-05-29 13:32:02] exit=0
+
+[2026-05-29 13:32:02] $ 'git' '-C' '/srv/agent-build/eazyBackupCloudConsoleV2' 'pull' '--ff-only'
+Updating d45351b1..28eea9b9
+Fast-forward
+ .../lib/Admin/AgentBuild/Steps/WindowsStage.php    |   4 +-
+ .../builds/14/artifacts/e3-backup-agent-setup.exe  | Bin 0 -> 11923752 bytes
+ .../builds/14/artifacts/e3-backup-agent.exe        | Bin 0 -> 31691560 bytes
+ .../storage/builds/14/artifacts/e3-backup-tray.exe | Bin 0 -> 8039208 bytes
+ .../cloudstorage/storage/builds/14/git_sync.log    |  31 +++++++++++++++
+ .../cloudstorage/storage/builds/14/go_test.log     |  14 +++++++
+ .../cloudstorage/storage/builds/14/linux_build.log |   5 +++
+ .../cloudstorage/storage/builds/14/publish.log     |   2 +
+ .../cloudstorage/storage/builds/14/verify.log      |  16 ++++++++
+ .../storage/builds/14/windows_build.log            |  14 +++++++
+ .../storage/builds/14/windows_fetch.log            |   9 +++++
+ .../storage/builds/14/windows_inno.log             |   4 ++
+ .../storage/builds/14/windows_sign.log             |  39 ++++++++++++++++++
+ .../storage/builds/14/windows_stage.log            |  22 +++++++++++
+ .../cloudstorage/templates/e3backup_agents.tpl     |  44 ++++++++++++++++-----
+ e3-backup-agent/installer/e3-backup-agent.iss      |  10 +++++
+ e3-cloudbackup-worker/assets/wizard_large.bmp      | Bin 0 -> 618006 bytes
+ e3-cloudbackup-worker/assets/wizard_small.bmp      | Bin 0 -> 38566 bytes
+ 18 files changed, 204 insertions(+), 10 deletions(-)
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/14/artifacts/e3-backup-agent-setup.exe
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/14/artifacts/e3-backup-agent.exe
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/14/artifacts/e3-backup-tray.exe
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/14/git_sync.log
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/14/go_test.log
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/14/linux_build.log
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/14/publish.log
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/14/verify.log
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/14/windows_build.log
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/14/windows_fetch.log
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/14/windows_inno.log
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/14/windows_sign.log
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/14/windows_stage.log
+ create mode 100644 e3-cloudbackup-worker/assets/wizard_large.bmp
+ create mode 100644 e3-cloudbackup-worker/assets/wizard_small.bmp
+[2026-05-29 13:32:04] exit=0

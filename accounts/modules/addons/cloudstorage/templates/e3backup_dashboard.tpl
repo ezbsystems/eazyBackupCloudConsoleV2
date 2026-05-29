@@ -143,7 +143,7 @@
     {* ── Row 1b: Secondary stats for MSPs ── *}
     {if $isMspClient}
     <div class="grid grid-cols-1 gap-4 mt-4 sm:grid-cols-3">
-        <a href="index.php?m=cloudstorage&page=e3backup&view=tenants" class="block eb-card group h-full transition-colors hover:border-[var(--eb-premium-border)]">
+        <a href="index.php?m=eazybackup&a=ph-tenants-manage" class="block eb-card group h-full transition-colors hover:border-[var(--eb-premium-border)]">
             <div class="flex items-center gap-3">
                 <span class="eb-icon-box eb-icon-box--premium eb-icon-box--sm">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
@@ -156,7 +156,7 @@
                 </div>
             </div>
         </a>
-        <a href="index.php?m=cloudstorage&page=e3backup&view=tenant_members" class="block eb-card group h-full transition-colors hover:border-[var(--eb-warning-border)]">
+        <a href="index.php?m=eazybackup&a=ph-tenants-manage&legacy=e3-tenant-members" class="block eb-card group h-full transition-colors hover:border-[var(--eb-warning-border)]">
             <div class="flex items-center gap-3">
                 <span class="eb-icon-box eb-icon-box--default eb-icon-box--sm">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">

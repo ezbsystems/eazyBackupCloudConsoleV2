@@ -16,7 +16,9 @@ $moduleFile = $moduleRoot . '/eazybackup.php';
 $controllerFile = $moduleRoot . '/pages/partnerhub/TenantsController.php';
 $listTemplateFile = $moduleRoot . '/templates/whitelabel/tenants.tpl';
 $detailTemplateFile = $moduleRoot . '/templates/whitelabel/tenant-detail.tpl';
-$cloudstorageTenantsFile = $repoRoot . '/accounts/modules/addons/cloudstorage/pages/e3backup_tenants.php';
+// Legacy e3 tenant page controllers were removed; the bookmarked-URL redirect
+// to Partner Hub now lives inline in the cloudstorage router.
+$cloudstorageTenantsFile = $repoRoot . '/accounts/modules/addons/cloudstorage/cloudstorage.php';
 
 $targets = [
     'module routing file' => [
@@ -77,12 +79,17 @@ $targets = [
             'back to list marker' => '&a=ph-tenants-manage',
         ],
     ],
-    'cloudstorage tenants page file' => [
+    'cloudstorage legacy tenant redirect (router)' => [
         'path' => $cloudstorageTenantsFile,
         'markers' => [
             'auth check marker' => '$ca->isLoggedIn()',
             'msp check marker' => 'MspController::isMspClient($loggedInUserId)',
             'partner hub redirect marker' => "\$targetUrl = 'index.php?m=eazybackup&a=ph-tenants-manage&legacy=e3-tenants';",
+        ],
+        'forbidden' => [
+            'legacy tenants template route' => "\$templatefile = 'templates/e3backup_tenants_table';",
+            'legacy tenant detail template route' => "\$templatefile = 'templates/e3backup_tenant_detail';",
+            'legacy tenant members template route' => "\$templatefile = 'templates/e3backup_tenant_members';",
         ],
     ],
 ];

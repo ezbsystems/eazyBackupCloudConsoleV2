@@ -30,10 +30,6 @@ $userGetFile = $repoRoot . '/accounts/modules/addons/cloudstorage/api/e3backup_u
 $usersPageFile = $repoRoot . '/accounts/modules/addons/cloudstorage/pages/e3backup_users.php';
 $userDetailPageFile = $repoRoot . '/accounts/modules/addons/cloudstorage/pages/e3backup_user_detail.php';
 $userDetailTemplateFile = $repoRoot . '/accounts/modules/addons/cloudstorage/templates/e3backup_user_detail.tpl';
-$tenantDetailPageFile = $repoRoot . '/accounts/modules/addons/cloudstorage/pages/e3backup_tenant_detail.php';
-$tenantDetailTemplateFile = $repoRoot . '/accounts/modules/addons/cloudstorage/templates/e3backup_tenant_detail.tpl';
-$tenantMembersPageFile = $repoRoot . '/accounts/modules/addons/cloudstorage/pages/e3backup_tenant_members.php';
-$tenantMembersTemplateFile = $repoRoot . '/accounts/modules/addons/cloudstorage/templates/e3backup_tenant_members.tpl';
 
 $targets = [
     'module file' => [
@@ -270,39 +266,9 @@ $targets = [
             'csrf token return marker' => "'csrfToken' => \$csrfToken,",
         ],
     ],
-    'cloudstorage tenant detail page file' => [
-        'path' => $tenantDetailPageFile,
-        'markers' => [
-            'csrf token generate marker' => "\$csrfToken = function_exists('generate_token') ? generate_token('plain') : '';",
-            'csrf token return marker' => "'csrfToken' => \$csrfToken,",
-        ],
-    ],
-    'cloudstorage tenant detail template file' => [
-        'path' => $tenantDetailTemplateFile,
-        'markers' => [
-            'csrf token state marker' => "csrfToken: {/literal}{\$csrfToken|@json_encode nofilter}{literal} || '',",
-            'create csrf token submit marker' => "body.set('token', this.csrfToken);",
-            'tenant profile csrf token submit marker' => "country: (this.profileForm.country || '').toUpperCase()\n                });\n                body.set('token', this.csrfToken);",
-            'tenant delete csrf token submit marker' => "const body = new URLSearchParams({ tenant_id: String(this.tenantId) });\n                body.set('token', this.csrfToken);",
-            'tenant member csrf token submit marker' => "status: this.memberForm.status || 'active'\n                });\n                body.set('token', this.csrfToken);",
-        ],
-    ],
-    'cloudstorage tenant members page file' => [
-        'path' => $tenantMembersPageFile,
-        'markers' => [
-            'csrf token generate marker' => "\$csrfToken = function_exists('generate_token') ? generate_token('plain') : '';",
-            'csrf token return marker' => "'csrfToken' => \$csrfToken,",
-        ],
-    ],
-    'cloudstorage tenant members template file' => [
-        'path' => $tenantMembersTemplateFile,
-        'markers' => [
-            'csrf token state marker' => "csrfToken: {/literal}{\$csrfToken|@json_encode nofilter}{literal} || '',",
-            'save member csrf token submit marker' => "params.set('token', this.csrfToken);",
-            'reset member csrf token submit marker' => "password: this.newPassword\n                });\n                body.set('token', this.csrfToken);",
-            'delete member csrf token submit marker' => "const body = new URLSearchParams({ user_id: user.id });\n                body.set('token', this.csrfToken);",
-        ],
-    ],
+    // Legacy e3 tenant detail/members page controllers + templates were removed
+    // (replaced by Partner Hub). Their CSRF contract is now covered by the
+    // Partner Hub tenant route/public-id contract tests.
 ];
 
 $failures = [];

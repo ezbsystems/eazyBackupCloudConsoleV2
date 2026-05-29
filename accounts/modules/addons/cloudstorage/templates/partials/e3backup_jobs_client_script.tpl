@@ -3421,6 +3421,8 @@ function parseStoredVolume(value) {
 function localWizardSubmit() {
     const s = window.localWizardState.data;
     const isEdit = !!window.localWizardState.editMode;
+    // Guard against double submission (e.g. impatient double-clicks on Create Job).
+    if (window.localWizardState.submitting) return;
     if (!s.name) {
         const msg = 'Job name is required';
         e3backupNotify('error', msg);
@@ -3535,6 +3537,27 @@ function localWizardSubmit() {
         e3backupNotify('error', msg);
         return;
     }
+
+    // Lock the Create/Save button for the duration of the request so the job
+    // cannot be submitted twice. Restored on failure; left disabled on success
+    // because the wizard closes.
+    const submitBtn = document.getElementById('localWizardNextBtn');
+    const submitBtnLabel = submitBtn ? submitBtn.textContent : '';
+    window.localWizardState.submitting = true;
+    if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.classList.add('opacity-60', 'cursor-not-allowed');
+        submitBtn.textContent = isEdit ? 'Saving…' : 'Creating…';
+    }
+    const restoreSubmitBtn = () => {
+        window.localWizardState.submitting = false;
+        if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.classList.remove('opacity-60', 'cursor-not-allowed');
+            submitBtn.textContent = submitBtnLabel;
+        }
+    };
+
     fetch(endpoint, opts)
         .then(r => r.json())
         .then(data => {
@@ -3555,11 +3578,13 @@ function localWizardSubmit() {
             } else {
                 const msg = data.message || (isEdit ? 'Failed to update job' : 'Failed to create job');
                 e3backupNotify('error', msg);
+                restoreSubmitBtn();
             }
         })
         .catch(err => {
             const msg = 'Error ' + (isEdit ? 'updating' : 'creating') + ' job: ' + err;
             e3backupNotify('error', msg);
+            restoreSubmitBtn();
         });
 }
 
