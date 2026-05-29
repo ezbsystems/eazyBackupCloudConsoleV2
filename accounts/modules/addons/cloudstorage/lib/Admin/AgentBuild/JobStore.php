@@ -181,4 +181,71 @@ class JobStore
         return array_map(static fn($r) => (array) $r, Capsule::table('s3_agent_releases')
             ->orderBy('id', 'desc')->limit($limit)->get()->all());
     }
+
+    /**
+     * Validate a semantic version string of the form MAJOR.MINOR.PATCH
+     * (optionally with a leading 'v', which is stripped). Returns the
+     * normalized "X.Y.Z" string, or null when invalid.
+     */
+    public static function normalizeSemver(string $v): ?string
+    {
+        $v = trim($v);
+        if ($v !== '' && ($v[0] === 'v' || $v[0] === 'V')) {
+            $v = substr($v, 1);
+        }
+        if (preg_match('/^(\d+)\.(\d+)\.(\d+)$/', $v, $m)) {
+            return ((int) $m[1]) . '.' . ((int) $m[2]) . '.' . ((int) $m[3]);
+        }
+        return null;
+    }
+
+    /**
+     * Suggest the next semantic version by bumping the patch of the highest
+     * existing MAJOR.MINOR.PATCH version found across releases and build jobs.
+     * Falls back to a sensible default when no semver history exists. Legacy
+     * date-style labels (e.g. 2026.05.29-104802) are ignored.
+     */
+    public static function nextSuggestedVersion(string $default = '1.0.0'): string
+    {
+        $labels = [];
+        try {
+            $labels = array_merge(
+                Capsule::table('s3_agent_releases')->pluck('version_label')->all(),
+                Capsule::table('s3_agent_build_jobs')->pluck('version_label')->all()
+            );
+        } catch (\Throwable $e) {
+            // Tables may not exist yet on a fresh install.
+        }
+
+        $best = null; // [major, minor, patch]
+        foreach ($labels as $label) {
+            $norm = self::normalizeSemver((string) $label);
+            if ($norm === null) {
+                continue;
+            }
+            [$maj, $min, $pat] = array_map('intval', explode('.', $norm));
+            $cand = [$maj, $min, $pat];
+            if ($best === null || self::compareSemverParts($cand, $best) > 0) {
+                $best = $cand;
+            }
+        }
+
+        if ($best === null) {
+            return $default;
+        }
+        return $best[0] . '.' . $best[1] . '.' . ($best[2] + 1);
+    }
+
+    /** Compare two [major, minor, patch] arrays. Returns -1, 0, or 1. */
+    private static function compareSemverParts(array $a, array $b): int
+    {
+        for ($i = 0; $i < 3; $i++) {
+            $av = (int) ($a[$i] ?? 0);
+            $bv = (int) ($b[$i] ?? 0);
+            if ($av !== $bv) {
+                return $av < $bv ? -1 : 1;
+            }
+        }
+        return 0;
+    }
 }

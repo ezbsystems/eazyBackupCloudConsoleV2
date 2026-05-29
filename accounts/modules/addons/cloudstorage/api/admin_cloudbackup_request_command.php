@@ -2,8 +2,11 @@
 
 require_once __DIR__ . '/../../../../init.php';
 
+require_once __DIR__ . '/../lib/Client/AgentUpdateService.php';
+
 use Illuminate\Database\Capsule\Manager as Capsule;
 use WHMCS\Module\Addon\CloudStorage\Client\UuidBinary;
+use WHMCS\Module\Addon\CloudStorage\Client\AgentUpdateService;
 use Symfony\Component\HttpFoundation\JsonResponse;
 
 if (!defined("WHMCS")) {
@@ -28,8 +31,26 @@ if ($payloadRaw) {
     }
 }
 
-if (!in_array($type, ['maintenance_quick', 'maintenance_full', 'reset_agent', 'refresh_inventory', 'enable_verbose_admin_logging'], true)) {
+if (!in_array($type, ['maintenance_quick', 'maintenance_full', 'reset_agent', 'refresh_inventory', 'enable_verbose_admin_logging', 'agent_update'], true)) {
     (new JsonResponse(['status' => 'fail', 'message' => 'Invalid command type'], 200))->send();
+    exit;
+}
+
+// agent_update is fully handled by AgentUpdateService, which performs the
+// release lookup, version/online guards, and creates the linked update job +
+// command. It does not use the run-scoped path below.
+if ($type === 'agent_update') {
+    if ($agentUuid === '') {
+        (new JsonResponse(['status' => 'fail', 'message' => 'agent_uuid is required for agent updates'], 200))->send();
+        exit;
+    }
+    $agent = Capsule::table('s3_cloudbackup_agents')->where('agent_uuid', $agentUuid)->first();
+    if (!$agent) {
+        (new JsonResponse(['status' => 'fail', 'message' => 'Agent not found'], 200))->send();
+        exit;
+    }
+    $result = AgentUpdateService::requestUpdate($agent, 'admin', (int) $_SESSION['adminid']);
+    (new JsonResponse($result, 200))->send();
     exit;
 }
 

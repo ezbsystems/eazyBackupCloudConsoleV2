@@ -26,7 +26,17 @@ if (!in_array($platform, ['linux', 'windows', 'both', 'recovery_iso'], true)) {
 $gitRef = trim((string) ($_POST['git_ref'] ?? 'main'));
 $version = trim((string) ($_POST['version_label'] ?? ''));
 if ($version === '') {
-    $version = date('Y.m.d-His');
+    // Default to the next semantic version (bump patch from the latest).
+    $version = JobStore::nextSuggestedVersion();
+} else {
+    // Enforce a MAJOR.MINOR.PATCH semantic version so the value embedded in the
+    // binary (and shown everywhere) is consistent and comparable.
+    $normalized = JobStore::normalizeSemver($version);
+    if ($normalized === null) {
+        (new JsonResponse(['status' => 'fail', 'message' => 'Version must be a semantic version like 1.2.1']))->send();
+        exit;
+    }
+    $version = $normalized;
 }
 $flags = [
     'run_tests'        => !empty($_POST['run_tests']),

@@ -99,9 +99,15 @@ func (c *Client) IsVersionTooOld() bool {
 	return c.versionTooOld
 }
 
-// AgentVersion returns the version embedded in the configured User-Agent
-// string. The server uses this for the UUIDv7-style minimum-version cutover.
+// AgentVersion returns the agent version reported to the server. The
+// compiled-in build version (injected via ldflags, see internal/agent/build.go)
+// is authoritative; the User-Agent string is only a fallback for binaries built
+// without version metadata. The server uses this for the minimum-version gate
+// and for post-update verification.
 func (c *Client) AgentVersion() string {
+	if buildVersion != "" {
+		return buildVersion
+	}
 	ua := strings.TrimSpace(c.userAgent)
 	if idx := strings.Index(ua, "e3-backup-agent/"); idx >= 0 {
 		v := strings.TrimSpace(ua[idx+len("e3-backup-agent/"):])
@@ -151,18 +157,17 @@ type EnrollResponse struct {
 }
 
 func (c *Client) addAgentMetadata(form url.Values) {
-	version := ""
-	ua := strings.TrimSpace(c.userAgent)
-	if idx := strings.Index(ua, "/"); idx > -1 && idx < len(ua)-1 {
-		version = strings.TrimSpace(ua[idx+1:])
-	}
-	if version != "" {
+	if version := c.AgentVersion(); version != "" {
 		form.Set("agent_version", version)
 	}
 	form.Set("agent_os", runtime.GOOS)
 	form.Set("agent_arch", runtime.GOARCH)
-	if b := strings.TrimSpace(os.Getenv("E3_AGENT_BUILD")); b != "" {
-		form.Set("agent_build", b)
+	build := strings.TrimSpace(os.Getenv("E3_AGENT_BUILD"))
+	if build == "" {
+		build = buildCommit
+	}
+	if build != "" {
+		form.Set("agent_build", build)
 	}
 }
 
@@ -864,6 +869,39 @@ func (c *Client) CompleteCommand(commandID int64, status, resultMessage string) 
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("complete command status %d", resp.StatusCode)
+	}
+	return nil
+}
+
+// ReportUpdateProgress reports the progress of a remote agent-update job to the
+// server so the client/admin UI can show live status. state is one of
+// downloading|verifying|applying|failed; detail is a short human-readable
+// message. Failures are best-effort and non-fatal to the update flow.
+func (c *Client) ReportUpdateProgress(updateJobID int64, state, detail string) error {
+	endpoint := c.baseURL + "/agent_update_progress.php"
+	body := map[string]any{
+		"update_job_id": updateJobID,
+		"state":         state,
+		"detail":        detail,
+	}
+	if v := c.AgentVersion(); v != "" {
+		body["agent_version"] = v
+	}
+	buf, _ := json.Marshal(body)
+	req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(buf))
+	if err != nil {
+		return err
+	}
+	c.authHeaders(req)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("update progress status %d", resp.StatusCode)
 	}
 	return nil
 }

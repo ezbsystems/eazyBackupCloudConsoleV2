@@ -465,6 +465,8 @@
                                                         {/if}
                                                         <li><a href="#" onclick="adminRefreshInventory('{$agent.agent_uuid|escape:'javascript'}'); return false;">Request Inventory Refresh</a></li>
                                                         <li role="separator" class="divider"></li>
+                                                        <li><a href="#" onclick="adminUpdateAgent('{$agent.agent_uuid|escape:'javascript'}'); return false;">Update Agent (Latest Version)</a></li>
+                                                        <li role="separator" class="divider"></li>
                                                         <li><a href="addonmodules.php?module=cloudstorage&action=cloudbackup_admin&tab=runs&agent_uuid={$agent.agent_uuid|escape:'url'}">View This Agent's Runs</a></li>
                                                         <li><a href="index.php?m=cloudstorage&page=e3backup&view=jobs&open_create=1&prefill_source=local_agent&prefill_agent_uuid={$agent.agent_uuid|escape:'url'}" target="_blank" rel="noopener">Create Job (Prefilled)</a></li>
                                                     </ul>
@@ -652,6 +654,10 @@
                         <tr>
                             <td><strong>Request Inventory Refresh</strong></td>
                             <td>Forces an immediate volume/device inventory update from the agent and refreshes cached source-selection metadata.</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Update Agent (Latest Version)</strong></td>
+                            <td>Queues a remote update to the latest published release for the agent's platform. The agent downloads and verifies the signed installer (Windows) or new binary (Linux), then restarts the service. Progress is tracked and an alert reports success or failure once the agent reports the new version. Disabled paths: no published release, agent offline, already current, or an update already in progress.</td>
                         </tr>
                         <tr>
                             <td><strong>View This Agent's Runs</strong></td>
@@ -910,6 +916,59 @@ function adminRefreshInventory(agentUuid) {
             }
         })
         .catch(() => alert('Failed to queue inventory refresh'));
+}
+
+var adminUpdatePollTimers = {};
+
+function adminUpdateAgent(agentUuid) {
+    if (!confirm('Update this agent to the latest published version now? The agent service will download the update and restart.')) {
+        return;
+    }
+    adminEnqueueAgentCommand({ agent_uuid: agentUuid, type: 'agent_update' })
+        .then(data => {
+            if (data.status === 'success') {
+                alert('Update to ' + (data.target_version || 'latest') + ' queued for agent ' + agentUuid);
+                adminStartUpdatePolling(agentUuid);
+            } else {
+                alert(data.message || 'Failed to queue agent update');
+            }
+        })
+        .catch(() => alert('Failed to queue agent update'));
+}
+
+function adminStartUpdatePolling(agentUuid) {
+    adminStopUpdatePolling(agentUuid);
+    adminUpdatePollTimers[agentUuid] = setInterval(function () {
+        adminPollUpdateStatus(agentUuid);
+    }, 5000);
+}
+
+function adminStopUpdatePolling(agentUuid) {
+    if (adminUpdatePollTimers[agentUuid]) {
+        clearInterval(adminUpdatePollTimers[agentUuid]);
+        delete adminUpdatePollTimers[agentUuid];
+    }
+}
+
+function adminPollUpdateStatus(agentUuid) {
+    var activeStates = ['queued', 'downloading', 'verifying', 'applying', 'restarting', 'verifying_online'];
+    fetch('/modules/addons/cloudstorage/api/admin_cloudbackup_agent_update_status.php?agent_uuid=' + encodeURIComponent(agentUuid))
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+            if (!data || data.status !== 'success' || !data.update_job) {
+                return;
+            }
+            var job = data.update_job;
+            if (activeStates.indexOf(job.status) === -1) {
+                adminStopUpdatePolling(agentUuid);
+                if (job.status === 'success') {
+                    alert('Agent ' + agentUuid + ' updated successfully to ' + (job.target_version || 'latest') + '.');
+                } else {
+                    alert('Agent ' + agentUuid + ' update ' + job.status + ': ' + (job.detail || ''));
+                }
+            }
+        })
+        .catch(function () { /* transient; keep polling */ });
 }
 
 function formatLogMeta(data) {

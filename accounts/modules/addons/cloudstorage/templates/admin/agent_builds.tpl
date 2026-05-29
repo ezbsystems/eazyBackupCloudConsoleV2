@@ -83,8 +83,9 @@
           <input type="text" name="git_ref" value="{$defaultGitRef|escape}" class="form-control" style="max-width:300px;">
         </div>
         <div class="form-group">
-          <label>Version Label</label>
-          <input type="text" name="version_label" placeholder="auto: YYYY.MM.DD-HHMMSS" class="form-control" style="max-width:300px;">
+          <label>Version (semantic)</label>
+          <input type="text" name="version_label" value="{$nextVersion|escape}" placeholder="e.g. 1.2.1" pattern="v?\d+\.\d+\.\d+" class="form-control" style="max-width:300px;">
+          <p class="help-block">Use a semantic version <code>MAJOR.MINOR.PATCH</code> (e.g. <code>1.2.1</code>). Pre-filled with the next patch bump; edit to bump minor/major. This is the version embedded in the agent and shown everywhere.</p>
         </div>
         <div class="checkbox"><label><input type="checkbox" name="run_tests" checked> Run go test ./...</label></div>
         <div class="checkbox"><label><input type="checkbox" name="sign" {if $settings.signing_enabled}checked{/if}> Code-sign Windows binaries (Azure KV)</label></div>

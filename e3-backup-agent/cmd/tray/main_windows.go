@@ -116,11 +116,26 @@ func ensureIdentity(cfg *agentConfig) {
 	}
 }
 
+// version and commit are injected at link time via
+// `-X main.version`/`-X main.commit` (see Makefile LDFLAGS_GUI).
+var (
+	version string
+	commit  string
+)
+
+func trayVersion() string {
+	if strings.TrimSpace(version) == "" {
+		return "dev"
+	}
+	return version
+}
+
 func main() {
 	configPath := flag.String("config", defaultConfigPath(), "Path to agent.conf")
 	flag.Parse()
 
 	setupTrayFileLogging()
+	applog.Infof("tray", "e3-backup-tray starting (version=%s commit=%s)", trayVersion(), commit)
 
 	app := &trayApp{
 		configPath:     *configPath,
