@@ -74,6 +74,12 @@ func (c *Client) authHeaders(req *http.Request) {
 	if v := c.AgentVersion(); v != "" {
 		req.Header.Set("X-Agent-Version", v)
 	}
+	// Always advertise OS/arch (compiled-in constants, always known) on every
+	// authenticated request. This lets the server backfill agent_os/agent_arch
+	// on the hot poll path so remote-update platform detection works without
+	// waiting for a fresh enroll/login.
+	req.Header.Set("X-Agent-OS", runtime.GOOS)
+	req.Header.Set("X-Agent-Arch", runtime.GOARCH)
 	c.applyUserAgent(req)
 }
 

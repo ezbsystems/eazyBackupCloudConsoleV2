@@ -75,6 +75,11 @@ func (r *Runner) Start(stop <-chan struct{}) {
 	// Ensure stable device identity exists (for re-enroll/rekey/reuse).
 	r.ensureDeviceIdentity()
 
+	// Keep the Windows tray helper alive in the interactive user session. The
+	// service restarts after every install/upgrade, so this guarantees the tray
+	// is present even after silent or remote updates. No-op on Linux.
+	r.startTraySupervisor(stop)
+
 	if err := r.waitForEnrollmentIfNeeded(stop); err != nil {
 		log.Printf("agent: enrollment wait failed: %v", err)
 		return
