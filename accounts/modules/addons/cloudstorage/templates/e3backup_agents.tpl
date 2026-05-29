@@ -33,6 +33,25 @@
 <div x-data="agentsApp()"
      class="space-y-6"
      @keydown.escape.window="deleteModalOpen && !deleteSubmitting && closeDeleteAgentModal()">
+    {* Themed toast stack (replaces browser alert() for agent action feedback) *}
+    <div x-cloak
+         style="position:fixed; top:1rem; right:1rem; z-index:9999; display:flex; flex-direction:column; gap:0.5rem; max-width:380px;">
+        <template x-for="toast in agentToasts" :key="toast.id">
+            <div :class="'eb-toast eb-toast--' + toast.variant"
+                 x-transition.opacity
+                 role="status"
+                 @click="dismissAgentToast(toast.id)"
+                 style="cursor:pointer;">
+                <svg class="w-4 h-4 flex-shrink-0 mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                    <path x-show="toast.variant === 'success'" stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                    <path x-show="toast.variant === 'danger'" stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z" />
+                    <path x-show="toast.variant === 'warning'" stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+                    <path x-show="toast.variant === 'info'" stroke-linecap="round" stroke-linejoin="round" d="m11.25 11.25.041-.02a.75.75 0 0 1 1.063.852l-.708 2.836a.75.75 0 0 0 1.063.853l.041-.021M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9-3.75h.008v.008H12V8.25Z" />
+                </svg>
+                <span x-text="toast.message"></span>
+            </div>
+        </template>
+    </div>
     {include file="$template/includes/ui/page-header.tpl"
         ebBreadcrumb=$ebE3AgentsBreadcrumb
         ebPageTitle='Registered Agents'
@@ -549,6 +568,8 @@ function agentsApp() {
         updateSubmitting: false,
         updateJob: null,
         updatePollTimer: null,
+        agentToasts: [],
+        _agentToastSeq: 0,
 
         init() {
             // Persisted column preferences
@@ -836,15 +857,20 @@ function agentsApp() {
         },
 
         agentsNotify(type, message) {
-            if (typeof e3backupNotify === 'function') {
-                e3backupNotify(type, message);
-                return;
-            }
-            if (window.toast && typeof window.toast[type === 'error' ? 'error' : 'success'] === 'function') {
-                window.toast[type === 'error' ? 'error' : 'success'](message);
-                return;
-            }
-            alert(message);
+            // Render an in-page themed toast (semantic theme) rather than a
+            // browser-native alert(), so update feedback matches the client area.
+            const variant = (type === 'error' || type === 'danger') ? 'danger'
+                : (type === 'warning') ? 'warning'
+                : (type === 'info') ? 'info'
+                : 'success';
+            const id = ++this._agentToastSeq;
+            this.agentToasts.push({ id: id, variant: variant, message: String(message || '') });
+            const ttl = variant === 'danger' ? 7000 : 4500;
+            setTimeout(() => this.dismissAgentToast(id), ttl);
+        },
+
+        dismissAgentToast(id) {
+            this.agentToasts = this.agentToasts.filter(t => t.id !== id);
         },
 
         goToRestores(agent) {

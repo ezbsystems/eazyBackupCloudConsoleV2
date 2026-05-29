@@ -19,6 +19,16 @@ SolidCompression=yes
 PrivilegesRequired=admin
 OutputBaseFilename=e3-backup-agent-setup
 WizardStyle=modern
+; EazyBackup branding. These are embedded into Setup.exe at compile time, so the
+; files must be staged into the remote assets dir (see WindowsStage.php).
+;  - SetupIconFile: the Setup.exe / title-bar / Add-Remove-Programs icon
+;    (replaces Inno's default download-arrow icon).
+;  - WizardImageFile: large welcome/finish panel (164x314 logical; 2x source).
+;  - WizardSmallImageFile: small top-right header image on inner pages
+;    (replaces Inno's default software-box image).
+SetupIconFile={#AssetsDir}\tray_logo.ico
+WizardImageFile={#AssetsDir}\wizard_large.bmp
+WizardSmallImageFile={#AssetsDir}\wizard_small.bmp
 CloseApplications=force
 CloseApplicationsFilter=e3-backup-agent.exe,e3-backup-tray.exe
 
