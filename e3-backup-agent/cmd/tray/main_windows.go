@@ -17,6 +17,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"syscall"
@@ -89,13 +90,69 @@ func loadConfig(path string) (*agentConfig, error) {
 	return &cfg, nil
 }
 
+// saveConfig writes the tray-managed fields into agent.conf while preserving
+// any keys this slim struct does not model (run_dir, poll_interval_secs,
+// log_level, dest_endpoint, dest_region, rclone_binary, user_agent, ...).
+//
+// A plain yaml.Marshal of the struct would silently drop those keys, which
+// previously wiped run_dir (and the poll interval) on every tray
+// re-enrollment and broke backup runs until the next installer write. We
+// instead overlay the managed keys onto the existing on-disk document:
+//   - managed keys with a value are set,
+//   - managed keys that are empty (omitempty) are deleted, preserving the
+//     prior behavior of clearing enrollment_token / enroll_* after a sign-in,
+//   - every other key already in the file is left untouched.
 func saveConfig(path string, cfg *agentConfig) error {
-	b, err := yaml.Marshal(cfg)
+	// Start from the existing on-disk document (best effort: a missing or
+	// unparseable file just yields a fresh map).
+	root := map[string]interface{}{}
+	if b, err := os.ReadFile(path); err == nil {
+		if uerr := yaml.Unmarshal(b, &root); uerr != nil || root == nil {
+			root = map[string]interface{}{}
+		}
+	}
+
+	// Serialize the struct (honoring omitempty) so we know which managed keys
+	// currently carry a value.
+	sb, err := yaml.Marshal(cfg)
+	if err != nil {
+		return err
+	}
+	structMap := map[string]interface{}{}
+	if err := yaml.Unmarshal(sb, &structMap); err != nil {
+		return err
+	}
+
+	for _, k := range managedConfigKeys() {
+		if v, ok := structMap[k]; ok {
+			root[k] = v
+		} else {
+			delete(root, k)
+		}
+	}
+
+	out, err := yaml.Marshal(root)
 	if err != nil {
 		return err
 	}
 	_ = os.MkdirAll(filepath.Dir(path), 0o755)
-	return os.WriteFile(path, b, 0o600)
+	return os.WriteFile(path, out, 0o600)
+}
+
+// managedConfigKeys returns the agent.conf keys owned by the tray's slim
+// agentConfig struct, derived from its yaml tags so the set stays in sync if
+// the struct changes. Only these keys are added/removed by saveConfig; all
+// other keys in the file are preserved.
+func managedConfigKeys() []string {
+	t := reflect.TypeOf(agentConfig{})
+	keys := make([]string, 0, t.NumField())
+	for i := 0; i < t.NumField(); i++ {
+		name := strings.Split(t.Field(i).Tag.Get("yaml"), ",")[0]
+		if name != "" && name != "-" {
+			keys = append(keys, name)
+		}
+	}
+	return keys
 }
 
 func ensureIdentity(cfg *agentConfig) {
