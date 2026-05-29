@@ -16,6 +16,7 @@ import (
 	"time"
 
 	kopiafs "github.com/kopia/kopia/fs"
+	"github.com/your-org/e3-backup-agent/internal/agent/selfupdate"
 	"github.com/your-org/e3-backup-agent/internal/applog"
 	"github.com/rclone/rclone/fs"
 	"github.com/rclone/rclone/fs/accounting"
@@ -484,6 +485,8 @@ func (r *Runner) executePendingCommand(cmd PendingCommand) {
 		_ = r.client.CompleteCommand(cmd.CommandID, "completed", "service restart scheduled")
 		// Exit non-zero so SCM recovery can also restart if configured.
 		os.Exit(2)
+	case "agent_update":
+		r.executeAgentUpdateCommand(cmd)
 	case "refresh_inventory":
 		r.executeRefreshInventoryCommand(cmd)
 	case "fetch_log_tail":
@@ -492,6 +495,84 @@ func (r *Runner) executePendingCommand(cmd PendingCommand) {
 		log.Printf("agent: unknown pending command type: %s", cmd.Type)
 		_ = r.client.CompleteCommand(cmd.CommandID, "failed", "unknown command type")
 	}
+}
+
+// payloadString extracts a string value from a command payload map, tolerating
+// values that arrive as JSON numbers.
+func payloadString(p map[string]any, key string) string {
+	if p == nil {
+		return ""
+	}
+	switch v := p[key].(type) {
+	case string:
+		return strings.TrimSpace(v)
+	case float64:
+		return strconv.FormatFloat(v, 'f', -1, 64)
+	case json.Number:
+		return v.String()
+	}
+	return ""
+}
+
+// payloadInt64 extracts an int64 from a command payload map, tolerating values
+// that arrive as JSON numbers (float64) or numeric strings.
+func payloadInt64(p map[string]any, key string) int64 {
+	if p == nil {
+		return 0
+	}
+	switch v := p[key].(type) {
+	case float64:
+		return int64(v)
+	case json.Number:
+		n, _ := v.Int64()
+		return n
+	case string:
+		n, _ := strconv.ParseInt(strings.TrimSpace(v), 10, 64)
+		return n
+	}
+	return 0
+}
+
+// executeAgentUpdateCommand handles a remote agent-update command. It downloads
+// and verifies the published artifact, reports progress to the server, then
+// hands off to the out-of-process applier (signed installer on Windows /
+// systemctl restart on Linux). On success the process exits so the applier can
+// stop, swap, and restart the service cleanly.
+func (r *Runner) executeAgentUpdateCommand(cmd PendingCommand) {
+	jobID := payloadInt64(cmd.Payload, "update_job_id")
+	spec := selfupdate.Spec{
+		JobID:       jobID,
+		Version:     payloadString(cmd.Payload, "version_label"),
+		DownloadURL: payloadString(cmd.Payload, "download_url"),
+		SHA256:      payloadString(cmd.Payload, "sha256"),
+		SizeBytes:   payloadInt64(cmd.Payload, "size_bytes"),
+		Platform:    payloadString(cmd.Payload, "platform"),
+	}
+
+	log.Printf("agent: agent_update command %d received; target version=%s url=%s", cmd.CommandID, spec.Version, spec.DownloadURL)
+
+	progress := func(state, detail string) {
+		if jobID > 0 {
+			_ = r.client.ReportUpdateProgress(jobID, state, detail)
+		}
+	}
+
+	if err := selfupdate.Run(spec, progress); err != nil {
+		msg := sanitizeErrorMessage(err)
+		log.Printf("agent: agent_update command %d failed: %v", cmd.CommandID, err)
+		progress("failed", msg)
+		_ = r.client.CompleteCommand(cmd.CommandID, "failed", "update failed: "+msg)
+		return
+	}
+
+	// The update was downloaded, verified, and the swap+restart was scheduled.
+	// Acknowledge the command before exiting so the server does not redeliver it.
+	_ = r.client.CompleteCommand(cmd.CommandID, "completed", "update applied; service restarting to version "+spec.Version)
+	log.Printf("agent: agent_update command %d applied; exiting for service restart", cmd.CommandID)
+	// Exit so the external applier can stop/swap/restart the service. On Windows
+	// the scheduled installer drives this; on Linux systemd Restart=always plus
+	// the detached `systemctl restart` brings the new binary up.
+	os.Exit(2)
 }
 
 // executeRestoreCommand handles a restore command with progress tracking.

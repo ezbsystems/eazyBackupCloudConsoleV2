@@ -111,8 +111,14 @@ func (c *AgentConfig) applyDefaults() {
 	}
 	if c.UserAgent == "" {
 		// A browser-like UA (but still honest) can help avoid over-aggressive WAF bot heuristics.
-		// Keep this stable and short; endpoints may log it.
-		c.UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 e3-backup-agent/1.0"
+		// Keep this stable and short; endpoints may log it. The trailing
+		// e3-backup-agent/<version> token carries the compiled-in build version
+		// when available so server logs reflect the real binary.
+		ver := buildVersion
+		if ver == "" {
+			ver = "1.0"
+		}
+		c.UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 e3-backup-agent/" + ver
 	}
 	if c.RunDir == "" {
 		// Default per-OS run dir

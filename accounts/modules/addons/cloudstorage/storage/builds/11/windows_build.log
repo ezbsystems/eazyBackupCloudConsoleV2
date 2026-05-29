@@ -1,0 +1,14 @@
+
+[2026-05-29 10:48:29] $ 'make' 'VERSION=2026.05.29-104802' 'build-windows'
+Building e3-backup-agent (windows/amd64) version=2026.05.29-104802 commit=60d24ec1...
+Build complete: bin/e3-backup-agent.exe
+Building e3-backup-tray (windows/amd64) version=2026.05.29-104802 commit=60d24ec1...
+Build complete: bin/e3-backup-tray.exe
+
+=== Windows build complete ===
+  bin/e3-backup-agent.exe  (Windows service)
+  bin/e3-backup-tray.exe   (Tray helper + enrollment UI)
+
+Next: Copy to Windows and compile installer with Inno Setup
+See: docs/LOCAL_AGENT_BUILD.md
+[2026-05-29 10:48:31] exit=0

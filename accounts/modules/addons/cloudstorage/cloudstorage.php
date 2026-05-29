@@ -3194,6 +3194,7 @@ function cloudstorage_activate() {
 
         cloudstorage_ensure_hyperv_schema('activate');
         cloudstorage_ensure_agent_build_schema('activate');
+        cloudstorage_ensure_agent_update_schema('activate');
         cloudstorage_ensure_e3cb_billing_schema('activate');
         cloudstorage_ensure_e3cb_product('activate');
 
@@ -5311,6 +5312,7 @@ function cloudstorage_upgrade($vars) {
 
         cloudstorage_ensure_hyperv_schema('upgrade');
         cloudstorage_ensure_agent_build_schema('upgrade');
+        cloudstorage_ensure_agent_update_schema('upgrade');
         cloudstorage_ensure_e3cb_billing_schema('upgrade');
         cloudstorage_ensure_e3cb_product('upgrade');
         return ['status' => 'success'];
@@ -6025,6 +6027,57 @@ function cloudstorage_ensure_agent_build_schema(string $context = 'activate'): v
     } catch (\Throwable $e) {
         try {
             logModuleCall('cloudstorage', 'ensure_agent_build_schema', [], $e->getMessage(), [], []);
+        } catch (\Throwable $_) {}
+    }
+}
+
+/**
+ * Create the s3_agent_update_jobs table used to track remote agent-update
+ * requests end-to-end (queued -> downloading -> verifying -> applying ->
+ * restarting -> verifying_online -> success|failed|timeout). One row is created
+ * per update request from the client drawer or admin Agents page; the agent
+ * reports progress against it and the server marks success once the agent comes
+ * back online reporting the target version.
+ */
+function cloudstorage_ensure_agent_update_schema(string $context = 'activate'): void
+{
+    try {
+        $schema = \WHMCS\Database\Capsule::schema();
+
+        if (!$schema->hasTable('s3_agent_update_jobs')) {
+            $schema->create('s3_agent_update_jobs', function ($t) {
+                $t->bigIncrements('id');
+                $t->string('agent_uuid', 36);
+                $t->unsignedBigInteger('command_id')->nullable();
+                $t->unsignedBigInteger('release_id')->nullable();
+                $t->string('platform', 32)->nullable();
+                $t->string('from_version', 64)->nullable();
+                $t->string('target_version', 64)->nullable();
+                $t->string('download_url', 1024)->nullable();
+                $t->string('sha256', 64)->nullable();
+                $t->unsignedBigInteger('size_bytes')->nullable();
+                $t->enum('status', [
+                    'queued', 'downloading', 'verifying', 'applying',
+                    'restarting', 'verifying_online', 'success', 'failed', 'timeout',
+                ])->default('queued');
+                $t->text('detail')->nullable();
+                // Who initiated the update: a WHMCS client (portal) or an admin.
+                $t->enum('requested_by_type', ['client', 'admin'])->nullable();
+                $t->unsignedInteger('requested_by_id')->nullable();
+                $t->dateTime('started_at')->nullable();
+                $t->dateTime('finished_at')->nullable();
+                $t->timestamp('created_at')->useCurrent();
+                $t->timestamp('updated_at')->useCurrent();
+                $t->index('agent_uuid');
+                $t->index('status');
+                $t->index('command_id');
+                $t->index('created_at');
+            });
+            logModuleCall('cloudstorage', $context, [], 'Created s3_agent_update_jobs', [], []);
+        }
+    } catch (\Throwable $e) {
+        try {
+            logModuleCall('cloudstorage', 'ensure_agent_update_schema', [], $e->getMessage(), [], []);
         } catch (\Throwable $_) {}
     }
 }

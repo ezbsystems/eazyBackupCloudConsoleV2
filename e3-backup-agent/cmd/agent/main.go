@@ -16,7 +16,18 @@ import (
 	"github.com/your-org/e3-backup-agent/internal/applog"
 )
 
+// version and commit are injected at link time via
+// `-X main.version`/`-X main.commit` (see Makefile LDFLAGS). They are forwarded
+// into the agent package so the runtime has a single authoritative version for
+// server reporting and post-update verification.
+var (
+	version string
+	commit  string
+)
+
 func main() {
+	agent.SetBuildInfo(version, commit)
+
 	configPath := flag.String("config", "agent.conf", "Path to agent configuration file")
 	svcCmd := flag.String("service", "", "Service control action: install, uninstall, start, stop")
 	flag.Parse()

@@ -11,12 +11,14 @@
  */
 
 require_once __DIR__ . '/../../../../init.php';
+require_once __DIR__ . '/../lib/Client/AgentUpdateService.php';
 
 use Illuminate\Database\Capsule\Manager as Capsule;
 use WHMCS\Module\Addon\CloudStorage\Client\UuidBinary;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use WHMCS\Module\Addon\CloudStorage\Client\HelperController;
 use WHMCS\Module\Addon\CloudStorage\Client\RepositoryService;
+use WHMCS\Module\Addon\CloudStorage\Client\AgentUpdateService;
 
 if (!defined("WHMCS")) {
     die("This file cannot be accessed directly");
@@ -47,6 +49,10 @@ function authenticateAgent(): object
     Capsule::table('s3_cloudbackup_agents')
         ->where('agent_uuid', $agentUuid)
         ->update(['last_seen_at' => Capsule::raw('NOW()')]);
+
+    // Persist the version reported on this poll and finalize any in-flight
+    // remote-update job once the agent comes back online on the target version.
+    AgentUpdateService::noteAgentVersion((string) $agentUuid, $_SERVER['HTTP_X_AGENT_VERSION'] ?? null);
 
     return $agent;
 }
@@ -124,7 +130,7 @@ try {
     $browseCommands = Capsule::table('s3_cloudbackup_run_commands')
         ->where('agent_uuid', $agent->agent_uuid)
         ->where('status', 'pending')
-        ->whereIn('type', ['browse_directory', 'list_hyperv_vms', 'list_hyperv_vm_details', 'list_disks', 'reset_agent', 'refresh_inventory', 'fetch_log_tail'])
+        ->whereIn('type', ['browse_directory', 'list_hyperv_vms', 'list_hyperv_vm_details', 'list_disks', 'reset_agent', 'refresh_inventory', 'fetch_log_tail', 'agent_update'])
         ->orderBy('id', 'asc')
         ->limit(5)
         ->get($browseSelect);

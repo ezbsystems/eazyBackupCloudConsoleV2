@@ -47,6 +47,7 @@ function cloudstorage_admin_agent_builds($vars)
         'jobId'          => $jobId,
         'savedFlag'      => !empty($_GET['saved']),
         'defaultGitRef'  => $settings['default_git_ref'] ?? 'main',
+        'nextVersion'    => JobStore::nextSuggestedVersion(),
         'token'          => function_exists('generate_token') ? generate_token('plain') : '',
     ];
 

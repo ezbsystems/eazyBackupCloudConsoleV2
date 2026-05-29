@@ -2,11 +2,14 @@
 
 require_once __DIR__ . '/../../../../init.php';
 require_once __DIR__ . '/../lib/Client/MspController.php';
+require_once __DIR__ . '/../lib/Client/AgentUpdateService.php';
 
 use Illuminate\Database\Capsule\Manager as Capsule;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use WHMCS\ClientArea;
 use WHMCS\Module\Addon\CloudStorage\Client\MspController;
+use WHMCS\Module\Addon\CloudStorage\Client\AgentUpdateService;
+use WHMCS\Module\Addon\CloudStorage\Client\AgentIngestSupport;
 
 if (!defined("WHMCS")) {
     die("This file cannot be accessed directly");
@@ -73,6 +76,10 @@ $query = Capsule::table('s3_cloudbackup_agents as a')
         'a.install_id',
         'a.status',
         'a.agent_type',
+        'a.agent_version',
+        'a.agent_os',
+        'a.agent_arch',
+        'a.agent_build',
         'a.tenant_id as storage_tenant_id',
         $tenantSelect,
         'a.tenant_user_id',
@@ -138,6 +145,31 @@ if ($hasAgentBackupUserId) {
     }
 }
 
+// Latest published version per platform, for "update available" badges.
+$latestVersionByPlatform = [];
+foreach (['windows', 'linux'] as $platform) {
+    $rel = AgentUpdateService::latestRelease($platform);
+    $latestVersionByPlatform[$platform] = $rel ? trim((string) ($rel->version_label ?? '')) : '';
+}
+
+// Most recent update job per agent in this result set (active or terminal),
+// so the drawer can show live status without a second request on first paint.
+$updateJobByAgent = [];
+if (Capsule::schema()->hasTable('s3_agent_update_jobs')) {
+    $uuids = $agents->pluck('agent_uuid')->filter()->unique()->values()->toArray();
+    if (!empty($uuids)) {
+        $rows = Capsule::table('s3_agent_update_jobs')
+            ->whereIn('agent_uuid', $uuids)
+            ->orderByDesc('id')
+            ->get(['id', 'agent_uuid', 'status', 'detail', 'target_version', 'from_version', 'updated_at']);
+        foreach ($rows as $row) {
+            if (!isset($updateJobByAgent[$row->agent_uuid])) {
+                $updateJobByAgent[$row->agent_uuid] = $row;
+            }
+        }
+    }
+}
+
 // Add computed online/offline status.
 foreach ($agents as $a) {
     $secs = isset($a->seconds_since_seen) ? (int) $a->seconds_since_seen : null;
@@ -153,6 +185,28 @@ foreach ($agents as $a) {
     $a->backup_user_route_id = $backupUserId > 0
         ? ($backupUserRouteById[$backupUserId] ?? null)
         : null;
+
+    // Update fields.
+    $platform = AgentUpdateService::platformForAgent($a);
+    $latest = $platform !== '' ? ($latestVersionByPlatform[$platform] ?? '') : '';
+    $current = trim((string) ($a->agent_version ?? ''));
+    $a->latest_version = $latest !== '' ? $latest : null;
+    $a->update_supported = $platform !== '';
+    $a->update_available = ($platform !== '' && $latest !== '' && $current !== '' && AgentIngestSupport::versionLessThan($current, $latest));
+    // When the agent never reported a version yet, we cannot assert it is current.
+    if ($platform !== '' && $latest !== '' && $current === '') {
+        $a->update_available = true;
+    }
+    $job = $updateJobByAgent[$a->agent_uuid] ?? null;
+    $a->update_job = $job ? [
+        'id' => (int) $job->id,
+        'status' => $job->status,
+        'detail' => $job->detail,
+        'target_version' => $job->target_version,
+        'from_version' => $job->from_version,
+        'updated_at' => $job->updated_at,
+    ] : null;
+
     unset($a->storage_tenant_id, $a->backup_user_id);
 }
 

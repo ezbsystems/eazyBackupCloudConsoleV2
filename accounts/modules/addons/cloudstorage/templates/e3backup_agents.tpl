@@ -130,6 +130,7 @@
                             <th>Tenant</th>
                             {/if}
                             <th>Type</th>
+                            <th>Version</th>
                             <th>Status</th>
                             <th>Last Seen</th>
                             <th>Created</th>
@@ -139,7 +140,7 @@
                     <tbody>
                         <template x-if="loading">
                             <tr>
-                                <td :colspan="{if $isMspClient}9{else}8{/if} + (showDeviceId ? 1 : 0) + (showDeviceName ? 1 : 0)" class="!px-4 !py-10 text-center">
+                                <td :colspan="{if $isMspClient}10{else}9{/if} + (showDeviceId ? 1 : 0) + (showDeviceName ? 1 : 0)" class="!px-4 !py-10 text-center">
                                     <div class="inline-flex items-center gap-3 text-sm text-[var(--eb-text-muted)]">
                                         <span class="h-4 w-4 animate-spin rounded-full border-2 border-[color:var(--eb-info-border)] border-t-[color:var(--eb-info-icon)]"></span>
                                         Loading agents...
@@ -149,7 +150,7 @@
                         </template>
                         <template x-if="!loading && filteredAgents().length === 0">
                             <tr>
-                                <td :colspan="{if $isMspClient}9{else}8{/if} + (showDeviceId ? 1 : 0) + (showDeviceName ? 1 : 0)" class="!px-4 !py-10">
+                                <td :colspan="{if $isMspClient}10{else}9{/if} + (showDeviceId ? 1 : 0) + (showDeviceName ? 1 : 0)" class="!px-4 !py-10">
                                     <template x-if="searchQuery.trim()">
                                         <div class="eb-app-empty">
                                             <div class="eb-app-empty-title">No agents match your search</div>
@@ -207,6 +208,14 @@
                                     <span class="eb-badge"
                                           :class="agent.agent_type === 'server' ? 'eb-badge--premium' : (agent.agent_type === 'hypervisor' ? 'eb-badge--warning' : 'eb-badge--info')"
                                           x-text="agent.agent_type || 'workstation'"></span>
+                                </td>
+                                <td>
+                                    <div class="flex items-center gap-2">
+                                        <span class="eb-table-mono" x-text="agent.agent_version || '—'"></span>
+                                        <span class="eb-badge eb-badge--warning"
+                                              x-show="agent.update_available" x-cloak
+                                              title="A newer version is available">Update</span>
+                                    </div>
                                 </td>
                                 <td>
                                     <span class="eb-badge" :class="agent.status === 'active' ? 'eb-badge--success' : 'eb-badge--default'" x-text="agent.status"></span>
@@ -361,12 +370,54 @@
                     <div class="eb-card-header">
                         <div>
                             <div class="eb-type-eyebrow">Updates</div>
-                            <p class="eb-card-subtitle">Trigger an agent policy refresh.</p>
+                            <p class="eb-card-subtitle">Remotely update the backup agent to the latest version.</p>
+                        </div>
+                        <span class="eb-badge" :class="updateBadgeClass()" x-text="updateBadgeLabel()"></span>
+                    </div>
+
+                    <dl class="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                        <div>
+                            <dt class="eb-kv-label">Installed</dt>
+                            <dd class="eb-kv-value" x-text="(selectedAgent && selectedAgent.agent_version) ? selectedAgent.agent_version : 'Unknown'"></dd>
+                        </div>
+                        <div>
+                            <dt class="eb-kv-label">Latest</dt>
+                            <dd class="eb-kv-value" x-text="(selectedAgent && selectedAgent.latest_version) ? selectedAgent.latest_version : '—'"></dd>
+                        </div>
+                    </dl>
+
+                    <!-- Live progress while an update is running -->
+                    <div class="mt-3" x-show="isUpdateActive()" x-cloak>
+                        <div class="flex items-center justify-between mb-1">
+                            <span class="text-sm text-[var(--eb-text-muted)]" x-text="updateStatusText()"></span>
+                        </div>
+                        <div class="eb-progress-track">
+                            <div class="eb-progress-fill" :style="updateProgressStyle()"></div>
                         </div>
                     </div>
-                    <button type="button" class="eb-btn eb-btn-secondary eb-btn-sm cursor-not-allowed opacity-60" disabled>
-                        Coming soon
+
+                    <!-- Terminal result alert -->
+                    <div class="mt-3" x-show="updateJob && ['success','failed','timeout'].includes(updateJob.status)" x-cloak>
+                        <div class="eb-alert" :class="updateJob && updateJob.status === 'success' ? 'eb-alert--success' : 'eb-alert--danger'">
+                            <div>
+                                <div class="eb-alert-title" x-text="updateJob && updateJob.status === 'success' ? 'Update complete' : 'Update failed'"></div>
+                                <p x-text="updateJob ? (updateJob.detail || '') : ''"></p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <button type="button"
+                            class="eb-btn eb-btn-primary eb-btn-sm mt-3"
+                            :class="canRequestUpdate() ? '' : 'opacity-50 cursor-not-allowed'"
+                            :disabled="!canRequestUpdate()"
+                            @click="requestUpdate(selectedAgent)">
+                        <span x-text="updateButtonLabel()"></span>
                     </button>
+
+                    <p class="mt-2 text-xs text-[var(--eb-text-muted)]"
+                       x-show="selectedAgent && selectedAgent.update_supported === false" x-cloak>
+                        Remote update is not available for this agent's platform.
+                    </p>
                 </div>
             </div>
         </div>
@@ -495,6 +546,9 @@ function agentsApp() {
         deleteModalOpen: false,
         agentPendingDelete: null,
         deleteSubmitting: false,
+        updateSubmitting: false,
+        updateJob: null,
+        updatePollTimer: null,
 
         init() {
             // Persisted column preferences
@@ -641,11 +695,156 @@ function agentsApp() {
         openManage(agent) {
             this.selectedAgent = agent;
             this.manageOpen = true;
+            this.updateJob = (agent && agent.update_job) ? agent.update_job : null;
+            if (this.isUpdateActive()) {
+                this.startUpdatePolling(agent.agent_uuid);
+            }
         },
 
         closeManage() {
             this.manageOpen = false;
             this.selectedAgent = null;
+            this.stopUpdatePolling();
+            this.updateJob = null;
+            this.updateSubmitting = false;
+        },
+
+        // ---- Remote agent update ----
+        UPDATE_ACTIVE_STATES: ['queued', 'downloading', 'verifying', 'applying', 'restarting', 'verifying_online'],
+
+        isUpdateActive() {
+            return !!(this.updateJob && this.UPDATE_ACTIVE_STATES.includes(this.updateJob.status));
+        },
+
+        canRequestUpdate() {
+            if (!this.selectedAgent) return false;
+            if (this.selectedAgent.update_supported === false) return false;
+            if (this.updateSubmitting || this.isUpdateActive()) return false;
+            return !!this.selectedAgent.update_available;
+        },
+
+        updateButtonLabel() {
+            if (this.updateSubmitting) return 'Queuing…';
+            if (this.isUpdateActive()) return 'Update in progress…';
+            if (this.selectedAgent && this.selectedAgent.update_available && this.selectedAgent.latest_version) {
+                return 'Update to ' + this.selectedAgent.latest_version;
+            }
+            return 'Up to date';
+        },
+
+        updateBadgeLabel() {
+            if (this.isUpdateActive()) return 'Updating';
+            if (this.updateJob && this.updateJob.status === 'success') return 'Up to date';
+            if (this.updateJob && (this.updateJob.status === 'failed' || this.updateJob.status === 'timeout')) return 'Update failed';
+            if (this.selectedAgent && this.selectedAgent.update_supported === false) return 'Not supported';
+            if (this.selectedAgent && this.selectedAgent.update_available) return 'Update available';
+            return 'Up to date';
+        },
+
+        updateBadgeClass() {
+            if (this.isUpdateActive()) return 'eb-badge--info';
+            if (this.updateJob && (this.updateJob.status === 'failed' || this.updateJob.status === 'timeout')) return 'eb-badge--danger';
+            if (this.selectedAgent && this.selectedAgent.update_available) return 'eb-badge--warning';
+            return 'eb-badge--success';
+        },
+
+        updateStatusText() {
+            if (!this.updateJob) return '';
+            const labels = {
+                queued: 'Queued — waiting for agent…',
+                downloading: 'Downloading update…',
+                verifying: 'Verifying download…',
+                applying: 'Applying update…',
+                restarting: 'Restarting service…',
+                verifying_online: 'Waiting for agent to come back online…'
+            };
+            return labels[this.updateJob.status] || (this.updateJob.detail || this.updateJob.status);
+        },
+
+        updateProgressPercent() {
+            const map = {
+                queued: 10, downloading: 40, verifying: 60,
+                applying: 80, restarting: 90, verifying_online: 95,
+                success: 100, failed: 100, timeout: 100
+            };
+            return this.updateJob ? (map[this.updateJob.status] || 0) : 0;
+        },
+
+        updateProgressStyle() {
+            return 'width: ' + this.updateProgressPercent() + '%; background: var(--eb-info-strong);';
+        },
+
+        async requestUpdate(agent) {
+            if (!agent || !this.canRequestUpdate()) return;
+            this.updateSubmitting = true;
+            try {
+                const payload = new URLSearchParams();
+                payload.append('agent_uuid', agent.agent_uuid || '');
+                const res = await fetch('modules/addons/cloudstorage/api/e3backup_agent_request_update.php', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: payload
+                });
+                const data = await res.json();
+                if (data.status === 'success') {
+                    this.updateJob = { id: data.update_job_id, status: 'queued', detail: 'Update queued', target_version: data.target_version };
+                    this.agentsNotify('success', 'Update queued for ' + (data.target_version || 'latest') + '.');
+                    this.startUpdatePolling(agent.agent_uuid);
+                } else {
+                    this.agentsNotify('error', data.message || 'Failed to queue update.');
+                }
+            } catch (e) {
+                this.agentsNotify('error', 'Failed to queue update.');
+            } finally {
+                this.updateSubmitting = false;
+            }
+        },
+
+        startUpdatePolling(agentUuid) {
+            this.stopUpdatePolling();
+            if (!agentUuid) return;
+            this.updatePollTimer = setInterval(() => this.pollUpdateStatus(agentUuid), 3000);
+        },
+
+        stopUpdatePolling() {
+            if (this.updatePollTimer) {
+                clearInterval(this.updatePollTimer);
+                this.updatePollTimer = null;
+            }
+        },
+
+        async pollUpdateStatus(agentUuid) {
+            try {
+                const url = 'modules/addons/cloudstorage/api/e3backup_agent_update_status.php?agent_uuid=' + encodeURIComponent(agentUuid);
+                const res = await fetch(url);
+                const data = await res.json();
+                if (data.status !== 'success') return;
+                this.updateJob = data.update_job || this.updateJob;
+                if (this.updateJob && !this.UPDATE_ACTIVE_STATES.includes(this.updateJob.status)) {
+                    this.stopUpdatePolling();
+                    if (this.updateJob.status === 'success') {
+                        this.agentsNotify('success', 'Agent updated successfully.');
+                    } else if (this.updateJob.status === 'failed' || this.updateJob.status === 'timeout') {
+                        this.agentsNotify('error', this.updateJob.detail || 'Agent update did not complete.');
+                    }
+                    // Refresh list so version/update_available reflect the new state.
+                    this.loadAgents();
+                }
+            } catch (e) {
+                // Transient; keep polling.
+            }
+        },
+
+        agentsNotify(type, message) {
+            if (typeof e3backupNotify === 'function') {
+                e3backupNotify(type, message);
+                return;
+            }
+            if (window.toast && typeof window.toast[type === 'error' ? 'error' : 'success'] === 'function') {
+                window.toast[type === 'error' ? 'error' : 'success'](message);
+                return;
+            }
+            alert(message);
         },
 
         goToRestores(agent) {

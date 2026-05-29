@@ -1,0 +1,45 @@
+
+[2026-05-29 10:48:22] $ 'git' '-C' '/srv/agent-build/eazyBackupCloudConsoleV2' 'fetch' '--all' '--tags' '--prune'
+Fetching origin
+From github.com:ezbsystems/eazyBackupCloudConsoleV2
+   38fe35a0..60d24ec1  main       -> origin/main
+[2026-05-29 10:48:23] exit=0
+
+[2026-05-29 10:48:23] $ 'git' '-C' '/srv/agent-build/eazyBackupCloudConsoleV2' 'checkout' 'main'
+Already on 'main'
+Your branch is behind 'origin/main' by 1 commit, and can be fast-forwarded.
+  (use "git pull" to update your local branch)
+[2026-05-29 10:48:23] exit=0
+
+[2026-05-29 10:48:23] $ 'git' '-C' '/srv/agent-build/eazyBackupCloudConsoleV2' 'pull' '--ff-only'
+Updating 38fe35a0..60d24ec1
+Fast-forward
+ .../docs/E3_CLOUD_BACKUP_ONBOARDING.md             |  22 +-
+ .../cloudstorage/storage/builds/10/git_sync.log    |  13 +
+ .../cloudstorage/storage/builds/10/go_test.log     |  13 +
+ .../cloudstorage/storage/builds/10/linux_build.log |   5 +
+ .../storage/builds/10/windows_build.log            |  14 +
+ .../storage/builds/10/windows_inno.log             |   7 +
+ .../storage/builds/10/windows_stage.log            |  19 ++
+ .../cloudstorage/storage/builds/9/git_sync.log     | 332 +++++++++++++++++++++
+ .../cloudstorage/storage/builds/9/go_test.log      |  13 +
+ .../cloudstorage/storage/builds/9/linux_build.log  |   5 +
+ .../storage/builds/9/windows_build.log             |  14 +
+ .../cloudstorage/storage/builds/9/windows_inno.log |   7 +
+ .../storage/builds/9/windows_stage.log             |  19 ++
+ .../templates/partials/e3backup_shell.tpl          |  24 ++
+ e3-backup-agent/installer/e3-backup-agent.iss      |  17 +-
+ 15 files changed, 508 insertions(+), 16 deletions(-)
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/10/git_sync.log
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/10/go_test.log
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/10/linux_build.log
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/10/windows_build.log
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/10/windows_inno.log
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/10/windows_stage.log
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/9/git_sync.log
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/9/go_test.log
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/9/linux_build.log
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/9/windows_build.log
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/9/windows_inno.log
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/9/windows_stage.log
+[2026-05-29 10:48:24] exit=0

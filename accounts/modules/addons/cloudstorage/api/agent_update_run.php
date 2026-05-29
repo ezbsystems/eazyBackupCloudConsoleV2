@@ -2,6 +2,7 @@
 
 require_once __DIR__ . '/../../../../init.php';
 require_once __DIR__ . '/../lib/Client/AgentIngestSupport.php';
+require_once __DIR__ . '/../lib/Client/AgentUpdateService.php';
 
 use Illuminate\Database\Capsule\Manager as Capsule;
 use WHMCS\Module\Addon\CloudStorage\Client\UuidBinary;
@@ -10,6 +11,7 @@ use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupController;
 use WHMCS\Module\Addon\CloudStorage\Client\KopiaRetentionHookService;
 use WHMCS\Module\Addon\CloudStorage\Client\KopiaRetentionOperationService;
 use WHMCS\Module\Addon\CloudStorage\Client\AgentIngestSupport;
+use WHMCS\Module\Addon\CloudStorage\Client\AgentUpdateService;
 
 if (!defined("WHMCS")) {
     die("This file cannot be accessed directly");
@@ -92,6 +94,12 @@ function updateAgentMetadata(string $agentUuid, array $body): void
         Capsule::table('s3_cloudbackup_agents')
             ->where('agent_uuid', $agentUuid)
             ->update($update);
+    }
+
+    // Finalize any in-flight remote-update job when the agent reports its
+    // (now upgraded) version after a restart.
+    if ($version !== '') {
+        AgentUpdateService::markSuccessIfUpgraded($agentUuid, $version);
     }
 }
 
