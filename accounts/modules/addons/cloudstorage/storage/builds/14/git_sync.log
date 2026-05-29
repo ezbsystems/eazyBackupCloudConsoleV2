@@ -1,0 +1,31 @@
+
+[2026-05-29 13:05:34] $ 'git' '-C' '/srv/agent-build/eazyBackupCloudConsoleV2' 'fetch' '--all' '--tags' '--prune'
+Fetching origin
+From github.com:ezbsystems/eazyBackupCloudConsoleV2
+   94dc8b9d..d45351b1  main       -> origin/main
+[2026-05-29 13:05:34] exit=0
+
+[2026-05-29 13:05:34] $ 'git' '-C' '/srv/agent-build/eazyBackupCloudConsoleV2' 'checkout' 'main'
+Already on 'main'
+Your branch is behind 'origin/main' by 1 commit, and can be fast-forwarded.
+  (use "git pull" to update your local branch)
+[2026-05-29 13:05:34] exit=0
+
+[2026-05-29 13:05:34] $ 'git' '-C' '/srv/agent-build/eazyBackupCloudConsoleV2' 'pull' '--ff-only'
+Updating 94dc8b9d..d45351b1
+Fast-forward
+ .../lib/Admin/AgentBuild/Steps/WindowsStage.php    |  3 +-
+ .../cloudstorage/storage/builds/13/git_sync.log    | 58 ++++++++++++++++++++++
+ .../cloudstorage/storage/builds/13/go_test.log     | 14 ++++++
+ .../cloudstorage/storage/builds/13/linux_build.log |  5 ++
+ .../storage/builds/13/windows_build.log            | 14 ++++++
+ .../storage/builds/13/windows_inno.log             |  6 +++
+ .../storage/builds/13/windows_stage.log            | 19 +++++++
+ 7 files changed, 118 insertions(+), 1 deletion(-)
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/13/git_sync.log
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/13/go_test.log
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/13/linux_build.log
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/13/windows_build.log
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/13/windows_inno.log
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/13/windows_stage.log
+[2026-05-29 13:05:35] exit=0
