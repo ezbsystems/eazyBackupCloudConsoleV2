@@ -2905,8 +2905,10 @@
                             <div x-show="scheduleType === 'cron'" x-transition class="rounded-xl border border-slate-700 bg-slate-900/50 p-4">
                                 <label class="block text-xs text-slate-400 mb-2">Cron Expression</label>
                                 <input type="text" x-model="cronExpr" placeholder="*/30 * * * *"
+                                       @blur="formatCronExpr()"
                                        class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2.5 text-slate-100 font-mono focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500/50">
                                 <p class="text-xs text-slate-500 mt-2">Standard cron format: minute hour day-of-month month day-of-week</p>
+                                <p x-show="cronNormalizedHint" x-text="cronNormalizedHint" class="text-xs text-[var(--eb-success-text)] mt-1"></p>
                             </div>
                             
                             <!-- Manual info -->

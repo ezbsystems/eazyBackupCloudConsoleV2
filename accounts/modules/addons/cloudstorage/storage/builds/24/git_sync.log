@@ -1,0 +1,64 @@
+
+[2026-05-31 21:07:22] $ 'git' '-C' '/srv/agent-build/eazyBackupCloudConsoleV2' 'fetch' '--all' '--tags' '--prune'
+Fetching origin
+From github.com:ezbsystems/eazyBackupCloudConsoleV2
+   6bcb9249..363f57bd  main       -> origin/main
+[2026-05-31 21:07:26] exit=0
+
+[2026-05-31 21:07:26] $ 'git' '-C' '/srv/agent-build/eazyBackupCloudConsoleV2' 'checkout' 'main'
+Already on 'main'
+Your branch is behind 'origin/main' by 1 commit, and can be fast-forwarded.
+  (use "git pull" to update your local branch)
+[2026-05-31 21:07:26] exit=0
+
+[2026-05-31 21:07:26] $ 'git' '-C' '/srv/agent-build/eazyBackupCloudConsoleV2' 'pull' '--ff-only'
+Updating 6bcb9249..363f57bd
+Fast-forward
+ .../includes/hooks/eb_e3_run_ticket_attachment.php | 123 +++++++++++++++
+ .../addons/cloudstorage/api/agent_update_run.php   |  35 +++++
+ .../api/e3backup_run_ticket_context.php            |  13 +-
+ .../cloudstorage/assets/js/e3backup_run_modal.js   |  14 +-
+ .../cloudstorage/assets/js/e3backup_run_ticket.js  |  42 +++---
+ .../modules/addons/cloudstorage/cloudstorage.php   |  68 +++++----
+ .../lib/Client/CloudBackupController.php           |  63 ++++++++
+ .../lib/Client/CloudBackupEngineLabel.php          |  54 +++++++
+ .../lib/Client/CloudBackupEventFormatter.php       |   3 +
+ .../lib/Client/CloudBackupRunTicketLog.php         | 158 ++++++++++++++++++++
+ .../Client/CloudBackupTicketAttachmentStorage.php  | 166 +++++++++++++++++++++
+ .../builds/23/artifacts/e3-backup-agent-setup.exe  | Bin 0 -> 11876208 bytes
+ .../builds/23/artifacts/e3-backup-agent.exe        | Bin 0 -> 31764264 bytes
+ .../storage/builds/23/artifacts/e3-backup-tray.exe | Bin 0 -> 8041256 bytes
+ .../cloudstorage/storage/builds/23/git_sync.log    |  47 ++++++
+ .../cloudstorage/storage/builds/23/go_test.log     |  14 ++
+ .../cloudstorage/storage/builds/23/linux_build.log |   5 +
+ .../cloudstorage/storage/builds/23/publish.log     |   2 +
+ .../cloudstorage/storage/builds/23/verify.log      |  16 ++
+ .../storage/builds/23/windows_build.log            |  14 ++
+ .../storage/builds/23/windows_fetch.log            |   9 ++
+ .../storage/builds/23/windows_inno.log             |   4 +
+ .../storage/builds/23/windows_sign.log             |  39 +++++
+ .../storage/builds/23/windows_stage.log            |  28 ++++
+ .../cloudstorage/templates/e3backup_runs.tpl       |   3 +-
+ .../templates/assets/js/ticket-prefill.js          |  37 ++++-
+ e3-backup-agent/internal/agent/kopia.go            |  51 +++++++
+ e3-backup-agent/internal/agent/kopia_retention.go  |  92 +++++++++++-
+ .../internal/agent/kopia_retention_test.go         |  13 ++
+ 29 files changed, 1053 insertions(+), 60 deletions(-)
+ create mode 100644 accounts/includes/hooks/eb_e3_run_ticket_attachment.php
+ create mode 100644 accounts/modules/addons/cloudstorage/lib/Client/CloudBackupEngineLabel.php
+ create mode 100644 accounts/modules/addons/cloudstorage/lib/Client/CloudBackupRunTicketLog.php
+ create mode 100644 accounts/modules/addons/cloudstorage/lib/Client/CloudBackupTicketAttachmentStorage.php
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/23/artifacts/e3-backup-agent-setup.exe
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/23/artifacts/e3-backup-agent.exe
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/23/artifacts/e3-backup-tray.exe
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/23/git_sync.log
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/23/go_test.log
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/23/linux_build.log
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/23/publish.log
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/23/verify.log
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/23/windows_build.log
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/23/windows_fetch.log
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/23/windows_inno.log
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/23/windows_sign.log
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/23/windows_stage.log
+[2026-05-31 21:07:27] exit=0

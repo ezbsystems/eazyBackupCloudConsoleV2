@@ -29,97 +29,156 @@
         <button type="button" class="eb-link text-sm" x-show="activeStatuses.length" @click="activeStatuses=[]; reload()">Clear</button>
     </div>
 
-    {* Toolbar *}
-    <div class="eb-table-toolbar flex flex-wrap items-center justify-between gap-3">
-        <div class="flex flex-wrap items-center gap-2">
-            {* Range control *}
-            <div class="eb-segmented" role="group" aria-label="Time range">
-                <template x-for="opt in rangeOptions" :key="opt">
-                    <button type="button"
-                            class="eb-segmented-btn"
-                            :class="rangeHours === opt ? 'is-active' : ''"
-                            @click="setRange(opt)"
-                            x-text="opt + 'h'"></button>
-                </template>
+    <div class="eb-subpanel">
+        <div class="eb-table-toolbar flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <div class="flex flex-wrap items-center gap-2">
+                {* Columns *}
+                <div class="relative shrink-0" @click.away="colsOpen = false">
+                    <button type="button" class="eb-app-toolbar-button" @click="colsOpen = !colsOpen">
+                        <span class="font-medium">Columns</span>
+                        <svg class="h-4 w-4 transition-transform" :class="colsOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                            <path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.24 4.5a.75.75 0 01-1.08 0l-4.24-4.5a.75.75 0 01.02-1.06z" clip-rule="evenodd"/>
+                        </svg>
+                    </button>
+                    <div x-show="colsOpen" x-cloak x-transition class="eb-menu absolute z-10 mt-2 w-72 p-2" style="display:none;">
+                        <div class="eb-menu-checklist two-col">
+                            <label class="eb-menu-checklist-item"><span>Started</span><input type="checkbox" class="eb-checkbox" x-model="cols.started"></label>
+                            <label class="eb-menu-checklist-item"><span>Job</span><input type="checkbox" class="eb-checkbox" x-model="cols.job"></label>
+                            <label class="eb-menu-checklist-item"><span>Agent</span><input type="checkbox" class="eb-checkbox" x-model="cols.agent"></label>
+                            <label class="eb-menu-checklist-item"><span>User</span><input type="checkbox" class="eb-checkbox" x-model="cols.user"></label>
+                            <label class="eb-menu-checklist-item"><span>Engine</span><input type="checkbox" class="eb-checkbox" x-model="cols.engine"></label>
+                            <label class="eb-menu-checklist-item"><span>Status</span><input type="checkbox" class="eb-checkbox" x-model="cols.status"></label>
+                            <label class="eb-menu-checklist-item"><span>Size</span><input type="checkbox" class="eb-checkbox" x-model="cols.size"></label>
+                            <label class="eb-menu-checklist-item"><span>Duration</span><input type="checkbox" class="eb-checkbox" x-model="cols.duration"></label>
+                        </div>
+                    </div>
+                </div>
+
+                {* Page size *}
+                <div class="relative shrink-0" @click.away="sizeOpen = false">
+                    <button type="button" class="eb-app-toolbar-button" @click="sizeOpen = !sizeOpen">
+                        <span class="text-[var(--eb-text-muted)]">Show</span>
+                        <span class="font-medium" x-text="pageSize"></span>
+                        <svg class="h-4 w-4 transition-transform" :class="sizeOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                            <path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.24 4.5a.75.75 0 01-1.08 0l-4.24-4.5a.75.75 0 01.02-1.06z" clip-rule="evenodd"/>
+                        </svg>
+                    </button>
+                    <div x-show="sizeOpen" x-cloak x-transition class="eb-menu absolute left-0 z-10 mt-2 w-24 overflow-hidden" style="display:none;">
+                        <template x-for="size in pageSizeOptions" :key="size">
+                            <button type="button"
+                                    @click="setPageSize(size)"
+                                    :class="pageSize === size ? 'is-active' : ''"
+                                    class="eb-menu-item block w-full px-3 py-2 text-left text-sm transition-colors">
+                                <span x-text="size"></span>
+                            </button>
+                        </template>
+                    </div>
+                </div>
+
+                {* Time range *}
+                <div class="eb-segmented" role="group" aria-label="Time range">
+                    <template x-for="opt in rangeOptions" :key="opt">
+                        <button type="button"
+                                class="eb-segmented-btn"
+                                :class="rangeHours === opt ? 'is-active' : ''"
+                                @click="setRange(opt)"
+                                x-text="opt + 'h'"></button>
+                    </template>
+                </div>
+
+                {if $isMspClient}
+                <div class="relative shrink-0" @click.away="tenantOpen = false">
+                    <button type="button" class="eb-app-toolbar-button" @click="tenantOpen = !tenantOpen">
+                        <span class="text-[var(--eb-text-muted)]">Tenant:</span>
+                        <span class="font-medium truncate max-w-[10rem]" x-text="tenantLabel()"></span>
+                        <svg class="h-4 w-4 opacity-70 shrink-0" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                            <path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.24 4.5a.75.75 0 01-1.08 0l-4.24-4.5a.75.75 0 01.02-1.06z" clip-rule="evenodd"/>
+                        </svg>
+                    </button>
+                    <div x-show="tenantOpen" x-cloak x-transition class="eb-menu absolute left-0 z-10 mt-2 w-72 overflow-hidden" style="display:none;">
+                        <div class="max-h-72 overflow-y-auto p-1">
+                            <button type="button" class="eb-menu-item block w-full px-3 py-2 text-left text-sm" :class="tenantFilter === '' ? 'is-active' : ''" @click="pickTenant('')">All tenants</button>
+                            <button type="button" class="eb-menu-item block w-full px-3 py-2 text-left text-sm" :class="tenantFilter === 'direct' ? 'is-active' : ''" @click="pickTenant('direct')">Direct (no tenant)</button>
+                            <template x-for="t in tenants" :key="t.public_id || t.id">
+                                <button type="button"
+                                        class="eb-menu-item block w-full px-3 py-2 text-left text-sm truncate"
+                                        :class="String(tenantFilter) === String(t.public_id || t.id) ? 'is-active' : ''"
+                                        @click="pickTenant(String(t.public_id || t.id))"
+                                        x-text="t.name"></button>
+                            </template>
+                        </div>
+                    </div>
+                </div>
+                {/if}
             </div>
 
-            {if $isMspClient}
-            <select class="eb-input eb-input-sm" x-model="tenantFilter" @change="reload()">
-                <option value="">All tenants</option>
-                <option value="direct">Direct (no tenant)</option>
-                <template x-for="t in tenants" :key="t.public_id || t.id">
-                    <option :value="String(t.public_id || t.id)" x-text="t.name"></option>
-                </template>
-            </select>
-            {/if}
+            <div class="flex items-center gap-3 min-w-0 w-full sm:w-auto">
+                <input type="search"
+                       class="eb-input w-full xl:w-80"
+                       placeholder="Search jobs..."
+                       x-model.debounce.400ms="search"
+                       @input="page=1; reload()">
+            </div>
         </div>
 
-        <div class="flex flex-wrap items-center gap-2">
-            <input type="search" class="eb-input eb-input-sm" placeholder="Search job or agent..."
-                   x-model.debounce.400ms="search" @input="page=1; reload()">
-            <select class="eb-input eb-input-sm" x-model.number="pageSize" @change="page=1; reload()">
-                <template x-for="n in [10,25,50,100]" :key="n">
-                    <option :value="n" x-text="n + ' / page'"></option>
-                </template>
-            </select>
-        </div>
-    </div>
-
-    {* Table *}
-    <div class="eb-table-shell">
-        <table class="eb-table">
-            <thead>
-                <tr>
-                    <th class="cursor-pointer" @click="setSort('started')">Started</th>
-                    <th class="cursor-pointer" @click="setSort('job')">Job</th>
-                    <th class="cursor-pointer" @click="setSort('agent')">Agent</th>
-                    <th>User</th>
-                    <th>Engine</th>
-                    <th class="cursor-pointer" @click="setSort('status')">Status</th>
-                    <th>Size</th>
-                    <th>Duration</th>
-                    <th class="text-right">Actions</th>
-                </tr>
-            </thead>
-            <tbody>
-                <template x-if="loading">
-                    <tr><td colspan="9" class="!p-6 text-center eb-type-caption">Loading runs...</td></tr>
-                </template>
-                <template x-if="!loading && rows.length === 0">
+        <div class="table-scroll eb-table-shell overflow-x-auto px-4 pb-2">
+            <table class="eb-table min-w-full text-sm">
+                <thead>
                     <tr>
-                        <td colspan="9" class="!p-0">
-                            <div class="eb-app-empty">
-                                <div class="eb-app-empty-title">No runs in this window</div>
-                                <p class="eb-app-empty-copy">Try a wider time range or clearing filters.</p>
-                            </div>
-                        </td>
+                        <th x-show="cols.started" class="cursor-pointer" @click="setSort('started')">Started</th>
+                        <th x-show="cols.job" class="cursor-pointer" @click="setSort('job')">Job</th>
+                        <th x-show="cols.agent" class="cursor-pointer" @click="setSort('agent')">Agent</th>
+                        <th x-show="cols.user">User</th>
+                        <th x-show="cols.engine" class="whitespace-nowrap">Engine</th>
+                        <th x-show="cols.status" class="cursor-pointer" @click="setSort('status')">Status</th>
+                        <th x-show="cols.size">Size</th>
+                        <th x-show="cols.duration">Duration</th>
+                        <th class="text-right">Actions</th>
                     </tr>
-                </template>
-                <template x-for="row in rows" :key="row.run_id">
-                    <tr class="cursor-pointer" @click="openRun(row)" title="Click to view log">
-                        <td class="eb-table-primary" x-text="fmtDate(row.started_at)"></td>
-                        <td x-text="row.job_name || '-'"></td>
-                        <td x-text="row.agent_hostname || '-'"></td>
-                        <td x-text="row.username || '-'"></td>
-                        <td><span class="eb-badge eb-badge--neutral" x-text="engineLabel(row.engine)"></span></td>
-                        <td><span class="eb-badge" :class="statusBadge(row.status)" x-text="statusLabel(row.status)"></span></td>
-                        <td x-text="row.size_formatted"></td>
-                        <td x-text="row.duration"></td>
-                        <td class="text-right">
-                            <button type="button" class="eb-btn eb-btn-ghost eb-btn-sm" @click.stop="openRun(row)">View log</button>
-                        </td>
-                    </tr>
-                </template>
-            </tbody>
-        </table>
-    </div>
+                </thead>
+                <tbody>
+                    <template x-if="loading">
+                        <tr><td :colspan="visibleColCount()" class="!p-6 text-center eb-type-caption">Loading runs...</td></tr>
+                    </template>
+                    <template x-if="!loading && rows.length === 0">
+                        <tr>
+                            <td :colspan="visibleColCount()" class="!p-0">
+                                <div class="eb-app-empty">
+                                    <div class="eb-app-empty-title">No runs in this window</div>
+                                    <p class="eb-app-empty-copy">Try a wider time range or clearing filters.</p>
+                                </div>
+                            </td>
+                        </tr>
+                    </template>
+                    <template x-for="row in rows" :key="row.run_id">
+                        <tr class="cursor-pointer" @click="openRun(row)" title="Click to view log">
+                            <td x-show="cols.started" class="eb-table-primary" x-text="fmtDate(row.started_at)"></td>
+                            <td x-show="cols.job" x-text="row.job_name || '-'"></td>
+                            <td x-show="cols.agent" x-text="row.agent_hostname || '-'"></td>
+                            <td x-show="cols.user" x-text="row.username || '-'"></td>
+                            <td x-show="cols.engine" class="whitespace-nowrap">
+                                <span class="eb-badge eb-badge--neutral whitespace-nowrap" x-text="engineLabel(row.engine)"></span>
+                            </td>
+                            <td x-show="cols.status">
+                                <span class="eb-badge" :class="statusBadge(row.status)" x-text="statusLabel(row.status)"></span>
+                            </td>
+                            <td x-show="cols.size" x-text="row.size_formatted"></td>
+                            <td x-show="cols.duration" x-text="row.duration"></td>
+                            <td class="text-right">
+                                <button type="button" class="eb-btn eb-btn-ghost eb-btn-sm" @click.stop="openRun(row)">View log</button>
+                            </td>
+                        </tr>
+                    </template>
+                </tbody>
+            </table>
+        </div>
 
-    {* Pager *}
-    <div class="flex items-center justify-between">
-        <div class="eb-type-caption" x-text="pagerLabel()"></div>
-        <div class="flex items-center gap-2">
-            <button type="button" class="eb-btn eb-btn-ghost eb-btn-sm" :disabled="page<=1" @click="prevPage()">Previous</button>
-            <button type="button" class="eb-btn eb-btn-ghost eb-btn-sm" :disabled="page>=totalPages()" @click="nextPage()">Next</button>
+        <div class="px-4 py-2 flex items-center justify-between">
+            <div class="eb-table-pagination text-xs font-medium text-[var(--eb-text-muted)]" x-text="pagerLabel()"></div>
+            <div class="flex items-center gap-2">
+                <button type="button" class="eb-btn eb-btn-ghost eb-btn-sm" :disabled="page<=1" @click="prevPage()">Previous</button>
+                <button type="button" class="eb-btn eb-btn-ghost eb-btn-sm" :disabled="page>=totalPages()" @click="nextPage()">Next</button>
+            </div>
         </div>
     </div>
 </div>
@@ -134,6 +193,7 @@
 
 {include file="modules/addons/cloudstorage/templates/partials/e3backup_run_log_modal.tpl"}
 
+<script src="modules/addons/eazybackup/assets/js/eazybackup-ui-helpers.js" defer></script>
 <script>
 window.__ebE3JobLogsTenants = {$tenants|@json_encode nofilter};
 </script>
@@ -146,6 +206,7 @@ function e3JobLogsApp() {
         total: 0,
         page: 1,
         pageSize: 25,
+        pageSizeOptions: [10, 25, 50, 100],
         rangeHours: 24,
         rangeOptions: [24, 48, 60, 72],
         activeStatuses: [],
@@ -155,6 +216,19 @@ function e3JobLogsApp() {
         sortDir: 'desc',
         tenantFilter: '',
         tenants: window.__ebE3JobLogsTenants || [],
+        colsOpen: false,
+        sizeOpen: false,
+        tenantOpen: false,
+        cols: {
+            started: true,
+            job: true,
+            agent: true,
+            user: true,
+            engine: true,
+            status: true,
+            size: true,
+            duration: true
+        },
         statusChips: [
             { key: 'failed', label: 'Failed', dot: 'eb-status-dot--error' },
             { key: 'warning', label: 'Warning', dot: 'eb-status-dot--warning' },
@@ -163,7 +237,41 @@ function e3JobLogsApp() {
             { key: 'running', label: 'Running', dot: 'eb-status-dot--pending' },
             { key: 'success', label: 'Success', dot: 'eb-status-dot--active' }
         ],
-        init() { this.reload(); },
+        init() {
+            try {
+                if (window.EB && window.EB.bindCols) {
+                    window.EB.bindCols(this, 'e3-job-logs');
+                }
+            } catch (e) {}
+            this.reload();
+        },
+        visibleColCount() {
+            var n = 1;
+            Object.keys(this.cols).forEach(function (k) {
+                if (this.cols[k]) n++;
+            }.bind(this));
+            return n;
+        },
+        tenantLabel() {
+            if (!this.tenantFilter) return 'All tenants';
+            if (this.tenantFilter === 'direct') return 'Direct (no tenant)';
+            var t = (this.tenants || []).find(function (x) {
+                return String(x.public_id || x.id) === String(this.tenantFilter);
+            }.bind(this));
+            return t && t.name ? t.name : 'Tenant';
+        },
+        pickTenant(value) {
+            this.tenantFilter = value;
+            this.tenantOpen = false;
+            this.page = 1;
+            this.reload();
+        },
+        setPageSize(size) {
+            this.pageSize = size;
+            this.sizeOpen = false;
+            this.page = 1;
+            this.reload();
+        },
         statusLabel(s) { return (window.ebE3RunStatus ? window.ebE3RunStatus.label(s) : s); },
         engineLabel(e) {
             switch (String(e || '').toLowerCase()) {

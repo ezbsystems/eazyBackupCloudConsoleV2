@@ -9,6 +9,7 @@
  *                        summary header from a `meta` object the caller
  *                        already has (job name, agent, status, times...).
  *   close()            - hide the modal.
+ *   setSeverity(sev)   - filter log lines (all | warning | error).
  *
  * Also exposes a tiny status helper (window.ebE3RunStatus) used by the
  * grid + table so badge/dot styling is consistent everywhere. cloudstorage
@@ -37,7 +38,6 @@
     }
 
     // ---- Status helper -------------------------------------------------
-    // Maps an e3 run status to an eb-* badge modifier + dot modifier + label.
     var STATUS_MAP = {
         success:          { badge: 'eb-badge--success', dot: 'eb-status-dot--active',   label: 'Success' },
         warning:          { badge: 'eb-badge--warning', dot: 'eb-status-dot--warning',  label: 'Warning' },
@@ -59,7 +59,6 @@
         dotClass: function (status) { return this.info(status).dot; }
     };
 
-    // ---- DOM helpers ---------------------------------------------------
     function el(id) { return document.getElementById(id); }
     function show(node) { if (node) node.classList.remove('hidden'); }
     function hide(node) { if (node) node.classList.add('hidden'); }
@@ -68,8 +67,9 @@
     var state = {
         runId: '',
         meta: {},
-        rows: [],          // structured log rows
-        severity: 'all'    // all | warning | error
+        rows: [],
+        severity: 'all',
+        searchQuery: ''
     };
 
     function levelRank(level) {
@@ -77,6 +77,30 @@
         if (l === 'error' || l === 'e' || l === 'fatal' || l === 'critical') return 3;
         if (l === 'warning' || l === 'warn' || l === 'w') return 2;
         return 1;
+    }
+
+    function severityKey(level) {
+        var l = String(level || '').toLowerCase();
+        if (l === 'error' || l === 'e' || l === 'fatal' || l === 'critical') return 'error';
+        if (l === 'warning' || l === 'warn' || l === 'w') return 'warning';
+        if (l === 'info' || l === 'i') return 'info';
+        return 'debug';
+    }
+
+    function levelLabel(level) {
+        var l = String(level || '').toUpperCase();
+        if (l === 'I' || l === 'INFO') return 'Information';
+        if (l === 'W' || l === 'WARN' || l === 'WARNING') return 'Warning';
+        if (l === 'E' || l === 'ERROR' || l === 'FATAL' || l === 'CRITICAL') return 'Error';
+        return level || '';
+    }
+
+    function levelClass(level) {
+        var key = severityKey(level);
+        if (key === 'error') return 'error';
+        if (key === 'warning') return 'warn';
+        if (key === 'info') return 'info';
+        return 'debug';
     }
 
     function passesSeverity(row) {
@@ -87,22 +111,58 @@
         return true;
     }
 
+    function passesSearch(row) {
+        var q = (state.searchQuery || '').trim().toLowerCase();
+        if (!q) return true;
+        var hay = ((row.message || '') + ' ' + (row.ts || '') + ' ' + (row.level || '')).toLowerCase();
+        return hay.indexOf(q) !== -1;
+    }
+
+    function renderEmptyMessage(body, message) {
+        body.innerHTML = '';
+        var row = document.createElement('div');
+        row.className = 'eb-log-line px-3 py-2';
+        var m = document.createElement('span');
+        m.className = 'eb-log-message text-sm text-[var(--eb-text-secondary)]';
+        m.textContent = message;
+        row.appendChild(m);
+        body.appendChild(row);
+    }
+
     function renderLogs() {
         var body = el('ebE3RunLogBody');
         if (!body) return;
-        var filtered = (state.rows || []).filter(passesSeverity);
+        var filtered = (state.rows || []).filter(function (row) {
+            return passesSeverity(row) && passesSearch(row);
+        });
+        body.innerHTML = '';
         if (!filtered.length) {
-            body.textContent = state.rows.length
-                ? 'No log entries match the selected severity.'
+            var msg = state.rows.length
+                ? 'No log entries match the selected filters.'
                 : 'No log data available for this run.';
+            renderEmptyMessage(body, msg);
             return;
         }
-        var lines = filtered.map(function (row) {
-            var ts = row.ts ? '[' + row.ts + '] ' : '';
-            var lvl = row.level ? '(' + String(row.level).toUpperCase() + ') ' : '';
-            return ts + lvl + (row.message || '');
+        filtered.forEach(function (row, idx) {
+            var line = document.createElement('div');
+            line.className = 'eb-log-line px-3 py-2' + (idx === 0 ? ' is-newest' : '');
+            var t = document.createElement('span');
+            t.className = 'eb-log-timestamp text-xs shrink-0';
+            t.textContent = row.ts ? (String(row.ts).indexOf('[') === 0 ? row.ts : '[' + row.ts + ']') : '';
+            var s = document.createElement('span');
+            s.className = 'eb-log-level';
+            var cls = levelClass(row.level);
+            s.classList.add(cls);
+            s.textContent = levelLabel(row.level) || cls;
+            var m = document.createElement('span');
+            m.className = 'eb-log-message text-sm min-w-0 flex-1';
+            m.textContent = row.message || '';
+            line.dataset.sev = severityKey(row.level);
+            line.appendChild(t);
+            line.appendChild(s);
+            line.appendChild(m);
+            body.appendChild(line);
         });
-        body.textContent = lines.join('\n');
     }
 
     function renderSummary() {
@@ -125,20 +185,18 @@
     }
 
     function setSeverity(sev) {
-        state.severity = sev;
-        ['all', 'warning', 'error'].forEach(function (s) {
-            var btn = el('ebE3RunSev-' + s);
-            if (btn) {
-                btn.classList.toggle('is-active', s === sev);
-                btn.setAttribute('aria-pressed', s === sev ? 'true' : 'false');
-            }
-        });
+        state.severity = sev || 'all';
+        renderLogs();
+    }
+
+    function setSearchQuery(q) {
+        state.searchQuery = q || '';
         renderLogs();
     }
 
     function loadLogs() {
         var body = el('ebE3RunLogBody');
-        if (body) body.textContent = 'Loading log details...';
+        if (body) renderEmptyMessage(body, 'Loading log details...');
         state.rows = [];
         fetch(LOG_ENDPOINT + '?run_uuid=' + encodeURIComponent(state.runId) + '&limit=5000', {
             credentials: 'same-origin'
@@ -170,11 +228,11 @@
                         }));
                     } catch (e) {}
                 } else {
-                    if (body) body.textContent = 'Error: ' + ((data && data.message) || 'Failed to load log details');
+                    if (body) renderEmptyMessage(body, 'Error: ' + ((data && data.message) || 'Failed to load log details'));
                 }
             })
             .catch(function () {
-                if (body) body.textContent = 'Error: Unable to load log details. Please try again later.';
+                if (body) renderEmptyMessage(body, 'Error: Unable to load log details. Please try again later.');
             });
     }
 
@@ -183,6 +241,9 @@
         if (!modal || !runId) return;
         state.runId = String(runId);
         state.meta = meta || {};
+        state.searchQuery = '';
+        var searchInput = el('ebE3RunLogSearch');
+        if (searchInput) searchInput.value = '';
         renderSummary();
         setSeverity('all');
         hide(el('ebE3RunValidation'));
@@ -216,17 +277,18 @@
         modal.querySelectorAll('[data-e3-run-close]').forEach(function (b) {
             b.addEventListener('click', close);
         });
-        ['all', 'warning', 'error'].forEach(function (s) {
-            var btn = el('ebE3RunSev-' + s);
-            if (btn) btn.addEventListener('click', function () { setSeverity(s); });
-        });
+        var searchInput = el('ebE3RunLogSearch');
+        if (searchInput) {
+            searchInput.addEventListener('input', function () {
+                setSearchQuery(searchInput.value);
+            });
+        }
         document.addEventListener('keydown', function (e) {
             if (e.key === 'Escape' && !modal.classList.contains('hidden')) close();
         });
     }
 
-    window.ebE3RunModal = { open: open, close: close };
-    // Brace-free wrapper for inline onclick="" in Smarty templates.
+    window.ebE3RunModal = { open: open, close: close, setSeverity: setSeverity };
     window.ebE3OpenRunLog = function (runId) { open(runId, {}); };
 
     if (document.readyState === 'loading') {
