@@ -106,7 +106,13 @@ $backupPoints = $query
     ->limit($limit)
     ->select(
         'bp.id',
-        'bp.run_id',
+        // run_id is BINARY(16). Selecting it raw puts non-UTF-8 bytes into the
+        // JSON payload, which makes JsonResponse::json_encode() fail with
+        // "Malformed UTF-8 characters" — the outer catch then returns a
+        // {status:'fail'} response and the restore page renders an empty
+        // "No backup points available" state even though backup points exist.
+        // Emit the textual UUID form so the payload is JSON-safe.
+        Capsule::raw("BIN_TO_UUID(bp.run_id) as run_id"),
         'bp.backup_type',
         'bp.manifest_id',
         'bp.parent_backup_id',

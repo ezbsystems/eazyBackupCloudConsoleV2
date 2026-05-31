@@ -117,14 +117,16 @@ class CloudBackupEventFormatter
             'HYPERV_FINALIZING' => '{message}',
             
             // Hyper-V specific (restore)
-            'HYPERV_RESTORE_STARTING' => 'Starting Hyper-V disk restore for VM "{vm_name}" ({disk_count} disks) to {target_path}.',
+            // {vm_name} carries one name or a comma-separated list for multi-VM
+            // restores; {disk_count} is the total across all selected VMs.
+            'HYPERV_RESTORE_STARTING' => 'Starting Hyper-V restore: {vm_name} — {disk_count} disk(s) to {target_path}.',
             'HYPERV_RESTORE_DISK_STARTING' => 'Restoring disk {disk_index}/{total_disks}: {disk_name}.',
             'HYPERV_RESTORE_DISK_PROGRESS' => 'Restoring disk: {disk_name} - {bytes_done} of {bytes_total}.',
             'HYPERV_RESTORE_DISK_COMPLETE' => 'Disk {disk_name} restored successfully ({disk_index}/{total_disks}).',
             'HYPERV_RESTORE_DISK_FAILED' => 'Disk {disk_name} restore failed: {message}.',
             'HYPERV_RESTORE_COMPLETE' => 'Hyper-V restore completed: {restored_disks}/{total_disks} disks restored to {target_path}.',
             'HYPERV_RESTORE_FAILED' => 'Hyper-V restore failed: {message}.',
-            'HYPERV_RESTORE_QUEUED' => 'Hyper-V restore queued for VM "{vm_name}" ({disk_count} disks).',
+            'HYPERV_RESTORE_QUEUED' => 'Hyper-V restore queued: {vm_name} — {disk_count} disk(s).',
             
             // Disk Image specific
             'DISK_IMAGE_STARTING' => 'Starting disk image backup of {volume}.',

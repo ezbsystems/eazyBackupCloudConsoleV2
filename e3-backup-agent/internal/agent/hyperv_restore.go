@@ -9,11 +9,19 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"time"
 )
 
 // HyperVRestorePayload represents the payload for a hyperv_restore command.
+//
+// Two shapes are supported for backward compatibility:
+//   - Single-VM (legacy): the VM fields live at the top level (VMName, VMGUID,
+//     DiskManifests, RestoreChain, BackupType) and TargetPath is the final
+//     restore directory.
+//   - Multi-VM: VMs holds one entry per guest VM and TargetPath is treated as a
+//     BASE directory; each VM is restored into its own subfolder beneath it.
 type HyperVRestorePayload struct {
 	BackupPointID  int64               `json:"backup_point_id"`
 	VMName         string              `json:"vm_name"`
@@ -24,6 +32,19 @@ type HyperVRestorePayload struct {
 	BackupType     string              `json:"backup_type"`      // "Full" or "Incremental"
 	RestoreRunID   int64               `json:"restore_run_id"`   // legacy numeric; prefer RestoreRunUUID
 	RestoreRunUUID string              `json:"restore_run_uuid"` // UUID for progress tracking
+	VMs            []HyperVRestoreVM   `json:"vms"`              // multi-VM restore (preferred); empty => single-VM legacy shape
+}
+
+// HyperVRestoreVM describes one guest VM to restore within a multi-VM restore
+// command. Disks are restored into filepath.Join(<base target path>, Subfolder).
+type HyperVRestoreVM struct {
+	BackupPointID int64               `json:"backup_point_id"`
+	VMName        string              `json:"vm_name"`
+	VMGUID        string              `json:"vm_guid"`
+	Subfolder     string              `json:"subfolder"` // optional; defaults to a sanitized VMName
+	DiskManifests map[string]string   `json:"disk_manifests"`
+	RestoreChain  []RestoreChainEntry `json:"restore_chain"`
+	BackupType    string              `json:"backup_type"`
 }
 
 // RestoreChainEntry represents a single entry in the restore chain.
@@ -42,10 +63,22 @@ type hypervRestoreProgress struct {
 	completedBytes int64
 	currentBytes   int64 // atomic
 	startTime      time.Time
+	currentVM      string
 	currentDisk    string
 	currentDiskIdx int
 	totalDisks     int
 	lastReportAt   time.Time
+}
+
+// currentItemLabel builds the human-readable status shown in the UI. When a VM
+// name is set (multi-VM restore) it is prefixed so progress reflects the whole
+// restore, e.g. "win10 — Disk 2/3: win10.vhdx".
+func (p *hypervRestoreProgress) currentItemLabel() string {
+	disk := fmt.Sprintf("Disk %d/%d: %s", p.currentDiskIdx+1, p.totalDisks, filepath.Base(p.currentDisk))
+	if p.currentVM != "" {
+		return p.currentVM + " — " + disk
+	}
+	return disk
 }
 
 func (p *hypervRestoreProgress) setCurrentBytes(bytes int64) {
@@ -96,7 +129,7 @@ func (p *hypervRestoreProgress) reportProgress(force bool) {
 		BytesTotal:       Int64Ptr(p.totalBytes),
 		SpeedBytesPerSec: speedBps,
 		EtaSeconds:       etaSeconds,
-		CurrentItem:      fmt.Sprintf("Disk %d/%d: %s", p.currentDiskIdx+1, p.totalDisks, filepath.Base(p.currentDisk)),
+		CurrentItem:      p.currentItemLabel(),
 	})
 }
 
@@ -122,7 +155,28 @@ func (r *Runner) executeHyperVRestoreCommand(ctx context.Context, cmd PendingCom
 		return
 	}
 
-	if len(payload.DiskManifests) == 0 {
+	// Normalize to a list of VMs. Multi-VM commands carry payload.VMs; legacy
+	// single-VM commands carry the VM fields at the top level, which we wrap
+	// into a one-element list with an empty subfolder so the disks land
+	// directly in TargetPath (preserving the original behavior).
+	vms := payload.VMs
+	if len(vms) == 0 {
+		vms = []HyperVRestoreVM{{
+			BackupPointID: payload.BackupPointID,
+			VMName:        payload.VMName,
+			VMGUID:        payload.VMGUID,
+			Subfolder:     "",
+			DiskManifests: payload.DiskManifests,
+			RestoreChain:  payload.RestoreChain,
+			BackupType:    payload.BackupType,
+		}}
+	}
+
+	totalDisks := 0
+	for i := range vms {
+		totalDisks += len(vms[i].DiskManifests)
+	}
+	if totalDisks == 0 {
 		log.Printf("agent: hyperv_restore command %d no disk manifests", cmd.CommandID)
 		_ = r.client.CompleteCommand(cmd.CommandID, "failed", "no disk manifests to restore")
 		return
@@ -137,8 +191,9 @@ func (r *Runner) executeHyperVRestoreCommand(ctx context.Context, cmd PendingCom
 		runID = fmt.Sprintf("%d", payload.RestoreRunID)
 	}
 
-	log.Printf("agent: starting hyperv_restore for VM %s (%d disks) to %s",
-		payload.VMName, len(payload.DiskManifests), payload.TargetPath)
+	multiVM := len(vms) > 1
+	log.Printf("agent: starting hyperv_restore for %d VM(s), %d disk(s) total, base=%s",
+		len(vms), totalDisks, payload.TargetPath)
 
 	// Create cancellable context and start cancel polling
 	restoreCtx, cancelRestore := context.WithCancel(ctx)
@@ -161,7 +216,7 @@ func (r *Runner) executeHyperVRestoreCommand(ctx context.Context, cmd PendingCom
 					continue
 				}
 				if cancelReq {
-					log.Printf("agent: hyperv_restore cancel requested for run %d", runID)
+					log.Printf("agent: hyperv_restore cancel requested for run %s", runID)
 					r.pushEvents(runID, RunEvent{
 						Type:      "info",
 						Level:     "warn",
@@ -188,20 +243,21 @@ func (r *Runner) executeHyperVRestoreCommand(ctx context.Context, cmd PendingCom
 		StartedAt: time.Now().UTC().Format(time.RFC3339),
 	})
 
-	// Push starting event
+	// Push starting event (aggregate across all VMs)
 	r.pushEvents(runID, RunEvent{
 		Type:      "info",
 		Level:     "info",
 		MessageID: "HYPERV_RESTORE_STARTING",
 		ParamsJSON: map[string]any{
-			"vm_name":     payload.VMName,
-			"disk_count":  len(payload.DiskManifests),
+			"vm_name":     restoreVMNamesLabel(vms),
+			"vm_count":    len(vms),
+			"disk_count":  totalDisks,
 			"target_path": payload.TargetPath,
-			"backup_type": payload.BackupType,
+			"backup_type": vms[0].BackupType,
 		},
 	})
 
-	// Create target directory
+	// Create base target directory
 	if err := os.MkdirAll(payload.TargetPath, 0755); err != nil {
 		log.Printf("agent: hyperv_restore failed to create target directory: %v", err)
 		r.pushEvents(runID, RunEvent{
@@ -221,36 +277,60 @@ func (r *Runner) executeHyperVRestoreCommand(ctx context.Context, cmd PendingCom
 		return
 	}
 
-	// Calculate total size for progress tracking
-	var totalBytes int64
-	for diskPath := range payload.DiskManifests {
-		// Try to get disk size from the path name or estimate
-		// In real implementation, this would come from backup metadata
-		// For now, we'll rely on progress updates during restore
-		_ = diskPath
-	}
-
-	// Create progress tracker
+	// Create progress tracker spanning all VMs/disks
 	progress := &hypervRestoreProgress{
 		runner:     r,
 		runID:      runID,
-		totalBytes: totalBytes,
 		startTime:  time.Now(),
-		totalDisks: len(payload.DiskManifests),
+		totalDisks: totalDisks,
 	}
 
 	// Build NextRunResponse for Kopia operations
 	run := buildNextRunResponseFromJobContext(cmd.JobContext)
 
-	// Restore each disk
-	diskIdx := 0
-	var lastErr error
+	globalDiskIdx := 0
 	restoredDisks := 0
+	var failedVMs []string
+	var lastErr error
 
-	for diskPath, manifestID := range payload.DiskManifests {
-		select {
-		case <-restoreCtx.Done():
-			log.Printf("agent: hyperv_restore cancelled")
+	for vi := range vms {
+		vm := vms[vi]
+
+		// Resolve this VM's destination directory. Multi-VM restores land each
+		// VM under its own subfolder; legacy single-VM restores keep the base
+		// path as-is.
+		vmTarget := payload.TargetPath
+		subfolder := vm.Subfolder
+		if subfolder == "" && multiVM {
+			subfolder = sanitizeSubfolderName(vm.VMName)
+		}
+		if subfolder != "" {
+			vmTarget = filepath.Join(payload.TargetPath, subfolder)
+		}
+
+		if err := os.MkdirAll(vmTarget, 0755); err != nil {
+			log.Printf("agent: hyperv_restore failed to create VM directory %s: %v", vmTarget, err)
+			r.pushEvents(runID, RunEvent{
+				Type:      "error",
+				Level:     "error",
+				MessageID: "HYPERV_RESTORE_DISK_FAILED",
+				ParamsJSON: map[string]any{
+					"vm_name": vm.VMName,
+					"message": fmt.Sprintf("Failed to create target directory for %s: %v", vm.VMName, err),
+				},
+			})
+			failedVMs = append(failedVMs, vm.VMName)
+			lastErr = err
+			globalDiskIdx += len(vm.DiskManifests)
+			continue
+		}
+
+		progress.currentVM = vm.VMName
+
+		vmRestored, canceled, vmErr := r.restoreHyperVVMDisks(
+			restoreCtx, run, &vm, vmTarget, progress, runID, &globalDiskIdx,
+		)
+		if canceled {
 			r.pushEvents(runID, RunEvent{
 				Type:      "info",
 				Level:     "info",
@@ -266,101 +346,32 @@ func (r *Runner) executeHyperVRestoreCommand(ctx context.Context, cmd PendingCom
 			})
 			_ = r.client.CompleteCommand(cmd.CommandID, "cancelled", "restore cancelled")
 			return
-		default:
 		}
 
-		progress.currentDisk = diskPath
-		progress.currentDiskIdx = diskIdx
-
-		diskName := filepath.Base(diskPath)
-		targetFilePath := filepath.Join(payload.TargetPath, diskName)
-
-		log.Printf("agent: hyperv_restore restoring disk %d/%d: %s -> %s (manifest: %s)",
-			diskIdx+1, len(payload.DiskManifests), diskPath, targetFilePath, manifestID)
-
-		r.pushEvents(runID, RunEvent{
-			Type:      "info",
-			Level:     "info",
-			MessageID: "HYPERV_RESTORE_DISK_STARTING",
-			ParamsJSON: map[string]any{
-				"disk_name":   diskName,
-				"disk_index":  diskIdx + 1,
-				"total_disks": len(payload.DiskManifests),
-				"manifest_id": manifestID,
-			},
-		})
-
-		// Restore this disk using Kopia (use restoreCtx for cancellation support)
-		err := r.kopiaRestoreVHDX(restoreCtx, run, manifestID, targetFilePath, diskName, runID)
-		if err != nil {
-			log.Printf("agent: hyperv_restore disk %s failed: %v", diskName, err)
-
-			// Check if it's a cancellation
-			if isCancellationError(err) {
-				r.pushEvents(runID, RunEvent{
-					Type:      "info",
-					Level:     "info",
-					MessageID: "CANCELLED",
-					ParamsJSON: map[string]any{
-						"message": "Hyper-V restore was cancelled.",
-					},
-				})
-				_ = r.client.UpdateRun(RunUpdate{
-					RunID:      runID,
-					Status:     "cancelled",
-					FinishedAt: time.Now().UTC().Format(time.RFC3339),
-				})
-				_ = r.client.CompleteCommand(cmd.CommandID, "cancelled", "restore cancelled")
-				return
-			}
-
-			r.pushEvents(runID, RunEvent{
-				Type:      "error",
-				Level:     "error",
-				MessageID: "HYPERV_RESTORE_DISK_FAILED",
-				ParamsJSON: map[string]any{
-					"disk_name": diskName,
-					"message":   err.Error(),
-				},
-			})
-			lastErr = err
-			// Continue with other disks
-		} else {
-			restoredDisks++
-			log.Printf("agent: hyperv_restore disk %s completed", diskName)
-
-			// Get file size for progress
-			if stat, statErr := os.Stat(targetFilePath); statErr == nil {
-				progress.addCompletedBytes(stat.Size())
-			}
-
-			r.pushEvents(runID, RunEvent{
-				Type:      "info",
-				Level:     "info",
-				MessageID: "HYPERV_RESTORE_DISK_COMPLETE",
-				ParamsJSON: map[string]any{
-					"disk_name":   diskName,
-					"disk_index":  diskIdx + 1,
-					"total_disks": len(payload.DiskManifests),
-				},
-			})
+		restoredDisks += vmRestored
+		if vmErr != nil {
+			lastErr = vmErr
 		}
-
-		diskIdx++
+		if vmRestored < len(vm.DiskManifests) {
+			failedVMs = append(failedVMs, vm.VMName)
+		}
 	}
 
 	// Determine final status
 	var status string
 	var message string
-	if lastErr != nil && restoredDisks == 0 {
+	switch {
+	case restoredDisks == 0:
 		status = "failed"
 		message = fmt.Sprintf("All disk restores failed. Last error: %v", lastErr)
-	} else if lastErr != nil {
+	case len(failedVMs) > 0 || lastErr != nil:
 		status = "warning"
-		message = fmt.Sprintf("%d of %d disks restored. Some disks failed.", restoredDisks, len(payload.DiskManifests))
-	} else {
+		message = fmt.Sprintf("%d of %d disks restored across %d VM(s). Some disks failed (%s).",
+			restoredDisks, totalDisks, len(vms), strings.Join(failedVMs, ", "))
+	default:
 		status = "success"
-		message = fmt.Sprintf("All %d disks restored successfully to %s", restoredDisks, payload.TargetPath)
+		message = fmt.Sprintf("All %d disks restored successfully across %d VM(s) to %s",
+			restoredDisks, len(vms), payload.TargetPath)
 	}
 
 	log.Printf("agent: hyperv_restore completed with status %s: %s", status, message)
@@ -373,7 +384,8 @@ func (r *Runner) executeHyperVRestoreCommand(ctx context.Context, cmd PendingCom
 			"status":         status,
 			"message":        message,
 			"restored_disks": restoredDisks,
-			"total_disks":    len(payload.DiskManifests),
+			"total_disks":    totalDisks,
+			"vm_count":       len(vms),
 			"target_path":    payload.TargetPath,
 		},
 	})
@@ -389,6 +401,101 @@ func (r *Runner) executeHyperVRestoreCommand(ctx context.Context, cmd PendingCom
 	} else {
 		_ = r.client.CompleteCommand(cmd.CommandID, "completed", message)
 	}
+}
+
+// restoreHyperVVMDisks restores all disks for a single VM into vmTarget. It
+// advances *globalDiskIdx (the cross-VM disk counter used for progress) as it
+// goes. Returns the number of disks successfully restored, whether the restore
+// was cancelled, and the last non-cancellation error encountered (nil if none).
+func (r *Runner) restoreHyperVVMDisks(
+	ctx context.Context,
+	run *NextRunResponse,
+	vm *HyperVRestoreVM,
+	vmTarget string,
+	progress *hypervRestoreProgress,
+	runID string,
+	globalDiskIdx *int,
+) (restored int, canceled bool, lastErr error) {
+	for diskPath, manifestID := range vm.DiskManifests {
+		select {
+		case <-ctx.Done():
+			return restored, true, lastErr
+		default:
+		}
+
+		progress.currentDisk = diskPath
+		progress.currentDiskIdx = *globalDiskIdx
+
+		diskName := filepath.Base(diskPath)
+		targetFilePath := filepath.Join(vmTarget, diskName)
+
+		log.Printf("agent: hyperv_restore restoring %s disk %d/%d: %s -> %s (manifest: %s)",
+			vm.VMName, *globalDiskIdx+1, progress.totalDisks, diskPath, targetFilePath, manifestID)
+
+		r.pushEvents(runID, RunEvent{
+			Type:      "info",
+			Level:     "info",
+			MessageID: "HYPERV_RESTORE_DISK_STARTING",
+			ParamsJSON: map[string]any{
+				"vm_name":     vm.VMName,
+				"disk_name":   diskName,
+				"disk_index":  *globalDiskIdx + 1,
+				"total_disks": progress.totalDisks,
+				"manifest_id": manifestID,
+			},
+		})
+
+		err := r.kopiaRestoreVHDX(ctx, run, manifestID, targetFilePath, diskName, runID)
+		if err != nil {
+			if isCancellationError(err) {
+				return restored, true, lastErr
+			}
+			log.Printf("agent: hyperv_restore disk %s failed: %v", diskName, err)
+			r.pushEvents(runID, RunEvent{
+				Type:      "error",
+				Level:     "error",
+				MessageID: "HYPERV_RESTORE_DISK_FAILED",
+				ParamsJSON: map[string]any{
+					"vm_name":   vm.VMName,
+					"disk_name": diskName,
+					"message":   err.Error(),
+				},
+			})
+			lastErr = err
+		} else {
+			restored++
+			log.Printf("agent: hyperv_restore disk %s completed", diskName)
+			if stat, statErr := os.Stat(targetFilePath); statErr == nil {
+				progress.addCompletedBytes(stat.Size())
+			}
+			r.pushEvents(runID, RunEvent{
+				Type:      "info",
+				Level:     "info",
+				MessageID: "HYPERV_RESTORE_DISK_COMPLETE",
+				ParamsJSON: map[string]any{
+					"vm_name":     vm.VMName,
+					"disk_name":   diskName,
+					"disk_index":  *globalDiskIdx + 1,
+					"total_disks": progress.totalDisks,
+				},
+			})
+		}
+
+		*globalDiskIdx++
+	}
+	return restored, false, lastErr
+}
+
+// restoreVMNamesLabel builds a compact comma-separated list of VM names for
+// event payloads (e.g. "ubuntu26, win10").
+func restoreVMNamesLabel(vms []HyperVRestoreVM) string {
+	names := make([]string, 0, len(vms))
+	for i := range vms {
+		if vms[i].VMName != "" {
+			names = append(names, vms[i].VMName)
+		}
+	}
+	return strings.Join(names, ", ")
 }
 
 // parseHyperVRestorePayload parses the command payload into a typed struct.
@@ -433,32 +540,100 @@ func parseHyperVRestorePayload(payload map[string]any) *HyperVRestorePayload {
 
 	// Parse restore_chain (for incremental restores)
 	if v, ok := payload["restore_chain"].([]any); ok {
+		result.RestoreChain = parseRestoreChain(v)
+	}
+
+	// Parse vms[] (multi-VM restore). Each entry mirrors the single-VM fields.
+	if v, ok := payload["vms"].([]any); ok {
 		for _, item := range v {
-			if m, ok := item.(map[string]any); ok {
-				entry := RestoreChainEntry{}
-				if id, ok := m["backup_point_id"].(float64); ok {
-					entry.BackupPointID = int64(id)
-				}
-				if mid, ok := m["manifest_id"].(string); ok {
-					entry.ManifestID = mid
-				}
-				if bt, ok := m["backup_type"].(string); ok {
-					entry.BackupType = bt
-				}
-				if dm, ok := m["disk_manifests"].(map[string]any); ok {
-					entry.DiskManifests = make(map[string]string)
-					for k, val := range dm {
-						if s, ok := val.(string); ok {
-							entry.DiskManifests[k] = s
-						}
-					}
-				}
-				result.RestoreChain = append(result.RestoreChain, entry)
+			m, ok := item.(map[string]any)
+			if !ok {
+				continue
 			}
+			vm := HyperVRestoreVM{}
+			if id, ok := m["backup_point_id"].(float64); ok {
+				vm.BackupPointID = int64(id)
+			}
+			if s, ok := m["vm_name"].(string); ok {
+				vm.VMName = s
+			}
+			if s, ok := m["vm_guid"].(string); ok {
+				vm.VMGUID = s
+			}
+			if s, ok := m["subfolder"].(string); ok {
+				vm.Subfolder = s
+			}
+			if s, ok := m["backup_type"].(string); ok {
+				vm.BackupType = s
+			}
+			if dm, ok := m["disk_manifests"].(map[string]any); ok {
+				vm.DiskManifests = parseDiskManifests(dm)
+			}
+			if rc, ok := m["restore_chain"].([]any); ok {
+				vm.RestoreChain = parseRestoreChain(rc)
+			}
+			result.VMs = append(result.VMs, vm)
 		}
 	}
 
 	return result
+}
+
+// parseDiskManifests converts a generic disk_path->manifest_id map.
+func parseDiskManifests(v map[string]any) map[string]string {
+	out := make(map[string]string, len(v))
+	for k, val := range v {
+		if s, ok := val.(string); ok {
+			out[k] = s
+		}
+	}
+	return out
+}
+
+// parseRestoreChain converts a generic restore_chain array into typed entries.
+func parseRestoreChain(v []any) []RestoreChainEntry {
+	var chain []RestoreChainEntry
+	for _, item := range v {
+		m, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		entry := RestoreChainEntry{}
+		if id, ok := m["backup_point_id"].(float64); ok {
+			entry.BackupPointID = int64(id)
+		}
+		if mid, ok := m["manifest_id"].(string); ok {
+			entry.ManifestID = mid
+		}
+		if bt, ok := m["backup_type"].(string); ok {
+			entry.BackupType = bt
+		}
+		if dm, ok := m["disk_manifests"].(map[string]any); ok {
+			entry.DiskManifests = parseDiskManifests(dm)
+		}
+		chain = append(chain, entry)
+	}
+	return chain
+}
+
+// sanitizeSubfolderName produces a filesystem-safe folder name from a VM name.
+func sanitizeSubfolderName(name string) string {
+	cleaned := strings.Map(func(r rune) rune {
+		switch r {
+		case '<', '>', ':', '"', '/', '\\', '|', '?', '*':
+			return '_'
+		}
+		if r < 0x20 {
+			return '_'
+		}
+		return r
+	}, name)
+	cleaned = strings.TrimSpace(cleaned)
+	cleaned = strings.Trim(cleaned, ".")
+	if cleaned == "" {
+		return "vm"
+	}
+	return cleaned
 }
 
 // buildNextRunResponseFromJobContext creates a NextRunResponse from job context for Kopia operations.

@@ -1,8 +1,12 @@
 <?php
 /**
  * e3 Cloud Backup - Hyper-V Restore Page
- * 
- * Displays backup points for a VM and allows initiating a restore.
+ *
+ * Snapshot-scoped restore: a Hyper-V backup run can contain multiple guest VMs,
+ * so this page is framed around the owning JOB. It is reached via vm_id (the VM
+ * the customer clicked), which we use only to resolve the job and verify
+ * ownership. The template then lists snapshots (runs) for the job and lets the
+ * customer pick one or more VMs (and their disks) to restore in a single run.
  */
 
 use WHMCS\ClientArea;
@@ -29,33 +33,29 @@ if (is_null($product) || empty($product->username)) {
 $vmId = isset($_GET['vm_id']) ? (int) $_GET['vm_id'] : 0;
 
 if ($vmId <= 0) {
-    // Redirect to hyperv page if no VM specified
     header('Location: index.php?m=cloudstorage&page=e3backup&view=hyperv');
     exit;
 }
 
-// Check if Hyper-V tables exist
-$tablesExist = Capsule::schema()->hasTable('s3_hyperv_vms') && 
-               Capsule::schema()->hasTable('s3_hyperv_backup_points');
-
-if (!$tablesExist) {
+$errorReturn = function (string $message) use ($vmId) {
     return [
-        'error' => 'Hyper-V backup tables not initialized',
-        'vm' => null,
-        'disks' => [],
+        'error' => $message,
+        'job' => null,
+        'entryVm' => null,
+        'vms' => [],
+        'vmCount' => 0,
+        'snapshotCount' => 0,
         'backupPointCount' => 0,
-        'fullBackupCount' => 0,
         'latestBackup' => null,
         'vmId' => $vmId,
     ];
-}
+};
 
-// Get VM and verify ownership through job chain
-$vm = null;
-$disks = [];
-$backupPointCount = 0;
-$fullBackupCount = 0;
-$latestBackup = null;
+$tablesExist = Capsule::schema()->hasTable('s3_hyperv_vms')
+    && Capsule::schema()->hasTable('s3_hyperv_backup_points');
+if (!$tablesExist) {
+    return $errorReturn('Hyper-V backup tables not initialized');
+}
 
 $hasJobIdPk = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'job_id');
 $hasRunIdCol = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'run_id');
@@ -64,186 +64,119 @@ $hasBackupUserPublicIdCol = Capsule::schema()->hasTable('s3_backup_users')
     && Capsule::schema()->hasColumn('s3_backup_users', 'public_id');
 $vmJobJoin = $hasJobIdPk ? ['v.job_id', '=', 'j.job_id'] : ['v.job_id', '=', 'j.id'];
 
-$vmSelect = [
+$jobIdSelect = $hasJobIdPk ? Capsule::raw('BIN_TO_UUID(j.job_id) as job_id') : 'v.job_id as job_id';
+$entrySelect = [
     'v.id',
     'v.vm_name',
-    'v.vm_guid',
     'v.generation',
     'v.is_linux',
     'v.rct_enabled',
-    'v.backup_enabled',
     'j.name as job_name',
     'j.agent_uuid',
+    $jobIdSelect,
 ];
-$vmSelect[] = $hasBackupUserIdCol ? 'j.backup_user_id' : Capsule::raw('NULL as backup_user_id');
-$vmSelect[] = $hasBackupUserIdCol && $hasBackupUserPublicIdCol
+$entrySelect[] = $hasBackupUserIdCol ? 'j.backup_user_id' : Capsule::raw('NULL as backup_user_id');
+$entrySelect[] = $hasBackupUserIdCol && $hasBackupUserPublicIdCol
     ? 'bu.public_id as backup_user_public_id'
     : Capsule::raw('NULL as backup_user_public_id');
-$vmSelect[] = $hasJobIdPk
-    ? Capsule::raw('BIN_TO_UUID(v.job_id) as job_id')
-    : 'v.job_id';
 
 try {
-    $vmQuery = Capsule::table('s3_hyperv_vms as v')
+    $entryQuery = Capsule::table('s3_hyperv_vms as v')
         ->join('s3_cloudbackup_jobs as j', $vmJobJoin[0], $vmJobJoin[1], $vmJobJoin[2])
         ->where('v.id', $vmId)
         ->where('j.client_id', $loggedInUserId);
     if ($hasBackupUserIdCol && Capsule::schema()->hasTable('s3_backup_users')) {
-        $vmQuery->leftJoin('s3_backup_users as bu', 'j.backup_user_id', '=', 'bu.id');
+        $entryQuery->leftJoin('s3_backup_users as bu', 'j.backup_user_id', '=', 'bu.id');
     }
-    $vm = $vmQuery->select($vmSelect)->first();
+    $entryVm = $entryQuery->select($entrySelect)->first();
 
-    if (!$vm) {
-        return [
-            'error' => 'VM not found or access denied',
-            'vm' => null,
-            'disks' => [],
-            'backupPointCount' => 0,
-            'fullBackupCount' => 0,
-            'latestBackup' => null,
-            'vmId' => $vmId,
-        ];
+    if (!$entryVm) {
+        return $errorReturn('VM not found or access denied');
     }
 
-    // MSP authorization check (job_id is UUID string when hasJobIdPk)
-    $jobIdForAccess = (string) ($vm->job_id ?? '');
+    // MSP authorization check.
+    $jobIdForAccess = (string) ($entryVm->job_id ?? '');
     if ($hasJobIdPk && UuidBinary::isUuid($jobIdForAccess)) {
         $accessCheck = MspController::validateJobAccess($jobIdForAccess, $loggedInUserId);
         if (!$accessCheck['valid']) {
-            return [
-                'error' => $accessCheck['message'],
-                'vm' => null,
-                'disks' => [],
-                'backupPointCount' => 0,
-                'fullBackupCount' => 0,
-                'latestBackup' => null,
-                'vmId' => $vmId,
-            ];
+            return $errorReturn($accessCheck['message']);
         }
     }
 
-    // Get disk info
-    $disks = Capsule::table('s3_hyperv_vm_disks')
-        ->where('vm_id', $vmId)
-        ->select('id', 'disk_path', 'controller_type', 'vhd_format', 'size_bytes')
-        ->get()
-        ->map(function ($disk) {
-            return [
-                'id' => (int) $disk->id,
-                'disk_path' => $disk->disk_path,
-                'disk_name' => basename($disk->disk_path),
-                'controller_type' => $disk->controller_type ?? 'SCSI',
-                'vhd_format' => $disk->vhd_format ?? 'VHDX',
-                'size_bytes' => $disk->size_bytes ? (int) $disk->size_bytes : null,
-            ];
-        })
-        ->toArray();
-
-    // If no disk records, derive from backup points
-    if (empty($disks)) {
-        $backupPointsWithManifests = Capsule::table('s3_hyperv_backup_points')
-            ->where('vm_id', $vmId)
-            ->whereNotNull('disk_manifests')
-            ->pluck('disk_manifests');
-        
-        $derivedDiskPaths = [];
-        foreach ($backupPointsWithManifests as $manifestsJson) {
-            $manifests = json_decode($manifestsJson, true);
-            if (is_array($manifests)) {
-                foreach (array_keys($manifests) as $diskPath) {
-                    if (!isset($derivedDiskPaths[$diskPath])) {
-                        $derivedDiskPaths[$diskPath] = true;
-                    }
-                }
-            }
-        }
-        
-        $diskIndex = 1;
-        foreach (array_keys($derivedDiskPaths) as $diskPath) {
-            $ext = strtolower(pathinfo($diskPath, PATHINFO_EXTENSION));
-            $vhdFormat = in_array($ext, ['vhd', 'avhd']) ? 'VHD' : 'VHDX';
-            
-            $disks[] = [
-                'id' => -$diskIndex,
-                'disk_path' => $diskPath,
-                'disk_name' => basename($diskPath),
-                'controller_type' => 'SCSI',
-                'vhd_format' => $vhdFormat,
-                'size_bytes' => null,
-                'derived' => true,
-            ];
-            $diskIndex++;
-        }
+    // All VMs in this job (for context / counts).
+    $vmsQuery = Capsule::table('s3_hyperv_vms');
+    if ($hasJobIdPk) {
+        $vmsQuery->whereRaw('job_id = ' . UuidBinary::toDbExpr(UuidBinary::normalize($jobIdForAccess)));
+    } else {
+        $vmsQuery->where('job_id', $entryVm->job_id);
     }
+    $jobVms = $vmsQuery->orderBy('vm_name')->get(['id', 'vm_name', 'is_linux', 'generation']);
 
-    $bpRunJoin = $hasRunIdCol ? ['bp.run_id', '=', 'r.run_id'] : ['bp.run_id', '=', 'r.id'];
-    $bpRunJoinArr = [$bpRunJoin[0], $bpRunJoin[1], $bpRunJoin[2]];
-
-    // Get backup point count for summary
-    $backupPointCount = Capsule::table('s3_hyperv_backup_points as bp')
-        ->join('s3_cloudbackup_runs as r', $bpRunJoinArr[0], $bpRunJoinArr[1], $bpRunJoinArr[2])
-        ->where('bp.vm_id', $vmId)
-        ->whereIn('r.status', ['success', 'warning'])
-        ->count();
-
-    $fullBackupCount = Capsule::table('s3_hyperv_backup_points as bp')
-        ->join('s3_cloudbackup_runs as r', $bpRunJoinArr[0], $bpRunJoinArr[1], $bpRunJoinArr[2])
-        ->where('bp.vm_id', $vmId)
-        ->where('bp.backup_type', 'Full')
-        ->whereIn('r.status', ['success', 'warning'])
-        ->count();
-
-    // Get latest backup point
-    $latestBackupRow = Capsule::table('s3_hyperv_backup_points')
-        ->where('vm_id', $vmId)
-        ->orderBy('created_at', 'desc')
-        ->first();
-
-    if ($latestBackupRow) {
-        $latestBackup = [
-            'id' => (int) $latestBackupRow->id,
-            'backup_type' => $latestBackupRow->backup_type,
-            'created_at' => $latestBackupRow->created_at,
-            'consistency_level' => $latestBackupRow->consistency_level ?? 'Application',
-            'total_size_bytes' => $latestBackupRow->total_size_bytes ? (int) $latestBackupRow->total_size_bytes : null,
+    $vmList = [];
+    $vmIds = [];
+    foreach ($jobVms as $v) {
+        $vmIds[] = (int) $v->id;
+        $vmList[] = [
+            'id' => (int) $v->id,
+            'vm_name' => $v->vm_name,
+            'is_linux' => (bool) $v->is_linux,
+            'generation' => (int) ($v->generation ?? 2),
         ];
     }
 
+    // Job-wide counts for the summary cards.
+    $runJoinCol = $hasRunIdCol ? 'r.run_id' : 'r.id';
+    $backupPointCount = 0;
+    $snapshotCount = 0;
+    $latestBackup = null;
+
+    if (!empty($vmIds)) {
+        $bpBase = Capsule::table('s3_hyperv_backup_points as bp')
+            ->join('s3_cloudbackup_runs as r', 'bp.run_id', '=', $runJoinCol)
+            ->whereIn('bp.vm_id', $vmIds)
+            ->whereIn('r.status', ['success', 'warning']);
+
+        $backupPointCount = (clone $bpBase)->count();
+        $snapshotCount = (clone $bpBase)->distinct()->count('bp.run_id');
+
+        $latestRow = Capsule::table('s3_hyperv_backup_points')
+            ->whereIn('vm_id', $vmIds)
+            ->orderBy('created_at', 'desc')
+            ->first();
+        if ($latestRow) {
+            $latestBackup = [
+                'backup_type' => $latestRow->backup_type,
+                'created_at' => $latestRow->created_at,
+                'consistency_level' => $latestRow->consistency_level ?? 'Application',
+            ];
+        }
+    }
 } catch (\Throwable $e) {
-    return [
-        'error' => 'Error loading VM data: ' . $e->getMessage(),
-        'vm' => null,
-        'disks' => [],
-        'backupPointCount' => 0,
-        'fullBackupCount' => 0,
-        'latestBackup' => null,
-        'vmId' => $vmId,
-    ];
+    return $errorReturn('Error loading VM data: ' . $e->getMessage());
 }
 
-// Return template variables (job_id as UUID string when UUID schema)
-$backupUserRouteId = trim((string) ($vm->backup_user_public_id ?? ''));
-if ($backupUserRouteId === '' && !empty($vm->backup_user_id)) {
-    $backupUserRouteId = (string) ((int) $vm->backup_user_id);
+$backupUserRouteId = trim((string) ($entryVm->backup_user_public_id ?? ''));
+if ($backupUserRouteId === '' && !empty($entryVm->backup_user_id)) {
+    $backupUserRouteId = (string) ((int) $entryVm->backup_user_id);
 }
 
 return [
-    'vm' => [
-        'id' => (int) $vm->id,
-        'vm_name' => $vm->vm_name,
-        'vm_guid' => $vm->vm_guid,
-        'generation' => (int) ($vm->generation ?? 2),
-        'is_linux' => (bool) $vm->is_linux,
-        'rct_enabled' => (bool) $vm->rct_enabled,
-        'backup_enabled' => (bool) $vm->backup_enabled,
-        'job_id' => $hasJobIdPk ? (string) ($vm->job_id ?? '') : (int) $vm->job_id,
-        'job_name' => $vm->job_name,
+    'job' => [
+        'id' => $hasJobIdPk ? (string) ($entryVm->job_id ?? '') : (int) $entryVm->job_id,
+        'name' => $entryVm->job_name,
+        'agent_uuid' => $entryVm->agent_uuid,
         'backup_user_route_id' => $backupUserRouteId,
     ],
-    'disks' => $disks,
+    'entryVm' => [
+        'id' => (int) $entryVm->id,
+        'vm_name' => $entryVm->vm_name,
+        'generation' => (int) ($entryVm->generation ?? 2),
+        'rct_enabled' => (bool) $entryVm->rct_enabled,
+    ],
+    'vms' => $vmList,
+    'vmCount' => count($vmList),
+    'snapshotCount' => $snapshotCount,
     'backupPointCount' => $backupPointCount,
-    'fullBackupCount' => $fullBackupCount,
     'latestBackup' => $latestBackup,
     'vmId' => $vmId,
 ];
-
