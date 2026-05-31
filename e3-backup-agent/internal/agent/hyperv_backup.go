@@ -506,8 +506,13 @@ func (r *Runner) runHyperV(run *NextRunResponse) error {
 			successCount++
 			successVMs = append(successVMs, vmRun.VMName)
 
-			// Mark VM as complete and add its bytes to cumulative total
-			progressTracker.addCompletedBytes(result.TotalBytes)
+			// Mark VM as complete. Do NOT re-add result.TotalBytes here: the
+			// per-disk loop already folded each disk's bytes into the tracker's
+			// cumulative total via addCompletedBytes(effectiveSize) as it
+			// finished. Adding result.TotalBytes (the sum of those same disk
+			// sizes) a second time double-counts the VM, which made the bar
+			// saturate at ~99.9% after the first VM instead of advancing across
+			// the whole multi-VM backup.
 			progressTracker.vmCompleted()
 			progressTracker.reportProgress(true) // Force progress update
 
