@@ -66,6 +66,47 @@ if (!$run) {
 }
 $userTz = TimezoneHelper::resolveUserTimezone($loggedInUserId, $run['job_id'] ?? null);
 
+if (!function_exists('ebE3FormatBytesHuman')) {
+    function ebE3FormatBytesHuman($bytes, int $precision = 2): string
+    {
+        $units = ['B', 'KB', 'MB', 'GB', 'TB'];
+        $bytes = max((int) $bytes, 0);
+        if ($bytes === 0) {
+            return '0 B';
+        }
+        $pow = (int) floor(log($bytes) / log(1024));
+        $pow = min($pow, count($units) - 1);
+        $value = $bytes / pow(1024, $pow);
+        return round($value, $precision) . ' ' . $units[$pow];
+    }
+}
+
+$isRestoreRun = false;
+if (!empty($run['run_type'])) {
+    $rt = (string) $run['run_type'];
+    if (in_array($rt, ['restore', 'hyperv_restore', 'disk_restore'], true)) {
+        $isRestoreRun = true;
+    }
+}
+if (!$isRestoreRun && !empty($run['stats_json'])) {
+    $statsJson = is_string($run['stats_json']) ? json_decode($run['stats_json'], true) : $run['stats_json'];
+    if (json_last_error() === JSON_ERROR_NONE && is_array($statsJson)) {
+        $stype = (string) ($statsJson['type'] ?? '');
+        if (in_array($stype, ['restore', 'hyperv_restore', 'disk_restore'], true)) {
+            $isRestoreRun = true;
+        }
+    }
+}
+$bytesTransferred = (int) ($run['bytes_transferred'] ?? 0);
+$bytesFormatted = ebE3FormatBytesHuman($bytesTransferred);
+$runSummary = [
+    'bytes_transferred' => $bytesTransferred,
+    'bytes_processed' => (int) ($run['bytes_processed'] ?? 0),
+    'is_restore' => $isRestoreRun,
+    'uploaded_formatted' => $isRestoreRun ? '—' : $bytesFormatted,
+    'downloaded_formatted' => $isRestoreRun ? $bytesFormatted : '—',
+];
+
 // Client area: sanitized logs
 $sanitized = SanitizedLogFormatter::sanitizeAndStructure($run['log_excerpt'] ?? null, $run['status'] ?? null, $userTz);
 $formattedBackupLog = $sanitized['formatted_log'];
@@ -167,6 +208,7 @@ $jsonData = [
     'validation_log' => $formattedValidationLog,
     'has_validation' => !empty($run['validation_log_excerpt']) && $run['validation_mode'] === 'post_run',
     'structured_logs' => $structuredLogs,
+    'run_summary' => $runSummary,
 ];
 
 $response = new JsonResponse($jsonData, 200);

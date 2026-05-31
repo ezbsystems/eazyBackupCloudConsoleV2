@@ -165,6 +165,24 @@
         });
     }
 
+    function renderTransferSummary(summary) {
+        var uploadedEl = el('ebE3RunSummaryUploaded');
+        var downloadedEl = el('ebE3RunSummaryDownloaded');
+        if (!summary) {
+            setText('ebE3RunSummaryUploaded', '—');
+            setText('ebE3RunSummaryDownloaded', '—');
+            return;
+        }
+        if (uploadedEl) {
+            uploadedEl.textContent = summary.uploaded_formatted || '—';
+            uploadedEl.classList.toggle('!text-[var(--eb-text-muted)]', summary.uploaded_formatted === '—');
+        }
+        if (downloadedEl) {
+            downloadedEl.textContent = summary.downloaded_formatted || '—';
+            downloadedEl.classList.toggle('!text-[var(--eb-text-muted)]', summary.downloaded_formatted === '—');
+        }
+    }
+
     function renderSummary() {
         var m = state.meta || {};
         setText('ebE3RunSummaryJob', m.jobName || 'Backup run');
@@ -175,6 +193,8 @@
         setText('ebE3RunSummaryFinished', m.finished || '-');
         setText('ebE3RunSummaryDuration', m.durationText || '-');
         setText('ebE3RunSummarySize', m.sizeText || '-');
+        setText('ebE3RunSummaryUploaded', '—');
+        setText('ebE3RunSummaryDownloaded', '—');
 
         var badge = el('ebE3RunSummaryStatus');
         if (badge) {
@@ -212,6 +232,7 @@
                     }
                     state.rows = structured;
                     renderLogs();
+                    renderTransferSummary(data.run_summary || null);
 
                     var valSection = el('ebE3RunValidation');
                     var valBody = el('ebE3RunValidationBody');

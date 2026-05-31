@@ -52,12 +52,18 @@ try {
         exit;
     }
 
-    // Get completed runs with manifest IDs (these are restorable snapshots)
+    $hasManifestCol = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'manifest_id');
+    $hasLogRefCol = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'log_ref');
+
     $runSelect = [
-        'manifest_id',
         'started_at as created_at',
         'stats_json',
     ];
+    if ($hasManifestCol) {
+        $runSelect[] = 'manifest_id';
+    } elseif ($hasLogRefCol) {
+        $runSelect[] = 'log_ref';
+    }
     if ($hasRunIdCol) {
         $runSelect[] = Capsule::raw('BIN_TO_UUID(run_id) as run_id');
     } else {
@@ -66,10 +72,13 @@ try {
 
     $runsQuery = Capsule::table('s3_cloudbackup_runs')
         ->where('status', 'success')
-        ->whereNotNull('manifest_id')
-        ->where('manifest_id', '!=', '')
         ->orderBy('started_at', 'desc')
         ->limit(100);
+    if ($hasManifestCol) {
+        $runsQuery->whereNotNull('manifest_id')->where('manifest_id', '!=', '');
+    } elseif ($hasLogRefCol) {
+        $runsQuery->whereNotNull('log_ref')->where('log_ref', '!=', '');
+    }
 
     if ($hasJobIdPk) {
         $runsQuery->whereRaw('job_id = ' . UuidBinary::toDbExpr($jobIdNorm));
@@ -80,12 +89,27 @@ try {
 
     $runs = $runsQuery->get($runSelect);
 
+    if (!$hasManifestCol && !$hasLogRefCol) {
+        $runs = $runs->filter(static function ($run) {
+            $stats = json_decode($run->stats_json ?? '', true) ?: [];
+            return !empty($stats['manifest_id']);
+        })->values();
+    }
+
     // Transform runs to snapshot format
     $snapshots = $runs->map(function ($run) use ($job) {
         $stats = json_decode($run->stats_json, true) ?: [];
+        $manifestId = '';
+        if (!empty($run->manifest_id)) {
+            $manifestId = (string) $run->manifest_id;
+        } elseif (!empty($run->log_ref)) {
+            $manifestId = (string) $run->log_ref;
+        } elseif (!empty($stats['manifest_id'])) {
+            $manifestId = (string) $stats['manifest_id'];
+        }
 
         return [
-            'manifest_id' => $run->manifest_id,
+            'manifest_id' => $manifestId,
             'created_at' => $run->created_at,
             'run_id' => (string) ($run->run_id ?? ''),
             'size_bytes' => $stats['bytes_total'] ?? $stats['total_bytes'] ?? 0,
