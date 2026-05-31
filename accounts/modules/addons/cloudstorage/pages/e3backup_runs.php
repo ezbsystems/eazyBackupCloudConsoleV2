@@ -267,6 +267,41 @@ try {
     // ignore; UI will fallback to bucket ID
 }
 
+// Attach agent hostname (device name) + backup username for the run-log
+// modal subtitle.
+try {
+    $jobAgentUuid = $job['agent_uuid'] ?? null;
+    $agentRow = null;
+    if (!empty($jobAgentUuid)) {
+        $agentRow = Capsule::table('s3_cloudbackup_agents')
+            ->where('agent_uuid', $jobAgentUuid)
+            ->where('client_id', $loggedInUserId)
+            ->first(['hostname', 'backup_user_id']);
+        if ($agentRow && !empty($agentRow->hostname)) {
+            $job['agent_hostname'] = $agentRow->hostname;
+        }
+    }
+
+    // Resolve the backup username: prefer the job's own backup_user_id, then
+    // fall back to the agent's. Schema-guarded since these columns are newer.
+    $hasJobBackupUser = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'backup_user_id');
+    $backupUserId = $hasJobBackupUser ? (int) ($job['backup_user_id'] ?? 0) : 0;
+    if ($backupUserId <= 0 && $agentRow) {
+        $backupUserId = (int) ($agentRow->backup_user_id ?? 0);
+    }
+    if ($backupUserId > 0) {
+        $userRow = Capsule::table('s3_backup_users')
+            ->where('id', $backupUserId)
+            ->where('client_id', $loggedInUserId)
+            ->first(['username']);
+        if ($userRow && !empty($userRow->username)) {
+            $job['backup_username'] = $userRow->username;
+        }
+    }
+} catch (\Exception $e) {
+    // Non-fatal; subtitle will fall back to a dash.
+}
+
 $runs = CloudBackupController::getRunsForJob($jobId, $loggedInUserId);
 
 // Compute run metrics for selected job

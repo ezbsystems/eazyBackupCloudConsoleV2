@@ -156,7 +156,7 @@
                                 <td>
                                     <span class="eb-badge"
                                           :class="{ 'eb-badge--info': point.engine === 'kopia', 'eb-badge--premium': point.engine === 'disk_image', 'eb-badge--warning': point.engine === 'hyperv', 'eb-badge--neutral': !point.engine }"
-                                          x-text="point.engine || 'unknown'"></span>
+                                          x-text="({ kopia: 'File/Folder', sync: 'File/Folder', disk_image: 'Disk Image', hyperv: 'Hyper-V' })[point.engine] || 'File/Folder'"></span>
                                 </td>
                                 <td>
                                     <span class="eb-badge"

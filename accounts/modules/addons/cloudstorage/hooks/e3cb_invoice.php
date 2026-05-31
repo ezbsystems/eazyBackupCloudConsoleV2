@@ -203,7 +203,7 @@ function cloudstorage_e3cb_apply_invoice_overrides(int $invoiceId, int $pid): vo
             continue;
         }
         $source = (string) ($rated->pricing_source ?? 'tblpricing');
-        if (!in_array($source, ['client_override', 'global_default', 'flat_monthly', 'trial_zeroed'], true)) {
+        if (!in_array($source, ['client_override', 'global_default', 'flat_monthly', 'trial_zeroed', 'beta_zeroed'], true)) {
             // Pure tblpricing - let WHMCS keep its native amount.
             continue;
         }
@@ -260,6 +260,9 @@ function cloudstorage_e3cb_invoice_description(string $metric, object $rated): s
     }
     if ($source === 'trial_zeroed') {
         return "e3 Cloud Backup - {$label} ({$qty} x \${$unitFmt} - trial period)";
+    }
+    if ($source === 'beta_zeroed') {
+        return "e3 Cloud Backup - {$label} ({$qty} x \${$unitFmt} - beta, no charge)";
     }
     if ($tier !== '') {
         return "e3 Cloud Backup - {$label} ({$qty} x \${$unitFmt} - {$tier})";

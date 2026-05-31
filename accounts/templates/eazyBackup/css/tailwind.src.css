@@ -3952,6 +3952,87 @@
     50% { box-shadow: 0 0 0 4px rgba(59, 130, 246, 0); }
   }
 
+  /* --- e3 Cloud Backup: Job Logs + Recent Backup History components --- */
+  .eb-panel-section {
+    border: 1px solid var(--eb-border-subtle);
+    border-radius: var(--eb-radius-lg);
+    background: var(--eb-bg-card);
+    overflow: hidden;
+  }
+
+  .eb-panel-section-header {
+    padding: 1rem;
+    border-bottom: 1px solid var(--eb-border-subtle);
+  }
+
+  .eb-segmented {
+    display: inline-flex;
+    border: 1px solid var(--eb-border-default);
+    border-radius: var(--eb-radius-md);
+    overflow: hidden;
+  }
+
+  .eb-segmented-btn {
+    padding: 4px 10px;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--eb-text-secondary);
+    background: var(--eb-bg-raised);
+    border: none;
+    cursor: pointer;
+  }
+
+  .eb-segmented-btn + .eb-segmented-btn {
+    border-left: 1px solid var(--eb-border-default);
+  }
+
+  .eb-segmented-btn.is-active {
+    background: var(--eb-primary);
+    color: #fff;
+  }
+
+  .eb-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 9999px;
+    border: 1px solid var(--eb-border-default);
+    background: var(--eb-bg-raised);
+    color: var(--eb-text-secondary);
+    font-size: 12.5px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .eb-chip.is-active {
+    border-color: var(--eb-primary);
+    color: var(--eb-text-primary);
+    background: var(--eb-bg-hover);
+  }
+
+  .eb-chip-count {
+    font-size: 11px;
+    color: var(--eb-text-muted);
+    background: var(--eb-bg-base);
+    border-radius: 9999px;
+    padding: 0 6px;
+  }
+
+  .eb-popover {
+    background: var(--eb-bg-overlay);
+    border: 1px solid var(--eb-border-emphasis);
+    border-radius: var(--eb-radius-md);
+    box-shadow: var(--eb-shadow-modal);
+    padding: 8px;
+  }
+
+  .eb-input-sm {
+    padding: 4px 8px;
+    font-size: 12.5px;
+    height: auto;
+  }
+
   .eb-progress-track {
     height: 6px;
     overflow: hidden;

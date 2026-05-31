@@ -1451,7 +1451,7 @@ func renderSuccessPage(w http.ResponseWriter, apiBaseURL, username, userRouteID 
 	displayName := strings.TrimSpace(username)
 	nextStepCopy := "Return to your selected user's backup page in your client area to create a backup job for this device."
 	if displayName != "" {
-		nextStepCopy = "Return to " + displayName + "'s backup page in your client area to create a backup job for this device."
+		nextStepCopy = "Return to " + displayName + "'s backup page in the client portal to create a backup job for this device."
 	}
 
 	writeLocalAgentPageStart(w, "E3 Backup Agent - Enrolled")
