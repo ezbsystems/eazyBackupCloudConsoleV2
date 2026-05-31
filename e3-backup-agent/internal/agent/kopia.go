@@ -2413,13 +2413,50 @@ func (r *Runner) kopiaMaintenance(ctx context.Context, run *NextRunResponse, mod
 	})
 }
 
-// kopiaRestoreVHDX restores a single VHDX disk from its manifest to a local file.
-// Unlike kopiaRestoreWithProgress which restores directory trees, this handles
-// single-file stream entries (VHDXs) that were backed up during Hyper-V backup.
-func (r *Runner) kopiaRestoreVHDX(ctx context.Context, run *NextRunResponse, manifestID string, targetFilePath string, diskName string, runID string) error {
+// openKopiaRepoForRun connects to the job's Kopia repository if needed, opens it,
+// and returns a close function the caller must invoke when finished.
+func (r *Runner) openKopiaRepoForRun(ctx context.Context, run *NextRunResponse) (repo.Repository, func(), error) {
 	opts := kopiaOptionsFromRun(r.cfg, run)
 	repoPath := kopiaRepoConfigPath(r.cfg, run)
 	password := opts.password()
+
+	if _, statErr := os.Stat(repoPath); os.IsNotExist(statErr) {
+		st, stErr := opts.storage(ctx)
+		if stErr != nil {
+			return nil, nil, fmt.Errorf("kopia: storage init: %w", stErr)
+		}
+		if connErr := repo.Connect(ctx, repoPath, st, password, nil); connErr != nil {
+			return nil, nil, fmt.Errorf("kopia: connect to repo: %w", connErr)
+		}
+	}
+
+	rep, err := repo.Open(ctx, repoPath, password, nil)
+	if err != nil {
+		return nil, nil, fmt.Errorf("kopia: open repo: %w", err)
+	}
+	return rep, func() { rep.Close(ctx) }, nil
+}
+
+// kopiaManifestRootFileSize returns the root entry size recorded in a snapshot
+// manifest (used to pre-compute total restore bytes across multiple VMs/disks).
+func (r *Runner) kopiaManifestRootFileSize(ctx context.Context, rep repo.Repository, manifestID string) (int64, error) {
+	man, err := snapshot.LoadSnapshot(ctx, rep, manifest.ID(manifestID))
+	if err != nil {
+		return 0, err
+	}
+	return man.RootEntry.FileSize, nil
+}
+
+// kopiaRestoreVHDX restores a single VHDX disk from its manifest to a local file.
+// Unlike kopiaRestoreWithProgress which restores directory trees, this handles
+// single-file stream entries (VHDXs) that were backed up during Hyper-V backup.
+//
+// When progress is non-nil, byte counts feed the multi-VM restore tracker so the
+// UI percentage reflects work across all selected disks instead of resetting to
+// ~99.9% after each individual VHDX finishes.
+func (r *Runner) kopiaRestoreVHDX(ctx context.Context, run *NextRunResponse, manifestID string, targetFilePath string, diskName string, runID string, progress *hypervRestoreProgress) error {
+	opts := kopiaOptionsFromRun(r.cfg, run)
+	repoPath := kopiaRepoConfigPath(r.cfg, run)
 
 	log.Printf("agent: kopia VHDX restore opening repo at %s for job %s, manifest %s", repoPath, run.JobID, manifestID)
 
@@ -2442,6 +2479,7 @@ func (r *Runner) kopiaRestoreVHDX(ctx context.Context, run *NextRunResponse, man
 			return fmt.Errorf("kopia: storage init for VHDX restore: %w", stErr)
 		}
 
+		password := opts.password()
 		// Connect to existing repo
 		if connErr := repo.Connect(ctx, repoPath, st, password, nil); connErr != nil {
 			return fmt.Errorf("kopia: connect to repo for VHDX restore failed: %w", connErr)
@@ -2449,6 +2487,7 @@ func (r *Runner) kopiaRestoreVHDX(ctx context.Context, run *NextRunResponse, man
 		log.Printf("agent: kopia connected to remote repo, config saved at %s", repoPath)
 	}
 
+	password := opts.password()
 	rep, err := repo.Open(ctx, repoPath, password, nil)
 	if err != nil {
 		return fmt.Errorf("kopia: open repo for VHDX restore: %w", err)
@@ -2544,6 +2583,13 @@ func (r *Runner) kopiaRestoreVHDX(ctx context.Context, run *NextRunResponse, man
 				knownFileSize:    knownSize,
 				progressCallback: progressCounter.onProgress,
 				serverProgressFn: func(bytesWritten, bytesTotal int64, speedBps float64) {
+					// Multi-VM Hyper-V restore: aggregate progress across all disks.
+					if progress != nil {
+						progress.setCurrentBytes(bytesWritten)
+						return
+					}
+
+					// Legacy per-disk progress (single-disk restore without tracker).
 					var progressPct float64
 					if bytesTotal > 0 {
 						progressPct = float64(bytesWritten) / float64(bytesTotal) * 100.0
@@ -2552,7 +2598,6 @@ func (r *Runner) kopiaRestoreVHDX(ctx context.Context, run *NextRunResponse, man
 						}
 					}
 
-					// Calculate ETA
 					var etaSeconds int64
 					if speedBps > 0 && bytesTotal > bytesWritten {
 						remaining := bytesTotal - bytesWritten
