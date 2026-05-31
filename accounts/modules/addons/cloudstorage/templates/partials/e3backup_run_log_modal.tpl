@@ -32,7 +32,7 @@
         <div class="eb-modal-body min-h-0 flex-1 overflow-y-auto">
             {* Summary grid *}
             <div class="eb-subpanel !mb-4">
-                <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <div class="grid grid-cols-2 gap-3 sm:grid-cols-3">
                     <div>
                         <div class="eb-field-label">Status</div>
                         <span id="ebE3RunSummaryStatus" class="eb-badge eb-badge--neutral">-</span>
@@ -48,6 +48,14 @@
                     <div>
                         <div class="eb-field-label">Size</div>
                         <div class="eb-type-body !text-[var(--eb-text-primary)]" id="ebE3RunSummarySize">-</div>
+                    </div>
+                    <div>
+                        <div class="eb-field-label">Uploaded</div>
+                        <div class="eb-type-body !text-[var(--eb-text-primary)]" id="ebE3RunSummaryUploaded">-</div>
+                    </div>
+                    <div>
+                        <div class="eb-field-label">Downloaded</div>
+                        <div class="eb-type-body !text-[var(--eb-text-primary)]" id="ebE3RunSummaryDownloaded">-</div>
                     </div>
                     <div>
                         <div class="eb-field-label">Started</div>

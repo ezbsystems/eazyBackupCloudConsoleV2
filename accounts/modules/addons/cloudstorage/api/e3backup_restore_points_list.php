@@ -149,6 +149,65 @@ function classifyRestorePointRestorable(object $point): array
     ];
 }
 
+/**
+ * Resolve snapshot manifest from a run row (schema may use manifest_id, log_ref, or stats_json).
+ */
+function extractManifestIdFromRun(object $run): string
+{
+    if (isset($run->manifest_id) && trim((string) $run->manifest_id) !== '') {
+        return trim((string) $run->manifest_id);
+    }
+    if (isset($run->log_ref) && trim((string) $run->log_ref) !== '') {
+        return trim((string) $run->log_ref);
+    }
+    if (!empty($run->stats_json)) {
+        $stats = is_string($run->stats_json) ? json_decode($run->stats_json, true) : $run->stats_json;
+        if (is_array($stats) && !empty($stats['manifest_id'])) {
+            return trim((string) $stats['manifest_id']);
+        }
+    }
+    return '';
+}
+
+/**
+ * Build select list and snapshot filter for s3_cloudbackup_runs (manifest column varies by migration).
+ *
+ * @return array{0: array, 1: callable|null} [select columns, optional query mutator]
+ */
+function buildSuccessfulRunSnapshotQueryParts(bool $hasRunIdCol, bool $hasRunFinishedAt): array
+{
+    $hasManifestCol = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'manifest_id');
+    $hasLogRefCol = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'log_ref');
+
+    $runSelect = ['started_at', 'stats_json'];
+    if ($hasRunFinishedAt) {
+        $runSelect[] = 'finished_at';
+    }
+    if ($hasManifestCol) {
+        $runSelect[] = 'manifest_id';
+    } elseif ($hasLogRefCol) {
+        $runSelect[] = 'log_ref';
+    }
+    if ($hasRunIdCol) {
+        $runSelect[] = Capsule::raw('BIN_TO_UUID(run_id) as run_id');
+    } else {
+        $runSelect[] = 'id as run_id';
+    }
+
+    $filter = null;
+    if ($hasManifestCol) {
+        $filter = static function ($query) {
+            $query->whereNotNull('manifest_id')->where('manifest_id', '!=', '');
+        };
+    } elseif ($hasLogRefCol) {
+        $filter = static function ($query) {
+            $query->whereNotNull('log_ref')->where('log_ref', '!=', '');
+        };
+    }
+
+    return [$runSelect, $filter];
+}
+
 $fromDate = parseDateBound($fromDateRaw, false);
 $toDate = parseDateBound($toDateRaw, true);
 
@@ -404,6 +463,232 @@ try {
               ->orWhere('a.hostname', 'like', '%' . $search . '%')
               ->orWhere('b.name', 'like', '%' . $search . '%');
         });
+    }
+
+    $includeAllSnapshots = ($jobFilterRaw !== '');
+    if (isset($_GET['include_all_snapshots']) && (string) $_GET['include_all_snapshots'] === '0') {
+        $includeAllSnapshots = false;
+    }
+
+    if ($includeAllSnapshots && $jobFilterRaw !== '' && UuidBinary::isUuid($jobFilterRaw) && $hasJobIdPk) {
+        $jobIdNorm = UuidBinary::normalize($jobFilterRaw);
+        $jobRow = Capsule::table('s3_cloudbackup_jobs')
+            ->where('client_id', $clientId)
+            ->whereRaw('job_id = ' . UuidBinary::toDbExpr($jobIdNorm))
+            ->first();
+
+        if (!$jobRow) {
+            (new JsonResponse(['status' => 'fail', 'message' => 'Job not found'], 404))->send();
+            exit;
+        }
+
+        $retentionKeepLast = null;
+        if (!empty($jobRow->retention_json)) {
+            $retentionJson = is_string($jobRow->retention_json)
+                ? json_decode($jobRow->retention_json, true)
+                : $jobRow->retention_json;
+            if (is_array($retentionJson) && isset($retentionJson['keep_last'])) {
+                $retentionKeepLast = (int) $retentionJson['keep_last'];
+            }
+        }
+
+        $catalogPoints = $query->orderByDesc('rp.created_at')->limit(500)->get();
+        foreach ($catalogPoints as $point) {
+            $classification = classifyRestorePointRestorable($point);
+            $point->is_restorable = (bool) $classification['is_restorable'];
+            $point->non_restorable_reason = (string) $classification['reason'];
+            $point->tenant_deleted = (bool) ($point->tenant_deleted ?? false);
+            if ($point->tenant_deleted && (!isset($point->tenant_name) || trim((string) $point->tenant_name) === '')) {
+                $point->tenant_name = 'Deleted tenant';
+            }
+            $point->in_retention_catalog = true;
+            $point->catalog_pruned = false;
+            unset($point->storage_tenant_id, $point->agent_tenant_id, $point->backup_user_id, $point->agent_backup_user_id, $point->job_backup_user_id);
+        }
+
+        $catalogByManifest = [];
+        $catalogByRunId = [];
+        $usedCatalogIds = [];
+        foreach ($catalogPoints as $point) {
+            if (!empty($point->manifest_id)) {
+                $catalogByManifest[(string) $point->manifest_id] = $point;
+            }
+            if (!empty($point->run_id)) {
+                $catalogByRunId[(string) $point->run_id] = $point;
+            }
+        }
+
+        $hasRunIdCol = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'run_id');
+        $hasRunFinishedAt = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'finished_at');
+        [$runSelect, $runSnapshotFilter] = buildSuccessfulRunSnapshotQueryParts($hasRunIdCol, $hasRunFinishedAt);
+
+        $runsQuery = Capsule::table('s3_cloudbackup_runs')
+            ->where('status', 'success')
+            ->whereRaw('job_id = ' . UuidBinary::toDbExpr($jobIdNorm));
+        if ($runSnapshotFilter !== null) {
+            $runSnapshotFilter($runsQuery);
+        }
+        $runs = $runsQuery
+            ->orderByDesc($hasRunFinishedAt ? 'finished_at' : 'started_at')
+            ->limit(500)
+            ->get($runSelect);
+
+        if ($runSnapshotFilter === null) {
+            $runs = $runs->filter(static function ($run) {
+                return extractManifestIdFromRun($run) !== '';
+            })->values();
+        }
+
+        $agentHostname = null;
+        if (!empty($jobRow->agent_uuid) && $hasAgentsTable) {
+            $agentHostname = Capsule::table('s3_cloudbackup_agents')
+                ->where('agent_uuid', $jobRow->agent_uuid)
+                ->value('hostname');
+        }
+
+        $jobName = (string) ($jobRow->name ?? 'Unnamed job');
+        $jobEngine = (string) ($jobRow->engine ?? '');
+        $jobAgentUuid = (string) ($jobRow->agent_uuid ?? '');
+
+        $merged = [];
+        foreach ($runs as $run) {
+            $manifestId = extractManifestIdFromRun($run);
+            $runId = (string) ($run->run_id ?? '');
+            $point = $catalogByManifest[$manifestId] ?? null;
+            if ($point === null && $runId !== '') {
+                $point = $catalogByRunId[$runId] ?? null;
+            }
+
+            if ($point !== null) {
+                $catalogId = (int) ($point->id ?? 0);
+                if ($catalogId > 0) {
+                    $usedCatalogIds[$catalogId] = true;
+                }
+                $merged[] = $point;
+                continue;
+            }
+
+            $finishedAt = $hasRunFinishedAt ? ($run->finished_at ?? null) : null;
+            if ($finishedAt === null || $finishedAt === '') {
+                $finishedAt = $run->started_at ?? null;
+            }
+
+            $synthetic = (object) [
+                'id' => null,
+                'client_id' => $clientId,
+                'job_id' => $jobIdNorm,
+                'job_name' => $jobName,
+                'run_id' => $runId !== '' ? $runId : null,
+                'engine' => $jobEngine,
+                'status' => 'success',
+                'manifest_id' => $manifestId,
+                'agent_uuid' => $jobAgentUuid,
+                'agent_hostname' => $agentHostname,
+                'source_display_name' => $jobRow->source_path ?? null,
+                'source_path' => $jobRow->source_path ?? null,
+                'finished_at' => $finishedAt,
+                'created_at' => $run->started_at ?? $finishedAt,
+                'in_retention_catalog' => false,
+                'catalog_pruned' => true,
+                'is_restorable' => false,
+                'non_restorable_reason' => 'Not in retention catalog (snapshot may still exist in repository)',
+                'tenant_deleted' => false,
+            ];
+            $merged[] = $synthetic;
+        }
+
+        foreach ($catalogPoints as $point) {
+            $catalogId = (int) ($point->id ?? 0);
+            if ($catalogId > 0 && !isset($usedCatalogIds[$catalogId])) {
+                $merged[] = $point;
+            }
+        }
+
+        if ($agentFilter !== null && $agentFilter !== '') {
+            $merged = array_values(array_filter($merged, static function ($point) use ($agentFilter) {
+                return (string) ($point->agent_uuid ?? '') === (string) $agentFilter;
+            }));
+        }
+
+        if ($engineFilter && is_string($engineFilter)) {
+            $merged = array_values(array_filter($merged, static function ($point) use ($engineFilter) {
+                return strtolower((string) ($point->engine ?? '')) === strtolower($engineFilter);
+            }));
+        }
+
+        if ($search !== '') {
+            $needle = strtolower($search);
+            $merged = array_values(array_filter($merged, static function ($point) use ($needle) {
+                $haystacks = [
+                    (string) ($point->job_name ?? ''),
+                    (string) ($point->manifest_id ?? ''),
+                    (string) ($point->hyperv_vm_name ?? ''),
+                    (string) ($point->source_display_name ?? ''),
+                    (string) ($point->agent_hostname ?? ''),
+                    (string) ($point->dest_bucket_name ?? ''),
+                ];
+                foreach ($haystacks as $haystack) {
+                    if ($haystack !== '' && strpos(strtolower($haystack), $needle) !== false) {
+                        return true;
+                    }
+                }
+                return false;
+            }));
+        }
+
+        if ($fromDate || $toDate) {
+            $merged = array_values(array_filter($merged, static function ($point) use ($fromDate, $toDate) {
+                $ts = (string) ($point->finished_at ?? $point->created_at ?? '');
+                if ($ts === '') {
+                    return false;
+                }
+                if ($fromDate && $ts < $fromDate) {
+                    return false;
+                }
+                if ($toDate && $ts > $toDate) {
+                    return false;
+                }
+                return true;
+            }));
+        }
+
+        usort($merged, static function ($a, $b) {
+            $aTs = (string) ($a->finished_at ?? $a->created_at ?? '');
+            $bTs = (string) ($b->finished_at ?? $b->created_at ?? '');
+            return strcmp($bTs, $aTs);
+        });
+
+        $beyondRetentionCount = 0;
+        $catalogCount = 0;
+        foreach ($merged as $point) {
+            if (!empty($point->catalog_pruned)) {
+                $beyondRetentionCount++;
+            }
+            if (!empty($point->in_retention_catalog)) {
+                $catalogCount++;
+            }
+        }
+
+        $totalMerged = count($merged);
+        $pageSlice = array_slice($merged, $offset, $limit + 1);
+        $hasMore = count($pageSlice) > $limit;
+        if ($hasMore) {
+            $pageSlice = array_slice($pageSlice, 0, $limit);
+        }
+
+        (new JsonResponse([
+            'status' => 'success',
+            'restore_points' => array_values($pageSlice),
+            'has_more' => $hasMore,
+            'next_offset' => $hasMore ? ($offset + $limit) : null,
+            'snapshot_meta' => [
+                'total_snapshots' => $totalMerged,
+                'catalog_count' => $catalogCount,
+                'beyond_retention_count' => $beyondRetentionCount,
+                'retention_keep_last' => $retentionKeepLast,
+            ],
+        ], 200))->send();
+        exit;
     }
 
     $points = $query

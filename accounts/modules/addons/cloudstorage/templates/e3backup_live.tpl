@@ -297,6 +297,39 @@
             </div>
         </div>
     </div>
+
+    <div id="copyLogsModal"
+         class="fixed inset-0 z-[2200] hidden items-center justify-center p-4"
+         role="dialog"
+         aria-modal="true"
+         aria-labelledby="copyLogsModalTitle"
+         aria-describedby="copyLogsModalMessage">
+        <div class="eb-modal-backdrop absolute inset-0" onclick="closeCopyLogsModal()" aria-hidden="true"></div>
+        <div class="eb-modal eb-modal--confirm relative z-10 !p-0 overflow-hidden" onclick="event.stopPropagation()">
+            <div class="eb-modal-header">
+                <div>
+                    <h3 class="eb-modal-title" id="copyLogsModalTitle">Logs copied</h3>
+                    <p class="eb-modal-subtitle" id="copyLogsModalMessage">Log lines were copied to your clipboard.</p>
+                </div>
+                <button type="button" class="eb-modal-close" onclick="closeCopyLogsModal()" aria-label="Close copy confirmation">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
+            </div>
+            <div class="eb-modal-body">
+                <div class="eb-alert eb-alert--success">
+                    <svg class="eb-alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/>
+                    </svg>
+                    <div>You can paste the copied logs into a ticket or support request.</div>
+                </div>
+            </div>
+            <div class="eb-modal-footer">
+                <button type="button" class="eb-btn eb-btn-primary eb-btn-sm" onclick="closeCopyLogsModal()">OK</button>
+            </div>
+        </div>
+    </div>
 {/capture}
 
 {include
@@ -348,8 +381,9 @@ const STAGE_FALLBACKS = {
 
 const TERMINAL_STATUSES = ['success', 'failed', 'cancelled', 'warning', 'partial_success'];
 
-let durationStartMs = null;
-let durationEndMs = null;
+window.__ebE3ServerTz = '{$server_timezone|default:'UTC'|escape:'javascript'}';
+let durationStartMs = {if $started_at_epoch_ms}{$started_at_epoch_ms}{else}null{/if};
+let durationEndMs = {if $finished_at_epoch_ms}{$finished_at_epoch_ms}{else}null{/if};
 let durationTimer = null;
 let isPaused = false;
 let logEntries = [];
@@ -407,17 +441,33 @@ const etaModel = {
 
 function parseRunTimestamp(value) {
     if (!value) return null;
+    if (typeof value === 'number' && !isNaN(value)) {
+        return value < 1e12 ? value * 1000 : value;
+    }
     const raw = String(value).trim();
     if (!raw) return null;
+    if (/^\d+$/.test(raw)) {
+        const n = parseInt(raw, 10);
+        return n < 1e12 ? n * 1000 : n;
+    }
     if (raw.includes('T')) {
         const parsed = Date.parse(raw);
         return isNaN(parsed) ? null : parsed;
     }
-    const iso = raw.replace(' ', 'T') + 'Z';
+    const iso = raw.replace(' ', 'T');
     const parsed = Date.parse(iso);
     if (!isNaN(parsed)) return parsed;
     const fallback = Date.parse(raw);
     return isNaN(fallback) ? null : fallback;
+}
+
+function resolveRunEpochMs(run, field, epochField) {
+    if (!run) return null;
+    if (run[epochField] !== undefined && run[epochField] !== null) {
+        const n = Number(run[epochField]);
+        if (!isNaN(n) && n > 0) return n;
+    }
+    return parseRunTimestamp(run[field]);
 }
 
 (function initCancelButton() {
@@ -474,7 +524,7 @@ function updateProgress() {
                     progressPct = Math.min(100, (run.objects_transferred / run.objects_total) * 100);
                 } else {
                     if (!etaModel.startMs) {
-                        const parsed = parseRunTimestamp(run.started_at);
+                        const parsed = resolveRunEpochMs(run, 'started_at', 'started_at_epoch_ms');
                         etaModel.startMs = parsed || Date.now();
                     }
                     const nowMs = Date.now();
@@ -1226,6 +1276,22 @@ function clearLogs() {
     renderLogPage();
 }
 
+function showCopyLogsModal() {
+    const modal = document.getElementById('copyLogsModal');
+    if (!modal) return;
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+    document.body.classList.add('eb-modal-open');
+}
+
+function closeCopyLogsModal() {
+    const modal = document.getElementById('copyLogsModal');
+    if (!modal) return;
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
+    document.body.classList.remove('eb-modal-open');
+}
+
 function copyLogs() {
     const liveLogsContainer = document.getElementById('liveLogs');
     if (!liveLogsContainer) return;
@@ -1241,7 +1307,7 @@ function copyLogs() {
     if (!text) return;
     if (navigator.clipboard && navigator.clipboard.writeText) {
         navigator.clipboard.writeText(text).then(() => {
-            alert('Logs copied to clipboard');
+            showCopyLogsModal();
         }).catch(() => {
             fallbackCopy(text);
         });
@@ -1259,7 +1325,7 @@ function copyLogs() {
         textarea.select();
         document.execCommand('copy');
         document.body.removeChild(textarea);
-        alert('Logs copied to clipboard');
+        showCopyLogsModal();
     }
 }
 
@@ -1297,7 +1363,7 @@ function formatDurationFromMs(ms) {
 
 function ensureDurationStart(run) {
     if (durationStartMs) return;
-    const parsed = parseRunTimestamp(run.started_at);
+    const parsed = resolveRunEpochMs(run, 'started_at', 'started_at_epoch_ms');
     durationStartMs = parsed || Date.now();
 }
 
@@ -1328,7 +1394,7 @@ function updateDuration(run) {
     const isTerminal = TERMINAL_STATUSES.includes(run.status);
     if (isTerminal) {
         if (!durationEndMs) {
-            const finished = parseRunTimestamp(run.finished_at);
+            const finished = resolveRunEpochMs(run, 'finished_at', 'finished_at_epoch_ms');
             durationEndMs = finished || now;
         }
         stopDurationTicker();

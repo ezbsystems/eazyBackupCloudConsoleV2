@@ -87,6 +87,26 @@ if (!empty($run['stats_json'])) {
     }
 }
 
+$serverTimezone = date_default_timezone_get() ?: 'UTC';
+$startedAtEpochMs = null;
+$finishedAtEpochMs = null;
+if (!empty($run['started_at'])) {
+    try {
+        $dt = new \DateTime((string) $run['started_at'], new \DateTimeZone($serverTimezone));
+        $startedAtEpochMs = (int) ($dt->getTimestamp() * 1000);
+    } catch (\Throwable $e) {
+        $startedAtEpochMs = null;
+    }
+}
+if (!empty($run['finished_at'])) {
+    try {
+        $dt = new \DateTime((string) $run['finished_at'], new \DateTimeZone($serverTimezone));
+        $finishedAtEpochMs = (int) ($dt->getTimestamp() * 1000);
+    } catch (\Throwable $e) {
+        $finishedAtEpochMs = null;
+    }
+}
+
 return [
     'run' => $run,
     'job' => $job,
@@ -95,5 +115,8 @@ return [
     'is_restore' => $isRestore,
     'is_hyperv_restore' => $isHypervRestore,
     'restore_metadata' => $restoreMetadata,
+    'server_timezone' => $serverTimezone,
+    'started_at_epoch_ms' => $startedAtEpochMs,
+    'finished_at_epoch_ms' => $finishedAtEpochMs,
 ];
 

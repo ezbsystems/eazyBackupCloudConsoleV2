@@ -98,6 +98,24 @@
                 </div>
             </div>
 
+            <div x-show="snapshotMeta && snapshotMeta.beyond_retention_count > 0"
+                 x-cloak
+                 class="eb-alert eb-alert--info"
+                 style="display: none;">
+                <svg class="eb-alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 16v-4m0-4h.01M22 12A10 10 0 1 1 2 12a10 10 0 0 1 20 0Z"/>
+                </svg>
+                <div>
+                    Showing <strong x-text="snapshotMeta.total_snapshots"></strong> snapshots.
+                    <template x-if="snapshotMeta.retention_keep_last">
+                        <span> Retention policy keeps <strong x-text="snapshotMeta.retention_keep_last"></strong> in the restore catalog; <strong x-text="snapshotMeta.beyond_retention_count"></strong> older snapshot(s) are shown for reference but cannot be restored from this list.</span>
+                    </template>
+                    <template x-if="!snapshotMeta.retention_keep_last">
+                        <span> <strong x-text="snapshotMeta.beyond_retention_count"></strong> snapshot(s) are beyond the retention catalog and cannot be restored from this list.</span>
+                    </template>
+                </div>
+            </div>
+
             <div class="eb-table-shell">
                 <table class="eb-table">
                     <thead>
@@ -139,8 +157,18 @@
                             <tr>
                                 <td colspan="8">
                                     <div class="eb-app-empty !py-8">
-                                        <div class="eb-app-empty-title">No restore points match the current filters</div>
-                                        <p class="eb-app-empty-copy">Try clearing the date range, picking a different job, or switching the agent.</p>
+                                        <template x-if="selectedJobId && !agentFilter && !searchQuery && !dateFrom && !dateTo">
+                                            <div>
+                                                <div class="eb-app-empty-title">No snapshots for this job</div>
+                                                <p class="eb-app-empty-copy">This job has no successful backup runs with a manifest yet. Run a backup first, or pick another job.</p>
+                                            </div>
+                                        </template>
+                                        <template x-if="!(selectedJobId && !agentFilter && !searchQuery && !dateFrom && !dateTo)">
+                                            <div>
+                                                <div class="eb-app-empty-title">No restore points match the current filters</div>
+                                                <p class="eb-app-empty-copy">Try clearing the date range, picking a different job, or switching the agent.</p>
+                                            </div>
+                                        </template>
                                     </div>
                                 </td>
                             </tr>
@@ -150,6 +178,9 @@
                                 <td class="eb-table-primary">
                                     <div class="font-medium text-[var(--eb-text-primary)]" x-text="point.job_name || 'Unnamed job'"></div>
                                     <div class="text-xs text-[var(--eb-text-muted)]" x-text="point.manifest_id || 'No manifest'"></div>
+                                    <span x-show="point.catalog_pruned"
+                                          class="eb-badge eb-badge--warning mt-1 inline-flex"
+                                          title="Snapshot exists in backup history but is not in the retention catalog">Beyond retention</span>
                                     <div class="text-xs text-[var(--eb-text-secondary)]" x-show="point.hyperv_vm_name">VM: <span x-text="point.hyperv_vm_name"></span></div>
                                 </td>
                                 <td x-text="point.agent_hostname || point.agent_uuid || '—'"></td>
@@ -391,6 +422,7 @@
 function userRestoreTabApp() {
     return {
         restorePoints: [],
+        snapshotMeta: null,
         loading: true,
         agentFilter: '',
         selectedJobId: '',
@@ -593,6 +625,7 @@ function userRestoreTabApp() {
             // fall back to the guided empty state without hitting the API.
             if (!this.hasActiveFilter) {
                 this.restorePoints = [];
+                this.snapshotMeta = null;
                 this.loading = false;
                 this.hasMore = false;
                 this.offset = 0;
@@ -606,7 +639,10 @@ function userRestoreTabApp() {
             try {
                 const params = new URLSearchParams();
                 params.set('user_id', String(this.scopeUserId));
-                if (this.selectedJobId) params.set('job_id', this.selectedJobId);
+                if (this.selectedJobId) {
+                    params.set('job_id', this.selectedJobId);
+                    params.set('include_all_snapshots', '1');
+                }
                 if (this.agentFilter) params.set('agent_uuid', this.agentFilter);
                 if (this.searchQuery) params.set('search', this.searchQuery);
                 if (this.dateFrom) params.set('from_date', this.dateFrom);
@@ -621,10 +657,12 @@ function userRestoreTabApp() {
                     this.restorePoints = reset ? rows : [...this.restorePoints, ...rows];
                     this.hasMore = !!data.has_more;
                     this.offset = data.next_offset !== null && data.next_offset !== undefined ? data.next_offset : 0;
+                    this.snapshotMeta = reset ? (data.snapshot_meta || null) : (data.snapshot_meta || this.snapshotMeta);
                 } else {
                     console.error(data.message || 'Failed to load restore points');
                     this.restorePoints = reset ? [] : this.restorePoints;
                     this.hasMore = false;
+                    if (reset) this.snapshotMeta = null;
                 }
             } catch (error) {
                 console.error('Failed to load restore points:', error);

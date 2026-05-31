@@ -163,6 +163,26 @@ if ($isTerminalState) {
     ], 'H5', $debugLogPath);
 }
 
+$serverTimezone = date_default_timezone_get() ?: 'UTC';
+$startedAtEpochMs = null;
+$finishedAtEpochMs = null;
+if (!empty($run['started_at'])) {
+    try {
+        $dt = new \DateTime((string) $run['started_at'], new \DateTimeZone($serverTimezone));
+        $startedAtEpochMs = (int) ($dt->getTimestamp() * 1000);
+    } catch (\Throwable $e) {
+        $startedAtEpochMs = null;
+    }
+}
+if (!empty($run['finished_at'])) {
+    try {
+        $dt = new \DateTime((string) $run['finished_at'], new \DateTimeZone($serverTimezone));
+        $finishedAtEpochMs = (int) ($dt->getTimestamp() * 1000);
+    } catch (\Throwable $e) {
+        $finishedAtEpochMs = null;
+    }
+}
+
 $jsonData = [
     'status' => 'success',
     'run' => [
@@ -183,6 +203,8 @@ $jsonData = [
         'current_item' => $run['current_item'],
         'started_at' => $run['started_at'],
         'finished_at' => $run['finished_at'],
+        'started_at_epoch_ms' => $startedAtEpochMs,
+        'finished_at_epoch_ms' => $finishedAtEpochMs,
         'log_excerpt' => $run['log_excerpt'] ?? '',
         'log_lines' => $logLines, // Raw lines for fallback
         'formatted_log_excerpt' => $formattedLog, // Formatted full excerpt (null if unchanged by hash)
