@@ -834,8 +834,14 @@ class Provisioner
      *
      * Returns the redirect URL the caller should send the user to.
      */
-    public static function provisionE3CloudBackup(int $clientId, string $username, string $password): string
+    public static function provisionE3CloudBackup(int $clientId, string $username, string $password, array $opts = []): string
     {
+        // Existing-customer onboarding: the client already pays for their e3
+        // object storage and is simply opting into the beta backup product.
+        // We skip the per-service 30-day trial and the storage due-date
+        // deferral so their existing object storage keeps billing normally.
+        $isExistingClient = !empty($opts['existing']);
+
         $bootstrapPath = __DIR__ . '/E3CloudBackupProductBootstrap.php';
         if (is_file($bootstrapPath)) {
             require_once $bootstrapPath;
@@ -920,14 +926,18 @@ class Provisioner
         }
 
         // Step 4 + 5: create trial state and push nextduedate out.
+        // For existing customers we skip both: they are not on a new trial and
+        // their object storage continues to bill on its normal schedule.
         $trialDays = (int) self::getSetting('e3cb_trial_days', 30);
         if ($trialDays <= 0) {
             $trialDays = 30;
         }
-        try {
-            \WHMCS\Module\Addon\CloudStorage\Admin\E3CloudBackupTrial::startTrial($serviceId, $clientId, $trialDays);
-        } catch (\Throwable $e) {
-            try { logModuleCall('cloudstorage', 'provision_e3cb_start_trial_fail', ['service_id' => $serviceId], $e->getMessage()); } catch (\Throwable $_) {}
+        if (!$isExistingClient) {
+            try {
+                \WHMCS\Module\Addon\CloudStorage\Admin\E3CloudBackupTrial::startTrial($serviceId, $clientId, $trialDays);
+            } catch (\Throwable $e) {
+                try { logModuleCall('cloudstorage', 'provision_e3cb_start_trial_fail', ['service_id' => $serviceId], $e->getMessage()); } catch (\Throwable $_) {}
+            }
         }
 
         try {
@@ -935,6 +945,8 @@ class Provisioner
             $nextDue = new \DateTime('now', $tz);
             $nextDue->add(new \DateInterval("P{$trialDays}D"));
             $formattedDue = $nextDue->format('Y-m-d');
+            // The e3 Cloud Backup service itself is always $0 recurring (usage is
+            // line-itemised); keep it Active regardless of client type.
             Capsule::table('tblhosting')
                 ->where('id', $serviceId)
                 ->update([
@@ -945,17 +957,20 @@ class Provisioner
                 ]);
 
             // Mirror the trial end on the storage product too so WHMCS doesn't
-            // invoice storage early.
-            $storagePid = (int) self::getSetting('pid_cloud_storage', 0);
-            if ($storagePid > 0) {
-                Capsule::table('tblhosting')
-                    ->where('userid', $clientId)
-                    ->where('packageid', $storagePid)
-                    ->whereIn('domainstatus', ['Active', 'Pending'])
-                    ->update([
-                        'nextduedate'     => $formattedDue,
-                        'nextinvoicedate' => $formattedDue,
-                    ]);
+            // invoice storage early — but only for new trial customers. An
+            // existing customer's storage must keep its current billing dates.
+            if (!$isExistingClient) {
+                $storagePid = (int) self::getSetting('pid_cloud_storage', 0);
+                if ($storagePid > 0) {
+                    Capsule::table('tblhosting')
+                        ->where('userid', $clientId)
+                        ->where('packageid', $storagePid)
+                        ->whereIn('domainstatus', ['Active', 'Pending'])
+                        ->update([
+                            'nextduedate'     => $formattedDue,
+                            'nextinvoicedate' => $formattedDue,
+                        ]);
+                }
             }
         } catch (\Throwable $e) {
             try { logModuleCall('cloudstorage', 'provision_e3cb_anchor_due_fail', ['service_id' => $serviceId], $e->getMessage()); } catch (\Throwable $_) {}

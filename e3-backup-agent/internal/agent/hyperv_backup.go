@@ -147,6 +147,139 @@ func (p *hypervProgressTracker) reportProgress(force bool) {
 	})
 }
 
+// startHyperVFinalizeHeartbeat keeps the run "alive" in the UI during the
+// post-upload finalization steps (checkpoint merge, reference-point pinning).
+// These steps can run for several minutes — the online AVHDX merge of a
+// running VM in particular scales with the guest writes accumulated during
+// the upload window — yet they emit no upload progress, so without this the
+// UI appears frozen at ~99.9%.
+//
+// The heartbeat refreshes the run's CurrentItem with an elapsed-time label
+// and emits a lightweight progress event on a fixed cadence. It deliberately
+// does NOT send ProgressPct (left zero so omitempty drops it), preserving the
+// progress value the upload tracker last reported. Returns a stop function
+// that must be called (typically via defer) when the step finishes.
+func (r *Runner) startHyperVFinalizeHeartbeat(ctx context.Context, runID, vmName, phase string) func() {
+	start := time.Now()
+	done := make(chan struct{})
+	var once sync.Once
+
+	// Immediate first update so the UI flips to the finalize label without
+	// waiting for the first tick.
+	r.reportHyperVFinalize(runID, vmName, phase, 0)
+
+	go func() {
+		ticker := time.NewTicker(15 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-done:
+				return
+			case <-ticker.C:
+				r.reportHyperVFinalize(runID, vmName, phase, time.Since(start))
+			}
+		}
+	}()
+
+	return func() { once.Do(func() { close(done) }) }
+}
+
+// startHyperVMergeHeartbeat is a merge-specific finalize heartbeat that
+// reports REAL progress: it samples the attached AVHDX size (which shrinks as
+// Hyper-V folds the differencing disk back into its parent) and surfaces the
+// remaining megabytes plus a derived percentage. This turns the previously
+// opaque post-upload "stall" at ~99.9% into an observable "merging checkpoint
+// — N MB left (P%)" status. Falls back to an elapsed-time label whenever the
+// AVHDX size cannot be sampled. Returns a stop function to call when done.
+func (r *Runner) startHyperVMergeHeartbeat(ctx context.Context, mgr *hyperv.Manager, runID, vmName string) func() {
+	start := time.Now()
+	done := make(chan struct{})
+	var once sync.Once
+
+	// Capture the starting AVHDX size so we can express progress as a
+	// percentage of what needs to be merged.
+	initialBytes, _ := mgr.GetAttachedAvhdxBytes(ctx, vmName)
+
+	report := func() {
+		elapsed := time.Since(start)
+		remaining, err := mgr.GetAttachedAvhdxBytes(ctx, vmName)
+		if err != nil || initialBytes <= 0 {
+			r.reportHyperVFinalize(runID, vmName, "merging backup checkpoint", elapsed)
+			return
+		}
+		mergedPct := 0.0
+		if initialBytes > 0 {
+			mergedPct = math.Min(100.0, float64(initialBytes-remaining)/float64(initialBytes)*100.0)
+			if mergedPct < 0 {
+				mergedPct = 0
+			}
+		}
+		item := fmt.Sprintf("Finalizing %s: merging backup checkpoint — %d MB left (%.0f%%, %ds)",
+			vmName, remaining/(1024*1024), mergedPct, int(elapsed.Seconds()))
+		_ = r.client.UpdateRun(RunUpdate{RunID: runID, Status: "running", CurrentItem: item})
+		r.pushEvents(runID, RunEvent{
+			Type:      "progress",
+			Level:     "info",
+			MessageID: "HYPERV_FINALIZING",
+			ParamsJSON: map[string]any{
+				"vm_name":           vmName,
+				"phase":             "merging backup checkpoint",
+				"elapsed_seconds":   int(elapsed.Seconds()),
+				"avhdx_bytes_left":  remaining,
+				"avhdx_bytes_total": initialBytes,
+				"merged_pct":        mergedPct,
+				"message":           item,
+			},
+		})
+	}
+
+	report() // immediate first update
+	go func() {
+		ticker := time.NewTicker(10 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-done:
+				return
+			case <-ticker.C:
+				report()
+			}
+		}
+	}()
+	return func() { once.Do(func() { close(done) }) }
+}
+
+// reportHyperVFinalize pushes a single finalization status update + event.
+func (r *Runner) reportHyperVFinalize(runID, vmName, phase string, elapsed time.Duration) {
+	item := fmt.Sprintf("Finalizing %s: %s", vmName, phase)
+	elapsedSecs := int(elapsed.Seconds())
+	if elapsedSecs >= 1 {
+		item = fmt.Sprintf("Finalizing %s: %s (%ds)", vmName, phase, elapsedSecs)
+	}
+	// ProgressPct intentionally omitted (0 -> dropped by omitempty) so we keep
+	// the last upload progress value instead of resetting the bar.
+	_ = r.client.UpdateRun(RunUpdate{
+		RunID:       runID,
+		Status:      "running",
+		CurrentItem: item,
+	})
+	r.pushEvents(runID, RunEvent{
+		Type:      "progress",
+		Level:     "info",
+		MessageID: "HYPERV_FINALIZING",
+		ParamsJSON: map[string]any{
+			"vm_name":         vmName,
+			"phase":           phase,
+			"elapsed_seconds": elapsedSecs,
+			"message":         item,
+		},
+	})
+}
+
 // runHyperV executes a Hyper-V VM backup job.
 func (r *Runner) runHyperV(run *NextRunResponse) error {
 	startedAt := time.Now().UTC()
@@ -774,8 +907,23 @@ func (r *Runner) backupHyperVVM(
 	// uses GetVirtualDiskChanges with this RCT ID, picking up only
 	// whatever changes occur from now on.
 	if checkpoint != nil {
-		if err := mgr.MergeCheckpoint(ctx, vmRun.VMName, checkpoint.ID); err != nil {
-			log.Printf("agent: hyperv warning: failed to merge checkpoint for %s: %v", vmRun.VMName, err)
+		// The online AVHDX merge of a running VM is the dominant cost of the
+		// finalization phase and produces no upload progress; surface it with
+		// a heartbeat so the UI does not appear frozen at ~99.9%, and time it
+		// so the real per-step cost is measurable.
+		stopHB := r.startHyperVMergeHeartbeat(ctx, mgr, run.RunID, vmRun.VMName)
+		mergeStart := time.Now()
+		mergeErr := mgr.MergeCheckpoint(ctx, vmRun.VMName, checkpoint.ID)
+		stopHB()
+		mergeMs := time.Since(mergeStart).Milliseconds()
+		log.Printf("agent: hyperv checkpoint merge for %s completed in %dms", vmRun.VMName, mergeMs)
+		debugLog(run.RunID, "hyperv_checkpoint_merge_done", map[string]any{
+			"vm_name":     vmRun.VMName,
+			"duration_ms": mergeMs,
+			"error":       errString(mergeErr),
+		}, "HV1")
+		if mergeErr != nil {
+			log.Printf("agent: hyperv warning: failed to merge checkpoint for %s: %v", vmRun.VMName, mergeErr)
 		}
 	}
 
@@ -791,6 +939,15 @@ func (r *Runner) backupHyperVVM(
 		// Either yields a usable RCT generation for GetVirtualDiskChanges,
 		// so we can still pin the chain instead of forcing the next run
 		// back to Full.
+		//
+		// (Measured on the Server 2025 lab host, the application path is the
+		// one that succeeds — ~8s — while a standalone crash-consistent
+		// reference point is rejected with JobState=10; do NOT reorder these
+		// without re-measuring on the target host.) This step is wrapped with
+		// a finalize heartbeat so the brief WMI quiesce does not look frozen,
+		// and timed so its cost is visible relative to the checkpoint merge.
+		stopHB := r.startHyperVFinalizeHeartbeat(ctx, run.RunID, vmRun.VMName, "enabling change tracking")
+		rpStart := time.Now()
 		newRP, rpErr := mgr.CreateReferencePointWithConsistency(ctx, vmRun.VMName, hyperv.RefPointApplication)
 		if rpErr != nil {
 			log.Printf("agent: hyperv CreateReferencePoint(application) failed for %s, retrying crash-consistent: %v", vmRun.VMName, rpErr)
@@ -804,6 +961,14 @@ func (r *Runner) backupHyperVVM(
 				log.Printf("agent: hyperv reference point pinned crash-consistent for %s: %s", vmRun.VMName, newRP.InstanceID)
 			}
 		}
+		stopHB()
+		rpMs := time.Since(rpStart).Milliseconds()
+		log.Printf("agent: hyperv reference point step for %s completed in %dms (err=%v)", vmRun.VMName, rpMs, rpErr)
+		debugLog(run.RunID, "hyperv_reference_point_done", map[string]any{
+			"vm_name":     vmRun.VMName,
+			"duration_ms": rpMs,
+			"error":       errString(rpErr),
+		}, "HV1")
 		if rpErr != nil {
 			// keep the existing log above as the final failure marker.
 			//
@@ -1252,6 +1417,15 @@ func generateUserFriendlyVMError(vmName string, err error) string {
 	// Fallback: return a cleaned-up version of the error
 	return fmt.Sprintf("Backup of VM '%s' failed: %s. "+
 		"Please review the technical details or contact support if the issue persists.", vmName, simplifyError(err))
+}
+
+// errString returns the error message, or "" for a nil error. Used for
+// structured finalization timing logs.
+func errString(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
 }
 
 // simplifyError extracts a simpler message from complex error chains.

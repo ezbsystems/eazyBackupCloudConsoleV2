@@ -13,7 +13,7 @@
 {capture assign=ebE3Content}
 <div class="eb-section-stack"
      data-page="getting-started"
-     x-data="ebGettingStarted({$onboarding|json_encode|escape:'html'})"
+     x-data="ebGettingStarted({$onboarding|json_encode|escape:'html'}, {if $ebExistingClientOnboarding}true{else}false{/if})"
      x-init="init()">
 
     {* -------------------- Hero card -------------------- *}
@@ -258,11 +258,216 @@
     </template>
 </div>
 
+{if $ebE3NeedsProvision and not $ebE3BetaVisible}
+{* Unprovisioned client who is not part of the beta cohort. *}
+<div class="eb-alert eb-alert--info" style="margin-top:1rem;">
+    <div>
+        <div class="eb-alert-title">e3 Cloud Backup is not available yet</div>
+        <p class="eb-type-body">This product is currently in limited beta. Please contact support if you would like early access.</p>
+    </div>
+</div>
+{/if}
+
+{if $ebExistingClientOnboarding}
+{* Existing-customer onboarding: render the shared Beta + Username drawers and
+   force the Beta drawer open so the client confirms the notice, then sets a
+   backup username, then self-provisions in place. *}
+<div id="eb-onboarding-toast-container" class="pointer-events-none fixed right-4 top-4 z-[120] space-y-2"></div>
+
+{include file="modules/addons/cloudstorage/templates/partials/e3_onboarding_drawers.tpl" ebExistingClientOnboarding=true}
+
 {literal}
 <script>
-function ebGettingStarted(initialState) {
+(function () {
+    function ebDrawerState(overlayId, panelId, isOpen) {
+        var overlay = document.getElementById(overlayId);
+        var panel = document.getElementById(panelId);
+        if (!overlay || !panel) { return; }
+        if (isOpen) {
+            overlay.classList.remove('hidden');
+            requestAnimationFrame(function () {
+                panel.classList.remove('translate-x-full');
+                panel.classList.add('translate-x-0');
+            });
+            document.body.classList.add('overflow-hidden');
+            return;
+        }
+        panel.classList.add('translate-x-full');
+        panel.classList.remove('translate-x-0');
+        setTimeout(function () {
+            overlay.classList.add('hidden');
+            var beta = document.getElementById('eb-beta-overlay');
+            var setpw = document.getElementById('eb-setpw-overlay');
+            if (
+                (!setpw || setpw.classList.contains('hidden')) &&
+                (!beta || beta.classList.contains('hidden'))
+            ) {
+                document.body.classList.remove('overflow-hidden');
+            }
+        }, 300);
+    }
+
+    function ebShowToast(message, type) {
+        if (window.showToast && window.showToast !== ebShowToast) {
+            try { window.showToast(message, type); return; } catch (_) {}
+        }
+        var container = document.getElementById('eb-onboarding-toast-container');
+        if (!container || !message) { return; }
+        var state = 'eb-toast--info';
+        if (type === 'success') { state = 'eb-toast--success'; }
+        else if (type === 'error' || type === 'danger') { state = 'eb-toast--danger'; }
+        else if (type === 'warning') { state = 'eb-toast--warning'; }
+        var toast = document.createElement('div');
+        toast.className = 'pointer-events-auto eb-toast ' + state;
+        toast.textContent = message;
+        container.appendChild(toast);
+        setTimeout(function () {
+            if (toast.parentNode) { toast.parentNode.removeChild(toast); }
+        }, 5000);
+    }
+
+    function ebSetFieldError(id, message) {
+        var el = document.getElementById(id);
+        if (!el) { return; }
+        if (message) { el.textContent = message; el.classList.remove('hidden'); }
+        else { el.textContent = ''; el.classList.add('hidden'); }
+    }
+
+    function ebSetGeneralAlert(wrapperId, bodyId, message) {
+        var wrapper = document.getElementById(wrapperId);
+        var body = document.getElementById(bodyId);
+        if (!wrapper || !body) { return; }
+        if (message) { body.textContent = message; wrapper.classList.remove('hidden'); }
+        else { body.textContent = ''; wrapper.classList.add('hidden'); }
+    }
+
+    function ebDisableSubmit(disabled) {
+        var button = document.getElementById('eb-pw-submit');
+        if (button) { button.disabled = !!disabled; }
+    }
+
+    window.ebBetaOpen = function () { ebDrawerState('eb-beta-overlay', 'eb-beta-panel', true); };
+    window.ebBetaClose = function () { ebDrawerState('eb-beta-overlay', 'eb-beta-panel', false); };
+    window.ebPwOpen = function () { ebDrawerState('eb-setpw-overlay', 'eb-setpw-panel', true); };
+    window.ebPwClose = function () { ebDrawerState('eb-setpw-overlay', 'eb-setpw-panel', false); };
+
+    window.ebPreparePasswordUi = function () {
+        var usernameRow = document.getElementById('eb-username-row');
+        var title = document.getElementById('eb-setpw-title');
+        var subtitle = document.getElementById('eb-setpw-subtitle');
+        var submitBtn = document.getElementById('eb-pw-submit');
+        if (usernameRow) { usernameRow.classList.remove('hidden'); }
+        if (title) { title.textContent = 'Pick your e3 Cloud Backup agent username'; }
+        if (subtitle) {
+            subtitle.textContent = 'Choose the username your e3 Cloud Backup agent will use to sign in, then confirm your portal password. Your agent signs in with this username and your portal password.';
+        }
+        if (submitBtn) { submitBtn.textContent = 'Create account and continue'; }
+    };
+
+    window.ebBetaContinue = function () {
+        var ack = document.getElementById('eb-beta-ack');
+        if (!ack || !ack.checked) {
+            ebShowToast('Please acknowledge the beta notice to continue.', 'warning');
+            return;
+        }
+        ebBetaClose();
+        window.ebPreparePasswordUi();
+        setTimeout(window.ebPwOpen, 250);
+    };
+
+    window.ebPwSubmit = function (ev) {
+        if (ev && ev.preventDefault) { ev.preventDefault(); }
+        ebSetGeneralAlert('eb-pw-general-error', 'eb-pw-general-error-body', '');
+        ebSetFieldError('eb-err-username', '');
+        ebSetFieldError('eb-err-existing-pw', '');
+        ebDisableSubmit(true);
+
+        var username = (document.getElementById('eb-username') || { value: '' }).value || '';
+        var portalPw = (document.getElementById('eb-existing-portal-password') || { value: '' }).value || '';
+
+        var reUser = /^[A-Za-z0-9_.-]{8,}$/;
+        if (!reUser.test(username)) {
+            var um = 'Backup username must be at least 8 characters and may contain only a-z, A-Z, 0-9, _, ., -';
+            ebSetFieldError('eb-err-username', um);
+            ebShowToast(um, 'error');
+            ebDisableSubmit(false);
+            return false;
+        }
+        if (!portalPw) {
+            var pm = 'Please enter your portal password to continue.';
+            ebSetFieldError('eb-err-existing-pw', pm);
+            ebShowToast(pm, 'error');
+            ebDisableSubmit(false);
+            return false;
+        }
+
+        try {
+            if (window.ebShowLoader) {
+                var ebLoader = window.ebShowLoader(document.body, 'Setting up e3 Cloud Backup...');
+                if (ebLoader && ebLoader.style) { ebLoader.style.zIndex = '110'; }
+            }
+        } catch (_) {}
+
+        fetch('modules/addons/cloudstorage/api/setpassword_and_provision.php', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({
+                product_choice: 'e3backup',
+                existing_client: '1',
+                username: username,
+                new_password: portalPw
+            })
+        }).then(function (r) { return r.json(); }).then(function (data) {
+            if (data && data.status === 'success' && data.redirectUrl) {
+                ebPwClose();
+                window.location.href = data.redirectUrl;
+                return;
+            }
+            var errors = (data && data.errors) ? data.errors : {};
+            if (errors.username) { ebSetFieldError('eb-err-username', errors.username); }
+            if (errors.new_password) { ebSetFieldError('eb-err-existing-pw', errors.new_password); }
+            if (errors.general) { ebSetGeneralAlert('eb-pw-general-error', 'eb-pw-general-error-body', errors.general); }
+            if (!errors.general && !errors.username && !errors.new_password) {
+                ebSetGeneralAlert('eb-pw-general-error', 'eb-pw-general-error-body',
+                    (data && data.message) ? String(data.message) : 'Failed to provision e3 Cloud Backup.');
+            }
+        }).catch(function () {
+            ebSetGeneralAlert('eb-pw-general-error', 'eb-pw-general-error-body', 'Request failed. Please try again.');
+        }).finally(function () {
+            try { if (window.ebHideLoader) { window.ebHideLoader(document.body); } } catch (_) {}
+            ebDisableSubmit(false);
+        });
+        return false;
+    };
+
+    document.addEventListener('DOMContentLoaded', function () {
+        setTimeout(window.ebBetaOpen, 200);
+        document.addEventListener('keydown', function (event) {
+            if (event.key !== 'Escape') { return; }
+            var setpw = document.getElementById('eb-setpw-overlay');
+            if (setpw && !setpw.classList.contains('hidden')) { ebPwClose(); return; }
+            var beta = document.getElementById('eb-beta-overlay');
+            if (beta && !beta.classList.contains('hidden')) { ebBetaClose(); }
+        });
+    });
+})();
+</script>
+{/literal}
+{/if}
+
+{literal}
+<script>
+function ebGettingStarted(initialState, suppressTour) {
     return {
         state: initialState || { steps: { download:{complete:false}, agent_online:{complete:false,agent_count:0}, first_job:{complete:false,job_count:0}, first_run:{complete:false,run_count:0} }, completed_count: 0, total_count: 4, all_complete: false, tour_dismissed: false, tour_completed: false, tour_started: false },
+        // Existing-customer onboarding gate: while the Beta confirmation /
+        // Username drawers are still being completed (the e3 Cloud Backup
+        // service is not provisioned yet), suppress the driver.js tour so its
+        // full-screen overlay does not sit on top of the drawer and block it.
+        // After provisioning, the client returns here as a provisioned user
+        // (suppressTour=false) and the tour auto-starts normally.
+        suppressTour: !!suppressTour,
         pollTimer: null,
         init() {
             // Poll every 5 seconds while at least one step is incomplete.
@@ -278,7 +483,9 @@ function ebGettingStarted(initialState) {
                 }
             } catch (_) {}
             // Auto-start the tour on first visit unless dismissed/completed.
-            if (window.ebE3Tour && !this.state.tour_completed && !this.state.tour_dismissed) {
+            // Skip entirely for existing customers still confirming beta /
+            // creating their username (see suppressTour above).
+            if (!this.suppressTour && window.ebE3Tour && !this.state.tour_completed && !this.state.tour_dismissed) {
                 setTimeout(() => { window.ebE3Tour.maybeAutoStart(this.state); }, 300);
             }
         },

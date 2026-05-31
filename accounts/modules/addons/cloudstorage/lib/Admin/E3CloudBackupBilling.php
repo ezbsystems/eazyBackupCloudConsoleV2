@@ -209,6 +209,7 @@ class E3CloudBackupBilling
 
         $includedEndpoints = (int) self::getSetting('e3cb_included_endpoints', 0);
         $trialStatus = self::trialStatus($serviceId);
+        $betaFreeBilling = self::isBetaFreeBillingEnabled();
 
         $written = 0;
         foreach (E3CloudBackupPricing::METRICS as $metric) {
@@ -228,6 +229,11 @@ class E3CloudBackupBilling
                 // Zero the bill but keep the computed unit price visible.
                 $lineAmount = 0.0;
                 $source = 'trial_zeroed';
+            } elseif ($betaFreeBilling) {
+                // Global beta: zero the bill for all clients (existing +
+                // converted) while keeping the computed unit price visible.
+                $lineAmount = 0.0;
+                $source = 'beta_zeroed';
             }
 
             try {
@@ -336,6 +342,9 @@ class E3CloudBackupBilling
             if ($trialStatus === 'trialing') {
                 $effective = 0.0;
                 $source = 'trial_zeroed';
+            } elseif (self::isBetaFreeBillingEnabled()) {
+                $effective = 0.0;
+                $source = 'beta_zeroed';
             }
             $totalBillable += $effective;
 
@@ -583,6 +592,17 @@ class E3CloudBackupBilling
         }
         $configured = (int) self::getSetting('e3cb_currency_id', 1);
         return $configured > 0 ? $configured : 1;
+    }
+
+    /**
+     * Global beta switch. When enabled, every e3 Cloud Backup compute line is
+     * invoiced at $0.00 for ALL clients (existing + trial), while usage and
+     * rated lines continue to be recorded. Object storage is unaffected.
+     */
+    public static function isBetaFreeBillingEnabled(): bool
+    {
+        $val = self::getSetting('e3cb_beta_free_billing', '');
+        return in_array(strtolower((string) $val), ['on', 'yes', '1', 'true'], true);
     }
 
     private static function getSetting(string $key, $default = null)

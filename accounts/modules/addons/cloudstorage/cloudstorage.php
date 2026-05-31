@@ -587,6 +587,11 @@ function cloudstorage_config()
                 'Type' => 'yesno',
                 'Description' => 'If enabled, signed-in WHMCS admins (or SSO impersonation sessions) can force the e3 Cloud Backup card to appear by appending ?eb_beta=1.',
             ],
+            'e3cb_beta_free_billing' => [
+                'FriendlyName' => 'e3 Cloud Backup - Beta (zero all compute charges)',
+                'Type' => 'yesno',
+                'Description' => 'While enabled, e3 Cloud Backup compute lines (devices, disk image, guest VMs) are invoiced at $0.00 for ALL clients, both existing customers and new trials. Invoices are still generated and usage is still metered and recorded - only the billable amount is forced to zero. Object storage consumption is unaffected.',
+            ],
             'trial_skip_verification_emails' => [
                 'FriendlyName' => 'Trial - Skip Email Verification (Emails)',
                 'Type' => 'textarea',
@@ -1212,6 +1217,7 @@ function cloudstorage_ensure_e3cb_billing_schema(string $context = 'activate'): 
                     'tblpricing',
                     'flat_monthly',
                     'trial_zeroed',
+                    'beta_zeroed',
                 ]);
                 $table->text('notes')->nullable();
                 $table->timestamp('created_at')->useCurrent();
@@ -1223,6 +1229,22 @@ function cloudstorage_ensure_e3cb_billing_schema(string $context = 'activate'): 
             logModuleCall('cloudstorage', $context, [], 'Created s3_cloudbackup_rated_lines', [], []);
         } catch (\Throwable $e) {
             logModuleCall('cloudstorage', "{$context}_create_s3_cloudbackup_rated_lines", [], $e->getMessage(), [], []);
+        }
+    } else {
+        // Extend existing installs: the global beta-billing override writes a
+        // 'beta_zeroed' pricing_source, which must be a permitted ENUM value.
+        try {
+            $col = Capsule::selectOne("SHOW COLUMNS FROM `s3_cloudbackup_rated_lines` LIKE 'pricing_source'");
+            $type = is_object($col) ? (string) ($col->Type ?? '') : '';
+            if ($type !== '' && strpos($type, "'beta_zeroed'") === false) {
+                Capsule::statement(
+                    "ALTER TABLE `s3_cloudbackup_rated_lines` MODIFY `pricing_source` "
+                    . "ENUM('client_override','global_default','tblpricing','flat_monthly','trial_zeroed','beta_zeroed') NOT NULL"
+                );
+                logModuleCall('cloudstorage', $context, [], "Added beta_zeroed to s3_cloudbackup_rated_lines.pricing_source", [], []);
+            }
+        } catch (\Throwable $e) {
+            logModuleCall('cloudstorage', "{$context}_extend_rated_lines_enum", [], $e->getMessage(), [], []);
         }
     }
 
@@ -1628,7 +1650,38 @@ function cloudstorage_activate() {
         
         // Restore settings from backup if they exist
         cloudstorage_restore_settings();
-        
+
+        // Ensure the eb_run_id support ticket custom field exists (for the
+        // e3 run-log modal -> Open Ticket handoff). Admin-only text field
+        // attached to deptid=1 (Technical Support). Mirrors the eazybackup
+        // addon's eb_job_id field so the shared ticket-prefill drain works.
+        try {
+            $exists = Capsule::table('tblcustomfields')
+                ->where('type', 'support')
+                ->where('fieldname', 'eb_run_id')
+                ->exists();
+            if (!$exists) {
+                Capsule::table('tblcustomfields')->insert([
+                    'type'        => 'support',
+                    'relid'       => 1,
+                    'fieldname'   => 'eb_run_id',
+                    'fieldtype'   => 'text',
+                    'description' => 'Cloud Backup Run ID (auto-populated by e3 Cloud Backup)',
+                    'fieldoptions'=> '',
+                    'regexpr'     => '',
+                    'adminonly'   => 'on',
+                    'required'    => '',
+                    'showorder'   => '',
+                    'showinvoice' => '',
+                    'sortorder'   => 0,
+                    'created_at'  => date('Y-m-d H:i:s'),
+                    'updated_at'  => date('Y-m-d H:i:s'),
+                ]);
+            }
+        } catch (\Throwable $e) {
+            try { logModuleCall('cloudstorage', 'activate', [], 'eb_run_id custom field ensure failed: ' . $e->getMessage()); } catch (\Throwable $__) {}
+        }
+
         if (!Capsule::schema()->hasTable('s3_users')) {
             Capsule::schema()->create('s3_users', function ($table) {
                 $table->increments('id');
@@ -5610,6 +5663,11 @@ function cloudstorage_clientarea($vars) {
                     $pagetitle = 'e3 Cloud Backup - Jobs';
                     $templatefile = 'templates/e3backup_jobs';
                     $viewVars = require 'pages/e3backup_jobs.php';
+                    break;
+                case 'job_logs':
+                    $pagetitle = 'e3 Cloud Backup - Job Logs';
+                    $templatefile = 'templates/e3backup_job_logs';
+                    $viewVars = require 'pages/e3backup_job_logs.php';
                     break;
                 case 'runs':
                     $pagetitle = 'e3 Cloud Backup - Run History';

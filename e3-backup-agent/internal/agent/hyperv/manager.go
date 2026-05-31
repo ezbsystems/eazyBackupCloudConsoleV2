@@ -447,6 +447,39 @@ func (m *Manager) RemoveCheckpoint(ctx context.Context, vmName, checkpointID str
 	return m.MergeCheckpoint(ctx, vmName, checkpointID)
 }
 
+// GetAttachedAvhdxBytes returns the combined on-disk size of every
+// differencing disk (.avhdx/.avhd) currently attached to the VM. During an
+// online checkpoint merge this value shrinks toward zero as Hyper-V folds the
+// AVHDX back into its parent, so callers can use it to report real merge
+// progress instead of an opaque "still working" spinner. Returns 0 once no
+// differencing disk remains (i.e. the merge is complete).
+func (m *Manager) GetAttachedAvhdxBytes(ctx context.Context, vmName string) (int64, error) {
+	script := fmt.Sprintf(`
+$ErrorActionPreference = 'Stop'
+$vm = Get-VM -Name '%s' -ErrorAction Stop
+$total = [int64]0
+foreach ($d in (Get-VMHardDiskDrive -VM $vm)) {
+    if ($d.Path -match '\.avhdx?$') {
+        try { $total += (Get-Item -LiteralPath $d.Path -ErrorAction Stop).Length } catch {}
+    }
+}
+$total
+`, escapePSString(vmName))
+	out, err := m.runPS(ctx, script)
+	if err != nil {
+		return 0, fmt.Errorf("get attached avhdx bytes for %s: %w", vmName, err)
+	}
+	out = strings.TrimSpace(out)
+	if out == "" {
+		return 0, nil
+	}
+	var total int64
+	if _, err := fmt.Sscan(out, &total); err != nil {
+		return 0, fmt.Errorf("parse avhdx bytes %q: %w", out, err)
+	}
+	return total, nil
+}
+
 // GetCheckpoints returns all checkpoints for a VM.
 func (m *Manager) GetCheckpoints(ctx context.Context, vmName string) ([]CheckpointInfo, error) {
 	script := fmt.Sprintf(`

@@ -121,7 +121,16 @@
                 <tbody>
                     {if count($runs) > 0}
                         {foreach from=$runs item=run}
-                            <tr class="run-row cursor-pointer" data-run-id="{$run.run_id}" title="Click to view log">
+                            {capture assign=runSize}{if $run.bytes_transferred|@strlen}{\WHMCS\Module\Addon\CloudStorage\Client\HelperController::formatSizeUnitsPlain($run.bytes_transferred)}{else}—{/if}{/capture}
+                            {capture assign=runDuration}{if $run.started_at && $run.finished_at}{assign var="start" value=$run.started_at|strtotime}{assign var="end" value=$run.finished_at|strtotime}{assign var="dur" value=$end-$start}{if $dur < 60}{$dur}s{elseif $dur < 3600}{math equation="floor(x/60)" x=$dur}m {$dur%60}s{else}{math equation="floor(x/3600)" x=$dur}h {math equation="floor((x%3600)/60)" x=$dur}m{/if}{elseif $run.status eq 'running'}Running…{else}—{/if}{/capture}
+                            <tr class="run-row cursor-pointer"
+                                data-run-id="{$run.run_id}"
+                                data-status="{$run.status}"
+                                data-started="{if $run.started_at}{$run.started_at|date_format:"%d %b %Y %H:%M:%S"}{else}Queued{/if}"
+                                data-finished="{if $run.finished_at}{$run.finished_at|date_format:"%d %b %Y %H:%M:%S"}{else}—{/if}"
+                                data-size="{$runSize|trim}"
+                                data-duration="{$runDuration|trim}"
+                                title="Click to view log">
                                 <td class="eb-table-primary">
                                     {if $run.started_at}
                                         {$run.started_at|date_format:"%d %b %Y %H:%M:%S"}
@@ -158,39 +167,16 @@
                                         <span class="eb-type-caption">—</span>
                                     {/if}
                                 </td>
-                                <td>
-                                    {if $run.bytes_transferred|@strlen}
-                                        {\WHMCS\Module\Addon\CloudStorage\Client\HelperController::formatSizeUnits($run.bytes_transferred)}
-                                    {else}
-                                        —
-                                    {/if}
-                                </td>
-                                <td>
-                                    {if $run.started_at && $run.finished_at}
-                                        {assign var="start" value=$run.started_at|strtotime}
-                                        {assign var="end" value=$run.finished_at|strtotime}
-                                        {assign var="duration" value=$end-$start}
-                                        {if $duration < 60}
-                                            {$duration}s
-                                        {elseif $duration < 3600}
-                                            {math equation="floor(x/60)" x=$duration}m {$duration%60}s
-                                        {else}
-                                            {math equation="floor(x/3600)" x=$duration}h {math equation="floor((x%3600)/60)" x=$duration}m
-                                        {/if}
-                                    {elseif $run.status eq 'running'}
-                                        Running…
-                                    {else}
-                                        —
-                                    {/if}
-                                </td>
+                                <td>{$runSize}</td>
+                                <td>{$runDuration}</td>
                                 <td>
                                     {if $run.status eq 'running'}
                                         <div class="flex flex-wrap items-center gap-3">
                                             <a href="index.php?m=cloudstorage&page=e3backup&view=live&run_id={$run.run_id}" class="eb-link">View live</a>
-                                            <button type="button" class="eb-btn eb-btn-ghost eb-btn-sm" onclick="showRunDetails('{$run.run_id}')">View log</button>
+                                            <button type="button" class="eb-btn eb-btn-ghost eb-btn-sm" onclick="e3RunsOpenLog('{$run.run_id}', this.closest('tr'))">View log</button>
                                         </div>
                                     {else}
-                                        <button type="button" class="eb-btn eb-btn-ghost eb-btn-sm" onclick="showRunDetails('{$run.run_id}')">View log</button>
+                                        <button type="button" class="eb-btn eb-btn-ghost eb-btn-sm" onclick="e3RunsOpenLog('{$run.run_id}', this.closest('tr'))">View log</button>
                                     {/if}
                                 </td>
                             </tr>
@@ -290,100 +276,41 @@
     ebE3Content=$ebE3Content
 }
 
-<!-- Run details modal -->
-<div id="runDetailsModal" class="fixed inset-0 z-50 hidden items-center justify-center p-4 sm:p-6">
-    <div class="eb-modal-backdrop fixed inset-0" onclick="closeModal('runDetailsModal')" role="presentation"></div>
-    <div class="eb-modal relative z-10 flex max-h-[85vh] w-full max-w-3xl flex-col overflow-hidden">
-        <div class="eb-modal-header !shrink-0">
-            <div>
-                <h2 class="eb-modal-title">Run details</h2>
-                <p class="eb-modal-subtitle">Backup and validation log excerpts</p>
-            </div>
-            <button type="button" class="eb-modal-close" onclick="closeModal('runDetailsModal')" aria-label="Close">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-                </svg>
-            </button>
-        </div>
-        <div id="runDetailsContent" class="eb-modal-body min-h-0 flex-1 overflow-y-auto">
-            <div id="runDetailsLog" class="mb-4">
-                <h3 class="eb-type-h3 !mb-2">Backup log</h3>
-                <pre class="eb-type-mono max-h-64 overflow-auto whitespace-pre-wrap rounded-[var(--eb-radius-md)] border border-[var(--eb-border-subtle)] bg-[var(--eb-bg-base)] p-4 text-[length:var(--eb-type-mono-size)] leading-relaxed text-[var(--eb-text-secondary)]" id="logExcerpt"></pre>
-            </div>
-            <div id="runDetailsValidation" class="hidden">
-                <h3 class="eb-type-h3 !mb-2">Validation log</h3>
-                <pre class="eb-type-mono max-h-64 overflow-auto whitespace-pre-wrap rounded-[var(--eb-radius-md)] border border-[var(--eb-border-subtle)] bg-[var(--eb-bg-base)] p-4 text-[length:var(--eb-type-mono-size)] leading-relaxed text-[var(--eb-text-secondary)]" id="validationLogExcerpt"></pre>
-            </div>
-        </div>
-    </div>
-</div>
+{* Shared run-log modal (same partial used by Job Logs + Dashboard history). *}
+{include file="modules/addons/cloudstorage/templates/partials/e3backup_run_log_modal.tpl"}
 
 <script>
-function closeModal(modalId) {
-    document.getElementById(modalId).classList.add('hidden');
-    document.getElementById(modalId).classList.remove('flex');
+{if isset($job)}
+window.__e3RunsJobName = {$job.name|@json_encode nofilter};
+window.__e3RunsAgent = {if isset($job.agent_hostname)}{$job.agent_hostname|@json_encode nofilter}{else}""{/if};
+window.__e3RunsUser = {if isset($job.backup_username)}{$job.backup_username|@json_encode nofilter}{else}""{/if};
+{/if}
+</script>
+<script>
+{literal}
+function e3RunsOpenLog(runId, row) {
+    if (!window.ebE3RunModal) return;
+    var meta = {
+        jobName: window.__e3RunsJobName || 'Backup run',
+        agent: window.__e3RunsAgent || '',
+        user: window.__e3RunsUser || ''
+    };
+    if (row) {
+        meta.status = row.getAttribute('data-status') || '';
+        meta.started = row.getAttribute('data-started') || '';
+        meta.finished = row.getAttribute('data-finished') || '';
+        meta.sizeText = row.getAttribute('data-size') || '';
+        meta.durationText = row.getAttribute('data-duration') || '';
+    }
+    window.ebE3RunModal.open(runId, meta);
 }
 
-function showRunDetails(runId) {
-    const modal = document.getElementById('runDetailsModal');
-    const logExcerpt = document.getElementById('logExcerpt');
-    const validationLogExcerpt = document.getElementById('validationLogExcerpt');
-    const validationSection = document.getElementById('runDetailsValidation');
-
-    modal.classList.remove('hidden');
-    modal.classList.add('flex');
-    logExcerpt.textContent = 'Loading log details...';
-    if (validationLogExcerpt) {
-        validationLogExcerpt.textContent = '';
-    }
-    if (validationSection) {
-        validationSection.classList.add('hidden');
-    }
-
-    fetch('modules/addons/cloudstorage/api/cloudbackup_get_run_logs.php?run_uuid=' + encodeURIComponent(runId) + '&limit=5000')
-        .then(response => response.json())
-        .then(data => {
-            if (data.status === 'success') {
-                const structured = Array.isArray(data.structured_logs) ? data.structured_logs : [];
-                const lines = structured.map(row => {
-                    const ts = row.ts ? '[' + row.ts + '] ' : '';
-                    const lvl = row.level ? '(' + row.level + ') ' : '';
-                    return ts + lvl + (row.message || '');
-                });
-                const fallbackLog = data.backup_log || '';
-                logExcerpt.textContent = lines.length > 0 ? lines.join('\n') : (fallbackLog || 'No log data available for this run.');
-
-                if (data.has_validation && data.validation_log) {
-                    if (validationSection) validationSection.classList.remove('hidden');
-                    validationLogExcerpt.textContent = data.validation_log;
-                } else {
-                    if (validationSection) validationSection.classList.add('hidden');
-                }
-            } else {
-                logExcerpt.textContent = 'Error: ' + (data.message || 'Failed to load log details');
-                if (window.toast) {
-                    window.toast.error(data.message || 'Failed to load log details');
-                }
-            }
-        })
-        .catch(error => {
-            console.error('Error fetching run logs:', error);
-            logExcerpt.textContent = 'Error: Unable to load log details. Please try again later.';
-            if (window.toast) {
-                window.toast.error('Failed to load log details');
-            }
-        });
-}
-
-document.querySelectorAll('tr[data-run-id]').forEach(row => {
-    row.addEventListener('click', event => {
-        if (event.target.closest('a,button')) {
-            return;
-        }
-        const runId = row.getAttribute('data-run-id');
-        if (runId) {
-            showRunDetails(runId);
-        }
+document.querySelectorAll('tr[data-run-id]').forEach(function (row) {
+    row.addEventListener('click', function (event) {
+        if (event.target.closest('a,button')) return;
+        var runId = row.getAttribute('data-run-id');
+        if (runId) e3RunsOpenLog(runId, row);
     });
 });
+{/literal}
 </script>

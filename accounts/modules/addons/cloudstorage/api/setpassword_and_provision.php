@@ -150,6 +150,17 @@ try {
         }
     }
 
+    // Existing-customer onboarding (e3 Cloud Backup only): the client already
+    // has a portal account, so we skip the portal-password creation entirely.
+    // They re-enter their CURRENT portal password here purely so we can reuse
+    // it as the backup-agent sign-in password. We verify it below but never
+    // change it.
+    $existingClient = (!empty($_POST['existing_client']) && $choice === 'e3backup');
+    if ($existingClient) {
+        $passwordFromSession = false;
+        $confirmPassword = $newPassword;
+    }
+
     // Validate and normalize storage tier for Cloud Storage
     if ($choice === 'storage') {
         if (!in_array($storageTier, ['trial_limited', 'trial_unlimited'], true)) {
@@ -171,12 +182,19 @@ try {
 
     // Password and username validation
     $errors = [];
-    if ($newPassword === '' || $confirmPassword === '') {
-        $errors['new_password'] = 'Please enter and confirm your new password.';
-    } elseif ($newPassword !== $confirmPassword) {
-        $errors['new_password_confirm'] = 'Passwords do not match.';
-    } elseif (strlen($newPassword) < 8) {
-        $errors['new_password'] = 'Password must be at least 8 characters long.';
+    if ($existingClient) {
+        // Existing client confirms their current portal password (not a new one).
+        if ($newPassword === '') {
+            $errors['new_password'] = 'Please enter your portal password to continue.';
+        }
+    } else {
+        if ($newPassword === '' || $confirmPassword === '') {
+            $errors['new_password'] = 'Please enter and confirm your new password.';
+        } elseif ($newPassword !== $confirmPassword) {
+            $errors['new_password_confirm'] = 'Passwords do not match.';
+        } elseif (strlen($newPassword) < 8) {
+            $errors['new_password'] = 'Password must be at least 8 characters long.';
+        }
     }
     // Username required for backup/ms365/e3backup
     if ($choice === 'backup' || $choice === 'ms365' || $choice === 'e3backup') {
@@ -192,9 +210,37 @@ try {
     }
 
     $adminUser = 'API';
+
+    // Existing client: verify the re-entered portal password against WHMCS
+    // without modifying it. On mismatch, surface a field error.
+    if ($existingClient) {
+        $clientEmail = '';
+        try {
+            $clientEmail = (string) (Capsule::table('tblclients')->where('id', $clientId)->value('email') ?? '');
+        } catch (\Throwable $e) {
+            $clientEmail = '';
+        }
+        $passwordVerified = false;
+        if ($clientEmail !== '') {
+            try {
+                $vl = localAPI('ValidateLogin', [
+                    'email'     => $clientEmail,
+                    'password2' => $newPassword,
+                ], $adminUser);
+                $passwordVerified = (($vl['result'] ?? '') === 'success');
+            } catch (\Throwable $e) {
+                $passwordVerified = false;
+            }
+        }
+        if (!$passwordVerified) {
+            echo json_encode(['status' => 'error', 'errors' => ['new_password' => 'That password does not match your portal password. Please try again.']]);
+            exit;
+        }
+    }
     // 1) Update client password (legacy) — skipped when the welcome modal
-    // already wrote the password via set_portal_password.php.
-    if (!$passwordFromSession) {
+    // already wrote the password via set_portal_password.php, or for an
+    // existing client (we never change their portal password).
+    if (!$passwordFromSession && !$existingClient) {
         $cliRes = localAPI('UpdateClient', [
             'clientid'  => $clientId,
             'password2' => $newPassword,
@@ -220,7 +266,9 @@ try {
         } catch (\Throwable $e) {}
     }
 
-    $userUpdated = $passwordFromSession; // set_portal_password.php already did this
+    // set_portal_password.php already did this for the welcome flow; for an
+    // existing client there is nothing to change (verified, not modified).
+    $userUpdated = $passwordFromSession || $existingClient;
     if ($userId && !$userUpdated) {
         try {
             $u1 = localAPI('UpdateUser', ['user_id' => $userId, 'password' => $newPassword], $adminUser);
@@ -407,7 +455,7 @@ try {
                 $redirectUrl = Provisioner::provisionCloudToCloud($clientId);
                 break;
             case 'e3backup':
-                $redirectUrl = Provisioner::provisionE3CloudBackup($clientId, $username, $newPassword);
+                $redirectUrl = Provisioner::provisionE3CloudBackup($clientId, $username, $newPassword, ['existing' => $existingClient]);
                 break;
             default:
                 echo json_encode(['status' => 'error', 'errors' => ['general' => 'Unknown product selection.']]);

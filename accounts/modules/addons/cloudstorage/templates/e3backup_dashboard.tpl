@@ -549,6 +549,125 @@
         </div>
     </section>
 
+    {* ── Recent Backup History (agent grid) ── *}
+    <section class="mt-6 eb-panel-section" x-data="e3BackupHistory()" x-init="init()">
+        <div class="eb-panel-section-header flex flex-wrap items-center justify-between gap-3">
+            <div>
+                <h2 class="eb-type-h3">Recent Backup History</h2>
+                <p class="eb-type-caption">Per-agent backup status over the selected window. Hover a day to see that day's runs, or expand an agent to see each job.</p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+                <input type="search" class="eb-input eb-input-sm" placeholder="Search agents..." x-model.debounce.300ms="search">
+                <label class="inline-flex items-center gap-1 eb-type-caption">
+                    <input type="checkbox" x-model="onlineOnly"> Online only
+                </label>
+                <div class="eb-segmented" role="group" aria-label="History window">
+                    <template x-for="opt in dayOptions" :key="opt">
+                        <button type="button" class="eb-segmented-btn" :class="days === opt ? 'is-active' : ''" @click="setDays(opt)" x-text="opt + 'd'"></button>
+                    </template>
+                </div>
+                <a href="index.php?m=cloudstorage&page=e3backup&view=job_logs" class="eb-btn eb-btn-ghost eb-btn-sm">Open Job Logs</a>
+            </div>
+        </div>
+
+        <div class="p-4">
+            <template x-if="loading">
+                <div class="eb-app-empty py-8"><p class="eb-app-empty-copy">Loading backup history...</p></div>
+            </template>
+            <template x-if="!loading && visibleAgents().length === 0">
+                <div class="eb-app-empty py-8">
+                    <div class="eb-app-empty-title">No backup history yet</div>
+                    <p class="eb-app-empty-copy">Once your agents run backups, their daily status will appear here.</p>
+                </div>
+            </template>
+
+            <div class="space-y-2" x-show="!loading && visibleAgents().length">
+                {* Day axis labels *}
+                <div class="hidden lg:flex items-center gap-3 px-3 eb-type-eyebrow">
+                    <div class="flex-1">Agent</div>
+                    <div class="flex items-center gap-1">
+                        <template x-for="d in dayAxis" :key="d.date">
+                            <div class="w-7 text-center" x-text="d.label.split(' ')[1]"></div>
+                        </template>
+                    </div>
+                </div>
+
+                <template x-for="agent in visibleAgents()" :key="agent.agent_uuid">
+                    <div class="eb-card !p-0 overflow-visible">
+                        <div class="flex flex-wrap items-center gap-3 p-3 cursor-pointer" @click="toggle(agent.agent_uuid)">
+                            <div class="flex-1 min-w-0">
+                                <div class="flex items-center gap-2">
+                                    <span class="eb-status-dot" :class="agent.is_online ? 'eb-status-dot--active' : 'eb-status-dot--pending'"></span>
+                                    <span class="eb-type-body !font-medium truncate" x-text="agent.hostname"></span>
+                                    <span class="eb-badge eb-badge--neutral" x-show="agent.agent_os" x-text="agent.agent_os"></span>
+                                </div>
+                                <div class="eb-type-caption mt-0.5">
+                                    <span x-show="agent.last24h.failed"><span style="color:var(--eb-danger-text)" x-text="agent.last24h.failed + ' failed'"></span></span>
+                                    <span x-show="agent.last24h.warning"><span style="color:var(--eb-warning-text)" x-text="agent.last24h.warning + ' warning'"></span></span>
+                                    <span x-show="agent.last24h.success"><span style="color:var(--eb-success-text)" x-text="agent.last24h.success + ' ok'"></span></span>
+                                    <span x-show="agent.last24h.running" x-text="agent.last24h.running + ' running'"></span>
+                                    <span x-show="!(agent.last24h.failed||agent.last24h.warning||agent.last24h.success||agent.last24h.running)">No runs in last 24h</span>
+                                </div>
+                            </div>
+
+                            {* Day dots *}
+                            <div class="flex items-center gap-1">
+                                <template x-for="(d, idx) in agent.days" :key="agent.agent_uuid + '-' + d.date">
+                                    <div class="relative w-7 flex justify-center"
+                                         @mouseenter="hover = agent.agent_uuid + '-' + d.date"
+                                         @mouseleave="hover = null"
+                                         @click.stop>
+                                        <span class="inline-block w-2.5 h-2.5 rounded-full"
+                                              :style="'background:' + dotBg(d.status)"
+                                              :title="d.label + ' — ' + (d.count ? d.count + ' run(s)' : 'no runs')"></span>
+                                        {* Popover *}
+                                        <div class="eb-popover absolute z-30 top-5 right-0 w-64"
+                                             x-show="hover === (agent.agent_uuid + '-' + d.date) && d.runs.length"
+                                             x-transition.opacity
+                                             style="display:none;">
+                                            <div class="eb-field-label" x-text="d.label"></div>
+                                            <div class="mt-1 space-y-1 max-h-56 overflow-auto">
+                                                <template x-for="run in d.runs" :key="run.run_id">
+                                                    <button type="button" class="flex w-full items-center gap-2 rounded px-1 py-1 text-left hover:bg-[var(--eb-bg-hover)]"
+                                                            @click.stop="openRun(agent, run)">
+                                                        <span class="eb-status-dot shrink-0" :class="dotStatus(run.status)"></span>
+                                                        <span class="min-w-0 flex-1 truncate eb-type-caption" x-text="run.job_name || 'Run'"></span>
+                                                        <span class="eb-type-caption" x-text="run.time"></span>
+                                                    </button>
+                                                </template>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </template>
+                            </div>
+
+                            <svg class="h-4 w-4 transition-transform" :class="expanded[agent.agent_uuid] && 'rotate-90'" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5"/></svg>
+                        </div>
+
+                        {* Per-job drill-down *}
+                        <div x-show="expanded[agent.agent_uuid]" x-transition class="border-t border-[var(--eb-border-subtle)] px-3 py-2 space-y-1">
+                            <template x-if="!agent.jobs.length">
+                                <p class="eb-type-caption py-1">No job activity in this window.</p>
+                            </template>
+                            <template x-for="job in agent.jobs" :key="job.job_id">
+                                <div class="flex flex-wrap items-center gap-3 py-1">
+                                    <div class="flex-1 min-w-0 eb-type-caption truncate" x-text="job.name"></div>
+                                    <div class="flex items-center gap-1">
+                                        <template x-for="d in job.days" :key="job.job_id + '-' + d.date">
+                                            <div class="w-7 flex justify-center">
+                                                <span class="inline-block w-2 h-2 rounded-full" :style="'background:' + dotBg(d.status)" :title="d.label"></span>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+                </template>
+            </div>
+        </div>
+    </section>
+
 {/capture}
 
 {include file="modules/addons/cloudstorage/templates/partials/e3backup_shell.tpl"
@@ -650,3 +769,74 @@ document.addEventListener('DOMContentLoaded', function() {
 }
 </style>
 {/if}
+
+{* ── Shared run-log modal + Recent Backup History controller ── *}
+{include file="modules/addons/cloudstorage/templates/partials/e3backup_run_log_modal.tpl"}
+
+<script>
+{literal}
+function e3BackupHistory() {
+    return {
+        loading: true,
+        agents: [],
+        dayAxis: [],
+        days: 14,
+        dayOptions: [14, 30],
+        search: '',
+        onlineOnly: false,
+        expanded: {},
+        hover: null,
+        init() { this.reload(); },
+        setDays(d) { this.days = d; this.reload(); },
+        toggle(uuid) { this.expanded[uuid] = !this.expanded[uuid]; },
+        dotBg(status) {
+            switch (status) {
+                case 'failed': return 'var(--eb-danger-icon)';
+                case 'partial_success':
+                case 'warning': return 'var(--eb-warning-icon)';
+                case 'cancelled': return 'var(--eb-text-disabled)';
+                case 'running':
+                case 'starting':
+                case 'queued': return 'var(--eb-info-icon)';
+                case 'success': return 'var(--eb-success-icon)';
+                default: return 'var(--eb-border-subtle)';
+            }
+        },
+        dotStatus(status) { return (window.ebE3RunStatus ? window.ebE3RunStatus.dotClass(status) : 'eb-status-dot--pending'); },
+        visibleAgents() {
+            var q = (this.search || '').toLowerCase();
+            return this.agents.filter((a) => {
+                if (this.onlineOnly && !a.is_online) return false;
+                if (q && (a.hostname || '').toLowerCase().indexOf(q) === -1) return false;
+                return true;
+            });
+        },
+        openRun(agent, run) {
+            if (!window.ebE3RunModal) return;
+            window.ebE3RunModal.open(run.run_id, {
+                jobName: run.job_name,
+                agent: agent.hostname,
+                status: run.status,
+                started: run.started_at || run.time,
+                sizeText: run.size
+            });
+        },
+        reload() {
+            this.loading = true;
+            fetch('modules/addons/cloudstorage/api/e3backup_backup_history.php?days=' + this.days, { credentials: 'same-origin' })
+                .then((r) => r.json())
+                .then((data) => {
+                    if (data && data.status === 'success') {
+                        this.agents = data.agents || [];
+                        this.dayAxis = data.days || [];
+                    } else {
+                        this.agents = []; this.dayAxis = [];
+                    }
+                })
+                .catch(() => { this.agents = []; this.dayAxis = []; })
+                .finally(() => { this.loading = false; });
+        }
+    };
+}
+{/literal}
+</script>

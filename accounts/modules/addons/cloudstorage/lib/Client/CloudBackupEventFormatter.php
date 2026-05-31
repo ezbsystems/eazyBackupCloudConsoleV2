@@ -108,6 +108,13 @@ class CloudBackupEventFormatter
             'HYPERV_REFERENCE_POINT_FAILED' => '⚠️ {message}',
             'HYPERV_DISK_STARTING' => 'Backing up disk: {disk_path} ({size}).',
             'HYPERV_BACKUP_COMPLETE' => '{message}',
+            // Post-upload finalization (checkpoint merge / change-tracking).
+            // The agent builds a live, human-readable progress string in
+            // {message} (e.g. "Finalizing win10: merging backup checkpoint —
+            // 512 MB left (47%, 30s)"), so render it directly — consistent
+            // with HYPERV_BACKUP_COMPLETE. This keeps the run log feed and
+            // current-item informative instead of appearing frozen at ~99.9%.
+            'HYPERV_FINALIZING' => '{message}',
             
             // Hyper-V specific (restore)
             'HYPERV_RESTORE_STARTING' => 'Starting Hyper-V disk restore for VM "{vm_name}" ({disk_count} disks) to {target_path}.',
@@ -271,6 +278,16 @@ class CloudBackupEventFormatter
         }
         if (isset($params['changed_bytes']) && is_numeric($params['changed_bytes'])) {
             $out['changed_bytes'] = HelperController::formatSizeUnitsPlain((int) $params['changed_bytes']);
+        }
+        // Hyper-V finalization (checkpoint merge) progress sizes.
+        if (isset($params['avhdx_bytes_left']) && is_numeric($params['avhdx_bytes_left'])) {
+            $out['avhdx_bytes_left'] = HelperController::formatSizeUnitsPlain((int) $params['avhdx_bytes_left']);
+        }
+        if (isset($params['avhdx_bytes_total']) && is_numeric($params['avhdx_bytes_total'])) {
+            $out['avhdx_bytes_total'] = HelperController::formatSizeUnitsPlain((int) $params['avhdx_bytes_total']);
+        }
+        if (isset($params['merged_pct']) && is_numeric($params['merged_pct'])) {
+            $out['merged_pct'] = number_format((float) $params['merged_pct'], 0);
         }
         if (isset($params['speed_bps'])) {
             $out['speed'] = HelperController::formatSizeUnitsPlain((int) $params['speed_bps']);
