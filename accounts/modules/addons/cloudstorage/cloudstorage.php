@@ -1341,6 +1341,41 @@ function cloudstorage_ensure_e3cb_product(string $context = 'activate'): void
     }
 }
 
+function cloudstorage_ensure_eb_run_id_custom_field(string $context = 'activate'): void
+{
+    try {
+        $exists = Capsule::table('tblcustomfields')
+            ->where('type', 'support')
+            ->where('fieldname', 'eb_run_id')
+            ->exists();
+        if ($exists) {
+            return;
+        }
+        Capsule::table('tblcustomfields')->insert([
+            'type'        => 'support',
+            'relid'       => 1,
+            'fieldname'   => 'eb_run_id',
+            'fieldtype'   => 'text',
+            'description' => 'Cloud Backup Run ID (auto-populated by e3 Cloud Backup)',
+            'fieldoptions'=> '',
+            'regexpr'     => '',
+            'adminonly'   => 'on',
+            'required'    => '',
+            'showorder'   => '',
+            'showinvoice' => '',
+            'sortorder'   => 0,
+            'created_at'  => date('Y-m-d H:i:s'),
+            'updated_at'  => date('Y-m-d H:i:s'),
+        ]);
+        logModuleCall('cloudstorage', $context, [], 'Created eb_run_id support custom field', [], []);
+    } catch (\Throwable $e) {
+        try {
+            logModuleCall('cloudstorage', $context, [], 'eb_run_id custom field ensure failed: ' . $e->getMessage(), [], []);
+        } catch (\Throwable $__) {
+        }
+    }
+}
+
 function cloudstorage_ensure_hyperv_schema(string $context = 'activate'): void
 {
     $schema = Capsule::schema();
@@ -1651,36 +1686,7 @@ function cloudstorage_activate() {
         // Restore settings from backup if they exist
         cloudstorage_restore_settings();
 
-        // Ensure the eb_run_id support ticket custom field exists (for the
-        // e3 run-log modal -> Open Ticket handoff). Admin-only text field
-        // attached to deptid=1 (Technical Support). Mirrors the eazybackup
-        // addon's eb_job_id field so the shared ticket-prefill drain works.
-        try {
-            $exists = Capsule::table('tblcustomfields')
-                ->where('type', 'support')
-                ->where('fieldname', 'eb_run_id')
-                ->exists();
-            if (!$exists) {
-                Capsule::table('tblcustomfields')->insert([
-                    'type'        => 'support',
-                    'relid'       => 1,
-                    'fieldname'   => 'eb_run_id',
-                    'fieldtype'   => 'text',
-                    'description' => 'Cloud Backup Run ID (auto-populated by e3 Cloud Backup)',
-                    'fieldoptions'=> '',
-                    'regexpr'     => '',
-                    'adminonly'   => 'on',
-                    'required'    => '',
-                    'showorder'   => '',
-                    'showinvoice' => '',
-                    'sortorder'   => 0,
-                    'created_at'  => date('Y-m-d H:i:s'),
-                    'updated_at'  => date('Y-m-d H:i:s'),
-                ]);
-            }
-        } catch (\Throwable $e) {
-            try { logModuleCall('cloudstorage', 'activate', [], 'eb_run_id custom field ensure failed: ' . $e->getMessage()); } catch (\Throwable $__) {}
-        }
+        cloudstorage_ensure_eb_run_id_custom_field('activate');
 
         if (!Capsule::schema()->hasTable('s3_users')) {
             Capsule::schema()->create('s3_users', function ($table) {
@@ -3416,6 +3422,8 @@ function cloudstorage_restore_settings() {
  */
 function cloudstorage_upgrade($vars) {
     try {
+        cloudstorage_ensure_eb_run_id_custom_field('upgrade');
+
         // Widen s3_users.tenant_id to BIGINT UNSIGNED to safely store 12-digit RGW tenant IDs.
         // This is a non-destructive widening change, but if values were previously inserted into an INT column,
         // MySQL may have clamped them (e.g. to 4294967295). This migration won't "fix" already-clamped values;

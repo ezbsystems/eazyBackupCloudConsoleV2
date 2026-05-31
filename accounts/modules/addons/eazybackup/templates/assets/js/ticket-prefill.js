@@ -75,12 +75,16 @@
         } catch (_) { return false; }
     }
 
-    function showSuccessBanner(filesCount) {
+    function showSuccessBanner(filesCount, serverAttach) {
         var box = document.getElementById('ebTicketAttachBanner');
         if (!box) return;
         box.classList.remove('hidden');
         box.classList.remove('border-amber-500/40','bg-amber-500/10','text-amber-200');
         box.classList.add('border-emerald-500/40','bg-emerald-500/10','text-emerald-200');
+        if (serverAttach) {
+            box.textContent = 'Your backup run log will be attached automatically when you submit this ticket. You can add more files or comments below if needed.';
+            return;
+        }
         box.textContent = filesCount === 1
             ? 'Backup log auto-attached. You can add more files or comments before submitting.'
             : 'Backup log auto-attached (' + filesCount + ' files). You can add more files or comments before submitting.';
@@ -117,6 +121,29 @@
         form.appendChild(input);
     }
 
+    function clearTicketFileInputs() {
+        try {
+            document.querySelectorAll('#inputAttachments, #fileUploadsContainer input[type="file"]').forEach(function (input) {
+                try {
+                    input.value = '';
+                    if (typeof DataTransfer !== 'undefined') {
+                        var dt = new DataTransfer();
+                        input.files = dt.files;
+                    }
+                } catch (_) {}
+            });
+        } catch (_) {}
+    }
+
+    function wireServerAttachFormGuard() {
+        var form = document.querySelector('form[action*="step=3"], form');
+        if (!form || form._ebServerAttachGuard) return;
+        form._ebServerAttachGuard = true;
+        form.addEventListener('submit', function () {
+            clearTicketFileInputs();
+        }, true);
+    }
+
     function ensureBodyAndSubject(payload) {
         try {
             var subject = document.getElementById('inputSubject');
@@ -142,6 +169,14 @@
 
         if (payload.downloadedFallback) {
             showFallbackBanner('Your backup log was downloaded automatically because it was large. Please attach the downloaded files using the "Add File" button below.');
+            try { sessionStorage.removeItem(key); } catch (_) {}
+            return;
+        }
+
+        if (payload.serverAttach) {
+            showSuccessBanner(0, true);
+            clearTicketFileInputs();
+            wireServerAttachFormGuard();
             try { sessionStorage.removeItem(key); } catch (_) {}
             return;
         }

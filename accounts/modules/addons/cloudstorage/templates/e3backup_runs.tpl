@@ -245,7 +245,8 @@
                         <a href="index.php?m=cloudstorage&page=e3backup&view=runs&job_id={$j->job_id}" class="eb-card !block !no-underline transition-shadow hover:shadow-[var(--eb-shadow-md)]">
                             <div class="eb-card-title">{$j->name}</div>
                             <div class="eb-type-caption !mt-1">{$j->source_display_name}</div>
-                            <div class="eb-type-eyebrow !mt-2">Engine: {$j->engine|default:'sync'|upper}</div>
+                            {assign var=eng value=$j->engine|default:'sync'|lower}
+                            <div class="eb-type-eyebrow !mt-2">Engine: {if $eng == 'kopia' || $eng == 'sync'}File/Folder{elseif $eng == 'disk_image'}Disk Image{elseif $eng == 'hyperv'}Hyper-V{else}{$eng|escape}{/if}</div>
                             <div class="eb-type-caption !mt-2">
                                 Dest bucket
                                 {if isset($j->dest_bucket_name) && $j->dest_bucket_name}
