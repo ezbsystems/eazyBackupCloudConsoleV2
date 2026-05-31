@@ -146,6 +146,74 @@ func (d *renamedDirectory) Readdir(ctx context.Context) (kopiafs.Entries, error)
 	return d.dir.Readdir(ctx)
 }
 
+var _ kopiafs.Directory = (*renamedDirectory)(nil)
+
+// renamedFile, renamedSymlink, and renamedStreamingFile preserve the renamed
+// display name while delegating Kopia-specific interfaces to the wrapped entry.
+// Without these, the uploader rejects bare *renamedEntry values for non-directories.
+
+type renamedFile struct {
+	*renamedEntry
+	file kopiafs.File
+}
+
+func (f *renamedFile) Open(ctx context.Context) (kopiafs.Reader, error) {
+	return f.file.Open(ctx)
+}
+
+var _ kopiafs.File = (*renamedFile)(nil)
+
+type renamedSymlink struct {
+	*renamedEntry
+	link kopiafs.Symlink
+}
+
+func (s *renamedSymlink) Readlink(ctx context.Context) (string, error) {
+	return s.link.Readlink(ctx)
+}
+
+var _ kopiafs.Symlink = (*renamedSymlink)(nil)
+
+type renamedStreamingFile struct {
+	*renamedEntry
+	stream kopiafs.StreamingFile
+}
+
+func (s *renamedStreamingFile) GetReader(ctx context.Context) (io.Reader, error) {
+	return s.stream.GetReader(ctx)
+}
+
+var _ kopiafs.StreamingFile = (*renamedStreamingFile)(nil)
+
+type renamedErrorEntry struct {
+	*renamedEntry
+	errEntry kopiafs.ErrorEntry
+}
+
+func (e *renamedErrorEntry) ErrorInfo() error {
+	return e.errEntry.ErrorInfo()
+}
+
+var _ kopiafs.ErrorEntry = (*renamedErrorEntry)(nil)
+
+func wrapRenamedEntry(entry kopiafs.Entry, name string) kopiafs.Entry {
+	base := &renamedEntry{entry: entry, name: name}
+	switch e := entry.(type) {
+	case kopiafs.Directory:
+		return &renamedDirectory{renamedEntry: base, dir: e}
+	case kopiafs.File:
+		return &renamedFile{renamedEntry: base, file: e}
+	case kopiafs.Symlink:
+		return &renamedSymlink{renamedEntry: base, link: e}
+	case kopiafs.StreamingFile:
+		return &renamedStreamingFile{renamedEntry: base, stream: e}
+	case kopiafs.ErrorEntry:
+		return &renamedErrorEntry{renamedEntry: base, errEntry: e}
+	default:
+		return base
+	}
+}
+
 func buildMultiSourceEntry(paths []string) (kopiafs.Entry, error) {
 	entries := make(kopiafs.Entries, 0, len(paths))
 	labels := buildSourceLabels(paths)
@@ -159,12 +227,7 @@ func buildMultiSourceEntry(paths []string) (kopiafs.Entry, error) {
 			return nil, fmt.Errorf("source path stat failed for %s: %w", clean, err)
 		}
 		name := labels[idx]
-		wrapped := &renamedEntry{entry: entry, name: name}
-		if dir, ok := entry.(kopiafs.Directory); ok {
-			entries = append(entries, &renamedDirectory{renamedEntry: wrapped, dir: dir})
-		} else {
-			entries = append(entries, wrapped)
-		}
+		entries = append(entries, wrapRenamedEntry(entry, name))
 	}
 	return virtualfs.NewStaticDirectory("sources", entries), nil
 }
