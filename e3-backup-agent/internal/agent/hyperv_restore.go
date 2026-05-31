@@ -486,7 +486,7 @@ func (r *Runner) restoreHyperVVMDisks(
 			},
 		})
 
-		err := r.kopiaRestoreVHDX(ctx, run, manifestID, targetFilePath, diskName, runID, progress)
+		err := r.kopiaRestoreVHDX(ctx, run, manifestID, targetFilePath, diskName, runID, progress.setCurrentBytes)
 		if err != nil {
 			if isCancellationError(err) {
 				return restored, true, lastErr

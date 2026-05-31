@@ -2451,10 +2451,12 @@ func (r *Runner) kopiaManifestRootFileSize(ctx context.Context, rep repo.Reposit
 // Unlike kopiaRestoreWithProgress which restores directory trees, this handles
 // single-file stream entries (VHDXs) that were backed up during Hyper-V backup.
 //
-// When progress is non-nil, byte counts feed the multi-VM restore tracker so the
-// UI percentage reflects work across all selected disks instead of resetting to
-// ~99.9% after each individual VHDX finishes.
-func (r *Runner) kopiaRestoreVHDX(ctx context.Context, run *NextRunResponse, manifestID string, targetFilePath string, diskName string, runID string, progress *hypervRestoreProgress) error {
+// When onRestoreProgress is non-nil, byte counts feed the Hyper-V restore tracker
+// (hyperv_restore.go, Windows-only) so the UI percentage reflects work across all
+// selected disks instead of resetting to ~99.9% after each individual VHDX finishes.
+// A function type is used here (not *hypervRestoreProgress) so kopia.go compiles on
+// Linux CI where the Hyper-V restore types are excluded by build tags.
+func (r *Runner) kopiaRestoreVHDX(ctx context.Context, run *NextRunResponse, manifestID string, targetFilePath string, diskName string, runID string, onRestoreProgress func(bytesWritten int64)) error {
 	opts := kopiaOptionsFromRun(r.cfg, run)
 	repoPath := kopiaRepoConfigPath(r.cfg, run)
 
@@ -2584,8 +2586,8 @@ func (r *Runner) kopiaRestoreVHDX(ctx context.Context, run *NextRunResponse, man
 				progressCallback: progressCounter.onProgress,
 				serverProgressFn: func(bytesWritten, bytesTotal int64, speedBps float64) {
 					// Multi-VM Hyper-V restore: aggregate progress across all disks.
-					if progress != nil {
-						progress.setCurrentBytes(bytesWritten)
+					if onRestoreProgress != nil {
+						onRestoreProgress(bytesWritten)
 						return
 					}
 

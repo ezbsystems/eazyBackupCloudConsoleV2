@@ -1,0 +1,17 @@
+
+[2026-05-31 14:54:35] $ 'go' 'test' './...'
+# github.com/your-org/e3-backup-agent/internal/agent
+internal/agent/kopia.go:2457:161: undefined: hypervRestoreProgress
+FAIL	github.com/your-org/e3-backup-agent/cmd/agent [build failed]
+FAIL	github.com/your-org/e3-backup-agent/cmd/recovery [build failed]
+?   	github.com/your-org/e3-backup-agent/cmd/tray	[no test files]
+FAIL	github.com/your-org/e3-backup-agent/internal/agent [build failed]
+?   	github.com/your-org/e3-backup-agent/internal/agent/hyperv	[no test files]
+?   	github.com/your-org/e3-backup-agent/internal/agent/selfupdate	[no test files]
+?   	github.com/your-org/e3-backup-agent/internal/agent/vhdx	[no test files]
+?   	github.com/your-org/e3-backup-agent/internal/applog	[no test files]
+?   	github.com/your-org/e3-backup-agent/internal/config	[no test files]
+?   	github.com/your-org/e3-backup-agent/internal/crypto	[no test files]
+?   	github.com/your-org/e3-backup-agent/internal/logs	[no test files]
+FAIL
+[2026-05-31 14:54:37] exit=1
