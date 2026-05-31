@@ -107,6 +107,16 @@ func (p *hypervRestoreProgress) reportProgress(force bool) {
 		if progressPct > 99.9 {
 			progressPct = 99.9
 		}
+	} else if p.totalDisks > 0 {
+		// Fallback when manifest sizes could not be pre-scanned: advance by
+		// completed disk index so multi-VM restores do not pin at ~99% after VM1.
+		progressPct = float64(p.currentDiskIdx) / float64(p.totalDisks) * 99.9
+		if currentDiskBytes > 0 {
+			progressPct += (1.0 / float64(p.totalDisks)) * 50.0 // mid-disk estimate
+		}
+		if progressPct > 99.9 {
+			progressPct = 99.9
+		}
 	}
 
 	// Calculate ETA
@@ -277,16 +287,39 @@ func (r *Runner) executeHyperVRestoreCommand(ctx context.Context, cmd PendingCom
 		return
 	}
 
-	// Create progress tracker spanning all VMs/disks
+	// Build NextRunResponse for Kopia operations
+	run := buildNextRunResponseFromJobContext(cmd.JobContext)
+
+	// Pre-scan total bytes across every disk manifest so progress is aggregated
+	// across all selected VMs (not per-VHDX, which pinned the bar at ~99% after VM1).
+	totalRestoreBytes := int64(0)
+	if run != nil {
+		if rep, closeRepo, err := r.openKopiaRepoForRun(ctx, run); err == nil {
+			defer closeRepo()
+			for _, vm := range vms {
+				for _, manifestID := range vm.DiskManifests {
+					sz, err := r.kopiaManifestRootFileSize(ctx, rep, manifestID)
+					if err != nil {
+						log.Printf("agent: hyperv_restore manifest %s size lookup failed: %v", manifestID, err)
+						continue
+					}
+					totalRestoreBytes += sz
+				}
+			}
+		} else {
+			log.Printf("agent: hyperv_restore could not pre-scan restore sizes: %v", err)
+		}
+	}
+	log.Printf("agent: hyperv_restore total size across %d disk(s): %d bytes", totalDisks, totalRestoreBytes)
+
 	progress := &hypervRestoreProgress{
 		runner:     r,
 		runID:      runID,
 		startTime:  time.Now(),
 		totalDisks: totalDisks,
+		totalBytes: totalRestoreBytes,
 	}
-
-	// Build NextRunResponse for Kopia operations
-	run := buildNextRunResponseFromJobContext(cmd.JobContext)
+	progress.reportProgress(true)
 
 	globalDiskIdx := 0
 	restoredDisks := 0
@@ -390,11 +423,19 @@ func (r *Runner) executeHyperVRestoreCommand(ctx context.Context, cmd PendingCom
 		},
 	})
 
-	_ = r.client.UpdateRun(RunUpdate{
+	finalUpdate := RunUpdate{
 		RunID:      runID,
 		Status:     status,
 		FinishedAt: time.Now().UTC().Format(time.RFC3339),
-	})
+	}
+	if status == "success" {
+		finalUpdate.ProgressPct = 100
+		if progress.totalBytes > 0 {
+			finalUpdate.BytesTransferred = Int64Ptr(progress.completedBytes)
+			finalUpdate.BytesTotal = Int64Ptr(progress.totalBytes)
+		}
+	}
+	_ = r.client.UpdateRun(finalUpdate)
 
 	if status == "failed" {
 		_ = r.client.CompleteCommand(cmd.CommandID, "failed", message)
@@ -445,7 +486,7 @@ func (r *Runner) restoreHyperVVMDisks(
 			},
 		})
 
-		err := r.kopiaRestoreVHDX(ctx, run, manifestID, targetFilePath, diskName, runID)
+		err := r.kopiaRestoreVHDX(ctx, run, manifestID, targetFilePath, diskName, runID, progress)
 		if err != nil {
 			if isCancellationError(err) {
 				return restored, true, lastErr
@@ -468,6 +509,7 @@ func (r *Runner) restoreHyperVVMDisks(
 			if stat, statErr := os.Stat(targetFilePath); statErr == nil {
 				progress.addCompletedBytes(stat.Size())
 			}
+			progress.reportProgress(true)
 			r.pushEvents(runID, RunEvent{
 				Type:      "info",
 				Level:     "info",
