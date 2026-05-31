@@ -145,6 +145,7 @@ try {
             'j.schedule_type',
             'j.schedule_time',
             'j.schedule_weekday',
+            'j.schedule_cron',
             'j.schedule_json',
             'j.status',
             'j.created_at',

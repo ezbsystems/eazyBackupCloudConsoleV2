@@ -1,6 +1,121 @@
 {literal}
 <script>
 // ========================================
+// Cron expression helpers (wizard + job cards)
+// ========================================
+function normalizeCronExpression(raw) {
+    var s = String(raw || '').trim().replace(/\s+/g, ' ');
+    if (!s) return '';
+    var parts = s.split(' ').filter(Boolean);
+    if (parts.length === 5) {
+        return parts.join(' ');
+    }
+    if (parts.length > 5) {
+        return parts.slice(0, 5).join(' ');
+    }
+    if (!s.includes(' ')) {
+        var mashed = s.match(/^(\*\/\d+|\d+-\d+|\d+|\*)(\*+)$/);
+        if (mashed) {
+            return mashed[1] + ' ' + mashed[2].split('').join(' ');
+        }
+        var starRun = s.match(/^(.+?)(\*{2,})$/);
+        if (starRun) {
+            return starRun[1] + ' ' + starRun[2].split('').join(' ');
+        }
+    }
+    return s;
+}
+
+function parseCronFieldJs(field, min, max) {
+    field = String(field || '').trim();
+    if (field === '') return [];
+    var values = {};
+    var segments = field.split(',');
+    for (var si = 0; si < segments.length; si++) {
+        var segment = String(segments[si] || '').trim();
+        if (segment === '') return [];
+        var step = 1;
+        var base = segment;
+        if (segment.indexOf('/') !== -1) {
+            var slashParts = segment.split('/');
+            base = String(slashParts[0] || '').trim();
+            var stepRaw = String(slashParts[1] || '').trim();
+            if (!/^\d+$/.test(stepRaw) || parseInt(stepRaw, 10) <= 0) return [];
+            step = parseInt(stepRaw, 10);
+        }
+        var start;
+        var end;
+        if (base === '*') {
+            start = min;
+            end = max;
+        } else if (/^(\d+)-(\d+)$/.test(base)) {
+            var rangeM = base.match(/^(\d+)-(\d+)$/);
+            start = parseInt(rangeM[1], 10);
+            end = parseInt(rangeM[2], 10);
+            if (start > end) return [];
+        } else if (/^\d+$/.test(base)) {
+            if (step !== 1) return [];
+            start = parseInt(base, 10);
+            end = parseInt(base, 10);
+        } else {
+            return [];
+        }
+        if (start < min || end > max) return [];
+        for (var v = start; v <= end; v += step) {
+            values[v] = true;
+        }
+    }
+    return Object.keys(values).map(function (k) { return parseInt(k, 10); }).sort(function (a, b) { return a - b; });
+}
+
+function cronMatchesDateJs(cronExpr, date) {
+    var parts = String(cronExpr || '').trim().split(/\s+/);
+    if (parts.length !== 5) return false;
+    var minutes = parseCronFieldJs(parts[0], 0, 59);
+    var hours = parseCronFieldJs(parts[1], 0, 23);
+    var daysOfMonth = parseCronFieldJs(parts[2], 1, 31);
+    var months = parseCronFieldJs(parts[3], 1, 12);
+    var daysOfWeek = parseCronFieldJs(parts[4], 0, 7);
+    if (!minutes.length || !hours.length || !daysOfMonth.length || !months.length || !daysOfWeek.length) {
+        return false;
+    }
+    daysOfWeek = daysOfWeek.map(function (d) { return d === 7 ? 0 : d; });
+    daysOfWeek = Array.from(new Set(daysOfWeek));
+    var minute = date.getMinutes();
+    var hour = date.getHours();
+    var dayOfMonth = date.getDate();
+    var month = date.getMonth() + 1;
+    var dayOfWeek = date.getDay();
+    if (minutes.indexOf(minute) === -1 || hours.indexOf(hour) === -1 || months.indexOf(month) === -1) {
+        return false;
+    }
+    var domWildcard = String(parts[2]).trim() === '*';
+    var dowWildcard = String(parts[4]).trim() === '*';
+    var domMatch = daysOfMonth.indexOf(dayOfMonth) !== -1;
+    var dowMatch = daysOfWeek.indexOf(dayOfWeek) !== -1;
+    if (domWildcard && dowWildcard) return true;
+    if (domWildcard) return dowMatch;
+    if (dowWildcard) return domMatch;
+    return domMatch || dowMatch;
+}
+
+function computeNextCronRun(cronExpr, fromDate) {
+    var expr = normalizeCronExpression(cronExpr);
+    if (!expr) return null;
+    var probe = fromDate ? new Date(fromDate.getTime()) : new Date();
+    probe.setSeconds(0, 0);
+    probe.setMinutes(probe.getMinutes() + 1);
+    var maxSteps = 525600;
+    for (var i = 0; i < maxSteps; i++) {
+        if (cronMatchesDateJs(expr, probe)) {
+            return new Date(probe.getTime());
+        }
+        probe.setMinutes(probe.getMinutes() + 1);
+    }
+    return null;
+}
+
+// ========================================
 // Local Wizard Schedule UI Alpine Component
 // ========================================
 function localWizardScheduleUI() {
@@ -19,6 +134,7 @@ function localWizardScheduleUI() {
         weeklyMeridian: 'am',
         selectedWeekdays: [],
         cronExpr: '',
+        cronNormalizedHint: '',
         scheduleTypeLabels: {
             'manual': 'Manual (Run on demand)',
             'hourly': 'Hourly',
@@ -155,14 +271,40 @@ function localWizardScheduleUI() {
         onTypeChange() {
             this.syncToState();
         },
+
+        formatCronExpr() {
+            const before = String(this.cronExpr || '').trim();
+            if (!before) {
+                this.cronNormalizedHint = '';
+                return;
+            }
+            const normalized = normalizeCronExpression(before);
+            if (normalized && normalized !== before) {
+                this.cronExpr = normalized;
+                this.cronNormalizedHint = 'Expression formatted to standard cron syntax.';
+            } else if (normalized) {
+                this.cronExpr = normalized;
+                this.cronNormalizedHint = '';
+            } else {
+                this.cronNormalizedHint = '';
+            }
+            const cronEl = document.getElementById('localWizardCron');
+            if (cronEl) cronEl.value = this.cronExpr;
+            this.syncToState();
+        },
         
         syncToState() {
             // Update localWizardState.data.schedule_json for multi-day weekly and hourly minute
             if (!window.localWizardState?.data) return;
+            let cronVal = this.cronExpr;
+            if (this.scheduleType === 'cron' && cronVal) {
+                cronVal = normalizeCronExpression(cronVal);
+                this.cronExpr = cronVal;
+            }
             const schedJson = {
                 type: this.scheduleType,
                 time: this.computedTime,
-                cron: this.cronExpr
+                cron: cronVal
             };
             if (this.scheduleType === 'weekly') {
                 schedJson.weekday = [...this.selectedWeekdays];
@@ -709,12 +851,24 @@ function jobsApp(opts) {
             if (t === 'cron') return 'Cron';
             return type || '-';
         },
+        resolveCronExpression(job) {
+            if (!job) return '';
+            const explicit = (job.schedule_cron || '').trim();
+            if (explicit) return explicit;
+            const fromJson = this.scheduleJsonValue(job, 'cron');
+            return fromJson ? String(fromJson).trim() : '';
+        },
         formatScheduleLabel(job) {
             const type = this.resolveScheduleType(job);
             const rawLabel = this.formatSchedule(type);
             const base = rawLabel && rawLabel !== '-' ? rawLabel : (type ? this.capitalize(type) : 'Schedule');
             const extras = [];
-            if (type === 'weekly') {
+            if (type === 'cron') {
+                const expr = normalizeCronExpression(this.resolveCronExpression(job));
+                if (expr) {
+                    extras.push(expr);
+                }
+            } else if (type === 'weekly') {
                 const weekdays = this.getWeekdayNames(job);
                 if (weekdays.length) {
                     extras.push(weekdays.join(', '));
@@ -727,7 +881,7 @@ function jobsApp(opts) {
             return extras.length ? base + ' · ' + extras.join(' · ') : base;
         },
         formatScheduleTimeLabel(type, job) {
-            if (!type || type === 'manual') {
+            if (!type || type === 'manual' || type === 'cron') {
                 return '';
             }
             if (type === 'hourly') {
@@ -868,7 +1022,8 @@ function jobsApp(opts) {
             const time = this.resolveScheduleTime(job);
             const weekdayIdx = (this.getWeekdayIndices(job)[0] || '');
             const hourlyMinute = this.scheduleJsonNumber(job, 'minute');
-            return computeNextRunText(type, time, weekdayIdx, hourlyMinute);
+            const cronExpr = this.resolveCronExpression(job);
+            return computeNextRunText(type, time, weekdayIdx, hourlyMinute, cronExpr);
         },
         nextRunDisplay(job) {
             if (!job) return '—';
@@ -945,9 +1100,14 @@ function userDetailJobsApp() {
     return jobsApp({ scopeUserId: {/literal}{if isset($userDetailJobsScopeId) && $userDetailJobsScopeId}{$userDetailJobsScopeId|@json_encode nofilter}{else}null{/if}{literal} });
 }
 
-function computeNextRunText(type, timeStr, weekday, hourlyMinute) {
+function computeNextRunText(type, timeStr, weekday, hourlyMinute, cronExpr) {
     const scheduleType = (type || '').toLowerCase();
     if (!scheduleType || scheduleType === 'manual') return '-';
+
+    if (scheduleType === 'cron') {
+        const next = computeNextCronRun(cronExpr, new Date());
+        return next ? fmtDateTime(next) : '-';
+    }
 
     const now = new Date();
     const timeParts = parseScheduleTimeString(timeStr);

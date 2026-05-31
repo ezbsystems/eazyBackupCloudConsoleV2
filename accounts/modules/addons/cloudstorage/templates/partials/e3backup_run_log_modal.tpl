@@ -60,20 +60,61 @@
                 </div>
             </div>
 
-            {* Log toolbar: severity filter + ticket button *}
-            <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
-                <div class="inline-flex items-center gap-1" role="group" aria-label="Filter log by severity">
-                    <button type="button" id="ebE3RunSev-all" class="eb-btn eb-btn-ghost eb-btn-xs is-active" aria-pressed="true">All</button>
-                    <button type="button" id="ebE3RunSev-warning" class="eb-btn eb-btn-ghost eb-btn-xs" aria-pressed="false">Warnings</button>
-                    <button type="button" id="ebE3RunSev-error" class="eb-btn eb-btn-ghost eb-btn-xs" aria-pressed="false">Errors</button>
+            <div class="eb-table-shell overflow-hidden !mb-3">
+                <div class="eb-table-toolbar flex flex-col gap-2 px-3 py-2 text-xs sm:flex-row sm:items-center sm:justify-between">
+                    <div class="flex flex-wrap items-center gap-2"
+                         x-data="{
+                           open: false,
+                           sel: 'all',
+                           labels: { all: 'All', warning: 'Warnings', error: 'Errors' },
+                           pick(v) {
+                             this.sel = v;
+                             this.open = false;
+                             if (window.ebE3RunModal && window.ebE3RunModal.setSeverity) {
+                               window.ebE3RunModal.setSeverity(v);
+                             }
+                           }
+                         }"
+                         @click.away="open = false"
+                         @keydown.escape.window="open = false">
+                        <span class="text-[var(--eb-text-secondary)]">Log entries</span>
+                        <div class="relative">
+                            <button type="button"
+                                    class="eb-menu-trigger py-1 text-xs"
+                                    :aria-expanded="open ? 'true' : 'false'"
+                                    aria-haspopup="listbox"
+                                    @click="open = !open">
+                                <span x-text="labels[sel] || 'All'"></span>
+                                <svg class="h-4 w-4 transition-transform" :class="open ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                                    <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 0 1 1.414 0L10 10.586l3.293-3.293a1 1 0 1 1 1.414 1.414l-4 4a1 1 0 0 1-1.414 0l-4-4a1 1 0 0 1 0-1.414z" clip-rule="evenodd" />
+                                </svg>
+                            </button>
+                            <div x-show="open" x-cloak
+                                 x-transition:enter="transition ease-out duration-100"
+                                 x-transition:enter-start="opacity-0 scale-95"
+                                 x-transition:enter-end="opacity-100 scale-100"
+                                 x-transition:leave="transition ease-in duration-75"
+                                 x-transition:leave-start="opacity-100 scale-100"
+                                 x-transition:leave-end="opacity-0 scale-95"
+                                 class="eb-dropdown-menu absolute left-0 z-50 mt-1 w-40 overflow-hidden"
+                                 role="listbox"
+                                 style="display:none;">
+                                <button type="button" role="option" class="eb-menu-option" :class="sel === 'all' ? 'is-active' : ''" @click="pick('all')">All</button>
+                                <button type="button" role="option" class="eb-menu-option" :class="sel === 'warning' ? 'is-active' : ''" @click="pick('warning')">Warnings</button>
+                                <button type="button" role="option" class="eb-menu-option" :class="sel === 'error' ? 'is-active' : ''" @click="pick('error')">Errors</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="flex flex-wrap items-center gap-2 min-w-0">
+                        <button type="button" id="ebE3RunTicketBtn" class="eb-btn eb-btn-outline eb-btn-xs shrink-0 gap-2 hidden">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 6v.75m0 3v.75m0 3v.75m0 3V18m-9-5.25h5.25M7.5 15h3M3.375 5.25c-.621 0-1.125.504-1.125 1.125v3.026a2.999 2.999 0 0 1 0 5.198v3.026c0 .621.504 1.125 1.125 1.125h17.25c.621 0 1.125-.504 1.125-1.125v-3.026a2.999 2.999 0 0 1 0-5.198V6.375c0-.621-.504-1.125-1.125-1.125H3.375Z" />
+                            </svg>
+                            <span>Open Support Ticket</span>
+                        </button>
+                        <input id="ebE3RunLogSearch" type="text" placeholder="Search…" class="eb-input min-w-0 w-full py-1 text-xs sm:w-64">
+                    </div>
                 </div>
-                <button type="button" id="ebE3RunTicketBtn" class="eb-btn eb-btn-secondary eb-btn-sm gap-2 hidden">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 6v.75m0 3v.75m0 3v.75m0 3V18m-9-5.25h5.25M7.5 15h3M3.375 5.25c-.621 0-1.125.504-1.125 1.125v3.026a2.999 2.999 0 0 1 0 5.198v3.026c0 .621.504 1.125 1.125 1.125h17.25c.621 0 1.125-.504 1.125-1.125v-3.026a2.999 2.999 0 0 1 0-5.198V6.375c0-.621-.504-1.125-1.125-1.125H3.375Z" />
-                    </svg>
-                    <span>Open Support Ticket</span>
-                </button>
-            </div>
 
             {* Inline ticket preview panel (drained by e3backup_run_ticket.js) *}
             <div id="ebE3RunTicketPanel" class="eb-card !p-4 !mb-3 hidden">
@@ -96,9 +137,7 @@
                 </div>
             </div>
 
-            <div class="mb-1">
-                <h3 class="eb-type-h3 !mb-2">Backup log</h3>
-                <pre id="ebE3RunLogBody" class="eb-type-mono max-h-80 overflow-auto whitespace-pre-wrap rounded-[var(--eb-radius-md)] border border-[var(--eb-border-subtle)] bg-[var(--eb-bg-base)] p-4 text-[length:var(--eb-type-mono-size)] leading-relaxed text-[var(--eb-text-secondary)]"></pre>
+            <div id="ebE3RunLogBody" class="max-h-96 overflow-y-auto divide-y divide-[var(--eb-border-default)] text-sm"></div>
             </div>
             <div id="ebE3RunValidation" class="mt-4 hidden">
                 <h3 class="eb-type-h3 !mb-2">Validation log</h3>
