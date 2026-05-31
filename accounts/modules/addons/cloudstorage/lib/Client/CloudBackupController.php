@@ -1663,6 +1663,69 @@ class CloudBackupController {
     }
 
     /**
+     * Resolve keep_last retention count from run stats and/or job configuration.
+     */
+    public static function resolveKeepLastFromJob($jobRow, ?array $stats = null): int
+    {
+        if (is_array($stats) && isset($stats['retention']['keep_last'])) {
+            $n = (int) $stats['retention']['keep_last'];
+            if ($n > 0) {
+                return $n;
+            }
+        }
+        if (!$jobRow) {
+            return 0;
+        }
+        $json = $jobRow->retention_json ?? '';
+        if (is_string($json) && $json !== '') {
+            $decoded = json_decode($json, true);
+            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded) && isset($decoded['keep_last'])) {
+                return max(0, (int) $decoded['keep_last']);
+            }
+        }
+        if (strtolower((string) ($jobRow->retention_mode ?? '')) === 'keep_last_n') {
+            $val = (int) ($jobRow->retention_value ?? 0);
+            if ($val > 0) {
+                return $val;
+            }
+        }
+        return 0;
+    }
+
+    /**
+     * Delete restore point rows beyond the newest N for a job (UI/catalog trim).
+     *
+     * @param string $jobIdUuid BIN_TO_UUID job id
+     */
+    public static function pruneRestorePointsForJob(string $jobIdUuid, int $keepLast): int
+    {
+        if ($keepLast <= 0 || !Capsule::schema()->hasTable('s3_cloudbackup_restore_points')) {
+            return 0;
+        }
+        if (!Capsule::schema()->hasColumn('s3_cloudbackup_restore_points', 'job_id')) {
+            return 0;
+        }
+        $jobIdUuid = trim($jobIdUuid);
+        if ($jobIdUuid === '' || !UuidBinary::isUuid($jobIdUuid)) {
+            return 0;
+        }
+        $ids = Capsule::table('s3_cloudbackup_restore_points')
+            ->whereRaw('job_id = ' . UuidBinary::toDbExpr(UuidBinary::normalize($jobIdUuid)))
+            ->orderByDesc('finished_at')
+            ->orderByDesc('id')
+            ->pluck('id')
+            ->all();
+        if (count($ids) <= $keepLast) {
+            return 0;
+        }
+        $toDelete = array_slice($ids, $keepLast);
+        if (empty($toDelete)) {
+            return 0;
+        }
+        return (int) Capsule::table('s3_cloudbackup_restore_points')->whereIn('id', $toDelete)->delete();
+    }
+
+    /**
      * Persist source driver bundle metadata from run stats_json.
      *
      * @param object $run

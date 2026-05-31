@@ -1,0 +1,9 @@
+
+[2026-05-31 16:57:06] $ 'scp' '-O' '-T' '-i' '/etc/eazybackup-build/windows_server_ed25519' '-o' 'BatchMode=yes' '-o' 'StrictHostKeyChecking=accept-new' 'Administrator@192.168.92.210:C:\E3Build\23\Output\e3-backup-agent-setup.exe' '/var/www/eazybackup.ca/accounts/modules/addons/cloudstorage/storage/builds/23/artifacts/e3-backup-agent-setup.exe'
+[2026-05-31 16:57:07] exit=0
+
+[2026-05-31 16:57:07] $ 'scp' '-O' '-T' '-i' '/etc/eazybackup-build/windows_server_ed25519' '-o' 'BatchMode=yes' '-o' 'StrictHostKeyChecking=accept-new' 'Administrator@192.168.92.210:C:\E3Build\23\bin\e3-backup-agent.exe' '/var/www/eazybackup.ca/accounts/modules/addons/cloudstorage/storage/builds/23/artifacts/e3-backup-agent.exe'
+[2026-05-31 16:57:09] exit=0
+
+[2026-05-31 16:57:09] $ 'scp' '-O' '-T' '-i' '/etc/eazybackup-build/windows_server_ed25519' '-o' 'BatchMode=yes' '-o' 'StrictHostKeyChecking=accept-new' 'Administrator@192.168.92.210:C:\E3Build\23\bin\e3-backup-tray.exe' '/var/www/eazybackup.ca/accounts/modules/addons/cloudstorage/storage/builds/23/artifacts/e3-backup-tray.exe'
+[2026-05-31 16:57:10] exit=0

@@ -433,6 +433,41 @@ try {
             logModuleCall('cloudstorage', 'agent_update_run_restore_points_error', ['run_id' => $runId], $e->getMessage());
         }
         $jobRow = Capsule::table('s3_cloudbackup_jobs')->where('job_id', $run->job_id)->first();
+        if ($jobRow) {
+            $statsDecoded = [];
+            if (!empty($update['stats_json']) && is_string($update['stats_json'])) {
+                $statsDecoded = json_decode($update['stats_json'], true);
+                if (json_last_error() !== JSON_ERROR_NONE || !is_array($statsDecoded)) {
+                    $statsDecoded = [];
+                }
+            } elseif (!empty($run->stats_json) && is_string($run->stats_json)) {
+                $statsDecoded = json_decode($run->stats_json, true);
+                if (json_last_error() !== JSON_ERROR_NONE || !is_array($statsDecoded)) {
+                    $statsDecoded = [];
+                }
+            }
+            $keepLast = CloudBackupController::resolveKeepLastFromJob($jobRow, $statsDecoded);
+            if ($keepLast > 0 && Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'job_id')) {
+                $jobUuid = (string) (Capsule::table('s3_cloudbackup_jobs')
+                    ->where('job_id', $run->job_id)
+                    ->value(Capsule::raw('BIN_TO_UUID(job_id)')) ?? '');
+                if ($jobUuid !== '') {
+                    try {
+                        $pruned = CloudBackupController::pruneRestorePointsForJob($jobUuid, $keepLast);
+                        if ($pruned > 0) {
+                            logModuleCall('cloudstorage', 'agent_update_run_restore_points_pruned', [
+                                'run_id' => $runId,
+                                'job_id' => $jobUuid,
+                                'keep_last' => $keepLast,
+                                'deleted' => $pruned,
+                            ], 'pruned restore point catalog rows');
+                        }
+                    } catch (\Throwable $e) {
+                        logModuleCall('cloudstorage', 'agent_update_run_restore_points_prune_error', ['run_id' => $runId], $e->getMessage());
+                    }
+                }
+            }
+        }
         if ($jobRow && KopiaRetentionHookService::shouldEnqueueFromRun(
             $finalStatus,
             (string) ($jobRow->source_type ?? ''),

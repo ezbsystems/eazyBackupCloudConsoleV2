@@ -36,6 +36,18 @@
     function setText(id, t) { var n = el(id); if (n) n.textContent = t || ''; }
     function isEligible(status) { return ELIGIBLE.indexOf(String(status || '').toLowerCase()) !== -1; }
 
+    function engineLabel(e) {
+        switch (String(e || '').toLowerCase()) {
+            case 'kopia':
+            case 'sync': return 'File/Folder';
+            case 'disk_image': return 'Disk Image';
+            case 'hyperv': return 'Hyper-V';
+            default:
+                if (!e) return 'File/Folder';
+                return String(e).charAt(0).toUpperCase() + String(e).slice(1);
+        }
+    }
+
     function api(action) {
         return fetch(CTX_ENDPOINT + '?run_uuid=' + encodeURIComponent(current.runId) + '&action=' + encodeURIComponent(action), {
             credentials: 'same-origin'
@@ -65,7 +77,7 @@
         lines.push('Run ID:   ' + (current.runId || ''));
         lines.push('Job:      ' + (meta.jobName || ''));
         lines.push('Agent:    ' + (meta.agent || ''));
-        lines.push('Engine:   ' + (meta.engine || ''));
+        lines.push('Engine:   ' + engineLabel(meta.engine || meta.engineInternal || ''));
         lines.push('Status:   ' + (meta.status || ''));
         lines.push('Started:  ' + (meta.started || ''));
         lines.push('Finished: ' + (meta.finished || ''));
@@ -178,18 +190,8 @@
             var runId = current.runId;
             var sid = safeId(runId);
 
-            var txt = buildLogTxt(rows, meta);
-            var files = [
-                { name: 'run-' + sid + '.txt', mime: 'text/plain;charset=utf-8', base64: utf8ToBase64(txt) }
-            ];
-
-            var totalBytes = files.reduce(function (n, f) { return n + (f.base64.length * 0.75); }, 0);
-            var oversize = totalBytes > SS_MAX_BYTES;
-            if (oversize) {
-                downloadFile(files[0].name, txt, 'text/plain;charset=utf-8');
-                files = [];
-            }
-
+            // Run log is attached server-side on TicketOpen (see eb_e3_run_ticket_attachment.php).
+            // Browser DataTransfer prefill often creates broken attachment rows (dl.php 500).
             var payload = {
                 runId: runId,
                 deptId: ctx.deptId || 1,
@@ -197,20 +199,18 @@
                 subject: ctx.subject || '',
                 body: ctx.bodyMarkdown || '',
                 customFieldId: ctx.customFieldId || 0,
-                files: files,
-                downloadedFallback: oversize,
+                files: [],
+                serverAttach: true,
                 ts: Date.now()
             };
 
             try {
                 sessionStorage.setItem(SS_PREFIX + runId, JSON.stringify(payload));
             } catch (e) {
-                if (!oversize) {
-                    downloadFile(files[0].name, txt, 'text/plain;charset=utf-8');
-                    payload.files = [];
-                    payload.downloadedFallback = true;
-                    try { sessionStorage.setItem(SS_PREFIX + runId, JSON.stringify(payload)); } catch (_) {}
-                }
+                var txt = buildLogTxt(rows, meta);
+                downloadFile('run-' + sid + '.txt', txt, 'text/plain');
+                payload.downloadedFallback = true;
+                try { sessionStorage.setItem(SS_PREFIX + runId, JSON.stringify(payload)); } catch (_) {}
             }
 
             var url = (WEB_ROOT || '') + '/submitticket.php?step=2'

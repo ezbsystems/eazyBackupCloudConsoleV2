@@ -791,6 +791,57 @@ func (r *Runner) kopiaSnapshotWithEntry(ctx context.Context, run *NextRunRespons
 		return fmt.Errorf("kopia: manifest id not recorded")
 	}
 
+	if retPol, ok := retentionPolicyFromRun(run); ok {
+		keepLast := 0
+		if retPol.KeepLatest != nil {
+			keepLast = *retPol.KeepLatest
+		}
+		r.pushEvents(run.RunID, RunEvent{
+			Type:      "info",
+			Level:     "info",
+			MessageID: "KOPIA_RETENTION_START",
+			ParamsJSON: map[string]any{
+				"keep_last": keepLast,
+				"source":    sourceLabel,
+			},
+		})
+		deleted, retErr := r.kopiaApplyRetentionForSource(ctx, rep, srcInfo, retPol, run)
+		retentionStats := map[string]any{
+			"deleted_count": deleted,
+		}
+		if keepLast > 0 {
+			retentionStats["keep_last"] = keepLast
+		}
+		_ = r.client.UpdateRun(RunUpdate{
+			RunID: run.RunID,
+			StatsJSON: map[string]any{
+				"manifest_id": manifestID,
+				"retention":   retentionStats,
+			},
+		})
+		if retErr != nil {
+			log.Printf("agent: retention apply failed for run %s: %v", run.RunID, retErr)
+			r.pushEvents(run.RunID, RunEvent{
+				Type:      "warn",
+				Level:     "warn",
+				MessageID: "KOPIA_RETENTION_FAILED",
+				ParamsJSON: map[string]any{
+					"error": sanitizeErrorMessage(retErr),
+				},
+			})
+		} else {
+			r.pushEvents(run.RunID, RunEvent{
+				Type:      "info",
+				Level:     "info",
+				MessageID: "KOPIA_RETENTION_COMPLETE",
+				ParamsJSON: map[string]any{
+					"deleted_count": deleted,
+					"keep_last":     keepLast,
+				},
+			})
+		}
+	}
+
 	return nil
 }
 

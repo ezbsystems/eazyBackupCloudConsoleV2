@@ -1,0 +1,47 @@
+
+[2026-05-31 16:56:11] $ 'git' '-C' '/srv/agent-build/eazyBackupCloudConsoleV2' 'fetch' '--all' '--tags' '--prune'
+Fetching origin
+From github.com:ezbsystems/eazyBackupCloudConsoleV2
+   b5a45d3c..6bcb9249  main       -> origin/main
+[2026-05-31 16:56:14] exit=0
+
+[2026-05-31 16:56:14] $ 'git' '-C' '/srv/agent-build/eazyBackupCloudConsoleV2' 'checkout' 'main'
+Already on 'main'
+Your branch is behind 'origin/main' by 1 commit, and can be fast-forwarded.
+  (use "git pull" to update your local branch)
+[2026-05-31 16:56:14] exit=0
+
+[2026-05-31 16:56:14] $ 'git' '-C' '/srv/agent-build/eazyBackupCloudConsoleV2' 'pull' '--ff-only'
+Updating b5a45d3c..6bcb9249
+Fast-forward
+ .../builds/22/artifacts/e3-backup-agent-setup.exe  | Bin 0 -> 11875888 bytes
+ .../builds/22/artifacts/e3-backup-agent.exe        | Bin 0 -> 31737128 bytes
+ .../storage/builds/22/artifacts/e3-backup-tray.exe | Bin 0 -> 8041256 bytes
+ .../cloudstorage/storage/builds/22/git_sync.log    |  24 +++++++
+ .../cloudstorage/storage/builds/22/go_test.log     |  14 ++++
+ .../cloudstorage/storage/builds/22/linux_build.log |   5 ++
+ .../cloudstorage/storage/builds/22/publish.log     |   2 +
+ .../cloudstorage/storage/builds/22/verify.log      |  16 +++++
+ .../storage/builds/22/windows_build.log            |  14 ++++
+ .../storage/builds/22/windows_fetch.log            |   9 +++
+ .../storage/builds/22/windows_inno.log             |   4 ++
+ .../storage/builds/22/windows_sign.log             |  39 +++++++++++
+ .../storage/builds/22/windows_stage.log            |  28 ++++++++
+ e3-backup-agent/internal/agent/kopia.go            |  75 +++++++++++++++++++--
+ e3-backup-agent/internal/agent/kopia_entry_test.go |  50 ++++++++++++++
+ 15 files changed, 274 insertions(+), 6 deletions(-)
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/22/artifacts/e3-backup-agent-setup.exe
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/22/artifacts/e3-backup-agent.exe
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/22/artifacts/e3-backup-tray.exe
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/22/git_sync.log
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/22/go_test.log
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/22/linux_build.log
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/22/publish.log
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/22/verify.log
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/22/windows_build.log
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/22/windows_fetch.log
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/22/windows_inno.log
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/22/windows_sign.log
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/22/windows_stage.log
+ create mode 100644 e3-backup-agent/internal/agent/kopia_entry_test.go
+[2026-05-31 16:56:15] exit=0

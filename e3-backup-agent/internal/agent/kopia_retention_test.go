@@ -33,6 +33,19 @@ func TestImmediateFallbackUsesVaultPolicyForRetiredSource(t *testing.T) {
 	}
 }
 
+func TestRetentionPolicyFromRunKeepLast(t *testing.T) {
+	run := &NextRunResponse{
+		RetentionJSON: map[string]any{"keep_last": float64(5)},
+	}
+	pol, ok := retentionPolicyFromRun(run)
+	if !ok {
+		t.Fatal("expected retention policy")
+	}
+	if pol.KeepLatest == nil || *pol.KeepLatest != 5 {
+		t.Fatalf("KeepLatest: got %v, want 5", pol.KeepLatest)
+	}
+}
+
 func TestParseEffectivePolicyFromMap(t *testing.T) {
 	t.Run("nil map", func(t *testing.T) {
 		out, err := parseEffectivePolicyFromMap(nil, 30)

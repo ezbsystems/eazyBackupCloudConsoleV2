@@ -24,6 +24,18 @@
 
     var LOG_ENDPOINT = 'modules/addons/cloudstorage/api/cloudbackup_get_run_logs.php';
 
+    function engineDisplayLabel(e) {
+        switch (String(e || '').toLowerCase()) {
+            case 'kopia':
+            case 'sync': return 'File/Folder';
+            case 'disk_image': return 'Disk Image';
+            case 'hyperv': return 'Hyper-V';
+            default:
+                if (!e) return 'File/Folder';
+                return String(e).charAt(0).toUpperCase() + String(e).slice(1);
+        }
+    }
+
     // ---- Status helper -------------------------------------------------
     // Maps an e3 run status to an eb-* badge modifier + dot modifier + label.
     var STATUS_MAP = {
@@ -98,7 +110,7 @@
         setText('ebE3RunSummaryJob', m.jobName || 'Backup run');
         setText('ebE3RunSummaryAgent', m.agent || '-');
         setText('ebE3RunSummaryUser', m.user || '-');
-        setText('ebE3RunSummaryEngine', (m.engine || 'File/Folder'));
+        setText('ebE3RunSummaryEngine', engineDisplayLabel(m.engine));
         setText('ebE3RunSummaryStarted', m.started || '-');
         setText('ebE3RunSummaryFinished', m.finished || '-');
         setText('ebE3RunSummaryDuration', m.durationText || '-');

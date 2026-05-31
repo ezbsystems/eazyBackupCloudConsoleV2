@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -28,6 +29,7 @@ type SourcePolicyInput struct {
 	VaultDefaultDays int
 	Sources          []SourcePolicyEntry
 	CometTiers       map[string]int // hourly, daily, weekly, monthly, yearly
+	KeepLatest       int            // keep_last from job policy
 }
 
 // buildEffectiveDailyMap returns a map of source path -> keep_daily days.
@@ -46,6 +48,80 @@ func buildEffectiveDailyMap(input SourcePolicyInput) map[string]int {
 
 // cometTierKeys are Comet-style retention keys from PHP (hourly, daily, weekly, monthly, yearly).
 var cometTierKeys = []string{"hourly", "daily", "weekly", "monthly", "yearly"}
+
+// retentionPolicyFromRun builds a Kopia retention policy from job fields on the run payload.
+// Supports retention_json.keep_last, retention_json.keep_days, Comet tiers, and legacy retention_mode.
+func retentionPolicyFromRun(run *NextRunResponse) (policy.RetentionPolicy, bool) {
+	if run == nil {
+		return policy.RetentionPolicy{}, false
+	}
+	if run.RetentionJSON != nil {
+		if v, ok := run.RetentionJSON["keep_last"]; ok {
+			if n := jsonInt(v); n > 0 {
+				return policy.RetentionPolicy{KeepLatest: intPtr(n)}, true
+			}
+		}
+		if v, ok := run.RetentionJSON["keep_days"]; ok {
+			if n := jsonInt(v); n > 0 {
+				return policy.RetentionPolicy{KeepDaily: intPtr(n)}, true
+			}
+		}
+		tiers := make(map[string]int)
+		for _, key := range cometTierKeys {
+			if v, ok := run.RetentionJSON[key]; ok {
+				if n := jsonInt(v); n > 0 {
+					tiers[key] = n
+				}
+			}
+		}
+		if len(tiers) > 0 {
+			return retentionPolicyFromCometTiers(tiers), true
+		}
+	}
+	return policy.RetentionPolicy{}, false
+}
+
+func jsonInt(v any) int {
+	switch n := v.(type) {
+	case float64:
+		return int(n)
+	case int:
+		return n
+	case int64:
+		return int(n)
+	case json.Number:
+		i, _ := n.Int64()
+		return int(i)
+	default:
+		return 0
+	}
+}
+
+// kopiaApplyRetentionForSource applies retention for a single snapshot source immediately after backup.
+func (r *Runner) kopiaApplyRetentionForSource(ctx context.Context, rep repo.Repository, src snapshot.SourceInfo, retPol policy.RetentionPolicy, run *NextRunResponse) (int, error) {
+	dr, ok := rep.(repo.DirectRepository)
+	if !ok {
+		return 0, fmt.Errorf("kopia: repo does not support retention apply")
+	}
+	var deletedCount int
+	err := repo.DirectWriteSession(ctx, dr, repo.WriteSessionOptions{Purpose: "retention"}, func(wctx context.Context, dw repo.DirectRepositoryWriter) error {
+		pol := &policy.Policy{RetentionPolicy: retPol}
+		if setErr := policy.SetPolicy(wctx, dw, src, pol); setErr != nil {
+			return setErr
+		}
+		deleted, applyErr := policy.ApplyRetentionPolicy(wctx, dw, src, true)
+		if applyErr != nil {
+			return applyErr
+		}
+		deletedCount = len(deleted)
+		return nil
+	})
+	if err != nil {
+		return deletedCount, err
+	}
+	log.Printf("agent: retention applied for run %s source %s deleted=%d", run.RunID, src.Path, deletedCount)
+	return deletedCount, nil
+}
 
 // parseEffectivePolicyFromMap parses effective_policy from server payload into SourcePolicyInput.
 // Accepts two formats:
@@ -85,6 +161,18 @@ func parseEffectivePolicyFromMap(m map[string]any, vaultDefaultFallback int) (So
 		out.CometTiers = cometTiers
 		if d, ok := cometTiers["daily"]; ok && d > 0 {
 			out.VaultDefaultDays = d
+		}
+	}
+	if v, ok := m["keep_last"]; ok {
+		if n := jsonInt(v); n > 0 {
+			out.KeepLatest = n
+		}
+	}
+	if v, ok := m["keep_days"]; ok {
+		if n := jsonInt(v); n > 0 {
+			if out.VaultDefaultDays <= 0 {
+				out.VaultDefaultDays = n
+			}
 		}
 	}
 
@@ -188,7 +276,9 @@ func (r *Runner) kopiaRetentionApply(ctx context.Context, run *NextRunResponse, 
 	var totalDeleted int
 	for _, src := range sources {
 		retPol := policy.RetentionPolicy{}
-		if input.CometTiers != nil {
+		if input.KeepLatest > 0 {
+			retPol = policy.RetentionPolicy{KeepLatest: intPtr(input.KeepLatest)}
+		} else if input.CometTiers != nil {
 			retPol = retentionPolicyFromCometTiers(input.CometTiers)
 		} else {
 			days := effectiveMap[src.Path]

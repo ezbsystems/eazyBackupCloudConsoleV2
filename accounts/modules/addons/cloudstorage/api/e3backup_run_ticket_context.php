@@ -32,6 +32,7 @@ use Symfony\Component\HttpFoundation\JsonResponse;
 use WHMCS\ClientArea;
 use WHMCS\Database\Capsule;
 use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupController;
+use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupEngineLabel;
 use WHMCS\Module\Addon\CloudStorage\Client\TimezoneHelper;
 
 function e3RunTicketFail($message, $code = 200)
@@ -93,7 +94,8 @@ if ($action === 'duplicate') {
 // ── Build the ticket context ──
 $job = CloudBackupController::getJob($run['job_id'] ?? '', $clientId);
 $jobName = $job['name'] ?? 'Backup job';
-$engine = strtolower((string) ($run['engine'] ?? ($job['engine'] ?? 'sync')));
+$engineInternal = strtolower((string) ($run['engine'] ?? ($job['engine'] ?? 'sync')));
+$engineLabel = CloudBackupEngineLabel::label($engineInternal);
 
 // Agent hostname (best-effort).
 $agentHostname = '';
@@ -118,7 +120,7 @@ $dateStr = date('Y-m-d');
 $subjectParts = array_filter([$agentHostname, $jobName]);
 $subject = 'Cloud Backup ' . $statusLabel . ': ' . implode(' - ', $subjectParts) . ' - ' . $dateStr;
 
-$errorSummary = trim((string) ($run['error_summary'] ?? ''));
+$errorSummary = CloudBackupEngineLabel::sanitizeText(trim((string) ($run['error_summary'] ?? '')));
 
 $bodyLines = [];
 $bodyLines[] = 'Hello eazyBackup support,';
@@ -129,7 +131,7 @@ $bodyLines[] = '- Job: ' . $jobName;
 if ($agentHostname !== '') {
     $bodyLines[] = '- Agent: ' . $agentHostname;
 }
-$bodyLines[] = '- Engine: ' . $engine;
+$bodyLines[] = '- Engine: ' . $engineLabel;
 $bodyLines[] = '- Status: ' . $statusLabel;
 if ($startedFmt !== '') {
     $bodyLines[] = '- Started: ' . $startedFmt;
@@ -162,7 +164,7 @@ try {
                     $logRows[] = ['Severity' => 'E', 'Message' => $line];
                 }
             }
-            $hints = $suggester->suggest($logRows, $engine, $status);
+            $hints = $suggester->suggest($logRows, $engineInternal, $status);
             if (is_array($hints)) {
                 $kbHints = array_slice($hints, 0, 3);
             }
@@ -176,7 +178,8 @@ $runMeta = [
     'runId' => $runId,
     'jobName' => $jobName,
     'agent' => $agentHostname,
-    'engine' => $engine,
+    'engine' => $engineLabel,
+    'engineInternal' => $engineInternal,
     'status' => $statusLabel,
     'started' => $startedFmt,
     'finished' => $finishedFmt,
