@@ -1,0 +1,16 @@
+
+[2026-05-31 14:24:26] $ 'sha256sum' '/srv/agent-build/eazyBackupCloudConsoleV2/e3-backup-agent/bin/e3-backup-agent'
+4132c260ef76ce8077970fbcae6d02f9325332a1df7efbf0880d1bd3dd5f8f4c  /srv/agent-build/eazyBackupCloudConsoleV2/e3-backup-agent/bin/e3-backup-agent
+[2026-05-31 14:24:26] exit=0
+
+[2026-05-31 14:24:26] $ 'sha256sum' '/var/www/eazybackup.ca/accounts/modules/addons/cloudstorage/storage/builds/20/artifacts/e3-backup-agent-setup.exe'
+f1741aa132e94013fe7997630632070b36a3d2d118c48da6023890422a7bddbb  /var/www/eazybackup.ca/accounts/modules/addons/cloudstorage/storage/builds/20/artifacts/e3-backup-agent-setup.exe
+[2026-05-31 14:24:26] exit=0
+
+[2026-05-31 14:24:26] $ 'sha256sum' '/var/www/eazybackup.ca/accounts/modules/addons/cloudstorage/storage/builds/20/artifacts/e3-backup-agent.exe'
+77ede1e98a871e7d928b4b8d870299bb542a1f817694d3ca103641a4ac1b8166  /var/www/eazybackup.ca/accounts/modules/addons/cloudstorage/storage/builds/20/artifacts/e3-backup-agent.exe
+[2026-05-31 14:24:27] exit=0
+
+[2026-05-31 14:24:27] $ 'sha256sum' '/var/www/eazybackup.ca/accounts/modules/addons/cloudstorage/storage/builds/20/artifacts/e3-backup-tray.exe'
+f66c4f934fe77f8f63e55acf65aea150c49e6efbfe466f88d3405b6e9649f338  /var/www/eazybackup.ca/accounts/modules/addons/cloudstorage/storage/builds/20/artifacts/e3-backup-tray.exe
+[2026-05-31 14:24:27] exit=0
