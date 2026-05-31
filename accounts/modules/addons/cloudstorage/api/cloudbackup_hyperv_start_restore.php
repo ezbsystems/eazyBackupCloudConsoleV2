@@ -50,25 +50,67 @@ $clientId = $ca->getUserID();
 $backupPointId = isset($_POST['backup_point_id']) ? (int) $_POST['backup_point_id'] : 0;
 $targetPath = isset($_POST['target_path']) ? trim((string) $_POST['target_path']) : '';
 $diskFilterRaw = $_POST['disk_filter'] ?? '';
+$vmsRaw = $_POST['vms'] ?? '';
 
-// Validate inputs
-if ($backupPointId <= 0) {
-    respond(['status' => 'fail', 'message' => 'backup_point_id is required']);
-}
 if (empty($targetPath)) {
     respond(['status' => 'fail', 'message' => 'target_path is required']);
 }
 
-// Parse disk filter (JSON array of disk paths to restore, empty = all disks)
-$diskFilter = [];
-if (!empty($diskFilterRaw)) {
-    // HTML decode in case WHMCS encoded the value
-    $decoded = html_entity_decode($diskFilterRaw, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-    $parsed = json_decode($decoded, true);
-    if (json_last_error() === JSON_ERROR_NONE && is_array($parsed)) {
-        $diskFilter = $parsed;
+// Normalize input into a list of VM selections: each is a backup_point_id with
+// an optional list of disk paths to restore (empty = all disks for that VM).
+//
+//   - Multi-VM (preferred): POST 'vms' is a JSON array of
+//     { backup_point_id, disks: [diskPath, ...] }.
+//   - Single-VM (legacy): POST 'backup_point_id' + 'disk_filter' (JSON array).
+//
+// In multi-VM mode 'target_path' is treated as a BASE directory; each VM is
+// restored into its own subfolder beneath it.
+$selections = [];
+
+$decodeJsonArray = function ($raw) {
+    if ($raw === '' || $raw === null) {
+        return null;
     }
+    $decoded = html_entity_decode((string) $raw, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    $parsed = json_decode($decoded, true);
+    return (json_last_error() === JSON_ERROR_NONE && is_array($parsed)) ? $parsed : null;
+};
+
+$vmsParsed = $decodeJsonArray($vmsRaw);
+if (is_array($vmsParsed) && !empty($vmsParsed)) {
+    foreach ($vmsParsed as $entry) {
+        if (!is_array($entry)) {
+            continue;
+        }
+        $bpId = isset($entry['backup_point_id']) ? (int) $entry['backup_point_id'] : 0;
+        if ($bpId <= 0) {
+            continue;
+        }
+        $disks = [];
+        if (isset($entry['disks']) && is_array($entry['disks'])) {
+            foreach ($entry['disks'] as $d) {
+                if (is_string($d) && $d !== '') {
+                    $disks[] = $d;
+                }
+            }
+        }
+        $selections[] = ['backup_point_id' => $bpId, 'disks' => $disks];
+    }
+} elseif ($backupPointId > 0) {
+    $diskFilter = $decodeJsonArray($diskFilterRaw) ?? [];
+    $selections[] = ['backup_point_id' => $backupPointId, 'disks' => $diskFilter];
 }
+
+if (empty($selections)) {
+    respond(['status' => 'fail', 'message' => 'At least one VM (backup_point_id) is required']);
+}
+
+// De-duplicate by backup_point_id (last wins).
+$dedup = [];
+foreach ($selections as $sel) {
+    $dedup[$sel['backup_point_id']] = $sel;
+}
+$selections = array_values($dedup);
 
 // Check if Hyper-V tables exist
 if (!Capsule::schema()->hasTable('s3_hyperv_backup_points')) {
@@ -92,75 +134,114 @@ $bpSelect = [
 $bpSelect[] = $hasJobIdPk ? Capsule::raw('BIN_TO_UUID(j.job_id) as job_id') : 'j.id as job_id';
 $bpSelect[] = $hasRunIdCol ? Capsule::raw('BIN_TO_UUID(bp.run_id) as run_id_uuid') : Capsule::raw('bp.run_id as run_id_uuid');
 
-// Get backup point and verify ownership through VM -> Job chain
-$backupPoint = Capsule::table('s3_hyperv_backup_points as bp')
-    ->join('s3_hyperv_vms as v', 'bp.vm_id', '=', 'v.id')
-    ->join('s3_cloudbackup_jobs as j', $vmJobJoin[0], $vmJobJoin[1], $vmJobJoin[2])
-    ->join('s3_cloudbackup_runs as r', $bpRunJoin[0], $bpRunJoin[1], $bpRunJoin[2])
-    ->where('bp.id', $backupPointId)
-    ->where('j.client_id', $clientId)
-    ->select($bpSelect)
-    ->first();
+$multiVM = count($selections) > 1;
 
-if (!$backupPoint) {
-    respond(['status' => 'fail', 'message' => 'Backup point not found or access denied']);
-}
+// Validate every selected backup point and assemble the per-VM payload.
+$vmPayloads = [];        // entries for the agent command 'vms' array
+$estimatedSize = 0;      // aggregate across VMs
+$sharedJobId = null;     // all VMs must belong to the same job
+$sharedJobName = null;
+$sharedAgentUuid = null;
+$sharedRunIdUuid = null; // backup run that produced these points (for job context)
+$sharedRunIdRaw = null;
+$primaryManifestId = null;
+$vmNamesForLabel = [];
 
-// Verify the backup run was successful
-if (!in_array($backupPoint->run_status, ['success', 'warning'], true)) {
-    respond(['status' => 'fail', 'message' => 'Cannot restore from this backup point (run status: ' . $backupPoint->run_status . ')']);
-}
+foreach ($selections as $sel) {
+    $bpId = (int) $sel['backup_point_id'];
 
-// MSP tenant authorization check (job_id is UUID string when hasJobIdPk)
-$jobIdForAccess = (string) ($backupPoint->job_id ?? '');
-if ($hasJobIdPk && UuidBinary::isUuid($jobIdForAccess)) {
-    $accessCheck = MspController::validateJobAccess($jobIdForAccess, $clientId);
-    if (!$accessCheck['valid']) {
-        respond(['status' => 'fail', 'message' => $accessCheck['message']]);
+    $backupPoint = Capsule::table('s3_hyperv_backup_points as bp')
+        ->join('s3_hyperv_vms as v', 'bp.vm_id', '=', 'v.id')
+        ->join('s3_cloudbackup_jobs as j', $vmJobJoin[0], $vmJobJoin[1], $vmJobJoin[2])
+        ->join('s3_cloudbackup_runs as r', $bpRunJoin[0], $bpRunJoin[1], $bpRunJoin[2])
+        ->where('bp.id', $bpId)
+        ->where('j.client_id', $clientId)
+        ->select($bpSelect)
+        ->first();
+
+    if (!$backupPoint) {
+        respond(['status' => 'fail', 'message' => "Backup point {$bpId} not found or access denied"]);
     }
-}
 
-// Parse disk manifests
-$diskManifests = [];
-if (!empty($backupPoint->disk_manifests)) {
-    $decoded = json_decode($backupPoint->disk_manifests, true);
-    if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
-        $diskManifests = $decoded;
+    if (!in_array($backupPoint->run_status, ['success', 'warning'], true)) {
+        respond(['status' => 'fail', 'message' => 'Cannot restore from backup point ' . $bpId . ' (run status: ' . $backupPoint->run_status . ')']);
     }
-}
 
-if (empty($diskManifests)) {
-    respond(['status' => 'fail', 'message' => 'Backup point has no disk manifests. Cannot restore.']);
-}
-
-// Filter disks if requested
-$disksToRestore = $diskManifests;
-if (!empty($diskFilter)) {
-    $disksToRestore = array_filter($diskManifests, function ($diskPath) use ($diskFilter) {
-        return in_array($diskPath, $diskFilter, true);
-    }, ARRAY_FILTER_USE_KEY);
-}
-
-if (empty($disksToRestore)) {
-    respond(['status' => 'fail', 'message' => 'No disks selected for restore']);
-}
-
-// For incremental backups, calculate the restore chain
-$restoreChain = [];
-if ($backupPoint->backup_type === 'Incremental') {
-    $restoreChain = calculateRestoreChainForPoint((int)$backupPoint->vm_id, $backupPointId);
-    if (empty($restoreChain)) {
-        respond(['status' => 'fail', 'message' => 'Cannot restore incremental backup: restore chain is broken or incomplete. Please select a Full backup point.']);
+    // MSP tenant authorization check (job_id is UUID string when hasJobIdPk).
+    $jobIdForAccess = (string) ($backupPoint->job_id ?? '');
+    if ($hasJobIdPk && UuidBinary::isUuid($jobIdForAccess)) {
+        $accessCheck = MspController::validateJobAccess($jobIdForAccess, $clientId);
+        if (!$accessCheck['valid']) {
+            respond(['status' => 'fail', 'message' => $accessCheck['message']]);
+        }
     }
-} else {
-    // Full backup - just use this backup point
-    $restoreChain = [$backupPoint->manifest_id];
+
+    // Enforce a single owning job across all selected VMs.
+    if ($sharedJobId === null) {
+        $sharedJobId = $backupPoint->job_id;
+        $sharedJobName = $backupPoint->job_name;
+        $sharedAgentUuid = $backupPoint->agent_uuid;
+        $sharedRunIdUuid = $backupPoint->run_id_uuid ?? null;
+        $sharedRunIdRaw = $backupPoint->run_id ?? null;
+        $primaryManifestId = $backupPoint->manifest_id;
+    } elseif ((string) $sharedJobId !== (string) $backupPoint->job_id) {
+        respond(['status' => 'fail', 'message' => 'All selected VMs must belong to the same backup job']);
+    }
+
+    // Parse + filter this VM's disk manifests.
+    $diskManifests = [];
+    if (!empty($backupPoint->disk_manifests)) {
+        $decoded = json_decode($backupPoint->disk_manifests, true);
+        if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+            $diskManifests = $decoded;
+        }
+    }
+    if (empty($diskManifests)) {
+        respond(['status' => 'fail', 'message' => 'Backup point for ' . $backupPoint->vm_name . ' has no disk manifests']);
+    }
+
+    $disksToRestore = $diskManifests;
+    if (!empty($sel['disks'])) {
+        $wanted = $sel['disks'];
+        $disksToRestore = array_filter($diskManifests, function ($diskPath) use ($wanted) {
+            return in_array($diskPath, $wanted, true);
+        }, ARRAY_FILTER_USE_KEY);
+    }
+    if (empty($disksToRestore)) {
+        respond(['status' => 'fail', 'message' => 'No disks selected for ' . $backupPoint->vm_name]);
+    }
+
+    // Restore chain (incremental walks back to the base full).
+    if ($backupPoint->backup_type === 'Incremental') {
+        $restoreChain = calculateRestoreChainForPoint((int) $backupPoint->vm_id, $bpId);
+        if (empty($restoreChain)) {
+            respond(['status' => 'fail', 'message' => 'Cannot restore incremental backup for ' . $backupPoint->vm_name . ': restore chain is broken. Please select a Full backup point.']);
+        }
+    } else {
+        $restoreChain = [$backupPoint->manifest_id];
+    }
+
+    if ($backupPoint->total_size_bytes) {
+        $estimatedSize += (int) $backupPoint->total_size_bytes;
+    }
+    $vmNamesForLabel[] = $backupPoint->vm_name;
+
+    $vmPayloads[] = [
+        'backup_point_id' => $bpId,
+        'vm_name' => $backupPoint->vm_name,
+        'vm_guid' => $backupPoint->vm_guid,
+        // Multi-VM restores land each VM in its own subfolder; single-VM keeps
+        // the base path (empty subfolder => agent restores directly to base).
+        'subfolder' => $multiVM ? sanitizeHypervSubfolder($backupPoint->vm_name) : '',
+        'disk_manifests' => $disksToRestore,
+        'restore_chain' => $restoreChain,
+        'backup_type' => $backupPoint->backup_type,
+    ];
 }
 
-// Calculate estimated size
-$estimatedSize = 0;
-if ($backupPoint->total_size_bytes) {
-    $estimatedSize = (int) $backupPoint->total_size_bytes;
+$totalDisks = 0;
+foreach ($vmPayloads as $vp) {
+    $totalDisks += count($vp['disk_manifests']);
 }
 
 // Check if commands table exists
@@ -178,8 +259,19 @@ try {
     $hasEventsRunIdBinary = Capsule::schema()->hasTable('s3_cloudbackup_run_events')
         && stripos((string) (Capsule::selectOne("SHOW COLUMNS FROM s3_cloudbackup_run_events WHERE Field = 'run_id'")->Type ?? ''), 'binary') !== false;
 
+    $vmCount = count($vmPayloads);
+    $vmNamesLabel = implode(', ', $vmNamesForLabel);
+    $backupTypeAgg = 'Full';
+    foreach ($vmPayloads as $vp) {
+        if ($vp['backup_type'] === 'Incremental') {
+            $backupTypeAgg = 'Incremental';
+            break;
+        }
+    }
+
     Capsule::connection()->transaction(function () use (
-        $backupPoint, $backupPointId, $targetPath, $disksToRestore, $restoreChain, $estimatedSize,
+        $targetPath, $estimatedSize, $vmPayloads, $vmCount, $vmNamesLabel, $backupTypeAgg, $totalDisks,
+        $sharedJobId, $sharedAgentUuid, $sharedRunIdUuid, $sharedRunIdRaw, $primaryManifestId,
         $hasJobIdPk, $hasRunIdCol, $hasCommandRunIdBinary, $hasEventsRunIdBinary,
         &$restoreRunId, &$restoreRunUuid, &$commandId
     ) {
@@ -191,10 +283,10 @@ try {
 
         $restoreRunUuidGen = ($hasRunIdCol) ? CloudBackupController::generateUuid() : null;
 
-        // Create a restore run for tracking progress
-        $jobIdForRun = $hasJobIdPk && UuidBinary::isUuid((string) ($backupPoint->job_id ?? ''))
-            ? Capsule::raw(UuidBinary::toDbExpr(UuidBinary::normalize((string) $backupPoint->job_id)))
-            : $backupPoint->job_id;
+        // Create a single restore run for tracking progress across all VMs.
+        $jobIdForRun = $hasJobIdPk && UuidBinary::isUuid((string) ($sharedJobId ?? ''))
+            ? Capsule::raw(UuidBinary::toDbExpr(UuidBinary::normalize((string) $sharedJobId)))
+            : $sharedJobId;
 
         $runData = [
             'job_id' => $jobIdForRun,
@@ -207,10 +299,8 @@ try {
             $runData['run_id'] = Capsule::raw(UuidBinary::toDbExpr($restoreRunUuidGen));
         }
         $hasAgentUuidRuns = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'agent_uuid');
-        if ($hasAgentUuidRuns && !empty($backupPoint->agent_uuid)) {
-            $runData['agent_uuid'] = $backupPoint->agent_uuid;
-        } elseif ($hasAgentIdRuns && !empty($backupPoint->agent_id)) {
-            $runData['agent_id'] = $backupPoint->agent_id;
+        if ($hasAgentUuidRuns && !empty($sharedAgentUuid)) {
+            $runData['agent_uuid'] = $sharedAgentUuid;
         }
         if ($hasEngineColumn) {
             $runData['engine'] = 'hyperv';
@@ -224,20 +314,26 @@ try {
 
         $restoreMetadata = [
             'type' => 'hyperv_restore',
-            'backup_point_id' => $backupPointId,
-            'vm_name' => $backupPoint->vm_name,
-            'vm_guid' => $backupPoint->vm_guid,
-            'backup_type' => $backupPoint->backup_type,
+            'vm_name' => $vmNamesLabel,
+            'vm_count' => $vmCount,
+            'vms' => array_map(function ($vp) {
+                return [
+                    'vm_name' => $vp['vm_name'],
+                    'backup_point_id' => $vp['backup_point_id'],
+                    'subfolder' => $vp['subfolder'],
+                    'disk_count' => count($vp['disk_manifests']),
+                ];
+            }, $vmPayloads),
+            'backup_type' => $backupTypeAgg,
             'target_path' => $targetPath,
-            'disk_count' => count($disksToRestore),
+            'disk_count' => $totalDisks,
             'estimated_size_bytes' => $estimatedSize,
-            'restore_chain_length' => count($restoreChain),
         ];
         if (Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'stats_json')) {
             $runData['stats_json'] = json_encode($restoreMetadata);
         }
         if (Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'log_ref')) {
-            $runData['log_ref'] = $backupPoint->manifest_id;
+            $runData['log_ref'] = $primaryManifestId;
         }
 
         // Insert the restore run (no insertGetId when UUID schema)
@@ -250,25 +346,34 @@ try {
             $restoreRunUuid = $runData['run_uuid'] ?? null;
         }
 
-        // Command run_id: backup run for job context. UUID schema: use run_id_uuid; legacy: run_id (int)
-        $backupRunIdUuid = (string) ($backupPoint->run_id_uuid ?? '');
+        // Command run_id: the backup run that produced these points, used for
+        // job context (repo creds). All selected VMs share the same backup run.
+        $backupRunIdUuid = (string) ($sharedRunIdUuid ?? '');
         $cmdRunIdValue = ($hasCommandRunIdBinary && UuidBinary::isUuid($backupRunIdUuid))
             ? Capsule::raw(UuidBinary::toDbExpr(UuidBinary::normalize($backupRunIdUuid)))
-            : (isset($backupPoint->run_id) ? $backupPoint->run_id : null);
+            : $sharedRunIdRaw;
 
+        // Single command carrying all VMs. The agent restores each VM into its
+        // own subfolder under target_path and completes the run once.
         $commandId = Capsule::table('s3_cloudbackup_run_commands')->insertGetId([
             'run_id' => $cmdRunIdValue,
             'type' => 'hyperv_restore',
             'payload_json' => json_encode([
-                'backup_point_id' => $backupPointId,
-                'vm_name' => $backupPoint->vm_name,
-                'vm_guid' => $backupPoint->vm_guid,
                 'target_path' => $targetPath,
-                'disk_manifests' => $disksToRestore,
-                'restore_chain' => $restoreChain,
-                'backup_type' => $backupPoint->backup_type,
+                'backup_type' => $backupTypeAgg,
                 'restore_run_id' => $restoreRunId,
                 'restore_run_uuid' => $restoreRunUuid,
+                'vms' => array_map(function ($vp) {
+                    return [
+                        'backup_point_id' => $vp['backup_point_id'],
+                        'vm_name' => $vp['vm_name'],
+                        'vm_guid' => $vp['vm_guid'],
+                        'subfolder' => $vp['subfolder'],
+                        'disk_manifests' => $vp['disk_manifests'],
+                        'restore_chain' => $vp['restore_chain'],
+                        'backup_type' => $vp['backup_type'],
+                    ];
+                }, $vmPayloads),
             ]),
             'status' => 'pending',
             'created_at' => Capsule::raw('NOW()'),
@@ -287,27 +392,28 @@ try {
                 'code' => 'HYPERV_RESTORE_QUEUED',
                 'message_id' => 'HYPERV_RESTORE_STARTING',
                 'params_json' => json_encode([
-                    'vm_name' => $backupPoint->vm_name,
-                    'backup_type' => $backupPoint->backup_type,
+                    'vm_name' => $vmNamesLabel,
+                    'vm_count' => $vmCount,
+                    'backup_type' => $backupTypeAgg,
                     'target_path' => $targetPath,
-                    'disk_count' => count($disksToRestore),
+                    'disk_count' => $totalDisks,
                 ]),
             ]);
         }
     });
-    
+
     respond([
         'status' => 'success',
         'message' => 'Hyper-V restore started',
         'restore_run_id' => $restoreRunId,
         'restore_run_uuid' => $restoreRunUuid,
         'command_id' => $commandId,
-        'job_id' => $hasJobIdPk ? (string) ($backupPoint->job_id ?? '') : (int) $backupPoint->job_id,
-        'vm_name' => $backupPoint->vm_name,
-        'disks_to_restore' => count($disksToRestore),
+        'job_id' => $hasJobIdPk ? (string) ($sharedJobId ?? '') : (int) $sharedJobId,
+        'vm_name' => $vmNamesLabel,
+        'vm_count' => $vmCount,
+        'disks_to_restore' => $totalDisks,
         'estimated_size_bytes' => $estimatedSize,
-        'backup_type' => $backupPoint->backup_type,
-        'restore_chain_length' => count($restoreChain),
+        'backup_type' => $backupTypeAgg,
     ]);
 } catch (\Throwable $e) {
     logModuleCall('cloudstorage', 'cloudbackup_hyperv_start_restore', [
@@ -361,5 +467,19 @@ function calculateRestoreChainForPoint(int $vmId, int $targetBackupPointId): arr
     
     // If we get here without finding a Full backup, chain is incomplete
     return [];
+}
+
+/**
+ * Produce a filesystem-safe subfolder name from a VM name for multi-VM
+ * restores. Mirrors the agent-side sanitizer (sanitizeSubfolderName) so the
+ * server-reported target subfolders match what the agent writes.
+ */
+function sanitizeHypervSubfolder(string $name): string
+{
+    // Replace Windows-reserved characters and control chars with underscores.
+    $cleaned = preg_replace('/[<>:"\/\\\\|?*\x00-\x1F]/', '_', $name);
+    $cleaned = trim((string) $cleaned);
+    $cleaned = trim($cleaned, '.');
+    return $cleaned === '' ? 'vm' : $cleaned;
 }
 
