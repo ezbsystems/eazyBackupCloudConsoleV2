@@ -1,0 +1,24 @@
+
+[2026-05-31 15:02:52] $ 'git' '-C' '/srv/agent-build/eazyBackupCloudConsoleV2' 'fetch' '--all' '--tags' '--prune'
+Fetching origin
+From github.com:ezbsystems/eazyBackupCloudConsoleV2
+   1374d710..b5a45d3c  main       -> origin/main
+[2026-05-31 15:02:53] exit=0
+
+[2026-05-31 15:02:53] $ 'git' '-C' '/srv/agent-build/eazyBackupCloudConsoleV2' 'checkout' 'main'
+Already on 'main'
+Your branch is behind 'origin/main' by 1 commit, and can be fast-forwarded.
+  (use "git pull" to update your local branch)
+[2026-05-31 15:02:53] exit=0
+
+[2026-05-31 15:02:53] $ 'git' '-C' '/srv/agent-build/eazyBackupCloudConsoleV2' 'pull' '--ff-only'
+Updating 1374d710..b5a45d3c
+Fast-forward
+ .../cloudstorage/storage/builds/21/git_sync.log    | 46 ++++++++++++++++++++++
+ .../cloudstorage/storage/builds/21/go_test.log     | 17 ++++++++
+ e3-backup-agent/internal/agent/hyperv_restore.go   |  2 +-
+ e3-backup-agent/internal/agent/kopia.go            | 14 ++++---
+ 4 files changed, 72 insertions(+), 7 deletions(-)
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/21/git_sync.log
+ create mode 100644 accounts/modules/addons/cloudstorage/storage/builds/21/go_test.log
+[2026-05-31 15:02:54] exit=0
