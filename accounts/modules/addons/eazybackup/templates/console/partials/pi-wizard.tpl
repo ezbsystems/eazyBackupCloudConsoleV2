@@ -7,9 +7,10 @@
 <div x-data="protectedItemWizard()" x-init="init()" x-cloak>
   <div x-show="open"
        class="fixed inset-0 z-50 flex items-start justify-center p-4 sm:p-6 overflow-y-auto"
+       @click.self="close()"
        x-transition.opacity>
-    <div class="eb-modal-backdrop fixed inset-0" @click="close()"></div>
-    <div class="eb-modal relative z-10 w-full max-w-4xl my-6">
+    <div class="eb-modal-backdrop fixed inset-0 pointer-events-none" aria-hidden="true"></div>
+    <div class="eb-modal relative z-10 w-full max-w-4xl my-6 !overflow-visible" @click.stop>
       <div class="eb-modal-header">
         <div>
           <h2 class="eb-modal-title flex items-center gap-2">
@@ -23,7 +24,7 @@
         <button class="eb-modal-close" @click="close()" aria-label="Close">&times;</button>
       </div>
 
-      <div class="eb-modal-body">
+      <div class="eb-modal-body !overflow-visible">
         <div class="flex flex-wrap items-center gap-2 mb-5">
           <template x-for="n in [1,2,3,4,5,6]" :key="'pi-step-'+n">
             <button type="button"
@@ -159,7 +160,11 @@
               </div>
             </div>
 
-            <div class="eb-subpanel">
+            <div class="eb-toggle mb-3" @click="file.showAdvanced = !file.showAdvanced">
+              <div class="eb-toggle-track" :class="file.showAdvanced && 'is-on'"><div class="eb-toggle-thumb"></div></div>
+              <span class="eb-toggle-label">Show advanced options</span>
+            </div>
+            <div x-show="file.showAdvanced" x-cloak class="eb-subpanel">
               <h4 class="eb-type-h4 mb-3">Advanced options</h4>
               <div class="space-y-2">
                 <div class="eb-toggle" @click="file.opts.takeFilesystemSnapshot = !file.opts.takeFilesystemSnapshot">
@@ -257,11 +262,12 @@
 
             <div>
               <label class="eb-field-label">Backup type</label>
-              <select class="eb-select" x-model="vm.backupType">
-                <option value="cbt">Latest VM state (Changed Block Tracking)</option>
-                <option value="standard">Latest VM state (Standard)</option>
-                <option value="all">All VM snapshots</option>
-              </select>
+              <div class="eb-select-field-mount"
+                   x-data="piSelectVmBackupType()"
+                   x-init="init()"
+                   @keydown.escape.prevent="close()">
+                {include file="modules/addons/eazybackup/templates/console/partials/eb-select-menu.tpl"}
+              </div>
             </div>
           </div>
         </div>
@@ -304,9 +310,9 @@
           </div>
 
           {* schedule editor sub-modal *}
-          <div x-show="scheduleEditor.open" class="fixed inset-0 z-[60] flex items-start justify-center p-4 overflow-y-auto" x-cloak x-transition.opacity>
-            <div class="eb-modal-backdrop fixed inset-0" @click="closeScheduleEditor()"></div>
-            <div class="eb-modal relative z-10 w-full max-w-2xl my-6">
+          <div x-show="scheduleEditor.open" class="fixed inset-0 z-[60] flex items-start justify-center p-4 overflow-y-auto" x-cloak x-transition.opacity @click.self="closeScheduleEditor()">
+            <div class="eb-modal-backdrop fixed inset-0 pointer-events-none" aria-hidden="true"></div>
+            <div class="eb-modal relative z-10 w-full max-w-2xl my-6 !overflow-visible" @click.stop>
               <div class="eb-modal-header">
                 <div>
                   <h2 class="eb-modal-title">Schedule</h2>
@@ -314,7 +320,7 @@
                 </div>
                 <button class="eb-modal-close" @click="closeScheduleEditor()">&times;</button>
               </div>
-              <div class="eb-modal-body" x-show="scheduleEditor.draft">
+              <div class="eb-modal-body !overflow-visible" x-show="scheduleEditor.draft">
                <template x-if="scheduleEditor.draft">
                 <div>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
@@ -327,13 +333,12 @@
                     <input type="text" class="eb-input" :value="description || (mode==='edit' ? '(this item)' : '(new item)')" disabled>
                   </div>
                 </div>
-                <div class="mb-3">
+                <div class="mb-3 eb-select-field-mount"
+                     x-data="piSelectScheduleVault()"
+                     x-init="init()"
+                     @keydown.escape.prevent="close()">
                   <label class="eb-field-label">Storage Vault</label>
-                  <select class="eb-select" x-model="scheduleEditor.draft.vaultId">
-                    <template x-for="v in vaultsForDevice(scheduleEditor.draft.showOtherVaults)" :key="'sv-'+v.id">
-                      <option :value="v.id" x-text="v.name + (v.owner && v.owner !== deviceId ? ' (other device)' : '')"></option>
-                    </template>
-                  </select>
+                  {include file="modules/addons/eazybackup/templates/console/partials/eb-select-menu.tpl"}
                   <label class="eb-inline-choice mt-2">
                     <input type="checkbox" class="eb-check-input" x-model="scheduleEditor.draft.showOtherVaults">
                     <span>Show Storage Vaults in use by other devices</span>
@@ -385,24 +390,24 @@
           </div>
 
           {* schedule time sub-sub-modal *}
-          <div x-show="scheduleTimeEditor.open" class="fixed inset-0 z-[70] flex items-start justify-center p-4 overflow-y-auto" x-cloak x-transition.opacity>
-            <div class="eb-modal-backdrop fixed inset-0" @click="scheduleTimeEditor.open=false"></div>
-            <div class="eb-modal eb-modal--confirm relative z-10 w-full my-6">
+          <div x-show="scheduleTimeEditor.open" class="fixed inset-0 z-[70] flex items-start justify-center p-4 overflow-y-auto" x-cloak x-transition.opacity @click.self="scheduleTimeEditor.open = false">
+            <div class="eb-modal-backdrop fixed inset-0 pointer-events-none" aria-hidden="true"></div>
+            <div class="eb-modal eb-modal--confirm relative z-10 w-full my-6 !overflow-visible" @click.stop>
               <div class="eb-modal-header">
                 <h2 class="eb-modal-title">Scheduled time</h2>
                 <button class="eb-modal-close" @click="scheduleTimeEditor.open=false">&times;</button>
               </div>
-              <div class="eb-modal-body" x-show="scheduleTimeEditor.draft">
+              <div class="eb-modal-body !overflow-visible" x-show="scheduleTimeEditor.draft">
                 <template x-if="scheduleTimeEditor.draft">
                   <div>
                     <div class="mb-3">
                       <label class="eb-field-label">Schedule type</label>
-                      <select class="eb-select" x-model.number="scheduleTimeEditor.draft.FrequencyType">
-                        <option :value="8012">Hourly</option>
-                        <option :value="8011">Daily</option>
-                        <option :value="8013">Weekly</option>
-                        <option :value="8014">Monthly</option>
-                      </select>
+                      <div class="eb-select-field-mount"
+                           x-data="piSelectScheduleFrequency()"
+                           x-init="init()"
+                           @keydown.escape.prevent="close()">
+                        {include file="modules/addons/eazybackup/templates/console/partials/eb-select-menu.tpl"}
+                      </div>
                     </div>
                     <div class="grid grid-cols-2 gap-3 mb-3" x-show="scheduleTimeEditor.draft.FrequencyType !== 8012">
                       <div>
@@ -454,12 +459,12 @@
 
           <div class="mb-3">
             <label class="eb-field-label">Apply override to vault</label>
-            <select class="eb-select" x-model="retention.activeVaultId">
-              <option value="">(no override)</option>
-              <template x-for="r in schedules" :key="'rt-'+r.vaultId">
-                <option :value="r.vaultId" x-text="(allVaults.find(v=>v.id===r.vaultId)||{ name: r.vaultId }).name"></option>
-              </template>
-            </select>
+            <div class="eb-select-field-mount"
+                 x-data="piSelectRetentionVault()"
+                 x-init="init()"
+                 @keydown.escape.prevent="close()">
+              {include file="modules/addons/eazybackup/templates/console/partials/eb-select-menu.tpl"}
+            </div>
           </div>
 
           <div class="eb-toggle mb-3" @click="retention.override = !retention.override" x-show="retention.activeVaultId">
@@ -471,22 +476,23 @@
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
               <div>
                 <label class="eb-field-label">Mode</label>
-                <select class="eb-select" x-model.number="retention.mode">
-                  <option :value="801">Keep everything (no deletions)</option>
-                  <option :value="802">Apply rules below</option>
-                </select>
+                <div class="eb-select-field-mount"
+                     x-data="piSelectRetentionMode()"
+                     x-init="init()"
+                     @keydown.escape.prevent="close()">
+                  {include file="modules/addons/eazybackup/templates/console/partials/eb-select-menu.tpl"}
+                </div>
               </div>
             </div>
             <div x-show="retention.mode === 802">
               <div class="mb-2 eb-field-label">Add a rule</div>
               <div class="grid grid-cols-1 md:grid-cols-3 gap-2 mb-3">
-                <select class="eb-select" x-model.number="retention.newType">
-                  <option :value="900">Most recent X jobs</option>
-                  <option :value="903">First job for last X days</option>
-                  <option :value="906">First job for last X weeks</option>
-                  <option :value="905">First job for last X months</option>
-                  <option :value="911">First job for last X years</option>
-                </select>
+                <div class="eb-select-field-mount"
+                     x-data="piSelectRetentionRuleType()"
+                     x-init="init()"
+                     @keydown.escape.prevent="close()">
+                  {include file="modules/addons/eazybackup/templates/console/partials/eb-select-menu.tpl"}
+                </div>
                 <input type="number" min="1" class="eb-input" placeholder="Count" x-model.number="retention.newCount">
                 <button type="button" class="eb-btn eb-btn-secondary eb-btn-sm" @click="addRetentionRange()">Add rule</button>
               </div>
@@ -521,11 +527,11 @@
         </div>
       </div>
 
-      <div class="eb-modal-footer">
-        <button type="button" class="eb-btn eb-btn-ghost eb-btn-sm" @click="close()">Cancel</button>
-        <div class="flex-1"></div>
+      <div class="eb-modal-footer gap-2">
         <button type="button" class="eb-btn eb-btn-secondary eb-btn-sm" @click="back()" x-show="step > 1" :disabled="submitting">&lt; Back</button>
-        <button type="button" class="eb-btn eb-btn-primary eb-btn-sm" @click="next()" x-show="step < 6" :disabled="!canAdvance()">Next &gt;</button>
+        <div class="flex-1"></div>
+        <button type="button" class="eb-btn eb-btn-secondary eb-btn-sm" @click="next()" x-show="step < 6" :disabled="!canAdvance()">Next &gt;</button>
+        <button type="button" class="eb-btn eb-btn-ghost eb-btn-sm" @click="close()">Cancel</button>
         <button type="button" class="eb-btn eb-btn-primary eb-btn-sm" @click="save()" x-show="step === 6 || mode === 'edit'" :disabled="submitting || !itemsValid()">
           <span x-show="!submitting">Save</span>
           <span x-show="submitting">Saving&hellip;</span>
@@ -534,52 +540,105 @@
     </div>
   </div>
 
-  {* File browser sub-modal *}
-  <div x-show="browser.open" class="fixed inset-0 z-[55] flex items-start justify-center p-4 overflow-y-auto" x-cloak x-transition.opacity>
-    <div class="eb-modal-backdrop fixed inset-0" @click="browser.open=false"></div>
-    <div class="eb-modal relative z-10 w-full max-w-2xl my-6">
+  {* File browser sub-modal (two-pane explorer) *}
+  <div x-show="browser.open" class="fixed inset-0 z-[55] flex items-start justify-center p-4 overflow-y-auto" x-cloak x-transition.opacity @click.self="browser.open = false">
+    <div class="eb-modal-backdrop fixed inset-0 pointer-events-none" aria-hidden="true"></div>
+    <div class="eb-modal relative z-10 w-full max-w-4xl my-6 !overflow-visible" @click.stop>
       <div class="eb-modal-header">
         <div>
           <h2 class="eb-modal-title">Browse device filesystem</h2>
-          <p class="eb-modal-subtitle">Click a folder to browse, or use Add to include a path.</p>
+          <p class="eb-modal-subtitle">Select volumes, folders, or files, then click Add.</p>
         </div>
-        <button class="eb-modal-close" @click="browser.open=false">&times;</button>
+        <button type="button" class="eb-modal-close" @click="browser.open=false" aria-label="Close">&times;</button>
       </div>
       <div class="eb-modal-body">
-        <div class="flex items-center gap-2 mb-3">
-          <button type="button" class="eb-btn eb-btn-secondary eb-btn-xs" @click="browseUp()" :disabled="!browser.breadcrumb.length">&uarr; Up</button>
-          <div class="eb-breadcrumb">
-            <span class="eb-breadcrumb-current">/</span>
-            <template x-for="(b, i) in browser.breadcrumb" :key="'bc-'+i">
-              <span><span class="eb-breadcrumb-separator">/</span><span class="eb-breadcrumb-current" x-text="b.name"></span></span>
+        <div class="flex flex-wrap items-center gap-2 mb-3">
+          <button type="button" class="eb-btn eb-btn-secondary eb-btn-xs" @click="browseUp()" :disabled="!browser.activeVolume || !browser.breadcrumb.length">&uarr; Up</button>
+          <button type="button" class="eb-btn eb-btn-secondary eb-btn-xs" @click="browseRefresh()" :disabled="browser.loading">Refresh</button>
+          <div class="eb-breadcrumb min-w-0 flex-1">
+            <template x-if="browser.activeVolume">
+              <span>
+                <span class="eb-breadcrumb-current" x-text="browser.activeVolume.name"></span>
+                <template x-for="(b, i) in browser.breadcrumb" :key="'bc-'+i">
+                  <span><span class="eb-breadcrumb-separator">/</span><span class="eb-breadcrumb-current" x-text="b.name"></span></span>
+                </template>
+              </span>
             </template>
+            <span x-show="!browser.activeVolume" class="eb-breadcrumb-current" style="color: var(--eb-text-muted)">No volume selected</span>
           </div>
         </div>
-        <div x-show="browser.loading" class="eb-loader-pill">Loading&hellip;</div>
-        <div x-show="browser.error" class="eb-alert eb-alert--danger"><div x-text="browser.error"></div></div>
-        <div class="eb-table-shell" x-show="!browser.loading && browser.entries.length">
-          <table class="eb-table">
-            <thead><tr><th></th><th>Name</th><th class="w-24"></th></tr></thead>
-            <tbody>
-              <template x-for="e in browser.entries" :key="e.subtree || e.name">
-                <tr>
-                  <td>
-                    <svg x-show="e.isDir" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15a2.25 2.25 0 0 1 2.25 2.25v.75m-19.5 0v6A2.25 2.25 0 0 0 4.5 21h15a2.25 2.25 0 0 0 2.25-2.25v-6m-19.5 0V8.25A2.25 2.25 0 0 1 4.5 6h3l1.5 1.5h10.5A2.25 2.25 0 0 1 21.75 9.75v3"/></svg>
-                    <svg x-show="!e.isDir" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25M9 16.5v.75m3-3v3M15 12v5.25m-4.5-15H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z"/></svg>
-                  </td>
-                  <td><a href="#" @click.prevent="browseInto(e)" :class="!e.isDir && 'opacity-70'" x-text="e.name"></a></td>
-                  <td><button type="button" class="eb-btn eb-btn-secondary eb-btn-xs" @click="browseAddSelection(e); browser.open=false">Add</button></td>
-                </tr>
-              </template>
-            </tbody>
-          </table>
-        </div>
-        <div x-show="!browser.loading && !browser.entries.length && !browser.error" class="eb-app-empty">
-          <p class="eb-app-empty-copy">This folder is empty.</p>
+
+        <div x-show="browser.loading" class="eb-loader-pill mb-3">Loading&hellip;</div>
+        <div x-show="browser.error" class="eb-alert eb-alert--danger mb-3"><div x-text="browser.error"></div></div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3 min-h-[320px] max-h-[420px]">
+          {* Left pane: volumes *}
+          <div class="md:col-span-1 flex flex-col min-h-0">
+            <div class="eb-type-caption mb-2 font-medium">Volumes</div>
+            <div class="eb-table-shell flex-1 min-h-0 overflow-y-auto">
+              <table class="eb-table">
+                <tbody>
+                  <template x-for="v in browser.volumes" :key="'vol-'+browsePathKey(v)">
+                    <tr class="cursor-pointer"
+                        :class="browser.activeVolume && browsePathKey(browser.activeVolume) === browsePathKey(v) ? 'is-selected' : ''"
+                        @click="browseSelectVolume(v)">
+                      <td class="w-10" @click.stop>
+                        <input type="checkbox" class="eb-check-input" :checked="browseIsSelected(v)" @change="browseToggleSelect(v)">
+                      </td>
+                      <td class="w-8">
+                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15a2.25 2.25 0 0 1 2.25 2.25v.75m-19.5 0v6A2.25 2.25 0 0 0 4.5 21h15a2.25 2.25 0 0 0 2.25-2.25v-6m-19.5 0V8.25A2.25 2.25 0 0 1 4.5 6h3l1.5 1.5h10.5A2.25 2.25 0 0 1 21.75 9.75v3"/></svg>
+                      </td>
+                      <td class="truncate" x-text="v.name"></td>
+                    </tr>
+                  </template>
+                  <tr x-show="!browser.loading && !browser.volumes.length && !browser.error">
+                    <td colspan="3" class="text-center py-6" style="color: var(--eb-text-muted)">No volumes found.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {* Right pane: folder contents *}
+          <div class="md:col-span-2 flex flex-col min-h-0">
+            <div class="eb-type-caption mb-2 font-medium">Contents</div>
+            <div class="eb-table-shell flex-1 min-h-0 overflow-y-auto">
+              <div x-show="!browser.activeVolume" class="eb-app-empty py-8">
+                <p class="eb-app-empty-copy">Select a volume to browse its folders and files.</p>
+              </div>
+              <table class="eb-table" x-show="browser.activeVolume">
+                <tbody>
+                  <template x-for="e in browser.entries" :key="'ent-'+browsePathKey(e)">
+                    <tr :class="e.isDir ? 'cursor-pointer' : ''" @click="e.isDir && browseInto(e)">
+                      <td class="w-10" @click.stop>
+                        <input type="checkbox" class="eb-check-input" :checked="browseIsSelected(e)" @change="browseToggleSelect(e)">
+                      </td>
+                      <td class="w-8">
+                        <svg x-show="e.isDir" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15a2.25 2.25 0 0 1 2.25 2.25v.75m-19.5 0v6A2.25 2.25 0 0 0 4.5 21h15a2.25 2.25 0 0 0 2.25-2.25v-6m-19.5 0V8.25A2.25 2.25 0 0 1 4.5 6h3l1.5 1.5h10.5A2.25 2.25 0 0 1 21.75 9.75v3"/></svg>
+                        <svg x-show="!e.isDir" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25M9 16.5v.75m3-3v3M15 12v5.25m-4.5-15H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z"/></svg>
+                      </td>
+                      <td class="truncate" :class="!e.isDir && 'opacity-80'" x-text="e.name"></td>
+                    </tr>
+                  </template>
+                  <tr x-show="browser.activeVolume && !browser.loading && !browser.entries.length && !browser.error">
+                    <td colspan="3" class="text-center py-6" style="color: var(--eb-text-muted)">This folder is empty.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
       </div>
-      <div class="eb-modal-footer">
+      <div class="eb-modal-footer gap-2">
         <button type="button" class="eb-btn eb-btn-secondary eb-btn-sm" @click="browser.open=false">Close</button>
+        <div class="flex-1"></div>
+        <button type="button"
+                class="eb-btn eb-btn-primary eb-btn-sm"
+                @click="browseCommitSelections()"
+                :disabled="browseSelectedCount() === 0">
+          <span x-show="browseSelectedCount() === 0">Add</span>
+          <span x-show="browseSelectedCount() > 0" x-text="'Add (' + browseSelectedCount() + ')'"></span>
+        </button>
       </div>
     </div>
   </div>
