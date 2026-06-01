@@ -84,6 +84,7 @@
         excludes: [],
         newInclude: '',
         newExclude: '',
+        showAdvanced: false,
         opts: { takeFilesystemSnapshot: true, rescanUnchanged: false, dismissEFS: false, extraAttributes: false }
       },
 
@@ -114,16 +115,18 @@
       },
 
       // retention state (synced from existing item)
-      retention: { override: false, mode: 802, ranges: [], defaultMode: 801, defaultRanges: [], newType: 900, newCount: 1 },
+      retention: { override: false, mode: 802, ranges: [], defaultMode: 801, defaultRanges: [], newType: 900, newCount: 1, activeVaultId: '' },
 
-      // file browser modal
+      // file browser modal (two-pane explorer)
       browser: {
         open: false,
-        path: null,
-        entries: [],
         loading: false,
         error: '',
-        breadcrumb: [] // [{name, subtree}]
+        volumes: [],
+        activeVolume: null,
+        entries: [],
+        breadcrumb: [],
+        selected: {}
       },
 
       // ---------- lifecycle ----------
@@ -149,7 +152,7 @@
         self.engine = '';
         self.description = '';
         self.file = {
-          includes: [], excludes: [], newInclude: '', newExclude: '',
+          includes: [], excludes: [], newInclude: '', newExclude: '', showAdvanced: false,
           opts: { takeFilesystemSnapshot: true, rescanUnchanged: false, dismissEFS: false, extraAttributes: false }
         };
         self.vm = {
@@ -158,7 +161,7 @@
           credentials: { host: '', user: '', password: '', allowInvalidCert: false }
         };
         self.schedules = [];
-        self.retention = { override: false, mode: 802, ranges: [], defaultMode: 801, defaultRanges: [] };
+        self.retention = { override: false, mode: 802, ranges: [], defaultMode: 801, defaultRanges: [], newType: 900, newCount: 1, activeVaultId: '' };
         self.open = true;
 
         // Load reference data (devices, engines, profile vaults).
@@ -330,44 +333,108 @@
       removeExclude: function (i) { this.file.excludes.splice(i, 1); },
 
       // ---------- file browser ----------
+      browsePathKey: function (entry) {
+        if (!entry) return '';
+        return entry.subtree || entry.name || '';
+      },
+      browseEntryPath: function (entry) {
+        return this.browsePathKey(entry);
+      },
       openBrowser: function () {
         if (!this.deviceId) return;
         this.browser.open = true;
-        this.browser.path = null;
+        this.browser.error = '';
+        this.browser.volumes = [];
+        this.browser.activeVolume = null;
+        this.browser.entries = [];
         this.browser.breadcrumb = [];
+        this.browser.selected = {};
         this.browseLoad(null);
       },
       browseLoad: function (path) {
         var self = this;
+        var isRoot = path === null || path === undefined || path === '';
         self.browser.loading = true;
         self.browser.error = '';
-        return call('browseFs', { deviceId: self.deviceId, path: path }).then(function (r) {
+        return call('browseFs', { deviceId: self.deviceId, path: isRoot ? null : path }).then(function (r) {
           self.browser.loading = false;
           if (!r || r.status !== 'success') {
             self.browser.error = (r && r.message) || 'Browse failed';
-            self.browser.entries = [];
+            if (isRoot) self.browser.volumes = [];
+            else self.browser.entries = [];
             return;
           }
-          self.browser.path = r.path;
-          self.browser.entries = r.entries || [];
+          var entries = r.entries || [];
+          if (isRoot) {
+            self.browser.volumes = entries;
+          } else {
+            self.browser.entries = entries;
+          }
         });
       },
+      browseRightPath: function () {
+        var bc = this.browser.breadcrumb;
+        if (bc.length) return bc[bc.length - 1].subtree;
+        if (this.browser.activeVolume) return this.browser.activeVolume.subtree;
+        return null;
+      },
+      browseRefresh: function () {
+        if (!this.browser.activeVolume) {
+          this.browseLoad(null);
+          return;
+        }
+        this.browseLoad(this.browseRightPath());
+      },
+      browseSelectVolume: function (vol) {
+        if (!vol) return;
+        this.browser.activeVolume = { name: vol.name, subtree: vol.subtree };
+        this.browser.breadcrumb = [];
+        this.browser.entries = [];
+        if (vol.subtree) {
+          this.browseLoad(vol.subtree);
+        }
+      },
       browseInto: function (entry) {
-        if (!entry || !entry.isDir) return;
+        if (!entry || !entry.isDir || !this.browser.activeVolume) return;
         this.browser.breadcrumb.push({ name: entry.name, subtree: entry.subtree });
         this.browseLoad(entry.subtree);
       },
       browseUp: function () {
-        if (!this.browser.breadcrumb.length) return;
+        if (!this.browser.activeVolume || !this.browser.breadcrumb.length) return;
         this.browser.breadcrumb.pop();
         var last = this.browser.breadcrumb[this.browser.breadcrumb.length - 1];
-        this.browseLoad(last ? last.subtree : null);
+        this.browseLoad(last ? last.subtree : this.browser.activeVolume.subtree);
       },
-      browseAddSelection: function (entry) {
-        if (!entry) return;
-        var p = entry.subtree || entry.name;
-        if (!p) return;
-        this.file.includes.push(p);
+      browseIsSelected: function (entry) {
+        var key = this.browsePathKey(entry);
+        return !!(key && this.browser.selected[key]);
+      },
+      browseToggleSelect: function (entry) {
+        var key = this.browsePathKey(entry);
+        var path = this.browseEntryPath(entry);
+        if (!key || !path) return;
+        if (this.browser.selected[key]) {
+          delete this.browser.selected[key];
+        } else {
+          this.browser.selected[key] = { path: path, name: entry.name, isDir: !!entry.isDir };
+        }
+      },
+      browseSelectedCount: function () {
+        return Object.keys(this.browser.selected).length;
+      },
+      browseCommitSelections: function () {
+        var self = this;
+        var existing = {};
+        (self.file.includes || []).forEach(function (p) { existing[p] = true; });
+        Object.keys(self.browser.selected).forEach(function (key) {
+          var item = self.browser.selected[key];
+          if (item && item.path && !existing[item.path]) {
+            self.file.includes.push(item.path);
+            existing[item.path] = true;
+          }
+        });
+        self.browser.selected = {};
+        self.browser.open = false;
       },
       itemsValid: function () {
         var d = (this.description || '').trim();
@@ -430,6 +497,135 @@
           return !v.owner || v.owner === self.deviceId;
         });
       },
+
+      vmBackupTypeOptions: function () {
+        return [
+          { value: 'cbt', label: 'Latest VM state (Changed Block Tracking)' },
+          { value: 'standard', label: 'Latest VM state (Standard)' },
+          { value: 'all', label: 'All VM snapshots' }
+        ];
+      },
+
+      scheduleFrequencyOptions: function () {
+        return [
+          { value: 8012, label: 'Hourly' },
+          { value: 8011, label: 'Daily' },
+          { value: 8013, label: 'Weekly' },
+          { value: 8014, label: 'Monthly' }
+        ];
+      },
+
+      retentionVaultOptions: function () {
+        var self = this;
+        var opts = [{ value: '', label: '(no override)' }];
+        self.schedules.forEach(function (r) {
+          if (!r.vaultId) return;
+          var v = self.allVaults.find(function (x) { return x.id === r.vaultId; });
+          opts.push({ value: r.vaultId, label: (v && v.name) || r.vaultId });
+        });
+        return opts;
+      },
+
+      retentionModeOptions: function () {
+        return [
+          { value: 801, label: 'Keep everything (no deletions)' },
+          { value: 802, label: 'Apply rules below' }
+        ];
+      },
+
+      retentionRuleTypeOptions: function () {
+        return [
+          { value: 900, label: 'Most recent X jobs' },
+          { value: 903, label: 'First job for last X days' },
+          { value: 906, label: 'First job for last X weeks' },
+          { value: 905, label: 'First job for last X months' },
+          { value: 911, label: 'First job for last X years' }
+        ];
+      },
+
+      vaultSelectOptions: function (showOthers) {
+        var self = this;
+        return self.vaultsForDevice(showOthers).map(function (v) {
+          var label = v.name;
+          if (v.owner && v.owner !== self.deviceId) label += ' (other device)';
+          return { value: v.id, label: label };
+        });
+      },
+
+      piSelectVmBackupType: function () {
+        var self = this;
+        return window.ebSelectMenu({
+          placeholder: 'Select backup type',
+          getOptions: function () { return self.vmBackupTypeOptions(); },
+          getValue: function () { return self.vm.backupType; },
+          setValue: function (v) { self.vm.backupType = v; }
+        });
+      },
+
+      piSelectScheduleVault: function () {
+        var self = this;
+        return window.ebSelectMenu({
+          placeholder: 'Select a Storage Vault',
+          getOptions: function () {
+            var draft = self.scheduleEditor.draft;
+            return self.vaultSelectOptions(draft && draft.showOtherVaults);
+          },
+          getValue: function () {
+            return self.scheduleEditor.draft && self.scheduleEditor.draft.vaultId;
+          },
+          setValue: function (v) {
+            if (self.scheduleEditor.draft) self.scheduleEditor.draft.vaultId = v;
+          }
+        });
+      },
+
+      piSelectScheduleFrequency: function () {
+        var self = this;
+        return window.ebSelectMenu({
+          placeholder: 'Select schedule type',
+          numeric: true,
+          getOptions: function () { return self.scheduleFrequencyOptions(); },
+          getValue: function () {
+            return self.scheduleTimeEditor.draft && self.scheduleTimeEditor.draft.FrequencyType;
+          },
+          setValue: function (v) {
+            if (self.scheduleTimeEditor.draft) self.scheduleTimeEditor.draft.FrequencyType = v;
+          }
+        });
+      },
+
+      piSelectRetentionVault: function () {
+        var self = this;
+        return window.ebSelectMenu({
+          placeholder: '(no override)',
+          getOptions: function () { return self.retentionVaultOptions(); },
+          getValue: function () { return self.retention.activeVaultId; },
+          setValue: function (v) { self.retention.activeVaultId = v; }
+        });
+      },
+
+      piSelectRetentionMode: function () {
+        var self = this;
+        return window.ebSelectMenu({
+          placeholder: 'Select mode',
+          numeric: true,
+          getOptions: function () { return self.retentionModeOptions(); },
+          getValue: function () { return self.retention.mode; },
+          setValue: function (v) { self.retention.mode = v; }
+        });
+      },
+
+      piSelectRetentionRuleType: function () {
+        var self = this;
+        return window.ebSelectMenu({
+          placeholder: 'Rule type',
+          numeric: true,
+          getOptions: function () { return self.retentionRuleTypeOptions(); },
+          getValue: function () { return self.retention.newType; },
+          setValue: function (v) { self.retention.newType = v; }
+        });
+      },
+
       newScheduleDraft: function () {
         return {
           ruleId: '',

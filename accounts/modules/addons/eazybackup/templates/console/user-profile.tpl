@@ -2651,7 +2651,9 @@ window.EB_DEVICE_ENDPOINT = '{$modulelink}&a=device-actions';
 <script src="modules/addons/eazybackup/templates/assets/js/ui.js"></script>
 <script src="modules/addons/eazybackup/assets/js/device-actions.js"></script>
 <script src="modules/addons/eazybackup/assets/js/retention-factory.js"></script>
+<script src="modules/addons/eazybackup/assets/js/eb-select-menu.js"></script>
 <script src="modules/addons/eazybackup/assets/js/pi-wizard.js"></script>
+<script src="modules/addons/eazybackup/assets/js/pi-delete-modal.js"></script>
 <script src="modules/addons/eazybackup/assets/js/protected-items-table.js"></script>
 <script>
 // Lightweight caller for quota controls; reuses the same endpoint as device-actions
@@ -2747,8 +2749,6 @@ function quotaCtrl(){
   } catch(e) {}
 </script>
 {include file="modules/addons/eazybackup/templates/console/partials/job-report-modal.tpl"}
-{include file="modules/addons/eazybackup/templates/console/partials/pi-wizard.tpl"}
-{include file="modules/addons/eazybackup/templates/console/partials/pi-delete-modal.tpl"}
 <script>
 try {
   window.EB_JOBREPORTS_ENDPOINT = '{$modulelink}&a=job-reports';
@@ -3047,6 +3047,11 @@ try {
     </div>
   </div>
   </div>
+</div>
+
+{include file="modules/addons/eazybackup/templates/console/partials/pi-wizard.tpl"}
+{include file="modules/addons/eazybackup/templates/console/partials/pi-delete-modal.tpl"}
+
 </div>
 </div>
 
