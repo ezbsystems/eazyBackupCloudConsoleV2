@@ -33,7 +33,6 @@ Critical conventions
 Go: keep changes go build-clean. The tray is Windows-only — verify with GOOS=windows go build ./cmd/tray/ and go build ./cmd/agent/. Run go vet but note there's a pre-existing non-constant format string vet warning in cmd/tray/main_windows.go unrelated to new work.
 The agent loads config/credentials once at process start; it only re-reads agent.conf while waiting for enrollment. Any change to enrollment/config that must take effect immediately requires a service restart (-service restart, or the tray's restart helper).
 Inno Setup [Code]: only TNewStaticText supports WordWrap/AutoSize; keep TNewCheckBox captions single-line.
-Don't commit or push unless explicitly asked; if a change needs to reach the build, call that out so it can be committed+pushed to origin/main.
-If you touch server-side PHP, lint with php -l and check ReadLints.
-After you've read the above and can summarize the agent's architecture and the build pipeline back to me, I'll give you the specific task details.
+
+
 
