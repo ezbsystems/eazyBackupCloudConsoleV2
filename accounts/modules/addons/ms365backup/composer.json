@@ -1,0 +1,17 @@
+{
+  "name": "eazybackup/ms365backup-whmcs",
+  "description": "WHMCS addon for Microsoft 365 backup development",
+  "license": "proprietary",
+  "require": {
+    "php": ">=8.2",
+    "ext-json": "*",
+    "guzzlehttp/guzzle": "^7.8"
+  },
+  "autoload": {
+    "psr-4": {
+      "Ms365Backup\\": "lib/Ms365Backup/"
+    }
+  },
+  "minimum-stability": "stable",
+  "prefer-stable": true
+}

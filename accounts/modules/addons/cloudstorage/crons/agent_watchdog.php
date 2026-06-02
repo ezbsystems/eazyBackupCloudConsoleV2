@@ -214,13 +214,15 @@ if (!empty($result['processed'])) {
     }
 }
 
-logModuleCall(
-    'cloudstorage',
-    'agent_watchdog',
-    [
-        'watchdog_timeout_seconds' => $timing['watchdog_timeout_seconds'],
-        'reclaim_grace_seconds' => $timing['reclaim_grace_seconds'],
-    ],
-    $result
-);
-
+$logNoopRuns = getBoolEnv('AGENT_WATCHDOG_LOG_NOOP', false);
+if ($result['count'] > 0 || $logNoopRuns) {
+    logModuleCall(
+        'cloudstorage',
+        'agent_watchdog',
+        [
+            'watchdog_timeout_seconds' => $timing['watchdog_timeout_seconds'],
+            'reclaim_grace_seconds' => $timing['reclaim_grace_seconds'],
+        ],
+        $result
+    );
+}
