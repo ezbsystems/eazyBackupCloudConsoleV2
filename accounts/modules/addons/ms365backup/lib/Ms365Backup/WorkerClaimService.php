@@ -575,6 +575,82 @@ final class WorkerClaimService
     }
 
     /**
+     * Fail restore runs still marked running on a worker that reports zero load
+     * (worker exited without sending complete/fail).
+     */
+    public static function failOrphanedRestoreRunsForNode(string $nodeId, int $reportedLoad, int $staleSeconds = 120): int
+    {
+        if ($nodeId === '' || $reportedLoad > 0 || !Capsule::schema()->hasTable('ms365_restore_runs')) {
+            return 0;
+        }
+
+        $cutoff = time() - max(60, $staleSeconds);
+        $rows = Capsule::table('ms365_job_queue as q')
+            ->join('ms365_restore_runs as r', 'r.id', '=', 'q.run_id')
+            ->where('q.status', 'running')
+            ->where('q.worker_node_id', $nodeId)
+            ->where('q.claimed_at', '<', $cutoff)
+            ->select(['q.run_id', 'r.e3_batch_run_id'])
+            ->get();
+
+        $count = 0;
+        foreach ($rows as $row) {
+            $runId = (string) ($row->run_id ?? '');
+            if ($runId === '') {
+                continue;
+            }
+            Ms365RestoreWorkerHooks::onFail(
+                $runId,
+                'Restore worker stopped responding before reporting completion. Check Microsoft 365 — items may already be restored.'
+            );
+            ++$count;
+        }
+
+        return $count;
+    }
+
+    /** Fail restore child runs for a batch when the worker is idle and progress is stale. */
+    public static function reconcileStaleRestoreBatch(string $batchRunId, int $staleSeconds = 90): void
+    {
+        if (!Capsule::schema()->hasTable('ms365_restore_runs') || $batchRunId === '') {
+            return;
+        }
+
+        $cutoff = time() - max(60, $staleSeconds);
+        $children = Capsule::table('ms365_restore_runs')
+            ->where('e3_batch_run_id', $batchRunId)
+            ->where('status', 'running')
+            ->where('updated_at', '<', $cutoff)
+            ->get(['id']);
+
+        foreach ($children as $child) {
+            $runId = (string) ($child->id ?? '');
+            if ($runId === '') {
+                continue;
+            }
+            $queue = Capsule::table('ms365_job_queue')
+                ->where('run_id', $runId)
+                ->where('status', 'running')
+                ->first(['worker_node_id']);
+            if ($queue === null) {
+                continue;
+            }
+            $nodeId = (string) ($queue->worker_node_id ?? '');
+            if ($nodeId === '') {
+                continue;
+            }
+            $load = (int) Capsule::table('ms365_worker_nodes')->where('node_id', $nodeId)->value('current_load');
+            if ($load > 0) {
+                continue;
+            }
+            Ms365RestoreWorkerHooks::onFail(
+                $runId,
+                'Restore worker stopped responding before reporting completion. Check Microsoft 365 — items may already be restored.'
+            );
+        }
+    }
+
+    /**
      * Re-queue runs claimed by a worker that reports zero load but still owns active leases
      * (e.g. worker restart after self-update without completing/failing the run).
      */

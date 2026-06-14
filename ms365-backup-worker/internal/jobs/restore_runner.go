@@ -155,20 +155,21 @@ func (r *RestoreRunner) Run(ctx context.Context, job *api.RunJob) error {
 
 	stats, err := runner.RestoreItems(ctx, primaryTarget, items, fetch)
 	if err != nil {
-		return r.fail(ctx, job.RunID, err.Error())
-	}
-	if stats.Restored == 0 && stats.Skipped == 0 && len(items) > 0 {
-		if stats.Errors > 0 {
-			msg := fmt.Sprintf("failed to restore %d item(s)", stats.Errors)
-			if len(stats.ErrorMessages) > 0 {
-				msg += ": " + strings.Join(stats.ErrorMessages, "; ")
-			}
-			return r.fail(ctx, job.RunID, msg)
-		}
-		return r.fail(ctx, job.RunID, "no items were restored")
+		return r.failTerminal(ctx, job.RunID, err.Error())
 	}
 
 	doneCount := stats.Restored + stats.Skipped
+	if doneCount == 0 && len(items) > 0 {
+		msg := "no items were restored"
+		if stats.Errors > 0 {
+			msg = fmt.Sprintf("failed to restore %d item(s)", stats.Errors)
+			if len(stats.ErrorMessages) > 0 {
+				msg += ": " + strings.Join(stats.ErrorMessages, "; ")
+			}
+		}
+		return r.failTerminal(ctx, job.RunID, msg)
+	}
+
 	reportProgress(api.ProgressUpdate{
 		Phase:      "restore_graph",
 		Percent:    99,
@@ -179,14 +180,36 @@ func (r *RestoreRunner) Run(ctx context.Context, job *api.RunJob) error {
 
 	statsJSON, _ := json.Marshal(stats)
 	_ = os.Remove(repoConfig)
-	return r.client.Complete(ctx, api.CompleteUpdate{
-		RunID:     job.RunID,
-		StatsJSON: string(statsJSON),
-	})
+	return r.completeTerminal(ctx, job.RunID, string(statsJSON))
+}
+
+func (r *RestoreRunner) terminalCtx(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), 45*time.Second)
+}
+
+func (r *RestoreRunner) completeTerminal(ctx context.Context, runID, statsJSON string) error {
+	tctx, cancel := r.terminalCtx(ctx)
+	defer cancel()
+	if err := r.client.Complete(tctx, api.CompleteUpdate{
+		RunID:     runID,
+		StatsJSON: statsJSON,
+	}); err != nil {
+		log.Printf("restore %s complete failed: %v", runID, err)
+		return err
+	}
+	return nil
 }
 
 func (r *RestoreRunner) fail(ctx context.Context, runID, message string) error {
-	_ = r.client.Fail(ctx, api.FailUpdate{RunID: runID, Message: message})
+	return r.failTerminal(ctx, runID, message)
+}
+
+func (r *RestoreRunner) failTerminal(ctx context.Context, runID, message string) error {
+	tctx, cancel := r.terminalCtx(ctx)
+	defer cancel()
+	if err := r.client.Fail(tctx, api.FailUpdate{RunID: runID, Message: message}); err != nil {
+		log.Printf("restore %s fail callback failed: %v (message: %s)", runID, err, message)
+	}
 	return fmt.Errorf("%s", message)
 }
 

@@ -92,12 +92,16 @@ final class Ms365RestoreWorkerHooks
 
             return;
         }
-        RestoreRunRepository::update($runId, [
+        $fields = [
             'status' => 'running',
             'phase' => CustomerFacingTextSanitizer::scrub($rawPhase),
             'items_done' => (int) ($body['items_done'] ?? 0),
             'items_total' => (int) ($body['items_total'] ?? 0),
-        ]);
+        ];
+        if (\WHMCS\Database\Capsule::schema()->hasColumn('ms365_restore_runs', 'items_skipped')) {
+            $fields['items_skipped'] = (int) ($body['items_skipped'] ?? 0);
+        }
+        RestoreRunRepository::update($runId, $fields);
 
         WorkerLeaseService::renewForRun($runId);
 
@@ -247,7 +251,7 @@ final class Ms365RestoreWorkerHooks
             'error_message' => $customerMessage,
             'finished_at' => $now,
         ]);
-        JobQueueRepository::markFailed($runId, $customerMessage);
+        JobQueueRepository::markTerminalFailed($runId, $customerMessage);
         Ms365BatchRunRepository::syncForRestoreChildRun($runId);
     }
 }

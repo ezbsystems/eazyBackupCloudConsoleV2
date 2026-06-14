@@ -93,7 +93,13 @@ func restoreCalendarEvent(ctx context.Context, client *graph.Client, userID stri
 		postPath = fmt.Sprintf("/users/%s/calendars/%s/events", userID, calendarID)
 	}
 	_, err = client.PostJSON(ctx, postPath, event)
-	return false, err
+	if err != nil {
+		if policy == "skip_duplicates" && isDuplicateGraphError(err) {
+			return true, nil
+		}
+		return false, err
+	}
+	return false, nil
 }
 
 func restoreContact(ctx context.Context, client *graph.Client, userID string, data []byte, policy string) (bool, error) {
