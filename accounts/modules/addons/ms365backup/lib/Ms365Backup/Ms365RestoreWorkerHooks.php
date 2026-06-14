@@ -104,19 +104,8 @@ final class Ms365RestoreWorkerHooks
         $run = RestoreRunRepository::get($runId);
         $batchRunId = (string) ($run['e3_batch_run_id'] ?? '');
         if ($batchRunId !== '') {
+            // Parent progress_pct / objects_* are derived from child rows here.
             Ms365BatchRunRepository::updateLiveSnapshotForRestore($batchRunId);
-
-            $percent = (float) ($body['percent'] ?? 0);
-            $itemsTotal = (int) ($body['items_total'] ?? 0);
-            $itemsDone = (int) ($body['items_done'] ?? 0);
-            if ($itemsTotal > 0) {
-                $percent = max($percent, min(99.0, ($itemsDone / $itemsTotal) * 100));
-            }
-            if ($percent > 0 && Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'progress_pct')) {
-                Capsule::table('s3_cloudbackup_runs')
-                    ->whereRaw('run_id = UUID_TO_BIN(?)', [strtolower($batchRunId)])
-                    ->update(['progress_pct' => round(min(99.0, $percent), 2)]);
-            }
         }
 
         $logger = new RestoreProgressLogger($runId);

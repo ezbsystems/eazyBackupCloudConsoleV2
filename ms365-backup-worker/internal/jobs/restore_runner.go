@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/eazybackup/ms365-backup-worker/internal/api"
 	"github.com/eazybackup/ms365-backup-worker/internal/config"
@@ -115,13 +116,35 @@ func (r *RestoreRunner) Run(ctx context.Context, job *api.RunJob) error {
 		}
 	}
 
+	var lastProgress api.ProgressUpdate
+	lastProgress = api.ProgressUpdate{
+		RunID:      job.RunID,
+		Phase:      "restore_graph",
+		Percent:    10,
+		ItemsTotal: len(selection.Items),
+		Message:    "Restoring to Microsoft 365",
+	}
+	reportProgress := func(upd api.ProgressUpdate) {
+		upd.RunID = job.RunID
+		if upd.Phase == "" {
+			upd.Phase = "restore_graph"
+		}
+		lastProgress = upd
+		if err := r.client.Progress(ctx, upd); err != nil {
+			log.Printf("restore %s progress warning: %v", job.RunID, err)
+		}
+	}
+	progressStop := r.client.StartProgressHeartbeat(ctx, job.RunID, 45*time.Second, func() api.ProgressUpdate {
+		return lastProgress
+	})
+	defer progressStop()
+
 	runner := graphrestore.NewRunner(gc, selection.ConflictPolicy, func(done, skipped, total int, message string) {
 		pct := 10.0
 		if total > 0 {
 			pct = 10 + (float64(done)/float64(total))*85
 		}
-		_ = r.client.Progress(ctx, api.ProgressUpdate{
-			RunID:      job.RunID,
+		reportProgress(api.ProgressUpdate{
 			Phase:      "restore_graph",
 			Percent:    pct,
 			ItemsDone:  done,
@@ -144,6 +167,15 @@ func (r *RestoreRunner) Run(ctx context.Context, job *api.RunJob) error {
 		}
 		return r.fail(ctx, job.RunID, "no items were restored")
 	}
+
+	doneCount := stats.Restored + stats.Skipped
+	reportProgress(api.ProgressUpdate{
+		Phase:      "restore_graph",
+		Percent:    99,
+		ItemsDone:  doneCount,
+		ItemsTotal: len(items),
+		Message:    "Restore complete, finalizing",
+	})
 
 	statsJSON, _ := json.Marshal(stats)
 	_ = os.Remove(repoConfig)
