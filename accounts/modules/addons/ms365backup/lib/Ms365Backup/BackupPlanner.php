@@ -173,6 +173,55 @@ final class BackupPlanner
                 continue;
             }
 
+            if ($type === TenantResource::TYPE_PLANNER_PLAN) {
+                $planId = (string) ($resource['graph_id'] ?? '');
+                $physicalKey = 'planner:' . $planId;
+                $physicalJobs[$physicalKey] = new PhysicalBackupJob(
+                    $physicalKey,
+                    $resource,
+                    [$this->logicalSourceFromResource($resource)],
+                    $scope,
+                    $this->resolvePlannerEngineStatus($scope),
+                    $this->resolvePlannerEngineStatus($scope) === PhysicalBackupJob::STATUS_DEFERRED
+                        ? 'Planner scope not enabled'
+                        : '',
+                );
+                $consumedLogical[$id] = true;
+                continue;
+            }
+
+            if ($type === TenantResource::TYPE_ONENOTE_NOTEBOOK) {
+                $meta = is_array($resource['meta'] ?? null) ? $resource['meta'] : [];
+                $notebookId = (string) ($meta['notebook_id'] ?? $resource['graph_id'] ?? '');
+                $physicalKey = 'onenote:' . $notebookId;
+                $physicalJobs[$physicalKey] = new PhysicalBackupJob(
+                    $physicalKey,
+                    $resource,
+                    [$this->logicalSourceFromResource($resource)],
+                    $scope,
+                    $this->resolveOneNoteEngineStatus($scope),
+                    $this->resolveOneNoteEngineStatus($scope) === PhysicalBackupJob::STATUS_DEFERRED
+                        ? 'OneNote scope not enabled'
+                        : '',
+                );
+                $consumedLogical[$id] = true;
+                continue;
+            }
+
+            if ($type === TenantResource::TYPE_DIRECTORY_BASELINE) {
+                $physicalKey = 'directory:tenant';
+                $physicalJobs[$physicalKey] = new PhysicalBackupJob(
+                    $physicalKey,
+                    $resource,
+                    [$this->logicalSourceFromResource($resource)],
+                    $scope,
+                    PhysicalBackupJob::STATUS_RUNNABLE,
+                    '',
+                );
+                $consumedLogical[$id] = true;
+                continue;
+            }
+
             if ($type === TenantResource::TYPE_USER_ONEDRIVE) {
                 $meta = is_array($resource['meta'] ?? null) ? $resource['meta'] : [];
                 $ownerId = (string) ($meta['owner_user_id'] ?? TenantResource::graphIdFromResourceId((string) ($resource['parent_id'] ?? '')));
@@ -225,21 +274,26 @@ final class BackupPlanner
                         $this->mergePhysicalJob($physicalJobs, $teamJob);
                     }
                 } elseif ($type === TenantResource::TYPE_M365_GROUP
+                    && $this->scopeNeedsGroupMailbox($scope)) {
+                    $groupJob = $this->buildGroupJobForResource($resource, $scope);
+                    if ($groupJob !== null) {
+                        $this->mergePhysicalJob($physicalJobs, $groupJob);
+                    }
+                } elseif ($type === TenantResource::TYPE_M365_GROUP
+                    && !$this->scopeNeedsGroupMailbox($scope)
                     && !$this->scopeNeedsSharePointSite($scope)) {
                     $physicalKey = 'group:' . (string) ($resource['graph_id'] ?? $id);
-                    $physicalJobs[$physicalKey] = new PhysicalBackupJob(
-                        $physicalKey,
-                        $resource,
-                        [$this->logicalSourceFromResource($resource)],
-                        $scope,
-                        PhysicalBackupJob::STATUS_DEFERRED,
-                        'No backup engine for this resource type yet',
-                    );
-                } elseif ($type === TenantResource::TYPE_M365_GROUP
-                    && $this->scopeNeedsSharePointSite($scope)
-                    && !isset($physicalJobs['site:' . (string) ($resource['meta']['sharepoint_site_id'] ?? '')])) {
-                    // site job may have been created via tryOrphanSiteJob
-                } elseif (!in_array($type, [TenantResource::TYPE_TEAM, TenantResource::TYPE_TEAM_CHANNEL], true)
+                    if (!isset($physicalJobs[$physicalKey])) {
+                        $physicalJobs[$physicalKey] = new PhysicalBackupJob(
+                            $physicalKey,
+                            $resource,
+                            [$this->logicalSourceFromResource($resource)],
+                            $scope,
+                            PhysicalBackupJob::STATUS_DEFERRED,
+                            'Enable mail, calendar, or SharePoint files/lists scope for this group',
+                        );
+                    }
+                } elseif (!in_array($type, [TenantResource::TYPE_TEAM, TenantResource::TYPE_TEAM_CHANNEL, TenantResource::TYPE_M365_GROUP], true)
                     || (!$this->scopeNeedsTeamsBackup($scope) && !$this->scopeNeedsSharePointSite($scope))) {
                     $physicalKey = $type . ':' . (string) ($resource['graph_id'] ?? $id);
                     if (!isset($physicalJobs[$physicalKey])) {
@@ -257,6 +311,8 @@ final class BackupPlanner
                 $consumedLogical[$id] = true;
             }
         }
+
+        $physicalJobs = (new ResourceShardPlanner())->expand($physicalJobs, $byId);
 
         $runnable = 0;
         $deferred = 0;
@@ -456,6 +512,58 @@ final class BackupPlanner
         }
 
         return PhysicalBackupJob::STATUS_DEFERRED;
+    }
+
+    private function resolveGroupEngineStatus(BackupScope $scope): string
+    {
+        if ($this->scopeNeedsGroupMailbox($scope)) {
+            return PhysicalBackupJob::STATUS_RUNNABLE;
+        }
+
+        return PhysicalBackupJob::STATUS_DEFERRED;
+    }
+
+    private function scopeNeedsGroupMailbox(BackupScope $scope): bool
+    {
+        return $scope->isEnabled(BackupScope::MAIL) || $scope->isEnabled(BackupScope::CALENDAR);
+    }
+
+    private function resolvePlannerEngineStatus(BackupScope $scope): string
+    {
+        return $scope->isEnabled(BackupScope::PLANNER)
+            ? PhysicalBackupJob::STATUS_RUNNABLE
+            : PhysicalBackupJob::STATUS_DEFERRED;
+    }
+
+    private function resolveOneNoteEngineStatus(BackupScope $scope): string
+    {
+        return $scope->isEnabled(BackupScope::ONENOTE)
+            ? PhysicalBackupJob::STATUS_RUNNABLE
+            : PhysicalBackupJob::STATUS_DEFERRED;
+    }
+
+    /**
+     * @param array<string, mixed> $resource
+     */
+    private function buildGroupJobForResource(array $resource, BackupScope $scope): ?PhysicalBackupJob
+    {
+        $groupId = (string) ($resource['graph_id'] ?? '');
+        if ($groupId === '') {
+            return null;
+        }
+
+        $physicalKey = 'group:' . $groupId;
+
+        return new PhysicalBackupJob(
+            $physicalKey,
+            $resource,
+            [$this->logicalSourceFromResource($resource)],
+            $scope,
+            $this->resolveGroupEngineStatus($scope),
+            $this->resolveGroupEngineStatus($scope) === PhysicalBackupJob::STATUS_DEFERRED
+                ? 'Group mail/calendar scope not enabled'
+                : '',
+        );
     }
 
     private function scopeNeedsSharePointSite(BackupScope $scope): bool

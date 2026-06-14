@@ -17,12 +17,12 @@ final class CalendarAttachmentFetcher
     }
 
     public function fetchForCalendar(
-        string $userId,
+        GraphMailboxOwner $owner,
         string $calendarId,
         string $calName,
         CalendarEventStore $store,
     ): int {
-        $eventsDir = $this->storage->calendarEventsDir($userId, $calendarId);
+        $eventsDir = $this->storage->calendarEventsDir($owner, $calendarId);
         if (!is_dir($eventsDir)) {
             return 0;
         }
@@ -47,7 +47,7 @@ final class CalendarAttachmentFetcher
                 continue;
             }
             try {
-                $attachments = $this->listAttachments($userId, $calendarId, $eventId, $calName);
+                $attachments = $this->listAttachments($owner, $calendarId, $eventId, $calName);
                 $store->attachToEvent($eventId, $attachments);
                 $fetched++;
             } catch (\Throwable $e) {
@@ -63,9 +63,9 @@ final class CalendarAttachmentFetcher
     /**
      * @return list<array<string, mixed>>
      */
-    private function listAttachments(string $userId, string $calendarId, string $eventId, string $calName): array
+    private function listAttachments(GraphMailboxOwner $owner, string $calendarId, string $eventId, string $calName): array
     {
-        $path = "users/{$userId}/calendars/{$calendarId}/events/{$eventId}/attachments";
+        $path = $owner->graphPath("calendars/{$calendarId}/events/{$eventId}/attachments");
         $monitor = PaginationMonitor::forBackup($this->logger, 'calendar.attachments:' . $calName);
         $items = [];
         foreach ($this->graph->paginate($path, ['$top' => '50'], CalendarGraphFields::PREFER_IMMUTABLE, $monitor) as $item) {

@@ -54,8 +54,15 @@ final class BackupRunRepository
         return $runId;
     }
 
-    public static function createFromPhysicalJob(PhysicalBackupJob $job, StorageLayout $storage): string
-    {
+    public static function createFromPhysicalJob(
+        PhysicalBackupJob $job,
+        StorageLayout $storage,
+        ?int $tenantRecordId = null,
+        int $whmcsClientId = 0,
+        int $backupUserId = 0,
+        ?string $e3JobId = null,
+        ?string $e3BatchRunId = null,
+    ): string {
         $id = self::uuid();
         $now = time();
         $resourceType = $job->resourceType();
@@ -74,6 +81,15 @@ final class BackupRunRepository
         $runDir = $storage->runDirForJob($job->physicalKey, $id);
 
         $logicalJson = json_encode($job->logicalSources, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+        $scopePayload = $scope->toArray();
+        if ($job->isShard()) {
+            $scopePayload['_shard'] = [
+                'parent_physical_key' => $job->parentPhysicalKey(),
+                'index' => $job->shardIndex,
+                'total' => $job->shardTotal,
+            ];
+        }
+        $scopeJson = json_encode($scopePayload, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
 
         $row = [
             'id' => $id,
@@ -92,11 +108,23 @@ final class BackupRunRepository
             'backup_path' => $runDir,
             'backup_mail' => $scope->isEnabled(BackupScope::MAIL) ? 1 : 0,
             'backup_calendar' => $scope->isEnabled(BackupScope::CALENDAR) ? 1 : 0,
-            'scope_json' => $scope->toJson(),
+            'scope_json' => is_string($scopeJson) ? $scopeJson : $scope->toJson(),
             'logical_sources_json' => is_string($logicalJson) ? $logicalJson : '[]',
+            'tenant_record_id' => $tenantRecordId,
+            'whmcs_client_id' => $whmcsClientId,
             'created_at' => $now,
             'updated_at' => $now,
         ];
+
+        if ($backupUserId > 0 && Capsule::schema()->hasColumn('ms365_backup_runs', 'backup_user_id')) {
+            $row['backup_user_id'] = $backupUserId;
+        }
+        if ($e3JobId !== null && $e3JobId !== '' && Capsule::schema()->hasColumn('ms365_backup_runs', 'e3_job_id')) {
+            $row['e3_job_id'] = $e3JobId;
+        }
+        if ($e3BatchRunId !== null && $e3BatchRunId !== '' && Capsule::schema()->hasColumn('ms365_backup_runs', 'e3_batch_run_id')) {
+            $row['e3_batch_run_id'] = $e3BatchRunId;
+        }
 
         Capsule::table('ms365_backup_runs')->insert($row);
 
@@ -106,6 +134,19 @@ final class BackupRunRepository
     public static function get(string $id): ?array
     {
         $row = Capsule::table('ms365_backup_runs')->where('id', $id)->first();
+
+        return $row ? (array) $row : null;
+    }
+
+    public static function getForClient(string $id, int $clientId): ?array
+    {
+        if ($clientId <= 0) {
+            return null;
+        }
+        $row = Capsule::table('ms365_backup_runs')
+            ->where('id', $id)
+            ->where('whmcs_client_id', $clientId)
+            ->first();
 
         return $row ? (array) $row : null;
     }
@@ -133,15 +174,16 @@ final class BackupRunRepository
         return in_array($run['status'] ?? '', ['queued', 'running'], true);
     }
 
-    public static function requestCancel(string $id): bool
+    public static function requestCancel(string $id, string $cancelledBy = 'administrator'): bool
     {
         if (!self::isCancellable($id)) {
             return false;
         }
+        $label = $cancelledBy === 'user' ? 'Cancelled by user' : 'Cancelled by administrator';
         self::update($id, [
             'status' => 'cancelled',
             'phase' => 'cancelled',
-            'error_message' => 'Cancelled by administrator',
+            'error_message' => $label,
             'finished_at' => time(),
         ]);
 
@@ -175,6 +217,44 @@ final class BackupRunRepository
     {
         return Capsule::table('ms365_backup_runs')
             ->orderBy('created_at', 'desc')
+            ->limit($limit)
+            ->get()
+            ->map(static fn ($r) => (array) $r)
+            ->all();
+    }
+
+    public static function listRecentForClient(int $clientId, int $limit = 25): array
+    {
+        if ($clientId <= 0) {
+            return [];
+        }
+
+        return Capsule::table('ms365_backup_runs')
+            ->where('whmcs_client_id', $clientId)
+            ->orderBy('created_at', 'desc')
+            ->limit($limit)
+            ->get()
+            ->map(static fn ($r) => (array) $r)
+            ->all();
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    public static function searchForClient(int $clientId, ?string $status = null, ?int $since = null, int $limit = 50): array
+    {
+        if ($clientId <= 0) {
+            return [];
+        }
+        $q = Capsule::table('ms365_backup_runs')->where('whmcs_client_id', $clientId);
+        if ($status !== null && $status !== '') {
+            $q->where('status', $status);
+        }
+        if ($since !== null && $since > 0) {
+            $q->where('created_at', '>=', $since);
+        }
+
+        return $q->orderBy('created_at', 'desc')
             ->limit($limit)
             ->get()
             ->map(static fn ($r) => (array) $r)

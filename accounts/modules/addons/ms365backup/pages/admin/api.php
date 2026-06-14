@@ -18,6 +18,15 @@ use Ms365Backup\ResourceAccessService;
 use Ms365Backup\StorageLayout;
 use Ms365Backup\TenantRepository;
 use Ms365Backup\TokenProvider;
+use Ms365Backup\Seeder\SeederConfigRepository;
+use Ms365Backup\Seeder\SeederEntraConfig;
+use Ms365Backup\Seeder\SeederGraphFactory;
+use Ms365Backup\Seeder\SeederOAuthService;
+use Ms365Backup\Seeder\SeederProgressWriter;
+use Ms365Backup\Seeder\SeederRunRepository;
+use Ms365Backup\Seeder\SeederTokenProvider;
+use Ms365Backup\Seeder\SeederWorkerSpawner;
+use Ms365Backup\Seeder\SeederProfileCatalog;
 
 header('Content-Type: application/json; charset=utf-8');
 
@@ -377,6 +386,285 @@ try {
             echo json_encode(['ok' => true, 'message' => 'Backup cancelled']);
             break;
 
+        case 'seeder_save_config':
+            SeederConfigRepository::save([
+                'region' => (string) ($_POST['region'] ?? 'GlobalPublicCloud'),
+                'tenant_id' => (string) ($_POST['tenant_id'] ?? ''),
+                'client_id' => (string) ($_POST['client_id'] ?? ''),
+                'app_secret' => (string) ($_POST['app_secret'] ?? ''),
+            ]);
+            echo json_encode(['ok' => true, 'message' => 'Seeder credentials saved']);
+            break;
+
+        case 'seeder_test_auth':
+            $creds = SeederConfigRepository::credentials();
+            $tokens = SeederTokenProvider::fromConfig();
+            $graph = new GraphClient($tokens, $creds['region']);
+            $org = $graph->get('organization', ['$top' => '1']);
+            $graph->get('users', ['$top' => '1', '$select' => 'id']);
+            $name = $org['value'][0]['displayName'] ?? 'Connected';
+            echo json_encode(['ok' => true, 'organization' => $name]);
+            break;
+
+        case 'seeder_build_oauth_url':
+            echo json_encode(['ok' => true, 'url' => SeederOAuthService::buildAuthorizeUrl()]);
+            break;
+
+        case 'seeder_disconnect_user':
+            SeederConfigRepository::clearDelegatedUser();
+            echo json_encode(['ok' => true, 'message' => 'Seed user disconnected']);
+            break;
+
+        case 'seeder_status':
+            $row = SeederConfigRepository::get() ?? [];
+            $runs = SeederRunRepository::listRecent(1);
+            echo json_encode([
+                'ok' => true,
+                'configured' => ($row['client_id'] ?? '') !== '' && ($row['app_secret_enc'] ?? '') !== '',
+                'seed_user_upn' => (string) ($row['seed_user_upn'] ?? ''),
+                'has_seed_user' => SeederConfigRepository::hasDelegatedUser(),
+                'redirect_uri' => SeederEntraConfig::redirectUri(),
+                'profiles' => SeederProfileCatalog::profileKeys(),
+                'last_run' => $runs[0] ?? null,
+            ]);
+            break;
+
+        case 'seeder_discover_targets':
+            $creds = SeederConfigRepository::credentials();
+            $graph = SeederGraphFactory::appClient();
+            $storage = new StorageLayout($creds['tenant_id']);
+            $discovery = new DiscoveryService($graph, $storage);
+            $users = $discovery->listUsers();
+            $sites = [];
+            $teams = [];
+            try {
+                $sites = $discovery->listSites();
+            } catch (\Throwable $_) {
+            }
+            try {
+                $teams = $discovery->listTeams();
+            } catch (\Throwable $_) {
+            }
+            echo json_encode([
+                'ok' => true,
+                'users' => count($users),
+                'sites' => count($sites),
+                'teams' => count($teams),
+            ]);
+            break;
+
+        case 'seeder_start':
+            StoragePermissions::ensureWritableBase();
+            $profile = (string) ($_POST['profile'] ?? 'light');
+            if (!in_array($profile, SeederProfileCatalog::profileKeys(), true)) {
+                throw new \RuntimeException('Invalid profile');
+            }
+            $workloadsRaw = (string) ($_POST['workloads_json'] ?? '{}');
+            $workloads = json_decode($workloadsRaw, true);
+            if (!is_array($workloads)) {
+                $workloads = [];
+            }
+            $options = [
+                'profile' => $profile,
+                'workloads' => $workloads,
+                'all_users' => filter_var($_POST['all_users'] ?? '1', FILTER_VALIDATE_BOOLEAN),
+                'all_sites' => filter_var($_POST['all_sites'] ?? '1', FILTER_VALIDATE_BOOLEAN),
+                'all_teams' => filter_var($_POST['all_teams'] ?? '1', FILTER_VALIDATE_BOOLEAN),
+            ];
+            $runId = SeederRunRepository::create($profile, $options);
+            SeederWorkerSpawner::spawn($runId);
+            echo json_encode(['ok' => true, 'run_id' => $runId]);
+            break;
+
+        case 'seeder_progress':
+            $runId = (string) ($_GET['run_id'] ?? '');
+            $run = SeederRunRepository::get($runId);
+            if (!$run) {
+                throw new \RuntimeException('Run not found');
+            }
+            echo json_encode([
+                'ok' => true,
+                'run' => $run,
+                'progress' => SeederProgressWriter::read($runId),
+            ]);
+            break;
+
+        case 'seeder_cancel':
+            $runId = trim((string) ($_POST['run_id'] ?? ''));
+            if ($runId === '') {
+                throw new \RuntimeException('run_id is required');
+            }
+            if (!SeederRunRepository::requestCancel($runId)) {
+                throw new \RuntimeException('Run cannot be cancelled');
+            }
+            echo json_encode(['ok' => true, 'message' => 'Cancellation requested']);
+            break;
+
+        case 'seeder_list_runs':
+            $runs = SeederRunRepository::listRecent((int) ($_GET['limit'] ?? 25));
+            echo json_encode(['ok' => true, 'runs' => $runs]);
+            break;
+
+        case 'fleet_summary':
+            echo json_encode(['ok' => true, 'summary' => \Ms365Backup\Fleet\FleetSummaryService::summary()]);
+            break;
+
+        case 'fleet_nodes':
+            $status = trim((string) ($_GET['status'] ?? ''));
+            $statuses = $status !== '' ? array_map('trim', explode(',', $status)) : [];
+            echo json_encode(['ok' => true, 'nodes' => \Ms365Backup\WorkerNodeRepository::listNodes($statuses)]);
+            break;
+
+        case 'fleet_node_drain':
+            $nodeId = trim((string) ($_POST['node_id'] ?? ''));
+            if ($nodeId === '') {
+                throw new \RuntimeException('node_id required');
+            }
+            \Ms365Backup\WorkerNodeRepository::drain($nodeId);
+            \Ms365Backup\Fleet\FleetAuditLog::write('node_drain', 'Node set to draining', 'node', $nodeId);
+            echo json_encode(['ok' => true]);
+            break;
+
+        case 'fleet_node_retire':
+            $nodeId = trim((string) ($_POST['node_id'] ?? ''));
+            if ($nodeId === '') {
+                throw new \RuntimeException('node_id required');
+            }
+            \Ms365Backup\WorkerNodeRepository::retire($nodeId);
+            \Ms365Backup\Fleet\FleetAuditLog::write('node_retire', 'Node retired', 'node', $nodeId);
+            echo json_encode(['ok' => true]);
+            break;
+
+        case 'fleet_node_delete':
+            $nodeId = trim((string) ($_POST['node_id'] ?? ''));
+            if ($nodeId === '') {
+                throw new \RuntimeException('node_id required');
+            }
+            if (!\Ms365Backup\WorkerNodeRepository::deleteRetired($nodeId)) {
+                throw new \RuntimeException('Only retired nodes can be deleted');
+            }
+            \Ms365Backup\Fleet\FleetAuditLog::write('node_delete', 'Retired node removed', 'node', $nodeId);
+            echo json_encode(['ok' => true]);
+            break;
+
+        case 'fleet_node_set_vmid':
+            $nodeId = trim((string) ($_POST['node_id'] ?? ''));
+            $vmid = (int) ($_POST['proxmox_vmid'] ?? 0);
+            if ($nodeId === '') {
+                throw new \RuntimeException('node_id required');
+            }
+            if ($vmid <= 0) {
+                throw new \RuntimeException('proxmox_vmid must be a positive integer');
+            }
+            \Ms365Backup\WorkerNodeRepository::setProxmoxVmid($nodeId, $vmid);
+            \Ms365Backup\Fleet\FleetAuditLog::write('node_set_vmid', 'Set Proxmox VMID to ' . $vmid, 'node', $nodeId);
+            echo json_encode(['ok' => true]);
+            break;
+
+        case 'fleet_release_leases':
+            $released = \Ms365Backup\WorkerClaimService::releaseExpiredLeases();
+            $recovered = \Ms365Backup\WorkerClaimService::recoverStaleRunning();
+            echo json_encode(['ok' => true, 'released' => $released, 'recovered' => $recovered]);
+            break;
+
+        case 'fleet_settings_get':
+            echo json_encode(['ok' => true, 'settings' => \Ms365Backup\Fleet\FleetSettings::publicConfig()]);
+            break;
+
+        case 'fleet_audit':
+            echo json_encode(['ok' => true, 'entries' => \Ms365Backup\Fleet\FleetAuditLog::recent((int) ($_GET['limit'] ?? 50))]);
+            break;
+
+        case 'worker_build_create':
+            $version = trim((string) ($_POST['version_label'] ?? ''));
+            if ($version === '') {
+                throw new \RuntimeException('version_label required');
+            }
+            $jobId = \Ms365Backup\Fleet\BuildJobStore::createJob([
+                'admin_id' => (int) $_SESSION['adminid'],
+                'git_ref' => trim((string) ($_POST['git_ref'] ?? 'main')),
+                'version_label' => $version,
+                'flags' => [
+                    'run_tests' => !empty($_POST['run_tests']),
+                    'git_sync' => !empty($_POST['git_sync']),
+                ],
+            ]);
+            \Ms365Backup\Fleet\FleetAuditLog::write('build_queued', 'Queued worker build ' . $version, 'build_job', (string) $jobId);
+            echo json_encode(['ok' => true, 'job_id' => $jobId]);
+            break;
+
+        case 'worker_build_list':
+            echo json_encode(['ok' => true, 'jobs' => \Ms365Backup\Fleet\BuildJobStore::listRecent(25)]);
+            break;
+
+        case 'worker_build_status':
+            $jobId = (int) ($_GET['job_id'] ?? 0);
+            $job = $jobId > 0 ? \Ms365Backup\Fleet\BuildJobStore::getJob($jobId) : null;
+            if ($job === null) {
+                throw new \RuntimeException('job not found');
+            }
+            echo json_encode([
+                'ok' => true,
+                'job' => $job,
+                'steps' => \Ms365Backup\Fleet\BuildJobStore::steps($jobId),
+            ]);
+            break;
+
+        case 'worker_build_log':
+            $jobId = (int) ($_GET['job_id'] ?? 0);
+            $step = trim((string) ($_GET['step'] ?? ''));
+            $offset = (int) ($_GET['offset'] ?? 0);
+            echo json_encode([
+                'ok' => true,
+                'log' => \Ms365Backup\Fleet\BuildJobStore::tailLog($jobId, $step, $offset),
+            ]);
+            break;
+
+        case 'worker_release_list':
+            echo json_encode(['ok' => true, 'releases' => \Ms365Backup\Fleet\ReleaseRepository::listRecent(25)]);
+            break;
+
+        case 'worker_deploy_create':
+            $releaseId = (int) ($_POST['release_id'] ?? 0);
+            if ($releaseId <= 0) {
+                throw new \RuntimeException('release_id required');
+            }
+            $strategy = trim((string) ($_POST['strategy'] ?? 'rolling'));
+            $force = !empty($_POST['force_deploy']);
+            $canary = trim((string) ($_POST['canary_node_id'] ?? ''));
+            $result = \Ms365Backup\Fleet\DeployService::startDeploy(
+                $releaseId,
+                $strategy,
+                $force,
+                $canary !== '' ? $canary : null,
+                (int) $_SESSION['adminid']
+            );
+            echo json_encode(['ok' => true] + $result);
+            break;
+
+        case 'worker_deploy_list':
+            echo json_encode(['ok' => true, 'jobs' => \Ms365Backup\Fleet\DeployService::listDeployJobs(25)]);
+            break;
+
+        case 'worker_build_and_deploy':
+            $version = trim((string) ($_POST['version_label'] ?? ''));
+            if ($version === '') {
+                throw new \RuntimeException('version_label required');
+            }
+            $jobId = \Ms365Backup\Fleet\BuildJobStore::createJob([
+                'admin_id' => (int) $_SESSION['adminid'],
+                'git_ref' => trim((string) ($_POST['git_ref'] ?? 'main')),
+                'version_label' => $version,
+                'flags' => [
+                    'run_tests' => !empty($_POST['run_tests']),
+                    'git_sync' => !empty($_POST['git_sync']),
+                    'auto_deploy' => true,
+                    'deploy_strategy' => trim((string) ($_POST['strategy'] ?? 'rolling')),
+                ],
+            ]);
+            echo json_encode(['ok' => true, 'job_id' => $jobId, 'message' => 'Build queued; deploy after publish can be triggered manually or via cron hook']);
+            break;
+
         default:
             http_response_code(400);
             echo json_encode(['ok' => false, 'error' => 'Unknown op']);
@@ -536,6 +824,18 @@ function ms365backup_can_queue_physical_job(PhysicalBackupJob $job): bool
     if (in_array($job->resourceType(), [TenantResource::TYPE_TEAM, TenantResource::TYPE_TEAM_CHANNEL], true)) {
         return $job->scope->isEnabled(BackupScope::TEAMS_METADATA)
             || $job->scope->isEnabled(BackupScope::TEAMS_MESSAGES);
+    }
+    if ($job->resourceType() === TenantResource::TYPE_M365_GROUP) {
+        return $job->scope->isEnabled(BackupScope::MAIL) || $job->scope->isEnabled(BackupScope::CALENDAR);
+    }
+    if ($job->resourceType() === TenantResource::TYPE_PLANNER_PLAN) {
+        return $job->scope->isEnabled(BackupScope::PLANNER);
+    }
+    if ($job->resourceType() === TenantResource::TYPE_ONENOTE_NOTEBOOK) {
+        return $job->scope->isEnabled(BackupScope::ONENOTE);
+    }
+    if ($job->resourceType() === TenantResource::TYPE_DIRECTORY_BASELINE) {
+        return true;
     }
 
     return false;

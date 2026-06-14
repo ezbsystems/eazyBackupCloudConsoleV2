@@ -13,7 +13,7 @@ final class CalendarEventStore
 
     public function __construct(
         private readonly StorageLayout $storage,
-        private readonly string $userId,
+        private readonly GraphMailboxOwner $owner,
         private readonly string $calendarId,
         private readonly string $runId,
     ) {
@@ -41,7 +41,7 @@ final class CalendarEventStore
 
         $envelope = $this->buildEventEnvelope($event);
         $this->storage->writeJson(
-            $this->storage->calendarEventFilePath($this->userId, $this->calendarId, $immutableId),
+            $this->storage->calendarEventFilePath($this->owner, $this->calendarId, $immutableId),
             $envelope,
         );
 
@@ -64,7 +64,7 @@ final class CalendarEventStore
         if ($immutableId === '') {
             return;
         }
-        $path = $this->storage->calendarEventFilePath($this->userId, $this->calendarId, $immutableId);
+        $path = $this->storage->calendarEventFilePath($this->owner, $this->calendarId, $immutableId);
         $existing = is_file($path) ? json_decode((string) file_get_contents($path), true) : null;
         if (!is_array($existing)) {
             $existing = $this->buildEventEnvelope($enrichedEvent);
@@ -90,7 +90,7 @@ final class CalendarEventStore
      */
     public function attachToEvent(string $immutableEventId, array $attachments): void
     {
-        $path = $this->storage->calendarEventFilePath($this->userId, $this->calendarId, $immutableEventId);
+        $path = $this->storage->calendarEventFilePath($this->owner, $this->calendarId, $immutableEventId);
         if (!is_file($path)) {
             return;
         }
@@ -106,7 +106,7 @@ final class CalendarEventStore
     public function mergeSeriesExceptionLinks(): void
     {
         foreach ($this->seriesExceptions as $masterId => $exceptionIds) {
-            $seriesFile = $this->storage->calendarSeriesFilePath($this->userId, $this->calendarId, $masterId);
+            $seriesFile = $this->storage->calendarSeriesFilePath($this->owner, $this->calendarId, $masterId);
             if (!is_file($seriesFile)) {
                 continue;
             }
@@ -129,7 +129,7 @@ final class CalendarEventStore
     {
         $payload = array_merge([
             'seriesMasterId' => $masterId,
-            'mailboxId' => $this->userId,
+            'mailboxId' => $this->owner->id(),
             'calendarId' => $this->calendarId,
             'recurrence' => $rawGraphJson['recurrence'] ?? null,
             'cancelledOccurrences' => $rawGraphJson['cancelledOccurrences'] ?? [],
@@ -138,14 +138,14 @@ final class CalendarEventStore
             'rawGraphJson' => $rawGraphJson,
         ], $seriesPayload);
         $this->storage->writeJson(
-            $this->storage->calendarSeriesFilePath($this->userId, $this->calendarId, $masterId),
+            $this->storage->calendarSeriesFilePath($this->owner, $this->calendarId, $masterId),
             $payload,
         );
     }
 
     public function countStoredEvents(): int
     {
-        $dir = $this->storage->calendarEventsDir($this->userId, $this->calendarId);
+        $dir = $this->storage->calendarEventsDir($this->owner, $this->calendarId);
         if (!is_dir($dir)) {
             return 0;
         }
@@ -164,7 +164,7 @@ final class CalendarEventStore
     public function writeBackupState(array $state): void
     {
         $this->storage->writeJson(
-            $this->storage->calendarBackupStatePath($this->userId, $this->calendarId),
+            $this->storage->calendarBackupStatePath($this->owner, $this->calendarId),
             $state,
         );
     }
@@ -173,7 +173,7 @@ final class CalendarEventStore
     private function buildEventEnvelope(array $event): array
     {
         return [
-            'mailboxId' => $this->userId,
+            'mailboxId' => $this->owner->id(),
             'calendarId' => $this->calendarId,
             'immutableEventId' => $event['id'] ?? '',
             'type' => $event['type'] ?? '',

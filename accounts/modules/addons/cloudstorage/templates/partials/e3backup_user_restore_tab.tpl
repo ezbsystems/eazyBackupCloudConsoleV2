@@ -106,11 +106,11 @@
                     <path stroke-linecap="round" stroke-linejoin="round" d="M12 16v-4m0-4h.01M22 12A10 10 0 1 1 2 12a10 10 0 0 1 20 0Z"/>
                 </svg>
                 <div>
-                    Showing <strong x-text="snapshotMeta.total_snapshots"></strong> snapshots.
-                    <template x-if="snapshotMeta.retention_keep_last">
+                    Showing <strong x-text="snapshotMeta?.total_snapshots"></strong> snapshots.
+                    <template x-if="snapshotMeta && snapshotMeta.retention_keep_last">
                         <span> Retention policy keeps <strong x-text="snapshotMeta.retention_keep_last"></strong> in the restore catalog; <strong x-text="snapshotMeta.beyond_retention_count"></strong> older snapshot(s) are shown for reference but cannot be restored from this list.</span>
                     </template>
-                    <template x-if="!snapshotMeta.retention_keep_last">
+                    <template x-if="snapshotMeta && !snapshotMeta.retention_keep_last">
                         <span> <strong x-text="snapshotMeta.beyond_retention_count"></strong> snapshot(s) are beyond the retention catalog and cannot be restored from this list.</span>
                     </template>
                 </div>
@@ -186,8 +186,8 @@
                                 <td x-text="point.agent_hostname || point.agent_uuid || '—'"></td>
                                 <td>
                                     <span class="eb-badge"
-                                          :class="{ 'eb-badge--info': point.engine === 'kopia', 'eb-badge--premium': point.engine === 'disk_image', 'eb-badge--warning': point.engine === 'hyperv', 'eb-badge--neutral': !point.engine }"
-                                          x-text="({ kopia: 'File/Folder', sync: 'File/Folder', disk_image: 'Disk Image', hyperv: 'Hyper-V' })[point.engine] || 'File/Folder'"></span>
+                                          :class="{ 'eb-badge--info': point.engine === 'kopia', 'eb-badge--premium': point.engine === 'disk_image', 'eb-badge--warning': point.engine === 'hyperv', 'eb-badge--neutral': point.engine === 'ms365' || !point.engine }"
+                                          x-text="({ kopia: 'File/Folder', sync: 'File/Folder', disk_image: 'Disk Image', hyperv: 'Hyper-V', ms365: 'Microsoft 365' })[point.engine] || 'File/Folder'"></span>
                                 </td>
                                 <td>
                                     <span class="eb-badge"
@@ -227,7 +227,15 @@
                                             </button>
                                         </span>
                                     </template>
-                                    <template x-if="!point.hyperv_backup_point_id && String(point.engine || '').toLowerCase() !== 'disk_image'">
+                                    <template x-if="!point.hyperv_backup_point_id && String(point.engine || '').toLowerCase() === 'ms365'">
+                                        <button type="button"
+                                                class="eb-btn eb-btn-info eb-btn-xs"
+                                                @click="openMs365Restore(point)"
+                                                :disabled="!point.is_restorable">
+                                            Restore
+                                        </button>
+                                    </template>
+                                    <template x-if="!point.hyperv_backup_point_id && String(point.engine || '').toLowerCase() !== 'disk_image' && String(point.engine || '').toLowerCase() !== 'ms365'">
                                         <button @click="openRestoreModal(point)"
                                                 class="eb-btn eb-btn-info eb-btn-xs"
                                                 :class="point.is_restorable ? '' : 'disabled'"
@@ -612,6 +620,23 @@ function userRestoreTabApp() {
             this.dateTimer = setTimeout(() => this.loadRestorePoints(true), 200);
         },
 
+        isMs365JobSelected() {
+            if (!this.selectedJobId) return false;
+            const match = (this.jobs || []).find((job) => String(job.job_id || '') === String(this.selectedJobId));
+            if (!match) return false;
+            const engine = String(match.engine || '').toLowerCase();
+            const source = String(match.source_type || '').toLowerCase();
+            return engine === 'ms365' || source === 'ms365';
+        },
+
+        openMs365Restore(point) {
+            if (!point || point.is_restorable === false) return;
+            const jobId = point.job_id || this.selectedJobId;
+            if (typeof window.openMs365RestoreWizard === 'function') {
+                window.openMs365RestoreWizard(point, this.scopeUserId, jobId);
+            }
+        },
+
         async loadRestorePoints(reset = true) {
             if (!this.scopeUserId) {
                 this.restorePoints = [];
@@ -641,7 +666,9 @@ function userRestoreTabApp() {
                 params.set('user_id', String(this.scopeUserId));
                 if (this.selectedJobId) {
                     params.set('job_id', this.selectedJobId);
-                    params.set('include_all_snapshots', '1');
+                    if (!this.isMs365JobSelected()) {
+                        params.set('include_all_snapshots', '1');
+                    }
                 }
                 if (this.agentFilter) params.set('agent_uuid', this.agentFilter);
                 if (this.searchQuery) params.set('search', this.searchQuery);
@@ -650,7 +677,10 @@ function userRestoreTabApp() {
                 params.set('limit', String(this.limit));
                 params.set('offset', String(this.offset));
 
-                const response = await fetch('modules/addons/cloudstorage/api/e3backup_restore_points_list.php?' + params.toString());
+                const apiUrl = this.isMs365JobSelected()
+                    ? 'modules/addons/cloudstorage/api/ms365_restore_snapshots_list.php?' + params.toString()
+                    : 'modules/addons/cloudstorage/api/e3backup_restore_points_list.php?' + params.toString();
+                const response = await fetch(apiUrl);
                 const data = await response.json();
                 if (data.status === 'success') {
                     const rows = data.restore_points || [];

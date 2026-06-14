@@ -22,6 +22,9 @@
   var TYPE_TEAM = 'team';
   var TYPE_CHANNEL = 'team_channel';
   var TYPE_GROUP = 'm365_group';
+  var TYPE_PLANNER = 'planner_plan';
+  var TYPE_ONENOTE = 'onenote_notebook';
+  var TYPE_DIRECTORY = 'directory_baseline';
 
   function esc(s) {
     var d = document.createElement('div');
@@ -262,6 +265,28 @@
     });
     html += sectionHtml('groups', 'Microsoft 365 Groups', groupRows, resourcesByType(TYPE_GROUP).length);
 
+    var plannerRows = '';
+    resourcesByType(TYPE_PLANNER).sort(function (a, b) {
+      return String(a.display_name).localeCompare(String(b.display_name), undefined, { sensitivity: 'base' });
+    }).forEach(function (p) {
+      if (matchesFilter(p, q)) plannerRows += rowHtml(p);
+    });
+    html += sectionHtml('planner', 'Planner plans', plannerRows, resourcesByType(TYPE_PLANNER).length);
+
+    var onenoteRows = '';
+    resourcesByType(TYPE_ONENOTE).sort(function (a, b) {
+      return String(a.display_name).localeCompare(String(b.display_name), undefined, { sensitivity: 'base' });
+    }).forEach(function (n) {
+      if (matchesFilter(n, q)) onenoteRows += rowHtml(n);
+    });
+    html += sectionHtml('onenote', 'OneNote notebooks', onenoteRows, resourcesByType(TYPE_ONENOTE).length);
+
+    var dirRows = '';
+    resourcesByType(TYPE_DIRECTORY).forEach(function (d) {
+      if (matchesFilter(d, q)) dirRows += rowHtml(d);
+    });
+    html += sectionHtml('directory', 'Tenant directory', dirRows, resourcesByType(TYPE_DIRECTORY).length);
+
     pickerEl.innerHTML = html;
 
     pickerEl.querySelectorAll('.ms365-section-toggle').forEach(function (el) {
@@ -359,10 +384,16 @@
       html += '<li><strong>' + esc(t) + '</strong><ul>';
       byType[t].forEach(function (r) {
         var note = '';
-        if (r.resource_type !== TYPE_USER && r.resource_type !== TYPE_MAILBOX
-          && r.resource_type !== TYPE_ONEDRIVE && r.resource_type !== TYPE_SITE
-          && !(hasSharePointRunnableScope() && (r.resource_type === TYPE_TEAM || r.resource_type === TYPE_CHANNEL || r.resource_type === TYPE_GROUP))
-          && !(hasTeamsRunnableScope() && (r.resource_type === TYPE_TEAM || r.resource_type === TYPE_CHANNEL))) {
+        var runnable = (r.resource_type === TYPE_USER || r.resource_type === TYPE_MAILBOX)
+          || r.resource_type === TYPE_ONEDRIVE
+          || r.resource_type === TYPE_SITE
+          || r.resource_type === TYPE_PLANNER
+          || r.resource_type === TYPE_ONENOTE
+          || r.resource_type === TYPE_DIRECTORY
+          || (hasSharePointRunnableScope() && (r.resource_type === TYPE_TEAM || r.resource_type === TYPE_CHANNEL || r.resource_type === TYPE_GROUP))
+          || (hasTeamsRunnableScope() && (r.resource_type === TYPE_TEAM || r.resource_type === TYPE_CHANNEL))
+          || ((document.getElementById('ms365-backup-include-mail').checked || document.getElementById('ms365-backup-include-calendar').checked) && r.resource_type === TYPE_GROUP);
+        if (!runnable) {
           note = ' <em class="text-muted">(inventory only)</em>';
         }
         html += '<li>' + esc(r.name || r.id) + note + '</li>';
@@ -468,6 +499,8 @@
       lists: document.getElementById('ms365-backup-include-lists').checked,
       teams_metadata: document.getElementById('ms365-backup-include-teams-metadata').checked,
       teams_messages: document.getElementById('ms365-backup-include-teams-messages').checked,
+      planner: document.getElementById('ms365-backup-include-planner').checked,
+      onenote: document.getElementById('ms365-backup-include-onenote').checked,
     });
   }
 
@@ -480,7 +513,9 @@
       || document.getElementById('ms365-backup-include-files').checked
       || document.getElementById('ms365-backup-include-lists').checked
       || document.getElementById('ms365-backup-include-teams-metadata').checked
-      || document.getElementById('ms365-backup-include-teams-messages').checked;
+      || document.getElementById('ms365-backup-include-teams-messages').checked
+      || document.getElementById('ms365-backup-include-planner').checked
+      || document.getElementById('ms365-backup-include-onenote').checked;
   }
 
   function hasSharePointRunnableScope() {
@@ -525,6 +560,34 @@
     return false;
   }
 
+  function hasPlannerSelection() {
+    return selectedIds().some(function (id) {
+      var r = selectedResources[id];
+      return r && r.resource_type === TYPE_PLANNER;
+    });
+  }
+
+  function hasOneNoteSelection() {
+    return selectedIds().some(function (id) {
+      var r = selectedResources[id];
+      return r && r.resource_type === TYPE_ONENOTE;
+    });
+  }
+
+  function hasGroupMailSelection() {
+    return selectedIds().some(function (id) {
+      var r = selectedResources[id];
+      return r && r.resource_type === TYPE_GROUP;
+    });
+  }
+
+  function hasDirectorySelection() {
+    return selectedIds().some(function (id) {
+      var r = selectedResources[id];
+      return r && r.resource_type === TYPE_DIRECTORY;
+    });
+  }
+
   function hasRunnableUserSelection() {
     var ids = selectedIds();
     for (var i = 0; i < ids.length; i++) {
@@ -538,7 +601,9 @@
   function updateScopePanelVisibility() {
     var panel = document.getElementById('ms365-scope-panel');
     var hint = document.getElementById('ms365-scope-hint');
-    var showScope = hasRunnableUserSelection() || hasOneDriveSelection() || hasSharePointSiteSelection() || hasTeamsSelection();
+    var showScope = hasRunnableUserSelection() || hasOneDriveSelection() || hasSharePointSiteSelection()
+      || hasTeamsSelection() || hasPlannerSelection() || hasOneNoteSelection() || hasGroupMailSelection()
+      || hasDirectorySelection();
     if (panel) panel.style.display = showScope ? '' : 'none';
     if (hint) hint.style.display = showScope ? 'none' : (selectedIds().length ? '' : 'none');
   }

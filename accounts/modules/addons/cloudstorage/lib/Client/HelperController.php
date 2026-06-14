@@ -325,4 +325,32 @@ class HelperController {
         }
         return $base;
     }
+
+    /**
+     * Strip tenant-qualified RGW uid prefix (e.g. "147617887552$e3cbown-abc" → "e3cbown-abc").
+     */
+    public static function stripCephTenantPrefix(string $qualifiedUid): string
+    {
+        $qualifiedUid = trim($qualifiedUid);
+        if ($qualifiedUid === '') {
+            return '';
+        }
+        $pos = strrpos($qualifiedUid, '$');
+
+        return $pos !== false ? substr($qualifiedUid, $pos + 1) : $qualifiedUid;
+    }
+
+    /**
+     * Customer-facing bucket owner label for badges and summaries.
+     */
+    public static function formatBucketOwnerLabel(string $ownerUsername, bool $isPrimaryOwner = false): string
+    {
+        if ($isPrimaryOwner) {
+            return 'Root user';
+        }
+
+        $display = self::stripCephTenantPrefix($ownerUsername);
+
+        return $display !== '' ? $display : 'Unknown';
+    }
 }

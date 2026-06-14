@@ -1,0 +1,6 @@
+[Unit]
+Description=MS365 worker fleet autoscale and lease recovery
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/php /var/www/eazybackup.ca/accounts/modules/addons/ms365backup/crons/ms365_worker_fleet.php

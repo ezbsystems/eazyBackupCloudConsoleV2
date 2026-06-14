@@ -191,21 +191,7 @@ class CloudBackupEventFormatter
      */
     private static function sanitizeBranding($text)
     {
-        if (!is_string($text) || $text === '') {
-            return $text;
-        }
-        // Replace various forms of "kopia" with "eazyBackup"
-        $patterns = [
-            '/\bKopia\b/i' => 'eazyBackup',
-            '/\bkopia\b/i' => 'eazyBackup',
-            '/kopia:/i' => 'backup engine:',
-            '/kopia\s+upload/i' => 'upload',
-            '/kopia\s+error/i' => 'backup error',
-        ];
-        foreach ($patterns as $pattern => $replacement) {
-            $text = preg_replace($pattern, $replacement, $text);
-        }
-        return $text;
+        return CustomerFacingTextSanitizer::scrub((string) $text);
     }
 
     /**

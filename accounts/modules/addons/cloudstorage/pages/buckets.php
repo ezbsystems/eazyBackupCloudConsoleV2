@@ -4,6 +4,7 @@
     use WHMCS\Database\Capsule;
     use WHMCS\Module\Addon\CloudStorage\Admin\ProductConfig;
     use WHMCS\Module\Addon\CloudStorage\Client\DBController;
+    use WHMCS\Module\Addon\CloudStorage\Client\HelperController;
 
     $packageId = ProductConfig::$E3_PRODUCT_ID;
     $ca = new ClientArea();
@@ -45,6 +46,13 @@
     ])->pluck('username', 'id')->toArray();
 
     $tenants[$user->id] = $username;
+    $ownerLabels = [];
+    foreach ($tenants as $tenantUserId => $tenantUsername) {
+        $ownerLabels[$tenantUserId] = HelperController::formatBucketOwnerLabel(
+            (string) $tenantUsername,
+            (int) $tenantUserId === (int) $user->id,
+        );
+    }
     $bucketUserIds = array_keys($tenants);
     $buckets = DBController::getUserBuckets($bucketUserIds);
     $bucketIds = $buckets->pluck('id')->toArray();
@@ -135,6 +143,7 @@
     return [
         'buckets' => $buckets,
         'usernames' => $tenants,
+        'OWNER_LABELS' => $ownerLabels,
         'stats' => $stats,
         'HAS_PRIMARY_KEY' => $hasPrimaryKey,
         'HAS_KEYS_BY_USER_ID' => $hasKeysByUserId,

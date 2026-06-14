@@ -1,0 +1,6 @@
+[Unit]
+Description=MS365 worker build runner
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/php /var/www/eazybackup.ca/accounts/modules/addons/ms365backup/crons/ms365_worker_build_runner.php

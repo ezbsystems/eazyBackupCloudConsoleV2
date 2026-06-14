@@ -498,7 +498,7 @@ class BucketController {
      *
      * @param object $user s3_users row (must include id, username, tenant_id)
      */
-    public function createBucketAsAdmin($user, $bucketName, $enableVersioning = false, $enableObjectLocking = false, $retentionMode = 'GOVERNANCE', $retentionDays = 1, $setDefaultRetention = false)
+    public function createBucketAsAdmin($user, $bucketName, $enableVersioning = false, $enableObjectLocking = false, $retentionMode = 'GOVERNANCE', $retentionDays = 1, $setDefaultRetention = false, $repairForExistingOwnerRecord = false)
     {
         logModuleCall($this->module, __FUNCTION__ . '_START', [
             'user_id' => $user->id ?? null,
@@ -517,8 +517,12 @@ class BucketController {
         $bucket = DBController::getRow('s3_buckets', [
             ['name', '=', $bucketName]
         ]);
+        $repairForExistingOwnerRecord = (bool) $repairForExistingOwnerRecord;
         if (!is_null($bucket)) {
-            return ['status' => 'fail', 'message' => "Bucket name unavailable: Bucket names must be unique globally. Please choose a unique name for your bucket to proceed."];
+            $sameOwner = (int) ($bucket->user_id ?? 0) === (int) ($user->id ?? 0);
+            if (!$repairForExistingOwnerRecord || !$sameOwner) {
+                return ['status' => 'fail', 'message' => "Bucket name unavailable: Bucket names must be unique globally. Please choose a unique name for your bucket to proceed."];
+            }
         }
 
         try {
@@ -582,9 +586,13 @@ class BucketController {
             ]);
 
             try {
-                // Ensure bucket doesn't already exist
+                // Ensure bucket doesn't already exist (owner-scoped view on RGW)
                 try {
                     $userS3->headBucket(['Bucket' => $bucketName]);
+                    if ($repairForExistingOwnerRecord) {
+                        return ['status' => 'success', 'message' => 'Bucket is already present on object storage.'];
+                    }
+
                     return ['status' => 'fail', 'message' => 'Bucket name unavailable: Bucket names must be unique globally. Please choose a unique name for your bucket to proceed.'];
                 } catch (S3Exception $e) {
                     // expected when not found
@@ -718,18 +726,20 @@ class BucketController {
                 ];
             }
 
-            $creationDateTime = new DateTime($bucketInfo['creation_time']);
-            $creationTime = $creationDateTime->format('Y-m-d H:i:s');
-            $dbData = [
-                'user_id'             => (int)($user->id ?? 0),
-                'name'                => $bucketName,
-                's3_id'               => $bucketInfo['id'],
-                'versioning'          => $enableVersioning ? 'enabled' : 'off',
-                'object_lock_enabled' => $enableObjectLocking ? '1' : '0',
-                'is_active'           => 1,
-                'created_at'          => $creationTime
-            ];
-            DBController::saveBucket($dbData);
+            if (is_null($bucket)) {
+                $creationDateTime = new DateTime($bucketInfo['creation_time']);
+                $creationTime = $creationDateTime->format('Y-m-d H:i:s');
+                $dbData = [
+                    'user_id'             => (int)($user->id ?? 0),
+                    'name'                => $bucketName,
+                    's3_id'               => $bucketInfo['id'],
+                    'versioning'          => $enableVersioning ? 'enabled' : 'off',
+                    'object_lock_enabled' => $enableObjectLocking ? '1' : '0',
+                    'is_active'           => 1,
+                    'created_at'          => $creationTime
+                ];
+                DBController::saveBucket($dbData);
+            }
 
             return ['status' => 'success', 'message' => 'Bucket has been created successfully.'];
         } catch (S3Exception $e) {
@@ -3227,13 +3237,15 @@ class BucketController {
                     if (!isset($prefix['Prefix'])) {
                         continue;
                     }
-                    $name = $this->normalizeListedName($prefix['Prefix'], $normalizedPrefix, true);
+                    $fullKey = $prefix['Prefix'];
+                    $name = $this->normalizeListedName($fullKey, $normalizedPrefix, true);
                     if ($name === '' || isset($seenFolders[$name])) {
                         continue;
                     }
                     $seenFolders[$name] = true;
                     $objects[] = [
                         'name' => $name,
+                        'key' => $fullKey,
                         'size' => '0',
                         'type' => 'folder',
                         'modified' => ''
@@ -3247,13 +3259,15 @@ class BucketController {
                     if (!isset($content['Key'])) {
                         continue;
                     }
-                    $name = $this->normalizeListedName($content['Key'], $normalizedPrefix, false);
+                    $fullKey = $content['Key'];
+                    $name = $this->normalizeListedName($fullKey, $normalizedPrefix, false);
                     if ($name === '') {
                         // Ignore the current folder marker object (e.g. "path/to/folder/").
                         continue;
                     }
                     $objects[] = [
                        'name' => $name,
+                       'key' => $fullKey,
                        'size' => HelperController::formatSizeUnits($content['Size']),
                        'type' => 'file',
                        'modified' => $content['LastModified']->format("d M Y")
@@ -3292,13 +3306,15 @@ class BucketController {
                             if (!isset($prefix['Prefix'])) {
                                 continue;
                             }
-                            $name = $this->normalizeListedName($prefix['Prefix'], $normalizedPrefix, true);
+                            $fullKey = $prefix['Prefix'];
+                            $name = $this->normalizeListedName($fullKey, $normalizedPrefix, true);
                             if ($name === '' || isset($seenFolders[$name])) {
                                 continue;
                             }
                             $seenFolders[$name] = true;
                             $objects[] = [
                                 'name' => $name,
+                                'key' => $fullKey,
                                 'size' => '0',
                                 'type' => 'folder',
                                 'modified' => ''
@@ -3390,12 +3406,14 @@ class BucketController {
                         if (!isset($prefix['Prefix'])) {
                             continue;
                         }
-                        $name = $this->normalizeListedName($prefix['Prefix'], $normalizedPrefix, true);
+                        $fullKey = $prefix['Prefix'];
+                        $name = $this->normalizeListedName($fullKey, $normalizedPrefix, true);
                         if ($name === '') {
                             continue;
                         }
                         $objects[] = [
                             'name' => $name,
+                            'key' => $fullKey,
                             'size' => '0',
                             'type' => 'folder',
                             'modified' => ''
@@ -3409,13 +3427,15 @@ class BucketController {
                         if (!isset($content['Key'])) {
                             continue;
                         }
-                        $name = $this->normalizeListedName($content['Key'], $normalizedPrefix, false);
+                        $fullKey = $content['Key'];
+                        $name = $this->normalizeListedName($fullKey, $normalizedPrefix, false);
                         if ($name === '') {
                             // Ignore the current folder marker object (e.g. "path/to/folder/").
                             continue;
                         }
                         $objects[] = [
                            'name' => $name,
+                           'key' => $fullKey,
                            'size' => HelperController::formatSizeUnits($content['Size']),
                            'type' => 'file',
                            'modified' => $content['LastModified']->format("d M Y")

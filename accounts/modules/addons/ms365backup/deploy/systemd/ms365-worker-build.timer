@@ -1,0 +1,10 @@
+[Unit]
+Description=MS365 worker build runner timer
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=1min
+Unit=ms365-worker-build.service
+
+[Install]
+WantedBy=timers.target

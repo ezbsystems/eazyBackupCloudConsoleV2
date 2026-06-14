@@ -310,9 +310,8 @@
                             <div>
                                 <div class="flex items-center gap-2">
                                     <h3 class="bucket-title text-sm font-semibold text-white">{$bucket->name}</h3>
-                                    {assign var=ownerName value=$usernames[$bucket->user_id]}
                                     <span class="bucket-owner eb-badge eb-badge--neutral">
-                                        Owner: {if $ownerName == $PRIMARY_USERNAME}Root user{else}{$ownerName}{/if}
+                                        Owner: {$OWNER_LABELS[$bucket->user_id]|default:'Unknown'|escape}
                                     </span>
                                     {if $isPendingDelete}
                                         <span id="pendingDeleteBadge{$bucket->id}" class="eb-badge eb-badge--warning" title="This bucket is pending deletion">
@@ -550,7 +549,7 @@
                       </div>
                       <div>
                         <div class="text-slate-400 text-xs">Owner</div>
-                        <div class="text-slate-200">{$usernames[$bucket->user_id]}</div>
+                        <div class="text-slate-200">{$OWNER_LABELS[$bucket->user_id]|default:'Unknown'|escape}</div>
                       </div>
                     </div>
                   </div>

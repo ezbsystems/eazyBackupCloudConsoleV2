@@ -17,6 +17,7 @@ require_once __DIR__ . '/bootstrap.php';
 
 use Ms365Backup\BackupOrchestrator;
 use Ms365Backup\BackupRunRepository;
+use Ms365Backup\JobQueueRepository;
 use Ms365Backup\CalendarVerifier;
 use Ms365Backup\GraphPaginationException;
 use Ms365Backup\RunCancelledException;
@@ -24,6 +25,7 @@ use Ms365Backup\DiscoveryService;
 use Ms365Backup\InventoryService;
 use Ms365Backup\GraphClient;
 use Ms365Backup\ProgressLogger;
+use Ms365Backup\RunTenantContext;
 use Ms365Backup\ResourceAccessService;
 use Ms365Backup\StorageLayout;
 use Ms365Backup\TenantRepository;
@@ -126,18 +128,33 @@ try {
                 exit(0);
             }
 
-            $creds = TenantRepository::credentials();
-            $storage = new StorageLayout($creds['tenant_id']);
-            $logPath = $storage->runDir((string) $run['user_id'], $runId) . '/run.log';
+            $tenantCtx = RunTenantContext::fromRun($run);
+            $storage = $tenantCtx->storageLayout;
+            $physicalKey = (string) ($run['physical_key'] ?? '');
+            if ($physicalKey === '') {
+                $physicalKey = 'user:' . (string) ($run['user_id'] ?? '');
+            }
+            $logPath = $storage->runDirForJob($physicalKey, $runId) . '/run.log';
             $logger = new ProgressLogger($runId, $logPath);
             $logger->info('CLI worker started');
 
-            $orchestrator = new BackupOrchestrator($runId, $logger);
-            $orchestrator->execute();
-            ms365_log_line('OK: backup run completed');
-            flock($lock, LOCK_UN);
-            fclose($lock);
-            exit(0);
+            try {
+                $orchestrator = new BackupOrchestrator($runId, $logger);
+                $orchestrator->execute();
+                JobQueueRepository::markDone($runId);
+                if (\Ms365Backup\Ms365EngineConfig::engineMode() === \Ms365Backup\Ms365EngineConfig::MODE_KOPIA_SHADOW) {
+                    JobQueueRepository::requeue($runId, 50);
+                    $logger->info('Shadow mode: re-queued for Kopia worker comparison');
+                }
+                ms365_log_line('OK: backup run completed');
+                exit(0);
+            } catch (\Throwable $e) {
+                JobQueueRepository::markFailed($runId, $e->getMessage());
+                throw $e;
+            } finally {
+                flock($lock, LOCK_UN);
+                fclose($lock);
+            }
 
         case 'check-access':
             $type = $args[1] ?? 'users';

@@ -225,7 +225,7 @@
                         <h1 class="eb-page-title">Browse Bucket: {$smarty.get.bucket|escape}</h1>
                         <p class="eb-page-description">Inspect objects, navigate prefixes, upload new files, and manage version history for this bucket.</p>
                         <div class="mt-3 flex flex-wrap items-center gap-2">
-                            <span class="eb-badge eb-badge--neutral">Owner: {$smarty.get.username|default:'Unknown'|escape}</span>
+                            <span class="eb-badge eb-badge--neutral">Owner: {$ownerDisplayLabel|default:'Unknown'|escape}</span>
                         </div>
                     </div>
                     <div class="flex flex-wrap items-center gap-2">
@@ -591,6 +591,12 @@
             const maxKeys    = jQuery('#maxKeys').val();
             const username   = jQuery('#username').val();
 
+            function stripCephTenantPrefix(uid) {
+                const value = String(uid || '');
+                const pos = value.lastIndexOf('$');
+                return pos >= 0 ? value.slice(pos + 1) : value;
+            }
+
             // We'll keep folderPath updated here
             let folderPath   = '';
 
@@ -804,8 +810,9 @@
                             const kEnc = encodeURIComponent(String(row.key || ''));
                             return `<input type="checkbox" class="fileCheckbox" data-file-enc="${kEnc}" data-file="${row.key}" data-version="${row.version_id ? row.version_id : ''}" data-is-child="1" data-type="file">`;
                         }
-                                const kEnc = encodeURIComponent(String(row.name || ''));
-                                return `<input type="checkbox" class="fileCheckbox" data-file-enc="${kEnc}" data-file="${row.name}" data-type="${row.type ? row.type : ''}">`;
+                                const objectKey = row.key || row.name || '';
+                                const kEnc = encodeURIComponent(String(objectKey));
+                                return `<input type="checkbox" class="fileCheckbox" data-file-enc="${kEnc}" data-file="${objectKey}" data-type="${row.type ? row.type : ''}">`;
                             },
                             orderable: false
                         },
@@ -902,7 +909,7 @@
                         },
                         // Owner (versions mode)
                         {
-                            data: function(row) { return showVersions ? (row.owner || '') : ''; },
+                            data: function(row) { return showVersions ? stripCephTenantPrefix(row.owner || '') : ''; },
                             visible: true
                         },
                         // Version ID (versions mode)
@@ -965,8 +972,9 @@
                             }
                         } else {
                             let name = (data.name || '').replace(/^@/, '');
+                            const objectKey = (data.key || data.name || '').replace(/^@/, '');
                             jQuery(row).attr('id', name).attr('data-index', dataIndex);
-                            jQuery(row).attr('data-key', name);
+                            jQuery(row).attr('data-key', objectKey);
                             jQuery(row).addClass('bucket-row');
                         }
                     },
@@ -2231,7 +2239,7 @@
                     if (data.modified) rows.push(`<div><span class="text-[var(--eb-text-muted)]">Last modified:</span> <span class="text-[var(--eb-text-secondary)]">${data.modified}</span></div>`);
                     if (data.etag) rows.push(`<div><span class="text-[var(--eb-text-muted)]">ETag:</span> <span class="text-[var(--eb-text-secondary)]">${data.etag}</span></div>`);
                     if (data.storage_class) rows.push(`<div><span class="text-[var(--eb-text-muted)]">Storage class:</span> <span class="text-[var(--eb-text-secondary)]">${data.storage_class}</span></div>`);
-                    if (data.owner) rows.push(`<div><span class="text-[var(--eb-text-muted)]">Owner:</span> <span class="text-[var(--eb-text-secondary)]">${data.owner}</span></div>`);
+                    if (data.owner) rows.push(`<div><span class="text-[var(--eb-text-muted)]">Owner:</span> <span class="text-[var(--eb-text-secondary)]">${stripCephTenantPrefix(data.owner)}</span></div>`);
                     if (data.version_id) rows.push(`<div><span class="text-[var(--eb-text-muted)]">Version ID:</span> <span class="text-[var(--eb-text-secondary)]">${data.version_id}</span></div>`);
                 }
                 body.innerHTML = rows.map(r => `<div>${r}</div>`).join('');

@@ -18,6 +18,10 @@ final class BackupEngineRegistry
             new OneDriveBackupEngine(),
             new SharePointSiteBackupEngine(),
             new TeamsBackupEngine(),
+            new GroupBackupEngine(),
+            new PlannerBackupEngine(),
+            new OneNoteBackupEngine(),
+            new DirectoryBackupEngine(),
             new DeferredBackupEngine(),
         ];
     }

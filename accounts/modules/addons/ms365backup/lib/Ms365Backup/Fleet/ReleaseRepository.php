@@ -1,0 +1,72 @@
+<?php
+declare(strict_types=1);
+
+namespace Ms365Backup\Fleet;
+
+use WHMCS\Database\Capsule;
+
+final class ReleaseRepository
+{
+    public static function create(array $data): int
+    {
+        $now = time();
+
+        return (int) Capsule::table('ms365_worker_releases')->insertGetId([
+            'version' => (string) $data['version'],
+            'git_ref' => (string) ($data['git_ref'] ?? ''),
+            'sha256' => (string) $data['sha256'],
+            'artifact_path' => (string) $data['artifact_path'],
+            'artifact_size' => (int) ($data['artifact_size'] ?? 0),
+            'build_job_id' => isset($data['build_job_id']) ? (int) $data['build_job_id'] : null,
+            'created_by_admin_id' => isset($data['created_by_admin_id']) ? (int) $data['created_by_admin_id'] : null,
+            'notes' => $data['notes'] ?? null,
+            'created_at' => $now,
+        ]);
+    }
+
+    public static function get(int $id): ?array
+    {
+        $row = Capsule::table('ms365_worker_releases')->where('id', $id)->first();
+
+        return $row ? (array) $row : null;
+    }
+
+    public static function getByVersion(string $version): ?array
+    {
+        $row = Capsule::table('ms365_worker_releases')->where('version', $version)->first();
+
+        return $row ? (array) $row : null;
+    }
+
+    public static function latest(): ?array
+    {
+        $row = Capsule::table('ms365_worker_releases')->orderByDesc('id')->first();
+
+        return $row ? (array) $row : null;
+    }
+
+    /** @return list<array<string, mixed>> */
+    public static function listRecent(int $limit = 25): array
+    {
+        return Capsule::table('ms365_worker_releases')
+            ->orderByDesc('id')
+            ->limit($limit)
+            ->get()
+            ->map(static fn ($r) => (array) $r)
+            ->all();
+    }
+
+    public static function compareVersions(string $a, string $b): int
+    {
+        return version_compare($a, $b);
+    }
+
+    public static function nodeNeedsUpdate(string $nodeVersion, string $targetVersion): bool
+    {
+        if ($targetVersion === '' || $nodeVersion === '') {
+            return $targetVersion !== '' && $nodeVersion !== $targetVersion;
+        }
+
+        return self::compareVersions($nodeVersion, $targetVersion) < 0;
+    }
+}

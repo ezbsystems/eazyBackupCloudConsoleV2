@@ -11,6 +11,7 @@ use WHMCS\ClientArea;
 use WHMCS\Module\Addon\CloudStorage\Admin\ProductConfig;
 use WHMCS\Module\Addon\CloudStorage\Client\DBController;
 use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupController;
+use WHMCS\Module\Addon\CloudStorage\Client\Ms365BatchLiveService;
 use WHMCS\Module\Addon\CloudStorage\Client\SanitizedLogFormatter;
 use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupEmailService;
 use WHMCS\Module\Addon\CloudStorage\Client\TimezoneHelper;
@@ -77,6 +78,30 @@ if (!$run) {
     $response->send();
     exit();
 }
+
+if (Ms365BatchLiveService::isMs365BatchRun($run)) {
+    try {
+        $batchRunId = (string) ($run['run_id'] ?? $runIdentifier);
+        $progressRun = Ms365BatchLiveService::aggregateProgress($batchRunId, (int) $loggedInUserId, $run);
+        $response = new JsonResponse([
+            'status' => 'success',
+            'run' => $progressRun,
+        ], 200);
+        $response->headers->set('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+        $response->headers->set('Pragma', 'no-cache');
+        $response->headers->set('Expires', '0');
+        $response->send();
+        exit();
+    } catch (\Throwable $e) {
+        $response = new JsonResponse([
+            'status' => 'fail',
+            'message' => 'Unable to load backup progress.',
+        ], 200);
+        $response->send();
+        exit();
+    }
+}
+
 $userTz = TimezoneHelper::resolveUserTimezone($loggedInUserId, $run['job_id'] ?? null);
 
 $statsJson = null;

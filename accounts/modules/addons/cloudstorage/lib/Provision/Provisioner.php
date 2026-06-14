@@ -414,12 +414,12 @@ class Provisioner
                 ->orderBy('id', 'desc')
                 ->first();
             if ($service && (int)$service->userid === $clientId && (int)$service->packageid === $pid) {
-                return 'index.php?m=eazybackup&a=ms365&serviceid=' . (int)$service->id;
+                return 'index.php?m=cloudstorage&page=e3backup&view=ms365&serviceid=' . (int)$service->id;
             }
         } catch (\Throwable $e) {
             try { logModuleCall('cloudstorage', 'ms365_service_lookup_exception', ['orderid' => $order['orderid'] ?? null], $e->getMessage()); } catch (\Throwable $_) {}
         }
-        return 'index.php?m=eazybackup&a=ms365';
+        return 'index.php?m=cloudstorage&page=e3backup&view=ms365';
     }
 
     public static function provisionCloudStorage(int $clientId): string

@@ -13,6 +13,8 @@ use WHMCS\Module\Addon\CloudStorage\Client\DBController;
 use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupController;
 use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupEventFormatter;
 use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupLogFormatter;
+use WHMCS\Module\Addon\CloudStorage\Client\CustomerFacingTextSanitizer;
+use WHMCS\Module\Addon\CloudStorage\Client\Ms365BatchLiveService;
 use WHMCS\Module\Addon\CloudStorage\Client\SanitizedLogFormatter;
 use WHMCS\Module\Addon\CloudStorage\Client\TimezoneHelper;
 use WHMCS\Module\Addon\CloudStorage\Client\UuidBinary;
@@ -65,6 +67,25 @@ if (!$run) {
     exit();
 }
 $userTz = TimezoneHelper::resolveUserTimezone($loggedInUserId, $run['job_id'] ?? null);
+
+if (Ms365BatchLiveService::isMs365BatchRun($run)) {
+    try {
+        $batchRunId = (string) ($run['run_id'] ?? $runIdentifier);
+        $payload = Ms365BatchLiveService::aggregateStructuredLogs($batchRunId, (int) $loggedInUserId, $userTz);
+        $response = new JsonResponse([
+            'status' => 'success',
+        ] + $payload, 200);
+        $response->send();
+        exit();
+    } catch (\Throwable $e) {
+        $response = new JsonResponse([
+            'status' => 'fail',
+            'message' => 'Unable to load run logs.',
+        ], 200);
+        $response->send();
+        exit();
+    }
+}
 
 if (!function_exists('ebE3FormatBytesHuman')) {
     function ebE3FormatBytesHuman($bytes, int $precision = 2): string
@@ -151,7 +172,7 @@ try {
                 'ts' => TimezoneHelper::formatTimestamp($row->created_at, $userTz),
                 'level' => (string) ($row->level ?? 'info'),
                 'code' => $row->code ?? '',
-                'message' => $row->message ?? '',
+                'message' => CustomerFacingTextSanitizer::scrubLogMessage((string) ($row->message ?? '')),
                 'details' => $details,
             ];
         }

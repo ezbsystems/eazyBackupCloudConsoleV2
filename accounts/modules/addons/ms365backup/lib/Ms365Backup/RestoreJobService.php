@@ -1,0 +1,147 @@
+<?php
+declare(strict_types=1);
+
+namespace Ms365Backup;
+
+use WHMCS\Database\Capsule;
+
+/**
+ * Starts granular MS365 restore jobs (Kopia-only, async via worker queue).
+ */
+final class RestoreJobService
+{
+    /**
+     * @param array<string, mixed> $selection
+     * @return array{batch_run_id: string, restore_run_ids: list<string>}
+     */
+    public static function start(
+        int $clientId,
+        int $backupUserId,
+        string $jobId,
+        array $selection,
+    ): array {
+        if (!Ms365EngineConfig::usesKopiaWorker()) {
+            throw new \RuntimeException('Microsoft 365 restore requires Kopia engine mode.');
+        }
+
+        $record = TenantRecordRepository::getForBackupUser($clientId, $backupUserId);
+        if ($record === null) {
+            $record = TenantRecordRepository::getPrimaryForClient($clientId);
+        }
+        if ($record === null) {
+            throw new \RuntimeException('Microsoft 365 is not connected.');
+        }
+
+        $sourceBatchRunId = trim((string) ($selection['snapshot_batch_run_id'] ?? ''));
+        if ($sourceBatchRunId === '') {
+            throw new \RuntimeException('snapshot_batch_run_id is required.');
+        }
+
+        $items = $selection['items'] ?? [];
+        if (!is_array($items) || $items === []) {
+            throw new \RuntimeException('At least one item must be selected for restore.');
+        }
+
+        $targets = $selection['targets'] ?? [];
+        if (!is_array($targets) || $targets === []) {
+            throw new \RuntimeException('Restore target is required.');
+        }
+
+        $conflictPolicy = (string) ($selection['conflict_policy'] ?? 'skip_duplicates');
+        $batchRunId = Ms365BatchRunRepository::createRestoreBatch($clientId, $jobId);
+
+        $grouped = self::groupItemsByWorkload($items);
+        $restoreRunIds = [];
+        $primaryTarget = $targets[0];
+
+        foreach ($grouped as $groupKey => $groupItems) {
+            $manifestId = '';
+            $childRunId = '';
+            foreach ($groupItems as $gi) {
+                if (trim((string) ($gi['manifest_id'] ?? '')) !== '') {
+                    $manifestId = (string) $gi['manifest_id'];
+                }
+                if (trim((string) ($gi['child_run_id'] ?? '')) !== '') {
+                    $childRunId = (string) $gi['child_run_id'];
+                }
+            }
+            if ($manifestId === '' && $childRunId !== '') {
+                $backupRun = BackupRunRepository::get($childRunId);
+                $manifestId = (string) ($backupRun['manifest_id'] ?? '');
+            }
+            if ($manifestId === '') {
+                continue;
+            }
+
+            $target = self::resolveTargetForGroup($groupKey, $targets, $primaryTarget);
+            $restoreId = RestoreRunRepository::create([
+                'tenant_record_id' => (int) $record['id'],
+                'whmcs_client_id' => $clientId,
+                'resource_type' => (string) ($target['resource_type'] ?? 'user'),
+                'target_graph_id' => (string) ($target['graph_id'] ?? ''),
+                'target_resource_id' => (string) ($target['resource_id'] ?? ''),
+                'backup_run_id' => $childRunId !== '' ? $childRunId : null,
+                'e3_batch_run_id' => $batchRunId,
+                'source_batch_run_id' => $sourceBatchRunId,
+                'source_manifest_id' => $manifestId,
+                'selection_json' => [
+                    'items' => $groupItems,
+                    'targets' => $targets,
+                    'conflict_policy' => $conflictPolicy,
+                    'snapshot_batch_run_id' => $sourceBatchRunId,
+                ],
+                'conflict_policy' => $conflictPolicy,
+                'items_total' => count($groupItems),
+            ]);
+
+            JobQueueRepository::enqueueRestore($restoreId);
+            $restoreRunIds[] = $restoreId;
+        }
+
+        if ($restoreRunIds === []) {
+            throw new \RuntimeException('No restorable workloads found in selection.');
+        }
+
+        return [
+            'batch_run_id' => $batchRunId,
+            'restore_run_ids' => $restoreRunIds,
+        ];
+    }
+
+    /**
+     * @param list<array<string, mixed>> $items
+     * @return array<string, list<array<string, mixed>>>
+     */
+    private static function groupItemsByWorkload(array $items): array
+    {
+        $groups = [];
+        foreach ($items as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $key = (string) ($item['child_run_id'] ?? $item['manifest_id'] ?? 'default');
+            $groups[$key][] = $item;
+        }
+
+        return $groups;
+    }
+
+    /**
+     * @param array<string, mixed> $primary
+     * @param list<array<string, mixed>> $targets
+     * @return array<string, mixed>
+     */
+    private static function resolveTargetForGroup(string $groupKey, array $targets, array $primary): array
+    {
+        foreach ($targets as $target) {
+            if (!is_array($target)) {
+                continue;
+            }
+            if ((string) ($target['child_run_id'] ?? '') === $groupKey) {
+                return $target;
+            }
+        }
+
+        return $primary;
+    }
+}

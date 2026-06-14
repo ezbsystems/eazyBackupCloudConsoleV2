@@ -17,11 +17,7 @@ final class InventoryService
     /** @return array<string, mixed> */
     public function load(): ?array
     {
-        $path = $this->storage->inventoryPath();
-        if (!is_file($path)) {
-            return null;
-        }
-        $data = json_decode((string) file_get_contents($path), true);
+        $data = $this->storage->readJson($this->storage->inventoryPath());
 
         return is_array($data) ? $data : null;
     }
@@ -33,10 +29,23 @@ final class InventoryService
      */
     public function refresh(): array
     {
+        $discoveryCounts = [];
+        $this->writeRefreshProgress('users', 'Discovering users and mailboxes…', $discoveryCounts);
+
         $rawUsers = $this->discovery->listUsers();
+        $discoveryCounts['users'] = count($rawUsers);
+        $this->writeRefreshProgress('sites', 'Discovering SharePoint sites…', $discoveryCounts);
+
         $rawSites = $this->discovery->listSites();
+        $discoveryCounts['sites'] = count($rawSites);
+        $this->writeRefreshProgress('teams', 'Discovering Teams…', $discoveryCounts);
+
         $rawTeams = $this->discovery->listTeams();
+        $discoveryCounts['teams'] = count($rawTeams);
+        $this->writeRefreshProgress('groups', 'Discovering Microsoft 365 groups…', $discoveryCounts);
+
         $rawGroups = $this->listM365Groups();
+        $discoveryCounts['groups'] = count($rawGroups);
 
         $previous = $this->load();
         $accessByGraphUserId = $this->extractUserAccessFromPrevious($previous, $rawUsers);
@@ -78,12 +87,28 @@ final class InventoryService
             );
         }
 
-        foreach ($userGraphIds as $userGraphId) {
+        $oneDriveTotal = count($userGraphIds);
+        foreach ($userGraphIds as $oneDriveIndex => $userGraphId) {
+            if ($oneDriveIndex === 0 || ($oneDriveIndex + 1) % 10 === 0 || $oneDriveIndex === $oneDriveTotal - 1) {
+                $this->writeRefreshProgress(
+                    'onedrive',
+                    'Checking OneDrive libraries…',
+                    $discoveryCounts,
+                    sprintf('OneDrive: %d of %d users', $oneDriveIndex + 1, $oneDriveTotal),
+                );
+            }
             $driveResource = $this->discoverUserOneDrive($userGraphId, $resources);
             if ($driveResource !== null) {
                 $resources[$driveResource['id']] = $driveResource;
             }
         }
+
+        $this->writeRefreshProgress(
+            'details',
+            'Loading channels, Planner, and OneNote…',
+            $discoveryCounts,
+            'This can take a few minutes on large tenants.',
+        );
 
         foreach ($rawSites as $site) {
             if (!is_array($site)) {
@@ -198,20 +223,101 @@ final class InventoryService
             );
         }
 
+        foreach ($rawGroups as $group) {
+            if (!is_array($group)) {
+                continue;
+            }
+            $groupId = (string) ($group['id'] ?? '');
+            if ($groupId === '') {
+                continue;
+            }
+            foreach ($this->discoverPlannerPlansForGroup($groupId) as $planResource) {
+                $resources[$planResource['id']] = $planResource;
+            }
+            foreach ($this->discoverOneNoteNotebooks('groups', $groupId) as $nbResource) {
+                $resources[$nbResource['id']] = $nbResource;
+            }
+        }
+
+        foreach ($rawTeams as $team) {
+            if (!is_array($team)) {
+                continue;
+            }
+            $groupId = (string) ($team['id'] ?? '');
+            if ($groupId === '') {
+                continue;
+            }
+            foreach ($this->discoverPlannerPlansForGroup($groupId) as $planResource) {
+                $resources[$planResource['id']] = $planResource;
+            }
+        }
+
+        foreach ($userGraphIds as $userGraphId) {
+            foreach ($this->discoverOneNoteNotebooks('users', $userGraphId) as $nbResource) {
+                $resources[$nbResource['id']] = $nbResource;
+            }
+        }
+
+        foreach ($rawSites as $site) {
+            if (!is_array($site)) {
+                continue;
+            }
+            $siteId = (string) ($site['id'] ?? '');
+            if ($siteId === '') {
+                continue;
+            }
+            foreach ($this->discoverOneNoteNotebooks('sites', $siteId) as $nbResource) {
+                $resources[$nbResource['id']] = $nbResource;
+            }
+        }
+
+        $dirId = TenantResource::makeId(TenantResource::TYPE_DIRECTORY_BASELINE, 'tenant');
+        $resources[$dirId] = TenantResource::build(
+            TenantResource::TYPE_DIRECTORY_BASELINE,
+            'tenant',
+            'Directory baseline',
+            null,
+            ['id' => $dirId, 'meta' => []],
+        );
+
         $resourceList = array_values($resources);
         $resolver = new RelationshipResolver();
         $relationships = $resolver->build($resourceList);
+
+        $warnings = [];
+        if ($this->discovery->isSharePointUnavailableFromCache()) {
+            $warnings[] = 'SharePoint sites were not included because this Microsoft 365 tenant does not have a SharePoint Online license. User mail, calendars, OneDrive, and Teams can still be backed up.';
+        }
+
+        $this->writeRefreshProgress('assembling', 'Finalizing inventory…', $discoveryCounts);
 
         $inventory = [
             'fetched_at' => gmdate('c'),
             'resources' => $resourceList,
             'relationships' => $relationships,
             'counts' => TenantResource::countByType($resourceList),
+            'warnings' => $warnings,
         ];
 
         $this->storage->writeJson($this->storage->inventoryPath(), $inventory);
+        $this->writeRefreshProgress('complete', 'Inventory ready', $discoveryCounts);
 
         return $inventory;
+    }
+
+    /** @param array<string, int> $counts */
+    private function writeRefreshProgress(string $phase, string $message, array $counts, ?string $detail = null): void
+    {
+        $payload = [
+            'phase' => $phase,
+            'message' => $message,
+            'counts' => $counts,
+            'updated_at' => gmdate('c'),
+        ];
+        if ($detail !== null && $detail !== '') {
+            $payload['detail'] = $detail;
+        }
+        $this->storage->writeJson($this->storage->discoveryDir() . '/progress.json', $payload);
     }
 
     /** @return list<array<string, mixed>> */
@@ -238,6 +344,77 @@ final class InventoryService
         }
 
         return $groups;
+    }
+
+    /** @return list<array<string, mixed>> */
+    private function discoverPlannerPlansForGroup(string $groupId): array
+    {
+        $plans = [];
+        try {
+            foreach ($this->graph->paginate("groups/{$groupId}/planner/plans", ['$top' => '100']) as $plan) {
+                if (!is_array($plan)) {
+                    continue;
+                }
+                $planId = (string) ($plan['id'] ?? '');
+                if ($planId === '') {
+                    continue;
+                }
+                $resourceId = TenantResource::makeId(TenantResource::TYPE_PLANNER_PLAN, $planId);
+                $plans[] = TenantResource::build(
+                    TenantResource::TYPE_PLANNER_PLAN,
+                    $planId,
+                    (string) ($plan['title'] ?? $planId),
+                    TenantResource::makeId(TenantResource::TYPE_M365_GROUP, $groupId),
+                    [
+                        'id' => $resourceId,
+                        'meta' => [
+                            'group_id' => $groupId,
+                            'owner' => (string) ($plan['owner'] ?? ''),
+                        ],
+                    ],
+                );
+            }
+        } catch (\Throwable $_) {
+        }
+
+        return $plans;
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private function discoverOneNoteNotebooks(string $ownerKind, string $ownerId): array
+    {
+        $notebooks = [];
+        try {
+            foreach ($this->graph->paginate("{$ownerKind}/{$ownerId}/onenote/notebooks", ['$top' => '100']) as $nb) {
+                if (!is_array($nb)) {
+                    continue;
+                }
+                $notebookId = (string) ($nb['id'] ?? '');
+                if ($notebookId === '') {
+                    continue;
+                }
+                $resourceId = TenantResource::makeId(TenantResource::TYPE_ONENOTE_NOTEBOOK, $notebookId);
+                $notebooks[] = TenantResource::build(
+                    TenantResource::TYPE_ONENOTE_NOTEBOOK,
+                    $notebookId,
+                    (string) ($nb['displayName'] ?? $notebookId),
+                    null,
+                    [
+                        'id' => $resourceId,
+                        'meta' => [
+                            'owner_kind' => $ownerKind,
+                            'owner_id' => $ownerId,
+                            'notebook_id' => $notebookId,
+                        ],
+                    ],
+                );
+            }
+        } catch (\Throwable $_) {
+        }
+
+        return $notebooks;
     }
 
     /** @return list<array<string, mixed>> */

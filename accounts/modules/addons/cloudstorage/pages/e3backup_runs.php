@@ -302,7 +302,37 @@ try {
     // Non-fatal; subtitle will fall back to a dash.
 }
 
-$runs = CloudBackupController::getRunsForJob($jobId, $loggedInUserId);
+$isMs365Job = CloudBackupController::isMs365CloudBackupJob($job);
+if ($isMs365Job) {
+    require_once dirname(__DIR__) . '/lib/Ms365BackupBootstrap.php';
+    cloudstorage_load_ms365backup();
+    $batchRows = \Ms365Backup\Ms365BatchRunRepository::listForJobReconciled($jobId, 100);
+    $runs = [];
+    foreach ($batchRows as $row) {
+        $status = (string) ($row['status'] ?? 'queued');
+        $batchRunId = (string) ($row['run_id'] ?? '');
+        $bytesTransferred = (int) ($row['bytes_transferred'] ?? 0);
+        if ($batchRunId !== '') {
+            $children = \Ms365Backup\Ms365BatchRunRepository::getChildrenForBatch($batchRunId);
+            $agg = \Ms365Backup\Ms365BatchRunRepository::computeAggregates($children);
+            $bytesTransferred = (int) ($agg['bytes_transferred'] ?? $bytesTransferred);
+        }
+        $runs[] = [
+            'run_id' => $batchRunId,
+            'trigger_type' => (string) ($row['trigger_type'] ?? 'schedule'),
+            'status' => $status,
+            'started_at' => $row['started_at'] ?? null,
+            'finished_at' => $row['finished_at'] ?? null,
+            'bytes_transferred' => $bytesTransferred,
+            'validation_mode' => 'none',
+            'validation_status' => 'not_run',
+            'is_ms365_batch' => true,
+        ];
+    }
+    $job['is_ms365'] = true;
+} else {
+    $runs = CloudBackupController::getRunsForJob($jobId, $loggedInUserId);
+}
 
 // Compute run metrics for selected job
 $now = new DateTimeImmutable('now');

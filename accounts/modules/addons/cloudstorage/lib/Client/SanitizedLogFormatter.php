@@ -199,11 +199,11 @@ class SanitizedLogFormatter
 		// Redact explicit S3 operation names
 		$msg = preg_replace('/\\bS3:\\s*[A-Za-z0-9]+/i', 'cloud storage operation', $msg);
 
-		// Normalize whitespace
-		$msg = preg_replace('/\\s+/', ' ', trim($msg));
+        // Normalize whitespace
+        $msg = preg_replace('/\\s+/', ' ', trim($msg));
 
-		return $msg;
-	}
+        return CustomerFacingTextSanitizer::scrubLogMessage($msg);
+    }
 }
 
 

@@ -15,9 +15,16 @@
 # Top-level app bits we own
 ###############################################################################
 
-# Our worker service
+# Our worker services
 !/e3-cloudbackup-worker/
 !/e3-cloudbackup-worker/**
+
+!/ms365-backup-worker/
+!/ms365-backup-worker/**
+# Keep compiled worker artifacts out of git (published via fleet storage)
+/ms365-backup-worker/bin/
+/ms365-backup-worker/bin/**
+/ms365-backup-worker/ms365-backup-worker
 
 # Our local backup agent
 !/e3-backup-agent/
@@ -97,6 +104,12 @@
 
 !/accounts/modules/addons/mspconnect/
 !/accounts/modules/addons/mspconnect/**
+
+!/accounts/modules/addons/ms365backup/
+!/accounts/modules/addons/ms365backup/**
+# Fleet build/publish artifacts stay on disk only
+/accounts/modules/addons/ms365backup/storage/worker-releases/**/ms365-backup-worker
+/accounts/modules/addons/ms365backup/storage/worker-builds/**
 
 # ---------------------- server modules we own --------------------------
 !/accounts/modules/servers/

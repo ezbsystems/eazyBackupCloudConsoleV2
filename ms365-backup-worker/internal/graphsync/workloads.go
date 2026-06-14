@@ -1,0 +1,275 @@
+package graphsync
+
+import (
+	"context"
+	"fmt"
+	"strings"
+	"sync/atomic"
+
+	"github.com/eazybackup/ms365-backup-worker/internal/api"
+	"github.com/eazybackup/ms365-backup-worker/internal/graph"
+	"github.com/eazybackup/ms365-backup-worker/internal/graphfs"
+)
+
+// WorkloadRunner executes enabled workloads and builds a virtual overlay tree for Kopia.
+type WorkloadRunner struct {
+	Client           *graph.Client
+	Job              *api.RunJob
+	Parallel         int
+	FolderParallel   int
+	Overlay          *graphfs.OverlayBuilder
+	UseBatchFallback bool
+	OnProgress       func(phase string, itemsDone, itemsTotal int, bytesTotal int64)
+}
+
+type WorkloadResult struct {
+	Stats       map[string]any
+	DeltaStates map[string]map[string]string
+	FileCount   int
+	ItemsDone   int64
+	BytesTotal  int64
+}
+
+func (w *WorkloadRunner) Run(ctx context.Context) (*WorkloadResult, error) {
+	if w.Overlay == nil {
+		w.Overlay = graphfs.NewOverlayBuilder()
+	}
+	stats := map[string]any{}
+	deltaStates := map[string]map[string]string{}
+	var itemsDone int64
+	var bytesTotal int64
+
+	_, shard := ParsePhysicalKey(w.Job.PhysicalKey)
+	if w.Job.Shard != nil {
+		switch w.Job.Shard.Kind {
+		case "mail_folder":
+			if w.Job.Shard.Segment != "" {
+				shard = "mail:" + w.Job.Shard.Segment
+			}
+		default:
+			if w.Job.Shard.Segment != "" {
+				shard = w.Job.Shard.Segment
+			}
+		}
+	}
+	progress := func(phase string, done, total int, bytes int64) {
+		atomic.StoreInt64(&itemsDone, int64(done))
+		atomic.StoreInt64(&bytesTotal, bytes)
+		if w.OnProgress != nil {
+			w.OnProgress(phase, done, total, bytes)
+		}
+	}
+
+	if w.allowsWorkload("mail") && w.Job.GraphID != "" {
+		mailStates := w.deltaForWorkload("mail")
+		mailRes, err := SyncMail(ctx, w.Client, MailSyncOptions{
+			AzureTenantID:    w.Job.AzureTenantID,
+			UserID:           w.Job.GraphID,
+			Parallel:         w.Parallel,
+			FolderParallel:   w.FolderParallel,
+			DeltaStates:      mailStates,
+			Staging:          w.Overlay,
+			UseBatchFallback: w.UseBatchFallback,
+			ShardKey:         shard,
+			OnProgress:       func(d, t int, b int64) { progress("mail", d, t, b) },
+		})
+		if err != nil {
+			return nil, fmt.Errorf("mail: %w", err)
+		}
+		stats["mail"] = mailRes.Stats
+		deltaStates["mail"] = mailRes.DeltaStates
+	}
+
+	if w.allowsWorkload("contacts") && w.Job.GraphID != "" {
+		cRes, err := SyncContacts(ctx, w.Client, ContactsSyncOptions{
+			AzureTenantID: w.Job.AzureTenantID,
+			UserID:        w.Job.GraphID,
+			Parallel:      w.Parallel,
+			Staging:       w.Overlay,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("contacts: %w", err)
+		}
+		stats["contacts"] = cRes.Stats
+	}
+
+	if w.allowsWorkload("tasks") && w.Job.GraphID != "" {
+		tRes, err := SyncTasks(ctx, w.Client, TasksSyncOptions{
+			AzureTenantID: w.Job.AzureTenantID,
+			UserID:        w.Job.GraphID,
+			Parallel:      w.Parallel,
+			Staging:       w.Overlay,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("tasks: %w", err)
+		}
+		stats["tasks"] = tRes.Stats
+	}
+
+	if w.allowsWorkload("onedrive") {
+		deltaLink := w.singleDeltaForWorkload("onedrive", shard)
+		odRes, err := SyncOneDrive(ctx, w.Client, OneDriveSyncOptions{
+			AzureTenantID: w.Job.AzureTenantID,
+			DriveID:       w.Job.GraphID,
+			Parallel:      w.Parallel,
+			DeltaLink:     deltaLink,
+			Overlay:       w.Overlay,
+			ShardKey:      shard,
+			OnProgress:    func(d, t int, b int64) { progress("onedrive", d, t, b) },
+		})
+		if err != nil {
+			return nil, fmt.Errorf("onedrive: %w", err)
+		}
+		stats["onedrive"] = odRes.Stats
+		if len(odRes.DeltaStates) > 0 {
+			deltaStates["onedrive"] = odRes.DeltaStates
+		}
+	}
+
+	if w.allowsWorkload("sharepoint") {
+		spRes, err := SyncSharePoint(ctx, w.Client, SharePointSyncOptions{
+			AzureTenantID: w.Job.AzureTenantID,
+			SiteID:        w.Job.GraphID,
+			Parallel:      w.Parallel,
+			Staging:       w.Overlay,
+			OnProgress:    func(d, t int, b int64) { progress("sharepoint", d, t, b) },
+		})
+		if err != nil {
+			return nil, fmt.Errorf("sharepoint: %w", err)
+		}
+		stats["sharepoint"] = spRes.Stats
+	}
+
+	if w.allowsWorkload("teams") {
+		tmRes, err := SyncTeams(ctx, w.Client, TeamsSyncOptions{
+			AzureTenantID: w.Job.AzureTenantID,
+			TeamID:        w.Job.GraphID,
+			Parallel:      w.Parallel,
+			Staging:       w.Overlay,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("teams: %w", err)
+		}
+		stats["teams"] = tmRes.Stats
+	}
+
+	if w.allowsWorkload("calendar") && w.Job.GraphID != "" {
+		calRes, err := SyncCalendar(ctx, w.Client, CalendarSyncOptions{
+			AzureTenantID: w.Job.AzureTenantID,
+			UserID:        w.Job.GraphID,
+			Parallel:      w.Parallel,
+			Staging:       w.Overlay,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("calendar: %w", err)
+		}
+		stats["calendar"] = calRes.Stats
+	}
+
+	if w.allowsWorkload("planner") {
+		plRes, err := SyncPlanner(ctx, w.Client, PlannerSyncOptions{
+			AzureTenantID: w.Job.AzureTenantID,
+			PlanID:        w.Job.GraphID,
+			Staging:       w.Overlay,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("planner: %w", err)
+		}
+		stats["planner"] = plRes.Stats
+	}
+
+	if w.allowsWorkload("onenote") {
+		onRes, err := SyncOneNote(ctx, w.Client, OneNoteSyncOptions{
+			AzureTenantID: w.Job.AzureTenantID,
+			NotebookID:    w.Job.GraphID,
+			Staging:       w.Overlay,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("onenote: %w", err)
+		}
+		stats["onenote"] = onRes.Stats
+	}
+
+	if w.allowsWorkload("directory") {
+		dirRes, err := SyncDirectory(ctx, w.Client, DirectorySyncOptions{
+			AzureTenantID: w.Job.AzureTenantID,
+			Staging:       w.Overlay,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("directory: %w", err)
+		}
+		stats["directory"] = dirRes.Stats
+	}
+
+	stats["graph_429_hits"] = w.Client.ThrottleHits()
+
+	return &WorkloadResult{
+		Stats:       stats,
+		DeltaStates: deltaStates,
+		FileCount:   w.Overlay.EntryCount(),
+		ItemsDone:   atomic.LoadInt64(&itemsDone),
+		BytesTotal:  atomic.LoadInt64(&bytesTotal),
+	}, nil
+}
+
+func (w *WorkloadRunner) deltaForWorkload(workload string) map[string]string {
+	if w.Job.DeltaStates == nil {
+		return map[string]string{}
+	}
+	if states, ok := w.Job.DeltaStates[workload]; ok {
+		return states
+	}
+	return map[string]string{}
+}
+
+func (w *WorkloadRunner) singleDeltaForWorkload(workload, shard string) string {
+	states := w.deltaForWorkload(workload)
+	if shard != "" {
+		if link, ok := states[DeltaKeyForShard(shard)]; ok {
+			return link
+		}
+	}
+	if link, ok := states["root"]; ok {
+		return link
+	}
+	return ""
+}
+
+func (w *WorkloadRunner) enabled(name string) bool {
+	if w.Job.Workloads == nil {
+		return name == "mail"
+	}
+	if v, ok := w.Job.Workloads[name]; ok {
+		return v
+	}
+	if v, ok := w.Job.Scope[name]; ok {
+		return v
+	}
+	return false
+}
+
+func (w *WorkloadRunner) allowsWorkload(name string) bool {
+	if !w.enabled(name) {
+		return false
+	}
+	baseKey, _ := ParsePhysicalKey(w.Job.PhysicalKey)
+	kind, _, _ := strings.Cut(baseKey, ":")
+	switch name {
+	case "mail", "calendar", "contacts", "tasks":
+		return kind == "user" || kind == "mailbox"
+	case "onedrive":
+		return kind == "drive" || kind == "onedrive"
+	case "sharepoint":
+		return kind == "site"
+	case "teams":
+		return kind == "team" || kind == "channel"
+	case "planner":
+		return kind == "planner"
+	case "onenote":
+		return kind == "onenote"
+	case "directory":
+		return strings.HasPrefix(w.Job.PhysicalKey, "directory:")
+	default:
+		return true
+	}
+}

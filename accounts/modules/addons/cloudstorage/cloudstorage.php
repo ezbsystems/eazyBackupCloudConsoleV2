@@ -4251,11 +4251,28 @@ function cloudstorage_upgrade($vars) {
                 // Attempt to alter enum to include aws + local_agent
                 \WHMCS\Database\Capsule::statement("
                     ALTER TABLE `s3_cloudbackup_jobs`
-                    MODIFY COLUMN `source_type` ENUM('s3_compatible','aws','sftp','google_drive','dropbox','smb','nas','local_agent') NOT NULL DEFAULT 's3_compatible'
+                    MODIFY COLUMN `source_type` ENUM('s3_compatible','aws','sftp','google_drive','dropbox','smb','nas','local_agent','ms365') NOT NULL DEFAULT 's3_compatible'
                 ");
             } catch (\Exception $e) {
                 // Safe to ignore if already updated, but log for visibility
                 logModuleCall('cloudstorage', 'upgrade_enum_source_type', [], $e->getMessage(), [], []);
+            }
+        }
+
+        foreach (['s3_cloudbackup_jobs', 's3_cloudbackup_runs'] as $engineTable) {
+            if (!\WHMCS\Database\Capsule::schema()->hasTable($engineTable)
+                || !\WHMCS\Database\Capsule::schema()->hasColumn($engineTable, 'engine')) {
+                continue;
+            }
+            try {
+                $columnMeta = \WHMCS\Database\Capsule::select("SHOW COLUMNS FROM `{$engineTable}` WHERE Field = 'engine'");
+                $typeStr = strtolower((string) ($columnMeta[0]->Type ?? ''));
+                if ($typeStr !== '' && strpos($typeStr, "enum(") !== false && strpos($typeStr, "'ms365'") === false) {
+                    \WHMCS\Database\Capsule::statement("ALTER TABLE `{$engineTable}` MODIFY COLUMN `engine` ENUM('sync', 'kopia', 'disk_image', 'hyperv', 'ms365') NOT NULL DEFAULT 'sync'");
+                    logModuleCall('cloudstorage', 'upgrade_extend_engine_enum_ms365', [], "Added ms365 to {$engineTable}.engine", [], []);
+                }
+            } catch (\Throwable $e) {
+                logModuleCall('cloudstorage', 'upgrade_extend_engine_enum_ms365_fail', ['table' => $engineTable], $e->getMessage(), [], []);
             }
         }
 
@@ -5712,6 +5729,14 @@ function cloudstorage_clientarea($vars) {
                     $templatefile = 'templates/e3backup_getting_started';
                     $viewVars = require 'pages/e3backup_getting_started.php';
                     break;
+                case 'ms365':
+                    $pagetitle = 'e3 Cloud Backup - Microsoft 365';
+                    $templatefile = 'templates/e3backup_ms365';
+                    $viewVars = require 'pages/e3backup_ms365.php';
+                    break;
+                case 'ms365_connect_callback':
+                    require 'pages/e3backup_ms365_connect_callback.php';
+                    exit;
                 case 'dashboard':
                 default:
                     $pagetitle = 'e3 Cloud Backup';

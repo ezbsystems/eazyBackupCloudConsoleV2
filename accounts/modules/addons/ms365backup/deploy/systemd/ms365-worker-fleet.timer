@@ -1,0 +1,10 @@
+[Unit]
+Description=MS365 worker fleet cron timer
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=3min
+Unit=ms365-worker-fleet.service
+
+[Install]
+WantedBy=timers.target

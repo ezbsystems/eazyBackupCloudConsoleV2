@@ -33,6 +33,11 @@
 {capture assign=ebE3Content}
     {assign var="isRunningStatus" value=($run.status eq 'running' || $run.status eq 'starting' || $run.status eq 'queued')}
     {assign var="showFilesMetric" value=(!$is_restore && $job.engine ne 'disk_image' && $job.engine ne 'hyperv')}
+    {* Restores are item-oriented (e.g. Microsoft 365 events/messages), not byte
+       transfers, and byte counters/speed are not tracked for them. Show an Items
+       count instead of the backup-only Speed/Processed/Uploaded/Files stats. *}
+    {assign var="showByteMetrics" value=(!$is_restore)}
+    {assign var="showItemsMetric" value=($is_restore)}
 
     <div class="eb-live-page">
         <div id="errorSummaryContainer" class="eb-live-alert eb-live-alert--danger hidden" role="status" aria-live="polite">
@@ -58,7 +63,7 @@
                     id="progressBar"
                     style="width: {if $run.progress_pct}{$run.progress_pct}{else}0{/if}%"
                     role="progressbar"
-                    aria-label="Backup progress"
+                    aria-label="{if $is_restore}Restore progress{else}Backup progress{/if}"
                     aria-valuemin="0"
                     aria-valuemax="100"
                     aria-valuenow="{if $run.progress_pct}{$run.progress_pct|string_format:"%.2f"}{else}0.00{/if}"
@@ -66,6 +71,16 @@
             </div>
 
             <div class="eb-live-stats">
+                {if $showItemsMetric}
+                <div class="eb-live-stat">
+                    <div class="eb-live-stat-label">Items</div>
+                    <div class="eb-live-stat-value highlight" id="itemsValue">
+                        {if $run.objects_total}{$run.objects_transferred|default:0} / {$run.objects_total}{else}—{/if}
+                    </div>
+                    <p id="itemsHint" class="eb-live-stat-hint"></p>
+                </div>
+                {/if}
+                {if $showByteMetrics}
                 <div class="eb-live-stat">
                     <div class="eb-live-stat-label">Speed</div>
                     <div class="eb-live-stat-value highlight" id="speedValue">
@@ -100,14 +115,17 @@
                     </div>
                     <p id="uploadedSavings" class="eb-live-stat-hint"></p>
                 </div>
+                {/if}
+                {if $showFilesMetric}
                 <div class="eb-live-stat">
                     <div class="eb-live-stat-label">Files</div>
-                    <div class="eb-live-stat-value" id="filesValue">{if $showFilesMetric}-{else}—{/if}</div>
+                    <div class="eb-live-stat-value" id="filesValue">-</div>
                 </div>
                 <div class="eb-live-stat">
                     <div class="eb-live-stat-label">Folders</div>
-                    <div class="eb-live-stat-value" id="foldersValue">{if $showFilesMetric}—{else}—{/if}</div>
+                    <div class="eb-live-stat-value" id="foldersValue">—</div>
                 </div>
+                {/if}
                 <div class="eb-live-stat">
                     <div class="eb-live-stat-label" id="durationStatLabel">{if $isRunningStatus}Elapsed{else}Duration{/if}</div>
                     <div class="eb-live-stat-value mono" id="durationValue">—</div>
@@ -124,9 +142,11 @@
 
         <div class="eb-live-details" id="liveDetailsStrip">
             <div class="eb-live-detail">
-                <div class="eb-live-detail-label">Agent</div>
+                <div class="eb-live-detail-label">{if isset($is_ms365_batch) && $is_ms365_batch}Source{else}Agent{/if}</div>
                 <div class="eb-live-detail-value" id="detailsAgent">
-                    {if $job.source_type eq 'local_agent'}
+                    {if isset($is_ms365_batch) && $is_ms365_batch}
+                        Microsoft 365
+                    {elseif $job.source_type eq 'local_agent'}
                         {if $agent_name}{$agent_name|escape:'html'}{elseif $agent_uuid}{$agent_uuid|escape:'html'}{else}Agent unavailable{/if}
                     {else}
                         Cloud Backup
@@ -154,14 +174,14 @@
                 <div class="eb-live-detail-value">{$job.backup_mode|default:$job.engine|default:'-'|escape:'html'}</div>
             </div>
             <div class="eb-live-detail">
-                <div class="eb-live-detail-label">Destination</div>
+                <div class="eb-live-detail-label">{if isset($destination_heading) && $destination_heading}{$destination_heading|escape:'html'}{else}Destination{/if}</div>
                 <div class="eb-live-detail-value min-w-0 max-w-full overflow-hidden text-ellipsis whitespace-nowrap">
-                    {if isset($job.dest_bucket_name) && $job.dest_bucket_name}
+                    {if isset($destination_label) && $destination_label}
+                        {$destination_label|escape:'html'}
+                    {elseif isset($job.dest_bucket_name) && $job.dest_bucket_name}
                         {$job.dest_bucket_name|escape:'html'}{if $job.dest_prefix} / {$job.dest_prefix|escape:'html'}{/if}
                     {elseif isset($job.dest_local_path) && $job.dest_local_path}
                         {$job.dest_local_path|escape:'html'}
-                    {elseif isset($job.dest_bucket_id) && $job.dest_bucket_id}
-                        Bucket #{$job.dest_bucket_id}{if $job.dest_prefix} / {$job.dest_prefix|escape:'html'}{/if}
                     {else}
                         —
                     {/if}
@@ -169,7 +189,7 @@
             </div>
         </div>
 
-        {if $is_restore && $restore_metadata}
+        {if $is_restore && $restore_metadata && $restore_metadata.type ne 'ms365_restore'}
             <div class="eb-live-alert eb-live-alert--success">
                 {if $is_hyperv_restore}
                     <p class="eb-live-alert-title">Hyper-V Restore</p>
@@ -348,7 +368,10 @@ let eventsInterval;
 {assign var="isRunningStatus" value=($run.status eq 'running' || $run.status eq 'starting' || $run.status eq 'queued')}
 let isRunning = {if $isRunningStatus}true{else}false{/if};
 const RUN_UUID = '{$run.run_id}';
+const LIVE_IS_MS365 = {if isset($is_ms365_batch) && $is_ms365_batch}true{else}false{/if};
+const LIVE_IS_RESTORE = {if $is_restore}true{else}false{/if};
 const SHOW_FILES_METRIC = {if $showFilesMetric}true{else}false{/if};
+const SHOW_ITEMS_METRIC = {if $showItemsMetric}true{else}false{/if};
 let lastLogsHash = null;
 let lastEventId = 0;
 const errorSummaryContainer = document.getElementById('errorSummaryContainer');
@@ -618,6 +641,21 @@ function updateProgress() {
                     speedHintEl.textContent = (!isFinished && run.speed_bytes_per_sec) ? 'Instantaneous' : '';
                 }
 
+                if (SHOW_ITEMS_METRIC) {
+                    const itemsValueEl = document.getElementById('itemsValue');
+                    if (itemsValueEl) {
+                        const itemsDone = (run.objects_transferred !== undefined && run.objects_transferred !== null)
+                            ? run.objects_transferred
+                            : (run.files_done || 0);
+                        const itemsTotal = (run.objects_total !== undefined && run.objects_total !== null)
+                            ? run.objects_total
+                            : (run.files_total || 0);
+                        itemsValueEl.textContent = itemsTotal > 0
+                            ? formatCount(itemsDone) + ' / ' + formatCount(itemsTotal)
+                            : formatCount(itemsDone);
+                    }
+                }
+
                 if (SHOW_FILES_METRIC) {
                     const filesValueEl = document.getElementById('filesValue');
                     const foldersValueEl = document.getElementById('foldersValue');
@@ -817,13 +855,21 @@ function openCancelConfirmModal(runId, forceCancel = false) {
 
     if (pendingCancelForce) {
         title.textContent = 'Force cancel run?';
-        message.textContent = 'This will mark the run cancelled immediately if the agent does not respond.';
-        detail.textContent = 'Use force cancel only when the run is stuck and a normal cancel is not clearing it.';
+        message.textContent = LIVE_IS_MS365
+            ? 'This will mark the Microsoft 365 backup cancelled immediately.'
+            : 'This will mark the run cancelled immediately if the agent does not respond.';
+        detail.textContent = LIVE_IS_MS365
+            ? 'Use force cancel only when workloads are stuck and a normal cancel is not clearing them.'
+            : 'Use force cancel only when the run is stuck and a normal cancel is not clearing it.';
         submit.textContent = 'Force Cancel';
     } else {
         title.textContent = 'Cancel run?';
-        message.textContent = 'This will ask the agent to stop the active run.';
-        detail.textContent = 'The run will stop on the agent\'s next command poll.';
+        message.textContent = LIVE_IS_MS365
+            ? 'This will stop the active Microsoft 365 backup workloads.'
+            : 'This will ask the agent to stop the active run.';
+        detail.textContent = LIVE_IS_MS365
+            ? 'Running workloads will be cancelled and workers stopped.'
+            : 'The run will stop on the agent\'s next command poll.';
         submit.textContent = 'Confirm Cancel';
     }
 
@@ -922,14 +968,18 @@ function submitCancelRun() {
                     variant: 'success',
                     title: 'Force cancel submitted',
                     subtitle: 'The run will refresh shortly.',
-                    message: 'The run was marked for immediate cancellation because the agent did not clear it normally.'
+                    message: LIVE_IS_MS365
+                        ? 'The Microsoft 365 backup was marked for immediate cancellation.'
+                        : 'The run was marked for immediate cancellation because the agent did not clear it normally.'
                 });
             } else {
                 openCancelStatusModal({
                     variant: 'info',
                     title: 'Cancel request submitted',
-                    subtitle: 'Waiting for agent acknowledgement.',
-                    message: 'The agent will stop the run on its next command poll.'
+                    subtitle: LIVE_IS_MS365 ? 'Stopping workloads.' : 'Waiting for agent acknowledgement.',
+                    message: LIVE_IS_MS365
+                        ? 'Microsoft 365 backup workloads are being cancelled.'
+                        : 'The agent will stop the run on its next command poll.'
                 });
             }
         })
@@ -1415,11 +1465,19 @@ function toTitleCase(text) {
     return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
+function normalizeStageLabel(stage) {
+    if (!stage) return stage;
+    if (LIVE_IS_RESTORE) {
+        return stage.replace(/Backing up/gi, 'Restoring');
+    }
+    return stage;
+}
+
 function updateStageLabel(run) {
     const stageEl = document.getElementById('stageLabel');
     if (!stageEl) return;
     const fallback = STAGE_FALLBACKS[run.status] || toTitleCase(run.status || '');
-    stageEl.textContent = run.stage || fallback || 'Pending';
+    stageEl.textContent = normalizeStageLabel(run.stage || fallback || 'Pending');
     const cfg = STATUS_CONFIGS[run.status];
     if (cfg) {
         stageEl.style.color = cfg.stageColor;

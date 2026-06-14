@@ -123,21 +123,7 @@ function recordForcedRunFailureEvent(string $runIdUuid, string $summary): void
 
 function sanitizeBranding(string $text): string
 {
-    if ($text === '') {
-        return $text;
-    }
-    $decoded = html_entity_decode($text, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-    $patterns = [
-        '/\bKopia\b/i' => 'eazyBackup',
-        '/\bkopia\b/i' => 'eazyBackup',
-        '/kopia:/i' => 'backup engine:',
-        '/kopia\s+upload/i' => 'upload',
-        '/kopia\s+error/i' => 'backup error',
-    ];
-    foreach ($patterns as $pattern => $replacement) {
-        $decoded = preg_replace($pattern, $replacement, $decoded);
-    }
-    return $decoded;
+    return \WHMCS\Module\Addon\CloudStorage\Client\CustomerFacingTextSanitizer::scrub($text);
 }
 
 $body = getBodyJson();

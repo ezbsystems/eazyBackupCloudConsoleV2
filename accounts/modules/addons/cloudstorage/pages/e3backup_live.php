@@ -4,6 +4,7 @@ use WHMCS\ClientArea;
 use WHMCS\Module\Addon\CloudStorage\Admin\ProductConfig;
 use WHMCS\Module\Addon\CloudStorage\Client\DBController;
 use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupController;
+use WHMCS\Module\Addon\CloudStorage\Client\Ms365BatchLiveService;
 use WHMCS\Database\Capsule;
 
 $packageId = ProductConfig::e3CloudBackupPid();
@@ -35,6 +36,12 @@ if (!$run) {
 
 // Get job details
 $job = CloudBackupController::getJob($run['job_id'], $loggedInUserId) ?? [];
+
+$isMs365Batch = Ms365BatchLiveService::isMs365BatchRun($run);
+$sourceLabel = $isMs365Batch ? 'Microsoft 365' : null;
+if ($isMs365Batch) {
+    $run = Ms365BatchLiveService::enrichRunForDisplay($run, (int) $loggedInUserId);
+}
 
 // Resolve agent display name (if available)
 $agentName = null;
@@ -80,10 +87,49 @@ if (!empty($run['stats_json'])) {
             $isRestore = true;
             $isHypervRestore = true;
             $restoreMetadata = $statsJson;
-        } elseif (!empty($statsJson['type']) && $statsJson['type'] === 'disk_restore') {
+        } elseif (!empty($statsJson['type']) && $statsJson['type'] === 'ms365_restore') {
             $isRestore = true;
             $restoreMetadata = $statsJson;
         }
+    }
+}
+
+// Resolve a customer-safe destination label. Never expose raw Ceph bucket ids.
+//  - Restores: where the data is written back to (e.g. the Microsoft 365 account).
+//  - Backups: the destination bucket *name* (or local path), never the numeric id.
+$destinationHeading = 'Destination';
+$destinationLabel = '';
+if ($isRestore) {
+    $destinationHeading = 'Restore to';
+    if ($isMs365Batch) {
+        try {
+            $destinationLabel = \Ms365Backup\Ms365BatchRunRepository::restoreTargetSummary((string) ($run['run_id'] ?? ''));
+        } catch (\Throwable $e) {
+            $destinationLabel = '';
+        }
+        if ($destinationLabel === '') {
+            $destinationLabel = 'Microsoft 365 account';
+        }
+    } elseif (is_array($restoreMetadata) && !empty($restoreMetadata['target_path'])) {
+        $destinationLabel = (string) $restoreMetadata['target_path'];
+    }
+} else {
+    if (!empty($job['dest_local_path'])) {
+        $destinationLabel = (string) $job['dest_local_path'];
+    } elseif (!empty($job['dest_bucket_id'])) {
+        try {
+            $bucketName = Capsule::table('s3_buckets')
+                ->where('id', (int) $job['dest_bucket_id'])
+                ->value('name');
+            if (!empty($bucketName)) {
+                $destinationLabel = (string) $bucketName;
+            }
+        } catch (\Throwable $e) {
+            $destinationLabel = '';
+        }
+    }
+    if ($destinationLabel !== '' && !empty($job['dest_prefix'])) {
+        $destinationLabel .= ' / ' . (string) $job['dest_prefix'];
     }
 }
 
@@ -112,9 +158,13 @@ return [
     'job' => $job,
     'agent_name' => $agentName,
     'agent_uuid' => $agentUuid,
+    'is_ms365_batch' => $isMs365Batch,
+    'source_label' => $sourceLabel,
     'is_restore' => $isRestore,
     'is_hyperv_restore' => $isHypervRestore,
     'restore_metadata' => $restoreMetadata,
+    'destination_heading' => $destinationHeading,
+    'destination_label' => $destinationLabel,
     'server_timezone' => $serverTimezone,
     'started_at_epoch_ms' => $startedAtEpochMs,
     'finished_at_epoch_ms' => $finishedAtEpochMs,

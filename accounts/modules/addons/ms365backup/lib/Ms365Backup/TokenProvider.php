@@ -5,7 +5,7 @@ namespace Ms365Backup;
 
 use GuzzleHttp\Client;
 
-final class TokenProvider
+final class TokenProvider implements GraphAccessTokenProvider
 {
     private ?string $cachedToken = null;
     private int $expiresAt = 0;

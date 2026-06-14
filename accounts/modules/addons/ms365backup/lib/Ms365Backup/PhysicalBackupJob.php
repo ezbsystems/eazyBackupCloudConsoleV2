@@ -22,7 +22,24 @@ final class PhysicalBackupJob
         public readonly BackupScope $scope,
         public readonly string $engineStatus,
         public readonly string $deferReason = '',
+        public readonly ?string $parentPhysicalKey = null,
+        public readonly ?int $shardIndex = null,
+        public readonly ?int $shardTotal = null,
     ) {
+    }
+
+    public function isShard(): bool
+    {
+        return $this->parentPhysicalKey !== null && $this->parentPhysicalKey !== '';
+    }
+
+    public function parentPhysicalKey(): string
+    {
+        if ($this->parentPhysicalKey !== null && $this->parentPhysicalKey !== '') {
+            return $this->parentPhysicalKey;
+        }
+
+        return PhysicalKeyHelper::baseKey($this->physicalKey);
     }
 
     public function resourceId(): string
@@ -58,7 +75,7 @@ final class PhysicalBackupJob
     /** @return array<string, mixed> */
     public function toArray(): array
     {
-        return [
+        $out = [
             'physical_key' => $this->physicalKey,
             'primary_resource' => $this->primaryResource,
             'logical_sources' => $this->logicalSources,
@@ -66,6 +83,13 @@ final class PhysicalBackupJob
             'engine_status' => $this->engineStatus,
             'defer_reason' => $this->deferReason,
         ];
+        if ($this->isShard()) {
+            $out['parent_physical_key'] = $this->parentPhysicalKey();
+            $out['shard_index'] = $this->shardIndex;
+            $out['shard_total'] = $this->shardTotal;
+        }
+
+        return $out;
     }
 
     /**

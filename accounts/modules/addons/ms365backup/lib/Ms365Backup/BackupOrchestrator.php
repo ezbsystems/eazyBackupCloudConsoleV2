@@ -16,6 +16,15 @@ final class BackupOrchestrator
 
     public function execute(): void
     {
+        try {
+            $this->executeRun();
+        } finally {
+            Ms365BatchRunRepository::syncForChildRun($this->runId);
+        }
+    }
+
+    private function executeRun(): void
+    {
         $run = BackupRunRepository::get($this->runId);
         if (!$run) {
             throw new \RuntimeException('Run not found: ' . $this->runId);
@@ -47,15 +56,9 @@ final class BackupOrchestrator
         try {
             $this->cancellation->check();
 
-            $creds = TenantRepository::credentials();
-            $tokens = new TokenProvider(
-                $creds['region'],
-                $creds['tenant_id'],
-                $creds['client_id'],
-                $creds['client_secret'],
-            );
-            $graph = new GraphClient($tokens, $creds['region']);
-            $storage = new StorageLayout($creds['tenant_id']);
+            $tenantCtx = RunTenantContext::fromRun($run);
+            $graph = $tenantCtx->graph;
+            $storage = $tenantCtx->storageLayout;
             StorageLayout::ensureBase();
 
             $physicalKey = (string) ($run['physical_key'] ?? '');
@@ -105,6 +108,10 @@ final class BackupOrchestrator
                     TenantResource::TYPE_SHAREPOINT_SITE,
                     TenantResource::TYPE_TEAM,
                     TenantResource::TYPE_TEAM_CHANNEL,
+                    TenantResource::TYPE_M365_GROUP,
+                    TenantResource::TYPE_PLANNER_PLAN,
+                    TenantResource::TYPE_ONENOTE_NOTEBOOK,
+                    TenantResource::TYPE_DIRECTORY_BASELINE,
                 ], true)) {
                     continue;
                 }
@@ -122,6 +129,7 @@ final class BackupOrchestrator
             $teamId = in_array($job->resourceType(), [TenantResource::TYPE_TEAM, TenantResource::TYPE_TEAM_CHANNEL], true)
                 ? $ctx->teamGroupId()
                 : '';
+            $groupId = $job->resourceType() === TenantResource::TYPE_M365_GROUP ? $ctx->groupGraphId() : '';
 
             $manifest = [
                 'run_id' => $this->runId,
@@ -145,6 +153,7 @@ final class BackupOrchestrator
                 'drive_id' => $job->resourceType() === TenantResource::TYPE_USER_ONEDRIVE ? $ctx->driveId() : null,
                 'site_id' => $siteId !== '' ? $siteId : null,
                 'team_id' => $teamId !== '' ? $teamId : null,
+                'group_id' => $groupId !== '' ? $groupId : null,
                 'engines' => $engineResults,
                 'mail' => $engineResults['mail'] ?? null,
                 'calendar' => $engineResults['calendar'] ?? null,
