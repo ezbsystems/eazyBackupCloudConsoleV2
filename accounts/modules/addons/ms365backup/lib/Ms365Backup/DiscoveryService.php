@@ -34,21 +34,49 @@ final class DiscoveryService
     public function listSites(): array
     {
         $sites = [];
+        $sharepointUnavailable = false;
+        $sharepointReason = '';
+
         try {
-            foreach ($this->graph->paginate('sites', ['search' => '*']) as $site) {
-                $sites[] = $site;
+            try {
+                foreach ($this->graph->paginate('sites', ['search' => '*']) as $site) {
+                    $sites[] = $site;
+                }
+            } catch (\Throwable $e) {
+                if (GraphApiException::isSharePointUnavailable($e)) {
+                    throw $e;
+                }
+                foreach ($this->graph->paginate('sites') as $site) {
+                    $sites[] = $site;
+                }
             }
         } catch (\Throwable $e) {
-            foreach ($this->graph->paginate('sites') as $site) {
-                $sites[] = $site;
+            if (!GraphApiException::isSharePointUnavailable($e)) {
+                throw $e;
             }
+            $sharepointUnavailable = true;
+            $sharepointReason = $e->getMessage();
         }
-        $this->storage->writeJson($this->storage->discoveryDir() . '/sites.json', [
+
+        $payload = [
             'fetched_at' => gmdate('c'),
             'count' => count($sites),
             'value' => $sites,
-        ]);
+        ];
+        if ($sharepointUnavailable) {
+            $payload['sharepoint_unavailable'] = true;
+            $payload['sharepoint_unavailable_reason'] = $sharepointReason;
+        }
+        $this->storage->writeJson($this->storage->discoveryDir() . '/sites.json', $payload);
+
         return $sites;
+    }
+
+    public function isSharePointUnavailableFromCache(): bool
+    {
+        $cached = $this->loadCached('sites');
+
+        return is_array($cached) && !empty($cached['sharepoint_unavailable']);
     }
 
     /** @return list<array<string, mixed>> */
@@ -73,11 +101,9 @@ final class DiscoveryService
 
     public function loadCached(string $type): ?array
     {
-        $file = $this->storage->discoveryDir() . '/' . $type . '.json';
-        if (!is_file($file)) {
-            return null;
-        }
-        $data = json_decode((string) file_get_contents($file), true);
+        $path = $this->storage->discoveryDir() . '/' . $type . '.json';
+        $data = $this->storage->readJson($path);
+
         return is_array($data) ? $data : null;
     }
 }

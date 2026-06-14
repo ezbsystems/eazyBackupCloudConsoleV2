@@ -5,6 +5,7 @@
     use WHMCS\Module\Addon\CloudStorage\Admin\ProductConfig;
     use WHMCS\Module\Addon\CloudStorage\Client\DBController;
     use WHMCS\Module\Addon\CloudStorage\Client\BucketController;
+    use WHMCS\Module\Addon\CloudStorage\Client\HelperController;
     use WHMCS\Database\Capsule;
 
     if (empty($_GET['bucket']) || empty($_GET['username'])) {
@@ -51,6 +52,7 @@
     }
 
     $userId = $user->id;
+    $primaryUserId = (int) $userId;
 
     if ($username != $browseUser) {
         $tenant = DBController::getRow('s3_users', [
@@ -68,6 +70,11 @@
         $userId = $tenant->id;
         $user = $tenant;
     }
+
+    $ownerDisplayLabel = HelperController::formatBucketOwnerLabel(
+        (string) $browseUser,
+        (int) $userId === $primaryUserId,
+    );
 
     // Option B / data-plane guard: browsing requires a key for the selected storage user.
     try {
@@ -132,5 +139,6 @@
 
     return [
         'error_message' => $errorMessage,
+        'ownerDisplayLabel' => $ownerDisplayLabel,
         'S3_ENDPOINT' => $s3Endpoint ?? ''
     ];

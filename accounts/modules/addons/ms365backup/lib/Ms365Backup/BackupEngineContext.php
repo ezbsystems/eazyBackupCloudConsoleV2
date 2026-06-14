@@ -93,6 +93,18 @@ final class BackupEngineContext
     /**
      * @return list<string>|null null = all channels; non-null = restrict to these channel IDs
      */
+    public function groupGraphId(): string
+    {
+        if ($this->job->resourceType() !== TenantResource::TYPE_M365_GROUP) {
+            return '';
+        }
+
+        return $this->job->graphId();
+    }
+
+    /**
+     * @return list<string>|null null = all channels; non-null = restrict to these channel IDs
+     */
     public function channelIdsFilter(): ?array
     {
         if ($this->job->resourceType() === TenantResource::TYPE_TEAM) {

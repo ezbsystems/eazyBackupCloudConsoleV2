@@ -1,0 +1,3 @@
+-- Whale-scale MS365 Kopia engine (PHP control plane).
+-- Sharding uses physical_key suffixes (#shard:N, #mail:{folderId}); no new columns required.
+-- Delta tokens remain in ms365_delta_state keyed by per-shard physical_key.

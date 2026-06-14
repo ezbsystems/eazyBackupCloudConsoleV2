@@ -201,6 +201,52 @@ final class ResourceAccessService
         ];
     }
 
+    /**
+     * @return array{
+     *   mail: string,
+     *   calendar: string,
+     *   mail_reason: string,
+     *   calendar_reason: string,
+     *   checked_at: string
+     * }
+     */
+    public function probeGroup(string $groupId): array
+    {
+        $checkedAt = gmdate('c');
+        $mail = $this->probeGroupMail($groupId);
+        $calendar = $this->probeGroupCalendar($groupId);
+
+        return [
+            'mail' => $mail->status,
+            'calendar' => $calendar->status,
+            'mail_reason' => $mail->reason,
+            'calendar_reason' => $calendar->reason,
+            'checked_at' => $checkedAt,
+        ];
+    }
+
+    public function probeGroupMail(string $groupId): AccessResult
+    {
+        try {
+            $this->graph->get("groups/{$groupId}/mailFolders", ['$top' => '1']);
+
+            return ResourceAccessClassifier::available();
+        } catch (GraphApiException $e) {
+            return ResourceAccessClassifier::classify($e);
+        }
+    }
+
+    public function probeGroupCalendar(string $groupId): AccessResult
+    {
+        try {
+            $this->graph->get("groups/{$groupId}/calendars", ['$top' => '1']);
+
+            return ResourceAccessClassifier::available();
+        } catch (GraphApiException $e) {
+            return ResourceAccessClassifier::classify($e);
+        }
+    }
+
     public function probeTeamMetadata(string $groupId): AccessResult
     {
         try {
@@ -568,6 +614,68 @@ final class ResourceAccessService
             $result = ResourceAccessClassifier::classify($e);
             $key = $phase === 'messages' ? 'messages' : 'metadata';
             $service->updateTeamAccessInInventory($groupId, [
+                $key => $result->status,
+                $key . '_reason' => $result->reason,
+            ]);
+        } catch (\Throwable $_) {
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $accessPatch
+     */
+    public function updateGroupAccessInInventory(string $groupId, array $accessPatch): void
+    {
+        $path = $this->storage->inventoryPath();
+        if (!is_file($path)) {
+            return;
+        }
+        $inventory = json_decode((string) file_get_contents($path), true);
+        if (!is_array($inventory) || !is_array($inventory['resources'] ?? null)) {
+            return;
+        }
+        foreach ($inventory['resources'] as $i => $resource) {
+            if (!is_array($resource)) {
+                continue;
+            }
+            if ((string) ($resource['resource_type'] ?? '') !== TenantResource::TYPE_M365_GROUP) {
+                continue;
+            }
+            if ((string) ($resource['graph_id'] ?? '') !== $groupId) {
+                continue;
+            }
+            $existing = is_array($resource['access'] ?? null) ? $resource['access'] : [];
+            $inventory['resources'][$i]['access'] = array_merge($existing, $accessPatch, [
+                'checked_at' => gmdate('c'),
+            ]);
+            $this->storage->writeJson($path, $inventory);
+
+            return;
+        }
+    }
+
+    public static function recordGroupAccessFromException(string $groupId, string $phase, \Throwable $e): void
+    {
+        try {
+            $creds = TenantRepository::credentials();
+            $storage = new StorageLayout($creds['tenant_id']);
+            $tokens = new TokenProvider(
+                $creds['region'],
+                $creds['tenant_id'],
+                $creds['client_id'],
+                $creds['client_secret'],
+            );
+            $graph = new GraphClient($tokens, $creds['region']);
+            $service = new self($graph, $storage);
+            if ($e instanceof ResourceUnavailableException) {
+                $result = $e->accessResult;
+            } elseif ($e instanceof GraphApiException) {
+                $result = ResourceAccessClassifier::classify($e);
+            } else {
+                return;
+            }
+            $key = $phase === 'calendar' ? 'calendar' : 'mail';
+            $service->updateGroupAccessInInventory($groupId, [
                 $key => $result->status,
                 $key . '_reason' => $result->reason,
             ]);

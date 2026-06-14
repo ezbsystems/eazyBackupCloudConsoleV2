@@ -31,8 +31,39 @@ Under **API permissions** → **Add a permission** → **Microsoft Graph** → *
 | `ChannelMessage.Read.All` | Teams channel messages and replies (Phase 2E) |
 | `TeamMember.Read.All` | Team members (`/teams/{id}/members`) |
 | `Channel.ReadBasic.All` | Channel tabs (`/teams/{id}/channels/{id}/tabs`) — optional; tabs skipped if denied |
+| `Notes.Read.All` | OneNote notebooks, sections, pages (Phase 2F) |
 
 Click **Grant admin consent for {tenant}**.
+
+## 12. Restore write permissions (Phase 5)
+
+Restore requires **write** application permissions in addition to read scopes. Re-grant admin consent after adding these:
+
+| Permission | Purpose |
+|------------|---------|
+| `Mail.ReadWrite` | Restore mailbox messages |
+| `Calendars.ReadWrite` | Restore calendar events (without attendee notifications) |
+| `Contacts.ReadWrite` | Restore contacts |
+| `Tasks.ReadWrite` | Restore To Do tasks |
+| `Files.ReadWrite.All` | Restore OneDrive / SharePoint file content |
+| `Sites.ReadWrite.All` | Restore SharePoint lists and site content |
+| `Group.ReadWrite.All` | Restore group mail/calendar where applicable |
+
+The e3 restore wizard surfaces `needs_reconnect` when write scopes are missing (same pattern as inventory refresh).
+
+- Uses the same `Mail.Read` and `Calendars.Read` permissions against `groups/{groupId}/mailFolders` and `groups/{groupId}/calendars`.
+- Group mailboxes require the group to be **mail-enabled**; otherwise Graph returns skippable errors.
+- Group calendar backup follows the same rules as users (no `calendarView`; partition fallback).
+
+## 10. Microsoft Planner (Phase 2F)
+
+- Plans: `GET /groups/{groupId}/planner/plans`, buckets and tasks under `planner/`.
+- Requires mail-enabled group with Planner; uses existing `Group.Read.All` and `Tasks.Read.All`.
+
+## 11. OneNote (Phase 2F)
+
+- `GET /users|groups|sites/{id}/onenote/notebooks` and sections/pages export.
+- Requires `Notes.Read.All` (application).
 
 **Note:** Re-grant consent after adding `ChannelMessage.Read.All`. Team channel enumeration uses `/teams/{id}/channels` (`Team.ReadBasic.All` may help in some tenants). Channel/site relationship resolution uses `/teams/.../channels/.../filesFolder` and `groups/{id}/sites/root` where available.
 

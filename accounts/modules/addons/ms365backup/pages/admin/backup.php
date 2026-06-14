@@ -45,6 +45,8 @@ $token = generate_token('plain');
                     <div class="checkbox"><label><input type="checkbox" id="ms365-backup-include-lists" value="1"> SharePoint lists</label></div>
                     <div class="checkbox"><label><input type="checkbox" id="ms365-backup-include-teams-metadata" value="1"> Teams metadata <small class="text-muted">(members, channels, tabs)</small></label></div>
                     <div class="checkbox"><label><input type="checkbox" id="ms365-backup-include-teams-messages" value="1"> Teams channel messages <small class="text-muted">(full history + replies)</small></label></div>
+                    <div class="checkbox"><label><input type="checkbox" id="ms365-backup-include-planner" value="1"> Microsoft Planner</label></div>
+                    <div class="checkbox"><label><input type="checkbox" id="ms365-backup-include-onenote" value="1"> OneNote</label></div>
                 </div>
                 <p id="ms365-scope-hint" class="text-muted small" style="display:none">Select resources and enable at least one matching scope (users, OneDrive, SharePoint site, or Team/channel).</p>
                 <button type="button" class="btn btn-primary" id="ms365-start-backup">Start backup</button>

@@ -17,12 +17,12 @@ final class SeriesMasterEnricher
     }
 
     public function enrichCalendar(
-        string $userId,
+        GraphMailboxOwner $owner,
         string $calendarId,
         string $calName,
         CalendarEventStore $store,
     ): int {
-        $eventsDir = $this->storage->calendarEventsDir($userId, $calendarId);
+        $eventsDir = $this->storage->calendarEventsDir($owner, $calendarId);
         if (!is_dir($eventsDir)) {
             return 0;
         }
@@ -43,7 +43,7 @@ final class SeriesMasterEnricher
                 continue;
             }
             try {
-                $this->enrichOne($userId, $calendarId, $calName, $masterId, $store);
+                $this->enrichOne($owner, $calendarId, $calName, $masterId, $store);
                 $enriched++;
             } catch (\Throwable $e) {
                 $this->logger->error("Series master enrich failed: {$calName}", [
@@ -56,13 +56,13 @@ final class SeriesMasterEnricher
     }
 
     private function enrichOne(
-        string $userId,
+        GraphMailboxOwner $owner,
         string $calendarId,
         string $calName,
         string $masterId,
         CalendarEventStore $store,
     ): void {
-        $path = "users/{$userId}/calendars/{$calendarId}/events/{$masterId}";
+        $path = $owner->graphPath("calendars/{$calendarId}/events/{$masterId}");
         $query = [
             '$select' => CalendarGraphFields::SERIES_GET_SELECT,
             '$expand' => 'exceptionOccurrences',

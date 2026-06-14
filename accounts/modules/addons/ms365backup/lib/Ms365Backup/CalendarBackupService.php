@@ -33,8 +33,26 @@ final class CalendarBackupService
      */
     public function backupUser(string $userId): array
     {
+        return $this->backupMailbox(GraphMailboxOwner::user($userId));
+    }
+
+    /**
+     * @return array{
+     *   calendars: int,
+     *   events_stored: int,
+     *   series_stored: int,
+     *   skipped_occurrences: int,
+     *   calendars_complete: int,
+     *   calendars_incomplete: list<array<string, mixed>>,
+     *   calendar_results: list<array<string, mixed>>
+     * }
+     */
+    public function backupMailbox(GraphMailboxOwner $owner): array
+    {
+        $ownerId = $owner->id();
         $this->logger->info('Starting calendar backup', [
-            'user_id' => $userId,
+            'mailbox_id' => $ownerId,
+            'mailbox_type' => $owner->isGroup() ? 'group' : 'user',
             'endpoint' => 'calendars/{id}/events',
             'strategy' => 'normal_pass_then_createdDateTime_partitions',
         ]);
@@ -61,7 +79,7 @@ final class CalendarBackupService
         $listMonitor = PaginationMonitor::forBackup($this->logger, 'calendar.list');
         $calendars = [];
         try {
-            foreach ($this->graph->paginate("users/{$userId}/calendars", ['$top' => '50'], [], $listMonitor) as $cal) {
+            foreach ($this->graph->paginate($owner->graphPath('calendars'), ['$top' => '50'], [], $listMonitor) as $cal) {
                 $this->cancellation?->check();
                 $calendars[] = $cal;
             }
@@ -83,8 +101,8 @@ final class CalendarBackupService
                 continue;
             }
 
-            $store = new CalendarEventStore($this->storage, $userId, $calendarId, $this->runId);
-            $result = $inventoryScanner->scanCalendar($userId, $calendarId, $calName, $store, $this->runId);
+            $store = new CalendarEventStore($this->storage, $owner, $calendarId, $this->runId);
+            $result = $inventoryScanner->scanCalendar($owner, $calendarId, $calName, $store, $this->runId);
 
             if (!($result['complete'] ?? false)) {
                 $stats['calendars_incomplete'][] = [
@@ -101,12 +119,12 @@ final class CalendarBackupService
                 continue;
             }
 
-            $seriesEnricher->enrichCalendar($userId, $calendarId, $calName, $store);
-            $attachmentFetcher->fetchForCalendar($userId, $calendarId, $calName, $store);
+            $seriesEnricher->enrichCalendar($owner, $calendarId, $calName, $store);
+            $attachmentFetcher->fetchForCalendar($owner, $calendarId, $calName, $store);
 
             $stats['calendars_complete']++;
             $stats['events_stored'] += $store->countStoredEvents();
-            $stats['series_stored'] += $this->countSeriesFiles($userId, $calendarId);
+            $stats['series_stored'] += $this->countSeriesFiles($owner, $calendarId);
             $stats['skipped_occurrences'] += (int) ($result['skipped_occurrences'] ?? 0);
             $stats['calendar_results'][] = [
                 'calendar_id' => $calendarId,
@@ -124,7 +142,7 @@ final class CalendarBackupService
         $this->logger->info('Calendar backup finished', $stats);
 
         if ($stats['calendar_results'] !== []) {
-            $stats['verify'] = $this->verifyCalendars($userId, $stats['calendar_results']);
+            $stats['verify'] = $this->verifyCalendars($owner, $stats['calendar_results']);
             foreach ($stats['calendar_results'] as $i => $cr) {
                 if (isset($stats['verify']['calendars'][$i])) {
                     $stats['calendar_results'][$i]['verify'] = $stats['verify']['calendars'][$i];
@@ -150,11 +168,11 @@ final class CalendarBackupService
      * @param list<array<string, mixed>> $calendarResults
      * @return array{ok: bool, calendars: list<array<string, mixed>>}
      */
-    private function verifyCalendars(string $userId, array $calendarResults): array
+    private function verifyCalendars(GraphMailboxOwner $owner, array $calendarResults): array
     {
         BackupRunRepository::setPhase($this->runId, 'calendar_verify');
         $verifier = new CalendarVerifier($this->graph, $this->storage);
-        $verifyDir = $this->storage->runDir($userId, $this->runId) . '/calendar_verify';
+        $verifyDir = $this->storage->runDirForMailbox($owner, $this->runId) . '/calendar_verify';
 
         $this->logger->info('Starting calendar verify (Graph $count vs on-disk)', [
             'calendar_count' => count($calendarResults),
@@ -171,7 +189,7 @@ final class CalendarBackupService
                 continue;
             }
 
-            $report = $verifier->verify($userId, $calendarId, $calName);
+            $report = $verifier->verifyMailbox($owner, $calendarId, $calName);
             $safeCal = preg_replace('/[^a-zA-Z0-9._-]/', '_', $calendarId) ?: 'calendar';
             $this->storage->writeJson($verifyDir . '/' . $safeCal . '.json', $report);
 
@@ -196,9 +214,9 @@ final class CalendarBackupService
         return ['ok' => $allOk, 'calendars' => $summaries];
     }
 
-    private function countSeriesFiles(string $userId, string $calendarId): int
+    private function countSeriesFiles(GraphMailboxOwner $owner, string $calendarId): int
     {
-        $dir = $this->storage->calendarSeriesDir($userId, $calendarId);
+        $dir = $this->storage->calendarSeriesDir($owner, $calendarId);
         if (!is_dir($dir)) {
             return 0;
         }

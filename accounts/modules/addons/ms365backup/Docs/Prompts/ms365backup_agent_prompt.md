@@ -1,17 +1,19 @@
-# MS365 Backup — Agent prompt template
+# MS365 Backup — Engine / admin agent prompt template
+
+For **product-wide** work (e3 UI, roadmap, cloudstorage, OAuth, handoff), use **[ms365_product_agent_prompt.md](ms365_product_agent_prompt.md)** and read **`Docs/PRODUCT_ROADMAP.md`** + **`Docs/PROGRESS.md`** first.
 
 Copy the block below into a new chat. Fill in the **Task** section at the end.
 
 ---
 
 ```markdown
-**Environment:** WHMCS on PHP 8.2. Workspace root for this work: `/var/www/eazybackup.ca/accounts`. The **MS365 Backup** WHMCS addon is a **standalone** admin-only module at `modules/addons/ms365backup/`. It is **not** part of the eazybackup Comet addon—do not modify `modules/addons/eazybackup/` unless I explicitly ask.
+**Environment:** WHMCS on PHP 8.2. Workspace root: `/var/www/eazybackup.ca/accounts`.
 
-**Purpose:** Early-development tool to back up **one Microsoft 365 user at a time** (mail + calendar) via Microsoft Graph, with local JSON storage, admin UI, CLI worker, progress/logging, and pagination safety for known Graph defects.
+**Product boundaries:** `ms365backup` = Graph engines + queue + admin dev tool. **Customer UI** = e3 Cloud Backup in `cloudstorage` (`page=e3backup&view=ms365`). **No Comet** integration. Storage = dedicated `e3ms365-{token}` RGW buckets via cloudstorage. See `Docs/ARCHITECTURE_BOUNDARIES.md`.
 
-**Backup storage path:** `/var/www/eazybackup/ms365/` — **not** `/var/www/eazybackup.ca/ms365/`.
+**Backup storage path (dev):** `/var/www/eazybackup/ms365/` — production uses cloudstorage buckets.
 
-**My focus:** MS365 backup module only (admin UI, backup engine, Graph client, CLI, docs)—not Comet, Partner Hub, or cloudstorage unless I say otherwise.
+**My focus:** MS365 engines and APIs consumed by cloudstorage; extend e3 UI in cloudstorage when building customer features.
 
 ---
 
@@ -44,6 +46,14 @@ Copy the block below into a new chat. Fill in the **Task** section at the end.
 | Phase 2C OneDrive | `OneDriveBackupService.php`, `OneDriveBackupEngine.php`, `DriveItemStore.php`, `DocumentLibraryBackupService.php`, `GraphClient::downloadToFile()` |
 | Phase 2D SharePoint | `SharePointSiteBackupEngine.php`, `SharePointFilesBackupService.php`, `SharePointListsBackupService.php`, `ListItemStore.php`, `SiteDriveStorage.php`, `GraphSitePaths.php` |
 | Phase 2E Teams | `TeamsBackupEngine.php`, `TeamsMessagesBackupService.php`, `TeamsMetadataBackupService.php`, `ChannelMessageStore.php`, `GraphTeamPaths.php` |
+| Phase 2F groups | `GraphMailboxOwner.php`, `GroupBackupEngine.php` — `group:{groupId}` mail/calendar |
+| Phase 2F Planner | `PlannerBackupEngine.php`, `PlannerBackupService.php` — `planner:{planId}` |
+| Phase 2F OneNote | `OneNoteBackupEngine.php`, `OneNoteBackupService.php` — `onenote:{notebookId}` |
+| Phase 2F directory | `DirectoryBackupEngine.php`, `DirectoryBackupService.php` — `directory:tenant` |
+| Phase 3 storage | `BackupStorageInterface.php`, `LocalFilesystemBackupStorage.php`, `S3CompatibleBackupStorage.php`, `BackupStorageFactory.php` |
+| Phase 3 multi-tenant | `TenantRecordRepository.php`, `sql/upgrade_phase3_multitenant.sql` |
+| Phase 3 queue | `JobQueueRepository.php`, `bin/ms365_queue_worker.php` |
+| Client area | `ms365backup_clientarea()`, `pages/clientarea/dashboard.php`, `templates/clientarea/dashboard.tpl` |
 | Credentials | `modules/addons/ms365backup/lib/Ms365Backup/TenantRepository.php`, `TokenProvider.php` |
 | Runs + logs | `modules/addons/ms365backup/lib/Ms365Backup/BackupRunRepository.php`, `ProgressLogger.php` |
 | Storage paths | `modules/addons/ms365backup/lib/Ms365Backup/StorageLayout.php` |
@@ -76,14 +86,16 @@ Copy the block below into a new chat. Fill in the **Task** section at the end.
 - **OneDrive:** `drives/{id}/root/delta` + item content download; separate physical run `drive:{driveId}`. `Files.Read.All`.
 - **SharePoint site:** `site:{siteId}` run backs all document libraries (`sites/{id}/drives/…`) and/or all lists (`sites/{id}/lists/…`). Team+Site dedup → one site run. `Sites.Read.All` + `Files.Read.All`.
 - **Teams:** `team:{groupId}` or `channel:{groupId}:{channelId}` for metadata/messages; files still via `site:{siteId}`. `ChannelMessage.Read.All` + `TeamMember.Read.All`. Message delta + reply fetch; 429 retry on list APIs.
+- **M365 groups:** `group:{groupId}` for mail/calendar (`groups/…` Graph paths); files via `site:{siteId}`.
+- **Planner:** `planner:{planId}`; inventory from `groups/{id}/planner/plans`.
+- **OneNote:** `onenote:{notebookId}`; `Notes.Read.All`.
+- **Module version:** `1.8.0` (2F + Phase 3 platform baseline).
 - **Calendar verify:** Runs automatically after calendar backup (`calendar_verify` phase); results in manifest + run UI. Manual: `php bin/ms365_backup.php verify-calendar --user-id=… --calendar-id=…` (`--json` optional).
 - **Scope:** Minimal diffs; match existing patterns; do not commit unless I ask.
 
 ---
 
-## Task
 
-<!-- Fill in below: what you want the agent to do -->
 
 **Goal:**
 

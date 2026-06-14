@@ -29,8 +29,26 @@ final class MailBackupService
      */
     public function backupUser(string $userId): array
     {
+        return $this->backupMailbox(GraphMailboxOwner::user($userId));
+    }
+
+  /**
+     * @return array{
+     *   folders: int,
+     *   messages: int,
+     *   messages_created: int,
+     *   messages_updated: int,
+     *   messages_removed: int,
+     *   folders_full: int,
+     *   folders_delta: int
+     * }
+     */
+    public function backupMailbox(GraphMailboxOwner $owner): array
+    {
+        $ownerId = $owner->id();
         $this->logger->info('Starting mail backup', [
-            'user_id' => $userId,
+            'mailbox_id' => $ownerId,
+            'mailbox_type' => $owner->isGroup() ? 'group' : 'user',
             'endpoint' => 'mailFolders + mailFolders/{id}/messages/delta',
         ]);
 
@@ -47,7 +65,7 @@ final class MailBackupService
         $folderMonitor = PaginationMonitor::forBackup($this->logger, 'mail.folders');
         $folders = [];
         try {
-            foreach ($this->graph->paginate("users/{$userId}/mailFolders", ['$top' => '100'], [], $folderMonitor) as $folder) {
+            foreach ($this->graph->paginate($owner->graphPath('mailFolders'), ['$top' => '100'], [], $folderMonitor) as $folder) {
                 $this->cancellation?->check();
                 $folders[] = $folder;
             }
@@ -58,7 +76,7 @@ final class MailBackupService
             }
             throw $e;
         }
-        $this->storage->writeJson($this->storage->mailDir($userId) . '/folders.json', [
+        $this->storage->writeJson($this->storage->mailDir($owner) . '/folders.json', [
             'fetched_at' => gmdate('c'),
             'value' => $folders,
         ]);
@@ -73,7 +91,7 @@ final class MailBackupService
                 continue;
             }
             try {
-                $folderStats = $this->syncMailFolder($userId, $folderId, $folderName);
+                $folderStats = $this->syncMailFolder($owner, $folderId, $folderName);
                 $stats['messages'] += $folderStats['messages'];
                 $stats['messages_created'] += $folderStats['created'];
                 $stats['messages_updated'] += $folderStats['updated'];
@@ -101,12 +119,12 @@ final class MailBackupService
     /**
      * @return array{messages: int, created: int, updated: int, removed: int, mode: string}
      */
-    private function syncMailFolder(string $userId, string $folderId, string $folderName): array
+    private function syncMailFolder(GraphMailboxOwner $owner, string $folderId, string $folderName): array
     {
-        $state = new DeltaSyncState($this->storage, $this->storage->mailFolderDeltaStatePath($userId, $folderId));
-        $itemsDir = $this->storage->messageDir($userId, $folderId);
+        $state = new DeltaSyncState($this->storage, $this->storage->mailFolderDeltaStatePath($owner, $folderId));
+        $itemsDir = $this->storage->messageDir($owner, $folderId);
         $writer = new DeltaItemWriter($this->storage, $itemsDir, $this->runId);
-        $deltaPath = "users/{$userId}/mailFolders/{$folderId}/messages/delta";
+        $deltaPath = $owner->graphPath("mailFolders/{$folderId}/messages/delta");
         $query = ['$select' => self::MESSAGE_SELECT, '$top' => '100'];
 
         $stats = ['messages' => 0, 'created' => 0, 'updated' => 0, 'removed' => 0, 'mode' => 'initial'];

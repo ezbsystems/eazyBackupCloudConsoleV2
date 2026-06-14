@@ -7,8 +7,11 @@ final class StorageLayout
 {
     public const BASE_PATH = '/var/www/eazybackup/ms365';
 
-    public function __construct(private readonly string $tenantId)
-    {
+    public function __construct(
+        private readonly string $tenantId,
+        private readonly ?BackupStorageInterface $backupStorage = null,
+        private readonly int $backupUserId = 0,
+    ) {
     }
 
     public static function ensureBase(): void
@@ -34,6 +37,13 @@ final class StorageLayout
 
     public function inventoryPath(): string
     {
+        if ($this->backupUserId > 0) {
+            $dir = $this->tenantRoot() . '/backup_users/' . $this->sanitize((string) $this->backupUserId);
+            $this->ensureDir($dir);
+
+            return $dir . '/inventory.json';
+        }
+
         return $this->discoveryDir() . '/inventory.json';
     }
 
@@ -51,6 +61,9 @@ final class StorageLayout
             TenantResource::TYPE_USER_ONEDRIVE => 'drives',
             TenantResource::TYPE_TEAM, TenantResource::TYPE_TEAM_CHANNEL => 'teams',
             TenantResource::TYPE_M365_GROUP => 'groups',
+            TenantResource::TYPE_PLANNER_PLAN => 'planner',
+            TenantResource::TYPE_ONENOTE_NOTEBOOK => 'onenote',
+            TenantResource::TYPE_DIRECTORY_BASELINE => 'directory',
             default => 'users',
         };
         $dir = $this->tenantRoot() . '/' . $subdir . '/' . $this->sanitize($graphId);
@@ -78,6 +91,7 @@ final class StorageLayout
      */
     public static function parsePhysicalKey(string $physicalKey): array
     {
+        $physicalKey = PhysicalKeyHelper::baseKey($physicalKey);
         $pos = strpos($physicalKey, ':');
         if ($pos === false) {
             return ['resource_type' => TenantResource::TYPE_USER, 'graph_id' => $physicalKey];
@@ -98,6 +112,9 @@ final class StorageLayout
             'onedrive', 'drive' => TenantResource::TYPE_USER_ONEDRIVE,
             'team' => TenantResource::TYPE_TEAM,
             'group' => TenantResource::TYPE_M365_GROUP,
+            'planner' => TenantResource::TYPE_PLANNER_PLAN,
+            'onenote' => TenantResource::TYPE_ONENOTE_NOTEBOOK,
+            'directory' => TenantResource::TYPE_DIRECTORY_BASELINE,
             default => TenantResource::TYPE_USER,
         };
 
@@ -201,23 +218,89 @@ final class StorageLayout
         return $this->runDirForJob('user:' . $userId, $runId);
     }
 
-    public function mailDir(string $userId): string
+    public function groupRoot(string $groupId): string
     {
-        $dir = $this->userRoot($userId) . '/mail';
+        return $this->resourceRoot(TenantResource::TYPE_M365_GROUP, $groupId);
+    }
+
+    public function plannerPlanRoot(string $planId): string
+    {
+        $dir = $this->tenantRoot() . '/planner/' . $this->sanitize($planId);
+        $this->ensureDir($dir);
+
+        return $dir;
+    }
+
+    public function plannerBucketTasksDir(string $planId, string $bucketId): string
+    {
+        $dir = $this->plannerPlanRoot($planId) . '/tasks/' . $this->sanitize($bucketId);
+        $this->ensureDir($dir);
+
+        return $dir;
+    }
+
+    public function plannerTaskPath(string $planId, string $bucketId, string $taskId): string
+    {
+        return $this->plannerBucketTasksDir($planId, $bucketId) . '/' . $this->sanitize($taskId) . '.json';
+    }
+
+    public function onenoteNotebookRoot(string $notebookId): string
+    {
+        $dir = $this->tenantRoot() . '/onenote/' . $this->sanitize($notebookId);
+        $this->ensureDir($dir);
+
+        return $dir;
+    }
+
+    public function onenoteSectionDir(string $notebookId, string $sectionId): string
+    {
+        $dir = $this->onenoteNotebookRoot($notebookId) . '/sections/' . $this->sanitize($sectionId);
+        $this->ensureDir($dir);
+
+        return $dir;
+    }
+
+    public function onenotePagePath(string $notebookId, string $sectionId, string $pageId): string
+    {
+        return $this->onenoteSectionDir($notebookId, $sectionId) . '/' . $this->sanitize($pageId) . '.json';
+    }
+
+    public function directoryRoot(): string
+    {
+        $dir = $this->tenantRoot() . '/directory';
+        $this->ensureDir($dir);
+
+        return $dir;
+    }
+
+    public function mailboxRoot(GraphMailboxOwner|string $owner): string
+    {
+        if ($owner instanceof GraphMailboxOwner) {
+            return $owner->isGroup()
+                ? $this->groupRoot($owner->id())
+                : $this->userRoot($owner->id());
+        }
+
+        return $this->userRoot($owner);
+    }
+
+    public function mailDir(GraphMailboxOwner|string $owner): string
+    {
+        $dir = $this->mailboxRoot($owner) . '/mail';
         $this->ensureDir($dir);
         return $dir;
     }
 
-    public function messageDir(string $userId, string $folderId): string
+    public function messageDir(GraphMailboxOwner|string $owner, string $folderId): string
     {
-        $dir = $this->mailDir($userId) . '/messages/' . $this->sanitize($folderId);
+        $dir = $this->mailDir($owner) . '/messages/' . $this->sanitize($folderId);
         $this->ensureDir($dir);
         return $dir;
     }
 
-    public function mailFolderDeltaStatePath(string $userId, string $folderId): string
+    public function mailFolderDeltaStatePath(GraphMailboxOwner|string $owner, string $folderId): string
     {
-        return $this->messageDir($userId, $folderId) . '/delta_state.json';
+        return $this->messageDir($owner, $folderId) . '/delta_state.json';
     }
 
     public function contactsDir(string $userId): string
@@ -406,58 +489,96 @@ final class StorageLayout
         return $this->siteListItemsDir($siteId, $listId) . '/' . $this->sanitize($itemId) . '.removed.json';
     }
 
-    public function calendarDir(string $userId, string $calendarId): string
+    public function calendarDir(GraphMailboxOwner|string $owner, string $calendarId): string
     {
-        $dir = $this->userRoot($userId) . '/calendars/' . $this->sanitize($calendarId);
+        $dir = $this->mailboxRoot($owner) . '/calendars/' . $this->sanitize($calendarId);
         $this->ensureDir($dir);
         return $dir;
     }
 
-    public function calendarEventsDir(string $userId, string $calendarId): string
+    public function calendarEventsDir(GraphMailboxOwner|string $owner, string $calendarId): string
     {
-        $dir = $this->calendarDir($userId, $calendarId) . '/events';
+        $dir = $this->calendarDir($owner, $calendarId) . '/events';
         $this->ensureDir($dir);
         return $dir;
     }
 
-    public function calendarSeriesDir(string $userId, string $calendarId): string
+    public function calendarSeriesDir(GraphMailboxOwner|string $owner, string $calendarId): string
     {
-        $dir = $this->calendarDir($userId, $calendarId) . '/series';
+        $dir = $this->calendarDir($owner, $calendarId) . '/series';
         $this->ensureDir($dir);
         return $dir;
     }
 
-    public function calendarBackupStatePath(string $userId, string $calendarId): string
+    public function calendarBackupStatePath(GraphMailboxOwner|string $owner, string $calendarId): string
     {
-        return $this->calendarDir($userId, $calendarId) . '/backup_state.json';
+        return $this->calendarDir($owner, $calendarId) . '/backup_state.json';
     }
 
-    public function calendarEventFilePath(string $userId, string $calendarId, string $immutableEventId): string
+    public function calendarEventFilePath(GraphMailboxOwner|string $owner, string $calendarId, string $immutableEventId): string
     {
         $safeId = preg_replace('/[^a-zA-Z0-9._-]/', '_', $immutableEventId) ?: 'unknown';
-        return $this->calendarEventsDir($userId, $calendarId) . '/' . $safeId . '.json';
+        return $this->calendarEventsDir($owner, $calendarId) . '/' . $safeId . '.json';
     }
 
-    public function calendarSeriesFilePath(string $userId, string $calendarId, string $seriesMasterId): string
+    public function calendarSeriesFilePath(GraphMailboxOwner|string $owner, string $calendarId, string $seriesMasterId): string
     {
         $safeMaster = preg_replace('/[^a-zA-Z0-9._-]/', '_', $seriesMasterId) ?: 'unknown';
-        return $this->calendarSeriesDir($userId, $calendarId) . '/' . $safeMaster . '.json';
+        return $this->calendarSeriesDir($owner, $calendarId) . '/' . $safeMaster . '.json';
+    }
+
+    public function runDirForMailbox(GraphMailboxOwner $owner, string $runId): string
+    {
+        $physicalKey = ($owner->isGroup() ? 'group:' : 'user:') . $owner->id();
+
+        return $this->runDirForJob($physicalKey, $runId);
     }
 
     public function writeJson(string $path, array $data): void
     {
-        $this->ensureDir(dirname($path));
-        file_put_contents($path, json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE));
+        $this->storageAdapter()->writeJson($path, $data);
+    }
+
+    /** @return array<string, mixed>|null */
+    public function readJson(string $path): ?array
+    {
+        $adapter = $this->storageAdapter();
+        if ($adapter->exists($path)) {
+            return $adapter->readJson($path);
+        }
+        if (is_file($path)) {
+            $decoded = json_decode((string) file_get_contents($path), true);
+
+            return is_array($decoded) ? $decoded : null;
+        }
+
+        return null;
     }
 
     public function appendLog(string $path, string $line): void
     {
+        if (!$this->usesLocalFilesystem()) {
+            return;
+        }
         $this->ensureDir(dirname($path));
         file_put_contents($path, '[' . gmdate('c') . '] ' . $line . PHP_EOL, FILE_APPEND);
     }
 
+    private function storageAdapter(): BackupStorageInterface
+    {
+        return $this->backupStorage ?? BackupStorageFactory::createDefault();
+    }
+
+    private function usesLocalFilesystem(): bool
+    {
+        return $this->storageAdapter() instanceof LocalFilesystemBackupStorage;
+    }
+
     private function ensureDir(string $dir): void
     {
+        if (!$this->usesLocalFilesystem()) {
+            return;
+        }
         if (is_dir($dir)) {
             return;
         }

@@ -11,6 +11,7 @@ use WHMCS\ClientArea;
 use WHMCS\Module\Addon\CloudStorage\Admin\ProductConfig;
 use WHMCS\Module\Addon\CloudStorage\Client\DBController;
 use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupController;
+use WHMCS\Module\Addon\CloudStorage\Client\Ms365BatchLiveService;
 use WHMCS\Module\Addon\CloudStorage\Client\SanitizedLogFormatter;
 use WHMCS\Module\Addon\CloudStorage\Client\TimezoneHelper;
 
@@ -46,6 +47,42 @@ if (!$run) {
     exit();
 }
 $userTz = TimezoneHelper::resolveUserTimezone($loggedInUserId, $run['job_id'] ?? null);
+
+if (Ms365BatchLiveService::isMs365BatchRun($run)) {
+    try {
+        $batchRunId = (string) ($run['run_id'] ?? $runIdentifier);
+        $payload = Ms365BatchLiveService::aggregateStructuredLogs($batchRunId, (int) $loggedInUserId, $userTz);
+        $formattedLog = (string) ($payload['backup_log'] ?? '');
+        $hash = $formattedLog !== '' ? md5($formattedLog) : null;
+        $clientHash = isset($_GET['hash']) ? (string) $_GET['hash'] : null;
+        if ($hash && $clientHash && hash_equals($hash, $clientHash)) {
+            (new JsonResponse([
+                'status' => 'success',
+                'unchanged' => true,
+                'hash' => $hash,
+            ], 200))->send();
+            exit();
+        }
+        (new JsonResponse([
+            'status' => 'success',
+            'hash' => $hash,
+            'formatted_log' => $formattedLog,
+            'entries' => $payload['structured_logs'] ?? [],
+            'sanitized' => true,
+            'run' => [
+                'status' => $run['status'] ?? null,
+                'error_summary' => $run['error_summary'] ?? '',
+                'worker_host' => '',
+                'started_at' => $run['started_at'] ?? null,
+                'finished_at' => $run['finished_at'] ?? null,
+            ],
+        ], 200))->send();
+        exit();
+    } catch (\Throwable $e) {
+        (new JsonResponse(['status' => 'fail', 'message' => 'Unable to load run logs.'], 200))->send();
+        exit();
+    }
+}
 
 $logExcerpt = $run['log_excerpt'] ?? '';
 $hash = $logExcerpt ? md5($logExcerpt) : null;

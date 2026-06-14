@@ -1,0 +1,57 @@
+.ms365-tree-node {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.15rem 0;
+}
+.ms365-tree-toggle-slot {
+    width: 1.25rem;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.ms365-tree-spinner {
+    width: 0.75rem;
+    height: 0.75rem;
+}
+.ms365-tree-toggle {
+    width: 1.25rem;
+    flex-shrink: 0;
+    font-size: 0.65rem;
+    color: var(--eb-text-muted);
+    background: none;
+    border: none;
+    cursor: pointer;
+}
+.ms365-tree-label {
+    background: none;
+    border: none;
+    text-align: left;
+    cursor: pointer;
+    color: var(--eb-text-primary);
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.1rem;
+}
+.ms365-tree-label-primary {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 500;
+}
+.ms365-tree-label-secondary {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.75rem;
+    color: var(--eb-text-muted);
+}
+.ms365-tree-label.is-loading {
+    color: var(--eb-text-muted);
+}

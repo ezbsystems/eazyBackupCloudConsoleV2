@@ -1157,6 +1157,7 @@ The bucket browser (`templates/browse.tpl`) has been modernized to match the Clo
 - Delimiter-based listing (`Delimiter: /`) returns both object rows and prefix rows.
 - Prefix rows are rendered as folders with a folder icon and folder-safe click target.
 - Names shown in the table are normalized relative to the current `folder_path` (not full bucket-root keys).
+- `bucketobjects.php` rows include both `name` (relative display label) and `key` (full S3 object key or folder prefix). UI actions that talk to S3 (download, delete, copy URL) must use `key`.
 - The current-folder placeholder object (for example `path/to/folder/`) is not shown as a file row.
 - Navigation supports:
   - entering folders by clicking a folder row,

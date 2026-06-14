@@ -170,7 +170,7 @@
                                 <td>{$runSize}</td>
                                 <td>{$runDuration}</td>
                                 <td>
-                                    {if $run.status eq 'running'}
+                                    {if $run.status eq 'running' || $run.status eq 'starting'}
                                         <div class="flex flex-wrap items-center gap-3">
                                             <a href="index.php?m=cloudstorage&page=e3backup&view=live&run_id={$run.run_id}" class="eb-link">View live</a>
                                             <button type="button" class="eb-btn eb-btn-ghost eb-btn-sm" onclick="e3RunsOpenLog('{$run.run_id}', this.closest('tr'))">View log</button>
@@ -285,6 +285,8 @@
 window.__e3RunsJobName = {$job.name|@json_encode nofilter};
 window.__e3RunsAgent = {if isset($job.agent_hostname)}{$job.agent_hostname|@json_encode nofilter}{else}""{/if};
 window.__e3RunsUser = {if isset($job.backup_username)}{$job.backup_username|@json_encode nofilter}{else}""{/if};
+window.__e3RunsEngine = {if isset($job.is_ms365) && $job.is_ms365}"ms365"{else}{if isset($job.engine)}{$job.engine|@json_encode nofilter}{else}""{/if}{/if};
+window.__e3RunsJobId = {$job.job_id|@json_encode nofilter};
 {/if}
 </script>
 <script>
@@ -294,7 +296,8 @@ function e3RunsOpenLog(runId, row) {
     var meta = {
         jobName: window.__e3RunsJobName || 'Backup run',
         agent: window.__e3RunsAgent || '',
-        user: window.__e3RunsUser || ''
+        user: window.__e3RunsUser || '',
+        engine: window.__e3RunsEngine || ''
     };
     if (row) {
         meta.status = row.getAttribute('data-status') || '';

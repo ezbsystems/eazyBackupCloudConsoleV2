@@ -28,10 +28,186 @@ function ms365backup_config(): array
     return [
         'name' => 'MS365 Backup',
         'description' => 'Admin-only Microsoft 365 backup development tool (mail, calendar, contacts, To Do, OneDrive).',
-        'version' => '1.5.0',
+        'version' => '1.17.0',
         'author' => 'eazyBackup',
         'language' => 'english',
-        'fields' => [],
+        'fields' => [
+            'platform_entra_client_id' => [
+                'FriendlyName' => 'Platform Entra Client ID',
+                'Type' => 'text',
+                'Size' => '64',
+                'Description' => 'Multi-tenant app used for customer admin consent (e3 UI).',
+            ],
+            'platform_entra_secret' => [
+                'FriendlyName' => 'Platform Entra Client Secret',
+                'Type' => 'password',
+                'Size' => '64',
+                'Description' => 'Stored encrypted when WHMCS encrypt() is available.',
+            ],
+            'platform_entra_region' => [
+                'FriendlyName' => 'Platform Entra Region',
+                'Type' => 'dropdown',
+                'Options' => 'GlobalPublicCloud,USGovCloud,ChinaCloud,GermanyCloud',
+                'Default' => 'GlobalPublicCloud',
+            ],
+            'platform_entra_redirect_uri' => [
+                'FriendlyName' => 'OAuth redirect URI (optional)',
+                'Type' => 'text',
+                'Size' => '128',
+                'Description' => 'Customer admin-consent callback only: {SystemURL}/index.php?m=cloudstorage&page=e3backup&view=ms365_connect_callback. Do NOT use the admin Tenant Seeder callback.',
+            ],
+            'ms365_engine_mode' => [
+                'FriendlyName' => 'Backup engine mode',
+                'Type' => 'dropdown',
+                'Options' => 'php,kopia,kopia_shadow',
+                'Default' => 'php',
+                'Description' => 'php = legacy PHP worker; kopia = Proxmox Go worker fleet; kopia_shadow = PHP then re-queue for Kopia comparison.',
+            ],
+            'ms365_worker_token' => [
+                'FriendlyName' => 'Worker API token',
+                'Type' => 'password',
+                'Size' => '64',
+                'Description' => 'Shared secret for ms365-backup-worker fleet (X-MS365-Worker-Token header).',
+            ],
+            'ms365_platform_max_concurrent' => [
+                'FriendlyName' => 'Platform max concurrent backups',
+                'Type' => 'text',
+                'Size' => '8',
+                'Default' => '100',
+            ],
+            'ms365_per_tenant_max_concurrent' => [
+                'FriendlyName' => 'Max concurrent per Entra tenant',
+                'Type' => 'text',
+                'Size' => '4',
+                'Default' => '3',
+            ],
+            'ms365_per_client_max_concurrent' => [
+                'FriendlyName' => 'Max concurrent per WHMCS client',
+                'Type' => 'text',
+                'Size' => '4',
+                'Default' => '10',
+            ],
+            'ms365_worker_lease_seconds' => [
+                'FriendlyName' => 'Worker lease seconds',
+                'Type' => 'text',
+                'Size' => '8',
+                'Default' => '7200',
+                'Description' => 'Claim lease duration; renewed on worker progress/heartbeat for long runs.',
+            ],
+            'ms365_sharding_enabled' => [
+                'FriendlyName' => 'Enable large-resource sharding',
+                'Type' => 'yesno',
+                'Description' => 'Split large drives/sites/mailboxes into parallel shard jobs (Kopia mode).',
+            ],
+            'ms365_shard_threshold_bytes' => [
+                'FriendlyName' => 'Shard threshold bytes',
+                'Type' => 'text',
+                'Size' => '16',
+                'Default' => '107374182400',
+                'Description' => 'Inventory size hint above which a resource is sharded (default 100 GiB).',
+            ],
+            'ms365_shard_target_bytes' => [
+                'FriendlyName' => 'Shard target bytes',
+                'Type' => 'text',
+                'Size' => '16',
+                'Default' => '53687091200',
+                'Description' => 'Approximate bytes per drive/site shard (default 50 GiB).',
+            ],
+            'ms365_shard_max_count' => [
+                'FriendlyName' => 'Max shards per resource',
+                'Type' => 'text',
+                'Size' => '4',
+                'Default' => '16',
+            ],
+            'ms365_kopia_maintenance_interval_days' => [
+                'FriendlyName' => 'Kopia maintenance interval (days)',
+                'Type' => 'text',
+                'Size' => '4',
+                'Default' => '7',
+                'Description' => 'Enqueue maintenance_quick for MS365 Kopia repos on this cadence.',
+            ],
+            'ms365_kopia_workloads_json' => [
+                'FriendlyName' => 'Kopia workload flags (JSON)',
+                'Type' => 'textarea',
+                'Rows' => '4',
+                'Cols' => '60',
+                'Description' => 'Optional JSON object e.g. {"mail":true,"calendar":true}. Empty = all enabled.',
+            ],
+            'proxmox_api_url' => [
+                'FriendlyName' => 'Proxmox API URL',
+                'Type' => 'text',
+                'Size' => '128',
+                'Description' => 'e.g. https://proxmox.example:8006/api2/json',
+            ],
+            'proxmox_api_token_id' => [
+                'FriendlyName' => 'Proxmox API token ID',
+                'Type' => 'text',
+                'Size' => '64',
+            ],
+            'proxmox_api_token_secret' => [
+                'FriendlyName' => 'Proxmox API token secret',
+                'Type' => 'password',
+                'Size' => '64',
+            ],
+            'proxmox_node' => [
+                'FriendlyName' => 'Proxmox node name',
+                'Type' => 'text',
+                'Size' => '64',
+            ],
+            'proxmox_lxc_template_vmid' => [
+                'FriendlyName' => 'Proxmox LXC template VMID',
+                'Type' => 'text',
+                'Size' => '8',
+            ],
+            'ms365_worker_fleet_min_nodes' => [
+                'FriendlyName' => 'Worker fleet min nodes',
+                'Type' => 'text',
+                'Size' => '4',
+                'Default' => '2',
+            ],
+            'ms365_worker_fleet_max_nodes' => [
+                'FriendlyName' => 'Worker fleet max nodes',
+                'Type' => 'text',
+                'Size' => '4',
+                'Default' => '20',
+            ],
+            'ms365_worker_repo_path' => [
+                'FriendlyName' => 'Worker Go repo path',
+                'Type' => 'text',
+                'Size' => '128',
+                'Description' => 'Path to ms365-backup-worker on this host (for admin builds).',
+            ],
+            'ms365_worker_build_go' => [
+                'FriendlyName' => 'Go binary path',
+                'Type' => 'text',
+                'Size' => '64',
+                'Description' => 'Optional; default: go from PATH.',
+            ],
+            'ms365_worker_artifact_dir' => [
+                'FriendlyName' => 'Worker artifact directory',
+                'Type' => 'text',
+                'Size' => '128',
+                'Description' => 'Published worker binaries (outside web root).',
+            ],
+            'ms365_worker_stale_seconds' => [
+                'FriendlyName' => 'Stale heartbeat seconds',
+                'Type' => 'text',
+                'Size' => '8',
+                'Default' => '120',
+            ],
+            'ms365_worker_offline_alert_minutes' => [
+                'FriendlyName' => 'Offline alert after minutes',
+                'Type' => 'text',
+                'Size' => '8',
+                'Default' => '10',
+            ],
+            'ms365_worker_artifact_nonce_ttl' => [
+                'FriendlyName' => 'Artifact download nonce TTL (seconds)',
+                'Type' => 'text',
+                'Size' => '8',
+                'Default' => '600',
+            ],
+        ],
     ];
 }
 
@@ -97,15 +273,114 @@ function ms365backup_ensure_storage(): void
         mkdir($logsDir, 0770, true);
     }
     \Ms365Backup\StoragePermissions::applyToTree($logsDir);
+    foreach ([
+        __DIR__ . '/storage/worker-releases',
+        __DIR__ . '/storage/worker-builds',
+    ] as $dir) {
+        if (!is_dir($dir)) {
+            @mkdir($dir, 0750, true);
+        }
+    }
+}
+
+/**
+ * Backup module settings before deactivation so WHMCS clearing tbladdonmodules does not lose them.
+ */
+function ms365backup_backup_settings(): void
+{
+    try {
+        if (!Capsule::schema()->hasTable('ms365backup_settings_backup')) {
+            Capsule::schema()->create('ms365backup_settings_backup', function ($table) {
+                $table->string('setting', 255)->primary();
+                $table->text('value')->nullable();
+                $table->timestamp('backed_up_at')->useCurrent();
+            });
+        }
+
+        $settings = Capsule::table('tbladdonmodules')
+            ->where('module', 'ms365backup')
+            ->get(['setting', 'value']);
+
+        foreach ($settings as $setting) {
+            $exists = Capsule::table('ms365backup_settings_backup')
+                ->where('setting', $setting->setting)
+                ->exists();
+
+            if ($exists) {
+                Capsule::table('ms365backup_settings_backup')
+                    ->where('setting', $setting->setting)
+                    ->update([
+                        'value' => $setting->value,
+                        'backed_up_at' => date('Y-m-d H:i:s'),
+                    ]);
+            } else {
+                Capsule::table('ms365backup_settings_backup')
+                    ->insert([
+                        'setting' => $setting->setting,
+                        'value' => $setting->value,
+                        'backed_up_at' => date('Y-m-d H:i:s'),
+                    ]);
+            }
+        }
+
+        logModuleCall('ms365backup', 'backup_settings', [], 'Settings backed up: ' . count($settings) . ' settings', [], []);
+    } catch (\Throwable $e) {
+        logModuleCall('ms365backup', 'backup_settings', [], 'Error backing up settings: ' . $e->getMessage(), [], []);
+    }
+}
+
+/**
+ * Restore module settings from backup after activation (WHMCS wipes tbladdonmodules on deactivate).
+ */
+function ms365backup_restore_settings(): void
+{
+    try {
+        if (!Capsule::schema()->hasTable('ms365backup_settings_backup')) {
+            return;
+        }
+
+        $backedUpSettings = Capsule::table('ms365backup_settings_backup')
+            ->get(['setting', 'value']);
+
+        if ($backedUpSettings->isEmpty()) {
+            return;
+        }
+
+        foreach ($backedUpSettings as $backup) {
+            $exists = Capsule::table('tbladdonmodules')
+                ->where('module', 'ms365backup')
+                ->where('setting', $backup->setting)
+                ->exists();
+
+            if ($exists) {
+                Capsule::table('tbladdonmodules')
+                    ->where('module', 'ms365backup')
+                    ->where('setting', $backup->setting)
+                    ->update(['value' => $backup->value]);
+            } else {
+                Capsule::table('tbladdonmodules')
+                    ->insert([
+                        'module' => 'ms365backup',
+                        'setting' => $backup->setting,
+                        'value' => $backup->value,
+                    ]);
+            }
+        }
+
+        logModuleCall('ms365backup', 'restore_settings', [], 'Settings restored: ' . count($backedUpSettings) . ' settings', [], []);
+    } catch (\Throwable $e) {
+        logModuleCall('ms365backup', 'restore_settings', [], 'Error restoring settings: ' . $e->getMessage(), [], []);
+    }
 }
 
 function ms365backup_activate(): array
 {
     try {
+        ms365backup_restore_settings();
         ms365backup_apply_schema();
         ms365backup_apply_migrations();
         ms365backup_ensure_storage();
-        return ['status' => 'success', 'description' => 'MS365 Backup activated. Configure credentials under Addons → MS365 Backup.'];
+        return ['status' => 'success', 'description' => 'MS365 Backup activated. Module settings restored from backup when available.'];
     } catch (\Throwable $e) {
         return ['status' => 'error', 'description' => 'Activation failed: ' . $e->getMessage()];
     }
@@ -113,7 +388,17 @@ function ms365backup_activate(): array
 
 function ms365backup_deactivate(): array
 {
-    return ['status' => 'success', 'description' => 'MS365 Backup deactivated. Backup data preserved.'];
+    try {
+        ms365backup_backup_settings();
+        logModuleCall('ms365backup', 'deactivate', [], 'Module deactivated successfully. Settings backed up.', [], []);
+
+        return ['status' => 'success', 'description' => 'MS365 Backup deactivated. Backup data preserved. Module settings backed up for reactivation.'];
+    } catch (\Throwable $e) {
+        $errorMsg = 'Module deactivation failed: ' . $e->getMessage();
+        logModuleCall('ms365backup', 'deactivate', [], $errorMsg, [], []);
+
+        return ['status' => 'error', 'description' => $errorMsg];
+    }
 }
 
 /**
@@ -138,6 +423,8 @@ function ms365backup_sidebar(array $vars): string
         . '<a href="' . $base . '" class="list-group-item"><i class="fa fa-cog"></i> Dashboard</a>'
         . '<a href="' . $base . '&action=discover" class="list-group-item"><i class="fa fa-search"></i> Discovery</a>'
         . '<a href="' . $base . '&action=backup" class="list-group-item"><i class="fa fa-download"></i> Backup</a>'
+        . '<a href="' . $base . '&action=seeder" class="list-group-item"><i class="fa fa-database"></i> Tenant Seeder</a>'
+        . '<a href="' . $base . '&action=fleet" class="list-group-item"><i class="fa fa-server"></i> Worker Fleet</a>'
         . '</div>';
 }
 
@@ -156,6 +443,11 @@ function ms365backup_output(array $vars): void
         exit;
     }
 
+    if ($action === 'seeder_oauth_callback') {
+        require __DIR__ . '/pages/admin/seeder_oauth_callback.php';
+        exit;
+    }
+
     echo '<div class="tablebg">';
     echo '<h2>MS365 Backup <small class="text-muted">(Dev Tool)</small></h2>';
 
@@ -163,6 +455,8 @@ function ms365backup_output(array $vars): void
         'dashboard' => 'Dashboard',
         'discover' => 'Discovery',
         'backup' => 'Backup',
+        'seeder' => 'Tenant Seeder',
+        'fleet' => 'Worker Fleet',
     ];
     echo '<p style="margin-bottom:15px">';
     foreach ($pages as $key => $label) {
@@ -185,6 +479,12 @@ function ms365backup_output(array $vars): void
         case 'run':
             require __DIR__ . '/pages/admin/run.php';
             break;
+        case 'seeder':
+            require __DIR__ . '/pages/admin/seeder.php';
+            break;
+        case 'fleet':
+            require __DIR__ . '/pages/admin/fleet.php';
+            break;
         case 'dashboard':
         default:
             require __DIR__ . '/pages/admin/dashboard.php';
@@ -192,4 +492,24 @@ function ms365backup_output(array $vars): void
     }
 
     echo '</div>';
+}
+
+/**
+ * WHMCS client area output.
+ *
+ * @param array<string, mixed> $vars
+ */
+function ms365backup_clientarea(array $vars): array
+{
+    if (!isset($_SESSION['uid']) || (int) $_SESSION['uid'] <= 0) {
+        return [
+            'pagetitle' => 'Microsoft 365 Backup',
+            'templatefile' => '',
+            'requirelogin' => true,
+            'vars' => [],
+        ];
+    }
+
+    header('Location: index.php?m=cloudstorage&page=e3backup&view=ms365');
+    exit;
 }

@@ -1,0 +1,25 @@
+[Unit]
+Description=Microsoft 365 Kopia Backup Worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ms365worker
+Group=ms365worker
+ExecStart=/var/lib/ms365-backup-worker/bin/ms365-backup-worker -config /etc/ms365-backup-worker/config.yaml
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ms365-backup-worker
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/ms365-backup-worker
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

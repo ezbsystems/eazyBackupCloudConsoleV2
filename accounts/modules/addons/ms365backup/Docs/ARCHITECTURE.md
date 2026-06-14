@@ -428,17 +428,51 @@ Run `status` values: `queued`, `running`, `success`, `error`, `cancelled`, `skip
 5. Team + Files + Messages → site run + team run.
 6. Second run → delta mode; `@removed` tombstones.
 
-## Phase 2F+ roadmap
+## Phase 2F — M365 groups (v1.6.0)
 
-- Planner, OneNote
+- **Engine:** `GroupBackupEngine` — mail + calendar via `groups/{id}/…` Graph paths (`GraphMailboxOwner`).
+- **Physical job:** `group:{groupId}` when mail and/or calendar scope enabled.
+- **Files:** Still `site:{siteId}` (Phase 2D); group + files + mail may queue **two** runs.
+- **Storage:** `{tenant}/groups/{groupId}/mail/…`, `calendars/…`.
 
-## Out of scope (v1)
+### Phase 2F.1 verification (groups)
 
-- Client area / customer self-service
-- Calendar incremental / delta sync
+1. Module version `1.6.0+`.
+2. Non-Team group + mail → `physical_key=group:{id}`, `groups/{id}/mail/` populated.
+3. Group + calendar → events + `calendar_verify` in manifest.
+4. Group + Files + mail → site run + group run.
+5. Regression: users, OneDrive, SharePoint, Teams unchanged.
+
+## Phase 2F — Planner (v1.7.0)
+
+- **Engine:** `PlannerBackupEngine` + `PlannerBackupService` — `planner/plans/{id}`, buckets, tasks.
+- **Inventory:** `GET /groups/{groupId}/planner/plans` → `planner_plan` resources.
+- **Physical job:** `planner:{planId}` with Planner scope.
+
+## Phase 2F — OneNote (v1.8.0)
+
+- **Engine:** `OneNoteBackupEngine` — notebooks/sections/pages JSON export.
+- **Inventory:** user, group, and site notebooks.
+- **Physical job:** `onenote:{notebookId}`; Azure `Notes.Read.All`.
+
+## Phase 2F — Directory baseline
+
+- **Engine:** `DirectoryBackupEngine` — `directory:tenant` exports `directory/users.json`, `groups.json`.
+
+## Phase 3 platform (v1.8.0+)
+
+- **Storage:** `BackupStorageInterface` + local + S3-compatible backends (`BackupStorageFactory`).
+- **Multi-tenant:** `ms365_tenant_records`, `whmcs_client_id` on runs.
+- **Queue:** `ms365_job_queue`, `bin/ms365_queue_worker.php`.
+- **Client area:** `ms365backup_clientarea()` → `templates/clientarea/dashboard.tpl`.
+- See [PHASE3_PRD.md](PHASE3_PRD.md), [CUSTOMER_ONBOARDING.md](CUSTOMER_ONBOARDING.md).
+
+## Out of scope (later)
+
+- Calendar Graph delta / `calendarView`
 - Retention policies
-- Integration with eazybackup Comet addon
-- Multi-tenant productization beyond single config row
+- Comet/eazybackup engine coupling (see Phase 3 PRD P3-8)
+- Full client-area resource picker and self-service scheduling (MVP is run history only)
 
 ---
 

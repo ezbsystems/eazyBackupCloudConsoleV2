@@ -668,6 +668,14 @@ class CloudBackupController {
                 return ['status' => 'fail', 'message' => 'Job is not active'];
             }
 
+            if (self::isMs365CloudBackupJob($job)) {
+                logModuleCall(self::$module, 'startRun', ['job_id' => $jobId, 'client_id' => $clientId], 'Rejected MS365 job for cloud worker');
+                return [
+                    'status' => 'fail',
+                    'message' => 'Microsoft 365 backups use the MS365 engine. Use Run now on the job card to start a backup.',
+                ];
+            }
+
             // Validate destination bucket still exists and is active for this client's storage user
             $bucket = Capsule::table('s3_buckets')
                 ->where('id', $job['dest_bucket_id'])
@@ -1866,6 +1874,25 @@ class CloudBackupController {
             logModuleCall(self::$module, 'ensureVersioningForBucketId', ['bucket_id' => $bucketId], $e->getMessage());
             return ['status' => 'error', 'message' => 'Error enforcing bucket versioning'];
         }
+    }
+
+    /** @param array<string, mixed> $job */
+    public static function isMs365CloudBackupJob(array $job): bool
+    {
+        if (strtolower((string) ($job['source_type'] ?? '')) === 'ms365') {
+            return true;
+        }
+        if (strtolower((string) ($job['engine'] ?? '')) === 'ms365') {
+            return true;
+        }
+        $schedule = json_decode((string) ($job['schedule_json'] ?? ''), true);
+
+        return is_array($schedule) && !empty($schedule['ms365']);
+    }
+
+    public static function isMs365BatchRun(array $run): bool
+    {
+        return strtolower((string) ($run['engine'] ?? '')) === 'ms365';
     }
 
     /**

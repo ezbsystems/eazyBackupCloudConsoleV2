@@ -12,7 +12,7 @@ final class GraphClient
     private string $graphBase;
 
     public function __construct(
-        private readonly TokenProvider $tokens,
+        private readonly GraphAccessTokenProvider $tokens,
         ?string $region = null,
     ) {
         $region = $region ?? TenantRepository::credentials()['region'];
@@ -28,6 +28,48 @@ final class GraphClient
     public function get(string $path, array $query = [], array $extraHeaders = []): array
     {
         return $this->request('GET', $path, ['query' => $query], $extraHeaders);
+    }
+
+    /** @param array<string, mixed> $body */
+    public function post(string $path, array $body = [], array $extraHeaders = []): array
+    {
+        return $this->request('POST', $path, ['json' => $body], $extraHeaders);
+    }
+
+    /** @param array<string, mixed> $body */
+    public function put(string $path, array $body = [], array $extraHeaders = []): array
+    {
+        return $this->request('PUT', $path, ['json' => $body], $extraHeaders);
+    }
+
+    /** @param array<string, mixed> $body */
+    public function patch(string $path, array $body = [], array $extraHeaders = []): array
+    {
+        return $this->request('PATCH', $path, ['json' => $body], $extraHeaders);
+    }
+
+    /**
+     * Upload small file content to a drive path (≤ 4 MB).
+     *
+     * @param array<string, string> $extraHeaders
+     */
+    public function uploadSmallFile(
+        string $driveId,
+        string $parentPath,
+        string $filename,
+        string $contents,
+        array $extraHeaders = [],
+    ): array {
+        $parentPath = trim(str_replace('\\', '/', $parentPath), '/');
+        $itemPath = ($parentPath !== '' ? $parentPath . '/' : '') . $filename;
+        $encoded = implode('/', array_map('rawurlencode', explode('/', $itemPath)));
+        $path = 'drives/' . rawurlencode($driveId) . '/root:/' . $encoded . ':/content';
+
+        $headers = array_merge([
+            'Content-Type' => 'application/octet-stream',
+        ], $extraHeaders);
+
+        return $this->request('PUT', $path, ['body' => $contents], $headers);
     }
 
     /**

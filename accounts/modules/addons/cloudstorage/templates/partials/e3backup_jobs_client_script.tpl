@@ -654,7 +654,58 @@ function jobsApp(opts) {
             window.openCreateJobModal();
         },
         // Job action handlers
+        isMs365Job(job) {
+            if (!job) return false;
+            const sourceType = (job.source_type || '').toLowerCase();
+            if (sourceType === 'ms365') return true;
+            const engine = (job.engine || '').toLowerCase();
+            if (engine === 'ms365') return true;
+            try {
+                const schedule = typeof job.schedule_json === 'string'
+                    ? JSON.parse(job.schedule_json)
+                    : job.schedule_json;
+                return !!(schedule && schedule.ms365);
+            } catch (e) {
+                return false;
+            }
+        },
         async runJob(jobId) {
+            const job = (this.jobs || []).find((j) => j.job_id === jobId);
+            if (this.isMs365Job(job)) {
+                const scopeId = window.userDetailJobsScopeId || window.ms365WizardState?.backupUserId || '';
+                if (!scopeId) {
+                    e3backupNotify('error', 'Backup user scope is required.');
+                    return;
+                }
+                try {
+                    const body = new URLSearchParams({ user_id: scopeId, job_id: jobId });
+                    const res = await fetch('modules/addons/cloudstorage/api/ms365_job_run_now.php', {
+                        method: 'POST',
+                        credentials: 'same-origin',
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                        body: body.toString(),
+                    });
+                    const data = await res.json();
+                    if (data.status === 'success') {
+                        const count = data.count || 0;
+                        const batchRunId = data.batch_run_id || '';
+                        if (!batchRunId) {
+                            e3backupNotify('error', 'Backup started but live run id was not returned.');
+                            return;
+                        }
+                        e3backupNotify('success', `Started ${count} Microsoft 365 backup workload(s). Redirecting to progress...`);
+                        setTimeout(() => {
+                            window.location.href = 'index.php?m=cloudstorage&page=e3backup&view=live&run_id='
+                                + encodeURIComponent(batchRunId);
+                        }, 500);
+                    } else {
+                        e3backupNotify('error', data.message || 'Run failed.');
+                    }
+                } catch (e) {
+                    e3backupNotify('error', 'Run failed.');
+                }
+                return;
+            }
             try {
                 const res = await fetch('modules/addons/cloudstorage/api/cloudbackup_start_run.php', {
                     method: 'POST',
@@ -804,7 +855,7 @@ function jobsApp(opts) {
         },
         formatEngine(engine) {
             const e = (engine || '').toLowerCase();
-            if (e === 'kopia') return 'eazyBackup (Archive)';
+            if (e === 'kopia') return 'Archive';
             if (e === 'sync') return 'eazyBackup (Sync)';
             if (e === 'disk_image') return 'Disk Image';
             if (e === 'hyperv') return 'Hyper-V';
@@ -812,6 +863,7 @@ function jobsApp(opts) {
         },
         formatSourceType(type) {
             const t = (type || '').toLowerCase();
+            if (t === 'ms365') return 'Microsoft 365';
             if (t === 'local_agent') return 'Local Agent';
             if (t === 's3_compatible') return 'S3-Compatible';
             if (t === 'google_drive') return 'Google Drive';
@@ -1078,7 +1130,12 @@ function jobsApp(opts) {
         editJob(job) {
             // Route to the correct edit UI based on source_type
             const sourceType = (job.source_type || '').toLowerCase();
-            if (sourceType === 'local_agent') {
+            if (sourceType === 'ms365') {
+                const scopeId = window.userDetailJobsScopeId || window.ms365WizardState?.backupUserId || '';
+                if (typeof openMs365JobWizardForEdit === 'function') {
+                    openMs365JobWizardForEdit(job.job_id, scopeId);
+                }
+            } else if (sourceType === 'local_agent') {
                 // Open the Local Agent Job Wizard in edit mode
                 if (typeof openLocalJobWizardForEdit === 'function') {
                     openLocalJobWizardForEdit(job.job_id);
@@ -1097,7 +1154,9 @@ function jobsApp(opts) {
 }
 
 function userDetailJobsApp() {
-    return jobsApp({ scopeUserId: {/literal}{if isset($userDetailJobsScopeId) && $userDetailJobsScopeId}{$userDetailJobsScopeId|@json_encode nofilter}{else}null{/if}{literal} });
+    const scopeUserId = {/literal}{if isset($userDetailJobsScopeId) && $userDetailJobsScopeId}{$userDetailJobsScopeId|@json_encode nofilter}{else}null{/if}{literal};
+    window.userDetailJobsScopeId = scopeUserId || '';
+    return jobsApp({ scopeUserId });
 }
 
 function computeNextRunText(type, timeStr, weekday, hourlyMinute, cronExpr) {
@@ -3299,7 +3358,7 @@ function localWizardBuildReview() {
     if (review) {
         const displayData = { ...s };
         if (displayData.engine === 'kopia') {
-            displayData.engine = 'eazyBackup (Archive)';
+            displayData.engine = 'Archive';
         } else if (displayData.engine === 'sync') {
             displayData.engine = 'eazyBackup (Sync)';
         } else if (displayData.engine === 'disk_image') {
@@ -3323,7 +3382,7 @@ function localWizardBuildReview() {
 // ========================================
 function localWizardEngineLabel(engine) {
     switch ((engine || '').toLowerCase()) {
-        case 'kopia':      return 'eazyBackup (Archive)';
+        case 'kopia':      return 'Archive';
         case 'sync':       return 'eazyBackup (Sync)';
         case 'disk_image': return 'eazyBackup (Disk Image)';
         case 'hyperv':     return 'Hyper-V VM Backup';

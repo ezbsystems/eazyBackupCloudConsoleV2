@@ -1,0 +1,61 @@
+.ms365-job-wizard-modal-host {
+    position: fixed;
+    inset: 0;
+}
+
+.ms365-job-wizard-modal-host .ms365-wizard-dialog {
+    max-height: 90vh;
+}
+
+.ms365-wizard-crumb.is-active {
+    background: var(--eb-surface-muted);
+    color: var(--eb-text-primary);
+}
+
+.ms365-wizard-crumb.is-complete .ms365-wizard-crumb-step {
+    background: var(--eb-success-bg);
+    color: var(--eb-success-text);
+}
+
+.ms365-wizard-crumb-step {
+    background: var(--eb-surface-muted);
+    color: var(--eb-text-muted);
+}
+
+.ms365-wizard-crumb.is-active .ms365-wizard-crumb-step {
+    background: var(--eb-primary);
+    color: #fff;
+}
+
+.ms365-option-card {
+    display: block;
+    padding: 1rem 1.25rem;
+    border-radius: 0.5rem;
+    border: 2px solid var(--eb-border-default);
+    background: var(--eb-surface-raised);
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.ms365-option-card:hover {
+    border-color: var(--eb-border-strong);
+}
+
+.ms365-option-card.is-selected {
+    border-color: var(--eb-primary);
+    box-shadow: 0 0 0 1px var(--eb-primary);
+}
+
+.ms365-inventory-pane,
+.ms365-selection-pane {
+    min-height: 22rem;
+    max-height: 28rem;
+    background: var(--eb-surface-base);
+}
+
+.ms365-inventory-row:has(input:checked) {
+    background: color-mix(in srgb, var(--eb-primary) 12%, transparent);
+}
+
+.ms365-inventory-progress {
+    min-height: 12rem;
+}

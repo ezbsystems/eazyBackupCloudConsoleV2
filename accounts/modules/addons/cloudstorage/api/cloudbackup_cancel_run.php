@@ -11,6 +11,7 @@ use WHMCS\ClientArea;
 use WHMCS\Module\Addon\CloudStorage\Admin\ProductConfig;
 use WHMCS\Module\Addon\CloudStorage\Client\DBController;
 use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupController;
+use WHMCS\Module\Addon\CloudStorage\Client\Ms365BatchLiveService;
 use WHMCS\Module\Addon\CloudStorage\Client\UuidBinary;
 
 $ca = new ClientArea();
@@ -57,7 +58,12 @@ logModuleCall('cloudstorage', 'cancel_run_request', [
     'post_data' => $_POST,
 ], 'Received cancel request');
 
-$result = CloudBackupController::cancelRun($runIdentifier, $loggedInUserId, $forceCancel);
+$run = CloudBackupController::getRun($runIdentifier, $loggedInUserId);
+if ($run && Ms365BatchLiveService::isMs365BatchRun($run)) {
+    $result = Ms365BatchLiveService::cancelBatch($runIdentifier, (int) $loggedInUserId, $forceCancel);
+} else {
+    $result = CloudBackupController::cancelRun($runIdentifier, $loggedInUserId, $forceCancel);
+}
 
 // Debug: Log the result
 logModuleCall('cloudstorage', 'cancel_run_result', [

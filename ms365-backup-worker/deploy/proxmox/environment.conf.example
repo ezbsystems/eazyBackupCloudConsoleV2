@@ -1,0 +1,10 @@
+# Copy to /etc/systemd/system/ms365-backup-worker.service.d/environment.conf
+# and set values before converting the container to a Proxmox template.
+#
+# chmod 0600 environment.conf
+# chown root:root environment.conf
+# systemctl daemon-reload
+
+[Service]
+Environment=MS365_WORKER_TOKEN=CHANGE_ME
+Environment=MS365_WORKER_API_BASE=https://accounts.eazybackup.ca/modules/addons/cloudstorage/api

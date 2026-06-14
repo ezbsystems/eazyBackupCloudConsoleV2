@@ -1,0 +1,43 @@
+# Golden LXC template — non-secret settings only.
+# Sized for default fleet CT: 8 GB RAM, 4 CPU, 32 GB rootfs (streaming overlay; no disk staging).
+# Secrets: /etc/systemd/system/ms365-backup-worker.service.d/environment.conf
+# Per-clone identity: leave node_id / hostname empty; PROXMOX_VMID set by fleet provisioner.
+
+worker:
+  node_id: ""
+  hostname: ""
+  poll_interval_seconds: 5
+  max_concurrent_runs: 4
+  graph_parallel_requests: 16
+  graph_folder_parallel: 4
+  heartbeat_interval_seconds: 30
+  progress_heartbeat_seconds: 60
+  install_path: /var/lib/ms365-backup-worker/bin/ms365-backup-worker
+  run_dir: /var/lib/ms365-backup-worker/runs
+  proxmox_vmid: 0
+  # Admission budgets — must match Proxmox CT size (8G RAM / 32G disk / 4 cores)
+  ram_budget_mib: 6144
+  disk_budget_mib: 24576
+  max_cpu_cores: 3
+  disk_watermark_mib: 1024
+  job_ram_budget_mib: 512
+  job_disk_budget_mib: 2048
+  heavy_job_ram_budget_mib: 1536
+  heavy_job_disk_budget_mib: 4096
+
+api:
+  base_url: ""
+
+kopia:
+  repo_config_dir: /var/lib/ms365-backup-worker/kopia
+  parallel_uploads: 4
+  compressor: zstd-default
+  max_pack_size_mib: 32
+  content_cache_size_mib: 256
+  checkpoint_interval_minutes: 15
+
+graph:
+  max_retries: 5
+  retry_base_delay_ms: 2000
+  adaptive_concurrency: true
+  use_batch_fallback: true

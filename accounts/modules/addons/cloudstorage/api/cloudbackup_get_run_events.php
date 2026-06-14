@@ -12,6 +12,8 @@ use WHMCS\Database\Capsule;
 use WHMCS\Module\Addon\CloudStorage\Client\DBController;
 use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupController;
 use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupEventFormatter;
+use WHMCS\Module\Addon\CloudStorage\Client\CustomerFacingTextSanitizer;
+use WHMCS\Module\Addon\CloudStorage\Client\Ms365BatchLiveService;
 use WHMCS\Module\Addon\CloudStorage\Client\TimezoneHelper;
 use WHMCS\Module\Addon\CloudStorage\Client\UuidBinary;
 
@@ -49,6 +51,22 @@ if (!$run) {
     exit;
 }
 $userTz = TimezoneHelper::resolveUserTimezone($userId, $run['job_id'] ?? null);
+
+if (Ms365BatchLiveService::isMs365BatchRun($run)) {
+    try {
+        $batchRunId = (string) ($run['run_id'] ?? $runIdentifier);
+        $events = Ms365BatchLiveService::aggregateEvents($batchRunId, (int) $userId, $sinceId, $limit, $userTz);
+        (new JsonResponse([
+            'status' => 'success',
+            'events' => $events,
+        ], 200))->send();
+        exit;
+    } catch (\Throwable $e) {
+        (new JsonResponse(['status' => 'fail', 'message' => 'Unable to load run events.'], 200))->send();
+        exit;
+    }
+}
+
 $hasRunIdPk = Capsule::schema()->hasTable('s3_cloudbackup_runs')
     && Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'run_id');
 $useUuidRunId = $hasRunIdPk && is_string($runIdentifier) && UuidBinary::isUuid($runIdentifier);
@@ -91,7 +109,7 @@ foreach ($events as $e) {
         'code' => $safeCode,
         'message_id' => $safeMessageId,
         'params' => $safeParams,
-        'message' => $message,
+        'message' => CustomerFacingTextSanitizer::scrubLogMessage($message),
     ];
     if (in_array((string)$e->message_id, ['PROGRESS_UPDATE','NO_CHANGES','SUMMARY_TOTAL'], true)) {
         $hasProgressOrNoChanges = true;

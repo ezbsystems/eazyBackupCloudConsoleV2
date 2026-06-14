@@ -29,9 +29,14 @@ final class CalendarVerifier
      */
     public function verify(string $userId, string $calendarId, ?string $calendarName = null): array
     {
-        $path = "users/{$userId}/calendars/{$calendarId}/events";
-        $eventsDir = $this->storage->calendarEventsDir($userId, $calendarId);
-        $statePath = $this->storage->calendarBackupStatePath($userId, $calendarId);
+        return $this->verifyMailbox(GraphMailboxOwner::user($userId), $calendarId, $calendarName);
+    }
+
+    public function verifyMailbox(GraphMailboxOwner $owner, string $calendarId, ?string $calendarName = null): array
+    {
+        $path = $owner->graphPath("calendars/{$calendarId}/events");
+        $eventsDir = $this->storage->calendarEventsDir($owner, $calendarId);
+        $statePath = $this->storage->calendarBackupStatePath($owner, $calendarId);
         $label = $calendarName ?? $calendarId;
 
         $diskIndex = $this->indexDiskEvents($eventsDir);

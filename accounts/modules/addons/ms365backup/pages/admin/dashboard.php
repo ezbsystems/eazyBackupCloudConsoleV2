@@ -61,6 +61,7 @@ $token = generate_token('plain');
             <li>Save credentials above and test the connection.</li>
             <li>Open <a href="addonmodules.php?module=ms365backup&action=discover">Discovery</a> to list users, SharePoint sites, and Teams.</li>
             <li>Open <a href="addonmodules.php?module=ms365backup&action=backup">Backup</a> to run a mailbox + calendar backup for one user.</li>
+            <li>Populate a dev tenant with test data via <a href="addonmodules.php?module=ms365backup&action=seeder">Tenant Seeder</a>.</li>
         </ol>
         <p class="text-muted">Backups are stored under <code>/var/www/eazybackup/ms365/</code></p>
     </div>

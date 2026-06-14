@@ -45,6 +45,17 @@
                             <span class="block text-left text-xs text-[var(--eb-text-muted)]">Files, Folders, Disk Image, Virtual Machines</span>
                         </span>
                     </button>
+                    <button type="button" @click="isOpen = false; window.openMs365JobWizardFromJobs && window.openMs365JobWizardFromJobs()" class="eb-menu-item">
+                        <span class="eb-icon-box eb-icon-box--sm" style="background: var(--eb-info-bg); color: var(--eb-info-text);">
+                            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 6h16M4 10h16M4 14h10M4 18h6" />
+                            </svg>
+                        </span>
+                        <span class="flex-1 min-w-0">
+                            <span class="block text-left text-sm text-[var(--eb-text-primary)]">Microsoft 365 Backup</span>
+                            <span class="block text-left text-xs text-[var(--eb-text-muted)]">Mail, OneDrive, SharePoint, Teams</span>
+                        </span>
+                    </button>
                     <button type="button" @click="isOpen = false; window.openCloudBackupWizard()" class="eb-menu-item">
                         <span class="eb-icon-box eb-icon-box--sm eb-icon-box--info">
                             <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -421,6 +432,7 @@
     </div>
 
     {include file="{$smarty.const.ROOTDIR}/modules/addons/cloudstorage/templates/partials/job_create_wizard.tpl"}
+    {include file="{$smarty.const.ROOTDIR}/modules/addons/cloudstorage/templates/partials/ms365_job_wizard.tpl"}
     {include file="{$smarty.const.ROOTDIR}/modules/addons/cloudstorage/templates/partials/bucket_create_modal.tpl"}
 
     <div id="restoreWizardModal" class="fixed inset-0 z-[2100] hidden">

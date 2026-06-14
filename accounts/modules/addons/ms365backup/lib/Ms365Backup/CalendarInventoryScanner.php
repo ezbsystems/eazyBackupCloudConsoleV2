@@ -20,13 +20,13 @@ final class CalendarInventoryScanner
      * @return array<string, mixed>
      */
     public function scanCalendar(
-        string $userId,
+        GraphMailboxOwner $owner,
         string $calendarId,
         string $calName,
         CalendarEventStore $store,
         string $runId,
     ): array {
-        $path = "users/{$userId}/calendars/{$calendarId}/events";
+        $path = $owner->graphPath("calendars/{$calendarId}/events");
         /** @var array<string, true> $seenEventIds */
         $seenEventIds = [];
         $stats = [
@@ -77,7 +77,7 @@ final class CalendarInventoryScanner
             ]);
             $scanMode = 'fallback';
             $partitionResult = $this->partitionScanner->scan(
-                $userId,
+                $owner->id(),
                 $calendarId,
                 $calName,
                 $path,

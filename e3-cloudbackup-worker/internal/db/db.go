@@ -121,8 +121,8 @@ func (d *Database) GetNextQueuedRuns(ctx context.Context, limit int) ([]Run, err
 		WHERE r.status = 'queued'
 		  AND j.status = 'active'
 		  AND (j.agent_uuid IS NULL OR j.agent_uuid = '')
-		  AND (j.source_type IS NULL OR j.source_type <> 'local_agent')
-		  AND (j.engine IS NULL OR j.engine <> 'kopia')
+		  AND (j.source_type IS NULL OR j.source_type NOT IN ('local_agent', 'ms365'))
+		  AND (j.engine IS NULL OR j.engine NOT IN ('kopia', 'ms365'))
 		ORDER BY r.run_id ASC
 		LIMIT ?`, limit)
 	if err != nil {

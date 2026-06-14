@@ -31,6 +31,7 @@
             case 'sync': return 'File/Folder';
             case 'disk_image': return 'Disk Image';
             case 'hyperv': return 'Hyper-V';
+            case 'ms365': return 'Microsoft 365';
             default:
                 if (!e) return 'File/Folder';
                 return String(e).charAt(0).toUpperCase() + String(e).slice(1);
