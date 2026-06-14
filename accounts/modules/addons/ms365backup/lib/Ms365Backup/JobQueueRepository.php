@@ -182,10 +182,21 @@ final class JobQueueRepository
 
             return;
         }
+        self::markTerminalFailed($runId, $message);
+    }
+
+    /** Mark a queue entry failed without scheduling another attempt. */
+    public static function markTerminalFailed(string $runId, string $message): void
+    {
+        if (!class_exists(Capsule::class)) {
+            return;
+        }
         Capsule::table('ms365_job_queue')->where('run_id', $runId)->update([
             'status' => 'failed',
             'finished_at' => time(),
-            'error_message' => $message,
+            'error_message' => mb_substr($message, 0, 500),
+            'worker_node_id' => null,
+            'lease_expires_at' => null,
         ]);
     }
 

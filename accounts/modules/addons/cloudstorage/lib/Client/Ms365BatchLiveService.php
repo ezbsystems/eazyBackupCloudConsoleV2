@@ -7,6 +7,7 @@ namespace WHMCS\Module\Addon\CloudStorage\Client;
 use Ms365Backup\BackupRunRepository;
 use Ms365Backup\Ms365BatchRunRepository;
 use Ms365Backup\ProgressLogger;
+use Ms365Backup\WorkerClaimService;
 use Ms365Backup\WorkerProcess;
 use WHMCS\Database\Capsule;
 
@@ -33,6 +34,7 @@ final class Ms365BatchLiveService
         Ms365BatchRunRepository::updateLiveSnapshot($batchRunId);
         if (Ms365BatchRunRepository::isRestoreBatch($batchRunId)) {
             Ms365BatchRunRepository::syncFromRestoreChildren($batchRunId);
+            WorkerClaimService::reconcileStaleRestoreBatch($batchRunId);
             Ms365BatchRunRepository::updateLiveSnapshotForRestore($batchRunId);
         } else {
             Ms365BatchRunRepository::syncFromChildren($batchRunId);

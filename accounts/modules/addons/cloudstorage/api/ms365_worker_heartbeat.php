@@ -34,6 +34,7 @@ if ($nodeId === '') {
 try {
     WorkerNodeRepository::heartbeat($nodeId, $load, $version, $proxmoxVmid > 0 ? $proxmoxVmid : null);
     WorkerClaimService::releaseOrphanedClaimsForNode($nodeId, $load, 120);
+    WorkerClaimService::failOrphanedRestoreRunsForNode($nodeId, $load, 120);
     WorkerLeaseService::renewForNode($nodeId);
 
     $node = WorkerNodeRepository::get($nodeId);
