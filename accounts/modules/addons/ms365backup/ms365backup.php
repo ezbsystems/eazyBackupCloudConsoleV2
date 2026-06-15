@@ -28,7 +28,7 @@ function ms365backup_config(): array
     return [
         'name' => 'MS365 Backup',
         'description' => 'Admin-only Microsoft 365 backup development tool (mail, calendar, contacts, To Do, OneDrive).',
-        'version' => '1.17.0',
+        'version' => '1.18.0',
         'author' => 'eazyBackup',
         'language' => 'english',
         'fields' => [
@@ -55,13 +55,6 @@ function ms365backup_config(): array
                 'Type' => 'text',
                 'Size' => '128',
                 'Description' => 'Customer admin-consent callback only: {SystemURL}/index.php?m=cloudstorage&page=e3backup&view=ms365_connect_callback. Do NOT use the admin Tenant Seeder callback.',
-            ],
-            'ms365_engine_mode' => [
-                'FriendlyName' => 'Backup engine mode',
-                'Type' => 'dropdown',
-                'Options' => 'php,kopia,kopia_shadow',
-                'Default' => 'php',
-                'Description' => 'php = legacy PHP worker; kopia = Proxmox Go worker fleet; kopia_shadow = PHP then re-queue for Kopia comparison.',
             ],
             'ms365_worker_token' => [
                 'FriendlyName' => 'Worker API token',

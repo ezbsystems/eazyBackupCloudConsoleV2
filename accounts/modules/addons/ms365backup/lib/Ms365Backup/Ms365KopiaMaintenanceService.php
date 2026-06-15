@@ -14,8 +14,7 @@ final class Ms365KopiaMaintenanceService
     /** @return array{scheduled: int, skipped: int} */
     public static function scheduleDueMaintenance(): array
     {
-        if (!Ms365EngineConfig::usesKopiaWorker()
-            || !Capsule::schema()->hasTable('ms365_tenant_records')
+        if (!Capsule::schema()->hasTable('ms365_tenant_records')
             || !Capsule::schema()->hasTable('s3_kopia_repos')
             || !Capsule::schema()->hasTable('s3_kopia_repo_operations')) {
             return ['scheduled' => 0, 'skipped' => 0];

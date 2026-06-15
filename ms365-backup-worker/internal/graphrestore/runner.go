@@ -124,7 +124,7 @@ func (r *Runner) restorePath(ctx context.Context, target Target, path string, da
 	case strings.Contains(lower, "/mail/") && strings.HasSuffix(lower, ".json") && !strings.HasSuffix(lower, "_folder.json") && !strings.HasSuffix(lower, ".removed.json"):
 		return restoreMailMessage(ctx, r.Client, target.GraphID, data, r.ConflictPolicy)
 	case (strings.Contains(lower, "/calendars/") || strings.Contains(lower, "/calendar/")) && strings.HasSuffix(lower, ".json"):
-		return restoreCalendarEvent(ctx, r.Client, target.GraphID, data, r.ConflictPolicy)
+		return restoreCalendarEvent(ctx, r.Client, target.GraphID, path, data, r.ConflictPolicy)
 	case strings.Contains(lower, "/contacts/") && strings.HasSuffix(lower, ".json"):
 		return restoreContact(ctx, r.Client, target.GraphID, data, r.ConflictPolicy)
 	case strings.Contains(lower, "/tasks/") && strings.HasSuffix(lower, ".json"):

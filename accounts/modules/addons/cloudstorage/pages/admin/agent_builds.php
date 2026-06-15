@@ -2,6 +2,8 @@
 
 require_once __DIR__ . '/../../lib/Admin/AgentBuild/bootstrap.php';
 
+use WHMCS\Module\Addon\CloudStorage\Admin\AgentBuild\DeployPublisher;
+use WHMCS\Module\Addon\CloudStorage\Admin\AgentBuild\DeployStore;
 use WHMCS\Module\Addon\CloudStorage\Admin\AgentBuild\JobStore;
 use WHMCS\Module\Addon\CloudStorage\Admin\AgentBuild\Settings;
 
@@ -24,6 +26,9 @@ function cloudstorage_admin_agent_builds($vars)
     $latestWindows = cloudstorage_agent_builds_latest('windows');
     $jobs          = JobStore::listJobs(50);
     $releases      = JobStore::listReleases(50);
+    $deployments   = DeployStore::listDeployments(25);
+    $activeDeploy  = DeployPublisher::activeManifestPayload();
+    $syncRuns      = DeployStore::listSyncRuns(10);
 
     $job = null;
     $steps = [];
@@ -42,6 +47,9 @@ function cloudstorage_admin_agent_builds($vars)
         'latestWindows'  => $latestWindows,
         'jobs'           => $jobs,
         'releases'       => $releases,
+        'deployments'    => $deployments,
+        'activeDeploy'   => $activeDeploy,
+        'syncRuns'       => $syncRuns,
         'job'            => $job,
         'steps'          => $steps,
         'jobId'          => $jobId,
@@ -91,6 +99,10 @@ function cloudstorage_agent_builds_save_settings(): void
         'agent_build_azure_kv_cert_name'     => $_POST['azure_kv_cert_name'] ?? '',
         'agent_build_signing_timestamp_url'  => $_POST['azure_ts_url'] ?? '',
         'agent_build_azuresigntool_path'     => $_POST['azuresigntool_path'] ?? '',
+        'agent_deploy_role'                  => $_POST['deploy_role'] ?? 'publisher',
+        'agent_deploy_manifest_url'          => $_POST['deploy_manifest_url'] ?? '',
+        'agent_deploy_publish_dir'           => $_POST['deploy_publish_dir'] ?? '',
+        'agent_deploy_sync_enabled'          => !empty($_POST['deploy_sync_enabled']) ? 'on' : '',
     ];
 
     foreach ($fields as $k => $v) {
@@ -127,6 +139,28 @@ function cloudstorage_agent_builds_save_settings(): void
         \WHMCS\Database\Capsule::table('tbladdonmodules')->insert([
             'module'  => 'cloudstorage',
             'setting' => 'agent_build_azure_client_secret',
+            'value'   => $encrypted,
+        ]);
+    }
+
+    $deploySecret = (string) ($_POST['deploy_shared_secret'] ?? '');
+    if ($deploySecret !== '') {
+        $encrypted = $deploySecret;
+        try {
+            if (function_exists('localAPI')) {
+                $r = localAPI('EncryptPassword', ['password2' => $deploySecret]);
+                if (is_array($r) && !empty($r['password'])) {
+                    $encrypted = (string) $r['password'];
+                }
+            }
+        } catch (\Throwable $e) {}
+        \WHMCS\Database\Capsule::table('tbladdonmodules')
+            ->where('module', 'cloudstorage')
+            ->where('setting', 'agent_deploy_shared_secret')
+            ->delete();
+        \WHMCS\Database\Capsule::table('tbladdonmodules')->insert([
+            'module'  => 'cloudstorage',
+            'setting' => 'agent_deploy_shared_secret',
             'value'   => $encrypted,
         ]);
     }

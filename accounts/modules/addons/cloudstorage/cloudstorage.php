@@ -14,7 +14,7 @@ function cloudstorage_config()
         'description' => 'This module show the usage of your buckets.',
         'author' => 'eazybackup',
         'language' => 'english',
-        'version' => '2.1.14',
+        'version' => '2.1.15',
         'fields' => [
             's3_region' => [
                 'FriendlyName' => 'S3 Region',
@@ -6129,6 +6129,82 @@ function cloudstorage_ensure_agent_build_schema(string $context = 'activate'): v
                 $t->index('published_at');
             });
             logModuleCall('cloudstorage', $context, [], 'Created s3_agent_releases', [], []);
+        }
+
+        // Extend platform enum to include recovery_media (recovery media creator).
+        if ($schema->hasTable('s3_agent_releases')) {
+            try {
+                \WHMCS\Database\Capsule::connection()->statement(
+                    "ALTER TABLE `s3_agent_releases` MODIFY `platform` ENUM('linux','windows','recovery_iso','recovery_media') NOT NULL DEFAULT 'linux'"
+                );
+            } catch (\Throwable $e) {
+                // Already migrated or DB engine does not support MODIFY — ignore.
+            }
+        }
+
+        if (!$schema->hasTable('s3_agent_deployments')) {
+            $schema->create('s3_agent_deployments', function ($t) {
+                $t->bigIncrements('id');
+                $t->unsignedBigInteger('job_id')->nullable();
+                $t->string('version_label', 64)->nullable();
+                $t->string('git_commit', 64)->nullable();
+                $t->enum('status', ['draft', 'active', 'superseded'])->default('draft');
+                $t->text('artifacts_json')->nullable();
+                $t->unsignedInteger('created_by_admin_id')->nullable();
+                $t->dateTime('activated_at')->nullable();
+                $t->timestamp('created_at')->useCurrent();
+                $t->index('status');
+                $t->index('created_at');
+            });
+            logModuleCall('cloudstorage', $context, [], 'Created s3_agent_deployments', [], []);
+        }
+
+        if (!$schema->hasTable('s3_agent_deploy_artifacts')) {
+            $schema->create('s3_agent_deploy_artifacts', function ($t) {
+                $t->bigIncrements('id');
+                $t->unsignedBigInteger('deployment_id');
+                $t->string('artifact_key', 64);
+                $t->string('platform', 32);
+                $t->string('latest_filename', 191);
+                $t->string('versioned_filename', 191);
+                $t->string('sha256', 64)->nullable();
+                $t->unsignedBigInteger('size_bytes')->nullable();
+                $t->string('signed_subject', 255)->nullable();
+                $t->dateTime('signed_at')->nullable();
+                $t->timestamp('created_at')->useCurrent();
+                $t->index('deployment_id');
+                $t->unique(['deployment_id', 'artifact_key']);
+            });
+            logModuleCall('cloudstorage', $context, [], 'Created s3_agent_deploy_artifacts', [], []);
+        }
+
+        if (!$schema->hasTable('s3_agent_deploy_sync_runs')) {
+            $schema->create('s3_agent_deploy_sync_runs', function ($t) {
+                $t->bigIncrements('id');
+                $t->unsignedBigInteger('deployment_id')->nullable();
+                $t->enum('status', ['running', 'succeeded', 'failed', 'skipped'])->default('running');
+                $t->text('detail')->nullable();
+                $t->dateTime('started_at')->nullable();
+                $t->dateTime('ended_at')->nullable();
+                $t->timestamp('created_at')->useCurrent();
+                $t->index('deployment_id');
+                $t->index('created_at');
+            });
+            logModuleCall('cloudstorage', $context, [], 'Created s3_agent_deploy_sync_runs', [], []);
+        }
+
+        if (!$schema->hasTable('s3_agent_deploy_downloads')) {
+            $schema->create('s3_agent_deploy_downloads', function ($t) {
+                $t->bigIncrements('id');
+                $t->unsignedBigInteger('deployment_id');
+                $t->string('artifact_key', 64);
+                $t->string('nonce', 128)->nullable();
+                $t->string('ip_address', 45)->nullable();
+                $t->dateTime('downloaded_at')->nullable();
+                $t->timestamp('created_at')->useCurrent();
+                $t->index('deployment_id');
+            });
+            logModuleCall('cloudstorage', $context, [], 'Created s3_agent_deploy_downloads', [], []);
         }
 
         // Ensure storage/builds directory exists with reasonable perms

@@ -82,6 +82,17 @@ class Settings
             'azure_kv_cert'     => self::get('agent_build_azure_kv_cert_name'),
             'azure_ts_url'      => self::get('agent_build_signing_timestamp_url', 'http://timestamp.digicert.com'),
             'azuresigntool'     => self::get('agent_build_azuresigntool_path', 'C:\\Tools\\AzureSignTool\\AzureSignTool.exe'),
+            'deploy_role'       => self::get('agent_deploy_role', 'publisher'),
+            'deploy_manifest_url' => self::get('agent_deploy_manifest_url', ''),
+            'deploy_publish_dir'  => self::get('agent_deploy_publish_dir', ''),
+            'deploy_sync_enabled' => self::getBool('agent_deploy_sync_enabled', false),
+            'deploy_last_sync_id' => (int) self::get('agent_deploy_last_sync_id', '0'),
+            'deploy_manifest_api_url' => DeployAuth::manifestApiUrl(),
         ];
+    }
+
+    public static function clearCache(): void
+    {
+        self::$cache = [];
     }
 }

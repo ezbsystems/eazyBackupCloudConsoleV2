@@ -355,8 +355,8 @@ try {
                 'base' => StorageLayout::BASE_PATH,
                 'writable' => is_writable(StorageLayout::BASE_PATH),
                 'web_user' => StoragePermissions::webUser(),
-                'exec_enabled' => !WorkerSpawner::isExecDisabled(),
-                'php_binary' => WorkerSpawner::resolvePhpBinary(),
+                'engine_mode' => 'kopia',
+                'worker_fleet' => 'kopia',
             ]);
             break;
 

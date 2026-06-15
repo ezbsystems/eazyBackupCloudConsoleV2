@@ -10,6 +10,7 @@ use Ms365Backup\BackupRunRepository;
 use Ms365Backup\BackupUserResolver;
 use Ms365Backup\CustomerBackupService;
 use Ms365Backup\CustomerInventoryService;
+use Ms365Backup\CustomerSelectionCodec;
 use Ms365Backup\EntraConsentService;
 use Ms365Backup\FailedEngineRetryService;
 use Ms365Backup\Ms365CustomerJobService;
@@ -225,6 +226,22 @@ final class Ms365E3Controller
         $user = self::resolveBackupUser($clientId, $userIdRaw);
 
         return Ms365CustomerJobService::getForClient($clientId, $user['id'], $jobId);
+    }
+
+    /**
+     * @param list<string> $selectedIds
+     * @param array<string, array<string, bool>> $scopeOverrides
+     * @return array<string, mixed>
+     */
+    public static function planJob(int $clientId, string $userIdRaw, array $selectedIds, array $scopeOverrides = []): array
+    {
+        $user = self::resolveBackupUser($clientId, $userIdRaw);
+        $inventory = CustomerInventoryService::loadForBackupUser($clientId, $user['id']);
+        if (empty($inventory['resources'])) {
+            throw new \RuntimeException('Refresh tenant inventory before planning the job.');
+        }
+
+        return CustomerSelectionCodec::planSelection($selectedIds, $scopeOverrides, $inventory);
     }
 
     /** @return array{run_ids: list<string>, batch_run_id: string, count: int} */

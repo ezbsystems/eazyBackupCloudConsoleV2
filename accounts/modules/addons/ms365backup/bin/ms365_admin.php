@@ -3,29 +3,22 @@
 declare(strict_types=1);
 
 /**
- * MS365 backup CLI worker.
+ * MS365 admin CLI (inventory, access probes, calendar verify).
  *
  * Usage:
- *   php ms365_backup.php test-auth
- *   php ms365_backup.php discover users|sites|teams|inventory
- *   php ms365_backup.php run --run-id=UUID
- *   php ms365_backup.php verify-calendar --user-id=UUID --calendar-id=ID [--json]
- *   php ms365_backup.php check-access users|sites [--limit=25]
+ *   php ms365_admin.php test-auth
+ *   php ms365_admin.php discover users|sites|teams|inventory
+ *   php ms365_admin.php verify-calendar --user-id=UUID --calendar-id=ID [--json]
+ *   php ms365_admin.php check-access users|sites [--limit=25]
  */
 
 require_once __DIR__ . '/bootstrap.php';
 
-use Ms365Backup\BackupOrchestrator;
-use Ms365Backup\BackupRunRepository;
-use Ms365Backup\JobQueueRepository;
 use Ms365Backup\CalendarVerifier;
-use Ms365Backup\GraphPaginationException;
-use Ms365Backup\RunCancelledException;
 use Ms365Backup\DiscoveryService;
-use Ms365Backup\InventoryService;
 use Ms365Backup\GraphClient;
-use Ms365Backup\ProgressLogger;
-use Ms365Backup\RunTenantContext;
+use Ms365Backup\GraphPaginationException;
+use Ms365Backup\InventoryService;
 use Ms365Backup\ResourceAccessService;
 use Ms365Backup\StorageLayout;
 use Ms365Backup\TenantRepository;
@@ -33,20 +26,16 @@ use Ms365Backup\TokenProvider;
 
 $args = array_slice($argv, 1);
 if ($args === []) {
-    ms365_log_line('Usage: php ms365_backup.php <test-auth|discover|run|verify-calendar> [options]');
+    ms365_log_line('Usage: php ms365_admin.php <test-auth|discover|verify-calendar|check-access> [options]');
     exit(1);
 }
 
 $command = $args[0];
-$runId = null;
 $userId = null;
 $calendarId = null;
 $verifyJson = false;
 $checkLimit = 25;
 foreach ($args as $arg) {
-    if (str_starts_with($arg, '--run-id=')) {
-        $runId = substr($arg, 9);
-    }
     if (str_starts_with($arg, '--user-id=')) {
         $userId = substr($arg, 10);
     }
@@ -106,56 +95,6 @@ try {
             ms365_log_line("OK: discovered {$count} {$type}");
             exit(0);
 
-        case 'run':
-            if ($runId === null || $runId === '') {
-                ms365_log_line('Error: --run-id=UUID is required');
-                exit(1);
-            }
-            $lockFile = sys_get_temp_dir() . '/ms365backup_' . preg_replace('/[^a-zA-Z0-9-]/', '', $runId) . '.lock';
-            $lock = fopen($lockFile, 'c+');
-            if ($lock === false || !flock($lock, LOCK_EX | LOCK_NB)) {
-                ms365_log_line('Error: another worker holds the lock for this run');
-                exit(1);
-            }
-
-            $run = BackupRunRepository::get($runId);
-            if (!$run) {
-                ms365_log_line('Error: run not found');
-                exit(1);
-            }
-            if (BackupRunRepository::isCancelled($runId)) {
-                ms365_log_line('Run already cancelled');
-                exit(0);
-            }
-
-            $tenantCtx = RunTenantContext::fromRun($run);
-            $storage = $tenantCtx->storageLayout;
-            $physicalKey = (string) ($run['physical_key'] ?? '');
-            if ($physicalKey === '') {
-                $physicalKey = 'user:' . (string) ($run['user_id'] ?? '');
-            }
-            $logPath = $storage->runDirForJob($physicalKey, $runId) . '/run.log';
-            $logger = new ProgressLogger($runId, $logPath);
-            $logger->info('CLI worker started');
-
-            try {
-                $orchestrator = new BackupOrchestrator($runId, $logger);
-                $orchestrator->execute();
-                JobQueueRepository::markDone($runId);
-                if (\Ms365Backup\Ms365EngineConfig::engineMode() === \Ms365Backup\Ms365EngineConfig::MODE_KOPIA_SHADOW) {
-                    JobQueueRepository::requeue($runId, 50);
-                    $logger->info('Shadow mode: re-queued for Kopia worker comparison');
-                }
-                ms365_log_line('OK: backup run completed');
-                exit(0);
-            } catch (\Throwable $e) {
-                JobQueueRepository::markFailed($runId, $e->getMessage());
-                throw $e;
-            } finally {
-                flock($lock, LOCK_UN);
-                fclose($lock);
-            }
-
         case 'check-access':
             $type = $args[1] ?? 'users';
             if (!in_array($type, ['users', 'sites'], true)) {
@@ -202,26 +141,10 @@ try {
             ms365_log_line('Unknown command: ' . $command);
             exit(1);
     }
-} catch (RunCancelledException $e) {
-    ms365_log_line('Run cancelled');
-    exit(0);
 } catch (GraphPaginationException $e) {
     ms365_log_line('Pagination safety: ' . $e->getMessage());
     exit(1);
 } catch (\Throwable $e) {
     ms365_log_line('Error: ' . $e->getMessage());
-    if ($runId !== null) {
-        try {
-            ms365_cli_init_whmcs();
-            if (!BackupRunRepository::isCancelled($runId)) {
-                BackupRunRepository::update($runId, [
-                    'status' => 'error',
-                    'error_message' => substr($e->getMessage(), 0, 65000),
-                    'finished_at' => time(),
-                ]);
-            }
-        } catch (\Throwable $_) {
-        }
-    }
     exit(1);
 }

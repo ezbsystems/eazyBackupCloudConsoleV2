@@ -15,7 +15,7 @@ final class ResourceShardPlanner
      */
     public function expand(array $physicalJobs, array $byId): array
     {
-        if (!Ms365EngineConfig::usesKopiaWorker() || !Ms365EngineConfig::shardingEnabled()) {
+        if (!Ms365EngineConfig::shardingEnabled()) {
             return $physicalJobs;
         }
 

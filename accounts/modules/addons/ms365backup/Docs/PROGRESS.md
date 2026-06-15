@@ -2,12 +2,29 @@
 
 **Purpose:** Single handoff document so the next agent knows where work stopped. Update this file at the **end of every session** (or after each meaningful milestone).
 
-**Last updated:** 2026-06-14  
-**Module version (ms365backup):** 1.17.0
+**Last updated:** 2026-06-15  
+**Module version (ms365backup):** 1.18.0
 
 ---
 
 ## Session log
+
+### 2026-06-15 — Kopia-only engine + file backup gaps closed
+
+- **Removed PHP backup execution:** Deleted `BackupOrchestrator`, all `*BackupEngine.php` / `*BackupService.php` graph sync classes, `bin/ms365_backup.php`, `bin/ms365_queue_worker.php`. Admin CLI → `bin/ms365_admin.php`.
+- **Kopia-only control plane:** `Ms365EngineConfig` hardcodes `kopia`; `WorkerSpawner` enqueue-only; `upgrade_phase10_kopia_only.sql`; removed engine mode WHMCS dropdown.
+- **Go worker file gaps:** `sharepoint_lists.go`, SharePoint files delta per drive, drive/site shard filtering (`shard.go`), scope-aware `workloads.go` + `WorkerClaimService::workloadsForRun` (`sharepoint` / `sharepoint_lists` split).
+- **Ops:** Extended `ms365_fleet_smoke.php`; added `Docs/KOPIA_FILE_BACKUP_E2E.md`. Fleet smoke: 2 active nodes, 50 Kopia successes / 7d.
+- **Verify:** `go test ./...` in `ms365-backup-worker`; rebuild worker binary for fleet release.
+- **Next:** Publish new worker release (0.1.17+); run `KOPIA_FILE_BACKUP_E2E.md` file-focused checklist on staging tenant.
+
+### 2026-06-14 — e3 job wizard hierarchical inventory selection
+
+- **UI:** Step 2 uses expandable tree (restore-wizard styling); OneDrive nested under users; per-resource sub-checkboxes for Mail, Calendar, Contacts, Tasks, Files, Lists, Teams scopes, channels, planner plans.
+- **Frontend:** `ms365_job_selection.js` builds trees, tri-state parents, `buildSavePayload` / `hydrateFromSavedJob`; wizard calls `ms365_job_plan.php` for dedup warnings.
+- **Backend:** `BackupScope::fromAuthoritativeOverride`, extended `forResourceType` defaults, `CustomerSelectionCodec`, `scope_overrides` persisted on jobs and passed through scheduler / `startCustomBackup`.
+- **Files:** `ms365_job_wizard.tpl/js/css`, `ms365_job_selection.js`, `ms365_job_plan.php`, `CustomerSelectionCodec.php`, `BackupScope.php`, `BackupPlanner.php`, `Ms365CustomerJobService.php`, `CustomerBackupService.php`, `Ms365JobScheduler.php`.
+- **Next:** Staging E2E — partial user selection (OneDrive only), SharePoint Files-only, team+site dedup warning, edit legacy job hydration.
 
 ### 2026-06-14 — Whale-scale PHP: lease renewal, sharding, delta-per-shard, Kopia maintenance
 
@@ -40,24 +57,20 @@
 | **4b** | **Unified e3 M365 UX (full client area)** | **Baseline done** | Job wizard in user detail + jobs page; per-backup-user OAuth; `MS365_E3_UI_SPEC.md` updated |
 | 5 | Restore platform (Kopia granular) | **Implemented** | Restore tab + wizard; Go `graphrestore`; skip duplicates; live progress |
 | 6 | Hardening / GA | **Partial** | Kopia worker fleet + Proxmox autoscale scaffold; load test script |
-| **Kopia engine** | Go worker + Graph parallel + Kopia dedup | **Performance pass done** | Folder parallelism, delta reuse, disk staging; see `MS365_KOPIA_ENGINE.md` |
+| **Kopia engine** | Go worker + Graph parallel + Kopia dedup | **Kopia-only (1.18)** | PHP execution removed; file lists/shard/delta in Go |
 
 ---
 
 ## Known gaps / next work (prioritized)
 
-1. **Kopia engine staging E2E** — Set `ms365_engine_mode=kopia`, deploy 2 Proxmox LXC workers, run backup on dev tenant; verify `manifest_id` on run row and Kopia objects in `e3ms365-*` bucket.
-2. **Tenant Seeder E2E** — Register seeder Entra app per `SEEDER_AZURE_SETUP.md`; run Light profile on dev tenant; verify backup picks up seeded data.
-2. **Phase 4b staging E2E** — Re-test job save → run now → **live view** → run history + log modal on dev/staging tenant.
-2. **Staging E2E** — Connect → inventory → backup (mail/calendar preset) on dev/staging tenant.
-3. **Restore** — Granular Kopia restore UI + worker shipped; staging E2E on real tenant still required.
-4. **Binary streams** — Verify OneDrive/SharePoint `content/` end-to-end in production bucket (staging checklist).
-5. **Metering / billing** — Hook MS365 bucket usage into e3 billing (`E3_CLOUD_BACKUP_BILLING.md`).
-6. **Admin support view** — Impersonate client tenant, re-run inventory from admin addon.
-7. **Remove Comet LXD path** — `Provisioner::provisionMs365` still provisions legacy order/LXD.
-8. **Platform Entra ops** — Register multi-tenant app in Azure; configure WHMCS addon settings in staging/prod.
-9. **Async inventory refresh** — Large tenants may need background job instead of synchronous POST (Phase 4).
-10. **Run list filters** — Fold into Phase 4b spec (API already partial).
+1. **File backup staging E2E** — Execute `Docs/KOPIA_FILE_BACKUP_E2E.md` on dev tenant (OneDrive + SP files/lists + mail attachments); confirm browse shows `content/` bytes.
+2. **Publish worker release** — Build/publish Go worker with `sharepoint_lists` + shard filtering; roll fleet to new artifact.
+3. **Tenant Seeder E2E** — Register seeder Entra app; run Light profile; verify backup picks up seeded files.
+4. **Metering / billing** — Hook MS365 bucket usage into e3 billing (`E3_CLOUD_BACKUP_BILLING.md`).
+5. **Admin support view** — Impersonate client tenant, re-run inventory from admin addon.
+6. **Remove Comet LXD path** — `Provisioner::provisionMs365` still provisions legacy order/LXD.
+7. **Async inventory refresh** — Large tenants may need background job instead of synchronous POST.
+8. **Calendar verify on Kopia** — `CalendarVerifier` still reads legacy PHP layout paths; port to snapshot browse or drop.
 
 ---
 

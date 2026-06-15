@@ -118,5 +118,23 @@ class BuildRunner
             'ended_at'      => date('Y-m-d H:i:s'),
             'error_message' => $errMsg,
         ]);
+
+        if ($finalStatus === 'succeeded'
+            && self::flag($job, 'deploy_after_publish')
+            && self::flag($job, 'publish')) {
+            try {
+                DeployPublisher::publishJob($jobId, isset($job['created_by_admin_id']) ? (int) $job['created_by_admin_id'] : null);
+            } catch (\Throwable $e) {
+                try {
+                    logModuleCall('cloudstorage', 'agent_deploy_after_publish', ['job_id' => $jobId], $e->getMessage(), [], []);
+                } catch (\Throwable $_) {}
+            }
+        }
+    }
+
+    private static function flag(array $job, string $name, bool $default = false): bool
+    {
+        $f = json_decode((string) ($job['flags_json'] ?? '{}'), true) ?: [];
+        return (bool) ($f[$name] ?? $default);
     }
 }

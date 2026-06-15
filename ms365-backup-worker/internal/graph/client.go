@@ -316,6 +316,51 @@ func (c *Client) Paginate(ctx context.Context, path string, query map[string]str
 	return all, nil
 }
 
+// FindEventsByICalUID looks up calendar events by iCalUId. Graph requires the
+// ConsistencyLevel header for $filter queries on the events collection.
+func (c *Client) FindEventsByICalUID(ctx context.Context, listPath, iCalUID string) ([]map[string]any, error) {
+	escaped := strings.ReplaceAll(strings.TrimSpace(iCalUID), "'", "''")
+	if escaped == "" {
+		return nil, nil
+	}
+	u := c.graphBase + "/" + strings.TrimPrefix(listPath, "/")
+	parsed, err := url.Parse(u)
+	if err != nil {
+		return nil, err
+	}
+	q := parsed.Query()
+	q.Set("$filter", fmt.Sprintf("iCalUId eq '%s'", escaped))
+	q.Set("$top", "1")
+	q.Set("$select", "id")
+	q.Set("$count", "true")
+	parsed.RawQuery = q.Encode()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, parsed.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("ConsistencyLevel", "eventual")
+	resp, err := c.doRequest(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	var data map[string]any
+	if len(resp.body) > 0 {
+		if err := json.Unmarshal(resp.body, &data); err != nil {
+			return nil, err
+		}
+	}
+	var out []map[string]any
+	if values, ok := data["value"].([]any); ok {
+		for _, v := range values {
+			if m, ok := v.(map[string]any); ok {
+				out = append(out, m)
+			}
+		}
+	}
+	return out, nil
+}
+
 type DeltaPage struct {
 	Items     []map[string]any
 	NextLink  string
@@ -654,5 +699,9 @@ func (c *Client) doJSON(ctx context.Context, method, path string, body map[strin
 		return map[string]any{}, nil
 	}
 	var out map[string]any
-	return out, json.Unmarshal(resp.body, &out)
+	if err := json.Unmarshal(resp.body, &out); err != nil {
+		// Create/update responses are fire-and-forget for restore; a 2xx means success.
+		return map[string]any{}, nil
+	}
+	return out, nil
 }

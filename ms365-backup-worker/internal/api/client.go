@@ -196,11 +196,11 @@ func (c *Client) Progress(ctx context.Context, upd ProgressUpdate) error {
 }
 
 func (c *Client) Complete(ctx context.Context, upd CompleteUpdate) error {
-	return c.post(ctx, "ms365_worker_complete.php", upd, &struct{}{})
+	return c.postWithRetry(ctx, "ms365_worker_complete.php", upd, &struct{}{}, 3)
 }
 
 func (c *Client) Fail(ctx context.Context, upd FailUpdate) error {
-	return c.post(ctx, "ms365_worker_fail.php", upd, &struct{}{})
+	return c.postWithRetry(ctx, "ms365_worker_fail.php", upd, &struct{}{}, 3)
 }
 
 func (c *Client) Release(ctx context.Context, runID string) error {
@@ -219,6 +219,31 @@ func (c *Client) SetNodeID(id string) {
 }
 
 func (c *Client) post(ctx context.Context, endpoint string, body any, out any) error {
+	return c.postWithRetry(ctx, endpoint, body, out, 1)
+}
+
+func (c *Client) postWithRetry(ctx context.Context, endpoint string, body any, out any, attempts int) error {
+	if attempts < 1 {
+		attempts = 1
+	}
+	var lastErr error
+	for attempt := 0; attempt < attempts; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(time.Duration(attempt) * 500 * time.Millisecond):
+			}
+		}
+		lastErr = c.postOnce(ctx, endpoint, body, out)
+		if lastErr == nil {
+			return nil
+		}
+	}
+	return lastErr
+}
+
+func (c *Client) postOnce(ctx context.Context, endpoint string, body any, out any) error {
 	b, err := json.Marshal(body)
 	if err != nil {
 		return err

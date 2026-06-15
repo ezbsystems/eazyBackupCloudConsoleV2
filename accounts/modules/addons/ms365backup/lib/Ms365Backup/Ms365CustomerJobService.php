@@ -17,6 +17,7 @@ final class Ms365CustomerJobService
      * @param array{
      *   name?: string,
      *   selected_resource_ids: list<string>,
+     *   scope_overrides?: array<string, array<string, bool>>,
      *   schedule_frequency: string,
      *   retention_tier?: string,
      * } $payload
@@ -34,7 +35,8 @@ final class Ms365CustomerJobService
         }
 
         $inventory = self::loadInventory($clientId, $backupUserId);
-        self::validateSelection($payload['selected_resource_ids'], $inventory);
+        $scopeOverrides = CustomerSelectionCodec::normalizeScopeOverrides($payload['scope_overrides'] ?? []);
+        CustomerSelectionCodec::validate($payload['selected_resource_ids'], $scopeOverrides, $inventory);
 
         $schedulePayload = Ms365ScheduleAssigner::buildSchedulePayload(
             (string) $payload['schedule_frequency'],
@@ -65,6 +67,7 @@ final class Ms365CustomerJobService
             'source_config_enc' => encrypt(json_encode([
                 'tenant_record_id' => (int) $record['id'],
                 'selected_resource_ids' => $payload['selected_resource_ids'],
+                'scope_overrides' => $scopeOverrides,
             ], JSON_UNESCAPED_SLASHES)),
             'source_path' => '',
             'dest_bucket_id' => $destBucketId,
@@ -104,7 +107,8 @@ final class Ms365CustomerJobService
         self::validatePayload($payload);
         $record = self::requireConnectedTenant($clientId, $backupUserId);
         $inventory = self::loadInventory($clientId, $backupUserId);
-        self::validateSelection($payload['selected_resource_ids'], $inventory);
+        $scopeOverrides = CustomerSelectionCodec::normalizeScopeOverrides($payload['scope_overrides'] ?? []);
+        CustomerSelectionCodec::validate($payload['selected_resource_ids'], $scopeOverrides, $inventory);
 
         $schedulePayload = Ms365ScheduleAssigner::buildSchedulePayload(
             (string) $payload['schedule_frequency'],
@@ -121,6 +125,7 @@ final class Ms365CustomerJobService
             'source_config_enc' => encrypt(json_encode([
                 'tenant_record_id' => (int) $record['id'],
                 'selected_resource_ids' => $payload['selected_resource_ids'],
+                'scope_overrides' => $scopeOverrides,
             ], JSON_UNESCAPED_SLASHES)),
             'schedule_time' => sprintf('%02d:%02d:00', $schedulePayload['schedule_slots'][0]['hour'], $schedulePayload['schedule_slots'][0]['minute']),
             'timezone' => $schedulePayload['timezone'],
@@ -146,6 +151,9 @@ final class Ms365CustomerJobService
 
         $ms365 = self::decodeMs365Json($job->schedule_json ?? null);
         $config = self::decodeSourceConfig($job->source_config_enc ?? '');
+        $scopeOverrides = CustomerSelectionCodec::normalizeScopeOverrides(
+            $config['scope_overrides'] ?? ($ms365['scope_overrides'] ?? []),
+        );
 
         return [
             'job_id' => $jobId,
@@ -153,6 +161,7 @@ final class Ms365CustomerJobService
             'source_type' => self::SOURCE_TYPE,
             'status' => (string) ($job->status ?? ''),
             'selected_resource_ids' => $config['selected_resource_ids'] ?? ($ms365['selected_resource_ids'] ?? []),
+            'scope_overrides' => $scopeOverrides,
             'schedule_frequency' => (string) ($ms365['schedule_frequency'] ?? Ms365ScheduleAssigner::FREQUENCY_ONCE_DAILY),
             'schedule_slots' => $ms365['schedule_slots'] ?? [],
             'retention_tier' => (string) ($ms365['retention_tier'] ?? '1y'),
@@ -192,18 +201,29 @@ final class Ms365CustomerJobService
         }
 
         $ms365 = self::decodeMs365Json($job->schedule_json ?? null);
+        $config = self::decodeSourceConfig($job->source_config_enc ?? '');
         $selectedIds = $ms365['selected_resource_ids'] ?? [];
         if (!is_array($selectedIds) || $selectedIds === []) {
-            $config = self::decodeSourceConfig($job->source_config_enc ?? '');
             $selectedIds = $config['selected_resource_ids'] ?? [];
         }
+        $scopeOverrides = CustomerSelectionCodec::normalizeScopeOverrides(
+            $config['scope_overrides'] ?? ($ms365['scope_overrides'] ?? []),
+        );
+
+        $inventory = CustomerInventoryService::loadForBackupUser($clientId, $backupUserId);
+        $resolved = CustomerSelectionCodec::resolveForExecution(
+            is_array($selectedIds) ? $selectedIds : [],
+            $scopeOverrides,
+            $inventory,
+        );
 
         return CustomerBackupService::startCustomBackup(
             $clientId,
             $backupUserId,
-            $selectedIds,
+            $resolved['selected_resource_ids'],
             $jobId,
             'manual',
+            $resolved['scope_overrides'],
         );
     }
 
@@ -292,14 +312,11 @@ final class Ms365CustomerJobService
     /**
      * @param list<string> $selectedIds
      * @param array<string, mixed> $inventory
+     * @param array<string, array<string, bool>> $scopeOverrides
      */
-    private static function validateSelection(array $selectedIds, array $inventory): void
+    private static function validateSelection(array $selectedIds, array $inventory, array $scopeOverrides = []): void
     {
-        $planner = new BackupPlanner();
-        $plan = $planner->plan($selectedIds, $inventory);
-        if (($plan['summary']['runnable'] ?? 0) === 0 && ($plan['summary']['deferred'] ?? 0) === 0) {
-            throw new \RuntimeException('No backup workloads match the selected resources.');
-        }
+        CustomerSelectionCodec::validate($selectedIds, $scopeOverrides, $inventory);
     }
 
     /**
@@ -314,6 +331,7 @@ final class Ms365CustomerJobService
             'ms365' => true,
             'tenant_record_id' => (int) $record['id'],
             'selected_resource_ids' => array_values($payload['selected_resource_ids']),
+            'scope_overrides' => CustomerSelectionCodec::normalizeScopeOverrides($payload['scope_overrides'] ?? []),
             'retention_tier' => (string) ($payload['retention_tier'] ?? '1y'),
             'last_scheduled_key' => '',
         ]);

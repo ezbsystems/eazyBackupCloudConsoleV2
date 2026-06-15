@@ -51,6 +51,13 @@ class Publish extends StepBase
                 'versioned'  => 'e3-recovery-agent-' . $version . '.exe',
                 'platform'   => 'recovery_iso',
             ];
+            $mediaCreator = $repo . '/bin/e3-recovery-media-creator.exe';
+            $publishMap[] = [
+                'src'        => $mediaCreator,
+                'latest'     => 'e3-recovery-media-creator.exe',
+                'versioned'  => 'e3-recovery-media-creator-' . $version . '.exe',
+                'platform'   => 'recovery_media',
+            ];
         }
 
         $any = false;

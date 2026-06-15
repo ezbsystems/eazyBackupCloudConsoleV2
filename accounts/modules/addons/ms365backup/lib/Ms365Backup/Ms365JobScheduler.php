@@ -56,13 +56,23 @@ final class Ms365JobScheduler
                 continue;
             }
 
+            $scopeOverrides = CustomerSelectionCodec::normalizeScopeOverrides($scheduleJson['scope_overrides'] ?? []);
+
             try {
+                $inventory = CustomerInventoryService::loadForBackupUser($clientId, $backupUserId);
+                $resolved = CustomerSelectionCodec::resolveForExecution(
+                    array_values(array_map('strval', $selectedIds)),
+                    $scopeOverrides,
+                    $inventory,
+                );
+
                 CustomerBackupService::startCustomBackup(
                     $clientId,
                     $backupUserId,
-                    array_values(array_map('strval', $selectedIds)),
+                    $resolved['selected_resource_ids'],
                     $jobId,
                     'schedule',
+                    $resolved['scope_overrides'],
                 );
 
                 $scheduleJson['last_scheduled_key'] = $minuteKey;

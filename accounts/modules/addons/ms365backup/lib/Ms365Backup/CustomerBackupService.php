@@ -164,6 +164,7 @@ final class CustomerBackupService
 
     /**
      * @param list<string> $selectedIds
+     * @param array<string, array<string, bool>> $scopeOverridesByResourceId
      * @return array{run_ids: list<string>, batch_run_id: string, count: int}
      */
     public static function startCustomBackup(
@@ -172,6 +173,7 @@ final class CustomerBackupService
         array $selectedIds,
         string $e3JobId,
         string $triggerType = 'manual',
+        array $scopeOverridesByResourceId = [],
     ): array {
         $record = TenantRecordRepository::getForBackupUser($clientId, $backupUserId)
             ?? TenantRecordRepository::getPrimaryForClient($clientId);
@@ -203,7 +205,12 @@ final class CustomerBackupService
             }
 
             $planner = new BackupPlanner();
-            $queue = $planner->buildPhysicalQueue($selectedIds, $inventory, BackupScope::empty(), []);
+            $queue = $planner->buildPhysicalQueue(
+                $selectedIds,
+                $inventory,
+                BackupScope::empty(),
+                CustomerSelectionCodec::normalizeScopeOverrides($scopeOverridesByResourceId),
+            );
 
             $batchRunId = Ms365BatchRunRepository::create($clientId, $e3JobId, $triggerType);
 

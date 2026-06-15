@@ -1,4 +1,5 @@
-<link rel="stylesheet" href="modules/addons/cloudstorage/assets/css/ms365_job_wizard.css?v=3">
+<link rel="stylesheet" href="modules/addons/cloudstorage/assets/css/ms365_job_wizard.css?v=7">
+<link rel="stylesheet" href="modules/addons/cloudstorage/assets/css/ms365_restore_wizard.css?v=4">
 
 <div id="ms365JobWizardModal" class="ms365-job-wizard-modal-host fixed inset-0 z-[2200] hidden" x-data="ms365WizardApp()" x-cloak>
     <div class="eb-modal-backdrop absolute inset-0" @click="close()"></div>
@@ -129,24 +130,43 @@
                             <div class="ms365-inventory-pane border border-[var(--eb-border-default)] rounded-lg overflow-hidden flex flex-col">
                                 <div class="eb-menu-label px-3 py-2 border-b border-[var(--eb-border-default)]">Tenant inventory</div>
                                 <div class="flex-1 overflow-y-auto p-2 space-y-4">
-                                    <template x-for="section in inventorySections" :key="section.key">
-                                        <div x-show="filteredResources(section.types).length > 0">
+                                    <template x-for="section in inventorySections()" :key="section.key">
+                                        <div x-show="sectionHasNodes(section.key)">
                                             <div class="text-xs font-semibold uppercase tracking-wide text-[var(--eb-text-muted)] mb-2 px-1" x-text="section.label"></div>
-                                            <div class="flex flex-col gap-1.5">
-                                            <template x-for="res in filteredResources(section.types)" :key="res.id">
-                                                <label class="ms365-inventory-row flex items-start gap-2 p-2 rounded-lg cursor-pointer hover:bg-[var(--eb-surface-muted)]">
-                                                    <input type="checkbox" class="eb-check-input mt-1" :value="res.id" :checked="selectedIds.includes(res.id)" @change="toggleResource(res.id)">
-                                                    <span class="flex-1 min-w-0">
-                                                        <span class="block text-sm text-[var(--eb-text-primary)] truncate" x-text="res.display_name || res.id"></span>
-                                                        <span class="block text-xs text-[var(--eb-text-muted)] truncate" x-show="res.email" x-text="res.email"></span>
-                                                        <span class="flex flex-wrap gap-1 mt-1">
-                                                            <template x-for="chip in (res.capability_chips || [])" :key="chip">
-                                                                <span class="eb-badge eb-badge--neutral text-[10px]" x-text="chip"></span>
-                                                            </template>
+                                            <div class="flex flex-col gap-0.5">
+                                                <template x-for="node in visibleSectionNodes(section.key)" :key="section.key + '-' + node.key">
+                                                    <div class="ms365-tree-node" :style="'padding-left:' + (node.depth * 12) + 'px'">
+                                                        <span class="ms365-tree-toggle-slot">
+                                                            <button type="button"
+                                                                    class="ms365-tree-toggle"
+                                                                    x-show="node.hasChildren"
+                                                                    @click="toggleExpandNode(section.key, node)"
+                                                                    x-text="isNodeExpanded(node) ? '▼' : '▶'"></button>
                                                         </span>
-                                                    </span>
-                                                </label>
-                                            </template>
+                                                        <input type="checkbox"
+                                                               class="eb-check-input shrink-0"
+                                                               :checked="nodeCheckState(section.key, node) === 'checked'"
+                                                               x-init="$el.indeterminate = nodeCheckState(section.key, node) === 'indeterminate'"
+                                                               @change="toggleTreeNode(section.key, node); $el.indeterminate = nodeCheckState(section.key, node) === 'indeterminate'; $el.checked = nodeCheckState(section.key, node) === 'checked'">
+                                                        <button type="button"
+                                                                class="ms365-tree-label"
+                                                                @click="node.hasChildren ? toggleExpandNode(section.key, node) : toggleTreeNode(section.key, node)">
+                                                            <span class="ms365-tree-label-primary" x-text="node.label"></span>
+                                                            <span class="ms365-tree-label-secondary" x-show="node.subtitle" x-text="node.subtitle"></span>
+                                                        </button>
+                                                        <button type="button"
+                                                                class="ms365-tree-info-btn"
+                                                                x-show="isDirectoryBaselineNode(node)"
+                                                                @click.stop="openDirectoryBaselineInfo()"
+                                                                @mouseenter.stop="openDirectoryBaselineInfo()"
+                                                                aria-label="What is Directory baseline?"
+                                                                title="What is Directory baseline?">
+                                                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
+                                                            </svg>
+                                                        </button>
+                                                    </div>
+                                                </template>
                                             </div>
                                         </div>
                                     </template>
@@ -155,23 +175,38 @@
                             </div>
                             <div class="ms365-selection-pane border border-[var(--eb-border-default)] rounded-lg overflow-hidden flex flex-col">
                                 <div class="eb-menu-label px-3 py-2 border-b border-[var(--eb-border-default)]">
-                                    Selected for backup (<span x-text="selectedIds.length"></span>)
+                                    Selected for backup (<span x-text="selectionSummaryRowCount()"></span>)
                                 </div>
                                 <div class="flex-1 overflow-y-auto p-2 space-y-3">
-                                    <template x-if="selectedIds.length === 0">
+                                    <template x-if="selectionCount() === 0">
                                         <p class="eb-type-caption text-center py-8">Select resources on the left to include them in this backup job.</p>
                                     </template>
-                                    <template x-for="section in inventorySections" :key="'sel-' + section.key">
-                                        <div x-show="selectedInSection(section.types).length > 0">
-                                            <div class="text-xs font-semibold text-[var(--eb-text-muted)] mb-1 px-1" x-text="section.label"></div>
-                                            <template x-for="res in selectedInSection(section.types)" :key="'s-' + res.id">
-                                                <div class="flex items-center justify-between gap-2 py-1 px-2 text-sm rounded bg-[var(--eb-surface-muted)]">
-                                                    <span class="truncate" x-text="res.display_name || res.id"></span>
-                                                    <button type="button" class="eb-btn eb-btn-ghost eb-btn-sm shrink-0" @click="toggleResource(res.id)">Remove</button>
+                                    <template x-for="group in selectionSummaryGroups" :key="'sum-' + group.section">
+                                        <div>
+                                            <div class="text-xs font-semibold text-[var(--eb-text-muted)] mb-1 px-1" x-text="group.section"></div>
+                                            <template x-for="(item, idx) in group.items" :key="group.section + '-' + idx">
+                                                <div class="ms365-job-wizard__summary-item py-1.5 px-2 text-sm rounded bg-[var(--eb-surface-muted)]">
+                                                    <div class="min-w-0">
+                                                        <div class="truncate font-medium" x-text="item.label"></div>
+                                                        <div class="truncate text-xs text-[var(--eb-text-muted)]" x-show="item.subtitle" x-text="item.subtitle"></div>
+                                                        <div class="ms365-job-wizard__summary-badges" x-show="item.badges && item.badges.length > 0">
+                                                            <template x-for="(badge, bidx) in item.badges" :key="group.section + '-' + idx + '-b-' + bidx">
+                                                                <span class="eb-badge eb-badge--neutral text-xs" x-text="badge"></span>
+                                                            </template>
+                                                        </div>
+                                                    </div>
                                                 </div>
                                             </template>
                                         </div>
                                     </template>
+                                    <div x-show="planWarnings.length > 0" class="eb-alert eb-alert--warning mt-2">
+                                        <div class="eb-alert-title">Duplicate coverage</div>
+                                        <ul class="eb-type-caption list-disc pl-4 mt-1 space-y-1">
+                                            <template x-for="(warn, widx) in planWarnings" :key="'warn-' + widx">
+                                                <li x-text="warn"></li>
+                                            </template>
+                                        </ul>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -252,6 +287,57 @@
             </div>
         </div>
     </div>
+
+    <div x-show="directoryInfoModal.open"
+         x-cloak
+         class="absolute inset-0 z-30 flex items-center justify-center p-4"
+         @mouseleave="closeDirectoryBaselineInfo()">
+        <div class="eb-modal-backdrop absolute inset-0" @click="closeDirectoryBaselineInfo()"></div>
+        <div class="eb-modal relative z-10 max-w-lg w-full"
+             @mouseenter="openDirectoryBaselineInfo()"
+             @click.stop>
+            <div class="eb-modal-header">
+                <h3 class="eb-modal-title">Directory baseline</h3>
+                <button type="button" class="eb-modal-close" @click="closeDirectoryBaselineInfo()" aria-label="Close">&times;</button>
+            </div>
+            <div class="eb-modal-body space-y-4">
+                <div>
+                    <p class="text-sm font-medium text-[var(--eb-text-primary)]">What is this?</p>
+                    <p class="text-sm text-[var(--eb-text-muted)] mt-1">
+                        A tenant-wide export of your Microsoft 365 directory listing — user and group names, emails, and account metadata from Azure AD. It does not back up mailboxes, files, or other workload content.
+                    </p>
+                </div>
+                <p class="text-sm text-[var(--eb-text-muted)]">
+                    Include it if you want a historical record of tenant membership and group inventory alongside your workload backups (common in “Full tenant” presets).
+                </p>
+                <div class="overflow-x-auto">
+                    <table class="ms365-directory-info-table w-full text-sm">
+                        <thead>
+                            <tr>
+                                <th class="text-left font-semibold text-[var(--eb-text-primary)]">Use case</th>
+                                <th class="text-left font-semibold text-[var(--eb-text-primary)]">Value</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <template x-for="(row, idx) in directoryBaselineUseCases" :key="'dir-info-' + idx">
+                                <tr>
+                                    <td class="align-top font-medium text-[var(--eb-text-primary)]" x-text="row.useCase"></td>
+                                    <td class="align-top text-[var(--eb-text-muted)]" x-text="row.value"></td>
+                                </tr>
+                            </template>
+                        </tbody>
+                    </table>
+                </div>
+                <p class="text-xs text-[var(--eb-text-muted)]">
+                    This export is for reference and audit only — it cannot be restored back into Microsoft 365 like mail or files.
+                </p>
+            </div>
+            <div class="eb-modal-footer flex justify-end">
+                <button type="button" class="eb-btn eb-btn-secondary eb-btn-sm" @click="closeDirectoryBaselineInfo()">Close</button>
+            </div>
+        </div>
+    </div>
 </div>
 
-<script src="modules/addons/cloudstorage/assets/js/ms365_job_wizard.js?v=9"></script>
+<script src="modules/addons/cloudstorage/assets/js/ms365_job_selection.js?v=2"></script>
+<script src="modules/addons/cloudstorage/assets/js/ms365_job_wizard.js?v=12"></script>

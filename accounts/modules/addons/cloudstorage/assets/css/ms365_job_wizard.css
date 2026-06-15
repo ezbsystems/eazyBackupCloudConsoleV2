@@ -7,6 +7,11 @@
     max-height: 90vh;
 }
 
+/* Stack title row and breadcrumb vertically; inner row keeps close (X) on the far right. */
+.ms365-job-wizard-modal-host .eb-modal-header {
+    display: block;
+}
+
 .ms365-wizard-crumb.is-active {
     background: var(--eb-surface-muted);
     color: var(--eb-text-primary);
@@ -58,4 +63,66 @@
 
 .ms365-inventory-progress {
     min-height: 12rem;
+}
+
+.ms365-job-wizard-modal-host .ms365-tree-node:has(input:checked) {
+    background: color-mix(in srgb, var(--eb-primary) 8%, transparent);
+    border-radius: 0.375rem;
+}
+
+.ms365-job-wizard-modal-host .ms365-tree-label:hover {
+    color: var(--eb-text-primary);
+}
+
+.ms365-job-wizard__summary-item + .ms365-job-wizard__summary-item {
+    margin-top: 0.25rem;
+}
+
+.ms365-job-wizard__summary-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+    margin-top: 0.375rem;
+}
+
+.ms365-tree-info-btn {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.5rem;
+    height: 1.5rem;
+    padding: 0;
+    border: none;
+    border-radius: 9999px;
+    background: transparent;
+    color: var(--eb-info-icon, var(--eb-text-muted));
+    cursor: help;
+    transition: color 0.15s ease, background-color 0.15s ease;
+}
+
+.ms365-tree-info-btn:hover,
+.ms365-tree-info-btn:focus-visible {
+    color: var(--eb-info-text, var(--eb-primary));
+    background: var(--eb-info-bg, color-mix(in srgb, var(--eb-primary) 10%, transparent));
+    outline: none;
+}
+
+.ms365-directory-info-table {
+    border-collapse: collapse;
+}
+
+.ms365-directory-info-table th,
+.ms365-directory-info-table td {
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid var(--eb-border-default);
+    vertical-align: top;
+}
+
+.ms365-directory-info-table th {
+    background: var(--eb-surface-muted);
+}
+
+.ms365-directory-info-table tbody tr:last-child td {
+    border-bottom: none;
 }
