@@ -6,33 +6,20 @@ namespace Ms365Backup;
 use WHMCS\Database\Capsule;
 
 /**
- * Engine mode and per-workload feature flags for MS365 Kopia worker migration.
+ * MS365 backup engine configuration (Kopia Go worker fleet only).
  */
 final class Ms365EngineConfig
 {
-    public const MODE_PHP = 'php';
     public const MODE_KOPIA = 'kopia';
-    public const MODE_KOPIA_SHADOW = 'kopia_shadow';
 
     public static function engineMode(): string
     {
-        $mode = strtolower(trim(self::moduleSetting('ms365_engine_mode', self::MODE_PHP)));
-        if (!in_array($mode, [self::MODE_PHP, self::MODE_KOPIA, self::MODE_KOPIA_SHADOW], true)) {
-            return self::MODE_PHP;
-        }
-
-        return $mode;
+        return self::MODE_KOPIA;
     }
 
     public static function usesKopiaWorker(): bool
     {
-        return in_array(self::engineMode(), [self::MODE_KOPIA, self::MODE_KOPIA_SHADOW], true);
-    }
-
-    public static function usesPhpWorker(): bool
-    {
-        $mode = self::engineMode();
-        return $mode === self::MODE_PHP || $mode === self::MODE_KOPIA_SHADOW;
+        return true;
     }
 
     /** @return array<string, bool> */
@@ -45,6 +32,7 @@ final class Ms365EngineConfig
             'tasks' => true,
             'onedrive' => true,
             'sharepoint' => true,
+            'sharepoint_lists' => true,
             'teams' => true,
             'planner' => true,
             'onenote' => true,
@@ -94,8 +82,7 @@ final class Ms365EngineConfig
 
     public static function shardingEnabled(): bool
     {
-        return self::usesKopiaWorker()
-            && strtolower(trim(self::moduleSetting('ms365_sharding_enabled', '1'))) !== '0';
+        return strtolower(trim(self::moduleSetting('ms365_sharding_enabled', '1'))) !== '0';
     }
 
     /** Bytes above which a drive/site/user mailbox is split into shards. */

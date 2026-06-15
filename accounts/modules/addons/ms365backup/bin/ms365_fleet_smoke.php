@@ -19,6 +19,8 @@ use Ms365Backup\Fleet\ArtifactService;
 use Ms365Backup\Fleet\FleetSettings;
 use Ms365Backup\Fleet\FleetSummaryService;
 use Ms365Backup\Fleet\ReleaseRepository;
+use Ms365Backup\Ms365EngineConfig;
+use WHMCS\Database\Capsule;
 
 $ok = true;
 $check = static function (string $name, bool $pass, string $detail = '') use (&$ok): void {
@@ -38,6 +40,33 @@ $check('artifact_root', is_dir($artifactRoot) || @mkdir($artifactRoot, 0750, tru
 
 $summary = FleetSummaryService::summary();
 $check('fleet_summary', isset($summary['active_nodes']), 'nodes=' . ($summary['active_nodes'] ?? 0));
+
+$check('engine_mode_kopia', Ms365EngineConfig::engineMode() === Ms365EngineConfig::MODE_KOPIA, Ms365EngineConfig::engineMode());
+
+$workerToken = Ms365EngineConfig::workerToken();
+$check('worker_token_configured', $workerToken !== '', $workerToken !== '' ? 'set' : 'missing');
+
+$activeNodes = (int) ($summary['active_nodes'] ?? 0);
+if ($activeNodes < 1) {
+    echo "[WARN] active_worker_nodes — none registered (deploy Proxmox fleet)\n";
+} else {
+    $check('active_worker_nodes', true, (string) $activeNodes);
+}
+
+if (class_exists(Capsule::class) && Capsule::schema()->hasTable('ms365_backup_runs')) {
+    $recentSuccess = Capsule::table('ms365_backup_runs')
+        ->where('status', 'success')
+        ->where('engine_mode', 'kopia')
+        ->where('manifest_id', '!=', '')
+        ->whereNotNull('manifest_id')
+        ->where('finished_at', '>=', time() - 86400 * 7)
+        ->count();
+    if ($recentSuccess < 1) {
+        echo "[WARN] recent_kopia_success — no successful Kopia backup with manifest_id in last 7 days\n";
+    } else {
+        $check('recent_kopia_success', true, (string) $recentSuccess . ' in 7d');
+    }
+}
 
 $latest = ReleaseRepository::latest();
 if ($latest) {

@@ -22,7 +22,7 @@ $token = generate_token('plain');
         <div class="panel panel-default">
             <div class="panel-heading"><strong>Start backup</strong></div>
             <div class="panel-body">
-                <p class="text-muted">Select resources below, choose scope, and click <strong>Start backup</strong>. User/mailbox, OneDrive, SharePoint site, and Teams backups run when the matching scope and resources are selected. Team + SharePoint files may queue <strong>two</strong> runs (site + team).</p>
+                <p class="text-muted">Select resources below, choose scope, and click <strong>Start backup</strong>. Jobs are queued for the <strong>Kopia Go worker fleet</strong> (no local PHP backup worker). User/mailbox, OneDrive, SharePoint site, and Teams backups run when the matching scope and resources are selected. Team + SharePoint files may queue <strong>two</strong> runs (site + team).</p>
                 <div class="alert alert-info" style="padding:8px 12px;margin-bottom:10px">
                     <small>Teams messages require <code>ChannelMessage.Read.All</code> in Azure (admin consent). Contacts/Tasks need <code>Contacts.Read</code> and <code>Tasks.Read.All</code>. See <code>Docs/AZURE_SETUP.md</code>.</small>
                 </div>

@@ -62,11 +62,13 @@ Use this section for wireframes, user stories, copy, and interaction notes. Agen
 
 ### 2.4 Inventory
 
-- **Layout:** 50/50 modal — categorized inventory left, selection summary right.
-- **Resource types shown:** Users/mailboxes, OneDrive, SharePoint, Teams, Groups, Planner, OneNote, tenant metadata.
-- **Actions:** Search, refresh inventory, multi-select checkboxes.
+- **Layout:** 50/50 modal — expandable hierarchical inventory left, selection summary right (restore-wizard tree styling).
+- **Resource types shown:** Users & mailboxes (with nested Mail, Calendar, Contacts, Tasks, OneDrive), SharePoint sites (Files, Lists), Teams (Metadata, Messages, Files + channels), Groups (Mail, Calendar, Files + planner plans), Planner, OneNote, tenant metadata.
+- **Selection:** Parent checkbox selects all sub-components; partial selection shows indeterminate parent; OneDrive is nested under each user (no standalone OneDrive section).
+- **Scope:** Job save sends `selected_resource_ids` + `scope_overrides` (per-resource authoritative scope). Plan API validates runnable workloads.
+- **Actions:** Search, refresh inventory, expand/collapse rows.
 - **Wizard open:** Always `POST ms365_inventory_refresh.php` (Graph discovery) before showing step 2. Cached `GET ms365_inventory.php` load runs only after a successful refresh to populate the full `resources[]` list. On refresh auth failure, wizard returns to step 1 with reconnect CTA.
-- **API:** `GET ms365_inventory.php` (cached payload), `POST ms365_inventory_refresh.php` (live Graph refresh).
+- **API:** `GET ms365_inventory.php`, `POST ms365_inventory_refresh.php`, `POST ms365_job_plan.php` (plan preview / dedup warnings).
 
 ### 2.5 Backup (create job)
 
@@ -114,7 +116,8 @@ List any new or changed `cloudstorage/api/ms365_*.php` fields the UI needs.
 | `ms365_status.php` | `needs_reconnect`, `health_error`, `connection_status` on status payload |
 | `ms365_inventory.php` | GET full `resources[]`; fail responses may include `reconnect_required: true` (HTTP 403) |
 | `ms365_inventory_refresh.php` | Success returns inventory; auth failure returns `reconnect_required: true` (HTTP 403) |
-| `ms365_job_save.php` | POST create/update job; `reconnect_required` on auth failure |
+| `ms365_job_save.php` | POST create/update job with `selected_resource_ids` + `scope_overrides`; `reconnect_required` on auth failure |
+| `ms365_job_plan.php` | POST/GET plan preview: runnable/deferred counts, dedup warnings |
 | `ms365_job_get.php` | GET job for edit |
 | `ms365_job_run_now.php` | POST manual backup; returns `batch_run_id` for live view redirect; `reconnect_required` on auth failure |
 | `ms365_start_backup.php` | Preset backup; `reconnect_required` on auth failure |

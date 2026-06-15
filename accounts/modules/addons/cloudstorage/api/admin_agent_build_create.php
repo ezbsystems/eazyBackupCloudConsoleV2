@@ -43,6 +43,7 @@ $flags = [
     'sign'             => !empty($_POST['sign']),
     'publish'          => !empty($_POST['publish']),
     'include_recovery' => !empty($_POST['include_recovery']),
+    'deploy_after_publish' => !empty($_POST['deploy_after_publish']),
 ];
 
 try {

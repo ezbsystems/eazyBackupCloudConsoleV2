@@ -167,6 +167,13 @@ func (r *RestoreRunner) Run(ctx context.Context, job *api.RunJob) error {
 				msg += ": " + strings.Join(stats.ErrorMessages, "; ")
 			}
 		}
+		reportProgress(api.ProgressUpdate{
+			Phase:      "restore_graph",
+			Percent:    95,
+			ItemsDone:  0,
+			ItemsTotal: len(items),
+			Message:    msg,
+		})
 		return r.failTerminal(ctx, job.RunID, msg)
 	}
 

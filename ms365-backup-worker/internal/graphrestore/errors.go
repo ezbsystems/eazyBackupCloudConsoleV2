@@ -15,7 +15,11 @@ func isDuplicateGraphError(err error) bool {
 		"errornameexists",
 		"erroritemexists",
 		"errorirresolvableconflict",
+		"errormessageitemalreadyexists",
+		"namealreadyexists",
 		"conflict",
+		"status code 409",
+		"graph 409",
 	} {
 		if strings.Contains(s, needle) {
 			return true

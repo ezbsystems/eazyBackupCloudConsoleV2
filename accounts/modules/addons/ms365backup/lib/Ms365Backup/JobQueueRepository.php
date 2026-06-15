@@ -42,7 +42,7 @@ final class JobQueueRepository
         Capsule::table('ms365_job_queue')->insert($row);
     }
 
-    /** Re-queue an existing row (e.g. kopia_shadow after PHP completes). */
+    /** Re-queue an existing row for retry or priority bump. */
     public static function requeue(string $runId, int $priority = 50): void
     {
         if (!class_exists(Capsule::class)) {

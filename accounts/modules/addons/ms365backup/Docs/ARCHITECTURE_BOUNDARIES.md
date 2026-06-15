@@ -46,7 +46,7 @@ Object key prefix inside the bucket: `{azure_tenant_id}/users/…`, `sites/…`,
 
 ## Restore
 
-Backup and restore are separate: `BackupOrchestrator` vs `RestoreOrchestrator` / `RestoreJobService`, tables `ms365_backup_runs` vs `ms365_restore_runs`. **Production restore is Kopia-only:** Go worker reads snapshot `manifest_id`, writes to Graph via `graphrestore` (skip duplicates by default). Customer UX: e3 Restore tab → MS365 job → snapshot → `ms365_restore_wizard` → live view.
+Backup and restore are separate: PHP **control plane** (`BackupPlanner`, `WorkerClaimService`, queue) vs Go **Kopia worker** execution vs `RestoreOrchestrator` / `RestoreJobService`. Tables: `ms365_backup_runs` vs `ms365_restore_runs`. **All backups and restores use the Kopia Go worker** (no PHP backup engine as of module 1.18.0). Customer UX: e3 Restore tab → MS365 job → snapshot → `ms365_restore_wizard` → live view.
 
 ---
 

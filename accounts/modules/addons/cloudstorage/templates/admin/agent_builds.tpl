@@ -4,6 +4,7 @@
 .eb-pill.queued{background:#777} .eb-pill.running{background:#3498db} .eb-pill.succeeded{background:#27ae60}
 .eb-pill.failed{background:#c0392b} .eb-pill.cancelled{background:#95a5a6} .eb-pill.skipped{background:#bdc3c7}
 .eb-pill.pending{background:#7f8c8d}
+.eb-pill.active{background:#27ae60} .eb-pill.superseded{background:#95a5a6} .eb-pill.draft{background:#777}
 .eb-step-row { padding:8px 12px; border-left:3px solid #ccc; margin-bottom:4px; background:#fafafa; }
 .eb-step-row.running { border-left-color:#3498db; }
 .eb-step-row.succeeded { border-left-color:#27ae60; }
@@ -26,6 +27,7 @@
   <li class="{if $tab eq 'history'}active{/if}"><a href="{$baseUrl}&tab=history">Build History</a></li>
   <li class="{if $tab eq 'detail'}active{/if}"><a href="{$baseUrl}&tab=detail{if $jobId}&job_id={$jobId}{/if}">Build Detail</a></li>
   <li class="{if $tab eq 'releases'}active{/if}"><a href="{$baseUrl}&tab=releases">Releases</a></li>
+  <li class="{if $tab eq 'deployment'}active{/if}"><a href="{$baseUrl}&tab=deployment">Deployment</a></li>
   <li class="{if $tab eq 'settings'}active{/if}"><a href="{$baseUrl}&tab=settings">Settings</a></li>
 </ul>
 
@@ -90,6 +92,7 @@
         <div class="checkbox"><label><input type="checkbox" name="run_tests" checked> Run go test ./...</label></div>
         <div class="checkbox"><label><input type="checkbox" name="sign" {if $settings.signing_enabled}checked{/if}> Code-sign Windows binaries (Azure KV)</label></div>
         <div class="checkbox"><label><input type="checkbox" name="publish" checked> Publish to /client_installer/</label></div>
+        <div class="checkbox"><label><input type="checkbox" name="deploy_after_publish"> Deploy to production after publish</label></div>
         <div class="checkbox"><label><input type="checkbox" name="include_recovery"> Also build recovery agent</label></div>
         <button type="submit" class="btn btn-primary"><i class="fa fa-play"></i> Start Build</button>
         <span id="ebNewBuildMsg" class="text-muted" style="margin-left:10px;"></span>
@@ -127,6 +130,7 @@
         Build #{$job.id}
         <span class="eb-pill {$job.status}" id="ebJobStatus">{$job.status}</span>
         <span class="pull-right">
+          <button type="button" class="btn btn-success btn-xs" id="ebDeployJobBtn" {if $job.status neq 'succeeded'}disabled{/if}>Deploy to Production</button>
           <button type="button" class="btn btn-warning btn-xs" id="ebCancelBtn" {if $job.status neq 'queued' and $job.status neq 'running'}disabled{/if}>Cancel</button>
         </span>
       </div>
@@ -231,6 +235,25 @@
         });
       }
 
+      var deployBtn = document.getElementById('ebDeployJobBtn');
+      if (deployBtn) {
+        deployBtn.addEventListener('click', function(){
+          if (!confirm('Deploy build ' + jobId + ' to production?')) return;
+          var fd = new FormData();
+          fd.append('mode', 'job');
+          fd.append('job_id', jobId);
+          fetch(apiBase + 'admin_agent_deploy_publish.php', {literal}{method:'POST', body: fd, credentials:'same-origin'}{/literal})
+            .then(function(r){ return r.json(); })
+            .then(function(d){
+              if (d.status === 'success') {
+                alert('Deployment ' + d.deployment_id + ' published. Production will sync within ~5 minutes.');
+              } else {
+                alert('Deploy failed: ' + (d.message || 'unknown error'));
+              }
+            });
+        });
+      }
+
       refreshStatus();
     })();
     </script>
@@ -275,6 +298,116 @@
           .then(function(){ location.reload(); });
       });
     });
+  </script>
+{/if}
+
+{if $tab eq 'deployment'}
+  <div class="row">
+    <div class="col-md-8">
+      <div class="panel panel-default">
+        <div class="panel-heading">Current Production Target</div>
+        <div class="panel-body">
+          {if $activeDeploy}
+            <p><strong>Deployment ID:</strong> {$activeDeploy.deployment_id}<br>
+            <strong>Version:</strong> {$activeDeploy.version_label|escape}<br>
+            <strong>Git commit:</strong> {$activeDeploy.git_commit|escape}<br>
+            <strong>Activated:</strong> {$activeDeploy.activated_at}<br>
+            <strong>Artifacts:</strong> {$activeDeploy.artifacts|@count}</p>
+            <ul>
+            {foreach $activeDeploy.artifacts as $a}
+              <li><span class="eb-monospace">{$a.latest_filename|escape}</span> ({$a.platform|escape}, sha256={$a.sha256|truncate:16:'...'|escape})</li>
+            {/foreach}
+            </ul>
+            <p class="text-muted">Production polls the manifest URL every few minutes and installs when this deployment ID changes.</p>
+          {else}
+            <p class="text-muted">No production deployment target is active yet.</p>
+          {/if}
+          <button type="button" class="btn btn-primary" id="ebDeployLatestBtn"><i class="fa fa-cloud-upload"></i> Deploy latest releases to production</button>
+          <span id="ebDeployMsg" class="text-muted" style="margin-left:10px;"></span>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-4">
+      <div class="panel panel-default">
+        <div class="panel-heading">Manifest URL</div>
+        <div class="panel-body">
+          <p class="eb-monospace" style="word-break:break-all;">{$settings.deploy_manifest_api_url|escape}</p>
+          <p class="help-block">Configure this URL and the shared secret on the production server (Settings → Production Deployment).</p>
+        </div>
+      </div>
+      {if $settings.deploy_sync_enabled}
+      <div class="panel panel-default">
+        <div class="panel-heading">Local Sync Status (consumer)</div>
+        <div class="panel-body">
+          <p><strong>Last synced deployment:</strong> {$settings.deploy_last_sync_id}<br>
+          <strong>Sync enabled:</strong> yes</p>
+        </div>
+      </div>
+      {/if}
+    </div>
+  </div>
+
+  <h4>Deployment History</h4>
+  <table class="table table-striped table-condensed">
+    <thead><tr><th>ID</th><th>Version</th><th>Commit</th><th>Job</th><th>Status</th><th>Activated</th></tr></thead>
+    <tbody>
+    {foreach $deployments as $d}
+      <tr>
+        <td>{$d.id}</td>
+        <td>{$d.version_label|escape}</td>
+        <td>{$d.git_commit|escape}</td>
+        <td>{if $d.job_id}<a href="{$baseUrl}&tab=detail&job_id={$d.job_id}">#{$d.job_id}</a>{else}-{/if}</td>
+        <td><span class="eb-pill {$d.status}">{$d.status}</span></td>
+        <td>{$d.activated_at}</td>
+      </tr>
+    {foreachelse}
+      <tr><td colspan="6" class="text-muted">No deployments yet.</td></tr>
+    {/foreach}
+    </tbody>
+  </table>
+
+  {if $syncRuns|@count > 0}
+  <h4>Sync Runs (this server)</h4>
+  <table class="table table-striped table-condensed">
+    <thead><tr><th>ID</th><th>Deployment</th><th>Status</th><th>Detail</th><th>Started</th><th>Ended</th></tr></thead>
+    <tbody>
+    {foreach $syncRuns as $s}
+      <tr>
+        <td>{$s.id}</td>
+        <td>{$s.deployment_id}</td>
+        <td><span class="eb-pill {$s.status}">{$s.status}</span></td>
+        <td>{$s.detail|escape}</td>
+        <td>{$s.started_at}</td>
+        <td>{$s.ended_at|default:'-'}</td>
+      </tr>
+    {/foreach}
+    </tbody>
+  </table>
+  {/if}
+
+  <script>
+  (function(){
+    var btn = document.getElementById('ebDeployLatestBtn');
+    if (!btn) return;
+    btn.addEventListener('click', function(){
+      if (!confirm('Deploy the current latest releases to production?')) return;
+      var msg = document.getElementById('ebDeployMsg');
+      msg.textContent = 'Publishing...';
+      var fd = new FormData();
+      fd.append('mode', 'latest');
+      fetch('/modules/addons/cloudstorage/api/admin_agent_deploy_publish.php',
+            {literal}{method:'POST', body: fd, credentials:'same-origin'}{/literal})
+        .then(function(r){ return r.json(); })
+        .then(function(d){
+          if (d.status === 'success') {
+            msg.textContent = 'Deployment ' + d.deployment_id + ' published (' + d.artifact_count + ' artifacts).';
+            setTimeout(function(){ location.reload(); }, 1200);
+          } else {
+            msg.textContent = 'Error: ' + (d.message || 'unknown');
+          }
+        });
+    });
+  })();
   </script>
 {/if}
 
@@ -323,6 +456,28 @@
         <input type="text" class="form-control" name="azure_ts_url" value="{$settings.azure_ts_url|escape}"></div>
       <div class="form-group"><label>AzureSignTool path (Windows)</label>
         <input type="text" class="form-control" name="azuresigntool_path" value="{$settings.azuresigntool|escape}"></div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Production Deployment</legend>
+      <div class="form-group"><label>Server role</label>
+        <select name="deploy_role" class="form-control" style="max-width:300px;">
+          <option value="publisher" {if $settings.deploy_role eq 'publisher'}selected{/if}>Publisher (dev — builds and serves manifest)</option>
+          <option value="consumer" {if $settings.deploy_role eq 'consumer'}selected{/if}>Consumer (production — pulls from dev)</option>
+        </select></div>
+      <div class="form-group"><label>Shared deploy secret <small class="text-muted">(leave blank to keep existing)</small></label>
+        <input type="password" class="form-control" name="deploy_shared_secret" value="" placeholder="same secret on dev and prod">
+        <p class="help-block">Used to authenticate manifest and artifact downloads between servers. Store the same value on both dev and production.</p></div>
+      <div class="form-group"><label>Manifest URL (consumer only)</label>
+        <input type="text" class="form-control" name="deploy_manifest_url" value="{$settings.deploy_manifest_url|escape}" placeholder="https://dev.eazybackup.ca/modules/addons/cloudstorage/api/agent_deploy_manifest.php">
+        <p class="help-block">On production, set this to the dev server's manifest endpoint.</p></div>
+      <div class="form-group"><label>Production publish directory (consumer only)</label>
+        <input type="text" class="form-control" name="deploy_publish_dir" value="{$settings.deploy_publish_dir|escape}" placeholder="/var/www/eazybackup.ca/accounts/client_installer">
+        <p class="help-block">Where synced artifacts are installed on production. Defaults to the build publish directory when blank.</p></div>
+      <div class="checkbox"><label><input type="checkbox" name="deploy_sync_enabled" {if $settings.deploy_sync_enabled}checked{/if}> Enable deployment sync cron (consumer)</label></div>
+      {if $settings.deploy_role eq 'publisher'}
+      <p class="help-block">Publisher manifest URL: <span class="eb-monospace">{$settings.deploy_manifest_api_url|escape}</span></p>
+      {/if}
     </fieldset>
 
     <button type="submit" class="btn btn-primary">Save Settings</button>

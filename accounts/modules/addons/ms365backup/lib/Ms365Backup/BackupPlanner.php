@@ -11,6 +11,7 @@ final class BackupPlanner
     /**
      * @param list<string> $selectedIds
      * @param array<string, mixed>|null $inventory
+     * @param array<string, array<string, bool>> $scopeOverridesByResourceId
      * @return array{
      *   runnable: list<array<string, mixed>>,
      *   deferred: list<array<string, mixed>>,
@@ -18,9 +19,9 @@ final class BackupPlanner
      *   warnings: list<string>
      * }
      */
-    public function plan(array $selectedIds, ?array $inventory): array
+    public function plan(array $selectedIds, ?array $inventory, array $scopeOverridesByResourceId = []): array
     {
-        $queue = $this->buildPhysicalQueue($selectedIds, $inventory, BackupScope::empty());
+        $queue = $this->buildPhysicalQueue($selectedIds, $inventory, BackupScope::empty(), $scopeOverridesByResourceId);
         $runnable = [];
         $deferred = [];
         foreach ($queue['physical_jobs'] as $job) {
@@ -464,12 +465,11 @@ final class BackupPlanner
     {
         $id = (string) ($resource['id'] ?? '');
         $type = (string) ($resource['resource_type'] ?? '');
-        $base = BackupScope::forResourceType($type)->merge($defaultScope);
         if (isset($scopeOverridesByResourceId[$id])) {
-            return $base->merge(BackupScope::fromJson($scopeOverridesByResourceId[$id]));
+            return BackupScope::fromAuthoritativeOverride($type, $scopeOverridesByResourceId[$id]);
         }
 
-        return $base;
+        return BackupScope::forResourceType($type)->merge($defaultScope);
     }
 
     private function resolveUserEngineStatus(BackupScope $scope): string

@@ -43,50 +43,35 @@ func restoreMailMessage(ctx context.Context, client *graph.Client, userID string
 	return false, err
 }
 
-func restoreCalendarEvent(ctx context.Context, client *graph.Client, userID string, data []byte, policy string) (bool, error) {
+func restoreCalendarEvent(ctx context.Context, client *graph.Client, userID, snapshotPath string, data []byte, policy string) (bool, error) {
 	event, err := parseJSON(data)
 	if err != nil {
 		return false, err
 	}
 	// Calendar events captured from Graph do not carry their owning calendar id in
-	// the body — it is only present in the snapshot path, which is lossy (safeID
-	// rewrites '/', '\\' and ':' to '_') and cannot be turned back into a real
-	// Graph calendar id. When the id is absent we restore into the user's default
-	// calendar via /users/{id}/events. Using mapString avoids the previous bug
-	// where fmt.Sprint(nil) produced the literal string "<nil>", which then
-	// defeated the empty-string fallback and POSTed to /calendars/<nil>/events.
+	// the body — it is only present in the snapshot path. When the id is absent we
+	// restore into the user's default calendar via /users/{id}/events.
 	calendarID := mapString(event, "calendarId")
 	if calendarID == "" {
 		calendarID = mapString(event, "parentCalendarId")
 	}
+	if calendarID == "" {
+		calendarID = calendarIDFromSnapshotPath(snapshotPath)
+	}
 
 	iCalUID := mapString(event, "iCalUId")
 	if policy == "skip_duplicates" && iCalUID != "" {
-		escaped := strings.ReplaceAll(iCalUID, "'", "''")
-		filter := fmt.Sprintf("iCalUId eq '%s'", escaped)
 		listPath := fmt.Sprintf("/users/%s/events", userID)
 		if calendarID != "" {
 			listPath = fmt.Sprintf("/users/%s/calendars/%s/events", userID, calendarID)
 		}
-		existing, err := client.Paginate(ctx, listPath, map[string]string{
-			"$filter": filter,
-			"$top":    "1",
-			"$select": "id",
-		})
+		existing, err := client.FindEventsByICalUID(ctx, listPath, iCalUID)
 		if err == nil && len(existing) > 0 {
 			return true, nil
 		}
 	}
 
-	delete(event, "@odata.context")
-	delete(event, "id")
-	delete(event, "@odata.etag")
-	delete(event, "changeKey")
-	delete(event, "calendarId")
-	delete(event, "parentCalendarId")
-	// Suppress meeting invitations — restore body without attendees first.
-	delete(event, "attendees")
-	delete(event, "responseStatus")
+	sanitizeEventForCreate(event)
 
 	postPath := fmt.Sprintf("/users/%s/events", userID)
 	if calendarID != "" {

@@ -111,7 +111,7 @@ Customer → cloudstorage (e3backup view=ms365, APIs ms365_*)
 
 | Module | Responsibility |
 |--------|----------------|
-| **ms365backup** | Graph backup engines, `BackupOrchestrator`, queue worker, `ms365_tenant_records`, admin dev UI, services consumed by cloudstorage |
+| **ms365backup** | Graph client, inventory, job planning, Kopia worker queue/claim, `ms365_tenant_records`, admin dev UI, services consumed by cloudstorage |
 | **cloudstorage** | e3 Cloud Backup UI, OAuth callback route, bucket lifecycle, `Ms365E3Controller` bridge, `api/ms365_*.php` |
 | **eazybackup / Comet** | **Do not use** for MS365 backup |
 
@@ -126,9 +126,10 @@ Customer → cloudstorage (e3backup view=ms365, APIs ms365_*)
 | WHMCS addon entry | `modules/addons/ms365backup/ms365backup.php` |
 | Entra / tenant | `lib/Ms365Backup/PlatformEntraConfig.php`, `EntraConsentService.php`, `TenantRecordRepository.php` |
 | Storage | `BackupStorageFactory.php`, `CloudStorageBackupStorage.php`, `LocalFilesystemBackupStorage.php` |
-| Orchestration | `BackupOrchestrator.php`, `BackupPlanner.php`, `BackupEngineRegistry.php` |
+| Orchestration | `BackupPlanner.php`, `WorkerClaimService.php`, `WorkerSpawner.php`, `Ms365JobScheduler.php` |
+| Admin CLI | `bin/ms365_admin.php` (discover, check-access, verify-calendar) |
 | Customer backup API (PHP) | `CustomerBackupService.php` |
-| Queue | `JobQueueRepository.php`, `bin/ms365_queue_worker.php`, `WorkerSpawner.php` |
+| Queue | `JobQueueRepository.php`, `WorkerSpawner.php`, Go worker fleet |
 | Restore | `RestoreOrchestrator.php`, `MailRestoreService.php`, `RestoreRunRepository.php` |
 | Ops | `FailedEngineRetryService.php`, `AccessHealthService.php` |
 | Admin UI / API | `pages/admin/`, `pages/admin/api.php` |

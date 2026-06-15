@@ -21,6 +21,10 @@ $files = [
     $base . '/Steps/Verify.php',
     $base . '/Steps/Publish.php',
     $base . '/BuildRunner.php',
+    $base . '/DeployAuth.php',
+    $base . '/DeployStore.php',
+    $base . '/DeployPublisher.php',
+    $base . '/DeploySync.php',
 ];
 foreach ($files as $f) {
     require_once $f;

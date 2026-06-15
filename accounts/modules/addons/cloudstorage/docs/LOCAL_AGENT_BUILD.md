@@ -728,7 +728,7 @@ host (default: lab Server 2025 at `192.168.92.210`).
 WHMCS Admin -> Addons -> Cloud Storage -> Agent Builds
 ```
 
-Tabs: Dashboard, New Build, Build History, Build Detail, Releases, Settings.
+Tabs: Dashboard, New Build, Build History, Build Detail, Releases, Deployment, Settings.
 
 ### One-time Windows build host prerequisites (Server 2025, 192.168.92.210)
 
@@ -816,8 +816,11 @@ On a successful build with **Publish** checked, the runner writes versioned and 
 | Linux    | `e3-backup-agent-linux-<version>` | `e3-backup-agent-linux` |
 | Windows  | `e3-backup-agent-setup-<version>.exe` | `e3-backup-agent-setup.exe` |
 | Recovery | `e3-recovery-agent-<version>.exe` | `e3-recovery-agent.exe` |
+| Recovery media creator | `e3-recovery-media-creator-<version>.exe` | `e3-recovery-media-creator.exe` |
 
 A row is inserted in `s3_agent_releases` for each artifact (sha256, size, signed metadata, version, commit, download URL). The Releases tab lets admins promote any prior versioned file back to "latest".
+
+When **Also build recovery agent** is checked, the pipeline also builds and publishes `e3-recovery-media-creator.exe`.
 
 ### Troubleshooting
 
@@ -826,3 +829,93 @@ A row is inserted in `s3_agent_releases` for each artifact (sha256, size, signed
 - **`windows_inno` fails with "missing AssetsDir":** the staged assets directory is missing or the `.iss` references unstaged paths. The runner stages `tray_logo-drk-orange120x120.png` and `.svg` from `/var/www/eazybackup.ca/e3-cloudbackup-worker/assets/`; confirm these exist.
 - **`windows_sign` fails with HTTP 401/403 from Key Vault:** the App registration is missing Key Vault permissions, or the client secret expired; rotate via Settings.
 - **`publish` fails with "permission denied":** the runner user (`www-data` by default) cannot write to `/accounts/client_installer/`. Either chown the directory to `www-data` or run the runner as a user that can.
+
+---
+
+## Production Deployment (dev → accounts.eazybackup.ca)
+
+Builds run on the **dev** WHMCS server (`dev.eazybackup.ca`). Customer downloads
+live on **production** (`accounts.eazybackup.ca/client_installer/`). The
+deployment subsystem uses an explicit **publish on dev** + **pull on prod**
+model.
+
+### Architecture
+
+1. Dev admin builds and publishes artifacts to dev `client_installer/`.
+2. Dev admin opens **Agent Builds → Deployment** and clicks **Deploy to production** (or checks **Deploy to production after publish** on the New Build form).
+3. Dev records an active deployment manifest at:
+   ```
+   https://dev.eazybackup.ca/modules/addons/cloudstorage/api/agent_deploy_manifest.php
+   ```
+4. Production runs `crons/agent_deploy_sync.php` every ~5 minutes. It fetches the manifest (Bearer token), downloads artifacts via signed nonce URLs, verifies SHA-256, and installs into prod `client_installer/` plus `s3_agent_releases`.
+
+### One-time setup
+
+**On dev (publisher):**
+
+1. Agent Builds → Settings → Production Deployment
+2. Set **Server role** to `Publisher (dev)`
+3. Generate a long random shared secret; paste into **Shared deploy secret** and save
+4. Note the **Publisher manifest URL** shown on the settings page
+
+**On production (consumer):**
+
+1. Deploy the cloudstorage addon code (same version as dev)
+2. Agent Builds → Settings → Production Deployment
+3. Set **Server role** to `Consumer (production)`
+4. Paste the **same shared secret**
+5. Set **Manifest URL** to the dev manifest endpoint (see above)
+6. Set **Production publish directory** (e.g. `/var/www/eazybackup.ca/accounts/client_installer`)
+7. Enable **Enable deployment sync cron**
+8. Schedule the sync runner (systemd recommended):
+
+```ini
+# /etc/systemd/system/e3-agent-deploy-sync.service
+[Unit]
+Description=e3 Agent Deploy Sync (pull from dev)
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=www-data
+WorkingDirectory=/var/www/eazybackup.ca/accounts
+ExecStart=/usr/bin/php /var/www/eazybackup.ca/accounts/modules/addons/cloudstorage/crons/agent_deploy_sync.php
+```
+
+```ini
+# /etc/systemd/system/e3-agent-deploy-sync.timer
+[Unit]
+Description=Poll dev for agent installer deployments every 5 minutes
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=5min
+AccuracySec=30s
+Unit=e3-agent-deploy-sync.service
+
+[Install]
+WantedBy=timers.target
+```
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now e3-agent-deploy-sync.timer
+```
+
+### Deploy workflow
+
+1. Build with **Publish** checked (and optionally **Deploy to production after publish**)
+2. Or, after a successful build: **Deployment** tab → **Deploy latest releases to production**
+3. Or, from **Build Detail**: **Deploy to Production** for that specific job
+4. Production picks up the new `deployment_id` within ~5 minutes
+5. Verify prod downloads:
+   - `https://accounts.eazybackup.ca/client_installer/e3-backup-agent-setup.exe`
+   - `https://accounts.eazybackup.ca/client_installer/e3-backup-agent-linux`
+
+### Deployment troubleshooting
+
+- **Manifest returns 401:** shared secret mismatch between dev and prod
+- **SHA-256 mismatch on prod:** re-deploy from dev; check for partial downloads
+- **Prod never updates:** confirm `e3-agent-deploy-sync.timer` is active; run the sync script manually as `www-data`
+- **Prod cannot reach dev:** production must have outbound HTTPS to `dev.eazybackup.ca`
+- **Deploy button fails on dev:** ensure artifacts exist in dev `client_installer/` and `s3_agent_releases` has rows for them

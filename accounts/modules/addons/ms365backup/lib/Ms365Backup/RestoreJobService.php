@@ -20,10 +20,6 @@ final class RestoreJobService
         string $jobId,
         array $selection,
     ): array {
-        if (!Ms365EngineConfig::usesKopiaWorker()) {
-            throw new \RuntimeException('Microsoft 365 restore requires Kopia engine mode.');
-        }
-
         $record = TenantRecordRepository::getForBackupUser($clientId, $backupUserId);
         if ($record === null) {
             $record = TenantRecordRepository::getPrimaryForClient($clientId);

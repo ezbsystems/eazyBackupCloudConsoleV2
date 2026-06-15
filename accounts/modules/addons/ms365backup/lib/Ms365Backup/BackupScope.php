@@ -36,20 +36,68 @@ final class BackupScope
 
     public static function forResourceType(string $resourceType): self
     {
-        $scope = new self();
-        foreach (TenantResource::capabilityChips($resourceType) as $chip) {
-            $key = self::chipToKey($chip);
-            if ($key !== '') {
-                $scope->flags[$key] = false;
-            }
-        }
+        $scope = self::emptyCapabilityTemplate($resourceType);
 
         if (in_array($resourceType, [TenantResource::TYPE_USER, TenantResource::TYPE_MAILBOX], true)) {
             $scope->flags[self::MAIL] = true;
             $scope->flags[self::CALENDAR] = true;
+        } elseif ($resourceType === TenantResource::TYPE_USER_ONEDRIVE) {
+            $scope->flags[self::ONEDRIVE] = true;
+            $scope->flags[self::FILES] = true;
+        } elseif ($resourceType === TenantResource::TYPE_SHAREPOINT_SITE) {
+            $scope->flags[self::FILES] = true;
+            $scope->flags[self::LISTS] = true;
+        } elseif ($resourceType === TenantResource::TYPE_TEAM) {
+            $scope->flags[self::TEAMS_METADATA] = true;
+            $scope->flags[self::TEAMS_MESSAGES] = true;
+            $scope->flags[self::FILES] = true;
+        } elseif ($resourceType === TenantResource::TYPE_TEAM_CHANNEL) {
+            $scope->flags[self::TEAMS_MESSAGES] = true;
+            $scope->flags[self::FILES] = true;
+        } elseif ($resourceType === TenantResource::TYPE_M365_GROUP) {
+            $scope->flags[self::MAIL] = true;
+            $scope->flags[self::CALENDAR] = true;
+            $scope->flags[self::FILES] = true;
+        } elseif ($resourceType === TenantResource::TYPE_PLANNER_PLAN) {
+            $scope->flags[self::PLANNER] = true;
+        } elseif ($resourceType === TenantResource::TYPE_ONENOTE_NOTEBOOK) {
+            $scope->flags[self::ONENOTE] = true;
         }
 
         return $scope;
+    }
+
+    /**
+     * All capability keys for a resource type initialized to false.
+     */
+    public static function emptyCapabilityTemplate(string $resourceType): self
+    {
+        $flags = [];
+        foreach (TenantResource::capabilityChips($resourceType) as $chip) {
+            $key = self::chipToKey($chip);
+            if ($key !== '') {
+                $flags[$key] = false;
+            }
+        }
+
+        return new self($flags);
+    }
+
+    /**
+     * Customer wizard per-resource scope: override booleans are authoritative.
+     *
+     * @param array<string, mixed> $overrideFlags
+     */
+    public static function fromAuthoritativeOverride(string $resourceType, array $overrideFlags): self
+    {
+        $flags = self::emptyCapabilityTemplate($resourceType)->toArray();
+        foreach ($overrideFlags as $key => $value) {
+            if (is_string($key)) {
+                $flags[$key] = (bool) $value;
+            }
+        }
+
+        return new self($flags);
     }
 
     /**

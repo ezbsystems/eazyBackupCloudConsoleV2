@@ -15,6 +15,7 @@ type OneDriveSyncOptions struct {
 	DeltaLink     string
 	Overlay       *graphfs.OverlayBuilder
 	ShardKey      string
+	Shard         ShardFilter
 	OnProgress    func(itemsDone, itemsTotal int, bytesEstimate int64)
 }
 
@@ -32,7 +33,7 @@ func SyncOneDrive(ctx context.Context, client *graph.Client, opts OneDriveSyncOp
 	if opts.Overlay == nil {
 		return nil, fmt.Errorf("onedrive sync requires overlay builder")
 	}
-	stats := map[string]int{"items": 0}
+	stats := map[string]int{"items": 0, "folders": 0, "removed": 0, "skipped_shard": 0}
 	shard := opts.ShardKey
 
 	items, deltaLink, err := client.PaginateDelta(ctx, fmt.Sprintf("/drives/%s/root/delta", opts.DriveID), opts.DeltaLink, "id,name,size,file,folder,parentReference,lastModifiedDateTime,webUrl", 200)
@@ -59,6 +60,10 @@ func SyncOneDrive(ctx context.Context, client *graph.Client, opts OneDriveSyncOp
 		}
 		if isDriveFolder(item) {
 			stats["folders"]++
+			continue
+		}
+		if !opts.Shard.IncludesItem(id) {
+			stats["skipped_shard"]++
 			continue
 		}
 		path := driveContentPath(opts.AzureTenantID, opts.DriveID, item)

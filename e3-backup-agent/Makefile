@@ -34,6 +34,13 @@ build-recovery-windows:
 	@CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags="$(LDFLAGS)" -o bin/e3-recovery-agent.exe ./cmd/recovery
 	@echo "Build complete: bin/e3-recovery-agent.exe"
 
+# Cross-compile recovery media creator (windows/amd64)
+build-recovery-media-creator:
+	@echo "Building e3-recovery-media-creator (windows/amd64) version=$(VERSION) commit=$(COMMIT)..."
+	@mkdir -p bin
+	@CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags="$(LDFLAGS)" -o bin/e3-recovery-media-creator.exe ./cmd/recovery-media-creator
+	@echo "Build complete: bin/e3-recovery-media-creator.exe"
+
 # Cross-compile ALL Windows binaries (agent + tray) for installer
 build-windows: build-agent-windows build-tray-windows
 	@echo ""

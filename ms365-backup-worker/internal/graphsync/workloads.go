@@ -39,19 +39,21 @@ func (w *WorkloadRunner) Run(ctx context.Context) (*WorkloadResult, error) {
 	var itemsDone int64
 	var bytesTotal int64
 
-	_, shard := ParsePhysicalKey(w.Job.PhysicalKey)
+	_, shardKey := ParsePhysicalKey(w.Job.PhysicalKey)
 	if w.Job.Shard != nil {
 		switch w.Job.Shard.Kind {
 		case "mail_folder":
 			if w.Job.Shard.Segment != "" {
-				shard = "mail:" + w.Job.Shard.Segment
+				shardKey = "mail:" + w.Job.Shard.Segment
 			}
 		default:
 			if w.Job.Shard.Segment != "" {
-				shard = w.Job.Shard.Segment
+				shardKey = w.Job.Shard.Segment
 			}
 		}
 	}
+	shardFilter := ShardFilterFromJob(shardKey, w.Job.Shard)
+
 	progress := func(phase string, done, total int, bytes int64) {
 		atomic.StoreInt64(&itemsDone, int64(done))
 		atomic.StoreInt64(&bytesTotal, bytes)
@@ -70,7 +72,7 @@ func (w *WorkloadRunner) Run(ctx context.Context) (*WorkloadResult, error) {
 			DeltaStates:      mailStates,
 			Staging:          w.Overlay,
 			UseBatchFallback: w.UseBatchFallback,
-			ShardKey:         shard,
+			ShardKey:         shardKey,
 			OnProgress:       func(d, t int, b int64) { progress("mail", d, t, b) },
 		})
 		if err != nil {
@@ -107,14 +109,15 @@ func (w *WorkloadRunner) Run(ctx context.Context) (*WorkloadResult, error) {
 	}
 
 	if w.allowsWorkload("onedrive") {
-		deltaLink := w.singleDeltaForWorkload("onedrive", shard)
+		deltaLink := w.singleDeltaForWorkload("onedrive", shardKey)
 		odRes, err := SyncOneDrive(ctx, w.Client, OneDriveSyncOptions{
 			AzureTenantID: w.Job.AzureTenantID,
 			DriveID:       w.Job.GraphID,
 			Parallel:      w.Parallel,
 			DeltaLink:     deltaLink,
 			Overlay:       w.Overlay,
-			ShardKey:      shard,
+			ShardKey:      shardKey,
+			Shard:         shardFilter,
 			OnProgress:    func(d, t int, b int64) { progress("onedrive", d, t, b) },
 		})
 		if err != nil {
@@ -131,6 +134,8 @@ func (w *WorkloadRunner) Run(ctx context.Context) (*WorkloadResult, error) {
 			AzureTenantID: w.Job.AzureTenantID,
 			SiteID:        w.Job.GraphID,
 			Parallel:      w.Parallel,
+			DeltaStates:   w.deltaForWorkload("sharepoint"),
+			Shard:         shardFilter,
 			Staging:       w.Overlay,
 			OnProgress:    func(d, t int, b int64) { progress("sharepoint", d, t, b) },
 		})
@@ -138,6 +143,27 @@ func (w *WorkloadRunner) Run(ctx context.Context) (*WorkloadResult, error) {
 			return nil, fmt.Errorf("sharepoint: %w", err)
 		}
 		stats["sharepoint"] = spRes.Stats
+		if len(spRes.DeltaStates) > 0 {
+			deltaStates["sharepoint"] = spRes.DeltaStates
+		}
+	}
+
+	if w.allowsWorkload("sharepoint_lists") {
+		splRes, err := SyncSharePointLists(ctx, w.Client, SharePointListsSyncOptions{
+			AzureTenantID: w.Job.AzureTenantID,
+			SiteID:        w.Job.GraphID,
+			Parallel:      w.Parallel,
+			DeltaStates:   w.deltaForWorkload("sharepoint_lists"),
+			Staging:       w.Overlay,
+			OnProgress:    func(d, t int) { progress("sharepoint_lists", d, t, 0) },
+		})
+		if err != nil {
+			return nil, fmt.Errorf("sharepoint_lists: %w", err)
+		}
+		stats["sharepoint_lists"] = splRes.Stats
+		if len(splRes.DeltaStates) > 0 {
+			deltaStates["sharepoint_lists"] = splRes.DeltaStates
+		}
 	}
 
 	if w.allowsWorkload("teams") {
@@ -235,14 +261,20 @@ func (w *WorkloadRunner) singleDeltaForWorkload(workload, shard string) string {
 	return ""
 }
 
+func (w *WorkloadRunner) scopeFlag(key string, defaultWhenMissing bool) bool {
+	if w.Job.Scope != nil {
+		if v, ok := w.Job.Scope[key]; ok {
+			return v
+		}
+	}
+	return defaultWhenMissing
+}
+
 func (w *WorkloadRunner) enabled(name string) bool {
 	if w.Job.Workloads == nil {
 		return name == "mail"
 	}
 	if v, ok := w.Job.Workloads[name]; ok {
-		return v
-	}
-	if v, ok := w.Job.Scope[name]; ok {
 		return v
 	}
 	return false
@@ -256,11 +288,25 @@ func (w *WorkloadRunner) allowsWorkload(name string) bool {
 	kind, _, _ := strings.Cut(baseKey, ":")
 	switch name {
 	case "mail", "calendar", "contacts", "tasks":
-		return kind == "user" || kind == "mailbox"
+		if kind != "user" && kind != "mailbox" {
+			return false
+		}
+		return w.scopeFlag(name, true)
 	case "onedrive":
-		return kind == "drive" || kind == "onedrive"
+		if kind != "drive" && kind != "onedrive" {
+			return false
+		}
+		return w.scopeFlag("onedrive", true) || w.scopeFlag("files", true)
 	case "sharepoint":
-		return kind == "site"
+		if kind != "site" {
+			return false
+		}
+		return w.scopeFlag("files", true)
+	case "sharepoint_lists":
+		if kind != "site" {
+			return false
+		}
+		return w.scopeFlag("lists", true)
 	case "teams":
 		return kind == "team" || kind == "channel"
 	case "planner":

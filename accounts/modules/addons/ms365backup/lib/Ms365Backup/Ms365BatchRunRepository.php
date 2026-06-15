@@ -784,6 +784,13 @@ final class Ms365BatchRunRepository
                 default => 'warning',
             };
             $update['finished_at'] = date('Y-m-d H:i:s');
+            if (in_array($update['status'], ['failed', 'warning'], true)
+                && Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'error_summary')) {
+                $summary = self::collectChildErrorSummary($batchRunId);
+                if ($summary !== '') {
+                    $update['error_summary'] = $summary;
+                }
+            }
         } else {
             $update['status'] = 'running';
         }

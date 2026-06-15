@@ -45,7 +45,19 @@ Successful builds publish versioned artifacts plus "latest" aliases into
 `s3_agent_releases` row.
 
 See `LOCAL_AGENT_BUILD.md` for full setup instructions, signing prerequisites,
-and the systemd unit/timer template.
+the systemd unit/timer template, and **production deployment** from dev to
+`accounts.eazybackup.ca`.
+
+## Production deployment
+
+Dev builds publish to the dev server's `client_installer/`. To make installers
+available to customers on production, use **Agent Builds → Deployment**:
+
+1. Admin explicitly promotes a build (or latest releases) to the production manifest.
+2. Production cron (`crons/agent_deploy_sync.php`) polls the dev manifest URL every ~5 minutes.
+3. New artifacts are verified (SHA-256) and installed into prod `client_installer/` and `s3_agent_releases`.
+
+See the **Production Deployment** section in `LOCAL_AGENT_BUILD.md` for setup.
 
 ## Customer download paths
 
@@ -66,12 +78,16 @@ file back to "latest".
 | `s3_agent_build_jobs` | One row per build attempt (status, platform, git ref/commit, version label, flags, error). |
 | `s3_agent_build_steps` | One row per pipeline step per job (status, exit code, log path, byte count). |
 | `s3_agent_releases` | One row per published artifact (platform, sha256, size, signed metadata, latest flag, download URL). |
+| `s3_agent_deployments` | Production deployment manifests created on dev when admin deploys. |
+| `s3_agent_deploy_artifacts` | Per-artifact metadata for each deployment (sha256, filenames). |
+| `s3_agent_deploy_sync_runs` | Audit log of prod-side sync attempts. |
 
 ## Files added by the build subsystem
 
 ```
 accounts/modules/addons/cloudstorage/
   crons/agent_build_runner.php
+  crons/agent_deploy_sync.php
   pages/admin/agent_builds.php
   templates/admin/agent_builds.tpl
   lib/Admin/AgentBuild/
@@ -82,6 +98,10 @@ accounts/modules/addons/cloudstorage/
     WindowsRemote.php     - SSH/SCP wrapper for the Windows build host
     AzureSigner.php       - AzureSignTool command builder
     BuildRunner.php       - orchestrator
+    DeployAuth.php        - shared-secret + HMAC nonce auth for deploy APIs
+    DeployStore.php       - deployment manifest DB access
+    DeployPublisher.php   - create production deployment on dev
+    DeploySync.php        - pull + install artifacts on production
     Steps/{GitSync,GoTest,LinuxBuild,WindowsBuild,RecoveryBuild,
             WindowsStage,InnoCompile,AzureSign,WindowsFetch,Verify,Publish}.php
   api/
@@ -91,6 +111,10 @@ accounts/modules/addons/cloudstorage/
     admin_agent_build_cancel.php
     admin_agent_build_release_publish.php
     admin_agent_build_settings_test.php
+    agent_deploy_manifest.php
+    agent_deploy_artifact.php
+    admin_agent_deploy_publish.php
+    admin_agent_deploy_status.php
   storage/builds/         - per-job working directory, log files, fetched artifacts
 ```
 

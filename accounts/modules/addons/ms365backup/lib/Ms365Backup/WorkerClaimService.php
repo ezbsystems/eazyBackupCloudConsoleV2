@@ -116,7 +116,7 @@ final class WorkerClaimService
                 BackupRunRepository::update($runId, [
                     'status' => 'running',
                     'started_at' => $now,
-                    'engine_mode' => Ms365EngineConfig::usesKopiaWorker() ? 'kopia' : 'php',
+                    'engine_mode' => 'kopia',
                 ]);
             }
 
@@ -477,7 +477,15 @@ final class WorkerClaimService
         } elseif (str_starts_with($physical, 'drive:') || str_starts_with($physical, 'onedrive:')) {
             $only = ['onedrive'];
         } elseif (str_starts_with($physical, 'site:')) {
-            $only = ['sharepoint'];
+            $only = [];
+            $filesEnabled = !array_key_exists('files', $scope) || (bool) $scope['files'];
+            $listsEnabled = !array_key_exists('lists', $scope) || (bool) $scope['lists'];
+            if ($filesEnabled) {
+                $only[] = 'sharepoint';
+            }
+            if ($listsEnabled) {
+                $only[] = 'sharepoint_lists';
+            }
         } elseif (str_starts_with($physical, 'team:') || str_starts_with($physical, 'channel:')) {
             $only = ['teams'];
         } elseif (str_starts_with($physical, 'planner:')) {
@@ -492,12 +500,19 @@ final class WorkerClaimService
             return $flags;
         }
 
+        if ($only === []) {
+            return array_fill_keys(array_keys($flags), false);
+        }
+
         $platform = Ms365EngineConfig::workloadFlags();
         $narrowed = array_fill_keys(array_keys($flags), false);
         foreach ($only as $w) {
             $narrowed[$w] = (bool) ($platform[$w] ?? false);
             if (in_array($w, ['mail', 'calendar', 'contacts', 'tasks'], true) && array_key_exists($w, $scope)) {
                 $narrowed[$w] = $narrowed[$w] && (bool) $scope[$w];
+            }
+            if ($w === 'onedrive' && (array_key_exists('onedrive', $scope) || array_key_exists('files', $scope))) {
+                $narrowed[$w] = $narrowed[$w] && ((bool) ($scope['onedrive'] ?? false) || (bool) ($scope['files'] ?? false));
             }
         }
 
@@ -578,7 +593,7 @@ final class WorkerClaimService
      * Fail restore runs still marked running on a worker that reports zero load
      * (worker exited without sending complete/fail).
      */
-    public static function failOrphanedRestoreRunsForNode(string $nodeId, int $reportedLoad, int $staleSeconds = 120): int
+    public static function failOrphanedRestoreRunsForNode(string $nodeId, int $reportedLoad, int $staleSeconds = 180): int
     {
         if ($nodeId === '' || $reportedLoad > 0 || !Capsule::schema()->hasTable('ms365_restore_runs')) {
             return 0;

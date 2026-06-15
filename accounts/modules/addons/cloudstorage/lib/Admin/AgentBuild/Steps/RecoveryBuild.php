@@ -11,6 +11,11 @@ class RecoveryBuild extends StepBase
     {
         $repo = (string) Settings::get('agent_build_repo_path', '/var/www/eazybackup.ca/e3-backup-agent');
         $version = (string) ($job['version_label'] ?: 'dev');
-        return $runner->run(['make', 'VERSION=' . $version, 'build-recovery-windows'], $logPath, $repo);
+        $rc1 = $runner->run(['make', 'VERSION=' . $version, 'build-recovery-windows'], $logPath, $repo);
+        $rc2 = $runner->run(['make', 'VERSION=' . $version, 'build-recovery-media-creator'], $logPath, $repo);
+        if ($rc1 !== 0) {
+            return $rc1;
+        }
+        return $rc2;
     }
 }

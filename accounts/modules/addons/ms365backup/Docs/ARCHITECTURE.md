@@ -1,6 +1,18 @@
 # MS365 Backup — Architecture
 
-Admin-only WHMCS addon for backing up Microsoft 365 mailbox and calendar data via Microsoft Graph. This is an early development tool (single tenant, one user per run), not integrated with the eazybackup Comet product.
+Admin-only WHMCS addon for Microsoft 365 backup via Graph. **As of module 1.18.0**, all backup **execution** uses the **Kopia Go worker fleet**; PHP is the control plane only. Customer product UI lives in `cloudstorage` (e3).
+
+## Execution model (1.18+)
+
+| Layer | Responsibility |
+|-------|----------------|
+| **cloudstorage** | e3 wizard, job save, customer APIs |
+| **ms365backup PHP** | Inventory, `BackupPlanner`, queue, `WorkerClaimService`, restore orchestration |
+| **ms365-backup-worker (Go)** | Graph sync + Kopia snapshots in `e3ms365-*` buckets |
+
+Admin CLI: `bin/ms365_admin.php`. See `MS365_KOPIA_ENGINE.md`, `KOPIA_FILE_BACKUP_E2E.md`.
+
+Older sections below that reference `BackupOrchestrator` / PHP engines are **historical** (removed in 1.18.0).
 
 ---
 

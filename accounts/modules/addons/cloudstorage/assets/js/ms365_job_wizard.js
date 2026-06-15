@@ -1,16 +1,9 @@
 (function () {
     'use strict';
 
-    const INVENTORY_SECTIONS = [
-        { key: 'users', label: 'Users & mailboxes', types: ['user', 'mailbox'] },
-        { key: 'onedrive', label: 'OneDrive', types: ['user_onedrive'] },
-        { key: 'sharepoint', label: 'SharePoint sites', types: ['sharepoint_site'] },
-        { key: 'teams', label: 'Teams', types: ['team', 'team_channel'] },
-        { key: 'groups', label: 'Microsoft 365 groups', types: ['m365_group'] },
-        { key: 'planner', label: 'Planner', types: ['planner_plan'] },
-        { key: 'onenote', label: 'OneNote', types: ['onenote_notebook'] },
-        { key: 'directory', label: 'Tenant metadata', types: ['directory_baseline'] },
-    ];
+    const INVENTORY_SECTIONS = () => (
+        (window.ms365JobSelection && window.ms365JobSelection.SECTIONS) || []
+    );
 
     const RETENTION_OPTIONS = [
         { id: '1y', title: 'Default — 1 year', description: 'All backups for the last 30 days plus 1 backup per week for 52 weeks.' },
@@ -192,6 +185,25 @@
         }
     });
 
+    const DIRECTORY_BASELINE_USE_CASES = [
+        {
+            useCase: 'Point-in-time tenant catalog',
+            value: 'Know exactly which users and groups existed on a given backup date.',
+        },
+        {
+            useCase: 'Audit / compliance',
+            value: 'Lightweight export of directory state over time.',
+        },
+        {
+            useCase: 'Incident / support',
+            value: 'Compare who was in the tenant then vs now without parsing every mailbox backup.',
+        },
+        {
+            useCase: 'Coverage reference',
+            value: 'Includes all users and groups in one job, even ones you did not select for mail or OneDrive backup.',
+        },
+    ];
+
     window.ms365WizardApp = function ms365WizardApp() {
         return {
             step: 1,
@@ -212,14 +224,22 @@
             },
             disconnecting: false,
             confirmModal: { open: false, title: '', message: '', confirmLabel: '', action: '' },
+            directoryInfoModal: { open: false },
+            directoryBaselineUseCases: DIRECTORY_BASELINE_USE_CASES,
             editMode: false,
             jobId: '',
             backupUserId: '',
             status: { connected: false, needs_reconnect: false },
             inventory: { resources: [] },
-            inventorySections: INVENTORY_SECTIONS,
+            treesBySection: {},
+            selection: {},
+            expandedKeys: {},
+            scopeOverrides: {},
+            planWarnings: [],
+            planSummary: { runnable: 0, deferred: 0 },
+            selectionSummaryGroups: [],
+            savedSelectionIds: [],
             searchQuery: '',
-            selectedIds: [],
             scheduleFrequency: 'once_daily',
             retentionTier: '1y',
             retentionOptions: RETENTION_OPTIONS,
@@ -271,7 +291,13 @@
                 this.editMode = !!opts.editMode;
                 this.jobId = opts.jobId || '';
                 this.step = opts.step || (this.editMode ? 2 : 1);
-                this.selectedIds = [];
+                this.selection = {};
+                this.expandedKeys = {};
+                this.scopeOverrides = {};
+                this.planWarnings = [];
+                this.planSummary = { runnable: 0, deferred: 0 };
+                this.selectionSummaryGroups = [];
+                this.savedSelectionIds = [];
                 this.scheduleFrequency = 'once_daily';
                 this.retentionTier = '1y';
                 this.jobName = 'Microsoft 365 Backup';
@@ -341,6 +367,18 @@
                 this.confirmModal.open = false;
             },
 
+            isDirectoryBaselineNode(node) {
+                return !!node && node.resourceType === 'directory_baseline';
+            },
+
+            openDirectoryBaselineInfo() {
+                this.directoryInfoModal.open = true;
+            },
+
+            closeDirectoryBaselineInfo() {
+                this.directoryInfoModal.open = false;
+            },
+
             async executeConfirmModal() {
                 if (this.confirmModal.action === 'switch') {
                     await this.executeSwitchOrganization();
@@ -367,7 +405,8 @@
                             await this.loadStatus();
                         }
                         this.inventory = { resources: [] };
-                        this.selectedIds = [];
+                        this.treesBySection = {};
+                        this.selection = {};
                         this.step = 1;
                         this.confirmModal.open = false;
                         toast('success', 'Microsoft 365 disconnected.');
@@ -394,6 +433,8 @@
             close() {
                 this.stopConsentWait();
                 this.stopInventoryProgressPoll();
+                this.directoryInfoModal.open = false;
+                this.confirmModal.open = false;
                 const modal = document.getElementById('ms365JobWizardModal');
                 if (modal) modal.classList.add('hidden');
                 window.ms365WizardState.editMode = false;
@@ -419,8 +460,12 @@
                     toast('warning', this.status.needs_reconnect ? 'Reconnect Microsoft 365 first.' : 'Connect Microsoft 365 first.');
                     return;
                 }
-                if (this.step === 2 && this.selectedIds.length === 0) {
+                if (this.step === 2 && this.selectionCount() === 0) {
                     toast('warning', 'Select at least one resource.');
+                    return;
+                }
+                if (this.step === 2 && (this.planSummary.runnable || 0) === 0) {
+                    toast('warning', 'No runnable backup workloads match the current selection.');
                     return;
                 }
                 if (this.step < 4) {
@@ -430,7 +475,7 @@
 
             canProceed() {
                 if (this.step === 1) return this.isM365Connected();
-                if (this.step === 2) return this.selectedIds.length > 0;
+                if (this.step === 2) return this.selectionCount() > 0 && (this.planSummary.runnable || 0) > 0;
                 if (this.step === 3) return !!this.scheduleFrequency;
                 return true;
             },
@@ -719,6 +764,10 @@
                     const data = await res.json();
                     if (data.status === 'success') {
                         this.inventory = data.inventory || { resources: [] };
+                        this.rebuildTrees();
+                        if (this.savedSelectionIds.length > 0) {
+                            this.applySavedSelection();
+                        }
                         return true;
                     }
                     if (data.reconnect_required) {
@@ -798,9 +847,13 @@
                     if (data.status === 'success' && data.job) {
                         const j = data.job;
                         this.jobName = j.name || 'Microsoft 365 Backup';
-                        this.selectedIds = Array.isArray(j.selected_resource_ids) ? [...j.selected_resource_ids] : [];
+                        this.savedSelectionIds = Array.isArray(j.selected_resource_ids) ? [...j.selected_resource_ids] : [];
+                        this.scopeOverrides = j.scope_overrides || {};
                         this.scheduleFrequency = j.schedule_frequency || 'once_daily';
                         this.retentionTier = j.retention_tier || '1y';
+                        if (this.inventory.resources && this.inventory.resources.length > 0) {
+                            this.applySavedSelection();
+                        }
                     }
                 } catch (e) {
                     toast('error', 'Failed to load job.');
@@ -809,41 +862,152 @@
                 }
             },
 
-            filteredResources(types) {
-                const q = (this.searchQuery || '').toLowerCase();
-                const resources = this.inventory.resources || [];
-                return resources.filter((r) => {
-                    if (!types.includes(r.resource_type)) return false;
-                    if (!q) return true;
-                    const hay = JSON.stringify(r).toLowerCase();
-                    return hay.includes(q);
-                });
+            inventorySections() {
+                return INVENTORY_SECTIONS();
             },
 
-            selectedInSection(types) {
-                const resources = this.inventory.resources || [];
-                const byId = {};
-                resources.forEach((r) => { byId[r.id] = r; });
-                return this.selectedIds
-                    .filter((id) => {
-                        const r = byId[id];
-                        return r && types.includes(r.resource_type);
-                    })
-                    .map((id) => byId[id]);
+            selectionCount() {
+                return Object.keys(this.selection).filter((k) => this.selection[k]).length;
             },
 
-            toggleResource(id) {
-                const idx = this.selectedIds.indexOf(id);
-                if (idx >= 0) {
-                    this.selectedIds.splice(idx, 1);
-                } else {
-                    this.selectedIds.push(id);
+            selectionSummaryRowCount() {
+                if (!window.ms365JobSelection) return 0;
+                return window.ms365JobSelection.summaryRowCount(this.selectionSummaryGroups);
+            },
+
+            rebuildTrees() {
+                if (!window.ms365JobSelection) return;
+                this.treesBySection = window.ms365JobSelection.buildAllTrees(this.inventory);
+            },
+
+            applySavedSelection() {
+                if (!window.ms365JobSelection) return;
+                this.selection = window.ms365JobSelection.hydrateFromSavedJob(
+                    this.inventory,
+                    this.savedSelectionIds,
+                    this.scopeOverrides,
+                );
+                this.syncSelectionPayload();
+            },
+
+            syncSelectionPayload() {
+                if (!window.ms365JobSelection) return;
+                const payload = window.ms365JobSelection.buildSavePayload(
+                    this.inventory,
+                    this.treesBySection,
+                    this.selection,
+                );
+                this.scopeOverrides = payload.scope_overrides;
+                this.savedSelectionIds = payload.selected_resource_ids;
+                this.selectionSummaryGroups = window.ms365JobSelection.selectionSummary(
+                    this.inventory,
+                    this.treesBySection,
+                    this.selection,
+                );
+                this.refreshPlan();
+            },
+
+            async refreshPlan() {
+                if (!this.backupUserId || this.savedSelectionIds.length === 0) {
+                    this.planWarnings = [];
+                    this.planSummary = { runnable: 0, deferred: 0 };
+                    return;
+                }
+                try {
+                    const body = new URLSearchParams({
+                        user_id: this.backupUserId,
+                        selected_resource_ids: JSON.stringify(this.savedSelectionIds),
+                        scope_overrides: JSON.stringify(this.scopeOverrides || {}),
+                    });
+                    const res = await fetch(`${apiBase()}ms365_job_plan.php`, {
+                        method: 'POST',
+                        credentials: 'same-origin',
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                        body: body.toString(),
+                    });
+                    const data = await res.json();
+                    if (data.status === 'success' && data.plan) {
+                        this.planWarnings = data.plan.warnings || [];
+                        this.planSummary = data.plan.summary || { runnable: 0, deferred: 0 };
+                    }
+                } catch (e) {
+                    /* keep last plan */
                 }
             },
 
+            sectionHasNodes(sectionKey) {
+                const nodes = this.treesBySection[sectionKey] || [];
+                return nodes.some((n) => n.depth === 0);
+            },
+
+            visibleSectionNodes(sectionKey) {
+                const sel = window.ms365JobSelection;
+                if (!sel) return [];
+                const nodes = this.treesBySection[sectionKey] || [];
+                return sel.visibleNodes(nodes, this.selection, this.searchQuery, this.expandedKeys);
+            },
+
+            toggleExpandNode(sectionKey, node) {
+                if (!node.hasChildren) return;
+                this.expandedKeys[node.key] = !this.expandedKeys[node.key];
+            },
+
+            isNodeExpanded(node) {
+                return !!this.expandedKeys[node.key];
+            },
+
+            nodeCheckState(sectionKey, node) {
+                const sel = window.ms365JobSelection;
+                if (!sel) return 'unchecked';
+                const nodes = this.treesBySection[sectionKey] || [];
+                if (node.kind === 'parent') {
+                    return sel.parentCheckState(nodes, this.selection, node);
+                }
+                return sel.isChecked(this.selection, node.key) ? 'checked' : 'unchecked';
+            },
+
+            toggleTreeNode(sectionKey, node) {
+                const sel = window.ms365JobSelection;
+                if (!sel) return;
+                const nodes = this.treesBySection[sectionKey] || [];
+                sel.toggleNode(nodes, this.selection, node);
+                this.syncSelectionPayload();
+            },
+
+            setCheckboxIndeterminate(el, state) {
+                if (!el) return;
+                el.indeterminate = state === 'indeterminate';
+                el.checked = state === 'checked';
+            },
+
+            removeSummaryItem(sectionKey, item) {
+                const sel = window.ms365JobSelection;
+                if (!sel) return;
+                const nodes = this.treesBySection[sectionKey] || [];
+                nodes.forEach((node) => {
+                    if (!sel.isChecked(this.selection, node.key)) return;
+                    if (node.kind === 'capability' && item.subtitle === node.label) {
+                        const parent = nodes.find((n) => n.key === node.parentKey);
+                        if (parent && parent.label === item.label) {
+                            delete this.selection[node.key];
+                        }
+                    } else if ((node.kind === 'leaf' || node.kind === 'resource_child') && node.label === item.subtitle && item.label === node.label) {
+                        delete this.selection[node.key];
+                    } else if (node.kind === 'parent' && item.subtitle === 'All components' && node.label === item.label) {
+                        sel.toggleNode(nodes, this.selection, node);
+                    }
+                });
+                this.syncSelectionPayload();
+            },
+
             async save() {
-                if (this.selectedIds.length === 0) {
+                this.syncSelectionPayload();
+                if (this.savedSelectionIds.length === 0) {
                     toast('warning', 'Select at least one resource.');
+                    return;
+                }
+                if ((this.planSummary.runnable || 0) === 0) {
+                    toast('warning', 'No runnable backup workloads match the current selection.');
                     return;
                 }
                 this.saving = true;
@@ -853,7 +1017,8 @@
                         name: this.jobName,
                         schedule_frequency: this.scheduleFrequency,
                         retention_tier: this.retentionTier,
-                        selected_resource_ids: JSON.stringify(this.selectedIds),
+                        selected_resource_ids: JSON.stringify(this.savedSelectionIds),
+                        scope_overrides: JSON.stringify(this.scopeOverrides || {}),
                     });
                     if (this.editMode && this.jobId) {
                         body.set('job_id', this.jobId);
