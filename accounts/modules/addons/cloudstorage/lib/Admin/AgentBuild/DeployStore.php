@@ -161,6 +161,23 @@ class DeployStore
     ]);
   }
 
+  /** Record a completed sync attempt (including skipped/failed before install). */
+  public static function recordSyncOutcome(?int $deploymentId, string $status, string $detail = ''): void
+  {
+    if (!Capsule::schema()->hasTable('s3_agent_deploy_sync_runs')) {
+      return;
+    }
+    $now = date('Y-m-d H:i:s');
+    Capsule::table('s3_agent_deploy_sync_runs')->insert([
+      'deployment_id' => $deploymentId,
+      'status' => $status,
+      'detail' => mb_substr($detail, 0, 2000),
+      'started_at' => $now,
+      'ended_at' => $now,
+      'created_at' => $now,
+    ]);
+  }
+
   /** @return list<array> */
   public static function listSyncRuns(int $limit = 10): array
   {
