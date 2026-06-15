@@ -13,11 +13,19 @@ use WHMCS\Module\Addon\CloudStorage\Admin\AgentBuild\DeploySync;
 use WHMCS\Module\Addon\CloudStorage\Admin\AgentBuild\JobStore;
 
 $lockPath = JobStore::storageRoot() . '/.deploy_sync.lock';
-if (!is_dir(dirname($lockPath))) {
-    @mkdir(dirname($lockPath), 0750, true);
+$lockDir = dirname($lockPath);
+if (!is_dir($lockDir)) {
+    if (!@mkdir($lockDir, 0750, true) && !is_dir($lockDir)) {
+        fwrite(STDERR, "agent_deploy_sync: cannot create lock directory: $lockDir\n");
+        exit(1);
+    }
 }
-$lockHandle = fopen($lockPath, 'c');
-if (!$lockHandle || !flock($lockHandle, LOCK_EX | LOCK_NB)) {
+$lockHandle = @fopen($lockPath, 'c');
+if ($lockHandle === false) {
+    fwrite(STDERR, "agent_deploy_sync: cannot open lock file: $lockPath (check permissions for www-data)\n");
+    exit(1);
+}
+if (!flock($lockHandle, LOCK_EX | LOCK_NB)) {
     fwrite(STDERR, "agent_deploy_sync: another instance is running, exiting\n");
     exit(0);
 }

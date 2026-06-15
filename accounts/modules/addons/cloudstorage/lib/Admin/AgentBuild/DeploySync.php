@@ -204,8 +204,9 @@ class DeploySync
         throw new \RuntimeException('Invalid artifact entry in manifest: ' . $key);
       }
 
+      $expectedSize = (int) ($art['size_bytes'] ?? 0);
       $tmpPath = $stagingDir . '/' . $latestName . '.tmp';
-      self::downloadFile($downloadUrl, $tmpPath);
+      self::downloadFile($downloadUrl, $tmpPath, $expectedSize);
 
       $actualSha = strtolower(hash_file('sha256', $tmpPath) ?: '');
       if ($actualSha !== $expectedSha) {
@@ -248,34 +249,90 @@ class DeploySync
     return $installed;
   }
 
-  private static function downloadFile(string $url, string $destPath): void
+  private static function downloadFile(string $url, string $destPath, int $expectedSize = 0): void
   {
-    $ctx = stream_context_create([
-      'http' => [
-        'method' => 'GET',
-        'timeout' => 600,
-        'ignore_errors' => true,
-      ],
-      'ssl' => [
-        'verify_peer' => true,
-        'verify_peer_name' => true,
-      ],
-    ]);
-    $in = @fopen($url, 'rb', false, $ctx);
-    if ($in === false) {
-      throw new \RuntimeException('Unable to open download URL: ' . $url);
-    }
-    $out = @fopen($destPath, 'wb');
-    if ($out === false) {
+    $headers = [
+      'Accept: application/octet-stream',
+      'User-Agent: e3-agent-deploy-sync/1.0',
+    ];
+
+    if (function_exists('curl_init')) {
+      $out = @fopen($destPath, 'wb');
+      if ($out === false) {
+        throw new \RuntimeException('Unable to write staging file: ' . $destPath);
+      }
+      $ch = curl_init($url);
+      curl_setopt_array($ch, [
+        CURLOPT_FILE => $out,
+        CURLOPT_HTTPHEADER => $headers,
+        CURLOPT_TIMEOUT => 600,
+        CURLOPT_FOLLOWLOCATION => true,
+        CURLOPT_SSL_VERIFYPEER => true,
+        CURLOPT_SSL_VERIFYHOST => 2,
+      ]);
+      $ok = curl_exec($ch);
+      $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+      $err = curl_error($ch);
+      curl_close($ch);
+      fclose($out);
+
+      if ($ok === false) {
+        @unlink($destPath);
+        throw new \RuntimeException('Artifact download failed' . ($err !== '' ? ': ' . $err : ''));
+      }
+      if ($code === 401 || $code === 403) {
+        @unlink($destPath);
+        throw new \RuntimeException('Artifact download blocked (HTTP ' . $code . '): possible WAF or invalid nonce');
+      }
+      if ($code >= 400) {
+        @unlink($destPath);
+        throw new \RuntimeException('Artifact download failed (HTTP ' . $code . ')');
+      }
+    } else {
+      $ctx = stream_context_create([
+        'http' => [
+          'method' => 'GET',
+          'header' => implode("\r\n", $headers) . "\r\n",
+          'timeout' => 600,
+          'ignore_errors' => true,
+        ],
+        'ssl' => [
+          'verify_peer' => true,
+          'verify_peer_name' => true,
+        ],
+      ]);
+      $in = @fopen($url, 'rb', false, $ctx);
+      if ($in === false) {
+        throw new \RuntimeException('Unable to open download URL: ' . $url);
+      }
+      $out = @fopen($destPath, 'wb');
+      if ($out === false) {
+        fclose($in);
+        throw new \RuntimeException('Unable to write staging file: ' . $destPath);
+      }
+      stream_copy_to_stream($in, $out);
       fclose($in);
-      throw new \RuntimeException('Unable to write staging file: ' . $destPath);
+      fclose($out);
     }
-    stream_copy_to_stream($in, $out);
-    fclose($in);
-    fclose($out);
+
     if (!is_file($destPath) || filesize($destPath) === 0) {
       @unlink($destPath);
       throw new \RuntimeException('Downloaded file is empty: ' . $url);
+    }
+
+    $actualSize = (int) filesize($destPath);
+    if ($expectedSize > 0 && $actualSize !== $expectedSize) {
+      $preview = strtolower(hash_file('sha256', $destPath) ?: '');
+      @unlink($destPath);
+      if ($actualSize < 4096 && $preview !== '') {
+        throw new \RuntimeException(
+          'Artifact download size mismatch (expected ' . $expectedSize . ' bytes, got ' . $actualSize
+          . '); response may be a WAF block page (sha256 ' . $preview . ')'
+        );
+      }
+      throw new \RuntimeException(
+        'Artifact download size mismatch (expected ' . $expectedSize . ' bytes, got ' . $actualSize . ')'
+      );
     }
   }
 
