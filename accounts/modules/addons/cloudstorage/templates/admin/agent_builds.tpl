@@ -405,6 +405,9 @@
           } else {
             msg.textContent = 'Error: ' + (d.message || 'unknown');
           }
+        })
+        .catch(function(err){
+          msg.textContent = 'Request failed: ' + (err && err.message ? err.message : err);
         });
     });
   })();
@@ -475,6 +478,10 @@
         <input type="text" class="form-control" name="deploy_publish_dir" value="{$settings.deploy_publish_dir|escape}" placeholder="/var/www/eazybackup.ca/accounts/client_installer">
         <p class="help-block">Where synced artifacts are installed on production. Defaults to the build publish directory when blank.</p></div>
       <div class="checkbox"><label><input type="checkbox" name="deploy_sync_enabled" {if $settings.deploy_sync_enabled}checked{/if}> Enable deployment sync cron (consumer)</label></div>
+      {if $settings.deploy_role eq 'consumer'}
+      <button type="button" class="btn btn-default" id="ebDeploySyncTestBtn">Test deployment sync</button>
+      <div id="ebDeploySyncTestResults" style="margin-top:10px;"></div>
+      {/if}
       {if $settings.deploy_role eq 'publisher'}
       <p class="help-block">Publisher manifest URL: <span class="eb-monospace">{$settings.deploy_manifest_api_url|escape}</span></p>
       {/if}
@@ -504,6 +511,33 @@
         });
     });
   </script>
+{/if}
+
+{if $tab eq 'settings' && $settings.deploy_role eq 'consumer'}
+<script>
+(function(){
+  var btn = document.getElementById('ebDeploySyncTestBtn');
+  if (!btn) return;
+  btn.addEventListener('click', function(){
+    var box = document.getElementById('ebDeploySyncTestResults');
+    box.innerHTML = '<em>Running sync test...</em>';
+    fetch('/modules/addons/cloudstorage/api/admin_agent_deploy_sync_test.php',
+          {literal}{method:'POST', credentials:'same-origin'}{/literal})
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if (d.status !== 'success') { box.innerHTML = '<div class="alert alert-danger">' + (d.message||'failed') + '</div>'; return; }
+        var rows = '';
+        Object.keys(d.checks).forEach(function(k){
+          var c = d.checks[k];
+          rows += '<tr><td>' + c.name + '</td><td>' +
+            (c.ok ? '<span class="label label-success">OK</span>' : '<span class="label label-danger">FAIL</span>') +
+            '</td><td class="eb-monospace">' + (c.detail || '') + '</td></tr>';
+        });
+        box.innerHTML = '<table class="table table-condensed"><thead><tr><th>Check</th><th>Result</th><th>Detail</th></tr></thead><tbody>'+rows+'</tbody></table>';
+      });
+  });
+})();
+</script>
 {/if}
 
 {if $tab eq 'new'}

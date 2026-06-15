@@ -39,6 +39,7 @@ rsync -av --delete "$REPO_ACCOUNTS/modules/addons/cometbilling/"   "$PROD_ROOT/m
 rsync -av --delete "$REPO_ACCOUNTS/modules/addons/eazybackup/"     "$PROD_ROOT/modules/addons/eazybackup/"
 rsync -av --delete "$REPO_ACCOUNTS/modules/addons/hidepermissions/" "$PROD_ROOT/modules/addons/hidepermissions/"
 rsync -av --delete "$REPO_ACCOUNTS/modules/addons/mspconnect/"     "$PROD_ROOT/modules/addons/mspconnect/"
+rsync -av --delete "$REPO_ACCOUNTS/modules/addons/ms365backup/"     "$PROD_ROOT/modules/addons/ms365backup/"
 
 # Server + gateway modules
 rsync -av --delete "$REPO_ACCOUNTS/modules/servers/comet/" "$PROD_ROOT/modules/servers/comet/"
@@ -52,6 +53,7 @@ chown -R "$WEB_USER:$WEB_GROUP" \
   "$PROD_ROOT/modules/addons/cloudstorage" \
   "$PROD_ROOT/modules/addons/cometbilling" \
   "$PROD_ROOT/modules/addons/eazybackup" \
+  "$PROD_ROOT/modules/addons/ms365backup" \
   "$PROD_ROOT/modules/addons/hidepermissions" \
   "$PROD_ROOT/modules/addons/mspconnect" \
   "$PROD_ROOT/modules/servers/comet" \

@@ -15,31 +15,54 @@ class DeploySync
   public static function runOnce(): array
   {
     if (!Settings::getBool('agent_deploy_sync_enabled', false)) {
-      return ['status' => 'skipped', 'message' => 'Sync disabled'];
+      $r = ['status' => 'skipped', 'message' => 'Sync disabled'];
+      DeployStore::recordSyncOutcome(null, 'skipped', $r['message']);
+      return $r;
     }
 
     $manifestUrl = trim((string) Settings::get('agent_deploy_manifest_url', ''));
     if ($manifestUrl === '') {
-      return ['status' => 'skipped', 'message' => 'Manifest URL not configured'];
+      $r = ['status' => 'skipped', 'message' => 'Manifest URL not configured'];
+      DeployStore::recordSyncOutcome(null, 'skipped', $r['message']);
+      return $r;
     }
 
     $token = DeployAuth::sharedToken();
     if ($token === '') {
-      return ['status' => 'failed', 'message' => 'Deploy shared secret not configured'];
+      $r = ['status' => 'failed', 'message' => 'Deploy shared secret not configured'];
+      DeployStore::recordSyncOutcome(null, 'failed', $r['message']);
+      return $r;
     }
 
-    $manifest = self::fetchManifest($manifestUrl, $token);
+    try {
+      $manifest = self::fetchManifest($manifestUrl, $token);
+    } catch (\Throwable $e) {
+      $r = ['status' => 'failed', 'message' => $e->getMessage()];
+      DeployStore::recordSyncOutcome(null, 'failed', $r['message']);
+      return $r;
+    }
     if ($manifest === null) {
-      return ['status' => 'failed', 'message' => 'Unable to fetch deployment manifest'];
+      $r = ['status' => 'failed', 'message' => 'Unable to fetch deployment manifest (network or invalid response)'];
+      DeployStore::recordSyncOutcome(null, 'failed', $r['message']);
+      return $r;
+    }
+    if ($manifest === []) {
+      $r = ['status' => 'skipped', 'message' => 'No active deployment on publisher'];
+      DeployStore::recordSyncOutcome(null, 'skipped', $r['message']);
+      return $r;
     }
 
     $deploymentId = (int) ($manifest['deployment_id'] ?? 0);
     if ($deploymentId <= 0) {
-      return ['status' => 'skipped', 'message' => 'No active deployment on publisher'];
+      $r = ['status' => 'skipped', 'message' => 'No active deployment on publisher'];
+      DeployStore::recordSyncOutcome(null, 'skipped', $r['message']);
+      return $r;
     }
 
     if ($deploymentId === DeployStore::lastSyncId()) {
-      return ['status' => 'skipped', 'message' => 'Already synced deployment ' . $deploymentId];
+      $r = ['status' => 'skipped', 'message' => 'Already synced deployment ' . $deploymentId];
+      DeployStore::recordSyncOutcome($deploymentId, 'skipped', $r['message']);
+      return $r;
     }
 
     $runId = DeployStore::startSyncRun($deploymentId);
@@ -55,13 +78,75 @@ class DeploySync
     }
   }
 
-  /** @return array<string, mixed>|null */
+  /**
+   * @return array<string, mixed>|null null = hard failure; [] = auth ok but no deployment
+   */
   private static function fetchManifest(string $url, string $token): ?array
   {
+    $raw = self::httpGet($url, $token);
+    if ($raw === null) {
+      return null;
+    }
+    $decoded = json_decode($raw, true);
+    if (!is_array($decoded)) {
+      return null;
+    }
+    $status = (string) ($decoded['status'] ?? '');
+    if ($status === 'error') {
+      $msg = (string) ($decoded['message'] ?? 'unknown error');
+      if (stripos($msg, 'unauthorized') !== false) {
+        throw new \RuntimeException('Manifest auth failed: check shared deploy secret on consumer matches publisher');
+      }
+      throw new \RuntimeException('Manifest endpoint error: ' . $msg);
+    }
+    if ($status !== 'success') {
+      return null;
+    }
+    $manifest = $decoded['manifest'] ?? null;
+    if ($manifest === null) {
+      return [];
+    }
+    return is_array($manifest) ? $manifest : null;
+  }
+
+  private static function httpGet(string $url, string $token): ?string
+  {
+    $headers = [
+      DeployAuth::HEADER . ': ' . $token,
+      'Accept: application/json',
+      'User-Agent: e3-agent-deploy-sync/1.0',
+    ];
+
+    if (function_exists('curl_init')) {
+      $ch = curl_init($url);
+      curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_HTTPHEADER => $headers,
+        CURLOPT_TIMEOUT => 120,
+        CURLOPT_FOLLOWLOCATION => true,
+        CURLOPT_SSL_VERIFYPEER => true,
+        CURLOPT_SSL_VERIFYHOST => 2,
+      ]);
+      $raw = curl_exec($ch);
+      $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+      $err = curl_error($ch);
+      curl_close($ch);
+      if ($raw === false || $raw === '') {
+        throw new \RuntimeException('Manifest HTTP request failed' . ($err !== '' ? ': ' . $err : ''));
+      }
+      if ($code === 401 || $code === 403) {
+        throw new \RuntimeException('Manifest auth failed (HTTP ' . $code . '): shared deploy secret on consumer does not match publisher');
+      }
+      if ($code >= 400 && stripos((string) $raw, '{') !== 0) {
+        throw new \RuntimeException('Manifest HTTP ' . $code . ': non-JSON response (possible WAF block)');
+      }
+      return (string) $raw;
+    }
+
     $ctx = stream_context_create([
       'http' => [
         'method' => 'GET',
-        'header' => DeployAuth::HEADER . ': ' . $token . "\r\nAccept: application/json\r\n",
+        'header' => implode("\r\n", $headers) . "\r\n",
         'timeout' => 120,
         'ignore_errors' => true,
       ],
@@ -74,12 +159,7 @@ class DeploySync
     if ($raw === false || $raw === '') {
       return null;
     }
-    $decoded = json_decode($raw, true);
-    if (!is_array($decoded) || ($decoded['status'] ?? '') !== 'success') {
-      return null;
-    }
-    $manifest = $decoded['manifest'] ?? null;
-    return is_array($manifest) ? $manifest : null;
+    return (string) $raw;
   }
 
   /**
