@@ -109,6 +109,7 @@ final class StorageLayout
 
         $resourceType = match ($prefix) {
             'site' => TenantResource::TYPE_SHAREPOINT_SITE,
+            'list' => TenantResource::TYPE_SHAREPOINT_SITE,
             'onedrive', 'drive' => TenantResource::TYPE_USER_ONEDRIVE,
             'team' => TenantResource::TYPE_TEAM,
             'group' => TenantResource::TYPE_M365_GROUP,

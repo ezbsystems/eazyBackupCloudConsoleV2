@@ -28,7 +28,7 @@ function ms365backup_config(): array
     return [
         'name' => 'MS365 Backup',
         'description' => 'Admin-only Microsoft 365 backup development tool (mail, calendar, contacts, To Do, OneDrive).',
-        'version' => '1.18.0',
+        'version' => '1.25.0',
         'author' => 'eazyBackup',
         'language' => 'english',
         'fields' => [
@@ -111,6 +111,66 @@ function ms365backup_config(): array
                 'Type' => 'text',
                 'Size' => '4',
                 'Default' => '16',
+            ],
+            'ms365_shard_item_threshold' => [
+                'FriendlyName' => 'Shard item-count threshold',
+                'Type' => 'text',
+                'Size' => '16',
+                'Default' => '50000',
+                'Description' => 'Shard when inventory item_count hint exceeds this value.',
+            ],
+            'ms365_shard_target_items' => [
+                'FriendlyName' => 'Shard target items',
+                'Type' => 'text',
+                'Size' => '16',
+                'Default' => '25000',
+                'Description' => 'Target items per range shard when splitting by item count.',
+            ],
+            'ms365_list_job_item_threshold' => [
+                'FriendlyName' => 'SharePoint list job item threshold',
+                'Type' => 'text',
+                'Size' => '16',
+                'Default' => '50000',
+                'Description' => 'Emit a dedicated list:{listId} backup job when inventory item_count exceeds this value.',
+            ],
+            'ms365_list_shard_item_threshold' => [
+                'FriendlyName' => 'SharePoint list shard item threshold',
+                'Type' => 'text',
+                'Size' => '16',
+                'Default' => '500000',
+                'Description' => 'Split a list into createdDateTime range shards when item_count exceeds this value.',
+            ],
+            'ms365_list_shard_target_items' => [
+                'FriendlyName' => 'SharePoint list shard target items',
+                'Type' => 'text',
+                'Size' => '16',
+                'Default' => '100000',
+                'Description' => 'Target items per list time-range shard.',
+            ],
+            'ms365_list_shard_max_count' => [
+                'FriendlyName' => 'Max shards per SharePoint list',
+                'Type' => 'text',
+                'Size' => '4',
+                'Default' => '16',
+            ],
+            'ms365_batch_auto_retry_enabled' => [
+                'FriendlyName' => 'Batch auto-retry failed shards',
+                'Type' => 'yesno',
+                'Description' => 'On partial batch failure, re-queue only failed or never-started child workloads on the same batch.',
+            ],
+            'ms365_batch_auto_retry_max_rounds' => [
+                'FriendlyName' => 'Batch auto-retry max rounds',
+                'Type' => 'text',
+                'Size' => '4',
+                'Default' => '2',
+                'Description' => 'Maximum batch-level auto-retry rounds per parent run (default 2).',
+            ],
+            'ms365_graph_pagination_json' => [
+                'FriendlyName' => 'Graph pagination limits (JSON)',
+                'Type' => 'textarea',
+                'Rows' => '6',
+                'Cols' => '60',
+                'Description' => 'Per-workload max_pages and on_cap (fail|warn_continue). Keys: default, sharepoint, mail, etc.',
             ],
             'ms365_kopia_maintenance_interval_days' => [
                 'FriendlyName' => 'Kopia maintenance interval (days)',
@@ -199,6 +259,50 @@ function ms365backup_config(): array
                 'Type' => 'text',
                 'Size' => '8',
                 'Default' => '600',
+            ],
+            'pid_ms365_backup' => [
+                'FriendlyName' => 'MS365 Backup product ID',
+                'Type' => 'text',
+                'Size' => '8',
+                'Description' => 'WHMCS product ID for eazyBackup Microsoft 365 Backup (auto-set by product bootstrap).',
+            ],
+            'protected_user_price_cad' => [
+                'FriendlyName' => 'Protected User price (CAD)',
+                'Type' => 'text',
+                'Size' => '12',
+                'Default' => '0.00',
+                'Description' => 'Per Protected User per month; applied via invoice hook (not tblpricing).',
+            ],
+            'onedrive_included_gib' => [
+                'FriendlyName' => 'OneDrive included GiB per user',
+                'Type' => 'text',
+                'Size' => '8',
+                'Default' => '1024',
+            ],
+            'onedrive_overage_price_per_gib_cad' => [
+                'FriendlyName' => 'OneDrive overage price per GiB (CAD)',
+                'Type' => 'text',
+                'Size' => '12',
+                'Default' => '0.00',
+            ],
+            'ms365_trial_days' => [
+                'FriendlyName' => 'Trial length (days)',
+                'Type' => 'text',
+                'Size' => '4',
+                'Default' => '30',
+            ],
+            'ms365_config_option_ids' => [
+                'FriendlyName' => 'Config option map (JSON)',
+                'Type' => 'textarea',
+                'Rows' => '3',
+                'Cols' => '60',
+                'Description' => 'Auto-maintained JSON map of metric → tblproductconfigoptions.id.',
+            ],
+            'ms365_platform_tenant_id' => [
+                'FriendlyName' => 'MS365 platform RGW tenant ID',
+                'Type' => 'text',
+                'Size' => '16',
+                'Description' => 'Optional Ceph tenant for the global ms365_platform_owner (defaults to primary cluster tenant).',
             ],
         ],
     ];
@@ -373,6 +477,7 @@ function ms365backup_activate(): array
         ms365backup_apply_schema();
         ms365backup_apply_migrations();
         ms365backup_ensure_storage();
+        ms365backup_bootstrap_billing('activate');
         return ['status' => 'success', 'description' => 'MS365 Backup activated. Module settings restored from backup when available.'];
     } catch (\Throwable $e) {
         return ['status' => 'error', 'description' => 'Activation failed: ' . $e->getMessage()];
@@ -404,8 +509,18 @@ function ms365backup_upgrade(array $vars): void
         ms365backup_apply_schema();
         ms365backup_apply_migrations();
         ms365backup_ensure_storage();
+        ms365backup_bootstrap_billing('upgrade');
     } catch (\Throwable $e) {
         logActivity('MS365 Backup upgrade error: ' . $e->getMessage());
+    }
+}
+
+function ms365backup_bootstrap_billing(string $context): void
+{
+    try {
+        \Ms365Backup\Ms365ProductBootstrap::ensure($context);
+    } catch (\Throwable $e) {
+        logActivity('MS365 Backup product bootstrap (' . $context . '): ' . $e->getMessage());
     }
 }
 
@@ -418,6 +533,8 @@ function ms365backup_sidebar(array $vars): string
         . '<a href="' . $base . '&action=backup" class="list-group-item"><i class="fa fa-download"></i> Backup</a>'
         . '<a href="' . $base . '&action=seeder" class="list-group-item"><i class="fa fa-database"></i> Tenant Seeder</a>'
         . '<a href="' . $base . '&action=fleet" class="list-group-item"><i class="fa fa-server"></i> Worker Fleet</a>'
+        . '<a href="' . $base . '&action=jobs" class="list-group-item"><i class="fa fa-list"></i> Jobs</a>'
+        . '<a href="' . $base . '&action=trials" class="list-group-item"><i class="fa fa-clock-o"></i> Trials</a>'
         . '</div>';
 }
 
@@ -450,6 +567,8 @@ function ms365backup_output(array $vars): void
         'backup' => 'Backup',
         'seeder' => 'Tenant Seeder',
         'fleet' => 'Worker Fleet',
+        'jobs' => 'Jobs',
+        'trials' => 'Trials',
     ];
     echo '<p style="margin-bottom:15px">';
     foreach ($pages as $key => $label) {
@@ -478,6 +597,13 @@ function ms365backup_output(array $vars): void
         case 'fleet':
             require __DIR__ . '/pages/admin/fleet.php';
             break;
+        case 'jobs':
+            require __DIR__ . '/pages/admin/jobs.php';
+            break;
+        case 'trials':
+            require __DIR__ . '/pages/admin/trials.php';
+            ms365backup_admin_trials($vars);
+            break;
         case 'dashboard':
         default:
             require __DIR__ . '/pages/admin/dashboard.php';
@@ -503,6 +629,6 @@ function ms365backup_clientarea(array $vars): array
         ];
     }
 
-    header('Location: index.php?m=cloudstorage&page=e3backup&view=ms365');
+    header('Location: index.php?m=cloudstorage&page=e3backup&view=users');
     exit;
 }

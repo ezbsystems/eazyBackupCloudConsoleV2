@@ -70,7 +70,8 @@ final class Ms365BatchLiveService
             'bytes_processed' => (int) ($parentRun['bytes_processed'] ?? $agg['bytes_processed']),
             'objects_total' => (int) ($parentRun['objects_total'] ?? $agg['objects_total']),
             'objects_transferred' => (int) ($parentRun['objects_transferred'] ?? $agg['objects_transferred']),
-            'files_done' => (int) $agg['items_done'],
+            'files_done' => $isRestore ? (int) ($agg['items_restored'] ?? $agg['items_done']) : (int) $agg['items_done'],
+            'files_skipped' => $isRestore ? (int) ($agg['items_skipped'] ?? 0) : 0,
             'files_total' => (int) $agg['items_total'],
             'folders_done' => null,
             'speed_bytes_per_sec' => $parentRun['speed_bytes_per_sec'] ?? null,
@@ -79,6 +80,8 @@ final class Ms365BatchLiveService
                 (string) ($parentRun['current_item'] ?? $agg['current_item'] ?? '')
             ) ?: null,
             'stage' => self::resolveStageLabel($parentRun, $agg, $isRestore),
+            'active_running_workloads' => (int) ($agg['active_running_workloads'] ?? 0),
+            'total_workloads' => (int) ($agg['total_workloads'] ?? 0),
             'started_at' => $parentRun['started_at'] ?? null,
             'finished_at' => $parentRun['finished_at'] ?? null,
             'started_at_epoch_ms' => $startedAtEpochMs,
@@ -223,8 +226,10 @@ final class Ms365BatchLiveService
             }
         }
 
+        $children = Ms365BatchRunRepository::getBatchChildren($batchRunId);
         $cancelledCount = 0;
-        foreach (Ms365BatchRunRepository::getBatchChildren($batchRunId) as $child) {
+        $firstCancelledId = '';
+        foreach ($children as $child) {
             $childId = (string) ($child['id'] ?? '');
             if ($childId === '' || !BackupRunRepository::isCancellable($childId)) {
                 continue;
@@ -233,6 +238,13 @@ final class Ms365BatchLiveService
                 continue;
             }
             ++$cancelledCount;
+            if ($firstCancelledId === '') {
+                $firstCancelledId = $childId;
+            }
+            $engineMode = (string) ($child['engine_mode'] ?? '');
+            if ($engineMode === 'kopia') {
+                continue;
+            }
             $backupPath = (string) ($child['backup_path'] ?? '');
             if ($backupPath !== '' && is_dir($backupPath)) {
                 try {
@@ -241,9 +253,14 @@ final class Ms365BatchLiveService
                     // Cancellation is recorded even if the worker cannot be signalled.
                 }
             }
-            $logPath = $backupPath !== '' ? $backupPath . '/run.log' : null;
-            $logger = new ProgressLogger($childId, $logPath);
-            $logger->info('Cancellation requested by user');
+        }
+
+        if ($firstCancelledId !== '') {
+            $logger = new ProgressLogger($firstCancelledId);
+            $logger->info('Cancellation requested by user', [
+                'batch_run_id' => $batchRunId,
+                'workloads_cancelled' => $cancelledCount,
+            ]);
         }
 
         $update = ['cancel_requested' => 1];
@@ -259,7 +276,12 @@ final class Ms365BatchLiveService
             ->whereRaw('run_id = UUID_TO_BIN(?)', [strtolower($batchRunId)])
             ->update($update);
 
-        Ms365BatchRunRepository::syncFromChildren($batchRunId);
+        if (Ms365BatchRunRepository::isRestoreBatch($batchRunId)) {
+            Ms365BatchRunRepository::syncFromRestoreChildren($batchRunId);
+        } else {
+            Ms365BatchRunRepository::reconcileBatchChildren($batchRunId);
+            Ms365BatchRunRepository::syncFromChildren($batchRunId);
+        }
 
         return [
             'status' => 'success',
@@ -365,12 +387,21 @@ final class Ms365BatchLiveService
 
     private static function resolveProgressPct(array $parentRun, array $agg): mixed
     {
-        $parentPct = $parentRun['progress_pct'] ?? null;
-        if ($parentPct !== null && (float) $parentPct > 0) {
-            return $parentPct;
+        $parentStatus = strtolower((string) ($parentRun['status'] ?? ''));
+        if (in_array($parentStatus, ['success', 'failed', 'cancelled', 'warning', 'partial_success'], true)) {
+            if ($parentStatus === 'success') {
+                return 100;
+            }
+
+            return $parentRun['progress_pct'] ?? ($agg['progress_pct'] ?? null);
         }
 
-        return $agg['progress_pct'] ?? $parentPct;
+        $aggPct = $agg['progress_pct'] ?? null;
+        if ($aggPct !== null && (float) $aggPct > 0) {
+            return $aggPct;
+        }
+
+        return $parentRun['progress_pct'] ?? $aggPct;
     }
 
     /** @param array<string, mixed> $parentRun */

@@ -3,6 +3,7 @@
 use WHMCS\ClientArea;
 use WHMCS\Module\Addon\CloudStorage\Admin\ProductConfig;
 use WHMCS\Module\Addon\CloudStorage\Client\DBController;
+use WHMCS\Module\Addon\CloudStorage\Client\E3BackupPricingPanelData;
 use WHMCS\Module\Addon\CloudStorage\Client\MspController;
 
 $packageId = ProductConfig::e3CloudBackupPid();
@@ -30,5 +31,6 @@ return [
     'isMspClient' => $isMspClient,
     'tenants' => $tenants,
     'csrfToken' => $csrfToken,
+    'ebPricingPanel' => E3BackupPricingPanelData::forClient($loggedInUserId),
 ];
 

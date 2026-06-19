@@ -7,6 +7,47 @@ use WHMCS\Database\Capsule;
 
 final class TenantRecordRepository
 {
+    public const AUTH_MODE_PLATFORM = 'platform_consent';
+    public const AUTH_MODE_CUSTOMER = 'customer_app';
+
+    public static function usesCustomerAppCredentials(array $row): bool
+    {
+        if (!self::hasConnectionAuthModeColumn()) {
+            return false;
+        }
+
+        return (string) ($row['connection_auth_mode'] ?? self::AUTH_MODE_PLATFORM) === self::AUTH_MODE_CUSTOMER;
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     */
+    public static function saveCustomerCredentials(int $tenantRecordId, array $data): void
+    {
+        if (!class_exists(Capsule::class) || $tenantRecordId <= 0) {
+            throw new \RuntimeException('Database not available');
+        }
+
+        $azureTenantId = trim((string) ($data['azure_tenant_id'] ?? $data['tenant_id'] ?? ''));
+        $update = [
+            'region' => (string) ($data['region'] ?? 'GlobalPublicCloud'),
+            'tenant_id' => trim((string) ($data['tenant_id'] ?? $azureTenantId)),
+            'azure_tenant_id' => $azureTenantId,
+            'client_id' => trim((string) ($data['client_id'] ?? '')),
+            'updated_at' => time(),
+        ];
+
+        if (!empty($data['app_secret'])) {
+            $update['app_secret_enc'] = TenantRepository::encryptSecret((string) $data['app_secret']);
+        }
+
+        if (self::hasConnectionAuthModeColumn()) {
+            $update['connection_auth_mode'] = self::AUTH_MODE_CUSTOMER;
+        }
+
+        Capsule::table('ms365_tenant_records')->where('id', $tenantRecordId)->update($update);
+    }
+
     public static function getById(int $id): ?array
     {
         if (!class_exists(Capsule::class) || $id <= 0) {
@@ -138,6 +179,9 @@ final class TenantRecordRepository
         if (self::hasBackupUserColumn() && isset($data['backup_user_id']) && (int) $data['backup_user_id'] > 0) {
             $insert['backup_user_id'] = (int) $data['backup_user_id'];
         }
+        if (self::hasConnectionAuthModeColumn()) {
+            $insert['connection_auth_mode'] = (string) ($data['connection_auth_mode'] ?? self::AUTH_MODE_PLATFORM);
+        }
 
         return (int) Capsule::table('ms365_tenant_records')->insertGetId($insert);
     }
@@ -149,7 +193,7 @@ final class TenantRecordRepository
             return;
         }
         $now = time();
-        Capsule::table('ms365_tenant_records')->where('id', $tenantRecordId)->update([
+        $update = [
             'azure_tenant_id' => $azureTenantId,
             'tenant_id' => $azureTenantId,
             'connection_status' => 'connected',
@@ -161,7 +205,34 @@ final class TenantRecordRepository
             'health_error' => null,
             'last_health_check_at' => $now,
             'updated_at' => $now,
-        ]);
+        ];
+        if (self::hasConnectionAuthModeColumn()) {
+            $update['connection_auth_mode'] = self::AUTH_MODE_PLATFORM;
+        }
+        Capsule::table('ms365_tenant_records')->where('id', $tenantRecordId)->update($update);
+
+        self::bootstrapStorageIfAvailable($tenantRecordId, (int) (Capsule::table('ms365_tenant_records')->where('id', $tenantRecordId)->value('whmcs_client_id') ?? 0));
+    }
+
+    public static function markConnectedWithCustomerApp(int $tenantRecordId, string $azureTenantId): void
+    {
+        if (!class_exists(Capsule::class)) {
+            return;
+        }
+        $now = time();
+        $update = [
+            'azure_tenant_id' => $azureTenantId,
+            'tenant_id' => $azureTenantId,
+            'connection_status' => 'connected',
+            'consent_granted_at' => $now,
+            'health_error' => null,
+            'last_health_check_at' => $now,
+            'updated_at' => $now,
+        ];
+        if (self::hasConnectionAuthModeColumn()) {
+            $update['connection_auth_mode'] = self::AUTH_MODE_CUSTOMER;
+        }
+        Capsule::table('ms365_tenant_records')->where('id', $tenantRecordId)->update($update);
 
         self::bootstrapStorageIfAvailable($tenantRecordId, (int) (Capsule::table('ms365_tenant_records')->where('id', $tenantRecordId)->value('whmcs_client_id') ?? 0));
     }
@@ -208,6 +279,21 @@ final class TenantRecordRepository
     }
 
     /** @return array{region: string, tenant_id: string, client_id: string, client_secret: string} */
+    public static function resolvedCredentialsForRecord(array $row): array
+    {
+        if (self::usesCustomerAppCredentials($row)) {
+            return TenantRepository::credentials($row);
+        }
+
+        $azure = trim((string) ($row['azure_tenant_id'] ?? ''));
+        if ($azure !== '' && PlatformEntraConfig::isConfigured()) {
+            return self::platformCredentials($row);
+        }
+
+        return TenantRepository::credentials($row);
+    }
+
+    /** @return array{region: string, tenant_id: string, client_id: string, client_secret: string} */
     public static function platformCredentials(array $row): array
     {
         $azureTenant = trim((string) ($row['azure_tenant_id'] ?? $row['tenant_id'] ?? ''));
@@ -232,12 +318,7 @@ final class TenantRecordRepository
         if ($tenantRecordId !== null && $tenantRecordId > 0) {
             $row = self::getById($tenantRecordId);
             if ($row !== null) {
-                $azure = trim((string) ($row['azure_tenant_id'] ?? ''));
-                if ($azure !== '' && PlatformEntraConfig::isConfigured()) {
-                    return self::platformCredentials($row);
-                }
-
-                return TenantRepository::credentials($row);
+                return self::resolvedCredentialsForRecord($row);
             }
         }
 
@@ -272,7 +353,14 @@ final class TenantRecordRepository
             throw new \RuntimeException('Backup storage is not available. Please contact support.');
         }
 
-        $result = $bootstrapClass::ensureForClient($clientId);
+        $effectiveBackupUserId = $backupUserId > 0
+            ? $backupUserId
+            : (int) ($record['backup_user_id'] ?? 0);
+        if ($effectiveBackupUserId <= 0) {
+            throw new \RuntimeException('Microsoft 365 storage requires a backup user. Open Users → select a user → connect Microsoft 365.');
+        }
+
+        $result = $bootstrapClass::ensureForBackupUser($clientId, $effectiveBackupUserId);
         if (($result['status'] ?? '') !== 'success' || !isset($result['bucket'], $result['owner_user'])) {
             Ms365CustomerError::log('ensureCloudStorageBucket', new \RuntimeException((string) ($result['message'] ?? 'bootstrap failed')));
             throw new \RuntimeException(Ms365CustomerError::message(new \RuntimeException((string) ($result['message'] ?? ''))));
@@ -284,6 +372,13 @@ final class TenantRecordRepository
             (string) $result['bucket']->name,
             (int) $result['owner_user']->id,
         );
+    }
+
+    private static function hasConnectionAuthModeColumn(): bool
+    {
+        return class_exists(Capsule::class)
+            && Capsule::schema()->hasTable('ms365_tenant_records')
+            && Capsule::schema()->hasColumn('ms365_tenant_records', 'connection_auth_mode');
     }
 
     private static function hasBackupUserColumn(): bool
@@ -299,7 +394,8 @@ final class TenantRecordRepository
             return;
         }
         try {
-            self::ensureCloudStorageBucketForClient($clientId);
+            $backupUserId = (int) (Capsule::table('ms365_tenant_records')->where('id', $tenantRecordId)->value('backup_user_id') ?? 0);
+            self::ensureCloudStorageBucketForBackupUser($clientId, $backupUserId);
         } catch (\Throwable $e) {
             Ms365CustomerError::log('bootstrapStorageIfAvailable', $e);
             self::updateHealth($tenantRecordId, 'action_required', Ms365CustomerError::message($e));

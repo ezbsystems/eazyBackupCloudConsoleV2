@@ -15,12 +15,24 @@ final class RestoreProgressLogger
     /** @param array<string, mixed> $context */
     public function info(string $message, array $context = []): void
     {
+        $this->log('info', $message, $context);
+    }
+
+    /** @param array<string, mixed> $context */
+    public function error(string $message, array $context = []): void
+    {
+        $this->log('error', $message, $context);
+    }
+
+    /** @param array<string, mixed> $context */
+    private function log(string $level, string $message, array $context = []): void
+    {
         if (!Capsule::schema()->hasTable('ms365_backup_log_lines')) {
             return;
         }
         Capsule::table('ms365_backup_log_lines')->insert([
             'run_id' => $this->restoreRunId,
-            'level' => 'info',
+            'level' => $level,
             'message' => $message,
             'context_json' => $context !== [] ? json_encode($context) : null,
             'created_at' => time(),

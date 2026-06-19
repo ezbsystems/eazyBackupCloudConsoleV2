@@ -30,7 +30,8 @@ final class PhysicalBackupJob
 
     public function isShard(): bool
     {
-        return $this->parentPhysicalKey !== null && $this->parentPhysicalKey !== '';
+        return PhysicalKeyHelper::isSharded($this->physicalKey)
+            || str_contains($this->physicalKey, PhysicalKeyHelper::MAIL_SHARD_MARKER);
     }
 
     public function parentPhysicalKey(): string

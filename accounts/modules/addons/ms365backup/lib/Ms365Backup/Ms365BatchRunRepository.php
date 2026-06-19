@@ -10,6 +10,25 @@ use WHMCS\Database\Capsule;
  */
 final class Ms365BatchRunRepository
 {
+    /** Stale child workload threshold aligned with WorkerClaimService::reconcileZombieRuns(). */
+    private const STALE_CHILD_SECONDS = 120;
+
+    /**
+     * @param array<string, mixed> $parent
+     */
+    public static function isParentStatusLocked(array $parent): bool
+    {
+        $status = strtolower((string) ($parent['status'] ?? ''));
+        if (in_array($status, ['success', 'failed', 'cancelled', 'warning', 'partial_success'], true)) {
+            return true;
+        }
+        if (!empty($parent['cancel_requested']) && !empty($parent['finished_at'])) {
+            return true;
+        }
+
+        return false;
+    }
+
     /**
      * @return string batch run UUID
      */
@@ -40,6 +59,62 @@ final class Ms365BatchRunRepository
     }
 
     /**
+     * Record a scheduled slot that was skipped because a backup batch is still active.
+     *
+     * @return string skip batch run UUID
+     */
+    public static function recordScheduledSkip(string $e3JobId, string $existingBatchRunId): string
+    {
+        if (!self::isUuid($e3JobId) || !self::isUuid($existingBatchRunId)) {
+            throw new \RuntimeException('Invalid job or run id for schedule skip.');
+        }
+        if (!Capsule::schema()->hasTable('s3_cloudbackup_runs')) {
+            throw new \RuntimeException('Run history is not available.');
+        }
+
+        $runId = self::uuid();
+        $now = date('Y-m-d H:i:s');
+        $insert = [
+            'run_id' => self::uuidToBinary($runId),
+            'job_id' => self::uuidToBinary($e3JobId),
+            'trigger_type' => 'schedule',
+            'status' => 'warning',
+            'created_at' => $now,
+            'started_at' => $now,
+            'finished_at' => $now,
+            'error_summary' => 'Scheduled backup skipped: a previous run is still in progress.',
+        ];
+
+        if (Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'engine')) {
+            $insert['engine'] = 'ms365';
+        }
+        if (Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'run_type')) {
+            $insert['run_type'] = 'backup';
+        }
+        if (Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'stats_json')) {
+            $insert['stats_json'] = json_encode([
+                'ms365_schedule_skip' => true,
+                'skipped_reason' => 'overlap',
+                'existing_batch_run_id' => $existingBatchRunId,
+            ], JSON_UNESCAPED_SLASHES);
+        }
+
+        Capsule::table('s3_cloudbackup_runs')->insert($insert);
+
+        return $runId;
+    }
+
+    public static function isScheduleSkipStats(?string $statsJson): bool
+    {
+        if ($statsJson === null || trim($statsJson) === '') {
+            return false;
+        }
+        $decoded = json_decode($statsJson, true);
+
+        return is_array($decoded) && !empty($decoded['ms365_schedule_skip']);
+    }
+
+    /**
      * Reconcile parent batch row in s3_cloudbackup_runs from ms365_backup_runs children.
      */
     public static function syncFromChildren(string $batchRunId): void
@@ -50,6 +125,10 @@ final class Ms365BatchRunRepository
         if (!Capsule::schema()->hasTable('ms365_backup_runs')
             || !Capsule::schema()->hasColumn('ms365_backup_runs', 'e3_batch_run_id')) {
             return;
+        }
+
+        if (!self::isRestoreBatch($batchRunId)) {
+            self::reconcileBatchChildren($batchRunId);
         }
 
         $children = Capsule::table('ms365_backup_runs')
@@ -67,7 +146,100 @@ final class Ms365BatchRunRepository
             return;
         }
 
+        if (Ms365BatchRetryService::maybeRequeueFailedShards($batchRunId) > 0) {
+            return;
+        }
+
         self::finalize($batchRunId, $aggregate);
+    }
+
+    /**
+     * Reconcile stale/orphan child workloads so parent batches can finalize.
+     */
+    public static function reconcileBatchChildren(string $batchRunId): void
+    {
+        if (!self::isUuid($batchRunId)
+            || self::isRestoreBatch($batchRunId)
+            || !Capsule::schema()->hasTable('ms365_backup_runs')) {
+            return;
+        }
+
+        $parent = Capsule::table('s3_cloudbackup_runs')
+            ->whereRaw('run_id = ' . self::uuidToDbExpr($batchRunId))
+            ->first();
+        if (!$parent) {
+            return;
+        }
+
+        $parentArr = (array) $parent;
+        $children = self::getChildrenForBatch($batchRunId);
+        if ($children === []) {
+            return;
+        }
+
+        $now = time();
+        $cutoff = $now - self::STALE_CHILD_SECONDS;
+        $cancelRequested = !empty($parentArr['cancel_requested']);
+
+        if ($cancelRequested) {
+            $cancelledBy = !empty($parentArr['finished_at']) ? 'administrator' : 'user';
+            foreach ($children as $child) {
+                $childId = (string) ($child['id'] ?? '');
+                $status = (string) ($child['status'] ?? '');
+                if ($childId === '' || !in_array($status, ['queued', 'running'], true)) {
+                    continue;
+                }
+                BackupRunRepository::requestCancel($childId, $cancelledBy);
+            }
+
+            return;
+        }
+
+        $queueByRun = self::queueRowsByChildId(array_column($children, 'id'));
+
+        foreach ($children as $child) {
+            $childId = (string) ($child['id'] ?? '');
+            if ($childId === '' || (string) ($child['status'] ?? '') !== 'running') {
+                continue;
+            }
+            if ((int) ($child['updated_at'] ?? 0) >= $cutoff) {
+                continue;
+            }
+            $queue = $queueByRun[$childId] ?? null;
+            if (is_array($queue)
+                && (string) ($queue['status'] ?? '') === 'running'
+                && (int) ($queue['lease_expires_at'] ?? 0) > $now) {
+                continue;
+            }
+            Ms365RestoreWorkerHooks::onFail($childId, 'Stale workload reconciled during batch sync');
+        }
+
+        $children = self::getChildrenForBatch($batchRunId);
+        $hasRunning = false;
+        $hasError = false;
+        $hasQueued = false;
+        foreach ($children as $child) {
+            $status = (string) ($child['status'] ?? '');
+            if ($status === 'running') {
+                $hasRunning = true;
+            }
+            if (in_array($status, ['error', 'failed'], true)) {
+                $hasError = true;
+            }
+            if ($status === 'queued') {
+                $hasQueued = true;
+            }
+        }
+
+        if (!$hasRunning && $hasError && $hasQueued && !Ms365BatchRetryService::shouldRetainQueuedChildren($batchRunId)) {
+            foreach ($children as $child) {
+                $childId = (string) ($child['id'] ?? '');
+                if ($childId === '' || (string) ($child['status'] ?? '') !== 'queued') {
+                    continue;
+                }
+                self::cancelChildWithoutStart($childId);
+            }
+        }
     }
 
     public static function syncForChildRun(string $childRunId): void
@@ -105,6 +277,7 @@ final class Ms365BatchRunRepository
         }
         $status = match ($aggregateStatus) {
             'error', 'failed' => 'failed',
+            'partial_success' => 'partial_success',
             'success' => 'success',
             'cancelled' => 'cancelled',
             'running', 'queued' => 'running',
@@ -116,10 +289,7 @@ final class Ms365BatchRunRepository
             'finished_at' => date('Y-m-d H:i:s'),
         ];
 
-        // Propagate child error messages up to the parent so the live UI and run
-        // history surface a real reason instead of an empty error_summary.
-        if (in_array($status, ['failed', 'warning'], true)
-            && Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'error_summary')) {
+        if (Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'error_summary')) {
             $summary = self::collectChildErrorSummary($batchRunId);
             if ($summary !== '') {
                 $update['error_summary'] = $summary;
@@ -131,16 +301,18 @@ final class Ms365BatchRunRepository
             ->update($update);
 
         if ($status === 'success' && Capsule::schema()->hasTable('ms365_backup_runs')) {
-            $tenantRecordId = (int) Capsule::table('ms365_backup_runs')
+            $child = Capsule::table('ms365_backup_runs')
                 ->where('e3_batch_run_id', $batchRunId)
-                ->value('tenant_record_id');
+                ->first(['tenant_record_id', 'e3_job_id']);
+            $tenantRecordId = (int) ($child->tenant_record_id ?? 0);
+            $e3JobId = trim((string) ($child->e3_job_id ?? ''));
             if ($tenantRecordId > 0) {
                 $record = TenantRecordRepository::getById($tenantRecordId);
                 if ($record !== null) {
                     try {
-                        Ms365KopiaMaintenanceService::scheduleForTenantIfDue($record);
+                        Ms365KopiaRepoOperationService::scheduleForTenantBatchSuccess($record, $e3JobId !== '' ? $e3JobId : null);
                     } catch (\Throwable $e) {
-                        logActivity('MS365 batch maintenance enqueue failed: ' . $e->getMessage());
+                        logActivity('MS365 batch repo ops enqueue failed: ' . $e->getMessage());
                     }
                 }
             }
@@ -191,35 +363,7 @@ final class Ms365BatchRunRepository
 
     private static function resolveTargetIdentityLabel(string $graphId, string $resourceId): string
     {
-        // Strip a "user:" / "group:" style prefix to recover the bare graph id.
-        $bareId = $resourceId;
-        if ($bareId !== '' && str_contains($bareId, ':')) {
-            $bareId = substr($bareId, strrpos($bareId, ':') + 1);
-        }
-        $lookupId = $graphId !== '' ? $graphId : $bareId;
-        if ($lookupId === '') {
-            return '';
-        }
-
-        $name = '';
-        $upn = '';
-        if (Capsule::schema()->hasTable('ms365_backup_runs')) {
-            $row = Capsule::table('ms365_backup_runs')
-                ->where('graph_id', $lookupId)
-                ->orderByDesc('created_at')
-                ->first(['user_display_name', 'user_upn']);
-            if ($row === null && $lookupId !== '') {
-                $row = Capsule::table('ms365_backup_runs')
-                    ->where('resource_id', 'like', '%' . $lookupId . '%')
-                    ->orderByDesc('created_at')
-                    ->first(['user_display_name', 'user_upn']);
-            }
-            if ($row !== null) {
-                $name = trim((string) ($row->user_display_name ?? ''));
-                $upn = trim((string) ($row->user_upn ?? ''));
-            }
-        }
-
+        [$name, $upn] = self::lookupBackupUserIdentity($graphId, $resourceId);
         if ($name !== '' && $upn !== '') {
             return $name . ' (' . $upn . ')';
         }
@@ -230,9 +374,47 @@ final class Ms365BatchRunRepository
             return $name;
         }
 
-        // Last resort: a trimmed id so we surface *something* without leaking a
-        // bucket number. Keep it short — graph ids are GUID-length.
+        $bareId = $resourceId;
+        if ($bareId !== '' && str_contains($bareId, ':')) {
+            $bareId = substr($bareId, strrpos($bareId, ':') + 1);
+        }
+        $lookupId = $graphId !== '' ? $graphId : $bareId;
+
         return $lookupId;
+    }
+
+    /**
+     * @return array{0: string, 1: string} display name, UPN
+     */
+    private static function lookupBackupUserIdentity(string $graphId, string $resourceId): array
+    {
+        $bareId = $resourceId;
+        if ($bareId !== '' && str_contains($bareId, ':')) {
+            $bareId = substr($bareId, strrpos($bareId, ':') + 1);
+        }
+        $lookupId = $graphId !== '' ? $graphId : $bareId;
+        if ($lookupId === '' || !Capsule::schema()->hasTable('ms365_backup_runs')) {
+            return ['', ''];
+        }
+
+        $row = Capsule::table('ms365_backup_runs')
+            ->where('graph_id', $lookupId)
+            ->orderByDesc('created_at')
+            ->first(['user_display_name', 'user_upn']);
+        if ($row === null) {
+            $row = Capsule::table('ms365_backup_runs')
+                ->where('resource_id', 'like', '%' . $lookupId . '%')
+                ->orderByDesc('created_at')
+                ->first(['user_display_name', 'user_upn']);
+        }
+        if ($row === null) {
+            return ['', ''];
+        }
+
+        return [
+            trim((string) ($row->user_display_name ?? '')),
+            trim((string) ($row->user_upn ?? '')),
+        ];
     }
 
     /**
@@ -335,6 +517,18 @@ final class Ms365BatchRunRepository
             return 'cancelled';
         }
         if ($hasError) {
+            $hasSuccess = false;
+            foreach ($childRuns as $run) {
+                $st = (string) ($run['status'] ?? '');
+                if (in_array($st, ['success', 'skipped'], true)) {
+                    $hasSuccess = true;
+                    break;
+                }
+            }
+            if ($hasSuccess) {
+                return 'partial_success';
+            }
+
             return 'failed';
         }
         if ($allSuccess) {
@@ -361,6 +555,60 @@ final class Ms365BatchRunRepository
             ->all();
     }
 
+    /** @return array<string, mixed>|null */
+    public static function getParentForBatch(string $batchRunId): ?array
+    {
+        if (!self::isUuid($batchRunId) || !Capsule::schema()->hasTable('s3_cloudbackup_runs')) {
+            return null;
+        }
+        $row = Capsule::table('s3_cloudbackup_runs')
+            ->whereRaw('run_id = ' . self::uuidToDbExpr($batchRunId))
+            ->first();
+        if ($row === null) {
+            return null;
+        }
+        $arr = (array) $row;
+        if (isset($arr['run_id']) && is_string($arr['run_id']) && strlen($arr['run_id']) === 16) {
+            $arr['run_id'] = self::binaryToUuid($arr['run_id']);
+        }
+
+        return $arr;
+    }
+
+    public static function markBatchRetryInProgress(string $batchRunId, int $round, int $requeueCount): void
+    {
+        if (!self::isUuid($batchRunId) || !Capsule::schema()->hasTable('s3_cloudbackup_runs')) {
+            return;
+        }
+
+        $parent = self::getParentForBatch($batchRunId);
+        $statsJson = [];
+        if (is_array($parent) && !empty($parent['stats_json'])) {
+            $decoded = is_string($parent['stats_json'])
+                ? json_decode($parent['stats_json'], true)
+                : $parent['stats_json'];
+            if (is_array($decoded)) {
+                $statsJson = $decoded;
+            }
+        }
+
+        $statsJson['ms365_batch_auto_retry_round'] = $round;
+        $statsJson['ms365_batch_last_retry_at'] = time();
+        $statsJson['ms365_batch_last_retry_count'] = $requeueCount;
+
+        $update = [
+            'status' => 'running',
+            'finished_at' => null,
+        ];
+        if (Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'stats_json')) {
+            $update['stats_json'] = json_encode($statsJson, JSON_UNESCAPED_SLASHES);
+        }
+
+        Capsule::table('s3_cloudbackup_runs')
+            ->whereRaw('run_id = ' . self::uuidToDbExpr($batchRunId))
+            ->update($update);
+    }
+
     /**
      * @param list<array<string, mixed>> $children
      * @return array<string, mixed>
@@ -370,27 +618,44 @@ final class Ms365BatchRunRepository
         $bytesProcessed = 0;
         $bytesTransferred = 0;
         $itemsDone = 0;
+        $itemsSkipped = 0;
         $itemsTotal = 0;
         $progressWeighted = 0.0;
         $progressWeight = 0;
         $completedWorkloads = 0;
+        $terminalWorkloads = 0;
+        $queuedWorkloads = 0;
+        $activeRunning = 0;
         $totalWorkloads = count($children);
         $activeChild = null;
         $activeIndex = 0;
+        /** @var list<array<string, mixed>> $runningChildren */
+        $runningChildren = [];
 
         foreach ($children as $index => $child) {
             $status = (string) ($child['status'] ?? '');
             $childItemsTotal = max(0, (int) ($child['items_total'] ?? 0));
             $childItemsDone = max(0, (int) ($child['items_done'] ?? 0));
+            $childItemsSkipped = max(0, (int) ($child['items_skipped'] ?? 0));
             $childPercent = (float) ($child['percent'] ?? 0);
 
             $bytesProcessed += (int) ($child['bytes_hashed'] ?? 0);
             $bytesTransferred += (int) ($child['bytes_uploaded'] ?? 0);
             $itemsDone += $childItemsDone;
+            $itemsSkipped += $childItemsSkipped;
             $itemsTotal += $childItemsTotal;
 
             if (in_array($status, ['success', 'skipped', 'cancelled'], true)) {
                 ++$completedWorkloads;
+            }
+            if (in_array($status, ['success', 'skipped', 'cancelled', 'error', 'failed'], true)) {
+                ++$terminalWorkloads;
+            }
+            if ($status === 'queued') {
+                ++$queuedWorkloads;
+            }
+            if ($status === 'running') {
+                ++$activeRunning;
             }
 
             if ($childItemsTotal > 0) {
@@ -401,45 +666,78 @@ final class Ms365BatchRunRepository
                 ++$progressWeight;
             }
 
-            if (in_array($status, ['queued', 'running'], true) && $activeChild === null) {
-                $activeChild = $child;
-                $activeIndex = $index + 1;
+            if ($status === 'running') {
+                $runningChildren[] = $child;
+                if ($activeChild === null) {
+                    $activeChild = $child;
+                    $activeIndex = $index + 1;
+                }
             }
         }
 
         $progressPct = 0.0;
-        if ($progressWeight > 0) {
+        if ($totalWorkloads > 1) {
+            $workloadContributionSum = 0.0;
+            foreach ($children as $child) {
+                $workloadContributionSum += self::workloadProgressUnit($child);
+            }
+            $progressPct = round(($workloadContributionSum / $totalWorkloads) * 100, 2);
+        } elseif ($progressWeight > 0) {
             $progressPct = min(100.0, round($progressWeighted / $progressWeight, 2));
         } elseif ($totalWorkloads > 0) {
             $progressPct = min(100.0, round(($completedWorkloads / $totalWorkloads) * 100, 2));
         }
 
-        $currentItem = null;
-        if ($activeChild !== null) {
-            $type = (string) ($activeChild['resource_type'] ?? 'workload');
-            $name = trim((string) ($activeChild['user_display_name'] ?? ''));
-            if ($name === '') {
-                $name = trim((string) ($activeChild['physical_key'] ?? ''));
-            }
-            $phase = trim((string) ($activeChild['phase'] ?? ''));
-            $label = $name !== '' ? $type . ': ' . $name : $type;
-            $currentItem = $phase !== '' ? $label . ' — ' . $phase : $label;
-        }
+        $currentItem = self::buildCurrentItemLabel($runningChildren, $activeChild);
+        $dominantPhase = self::dominantPhaseForChildren($runningChildren);
 
         $stage = null;
         $workloadVerb = $isRestore ? 'Restoring' : 'Backing up';
         if ($totalWorkloads > 0) {
-            if ($activeChild !== null) {
+            if ($activeRunning > 1) {
+                if (in_array($dominantPhase, ['graph_sync', 'prior_snapshot'], true)) {
+                    $stage = sprintf(
+                        'Syncing from Microsoft Graph (%d of %d workloads active)',
+                        $activeRunning,
+                        $totalWorkloads
+                    );
+                } elseif ($dominantPhase === 'kopia_upload') {
+                    $stage = $isRestore
+                        ? sprintf('Uploading restore data (%d of %d workloads active)', $activeRunning, $totalWorkloads)
+                        : sprintf('Uploading to cloud storage (%d of %d workloads active)', $activeRunning, $totalWorkloads);
+                } else {
+                    $stage = sprintf('%s %d of %d workloads', $workloadVerb, $activeRunning, $totalWorkloads);
+                }
+            } elseif ($activeChild !== null) {
                 $activeStatus = (string) ($activeChild['status'] ?? '');
+                $activePhase = strtolower(trim((string) ($activeChild['phase'] ?? '')));
                 if ($activeStatus === 'queued') {
-                    $stage = $isRestore ? 'Waiting for restore worker' : 'Queued';
+                    $stage = $isRestore ? 'Waiting for restore worker' : 'Waiting for worker';
+                } elseif (
+                    $activeStatus === 'running'
+                    && $activePhase === ''
+                    && (int) ($activeChild['items_done'] ?? 0) === 0
+                    && (float) ($activeChild['percent'] ?? 0) === 0.0
+                ) {
+                    $stage = $isRestore ? 'Waiting for restore worker' : 'Waiting for worker';
+                } elseif ($activePhase === 'graph_sync' || $activePhase === 'prior_snapshot') {
+                    $stage = 'Syncing from Microsoft Graph';
+                } elseif ($activePhase === 'kopia_upload') {
+                    $stage = $isRestore ? 'Uploading restore data' : 'Uploading to cloud storage';
                 } else {
                     $stage = $workloadVerb . ' workload ' . $activeIndex . ' of ' . $totalWorkloads;
                 }
             } elseif ($completedWorkloads >= $totalWorkloads) {
                 $stage = 'Finishing';
             } else {
-                $stage = 'Queued';
+                $stage = 'Waiting for worker';
+            }
+            if ($queuedWorkloads > 0 && $activeRunning === 0) {
+                $stage = sprintf(
+                    'Waiting for worker (%d of %d workloads queued)',
+                    $queuedWorkloads,
+                    $totalWorkloads
+                );
             }
         }
 
@@ -450,6 +748,8 @@ final class Ms365BatchRunRepository
             'bytes_transferred' => $bytesTransferred,
             'bytes_total' => max($bytesProcessed, $bytesTransferred),
             'items_done' => $itemsDone,
+            'items_skipped' => $itemsSkipped,
+            'items_restored' => max(0, $itemsDone - $itemsSkipped),
             'items_total' => $itemsTotal,
             'objects_transferred' => $itemsDone,
             'objects_total' => $itemsTotal,
@@ -457,7 +757,42 @@ final class Ms365BatchRunRepository
             'stage' => $stage,
             'completed_workloads' => $completedWorkloads,
             'total_workloads' => $totalWorkloads,
+            'queued_workloads' => $queuedWorkloads,
+            'active_running_workloads' => $activeRunning,
         ];
+    }
+
+    /**
+     * @param array<string, mixed> $child
+     */
+    private static function workloadProgressUnit(array $child): float
+    {
+        $status = (string) ($child['status'] ?? '');
+        if (in_array($status, ['success', 'skipped', 'cancelled', 'error', 'failed'], true)) {
+            return 1.0;
+        }
+        if ($status !== 'running') {
+            return 0.0;
+        }
+
+        $phase = strtolower(trim((string) ($child['phase'] ?? '')));
+        $childPercent = (float) ($child['percent'] ?? 0);
+        $childItemsTotal = max(0, (int) ($child['items_total'] ?? 0));
+        $childItemsDone = max(0, (int) ($child['items_done'] ?? 0));
+        if ($childItemsTotal > 0) {
+            return min(1.0, $childItemsDone / $childItemsTotal);
+        }
+        if ($childPercent > 1.0) {
+            return min(1.0, $childPercent / 100.0);
+        }
+        if ($phase === 'kopia_upload' || $phase === 'upload') {
+            return 0.5;
+        }
+        if ($phase === 'graph_sync' || $phase === 'prior_snapshot') {
+            return 0.15;
+        }
+
+        return 0.05;
     }
 
     public static function updateLiveSnapshot(string $batchRunId): void
@@ -510,9 +845,22 @@ final class Ms365BatchRunRepository
         $statsJson['ms365_last_bytes'] = $bytesTransferred;
         $statsJson['ms365_last_ts'] = $now;
         $statsJson['ms365_total_workloads'] = (int) $agg['total_workloads'];
+        $statsJson['ms365_active_running_workloads'] = (int) ($agg['active_running_workloads'] ?? 0);
+        $statsJson['ms365_queued_workloads'] = (int) ($agg['queued_workloads'] ?? 0);
+
+        $progressPct = (float) ($agg['progress_pct'] ?? 0);
+        $totalWorkloads = (int) ($agg['total_workloads'] ?? 0);
+        $displayStatus = (string) $agg['status'];
+        if ($totalWorkloads <= 1 && in_array($displayStatus, ['running', 'queued'], true)) {
+            if ($progressPct > 0 && $progressPct < 1.0) {
+                $progressPct = 1.0;
+            }
+        }
+
+        $statusLocked = self::isParentStatusLocked($parentArr);
 
         $update = [
-            'progress_pct' => $agg['progress_pct'],
+            'progress_pct' => $progressPct,
             'bytes_processed' => $agg['bytes_processed'],
             'bytes_transferred' => $bytesTransferred,
             'bytes_total' => $agg['bytes_total'],
@@ -533,9 +881,11 @@ final class Ms365BatchRunRepository
         if (Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'eta_seconds') && $etaSeconds !== null) {
             $update['eta_seconds'] = $etaSeconds;
         }
+        if (Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'updated_at')) {
+            $update['updated_at'] = date('Y-m-d H:i:s');
+        }
 
-        $displayStatus = (string) $agg['status'];
-        if (in_array($displayStatus, ['running', 'queued'], true)) {
+        if (!$statusLocked && in_array($displayStatus, ['running', 'queued'], true)) {
             $update['status'] = 'running';
         }
 
@@ -543,9 +893,40 @@ final class Ms365BatchRunRepository
             ->whereRaw('run_id = ' . self::uuidToDbExpr($batchRunId))
             ->update($update);
 
-        if (!in_array($displayStatus, ['running', 'queued'], true)) {
+        if (!$statusLocked && !in_array($displayStatus, ['running', 'queued'], true)) {
             self::syncFromChildren($batchRunId);
         }
+    }
+
+    /**
+     * @param list<string> $childIds
+     * @return array<string, array<string, mixed>>
+     */
+    private static function queueRowsByChildId(array $childIds): array
+    {
+        $queueByRun = [];
+        if ($childIds === [] || !Capsule::schema()->hasTable('ms365_job_queue')) {
+            return $queueByRun;
+        }
+        foreach (Capsule::table('ms365_job_queue')->whereIn('run_id', $childIds)->get() as $queueRow) {
+            $queueByRun[(string) $queueRow->run_id] = (array) $queueRow;
+        }
+
+        return $queueByRun;
+    }
+
+    private static function cancelChildWithoutStart(string $childId): void
+    {
+        $message = Ms365BatchRetryService::CANCEL_NEVER_STARTED_MSG;
+        $now = time();
+        BackupRunRepository::update($childId, [
+            'status' => 'cancelled',
+            'phase' => 'cancelled',
+            'error_message' => $message,
+            'finished_at' => $now,
+            'updated_at' => $now,
+        ]);
+        JobQueueRepository::markCancelled($childId, $message);
     }
 
     private static function uuid(): string
@@ -717,9 +1098,20 @@ final class Ms365BatchRunRepository
             if (($child['status'] ?? '') === 'success') {
                 $percent = 100;
             }
+            [$displayName, $upn] = self::lookupBackupUserIdentity(
+                (string) ($child['target_graph_id'] ?? ''),
+                (string) ($child['target_resource_id'] ?? '')
+            );
+            if ($displayName === '') {
+                $displayName = self::resolveTargetIdentityLabel(
+                    (string) ($child['target_graph_id'] ?? ''),
+                    (string) ($child['target_resource_id'] ?? '')
+                );
+            }
             $out[] = array_merge($child, [
                 'physical_key' => (string) ($child['target_resource_id'] ?? $child['target_graph_id'] ?? ''),
-                'user_display_name' => (string) ($child['target_graph_id'] ?? ''),
+                'user_display_name' => $displayName,
+                'user_upn' => $upn,
                 'percent' => $percent,
             ]);
         }
@@ -739,6 +1131,15 @@ final class Ms365BatchRunRepository
         $agg = self::computeAggregates($children, self::isRestoreBatch($batchRunId));
         $stage = (string) ($agg['stage'] ?? '');
 
+        $parent = Capsule::table('s3_cloudbackup_runs')
+            ->whereRaw('run_id = ' . self::uuidToDbExpr($batchRunId))
+            ->first();
+        if (!$parent) {
+            return;
+        }
+        $parentArr = (array) $parent;
+        $statusLocked = self::isParentStatusLocked($parentArr);
+
         $update = [
             'progress_pct' => $agg['progress_pct'],
             'bytes_transferred' => 0,
@@ -753,15 +1154,15 @@ final class Ms365BatchRunRepository
         if (Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'stage')) {
             $update['stage'] = $stage;
         }
+        if (Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'updated_at')) {
+            $update['updated_at'] = date('Y-m-d H:i:s');
+        }
         if (Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'progress_json')) {
-            $parent = Capsule::table('s3_cloudbackup_runs')
-                ->whereRaw('run_id = ' . self::uuidToDbExpr($batchRunId))
-                ->first();
             $progressJson = [];
-            if ($parent && !empty($parent->progress_json)) {
-                $decoded = is_string($parent->progress_json)
-                    ? json_decode($parent->progress_json, true)
-                    : $parent->progress_json;
+            if (!empty($parentArr['progress_json'])) {
+                $decoded = is_string($parentArr['progress_json'])
+                    ? json_decode($parentArr['progress_json'], true)
+                    : $parentArr['progress_json'];
                 if (is_array($decoded)) {
                     $progressJson = $decoded;
                 }
@@ -776,26 +1177,101 @@ final class Ms365BatchRunRepository
         }
 
         $displayStatus = (string) $agg['status'];
-        if (!in_array($displayStatus, ['running', 'queued'], true)) {
-            $update['status'] = match ($displayStatus) {
-                'failed', 'error' => 'failed',
-                'success' => 'success',
-                'cancelled' => 'cancelled',
-                default => 'warning',
-            };
-            $update['finished_at'] = date('Y-m-d H:i:s');
-            if (in_array($update['status'], ['failed', 'warning'], true)
-                && Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'error_summary')) {
-                $summary = self::collectChildErrorSummary($batchRunId);
-                if ($summary !== '') {
-                    $update['error_summary'] = $summary;
+        if (!$statusLocked) {
+            if (!in_array($displayStatus, ['running', 'queued'], true)) {
+                $update['status'] = match ($displayStatus) {
+                    'failed', 'error' => 'failed',
+                    'success' => 'success',
+                    'cancelled' => 'cancelled',
+                    default => 'warning',
+                };
+                $update['finished_at'] = date('Y-m-d H:i:s');
+                if (Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'error_summary')) {
+                    $summary = self::collectChildErrorSummary($batchRunId);
+                    if ($summary !== '') {
+                        $update['error_summary'] = $summary;
+                    }
                 }
+            } else {
+                $update['status'] = 'running';
             }
-        } else {
-            $update['status'] = 'running';
         }
         Capsule::table('s3_cloudbackup_runs')
             ->whereRaw('run_id = ' . self::uuidToDbExpr($batchRunId))
             ->update($update);
+    }
+
+    /**
+     * @param list<array<string, mixed>> $runningChildren
+     * @param array<string, mixed>|null $primaryChild
+     */
+    private static function buildCurrentItemLabel(array $runningChildren, ?array $primaryChild): ?string
+    {
+        if ($runningChildren === []) {
+            return null;
+        }
+        if (count($runningChildren) === 1 && $primaryChild !== null) {
+            $type = (string) ($primaryChild['resource_type'] ?? 'workload');
+            $name = self::childDisplayName($primaryChild);
+            $phase = trim((string) ($primaryChild['phase'] ?? ''));
+            $label = $name !== '' ? $type . ': ' . $name : $type;
+
+            return $phase !== '' ? $label . ' — ' . $phase : $label;
+        }
+
+        $names = [];
+        foreach ($runningChildren as $child) {
+            $name = self::childDisplayName($child);
+            if ($name !== '') {
+                $names[] = $name;
+            }
+        }
+        $names = array_values(array_unique($names));
+        if ($names === []) {
+            return sprintf('%d workloads active', count($runningChildren));
+        }
+
+        $listed = implode(', ', $names);
+        $maxLen = 900;
+        if (strlen($listed) > $maxLen) {
+            $listed = substr($listed, 0, $maxLen - 4) . '…';
+        }
+
+        return sprintf('%d workloads active: %s', count($runningChildren), $listed);
+    }
+
+    /**
+     * @param list<array<string, mixed>> $runningChildren
+     */
+    private static function dominantPhaseForChildren(array $runningChildren): string
+    {
+        if ($runningChildren === []) {
+            return '';
+        }
+        $counts = [];
+        foreach ($runningChildren as $child) {
+            $phase = strtolower(trim((string) ($child['phase'] ?? '')));
+            if ($phase === '') {
+                continue;
+            }
+            $counts[$phase] = ($counts[$phase] ?? 0) + 1;
+        }
+        if ($counts === []) {
+            return '';
+        }
+        arsort($counts);
+
+        return (string) array_key_first($counts);
+    }
+
+    /** @param array<string, mixed> $child */
+    private static function childDisplayName(array $child): string
+    {
+        $name = trim((string) ($child['user_display_name'] ?? ''));
+        if ($name !== '') {
+            return $name;
+        }
+
+        return trim((string) ($child['physical_key'] ?? ''));
     }
 }

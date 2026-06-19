@@ -1,11 +1,14 @@
 <?php
 
 require_once __DIR__ . '/../../eazybackup/pages/partnerhub/TenantStorageLinksController.php';
+require_once __DIR__ . '/../lib/Client/Ms365VaultLifecycleService.php';
 
 use WHMCS\ClientArea;
 use WHMCS\Database\Capsule;
 use WHMCS\Module\Addon\CloudStorage\Admin\ProductConfig;
 use WHMCS\Module\Addon\CloudStorage\Client\DBController;
+use WHMCS\Module\Addon\CloudStorage\Client\E3BackupPricingPanelData;
+use WHMCS\Module\Addon\CloudStorage\Client\Ms365VaultLifecycleService;
 use WHMCS\Module\Addon\CloudStorage\Client\MspController;
 
 $packageId = ProductConfig::e3CloudBackupPid();
@@ -219,4 +222,6 @@ return [
     // Quick Enroll (token snippet) panel. Regular customers enroll via the
     // tray sign-in flow, so they should not see a raw token + curl recipe.
     'ebIsAdminSession' => !empty($_SESSION['adminid']),
+    'ebPricingPanel' => E3BackupPricingPanelData::forClient($loggedInUserId),
+    'ms365_vault_grace_days' => Ms365VaultLifecycleService::getGraceDays(),
 ];

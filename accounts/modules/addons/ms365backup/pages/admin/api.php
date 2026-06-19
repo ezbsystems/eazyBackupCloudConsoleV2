@@ -564,7 +564,8 @@ try {
         case 'fleet_release_leases':
             $released = \Ms365Backup\WorkerClaimService::releaseExpiredLeases();
             $recovered = \Ms365Backup\WorkerClaimService::recoverStaleRunning();
-            echo json_encode(['ok' => true, 'released' => $released, 'recovered' => $recovered]);
+            $orphans = \Ms365Backup\WorkerClaimService::releaseOrphanedClaimsForAllNodes(120);
+            echo json_encode(['ok' => true, 'released' => $released, 'recovered' => $recovered, 'orphans_requeued' => $orphans]);
             break;
 
         case 'fleet_settings_get':
@@ -575,11 +576,59 @@ try {
             echo json_encode(['ok' => true, 'entries' => \Ms365Backup\Fleet\FleetAuditLog::recent((int) ($_GET['limit'] ?? 50))]);
             break;
 
+        case 'jobs_list':
+            $filters = [
+                'client_id' => $_GET['client_id'] ?? null,
+                'client_name' => $_GET['client_name'] ?? null,
+                'job_name' => $_GET['job_name'] ?? null,
+                'status' => $_GET['status'] ?? null,
+                'type' => $_GET['type'] ?? null,
+                'date_from' => $_GET['date_from'] ?? null,
+                'date_to' => $_GET['date_to'] ?? null,
+                'run_id' => $_GET['run_id'] ?? null,
+            ];
+            $page = max(1, (int) ($_GET['page'] ?? 1));
+            $perPage = min(200, max(1, (int) ($_GET['per_page'] ?? 50)));
+            $result = \Ms365Backup\Ms365AdminJobsRepository::listJobs($filters, $page, $perPage);
+            echo json_encode(['ok' => true] + $result);
+            break;
+
+        case 'jobs_batch_logs':
+            $batchRunId = trim((string) ($_GET['batch_run_id'] ?? ''));
+            if ($batchRunId === '') {
+                throw new \RuntimeException('batch_run_id required');
+            }
+            $payload = \Ms365Backup\Ms365AdminJobsService::aggregateJobLogs($batchRunId);
+            ms365backup_echo_json(['ok' => true] + $payload);
+            break;
+
+        case 'jobs_batch_detail':
+            $batchRunId = trim((string) ($_GET['batch_run_id'] ?? ''));
+            if ($batchRunId === '') {
+                throw new \RuntimeException('batch_run_id required');
+            }
+            ms365backup_echo_json([
+                'ok' => true,
+                'parent' => \Ms365Backup\Ms365AdminJobsService::parentForApi($batchRunId),
+                'children' => \Ms365Backup\Ms365AdminJobsRepository::getBatchChildrenDetail($batchRunId),
+            ]);
+            break;
+
+        case 'jobs_worker_logs':
+            $batchRunId = trim((string) ($_GET['batch_run_id'] ?? ''));
+            if ($batchRunId === '') {
+                throw new \RuntimeException('batch_run_id required');
+            }
+            $payload = \Ms365Backup\Ms365AdminJobsService::aggregateWorkerLogs($batchRunId, true);
+            echo json_encode(['ok' => true] + $payload);
+            break;
+
         case 'worker_build_create':
             $version = trim((string) ($_POST['version_label'] ?? ''));
             if ($version === '') {
                 throw new \RuntimeException('version_label required');
             }
+            \Ms365Backup\Fleet\ReleaseRepository::validateVersionLabel($version);
             $jobId = \Ms365Backup\Fleet\BuildJobStore::createJob([
                 'admin_id' => (int) $_SESSION['adminid'],
                 'git_ref' => trim((string) ($_POST['git_ref'] ?? 'main')),
@@ -651,6 +700,7 @@ try {
             if ($version === '') {
                 throw new \RuntimeException('version_label required');
             }
+            \Ms365Backup\Fleet\ReleaseRepository::validateVersionLabel($version);
             $jobId = \Ms365Backup\Fleet\BuildJobStore::createJob([
                 'admin_id' => (int) $_SESSION['adminid'],
                 'git_ref' => trim((string) ($_POST['git_ref'] ?? 'main')),
@@ -671,7 +721,24 @@ try {
     }
 } catch (\Throwable $e) {
     http_response_code(500);
-    echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
+    ms365backup_echo_json(['ok' => false, 'error' => $e->getMessage()]);
+}
+
+/**
+ * @param array<string, mixed> $data
+ */
+function ms365backup_echo_json(array $data): void
+{
+    $flags = JSON_UNESCAPED_SLASHES;
+    if (defined('JSON_INVALID_UTF8_SUBSTITUTE')) {
+        $flags |= JSON_INVALID_UTF8_SUBSTITUTE;
+    }
+    $json = json_encode($data, $flags);
+    if ($json === false) {
+        echo json_encode(['ok' => false, 'error' => 'JSON encode failed: ' . json_last_error_msg()]);
+        return;
+    }
+    echo $json;
 }
 
 /**

@@ -217,4 +217,236 @@ final class ProxmoxProvisioner
 
         return ['status' => 'success'];
     }
+
+    /**
+     * @param array<string, mixed> $parentRun
+     * @param list<string> $childRunIds
+     * @param list<array<string, mixed>> $assignments
+     * @return list<string>
+     */
+    public static function buildJournalCommands(array $parentRun, array $childRunIds, array $assignments): array
+    {
+        $since = self::journalSince($parentRun);
+        $until = self::journalUntil($parentRun);
+        $vmids = [];
+        foreach ($assignments as $a) {
+            $vmid = (int) ($a['proxmox_vmid'] ?? 0);
+            if ($vmid > 0) {
+                $vmids[$vmid] = (string) ($a['hostname'] ?? ('vmid-' . $vmid));
+            }
+        }
+        $cmds = [];
+        foreach ($vmids as $vmid => $host) {
+            $base = 'pct exec ' . $vmid . ' -- journalctl -u ms365-backup-worker --since "' . $since . '" --until "' . $until . '" --no-pager';
+            if ($childRunIds === []) {
+                $cmds[] = '# ' . $host . "\n" . $base;
+                continue;
+            }
+            foreach ($childRunIds as $runId) {
+                if ($runId === '') {
+                    continue;
+                }
+                $cmds[] = '# ' . $host . ' — grep ' . $runId . "\n" . $base . ' | grep ' . $runId;
+            }
+        }
+
+        return $cmds;
+    }
+
+    /**
+     * @param array<string, mixed> $parentRun
+     * @param list<string> $childRunIds
+     * @param list<array<string, mixed>> $assignments
+     */
+    public static function fetchBatchWorkerJournal(array $parentRun, array $childRunIds, array $assignments): string
+    {
+        if ($childRunIds === [] || $assignments === []) {
+            return '';
+        }
+        if (!self::isRecentBatch($parentRun, 7)) {
+            return '';
+        }
+
+        $apiUrl = rtrim(Ms365EngineConfig::moduleSettingPublic('proxmox_api_url', ''), '/');
+        $node = Ms365EngineConfig::moduleSettingPublic('proxmox_node', '');
+        $tokenId = Ms365EngineConfig::moduleSettingPublic('proxmox_api_token_id', '');
+        $tokenSecret = Ms365EngineConfig::moduleSettingPublic('proxmox_api_token_secret', '');
+        if ($apiUrl === '' || $node === '' || $tokenId === '' || $tokenSecret === '') {
+            return '';
+        }
+
+        $since = self::journalSince($parentRun);
+        $until = self::journalUntil($parentRun);
+        $grepPattern = implode('|', array_map('preg_quote', array_filter($childRunIds)));
+        if ($grepPattern === '') {
+            return '';
+        }
+
+        $vmids = [];
+        foreach ($assignments as $a) {
+            $vmid = (int) ($a['proxmox_vmid'] ?? 0);
+            if ($vmid > 0) {
+                $vmids[$vmid] = (string) ($a['hostname'] ?? '');
+            }
+        }
+
+        $out = [];
+        foreach ($vmids as $vmid => $host) {
+            $text = self::execWorkerJournal($apiUrl, $node, $vmid, $since, $until, $grepPattern, $tokenId, $tokenSecret);
+            if ($text !== '') {
+                $out[] = '### ' . ($host !== '' ? $host : 'vmid-' . $vmid) . ' ###';
+                $out[] = $text;
+            }
+        }
+
+        $joined = implode("\n", $out);
+
+        return strlen($joined) > 512000 ? substr($joined, 0, 512000) . "\n…(truncated)" : $joined;
+    }
+
+    public static function fetchWorkerJournal(
+        int $vmid,
+        string $since,
+        string $until,
+        ?string $grep = null
+    ): string {
+        $apiUrl = rtrim(Ms365EngineConfig::moduleSettingPublic('proxmox_api_url', ''), '/');
+        $node = Ms365EngineConfig::moduleSettingPublic('proxmox_node', '');
+        $tokenId = Ms365EngineConfig::moduleSettingPublic('proxmox_api_token_id', '');
+        $tokenSecret = Ms365EngineConfig::moduleSettingPublic('proxmox_api_token_secret', '');
+        if ($apiUrl === '' || $node === '' || $tokenId === '' || $tokenSecret === '' || $vmid <= 0) {
+            return '';
+        }
+
+        return self::execWorkerJournal($apiUrl, $node, $vmid, $since, $until, $grep ?? '', $tokenId, $tokenSecret);
+    }
+
+    private static function execWorkerJournal(
+        string $apiUrl,
+        string $node,
+        int $vmid,
+        string $since,
+        string $until,
+        string $grepPattern,
+        string $tokenId,
+        string $tokenSecret
+    ): string {
+        $shell = 'journalctl -u ms365-backup-worker --since ' . escapeshellarg($since)
+            . ' --until ' . escapeshellarg($until) . ' --no-pager -n 2000 2>/dev/null';
+        if ($grepPattern !== '') {
+            $shell .= ' | grep -E ' . escapeshellarg($grepPattern) . ' || true';
+        }
+        $path = '/nodes/' . rawurlencode($node) . '/lxc/' . $vmid . '/exec';
+        $res = self::apiPost($apiUrl, $path, [
+            'command' => json_encode(['/bin/sh', '-c', $shell]),
+        ], $tokenId, $tokenSecret);
+        if (($res['status'] ?? '') !== 'success') {
+            return '';
+        }
+        $decoded = json_decode((string) ($res['raw'] ?? ''), true);
+        $pid = (int) ($decoded['data']['pid'] ?? 0);
+        if ($pid <= 0) {
+            return '';
+        }
+
+        $deadline = time() + 15;
+        $output = '';
+        while (time() < $deadline) {
+            usleep(300000);
+            $statusPath = '/nodes/' . rawurlencode($node) . '/lxc/' . $vmid . '/exec-status?pid=' . $pid;
+            $statusRes = self::apiGet($apiUrl, $statusPath, $tokenId, $tokenSecret);
+            if (($statusRes['status'] ?? '') !== 'success') {
+                continue;
+            }
+            $statusData = json_decode((string) ($statusRes['raw'] ?? ''), true);
+            $data = $statusData['data'] ?? [];
+            if (!empty($data['out-data'])) {
+                $output .= (string) $data['out-data'];
+            }
+            if (!empty($data['err-data'])) {
+                $output .= (string) $data['err-data'];
+            }
+            if (($data['exited'] ?? 0) == 1) {
+                break;
+            }
+        }
+
+        return strlen($output) > 512000 ? substr($output, 0, 512000) . "\n…(truncated)" : $output;
+    }
+
+    /** @param array<string, mixed> $parentRun */
+    private static function journalSince(array $parentRun): string
+    {
+        $started = (string) ($parentRun['started_at'] ?? $parentRun['created_at'] ?? '');
+        if ($started === '') {
+            return '-1 day';
+        }
+        try {
+            $dt = new \DateTime($started);
+
+            return $dt->format('Y-m-d H:i:s');
+        } catch (\Throwable $e) {
+            return '-1 day';
+        }
+    }
+
+    /** @param array<string, mixed> $parentRun */
+    private static function journalUntil(array $parentRun): string
+    {
+        $finished = (string) ($parentRun['finished_at'] ?? '');
+        if ($finished !== '') {
+            try {
+                $dt = new \DateTime($finished);
+                $dt->modify('+5 minutes');
+
+                return $dt->format('Y-m-d H:i:s');
+            } catch (\Throwable $e) {
+                // fall through
+            }
+        }
+
+        return 'now';
+    }
+
+    /** @param array<string, mixed> $parentRun */
+    private static function isRecentBatch(array $parentRun, int $days): bool
+    {
+        $started = (string) ($parentRun['started_at'] ?? $parentRun['created_at'] ?? '');
+        if ($started === '') {
+            return false;
+        }
+        try {
+            $dt = new \DateTime($started);
+            $cutoff = new \DateTime('-' . max(1, $days) . ' days');
+
+            return $dt >= $cutoff;
+        } catch (\Throwable $e) {
+            return false;
+        }
+    }
+
+    private static function apiGet(string $base, string $path, string $tokenId, string $tokenSecret): array
+    {
+        $url = $base . $path;
+        $ch = curl_init($url);
+        if ($ch === false) {
+            return ['status' => 'error', 'message' => 'curl init failed'];
+        }
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_SSL_VERIFYPEER => false,
+            CURLOPT_HTTPHEADER => [
+                'Authorization: PVEAPIToken=' . $tokenId . '=' . $tokenSecret,
+            ],
+            CURLOPT_TIMEOUT => 20,
+        ]);
+        $raw = curl_exec($ch);
+        $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+        if ($raw === false || $code >= 400) {
+            return ['status' => 'error', 'message' => 'Proxmox HTTP ' . $code];
+        }
+
+        return ['status' => 'success', 'raw' => $raw];
+    }
 }

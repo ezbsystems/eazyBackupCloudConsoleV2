@@ -123,7 +123,7 @@ final class EntraConsentService
             $params['connect_error'] = $error;
         }
 
-        return 'index.php?' . http_build_query($params);
+        return 'index.php?' . http_build_query($params) . '#jobs';
     }
 
     public static function probeAndUpdateHealth(int $tenantRecordId): void

@@ -5,6 +5,9 @@ use WHMCS\Database\Capsule;
 use WHMCS\Module\Addon\CloudStorage\Admin\ProductConfig;
 use WHMCS\Module\Addon\CloudStorage\Client\DBController;
 use WHMCS\Module\Addon\CloudStorage\Client\MspController;
+use WHMCS\Module\Addon\CloudStorage\Client\Ms365VaultLifecycleService;
+
+require_once __DIR__ . '/../lib/Client/Ms365VaultLifecycleService.php';
 
 $packageId = ProductConfig::e3CloudBackupPid();
 $ca = new ClientArea();
@@ -103,4 +106,5 @@ return [
     's3_user_id' => $user->id,
     'client_id' => $loggedInUserId,
     'usernames' => $s3Tenants, // For inline bucket creation
+    'ms365_vault_grace_days' => Ms365VaultLifecycleService::getGraceDays(),
 ];

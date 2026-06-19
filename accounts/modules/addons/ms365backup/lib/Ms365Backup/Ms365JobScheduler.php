@@ -10,10 +10,13 @@ use WHMCS\Database\Capsule;
  */
 final class Ms365JobScheduler
 {
-    public static function runDueJobs(): int
+    /**
+     * @return array{started: int, skipped: int}
+     */
+    public static function runDueJobs(): array
     {
         if (!Capsule::schema()->hasTable('s3_cloudbackup_jobs')) {
-            return 0;
+            return ['started' => 0, 'skipped' => 0];
         }
 
         $now = new \DateTimeImmutable('now');
@@ -25,6 +28,7 @@ final class Ms365JobScheduler
             ->get();
 
         $started = 0;
+        $skipped = 0;
         foreach ($jobs as $job) {
             $scheduleJson = json_decode((string) ($job->schedule_json ?? ''), true);
             if (!is_array($scheduleJson)) {
@@ -58,6 +62,25 @@ final class Ms365JobScheduler
 
             $scopeOverrides = CustomerSelectionCodec::normalizeScopeOverrides($scheduleJson['scope_overrides'] ?? []);
 
+            $active = Ms365JobOverlapGuard::findActiveBackupBatch($jobId);
+            if ($active !== null) {
+                try {
+                    Ms365BatchRunRepository::recordScheduledSkip($jobId, $active['run_id']);
+                    self::persistScheduledKey($jobId, $scheduleJson, $minuteKey);
+                    Ms365CustomerError::log(
+                        'Ms365JobScheduler',
+                        new \RuntimeException(
+                            'Scheduled backup skipped for job ' . $jobId
+                            . ': active batch ' . $active['run_id'] . ' (' . $active['status'] . ')',
+                        ),
+                    );
+                    $skipped++;
+                } catch (\Throwable $e) {
+                    Ms365CustomerError::log('Ms365JobScheduler', $e);
+                }
+                continue;
+            }
+
             try {
                 $inventory = CustomerInventoryService::loadForBackupUser($clientId, $backupUserId);
                 $resolved = CustomerSelectionCodec::resolveForExecution(
@@ -75,20 +98,26 @@ final class Ms365JobScheduler
                     $resolved['scope_overrides'],
                 );
 
-                $scheduleJson['last_scheduled_key'] = $minuteKey;
-                Capsule::table('s3_cloudbackup_jobs')
-                    ->whereRaw('job_id = UUID_TO_BIN(?)', [$jobId])
-                    ->update([
-                        'schedule_json' => json_encode($scheduleJson, JSON_UNESCAPED_SLASHES),
-                        'updated_at' => date('Y-m-d H:i:s'),
-                    ]);
+                self::persistScheduledKey($jobId, $scheduleJson, $minuteKey);
                 $started++;
             } catch (\Throwable $e) {
                 Ms365CustomerError::log('Ms365JobScheduler', $e);
             }
         }
 
-        return $started;
+        return ['started' => $started, 'skipped' => $skipped];
+    }
+
+    /** @param array<string, mixed> $scheduleJson */
+    private static function persistScheduledKey(string $jobId, array $scheduleJson, string $minuteKey): void
+    {
+        $scheduleJson['last_scheduled_key'] = $minuteKey;
+        Capsule::table('s3_cloudbackup_jobs')
+            ->whereRaw('job_id = UUID_TO_BIN(?)', [$jobId])
+            ->update([
+                'schedule_json' => json_encode($scheduleJson, JSON_UNESCAPED_SLASHES),
+                'updated_at' => date('Y-m-d H:i:s'),
+            ]);
     }
 
     private static function binaryJobIdToString(mixed $binary): string

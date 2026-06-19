@@ -39,7 +39,7 @@ $fleetBase = 'addonmodules.php?module=ms365backup&action=fleet';
         <form id="fleet-build-form" class="form-inline">
             <div class="form-group">
                 <label>Version</label>
-                <input type="text" name="version_label" class="form-control input-sm" placeholder="0.1.2" required>
+                <input type="text" name="version_label" class="form-control input-sm" placeholder="0.1.18" pattern="\d+\.\d+\.\d+" title="Three-part version, e.g. 0.1.18" required>
             </div>
             <div class="form-group" style="margin-left:10px">
                 <label>Git ref</label>

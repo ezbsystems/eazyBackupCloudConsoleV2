@@ -15,7 +15,6 @@ import (
 
 type BrowseRequest struct {
 	Storage    StorageOptions
-	RepoConfig string
 	ManifestID string
 	Path       string
 	Host       string
@@ -37,7 +36,24 @@ type BrowseResult struct {
 	Entries []BrowseEntry `json:"entries"`
 }
 
+type ExtractRequest struct {
+	Storage    StorageOptions
+	ManifestID string
+	Path       string
+	Host       string
+	Username   string
+	SourcePath string
+}
+
+type repoAcquirer func(ctx context.Context) (repo.Repository, func(), error)
+
+// Browse lists snapshot entries (standalone; prefer Pool.Browse for warm cache).
 func Browse(ctx context.Context, req BrowseRequest) (*BrowseResult, error) {
+	pool := NewPool(RepoCacheSettings{RepoConfigDir: "/tmp/ms365-browse"})
+	return pool.Browse(ctx, req)
+}
+
+func browseWithRepo(ctx context.Context, req BrowseRequest, acquire repoAcquirer) (*BrowseResult, error) {
 	if strings.TrimSpace(req.ManifestID) == "" {
 		return nil, fmt.Errorf("manifest_id required")
 	}
@@ -51,11 +67,11 @@ func Browse(ctx context.Context, req BrowseRequest) (*BrowseResult, error) {
 		req.SourcePath = "/ms365"
 	}
 
-	rep, err := openRepository(ctx, req.Storage, req.RepoConfig)
+	rep, release, err := acquire(ctx)
 	if err != nil {
 		return nil, err
 	}
-	defer rep.Close(ctx)
+	defer release()
 
 	man, err := snapshot.LoadSnapshot(ctx, rep, manifest.ID(req.ManifestID))
 	if err != nil {
@@ -145,23 +161,12 @@ func Browse(ctx context.Context, req BrowseRequest) (*BrowseResult, error) {
 	return &BrowseResult{Entries: entries}, nil
 }
 
-type ExtractRequest struct {
-	Storage    StorageOptions
-	RepoConfig string
-	ManifestID string
-	Path       string
-	Host       string
-	Username   string
-	SourcePath string
+func Extract(ctx context.Context, req ExtractRequest) ([]byte, error) {
+	pool := NewPool(RepoCacheSettings{RepoConfigDir: "/tmp/ms365-browse"})
+	return pool.Extract(ctx, req)
 }
 
-func Extract(ctx context.Context, req ExtractRequest) ([]byte, error) {
-	rep, err := openRepository(ctx, req.Storage, req.RepoConfig)
-	if err != nil {
-		return nil, err
-	}
-	defer rep.Close(ctx)
-
+func openSnapshotFile(ctx context.Context, req ExtractRequest, rep repo.Repository) (kopiafs.File, error) {
 	man, err := snapshot.LoadSnapshot(ctx, rep, manifest.ID(req.ManifestID))
 	if err != nil {
 		return nil, fmt.Errorf("load snapshot: %w", err)
@@ -184,6 +189,14 @@ func Extract(ctx context.Context, req ExtractRequest) ([]byte, error) {
 	if !ok {
 		return nil, fmt.Errorf("not a file: %s", req.Path)
 	}
+	return file, nil
+}
+
+func extractWithRepo(ctx context.Context, req ExtractRequest, rep repo.Repository) ([]byte, error) {
+	file, err := openSnapshotFile(ctx, req, rep)
+	if err != nil {
+		return nil, err
+	}
 	reader, err := file.Open(ctx)
 	if err != nil {
 		return nil, err
@@ -204,16 +217,16 @@ func Extract(ctx context.Context, req ExtractRequest) ([]byte, error) {
 	return buf, nil
 }
 
-func openRepository(ctx context.Context, storage StorageOptions, repoConfig string) (repo.Repository, error) {
-	password := storage.Password()
-	if _, err := openOrInitRepo(ctx, storage, repoConfig, password); err != nil {
-		return nil, err
-	}
-	rep, err := repo.Open(ctx, repoConfig, password, nil)
+func extractReaderWithRepo(ctx context.Context, req ExtractRequest, rep repo.Repository) (kopiafs.Reader, int64, error) {
+	file, err := openSnapshotFile(ctx, req, rep)
 	if err != nil {
-		return nil, fmt.Errorf("open repo: %w", err)
+		return nil, 0, err
 	}
-	return rep, nil
+	reader, err := file.Open(ctx)
+	if err != nil {
+		return nil, 0, err
+	}
+	return reader, file.Size(), nil
 }
 
 func walkPath(ctx context.Context, root kopiafs.Directory, path string) (kopiafs.Entry, error) {

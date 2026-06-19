@@ -1889,8 +1889,8 @@ class BucketController {
                 return ['status' => 'fail', 'message' => 'Access keys missing.'];
             }
 
-            $this->accessKey = HelperController::decryptKey($userAccessKey->access_key, $encryptionKey);
-            $this->secretKey = HelperController::decryptKey($userAccessKey->secret_key, $encryptionKey);
+            $this->accessKey = HelperController::decryptKeyWithFallback((string) $userAccessKey->access_key, $encryptionKey);
+            $this->secretKey = HelperController::decryptKeyWithFallback((string) $userAccessKey->secret_key, $encryptionKey);
             // If decrypt fails or settings changed, fail fast with actionable guidance
             if (empty($this->accessKey) || empty($this->secretKey)) {
                 return [

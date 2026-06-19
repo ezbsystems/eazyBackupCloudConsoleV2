@@ -17,6 +17,7 @@ use Illuminate\Database\Capsule\Manager as Capsule;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use WHMCS\ClientArea;
 use WHMCS\Module\Addon\CloudStorage\Client\MspController;
+use WHMCS\Module\Addon\CloudStorage\Client\UuidBinary;
 
 if (!defined('WHMCS')) {
     die('This file cannot be accessed directly');
@@ -56,11 +57,18 @@ try {
 
     // Find the originating run via run_uuid first, fall back to run_id.
     $run = null;
+    $hasRunIdPk = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'run_id');
     if (!empty($rp->run_uuid)) {
         $run = Capsule::table('s3_cloudbackup_runs')->where('run_uuid', $rp->run_uuid)->first();
     }
     if (!$run && !empty($rp->run_id)) {
-        $run = Capsule::table('s3_cloudbackup_runs')->where('id', $rp->run_id)->first();
+        if ($hasRunIdPk && UuidBinary::isUuid((string) $rp->run_id)) {
+            $run = Capsule::table('s3_cloudbackup_runs')
+                ->whereRaw('run_id = ' . UuidBinary::toDbExpr(UuidBinary::normalize((string) $rp->run_id)))
+                ->first();
+        } else {
+            $run = Capsule::table('s3_cloudbackup_runs')->where('id', $rp->run_id)->first();
+        }
     }
     if (!$run) {
         (new JsonResponse(['status' => 'fail', 'message' => 'Originating run not found'], 200))->send();

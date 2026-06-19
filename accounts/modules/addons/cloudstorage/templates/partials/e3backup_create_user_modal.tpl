@@ -22,7 +22,9 @@
                     <div x-text="formErrorMessage"></div>
                 </div>
 
-                <div>
+                {include file="{$smarty.const.ROOTDIR}/modules/addons/cloudstorage/templates/partials/e3backup_pricing_panel.tpl"}
+
+                <div class="!mt-8">
                     <label class="eb-field-label" for="e3-create-user-username">Username <span style="color: var(--eb-danger-text)">*</span></label>
                     <input id="e3-create-user-username"
                            type="text"

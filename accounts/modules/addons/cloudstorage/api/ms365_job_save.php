@@ -94,6 +94,14 @@ $payload = [
     'retention_tier' => trim((string) ($_POST['retention_tier'] ?? '1y')),
 ];
 
+if (!class_exists(\Ms365Backup\Ms365RetentionTierPolicyService::class)) {
+    require_once dirname(__DIR__) . '/../ms365backup/ms365backup_autoload.php';
+}
+if (!\Ms365Backup\Ms365RetentionTierPolicyService::isValidTier($payload['retention_tier'])) {
+    (new JsonResponse(['status' => 'fail', 'message' => 'Invalid retention tier.'], 400))->send();
+    exit;
+}
+
 try {
     $result = Ms365E3Controller::saveJob($clientId, $userId, $payload, $jobId !== '' ? $jobId : null);
     (new JsonResponse([

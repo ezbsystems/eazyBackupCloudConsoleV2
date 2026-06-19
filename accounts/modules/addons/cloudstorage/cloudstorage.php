@@ -14,7 +14,7 @@ function cloudstorage_config()
         'description' => 'This module show the usage of your buckets.',
         'author' => 'eazybackup',
         'language' => 'english',
-        'version' => '2.1.17',
+        'version' => '2.1.18',
         'fields' => [
             's3_region' => [
                 'FriendlyName' => 'S3 Region',
@@ -416,6 +416,25 @@ function cloudstorage_config()
                 'Type' => 'text',
                 'Size' => '250',
                 'Description' => 'Pinned to repos at creation; Comet-style tiers in JSON.',
+            ],
+            'ms365_vault_recycle_grace_days' => [
+                'FriendlyName' => 'MS365 Vault Recycle Grace (days)',
+                'Type' => 'text',
+                'Size' => '10',
+                'Default' => '30',
+                'Description' => 'Days MS365 backup vaults remain in the recycle bin after job deletion before physical teardown.',
+            ],
+            'ms365_vault_delete_email_template' => [
+                'FriendlyName' => 'MS365 Vault Delete Notification Email Template',
+                'Type' => 'dropdown',
+                'Options' => cloudstorage_get_email_templates(),
+                'Description' => 'WHMCS General template emailed to the account owner when an MS365 job and vault are soft-deleted.',
+            ],
+            'ms365_vault_early_delete_ops_email' => [
+                'FriendlyName' => 'MS365 Early Delete Ops Email',
+                'Type' => 'text',
+                'Size' => '191',
+                'Description' => 'Optional internal email for MS365 vault early-deletion requests. Leave blank to skip.',
             ],
             // ==== Agent Builds (e3 local agent build automation) ====
             'agent_build_repo_path' => [
@@ -3254,6 +3273,7 @@ function cloudstorage_activate() {
         cloudstorage_ensure_hyperv_schema('activate');
         cloudstorage_ensure_agent_build_schema('activate');
         cloudstorage_ensure_agent_update_schema('activate');
+        cloudstorage_ensure_ms365_vault_lifecycle_schema('activate');
         cloudstorage_ensure_e3cb_billing_schema('activate');
         cloudstorage_ensure_e3cb_product('activate');
 
@@ -5391,6 +5411,7 @@ function cloudstorage_upgrade($vars) {
         cloudstorage_ensure_hyperv_schema('upgrade');
         cloudstorage_ensure_agent_build_schema('upgrade');
         cloudstorage_ensure_agent_update_schema('upgrade');
+        cloudstorage_ensure_ms365_vault_lifecycle_schema('upgrade');
         cloudstorage_ensure_e3cb_billing_schema('upgrade');
         cloudstorage_ensure_e3cb_product('upgrade');
         return ['status' => 'success'];
@@ -5695,10 +5716,12 @@ function cloudstorage_clientarea($vars) {
                     $viewVars = require 'pages/e3backup_job_logs.php';
                     break;
                 case 'runs':
-                    $pagetitle = 'e3 Cloud Backup - Run History';
-                    $templatefile = 'templates/e3backup_runs';
-                    $viewVars = require 'pages/e3backup_runs.php';
-                    break;
+                    $target = 'index.php?m=cloudstorage&page=e3backup&view=job_logs';
+                    if (!empty($_GET['job_id'])) {
+                        $target .= '&job_id=' . rawurlencode((string) $_GET['job_id']);
+                    }
+                    header('Location: ' . $target);
+                    exit;
                 case 'cloudnas':
                     $pagetitle = 'e3 Cloud Backup - Cloud NAS';
                     $templatefile = 'templates/e3backup_cloudnas';
@@ -5728,11 +5751,6 @@ function cloudstorage_clientarea($vars) {
                     $pagetitle = 'e3 Cloud Backup - Getting Started';
                     $templatefile = 'templates/e3backup_getting_started';
                     $viewVars = require 'pages/e3backup_getting_started.php';
-                    break;
-                case 'ms365':
-                    $pagetitle = 'e3 Cloud Backup - Microsoft 365';
-                    $templatefile = 'templates/e3backup_ms365';
-                    $viewVars = require 'pages/e3backup_ms365.php';
                     break;
                 case 'ms365_connect_callback':
                     require 'pages/e3backup_ms365_connect_callback.php';
@@ -6216,6 +6234,86 @@ function cloudstorage_ensure_agent_build_schema(string $context = 'activate'): v
         try {
             logModuleCall('cloudstorage', 'ensure_agent_build_schema', [], $e->getMessage(), [], []);
         } catch (\Throwable $_) {}
+    }
+}
+
+/**
+ * MS365 vault recycle bin: bucket lifecycle columns, audit events, early-delete requests.
+ */
+function cloudstorage_ensure_ms365_vault_lifecycle_schema(string $context = 'activate'): void
+{
+    try {
+        $schema = \WHMCS\Database\Capsule::schema();
+
+        if ($schema->hasTable('s3_buckets')) {
+            $bucketCols = [
+                'recycle_started_at' => function ($table) {
+                    $table->timestamp('recycle_started_at')->nullable();
+                },
+                'recycle_teardown_at' => function ($table) {
+                    $table->timestamp('recycle_teardown_at')->nullable();
+                },
+                'recycled_from_job_id' => function ($table) {
+                    $table->binary('recycled_from_job_id', 16)->nullable();
+                },
+            ];
+            foreach ($bucketCols as $col => $adder) {
+                if (!$schema->hasColumn('s3_buckets', $col)) {
+                    $schema->table('s3_buckets', $adder);
+                    logModuleCall('cloudstorage', $context, [], "Added s3_buckets.{$col}", [], []);
+                }
+            }
+            if (!$schema->hasColumn('s3_buckets', 'recycle_status')) {
+                \WHMCS\Database\Capsule::statement(
+                    "ALTER TABLE `s3_buckets` ADD COLUMN `recycle_status` ENUM('active','recycle','pending_delete','deleted') NOT NULL DEFAULT 'active' AFTER `is_active`"
+                );
+                logModuleCall('cloudstorage', $context, [], 'Added s3_buckets.recycle_status', [], []);
+            }
+        }
+
+        if (!$schema->hasTable('s3_cloudbackup_audit_events')) {
+            $schema->create('s3_cloudbackup_audit_events', function ($table) {
+                $table->bigIncrements('id');
+                $table->unsignedInteger('client_id');
+                $table->unsignedInteger('backup_user_id')->nullable();
+                $table->string('event_type', 64);
+                $table->string('entity_type', 32)->nullable();
+                $table->string('entity_id', 64)->nullable();
+                $table->unsignedInteger('actor_client_user_id')->nullable();
+                $table->unsignedInteger('actor_contact_id')->nullable();
+                $table->string('request_ip', 64)->nullable();
+                $table->text('request_ua')->nullable();
+                $table->mediumText('payload_json')->nullable();
+                $table->timestamp('created_at')->useCurrent();
+                $table->index(['client_id', 'created_at']);
+                $table->index(['event_type', 'created_at']);
+            });
+            logModuleCall('cloudstorage', $context, [], 'Created s3_cloudbackup_audit_events', [], []);
+        }
+
+        if (!$schema->hasTable('s3_ms365_vault_deletion_requests')) {
+            $schema->create('s3_ms365_vault_deletion_requests', function ($table) {
+                $table->increments('id');
+                $table->unsignedInteger('bucket_id');
+                $table->unsignedInteger('client_id');
+                $table->unsignedInteger('backup_user_id')->nullable();
+                $table->binary('job_id', 16)->nullable();
+                $table->enum('status', ['pending', 'approved', 'rejected', 'cancelled', 'completed'])->default('pending');
+                $table->unsignedInteger('requested_by_user_id')->nullable();
+                $table->timestamp('requested_at')->useCurrent();
+                $table->text('reason')->nullable();
+                $table->text('admin_notes')->nullable();
+                $table->timestamp('completed_at')->nullable();
+                $table->index(['bucket_id', 'status']);
+                $table->index(['client_id', 'status']);
+            });
+            logModuleCall('cloudstorage', $context, [], 'Created s3_ms365_vault_deletion_requests', [], []);
+        }
+    } catch (\Throwable $e) {
+        try {
+            logModuleCall('cloudstorage', 'ensure_ms365_vault_lifecycle_schema', [], $e->getMessage(), [], []);
+        } catch (\Throwable $_) {
+        }
     }
 }
 

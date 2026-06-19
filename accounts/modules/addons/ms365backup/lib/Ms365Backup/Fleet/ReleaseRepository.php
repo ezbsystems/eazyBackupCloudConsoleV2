@@ -61,10 +61,55 @@ final class ReleaseRepository
         return version_compare($a, $b);
     }
 
-    public static function nodeNeedsUpdate(string $nodeVersion, string $targetVersion): bool
+    public static function validateVersionLabel(string $version): void
+    {
+        $version = trim($version);
+        if ($version === '' || !preg_match('/^\d+\.\d+\.\d+$/', $version)) {
+            throw new \RuntimeException('version_label must be three-part semver (e.g. 0.1.18), not ' . ($version === '' ? 'empty' : $version));
+        }
+    }
+
+    /** Suggest next patch from latest release (0.1.17 -> 0.1.18). */
+    public static function suggestNextVersion(): string
+    {
+        $latest = self::latest();
+        if ($latest === null || trim((string) ($latest['version'] ?? '')) === '') {
+            return '0.1.1';
+        }
+        $parts = explode('.', (string) $latest['version']);
+        if (count($parts) !== 3) {
+            return (string) $latest['version'];
+        }
+        $parts[2] = (string) ((int) $parts[2] + 1);
+
+        return implode('.', $parts);
+    }
+
+    public static function nodeMatchesTarget(string $nodeVersion, string $targetVersion): bool
     {
         if ($targetVersion === '' || $nodeVersion === '') {
-            return $targetVersion !== '' && $nodeVersion !== $targetVersion;
+            return false;
+        }
+
+        return self::compareVersions($nodeVersion, $targetVersion) === 0;
+    }
+
+    public static function nodeAheadOfTarget(string $nodeVersion, string $targetVersion): bool
+    {
+        if ($targetVersion === '' || $nodeVersion === '') {
+            return false;
+        }
+
+        return self::compareVersions($nodeVersion, $targetVersion) > 0;
+    }
+
+    public static function nodeNeedsUpdate(string $nodeVersion, string $targetVersion): bool
+    {
+        if ($targetVersion === '') {
+            return false;
+        }
+        if ($nodeVersion === '') {
+            return true;
         }
 
         return self::compareVersions($nodeVersion, $targetVersion) < 0;

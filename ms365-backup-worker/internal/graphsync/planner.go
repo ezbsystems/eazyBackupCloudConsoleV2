@@ -20,6 +20,8 @@ type PlannerSyncResult struct {
 	FileCount int
 }
 
+// SyncPlanner backs up Planner tasks via full bucket/task pagination.
+// Graph plannerUser delta exists but requires a different collection shape; deferred — see ARCHITECTURE.md.
 func SyncPlanner(ctx context.Context, client *graph.Client, opts PlannerSyncOptions) (*PlannerSyncResult, error) {
 	if opts.Staging == nil {
 		return nil, fmt.Errorf("planner sync requires overlay builder")

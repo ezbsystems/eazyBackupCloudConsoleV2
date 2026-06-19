@@ -7,15 +7,16 @@ worker:
   node_id: ""
   hostname: ""
   poll_interval_seconds: 5
-  max_concurrent_runs: 4
-  graph_parallel_requests: 16
-  graph_folder_parallel: 4
+  max_concurrent_runs: 6
+  graph_parallel_requests: 32
+  graph_folder_parallel: 8
+  graph_sharepoint_drive_parallel: 4
   heartbeat_interval_seconds: 30
-  progress_heartbeat_seconds: 60
+  progress_heartbeat_seconds: 45
   install_path: /var/lib/ms365-backup-worker/bin/ms365-backup-worker
   run_dir: /var/lib/ms365-backup-worker/runs
   proxmox_vmid: 0
-  # Admission budgets — must match Proxmox CT size (8G RAM / 32G disk / 4 cores)
+  # Admission budgets  ^`^t must match Proxmox CT size (8G RAM / 32G disk / 4 cores)
   ram_budget_mib: 6144
   disk_budget_mib: 24576
   max_cpu_cores: 3
@@ -30,10 +31,10 @@ api:
 
 kopia:
   repo_config_dir: /var/lib/ms365-backup-worker/kopia
-  parallel_uploads: 4
+  parallel_uploads: 8
   compressor: zstd-default
   max_pack_size_mib: 32
-  content_cache_size_mib: 256
+  content_cache_size_mib: 1024
   checkpoint_interval_minutes: 15
 
 graph:

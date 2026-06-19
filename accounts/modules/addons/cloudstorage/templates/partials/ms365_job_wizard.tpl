@@ -51,57 +51,147 @@
                 <div x-show="!loading">
                     <!-- Step 1: Connect -->
                     <div x-show="step === 1" class="space-y-4">
-                        <p class="eb-card-subtitle">Connect your Microsoft 365 organization. Sign in with a Global Administrator account that belongs to the tenant you want to back up and approve access for your organization.</p>
-                        <template x-if="status.connected && !status.needs_reconnect">
-                            <div class="eb-alert eb-alert--success">
-                                <div class="eb-alert-title">Connected</div>
-                                <p class="eb-type-caption !mt-1" x-show="status.azure_tenant_id">Tenant: <span x-text="status.azure_tenant_id"></span></p>
-                                <p class="eb-type-caption !mt-1" x-show="status.bucket_name">Storage: <span x-text="status.bucket_name"></span></p>
-                                <div class="flex flex-wrap gap-2 mt-3">
-                                    <button type="button" class="eb-btn eb-btn-secondary eb-btn-sm" @click="confirmSwitchOrganization()" :disabled="disconnecting || connecting">
-                                        Connect a different organization
-                                    </button>
-                                    <button type="button" class="eb-btn eb-btn-ghost eb-btn-sm !text-[var(--eb-text-danger)]" @click="confirmDisconnect()" :disabled="disconnecting || connecting">
-                                        Disconnect
-                                    </button>
-                                </div>
+                        <div x-show="showConnectModeToggle()" class="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[var(--eb-border-default)] px-4 py-3">
+                            <div>
+                                <div class="text-sm font-medium text-[var(--eb-text-primary)]">Connection method</div>
+                                <p class="eb-type-caption !mt-0.5" x-text="connectMode === 'automatic' ? 'Sign in with Microsoft admin consent (recommended).' : 'Enter your own Entra app credentials.'"></p>
                             </div>
-                        </template>
-                        <template x-if="status.needs_reconnect && !awaitingConsent">
-                            <div class="eb-alert eb-alert--warning">
-                                <div class="eb-alert-title">Reconnection required</div>
-                                <p class="eb-type-caption !mt-1" x-text="status.health_error || 'Microsoft 365 access was removed or expired. Reconnect your organization to continue.'"></p>
-                                <p class="eb-type-caption !mt-1" x-show="status.azure_tenant_id">Previous tenant: <span x-text="status.azure_tenant_id"></span></p>
-                                <div class="flex flex-wrap gap-2 mt-3">
-                                    <button type="button" class="eb-btn eb-btn-primary eb-btn-sm" @click="connect()" :disabled="connecting || disconnecting">
-                                        <span x-text="connecting ? 'Opening Microsoft…' : 'Reconnect Microsoft 365'"></span>
-                                    </button>
-                                    <button type="button" class="eb-btn eb-btn-ghost eb-btn-sm !text-[var(--eb-text-danger)]" @click="confirmDisconnect()" :disabled="disconnecting || connecting">
-                                        Disconnect
-                                    </button>
-                                </div>
+                            <div class="flex items-center gap-3">
+                                <span class="text-xs font-medium" :class="connectMode === 'automatic' ? 'text-[var(--eb-text-primary)]' : 'text-[var(--eb-text-muted)]'">Automatic</span>
+                                <button type="button"
+                                        class="eb-toggle"
+                                        :disabled="isOAuthConnected() && status.connected"
+                                        @click="setConnectMode(connectMode === 'automatic' ? 'manual' : 'automatic')"
+                                        :aria-pressed="connectMode === 'manual'">
+                                    <div class="eb-toggle-track" :class="connectMode === 'manual' && 'is-on'">
+                                        <div class="eb-toggle-thumb"></div>
+                                    </div>
+                                </button>
+                                <span class="text-xs font-medium" :class="connectMode === 'manual' ? 'text-[var(--eb-text-primary)]' : 'text-[var(--eb-text-muted)]'">Manual</span>
                             </div>
-                        </template>
-                        <div x-show="awaitingConsent" x-cloak class="eb-alert eb-alert--info">
-                            <div class="flex items-start gap-3">
-                                <div class="eb-loading-spinner--compact shrink-0 mt-0.5" role="status" aria-label="Waiting for Microsoft sign-in"></div>
-                                <div class="min-w-0">
-                                    <div class="eb-alert-title">Waiting for Microsoft sign-in</div>
-                                    <p class="eb-type-caption !mt-1">Complete admin consent in the popup window. This wizard will continue automatically when your tenant is connected.</p>
+                        </div>
+                        <p class="eb-alert eb-alert--warning !mb-0" x-show="isOAuthConnected() && status.connected && connectMode === 'manual'" x-cloak>
+                            Disconnect the current Microsoft 365 connection before switching to manual credentials.
+                        </p>
+
+                        <div x-show="connectMode === 'automatic'" class="rounded-lg border border-[var(--eb-border-default)] px-4 py-4">
+                            <div class="space-y-4">
+                            <p class="eb-card-subtitle !mb-0">Connect your Microsoft 365 organization. Sign in with a Global Administrator account that belongs to the tenant you want to back up and approve access for your organization.</p>
+                            <template x-if="status.connected && !status.needs_reconnect && isOAuthConnected()">
+                                <div class="eb-alert eb-alert--success">
+                                    <div class="eb-alert-title">Connected</div>
+                                    <p class="eb-type-caption !mt-1" x-show="status.azure_tenant_id">Tenant: <span x-text="status.azure_tenant_id"></span></p>
+                                    <p class="eb-type-caption !mt-1" x-show="status.bucket_name">Storage: <span x-text="status.bucket_name"></span></p>
                                     <div class="flex flex-wrap gap-2 mt-3">
-                                        <button type="button" class="eb-btn eb-btn-secondary eb-btn-sm" @click="reopenConsentPopup()">Reopen Microsoft window</button>
-                                        <button type="button" class="eb-btn eb-btn-ghost eb-btn-sm" @click="cancelConsentWait()">Cancel</button>
+                                        <button type="button" class="eb-btn eb-btn-secondary eb-btn-sm" @click="confirmSwitchOrganization()" :disabled="disconnecting || connecting">
+                                            Connect a different organization
+                                        </button>
+                                        <button type="button" class="eb-btn eb-btn-ghost eb-btn-sm !text-[var(--eb-text-danger)]" @click="confirmDisconnect()" :disabled="disconnecting || connecting">
+                                            Disconnect
+                                        </button>
+                                    </div>
+                                </div>
+                            </template>
+                            <template x-if="status.needs_reconnect && !awaitingConsent && isOAuthConnected()">
+                                <div class="eb-alert eb-alert--warning">
+                                    <div class="eb-alert-title">Reconnection required</div>
+                                    <p class="eb-type-caption !mt-1" x-text="status.health_error || 'Microsoft 365 access was removed or expired. Reconnect your organization to continue.'"></p>
+                                    <p class="eb-type-caption !mt-1" x-show="status.azure_tenant_id">Previous tenant: <span x-text="status.azure_tenant_id"></span></p>
+                                    <div class="flex flex-wrap gap-2 mt-3">
+                                        <button type="button" class="eb-btn eb-btn-primary eb-btn-sm" @click="connect()" :disabled="connecting || disconnecting">
+                                            <span x-text="connecting ? 'Opening Microsoft…' : 'Reconnect Microsoft 365'"></span>
+                                        </button>
+                                        <button type="button" class="eb-btn eb-btn-ghost eb-btn-sm !text-[var(--eb-text-danger)]" @click="confirmDisconnect()" :disabled="disconnecting || connecting">
+                                            Disconnect
+                                        </button>
+                                    </div>
+                                </div>
+                            </template>
+                            <div x-show="awaitingConsent" x-cloak class="eb-alert eb-alert--info">
+                                <div class="flex items-start gap-3">
+                                    <div class="eb-loading-spinner--compact shrink-0 mt-0.5" role="status" aria-label="Waiting for Microsoft sign-in"></div>
+                                    <div class="min-w-0">
+                                        <div class="eb-alert-title">Waiting for Microsoft sign-in</div>
+                                        <p class="eb-type-caption !mt-1">Complete admin consent in the popup window. This wizard will continue automatically when your tenant is connected.</p>
+                                        <div class="flex flex-wrap gap-2 mt-3">
+                                            <button type="button" class="eb-btn eb-btn-secondary eb-btn-sm" @click="reopenConsentPopup()">Reopen Microsoft window</button>
+                                            <button type="button" class="eb-btn eb-btn-ghost eb-btn-sm" @click="cancelConsentWait()">Cancel</button>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
+                            <div x-show="!status.connected && !status.needs_reconnect && !awaitingConsent" class="pt-2">
+                                <button type="button" class="eb-btn eb-btn-primary" @click="connect()" :disabled="connecting">
+                                    <span x-text="connecting ? 'Opening Microsoft…' : 'Connect Microsoft 365'"></span>
+                                </button>
+                            </div>
+                            </div>
                         </div>
-                        <template x-if="!status.connected && !status.needs_reconnect && !awaitingConsent">
-                            <button type="button" class="eb-btn eb-btn-primary" @click="connect()" :disabled="connecting">
-                                <span x-text="connecting ? 'Opening Microsoft…' : 'Connect Microsoft 365'"></span>
-                            </button>
-                        </template>
-                        <p class="text-sm text-[var(--eb-text-danger)]" x-show="consentError" x-text="consentError"></p>
-                        <p class="text-sm text-[var(--eb-text-danger)]" x-show="status.health_error && !consentError" x-text="status.health_error"></p>
+
+                        <div x-show="connectMode === 'manual'" class="rounded-lg border border-[var(--eb-border-default)] px-4 py-4 space-y-4">
+                            <p class="eb-card-subtitle !mb-0">Register an Entra ID application in your tenant, grant the required application permissions, and enter the credentials below.</p>
+                            <template x-if="status.connected && !status.needs_reconnect && isManualConnected()">
+                                <div class="eb-alert eb-alert--success">
+                                    <div class="eb-alert-title">Connected</div>
+                                    <p class="eb-type-caption !mt-1" x-show="status.azure_tenant_id">Tenant: <span x-text="status.azure_tenant_id"></span></p>
+                                    <p class="eb-type-caption !mt-1" x-show="status.bucket_name">Storage: <span x-text="status.bucket_name"></span></p>
+                                    <div class="flex flex-wrap gap-2 mt-3">
+                                        <button type="button" class="eb-btn eb-btn-ghost eb-btn-sm !text-[var(--eb-text-danger)]" @click="confirmDisconnect()" :disabled="disconnecting">
+                                            Disconnect
+                                        </button>
+                                    </div>
+                                </div>
+                            </template>
+                            <template x-if="status.needs_reconnect && isManualConnected()">
+                                <div class="eb-alert eb-alert--warning">
+                                    <div class="eb-alert-title">Reconnection required</div>
+                                    <p class="eb-type-caption !mt-1" x-text="status.health_error || 'Microsoft 365 credentials could not be verified. Update credentials and save again.'"></p>
+                                </div>
+                            </template>
+                            <div class="grid gap-4 sm:grid-cols-2" x-show="!status.connected || status.needs_reconnect || isManualConnected()">
+                                <div class="sm:col-span-2">
+                                    <label class="eb-field-label" for="ms365-manual-region">REGION</label>
+                                    <select id="ms365-manual-region" class="eb-select w-full mt-1" x-model="manualForm.region" @change="clearManualTestPassed()">
+                                        <template x-for="region in manualRegions" :key="region">
+                                            <option :value="region" x-text="region"></option>
+                                        </template>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="eb-field-label" for="ms365-manual-client-id">CLIENT_ID</label>
+                                    <input id="ms365-manual-client-id" type="text" class="eb-input w-full mt-1 font-mono text-sm" x-model="manualForm.client_id" autocomplete="off" @input="clearManualTestPassed()">
+                                </div>
+                                <div>
+                                    <label class="eb-field-label" for="ms365-manual-tenant-id">TENANT_ID</label>
+                                    <input id="ms365-manual-tenant-id" type="text" class="eb-input w-full mt-1 font-mono text-sm" x-model="manualForm.tenant_id" autocomplete="off" @input="clearManualTestPassed()">
+                                </div>
+                                <div class="sm:col-span-2">
+                                    <label class="eb-field-label" for="ms365-manual-app-secret">APP_SECRET</label>
+                                    <input id="ms365-manual-app-secret"
+                                           type="password"
+                                           class="eb-input w-full mt-1"
+                                           x-model="manualForm.app_secret"
+                                           autocomplete="new-password"
+                                           @input="clearManualTestPassed()"
+                                           :placeholder="manualSecretPlaceholder()">
+                                </div>
+                            </div>
+                            <div class="flex flex-wrap gap-2" x-show="!status.connected || status.needs_reconnect || isManualConnected()">
+                                <button type="button" class="eb-btn eb-btn-secondary" @click="testManualConnect()" :disabled="manualTesting || manualSaving">
+                                    <span x-text="manualTesting ? 'Testing…' : 'Test connection'"></span>
+                                </button>
+                                <button type="button" class="eb-btn eb-btn-primary" @click="saveManualConnect()" :disabled="manualSaving || manualTesting">
+                                    <span x-text="manualSaving ? 'Saving…' : 'Save credentials'"></span>
+                                </button>
+                            </div>
+                            <div class="eb-alert eb-alert--success" x-show="manualNotice" x-cloak>
+                                <div x-text="manualNotice"></div>
+                            </div>
+                        </div>
+
+                        <p class="text-sm text-[var(--eb-text-danger)]" x-show="consentError && connectMode === 'automatic'" x-text="consentError"></p>
+                        <p class="text-sm text-[var(--eb-text-danger)]" x-show="manualError && connectMode === 'manual'" x-text="manualError"></p>
+                        <p class="text-sm text-[var(--eb-text-danger)]" x-show="status.health_error && !consentError && !manualError && connectMode === 'automatic'" x-text="status.health_error"></p>
                     </div>
 
                     <!-- Step 2: Inventory -->
@@ -129,6 +219,18 @@
                         <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 min-h-[22rem]">
                             <div class="ms365-inventory-pane border border-[var(--eb-border-default)] rounded-lg overflow-hidden flex flex-col">
                                 <div class="eb-menu-label px-3 py-2 border-b border-[var(--eb-border-default)]">Tenant inventory</div>
+                                <div class="flex items-center gap-2 px-3 py-2 border-b border-[var(--eb-border-default)] bg-[var(--eb-surface-muted)]"
+                                     x-show="inventory.resources && inventory.resources.length > 0">
+                                    <input type="checkbox"
+                                           id="ms365-inventory-select-all"
+                                           class="eb-check-input shrink-0"
+                                           :checked="inventoryGlobalCheckState() === 'checked'"
+                                           x-init="$el.indeterminate = inventoryGlobalCheckState() === 'indeterminate'"
+                                           @change="toggleSelectAllInventory(); $el.indeterminate = inventoryGlobalCheckState() === 'indeterminate'; $el.checked = inventoryGlobalCheckState() === 'checked'">
+                                    <label for="ms365-inventory-select-all" class="text-sm font-medium text-[var(--eb-text-primary)] cursor-pointer select-none">
+                                        Select all resources
+                                    </label>
+                                </div>
                                 <div class="flex-1 overflow-y-auto p-2 space-y-4">
                                     <template x-for="section in inventorySections()" :key="section.key">
                                         <div x-show="sectionHasNodes(section.key)">
@@ -339,5 +441,5 @@
     </div>
 </div>
 
-<script src="modules/addons/cloudstorage/assets/js/ms365_job_selection.js?v=2"></script>
-<script src="modules/addons/cloudstorage/assets/js/ms365_job_wizard.js?v=12"></script>
+<script src="modules/addons/cloudstorage/assets/js/ms365_job_selection.js?v=3"></script>
+<script src="modules/addons/cloudstorage/assets/js/ms365_job_wizard.js?v=16"></script>

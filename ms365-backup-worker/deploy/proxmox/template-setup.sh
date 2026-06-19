@@ -47,6 +47,10 @@ systemctl stop ms365-backup-worker 2>/dev/null || true
 install -m 0755 "$BINARY_SRC" "$INSTALL_PREFIX/ms365-backup-worker"
 chown "$WORKER_USER:$WORKER_USER" "$INSTALL_PREFIX/ms365-backup-worker"
 
+LICENSE_SRC="$REPO_ROOT/THIRD_PARTY_LICENSES.txt"
+[[ -f "$LICENSE_SRC" ]] || die "Missing $LICENSE_SRC — run: make licenses"
+install -m 0644 "$LICENSE_SRC" "$INSTALL_PREFIX/THIRD_PARTY_LICENSES.txt"
+
 echo "==> Installing config (non-secret template; 8G/32G budget defaults)"
 CONFIG_TEMPLATE="$REPO_ROOT/deploy/proxmox/config.yaml.template"
 [[ -f "$CONFIG_TEMPLATE" ]] || CONFIG_TEMPLATE="$REPO_ROOT/config/config.yaml.example"

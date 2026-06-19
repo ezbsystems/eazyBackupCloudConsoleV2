@@ -15,6 +15,7 @@ use WHMCS\Module\Addon\CloudStorage\Client\Ms365BatchLiveService;
 use WHMCS\Module\Addon\CloudStorage\Client\SanitizedLogFormatter;
 use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupEmailService;
 use WHMCS\Module\Addon\CloudStorage\Client\TimezoneHelper;
+use WHMCS\Module\Addon\CloudStorage\Client\UuidBinary;
 use WHMCS\Database\Capsule;
 
 $debugLogPath = '/var/www/eazybackup.ca/.cursor/debug.log';
@@ -243,10 +244,15 @@ try {
     $isTerminal = in_array((string)($run['status'] ?? ''), ['success','warning','failed','cancelled'], true);
     $hasFinishedAt = !empty($run['finished_at']);
     if ($isTerminal && $hasFinishedAt) {
+        $hasRunIdPk = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'run_id');
         // Check if already notified
-            $alreadyNotified = Capsule::table('s3_cloudbackup_runs')
-                ->where('id', (int)($run['id'] ?? 0))
-            ->value('notified_at');
+        $notifiedQuery = Capsule::table('s3_cloudbackup_runs');
+        if ($hasRunIdPk && UuidBinary::isUuid($runIdentifier)) {
+            $notifiedQuery->whereRaw('run_id = ' . UuidBinary::toDbExpr(UuidBinary::normalize($runIdentifier)));
+        } else {
+            $notifiedQuery->where('id', (int) ($run['id'] ?? $runIdentifier));
+        }
+        $alreadyNotified = $notifiedQuery->value('notified_at');
         if (!$alreadyNotified) {
             // Load email template setting
             $templateSetting = Capsule::table('tbladdonmodules')
@@ -329,9 +335,13 @@ try {
                         $res = CloudBackupEmailService::sendRunNotification($runArr, $jobArr, $client, $templateSetting);
                         // Mark notified for success or skipped (to avoid repeated attempts via polling)
                         if (in_array(($res['status'] ?? ''), ['success','skipped'], true)) {
-                            Capsule::table('s3_cloudbackup_runs')
-                                ->where('id', (int)($run['id'] ?? 0))
-                                ->update(['notified_at' => date('Y-m-d H:i:s')]);
+                            $markNotifiedQuery = Capsule::table('s3_cloudbackup_runs');
+                            if ($hasRunIdPk && UuidBinary::isUuid($runIdentifier)) {
+                                $markNotifiedQuery->whereRaw('run_id = ' . UuidBinary::toDbExpr(UuidBinary::normalize($runIdentifier)));
+                            } else {
+                                $markNotifiedQuery->where('id', (int) ($run['id'] ?? $runIdentifier));
+                            }
+                            $markNotifiedQuery->update(['notified_at' => date('Y-m-d H:i:s')]);
                         }
                     }
                 }

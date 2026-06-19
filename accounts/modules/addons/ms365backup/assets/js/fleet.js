@@ -38,15 +38,24 @@
       var versions = Object.keys(s.version_counts || {}).map(function (v) {
         return esc(v) + ': ' + s.version_counts[v];
       }).join(', ') || '—';
+      var staleJobs = (s.stale_running_jobs || 0) + ' / ' + (s.exhausted_jobs || 0);
+      var staleClass = (s.stale_running_jobs || 0) > 0 || (s.exhausted_jobs || 0) > 0 ? ' well-warning' : '';
       el.innerHTML =
         '<div class="row">' +
         '<div class="col-md-3"><div class="well text-center"><h4>' + esc(s.active_nodes) + '</h4><small>Active nodes</small></div></div>' +
         '<div class="col-md-3"><div class="well text-center"><h4>' + esc(s.queued_jobs) + ' / ' + esc(s.running_jobs) + '</h4><small>Queued / running jobs</small></div></div>' +
+        '<div class="col-md-3"><div class="well text-center' + staleClass + '"><h4>' + esc(staleJobs) + '</h4><small>Stale / exhausted jobs</small></div></div>' +
         '<div class="col-md-3"><div class="well text-center"><h4>' + esc(s.load) + ' / ' + esc(s.capacity) + '</h4><small>Load / capacity</small></div></div>' +
-        '<div class="col-md-3"><div class="well text-center"><h4>' + esc(s.engine_mode) + '</h4><small>Engine mode</small></div></div>' +
+        '</div>' +
+        '<div class="row">' +
+        '<div class="col-md-12"><div class="well text-center"><h4>' + esc(s.engine_mode) + '</h4><small>Engine mode</small></div></div>' +
         '</div>' +
         '<p><strong>Latest release:</strong> ' + esc(latest) + ' &nbsp; <strong>Deploy target:</strong> ' + esc(target) + '</p>' +
         '<p><strong>Node versions:</strong> ' + versions + '</p>';
+      var buildVersionInput = document.querySelector('#fleet-build-form [name=version_label]');
+      if (buildVersionInput && s.suggest_next_version) {
+        buildVersionInput.placeholder = s.suggest_next_version;
+      }
     });
     var auditEl = document.getElementById('fleet-audit');
     if (auditEl) {
@@ -199,7 +208,7 @@
     get('worker_deploy_list').then(function (res) {
       if (!res.ok) { el.innerHTML = '<div class="alert alert-danger">' + esc(res.error) + '</div>'; return; }
       var jobs = res.jobs || [];
-      el.innerHTML = '<table class="table table-condensed"><thead><tr><th>ID</th><th>Release</th><th>Strategy</th><th>Status</th><th>Progress</th></tr></thead><tbody>' +
+      el.innerHTML = '<table class="table table-condensed"><thead><tr><th>ID</th><th>Version</th><th>Strategy</th><th>Status</th><th>Progress</th></tr></thead><tbody>' +
         jobs.map(function (j) {
           var updated = parseInt(j.nodes_updated, 10) || 0;
           var total = parseInt(j.nodes_total, 10) || 0;
@@ -207,7 +216,8 @@
           if (j.status === 'succeeded' && total > 0 && updated >= total) {
             progress = total + '/' + total + ' ✓';
           }
-          return '<tr><td>' + esc(j.id) + '</td><td>' + esc(j.release_id) + '</td><td>' + esc(j.strategy) + '</td>' +
+          var versionLabel = j.release_version ? 'v' + j.release_version : ('#' + j.release_id);
+          return '<tr><td>' + esc(j.id) + '</td><td>' + esc(versionLabel) + '</td><td>' + esc(j.strategy) + '</td>' +
             '<td>' + esc(j.status) + '</td><td>' + esc(progress) + '</td></tr>';
         }).join('') + '</tbody></table>';
     });
@@ -261,8 +271,20 @@
           force_deploy: deployForm.querySelector('[name=force_deploy]').checked ? '1' : ''
         }).then(function (res) {
           var n = document.getElementById('fleet-deploy-notice');
-          if (n) n.innerHTML = res.ok ? '<div class="alert alert-success">Deploy job #' + esc(res.deploy_job_id) + ' started.</div>' : '<div class="alert alert-danger">' + esc(res.error) + '</div>';
+          if (!n) return;
+          if (!res.ok) {
+            n.innerHTML = '<div class="alert alert-danger">' + esc(res.error) + '</div>';
+            return;
+          }
+          var msg = 'Deploy job #' + esc(res.deploy_job_id) + ' started for v' + esc(res.target_version || '?') + '.';
+          if ((res.nodes_needing_update || 0) === 0) {
+            msg = 'All ' + esc(res.already_current || res.nodes_total) + ' node(s) already run v' + esc(res.target_version || '?') + ' — nothing to deploy.';
+          } else {
+            msg += ' ' + esc(res.nodes_needing_update) + ' node(s) pending update.';
+          }
+          n.innerHTML = '<div class="alert alert-success">' + msg + '</div>';
           renderDeployments();
+          renderNodes();
         });
       });
     }

@@ -54,7 +54,7 @@ Dev builds publish to the dev server's `client_installer/`. To make installers
 available to customers on production, use **Agent Builds → Deployment**:
 
 1. Admin explicitly promotes a build (or latest releases) to the production manifest.
-2. Production cron (`crons/agent_deploy_sync.php`) polls the dev manifest URL every ~5 minutes.
+2. Production cron (`crons/agent_deploy_sync.php`) polls the dev manifest URL every ~2 minutes.
 3. New artifacts are verified (SHA-256) and installed into prod `client_installer/` and `s3_agent_releases`.
 
 See the **Production Deployment** section in `LOCAL_AGENT_BUILD.md` for setup.

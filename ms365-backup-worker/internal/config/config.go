@@ -17,16 +17,26 @@ type Config struct {
 	Graph  GraphConfig  `yaml:"graph"`
 }
 
+func (c *Config) GraphTokenRefreshInterval() time.Duration {
+	sec := c.Worker.TokenRefreshSeconds
+	if sec <= 0 {
+		sec = 2700
+	}
+	return time.Duration(sec) * time.Second
+}
+
 type WorkerConfig struct {
 	NodeID                     string `yaml:"node_id"`
 	Hostname                   string `yaml:"hostname"`
 	Token                      string `yaml:"token"`
 	PollIntervalSeconds        int    `yaml:"poll_interval_seconds"`
 	MaxConcurrentRuns          int    `yaml:"max_concurrent_runs"`
-	GraphParallelRequests      int    `yaml:"graph_parallel_requests"`
-	GraphFolderParallel        int    `yaml:"graph_folder_parallel"`
+	GraphParallelRequests         int `yaml:"graph_parallel_requests"`
+	GraphFolderParallel           int `yaml:"graph_folder_parallel"`
+	GraphSharePointDriveParallel  int `yaml:"graph_sharepoint_drive_parallel"`
 	HeartbeatIntervalSeconds   int    `yaml:"heartbeat_interval_seconds"`
 	ProgressHeartbeatSeconds   int    `yaml:"progress_heartbeat_seconds"`
+	TokenRefreshSeconds        int    `yaml:"graph_token_refresh_seconds"`
 	InstallPath                string `yaml:"install_path"`
 	RunDir                     string `yaml:"run_dir"`
 	ProxmoxVmid                int    `yaml:"proxmox_vmid"`
@@ -54,10 +64,18 @@ type KopiaConfig struct {
 }
 
 type GraphConfig struct {
-	MaxRetries          int  `yaml:"max_retries"`
-	RetryBaseDelayMs    int  `yaml:"retry_base_delay_ms"`
-	AdaptiveConcurrency bool `yaml:"adaptive_concurrency"`
-	UseBatchFallback    bool `yaml:"use_batch_fallback"`
+	MaxRetries           int   `yaml:"max_retries"`
+	RetryBaseDelayMs     int   `yaml:"retry_base_delay_ms"`
+	AdaptiveConcurrency  *bool `yaml:"adaptive_concurrency"`
+	UseBatchFallback     bool  `yaml:"use_batch_fallback"`
+	GlobalMaxConcurrency int   `yaml:"global_max_concurrency"`
+}
+
+func (g GraphConfig) AdaptiveEnabled() bool {
+	if g.AdaptiveConcurrency == nil {
+		return true
+	}
+	return *g.AdaptiveConcurrency
 }
 
 func Load(path string) (*Config, error) {
@@ -84,10 +102,16 @@ func (c *Config) applyDefaults() {
 		c.Worker.MaxConcurrentRuns = 6
 	}
 	if c.Worker.GraphParallelRequests <= 0 {
-		c.Worker.GraphParallelRequests = 16
+		c.Worker.GraphParallelRequests = 8
 	}
 	if c.Worker.GraphFolderParallel <= 0 {
 		c.Worker.GraphFolderParallel = 4
+	}
+	if c.Worker.GraphSharePointDriveParallel <= 0 {
+		c.Worker.GraphSharePointDriveParallel = 4
+	}
+	if c.Worker.GraphSharePointDriveParallel > 16 {
+		c.Worker.GraphSharePointDriveParallel = 16
 	}
 	if c.Worker.HeartbeatIntervalSeconds <= 0 {
 		c.Worker.HeartbeatIntervalSeconds = 30
@@ -148,6 +172,9 @@ func (c *Config) applyDefaults() {
 	}
 	if c.Graph.RetryBaseDelayMs <= 0 {
 		c.Graph.RetryBaseDelayMs = 2000
+	}
+	if c.Graph.GlobalMaxConcurrency <= 0 {
+		c.Graph.GlobalMaxConcurrency = 24
 	}
 	if c.Worker.Hostname == "" {
 		if h, err := os.Hostname(); err == nil && h != "" {

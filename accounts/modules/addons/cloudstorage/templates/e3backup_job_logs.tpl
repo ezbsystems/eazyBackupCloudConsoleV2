@@ -1,17 +1,19 @@
-{capture assign=ebE3JobLogsBreadcrumb}
-    <div class="eb-breadcrumb">
-        <a href="index.php?m=cloudstorage&page=e3backup&view=dashboard" class="eb-breadcrumb-link">e3 Cloud Backup</a>
-        <span class="eb-breadcrumb-separator">/</span>
-        <span class="eb-breadcrumb-current">Job Logs</span>
-    </div>
-{/capture}
+{if $scopeJobName|default:'' neq ''}
+    {assign var=ebE3JobLogsPageTitle value="Job Logs: {$scopeJobName|escape}"}
+    {assign var=ebE3JobLogsPageDescription value='Backup runs for this job. Filter by time range and status, then open any run to view its log.'}
+{elseif $scopeUsername|default:'' neq ''}
+    {assign var=ebE3JobLogsPageTitle value="Job Logs: {$scopeUsername|escape}"}
+    {assign var=ebE3JobLogsPageDescription value='All backup runs for this user. Filter by time range and status, then open any run to view its log.'}
+{else}
+    {assign var=ebE3JobLogsPageTitle value='Job Logs'}
+    {assign var=ebE3JobLogsPageDescription value='All backup runs across your agents. Filter by time range and status, then open any run to view its log.'}
+{/if}
 
 {capture assign=ebE3Content}
 <div x-data="e3JobLogsApp()" x-init="init()" class="eb-section-stack">
     {include file="$template/includes/ui/page-header.tpl"
-        ebBreadcrumb=$ebE3JobLogsBreadcrumb
-        ebPageTitle='Job Logs'
-        ebPageDescription='All backup runs across your agents. Filter by time range and status, then open any run to view its log.'
+        ebPageTitle=$ebE3JobLogsPageTitle
+        ebPageDescription=$ebE3JobLogsPageDescription
     }
 
     {* Status filter chips *}
@@ -43,9 +45,9 @@
                     <div x-show="colsOpen" x-cloak x-transition class="eb-menu absolute z-10 mt-2 w-72 p-2" style="display:none;">
                         <div class="eb-menu-checklist two-col">
                             <label class="eb-menu-checklist-item"><span>Started</span><input type="checkbox" class="eb-checkbox" x-model="cols.started"></label>
-                            <label class="eb-menu-checklist-item"><span>Job</span><input type="checkbox" class="eb-checkbox" x-model="cols.job"></label>
+                            <label class="eb-menu-checklist-item" x-show="showJobCol"><span>Job</span><input type="checkbox" class="eb-checkbox" x-model="cols.job"></label>
                             <label class="eb-menu-checklist-item"><span>Agent</span><input type="checkbox" class="eb-checkbox" x-model="cols.agent"></label>
-                            <label class="eb-menu-checklist-item"><span>User</span><input type="checkbox" class="eb-checkbox" x-model="cols.user"></label>
+                            <label class="eb-menu-checklist-item" x-show="showUserCol"><span>User</span><input type="checkbox" class="eb-checkbox" x-model="cols.user"></label>
                             <label class="eb-menu-checklist-item"><span>Engine</span><input type="checkbox" class="eb-checkbox" x-model="cols.engine"></label>
                             <label class="eb-menu-checklist-item"><span>Status</span><input type="checkbox" class="eb-checkbox" x-model="cols.status"></label>
                             <label class="eb-menu-checklist-item"><span>Size</span><input type="checkbox" class="eb-checkbox" x-model="cols.size"></label>
@@ -86,7 +88,7 @@
                     </template>
                 </div>
 
-                {if $isMspClient}
+                {if $isMspClient && !$showUserSubnav}
                 <div class="relative shrink-0" @click.away="tenantOpen = false">
                     <button type="button" class="eb-app-toolbar-button" @click="tenantOpen = !tenantOpen">
                         <span class="text-[var(--eb-text-muted)]">Tenant:</span>
@@ -126,9 +128,9 @@
                 <thead>
                     <tr>
                         <th x-show="cols.started" class="cursor-pointer" @click="setSort('started')">Started</th>
-                        <th x-show="cols.job" class="cursor-pointer" @click="setSort('job')">Job</th>
+                        <th x-show="cols.job && showJobCol" class="cursor-pointer" @click="setSort('job')">Job</th>
                         <th x-show="cols.agent" class="cursor-pointer" @click="setSort('agent')">Agent</th>
-                        <th x-show="cols.user">User</th>
+                        <th x-show="cols.user && showUserCol">User</th>
                         <th x-show="cols.engine" class="whitespace-nowrap">Engine</th>
                         <th x-show="cols.status" class="cursor-pointer" @click="setSort('status')">Status</th>
                         <th x-show="cols.size">Size</th>
@@ -153,14 +155,15 @@
                     <template x-for="row in rows" :key="row.run_id">
                         <tr class="cursor-pointer" @click="openRun(row)" title="Click to view log">
                             <td x-show="cols.started" class="eb-table-primary" x-text="fmtDate(row.started_at)"></td>
-                            <td x-show="cols.job" x-text="row.job_name || '-'"></td>
+                            <td x-show="cols.job && showJobCol" x-text="row.job_name || '-'"></td>
                             <td x-show="cols.agent" x-text="row.agent_hostname || '-'"></td>
-                            <td x-show="cols.user" x-text="row.username || '-'"></td>
+                            <td x-show="cols.user && showUserCol" x-text="row.username || '-'"></td>
                             <td x-show="cols.engine" class="whitespace-nowrap">
                                 <span class="eb-badge eb-badge--neutral whitespace-nowrap" x-text="engineLabel(row.engine)"></span>
                             </td>
                             <td x-show="cols.status">
-                                <span class="eb-badge" :class="statusBadge(row.status)" x-text="statusLabel(row.status)"></span>
+                                <span class="eb-badge" :class="statusBadge(row)" x-text="statusLabel(row)"></span>
+                                <span class="eb-type-caption block !mt-1" x-show="row.schedule_skipped && row.error_summary" x-text="row.error_summary"></span>
                             </td>
                             <td x-show="cols.size" x-text="row.size_formatted"></td>
                             <td x-show="cols.duration" x-text="row.duration"></td>
@@ -184,18 +187,45 @@
 </div>
 {/capture}
 
+{if $showUserSubnav}
+<script>
+window.__ebE3UserSubnavConfig = {
+    external: true,
+    userRouteId: {$scopeUserRouteId|@json_encode nofilter},
+    activeTab: 'job_logs'
+};
+</script>
 {include file="modules/addons/cloudstorage/templates/partials/e3backup_shell.tpl"
-    ebE3SidebarPage='job_logs'
-    ebE3Title='Job Logs'
-    ebE3Description='All backup runs across your agents.'
+    ebE3SidebarPage='user_detail'
+    ebE3ShowUserSubnav=true
+    ebE3SidebarUsername=$scopeUsername
+    ebE3SidebarUserRouteId=$scopeUserRouteId
+    ebE3UserSubnavActive='job_logs'
+    ebE3Title=$ebE3JobLogsPageTitle
+    ebE3Description=$ebE3JobLogsPageDescription
     ebE3Content=$ebE3Content
 }
+{else}
+<script>
+window.__ebE3UserSubnavConfig = null;
+</script>
+{include file="modules/addons/cloudstorage/templates/partials/e3backup_shell.tpl"
+    ebE3SidebarPage='job_logs'
+    ebE3Title=$ebE3JobLogsPageTitle
+    ebE3Description=$ebE3JobLogsPageDescription
+    ebE3Content=$ebE3Content
+}
+{/if}
 
 {include file="modules/addons/cloudstorage/templates/partials/e3backup_run_log_modal.tpl"}
 
 <script src="modules/addons/eazybackup/assets/js/eazybackup-ui-helpers.js" defer></script>
 <script>
 window.__ebE3JobLogsTenants = {$tenants|@json_encode nofilter};
+window.__ebE3JobLogsScope = {
+    userRouteId: {$scopeUserRouteId|@json_encode nofilter},
+    jobId: {$scopeJobId|@json_encode nofilter}
+};
 </script>
 <script>
 {literal}
@@ -215,6 +245,10 @@ function e3JobLogsApp() {
         sortBy: 'started',
         sortDir: 'desc',
         tenantFilter: '',
+        scopeUserId: '',
+        scopeJobId: '',
+        showUserCol: true,
+        showJobCol: true,
         tenants: window.__ebE3JobLogsTenants || [],
         colsOpen: false,
         sizeOpen: false,
@@ -238,6 +272,18 @@ function e3JobLogsApp() {
             { key: 'success', label: 'Success', dot: 'eb-status-dot--active' }
         ],
         init() {
+            var scope = window.__ebE3JobLogsScope || {};
+            this.scopeUserId = scope.userRouteId ? String(scope.userRouteId) : '';
+            this.scopeJobId = scope.jobId ? String(scope.jobId) : '';
+            if (this.scopeUserId) {
+                this.showUserCol = false;
+                this.cols.user = false;
+            }
+            if (this.scopeJobId) {
+                this.showJobCol = false;
+                this.cols.job = false;
+                this.rangeHours = 72;
+            }
             try {
                 if (window.EB && window.EB.bindCols) {
                     window.EB.bindCols(this, 'e3-job-logs');
@@ -248,6 +294,8 @@ function e3JobLogsApp() {
         visibleColCount() {
             var n = 1;
             Object.keys(this.cols).forEach(function (k) {
+                if (k === 'job' && !this.showJobCol) return;
+                if (k === 'user' && !this.showUserCol) return;
                 if (this.cols[k]) n++;
             }.bind(this));
             return n;
@@ -272,7 +320,11 @@ function e3JobLogsApp() {
             this.page = 1;
             this.reload();
         },
-        statusLabel(s) { return (window.ebE3RunStatus ? window.ebE3RunStatus.label(s) : s); },
+        statusLabel(row) {
+            const meta = row && typeof row === 'object' ? row : { status: row };
+            if (meta.schedule_skipped) return 'Skipped';
+            return (window.ebE3RunStatus ? window.ebE3RunStatus.label(meta.status, meta) : meta.status);
+        },
         engineLabel(e) {
             switch (String(e || '').toLowerCase()) {
                 case 'kopia':
@@ -282,7 +334,10 @@ function e3JobLogsApp() {
                 default: return e ? (e.charAt(0).toUpperCase() + e.slice(1)) : 'File/Folder';
             }
         },
-        statusBadge(s) { return (window.ebE3RunStatus ? window.ebE3RunStatus.badgeClass(s) : 'eb-badge--neutral'); },
+        statusBadge(row) {
+            const meta = row && typeof row === 'object' ? row : { status: row };
+            return (window.ebE3RunStatus ? window.ebE3RunStatus.badgeClass(meta.status, meta) : 'eb-badge--neutral');
+        },
         fmtDate(s) {
             if (!s) return 'Queued';
             try {
@@ -320,6 +375,8 @@ function e3JobLogsApp() {
                 user: row.username,
                 engine: this.engineLabel(row.engine),
                 status: row.status,
+                schedule_skipped: !!row.schedule_skipped,
+                error_summary: row.error_summary || '',
                 started: this.fmtDate(row.started_at),
                 finished: row.finished_at ? this.fmtDate(row.finished_at) : '-',
                 durationText: row.duration,
@@ -336,6 +393,8 @@ function e3JobLogsApp() {
             params.set('sortDir', this.sortDir);
             if (this.search) params.set('q', this.search);
             if (this.tenantFilter) params.set('tenant_id', this.tenantFilter);
+            if (this.scopeUserId) params.set('user_id', this.scopeUserId);
+            if (this.scopeJobId) params.set('job_id', this.scopeJobId);
             this.activeStatuses.forEach(function (s) { params.append('statuses[]', s); });
             fetch('modules/addons/cloudstorage/api/e3backup_run_list.php?' + params.toString(), { credentials: 'same-origin' })
                 .then(function (r) { return r.json(); })

@@ -152,13 +152,13 @@ accounts/modules/addons/cloudstorage/
 │       └── CloudBackupLogFormatter.php # Legacy rclone log formatter (fallback/transition)
 ├── pages/
 │   ├── e3backup_jobs.php              # Job list page
-│   ├── e3backup_runs.php              # Run history page
+│   ├── e3backup_job_logs.php          # Global / scoped job logs page
 │   ├── e3backup_live.php              # Live progress page
 │   └── admin/
 │       └── cloudbackup_admin.php      # Admin overview page
 ├── templates/
 │   ├── e3backup_jobs.tpl              # Job list template
-│   ├── e3backup_runs.tpl              # Run history template
+│   ├── e3backup_job_logs.tpl          # Job logs template
 │   ├── e3backup_live.tpl              # Live progress template
 │   └── admin/
 │       └── cloudbackup_admin.tpl      # Admin template
@@ -213,7 +213,7 @@ Access via: `index.php?m=cloudstorage&page=e3backup&view=<view>`
 **Views**:
 
 - `jobs` - Job list and creation wizard
-- `runs` - Run history for a specific job
+- `job_logs` - Run history across all jobs (optionally filtered by user or job)
 - `live` - Live progress view for a running job
 
 ### Job Cards – Button Actions
@@ -283,8 +283,9 @@ if (isset($_POST['status'])) {
 
 - Trash (Delete)
   - Soft‑deletes the job (marks it as `deleted`) via `api/cloudbackup_delete_job.php`. Historical runs remain for audit/history; the job no longer appears in the default list.
+  - **Microsoft 365 jobs:** also soft-delete the per-job `e3ms365-*` vault into a recycle bin for `ms365_vault_recycle_grace_days` (addon setting, default 30). Requires typed confirmation `DELETE JOB {job name}`. Sends optional owner email (`ms365_vault_delete_email_template`). Audit rows in `s3_cloudbackup_audit_events`. After grace, `accounts/crons/ms365_vault_recycle_teardown.php` queues physical bucket delete via `s3_delete_buckets` / `s3deletebucket.php`.
 - View logs
-  - Quick link to the Run History / logs for the job (`cloudbackup_runs` view). From there you can open a specific run’s details or navigate to the Live view for an active run.
+  - Quick link to Job Logs for the job (`view=job_logs&job_id=...`). From there you can open a specific run's details or navigate to the Live view for an active run.
 
 > Stopping a running job: Cancelling an in‑flight run is performed from the Live view (`e3backup_live`) via the “Cancel Run” button, which calls `api/cloudbackup_cancel_run.php` and sets `cancel_requested=1` for the active run.
 
@@ -336,7 +337,21 @@ All endpoints require WHMCS client authentication and return JSON responses.
 ### `api/cloudbackup_delete_job.php`
 
 **Method**: POST  
-**Parameters**: `job_id` (UUIDv7 string)
+**Parameters**: `job_id` (UUIDv7 string), `confirm_phrase` (required for MS365 jobs: `DELETE JOB {job name}`)
+
+### MS365 vault lifecycle APIs
+
+| Endpoint | Purpose |
+|----------|---------|
+| `api/ms365_vault_config.php` | Read grace days setting |
+| `api/ms365_vault_list.php` | List active + recycled MS365 vaults for a backup user |
+| `api/ms365_vault_request_early_delete.php` | Submit early-deletion request (ops manual approval in v1) |
+
+**Cron:** `accounts/crons/ms365_vault_recycle_teardown.php` (daily recommended) — queues vaults whose `recycle_teardown_at` has passed.
+
+**Addon settings:** `ms365_vault_recycle_grace_days`, `ms365_vault_delete_email_template`, `ms365_vault_early_delete_ops_email`
+
+**MS365 scheduled overlap:** Cron `modules/addons/cloudstorage/crons/ms365_scheduled_backups.php` skips a due slot when the same job already has an active MS365 backup batch (`queued`/`starting`/`running`). Skipped slots are recorded in `s3_cloudbackup_runs` (`stats_json.ms365_schedule_skip`). Manual **Run now** is not overlap-guarded.
 
 ### `api/cloudbackup_start_run.php`
 

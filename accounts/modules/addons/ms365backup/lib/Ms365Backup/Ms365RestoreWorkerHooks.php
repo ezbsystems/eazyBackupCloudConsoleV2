@@ -46,38 +46,102 @@ final class Ms365RestoreWorkerHooks
     private static function backupProgress(string $runId, array $body): void
     {
         $rawPhase = (string) ($body['phase'] ?? '');
+        $message = (string) ($body['message'] ?? $rawPhase);
+        $existing = BackupRunRepository::get($runId) ?? [];
+
+        $incomingPercent = (float) ($body['percent'] ?? 0);
+        $incomingItemsDone = (int) ($body['items_done'] ?? 0);
+        $incomingItemsTotal = (int) ($body['items_total'] ?? 0);
+        $incomingBytesHashed = (int) ($body['bytes_hashed'] ?? 0);
+        $incomingBytesUploaded = (int) ($body['bytes_uploaded'] ?? 0);
+
+        $isHeartbeat = strtolower(trim($message)) === 'heartbeat'
+            || self::isLeaseOnlyProgressPayload(
+                $incomingPercent,
+                $incomingItemsDone,
+                $incomingItemsTotal,
+                $incomingBytesHashed,
+                $incomingBytesUploaded
+            );
+
         $fields = [
-            'phase' => CustomerFacingTextSanitizer::scrub($rawPhase),
-            'percent' => (float) ($body['percent'] ?? 0),
-            'items_done' => (int) ($body['items_done'] ?? 0),
-            'items_total' => (int) ($body['items_total'] ?? 0),
             'updated_at' => time(),
         ];
-        if (\WHMCS\Database\Capsule::schema()->hasColumn('ms365_backup_runs', 'bytes_hashed')) {
-            $fields['bytes_hashed'] = (int) ($body['bytes_hashed'] ?? 0);
-            $fields['bytes_uploaded'] = (int) ($body['bytes_uploaded'] ?? 0);
+        if ($rawPhase !== '') {
+            $fields['phase'] = CustomerFacingTextSanitizer::scrub($rawPhase);
         }
+
+        if (!$isHeartbeat) {
+            $storedPercent = (float) ($existing['percent'] ?? 0);
+            if ($incomingPercent > 0 || $storedPercent <= 0) {
+                $fields['percent'] = max($storedPercent, $incomingPercent);
+            }
+
+            $storedItemsDone = (int) ($existing['items_done'] ?? 0);
+            if ($incomingItemsDone > 0 || $storedItemsDone <= 0) {
+                $fields['items_done'] = max($storedItemsDone, $incomingItemsDone);
+            }
+
+            $storedItemsTotal = (int) ($existing['items_total'] ?? 0);
+            if ($incomingItemsTotal > 0 || $storedItemsTotal <= 0) {
+                $fields['items_total'] = max($storedItemsTotal, $incomingItemsTotal);
+            }
+
+            if (\WHMCS\Database\Capsule::schema()->hasColumn('ms365_backup_runs', 'bytes_hashed')) {
+                $storedBytesHashed = (int) ($existing['bytes_hashed'] ?? 0);
+                if ($incomingBytesHashed > 0 || $storedBytesHashed <= 0) {
+                    $fields['bytes_hashed'] = max($storedBytesHashed, $incomingBytesHashed);
+                }
+
+                $storedBytesUploaded = (int) ($existing['bytes_uploaded'] ?? 0);
+                if ($incomingBytesUploaded > 0 || $storedBytesUploaded <= 0) {
+                    $fields['bytes_uploaded'] = max($storedBytesUploaded, $incomingBytesUploaded);
+                }
+            }
+        }
+
         if (!empty($body['manifest_id'])) {
             $fields['manifest_id'] = (string) $body['manifest_id'];
         }
+
         BackupRunRepository::update($runId, $fields);
 
         WorkerLeaseService::renewForRun($runId);
 
-        $batchRunId = BackupRunRepository::get($runId)['e3_batch_run_id'] ?? null;
+        $batchRunId = $existing['e3_batch_run_id'] ?? BackupRunRepository::get($runId)['e3_batch_run_id'] ?? null;
         if (is_string($batchRunId) && $batchRunId !== '') {
             Ms365BatchRunRepository::updateLiveSnapshot($batchRunId);
         }
 
+        if ($isHeartbeat) {
+            return;
+        }
+
+        $logMessage = CustomerFacingTextSanitizer::scrubLogMessage($message);
+        if (!self::shouldPersistProgressLog($runId, $logMessage, $rawPhase)) {
+            return;
+        }
+
         $logger = new ProgressLogger($runId);
-        $logMessage = CustomerFacingTextSanitizer::scrubLogMessage(
-            (string) ($body['message'] ?? $rawPhase)
-        );
         $logger->info($logMessage, [
-            'percent' => $fields['percent'],
+            'percent' => $fields['percent'] ?? ($existing['percent'] ?? null),
             'bytes_hashed' => $body['bytes_hashed'] ?? null,
             'bytes_uploaded' => $body['bytes_uploaded'] ?? null,
         ]);
+    }
+
+    private static function isLeaseOnlyProgressPayload(
+        float $percent,
+        int $itemsDone,
+        int $itemsTotal,
+        int $bytesHashed,
+        int $bytesUploaded
+    ): bool {
+        return $percent <= 0
+            && $itemsDone <= 0
+            && $itemsTotal <= 0
+            && $bytesHashed <= 0
+            && $bytesUploaded <= 0;
     }
 
     /** @param array<string, mixed> $body */
@@ -113,10 +177,43 @@ final class Ms365RestoreWorkerHooks
         }
 
         $logger = new RestoreProgressLogger($runId);
-        $logger->info(CustomerFacingTextSanitizer::scrubLogMessage((string) ($body['message'] ?? $rawPhase)), [
+        $message = (string) ($body['message'] ?? $rawPhase);
+        $logMessage = CustomerFacingTextSanitizer::scrubLogMessage($message);
+        $context = [
             'items_done' => (int) ($body['items_done'] ?? 0),
             'items_total' => (int) ($body['items_total'] ?? 0),
-        ]);
+            'items_skipped' => (int) ($body['items_skipped'] ?? 0),
+        ];
+        if ($logMessage === '') {
+            return;
+        }
+        if (self::isRestoreFailureProgressMessage($logMessage)) {
+            $logger->error($logMessage, $context);
+        } else {
+            $logger->info($logMessage, $context);
+        }
+    }
+
+    private static function isRestoreFailureProgressMessage(string $message): bool
+    {
+        return (bool) preg_match(
+            '/failed to restore|no items were restored|restore failed|upload session|graph 4\d\d/i',
+            $message
+        );
+    }
+
+    /**
+     * Avoid one DB log row per Kopia progress tick (whale uploads can emit thousands).
+     */
+    private static function shouldPersistProgressLog(string $runId, string $message, string $phase): bool
+    {
+        $message = strtolower(trim($message));
+        $phase = strtolower(trim($phase));
+        if ($message === 'upload in progress' || ($phase === 'kopia_upload' && $message === '')) {
+            return false;
+        }
+
+        return true;
     }
 
     /** @param array<string, mixed> $body */
@@ -153,7 +250,8 @@ final class Ms365RestoreWorkerHooks
                             DeltaStateRepository::advanceOnShardSuccess(
                                 (int) ($run['tenant_record_id'] ?? 0),
                                 (string) ($run['physical_key'] ?? ''),
-                                $deltaStates
+                                $deltaStates,
+                                trim((string) ($run['e3_job_id'] ?? '')) !== '' ? (string) $run['e3_job_id'] : null
                             );
                         }
                     }
@@ -219,12 +317,17 @@ final class Ms365RestoreWorkerHooks
         Ms365BatchRunRepository::syncForRestoreChildRun($runId);
 
         $logger = new RestoreProgressLogger($runId);
-        $logger->info('Restore completed', [
+        $summaryParts = [];
+        if ($restored > 0) {
+            $summaryParts[] = $restored . ' file(s) restored';
+        }
+        if ($skipped > 0) {
+            $summaryParts[] = $skipped . ' file(s) skipped (already in destination)';
+        }
+        $summary = $summaryParts !== [] ? 'Restore completed: ' . implode(', ', $summaryParts) : 'Restore completed';
+        $logger->info($summary, [
             'restored' => $restored,
             'skipped' => $skipped,
-            'message' => $skipped > 0 && $restored === 0
-                ? $skipped . ' item(s) already exist in the destination and were skipped.'
-                : null,
         ]);
     }
 
@@ -240,6 +343,10 @@ final class Ms365RestoreWorkerHooks
         ]);
         JobQueueRepository::markFailed($runId, $customerMessage);
         Ms365BatchRunRepository::syncForChildRun($runId);
+
+        $logger = new ProgressLogger($runId);
+        $logText = $customerMessage !== '' ? $customerMessage : 'Backup failed';
+        $logger->error($logText);
     }
 
     private static function restoreFail(string $runId, string $message): void
@@ -253,5 +360,9 @@ final class Ms365RestoreWorkerHooks
         ]);
         JobQueueRepository::markTerminalFailed($runId, $customerMessage);
         Ms365BatchRunRepository::syncForRestoreChildRun($runId);
+
+        $logger = new RestoreProgressLogger($runId);
+        $logText = $customerMessage !== '' ? $customerMessage : 'Restore failed';
+        $logger->error($logText);
     }
 }

@@ -2,11 +2,12 @@
 
 ## Overview
 
-Customers onboard from **e3 Cloud Backup → Microsoft 365** (`view=ms365`). Each WHMCS client gets:
+Customers onboard from **e3 Cloud Backup → Users → User detail → New Microsoft 365 backup** (wizard). Each backup user gets:
 
-1. **Admin consent** to the platform Entra app (no manual secret paste)
-2. A row in `ms365_tenant_records` with `azure_tenant_id`, consent metadata, `connection_status`
-3. A dedicated **e3 object storage bucket** (`e3ms365-{token}`) provisioned automatically after consent
+1. **Automatic (default):** Admin consent to the platform Entra app
+2. **Manual (advanced):** Customer-owned Entra app credentials (`REGION`, `CLIENT_ID`, `TENANT_ID`, `APP_SECRET`) entered in wizard Step 1
+3. A row in `ms365_tenant_records` with `azure_tenant_id`, `connection_status`, and `connection_auth_mode` (`platform_consent` or `customer_app`)
+4. A dedicated **e3 object storage bucket** (`e3ms365-{token}`) provisioned automatically after a successful connect
 
 ## Platform Entra app (operations)
 
@@ -20,15 +21,23 @@ Register the app as **multi-tenant** in Azure. Add redirect URI to the app regis
 
 ## Customer flow
 
-1. Open **e3 Cloud Backup → Microsoft 365**.
-2. Click **Connect Microsoft 365** → Microsoft admin consent → return to portal.
-3. System stores `azure_tenant_id`, probes Graph health, provisions storage bucket.
-3. Click **Refresh inventory** to discover users, sites, and teams from Graph.
-4. Run **Start backup** with a preset:
-   - **All users — mail + calendar** — every licensed user in inventory
-   - **Collaboration** — SharePoint sites, Teams, and M365 groups
-   - **Full tenant** — users, OneDrive, collaboration, Planner, OneNote, directory baseline
-5. Expand a row in **Run history** to view phase, progress, and live logs.
+### Automatic connect (recommended)
+
+1. Open **Users → User detail → Create Job → Microsoft 365 Backup**.
+2. Wizard Step 1: leave **Automatic** selected → **Connect Microsoft 365** → Microsoft admin consent → wizard advances to inventory.
+3. Complete inventory, schedule, retention, and save the job.
+
+### Manual connect (advanced)
+
+1. Wizard Step 1: switch to **Manual**.
+2. Enter `REGION`, `CLIENT_ID`, `TENANT_ID`, and `APP_SECRET` from a customer Entra app (see [AZURE_SETUP.md](AZURE_SETUP.md)).
+3. **Test connection** (optional) then **Save credentials** — save runs an atomic connection test, stores encrypted secret, marks tenant connected, and provisions storage.
+4. Wizard advances to inventory when connect succeeds.
+
+### After connect
+
+1. System stores `azure_tenant_id`, provisions storage bucket, and refreshes Graph inventory on wizard Step 2.
+2. Run backups from saved jobs or presets on the MS365 jobs surface.
 
 ## WHMCS product linkage
 
@@ -48,4 +57,4 @@ Mail restore is available from the e3 MS365 page (target user Graph ID). Additio
 ## Deprecations
 
 - **Comet / panel.eazybackup.ca** MS365 auth — replaced by in-portal OAuth
-- Per-customer Entra app secret paste — optional legacy path only for admin/dev tenant records
+- Per-customer Entra app secret paste in admin dev dashboard — customer manual connect in wizard uses the same credential model on `ms365_tenant_records` (`connection_auth_mode = customer_app`)

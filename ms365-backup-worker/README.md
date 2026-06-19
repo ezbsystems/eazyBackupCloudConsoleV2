@@ -13,6 +13,16 @@ make build
 
 Binary: `bin/ms365-backup-worker`
 
+## Third-party licenses
+
+Customer-facing `THIRD_PARTY_LICENSES.txt` uses anonymous component IDs. Regenerate after dependency changes:
+
+```bash
+make licenses
+```
+
+Fleet installs copy the file beside the binary at `$INSTALL_PREFIX/THIRD_PARTY_LICENSES.txt` (see `deploy/proxmox/template-setup.sh`). Internal ID → module mapping lives in `../legal/COMPONENT_ID_MAP.json`.
+
 ## Configure
 
 Copy `config/config.yaml.example` to `/etc/ms365-backup-worker/config.yaml`.

@@ -2,12 +2,14 @@
 
 require_once __DIR__ . '/../../../../init.php';
 require_once __DIR__ . '/../lib/Client/MspController.php';
+require_once __DIR__ . '/../lib/Client/Ms365VaultLifecycleService.php';
 require_once __DIR__ . '/../../eazybackup/pages/partnerhub/TenantStorageLinksController.php';
 
 use Illuminate\Database\Capsule\Manager as Capsule;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use WHMCS\ClientArea;
 use WHMCS\Module\Addon\CloudStorage\Client\MspController;
+use WHMCS\Module\Addon\CloudStorage\Client\Ms365VaultLifecycleService;
 use WHMCS\Module\Addon\CloudStorage\Client\UuidBinary;
 
 if (!defined("WHMCS")) {
@@ -612,6 +614,9 @@ if ($cloudJobsOk) {
     }
 }
 
+$ms365VaultData = Ms365VaultLifecycleService::listVaultsForBackupUser($clientId, $userId);
+$ms365VaultGraceDays = Ms365VaultLifecycleService::getGraceDays();
+
 (new JsonResponse([
     'status' => 'success',
     'user' => [
@@ -639,6 +644,9 @@ if ($cloudJobsOk) {
         'metrics_mode' => 'derived_scope',
         'agents_detail' => $agentsDetail,
         'vaults_detail' => $vaultsDetail,
+        'ms365_vaults_active' => $ms365VaultData['vaults_active'],
+        'ms365_vaults_recycle' => $ms365VaultData['vaults_recycle'],
+        'ms365_vault_grace_days' => $ms365VaultGraceDays,
         'hyperv_jobs_count' => count($hypervJobs),
         'hyperv_jobs' => $hypervJobs,
         'hyperv_vms' => $hypervVms,

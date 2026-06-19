@@ -2,14 +2,6 @@
     Manage your backup agents, enrollment tokens{if $isMspClient}, tenants, and users{/if}.
 {/capture}
 
-{capture assign=ebE3TokensBreadcrumb}
-    <div class="eb-breadcrumb">
-        <a href="index.php?m=cloudstorage&page=e3backup&view=dashboard" class="eb-breadcrumb-link">e3 Cloud Backup</a>
-        <span class="eb-breadcrumb-separator">/</span>
-        <span class="eb-breadcrumb-current">Enrollment Tokens</span>
-    </div>
-{/capture}
-
 {capture assign=ebE3Icon}
     <span class="eb-icon-box eb-icon-box--sm eb-icon-box--orange">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
@@ -22,7 +14,6 @@
     <div class="space-y-6">
         <div class="eb-page-header">
             <div>
-                {$ebE3TokensBreadcrumb nofilter}
                 <h2 class="eb-page-title">Enrollment Tokens</h2>
                 <p class="eb-page-description">Generate enrollment tokens for agent onboarding and use them for silent deployment through your preferred RMM workflow.</p>
             </div>

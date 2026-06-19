@@ -24,7 +24,7 @@ final class RunTenantContext
     {
         $record = self::resolveTenantRecord($run);
         if ($record !== null) {
-            $creds = TenantRecordRepository::platformCredentials($record);
+            $creds = TenantRecordRepository::resolvedCredentialsForRecord($record);
             $backupStorage = BackupStorageFactory::createForTenantRecord($record);
         } else {
             $creds = TenantRepository::credentials();
@@ -56,7 +56,7 @@ final class RunTenantContext
 
     public static function forClientRecord(array $record): self
     {
-        $creds = TenantRecordRepository::platformCredentials($record);
+        $creds = TenantRecordRepository::resolvedCredentialsForRecord($record);
         $backupStorage = BackupStorageFactory::createForTenantRecord($record);
         $backupUserId = (int) ($record['backup_user_id'] ?? 0);
         $layout = new StorageLayout($creds['tenant_id'], $backupStorage, $backupUserId);

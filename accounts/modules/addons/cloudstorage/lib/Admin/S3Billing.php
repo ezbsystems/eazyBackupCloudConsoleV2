@@ -87,6 +87,10 @@ class S3Billing {
             $userId = $user->id;
             foreach ($bucketStatsData['data'] as $bucket) {
                 try {
+                    $bucketName = (string) ($bucket['bucket'] ?? '');
+                    if (self::isMs365BillingExemptBucket($bucketName)) {
+                        continue;
+                    }
                     $currentBucketSize = $bucket['usage']['rgw.main']['size'] ?? 0;
                     $totalBucketSize += $currentBucketSize;
                     $creationDateTime = new DateTime($bucket['creation_time']);
@@ -566,6 +570,9 @@ class S3Billing {
                 if (Capsule::schema()->hasColumn('s3_users', 'ceph_uid')) {
                     $tenantCols[] = 'ceph_uid';
                 }
+                if (Capsule::schema()->hasColumn('s3_users', 'system_key')) {
+                    $tenantCols[] = 'system_key';
+                }
             } catch (\Throwable $_) {}
             $tenants = Capsule::table('s3_users')
                 ->select($tenantCols)
@@ -573,6 +580,9 @@ class S3Billing {
                 ->get();
 
             foreach($tenants as $tenant) {
+                if (self::isMs365PlatformStorageUser($tenant)) {
+                    continue;
+                }
                 $username = $tenant->username;
                 $baseUid = \WHMCS\Module\Addon\CloudStorage\Client\HelperController::resolveCephBaseUid($tenant);
                 if (empty($baseUid)) { $baseUid = $username; } // legacy fallback
@@ -597,6 +607,10 @@ class S3Billing {
                 $s3buckets = [];
                 foreach ($bucketStatsData['data'] as $bucket) {
                     try {
+                        $bucketName = (string) ($bucket['bucket'] ?? '');
+                        if (self::isMs365BillingExemptBucket($bucketName)) {
+                            continue;
+                        }
                         $currentBucketSize = $bucket['usage']['rgw.main']['size'] ?? 0;
                         $totalBucketSize += $currentBucketSize;
                         $creationDateTime = new DateTime($bucket['creation_time']);
@@ -713,5 +727,15 @@ class S3Billing {
         }
 
         return $totalBucketSize;
+    }
+
+    private static function isMs365BillingExemptBucket(string $bucketName): bool
+    {
+        return str_starts_with(strtolower(trim($bucketName)), 'e3ms365-');
+    }
+
+    private static function isMs365PlatformStorageUser(object $user): bool
+    {
+        return (string) ($user->system_key ?? '') === 'ms365_platform_owner';
     }
 }

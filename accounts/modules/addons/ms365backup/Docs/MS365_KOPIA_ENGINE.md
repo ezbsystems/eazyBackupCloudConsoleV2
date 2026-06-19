@@ -34,6 +34,7 @@ Run rows store `manifest_id`, `bytes_hashed`, `bytes_uploaded`, `engine_mode` (`
 |------|---------|---------|
 | `graph_parallel_requests` | 32 | Max concurrent Graph HTTP calls (semaphore) |
 | `graph_folder_parallel` | 4 | Concurrent mail folders per mailbox |
+| `graph_sharepoint_drive_parallel` | 4 | Concurrent SharePoint drive deltas per site workload |
 | `graph.adaptive_concurrency` | true | Shrink limit on sustained 429s |
 | `graph.use_batch_fallback` | true | `$batch` GET for messages missing delta `$select` fields |
 
@@ -44,24 +45,48 @@ Run rows store `manifest_id`, `bytes_hashed`, `bytes_uploaded`, `engine_mode` (`
 | Workload | Scope / physical key | Snapshot paths |
 |----------|----------------------|----------------|
 | `onedrive` | `drive:{id}`, scope `onedrive`/`files` | `{tenant}/drives/{id}/content/…` |
-| `sharepoint` | `site:{id}`, scope `files` | `{tenant}/sites/{siteId}/drives/…`, per-drive delta |
-| `sharepoint_lists` | `site:{id}`, scope `lists` | `{tenant}/sites/{siteId}/lists/…` |
+| `sharepoint` | `site:{id}`, scope `files` | `{tenant}/sites/{siteId}/drives/…`, per-drive delta (parallel when multiple drives in one workload) |
+| `sharepoint_lists` | `site:{id}` or `list:{listId}`, scope `lists` | `{tenant}/sites/{siteId}/lists/…` |
 | Mail attachments | `user:{id}`, scope `mail` | `…/mail/…/attachments/…` |
 
 Teams **files** use `site:{siteId}` jobs (planner dedupes Team + Site selection).
 
 ## Whale-scale sharding
 
-Large resources split when inventory `meta.size_bytes` ≥ `ms365_shard_threshold_bytes` (default 100 GiB):
+When `ms365_sharding_enabled` is on:
+
+1. **SharePoint Files** — each document library becomes its own workload (`drive:{libraryId}`; optional `#shard:N`). Lists stay on `site:{siteId}` unless promoted (below). Inventory stores `meta.drives[]` per site.
+2. **SharePoint Lists** — inventory stores `meta.lists[]` with `item_count` (from Graph `$count`). Lists above `ms365_list_job_item_threshold` (default 50k) become `list:{listId}` jobs; the site job skips them via `_excluded_list_ids`. Lists above `ms365_list_shard_item_threshold` (default 500k) split into `list:{listId}#shard:N` **createdDateTime** range partitions (not FNV hash — each shard queries a time window).
+3. **Range shards** — large drives/sites split when `meta.size_bytes` ≥ `ms365_shard_threshold_bytes` **or** `meta.item_count` ≥ `ms365_shard_item_threshold`.
 
 | Pattern | Example physical_key |
 |---------|---------------------|
+| SharePoint per-library | `drive:{driveId}` (scope `_site_id`) |
+| SharePoint per-list | `list:{listId}` (scope `_site_id`, `_list_id`) |
+| List time-range shard | `list:{listId}#shard:0` … (scope `_shard.kind=list_created_range`) |
 | Drive/site range shard | `drive:{driveId}#shard:0` … `#shard:{n-1}` |
 | Mail folder shard | `user:{userId}#mail:{folderId}` |
 
-Go worker partitions drive/site file items by `fnv32(itemId) % shardTotal == shardIndex` (`graphsync/shard.go`).
+Go worker partitions **drive files** by `fnv32(itemId) % shardTotal == shardIndex` (`graphsync/shard.go`). **List shards** use Graph `$filter` on `createdDateTime` (fallback: client-side range filter).
 
-Delta tokens are stored per shard `physical_key` and advanced only on shard success.
+Delta tokens are stored per `physical_key` and advanced only on shard success.
+
+## Graph pagination (configurable)
+
+WHMCS setting `ms365_graph_pagination_json` (default: SharePoint `max_pages=2500`, `on_cap=warn_continue`). Limits are passed in the claim payload as `graph_pagination` and enforced in Go `PaginateDeltaOpts` (including duplicate-page and empty-page wedge detection). On `warn_continue`, partial delta sync completes without advancing the token.
+
+## Mid-run Graph token refresh
+
+Workers call `ms365_worker_graph_token.php` on Graph **401** and proactively every `graph_token_refresh_seconds` (default 2700). `graph 401 after token refresh` is terminal non-retryable.
+
+## Batch shard auto-retry
+
+When `ms365_batch_auto_retry_enabled` is on (default), a parent batch with partial failures **re-queues only failed or never-started child workloads** on the same `e3_batch_run_id` instead of requiring a full manual Run Now. Eligible children:
+
+- `error` / `failed` with a retryable error message
+- `cancelled` with `Batch ended before workload started`
+
+Capped by `ms365_batch_auto_retry_max_rounds` (default 2) in parent `stats_json.ms365_batch_auto_retry_round`. Parent stays `running` while retries are in flight; terminal mixed outcomes map to `partial_success`.
 
 ## Workloads (Go)
 

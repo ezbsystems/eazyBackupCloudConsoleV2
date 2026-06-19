@@ -472,6 +472,16 @@ class CloudBackupBootstrapService
             if ($existing && !empty($existing->access_key) && !empty($existing->secret_key)) {
                 $drift = self::detectOwnerKeyDrift($owner, $existing, $encryptionKey);
                 if ($drift === 'in_sync') {
+                    $norm = AccessKeyEncryptionService::normalizeStoredAccessKeyEncryption($ownerId);
+                    if (($norm['action'] ?? '') === 'reencrypted') {
+                        logModuleCall(self::$module, __FUNCTION__ . '_reencrypted', [
+                            'owner_id' => $ownerId,
+                            'username' => (string) ($owner->username ?? ''),
+                            'from_setting' => $norm['from_setting'] ?? null,
+                            'to_setting' => $norm['to_setting'] ?? null,
+                        ], 'Normalized backup-owner key ciphertext to canonical module encryption key.');
+                    }
+
                     return ['status' => 'success', 'message' => 'Backup owner access key already present.'];
                 }
                 logModuleCall(self::$module, __FUNCTION__ . '_drift_detected', [
@@ -542,7 +552,7 @@ class CloudBackupBootstrapService
             if ($encryptionKey === '') {
                 return 'unknown';
             }
-            $decrypted = HelperController::decryptKey((string) $existingKeyRow->access_key, $encryptionKey);
+            $decrypted = HelperController::decryptKeyWithFallback((string) $existingKeyRow->access_key, $encryptionKey);
             if (!is_string($decrypted) || $decrypted === '') {
                 // Cannot decrypt - cannot reason about drift; let normal flow handle later.
                 return 'unknown';

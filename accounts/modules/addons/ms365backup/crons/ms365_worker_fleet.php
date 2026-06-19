@@ -29,9 +29,16 @@ try {
     foreach (WorkerNodeRepository::activeNodes() as $node) {
         WorkerClaimService::releaseOrphanedClaimsForNode((string) $node['node_id'], (int) ($node['current_load'] ?? 0), 120);
     }
+    $zombies = WorkerClaimService::reconcileZombieRuns(120);
     FleetAlertService::checkOfflineNodes();
+    FleetAlertService::checkStaleRuns();
     $result = ProxmoxProvisioner::autoscale();
-    echo json_encode(['status' => 'ok', 'result' => $result, 'deploy_reconciled' => $reconciled], JSON_UNESCAPED_SLASHES) . PHP_EOL;
+    echo json_encode([
+        'status' => 'ok',
+        'result' => $result,
+        'deploy_reconciled' => $reconciled,
+        'zombies_reconciled' => $zombies,
+    ], JSON_UNESCAPED_SLASHES) . PHP_EOL;
     exit(0);
 } catch (\Throwable $e) {
     fwrite(STDERR, $e->getMessage() . PHP_EOL);

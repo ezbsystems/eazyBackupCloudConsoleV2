@@ -6,14 +6,6 @@
     </span>
 {/capture}
 
-{capture assign=ebE3CloudNasBreadcrumb}
-    <div class="eb-breadcrumb">
-        <a href="index.php?m=cloudstorage&page=e3backup&view=dashboard" class="eb-breadcrumb-link">e3 Cloud Backup</a>
-        <span class="eb-breadcrumb-separator">/</span>
-        <span class="eb-breadcrumb-current">Cloud NAS</span>
-    </div>
-{/capture}
-
 {capture assign=ebE3Content}
 <div x-data="cloudNAS()" x-init="init()" class="space-y-6">
     <style>
@@ -44,7 +36,6 @@
 
     <div class="eb-page-header">
         <div>
-            {$ebE3CloudNasBreadcrumb nofilter}
             <div class="flex flex-wrap items-center gap-2">
                 <h2 class="eb-page-title !mb-0">Cloud NAS</h2>
                 <span class="eb-badge eb-badge--info">Beta</span>

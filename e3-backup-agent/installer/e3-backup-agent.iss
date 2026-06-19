@@ -52,6 +52,7 @@ Name: "{commonappdata}\E3Backup\runs"; Permissions: users-modify
 ;  - ..\bin\e3-backup-tray.exe    (tray)
 Source: "..\bin\e3-backup-agent.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\bin\e3-backup-tray.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\THIRD_PARTY_LICENSES.txt"; DestDir: "{app}"; Flags: ignoreversion
 
 ; Tray icon assets (installer places PNG next to tray exe; tray will wrap PNG->ICO at runtime)
 Source: "{#AssetsDir}\tray_logo-drk-orange120x120.png"; DestDir: "{app}"; DestName: "tray_logo-drk-orange120x120.png"; Flags: ignoreversion

@@ -28,10 +28,19 @@ Do **not** direct customers to `index.php?m=ms365backup`. That addon’s client 
 
 | Environment | Backend |
 |-------------|---------|
-| **Production** | Per-customer RGW bucket `e3ms365-{token}` via `Ms365StorageBootstrapService`; writes through `CloudStorageBackupStorage` |
+| **Production** | Per-job RGW bucket `e3ms365-{jobHash}` via `Ms365StorageBootstrapService::ensureForJob` (legacy jobs may share tenant bucket); writes through `CloudStorageBackupStorage` |
 | **Development** | Local path `/var/www/eazybackup/ms365/` when no bucket is linked |
 
-Object key prefix inside the bucket: `{azure_tenant_id}/users/…`, `sites/…`, etc. (mirrors local layout under the tenant folder).
+Object key prefix inside the bucket: Kopia repository packs (not per-user S3 prefixes).
+
+### Vault lifecycle (job delete)
+
+Owned by **cloudstorage** (`Ms365VaultLifecycleService`):
+
+1. Customer deletes MS365 job → job `status=deleted`, vault bucket `recycle_status=recycle` for `ms365_vault_recycle_grace_days` (default 30).
+2. Vault data remains in Ceph during grace (no Kopia `retention_apply` on delete).
+3. After grace, `ms365_vault_recycle_teardown.php` queues `s3_delete_buckets`; `s3deletebucket.php` removes the bucket.
+4. Customer UI: User detail → Vaults (active + recycle bin); early-deletion requests are ops-reviewed manually in v1.
 
 ---
 

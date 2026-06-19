@@ -21,6 +21,8 @@ final class CustomerBackupService
                 'connected' => false,
                 'needs_reconnect' => false,
                 'connection_status' => 'not_connected',
+                'connection_auth_mode' => 'none',
+                'credentials_preview' => Ms365CustomerConnectService::credentialPreviewForRecord(null),
                 'azure_tenant_id' => '',
                 'bucket_name' => '',
                 'health_error' => '',
@@ -38,6 +40,8 @@ final class CustomerBackupService
             'connected' => $connectionStatus === 'connected',
             'needs_reconnect' => $connectionStatus === 'action_required',
             'connection_status' => $connectionStatus,
+            'connection_auth_mode' => self::connectionAuthModeForRecord($record),
+            'credentials_preview' => Ms365CustomerConnectService::credentialPreviewForRecord($record),
             'tenant_record_id' => (int) $record['id'],
             'azure_tenant_id' => (string) ($record['azure_tenant_id'] ?? ''),
             'bucket_name' => (string) ($record['s3_bucket_name'] ?? $record['s3_bucket'] ?? ''),
@@ -63,6 +67,8 @@ final class CustomerBackupService
                 'connected' => false,
                 'needs_reconnect' => false,
                 'connection_status' => 'not_connected',
+                'connection_auth_mode' => 'none',
+                'credentials_preview' => Ms365CustomerConnectService::credentialPreviewForRecord(null),
                 'azure_tenant_id' => '',
                 'bucket_name' => '',
                 'health_error' => '',
@@ -80,6 +86,8 @@ final class CustomerBackupService
             'connected' => $connectionStatus === 'connected',
             'needs_reconnect' => $connectionStatus === 'action_required',
             'connection_status' => $connectionStatus,
+            'connection_auth_mode' => self::connectionAuthModeForRecord($record),
+            'credentials_preview' => Ms365CustomerConnectService::credentialPreviewForRecord($record),
             'tenant_record_id' => (int) $record['id'],
             'azure_tenant_id' => (string) ($record['azure_tenant_id'] ?? ''),
             'bucket_name' => (string) ($record['s3_bucket_name'] ?? $record['s3_bucket'] ?? ''),
@@ -138,19 +146,17 @@ final class CustomerBackupService
             $planner = new BackupPlanner();
             $queue = $planner->buildPhysicalQueue($selectedIds, $inventory, $resolved['scope'], []);
 
-            $runIds = [];
-            foreach ($queue['physical_jobs'] as $job) {
-                if (!$job->isRunnable()) {
-                    continue;
-                }
-                $runId = BackupRunRepository::createFromPhysicalJob($job, $storageLayout, $tenantRecordId, $clientId);
-                $runDir = $storageLayout->runDirForJob($job->physicalKey, $runId);
-                $logger = new ProgressLogger($runId, $runDir . '/run.log');
-                $logger->info('MS365 backup queued from e3 Cloud Backup', ['preset' => $preset]);
-                JobQueueRepository::enqueue($runId, 50);
-                WorkerSpawner::spawn($runId, $logger);
-                $runIds[] = $runId;
-            }
+            $runnableJobs = array_values(array_filter(
+                $queue['physical_jobs'],
+                static fn (PhysicalBackupJob $job) => $job->isRunnable(),
+            ));
+            $runIds = BackupRunRepository::createManyFromPhysicalJobs(
+                $runnableJobs,
+                $storageLayout,
+                $tenantRecordId,
+                $clientId,
+            );
+            JobQueueRepository::enqueueMany($runIds, 50);
 
             if ($runIds === []) {
                 throw new \RuntimeException('No runnable backup jobs for the selected preset.');
@@ -214,31 +220,33 @@ final class CustomerBackupService
 
             $batchRunId = Ms365BatchRunRepository::create($clientId, $e3JobId, $triggerType);
 
-            $runIds = [];
-            foreach ($queue['physical_jobs'] as $job) {
-                if (!$job->isRunnable()) {
-                    continue;
-                }
-                $runId = BackupRunRepository::createFromPhysicalJob(
-                    $job,
-                    $storageLayout,
-                    $tenantRecordId,
-                    $clientId,
-                    $backupUserId,
-                    $e3JobId,
-                    $batchRunId,
-                );
-                $runDir = $storageLayout->runDirForJob($job->physicalKey, $runId);
-                $logger = new ProgressLogger($runId, $runDir . '/run.log');
-                $logger->info('MS365 backup queued from e3 job', ['e3_job_id' => $e3JobId, 'batch_run_id' => $batchRunId]);
-                JobQueueRepository::enqueue($runId, 50);
-                WorkerSpawner::spawn($runId, $logger);
-                $runIds[] = $runId;
-            }
+            $runnableJobs = array_values(array_filter(
+                $queue['physical_jobs'],
+                static fn (PhysicalBackupJob $job) => $job->isRunnable(),
+            ));
+            $runIds = BackupRunRepository::createManyFromPhysicalJobs(
+                $runnableJobs,
+                $storageLayout,
+                $tenantRecordId,
+                $clientId,
+                $backupUserId,
+                $e3JobId,
+                $batchRunId,
+            );
+            JobQueueRepository::enqueueMany($runIds, 50);
 
             if ($runIds === []) {
                 Ms365BatchRunRepository::finalize($batchRunId, 'failed');
                 throw new \RuntimeException('No runnable backup jobs for the selected resources.');
+            }
+
+            if (function_exists('logActivity')) {
+                logActivity(sprintf(
+                    'MS365 batch %s queued %d workload(s) for client %d',
+                    $batchRunId,
+                    count($runIds),
+                    $clientId,
+                ));
             }
 
             return ['run_ids' => $runIds, 'batch_run_id' => $batchRunId, 'count' => count($runIds)];
@@ -289,5 +297,15 @@ final class CustomerBackupService
         }
 
         return ['lines' => $lines, 'last_id' => $lastId];
+    }
+
+    /** @param array<string, mixed> $record */
+    private static function connectionAuthModeForRecord(array $record): string
+    {
+        if (TenantRecordRepository::usesCustomerAppCredentials($record)) {
+            return TenantRecordRepository::AUTH_MODE_CUSTOMER;
+        }
+
+        return TenantRecordRepository::AUTH_MODE_PLATFORM;
     }
 }

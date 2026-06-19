@@ -460,50 +460,35 @@ function localWizardRetentionUI() {
 // e3backup: shared helpers (toast + reload)
 // ========================================
 function e3backupNotify(type, message) {
-    const msg = String(message || '');
+    const msg = String(message || '').trim();
+    if (!msg) return;
     try {
-        // Preferred: window.toast.{success,error,info}
+        if (typeof window.e3backupShowToast === 'function') {
+            window.e3backupShowToast(type, msg);
+            return;
+        }
         if (window.toast && typeof window.toast[type] === 'function') {
             window.toast[type](msg);
             return;
         }
-        // Some pages expose `toast` globally
         if (typeof toast !== 'undefined' && toast && typeof toast[type] === 'function') {
             toast[type](msg);
             return;
         }
     } catch (e) {
-        // fall through to inline toast
+        // fall through to queue / inline toast
     }
 
-    // Minimal inline fallback toast (no alert popups)
+    // Queue until Alpine toast stack mounts (shell include).
     try {
-        const wrapId = 'e3backup-inline-toasts';
-        let wrap = document.getElementById(wrapId);
-        if (!wrap) {
-            wrap = document.createElement('div');
-            wrap.id = wrapId;
-            wrap.className = 'fixed top-4 right-4 z-[9999] space-y-2 pointer-events-none';
-            document.body.appendChild(wrap);
-        }
-        const el = document.createElement('div');
-        const isErr = type === 'error';
-        el.className = [
-            'eb-toast',
-            isErr ? 'eb-toast--danger' : 'eb-toast--success',
-            'pointer-events-auto'
-        ].join(' ');
-        el.textContent = msg || (isErr ? 'Error' : 'Success');
-        wrap.appendChild(el);
-        setTimeout(() => {
-            el.classList.add('opacity-0');
-            el.style.transition = 'opacity 250ms ease';
-            setTimeout(() => el.remove(), 260);
-        }, 2600);
+        window._e3backupToastQueue = window._e3backupToastQueue || [];
+        window._e3backupToastQueue.push({ type: type, message: msg });
+        return;
     } catch (e) {
-        // Last resort: do nothing (still better than alert spam)
-        console[type === 'error' ? 'error' : 'log'](msg);
+        // fall through
     }
+
+    console[type === 'error' || type === 'danger' ? 'error' : 'log'](msg);
 }
 
 function e3backupGetJobsApp() {
@@ -531,10 +516,23 @@ function e3backupReloadJobs() {
     return null;
 }
 
+function e3backupAfterJobSaved() {
+    if (typeof window.e3backupSelectUserDetailTab === 'function') {
+        window.e3backupSelectUserDetailTab('jobs');
+    }
+    if (typeof e3backupReloadJobs === 'function') {
+        e3backupReloadJobs();
+    } else if (typeof e3backupReloadUserDetail === 'function') {
+        e3backupReloadUserDetail();
+    }
+}
+
 function jobsApp(opts) {
     opts = opts || {};
     const rawScopeUserId = opts.scopeUserId != null && String(opts.scopeUserId) !== '' ? String(opts.scopeUserId) : null;
     const scopeUserId = rawScopeUserId;
+    const rawGrace = opts.ms365VaultGraceDays;
+    const ms365VaultGraceDays = rawGrace != null && String(rawGrace) !== '' ? Number(rawGrace) : 30;
     return {
         jobs: [],
         loading: true,
@@ -548,8 +546,18 @@ function jobsApp(opts) {
         deleteModalOpen: false,
         deleteJobId: '',
         deleteJobName: '',
+        deleteJobEngine: '',
+        deleteJobSourceType: '',
+        deleteJobRetentionTier: '',
+        deleteJobVaultName: '',
+        deleteConfirmPhrase: '',
+        ms365VaultGraceDays: ms365VaultGraceDays,
         deleteInProgress: false,
-        agents: {/literal}{if $agents}{$agents|@json_encode}{else}[]{/if}{literal},
+        ms365UsageOpen: false,
+        ms365UsageLoading: false,
+        ms365UsageData: null,
+        ms365UsageError: '',
+        ms365UsageJobName: '',
         tenantLabel() {
             if (!this.tenantFilter) return 'All Tenants';
             if (this.tenantFilter === 'direct') return 'Direct (No Tenant)';
@@ -669,6 +677,44 @@ function jobsApp(opts) {
                 return false;
             }
         },
+        closeMs365Usage() {
+            this.ms365UsageOpen = false;
+            this.ms365UsageData = null;
+            this.ms365UsageError = '';
+            this.ms365UsageJobName = '';
+        },
+        formatUsageGiB(bytes) {
+            const n = Number(bytes || 0);
+            if (!Number.isFinite(n) || n <= 0) return '0';
+            return (n / (1024 * 1024 * 1024)).toFixed(2);
+        },
+        async openMs365Usage(job) {
+            const scopeId = this.scopeUserId || window.userDetailJobsScopeId || '';
+            if (!scopeId) {
+                e3backupNotify('error', 'Backup user scope is required.');
+                return;
+            }
+            this.ms365UsageOpen = true;
+            this.ms365UsageLoading = true;
+            this.ms365UsageData = null;
+            this.ms365UsageError = '';
+            this.ms365UsageJobName = (job && job.name) ? job.name : 'Microsoft 365';
+            try {
+                const params = new URLSearchParams({ backup_user_id: scopeId });
+                const res = await fetch('modules/addons/cloudstorage/api/ms365_usage.php?' + params.toString(), {
+                    credentials: 'same-origin',
+                });
+                const data = await res.json();
+                if (data.status === 'success' && data.usage) {
+                    this.ms365UsageData = data.usage;
+                } else {
+                    this.ms365UsageError = data.message || 'Could not load usage.';
+                }
+            } catch (e) {
+                this.ms365UsageError = 'Could not load usage.';
+            }
+            this.ms365UsageLoading = false;
+        },
         async runJob(jobId) {
             const job = (this.jobs || []).find((j) => j.job_id === jobId);
             if (this.isMs365Job(job)) {
@@ -752,44 +798,115 @@ function jobsApp(opts) {
         openDeleteModal(job) {
             this.deleteJobId = job?.job_id ? String(job.job_id) : '';
             this.deleteJobName = job?.name ? String(job.name) : '';
+            this.deleteJobEngine = job?.engine ? String(job.engine).toLowerCase() : '';
+            this.deleteJobSourceType = job?.source_type ? String(job.source_type).toLowerCase() : '';
+            this.deleteConfirmPhrase = '';
             this.deleteInProgress = false;
+            let retentionTier = '';
+            try {
+                const schedule = typeof job?.schedule_json === 'string'
+                    ? JSON.parse(job.schedule_json || '{}')
+                    : (job?.schedule_json || {});
+                if (schedule && schedule.retention_tier) {
+                    retentionTier = String(schedule.retention_tier);
+                }
+            } catch (e) {}
+            this.deleteJobRetentionTier = retentionTier;
+            this.deleteJobVaultName = job?.dest_bucket_name ? String(job.dest_bucket_name) : (job?.dest_label || '');
             this.deleteModalOpen = true;
+            if (this.isMs365Job(job) && (!this.ms365VaultGraceDays || this.ms365VaultGraceDays < 1)) {
+                this.loadMs365VaultConfig();
+            }
         },
         closeDeleteModal() {
             if (this.deleteInProgress) return;
             this.deleteModalOpen = false;
             this.deleteJobId = '';
             this.deleteJobName = '';
+            this.deleteJobEngine = '';
+            this.deleteJobSourceType = '';
+            this.deleteJobRetentionTier = '';
+            this.deleteJobVaultName = '';
+            this.deleteConfirmPhrase = '';
+        },
+        isDeleteModalMs365() {
+            return this.deleteJobEngine === 'ms365' || this.deleteJobSourceType === 'ms365';
+        },
+        deleteConfirmPhraseExpected() {
+            const name = (this.deleteJobName || 'Unnamed job').trim();
+            return 'DELETE ' + name;
+        },
+        canConfirmDeleteJob() {
+            if (!this.deleteJobId || this.deleteInProgress) return false;
+            if (!this.isDeleteModalMs365()) return true;
+            return this.deleteConfirmPhrase.trim().toLowerCase() === this.deleteConfirmPhraseExpected().toLowerCase();
+        },
+        async loadMs365VaultConfig() {
+            try {
+                const res = await fetch('modules/addons/cloudstorage/api/ms365_vault_config.php');
+                const data = await res.json();
+                if (data.status === 'success' && data.grace_days) {
+                    this.ms365VaultGraceDays = Number(data.grace_days) || 30;
+                }
+            } catch (e) {}
         },
         async confirmDeleteJob() {
             const jobId = this.deleteJobId;
-            if (!jobId || this.deleteInProgress) return;
+            if (!jobId || this.deleteInProgress || !this.canConfirmDeleteJob()) return;
             this.deleteInProgress = true;
             try {
+                const params = { job_id: jobId };
+                if (this.isDeleteModalMs365()) {
+                    params.confirm_phrase = this.deleteConfirmPhrase.trim();
+                }
                 const res = await fetch('modules/addons/cloudstorage/api/cloudbackup_delete_job.php', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    body: new URLSearchParams({ job_id: jobId })
+                    body: new URLSearchParams(params)
                 });
                 const data = await res.json();
                 if (data.status === 'success') {
-                    e3backupNotify('success', 'Job deleted');
+                    const jobName = (this.deleteJobName || 'Unnamed job').trim();
+                    const wasMs365 = this.isDeleteModalMs365();
+                    let msg = '"' + jobName + '" deleted successfully.';
+                    if (wasMs365 && data.vault) {
+                        const graceDays = data.vault.grace_days || this.ms365VaultGraceDays || 30;
+                        if (data.vault.recycle_teardown_at) {
+                            msg = '"' + jobName + '" deleted. Backup vault moved to recycle bin until '
+                                + data.vault.recycle_teardown_at + ' (' + graceDays + '-day grace period).';
+                        } else if (data.vault.bucket_name) {
+                            msg = '"' + jobName + '" and vault "' + data.vault.bucket_name + '" deleted successfully.';
+                        }
+                    }
+                    e3backupNotify('success', msg);
                     this.deleteModalOpen = false;
                     this.deleteInProgress = false;
                     this.deleteJobId = '';
                     this.deleteJobName = '';
-                    this.loadJobs(); // keep current filters
+                    this.deleteJobEngine = '';
+                    this.deleteJobSourceType = '';
+                    this.deleteJobRetentionTier = '';
+                    this.deleteJobVaultName = '';
+                    this.deleteConfirmPhrase = '';
+                    this.loadJobs();
+                    if (typeof window.ebUserDetailReload === 'function') {
+                        window.ebUserDetailReload();
+                    }
                 } else {
-                    e3backupNotify('error', data.message || 'Failed to delete job');
+                    e3backupNotify('error', data.message || 'Failed to delete job. Please try again.');
                     this.deleteInProgress = false;
                 }
             } catch (e) {
-                e3backupNotify('error', 'Error deleting job');
+                e3backupNotify('error', 'Could not delete job. Check your connection and try again.');
                 this.deleteInProgress = false;
             }
         },
         viewLogs(jobId) {
-            window.location.href = 'index.php?m=cloudstorage&page=e3backup&view=runs&job_id=' + encodeURIComponent(jobId);
+            let url = 'index.php?m=cloudstorage&page=e3backup&view=job_logs&job_id=' + encodeURIComponent(jobId);
+            if (this.scopeUserId != null && String(this.scopeUserId) !== '') {
+                url += '&user_id=' + encodeURIComponent(String(this.scopeUserId));
+            }
+            window.location.href = url;
         },
         openRestore(job) {
             // For Hyper-V jobs, redirect to the Hyper-V page to select a VM
@@ -1115,6 +1232,21 @@ function jobsApp(opts) {
             if (s === 'running' || s === 'starting') return 'eb-job-last-run-dot--running';
             return 'eb-job-last-run-dot--neutral';
         },
+        isScheduleSkippedRun(lastRun) {
+            return !!(lastRun && lastRun.schedule_skipped);
+        },
+        lastRunStatusLabel(lastRun) {
+            if (this.isScheduleSkippedRun(lastRun)) return 'Skipped';
+            return this.capitalize(lastRun && lastRun.status ? lastRun.status : '');
+        },
+        lastRunDotClassForRun(lastRun) {
+            if (this.isScheduleSkippedRun(lastRun)) return 'eb-job-last-run-dot--neutral';
+            return this.lastRunDotClass(lastRun && lastRun.status ? lastRun.status : '');
+        },
+        lastRunLabelClassForRun(lastRun) {
+            if (this.isScheduleSkippedRun(lastRun)) return 'eb-job-last-run-label--neutral';
+            return this.lastRunLabelClass(lastRun && lastRun.status ? lastRun.status : '');
+        },
         lastRunLabelClass(status) {
             const s = (status || '').toLowerCase();
             if (s === 'success') return 'eb-job-last-run-label--success';
@@ -1155,8 +1287,9 @@ function jobsApp(opts) {
 
 function userDetailJobsApp() {
     const scopeUserId = {/literal}{if isset($userDetailJobsScopeId) && $userDetailJobsScopeId}{$userDetailJobsScopeId|@json_encode nofilter}{else}null{/if}{literal};
+    const graceDays = {/literal}{$ms365_vault_grace_days|default:30|intval}{literal};
     window.userDetailJobsScopeId = scopeUserId || '';
-    return jobsApp({ scopeUserId });
+    return jobsApp({ scopeUserId, ms365VaultGraceDays: graceDays });
 }
 
 function computeNextRunText(type, timeStr, weekday, hourlyMinute, cronExpr) {
@@ -1706,11 +1839,7 @@ function doCreateJobSubmit(formEl) {
     .then(data => {
         if (data.status === 'success') {
             closeCreateSlideover();
-                if (typeof e3backupReloadUserDetail === 'function') {
-                    e3backupReloadUserDetail();
-                } else {
-                    e3backupReloadJobs();
-                }
+            e3backupAfterJobSaved();
             e3backupNotify('success', isEdit ? 'Job updated successfully!' : 'Job created successfully!');
         } else {
             if (msgEl) {
@@ -3789,11 +3918,7 @@ function localWizardSubmit() {
                 if (!isEdit) {
                     try { window.dispatchEvent(new Event('eb-e3-onboarding-event')); } catch (_) {}
                 }
-                if (typeof e3backupReloadUserDetail === 'function') {
-                    e3backupReloadUserDetail();
-                } else {
-                    e3backupReloadJobs();
-                }
+                e3backupAfterJobSaved();
             } else {
                 const msg = data.message || (isEdit ? 'Failed to update job' : 'Failed to create job');
                 e3backupNotify('error', msg);

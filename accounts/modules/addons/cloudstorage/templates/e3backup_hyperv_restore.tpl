@@ -11,16 +11,6 @@
 
 {capture assign=ebE3Content}
 <div class="space-y-6" x-data="hypervRestoreApp()" x-init="init()">
-    <div class="eb-breadcrumb">
-        <a href="index.php?m=cloudstorage&page=e3backup&view=users" class="eb-breadcrumb-link">Users</a>
-        <span class="eb-breadcrumb-separator">/</span>
-        {if $job}
-            <a href="{if $job.backup_user_route_id}index.php?m=cloudstorage&page=e3backup&view=user_detail&user_id={$job.backup_user_route_id|escape:'url'}#hyperv{else}index.php?m=cloudstorage&page=e3backup&view=hyperv&job_id={$job.id}{/if}" class="eb-breadcrumb-link">{$job.name|escape}</a>
-            <span class="eb-breadcrumb-separator">/</span>
-        {/if}
-        <span class="eb-breadcrumb-current">Restore</span>
-    </div>
-
     {if !empty($error)}
         <div class="eb-alert eb-alert--danger">
             <svg class="eb-alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">

@@ -30,7 +30,7 @@
 | **e3-native UX** | Connection status, presets, run history, progress, restore wizard—inside `cloudstorage` e3backup, semantic UI theme. |
 | **Multi-tenant operations** | Per-client queue limits, run search, retries, access health, support tooling. |
 | **Restore SLA** | Supported restore paths (mail first, then files/calendar/Teams) with safe defaults (non-destructive). |
-| **Billing-ready** | Optional linkage to WHMCS service + bucket metering (when MS365 is a billable SKU). |
+| **Billing-ready** | Linkage to WHMCS service + per-backup-user Graph metering (Protected Users + OneDrive overage) with platform-owned isolated storage. Design: [MS365_BILLING_AND_STORAGE_DESIGN.md](MS365_BILLING_AND_STORAGE_DESIGN.md). |
 
 ---
 

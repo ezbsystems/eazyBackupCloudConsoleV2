@@ -13,6 +13,7 @@ use Ms365Backup\CustomerInventoryService;
 use Ms365Backup\CustomerSelectionCodec;
 use Ms365Backup\EntraConsentService;
 use Ms365Backup\FailedEngineRetryService;
+use Ms365Backup\Ms365CustomerConnectService;
 use Ms365Backup\Ms365CustomerJobService;
 use Ms365Backup\Ms365CustomerError;
 use Ms365Backup\Ms365DisconnectService;
@@ -84,6 +85,30 @@ final class Ms365E3Controller
             $returnPath,
             $consentMode,
         );
+    }
+
+    /**
+     * @param array<string, mixed> $input
+     * @return array{organization: string}
+     */
+    public static function testManualConnect(int $clientId, string $userIdRaw, array $input): array
+    {
+        $user = self::resolveBackupUser($clientId, $userIdRaw);
+        $existing = TenantRecordRepository::getForBackupUser($clientId, $user['id']);
+
+        return Ms365CustomerConnectService::testCredentials($input, $existing);
+    }
+
+    /**
+     * @param array<string, mixed> $input
+     * @return array<string, mixed>
+     */
+    public static function saveManualConnect(int $clientId, string $userIdRaw, array $input): array
+    {
+        $user = self::resolveBackupUser($clientId, $userIdRaw);
+        Ms365CustomerConnectService::saveAndConnect($clientId, $user['id'], $input);
+
+        return CustomerBackupService::statusForBackupUser($clientId, $user['id']);
     }
 
     /** @param array<string, mixed> $query */
@@ -280,23 +305,29 @@ final class Ms365E3Controller
             $manifestId = (string) ($backupRun['manifest_id'] ?? '');
         }
         if ($manifestId === '' && $path === '') {
-            $childRuns = \Ms365Backup\Ms365BatchRunRepository::getChildrenForBatch($batchRunId);
+            $childRuns = array_values(array_filter(
+                \Ms365Backup\Ms365BatchRunRepository::getChildrenForBatch($batchRunId),
+                static fn (array $child) => trim((string) ($child['manifest_id'] ?? '')) !== '',
+            ));
+            $aggregated = \Ms365Backup\ShardRunAggregateService::aggregateForRestore($childRuns);
             $roots = [];
-            foreach ($childRuns as $child) {
-                if (trim((string) ($child['manifest_id'] ?? '')) === '') {
-                    continue;
-                }
-                $label = trim((string) ($child['user_display_name'] ?? $child['physical_key'] ?? 'Workload'));
+            foreach ($aggregated as $entry) {
+                $physicalKey = (string) ($entry['physical_key'] ?? '');
+                $resourceType = (string) ($entry['resource_type'] ?? '');
+                $label = trim((string) ($entry['display_name'] ?? $physicalKey ?: 'Workload'));
                 $roots[] = [
                     'name' => $label,
                     'label' => $label,
+                    'subtitle' => self::restoreBrowseResourceSubtitle($resourceType, $physicalKey),
                     'path' => '',
                     'type' => 'resource',
                     'has_children' => true,
                     'size' => 0,
-                    'manifest_id' => (string) $child['manifest_id'],
-                    'child_run_id' => (string) ($child['id'] ?? ''),
-                    'physical_key' => (string) ($child['physical_key'] ?? ''),
+                    'manifest_id' => (string) ($entry['manifest_id'] ?? ''),
+                    'child_run_id' => (string) ($entry['run_id'] ?? ''),
+                    'physical_key' => $physicalKey,
+                    'resource_type' => $resourceType,
+                    'section_key' => self::restoreBrowseSectionKey($resourceType, $physicalKey),
                 ];
             }
 
@@ -318,6 +349,59 @@ final class Ms365E3Controller
     public static function startRestore(int $clientId, int $backupUserId, string $jobId, array $selection): array
     {
         return RestoreJobService::start($clientId, $backupUserId, $jobId, $selection);
+    }
+
+    private static function restoreBrowseSectionKey(string $resourceType, string $physicalKey): string
+    {
+        $physicalKey = \Ms365Backup\PhysicalKeyHelper::baseKey($physicalKey);
+        if (str_starts_with($physicalKey, 'site:')) {
+            return 'sharepoint';
+        }
+        if (str_starts_with($physicalKey, 'team:') || str_starts_with($physicalKey, 'channel:')) {
+            return 'teams';
+        }
+        if (str_starts_with($physicalKey, 'group:')) {
+            return 'groups';
+        }
+        if (str_starts_with($physicalKey, 'planner:')) {
+            return 'planner';
+        }
+        if (str_starts_with($physicalKey, 'onenote:')) {
+            return 'onenote';
+        }
+        if (str_starts_with($physicalKey, 'directory:')) {
+            return 'directory';
+        }
+
+        return 'users';
+    }
+
+    private static function restoreBrowseResourceSubtitle(string $resourceType, string $physicalKey): string
+    {
+        $physicalKey = \Ms365Backup\PhysicalKeyHelper::baseKey($physicalKey);
+        if (str_starts_with($physicalKey, 'drive:') || str_starts_with($physicalKey, 'onedrive:')) {
+            return 'OneDrive';
+        }
+        if ($resourceType === \Ms365Backup\TenantResource::TYPE_SHAREPOINT_SITE || str_starts_with($physicalKey, 'site:')) {
+            return 'SharePoint site';
+        }
+        if ($resourceType === \Ms365Backup\TenantResource::TYPE_TEAM || str_starts_with($physicalKey, 'team:')) {
+            return 'Team';
+        }
+        if ($resourceType === \Ms365Backup\TenantResource::TYPE_TEAM_CHANNEL || str_starts_with($physicalKey, 'channel:')) {
+            return 'Team channel';
+        }
+        if ($resourceType === \Ms365Backup\TenantResource::TYPE_M365_GROUP || str_starts_with($physicalKey, 'group:')) {
+            return 'Microsoft 365 group';
+        }
+        if ($resourceType === \Ms365Backup\TenantResource::TYPE_PLANNER_PLAN || str_starts_with($physicalKey, 'planner:')) {
+            return 'Planner plan';
+        }
+        if ($resourceType === \Ms365Backup\TenantResource::TYPE_ONENOTE_NOTEBOOK || str_starts_with($physicalKey, 'onenote:')) {
+            return 'OneNote notebook';
+        }
+
+        return '';
     }
 
     /** @deprecated Use startRestore() */

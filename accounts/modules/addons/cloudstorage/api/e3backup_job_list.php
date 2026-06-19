@@ -31,6 +31,16 @@ function normalizeHypervJobSignatureValue($value): string
     return trim((string) $value);
 }
 
+function e3backup_is_ms365_schedule_skip(?string $statsJson): bool
+{
+    if ($statsJson === null || trim($statsJson) === '') {
+        return false;
+    }
+    $decoded = json_decode($statsJson, true);
+
+    return is_array($decoded) && !empty($decoded['ms365_schedule_skip']);
+}
+
 if (!defined("WHMCS")) {
     die("This file cannot be accessed directly");
 }
@@ -123,6 +133,8 @@ try {
     }
 
     $hasJobIdPk = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'job_id');
+    $hasRunStatsJson = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'stats_json');
+    $hasRunErrorSummary = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'error_summary');
     $jobIdSelect = $hasJobIdPk
         ? Capsule::raw('BIN_TO_UUID(j.job_id) as id')
         : 'j.id';
@@ -311,10 +323,19 @@ try {
             // Latest-run-per-job only: window the runs so we return a single row
             // per job instead of fetching every run and deduping in PHP. Keeps
             // the result set capped at one-per-job regardless of run history.
+            $extraCols = '';
+            if ($hasRunStatsJson) {
+                $extraCols .= ', stats_json';
+            }
+            if ($hasRunErrorSummary) {
+                $extraCols .= ', error_summary';
+            }
             $sql = 'SELECT BIN_TO_UUID(job_id) AS job_id_str, status, started_at, finished_at, bytes_transferred'
+                . $extraCols
                 . ' FROM ('
-                . '   SELECT job_id, status, started_at, finished_at, bytes_transferred,'
-                . '     ROW_NUMBER() OVER (PARTITION BY job_id ORDER BY started_at DESC, run_id DESC) AS rn'
+                . '   SELECT job_id, status, started_at, finished_at, bytes_transferred'
+                . $extraCols
+                . ',     ROW_NUMBER() OVER (PARTITION BY job_id ORDER BY started_at DESC, run_id DESC) AS rn'
                 . '   FROM s3_cloudbackup_runs'
                 . '   WHERE job_id IN (' . implode(',', $binExprs) . ')'
                 . ' ) ranked'
@@ -328,6 +349,10 @@ try {
                         'started_at' => $r->started_at,
                         'finished_at' => $r->finished_at,
                         'bytes_transferred' => $r->bytes_transferred ?? 0,
+                        'schedule_skipped' => $hasRunStatsJson
+                            ? e3backup_is_ms365_schedule_skip(isset($r->stats_json) ? (string) $r->stats_json : null)
+                            : false,
+                        'error_summary' => $hasRunErrorSummary ? (string) ($r->error_summary ?? '') : '',
                     ];
                 }
             }

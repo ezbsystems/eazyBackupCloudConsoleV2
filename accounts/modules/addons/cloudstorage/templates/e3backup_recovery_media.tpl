@@ -7,18 +7,9 @@
     </a>
 {/capture}
 
-{capture assign=ebE3RecoveryMediaBreadcrumb}
-    <div class="eb-breadcrumb">
-        <a href="index.php?m=cloudstorage&page=e3backup&view=dashboard" class="eb-breadcrumb-link">e3 Cloud Backup</a>
-        <span class="eb-breadcrumb-separator">/</span>
-        <span class="eb-breadcrumb-current">Recovery Media</span>
-    </div>
-{/capture}
-
 {capture assign=ebE3Content}
 <div x-data="recoveryMediaPage()" x-init="init()" class="space-y-6">
     {include file="$template/includes/ui/page-header.tpl"
-        ebBreadcrumb=$ebE3RecoveryMediaBreadcrumb
         ebPageTitle='Create Recovery Media for Device'
         ebPageDescription='Build media on any Windows PC and target a specific source device for same-hardware recovery drivers.'
         ebPageActions=$ebE3RecoveryMediaActions

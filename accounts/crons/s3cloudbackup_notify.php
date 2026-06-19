@@ -18,6 +18,7 @@ if (!defined("WHMCS")) {
 use WHMCS\Database\Capsule;
 use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupEmailService;
 use WHMCS\Module\Addon\CloudStorage\Client\DBController;
+use WHMCS\Module\Addon\CloudStorage\Client\UuidBinary;
 
 // Get module config
 $module = DBController::getResult('tbladdonmodules', [
@@ -36,14 +37,30 @@ if (empty($emailTemplateId)) {
 
 // Find completed runs that haven't been notified yet
 // Check runs completed in the last hour that are in final states
-$completedRuns = Capsule::table('s3_cloudbackup_runs')
-    ->join('s3_cloudbackup_jobs', 's3_cloudbackup_runs.job_id', '=', 's3_cloudbackup_jobs.id')
+$hasJobIdPk = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'job_id');
+$hasRunIdPk = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'run_id');
+
+$notifyQuery = Capsule::table('s3_cloudbackup_runs');
+if ($hasJobIdPk) {
+    $notifyQuery->join('s3_cloudbackup_jobs', 's3_cloudbackup_runs.job_id', '=', 's3_cloudbackup_jobs.job_id');
+} else {
+    $notifyQuery->join('s3_cloudbackup_jobs', 's3_cloudbackup_runs.job_id', '=', 's3_cloudbackup_jobs.id');
+}
+
+$runIdSelectExpr = $hasRunIdPk
+    ? Capsule::raw('BIN_TO_UUID(s3_cloudbackup_runs.run_id) as run_id')
+    : 's3_cloudbackup_runs.id as run_id';
+$jobIdSelectExpr = $hasJobIdPk
+    ? Capsule::raw('BIN_TO_UUID(s3_cloudbackup_jobs.job_id) as job_id')
+    : 's3_cloudbackup_jobs.id as job_id';
+
+$completedRuns = $notifyQuery
     ->whereIn('s3_cloudbackup_runs.status', ['success', 'warning', 'failed'])
     ->whereNotNull('s3_cloudbackup_runs.finished_at')
     ->where('s3_cloudbackup_runs.finished_at', '>=', date('Y-m-d H:i:s', strtotime('-1 hour')))
     ->whereNull('s3_cloudbackup_runs.notified_at')
     ->select(
-        's3_cloudbackup_runs.id as run_id',
+        $runIdSelectExpr,
         's3_cloudbackup_runs.status',
         's3_cloudbackup_runs.started_at',
         's3_cloudbackup_runs.finished_at',
@@ -51,7 +68,7 @@ $completedRuns = Capsule::table('s3_cloudbackup_runs')
         's3_cloudbackup_runs.bytes_total',
         's3_cloudbackup_runs.bytes_transferred',
         's3_cloudbackup_runs.error_summary',
-        's3_cloudbackup_jobs.id as job_id',
+        $jobIdSelectExpr,
         's3_cloudbackup_jobs.name',
         's3_cloudbackup_jobs.client_id',
         's3_cloudbackup_jobs.source_display_name',
@@ -129,9 +146,13 @@ foreach ($completedRuns as $runData) {
 
         if ($result['status'] === 'success') {
             // Mark as notified
-            Capsule::table('s3_cloudbackup_runs')
-                ->where('id', $runData->run_id)
-                ->update(['notified_at' => date('Y-m-d H:i:s')]);
+            $updateQuery = Capsule::table('s3_cloudbackup_runs');
+            if ($hasRunIdPk && UuidBinary::isUuid((string) $runData->run_id)) {
+                $updateQuery->whereRaw('run_id = ' . UuidBinary::toDbExpr(UuidBinary::normalize((string) $runData->run_id)));
+            } else {
+                $updateQuery->where('id', (int) $runData->run_id);
+            }
+            $updateQuery->update(['notified_at' => date('Y-m-d H:i:s')]);
             
             $notifiedCount++;
             echo "Notified for run {$runData->run_id}: {$result['message']}\n";

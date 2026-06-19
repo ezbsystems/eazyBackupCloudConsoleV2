@@ -17,7 +17,7 @@ final class ShardRunAggregateService
         $groups = [];
         foreach ($children as $child) {
             $physicalKey = (string) ($child['physical_key'] ?? '');
-            $parentKey = PhysicalKeyHelper::baseKey($physicalKey);
+            $parentKey = PhysicalKeyHelper::aggregateParentKey($physicalKey, $child);
             if (!isset($groups[$parentKey])) {
                 $groups[$parentKey] = [
                     'parent_physical_key' => $parentKey,

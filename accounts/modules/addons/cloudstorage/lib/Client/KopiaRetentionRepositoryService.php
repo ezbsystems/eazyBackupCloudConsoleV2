@@ -70,11 +70,63 @@ class KopiaRetentionRepositoryService
     }
 
     /**
+     * Create or reuse a policy version from a Comet-tier or nested policy document.
+     *
+     * @param array<string, mixed> $policyDocument
+     */
+    public static function ensurePolicyVersionFromDocument(array $policyDocument): ?int
+    {
+        try {
+            if (!Capsule::schema()->hasTable('s3_kopia_policy_versions')) {
+                return null;
+            }
+
+            [$valid] = KopiaRetentionPolicyService::validate($policyDocument);
+            if (!$valid) {
+                return null;
+            }
+
+            $retention = KopiaRetentionPolicyService::extractRetentionMap($policyDocument);
+            $normalized = [
+                'schema' => (int) ($policyDocument['schema'] ?? 1),
+                'timezone' => (string) ($policyDocument['timezone'] ?? 'UTC'),
+                'retention' => $retention,
+            ];
+            $policyJson = json_encode($normalized);
+
+            $existing = Capsule::table('s3_kopia_policy_versions')
+                ->where('policy_json', $policyJson)
+                ->orderByDesc('id')
+                ->first();
+            if ($existing) {
+                return (int) $existing->id;
+            }
+
+            Capsule::table('s3_kopia_policy_versions')->insert([
+                'policy_json' => $policyJson,
+                'schema_version' => 1,
+                'created_at' => date('Y-m-d H:i:s'),
+            ]);
+
+            $row = Capsule::table('s3_kopia_policy_versions')
+                ->where('policy_json', $policyJson)
+                ->orderByDesc('id')
+                ->first();
+
+            return $row ? (int) $row->id : null;
+        } catch (\Throwable $e) {
+            logModuleCall(self::MODULE, 'ensurePolicyVersionFromDocument', [], $e->getMessage(), [], []);
+
+            return null;
+        }
+    }
+
+    /**
      * Ensure a mapping row exists in s3_kopia_repos for the given repository_id,
      * pinning vault_policy_version_id. Creates the row if it does not exist.
      *
      * @param string $repositoryId Repository ID from s3_cloudbackup_repositories
-     * @param array|null $hints Optional client_id, tenant_id, bucket_id from repo
+     * @param array|null $hints Optional client_id, tenant_id, bucket_id, policy_version_id from repo
      * @return object|null The s3_kopia_repos row or null on failure
      */
     public static function ensureRepoRecordForRepositoryId(string $repositoryId, ?array $hints = []): ?object
@@ -94,11 +146,25 @@ class KopiaRetentionRepositoryService
                 ->first();
 
             if ($existing) {
+                $hintPolicyId = (int) ($hints['policy_version_id'] ?? 0);
+                if ($hintPolicyId > 0 && (int) ($existing->vault_policy_version_id ?? 0) !== $hintPolicyId) {
+                    Capsule::table('s3_kopia_repos')
+                        ->where('id', (int) $existing->id)
+                        ->update([
+                            'vault_policy_version_id' => $hintPolicyId,
+                            'updated_at' => date('Y-m-d H:i:s'),
+                        ]);
+                    $existing = Capsule::table('s3_kopia_repos')->where('id', (int) $existing->id)->first();
+                }
+
                 return $existing;
             }
 
-            $policyVersionId = self::ensureDefaultVaultPolicyVersion();
-            if ($policyVersionId === null) {
+            $policyVersionId = (int) ($hints['policy_version_id'] ?? 0);
+            if ($policyVersionId <= 0) {
+                $policyVersionId = (int) (self::ensureDefaultVaultPolicyVersion() ?? 0);
+            }
+            if ($policyVersionId <= 0) {
                 logModuleCall(self::MODULE, 'ensureRepoRecordForRepositoryId', [
                     'repository_id' => $repositoryId,
                 ], 'Could not get default vault policy version', [], []);

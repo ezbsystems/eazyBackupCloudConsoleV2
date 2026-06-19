@@ -8,8 +8,13 @@
 {assign var=ebE3Icon value=$ebE3Icon|default:''}
 {assign var=ebE3Actions value=$ebE3Actions|default:''}
 {assign var=ebE3Content value=$ebE3Content|default:''}
+{assign var=ebE3SidebarUsername value=$ebE3SidebarUsername|default:''}
+{assign var=ebE3SidebarUserRouteId value=$ebE3SidebarUserRouteId|default:''}
+{assign var=ebE3UserSubnavActive value=$ebE3UserSubnavActive|default:''}
+{assign var=ebE3ShowUserSubnav value=$ebE3ShowUserSubnav|default:false}
 
 {include file="modules/addons/eazybackup/templates/partials/_ui-tokens.tpl"}
+{include file="modules/addons/cloudstorage/templates/partials/e3backup_toast_stack.tpl"}
 
 {* Defaults so child includes work even when the e3backup view didn't inject these vars. *}
 {assign var=ebE3OnboardingState value=$ebE3OnboardingState|default:null}
@@ -27,16 +32,32 @@
             toggleCollapse() {
                 this.sidebarCollapsed = !this.sidebarCollapsed;
                 localStorage.setItem('eb_e3_sidebar_collapsed', this.sidebarCollapsed);
+                try {
+                    window.dispatchEvent(new CustomEvent('eb-e3-sidebar-collapsed-changed', {
+                        detail: { collapsed: this.sidebarCollapsed }
+                    }));
+                } catch (e) {}
             },
             handleResize() {
-                if (window.innerWidth < 1360 && !this.sidebarCollapsed) this.sidebarCollapsed = true;
+                if (window.innerWidth < 1360 && !this.sidebarCollapsed) {
+                    this.sidebarCollapsed = true;
+                    try {
+                        window.dispatchEvent(new CustomEvent('eb-e3-sidebar-collapsed-changed', {
+                            detail: { collapsed: this.sidebarCollapsed }
+                        }));
+                    } catch (e) {}
+                }
             }
         }"
-        x-init="window.addEventListener('resize', () => handleResize())"
-        class="eb-panel !p-0 {$ebE3PanelClass}">
+        x-init="window.addEventListener('resize', () => handleResize()); if (window.ebE3SyncAppMinHeight) window.ebE3SyncAppMinHeight($el);"
+        class="eb-panel eb-panel--e3-min-h !p-0 {$ebE3PanelClass}">
             <div class="eb-app-shell">
                 {include file="modules/addons/cloudstorage/templates/partials/e3backup_sidebar.tpl"
                     activeNav=$ebE3SidebarPage
+                    ebE3SidebarUsername=$ebE3SidebarUsername
+                    ebE3SidebarUserRouteId=$ebE3SidebarUserRouteId
+                    ebE3UserSubnavActive=$ebE3UserSubnavActive
+                    ebE3ShowUserSubnav=$ebE3ShowUserSubnav
                     isMspClient=$isMspClient|default:false
                     ebE3HasAgents=$ebE3HasAgents
                     ebE3OnboardingComplete=$ebE3OnboardingComplete
@@ -114,6 +135,10 @@
     </div>
 </div>
 
+{if $ebE3SidebarPage eq 'user_detail' || $ebE3ShowUserSubnav}
+{include file="modules/addons/cloudstorage/templates/partials/e3backup_sidebar_user_subnav_script.tpl"}
+{/if}
+
 {* Download Agent flyout — moved to document.body via JS to escape eb-theme-main stacking context *}
 <div id="e3-download-flyout" data-tour="download-flyout" class="eb-sidebar-flyout" aria-hidden="true">
     <div class="flex flex-col h-full">
@@ -147,6 +172,31 @@
 
 <script>
 {literal}
+(function() {
+    // Keep the e3 app panel at least viewport-tall so short tabs/pages
+    // (e.g. user detail Agents vs Jobs) do not shrink the shell. Taller
+    // content still grows normally and scrolls with the page.
+    window.ebE3SyncAppMinHeight = function(panelEl) {
+        if (!panelEl) return;
+        var resizeTimer = null;
+        var measure = function() {
+            var pageInner = panelEl.closest('.eb-page-inner');
+            var bottomPad = 0;
+            if (pageInner) {
+                bottomPad = parseFloat(window.getComputedStyle(pageInner).paddingBottom) || 0;
+            }
+            var top = panelEl.getBoundingClientRect().top;
+            var minH = Math.max(320, window.innerHeight - top - bottomPad);
+            panelEl.style.setProperty('--eb-e3-app-min-height', minH + 'px');
+        };
+        measure();
+        window.addEventListener('resize', function() {
+            clearTimeout(resizeTimer);
+            resizeTimer = setTimeout(measure, 100);
+        });
+        window.addEventListener('load', measure);
+    };
+})();
 (function() {
     // Lightweight helper to record onboarding events from anywhere in the
     // e3backup section. Broadcasts a window event so the Getting Started

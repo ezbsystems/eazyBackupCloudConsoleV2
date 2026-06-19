@@ -847,7 +847,7 @@ model.
    ```
    https://dev.eazybackup.ca/modules/addons/cloudstorage/api/agent_deploy_manifest.php
    ```
-4. Production runs `crons/agent_deploy_sync.php` every ~5 minutes. It fetches the manifest (Bearer token), downloads artifacts via signed nonce URLs, verifies SHA-256, and installs into prod `client_installer/` plus `s3_agent_releases`.
+4. Production runs `crons/agent_deploy_sync.php` every ~2 minutes. It fetches the manifest (Bearer token), downloads artifacts via signed nonce URLs, verifies SHA-256, and installs into prod `client_installer/` plus `s3_agent_releases`.
 
 ### One-time setup
 
@@ -869,6 +869,12 @@ model.
 7. Enable **Enable deployment sync cron**
 8. Schedule the sync runner (systemd recommended):
 
+```bash
+sudo bash /var/www/eazybackup.ca/accounts/modules/addons/cloudstorage/deploy/systemd/install.sh
+```
+
+Or install manually:
+
 ```ini
 # /etc/systemd/system/e3-agent-deploy-sync.service
 [Unit]
@@ -885,11 +891,11 @@ ExecStart=/usr/bin/php /var/www/eazybackup.ca/accounts/modules/addons/cloudstora
 ```ini
 # /etc/systemd/system/e3-agent-deploy-sync.timer
 [Unit]
-Description=Poll dev for agent installer deployments every 5 minutes
+Description=Poll dev for agent installer deployments every 2 minutes
 
 [Timer]
-OnBootSec=3min
-OnUnitActiveSec=5min
+OnBootSec=2min
+OnUnitActiveSec=2min
 AccuracySec=30s
 Unit=e3-agent-deploy-sync.service
 
@@ -907,7 +913,7 @@ sudo systemctl enable --now e3-agent-deploy-sync.timer
 1. Build with **Publish** checked (and optionally **Deploy to production after publish**)
 2. Or, after a successful build: **Deployment** tab → **Deploy latest releases to production**
 3. Or, from **Build Detail**: **Deploy to Production** for that specific job
-4. Production picks up the new `deployment_id` within ~5 minutes
+4. Production picks up the new `deployment_id` within ~2 minutes
 5. Verify prod downloads:
    - `https://accounts.eazybackup.ca/client_installer/e3-backup-agent-setup.exe`
    - `https://accounts.eazybackup.ca/client_installer/e3-backup-agent-linux`

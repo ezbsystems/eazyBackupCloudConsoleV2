@@ -178,6 +178,72 @@ class HelperController {
     }
 
     /**
+     * Preferred module encryption key for decrypting stored credentials.
+     * Matches CloudBackupBootstrapService::getModuleEncryptionKey() order.
+     *
+     * @param iterable $moduleRows tbladdonmodules rows for cloudstorage
+     */
+    public static function resolvePrimaryEncryptionKey($moduleRows): string
+    {
+        $cloudBackupKey = trim((string) $moduleRows->where('setting', 'cloudbackup_encryption_key')->pluck('value')->first());
+        if ($cloudBackupKey !== '') {
+            return $cloudBackupKey;
+        }
+
+        return trim((string) $moduleRows->where('setting', 'encryption_key')->pluck('value')->first());
+    }
+
+    /**
+     * Ordered module encryption keys to try when decrypting stored credentials.
+     *
+     * @return string[]
+     */
+    public static function moduleEncryptionKeyCandidates(?string $primaryKey = null): array
+    {
+        $candidates = [];
+        $primary = trim((string) $primaryKey);
+        if ($primary !== '') {
+            $candidates[] = $primary;
+        }
+
+        try {
+            $rows = Capsule::table('tbladdonmodules')
+                ->where('module', 'cloudstorage')
+                ->whereIn('setting', ['cloudbackup_encryption_key', 'encryption_key'])
+                ->pluck('value', 'setting');
+            foreach (['cloudbackup_encryption_key', 'encryption_key'] as $setting) {
+                $key = trim((string) ($rows[$setting] ?? ''));
+                if ($key !== '' && !in_array($key, $candidates, true)) {
+                    $candidates[] = $key;
+                }
+            }
+        } catch (\Throwable $e) {
+            // Best-effort only; caller-provided primary may still work.
+        }
+
+        return $candidates;
+    }
+
+    /**
+     * Decrypt a stored credential, trying module encryption keys when the primary fails.
+     */
+    public static function decryptKeyWithFallback(string $encryptedKey, ?string $primaryKey = null): string
+    {
+        if ($encryptedKey === '') {
+            return '';
+        }
+
+        foreach (self::moduleEncryptionKeyCandidates($primaryKey) as $candidate) {
+            $decrypted = self::decryptKey($encryptedKey, $candidate);
+            if (is_string($decrypted) && $decrypted !== '') {
+                return $decrypted;
+            }
+        }
+
+        return '';
+    }
+
+    /**
      * Validate bucket name
      *
      * @param string $bucketName

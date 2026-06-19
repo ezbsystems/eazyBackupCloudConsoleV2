@@ -41,6 +41,7 @@
     // ---- Status helper -------------------------------------------------
     var STATUS_MAP = {
         success:          { badge: 'eb-badge--success', dot: 'eb-status-dot--active',   label: 'Success' },
+        schedule_skipped: { badge: 'eb-badge--neutral', dot: 'eb-status-dot--inactive', label: 'Skipped' },
         warning:          { badge: 'eb-badge--warning', dot: 'eb-status-dot--warning',  label: 'Warning' },
         partial_success:  { badge: 'eb-badge--warning', dot: 'eb-status-dot--warning',  label: 'Partial Success' },
         failed:           { badge: 'eb-badge--danger',  dot: 'eb-status-dot--error',    label: 'Failed' },
@@ -51,13 +52,16 @@
     };
 
     window.ebE3RunStatus = {
-        info: function (status) {
+        info: function (status, meta) {
+            if (meta && meta.schedule_skipped) {
+                return STATUS_MAP.schedule_skipped;
+            }
             var key = String(status || '').toLowerCase();
             return STATUS_MAP[key] || { badge: 'eb-badge--neutral', dot: 'eb-status-dot--pending', label: (status || 'Unknown') };
         },
-        label: function (status) { return this.info(status).label; },
-        badgeClass: function (status) { return this.info(status).badge; },
-        dotClass: function (status) { return this.info(status).dot; }
+        label: function (status, meta) { return this.info(status, meta).label; },
+        badgeClass: function (status, meta) { return this.info(status, meta).badge; },
+        dotClass: function (status, meta) { return this.info(status, meta).dot; }
     };
 
     function el(id) { return document.getElementById(id); }
