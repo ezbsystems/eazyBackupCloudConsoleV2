@@ -143,6 +143,74 @@ function db(): PDO {
     return $pdo;
 }
 
+/**
+ * Detect MySQL connection loss (restart, wait_timeout, network blip).
+ * PDO often reports these as HY000 with the real errno in the message.
+ */
+function isMysqlConnectionLost(Throwable $e): bool {
+    $cur = $e;
+    while ($cur !== null) {
+        if ($cur instanceof PDOException) {
+            $code = (int)$cur->getCode();
+            if (in_array($code, [2002, 2003, 2006, 2013], true)) {
+                return true;
+            }
+            $msg = strtolower($cur->getMessage());
+            if (preg_match('/\b(2002|2003|2006|2013)\b/', $msg)) {
+                return true;
+            }
+            if (str_contains($msg, 'server has gone away')
+                || str_contains($msg, 'lost connection to mysql')
+                || str_contains($msg, 'lost connection during query')
+                || str_contains($msg, 'connection refused')
+                || str_contains($msg, "can't connect to mysql")
+                || str_contains($msg, 'no such file or directory')
+            ) {
+                return true;
+            }
+        }
+        $cur = $cur->getPrevious();
+    }
+    return false;
+}
+
+function reconnectDb(PDO &$pdo, string $context): void {
+    $pdo = db();
+    logLine($context, 'PDO reconnected after MySQL connection loss');
+}
+
+/** Ping the current PDO; replace it when the server dropped the connection. */
+function ensureDbConnection(PDO &$pdo, string $context): void {
+    try {
+        $pdo->query('SELECT 1');
+    } catch (Throwable $e) {
+        if (!isMysqlConnectionLost($e)) {
+            throw $e;
+        }
+        reconnectDb($pdo, $context);
+    }
+}
+
+/**
+ * Run a DB callback, reconnecting once when MySQL dropped the connection.
+ *
+ * @template T
+ * @param callable(PDO): T $fn
+ * @return T
+ */
+function withDbRetry(PDO &$pdo, string $context, callable $fn) {
+    try {
+        ensureDbConnection($pdo, $context);
+        return $fn($pdo);
+    } catch (Throwable $e) {
+        if (!isMysqlConnectionLost($e)) {
+            throw $e;
+        }
+        reconnectDb($pdo, $context);
+        return $fn($pdo);
+    }
+}
+
 function addonSetting(PDO $pdo, string $key, string $default = ''): string {
     try {
         $stmt = $pdo->prepare("SELECT value FROM tbladdonmodules WHERE module = 'eazybackup' AND setting = ? LIMIT 1");
@@ -1178,9 +1246,11 @@ function finishJob(PDO $pdo, array $row): void {
     }
 }
 
-function saveCursor(PDO $pdo, string $profile, int $ts, ?string $jobId): void {
-    $pdo->prepare("REPLACE INTO eb_event_cursor (source, last_ts, last_id) VALUES (?, ?, ?)")
-        ->execute(['comet-ws:' . $profile, $ts, $jobId]);
+function saveCursor(PDO &$pdo, string $profile, int $ts, ?string $jobId): void {
+    withDbRetry($pdo, $profile, function (PDO &$pdo) use ($profile, $ts, $jobId): void {
+        $pdo->prepare("REPLACE INTO eb_event_cursor (source, last_ts, last_id) VALUES (?, ?, ?)")
+            ->execute(['comet-ws:' . $profile, $ts, $jobId]);
+    });
 }
 
 /////////////////////
@@ -1223,7 +1293,7 @@ function mapStatus($statusRaw): string {
     return 'error';
 }
 
-function handleEvent(PDO $pdo, string $profile, array $evt): void {
+function handleEvent(PDO &$pdo, string $profile, array $evt): void {
     $ts   = (int)($evt['Timestamp'] ?? $evt['Time'] ?? time());
     $lab  = (string)($evt['TypeString'] ?? '');
     $data = $evt['Data'] ?? ($evt['Payload'] ?? []);
@@ -1375,7 +1445,7 @@ function handleEvent(PDO $pdo, string $profile, array $evt): void {
             } catch (Throwable $_) {}
             // For non-success terminal statuses, schedule a one-shot delayed re-scan to tolerate stat lag
             if ($status !== 'success' && $username !== '') {
-                \Amp\async(function() use ($pdo, $profile, $username) {
+                \Amp\async(function() use (&$pdo, $profile, $username) {
                     try {
                         if (EB_WS_DEBUG) logLine($profile, "delayed rescan (3s) user={$username}");
                         \Amp\delay(3.0);
@@ -1409,7 +1479,13 @@ define('EB_HEARTBEAT_INTERVAL', (int)(getenv('EB_HEARTBEAT_INTERVAL') ?: 60));
 // If no websocket frames arrive for too long, force a reconnect instead of hanging forever.
 define('EB_WS_IDLE_TIMEOUT', (int)(getenv('EB_WS_IDLE_TIMEOUT') ?: 300));
 
-function runOneProfile(PDO $pdo, array $cfg): never {
+function handleEventWithDbResilience(PDO &$pdo, string $profile, array $evt): void {
+    withDbRetry($pdo, $profile, function (PDO &$pdo) use ($profile, $evt): void {
+        handleEvent($pdo, $profile, $evt);
+    });
+}
+
+function runOneProfile(PDO &$pdo, array $cfg): never {
     $profile = $cfg['server_id'];
     $url     = $cfg['url'];     // wss://…/events/stream
     $origin  = $cfg['origin'];
@@ -1421,9 +1497,11 @@ function runOneProfile(PDO $pdo, array $cfg): never {
 
     // Start heartbeat timer to periodically refresh device online status
     // Comet doesn't emit events when devices go offline, so we poll AdminDispatcherListActive()
-    $heartbeatId = EventLoop::repeat(EB_HEARTBEAT_INTERVAL, function() use ($pdo, $profile) {
+    $heartbeatId = EventLoop::repeat(EB_HEARTBEAT_INTERVAL, function() use (&$pdo, $profile) {
         try {
-            refreshDeviceOnlineStatus($pdo, $profile);
+            withDbRetry($pdo, $profile, function (PDO &$pdo) use ($profile): void {
+                refreshDeviceOnlineStatus($pdo, $profile);
+            });
         } catch (Throwable $e) {
             logLine($profile, "Heartbeat exception: " . $e->getMessage());
         }
@@ -1432,7 +1510,9 @@ function runOneProfile(PDO $pdo, array $cfg): never {
 
     // Run initial heartbeat immediately to sync device status on startup
     try {
-        refreshDeviceOnlineStatus($pdo, $profile);
+        withDbRetry($pdo, $profile, function (PDO &$pdo) use ($profile): void {
+            refreshDeviceOnlineStatus($pdo, $profile);
+        });
     } catch (Throwable $e) {
         logLine($profile, "Initial heartbeat exception: " . $e->getMessage());
     }
@@ -1475,13 +1555,27 @@ function runOneProfile(PDO $pdo, array $cfg): never {
                     error_log("[{$profile}] Non-JSON frame: " . substr($raw, 0, 200));
                     continue;
                 }
-                handleEvent($pdo, $profile, $evt);
+                try {
+                    handleEventWithDbResilience($pdo, $profile, $evt);
+                } catch (Throwable $e) {
+                    if (isMysqlConnectionLost($e)) {
+                        error_log("[{$profile}] DB error after reconnect attempt: " . throwableSummary($e));
+                    } else {
+                        throw $e;
+                    }
+                }
             }
         } catch (Throwable $e) {
             $summary = throwableSummary($e);
             error_log("[{$profile}] WS error: {$summary}");
             if (isWsIdleTimeout($e)) {
-                sendWsAdminAlert($pdo, $profile, 'idle-timeout', $summary);
+                try {
+                    withDbRetry($pdo, $profile, function (PDO &$pdo) use ($profile, $summary): void {
+                        sendWsAdminAlert($pdo, $profile, 'idle-timeout', $summary);
+                    });
+                } catch (Throwable $alertErr) {
+                    error_log("[{$profile}] WS alert skipped (DB unavailable): " . $alertErr->getMessage());
+                }
             }
         } finally {
             if ($conn !== null) {
@@ -1512,7 +1606,9 @@ $profiles = array_filter(array_map('trim', explode(',', cfg('COMET_PROFILES', 'e
 $futures = [];
 foreach ($profiles as $p) {
     $cfg = loadCometProfile($p);
-$futures[] = \Amp\async(fn() => runOneProfile($pdo, $cfg));
+    $futures[] = \Amp\async(function () use (&$pdo, $cfg) {
+        runOneProfile($pdo, $cfg);
+    });
 }
 \Amp\Future\awaitAll($futures);
 
