@@ -35,7 +35,9 @@ try {
     WorkerNodeRepository::heartbeat($nodeId, $load, $version, $proxmoxVmid > 0 ? $proxmoxVmid : null);
     WorkerClaimService::releaseOrphanedClaimsForNode($nodeId, $load, 120);
     WorkerClaimService::failOrphanedRestoreRunsForNode($nodeId, $load, 180);
-    WorkerLeaseService::renewForNode($nodeId);
+    if ($load > 0) {
+        WorkerLeaseService::renewForNode($nodeId);
+    }
 
     $node = WorkerNodeRepository::get($nodeId);
     if ($node === null) {
@@ -47,6 +49,7 @@ try {
         DeployService::markNodeDeployFailed($nodeId, $deployError);
     } elseif ($version !== '') {
         DeployService::reconcileNodeVersion($nodeId, $version);
+        DeployService::reconcileActiveDeploy();
     }
 
     $response = ['status' => 'success'];

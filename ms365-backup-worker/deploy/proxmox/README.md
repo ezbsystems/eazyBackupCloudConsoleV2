@@ -206,13 +206,11 @@ On WHMCS: **Worker Fleet → Deployments** → deploy release **0.1.11** (rollin
 ### Verify registration
 
 ```bash
-# On WHMCS
-php -r "
-require '/var/www/eazybackup.ca/accounts/init.php';
-foreach (\WHMCS\Database\Capsule::table('ms365_worker_nodes')->orderBy('hostname')->get() as \$r) {
-  echo \$r->hostname.' v'.\$r->version.' vmid='.\$r->proxmox_vmid.' '.\$r->status.PHP_EOL;
-}
-"
+# On WHMCS — list registered worker nodes
+php /var/www/eazybackup.ca/accounts/modules/addons/ms365backup/bin/ms365_worker_nodes.php
+
+# Print worker API token (for template / env setup)
+php /var/www/eazybackup.ca/accounts/modules/addons/ms365backup/bin/ms365_worker_token.php
 ```
 
 Or **Worker Fleet → Nodes** in the admin UI.

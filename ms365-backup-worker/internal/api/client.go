@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -17,6 +18,8 @@ type Client struct {
 	token      string
 	nodeID     string
 	httpClient *http.Client
+	runLogMu   *sync.Mutex
+	runLogState map[string]*runLogState
 }
 
 func NewClient(baseURL, token, nodeID string) *Client {
@@ -43,6 +46,11 @@ type ShardInfo struct {
 	ParentPhysicalKey  string `json:"parent_physical_key"`
 }
 
+type PaginationLimit struct {
+	MaxPages int    `json:"max_pages"`
+	OnCap    string `json:"on_cap"`
+}
+
 type RunJob struct {
 	RunID              string                       `json:"run_id"`
 	JobType            string                       `json:"job_type"`
@@ -56,7 +64,11 @@ type RunJob struct {
 	KopiaSourcePath    string                       `json:"kopia_source_path"`
 	Shard              *ShardInfo                   `json:"shard"`
 	GraphID            string                       `json:"graph_id"`
-	Scope            map[string]bool   `json:"scope"`
+	DriveID            string                       `json:"drive_id"`
+	SiteID             string                       `json:"site_id"`
+	ListID             string                       `json:"list_id"`
+	ExcludedListIDs    []string                     `json:"excluded_list_ids"`
+	Scope            ScopeFlags                   `json:"scope"`
 	LogicalSources   json.RawMessage   `json:"logical_sources"`
 	GraphToken       string            `json:"graph_token"`
 	GraphRegion      string            `json:"graph_region"`
@@ -74,6 +86,7 @@ type RunJob struct {
 	DeltaStates      map[string]map[string]string `json:"delta_states"`
 	EngineMode       string            `json:"engine_mode"`
 	Workloads        map[string]bool   `json:"workloads"`
+	GraphPagination  map[string]PaginationLimit `json:"graph_pagination"`
 	LeaseExpiresAt   int64             `json:"lease_expires_at"`
 	RestoreSelection RestoreSelection  `json:"restore_selection"`
 }
@@ -104,6 +117,7 @@ type ProgressUpdate struct {
 	Percent        float64 `json:"percent"`
 	ItemsDone      int     `json:"items_done"`
 	ItemsTotal     int     `json:"items_total"`
+	ItemsSkipped   int     `json:"items_skipped,omitempty"`
 	BytesHashed    int64   `json:"bytes_hashed"`
 	BytesUploaded  int64   `json:"bytes_uploaded"`
 	ManifestID     string  `json:"manifest_id,omitempty"`
@@ -130,6 +144,24 @@ type UpdateOffer struct {
 
 type HeartbeatResponse struct {
 	Update *UpdateOffer `json:"update"`
+}
+
+type RepoOperation struct {
+	OperationID     int            `json:"operation_id"`
+	OpType          string         `json:"op_type"`
+	OperationToken  string         `json:"operation_token"`
+	RepositoryID    string         `json:"repository_id"`
+	TenantRecordID  int            `json:"tenant_record_id"`
+	E3JobID         string         `json:"e3_job_id"`
+	DestEndpoint    string         `json:"dest_endpoint"`
+	DestRegion      string         `json:"dest_region"`
+	DestBucket      string         `json:"dest_bucket"`
+	DestPrefix      string         `json:"dest_prefix"`
+	DestAccessKey   string         `json:"dest_access_key"`
+	DestSecretKey   string         `json:"dest_secret_key"`
+	RepoPassword    string         `json:"repo_password"`
+	KopiaRepoID     string         `json:"kopia_repo_id"`
+	EffectivePolicy map[string]any `json:"effective_policy"`
 }
 
 func (c *Client) Register(ctx context.Context, hostname string, maxConcurrent int, version string, proxmoxVmid int) (*RegisterResponse, error) {
@@ -188,6 +220,50 @@ func (c *Client) Claim(ctx context.Context) (*RunJob, error) {
 		return nil, nil
 	}
 	return out.Run, nil
+}
+
+func (c *Client) ClaimRepoOperation(ctx context.Context) (*RepoOperation, error) {
+	var out *RepoOperation
+	err := c.post(ctx, "ms365_worker_maintenance_claim.php", map[string]any{
+		"node_id": c.nodeID,
+	}, &out)
+	if err != nil {
+		return nil, err
+	}
+	if out == nil || out.OperationID <= 0 || strings.TrimSpace(out.OpType) == "" {
+		return nil, nil
+	}
+	return out, nil
+}
+
+func (c *Client) CompleteRepoOperation(ctx context.Context, operationID int, status string, result map[string]any) error {
+	if result == nil {
+		result = map[string]any{}
+	}
+	return c.postWithRetry(ctx, "ms365_worker_maintenance_complete.php", map[string]any{
+		"operation_id": operationID,
+		"status":       status,
+		"result":       result,
+	}, &struct{}{}, 3)
+}
+
+type GraphTokenResponse struct {
+	GraphToken string `json:"graph_token"`
+	ExpiresIn  int    `json:"expires_in"`
+}
+
+func (c *Client) RefreshGraphToken(ctx context.Context, runID string) (string, error) {
+	var out GraphTokenResponse
+	err := c.post(ctx, "ms365_worker_graph_token.php", map[string]any{
+		"run_id": strings.TrimSpace(runID),
+	}, &out)
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(out.GraphToken) == "" {
+		return "", fmt.Errorf("empty graph_token in refresh response")
+	}
+	return out.GraphToken, nil
 }
 
 func (c *Client) Progress(ctx context.Context, upd ProgressUpdate) error {
@@ -273,25 +349,32 @@ func (c *Client) postOnce(ctx context.Context, endpoint string, body any, out an
 	if out == nil {
 		return nil
 	}
+	if err := decodeEnvelopeResponse(raw, out); err != nil {
+		return err
+	}
+	return nil
+}
+
+func decodeEnvelopeResponse(raw []byte, out any) error {
 	var envelope struct {
 		Status  string          `json:"status"`
 		Message string          `json:"message"`
 		Data    json.RawMessage `json:"data"`
 	}
 	if err := json.Unmarshal(raw, &envelope); err != nil {
-		return fmt.Errorf("decode envelope: %w", err)
+		if err := json.Unmarshal(raw, out); err != nil {
+			return fmt.Errorf("decode response: %w", err)
+		}
+		return nil
 	}
 	if envelope.Status == "error" {
 		return fmt.Errorf("api error: %s", envelope.Message)
 	}
-	if len(envelope.Data) > 0 && string(envelope.Data) != "null" {
-		if err := json.Unmarshal(envelope.Data, out); err != nil {
-			return fmt.Errorf("decode data: %w", err)
-		}
+	if len(envelope.Data) == 0 || string(envelope.Data) == "null" {
 		return nil
 	}
-	if err := json.Unmarshal(raw, out); err != nil {
-		return fmt.Errorf("decode response: %w", err)
+	if err := json.Unmarshal(envelope.Data, out); err != nil {
+		return fmt.Errorf("decode data: %w", err)
 	}
 	return nil
 }

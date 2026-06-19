@@ -132,6 +132,8 @@ final class InventoryService
                     'meta' => [
                         'web_url' => (string) ($site['webUrl'] ?? ''),
                         'site_collection' => $site['siteCollection'] ?? null,
+                        'drives' => $this->listSiteDrives($siteId),
+                        'lists' => $this->listSiteLists($siteId),
                     ],
                 ],
             );
@@ -430,6 +432,89 @@ final class InventoryService
         }
 
         return $channels;
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private function listSiteDrives(string $siteId): array
+    {
+        $drives = [];
+        try {
+            foreach ($this->graph->paginate('sites/' . rawurlencode($siteId) . '/drives', ['$top' => '50']) as $drive) {
+                if (!is_array($drive)) {
+                    continue;
+                }
+                $driveId = trim((string) ($drive['id'] ?? ''));
+                if ($driveId === '') {
+                    continue;
+                }
+                $quota = is_array($drive['quota'] ?? null) ? $drive['quota'] : [];
+                $drives[] = [
+                    'id' => $driveId,
+                    'name' => (string) ($drive['name'] ?? $driveId),
+                    'size_bytes' => max(0, (int) ($quota['used'] ?? 0)),
+                    'item_count' => max(0, (int) ($drive['item_count'] ?? 0)),
+                ];
+            }
+        } catch (\Throwable $_) {
+            return [];
+        }
+
+        return $drives;
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private function listSiteLists(string $siteId): array
+    {
+        $lists = [];
+        $maxCountProbes = 200;
+        $probed = 0;
+        try {
+            foreach ($this->graph->paginate('sites/' . rawurlencode($siteId) . '/lists', [
+                '$select' => 'id,displayName,list,webUrl',
+                '$top' => '100',
+            ]) as $list) {
+                if (!is_array($list)) {
+                    continue;
+                }
+                $listId = trim((string) ($list['id'] ?? ''));
+                if ($listId === '') {
+                    continue;
+                }
+                $itemCount = null;
+                if ($probed < $maxCountProbes) {
+                    $itemCount = $this->listItemCount($siteId, $listId);
+                    ++$probed;
+                }
+                $lists[] = [
+                    'id' => $listId,
+                    'display_name' => (string) ($list['displayName'] ?? $listId),
+                    'item_count' => $itemCount,
+                ];
+            }
+        } catch (\Throwable $_) {
+            return [];
+        }
+
+        return $lists;
+    }
+
+    private function listItemCount(string $siteId, string $listId): ?int
+    {
+        try {
+            $path = 'sites/' . rawurlencode($siteId) . '/lists/' . rawurlencode($listId) . '/items/$count';
+            $data = $this->graph->get($path, []);
+            if (isset($data['@odata.count'])) {
+                return max(0, (int) $data['@odata.count']);
+            }
+        } catch (\Throwable $_) {
+            return null;
+        }
+
+        return null;
     }
 
   /**

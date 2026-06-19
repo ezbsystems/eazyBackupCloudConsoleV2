@@ -40,6 +40,19 @@
     min-height: 100%;
   }
 
+  /* e3 Cloud Backup: short pages fill the viewport; long pages grow and scroll. */
+  .eb-panel.eb-panel--e3-min-h {
+    display: flex;
+    flex-direction: column;
+    min-height: var(--eb-e3-app-min-height, calc(100dvh - 7rem));
+  }
+
+  .eb-panel.eb-panel--e3-min-h > .eb-app-shell {
+    flex: 1 1 auto;
+    align-items: stretch;
+    min-height: 100%;
+  }
+
   .eb-app-main {
     @apply min-w-0 flex-1 overflow-x-auto;
   }
@@ -2707,6 +2720,40 @@
     }
   }
 
+  /* User detail — tab content panel (nav lives in sidebar; header replaces tab bar) */
+  .eb-user-detail-sections {
+    margin-top: 20px;
+    border: 1px solid var(--eb-border-default);
+    border-radius: var(--eb-radius-lg);
+    overflow: hidden;
+    background: var(--eb-bg-card);
+  }
+
+  .eb-user-detail-section-head {
+    display: flex;
+    align-items: center;
+    min-height: 48px;
+    padding: 0 24px;
+    border-bottom: 1px solid var(--eb-border-subtle);
+    background: var(--eb-surface-nav);
+  }
+
+  .eb-user-detail-section-title {
+    margin: 0;
+    font-family: var(--eb-font-display);
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: var(--eb-text-primary);
+  }
+
+  .eb-user-detail-sections > .eb-tab-body {
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    padding: 24px;
+  }
+
   .eb-tab-bar {
     display: flex;
     gap: 0;
@@ -3573,6 +3620,23 @@
     stroke-linejoin: round;
   }
 
+  .eb-brand-icon {
+    color: var(--eb-text-muted);
+    flex-shrink: 0;
+  }
+
+  .eb-brand-icon--sm {
+    width: 16px;
+    height: 16px;
+  }
+
+  .eb-job-type-icon .eb-brand-icon--job-card {
+    width: 18px;
+    height: 18px;
+    stroke: none;
+    fill: currentColor;
+  }
+
   .eb-job-card-name {
     font-family: var(--eb-font-display);
     font-size: 15px;
@@ -3850,6 +3914,12 @@
     fill: none;
     stroke: currentColor;
     stroke-width: 1.75;
+  }
+
+  .eb-icon-box .eb-brand-icon {
+    fill: currentColor;
+    stroke: none;
+    color: var(--eb-text-muted);
   }
 
   .eb-icon-box--sm {

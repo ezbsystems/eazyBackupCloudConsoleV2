@@ -16,6 +16,7 @@
     use WHMCS\Module\Addon\CloudStorage\Admin\ProductConfig;
     use WHMCS\Module\Addon\CloudStorage\Client\DBController;
     use WHMCS\Module\Addon\CloudStorage\Client\BucketController;
+    use WHMCS\Module\Addon\CloudStorage\Client\HelperController;
 
     if (empty($_POST['bucket']) || empty($_POST['username'])) {
         $jsonData = [
@@ -129,7 +130,7 @@
     $cephAdminUser = $module->where('setting', 'ceph_admin_user')->pluck('value')->first();
     $cephAdminAccessKey = $module->where('setting', 'ceph_access_key')->pluck('value')->first();
     $cephAdminSecretKey = $module->where('setting', 'ceph_secret_key')->pluck('value')->first();
-    $encryptionKey = $module->where('setting', 'encryption_key')->pluck('value')->first();
+    $encryptionKey = HelperController::resolvePrimaryEncryptionKey($module);
     $s3Region = $module->where('setting', 's3_region')->pluck('value')->first() ?: 'us-east-1';
 
     $bucketObject = new BucketController($s3Endpoint, $cephAdminUser, $cephAdminAccessKey, $cephAdminSecretKey, $s3Region);

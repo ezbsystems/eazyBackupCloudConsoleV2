@@ -33,9 +33,14 @@ final class FleetSummaryService
             $versionCounts[$v] = ($versionCounts[$v] ?? 0) + 1;
         }
 
+        $staleRunningJobs = JobQueueRepository::countStaleRunning();
+        $exhaustedJobs = JobQueueRepository::countExhaustedJobs();
+
         return [
             'queued_jobs' => JobQueueRepository::countQueued(),
             'running_jobs' => WorkerClaimService::countPlatformRunning(),
+            'stale_running_jobs' => $staleRunningJobs,
+            'exhausted_jobs' => $exhaustedJobs,
             'platform_max_concurrent' => Ms365EngineConfig::platformMaxConcurrent(),
             'active_nodes' => count($active),
             'offline_nodes' => count($offline),
@@ -45,6 +50,7 @@ final class FleetSummaryService
             'stale_marked_offline' => $stale,
             'target_release' => $targetRelease,
             'latest_release' => $latestRelease,
+            'suggest_next_version' => ReleaseRepository::suggestNextVersion(),
             'version_counts' => $versionCounts,
             'engine_mode' => Ms365EngineConfig::engineMode(),
         ];

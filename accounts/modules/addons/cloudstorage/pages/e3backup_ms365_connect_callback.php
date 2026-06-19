@@ -70,6 +70,6 @@ if ($returnPath !== '' && str_starts_with($returnPath, 'index.php')) {
     exit;
 }
 
-header('Location: index.php?m=cloudstorage&page=e3backup&view=ms365'
+header('Location: index.php?m=cloudstorage&page=e3backup&view=users'
     . ($error !== '' ? '&connect_error=' . rawurlencode($error) : '&connect_ok=1'));
 exit;

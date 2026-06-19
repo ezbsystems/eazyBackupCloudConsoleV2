@@ -1,16 +1,5 @@
-{assign var=ebLiveRunsUrl value="index.php?m=cloudstorage&page=e3backup&view=runs&job_id="|cat:$job.job_id}
-
 {capture assign=ebE3TitleHtml}
 <div class="min-w-0 flex-1">
-    <nav class="eb-breadcrumb mb-1" aria-label="Breadcrumb">
-        <a href="index.php?m=cloudstorage&page=e3backup&view=users" class="eb-breadcrumb-link">Users</a>
-        <span class="eb-breadcrumb-separator">/</span>
-        <a href="{$ebLiveRunsUrl|escape:'html'}" class="eb-breadcrumb-link">{if $job.name}{$job.name|escape:'html'}{else}Unnamed job{/if}</a>
-        <span class="eb-breadcrumb-separator">/</span>
-        <a href="{$ebLiveRunsUrl|escape:'html'}" class="eb-breadcrumb-link">Runs</a>
-        <span class="eb-breadcrumb-separator">/</span>
-        <span class="eb-breadcrumb-current">{if $is_restore}Live restore{else}Live{/if}</span>
-    </nav>
     <div class="flex flex-wrap items-center gap-2.5 gap-y-1">
         <h1 class="eb-app-header-title">{if $job.name}{$job.name|escape:'html'}{else}Unnamed job{/if}</h1>
         <span id="liveHeaderBadge" class="eb-badge eb-badge--info eb-badge--dot">{$run.status|ucfirst|escape:'html'}</span>
@@ -262,18 +251,24 @@
                     <h3 class="eb-modal-title" id="cancelRunConfirmTitle">Cancel run?</h3>
                     <p class="eb-modal-subtitle" id="cancelRunConfirmMessage">This will ask the agent to stop the active run.</p>
                 </div>
-                <button type="button" class="eb-modal-close" onclick="closeCancelConfirmModal()" aria-label="Close cancel confirmation">
+                <button type="button" class="eb-modal-close" id="cancelRunConfirmClose" onclick="closeCancelConfirmModal()" aria-label="Close cancel confirmation">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6 18L18 6M6 6l12 12" />
                     </svg>
                 </button>
             </div>
             <div class="eb-modal-body">
-                <div class="eb-alert eb-alert--warning">
+                <div id="cancelRunConfirmWarning" class="eb-alert eb-alert--warning">
                     <svg class="eb-alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m0 3.75h.01M10.29 3.86l-7.5 13A1 1 0 003.66 18h16.68a1 1 0 00.87-1.5l-7.5-13a1 1 0 00-1.74 0z"/>
                     </svg>
                     <div id="cancelRunConfirmDetail">The run will stop on the agent's next command poll.</div>
+                </div>
+                <div id="cancelRunConfirmProgress" class="eb-alert eb-alert--info hidden">
+                    <svg class="eb-alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 16v-4m0-4h.01M22 12A10 10 0 1 1 2 12a10 10 0 0 1 20 0Z"/>
+                    </svg>
+                    <div id="cancelRunConfirmProgressMessage">Cancellation in progress. This may take a few seconds while workloads are stopped…</div>
                 </div>
             </div>
             <div class="eb-modal-footer">
@@ -644,15 +639,25 @@ function updateProgress() {
                 if (SHOW_ITEMS_METRIC) {
                     const itemsValueEl = document.getElementById('itemsValue');
                     if (itemsValueEl) {
-                        const itemsDone = (run.objects_transferred !== undefined && run.objects_transferred !== null)
-                            ? run.objects_transferred
-                            : (run.files_done || 0);
                         const itemsTotal = (run.objects_total !== undefined && run.objects_total !== null)
                             ? run.objects_total
                             : (run.files_total || 0);
-                        itemsValueEl.textContent = itemsTotal > 0
-                            ? formatCount(itemsDone) + ' / ' + formatCount(itemsTotal)
-                            : formatCount(itemsDone);
+                        if (LIVE_IS_RESTORE && (run.files_skipped || 0) > 0) {
+                            const restored = (run.files_done !== undefined && run.files_done !== null)
+                                ? run.files_done
+                                : Math.max(0, (run.objects_transferred || 0) - (run.files_skipped || 0));
+                            const skipped = run.files_skipped || 0;
+                            itemsValueEl.textContent = formatCount(restored) + ' restored, '
+                                + formatCount(skipped) + ' skipped'
+                                + (itemsTotal > 0 ? ' (' + formatCount(itemsTotal) + ' selected)' : '');
+                        } else {
+                            const itemsDone = (run.objects_transferred !== undefined && run.objects_transferred !== null)
+                                ? run.objects_transferred
+                                : (run.files_done || 0);
+                            itemsValueEl.textContent = itemsTotal > 0
+                                ? formatCount(itemsDone) + ' / ' + formatCount(itemsTotal)
+                                : formatCount(itemsDone);
+                        }
                     }
                 }
 
@@ -835,6 +840,48 @@ function setCancelButtonsBusy(isBusy) {
     }
 }
 
+function setCancelConfirmModalBusy(isBusy) {
+    const modal = document.getElementById('cancelRunConfirmModal');
+    const submit = document.getElementById('cancelRunConfirmSubmit');
+    const dismiss = document.getElementById('cancelRunConfirmDismiss');
+    const closeBtn = document.getElementById('cancelRunConfirmClose');
+    const warning = document.getElementById('cancelRunConfirmWarning');
+    const progress = document.getElementById('cancelRunConfirmProgress');
+    const progressMessage = document.getElementById('cancelRunConfirmProgressMessage');
+
+    if (modal) {
+        modal.setAttribute('aria-busy', isBusy ? 'true' : 'false');
+    }
+    if (submit) {
+        submit.disabled = isBusy;
+        if (isBusy) {
+            submit.textContent = 'Cancelling...';
+        } else {
+            submit.textContent = pendingCancelForce ? 'Force Cancel' : 'Confirm Cancel';
+        }
+    }
+    if (dismiss) {
+        dismiss.disabled = isBusy;
+    }
+    if (closeBtn) {
+        closeBtn.disabled = isBusy;
+    }
+    if (warning) {
+        warning.classList.toggle('hidden', isBusy);
+    }
+    if (progress) {
+        progress.classList.toggle('hidden', !isBusy);
+    }
+    if (progressMessage && isBusy) {
+        progressMessage.textContent = LIVE_IS_MS365
+            ? 'Cancellation in progress. This may take a few seconds while Microsoft 365 workloads are stopped…'
+            : 'Cancellation in progress. This may take a few seconds while the agent is notified…';
+    }
+    if (isBusy && submit) {
+        submit.focus();
+    }
+}
+
 function openCancelConfirmModal(runId, forceCancel = false) {
     const runIdentifier = (runId || '').trim();
     if (!runIdentifier || cancelRequestInFlight) {
@@ -873,6 +920,8 @@ function openCancelConfirmModal(runId, forceCancel = false) {
         submit.textContent = 'Confirm Cancel';
     }
 
+    setCancelConfirmModalBusy(false);
+
     modal.classList.remove('hidden');
     modal.classList.add('flex');
 }
@@ -888,6 +937,7 @@ function closeCancelConfirmModal(forceClose = false) {
     }
     pendingCancelRunId = '';
     pendingCancelForce = false;
+    setCancelConfirmModalBusy(false);
 }
 
 function openCancelStatusModal(options = {}) {
@@ -943,6 +993,7 @@ function submitCancelRun() {
 
     cancelRequestInFlight = true;
     setCancelButtonsBusy(true);
+    setCancelConfirmModalBusy(true);
 
     fetch('modules/addons/cloudstorage/api/cloudbackup_cancel_run.php', {
         method: 'POST',
@@ -985,16 +1036,24 @@ function submitCancelRun() {
         })
         .catch(error => {
             console.error('Error cancelling run:', error);
-            openCancelStatusModal({
-                variant: 'danger',
-                title: 'Cancel request failed',
-                subtitle: 'The run is still active.',
-                message: 'Failed to cancel run: ' + (error && error.message ? error.message : 'Unknown error')
-            });
+            setCancelConfirmModalBusy(false);
+            const warning = document.getElementById('cancelRunConfirmWarning');
+            const detail = document.getElementById('cancelRunConfirmDetail');
+            if (warning && detail) {
+                warning.classList.remove('hidden');
+                warning.classList.remove('eb-alert--warning');
+                warning.classList.add('eb-alert--danger');
+                detail.textContent = 'Failed to cancel run: ' + (error && error.message ? error.message : 'Unknown error');
+            }
         })
         .finally(() => {
             cancelRequestInFlight = false;
             setCancelButtonsBusy(false);
+            const warning = document.getElementById('cancelRunConfirmWarning');
+            if (warning) {
+                warning.classList.remove('eb-alert--danger');
+                warning.classList.add('eb-alert--warning');
+            }
         });
 }
 

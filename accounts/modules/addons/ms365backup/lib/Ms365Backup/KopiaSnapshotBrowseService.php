@@ -15,13 +15,14 @@ final class KopiaSnapshotBrowseService
         array $tenantRecord,
         string $manifestId,
         string $path = '',
+        ?string $e3JobId = null,
     ): array {
         $manifestId = trim($manifestId);
         if ($manifestId === '') {
             throw new \RuntimeException('manifest_id is required.');
         }
 
-        $dest = self::resolveDestination($tenantRecord);
+        $dest = self::resolveDestination($tenantRecord, $e3JobId);
         $payload = [
             'manifest_id' => $manifestId,
             'path' => $path,
@@ -123,8 +124,12 @@ final class KopiaSnapshotBrowseService
     }
 
     /** @return array{endpoint: string, region: string, bucket: string, prefix: string, access_key: string, secret_key: string, repo_password: string} */
-    private static function resolveDestination(array $record): array
+    private static function resolveDestination(array $record, ?string $e3JobId = null): array
     {
-        return WorkerClaimService::destinationForTenantRecord($record);
+        if ($e3JobId !== null && $e3JobId !== '') {
+            return Ms365JobDestinationService::resolveForJobId($e3JobId, $record);
+        }
+
+        return Ms365JobDestinationService::resolveLegacyTenantBucket($record);
     }
 }

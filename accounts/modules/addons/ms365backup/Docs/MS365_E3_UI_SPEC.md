@@ -39,13 +39,15 @@ Use this section for wireframes, user stories, copy, and interaction notes. Agen
 ### 2.2 Connection & tenant health
 
 - **Per backup user:** `ms365_tenant_records.backup_user_id` links Entra consent to `s3_backup_users`.
-- **Connect (wizard):** Step 1 opens Microsoft admin consent in a **popup window** (`consent_mode=popup`). The parent tab keeps the wizard open with a waiting state until consent completes.
+- **Connect mode toggle (wizard Step 1):** **Automatic** (default) or **Manual**. Toggle hidden when connected via platform OAuth; switching to manual while OAuth-connected requires disconnect first.
+- **Connect automatic (wizard):** Step 1 opens Microsoft admin consent in a **popup window** (`consent_mode=popup`). The parent tab keeps the wizard open with a waiting state until consent completes.
+- **Connect manual (wizard):** Step 1 form fields `REGION`, `CLIENT_ID`, `TENANT_ID`, `APP_SECRET` with **Test connection** and **Save credentials**. Save is atomic (tests Graph, then persists encrypted secret, sets `connection_auth_mode = customer_app`, marks connected, bootstraps bucket). Wizard advances to step 2 on success (same as OAuth).
 - **Connect completion:** Popup callback renders `e3backup_ms365_connect_popup_bridge.php`, which `postMessage`s the opener; the wizard also polls `ms365_status.php` as a backup. On success, wizard advances to step 2 automatically.
 - **Connect fallback:** If the popup is blocked, same-tab redirect (`consent_mode=redirect`) returns to user detail via server-built `buildWizardReturnUrl()`; `sessionStorage` preserves `backupUserId` across the redirect.
 - **Connect (MS365 page):** Standalone `e3backup_ms365.tpl` still uses redirect mode to `view=ms365`.
 - **Storage:** `e3ms365-{token}` bucket via `Ms365StorageBootstrapService`.
 - **Reconnect (revoked consent):** Connection state is DB-backed (`connection_status`). When Graph or token calls fail with auth/consent errors (e.g. 401, `invalid_client`, `AADSTS700016`), `Ms365ConnectionGuard` sets `connection_status = action_required` and a customer-safe `health_error`. UI must **not** show green “Connected” when `needs_reconnect` is true.
-- **Status flags:** `ms365_status.php` returns `connected` (only when `connection_status === connected`), `needs_reconnect` (when `action_required`), plus `health_error` for copy.
+- **Status flags:** `ms365_status.php` returns `connected` (only when `connection_status === connected`), `needs_reconnect` (when `action_required`), `connection_auth_mode` (`platform_consent` \| `customer_app` \| `none`), `credentials_preview` (safe prefill for manual form; never includes secret), plus `health_error` for copy.
 - **Reconnect CTA:** Wizard step 1 and MS365 Connection card show a warning alert + **Reconnect Microsoft 365** (reuses existing admin consent flow). On successful re-consent, `markConnected()` clears `health_error` and restores `connected`.
 - **Connected-state actions:** When `connected && !needs_reconnect`, wizard step 1 and MS365 Connection card show **Connect a different organization** (secondary) and **Disconnect** (ghost/danger). Both require a confirmation modal before proceeding.
 - **Disconnect:** Local only via `POST ms365_disconnect.php`. Sets `connection_status = disconnected`, clears `health_error`, pauses active `ms365` jobs for the backup user, clears cached `inventory.json`. Preserves `azure_tenant_id`, bucket, and backup history. Does not revoke Entra admin consent — customer must remove the enterprise app in Microsoft Entra admin center for full removal on Microsoft's side.
@@ -74,7 +76,8 @@ Use this section for wireframes, user stories, copy, and interaction notes. Agen
 
 - **Wizard:** Modal `ms365_job_wizard.tpl` — not preset-only; custom resource selection.
 - **Schedule:** Once daily / twice daily cards; backend assigns 7 PM–11:59 PM slots, minutes 20–40.
-- **Retention:** Placeholder tiers (1y–7y); not wired to engine.
+- **Overlap:** If a scheduled slot fires while a backup batch for the same job is still `queued`/`starting`/`running`, the cron **skips** that slot (no second batch), records a terminal run-history row (`stats_json.ms365_schedule_skip`), and consumes the minute via `last_scheduled_key`. Manual **Run now** is not overlap-guarded.
+- **Retention:** Wizard tiers (1y–7y) map to Kopia Comet-style policies (30 daily + weekly); enforced by ms365-backup-worker via `retention_apply` repo operations.
 - **Storage:** Jobs in `s3_cloudbackup_jobs` (`source_type=ms365`, `engine=ms365`).
 
 ### 2.6 Runs (history & detail)
@@ -112,8 +115,10 @@ List any new or changed `cloudstorage/api/ms365_*.php` fields the UI needs.
 | Endpoint | Change |
 |----------|--------|
 | `ms365_connect_start.php` | POST `user_id`, `return_path`, `consent_mode` (`popup` \| `redirect`) |
+| `ms365_connect_test.php` | POST manual credentials test: `user_id`, `region`, `client_id`, `tenant_id`, `app_secret` (optional if saved) → `{ organization }` |
+| `ms365_connect_save.php` | POST manual credentials save (atomic test + connect): same fields → `{ ms365 }` status payload |
 | `ms365_disconnect.php` | POST `user_id` (optional on legacy MS365 page); pauses jobs, clears inventory cache, returns updated `ms365` status |
-| `ms365_status.php` | `needs_reconnect`, `health_error`, `connection_status` on status payload |
+| `ms365_status.php` | `needs_reconnect`, `health_error`, `connection_status`, `connection_auth_mode`, `credentials_preview` on status payload |
 | `ms365_inventory.php` | GET full `resources[]`; fail responses may include `reconnect_required: true` (HTTP 403) |
 | `ms365_inventory_refresh.php` | Success returns inventory; auth failure returns `reconnect_required: true` (HTTP 403) |
 | `ms365_job_save.php` | POST create/update job with `selected_resource_ids` + `scope_overrides`; `reconnect_required` on auth failure |

@@ -246,7 +246,7 @@
             .then(function(r){ return r.json(); })
             .then(function(d){
               if (d.status === 'success') {
-                alert('Deployment ' + d.deployment_id + ' published. Production will sync within ~5 minutes.');
+                alert('Deployment ' + d.deployment_id + ' published. Production will sync within ~2 minutes.');
               } else {
                 alert('Deploy failed: ' + (d.message || 'unknown error'));
               }

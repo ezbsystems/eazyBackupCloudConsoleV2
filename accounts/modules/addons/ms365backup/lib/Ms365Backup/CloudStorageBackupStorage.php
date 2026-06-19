@@ -36,8 +36,18 @@ final class CloudStorageBackupStorage implements BackupStorageInterface
 
         $clientId = (int) ($tenantRow['whmcs_client_id'] ?? 0);
         $ownerUserId = (int) ($tenantRow['s3_user_id'] ?? 0);
+        $isMs365Bucket = str_starts_with(strtolower($bucketName), 'e3ms365-');
 
-        if ($clientId > 0) {
+        if ($isMs365Bucket) {
+            if (!class_exists(\WHMCS\Module\Addon\CloudStorage\Client\Ms365PlatformStorageService::class)) {
+                throw new \RuntimeException('MS365 platform storage is not available.');
+            }
+            $ownerRes = \WHMCS\Module\Addon\CloudStorage\Client\Ms365PlatformStorageService::ensurePlatformOwner();
+            if (($ownerRes['status'] ?? '') !== 'success' || empty($ownerRes['owner_user'])) {
+                throw new \RuntimeException((string) ($ownerRes['message'] ?? 'MS365 platform storage owner is not available.'));
+            }
+            $ownerUserId = (int) $ownerRes['owner_user']->id;
+        } elseif ($clientId > 0) {
             $ownerRes = CloudBackupBootstrapService::ensureBackupOwnerUser($clientId);
             if (($ownerRes['status'] ?? '') !== 'success' || empty($ownerRes['owner_user'])) {
                 throw new \RuntimeException((string) ($ownerRes['message'] ?? 'Backup owner user is not available.'));

@@ -3,7 +3,7 @@ Description=MS365 worker fleet cron timer
 
 [Timer]
 OnBootSec=2min
-OnUnitActiveSec=3min
+OnUnitActiveSec=1min
 Unit=ms365-worker-fleet.service
 
 [Install]

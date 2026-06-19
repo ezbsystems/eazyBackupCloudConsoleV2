@@ -84,13 +84,8 @@ func runBrowseCLI(args []string) error {
 		SecretKey:    req.DestSecretKey,
 		RepoPassword: req.RepoPassword,
 	}
-	repoConfig := req.RepoConfig
-	if repoConfig == "" {
-		repoConfig = "/tmp/ms365-browse.repo"
-	}
 	result, err := kopia.Browse(context.Background(), kopia.BrowseRequest{
 		Storage:    storage,
-		RepoConfig: repoConfig,
 		ManifestID: req.ManifestID,
 		Path:       req.Path,
 	})

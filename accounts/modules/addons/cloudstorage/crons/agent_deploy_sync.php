@@ -3,7 +3,7 @@
  * e3 Agent Deploy Sync (production consumer)
  *
  * Polls the dev server's deployment manifest and installs new artifacts into
- * the local client_installer/ directory. Recommended: systemd timer every 5 min.
+ * the local client_installer/ directory. Recommended: systemd timer every 2 min.
  */
 
 require __DIR__ . '/../../../../init.php';

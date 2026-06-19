@@ -4,15 +4,24 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/eazybackup/ms365-backup-worker/internal/graph"
 )
 
+// ContentFetcher reads snapshot payloads for restore. Drive files use Stream to
+// avoid loading multi-hundred-MiB blobs into memory.
+type ContentFetcher struct {
+	Bytes  func(path string) ([]byte, error)
+	Stream func(path string) (io.ReadCloser, int64, error)
+}
+
 type Target struct {
 	ResourceID   string `json:"resource_id"`
 	GraphID      string `json:"graph_id"`
 	ResourceType string `json:"resource_type"`
+	DriveID      string `json:"drive_id,omitempty"`
 }
 
 type SelectionItem struct {
@@ -60,6 +69,8 @@ type Runner struct {
 	Client         *graph.Client
 	ConflictPolicy string
 	OnProgress     func(done, skipped, total int, message string)
+	// OnItemError is called for each per-item failure (path resolution, fetch, Graph upload).
+	OnItemError func(message string)
 }
 
 func NewRunner(client *graph.Client, conflictPolicy string, onProgress func(done, skipped, total int, message string)) *Runner {
@@ -69,39 +80,133 @@ func NewRunner(client *graph.Client, conflictPolicy string, onProgress func(done
 	return &Runner{Client: client, ConflictPolicy: conflictPolicy, OnProgress: onProgress}
 }
 
-func (r *Runner) RestoreItems(ctx context.Context, target Target, items []SelectionItem, fetch func(path string) ([]byte, error)) (*Stats, error) {
+func (r *Runner) noteError(stats *Stats, err error) {
+	stats.recordError(err)
+	if err == nil || r.OnItemError == nil {
+		return
+	}
+	msg := strings.TrimSpace(err.Error())
+	if msg != "" {
+		r.OnItemError(msg)
+	}
+}
+
+func (r *Runner) RestoreItems(ctx context.Context, target Target, items []SelectionItem, fetch ContentFetcher) (*Stats, error) {
 	stats := &Stats{}
 	total := len(items)
 	for i, item := range items {
-		paths, err := r.resolvePaths(item, fetch)
+		paths, err := r.resolvePaths(item, fetch.Bytes)
 		if err != nil {
-			stats.recordError(err)
+			r.noteError(stats, err)
+			if r.OnProgress != nil {
+				r.OnProgress(stats.Restored+stats.Skipped, stats.Skipped, total, itemProgressMessage(i+1, total, selectionItemName(item), "failed", err))
+			}
 			continue
 		}
+		itemName := selectionItemName(item)
+		var itemRestored, itemSkipped, itemFailed bool
+		var itemErr error
 		for _, p := range paths {
-			data, err := fetch(p)
+			if isDriveContentPath(p) && fetch.Stream != nil {
+				rc, size, err := fetch.Stream(p)
+				if err != nil {
+					itemFailed = true
+					itemErr = err
+					r.noteError(stats, fmt.Errorf("fetch %s: %w", shortPath(p), err))
+					continue
+				}
+				skipped, err := r.RestoreDriveContent(ctx, target, p, size, rc)
+				_ = rc.Close()
+				if err != nil {
+					itemFailed = true
+					itemErr = err
+					r.noteError(stats, fmt.Errorf("%s: %w", shortPath(p), err))
+				} else if skipped {
+					itemSkipped = true
+					stats.Skipped++
+				} else {
+					itemRestored = true
+					stats.Restored++
+				}
+				continue
+			}
+
+			data, err := fetch.Bytes(p)
 			if err != nil {
-				stats.recordError(fmt.Errorf("fetch %s: %w", shortPath(p), err))
+				itemFailed = true
+				itemErr = err
+				r.noteError(stats, fmt.Errorf("fetch %s: %w", shortPath(p), err))
 				continue
 			}
 			if len(data) == 0 {
-				stats.recordError(fmt.Errorf("empty payload for %s", shortPath(p)))
+				itemFailed = true
+				itemErr = fmt.Errorf("empty payload")
+				r.noteError(stats, fmt.Errorf("empty payload for %s", shortPath(p)))
 				continue
 			}
 			skipped, err := r.restorePath(ctx, target, p, data)
 			if err != nil {
-				stats.recordError(fmt.Errorf("%s: %w", shortPath(p), err))
+				itemFailed = true
+				itemErr = err
+				r.noteError(stats, fmt.Errorf("%s: %w", shortPath(p), err))
 			} else if skipped {
+				itemSkipped = true
 				stats.Skipped++
 			} else {
+				itemRestored = true
 				stats.Restored++
 			}
 		}
 		if r.OnProgress != nil {
-			r.OnProgress(stats.Restored+stats.Skipped, stats.Skipped, total, fmt.Sprintf("item %d/%d", i+1, total))
+			switch {
+			case itemFailed:
+				r.OnProgress(stats.Restored+stats.Skipped, stats.Skipped, total, itemProgressMessage(i+1, total, itemName, "failed", itemErr))
+			case itemSkipped:
+				r.OnProgress(stats.Restored+stats.Skipped, stats.Skipped, total, itemProgressMessage(i+1, total, itemName, "skipped", nil))
+			case itemRestored:
+				r.OnProgress(stats.Restored+stats.Skipped, stats.Skipped, total, itemProgressMessage(i+1, total, itemName, "restored", nil))
+			default:
+				r.OnProgress(stats.Restored+stats.Skipped, stats.Skipped, total, fmt.Sprintf("item %d/%d", i+1, total))
+			}
 		}
 	}
 	return stats, nil
+}
+
+func selectionItemName(item SelectionItem) string {
+	if name := shortPath(item.Path); name != "" {
+		return name
+	}
+	return shortPath(item.PathPrefix)
+}
+
+func itemProgressMessage(index, total int, name, outcome string, err error) string {
+	msg := fmt.Sprintf("item %d/%d", index, total)
+	if name != "" {
+		msg += ": " + name
+	}
+	switch outcome {
+	case "restored":
+		return msg + " restored"
+	case "skipped":
+		return msg + " skipped (already in destination)"
+	case "failed":
+		if err != nil {
+			return msg + " failed: " + strings.TrimSpace(err.Error())
+		}
+		return msg + " failed"
+	default:
+		return msg
+	}
+}
+
+func (r *Runner) RestoreDriveContent(ctx context.Context, target Target, path string, size int64, body io.Reader) (bool, error) {
+	return restoreDriveFileStream(ctx, r.Client, target, path, size, body, r.ConflictPolicy)
+}
+
+func isDriveContentPath(path string) bool {
+	lower := strings.ToLower(path)
+	return strings.Contains(lower, "/content/") && !strings.HasSuffix(lower, ".json")
 }
 
 func (r *Runner) resolvePaths(item SelectionItem, fetch func(path string) ([]byte, error)) ([]string, error) {

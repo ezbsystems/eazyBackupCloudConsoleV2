@@ -18,19 +18,39 @@ final class DeployService
 
         $nodes = WorkerNodeRepository::listNodes(['active', 'draining', 'offline', 'registering']);
         $eligible = array_values(array_filter($nodes, static fn ($n) => ($n['status'] ?? '') !== 'retired'));
+        if ($eligible === []) {
+            throw new \RuntimeException('No eligible worker nodes to deploy.');
+        }
+
         $now = time();
         $targetVersion = (string) $release['version'];
         $alreadyCurrent = 0;
         $needingUpdate = 0;
+        $aheadOfTarget = 0;
+        $newestNodeVersion = '';
 
         foreach ($eligible as $node) {
             $nodeVersion = (string) ($node['version'] ?? '');
-            if (!ReleaseRepository::nodeNeedsUpdate($nodeVersion, $targetVersion)) {
+            if (ReleaseRepository::nodeMatchesTarget($nodeVersion, $targetVersion)) {
                 WorkerNodeRepository::setDeployStatus((string) $node['node_id'], 'current', null, '');
                 $alreadyCurrent++;
-                continue;
+            } elseif (ReleaseRepository::nodeNeedsUpdate($nodeVersion, $targetVersion)) {
+                $needingUpdate++;
+            } elseif (ReleaseRepository::nodeAheadOfTarget($nodeVersion, $targetVersion)) {
+                $aheadOfTarget++;
+                if ($newestNodeVersion === '' || ReleaseRepository::compareVersions($nodeVersion, $newestNodeVersion) > 0) {
+                    $newestNodeVersion = $nodeVersion;
+                }
             }
-            $needingUpdate++;
+        }
+
+        if ($needingUpdate === 0 && $aheadOfTarget > 0) {
+            throw new \RuntimeException(sprintf(
+                'Cannot deploy v%s: %d worker node(s) already run a newer version (newest: v%s). Build and deploy a higher version label.',
+                $targetVersion,
+                $aheadOfTarget,
+                $newestNodeVersion !== '' ? $newestNodeVersion : '?'
+            ));
         }
 
         $deployId = (int) Capsule::table('ms365_worker_deploy_jobs')->insertGetId([
@@ -60,7 +80,7 @@ final class DeployService
         if ($needingUpdate === 0) {
             Capsule::table('ms365_worker_deploy_jobs')->where('id', $deployId)->update([
                 'status' => 'succeeded',
-                'nodes_updated' => count($eligible),
+                'nodes_updated' => $alreadyCurrent,
                 'ended_at' => $now,
                 'updated_at' => $now,
             ]);
@@ -70,9 +90,17 @@ final class DeployService
         FleetAuditLog::write('deploy_started', 'Deploy release ' . $release['version'], 'deploy_job', (string) $deployId, [
             'strategy' => $strategy,
             'force' => $force,
+            'nodes_needing_update' => $needingUpdate,
+            'already_current' => $alreadyCurrent,
         ]);
 
-        return ['deploy_job_id' => $deployId, 'nodes_total' => count($eligible)];
+        return [
+            'deploy_job_id' => $deployId,
+            'nodes_total' => count($eligible),
+            'nodes_needing_update' => $needingUpdate,
+            'already_current' => $alreadyCurrent,
+            'target_version' => $targetVersion,
+        ];
     }
 
     /** @return array<string, mixed>|null */
@@ -163,8 +191,10 @@ final class DeployService
 
         $state = FleetStateRepository::get();
         $deployId = (int) ($state['active_deploy_job_id'] ?? 0);
-        if ($deployId > 0 && $wasPending) {
-            Capsule::table('ms365_worker_deploy_jobs')->where('id', $deployId)->increment('nodes_updated');
+        if ($deployId > 0) {
+            if ($wasPending) {
+                Capsule::table('ms365_worker_deploy_jobs')->where('id', $deployId)->increment('nodes_updated');
+            }
             self::maybeCompleteDeploy($deployId);
         }
     }
@@ -182,6 +212,7 @@ final class DeployService
 
         $state = FleetStateRepository::get();
         $releaseId = (int) ($state['target_release_id'] ?? 0);
+        $activeDeployId = (int) ($state['active_deploy_job_id'] ?? 0);
         $targetRelease = $releaseId > 0 ? ReleaseRepository::get($releaseId) : null;
         if ($targetRelease === null) {
             $targetRelease = ReleaseRepository::latest();
@@ -195,19 +226,25 @@ final class DeployService
             return;
         }
 
+        $inActiveDeploy = $activeDeployId > 0
+            && $releaseId > 0
+            && (int) ($targetRelease['id'] ?? 0) === $releaseId;
         $deployStatus = (string) ($node['deploy_status'] ?? 'current');
-        if ($deployStatus === 'current') {
+
+        if ($deployStatus !== 'current') {
+            if ($inActiveDeploy) {
+                self::markNodeUpdated($nodeId, $version);
+            } else {
+                WorkerNodeRepository::setDeployStatus($nodeId, 'current', null, '');
+                WorkerNodeRepository::setVersion($nodeId, $version);
+            }
+
             return;
         }
 
-        if ($releaseId > 0 && (int) ($state['active_deploy_job_id'] ?? 0) > 0) {
-            self::markNodeUpdated($nodeId, $version);
-
-            return;
+        if ($inActiveDeploy) {
+            self::maybeCompleteDeploy($activeDeployId);
         }
-
-        WorkerNodeRepository::setDeployStatus($nodeId, 'current', null, '');
-        WorkerNodeRepository::setVersion($nodeId, $version);
     }
 
     public static function markNodeDeployFailed(string $nodeId, string $error): void
@@ -272,7 +309,24 @@ final class DeployService
             }
         }
 
+        self::reconcileActiveDeploy();
+
         return $fixed;
+    }
+
+    /** Close out a rolling deploy when every eligible node satisfies the target release. */
+    public static function reconcileActiveDeploy(): void
+    {
+        $state = FleetStateRepository::get();
+        $deployId = (int) ($state['active_deploy_job_id'] ?? 0);
+        if ($deployId <= 0) {
+            return;
+        }
+        $job = Capsule::table('ms365_worker_deploy_jobs')->where('id', $deployId)->first();
+        if (!$job || !in_array((string) $job->status, ['pending', 'rolling'], true)) {
+            return;
+        }
+        self::maybeCompleteDeploy($deployId);
     }
 
     private static function reconcileAllNodesAtVersion(string $targetVersion): void
@@ -293,11 +347,21 @@ final class DeployService
     /** @return list<array<string, mixed>> */
     public static function listDeployJobs(int $limit = 25): array
     {
-        return Capsule::table('ms365_worker_deploy_jobs')
+        self::reconcileActiveDeploy();
+
+        $rows = Capsule::table('ms365_worker_deploy_jobs')
             ->orderByDesc('id')
             ->limit($limit)
             ->get()
             ->map(static fn ($r) => (array) $r)
             ->all();
+
+        foreach ($rows as &$row) {
+            $release = ReleaseRepository::get((int) ($row['release_id'] ?? 0));
+            $row['release_version'] = $release ? (string) ($release['version'] ?? '') : '';
+        }
+        unset($row);
+
+        return $rows;
     }
 }

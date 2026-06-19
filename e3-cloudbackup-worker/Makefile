@@ -1,4 +1,4 @@
-.PHONY: build install test clean
+.PHONY: build install test clean licenses
 
 # Build the worker binary
 build:
@@ -40,4 +40,8 @@ lint:
 	else \
 		echo "golangci-lint not installed, skipping..."; \
 	fi
+
+# Regenerate THIRD_PARTY_LICENSES.txt (anonymous component IDs)
+licenses:
+	cd ../legal && go run ./cmd/generate-licenses --project e3-cloudbackup-worker
 

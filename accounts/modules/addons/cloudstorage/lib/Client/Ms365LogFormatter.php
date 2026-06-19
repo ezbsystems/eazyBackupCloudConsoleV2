@@ -32,6 +32,17 @@ final class Ms365LogFormatter
     {
         $prefix = self::workloadLabel($childRun);
         $message = CustomerFacingTextSanitizer::scrubLogMessage(trim((string) ($line['message'] ?? '')));
+
+        if ($message !== '' && !empty($line['context_json'])) {
+            $decoded = json_decode((string) $line['context_json'], true);
+            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                $ctxMsg = CustomerFacingTextSanitizer::scrubLogMessage(trim((string) ($decoded['message'] ?? '')));
+                if ($ctxMsg !== '' && stripos($message, $ctxMsg) === false) {
+                    $message .= ': ' . $ctxMsg;
+                }
+            }
+        }
+
         if ($message === '') {
             return '[' . $prefix . ']';
         }

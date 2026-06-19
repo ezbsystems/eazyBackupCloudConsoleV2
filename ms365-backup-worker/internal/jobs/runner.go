@@ -7,6 +7,8 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
+	"time"
 
 	"github.com/eazybackup/ms365-backup-worker/internal/api"
 	"github.com/eazybackup/ms365-backup-worker/internal/config"
@@ -17,12 +19,13 @@ import (
 )
 
 type Runner struct {
-	cfg    *config.Config
-	client *api.Client
+	cfg      *config.Config
+	client   *api.Client
+	repoPool *kopia.Pool
 }
 
-func NewRunner(cfg *config.Config, client *api.Client) *Runner {
-	return &Runner{cfg: cfg, client: client}
+func NewRunner(cfg *config.Config, client *api.Client, repoPool *kopia.Pool) *Runner {
+	return &Runner{cfg: cfg, client: client, repoPool: repoPool}
 }
 
 func (r *Runner) Run(ctx context.Context, job *api.RunJob) error {
@@ -30,17 +33,32 @@ func (r *Runner) Run(ctx context.Context, job *api.RunJob) error {
 		return nil
 	}
 	if job.JobType == "restore" {
-		restoreRunner := NewRestoreRunner(r.cfg, r.client)
+		restoreRunner := NewRestoreRunner(r.cfg, r.client, r.repoPool)
 		return restoreRunner.Run(ctx, job)
 	}
+	runStart := time.Now()
+	defer func() { _ = r.client.FlushRunLogs(ctx, job.RunID) }()
+	r.client.RunLogf(ctx, job.RunID, "info", "starting run %s resource=%s", job.RunID, job.PhysicalKey)
 	log.Printf("starting run %s resource=%s", job.RunID, job.PhysicalKey)
 
 	runDir := filepath.Join(r.cfg.Worker.RunDir, job.RunID)
 	_ = os.MkdirAll(runDir, 0o755)
 	defer os.RemoveAll(runDir)
 
+	var graphItemsDone, graphItemsTotal int
+	var graphBytesTotal int64
+	var graphLastPercent float64 = 1
+
 	progressStop := r.client.StartProgressHeartbeat(ctx, job.RunID, r.cfg.ProgressHeartbeat(), func() api.ProgressUpdate {
-		return api.ProgressUpdate{RunID: job.RunID, Phase: "graph_sync", Message: "heartbeat"}
+		return api.ProgressUpdate{
+			RunID:       job.RunID,
+			Phase:       "graph_sync",
+			Percent:     graphLastPercent,
+			ItemsDone:   graphItemsDone,
+			ItemsTotal:  graphItemsTotal,
+			BytesHashed: graphBytesTotal,
+			Message:     "heartbeat",
+		}
 	})
 	defer progressStop()
 
@@ -60,23 +78,24 @@ func (r *Runner) Run(ctx context.Context, job *api.RunJob) error {
 		SecretKey:    job.DestSecretKey,
 		RepoPassword: job.RepoPassword,
 	}
-	repoConfig := storage.RepoConfigPath(r.cfg.Kopia.RepoConfigDir, job.RunID)
 
 	overlay := graphfs.NewOverlayBuilder()
 	if job.IncrementalEnabled && job.PreviousManifest != "" {
+		priorStart := time.Now()
 		_ = r.client.Progress(ctx, api.ProgressUpdate{
 			RunID:   job.RunID,
 			Phase:   "prior_snapshot",
 			Percent: 5,
 			Message: "Loading prior snapshot metadata",
 		})
-		priorRoot, err := kopia.PriorSnapshotRoot(ctx, storage, repoConfig, job.PreviousManifest)
+		graphLastPercent = 5
+		priorRoot, err := kopia.PriorSnapshotRoot(ctx, r.repoPool, storage, job.PreviousManifest)
 		if err != nil {
 			log.Printf("run %s prior snapshot warning: %v", job.RunID, err)
 		} else if err := overlay.MergePrior(ctx, priorRoot, ""); err != nil {
 			log.Printf("run %s prior merge warning: %v", job.RunID, err)
 		} else {
-			log.Printf("run %s merged prior manifest %s (%d entries)", job.RunID, job.PreviousManifest, overlay.EntryCount())
+			log.Printf("run %s merged prior manifest %s (%d entries) in %dms", job.RunID, job.PreviousManifest, overlay.EntryCount(), time.Since(priorStart).Milliseconds())
 		}
 	}
 
@@ -84,19 +103,23 @@ func (r *Runner) Run(ctx context.Context, job *api.RunJob) error {
 		MaxRetries:       r.cfg.Graph.MaxRetries,
 		RetryBaseDelayMs: r.cfg.Graph.RetryBaseDelayMs,
 		MaxConcurrency:   r.cfg.Worker.GraphParallelRequests,
-		AdaptiveLimit:    r.cfg.Graph.AdaptiveConcurrency,
+		AdaptiveLimit:    r.cfg.Graph.AdaptiveEnabled(),
 	})
+	stopTokenRefresh := bindGraphTokenRefresh(ctx, r.cfg, r.client, gc, job.RunID)
+	defer stopTokenRefresh()
 
-	var graphItemsDone, graphItemsTotal int
-	var graphBytesTotal int64
-
+	graphStart := time.Now()
 	wl := &graphsync.WorkloadRunner{
 		Client:           gc,
 		Job:              job,
 		Parallel:         r.cfg.Worker.GraphParallelRequests,
 		FolderParallel:   r.cfg.Worker.GraphFolderParallel,
+		DriveParallel:    r.cfg.Worker.GraphSharePointDriveParallel,
 		Overlay:          overlay,
 		UseBatchFallback: r.cfg.Graph.UseBatchFallback,
+		RunLog: func(level, message string) {
+			r.client.RunLogf(ctx, job.RunID, level, "%s", message)
+		},
 		OnProgress: func(phase string, done, total int, bytes int64) {
 			graphItemsDone = done
 			graphItemsTotal = total
@@ -105,6 +128,7 @@ func (r *Runner) Run(ctx context.Context, job *api.RunJob) error {
 			if total > 0 {
 				pct = 10 + (float64(done)/float64(total))*25
 			}
+			graphLastPercent = pct
 			_ = r.client.Progress(ctx, api.ProgressUpdate{
 				RunID:         job.RunID,
 				Phase:         "graph_sync",
@@ -117,12 +141,25 @@ func (r *Runner) Run(ctx context.Context, job *api.RunJob) error {
 		},
 	}
 	wlRes, err := wl.Run(ctx)
+	graphElapsed := time.Since(graphStart)
 	if err != nil {
+		r.client.RunLogf(ctx, job.RunID, "error", "graph_sync failed: %v", err)
+		_ = r.client.Fail(ctx, api.FailUpdate{RunID: job.RunID, Message: err.Error()})
+		return err
+	}
+	r.client.RunLogf(ctx, job.RunID, "info", "run %s graph_sync completed in %dms items=%d graph_429=%v", job.RunID, graphElapsed.Milliseconds(), wlRes.FileCount, wlRes.Stats["graph_429_hits"])
+	log.Printf("run %s graph_sync completed in %dms items=%d graph_429=%v", job.RunID, graphElapsed.Milliseconds(), wlRes.FileCount, wlRes.Stats["graph_429_hits"])
+	if odStats, ok := wlRes.Stats["onedrive"].(map[string]int); ok {
+		r.client.RunLogf(ctx, job.RunID, "info", "onedrive sync stats: %+v", odStats)
+	}
+	if err := r.ensureOneDriveRootFiles(ctx, gc, job, overlay); err != nil {
+		r.client.RunLogf(ctx, job.RunID, "error", "onedrive root guard: %v", err)
 		_ = r.client.Fail(ctx, api.FailUpdate{RunID: job.RunID, Message: err.Error()})
 		return err
 	}
 
 	if wlRes.FileCount == 0 && job.PreviousManifest == "" {
+		log.Printf("run %s completed no_changes (empty first run) total=%dms", job.RunID, time.Since(runStart).Milliseconds())
 		_ = r.client.Complete(ctx, api.CompleteUpdate{
 			RunID:      job.RunID,
 			ManifestID: "",
@@ -131,14 +168,32 @@ func (r *Runner) Run(ctx context.Context, job *api.RunJob) error {
 		return nil
 	}
 
+	if job.PreviousManifest != "" && !overlay.HasChanges() {
+		stats, _ := json.Marshal(map[string]any{
+			"status":         "no_changes",
+			"manifest_id":    job.PreviousManifest,
+			"workloads":      wlRes.Stats,
+			"delta_states":   wlRes.DeltaStates,
+			"graph_429_hits": wlRes.Stats["graph_429_hits"],
+			"physical_key":   job.PhysicalKey,
+			"graph_sync_ms":  graphElapsed.Milliseconds(),
+		})
+		log.Printf("run %s completed no_changes (incremental unchanged) total=%dms", job.RunID, time.Since(runStart).Milliseconds())
+		return r.client.Complete(ctx, api.CompleteUpdate{
+			RunID:      job.RunID,
+			ManifestID: job.PreviousManifest,
+			StatsJSON:  string(stats),
+		})
+	}
+
 	_ = r.client.Progress(ctx, api.ProgressUpdate{
-		RunID:      job.RunID,
-		Phase:      "kopia_upload",
-		Percent:    40,
-		ItemsTotal: wlRes.FileCount,
-		ItemsDone:  int(wlRes.ItemsDone),
+		RunID:       job.RunID,
+		Phase:       "kopia_upload",
+		Percent:     40,
+		ItemsTotal:  wlRes.FileCount,
+		ItemsDone:   int(wlRes.ItemsDone),
 		BytesHashed: wlRes.BytesTotal,
-		Message:    "Uploading snapshot to Kopia repository",
+		Message:     "Uploading snapshot to Kopia repository",
 	})
 
 	if err := kopia.EnsureRunDir(r.cfg.Worker.RunDir); err != nil {
@@ -151,22 +206,29 @@ func (r *Runner) Run(ctx context.Context, job *api.RunJob) error {
 		sourcePath = filepath.Join("/ms365", job.PhysicalKey)
 	}
 	tree := overlay.Build("snapshot")
+	if job.GraphID != "" && graphsync.JobIncludesOneDrive(job) {
+		if err := graphsync.VerifyOneDriveOverlayTree(ctx, overlay, tree, job.AzureTenantID, job.GraphID); err != nil {
+			r.client.RunLogf(ctx, job.RunID, "error", "onedrive tree verify: %v", err)
+			_ = r.client.Fail(ctx, api.FailUpdate{RunID: job.RunID, Message: err.Error()})
+			return err
+		}
+	}
 
 	uploadStop := r.client.StartProgressHeartbeat(ctx, job.RunID, r.cfg.ProgressHeartbeat(), func() api.ProgressUpdate {
 		return api.ProgressUpdate{
-			RunID:      job.RunID,
-			Phase:      "kopia_upload",
-			ItemsDone:  graphItemsDone,
-			ItemsTotal: graphItemsTotal,
+			RunID:       job.RunID,
+			Phase:       "kopia_upload",
+			ItemsDone:   graphItemsDone,
+			ItemsTotal:  graphItemsTotal,
 			BytesHashed: graphBytesTotal,
-			Message:    "Upload in progress",
+			Message:     "Upload in progress",
 		}
 	})
 	defer uploadStop()
 
-	snapRes, err := kopia.Snapshot(ctx, kopia.SnapshotRequest{
+	snapshotStart := time.Now()
+	snapRes, err := r.repoPool.Snapshot(ctx, kopia.SnapshotRequest{
 		Storage:            storage,
-		RepoConfig:         repoConfig,
 		SourcePath:         sourcePath,
 		Host:               r.cfg.Worker.Hostname,
 		Username:           "ms365",
@@ -196,10 +258,13 @@ func (r *Runner) Run(ctx context.Context, job *api.RunJob) error {
 			})
 		},
 	})
+	snapshotElapsed := time.Since(snapshotStart)
 	if err != nil {
 		_ = r.client.Fail(ctx, api.FailUpdate{RunID: job.RunID, Message: err.Error()})
 		return err
 	}
+	log.Printf("run %s kopia_snapshot completed in %dms manifest=%s", job.RunID, snapshotElapsed.Milliseconds(), snapRes.ManifestID)
+	r.client.RunLogf(ctx, job.RunID, "info", "run %s kopia_snapshot completed in %dms manifest=%s", job.RunID, snapshotElapsed.Milliseconds(), snapRes.ManifestID)
 
 	stats, _ := json.Marshal(map[string]any{
 		"manifest_id":    snapRes.ManifestID,
@@ -210,14 +275,68 @@ func (r *Runner) Run(ctx context.Context, job *api.RunJob) error {
 		"delta_states":   wlRes.DeltaStates,
 		"graph_429_hits": wlRes.Stats["graph_429_hits"],
 		"physical_key":   job.PhysicalKey,
+		"graph_sync_ms":  graphElapsed.Milliseconds(),
+		"kopia_snapshot_ms": snapshotElapsed.Milliseconds(),
 	})
-	_ = os.Remove(repoConfig)
+	log.Printf("run %s completed total=%dms", job.RunID, time.Since(runStart).Milliseconds())
+	r.client.RunLogf(ctx, job.RunID, "info", "run %s completed total=%dms", job.RunID, time.Since(runStart).Milliseconds())
 
 	return r.client.Complete(ctx, api.CompleteUpdate{
 		RunID:      job.RunID,
 		ManifestID: snapRes.ManifestID,
 		StatsJSON:  string(stats),
 	})
+}
+
+func (r *Runner) ensureOneDriveRootFiles(ctx context.Context, gc *graph.Client, job *api.RunJob, overlay *graphfs.OverlayBuilder) error {
+	if job == nil || overlay == nil || gc == nil {
+		return nil
+	}
+	baseKey, _ := graphsync.ParsePhysicalKey(job.PhysicalKey)
+	kind, _, _ := strings.Cut(baseKey, ":")
+	if kind != "user" && kind != "mailbox" {
+		return nil
+	}
+	onedrive := false
+	if job.Workloads != nil {
+		onedrive = job.Workloads["onedrive"]
+	}
+	if !onedrive && job.Scope != nil {
+		onedrive = job.Scope["onedrive"] || job.Scope["files"]
+	}
+	if !onedrive {
+		return nil
+	}
+	userID := strings.TrimSpace(job.GraphID)
+	if userID == "" {
+		return fmt.Errorf("onedrive root guard: missing graph user id")
+	}
+	driveID := strings.TrimSpace(job.DriveID)
+	opts := graphsync.OneDriveSyncOptions{
+		AzureTenantID: job.AzureTenantID,
+		UserID:        userID,
+		DriveID:       driveID,
+		Overlay:       overlay,
+	}
+	resolved, err := graphsync.ResolveOneDriveID(ctx, gc, opts)
+	if err != nil {
+		return err
+	}
+	healed, err := graphsync.HealOneDriveRootFiles(ctx, gc, opts, resolved)
+	if err != nil {
+		return err
+	}
+	missing, err := graphsync.CountMissingOneDriveRootFiles(ctx, gc, opts, resolved)
+	if err != nil {
+		return err
+	}
+	if healed > 0 || missing > 0 {
+		r.client.RunLogf(ctx, job.RunID, "info", "onedrive root guard: healed=%d missing=%d overlay_entries=%d", healed, missing, overlay.EntryCount())
+	}
+	if missing > 0 {
+		return fmt.Errorf("onedrive root guard: %d root file(s) still missing after heal", missing)
+	}
+	return nil
 }
 
 func (r *Runner) RunSafe(ctx context.Context, job *api.RunJob) (err error) {

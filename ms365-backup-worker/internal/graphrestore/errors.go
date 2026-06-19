@@ -27,3 +27,11 @@ func isDuplicateGraphError(err error) bool {
 	}
 	return false
 }
+
+func isGraphNotFound(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := strings.ToLower(err.Error())
+	return strings.Contains(s, "graph 404") || strings.Contains(s, "itemnotfound") || strings.Contains(s, "not found")
+}

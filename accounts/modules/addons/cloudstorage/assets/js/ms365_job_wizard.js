@@ -9,7 +9,9 @@
         { id: '1y', title: 'Default — 1 year', description: 'All backups for the last 30 days plus 1 backup per week for 52 weeks.' },
         { id: '2y', title: '2 years', description: 'All backups for the last 30 days plus 1 backup per week for 2 years.' },
         { id: '3y', title: '3 years', description: 'All backups for the last 30 days plus 1 backup per week for 3 years.' },
+        { id: '4y', title: '4 years', description: 'All backups for the last 30 days plus 1 backup per week for 4 years.' },
         { id: '5y', title: '5 years', description: 'All backups for the last 30 days plus 1 backup per week for 5 years.' },
+        { id: '6y', title: '6 years', description: 'All backups for the last 30 days plus 1 backup per week for 6 years.' },
         { id: '7y', title: '7 years', description: 'All backups for the last 30 days plus 1 backup per week for 7 years.' },
     ];
 
@@ -26,6 +28,8 @@
         teams: 'Teams',
         groups: 'Groups',
     };
+    const MANUAL_REGIONS = ['GlobalPublicCloud', 'USGovernment', 'China', 'Germany'];
+    const AUTH_MODE_CUSTOMER = 'customer_app';
     const CONSENT_POPUP_FEATURES = 'width=520,height=720,menubar=no,toolbar=no,location=yes,status=no';
 
     const DISCONNECT_CONFIRM = {
@@ -41,6 +45,41 @@
     };
 
     let activeConsentHandler = null;
+    /** Non-reactive: storing a Window in Alpine state breaks when the popup is cross-origin. */
+    let activeConsentPopup = null;
+
+    function setConsentPopup(popup) {
+        activeConsentPopup = popup || null;
+    }
+
+    function clearConsentPopup() {
+        activeConsentPopup = null;
+    }
+
+    function isConsentPopupClosed() {
+        if (!activeConsentPopup) {
+            return true;
+        }
+        try {
+            return activeConsentPopup.closed;
+        } catch (e) {
+            return true;
+        }
+    }
+
+    function closeConsentPopup() {
+        if (!activeConsentPopup) {
+            return;
+        }
+        try {
+            if (!activeConsentPopup.closed) {
+                activeConsentPopup.close();
+            }
+        } catch (e) {
+            /* ignore cross-origin */
+        }
+        activeConsentPopup = null;
+    }
 
     window.ms365WizardState = {
         backupUserId: '',
@@ -103,7 +142,7 @@
 
     function returnPathForUser(backupUserId) {
         if (backupUserId) {
-            return `index.php?m=cloudstorage&page=e3backup&view=user_detail&user_id=${encodeURIComponent(backupUserId)}&ms365_wizard=1`;
+            return `index.php?m=cloudstorage&page=e3backup&view=user_detail&user_id=${encodeURIComponent(backupUserId)}&ms365_wizard=1#jobs`;
         }
         const params = new URLSearchParams(window.location.search);
         const page = params.get('page') || 'e3backup';
@@ -230,6 +269,19 @@
             jobId: '',
             backupUserId: '',
             status: { connected: false, needs_reconnect: false },
+            connectMode: 'automatic',
+            manualRegions: MANUAL_REGIONS,
+            manualForm: {
+                region: 'GlobalPublicCloud',
+                client_id: '',
+                tenant_id: '',
+                app_secret: '',
+            },
+            manualTesting: false,
+            manualSaving: false,
+            manualTestPassed: false,
+            manualNotice: '',
+            manualError: '',
             inventory: { resources: [] },
             treesBySection: {},
             selection: {},
@@ -244,7 +296,6 @@
             retentionTier: '1y',
             retentionOptions: RETENTION_OPTIONS,
             jobName: 'Microsoft 365 Backup',
-            _consentPopup: null,
             _consentPollTimer: null,
             _consentTimeoutTimer: null,
             _inventoryProgressTimer: null,
@@ -279,6 +330,9 @@
 
                 this.stopConsentWait();
                 this.consentError = '';
+                this.manualError = '';
+                this.manualNotice = '';
+                this.manualTestPassed = false;
 
                 this.backupUserId = opts.backupUserId || window.ms365WizardState.backupUserId || '';
                 if (!this.backupUserId) {
@@ -331,6 +385,181 @@
 
             isM365Connected() {
                 return !!this.status.connected && !this.status.needs_reconnect;
+            },
+
+            isManualConnected() {
+                return (this.status.connection_auth_mode || '') === AUTH_MODE_CUSTOMER;
+            },
+
+            isOAuthConnected() {
+                const mode = this.status.connection_auth_mode || '';
+                return mode === '' || mode === 'none' || mode === 'platform_consent';
+            },
+
+            showConnectModeToggle() {
+                if (this.status.connected && this.isOAuthConnected()) {
+                    return false;
+                }
+                return true;
+            },
+
+            setConnectMode(mode) {
+                if (mode === 'manual' && this.status.connected && this.isOAuthConnected()) {
+                    return;
+                }
+                this.connectMode = mode === 'manual' ? 'manual' : 'automatic';
+                this.manualError = '';
+                this.manualNotice = '';
+                this.manualTestPassed = false;
+            },
+
+            clearManualTestPassed() {
+                this.manualTestPassed = false;
+                this.manualNotice = '';
+            },
+
+            isManualFormValid() {
+                const clientId = (this.manualForm.client_id || '').trim();
+                const tenantId = (this.manualForm.tenant_id || '').trim();
+                const preview = this.status.credentials_preview || {};
+                const hasSecret = !!(this.manualForm.app_secret || '').trim() || !!preview.has_secret;
+                return clientId !== '' && tenantId !== '' && hasSecret;
+            },
+
+            canProceedManualConnect() {
+                if (this.isM365Connected()) {
+                    return true;
+                }
+                if (!this.isManualFormValid()) {
+                    return false;
+                }
+                if (this.manualTestPassed) {
+                    return true;
+                }
+                // Credentials already saved (e.g. storage bootstrap still pending).
+                if (this.isManualConnected()) {
+                    const tenantId = (this.status.azure_tenant_id || this.manualForm.tenant_id || '').trim();
+                    if (tenantId !== '') {
+                        return true;
+                    }
+                }
+                return false;
+            },
+
+            initManualFormFromStatus() {
+                const preview = this.status.credentials_preview || {};
+                this.manualForm.region = preview.region || 'GlobalPublicCloud';
+                this.manualForm.client_id = preview.client_id || '';
+                this.manualForm.tenant_id = preview.tenant_id || '';
+                this.manualForm.app_secret = '';
+                if (this.isManualConnected()) {
+                    this.connectMode = 'manual';
+                } else if (!this.status.connected) {
+                    this.connectMode = 'automatic';
+                }
+            },
+
+            manualSecretPlaceholder() {
+                const preview = this.status.credentials_preview || {};
+                return preview.has_secret ? '(saved — leave blank to keep)' : '';
+            },
+
+            manualFormBody() {
+                return new URLSearchParams({
+                    user_id: this.backupUserId,
+                    region: this.manualForm.region || 'GlobalPublicCloud',
+                    client_id: (this.manualForm.client_id || '').trim(),
+                    tenant_id: (this.manualForm.tenant_id || '').trim(),
+                    app_secret: this.manualForm.app_secret || '',
+                });
+            },
+
+            async testManualConnect() {
+                this.manualTesting = true;
+                this.manualError = '';
+                this.manualNotice = '';
+                try {
+                    const res = await fetch(`${apiBase()}ms365_connect_test.php`, {
+                        method: 'POST',
+                        credentials: 'same-origin',
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                        body: this.manualFormBody().toString(),
+                    });
+                    const data = await res.json();
+                    if (data.status === 'success') {
+                        this.manualTestPassed = true;
+                        this.manualNotice = 'Connected: ' + (data.organization || 'OK');
+                        toast('success', this.manualNotice);
+                        return true;
+                    }
+                    this.manualError = data.message || 'Connection test failed.';
+                    toast('error', this.manualError);
+                    return false;
+                } catch (e) {
+                    this.manualError = 'Connection test failed.';
+                    toast('error', this.manualError);
+                    return false;
+                } finally {
+                    this.manualTesting = false;
+                }
+            },
+
+            async saveManualConnect() {
+                this.manualSaving = true;
+                this.manualError = '';
+                this.manualNotice = '';
+                try {
+                    const res = await fetch(`${apiBase()}ms365_connect_save.php`, {
+                        method: 'POST',
+                        credentials: 'same-origin',
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                        body: this.manualFormBody().toString(),
+                    });
+                    const data = await res.json();
+                    if (data.status === 'success') {
+                        if (data.ms365) {
+                            this.status = data.ms365;
+                        } else {
+                            await this.loadStatus();
+                        }
+                        this.manualTestPassed = true;
+                        this.initManualFormFromStatus();
+                        await this.handleManualConnectSuccess();
+                        return true;
+                    }
+                    this.manualError = data.message || 'Save failed.';
+                    toast('error', this.manualError);
+                    return false;
+                } catch (e) {
+                    this.manualError = 'Save failed.';
+                    toast('error', this.manualError);
+                    return false;
+                } finally {
+                    this.manualSaving = false;
+                }
+            },
+
+            async handleManualConnectSuccess() {
+                if (!this.isM365Connected()) {
+                    if (this.isManualConnected() && this.canProceedManualConnect()) {
+                        return;
+                    }
+                    this.manualError = this.status.health_error
+                        || 'Credentials were saved but the connection could not be verified.';
+                    toast('error', this.manualError);
+                    return;
+                }
+                this.manualError = '';
+                this.loading = true;
+                try {
+                    const ok = await this.ensureFreshInventory({ silent: true });
+                    if (ok) {
+                        this.step = 2;
+                        toast('success', 'Microsoft 365 connected.');
+                    }
+                } finally {
+                    this.loading = false;
+                }
             },
 
             handleReconnectRequired(message) {
@@ -404,6 +633,8 @@
                         } else {
                             await this.loadStatus();
                         }
+                        this.initManualFormFromStatus();
+                        this.manualTestPassed = false;
                         this.inventory = { resources: [] };
                         this.treesBySection = {};
                         this.selection = {};
@@ -457,7 +688,31 @@
 
             async nextStep() {
                 if (this.step === 1 && !this.isM365Connected()) {
-                    toast('warning', this.status.needs_reconnect ? 'Reconnect Microsoft 365 first.' : 'Connect Microsoft 365 first.');
+                    if (this.connectMode === 'manual' && this.canProceedManualConnect()) {
+                        if (!this.isManualConnected()) {
+                            const saved = await this.saveManualConnect();
+                            if (!saved) {
+                                return;
+                            }
+                        }
+                        if (this.step === 1) {
+                            this.loading = true;
+                            try {
+                                const ok = await this.ensureFreshInventory({ silent: true });
+                                if (ok || this.isManualConnected()) {
+                                    this.step = 2;
+                                }
+                            } finally {
+                                this.loading = false;
+                            }
+                        }
+                        return;
+                    }
+                    toast('warning', this.status.needs_reconnect
+                        ? 'Reconnect Microsoft 365 first.'
+                        : (this.connectMode === 'manual'
+                            ? 'Test the connection and save credentials before continuing.'
+                            : 'Connect Microsoft 365 first.'));
                     return;
                 }
                 if (this.step === 2 && this.selectionCount() === 0) {
@@ -474,7 +729,12 @@
             },
 
             canProceed() {
-                if (this.step === 1) return this.isM365Connected();
+                if (this.step === 1) {
+                    if (this.connectMode === 'manual') {
+                        return this.canProceedManualConnect();
+                    }
+                    return this.isM365Connected();
+                }
                 if (this.step === 2) return this.selectionCount() > 0 && (this.planSummary.runnable || 0) > 0;
                 if (this.step === 3) return !!this.scheduleFrequency;
                 return true;
@@ -487,6 +747,7 @@
                     const data = await res.json();
                     if (data.status === 'success' && data.ms365) {
                         this.status = data.ms365;
+                        this.initManualFormFromStatus();
                     }
                 } catch (e) {
                     toast('error', 'Failed to load connection status.');
@@ -584,9 +845,8 @@
                 } catch (e) {
                     /* ignore */
                 }
-                const popupClosed = this._consentPopup && this._consentPopup.closed;
-                if (popupClosed) {
-                    this._consentPopup = null;
+                if (isConsentPopupClosed() && activeConsentPopup !== null) {
+                    clearConsentPopup();
                     await this.finalizeConsentFromServer();
                     return;
                 }
@@ -614,14 +874,7 @@
             cancelConsentWait() {
                 this.stopConsentWait();
                 this.consentError = '';
-                if (this._consentPopup && !this._consentPopup.closed) {
-                    try {
-                        this._consentPopup.close();
-                    } catch (e) {
-                        /* ignore */
-                    }
-                }
-                this._consentPopup = null;
+                closeConsentPopup();
             },
 
             reopenConsentPopup() {
@@ -634,7 +887,7 @@
                     toast('warning', 'Pop-up blocked. Allow pop-ups for this site or use Connect again.');
                     return;
                 }
-                this._consentPopup = popup;
+                setConsentPopup(popup);
                 this.awaitingConsent = true;
                 this.consentError = '';
                 this.startConsentWait();
@@ -679,7 +932,7 @@
                         return;
                     }
 
-                    this._consentPopup = popup;
+                    setConsentPopup(popup);
                     this.awaitingConsent = true;
                     this.startConsentWait();
                 } catch (e) {
@@ -870,6 +1123,24 @@
                 return Object.keys(this.selection).filter((k) => this.selection[k]).length;
             },
 
+            inventoryGlobalCheckState() {
+                if (!window.ms365JobSelection) {
+                    return 'unchecked';
+                }
+                return window.ms365JobSelection.globalCheckState(this.treesBySection, this.selection);
+            },
+
+            toggleSelectAllInventory() {
+                if (!window.ms365JobSelection) {
+                    return;
+                }
+                this.selection = window.ms365JobSelection.toggleGlobalSelect(
+                    this.treesBySection,
+                    this.selection,
+                );
+                this.syncSelectionPayload();
+            },
+
             selectionSummaryRowCount() {
                 if (!window.ms365JobSelection) return 0;
                 return window.ms365JobSelection.summaryRowCount(this.selectionSummaryGroups);
@@ -1033,7 +1304,9 @@
                     if (data.status === 'success') {
                         toast('success', this.editMode ? 'Job updated.' : 'Job created.');
                         this.close();
-                        if (typeof window.e3backupReloadJobs === 'function') {
+                        if (typeof window.e3backupAfterJobSaved === 'function') {
+                            window.e3backupAfterJobSaved();
+                        } else if (typeof window.e3backupReloadJobs === 'function') {
                             window.e3backupReloadJobs();
                         }
                     } else if (data.reconnect_required) {

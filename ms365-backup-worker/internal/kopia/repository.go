@@ -12,27 +12,45 @@ import (
 	"github.com/kopia/kopia/repo/content"
 )
 
-func openOrInitRepo(ctx context.Context, storage StorageOptions, repoConfig string, password string) (repo.Repository, error) {
+type openRepoOptions struct {
+	storage        StorageOptions
+	cache          RepoCacheSettings
+	maxPackSizeMiB int
+}
+
+func openRepository(ctx context.Context, opts openRepoOptions) (repo.Repository, error) {
+	repoConfig := opts.storage.PersistentRepoConfigPath(opts.cache.RepoConfigDir)
+	password := opts.storage.Password()
+	caching := opts.cache.cachingOptions(opts.storage)
+
 	if err := os.MkdirAll(filepath.Dir(repoConfig), 0o755); err != nil {
 		return nil, err
 	}
+	if err := os.MkdirAll(caching.CacheDirectory, 0o755); err != nil {
+		return nil, err
+	}
+
+	maxPack := opts.maxPackSizeMiB
+	if maxPack <= 0 {
+		maxPack = 64
+	}
 
 	initAndConnect := func() error {
-		st, err := storage.Storage(ctx)
+		st, err := opts.storage.Storage(ctx)
 		if err != nil {
 			return fmt.Errorf("storage: %w", err)
 		}
 		initOpts := &repo.NewRepositoryOptions{
 			BlockFormat: content.FormattingOptions{
 				MutableParameters: content.MutableParameters{
-					MaxPackSize: 64 << 20,
+					MaxPackSize: maxPack << 20,
 				},
 			},
 		}
 		if err := repo.Initialize(ctx, st, initOpts, password); err != nil && !errors.Is(err, repo.ErrAlreadyInitialized) {
 			return fmt.Errorf("initialize: %w", err)
 		}
-		if err := repo.Connect(ctx, repoConfig, st, password, nil); err != nil && !errors.Is(err, repo.ErrAlreadyInitialized) {
+		if err := repo.Connect(ctx, repoConfig, st, password, connectOptions(caching)); err != nil && !errors.Is(err, repo.ErrAlreadyInitialized) {
 			return fmt.Errorf("connect: %w", err)
 		}
 		return nil
@@ -57,8 +75,15 @@ func openOrInitRepo(ctx context.Context, storage StorageOptions, repoConfig stri
 			rep, err = repo.Open(ctx, repoConfig, password, nil)
 		}
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("open repo: %w", err)
 		}
 	}
 	return rep, nil
+}
+
+func connectOptions(caching *content.CachingOptions) *repo.ConnectOptions {
+	if caching == nil {
+		return &repo.ConnectOptions{}
+	}
+	return &repo.ConnectOptions{CachingOptions: *caching}
 }

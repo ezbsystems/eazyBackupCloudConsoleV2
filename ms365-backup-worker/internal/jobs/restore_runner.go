@@ -4,8 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
-	"os"
 	"strings"
 	"time"
 
@@ -17,18 +17,21 @@ import (
 )
 
 type RestoreRunner struct {
-	cfg    *config.Config
-	client *api.Client
+	cfg      *config.Config
+	client   *api.Client
+	repoPool *kopia.Pool
 }
 
-func NewRestoreRunner(cfg *config.Config, client *api.Client) *RestoreRunner {
-	return &RestoreRunner{cfg: cfg, client: client}
+func NewRestoreRunner(cfg *config.Config, client *api.Client, repoPool *kopia.Pool) *RestoreRunner {
+	return &RestoreRunner{cfg: cfg, client: client, repoPool: repoPool}
 }
 
 func (r *RestoreRunner) Run(ctx context.Context, job *api.RunJob) error {
 	if job == nil || job.JobType != "restore" {
 		return fmt.Errorf("not a restore job")
 	}
+	defer func() { r.flushLogs(ctx, job.RunID) }()
+	r.client.RunLogf(r.logCtx(ctx), job.RunID, "info", "starting restore %s", job.RunID)
 	log.Printf("starting restore %s", job.RunID)
 
 	selection := job.RestoreSelection
@@ -51,14 +54,18 @@ func (r *RestoreRunner) Run(ctx context.Context, job *api.RunJob) error {
 		ResourceID:   selection.Targets[0].ResourceID,
 		GraphID:      selection.Targets[0].GraphID,
 		ResourceType: selection.Targets[0].ResourceType,
+		DriveID:      strings.TrimSpace(job.DriveID),
 	}
 
 	gc := graph.NewClient(job.GraphToken, job.GraphRegion, graph.ClientOptions{
 		MaxRetries:       r.cfg.Graph.MaxRetries,
 		RetryBaseDelayMs: r.cfg.Graph.RetryBaseDelayMs,
 		MaxConcurrency:   r.cfg.Worker.GraphParallelRequests,
-		AdaptiveLimit:    r.cfg.Graph.AdaptiveConcurrency,
+		AdaptiveLimit:    r.cfg.Graph.AdaptiveEnabled(),
 	})
+	stopTokenRefresh := bindGraphTokenRefresh(ctx, r.cfg, r.client, gc, job.RunID)
+	defer stopTokenRefresh()
+
 	storage := kopia.StorageOptions{
 		Endpoint:     job.DestEndpoint,
 		Region:       job.DestRegion,
@@ -68,7 +75,6 @@ func (r *RestoreRunner) Run(ctx context.Context, job *api.RunJob) error {
 		SecretKey:    job.DestSecretKey,
 		RepoPassword: job.RepoPassword,
 	}
-	repoConfig := storage.RepoConfigPath(r.cfg.Worker.RunDir, job.RunID)
 
 	manifestByItem := map[string]string{}
 	for _, item := range selection.Items {
@@ -82,27 +88,53 @@ func (r *RestoreRunner) Run(ctx context.Context, job *api.RunJob) error {
 		}
 	}
 
-	fetch := func(path string) ([]byte, error) {
-		manifestID := job.SourceManifestID
-		for prefix, mid := range manifestByItem {
-			if path == prefix || stringsHasPrefix(path, prefix) {
-				manifestID = mid
-				break
+	fetch := graphrestore.ContentFetcher{
+		Bytes: func(path string) ([]byte, error) {
+			manifestID := job.SourceManifestID
+			for prefix, mid := range manifestByItem {
+				if path == prefix || stringsHasPrefix(path, prefix) {
+					manifestID = mid
+					break
+				}
 			}
-		}
-		for _, item := range selection.Items {
-			if item.ManifestID != "" {
-				manifestID = item.ManifestID
-				break
+			for _, item := range selection.Items {
+				if item.ManifestID != "" {
+					manifestID = item.ManifestID
+					break
+				}
 			}
-		}
-		return kopia.Extract(ctx, kopia.ExtractRequest{
-			Storage:    storage,
-			RepoConfig: repoConfig,
-			ManifestID: manifestID,
-			Path:       path,
-			SourcePath: "/ms365",
-		})
+			return r.repoPool.Extract(ctx, kopia.ExtractRequest{
+				Storage:    storage,
+				ManifestID: manifestID,
+				Path:       path,
+				SourcePath: "/ms365",
+			})
+		},
+		Stream: func(path string) (io.ReadCloser, int64, error) {
+			manifestID := job.SourceManifestID
+			for prefix, mid := range manifestByItem {
+				if path == prefix || stringsHasPrefix(path, prefix) {
+					manifestID = mid
+					break
+				}
+			}
+			for _, item := range selection.Items {
+				if item.ManifestID != "" {
+					manifestID = item.ManifestID
+					break
+				}
+			}
+			reader, size, err := r.repoPool.ExtractReader(ctx, kopia.ExtractRequest{
+				Storage:    storage,
+				ManifestID: manifestID,
+				Path:       path,
+				SourcePath: "/ms365",
+			})
+			if err != nil {
+				return nil, 0, err
+			}
+			return reader, size, nil
+		},
 	}
 
 	items := make([]graphrestore.SelectionItem, len(selection.Items))
@@ -145,19 +177,23 @@ func (r *RestoreRunner) Run(ctx context.Context, job *api.RunJob) error {
 			pct = 10 + (float64(done)/float64(total))*85
 		}
 		reportProgress(api.ProgressUpdate{
-			Phase:      "restore_graph",
-			Percent:    pct,
-			ItemsDone:  done,
-			ItemsTotal: total,
-			Message:    message,
+			Phase:        "restore_graph",
+			Percent:      pct,
+			ItemsDone:    done,
+			ItemsTotal:   total,
+			ItemsSkipped: skipped,
+			Message:      message,
 		})
 	})
+	runner.OnItemError = func(message string) {
+		r.client.RunLogf(r.logCtx(ctx), job.RunID, "error", "restore item error: %s", message)
+	}
 
 	stats, err := runner.RestoreItems(ctx, primaryTarget, items, fetch)
 	if err != nil {
+		r.client.RunLogf(r.logCtx(ctx), job.RunID, "error", "restore failed: %s", err.Error())
 		return r.failTerminal(ctx, job.RunID, err.Error())
 	}
-
 	doneCount := stats.Restored + stats.Skipped
 	if doneCount == 0 && len(items) > 0 {
 		msg := "no items were restored"
@@ -167,6 +203,7 @@ func (r *RestoreRunner) Run(ctx context.Context, job *api.RunJob) error {
 				msg += ": " + strings.Join(stats.ErrorMessages, "; ")
 			}
 		}
+		r.client.RunLogf(r.logCtx(ctx), job.RunID, "error", "restore %s failed: %s", job.RunID, msg)
 		reportProgress(api.ProgressUpdate{
 			Phase:      "restore_graph",
 			Percent:    95,
@@ -186,15 +223,24 @@ func (r *RestoreRunner) Run(ctx context.Context, job *api.RunJob) error {
 	})
 
 	statsJSON, _ := json.Marshal(stats)
-	_ = os.Remove(repoConfig)
+	r.client.RunLogf(r.logCtx(ctx), job.RunID, "info", "restore %s completed restored=%d skipped=%d errors=%d", job.RunID, stats.Restored, stats.Skipped, stats.Errors)
 	return r.completeTerminal(ctx, job.RunID, string(statsJSON))
 }
 
+func (r *RestoreRunner) logCtx(ctx context.Context) context.Context {
+	return context.WithoutCancel(ctx)
+}
+
+func (r *RestoreRunner) flushLogs(ctx context.Context, runID string) {
+	_ = r.client.FlushRunLogs(r.logCtx(ctx), runID)
+}
+
 func (r *RestoreRunner) terminalCtx(ctx context.Context) (context.Context, context.CancelFunc) {
-	return context.WithTimeout(context.WithoutCancel(ctx), 45*time.Second)
+	return context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
 }
 
 func (r *RestoreRunner) completeTerminal(ctx context.Context, runID, statsJSON string) error {
+	r.flushLogs(ctx, runID)
 	tctx, cancel := r.terminalCtx(ctx)
 	defer cancel()
 	if err := r.client.Complete(tctx, api.CompleteUpdate{
@@ -212,8 +258,12 @@ func (r *RestoreRunner) fail(ctx context.Context, runID, message string) error {
 }
 
 func (r *RestoreRunner) failTerminal(ctx context.Context, runID, message string) error {
+	r.flushLogs(ctx, runID)
 	tctx, cancel := r.terminalCtx(ctx)
 	defer cancel()
+	if len(message) > 4000 {
+		message = message[:4000] + "…"
+	}
 	if err := r.client.Fail(tctx, api.FailUpdate{RunID: runID, Message: message}); err != nil {
 		log.Printf("restore %s fail callback failed: %v (message: %s)", runID, err, message)
 	}

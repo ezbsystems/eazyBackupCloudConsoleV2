@@ -15,14 +15,6 @@
     </span>
 {/capture}
 
-{capture assign=ebE3UsersBreadcrumb}
-    <div class="eb-breadcrumb">
-        <a href="index.php?m=cloudstorage&page=e3backup&view=dashboard" class="eb-breadcrumb-link">e3 Cloud Backup</a>
-        <span class="eb-breadcrumb-separator">/</span>
-        <span class="eb-breadcrumb-current">Users</span>
-    </div>
-{/capture}
-
 {capture assign=ebE3UsersHeaderActions}
     <span class="eb-badge eb-badge--neutral" x-text="loading ? 'Loading users' : (filteredUsers().length + ' users')"></span>
 {/capture}
@@ -30,7 +22,6 @@
 {capture assign=ebE3Content}
 <div x-data="backupUsersApp()" @eb-e3-user-create-open.window="openCreateModal()" class="eb-section-stack">
     {include file="$template/includes/ui/page-header.tpl"
-        ebBreadcrumb=$ebE3UsersBreadcrumb
         ebPageTitle='User Directory'
         ebPageDescription='Manage backup usernames, tenant scope, and account activity.'
         ebPageActions=$ebE3UsersHeaderActions

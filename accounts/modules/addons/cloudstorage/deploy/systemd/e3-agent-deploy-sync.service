@@ -1,0 +1,9 @@
+[Unit]
+Description=e3 Agent Deploy Sync (pull from dev)
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=www-data
+WorkingDirectory=/var/www/eazybackup.ca/accounts
+ExecStart=/usr/bin/php /var/www/eazybackup.ca/accounts/modules/addons/cloudstorage/crons/agent_deploy_sync.php

@@ -499,17 +499,34 @@ class CloudBackupController {
     /**
      * Delete a backup job (soft delete)
      *
-     * @param int $jobId
+     * @param string $jobId
      * @param int $clientId
+     * @param string $confirmPhrase Typed confirmation for MS365 jobs
+     * @param array<string, mixed> $auditContext
      * @return array
      */
-    public static function deleteJob($jobId, $clientId)
+    public static function deleteJob($jobId, $clientId, $confirmPhrase = '', array $auditContext = [])
     {
         try {
             // Verify ownership
             $job = self::getJob($jobId, $clientId);
             if (!$job) {
                 return ['status' => 'fail', 'message' => 'Job not found or access denied'];
+            }
+
+            $isMs365 = self::isMs365CloudBackupJob($job);
+            if ($isMs365) {
+                $jobName = trim((string) ($job['name'] ?? ''));
+                if ($jobName === '') {
+                    $jobName = 'Unnamed job';
+                }
+                if (!Ms365VaultLifecycleService::validateDeleteJobPhrase($jobName, (string) $confirmPhrase)) {
+                    return [
+                        'status' => 'fail',
+                        'code' => 'confirm_phrase_mismatch',
+                        'message' => 'Confirmation phrase does not match. Type: DELETE ' . $jobName,
+                    ];
+                }
             }
 
             $sourceType = (string) ($job['source_type'] ?? '');
@@ -540,7 +557,42 @@ class CloudBackupController {
                     'updated_at' => date('Y-m-d H:i:s'),
                 ]);
 
-            return ['status' => 'success'];
+            $vaultResult = null;
+            if ($isMs365) {
+                Ms365VaultLifecycleService::writeAuditEvent(
+                    $clientId,
+                    (int) ($job['backup_user_id'] ?? 0) ?: null,
+                    'ms365_job_deleted',
+                    'job',
+                    (string) $jobId,
+                    $auditContext,
+                    [
+                        'job_name' => (string) ($job['name'] ?? ''),
+                        'dest_bucket_id' => (int) ($job['dest_bucket_id'] ?? 0),
+                    ]
+                );
+
+                $vaultResult = Ms365VaultLifecycleService::softDeleteVaultForJob($job, $clientId, $auditContext);
+                if (($vaultResult['status'] ?? '') === 'success') {
+                    Ms365VaultNotificationService::sendJobDeletedNotification(
+                        $clientId,
+                        (string) ($job['name'] ?? 'Unnamed job'),
+                        $vaultResult,
+                        (int) ($job['backup_user_id'] ?? 0) ?: null
+                    );
+                }
+            }
+
+            $response = ['status' => 'success'];
+            if (is_array($vaultResult) && ($vaultResult['status'] ?? '') === 'success') {
+                $response['vault'] = [
+                    'recycle_teardown_at' => $vaultResult['recycle_teardown_at'] ?? null,
+                    'grace_days' => $vaultResult['grace_days'] ?? Ms365VaultLifecycleService::getGraceDays(),
+                    'bucket_name' => $vaultResult['bucket_name'] ?? null,
+                ];
+            }
+
+            return $response;
         } catch (\Exception $e) {
             logModuleCall(self::$module, 'deleteJob', ['job_id' => $jobId, 'client_id' => $clientId], $e->getMessage());
             return ['status' => 'fail', 'message' => 'Failed to delete job. Please try again later.'];

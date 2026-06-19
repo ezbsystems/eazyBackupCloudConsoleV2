@@ -1,5 +1,5 @@
 <link rel="stylesheet" href="modules/addons/cloudstorage/assets/css/ms365_job_wizard.css?v=7">
-<link rel="stylesheet" href="modules/addons/cloudstorage/assets/css/ms365_restore_wizard.css?v=3">
+<link rel="stylesheet" href="modules/addons/cloudstorage/assets/css/ms365_restore_wizard.css?v=4">
 
 <div id="ms365RestoreWizardModal" class="ms365-job-wizard-modal-host fixed inset-0 z-[2200] hidden" x-data="ms365RestoreWizardApp()" x-cloak>
     <div class="eb-modal-backdrop absolute inset-0" @click="close()"></div>
@@ -53,45 +53,57 @@
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 min-h-[320px]">
                             <div class="ms365-inventory-pane border border-[var(--eb-border-default)] rounded-lg overflow-hidden flex flex-col">
                                 <div class="eb-menu-label px-3 py-2 border-b border-[var(--eb-border-default)]">Available to restore</div>
-                                <div class="flex-1 overflow-y-auto p-2 text-sm" id="ms365RestoreTreeRoot">
-                                    <template x-for="node in filteredTreeNodes()" :key="node.key">
-                                        <div class="ms365-tree-node" :style="'padding-left:' + (node.depth * 12) + 'px'">
-                                            <span class="ms365-tree-toggle-slot">
-                                                <span x-show="node.loading" class="ms365-tree-spinner eb-loading-spinner--compact"></span>
-                                                <button type="button"
-                                                        class="ms365-tree-toggle"
-                                                        x-show="node.has_children && !node.loading"
-                                                        @click="toggleExpand(node)"
-                                                        x-text="node.expanded ? '▼' : '▶'"></button>
-                                            </span>
-                                            <input type="checkbox" class="eb-checkbox" :checked="isSelected(node)" @change="toggleSelect(node)">
-                                            <button type="button"
-                                                    class="ms365-tree-label"
-                                                    :class="node.loading ? 'is-loading' : ''"
-                                                    @click="node.has_children && toggleExpand(node)">
-                                                <span class="ms365-tree-label-primary" x-text="node.label || node.name"></span>
-                                                <span class="ms365-tree-label-secondary" x-show="node.subtitle" x-text="node.subtitle"></span>
-                                            </button>
+                                <div class="flex-1 overflow-y-auto p-2 text-sm space-y-4" id="ms365RestoreTreeRoot">
+                                    <template x-for="section in restoreSections" :key="'restore-sec-' + section.key">
+                                        <div x-show="sectionHasNodes(section.key)">
+                                            <div class="text-xs font-semibold uppercase tracking-wide text-[var(--eb-text-muted)] mb-2 px-1" x-text="section.label"></div>
+                                            <div class="flex flex-col gap-0.5">
+                                                <template x-for="node in visibleSectionNodes(section.key)" :key="node.key">
+                                                    <div class="ms365-tree-node" :style="'padding-left:' + (node.depth * 12) + 'px'">
+                                                        <span class="ms365-tree-toggle-slot">
+                                                            <span x-show="node.loading" class="ms365-tree-spinner eb-loading-spinner--compact"></span>
+                                                            <button type="button"
+                                                                    class="ms365-tree-toggle"
+                                                                    x-show="node.has_children && !node.loading"
+                                                                    @click="toggleExpand(node)"
+                                                                    x-text="node.expanded ? '▼' : '▶'"></button>
+                                                        </span>
+                                                        <input type="checkbox" class="eb-checkbox" :checked="isSelected(node)" @change="toggleSelect(node)">
+                                                        <button type="button"
+                                                                class="ms365-tree-label"
+                                                                :class="node.loading ? 'is-loading' : ''"
+                                                                @click="node.has_children && toggleExpand(node)">
+                                                            <span class="ms365-tree-label-primary" x-text="node.label || node.name"></span>
+                                                            <span class="ms365-tree-label-secondary" x-show="node.subtitle" x-text="node.subtitle"></span>
+                                                        </button>
+                                                    </div>
+                                                </template>
+                                            </div>
                                         </div>
                                     </template>
-                                    <p x-show="treeNodes.length === 0" class="eb-type-caption text-center py-8">Expand workloads to browse contents.</p>
+                                    <p x-show="treeNodes.length === 0" class="eb-type-caption text-center py-8">No workloads found in this snapshot.</p>
                                 </div>
                             </div>
                             <div class="ms365-selection-pane border border-[var(--eb-border-default)] rounded-lg overflow-hidden flex flex-col">
                                 <div class="eb-menu-label px-3 py-2 border-b border-[var(--eb-border-default)]">
                                     Selected for restore (<span x-text="selectedItems.length"></span>)
                                 </div>
-                                <div class="flex-1 overflow-y-auto p-2 space-y-1">
+                                <div class="flex-1 overflow-y-auto p-2 space-y-3">
                                     <template x-if="selectedItems.length === 0">
                                         <p class="eb-type-caption text-center py-8">Select items on the left to restore.</p>
                                     </template>
-                                    <template x-for="(item, idx) in selectedItems" :key="'sel-' + idx">
-                                        <div class="flex items-center justify-between gap-2 py-1 px-2 text-sm rounded bg-[var(--eb-surface-muted)]">
-                                            <div class="min-w-0">
-                                                <div class="truncate" x-text="item.label"></div>
-                                                <div class="truncate text-xs text-[var(--eb-text-muted)]" x-show="item.subtitle" x-text="item.subtitle"></div>
-                                            </div>
-                                            <button type="button" class="eb-btn eb-btn-ghost eb-btn-sm shrink-0" @click="removeSelected(idx)">Remove</button>
+                                    <template x-for="group in selectedSummaryGroups()" :key="'restore-sum-' + group.section">
+                                        <div>
+                                            <div class="text-xs font-semibold text-[var(--eb-text-muted)] mb-1 px-1" x-text="group.section"></div>
+                                            <template x-for="(item, idx) in group.items" :key="group.section + '-sel-' + idx">
+                                                <div class="flex items-center justify-between gap-2 py-1 px-2 text-sm rounded bg-[var(--eb-surface-muted)]">
+                                                    <div class="min-w-0">
+                                                        <div class="truncate" x-text="item.label"></div>
+                                                        <div class="truncate text-xs text-[var(--eb-text-muted)]" x-show="item.subtitle" x-text="item.subtitle"></div>
+                                                    </div>
+                                                    <button type="button" class="eb-btn eb-btn-ghost eb-btn-sm shrink-0" @click="removeSelected(selectedItems.findIndex((s) => s.key === item.key))">Remove</button>
+                                                </div>
+                                            </template>
                                         </div>
                                     </template>
                                 </div>
@@ -150,4 +162,4 @@
     </div>
 </div>
 
-<script src="modules/addons/cloudstorage/assets/js/ms365_restore_wizard.js?v=5"></script>
+<script src="modules/addons/cloudstorage/assets/js/ms365_restore_wizard.js?v=8"></script>

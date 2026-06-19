@@ -1,11 +1,3 @@
-# MS365 Backup — Product agent prompt (reusable)
-
-Use this prompt when working on the **sellable MS365 backup product** (customer e3 UI, Entra onboarding, cloud storage, restore, ops). For **engine-only** or admin-addon debugging, you may also use [ms365backup_agent_prompt.md](ms365backup_agent_prompt.md).
-
-Copy the markdown block below into a new chat. Fill in **Task** at the end.
-
----
-
 ```markdown
 You are working on the **Microsoft 365 Backup** product for eazyBackup (WHMCS). This is a multi-module effort: backup **engines** live in the `ms365backup` addon; **customer experience** lives in **e3 Cloud Backup** (`cloudstorage`). **Comet / eazybackup OBC MS365 containers are permanently out of scope.**
 

@@ -15,18 +15,26 @@ type TeamsSyncOptions struct {
 	TeamID        string
 	Parallel      int
 	Staging       *graphfs.OverlayBuilder
+	DeltaStates   map[string]string
+	Log           RunLogger
 }
 
 type TeamsSyncResult struct {
-	Stats     map[string]int
-	FileCount int
+	Stats       map[string]int
+	FileCount   int
+	DeltaStates map[string]string
 }
 
 func SyncTeams(ctx context.Context, client *graph.Client, opts TeamsSyncOptions) (*TeamsSyncResult, error) {
 	if opts.Staging == nil {
 		return nil, fmt.Errorf("teams sync requires overlay builder")
 	}
+	if opts.Log != nil {
+		opts.Log("info", fmt.Sprintf("Starting teams backup team=%s incremental=%v", opts.TeamID, len(opts.DeltaStates) > 0))
+	}
 	stats := map[string]int{"channels": 0, "messages": 0}
+	deltaOut := map[string]string{}
+
 	channels, err := client.Paginate(ctx, fmt.Sprintf("/teams/%s/channels", opts.TeamID), map[string]string{"$top": "50"})
 	if err != nil {
 		return nil, err
@@ -40,9 +48,18 @@ func SyncTeams(ctx context.Context, client *graph.Client, opts TeamsSyncOptions)
 			continue
 		}
 		stats["channels"]++
-		items, _, err := client.PaginateDelta(ctx, fmt.Sprintf("/teams/%s/channels/%s/messages/delta", opts.TeamID, chID), "", "", 50)
+		priorDelta := ""
+		if opts.DeltaStates != nil {
+			priorDelta = opts.DeltaStates[chID]
+		}
+		deltaPath := fmt.Sprintf("/teams/%s/channels/%s/messages/delta", opts.TeamID, chID)
+		monitor := graph.ForBackupPagination("teams:"+chID, graphLog(opts.Log))
+		items, deltaLink, err := paginateDeltaResilient(ctx, client, deltaPath, priorDelta, "", 50, nil, &graph.DeltaPaginateOptions{Monitor: monitor})
 		if err != nil {
 			return nil, err
+		}
+		if deltaLink != "" {
+			deltaOut[chID] = deltaLink
 		}
 		for _, item := range items {
 			if removed, _ := item["@removed"].(map[string]any); removed != nil {
@@ -61,17 +78,5 @@ func SyncTeams(ctx context.Context, client *graph.Client, opts TeamsSyncOptions)
 			stats["messages"]++
 		}
 	}
-	return &TeamsSyncResult{Stats: stats, FileCount: opts.Staging.EntryCount()}, nil
-}
-
-func graphfsModTime(v any) time.Time {
-	s, _ := v.(string)
-	if s == "" {
-		return time.Now().UTC()
-	}
-	t, err := time.Parse(time.RFC3339, s)
-	if err != nil {
-		return time.Now().UTC()
-	}
-	return t.UTC()
+	return &TeamsSyncResult{Stats: stats, FileCount: opts.Staging.EntryCount(), DeltaStates: deltaOut}, nil
 }

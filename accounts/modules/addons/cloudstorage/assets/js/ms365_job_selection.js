@@ -528,6 +528,60 @@
         return (groups || []).reduce((sum, group) => sum + (group.items ? group.items.length : 0), 0);
     }
 
+    function selectableLeafKeys(treesBySection) {
+        const keys = [];
+        SECTIONS.forEach((section) => {
+            const nodes = treesBySection[section.key] || [];
+            nodes.forEach((node) => {
+                if (node.kind === 'capability' || node.kind === 'resource_child' || node.kind === 'leaf') {
+                    keys.push(node.key);
+                }
+            });
+        });
+        return keys;
+    }
+
+    function selectAll(treesBySection) {
+        const selection = {};
+        SECTIONS.forEach((section) => {
+            const nodes = treesBySection[section.key] || [];
+            nodes.forEach((node) => {
+                if (node.kind === 'parent') {
+                    const children = getDescendants(nodes, node.key);
+                    if (children.length > 0) {
+                        setChecked(selection, node.key, true);
+                    }
+                }
+                if (node.kind === 'capability' || node.kind === 'resource_child' || node.kind === 'leaf') {
+                    setChecked(selection, node.key, true);
+                }
+            });
+        });
+        return selection;
+    }
+
+    function globalCheckState(treesBySection, selection) {
+        const keys = selectableLeafKeys(treesBySection);
+        if (keys.length === 0) {
+            return 'unchecked';
+        }
+        const checked = keys.filter((key) => isChecked(selection, key)).length;
+        if (checked === 0) {
+            return 'unchecked';
+        }
+        if (checked === keys.length) {
+            return 'checked';
+        }
+        return 'indeterminate';
+    }
+
+    function toggleGlobalSelect(treesBySection, selection) {
+        if (globalCheckState(treesBySection, selection) === 'checked') {
+            return {};
+        }
+        return selectAll(treesBySection);
+    }
+
     function visibleNodes(sectionNodes, selection, searchQuery, expandedKeys) {
         const q = (searchQuery || '').toLowerCase().trim();
         const visible = [];
@@ -563,6 +617,9 @@
         isChecked,
         toggleNode,
         parentCheckState,
+        globalCheckState,
+        toggleGlobalSelect,
+        selectAll,
         buildSavePayload,
         hydrateFromSavedJob,
         selectionSummary,

@@ -1,11 +1,3 @@
-# Microsoft 365 — e3 UI agent prompt (Phase 4b)
-
-Use this prompt when **designing or implementing** the unified Microsoft 365 experience inside **e3 Cloud Backup** (`cloudstorage`). For engine/Graph/queue work, use [ms365_product_agent_prompt.md](ms365_product_agent_prompt.md) or [ms365backup_agent_prompt.md](ms365backup_agent_prompt.md).
-
-Copy the block below into a new chat and fill in **Task**.
-
----
-
 ```markdown
 You are working on **Phase 4b: Unified e3 Microsoft 365 UX** for eazyBackup.
 

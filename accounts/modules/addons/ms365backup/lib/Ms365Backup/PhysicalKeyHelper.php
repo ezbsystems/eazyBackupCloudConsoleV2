@@ -92,8 +92,10 @@ final class PhysicalKeyHelper
 
     /**
      * Kopia SourceInfo.Path for independent per-shard incrementals.
+     *
+     * @param array<string, mixed> $scope
      */
-    public static function kopiaSourcePath(string $azureTenantId, string $physicalKey): string
+    public static function kopiaSourcePath(string $azureTenantId, string $physicalKey, array $scope = []): string
     {
         $azureTenantId = trim($azureTenantId, '/');
         $base = self::baseKey($physicalKey);
@@ -101,6 +103,45 @@ final class PhysicalKeyHelper
         $resourceType = (string) ($parsed['resource_type'] ?? '');
         $graphId = (string) ($parsed['graph_id'] ?? '');
         $shard = self::parseShard($physicalKey);
+
+        $siteId = trim((string) ($scope['_site_id'] ?? ''));
+        if ($siteId === '' && str_starts_with($base, 'drive:')) {
+            $parent = trim((string) ($scope['_shard']['parent_physical_key'] ?? ''));
+            if (str_starts_with($parent, 'site:')) {
+                $siteId = substr($parent, 5);
+            }
+        }
+        if ($siteId !== '' && str_starts_with($base, 'drive:')) {
+            $driveId = substr($base, 6);
+            $root = $azureTenantId . '/sites/' . self::storageSafeId($siteId) . '/drives/' . self::storageSafeId($driveId);
+            if ($shard === null) {
+                return $root;
+            }
+            if ($shard['kind'] === 'mail_folder') {
+                return $root . '/mail/' . rawurlencode((string) $shard['segment']);
+            }
+
+            return $root . '/.shards/' . (int) $shard['index'];
+        }
+
+        if (str_starts_with($base, 'list:')) {
+            $listId = substr($base, 5);
+            if ($siteId === '') {
+                $parent = trim((string) ($scope['_shard']['parent_physical_key'] ?? ''));
+                if (str_starts_with($parent, 'site:')) {
+                    $siteId = substr($parent, 5);
+                }
+            }
+            if ($siteId === '') {
+                $siteId = $graphId;
+            }
+            $root = $azureTenantId . '/sites/' . self::storageSafeId($siteId) . '/lists/' . self::storageSafeId($listId);
+            if ($shard === null) {
+                return $root;
+            }
+
+            return $root . '/.shards/' . (int) $shard['index'];
+        }
 
         $root = match ($resourceType) {
             TenantResource::TYPE_USER_ONEDRIVE => $azureTenantId . '/drives/' . $graphId,
@@ -129,5 +170,63 @@ final class PhysicalKeyHelper
         $meta = is_array($resource['meta'] ?? null) ? $resource['meta'] : [];
 
         return max(0, (int) ($meta['size_bytes'] ?? $meta['storage_used_bytes'] ?? 0));
+    }
+
+    public static function itemCountHint(array $resource): int
+    {
+        $meta = is_array($resource['meta'] ?? null) ? $resource['meta'] : [];
+        $count = max(0, (int) ($meta['item_count'] ?? 0));
+        if ($count > 0) {
+            return $count;
+        }
+        if (!is_array($meta['drives'] ?? null)) {
+            return 0;
+        }
+        $sum = 0;
+        foreach ($meta['drives'] as $drive) {
+            if (!is_array($drive)) {
+                continue;
+            }
+            $sum += max(0, (int) ($drive['item_count'] ?? 0));
+        }
+
+        return $sum;
+    }
+
+    /**
+     * @param array<string, mixed> $run
+     */
+    public static function aggregateParentKey(string $physicalKey, array $run = []): string
+    {
+        $scopeRaw = (string) ($run['scope_json'] ?? '');
+        if ($scopeRaw !== '') {
+            $scope = json_decode($scopeRaw, true);
+            if (is_array($scope)) {
+                $shardParent = trim((string) ($scope['_shard']['parent_physical_key'] ?? ''));
+                if ($shardParent !== '' && str_starts_with($physicalKey, 'drive:')) {
+                    return $shardParent;
+                }
+                $siteId = trim((string) ($scope['_site_id'] ?? ''));
+                if ($siteId !== '' && str_starts_with($physicalKey, 'drive:')) {
+                    return 'site:' . $siteId;
+                }
+                if ($siteId !== '' && str_starts_with($physicalKey, 'list:')) {
+                    return 'site:' . $siteId;
+                }
+                $shardParent = trim((string) ($scope['_shard']['parent_physical_key'] ?? ''));
+                if ($shardParent !== '' && str_starts_with($physicalKey, 'list:') && PhysicalKeyHelper::isSharded($physicalKey)) {
+                    return PhysicalKeyHelper::baseKey($shardParent);
+                }
+            }
+        }
+
+        return self::baseKey($physicalKey);
+    }
+
+    private static function storageSafeId(string $id): string
+    {
+        $out = preg_replace('/[^a-zA-Z0-9._-]/', '_', $id) ?: 'unknown';
+
+        return $out;
     }
 }

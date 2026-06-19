@@ -17,14 +17,6 @@
     </span>
 {/capture}
 
-{capture assign=ebE3AgentsBreadcrumb}
-    <div class="eb-breadcrumb">
-        <a href="index.php?m=cloudstorage&page=e3backup&view=dashboard" class="eb-breadcrumb-link">e3 Cloud Backup</a>
-        <span class="eb-breadcrumb-separator">/</span>
-        <span class="eb-breadcrumb-current">Agents</span>
-    </div>
-{/capture}
-
 {capture assign=ebE3AgentsHeaderActions}
     <span class="eb-badge eb-badge--neutral" x-text="loading ? 'Loading' : (filteredAgents().length + ' agents')"></span>
 {/capture}
@@ -53,7 +45,6 @@
         </template>
     </div>
     {include file="$template/includes/ui/page-header.tpl"
-        ebBreadcrumb=$ebE3AgentsBreadcrumb
         ebPageTitle='Registered Agents'
         ebPageDescription='Manage backup agents, connection state, enrollment, and recovery actions.'
         ebPageActions=$ebE3AgentsHeaderActions
@@ -144,6 +135,10 @@
                 </button>
                 <div x-show="columnsOpen" x-transition class="eb-menu absolute left-0 z-20 mt-2 w-56 p-3" style="display: none;">
                     <label class="eb-menu-checklist-item">
+                        <span>Agent UUID</span>
+                        <input type="checkbox" class="eb-checkbox" x-model="showAgentUuid">
+                    </label>
+                    <label class="eb-menu-checklist-item mt-2">
                         <span>Device ID</span>
                         <input type="checkbox" class="eb-checkbox" x-model="showDeviceId">
                     </label>
@@ -169,7 +164,7 @@
                     <thead>
                         <tr>
                             <th>Connection</th>
-                            <th>Agent UUID</th>
+                            <th x-show="showAgentUuid">Agent UUID</th>
                             <th>Hostname</th>
                             <th x-show="showDeviceId">Device ID</th>
                             <th x-show="showDeviceName">Device Name</th>
@@ -187,7 +182,7 @@
                     <tbody>
                         <template x-if="loading">
                             <tr>
-                                <td :colspan="{if $isMspClient}10{else}9{/if} + (showDeviceId ? 1 : 0) + (showDeviceName ? 1 : 0)" class="!px-4 !py-10 text-center">
+                                <td :colspan="{if $isMspClient}9{else}8{/if} + (showAgentUuid ? 1 : 0) + (showDeviceId ? 1 : 0) + (showDeviceName ? 1 : 0)" class="!px-4 !py-10 text-center">
                                     <div class="inline-flex items-center gap-3 text-sm text-[var(--eb-text-muted)]">
                                         <span class="h-4 w-4 animate-spin rounded-full border-2 border-[color:var(--eb-info-border)] border-t-[color:var(--eb-info-icon)]"></span>
                                         Loading agents...
@@ -197,7 +192,7 @@
                         </template>
                         <template x-if="!loading && filteredAgents().length === 0">
                             <tr>
-                                <td :colspan="{if $isMspClient}10{else}9{/if} + (showDeviceId ? 1 : 0) + (showDeviceName ? 1 : 0)" class="!px-4 !py-10">
+                                <td :colspan="{if $isMspClient}9{else}8{/if} + (showAgentUuid ? 1 : 0) + (showDeviceId ? 1 : 0) + (showDeviceName ? 1 : 0)" class="!px-4 !py-10">
                                     <template x-if="searchQuery.trim()">
                                         <div class="eb-app-empty">
                                             <div class="eb-app-empty-title">No agents match your search</div>
@@ -235,16 +230,14 @@
                             <tr>
                                 <td>
                                     <div class="flex items-center gap-2">
-                                        <span class="eb-badge gap-1.5"
-                                              :class="agent.online_status === 'online' ? 'eb-badge--success' : (agent.online_status === 'offline' ? 'eb-badge--danger' : 'eb-badge--default')">
-                                            <span class="inline-flex h-2 w-2 rounded-full"
-                                                  :class="agent.online_status === 'online' ? 'bg-emerald-400' : (agent.online_status === 'offline' ? 'bg-rose-400' : 'bg-slate-500')"></span>
-                                            <span x-text="agent.online_status === 'online' ? 'online' : (agent.online_status === 'offline' ? 'offline' : 'never')"></span>
-                                        </span>
+                                        <span class="eb-status-dot"
+                                              :class="agent.online_status === 'online' ? 'eb-status-dot--active' : (agent.online_status === 'offline' ? 'eb-status-dot--error' : 'eb-status-dot--inactive')"
+                                              :title="agent.online_status === 'online' ? 'Online' : (agent.online_status === 'offline' ? 'Offline' : 'Never connected')"
+                                              :aria-label="agent.online_status === 'online' ? 'Online' : (agent.online_status === 'offline' ? 'Offline' : 'Never connected')"></span>
                                         <span class="text-xs text-[var(--eb-text-muted)]" x-show="agent.seconds_since_seen !== null && agent.seconds_since_seen !== undefined && agent.online_status !== 'online'" x-text="'(' + agent.seconds_since_seen + 's)'"></span>
                                     </div>
                                 </td>
-                                <td class="eb-table-mono eb-table-primary" x-text="agent.agent_uuid || '—'"></td>
+                                <td class="eb-table-mono eb-table-primary" x-show="showAgentUuid" x-text="agent.agent_uuid || '—'"></td>
                                 <td class="eb-table-primary" x-text="agent.hostname || '—'"></td>
                                 <td class="eb-table-mono" x-show="showDeviceId" x-text="agent.device_id || '—'"></td>
                                 <td x-show="showDeviceName" x-text="agent.device_name || '—'"></td>
@@ -256,9 +249,9 @@
                                           :class="agent.agent_type === 'server' ? 'eb-badge--premium' : (agent.agent_type === 'hypervisor' ? 'eb-badge--warning' : 'eb-badge--info')"
                                           x-text="agent.agent_type || 'workstation'"></span>
                                 </td>
-                                <td>
+                                <td class="eb-table-primary">
                                     <div class="flex items-center gap-2">
-                                        <span class="eb-table-mono" x-text="agent.agent_version || '—'"></span>
+                                        <span x-text="agent.agent_version || '—'"></span>
                                         <span class="eb-badge eb-badge--warning"
                                               x-show="agent.update_available" x-cloak
                                               title="A newer version is available">Update</span>
@@ -428,7 +421,6 @@
                             <div class="eb-type-eyebrow">Updates</div>
                             <p class="eb-card-subtitle">Remotely update the backup agent to the latest version.</p>
                         </div>
-                        <span class="eb-badge" :class="updateBadgeClass()" x-text="updateBadgeLabel()"></span>
                     </div>
 
                     <dl class="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
@@ -452,8 +444,8 @@
                         </div>
                     </div>
 
-                    <!-- Terminal result alert -->
-                    <div class="mt-3" x-show="updateJob && ['success','failed','timeout'].includes(updateJob.status)" x-cloak>
+                    <!-- Terminal result alert (current drawer session only) -->
+                    <div class="mt-3" x-show="showUpdateResult && updateJob && ['success','failed','timeout'].includes(updateJob.status)" x-cloak>
                         <div class="eb-alert" :class="updateJob && updateJob.status === 'success' ? 'eb-alert--success' : 'eb-alert--danger'">
                             <div>
                                 <div class="eb-alert-title" x-text="updateJob && updateJob.status === 'success' ? 'Update complete' : 'Update failed'"></div>
@@ -594,6 +586,7 @@ function agentsApp() {
         tenantFilter: '',
         searchQuery: '',
         tenantMenuOpen: false,
+        showAgentUuid: false,
         showDeviceId: false,
         showDeviceName: false,
         columnsOpen: false,
@@ -604,6 +597,7 @@ function agentsApp() {
         deleteSubmitting: false,
         updateSubmitting: false,
         updateJob: null,
+        showUpdateResult: false,
         updatePollTimer: null,
         agentToasts: [],
         _agentToastSeq: 0,
@@ -613,6 +607,7 @@ function agentsApp() {
             // Persisted column preferences
             try {
                 const saved = JSON.parse(localStorage.getItem('e3_agents_columns') || '{}');
+                this.showAgentUuid = saved.showAgentUuid === true;
                 this.showDeviceId = !!saved.showDeviceId;
                 this.showDeviceName = !!saved.showDeviceName;
             } catch (e) {}
@@ -622,6 +617,7 @@ function agentsApp() {
         
         // Alpine v3: use init-time $watch calls (instead of a $watch: {} object which is not supported)
         initWatches() {
+            this.$watch('showAgentUuid', () => this.persistColumns());
             this.$watch('showDeviceId', () => this.persistColumns());
             this.$watch('showDeviceName', () => this.persistColumns());
         },
@@ -660,6 +656,7 @@ function agentsApp() {
         persistColumns() {
             try {
                 localStorage.setItem('e3_agents_columns', JSON.stringify({
+                    showAgentUuid: this.showAgentUuid,
                     showDeviceId: this.showDeviceId,
                     showDeviceName: this.showDeviceName
                 }));
@@ -754,8 +751,11 @@ function agentsApp() {
         openManage(agent) {
             this.selectedAgent = agent;
             this.manageOpen = true;
-            this.updateJob = (agent && agent.update_job) ? agent.update_job : null;
-            if (this.isUpdateActive()) {
+            this.showUpdateResult = false;
+            this.updateJob = null;
+            const priorJob = agent && agent.update_job ? agent.update_job : null;
+            if (priorJob && this.UPDATE_ACTIVE_STATES.includes(priorJob.status)) {
+                this.updateJob = priorJob;
                 this.startUpdatePolling(agent.agent_uuid);
             }
         },
@@ -765,6 +765,7 @@ function agentsApp() {
             this.selectedAgent = null;
             this.stopUpdatePolling();
             this.updateJob = null;
+            this.showUpdateResult = false;
             this.updateSubmitting = false;
         },
 
@@ -789,22 +790,6 @@ function agentsApp() {
                 return 'Update to ' + this.selectedAgent.latest_version;
             }
             return 'Up to date';
-        },
-
-        updateBadgeLabel() {
-            if (this.isUpdateActive()) return 'Updating';
-            if (this.updateJob && this.updateJob.status === 'success') return 'Up to date';
-            if (this.updateJob && (this.updateJob.status === 'failed' || this.updateJob.status === 'timeout')) return 'Update failed';
-            if (this.selectedAgent && this.selectedAgent.update_supported === false) return 'Not supported';
-            if (this.selectedAgent && this.selectedAgent.update_available) return 'Update available';
-            return 'Up to date';
-        },
-
-        updateBadgeClass() {
-            if (this.isUpdateActive()) return 'eb-badge--info';
-            if (this.updateJob && (this.updateJob.status === 'failed' || this.updateJob.status === 'timeout')) return 'eb-badge--danger';
-            if (this.selectedAgent && this.selectedAgent.update_available) return 'eb-badge--warning';
-            return 'eb-badge--success';
         },
 
         updateStatusText() {
@@ -836,6 +821,7 @@ function agentsApp() {
         async requestUpdate(agent) {
             if (!agent || !this.canRequestUpdate()) return;
             this.updateSubmitting = true;
+            this.showUpdateResult = false;
             try {
                 const payload = new URLSearchParams();
                 payload.append('agent_uuid', agent.agent_uuid || '');
@@ -881,13 +867,17 @@ function agentsApp() {
                 this.updateJob = data.update_job || this.updateJob;
                 if (this.updateJob && !this.UPDATE_ACTIVE_STATES.includes(this.updateJob.status)) {
                     this.stopUpdatePolling();
+                    this.showUpdateResult = true;
                     if (this.updateJob.status === 'success') {
                         this.agentsNotify('success', 'Agent updated successfully.');
                     } else if (this.updateJob.status === 'failed' || this.updateJob.status === 'timeout') {
                         this.agentsNotify('error', this.updateJob.detail || 'Agent update did not complete.');
                     }
-                    // Refresh list so version/update_available reflect the new state.
-                    this.loadAgents();
+                    await this.loadAgents();
+                    if (this.manageOpen && this.selectedAgent) {
+                        const refreshed = this.agents.find((a) => a.agent_uuid === agentUuid);
+                        if (refreshed) this.selectedAgent = refreshed;
+                    }
                 }
             } catch (e) {
                 // Transient; keep polling.

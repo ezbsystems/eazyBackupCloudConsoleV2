@@ -89,8 +89,14 @@ $result = Capsule::connection()->transaction(function () use ($timing, $heartbea
     $staleQuery = Capsule::table('s3_cloudbackup_runs as r')
         ->select('r.*', Capsule::raw("$heartbeatExpr as last_heartbeat_at"))
         ->whereIn('r.status', ['starting', 'running'])
-        ->whereRaw("TIMESTAMPDIFF(SECOND, $heartbeatExpr, NOW()) > ?", [$timing['watchdog_timeout_seconds']])
-        ->lockForUpdate();
+        ->whereRaw("TIMESTAMPDIFF(SECOND, $heartbeatExpr, NOW()) > ?", [$timing['watchdog_timeout_seconds']]);
+    // MS365 batch runs use the Go worker fleet; parent rows are not agent-polled.
+    if (Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'engine')) {
+        $staleQuery->where(function ($query) {
+            $query->whereNull('r.engine')->orWhere('r.engine', '!=', 'ms365');
+        });
+    }
+    $staleQuery->lockForUpdate();
     if ($hasRunIdPk) {
         $staleQuery->addSelect(Capsule::raw('BIN_TO_UUID(r.run_id) as run_id_str'));
     }

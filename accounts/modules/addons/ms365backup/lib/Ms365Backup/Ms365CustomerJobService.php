@@ -28,11 +28,6 @@ final class Ms365CustomerJobService
         self::assertMs365JobSchemaReady();
         self::validatePayload($payload);
         $record = self::requireConnectedTenant($clientId, $backupUserId);
-        TenantRecordRepository::ensureCloudStorageBucketForBackupUser($clientId, $backupUserId);
-        $record = TenantRecordRepository::getForBackupUser($clientId, $backupUserId);
-        if ($record === null) {
-            throw new \RuntimeException('Microsoft 365 is not connected for this user.');
-        }
 
         $inventory = self::loadInventory($clientId, $backupUserId);
         $scopeOverrides = CustomerSelectionCodec::normalizeScopeOverrides($payload['scope_overrides'] ?? []);
@@ -41,15 +36,28 @@ final class Ms365CustomerJobService
         $schedulePayload = Ms365ScheduleAssigner::buildSchedulePayload(
             (string) $payload['schedule_frequency'],
         );
-        $ms365Json = self::buildMs365ScheduleJson($record, $payload, $schedulePayload);
 
-        $destBucketId = (int) ($record['s3_bucket_id'] ?? 0);
-        $s3UserId = (int) ($record['s3_user_id'] ?? 0);
+        $jobId = self::newJobUuid();
+        $retentionTier = (string) ($payload['retention_tier'] ?? Ms365RetentionTierPolicyService::DEFAULT_TIER);
+        if (!Ms365RetentionTierPolicyService::isValidTier($retentionTier)) {
+            $retentionTier = Ms365RetentionTierPolicyService::DEFAULT_TIER;
+        }
+
+        $bucketRes = self::provisionJobBucket($clientId, $backupUserId, $jobId);
+        $destBucketId = (int) ($bucketRes['bucket_id'] ?? 0);
+        $s3UserId = (int) ($bucketRes['owner_user_id'] ?? 0);
         if ($destBucketId <= 0 || $s3UserId <= 0) {
             throw new \RuntimeException('Backup storage is not ready. Please try again in a moment.');
         }
 
-        $jobId = self::newJobUuid();
+        $recordWithBucket = Ms365JobDestinationService::tenantRecordWithBucket($record, [
+            'id' => $destBucketId,
+            'name' => (string) ($bucketRes['bucket_name'] ?? ''),
+            'user_id' => $s3UserId,
+        ]);
+        KopiaRepoBootstrapService::ensureForJob($recordWithBucket, $jobId, $retentionTier);
+
+        $ms365Json = self::buildMs365ScheduleJson($record, $payload, $schedulePayload);
         $now = date('Y-m-d H:i:s');
         $name = trim((string) ($payload['name'] ?? ''));
         if ($name === '') {
@@ -82,14 +90,44 @@ final class Ms365CustomerJobService
             'updated_at' => $now,
         ];
 
+        if (Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'retention_json')) {
+            $insert['retention_json'] = json_encode(
+                Ms365RetentionTierPolicyService::retentionJsonForTier($retentionTier),
+                JSON_UNESCAPED_SLASHES
+            );
+        }
+
         if (Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'engine')) {
             $insert['engine'] = self::ENGINE;
         }
 
         Capsule::table('s3_cloudbackup_jobs')->insert($insert);
         self::assertJobMarkedMs365($clientId, $backupUserId, $jobId);
+        self::ensureWhmcsServiceForBackupUser($clientId, $backupUserId);
 
         return ['job_id' => $jobId];
+    }
+
+    private static function ensureWhmcsServiceForBackupUser(int $clientId, int $backupUserId): void
+    {
+        $provisionerPath = dirname(__DIR__, 3) . '/cloudstorage/lib/Provision/Provisioner.php';
+        if (!is_file($provisionerPath)) {
+            return;
+        }
+        try {
+            require_once $provisionerPath;
+            if (class_exists('\\WHMCS\\Module\\Addon\\CloudStorage\\Provision\\Provisioner')) {
+                \WHMCS\Module\Addon\CloudStorage\Provision\Provisioner::ensureMs365ServiceForBackupUser($clientId, $backupUserId);
+            }
+        } catch (\Throwable $e) {
+            try {
+                logModuleCall('ms365backup', 'ensure_whmcs_service_fail', [
+                    'client_id' => $clientId,
+                    'backup_user_id' => $backupUserId,
+                ], $e->getMessage(), [], []);
+            } catch (\Throwable $_) {
+            }
+        }
     }
 
     /**
@@ -114,6 +152,11 @@ final class Ms365CustomerJobService
             (string) $payload['schedule_frequency'],
         );
         $ms365Json = self::buildMs365ScheduleJson($record, $payload, $schedulePayload);
+        $newTier = (string) ($payload['retention_tier'] ?? Ms365RetentionTierPolicyService::DEFAULT_TIER);
+        if (!Ms365RetentionTierPolicyService::isValidTier($newTier)) {
+            $newTier = Ms365RetentionTierPolicyService::DEFAULT_TIER;
+        }
+        $oldTier = Ms365JobDestinationService::retentionTierForJob($job);
 
         $name = trim((string) ($payload['name'] ?? ''));
         if ($name === '') {
@@ -133,10 +176,26 @@ final class Ms365CustomerJobService
             'updated_at' => date('Y-m-d H:i:s'),
         ];
 
+        if (Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'retention_json')) {
+            $update['retention_json'] = json_encode(
+                Ms365RetentionTierPolicyService::retentionJsonForTier($newTier),
+                JSON_UNESCAPED_SLASHES
+            );
+        }
+
         Capsule::table('s3_cloudbackup_jobs')
             ->whereRaw('job_id = ' . self::uuidToDbExpr($jobId))
             ->where('client_id', $clientId)
             ->update($update);
+
+        if ($newTier !== $oldTier) {
+            $bucket = Ms365JobDestinationService::bucketForJob($job, $record);
+            $recordWithBucket = Ms365JobDestinationService::tenantRecordWithBucket($record, $bucket);
+            if (!Ms365JobDestinationService::isLegacySharedBucket($job, $record)) {
+                KopiaRepoBootstrapService::pinRetentionTierForJob($recordWithBucket, $jobId, $newTier);
+            }
+            Ms365KopiaRepoOperationService::scheduleRetentionForJob($jobId, $record);
+        }
 
         return ['job_id' => $jobId];
     }
@@ -393,5 +452,31 @@ final class Ms365CustomerJobService
         $norm = strtolower(trim($uuid));
 
         return "UUID_TO_BIN('" . addslashes($norm) . "')";
+    }
+
+    /**
+     * @return array{bucket_id: int, bucket_name: string, owner_user_id: int}
+     */
+    private static function provisionJobBucket(int $clientId, int $backupUserId, string $jobId): array
+    {
+        $bootstrapPath = dirname(__DIR__, 3) . '/cloudstorage/lib/Client/Ms365StorageBootstrapService.php';
+        if (!is_file($bootstrapPath)) {
+            throw new \RuntimeException('MS365 storage bootstrap is not available.');
+        }
+        require_once $bootstrapPath;
+        $res = \WHMCS\Module\Addon\CloudStorage\Client\Ms365StorageBootstrapService::ensureForJob(
+            $clientId,
+            $backupUserId,
+            $jobId
+        );
+        if (($res['status'] ?? '') !== 'success' || empty($res['bucket']) || empty($res['owner_user'])) {
+            throw new \RuntimeException((string) ($res['message'] ?? 'Failed to provision backup storage for job.'));
+        }
+
+        return [
+            'bucket_id' => (int) ($res['bucket']->id ?? 0),
+            'bucket_name' => (string) ($res['bucket']->name ?? ''),
+            'owner_user_id' => (int) ($res['owner_user']->id ?? 0),
+        ];
     }
 }

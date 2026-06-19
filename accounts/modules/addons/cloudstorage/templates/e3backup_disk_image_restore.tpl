@@ -1,15 +1,6 @@
-{capture assign=ebE3DiskImageRestoreBreadcrumb}
-    <div class="eb-breadcrumb">
-        <a href="index.php?m=cloudstorage&page=e3backup&view=dashboard" class="eb-breadcrumb-link">e3 Cloud Backup</a>
-        <span class="eb-breadcrumb-separator">/</span>
-        <span class="eb-breadcrumb-current">Disk Image Recovery</span>
-    </div>
-{/capture}
-
 {capture assign=ebE3Content}
 <div x-data="diskImageRestorePage()" x-init="init()" class="space-y-6">
     {include file="$template/includes/ui/page-header.tpl"
-        ebBreadcrumb=$ebE3DiskImageRestoreBreadcrumb
         ebPageTitle='Disk Image Recovery'
         ebPageDescription='Generate a recovery token and preview the disk layout before a bare-metal restore.'
     }

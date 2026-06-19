@@ -76,7 +76,6 @@ foreach ($cloudbackupApis as $file) {
 $cloudbackupPages = [
     'e3backup_live.php' => ['(int) $_GET[\'job_id\']', '(int)$_GET[\'run_id\']'],
     'cloudbackup_hyperv.php' => ['(int) $_GET[\'job_id\']'],
-    'e3backup_runs.php' => [],
     'e3backup_hyperv.php' => ['(int) $_GET[\'job_id\']'],
     'admin/cloudbackup_admin.php' => ['(int)$_GET[\'cancel_run\']', '(int)$_GET[\'get_run_logs\']'],
 ];

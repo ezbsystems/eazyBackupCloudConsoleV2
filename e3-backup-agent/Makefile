@@ -1,4 +1,4 @@
-.PHONY: build build-windows build-agent-windows build-tray-windows install test clean deps lint
+.PHONY: build build-windows build-agent-windows build-tray-windows install test clean deps lint licenses
 
 # Version metadata (overridable via environment, e.g. `VERSION=1.2.3 make build`)
 VERSION ?= dev
@@ -85,4 +85,8 @@ lint:
 	else \
 		echo "golangci-lint not installed, skipping..."; \
 	fi
+
+# Regenerate THIRD_PARTY_LICENSES.txt (anonymous component IDs)
+licenses:
+	cd ../legal && go run ./cmd/generate-licenses --project e3-backup-agent
 

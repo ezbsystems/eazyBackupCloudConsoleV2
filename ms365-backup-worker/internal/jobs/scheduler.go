@@ -12,7 +12,9 @@ import (
 
 	"github.com/eazybackup/ms365-backup-worker/internal/api"
 	"github.com/eazybackup/ms365-backup-worker/internal/config"
+	"github.com/eazybackup/ms365-backup-worker/internal/graph"
 	"github.com/eazybackup/ms365-backup-worker/internal/graphsync"
+	"github.com/eazybackup/ms365-backup-worker/internal/kopia"
 	"github.com/eazybackup/ms365-backup-worker/internal/updater"
 	"github.com/eazybackup/ms365-backup-worker/internal/version"
 )
@@ -21,8 +23,11 @@ type Scheduler struct {
 	cfg       *config.Config
 	client    *api.Client
 	runner    *Runner
+	repoPool  *kopia.Pool
 	runningMu sync.Mutex
 	running   map[string]struct{}
+	bucketMu  sync.Mutex
+	activeBuckets map[string]int
 	reserved  resourceBudget
 	draining  bool
 }
@@ -35,11 +40,18 @@ type resourceBudget struct {
 }
 
 func NewScheduler(cfg *config.Config, client *api.Client) *Scheduler {
+	repoPool := kopia.NewPool(kopia.RepoCacheSettings{
+		RepoConfigDir:       cfg.Kopia.RepoConfigDir,
+		ContentCacheSizeMiB: cfg.Kopia.ContentCacheSizeMiB,
+	})
+	graph.SetGlobalConcurrency(cfg.Graph.GlobalMaxConcurrency)
 	s := &Scheduler{
-		cfg:     cfg,
-		client:  client,
-		runner:  NewRunner(cfg, client),
-		running: make(map[string]struct{}),
+		cfg:      cfg,
+		client:   client,
+		repoPool: repoPool,
+		runner:   NewRunner(cfg, client, repoPool),
+		running:  make(map[string]struct{}),
+		activeBuckets: make(map[string]int),
 	}
 	s.gcOrphanedRuns()
 	go s.periodicGC()
@@ -93,6 +105,8 @@ func (s *Scheduler) heartbeat(ctx context.Context) {
 		return
 	}
 	s.draining = true
+	s.repoPool.Drain(ctx)
+	s.releaseAllActiveClaims(ctx)
 	log.Printf("applying update to version %s", hb.Update.Version)
 	if err := updater.Apply(s.client.Token(), updater.OfferFromAPI(hb.Update), s.cfg.Worker.InstallPath); err != nil {
 		log.Printf("update failed: %v", err)
@@ -113,7 +127,7 @@ func (s *Scheduler) poll(ctx context.Context) {
 			return
 		}
 		if job == nil {
-			return
+			break
 		}
 		if !s.canAdmit(job) {
 			_ = s.client.Release(ctx, job.RunID)
@@ -128,8 +142,13 @@ func (s *Scheduler) poll(ctx context.Context) {
 			runCtx := s.runContext(ctx, j)
 			if err := s.runner.RunSafe(runCtx, j); err != nil {
 				log.Printf("run %s failed: %v", j.RunID, err)
+				s.client.RunLogf(runCtx, j.RunID, "error", "run %s failed: %v", j.RunID, err)
+				_ = s.client.FlushRunLogs(runCtx, j.RunID)
 			}
 		}(job)
+	}
+	if !s.draining {
+		s.tryRepoOperation(ctx)
 	}
 }
 
@@ -240,6 +259,7 @@ type activeJob struct {
 	ramMiB   int
 	diskMiB  int
 	cpuCores float64
+	bucket   string
 }
 
 var activeJobs sync.Map
@@ -268,8 +288,9 @@ func (s *Scheduler) tryStart(job *api.RunJob) bool {
 	s.reserved.diskMiB += diskMiB
 	s.reserved.cpuCores += cpuCores
 	s.reserved.mu.Unlock()
-	activeJobs.Store(job.RunID, activeJob{ramMiB: ramMiB, diskMiB: diskMiB, cpuCores: cpuCores})
+	activeJobs.Store(job.RunID, activeJob{ramMiB: ramMiB, diskMiB: diskMiB, cpuCores: cpuCores, bucket: job.DestBucket})
 	s.running[job.RunID] = struct{}{}
+	s.trackBucket(job.DestBucket, 1)
 	return true
 }
 
@@ -279,11 +300,26 @@ func (s *Scheduler) done(runID string) {
 	s.runningMu.Unlock()
 	if v, ok := activeJobs.LoadAndDelete(runID); ok {
 		if aj, ok := v.(activeJob); ok {
+			s.trackBucket(aj.bucket, -1)
 			s.reserved.mu.Lock()
 			s.reserved.ramMiB -= aj.ramMiB
 			s.reserved.diskMiB -= aj.diskMiB
 			s.reserved.cpuCores -= aj.cpuCores
 			s.reserved.mu.Unlock()
+		}
+	}
+}
+
+func (s *Scheduler) releaseAllActiveClaims(ctx context.Context) {
+	s.runningMu.Lock()
+	runIDs := make([]string, 0, len(s.running))
+	for id := range s.running {
+		runIDs = append(runIDs, id)
+	}
+	s.runningMu.Unlock()
+	for _, runID := range runIDs {
+		if err := s.client.Release(ctx, runID); err != nil {
+			log.Printf("release %s before update: %v", runID, err)
 		}
 	}
 }

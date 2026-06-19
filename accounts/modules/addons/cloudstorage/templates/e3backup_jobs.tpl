@@ -1,11 +1,3 @@
-{capture assign=ebE3JobsBreadcrumb}
-    <div class="eb-breadcrumb">
-        <a href="index.php?m=cloudstorage&page=e3backup&view=dashboard" class="eb-breadcrumb-link">e3 Cloud Backup</a>
-        <span class="eb-breadcrumb-separator">/</span>
-        <span class="eb-breadcrumb-current">Jobs</span>
-    </div>
-{/capture}
-
 {capture assign=ebE3Content}
 <div class="eb-alert eb-alert--warning" style="margin-bottom: 16px;">
     <svg class="eb-alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
@@ -16,7 +8,7 @@
         <a href="index.php?m=cloudstorage&page=e3backup&view=users" class="eb-link">Go to Users &rarr;</a>
     </div>
 </div>
-<div x-data="jobsApp()" class="space-y-6" data-e3backup-jobs-app>
+<div x-data="jobsApp({ ms365VaultGraceDays: {$ms365_vault_grace_days|default:30|intval} })" class="space-y-6" data-e3backup-jobs-app>
     {capture assign=ebE3JobsHeaderActions}
         <div x-data="{ isOpen: false }" class="relative" @click.away="isOpen = false">
             <button type="button" @click="isOpen = !isOpen" class="eb-btn eb-btn-success eb-btn-sm">
@@ -46,10 +38,8 @@
                         </span>
                     </button>
                     <button type="button" @click="isOpen = false; window.openMs365JobWizardFromJobs && window.openMs365JobWizardFromJobs()" class="eb-menu-item">
-                        <span class="eb-icon-box eb-icon-box--sm" style="background: var(--eb-info-bg); color: var(--eb-info-text);">
-                            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 6h16M4 10h16M4 14h10M4 18h6" />
-                            </svg>
+                        <span class="eb-icon-box eb-icon-box--sm eb-icon-box--default">
+                            {include file="modules/addons/cloudstorage/templates/partials/e3backup_brand_icon.tpl" ebBrandIconClass='eb-brand-icon eb-brand-icon--sm'}
                         </span>
                         <span class="flex-1 min-w-0">
                             <span class="block text-left text-sm text-[var(--eb-text-primary)]">Microsoft 365 Backup</span>
@@ -73,7 +63,6 @@
     {/capture}
 
     {include file="$template/includes/ui/page-header.tpl"
-        ebBreadcrumb=$ebE3JobsBreadcrumb
         ebPageTitle='Backup Jobs'
         ebPageDescription='View and filter backup jobs. MSPs can filter by tenant and agent.'
         ebPageActions=$ebE3JobsHeaderActions
@@ -267,14 +256,7 @@
                     <div class="eb-job-card">
                         <div class="eb-job-card-header">
                             <div class="eb-job-card-identity">
-                                <div class="eb-job-type-icon" aria-hidden="true">
-                                    <svg x-show="(job.source_type || '').toLowerCase() === 'local_agent'" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-                                        <rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/>
-                                    </svg>
-                                    <svg x-show="(job.source_type || '').toLowerCase() !== 'local_agent'" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-                                        <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2z"/>
-                                    </svg>
-                                </div>
+                                {include file="modules/addons/cloudstorage/templates/partials/e3backup_job_type_icon.tpl"}
                                 <div class="eb-job-card-name" x-text="job.name"></div>
                                 <span x-show="(job.status || '').toLowerCase() === 'paused'" class="eb-job-status-paused">
                                     <span class="eb-job-status-paused-dot" aria-hidden="true"></span>
@@ -378,8 +360,8 @@
                                 <div class="eb-job-meta-value" x-text="formatLastRunTime(job)"></div>
                                 <template x-if="job.last_run && job.last_run.status">
                                     <div class="eb-job-last-run-status">
-                                        <span class="eb-job-last-run-dot" :class="lastRunDotClass(job.last_run.status)"></span>
-                                        <span class="eb-job-last-run-label" :class="lastRunLabelClass(job.last_run.status)" x-text="capitalize(job.last_run.status)"></span>
+                                        <span class="eb-job-last-run-dot" :class="lastRunDotClassForRun(job.last_run)"></span>
+                                        <span class="eb-job-last-run-label" :class="lastRunLabelClassForRun(job.last_run)" x-text="lastRunStatusLabel(job.last_run)"></span>
                                     </div>
                                 </template>
                             </div>
@@ -396,7 +378,7 @@
          style="display:none;"
          @keydown.escape.window="closeDeleteModal()">
         <div class="eb-modal-backdrop absolute inset-0" @click="closeDeleteModal()"></div>
-        <div class="eb-modal eb-modal--confirm relative z-10 !p-0 overflow-hidden"
+        <div class="eb-modal eb-modal--confirm relative z-10 w-full max-w-2xl !p-0 overflow-hidden"
              @click.stop
              x-transition:enter="transition ease-out duration-150"
              x-transition:enter-start="opacity-0 scale-95"
@@ -407,20 +389,56 @@
             <div class="eb-modal-header">
                 <div>
                     <h3 class="eb-modal-title">Delete job?</h3>
-                    <p class="eb-modal-subtitle">This will remove the job configuration and stop scheduled runs.</p>
+                    <p class="eb-modal-subtitle" x-show="!isDeleteModalMs365()">This will remove the job configuration and stop scheduled runs.</p>
+                    <p class="eb-modal-subtitle" x-show="isDeleteModalMs365()" x-cloak>
+                        This removes the job configuration, stops scheduled runs, and soft-deletes the backup vault. The vault moves to the recycle bin for <span x-text="ms365VaultGraceDays"></span> days before permanent removal.
+                    </p>
                 </div>
             </div>
-            <div class="eb-modal-body">
+            <div class="eb-modal-body space-y-4">
                 <div class="eb-alert eb-alert--danger">
                     <svg class="eb-alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
                     </svg>
                     <div>Job: <span class="font-semibold text-[var(--eb-text-primary)]" x-text="deleteJobName || 'Unnamed job'"></span></div>
                 </div>
+                <template x-if="isDeleteModalMs365()">
+                    <div class="space-y-3">
+                        <div>
+                            <div class="eb-field-label !mb-0">Vault:</div>
+                            <div class="eb-detail-value font-mono font-medium break-all" x-text="deleteJobVaultName || '—'"></div>
+                        </div>
+                        <div class="grid gap-3 sm:grid-cols-3">
+                            <div>
+                                <div class="eb-field-label !mb-0">Retention tier:</div>
+                                <div class="eb-detail-value font-medium" x-text="deleteJobRetentionTier || '—'"></div>
+                            </div>
+                            <div>
+                                <div class="eb-field-label !mb-0">Protection:</div>
+                                <div class="eb-detail-value font-medium">Versioning enabled</div>
+                            </div>
+                            <div>
+                                <div class="eb-field-label !mb-0">Recycle grace:</div>
+                                <div class="eb-detail-value font-medium"><span x-text="ms365VaultGraceDays"></span> days</div>
+                            </div>
+                        </div>
+                        <div>
+                            <label class="eb-type-body block text-[var(--eb-text-primary)]" :for="'delete-confirm-jobs-' + deleteJobId">
+                                Type <span class="font-mono font-semibold" x-text="deleteConfirmPhraseExpected()"></span> to confirm:
+                            </label>
+                            <input type="text"
+                                   class="eb-confirm-input"
+                                   :id="'delete-confirm-jobs-' + deleteJobId"
+                                   x-model="deleteConfirmPhrase"
+                                   autocomplete="off"
+                                   placeholder="DELETE …">
+                        </div>
+                    </div>
+                </template>
             </div>
             <div class="eb-modal-footer">
                 <button type="button" class="eb-btn eb-btn-secondary eb-btn-sm" @click="closeDeleteModal()" :disabled="deleteInProgress">Cancel</button>
-                <button type="button" class="eb-btn eb-btn-danger-solid eb-btn-sm" @click="confirmDeleteJob()" :disabled="deleteInProgress">
+                <button type="button" class="eb-btn eb-btn-danger-solid eb-btn-sm" @click="confirmDeleteJob()" :disabled="deleteInProgress || !canConfirmDeleteJob()">
                     <svg x-show="deleteInProgress" class="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
                         <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                         <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>

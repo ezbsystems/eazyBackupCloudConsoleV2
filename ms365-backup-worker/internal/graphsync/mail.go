@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/eazybackup/ms365-backup-worker/internal/graph"
 	"github.com/eazybackup/ms365-backup-worker/internal/graphfs"
@@ -22,6 +23,7 @@ type MailSyncOptions struct {
 	UseBatchFallback bool
 	ShardKey         string
 	OnProgress       func(itemsDone, itemsTotal int, bytesEstimate int64)
+	Log              RunLogger
 }
 
 type MailSyncResult struct {
@@ -63,10 +65,19 @@ func SyncMail(ctx context.Context, client *graph.Client, opts MailSyncOptions) (
 		return nil, err
 	}
 
+	incremental := len(opts.DeltaStates) > 0
+	if opts.Log != nil {
+		opts.Log("info", fmt.Sprintf("Starting mail backup folders=%d incremental=%v", len(folders), incremental))
+	}
+
 	stats := MailStats{Folders: len(folders)}
+	if opts.OnProgress != nil {
+		opts.OnProgress(0, len(folders), 0)
+	}
 	newDelta := map[string]string{}
 	var mu sync.Mutex
 	var bytesTotal int64
+	var foldersDone atomic.Int32
 
 	g, gctx := errgroup.WithContext(ctx)
 	g.SetLimit(opts.FolderParallel)
@@ -74,6 +85,12 @@ func SyncMail(ctx context.Context, client *graph.Client, opts MailSyncOptions) (
 	for _, folder := range folders {
 		folder := folder
 		g.Go(func() error {
+			defer func() {
+				if opts.OnProgress != nil {
+					done := int(foldersDone.Add(1))
+					opts.OnProgress(done, len(folders), 0)
+				}
+			}()
 			folderID, _ := folder["id"].(string)
 			if folderID == "" {
 				return nil
@@ -96,7 +113,8 @@ func SyncMail(ctx context.Context, client *graph.Client, opts MailSyncOptions) (
 			if priorDelta == "" && deltaKey != "root" {
 				priorDelta = opts.DeltaStates[deltaKey]
 			}
-			items, deltaLink, err := client.PaginateDelta(gctx, deltaPath, priorDelta, graph.MailMessageSelect, 100)
+			folderMonitor := graph.ForBackupPagination("mail:"+folderName, graphLog(opts.Log))
+			items, deltaLink, err := paginateDeltaResilient(gctx, client, deltaPath, priorDelta, graph.MailMessageSelect, 100, nil, &graph.DeltaPaginateOptions{Monitor: folderMonitor})
 			if err != nil {
 				return fmt.Errorf("folder %s: %w", folderName, err)
 			}

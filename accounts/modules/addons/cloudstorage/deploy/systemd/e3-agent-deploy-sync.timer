@@ -1,0 +1,11 @@
+[Unit]
+Description=Poll dev for agent installer deployments every 2 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=2min
+AccuracySec=30s
+Unit=e3-agent-deploy-sync.service
+
+[Install]
+WantedBy=timers.target

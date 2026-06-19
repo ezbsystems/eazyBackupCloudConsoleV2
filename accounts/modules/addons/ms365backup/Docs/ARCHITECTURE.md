@@ -210,10 +210,12 @@ Cancellation: `RunCancellation` checks DB status; `RunCancelledException` aborts
 
 ### Calendar backup (important)
 
+**Execution:** Go worker `internal/graphsync/calendar*.go` (tiered inventory). PHP `GraphClient` + `CalendarVerifier` remain for admin verify CLI only.
+
 - **Uses** `GET /users/{id}/calendars/{calendarId}/events` with `Prefer: IdType="ImmutableId"`.
-- **Inventory flow:**
-  1. **Normal pass** — unfiltered list, `$top=100`. If pagination ends cleanly → calendar inventory complete.
-  2. **Fallback** — if a duplicate-only page appears while `@odata.nextLink` remains, run **partition scan** on `createdDateTime` from `1990-01-01T00:00:00Z` through `now+1 day`, `$top=25`, `$orderby=createdDateTime`. Split year→month→day→hour on loop; calendar complete only if every partition ends cleanly.
+- **Tier 1 (incremental):** After a proven-complete baseline (`ms365_delta_state` key `cal:{id}:inventory`), query `lastModifiedDateTime ge {watermark}`. On wedge → Tier 2.
+- **Tier 2 (normal pass):** Unfiltered list with page-size ladder (`1000→500→250→100→50→25`). Duplicate-only page → try smaller `$top`.
+- **Tier 3 (partition fallback):** `createdDateTime` partitions from `1990-01-01T00:00:00Z` through `now+1 day`, `$top=25`, `$orderby=createdDateTime`. Split year→month→day→hour on wedge.
 - **Do not** use `start/dateTime` filters for inventory (recurring series masters may have old `start` but still be required).
 - **Does not use** `calendarView` or `calendarView/delta` (known Graph defect). See [Graph SDK #3070](https://github.com/microsoftgraph/msgraph-sdk-dotnet/issues/3070).
 - **No tombstoning:** incomplete scans never delete prior event JSON on disk.
@@ -228,17 +230,32 @@ Cancellation: `RunCancellation` checks DB status; `RunCancelledException` aborts
 | `exception` | Save event; link to series master |
 | `occurrence` | **Skipped** (avoid thousands of expanded instances) |
 
-### Pagination safety (`GraphClient::paginate`)
+### Pagination safety (`GraphClient::paginate` / Go `graph.PaginateOpts`)
 
-When a `PaginationMonitor` is attached (mail + calendar backup):
+PHP admin/verify and Go backup worker share the same detection rules:
 
-- Logs each page: `items_on_page`, `new_items_on_page`, `skip_token`, `has_next_link`.
+- Logs each page: `items_on_page`, `new_items_on_page`, `skip_token`, `has_next_link` (Go: worker run log via `RunLogf`).
 - **Max pages** default 500.
 - **Identical URL:** same full `@odata.nextLink` seen twice → abort.
 - **Duplicate content:** page has items but all IDs already seen → mail: throw; calendar **normal** pass: set `PaginationOutcome::stoppedOnDuplicatePage` and trigger partition fallback; calendar **partition** pass: throw and subdivide (or fail at hour granularity).
 - **Empty pages:** 3 consecutive empty pages with a next link → abort.
+- **Delta queries** (`PaginateDeltaOpts` in Go): same wedge rules as regular pagination when `TrackDupIDs` is enabled (default for backup workloads).
 
 **Critical:** Compare full nextLink URLs (including `$skiptoken`). Do not strip skiptoken when detecting duplicates.
+
+### Graph delta persistence (Go worker + `ms365_delta_state`)
+
+| Workload | Delta key pattern | Notes |
+|----------|-------------------|--------|
+| mail | per `folderId` | Per-folder `messages/delta` |
+| onedrive / sharepoint / sharepoint_lists | per drive/list id | `driveItem` / `listItem` delta |
+| contacts | per `folderId` | `contacts/delta`; 410 → re-baseline |
+| tasks | per `listId` | `tasks/delta` |
+| teams | per `channelId` | `messages/delta` |
+| directory | `users`, `groups` | `/users/delta`, `/groups/delta` |
+| calendar | `cal:{calendarId}:inventory` | JSON inventory state (watermark, tier), not Graph delta link |
+
+**Not using Graph delta:** calendar events (no safe v1 `/events/delta`; avoid `calendarView/delta`), planner (full bucket scan; `plannerUser` delta deferred), OneNote pages (no v1 delta).
 
 ---
 

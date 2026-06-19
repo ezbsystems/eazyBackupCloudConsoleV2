@@ -9,11 +9,12 @@ import (
 	kopiafs "github.com/kopia/kopia/fs"
 )
 
-// itemPaths maps Graph item IDs to virtual paths for tombstone resolution.
+// OverlayBuilder builds a virtual filesystem tree for Kopia snapshots.
 type OverlayBuilder struct {
 	entries   map[string]kopiafs.Entry
 	removed   map[string]struct{}
 	itemPaths map[string]string
+	changes   int
 }
 
 func NewOverlayBuilder() *OverlayBuilder {
@@ -31,6 +32,7 @@ func (b *OverlayBuilder) Put(path string, entry kopiafs.Entry) {
 	}
 	delete(b.removed, p)
 	b.entries[p] = entry
+	b.changes++
 }
 
 func (b *OverlayBuilder) PutWithItemID(itemID, path string, entry kopiafs.Entry) {
@@ -61,6 +63,7 @@ func (b *OverlayBuilder) Remove(path string) {
 	}
 	b.removed[p] = struct{}{}
 	delete(b.entries, p)
+	b.changes++
 }
 
 func (b *OverlayBuilder) RemovePrefix(prefix string) {
@@ -72,6 +75,7 @@ func (b *OverlayBuilder) RemovePrefix(prefix string) {
 		if p == prefix || strings.HasPrefix(p, prefix+"/") {
 			delete(b.entries, p)
 			b.removed[p] = struct{}{}
+			b.changes++
 		}
 	}
 }
@@ -111,6 +115,62 @@ func walkPrior(ctx context.Context, dir kopiafs.Directory, relPrefix string, b *
 
 func (b *OverlayBuilder) EntryCount() int {
 	return len(b.entries)
+}
+
+// HasPathPrefix reports whether any live entry path starts with prefix (after normalization).
+func (b *OverlayBuilder) HasPathPrefix(prefix string) bool {
+	prefix = normalizeVirtualPath(prefix)
+	if prefix == "" {
+		return false
+	}
+	for p := range b.entries {
+		if _, skip := b.removed[p]; skip {
+			continue
+		}
+		if p == prefix || strings.HasPrefix(p, prefix+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+// ItemPath returns the overlay path for a Graph drive item id when known.
+func (b *OverlayBuilder) ItemPath(itemID string) (string, bool) {
+	if itemID == "" {
+		return "", false
+	}
+	p, ok := b.itemPaths[itemID]
+	return p, ok
+}
+
+// HasPath reports whether a live entry exists at the exact virtual path.
+func (b *OverlayBuilder) HasPath(path string) bool {
+	p := normalizeVirtualPath(path)
+	if p == "" {
+		return false
+	}
+	if _, skip := b.removed[p]; skip {
+		return false
+	}
+	_, ok := b.entries[p]
+	return ok
+}
+
+// HasChanges reports whether any live mutations were applied (MergePrior does not count).
+func (b *OverlayBuilder) HasChanges() bool {
+	return b.changes > 0
+}
+
+// Paths returns live overlay entry paths (for verification/debug).
+func (b *OverlayBuilder) Paths() []string {
+	out := make([]string, 0, len(b.entries))
+	for p := range b.entries {
+		if _, skip := b.removed[p]; skip {
+			continue
+		}
+		out = append(out, p)
+	}
+	return out
 }
 
 func (b *OverlayBuilder) Build(rootName string) kopiafs.Entry {

@@ -16,9 +16,15 @@ if (!defined('WHMCS')) {
 }
 
 try {
-    $count = Ms365JobScheduler::runDueJobs();
+    $result = Ms365JobScheduler::runDueJobs();
+    $started = (int) ($result['started'] ?? 0);
+    $skipped = (int) ($result['skipped'] ?? 0);
     if (function_exists('logActivity')) {
-        logActivity('MS365 scheduled backups: started ' . $count . ' job(s)');
+        $message = 'MS365 scheduled backups: started ' . $started . ' job(s)';
+        if ($skipped > 0) {
+            $message .= ', skipped ' . $skipped . ' overlapping slot(s)';
+        }
+        logActivity($message);
     }
 } catch (\Throwable $e) {
     if (function_exists('logActivity')) {

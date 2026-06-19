@@ -14,10 +14,10 @@ if (!is_file($init)) {
 require_once $init;
 require_once dirname(__DIR__) . '/ms365backup_autoload.php';
 
-use Ms365Backup\Ms365KopiaMaintenanceService;
+use Ms365Backup\Ms365KopiaRepoOperationService;
 
 try {
-    $result = Ms365KopiaMaintenanceService::scheduleDueMaintenance();
+    $result = Ms365KopiaRepoOperationService::scheduleDueRetentionAndMaintenance();
     echo json_encode(['status' => 'ok', 'result' => $result], JSON_UNESCAPED_SLASHES) . PHP_EOL;
     exit(0);
 } catch (\Throwable $e) {

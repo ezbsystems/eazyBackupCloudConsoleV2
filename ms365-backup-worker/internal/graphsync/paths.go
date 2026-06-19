@@ -3,6 +3,7 @@ package graphsync
 import (
 	"fmt"
 	"strings"
+	"time"
 )
 
 // ParsePhysicalKey splits a physical key into base resource key and optional shard suffix.
@@ -25,7 +26,7 @@ func DeltaKeyForShard(shard string) string {
 	return shard
 }
 
-func driveContentPath(tenantID, driveID string, item map[string]any) string {
+func driveContentPath(tenantID, userID, driveID string, item map[string]any) string {
 	name, _ := item["name"].(string)
 	if name == "" {
 		if id, _ := item["id"].(string); id != "" {
@@ -37,11 +38,21 @@ func driveContentPath(tenantID, driveID string, item map[string]any) string {
 	name = safePathSegment(name)
 
 	relPath := driveRelativePath(item)
-	base := fmt.Sprintf("%s/drives/%s/content", tenantID, safeID(driveID))
+	base := driveContentBase(tenantID, userID, driveID)
 	if relPath == "" {
 		return base + "/" + name
 	}
 	return base + "/" + relPath + "/" + name
+}
+
+// driveContentBase returns the snapshot root for OneDrive file paths.
+// Coalesced user runs store under users/{userId}/onedrive/content so files stay
+// inside the Kopia source path (tenant/users/{userId}).
+func driveContentBase(tenantID, userID, driveID string) string {
+	if strings.TrimSpace(userID) != "" {
+		return fmt.Sprintf("%s/users/%s/onedrive/content", tenantID, userID)
+	}
+	return fmt.Sprintf("%s/drives/%s/content", tenantID, safeID(driveID))
 }
 
 func driveRelativePath(item map[string]any) string {
@@ -53,10 +64,12 @@ func driveRelativePath(item map[string]any) string {
 	if p == "" {
 		return ""
 	}
-	if idx := strings.Index(p, ":/"); idx >= 0 {
-		return strings.Trim(strings.TrimPrefix(p[idx+2:], "/"), "/")
+	// parentReference.path is "/drives/{id}/root:" or "/drives/{id}/root:/Folder/Sub".
+	// Relative path is everything after the root sentinel colon ("" for root-level items).
+	if idx := strings.Index(p, ":"); idx >= 0 {
+		return strings.Trim(p[idx+1:], "/")
 	}
-	return strings.Trim(p, "/")
+	return ""
 }
 
 func isDriveFolder(item map[string]any) bool {
@@ -69,4 +82,16 @@ func isDriveFolder(item map[string]any) bool {
 
 func safePathSegment(s string) string {
 	return strings.NewReplacer("/", "_", "\\", "_", ":", "_").Replace(strings.TrimSpace(s))
+}
+
+func graphfsModTime(v any) time.Time {
+	s, _ := v.(string)
+	if s == "" {
+		return time.Now().UTC()
+	}
+	t, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		return time.Now().UTC()
+	}
+	return t.UTC()
 }

@@ -1,35 +1,6 @@
-{capture assign=ebE3Icon}
-    <span class="eb-icon-box eb-icon-box--sm eb-icon-box--orange">        
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" />
-        </svg>
-
-    </span>
-{/capture}
-
-{capture assign=ebE3Actions}{/capture}
-
-{capture assign=ebE3UserDetailBreadcrumb}
-    <div class="eb-breadcrumb">
-        <a href="index.php?m=cloudstorage&page=e3backup&view=dashboard" class="eb-breadcrumb-link">e3 Cloud Backup</a>
-        <span class="eb-breadcrumb-separator">/</span>
-        <a href="index.php?m=cloudstorage&page=e3backup&view=users" class="eb-breadcrumb-link">Users</a>
-        <span class="eb-breadcrumb-separator">/</span>
-        <span class="eb-breadcrumb-current" x-text="user.username || 'User Detail'"></span>
-    </div>
-{/capture}
-
-{capture assign=ebE3UserDetailPageActions}{/capture}
 
 {capture assign=ebE3Content}
 <div x-data="backupUserDetailApp()" x-init="init()" data-e3backup-user-detail-app data-backup-user-public-id="{$user->public_id|default:$user->id|escape:'html'}" class="eb-section-stack">
-    {include file="$template/includes/ui/page-header.tpl"
-        ebBreadcrumb=$ebE3UserDetailBreadcrumb
-        ebPageTitle="{$user->username|escape:'html'}"
-        ebPageDescription='Manage quotas, agents, jobs, vaults, and billing context for this backup user.'
-        ebPageActions=$ebE3UserDetailPageActions
-    }
-
     <template x-if="loading">
         <div class="eb-card">
             <div class="eb-loading-inline">
@@ -41,257 +12,150 @@
 
     <template x-if="!loading">
         <div class="eb-section-stack">
-            <div class="eb-user-summary">
-                <div class="eb-user-summary-header">
-                    <div class="eb-user-summary-identity">
-                        <div class="eb-user-avatar" x-text="userInitials(user)"></div>
-                        <div>
-                            <div class="eb-user-name" x-text="user.username || '—'"></div>
-                            <div class="eb-user-meta-line">
-                                <span x-text="user.email || '—'"></span>
-                                <span class="sep" aria-hidden="true"></span>
-                                <span x-text="tenantSummaryLabel()"></span>
-                                <span class="sep" aria-hidden="true"></span>
-                                <span class="eb-badge eb-badge--table eb-badge--dot"
-                                      :class="isUserSuspended() ? 'eb-badge--warning' : 'eb-badge--success'"
-                                      x-text="userStatusLabel()"></span>
-                            </div>
-                        </div>
+            <div class="eb-page-header">
+                <div class="min-w-0 flex-1">
+                    <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
+                        <h2 class="eb-page-title !mb-0" x-text="user.username || '—'"></h2>
+                        <span class="eb-type-caption text-[var(--eb-text-muted)]" x-text="tenantSummaryLabel()"></span>
+                        <span class="eb-badge eb-badge--table eb-badge--dot"
+                              :class="isUserSuspended() ? 'eb-badge--warning' : 'eb-badge--success'"
+                              x-text="userStatusLabel()"></span>
                     </div>
-                    <div class="eb-user-summary-actions">
-                        <div x-data="{ isOpen: false }" class="relative shrink-0" @click.away="isOpen = false">
-                            <button type="button" @click="isOpen = !isOpen" class="eb-btn eb-btn-secondary eb-btn-sm">
-                                Actions
-                                <svg class="h-4 w-4 transition-transform" :class="isOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-                                    <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 0 1 1.414 0L10 10.586l3.293-3.293a1 1 0 1 1 1.414 1.414l-4 4a1 1 0 0 1-1.414 0l-4-4a1 1 0 0 1 0-1.414z" clip-rule="evenodd" />
-                                </svg>
-                            </button>
-                            <div x-show="isOpen"
-                                 x-transition
-                                 class="eb-dropdown-menu absolute right-0 z-50 mt-2 w-56 overflow-hidden"
-                                 style="display: none;">
-                                <button type="button" class="eb-menu-item" @click="isOpen = false; handleLoginAsUser()">
-                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
-                                        <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path>
-                                        <polyline points="10 17 15 12 10 7"></polyline>
-                                        <line x1="15" y1="12" x2="3" y2="12"></line>
-                                    </svg>
-                                    Login as User
-                                </button>
-                                <button type="button" class="eb-menu-item" @click="isOpen = false; openResetPasswordModal()">
-                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
-                                        <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
-                                        <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
-                                    </svg>
-                                    Reset Password
-                                </button>
-                                <div class="eb-menu-divider"></div>
-                                <template x-if="!isUserSuspended()">
-                                    <button type="button" class="eb-menu-item is-warning" @click="isOpen = false; openSuspendModal()">
-                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
-                                            <rect x="6" y="4" width="4" height="16"></rect>
-                                            <rect x="14" y="4" width="4" height="16"></rect>
-                                        </svg>
-                                        Suspend User
-                                    </button>
-                                </template>
-                                <template x-if="isUserSuspended()">
-                                    <button type="button"
-                                            class="eb-menu-item"
-                                            style="color: var(--eb-success-text);"
-                                            @click="isOpen = false; reactivateUserFromAction()">
-                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
-                                            <polygon points="5 3 19 12 5 21"></polygon>
-                                        </svg>
-                                        Reactivate User
-                                    </button>
-                                </template>
-                                <button type="button" class="eb-menu-item is-danger" @click="isOpen = false; openDeleteModal()">
-                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
-                                        <polyline points="3 6 5 6 21 6"></polyline>
-                                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-                                    </svg>
-                                    Delete User
-                                </button>
-                            </div>
-                        </div>
-                        <div x-data="{ isOpen: false }" class="relative shrink-0" @click.away="isOpen = false">
-                            <button type="button"
-                                    data-tour="user-detail-create-job-btn"
-                                    @click="isOpen = !isOpen"
-                                    class="eb-btn eb-btn-success eb-btn-sm">
-                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
-                                </svg>
-                                Create Job
-                                <svg class="h-4 w-4 transition-transform" :class="isOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                                    <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
-                                </svg>
-                            </button>
-                            <div x-show="isOpen"
-                                 x-transition
-                                 class="eb-dropdown-menu absolute right-0 z-50 mt-2 w-80 overflow-hidden"
-                                 style="display: none;">
-                                <div class="eb-menu-label">Select backup source</div>
-                                <div class="p-1">
-                                    <template x-if="(user.backup_type || 'both') !== 'cloud_only'">
-                                    <button type="button"
-                                            data-tour="user-detail-create-job-local"
-                                            @click="isOpen = false; window.openLocalJobWizard()"
-                                            class="eb-menu-item">
-                                        <span class="eb-icon-box eb-icon-box--sm eb-icon-box--premium">
-                                            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
-                                            </svg>
-                                        </span>
-                                        <span class="flex-1 min-w-0">
-                                            <span class="block text-left text-sm text-[var(--eb-text-primary)]">e3 Cloud Backup</span>
-                                            <span class="block text-left text-xs text-[var(--eb-text-muted)]">Files, Folders, Disk Image, Virtual Machines</span>
-                                        </span>
-                                    </button>
-                                    </template>
-                                    <button type="button"
-                                            @click="isOpen = false; window.openMs365JobWizard({ backupUserId: '{$user->public_id|default:$user->id|escape:'javascript'}' })"
-                                            class="eb-menu-item">
-                                        <span class="eb-icon-box eb-icon-box--sm" style="background: var(--eb-info-bg); color: var(--eb-info-text);">
-                                            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 6h16M4 10h16M4 14h10M4 18h6" />
-                                            </svg>
-                                        </span>
-                                        <span class="flex-1 min-w-0">
-                                            <span class="block text-left text-sm text-[var(--eb-text-primary)]">Microsoft 365 Backup</span>
-                                            <span class="block text-left text-xs text-[var(--eb-text-muted)]">Mail, OneDrive, SharePoint, Teams</span>
-                                        </span>
-                                    </button>
-                                    <template x-if="(user.backup_type || 'both') !== 'local'">
-                                    <button type="button"
-                                            data-tour="user-detail-create-job-cloud"
-                                            @click="isOpen = false; window.openCloudBackupWizard()"
-                                            class="eb-menu-item">
-                                        <span class="eb-icon-box eb-icon-box--sm eb-icon-box--info">
-                                            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z" />
-                                            </svg>
-                                        </span>
-                                        <span class="flex-1 min-w-0">
-                                            <span class="block text-left text-sm text-[var(--eb-text-primary)]">SaaS Backup (Cloud-to-Cloud)</span>
-                                            <span class="block text-left text-xs text-[var(--eb-text-muted)]">Google Drive, Dropbox, SFTP, S3, AWS</span>
-                                        </span>
-                                    </button>
-                                    </template>
-                                </div>
-                            </div>
-                        </div>                       
-                    </div>
+                    <p class="eb-page-description" x-text="user.email || '—'"></p>
                 </div>
-                <div class="eb-user-summary-stats">
-                    <button type="button" class="eb-user-stat is-clickable" @click="selectUserDetailTab('vaults')">
-                        <div class="eb-user-stat-value" x-text="user.vaults_count ?? 0"></div>
-                        <div class="eb-user-stat-label">Vaults</div>
-                    </button>
-                    <button type="button" class="eb-user-stat is-clickable" @click="selectUserDetailTab('jobs')">
-                        <div class="eb-user-stat-value" x-text="user.jobs_count ?? 0"></div>
-                        <div class="eb-user-stat-label">Jobs</div>
-                    </button>
-                    <button type="button" class="eb-user-stat is-clickable" @click="selectUserDetailTab('agents')">
-                        <div class="eb-user-stat-value" x-text="user.agents_count ?? 0"></div>
-                        <div class="eb-user-stat-label">Agents</div>
-                    </button>
-                    <div class="eb-user-stat">
-                        <div class="eb-user-stat-value" x-text="user.online_devices ?? 0"></div>
-                        <div class="eb-user-stat-label">Online</div>
+                <div class="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                    <div x-data="{ isOpen: false }" class="relative shrink-0" @click.away="isOpen = false">
+                        <button type="button" @click="isOpen = !isOpen" class="eb-btn eb-btn-secondary eb-btn-sm">
+                            Actions
+                            <svg class="h-4 w-4 transition-transform" :class="isOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                                <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 0 1 1.414 0L10 10.586l3.293-3.293a1 1 0 1 1 1.414 1.414l-4 4a1 1 0 0 1-1.414 0l-4-4a1 1 0 0 1 0-1.414z" clip-rule="evenodd" />
+                            </svg>
+                        </button>
+                        <div x-show="isOpen"
+                             x-transition
+                             class="eb-dropdown-menu absolute right-0 z-50 mt-2 w-56 overflow-hidden"
+                             style="display: none;">
+                            <button type="button" class="eb-menu-item" @click="isOpen = false; handleLoginAsUser()">
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                                    <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path>
+                                    <polyline points="10 17 15 12 10 7"></polyline>
+                                    <line x1="15" y1="12" x2="3" y2="12"></line>
+                                </svg>
+                                Login as User
+                            </button>
+                            <button type="button" class="eb-menu-item" @click="isOpen = false; openResetPasswordModal()">
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                                    <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                                </svg>
+                                Reset Password
+                            </button>
+                            <div class="eb-menu-divider"></div>
+                            <template x-if="!isUserSuspended()">
+                                <button type="button" class="eb-menu-item is-warning" @click="isOpen = false; openSuspendModal()">
+                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                                        <rect x="6" y="4" width="4" height="16"></rect>
+                                        <rect x="14" y="4" width="4" height="16"></rect>
+                                    </svg>
+                                    Suspend User
+                                </button>
+                            </template>
+                            <template x-if="isUserSuspended()">
+                                <button type="button"
+                                        class="eb-menu-item"
+                                        style="color: var(--eb-success-text);"
+                                        @click="isOpen = false; reactivateUserFromAction()">
+                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                                        <polygon points="5 3 19 12 5 21"></polygon>
+                                    </svg>
+                                    Reactivate User
+                                </button>
+                            </template>
+                            <button type="button" class="eb-menu-item is-danger" @click="isOpen = false; openDeleteModal()">
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                                    <polyline points="3 6 5 6 21 6"></polyline>
+                                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                                </svg>
+                                Delete User
+                            </button>
+                        </div>
                     </div>
-                    <div class="eb-user-stat">
-                        <div class="eb-user-stat-value eb-user-stat-value--compact" x-text="formatDateShort(user.last_backup_at)"></div>
-                        <div class="eb-user-stat-label">Last Backup</div>
+                    <div x-data="{ isOpen: false }" class="relative shrink-0" @click.away="isOpen = false">
+                        <button type="button"
+                                data-tour="user-detail-create-job-btn"
+                                @click="isOpen = !isOpen"
+                                class="eb-btn eb-btn-success eb-btn-sm">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                            </svg>
+                            Create Job
+                            <svg class="h-4 w-4 transition-transform" :class="isOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                                <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+                            </svg>
+                        </button>
+                        <div x-show="isOpen"
+                             x-transition
+                             class="eb-dropdown-menu absolute right-0 z-50 mt-2 w-80 overflow-hidden"
+                             style="display: none;">
+                            <div class="eb-menu-label">Select backup source</div>
+                            <div class="p-1">
+                                <template x-if="(user.backup_type || 'both') !== 'cloud_only'">
+                                <button type="button"
+                                        data-tour="user-detail-create-job-local"
+                                        @click="isOpen = false; window.openLocalJobWizard()"
+                                        class="eb-menu-item">
+                                    <span class="eb-icon-box eb-icon-box--sm eb-icon-box--premium">
+                                        <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
+                                        </svg>
+                                    </span>
+                                    <span class="flex-1 min-w-0">
+                                        <span class="block text-left text-sm text-[var(--eb-text-primary)]">e3 Cloud Backup</span>
+                                        <span class="block text-left text-xs text-[var(--eb-text-muted)]">Files, Folders, Disk Image, Virtual Machines</span>
+                                    </span>
+                                </button>
+                                </template>
+                                <button type="button"
+                                        @click="isOpen = false; window.openMs365JobWizard({ backupUserId: '{$user->public_id|default:$user->id|escape:'javascript'}' })"
+                                        class="eb-menu-item">
+                                    <span class="eb-icon-box eb-icon-box--sm eb-icon-box--default">
+                                        {include file="modules/addons/cloudstorage/templates/partials/e3backup_brand_icon.tpl" ebBrandIconClass='eb-brand-icon eb-brand-icon--sm'}
+                                    </span>
+                                    <span class="flex-1 min-w-0">
+                                        <span class="block text-left text-sm text-[var(--eb-text-primary)]">Microsoft 365 Backup</span>
+                                        <span class="block text-left text-xs text-[var(--eb-text-muted)]">Mail, OneDrive, SharePoint, Teams</span>
+                                    </span>
+                                </button>
+                                <template x-if="(user.backup_type || 'both') !== 'local'">
+                                <button type="button"
+                                        data-tour="user-detail-create-job-cloud"
+                                        @click="isOpen = false; window.openCloudBackupWizard()"
+                                        class="eb-menu-item">
+                                    <span class="eb-icon-box eb-icon-box--sm eb-icon-box--info">
+                                        <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z" />
+                                        </svg>
+                                    </span>
+                                    <span class="flex-1 min-w-0">
+                                        <span class="block text-left text-sm text-[var(--eb-text-primary)]">SaaS Backup (Cloud-to-Cloud)</span>
+                                        <span class="block text-left text-xs text-[var(--eb-text-muted)]">Google Drive, Dropbox, SFTP, S3, AWS</span>
+                                    </span>
+                                </button>
+                                </template>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
 
-            <div class="eb-tab-stack eb-tab-stack--responsive">
-                <div class="eb-tab-mobile-switcher">
-                    <div class="eb-menu-label eb-tab-mobile-switcher-label">Section</div>
-                    <button type="button"
-                            class="eb-btn eb-btn-secondary eb-btn-sm eb-btn-block"
-                            @click="tabMenuOpen = !tabMenuOpen"
-                            :aria-expanded="tabMenuOpen"
-                            aria-haspopup="listbox"
-                            aria-label="Choose section">
-                        <span class="truncate" x-text="userDetailTabTriggerLabel()"></span>
-                        <svg class="eb-dropdown-chevron" :class="tabMenuOpen ? 'is-open' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-                            <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
-                        </svg>
-                    </button>
-                    <div x-show="tabMenuOpen"
-                         x-transition
-                         x-cloak
-                         @click.away="tabMenuOpen = false"
-                         @keydown.escape.window="tabMenuOpen = false"
-                         class="eb-menu eb-tab-mobile-menu"
-                         style="display: none;"
-                         role="listbox"
-                         aria-label="User sections">
-                        <button type="button" role="option" class="eb-menu-option" :class="activeTab === 'overview' ? 'is-active' : ''" @click="selectUserDetailTab('overview')">Overview</button>
-                        <button x-show="(user.backup_type || 'both') !== 'cloud_only'" type="button" role="option" class="eb-menu-option" :class="activeTab === 'agents' ? 'is-active' : ''" @click="selectUserDetailTab('agents')">
-                            <span>Agents</span>
-                            <span class="eb-tab-count" x-text="user.agents_count ?? 0"></span>
-                        </button>
-                        <button type="button" role="option" class="eb-menu-option" :class="activeTab === 'jobs' ? 'is-active' : ''" @click="selectUserDetailTab('jobs')">
-                            <span>Jobs</span>
-                            <span class="eb-tab-count" x-text="user.jobs_count ?? 0"></span>
-                        </button>
-                        <button type="button" role="option" class="eb-menu-option" :class="activeTab === 'restore' ? 'is-active' : ''" @click="selectUserDetailTab('restore')">Restore</button>
-                        <button type="button" role="option" class="eb-menu-option" :class="activeTab === 'vaults' ? 'is-active' : ''" @click="selectUserDetailTab('vaults')">
-                            <span>Vaults</span>
-                            <span class="eb-tab-count" x-text="user.vaults_count ?? 0"></span>
-                        </button>
-                        <button x-show="(user.hyperv_jobs_count ?? 0) > 0" type="button" role="option" class="eb-menu-option" :class="activeTab === 'hyperv' ? 'is-active' : ''" @click="selectUserDetailTab('hyperv')">
-                            <span>Hyper-V</span>
-                            <span class="eb-tab-count" x-text="user.hyperv_vms?.length ?? 0"></span>
-                        </button>
-                        <button type="button" role="option" class="eb-menu-option" :class="activeTab === 'billing' ? 'is-active' : ''" @click="selectUserDetailTab('billing')">Billing</button>
-                    </div>
+            <div class="eb-user-detail-sections">
+                <div class="eb-user-detail-section-head">
+                    <h2 class="eb-user-detail-section-title" x-text="userDetailSectionTitle()"></h2>
                 </div>
-
-                <div class="eb-tab-bar eb-tab-bar--user-detail eb-tab-bar--user-detail-desktop" role="tablist" aria-label="User sections">
-                    <button type="button" role="tab" class="eb-tab" :class="activeTab === 'overview' ? 'is-active' : ''" @click="selectUserDetailTab('overview')" :aria-selected="activeTab === 'overview'">
-                        <svg class="eb-tab-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-                        Overview
-                    </button>
-                    <button x-show="(user.backup_type || 'both') !== 'cloud_only'" type="button" role="tab" class="eb-tab" :class="activeTab === 'agents' ? 'is-active' : ''" @click="selectUserDetailTab('agents')" :aria-selected="activeTab === 'agents'">
-                        <svg class="eb-tab-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
-                        Agents
-                        <span class="eb-tab-count" x-text="user.agents_count ?? 0"></span>
-                    </button>
-                    <button type="button" role="tab" class="eb-tab" :class="activeTab === 'jobs' ? 'is-active' : ''" @click="selectUserDetailTab('jobs')" :aria-selected="activeTab === 'jobs'">
-                        <svg class="eb-tab-icon" viewBox="0 0 24 24" aria-hidden="true"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-                        Jobs
-                        <span class="eb-tab-count" x-text="user.jobs_count ?? 0"></span>
-                    </button>
-                    <button type="button" role="tab" class="eb-tab" :class="activeTab === 'restore' ? 'is-active' : ''" @click="selectUserDetailTab('restore')" :aria-selected="activeTab === 'restore'">
-                        <svg class="eb-tab-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline fill="none" points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                        Restore
-                    </button>
-                    <button type="button" role="tab" class="eb-tab" :class="activeTab === 'vaults' ? 'is-active' : ''" @click="selectUserDetailTab('vaults')" :aria-selected="activeTab === 'vaults'">
-                        <svg class="eb-tab-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2z"/></svg>
-                        Vaults
-                        <span class="eb-tab-count" x-text="user.vaults_count ?? 0"></span>
-                    </button>
-                    <button x-show="(user.hyperv_jobs_count ?? 0) > 0" type="button" role="tab" class="eb-tab" :class="activeTab === 'hyperv' ? 'is-active' : ''" @click="selectUserDetailTab('hyperv')" :aria-selected="activeTab === 'hyperv'">
-                        <svg class="eb-tab-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" d="M5 12h14M5 12a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2M5 12a2 2 0 0 0-2 2v4a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-4a2 2 0 0 0-2-2"/></svg>
-                        Hyper-V
-                        <span class="eb-tab-count" x-text="user.hyperv_vms?.length ?? 0"></span>
-                    </button>
-                    <button type="button" role="tab" class="eb-tab" :class="activeTab === 'billing' ? 'is-active' : ''" @click="selectUserDetailTab('billing')" :aria-selected="activeTab === 'billing'">
-                        <svg class="eb-tab-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
-                        Billing
-                    </button>
-                </div>
-
                 <div class="eb-tab-body" x-show="activeTab === 'overview'" x-cloak>
                     <div class="eb-section-intro" style="margin-bottom: 20px;">
                         <div class="eb-section-title">User quotas</div>
-                        <p class="eb-section-description">Set resource limits for this backup user. Limits are not enforced by this screen yet; values are shown as unlimited until policy APIs are connected.</p>
+                        <p class="eb-section-description">Set resource limits for this backup user. Limits are not enforced by this screen yet; values are shown as unlimited until while product is in Beta</p>
                     </div>
                     <div class="eb-quota-grid" style="margin-bottom: 28px;">
                         <div class="eb-quota-card">
@@ -476,38 +340,6 @@
                 </div>
 
                 <div class="eb-tab-body" x-show="activeTab === 'agents'" x-cloak>
-                    {if $ebIsAdminSession}
-                    <!-- Quick enroll panel (admin/dev only - token-based enrollment) -->
-                    <div x-data="ebQuickEnroll()" x-init="init()" class="rounded-md p-4 mb-4" style="background:rgba(124,58,237,0.08); border:1px solid rgba(124,58,237,0.35);">
-                        <div class="flex items-center justify-between mb-3">
-                            <div>
-                                <div class="text-base font-semibold" style="color:#c4b5fd;">Quick enroll an agent (admin only)</div>
-                                <p class="text-sm text-[var(--eb-text-secondary)] mt-1">Generate a one-time enrollment token and copy a ready-to-paste install command for your test lab box. End users sign in via the tray instead.</p>
-                            </div>
-                            <button type="button" class="eb-btn eb-btn-orange eb-btn-sm" @click="generate()">
-                                <span x-show="!loading">Generate token</span>
-                                <span x-show="loading">Generating...</span>
-                            </button>
-                        </div>
-                        <template x-if="result">
-                            <div>
-                                <div class="text-xs uppercase tracking-wider text-[var(--eb-text-muted)] mb-2">Token (valid 60 minutes, single-use)</div>
-                                <div class="font-mono text-sm bg-[var(--eb-bg-base)] border border-[var(--eb-border-subtle)] rounded p-2 mb-3" x-text="result.token"></div>
-
-                                <div class="flex gap-2 mb-3">
-                                    <button type="button" class="eb-btn eb-btn-secondary eb-btn-sm" :class="platform === 'linux' ? 'is-active' : ''" @click="platform = 'linux'">Linux</button>
-                                    <button type="button" class="eb-btn eb-btn-secondary eb-btn-sm" :class="platform === 'win2019' ? 'is-active' : ''" @click="platform = 'win2019'">Windows Server 2019</button>
-                                    <button type="button" class="eb-btn eb-btn-secondary eb-btn-sm" :class="platform === 'win2025' ? 'is-active' : ''" @click="platform = 'win2025'">Windows Server 2025</button>
-                                </div>
-
-                                <pre class="bg-[var(--eb-bg-base)] border border-[var(--eb-border-subtle)] rounded p-3 text-xs overflow-x-auto" x-text="snippet()"></pre>
-                                <button type="button" class="eb-btn eb-btn-orange eb-btn-sm mt-2" @click="copySnippet()">Copy to clipboard</button>
-                                <span class="text-xs text-[var(--eb-text-muted)] ml-2" x-show="copied">Copied!</span>
-                            </div>
-                        </template>
-                    </div>
-                    {/if}
-
                     <template x-if="!agentsDetail().length">
                         <div class="eb-app-empty">
                             <span class="eb-icon-box eb-icon-box--lg eb-icon-box--default mb-3" aria-hidden="true">
@@ -695,14 +527,7 @@
                                         <div class="eb-job-card">
                                             <div class="eb-job-card-header">
                                                 <div class="eb-job-card-identity">
-                                                    <div class="eb-job-type-icon" aria-hidden="true">
-                                                        <svg x-show="(job.source_type || '').toLowerCase() === 'local_agent'" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-                                                            <rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/>
-                                                        </svg>
-                                                        <svg x-show="(job.source_type || '').toLowerCase() !== 'local_agent'" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-                                                            <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2z"/>
-                                                        </svg>
-                                                    </div>
+                                                    {include file="modules/addons/cloudstorage/templates/partials/e3backup_job_type_icon.tpl"}
                                                     <div class="eb-job-card-name" x-text="job.name"></div>
                                                     <span x-show="(job.status || '').toLowerCase() === 'paused'" class="eb-job-status-paused">
                                                         <span class="eb-job-status-paused-dot" aria-hidden="true"></span>
@@ -750,6 +575,13 @@
                                                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-[15px] w-[15px]">
                                                             <path stroke-linecap="round" stroke-linejoin="round" d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>
                                                         </svg>
+                                                    </button>
+                                                    <button type="button"
+                                                            x-show="isMs365Job(job)"
+                                                            @click="openMs365Usage(job)"
+                                                            class="eb-btn eb-btn-secondary eb-btn-sm"
+                                                            title="Usage and billing for this Microsoft 365 backup user">
+                                                        Usage &amp; Billing
                                                     </button>
                                                     <button type="button" @click="openDeleteModal(job)" class="eb-btn eb-btn-icon eb-btn-sm is-danger" title="Delete job">
                                                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-[15px] w-[15px]">
@@ -806,8 +638,8 @@
                                                     <div class="eb-job-meta-value" x-text="formatLastRunTime(job)"></div>
                                                     <template x-if="job.last_run && job.last_run.status">
                                                         <div class="eb-job-last-run-status">
-                                                            <span class="eb-job-last-run-dot" :class="lastRunDotClass(job.last_run.status)"></span>
-                                                            <span class="eb-job-last-run-label" :class="lastRunLabelClass(job.last_run.status)" x-text="capitalize(job.last_run.status)"></span>
+                                                            <span class="eb-job-last-run-dot" :class="lastRunDotClassForRun(job.last_run)"></span>
+                                                            <span class="eb-job-last-run-label" :class="lastRunLabelClassForRun(job.last_run)" x-text="lastRunStatusLabel(job.last_run)"></span>
                                                         </div>
                                                     </template>
                                                 </div>
@@ -824,7 +656,7 @@
                              style="display:none;"
                              @keydown.escape.window="closeDeleteModal()">
                             <div class="eb-modal-backdrop absolute inset-0" @click="closeDeleteModal()"></div>
-                            <div class="eb-modal eb-modal--confirm relative z-10 !p-0 overflow-hidden"
+                            <div class="eb-modal eb-modal--confirm relative z-10 w-full max-w-2xl !p-0 overflow-hidden"
                                  @click.stop
                                  x-transition:enter="transition ease-out duration-150"
                                  x-transition:enter-start="opacity-0 scale-95"
@@ -835,26 +667,153 @@
                                 <div class="eb-modal-header">
                                     <div>
                                         <h3 class="eb-modal-title">Delete job?</h3>
-                                        <p class="eb-modal-subtitle">This will remove the job configuration and stop scheduled runs.</p>
+                                        <p class="eb-modal-subtitle" x-show="!isDeleteModalMs365()">This will remove the job configuration and stop scheduled runs.</p>
+                                        <p class="eb-modal-subtitle" x-show="isDeleteModalMs365()" x-cloak>
+                                            This removes the job configuration, stops scheduled runs, and soft-deletes the backup vault. The vault moves to the recycle bin for <span x-text="ms365VaultGraceDays"></span> days before permanent removal.
+                                        </p>
                                     </div>
                                 </div>
-                                <div class="eb-modal-body">
+                                <div class="eb-modal-body space-y-4">
                                     <div class="eb-alert eb-alert--danger">
                                         <svg class="eb-alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                             <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
                                         </svg>
                                         <div>Job: <span class="font-semibold text-[var(--eb-text-primary)]" x-text="deleteJobName || 'Unnamed job'"></span></div>
                                     </div>
+                                    <template x-if="isDeleteModalMs365()">
+                                        <div class="space-y-3">
+                                            <div>
+                                                <div class="eb-field-label !mb-0">Vault:</div>
+                                                <div class="eb-detail-value font-mono font-medium break-all" x-text="deleteJobVaultName || '—'"></div>
+                                            </div>
+                                            <div class="grid gap-3 sm:grid-cols-3">
+                                                <div>
+                                                    <div class="eb-field-label !mb-0">Retention tier:</div>
+                                                    <div class="eb-detail-value font-medium" x-text="deleteJobRetentionTier || '—'"></div>
+                                                </div>
+                                                <div>
+                                                    <div class="eb-field-label !mb-0">Protection:</div>
+                                                    <div class="eb-detail-value font-medium">Versioning enabled</div>
+                                                </div>
+                                                <div>
+                                                    <div class="eb-field-label !mb-0">Recycle grace:</div>
+                                                    <div class="eb-detail-value font-medium"><span x-text="ms365VaultGraceDays"></span> days</div>
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <label class="eb-type-body block text-[var(--eb-text-primary)]" :for="'delete-confirm-user-' + deleteJobId">
+                                                    Type <span class="font-mono font-semibold" x-text="deleteConfirmPhraseExpected()"></span> to confirm:
+                                                </label>
+                                                <input type="text"
+                                                       class="eb-confirm-input"
+                                                       :id="'delete-confirm-user-' + deleteJobId"
+                                                       x-model="deleteConfirmPhrase"
+                                                       autocomplete="off"
+                                                       placeholder="DELETE …">
+                                            </div>
+                                        </div>
+                                    </template>
                                 </div>
                                 <div class="eb-modal-footer">
                                     <button type="button" class="eb-btn eb-btn-secondary eb-btn-sm" @click="closeDeleteModal()" :disabled="deleteInProgress">Cancel</button>
-                                    <button type="button" class="eb-btn eb-btn-danger-solid eb-btn-sm" @click="confirmDeleteJob()" :disabled="deleteInProgress">
+                                    <button type="button" class="eb-btn eb-btn-danger-solid eb-btn-sm" @click="confirmDeleteJob()" :disabled="deleteInProgress || !canConfirmDeleteJob()">
                                         <svg x-show="deleteInProgress" class="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
                                             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                                             <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
                                         </svg>
                                         <span x-text="deleteInProgress ? 'Deleting…' : 'Delete'"></span>
                                     </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div x-show="ms365UsageOpen"
+                             x-cloak
+                             class="fixed inset-0 z-[2250]"
+                             style="display:none;"
+                             @keydown.escape.window="closeMs365Usage()">
+                            <div class="eb-drawer-backdrop absolute inset-0" @click="closeMs365Usage()"></div>
+                            <div class="absolute right-0 top-0 h-full w-full max-w-2xl eb-drawer overflow-y-auto shadow-xl"
+                                 @click.stop>
+                                <div class="eb-drawer-header">
+                                    <div>
+                                        <h2 class="eb-drawer-title">Usage &amp; Billing</h2>
+                                        <p class="text-sm text-[var(--eb-text-muted)]" x-text="ms365UsageJobName ? ('Microsoft 365 · ' + ms365UsageJobName) : 'Microsoft 365 backup user'"></p>
+                                    </div>
+                                    <button type="button" class="eb-modal-close" @click="closeMs365Usage()" aria-label="Close usage panel">
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6 18L18 6M6 6l12 12" />
+                                        </svg>
+                                    </button>
+                                </div>
+                                <div class="eb-drawer-body space-y-6">
+                                    <template x-if="ms365UsageLoading">
+                                        <div class="text-sm text-[var(--eb-text-muted)]">Loading usage…</div>
+                                    </template>
+                                    <template x-if="!ms365UsageLoading && ms365UsageError">
+                                        <div class="eb-alert eb-alert--danger" x-text="ms365UsageError"></div>
+                                    </template>
+                                    <template x-if="!ms365UsageLoading && ms365UsageData">
+                                        <div>
+                                            <template x-if="ms365UsageData.trial_status === 'trialing'">
+                                                <div class="eb-alert eb-alert--info mb-4">Trial period — quantities shown; charges are $0 until conversion.</div>
+                                            </template>
+                                            <template x-if="ms365UsageData.inventory_stale">
+                                                <div class="eb-alert eb-alert--warning mb-4">Inventory may be stale; figures reflect the last successful discovery.</div>
+                                            </template>
+                                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+                                                <div class="eb-card !p-4">
+                                                    <div class="text-xs uppercase tracking-wide text-[var(--eb-text-muted)]">Protected Users</div>
+                                                    <div class="text-2xl font-semibold mt-1" x-text="(ms365UsageData.protected_users?.current ?? 0)"></div>
+                                                    <div class="text-xs text-[var(--eb-text-muted)] mt-1">Peak this period: <span x-text="(ms365UsageData.protected_users?.peak_in_period ?? 0)"></span></div>
+                                                </div>
+                                                <div class="eb-card !p-4">
+                                                    <div class="text-xs uppercase tracking-wide text-[var(--eb-text-muted)]">OneDrive overage (GiB)</div>
+                                                    <div class="text-2xl font-semibold mt-1" x-text="(ms365UsageData.onedrive_overage_gib?.current ?? 0)"></div>
+                                                    <div class="text-xs text-[var(--eb-text-muted)] mt-1">Peak this period: <span x-text="(ms365UsageData.onedrive_overage_gib?.peak_in_period ?? 0)"></span></div>
+                                                </div>
+                                            </div>
+                                            <p class="text-sm text-[var(--eb-text-muted)] mb-3">
+                                                Included OneDrive per user: <span x-text="ms365UsageData.included_gib_per_user"></span> GiB
+                                            </p>
+                                            <div class="overflow-x-auto">
+                                                <table class="eb-table w-full text-sm">
+                                                    <thead>
+                                                        <tr>
+                                                            <th class="text-left">User</th>
+                                                            <th class="text-right">Used (GiB)</th>
+                                                            <th class="text-right">Included (GiB)</th>
+                                                            <th class="text-right">Overage (GiB)</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        <template x-for="(row, idx) in (ms365UsageData.onedrive_users || [])" :key="'od-' + idx">
+                                                            <tr :class="(row.overage_bytes || 0) > 0 ? 'bg-[color:var(--eb-warning-bg)]' : ''">
+                                                                <td>
+                                                                    <div class="font-medium" x-text="row.display_name || row.upn || row.azure_user_id"></div>
+                                                                    <div class="text-xs text-[var(--eb-text-muted)]" x-show="row.upn" x-text="row.upn"></div>
+                                                                </td>
+                                                                <td class="text-right" x-text="formatUsageGiB(row.used_bytes)"></td>
+                                                                <td class="text-right" x-text="formatUsageGiB(row.included_bytes)"></td>
+                                                                <td class="text-right font-medium" x-text="formatUsageGiB(row.overage_bytes)"></td>
+                                                            </tr>
+                                                        </template>
+                                                        <template x-if="!(ms365UsageData.onedrive_users || []).length">
+                                                            <tr><td colspan="4" class="text-center text-[var(--eb-text-muted)] py-4">No OneDrive users in scope.</td></tr>
+                                                        </template>
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                            <div class="eb-card !p-4 mt-6 text-sm">
+                                                <div class="font-medium mb-2">Estimated period total (CAD)</div>
+                                                <div class="text-2xl font-semibold" x-text="'$' + Number(ms365UsageData.pricing?.estimated_period_total_cad || 0).toFixed(2)"></div>
+                                                <div class="text-xs text-[var(--eb-text-muted)] mt-2">
+                                                    Protected Users @ $<span x-text="Number(ms365UsageData.pricing?.protected_user_price_cad || 0).toFixed(2)"></span>/user ·
+                                                    OneDrive overage @ $<span x-text="Number(ms365UsageData.pricing?.onedrive_overage_per_gib_cad || 0).toFixed(2)"></span>/GiB
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </template>
                                 </div>
                             </div>
                         </div>
@@ -866,46 +825,228 @@
                 </div>
 
                 <div class="eb-tab-body" x-show="activeTab === 'vaults'" x-cloak>
-                    <template x-if="!vaultsDetail().length">
+                    <div class="eb-segmented mb-4" role="tablist" aria-label="Vault views">
+                        <button type="button"
+                                role="tab"
+                                class="eb-segmented-btn"
+                                :class="vaultSubTab === 'active' ? 'is-active' : ''"
+                                :aria-selected="vaultSubTab === 'active' ? 'true' : 'false'"
+                                @click="selectVaultSubTab('active')">
+                            Active vaults (<span x-text="ms365VaultsActive().length"></span>)
+                        </button>
+                        <button type="button"
+                                role="tab"
+                                class="eb-segmented-btn"
+                                :class="vaultSubTab === 'recycle' ? 'is-active' : ''"
+                                :aria-selected="vaultSubTab === 'recycle' ? 'true' : 'false'"
+                                @click="selectVaultSubTab('recycle')">
+                            Recycle bin (<span x-text="ms365VaultsRecycle().length"></span>)
+                        </button>
+                    </div>
+
+                    <p class="eb-type-caption mb-4" x-show="vaultSubTab === 'recycle'" x-cloak>
+                        Vaults remain recoverable until the grace period ends. Permanent deletion is queued automatically afterward. Requests for early deletion are reviewed by platform administrators.
+                    </p>
+
+                    <div class="eb-table-toolbar">
+                        <div class="relative" x-data="{ isOpen: false }" @click.away="isOpen = false">
+                            <button type="button"
+                                    @click="isOpen = !isOpen"
+                                    class="eb-btn eb-btn-secondary eb-btn-sm">
+                                <span x-text="'Show ' + vaultEntriesPerPage"></span>
+                                <svg class="eb-dropdown-chevron" :class="isOpen ? 'is-open' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                                    <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+                                </svg>
+                            </button>
+                            <div x-show="isOpen"
+                                 x-transition
+                                 class="eb-dropdown-menu absolute left-0 z-20 mt-2 w-40 overflow-hidden"
+                                 style="display: none;">
+                                <template x-for="size in [10,25,50,100]" :key="'vault-entries-' + size">
+                                    <button type="button"
+                                            class="eb-menu-option"
+                                            :class="vaultEntriesPerPage === size ? 'is-active' : ''"
+                                            @click="setVaultEntries(size); isOpen=false;">
+                                        <span x-text="size"></span>
+                                    </button>
+                                </template>
+                            </div>
+                        </div>
+
+                        <div class="eb-table-toolbar-grow" aria-hidden="true"></div>
+
+                        <input type="search"
+                               :placeholder="vaultSubTab === 'recycle' ? 'Search recycle bin' : 'Search vaults'"
+                               x-model.debounce.200ms="vaultSearchQuery"
+                               @input="vaultCurrentPage = 1"
+                               class="eb-toolbar-search eb-toolbar-search--wide">
+                    </div>
+
+                    <template x-if="pagedVaults().length === 0">
                         <div class="eb-app-empty">
-                            <div class="eb-app-empty-title">No vaults yet</div>
-                            <p class="eb-app-empty-copy">Vaults appear when jobs target destination buckets in this user scope.</p>
+                            <div class="eb-app-empty-title" x-text="vaultSearchQuery.trim() ? 'No matching vaults found' : (vaultSubTab === 'recycle' ? 'Recycle bin is empty' : 'No active vaults yet')"></div>
+                            <p class="eb-app-empty-copy" x-text="vaultSearchQuery.trim() ? 'Try a different search term or clear your filters.' : (vaultSubTab === 'recycle' ? 'Deleted Microsoft 365 backup vaults appear here during the grace period.' : 'Microsoft 365 backup vaults appear here when jobs are created for this user.')"></p>
                         </div>
                     </template>
-                    <div class="eb-vault-grid" x-show="vaultsDetail().length">
-                        <template x-for="(vault, vIdx) in vaultsDetail()" :key="'vault-' + (vault.id || vIdx)">
-                            <div class="eb-vault-card">
-                                <div class="eb-vault-card-header">
-                                    <div class="eb-vault-icon">
-                                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2z"/></svg>
+
+                    <template x-if="pagedVaults().length > 0">
+                        <div class="eb-table-shell">
+                            <table class="eb-table">
+                                <thead>
+                                    <tr>
+                                        <th>
+                                            <button type="button" class="eb-table-sort-button" @click="vaultSortBy('name')">
+                                                Vault name <span class="eb-sort-indicator" x-text="vaultSortIndicator('name')"></span>
+                                            </button>
+                                        </th>
+                                        <th>
+                                            <button type="button" class="eb-table-sort-button" @click="vaultSortBy('retention_tier')">
+                                                Retention <span class="eb-sort-indicator" x-text="vaultSortIndicator('retention_tier')"></span>
+                                            </button>
+                                        </th>
+                                        <th>
+                                            <button type="button" class="eb-table-sort-button" @click="vaultSortBy('protection_label')">
+                                                Protection <span class="eb-sort-indicator" x-text="vaultSortIndicator('protection_label')"></span>
+                                            </button>
+                                        </th>
+                                        <th class="eb-table-cell-numeric">
+                                            <button type="button" class="eb-table-sort-button" @click="vaultSortBy('storage')">
+                                                Stored <span class="eb-sort-indicator" x-text="vaultSortIndicator('storage')"></span>
+                                            </button>
+                                        </th>
+                                        <th>
+                                            <button type="button" class="eb-table-sort-button" @click="vaultSortBy('job_name')">
+                                                Source job <span class="eb-sort-indicator" x-text="vaultSortIndicator('job_name')"></span>
+                                            </button>
+                                        </th>
+                                        <th class="eb-table-cell-numeric" x-show="vaultSubTab === 'recycle'" x-cloak>
+                                            <button type="button" class="eb-table-sort-button" @click="vaultSortBy('days_remaining')">
+                                                Days left <span class="eb-sort-indicator" x-text="vaultSortIndicator('days_remaining')"></span>
+                                            </button>
+                                        </th>
+                                        <th x-show="vaultSubTab === 'recycle'" x-cloak>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <template x-for="(vault, vIdx) in pagedVaults()" :key="'vault-row-' + vaultSubTab + '-' + (vault.id || vIdx)">
+                                        <tr>
+                                            <td class="eb-table-primary">
+                                                <div class="font-mono text-sm break-all" x-text="vault.name"></div>
+                                                <div class="text-xs text-[var(--eb-text-muted)] mt-0.5" x-text="vault.provider_label || 'Microsoft 365 Backup'"></div>
+                                                <span class="eb-badge eb-badge--warning mt-1" x-show="vaultSubTab === 'recycle'">In recycle bin</span>
+                                            </td>
+                                            <td x-text="vault.retention_tier || '—'"></td>
+                                            <td x-text="vault.protection_label || 'Versioning enabled'"></td>
+                                            <td class="eb-table-cell-numeric" x-text="vault.storage_used_display || '—'"></td>
+                                            <td x-text="vault.job_name || '—'"></td>
+                                            <td class="eb-table-cell-numeric" x-show="vaultSubTab === 'recycle'" x-cloak>
+                                                <div x-text="vault.days_remaining != null ? (vault.days_remaining + ' days') : '—'"></div>
+                                                <div class="text-xs text-[var(--eb-text-muted)]" x-show="vault.recycle_teardown_at" x-text="'on ' + formatDateShort(vault.recycle_teardown_at)"></div>
+                                            </td>
+                                            <td x-show="vaultSubTab === 'recycle'" x-cloak>
+                                                <button type="button"
+                                                        class="eb-btn eb-btn-secondary eb-btn-sm"
+                                                        :disabled="vault.early_delete_request_status === 'pending' || earlyDeleteInProgress"
+                                                        @click="openEarlyDeleteModal(vault)">
+                                                    <span x-text="vault.early_delete_request_status === 'pending' ? 'Requested' : 'Request early deletion'"></span>
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div class="eb-table-pagination">
+                            <div class="text-xs font-medium text-[var(--eb-text-muted)]" x-text="vaultPageSummary()"></div>
+                            <div class="eb-table-pagination-actions">
+                                <button type="button"
+                                        class="eb-table-pagination-button"
+                                        :disabled="vaultCurrentPage <= 1"
+                                        @click="vaultCurrentPage = Math.max(1, vaultCurrentPage - 1)">
+                                    Prev
+                                </button>
+                                <span class="eb-table-pagination-page" x-text="'Page ' + vaultCurrentPage + ' / ' + vaultTotalPages()"></span>
+                                <button type="button"
+                                        class="eb-table-pagination-button"
+                                        :disabled="vaultCurrentPage >= vaultTotalPages()"
+                                        @click="vaultCurrentPage = Math.min(vaultTotalPages(), vaultCurrentPage + 1)">
+                                    Next
+                                </button>
+                            </div>
+                        </div>
+                    </template>
+
+                    <template x-if="legacyVaultsDetail().length">
+                        <div class="mt-8">
+                            <h3 class="eb-section-title mb-3">Other destination buckets</h3>
+                            <div class="eb-vault-grid">
+                                <template x-for="(vault, vIdx) in legacyVaultsDetail()" :key="'vault-' + (vault.id || vIdx)">
+                                    <div class="eb-vault-card">
+                                        <div class="eb-vault-card-header">
+                                            <div class="eb-vault-icon">
+                                                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2z"/></svg>
+                                            </div>
+                                            <div>
+                                                <a class="eb-vault-name eb-link"
+                                                   :href="'index.php?m=cloudstorage&page=buckets#bucketRow' + encodeURIComponent(vault.id)"
+                                                   x-text="vault.name"></a>
+                                                <div class="eb-vault-provider" x-text="vault.provider_label"></div>
+                                            </div>
+                                        </div>
+                                        <div class="eb-vault-stats">
+                                            <div class="eb-vault-stat">
+                                                <div class="eb-vault-stat-label">Storage used</div>
+                                                <div class="eb-vault-stat-value" x-text="vault.storage_used_display"></div>
+                                            </div>
+                                            <div class="eb-vault-stat">
+                                                <div class="eb-vault-stat-label">Bucket path</div>
+                                                <div class="eb-vault-stat-value" x-text="vault.bucket_path"></div>
+                                            </div>
+                                            <div class="eb-vault-stat">
+                                                <div class="eb-vault-stat-label">Created</div>
+                                                <div class="eb-vault-stat-value" x-text="vault.created || '—'"></div>
+                                            </div>
+                                            <div class="eb-vault-stat">
+                                                <div class="eb-vault-stat-label">Jobs using</div>
+                                                <div class="eb-vault-stat-value" x-text="vault.jobs_using"></div>
+                                            </div>
+                                        </div>
                                     </div>
-                                    <div>
-                                        <a class="eb-vault-name eb-link"
-                                           :href="'index.php?m=cloudstorage&page=buckets#bucketRow' + encodeURIComponent(vault.id)"
-                                           x-text="vault.name"></a>
-                                        <div class="eb-vault-provider" x-text="vault.provider_label"></div>
-                                    </div>
-                                </div>
-                                <div class="eb-vault-stats">
-                                    <div class="eb-vault-stat">
-                                        <div class="eb-vault-stat-label">Storage used</div>
-                                        <div class="eb-vault-stat-value" x-text="vault.storage_used_display"></div>
-                                    </div>
-                                    <div class="eb-vault-stat">
-                                        <div class="eb-vault-stat-label">Bucket path</div>
-                                        <div class="eb-vault-stat-value" x-text="vault.bucket_path"></div>
-                                    </div>
-                                    <div class="eb-vault-stat">
-                                        <div class="eb-vault-stat-label">Created</div>
-                                        <div class="eb-vault-stat-value" x-text="vault.created || '—'"></div>
-                                    </div>
-                                    <div class="eb-vault-stat">
-                                        <div class="eb-vault-stat-label">Jobs using</div>
-                                        <div class="eb-vault-stat-value" x-text="vault.jobs_using"></div>
-                                    </div>
+                                </template>
+                            </div>
+                        </div>
+                    </template>
+
+                    <div x-show="earlyDeleteModalOpen"
+                         x-cloak
+                         class="fixed inset-0 z-[2200] flex items-center justify-center p-4"
+                         style="display:none;"
+                         @keydown.escape.window="closeEarlyDeleteModal()">
+                        <div class="eb-modal-backdrop absolute inset-0" @click="closeEarlyDeleteModal()"></div>
+                        <div class="eb-modal eb-modal--confirm relative z-10 !p-0 overflow-hidden" @click.stop>
+                            <div class="eb-modal-header">
+                                <div>
+                                    <h3 class="eb-modal-title">Request early deletion?</h3>
+                                    <p class="eb-modal-subtitle">Platform administrators review early deletion requests. You cannot permanently delete vault data yourself.</p>
                                 </div>
                             </div>
-                        </template>
+                            <div class="eb-modal-body space-y-3">
+                                <div class="text-sm text-[var(--eb-text-secondary)]">
+                                    Vault: <span class="font-semibold text-[var(--eb-text-primary)]" x-text="earlyDeleteVault?.name || '—'"></span>
+                                </div>
+                                <div>
+                                    <label class="eb-field-label" for="early-delete-reason">Reason (optional)</label>
+                                    <textarea id="early-delete-reason" class="eb-input w-full mt-1 min-h-[80px]" x-model="earlyDeleteReason" placeholder="Why do you need this vault removed before the grace period ends?"></textarea>
+                                </div>
+                            </div>
+                            <div class="eb-modal-footer">
+                                <button type="button" class="eb-btn eb-btn-secondary eb-btn-sm" @click="closeEarlyDeleteModal()" :disabled="earlyDeleteInProgress">Cancel</button>
+                                <button type="button" class="eb-btn eb-btn-danger-solid eb-btn-sm" @click="submitEarlyDeleteRequest()" :disabled="earlyDeleteInProgress">
+                                    <span x-text="earlyDeleteInProgress ? 'Submitting…' : 'Submit request'"></span>
+                                </button>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
@@ -1119,6 +1260,8 @@
                             <a href="index.php?m=cloudstorage&page=e3backup&view=users" class="eb-btn eb-btn-ghost eb-btn-xs">User directory</a>
                         </div>
                     </div>
+                    <div style="font-size: 10.5px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--eb-text-muted); margin: 20px 0 10px;">Pricing reference</div>
+                    {include file="{$smarty.const.ROOTDIR}/modules/addons/cloudstorage/templates/partials/e3backup_pricing_panel.tpl"}
                     <div style="font-size: 10.5px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--eb-text-muted); margin-bottom: 10px;">Billable resources</div>
                     <div class="eb-billing-kpi-grid">
                         <div class="eb-billing-kpi">
@@ -1442,11 +1585,9 @@
 </style>
 
 {include file="modules/addons/cloudstorage/templates/partials/e3backup_shell.tpl"
-    ebE3SidebarPage='users'
-    ebE3Title="{$user->username|escape:'html'}"
-    ebE3Description='Account details, usage, and administration for this username.'
-    ebE3Icon=$ebE3Icon
-    ebE3Actions=$ebE3Actions
+    ebE3SidebarPage='user_detail'
+    ebE3SidebarUsername="{$user->username|escape:'html'}"
+    ebE3SidebarUserRouteId="{$user->public_id|default:$user->id|escape:'url'}"
     ebE3Content=$ebE3Content
 }
 
@@ -1472,6 +1613,13 @@ function e3backupReloadUserDetail() {
     }
     return null;
 }
+
+window.e3backupSelectUserDetailTab = function(tab) {
+    const app = e3backupGetUserDetailApp();
+    if (app && typeof app.selectUserDetailTab === 'function') {
+        app.selectUserDetailTab(tab);
+    }
+};
 
 function backupUserDetailApp() {
     return {
@@ -1503,6 +1651,9 @@ function backupUserDetailApp() {
             backup_type: {/literal}{if $user->backup_type}{$user->backup_type|@json_encode nofilter}{else}'both'{/if}{literal},
             agents_detail: [],
             vaults_detail: [],
+            ms365_vaults_active: [],
+            ms365_vaults_recycle: [],
+            ms365_vault_grace_days: {/literal}{$ms365_vault_grace_days|default:30|intval}{literal},
             hyperv_jobs_count: 0,
             hyperv_jobs: [],
             hyperv_vms: [],
@@ -1535,10 +1686,21 @@ function backupUserDetailApp() {
         hypervRefreshing: false,
         hypervMessage: '',
         hypervError: '',
+        earlyDeleteModalOpen: false,
+        earlyDeleteVault: null,
+        earlyDeleteReason: '',
+        earlyDeleteInProgress: false,
+        vaultSubTab: 'active',
+        vaultSearchQuery: '',
+        vaultSortKey: 'name',
+        vaultSortDirection: 'asc',
+        vaultEntriesPerPage: 25,
+        vaultCurrentPage: 1,
 
         init() {
             this.activeTab = this.resolveInitialTab();
             this.loadUser();
+            window.ebUserDetailReload = () => this.loadUser();
             window.addEventListener('resize', () => {
                 if (window.innerWidth >= 922) {
                     this.tabMenuOpen = false;
@@ -1546,6 +1708,12 @@ function backupUserDetailApp() {
             });
             window.addEventListener('hashchange', () => {
                 this.activeTab = this.resolveInitialTab();
+                try {
+                    window.dispatchEvent(new CustomEvent('eb-e3-user-detail-tab-changed', {
+                        detail: { tab: this.activeTab }
+                    }));
+                } catch (e) {
+                }
             });
             window.addEventListener('eb-e3-user-restore-requested', (event) => {
                 const detail = event && event.detail ? event.detail : {};
@@ -1567,6 +1735,12 @@ function backupUserDetailApp() {
                 const url = new URL(window.location.href);
                 url.hash = tab;
                 window.history.replaceState({}, '', url.toString());
+            } catch (e) {
+            }
+            try {
+                window.dispatchEvent(new CustomEvent('eb-e3-user-detail-tab-changed', {
+                    detail: { tab: tab }
+                }));
             } catch (e) {
             }
         },
@@ -1699,6 +1873,19 @@ function backupUserDetailApp() {
             }));
         },
 
+        userDetailSectionTitle() {
+            const map = {
+                overview: 'Profile',
+                agents: 'Agents',
+                jobs: 'Jobs',
+                restore: 'Restore',
+                vaults: 'Vaults',
+                hyperv: 'Hyper-V',
+                billing: 'Billing'
+            };
+            return map[this.activeTab] || 'Profile';
+        },
+
         userDetailTabTriggerLabel() {
             const map = {
                 overview: 'Overview',
@@ -1732,6 +1919,147 @@ function backupUserDetailApp() {
 
         vaultsDetail() {
             return Array.isArray(this.user.vaults_detail) ? this.user.vaults_detail : [];
+        },
+        legacyVaultsDetail() {
+            return this.vaultsDetail().filter((vault) => {
+                const name = String(vault?.name || '').toLowerCase();
+                return name !== '' && !name.startsWith('e3ms365-');
+            });
+        },
+        ms365VaultsActive() {
+            return Array.isArray(this.user.ms365_vaults_active) ? this.user.ms365_vaults_active : [];
+        },
+        ms365VaultsRecycle() {
+            return Array.isArray(this.user.ms365_vaults_recycle) ? this.user.ms365_vaults_recycle : [];
+        },
+        selectVaultSubTab(tab) {
+            this.vaultSubTab = tab === 'recycle' ? 'recycle' : 'active';
+            this.vaultCurrentPage = 1;
+            this.vaultSearchQuery = '';
+            this.vaultSortKey = this.vaultSubTab === 'recycle' ? 'days_remaining' : 'name';
+            this.vaultSortDirection = this.vaultSubTab === 'recycle' ? 'asc' : 'asc';
+        },
+        setVaultEntries(value) {
+            this.vaultEntriesPerPage = Number(value) || 25;
+            this.vaultCurrentPage = 1;
+        },
+        vaultSourceList() {
+            return this.vaultSubTab === 'recycle' ? this.ms365VaultsRecycle() : this.ms365VaultsActive();
+        },
+        vaultMatchesSearch(vault, query) {
+            const fields = [
+                vault.name,
+                vault.retention_tier,
+                vault.protection_label,
+                vault.storage_used_display,
+                vault.job_name,
+                vault.provider_label,
+            ];
+            if (this.vaultSubTab === 'recycle') {
+                fields.push(String(vault.days_remaining ?? ''));
+                fields.push(vault.recycle_teardown_at);
+            }
+            return fields.some((field) => String(field || '').toLowerCase().includes(query));
+        },
+        filteredVaults() {
+            const query = this.vaultSearchQuery.trim().toLowerCase();
+            let list = this.vaultSourceList().slice();
+            if (query) {
+                list = list.filter((vault) => this.vaultMatchesSearch(vault, query));
+            }
+            const key = this.vaultSortKey;
+            list.sort((a, b) => {
+                let left;
+                let right;
+                if (key === 'days_remaining') {
+                    left = a.days_remaining ?? 99999;
+                    right = b.days_remaining ?? 99999;
+                } else if (key === 'storage') {
+                    left = a.storage_used_bytes ?? 0;
+                    right = b.storage_used_bytes ?? 0;
+                } else {
+                    left = a[key] ?? '';
+                    right = b[key] ?? '';
+                    if (typeof left === 'string') left = left.toLowerCase();
+                    if (typeof right === 'string') right = right.toLowerCase();
+                }
+                if (left < right) return this.vaultSortDirection === 'asc' ? -1 : 1;
+                if (left > right) return this.vaultSortDirection === 'asc' ? 1 : -1;
+                return 0;
+            });
+            return list;
+        },
+        vaultSortBy(key) {
+            if (this.vaultSortKey === key) {
+                this.vaultSortDirection = this.vaultSortDirection === 'asc' ? 'desc' : 'asc';
+            } else {
+                this.vaultSortKey = key;
+                this.vaultSortDirection = key === 'storage' || key === 'days_remaining' ? 'desc' : 'asc';
+            }
+            this.vaultCurrentPage = 1;
+        },
+        vaultSortIndicator(key) {
+            if (this.vaultSortKey !== key) return '';
+            return this.vaultSortDirection === 'asc' ? '↑' : '↓';
+        },
+        vaultTotalPages() {
+            return Math.max(1, Math.ceil(this.filteredVaults().length / this.vaultEntriesPerPage));
+        },
+        pagedVaults() {
+            const list = this.filteredVaults();
+            const pages = this.vaultTotalPages();
+            if (this.vaultCurrentPage > pages) this.vaultCurrentPage = pages;
+            const start = (this.vaultCurrentPage - 1) * this.vaultEntriesPerPage;
+            return list.slice(start, start + this.vaultEntriesPerPage);
+        },
+        vaultPageSummary() {
+            const total = this.filteredVaults().length;
+            if (total === 0) return 'Showing 0 of 0 vaults';
+            const start = (this.vaultCurrentPage - 1) * this.vaultEntriesPerPage + 1;
+            const end = Math.min(start + this.vaultEntriesPerPage - 1, total);
+            return 'Showing ' + start + '–' + end + ' of ' + total + ' vaults';
+        },
+        openEarlyDeleteModal(vault) {
+            this.earlyDeleteVault = vault || null;
+            this.earlyDeleteReason = '';
+            this.earlyDeleteModalOpen = true;
+        },
+        closeEarlyDeleteModal(force = false) {
+            if (this.earlyDeleteInProgress && !force) return;
+            this.earlyDeleteModalOpen = false;
+            this.earlyDeleteVault = null;
+            this.earlyDeleteReason = '';
+        },
+        async submitEarlyDeleteRequest() {
+            const vault = this.earlyDeleteVault;
+            if (!vault || !vault.id || this.earlyDeleteInProgress) return;
+            this.earlyDeleteInProgress = true;
+            try {
+                const params = {
+                    bucket_id: String(vault.id),
+                    user_id: String(this.user.public_id || this.userId),
+                };
+                if (this.earlyDeleteReason.trim()) {
+                    params.reason = this.earlyDeleteReason.trim();
+                }
+                const res = await fetch('modules/addons/cloudstorage/api/ms365_vault_request_early_delete.php', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: new URLSearchParams(params),
+                });
+                const data = await res.json();
+                if (data.status === 'success') {
+                    e3backupNotify('success', data.message || 'Early deletion request submitted');
+                    this.closeEarlyDeleteModal(true);
+                    await this.loadUser();
+                } else {
+                    e3backupNotify('error', data.message || 'Failed to submit request');
+                }
+            } catch (e) {
+                e3backupNotify('error', 'Failed to submit request');
+            } finally {
+                this.earlyDeleteInProgress = false;
+            }
         },
 
         hasHypervTab() {
@@ -1995,9 +2323,21 @@ function backupUserDetailApp() {
                     }
                     window.dispatchEvent(new CustomEvent('eb-e3-user-detail-loaded', {
                         detail: {
-                            userId: String(this.userId || '')
+                            userId: String(this.userId || ''),
+                            backup_type: this.user.backup_type || 'both',
+                            agents_count: this.user.agents_count ?? 0,
+                            jobs_count: this.user.jobs_count ?? 0,
+                            vaults_count: this.user.vaults_count ?? 0,
+                            hyperv_jobs_count: this.user.hyperv_jobs_count ?? 0,
+                            hyperv_vms_count: Array.isArray(this.user.hyperv_vms) ? this.user.hyperv_vms.length : 0
                         }
                     }));
+                    try {
+                        window.dispatchEvent(new CustomEvent('eb-e3-user-detail-tab-changed', {
+                            detail: { tab: this.activeTab }
+                        }));
+                    } catch (e) {
+                    }
                 } else {
                     this.updateError = data.message || 'Failed to load user.';
                 }
@@ -2118,74 +2458,6 @@ function backupUserDetailApp() {
                     username: this.user.username || ''
                 }
             }));
-        }
-    };
-}
-
-function ebQuickEnroll() {
-    return {
-        loading: false,
-        result: null,
-        platform: 'linux',
-        copied: false,
-        userId: null,
-        init() {
-            try {
-                var m = location.search.match(/[?&]user_id=(\d+)/);
-                this.userId = m ? parseInt(m[1], 10) : null;
-            } catch (e) { this.userId = null; }
-        },
-        generate() {
-            if (this.loading) return;
-            this.loading = true;
-            this.result = null;
-            this.copied = false;
-            var url = 'index.php?m=cloudstorage&page=e3backup&view=user_detail&user_id=' + (this.userId || '') + '&__redirect=1';
-            fetch('modules/addons/cloudstorage/api/e3backup_token_quickstart.php', {
-                method: 'POST',
-                credentials: 'same-origin',
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                body: 'user_id=' + encodeURIComponent(this.userId || '')
-            }).then(function(r){ return r.json(); }).then((j) => {
-                this.loading = false;
-                if (j && j.status === 'success') {
-                    this.result = j;
-                } else {
-                    alert('Token request failed: ' + (j && j.message ? j.message : 'unknown'));
-                }
-            }).catch((e) => {
-                this.loading = false;
-                alert('Token request failed: ' + e);
-            });
-        },
-        snippet() {
-            if (!this.result) return '';
-            var token = this.result.token;
-            var base = this.result.download_base || (location.protocol + '//' + location.host);
-            if (this.platform === 'linux') {
-                return [
-                    '# Linux',
-                    'curl -fsSL ' + base + '/client_installer/e3-backup-agent-linux \\',
-                    '  -o /usr/local/bin/e3-backup-agent && chmod +x /usr/local/bin/e3-backup-agent',
-                    'sudo /usr/local/bin/e3-backup-agent -enroll -token ' + token,
-                    'sudo systemctl enable --now e3-backup-agent'
-                ].join('\n');
-            }
-            // Windows
-            return [
-                '# Windows Server (PowerShell as Administrator)',
-                "$u='" + base + "/client_installer/e3-backup-agent-setup.exe'",
-                "Invoke-WebRequest $u -OutFile $env:TEMP\\e3-setup.exe",
-                "Start-Process $env:TEMP\\e3-setup.exe -Wait -ArgumentList '/SILENT','/TOKEN=" + token + "'"
-            ].join('\n');
-        },
-        copySnippet() {
-            var text = this.snippet();
-            if (!text) return;
-            navigator.clipboard.writeText(text).then(() => {
-                this.copied = true;
-                setTimeout(() => this.copied = false, 1500);
-            });
         }
     };
 }

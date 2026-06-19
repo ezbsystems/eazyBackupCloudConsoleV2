@@ -3,6 +3,16 @@
 
     const STEP_LABELS = ['Snapshot', 'Browse & select', 'Destination', 'Review'];
 
+    const RESTORE_SECTIONS = [
+        { key: 'users', label: 'Users & mailboxes' },
+        { key: 'sharepoint', label: 'SharePoint sites' },
+        { key: 'teams', label: 'Teams' },
+        { key: 'groups', label: 'Microsoft 365 groups' },
+        { key: 'planner', label: 'Planner' },
+        { key: 'onenote', label: 'OneNote' },
+        { key: 'directory', label: 'Tenant metadata' },
+    ];
+
     window.ms365RestoreWizardState = {
         backupUserId: '',
         jobId: '',
@@ -27,21 +37,36 @@
             return [batchRunId, manifestId, childRunId, path || ''].join('|');
         }
 
+        function formatFileSize(bytes) {
+            const n = Number(bytes) || 0;
+            if (n <= 0) return '';
+            if (n < 1024) return n + ' B';
+            if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+            if (n < 1024 * 1024 * 1024) return (n / (1024 * 1024)).toFixed(1) + ' MB';
+            return (n / (1024 * 1024 * 1024)).toFixed(1) + ' GB';
+        }
+
         function mapEntryToNode(e, parent, index, depth) {
             const key = parent
                 ? parent.key + '-c-' + index + '-' + (e.path || e.name)
                 : 'root-' + index;
+            const sectionKey = e.section_key || (parent ? parent.section_key : 'users');
+            const isFile = (e.type || '') === 'file';
+            const sizeLabel = isFile ? formatFileSize(e.size) : '';
+            const subtitle = e.subtitle || sizeLabel || (isFile ? 'File' : '');
             return {
                 key,
                 name: e.name,
                 label: e.label || e.name,
-                subtitle: e.subtitle || '',
+                subtitle,
                 path: e.path || '',
                 type: e.type || (e.has_children ? 'folder' : 'file'),
                 has_children: !!e.has_children,
+                size: Number(e.size) || 0,
                 manifest_id: (parent && parent.manifest_id) || e.manifest_id || '',
                 child_run_id: (parent && parent.child_run_id) || e.child_run_id || '',
                 parentKey: parent ? parent.key : '',
+                section_key: sectionKey,
                 depth,
                 expanded: false,
                 loaded: false,
@@ -52,6 +77,7 @@
         return {
             step: 0,
             stepLabels: STEP_LABELS,
+            restoreSections: RESTORE_SECTIONS,
             loading: false,
             starting: false,
             snapshot: null,
@@ -175,6 +201,26 @@
                 try {
                     const entries = await this.fetchBrowseEntries(node);
                     const children = entries.map((e, i) => mapEntryToNode(e, node, i, node.depth + 1));
+                    if (children.length === 0 && node.label === 'OneDrive') {
+                        children.push({
+                            key: node.key + '-empty',
+                            name: '',
+                            label: 'No files in this snapshot',
+                            subtitle: 'OneDrive was not cataloged in this backup. Run a new backup with worker 0.1.25 or later.',
+                            path: '',
+                            type: 'info',
+                            has_children: false,
+                            size: 0,
+                            manifest_id: node.manifest_id,
+                            child_run_id: node.child_run_id,
+                            parentKey: node.key,
+                            section_key: node.section_key,
+                            depth: node.depth + 1,
+                            expanded: false,
+                            loaded: true,
+                            loading: false,
+                        });
+                    }
                     const idx = this.treeNodes.findIndex((n) => n.key === node.key);
                     this.treeNodes.splice(idx + 1, 0, ...children);
                     node.loaded = true;
@@ -203,6 +249,43 @@
                 });
             },
 
+            sectionHasNodes(sectionKey) {
+                return this.visibleSectionNodes(sectionKey).length > 0;
+            },
+
+            visibleSectionNodes(sectionKey) {
+                const nodes = this.filteredTreeNodes();
+                const q = (this.treeSearch || '').toLowerCase().trim();
+                return nodes.filter((node) => {
+                    if (node.section_key !== sectionKey) return false;
+                    if (node.depth === 0) return true;
+                    if (q) return true;
+                    let parentKey = node.parentKey;
+                    while (parentKey) {
+                        const parent = nodes.find((n) => n.key === parentKey);
+                        if (!parent) break;
+                        if (!parent.expanded) return false;
+                        parentKey = parent.parentKey;
+                    }
+                    return true;
+                });
+            },
+
+            selectedSummaryGroups() {
+                const groups = {};
+                this.selectedItems.forEach((item) => {
+                    const section = item.section_label || 'Selected items';
+                    if (!groups[section]) {
+                        groups[section] = [];
+                    }
+                    groups[section].push(item);
+                });
+                return Object.keys(groups).map((section) => ({
+                    section,
+                    items: groups[section],
+                }));
+            },
+
             selectionKey(node) {
                 return [node.child_run_id, node.manifest_id, node.path, node.type].join('|');
             },
@@ -213,6 +296,7 @@
             },
 
             toggleSelect(node) {
+                if (node.type === 'info') return;
                 const key = this.selectionKey(node);
                 const idx = this.selectedItems.findIndex((s) => s.key === key);
                 if (idx >= 0) {
@@ -222,21 +306,27 @@
                 const item = {
                     key,
                     label: node.label || node.name,
-                    subtitle: node.subtitle || '',
+                    subtitle: node.subtitle || (node.type === 'file' ? formatFileSize(node.size) : ''),
+                    section_label: this.sectionLabelForNode(node),
                     child_run_id: node.child_run_id,
                     manifest_id: node.manifest_id,
-                    path: node.type === 'file' || (node.path && node.path.endsWith('.json')) ? node.path : '',
-                    path_prefix: node.has_children && node.type !== 'file' ? (node.path ? node.path + '/' : '') : '',
+                    path: node.type === 'file' ? (node.path || '') : ((node.path && node.path.endsWith('.json')) ? node.path : ''),
+                    path_prefix: node.type === 'file' ? '' : (node.has_children ? (node.path ? node.path + '/' : '') : (node.path || '')),
                     type: node.type,
                 };
-                if (!item.path && !item.path_prefix) {
-                    item.path_prefix = node.path || '';
+                if (!item.path && !item.path_prefix && node.path) {
+                    item.path_prefix = node.path;
                 }
                 this.selectedItems.push(item);
             },
 
             removeSelected(idx) {
                 this.selectedItems.splice(idx, 1);
+            },
+
+            sectionLabelForNode(node) {
+                const section = RESTORE_SECTIONS.find((s) => s.key === (node.section_key || 'users'));
+                return section ? section.label : 'Selected items';
             },
 
             async loadInventory() {

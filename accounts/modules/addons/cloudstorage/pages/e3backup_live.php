@@ -1,5 +1,7 @@
 <?php
 
+require_once dirname(__DIR__) . '/lib/Ms365BackupBootstrap.php';
+
 use WHMCS\ClientArea;
 use WHMCS\Module\Addon\CloudStorage\Admin\ProductConfig;
 use WHMCS\Module\Addon\CloudStorage\Client\DBController;
@@ -40,6 +42,7 @@ $job = CloudBackupController::getJob($run['job_id'], $loggedInUserId) ?? [];
 $isMs365Batch = Ms365BatchLiveService::isMs365BatchRun($run);
 $sourceLabel = $isMs365Batch ? 'Microsoft 365' : null;
 if ($isMs365Batch) {
+    cloudstorage_load_ms365backup();
     $run = Ms365BatchLiveService::enrichRunForDisplay($run, (int) $loggedInUserId);
 }
 

@@ -6,6 +6,7 @@ worker:
   max_concurrent_runs: 4
   graph_parallel_requests: 16
   graph_folder_parallel: 4
+  graph_sharepoint_drive_parallel: 4
   heartbeat_interval_seconds: 30
   progress_heartbeat_seconds: 60
   install_path: /var/lib/ms365-backup-worker/bin/ms365-backup-worker

@@ -2,6 +2,7 @@ package graph
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -22,7 +23,9 @@ const defaultGraphHost = "https://graph.microsoft.com"
 const MailMessageSelect = "id,subject,receivedDateTime,sentDateTime,from,toRecipients,ccRecipients,bccRecipients,body,bodyPreview,parentFolderId,conversationId,internetMessageId,hasAttachments,importance,isRead,isDraft,flag,categories"
 
 type Client struct {
+	tokenMu    sync.RWMutex
 	token      string
+	refresh    TokenRefreshFunc
 	graphBase  string
 	httpClient *http.Client
 	maxRetries int
@@ -32,6 +35,9 @@ type Client struct {
 	throttle429 int64
 	adaptiveSem chan struct{}
 }
+
+// TokenRefreshFunc fetches a new Graph bearer token (e.g. from WHMCS mid-run refresh API).
+type TokenRefreshFunc func(ctx context.Context) (string, error)
 
 type ClientOptions struct {
 	MaxRetries       int
@@ -89,12 +95,41 @@ func (c *Client) ThrottleHits() int64 {
 	return atomic.LoadInt64(&c.throttle429)
 }
 
+func (c *Client) SetToken(token string) {
+	c.tokenMu.Lock()
+	c.token = strings.TrimSpace(token)
+	c.tokenMu.Unlock()
+}
+
+func (c *Client) SetTokenRefresh(fn TokenRefreshFunc) {
+	c.refresh = fn
+}
+
+func (c *Client) getToken() string {
+	c.tokenMu.RLock()
+	defer c.tokenMu.RUnlock()
+	return c.token
+}
+
+// IsUnauthorized reports whether err is a Graph HTTP 401 response.
+func IsUnauthorized(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "graph 401")
+}
+
 func (c *Client) acquire(ctx context.Context) error {
+	if err := acquireGlobal(ctx); err != nil {
+		return err
+	}
 	if c.adaptiveSem != nil {
 		select {
 		case c.adaptiveSem <- struct{}{}:
 			return nil
 		case <-ctx.Done():
+			releaseGlobal()
 			return ctx.Err()
 		}
 	}
@@ -102,6 +137,7 @@ func (c *Client) acquire(ctx context.Context) error {
 	case c.sem <- struct{}{}:
 		return nil
 	case <-ctx.Done():
+		releaseGlobal()
 		return ctx.Err()
 	}
 }
@@ -109,9 +145,11 @@ func (c *Client) acquire(ctx context.Context) error {
 func (c *Client) release() {
 	if c.adaptiveSem != nil {
 		<-c.adaptiveSem
+		releaseGlobal()
 		return
 	}
 	<-c.sem
+	releaseGlobal()
 }
 
 func (c *Client) record429() {
@@ -211,13 +249,14 @@ func (c *Client) doRequest(ctx context.Context, req *http.Request) (*httpRespons
 	defer c.release()
 
 	var lastErr error
+	retried401 := false
 	for attempt := 0; attempt <= c.maxRetries; attempt++ {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
 		reqClone := req.Clone(ctx)
 		if reqClone.Header.Get("Authorization") == "" {
-			reqClone.Header.Set("Authorization", "Bearer "+c.token)
+			reqClone.Header.Set("Authorization", "Bearer "+c.getToken())
 		}
 		if reqClone.Header.Get("Accept") == "" {
 			reqClone.Header.Set("Accept", "application/json")
@@ -232,8 +271,13 @@ func (c *Client) doRequest(ctx context.Context, req *http.Request) (*httpRespons
 			time.Sleep(parseRetryAfter("", attempt, c.retryDelay))
 			continue
 		}
-		body, _ := io.ReadAll(resp.Body)
+		body, readErr := readResponseBody(resp)
 		resp.Body.Close()
+		if readErr != nil {
+			lastErr = readErr
+			time.Sleep(parseRetryAfter("", attempt, c.retryDelay))
+			continue
+		}
 
 		if isRetryableStatus(resp.StatusCode) && attempt < c.maxRetries {
 			if resp.StatusCode == http.StatusTooManyRequests {
@@ -241,6 +285,18 @@ func (c *Client) doRequest(ctx context.Context, req *http.Request) (*httpRespons
 			}
 			lastErr = fmt.Errorf("graph %d", resp.StatusCode)
 			time.Sleep(parseRetryAfter(resp.Header.Get("Retry-After"), attempt, c.retryDelay))
+			continue
+		}
+		if resp.StatusCode == http.StatusUnauthorized && c.refresh != nil && !retried401 {
+			retried401 = true
+			newToken, refreshErr := c.refresh(ctx)
+			if refreshErr != nil || strings.TrimSpace(newToken) == "" {
+				if refreshErr != nil {
+					return nil, fmt.Errorf("graph 401 after token refresh: %w", refreshErr)
+				}
+				return nil, fmt.Errorf("graph 401 after token refresh: empty token")
+			}
+			c.SetToken(newToken)
 			continue
 		}
 		if resp.StatusCode >= 400 {
@@ -251,10 +307,41 @@ func (c *Client) doRequest(ctx context.Context, req *http.Request) (*httpRespons
 	return nil, lastErr
 }
 
+// readResponseBody reads resp.Body, transparently decompressing gzip payloads.
+//
+// We explicitly request "Accept-Encoding: gzip" in doRequest, which disables
+// the Go transport's automatic gzip decompression, so we must handle it here.
+// Without this, gzipped Graph responses are fed verbatim to json.Unmarshal and
+// fail with: invalid character '\x1f' looking for beginning of value.
+func readResponseBody(resp *http.Response) ([]byte, error) {
+	reader := resp.Body
+	if strings.Contains(strings.ToLower(resp.Header.Get("Content-Encoding")), "gzip") {
+		gz, err := gzip.NewReader(resp.Body)
+		if err != nil {
+			if err == io.EOF {
+				return nil, nil
+			}
+			return nil, fmt.Errorf("gzip: %w", err)
+		}
+		defer gz.Close()
+		reader = gz
+	}
+
+	return io.ReadAll(reader)
+}
+
 func (c *Client) GetJSON(ctx context.Context, path string, query map[string]string) (map[string]any, error) {
+	return c.GetJSONWithHeaders(ctx, path, query, nil)
+}
+
+// GetJSONWithHeaders performs a GET with optional extra headers (e.g. Prefer: IdType="ImmutableId").
+func (c *Client) GetJSONWithHeaders(ctx context.Context, path string, query map[string]string, headers map[string]string) (map[string]any, error) {
 	u := c.graphBase + "/" + strings.TrimPrefix(path, "/")
 	if len(query) > 0 {
-		parsed, _ := url.Parse(u)
+		parsed, err := url.Parse(u)
+		if err != nil {
+			return nil, err
+		}
 		q := parsed.Query()
 		for k, v := range query {
 			q.Set(k, v)
@@ -265,6 +352,9 @@ func (c *Client) GetJSON(ctx context.Context, path string, query map[string]stri
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
 		return nil, err
+	}
+	for k, v := range headers {
+		req.Header.Set(k, v)
 	}
 	resp, err := c.doRequest(ctx, req)
 	if err != nil {
@@ -277,38 +367,86 @@ func (c *Client) GetJSON(ctx context.Context, path string, query map[string]stri
 	return out, nil
 }
 
+// PaginateOptions configures monitored pagination.
+type PaginateOptions struct {
+	Monitor      *PaginationMonitor
+	Outcome      *PaginationOutcome
+	Headers      map[string]string
+	TrackDupIDs  bool // when true, dedupe by item id and detect duplicate-only pages
+}
+
 func (c *Client) Paginate(ctx context.Context, path string, query map[string]string) ([]map[string]any, error) {
+	return c.PaginateOpts(ctx, path, query, nil)
+}
+
+// PaginateOpts follows @odata.nextLink with optional safety monitoring and logging.
+func (c *Client) PaginateOpts(ctx context.Context, path string, query map[string]string, opts *PaginateOptions) ([]map[string]any, error) {
+	var monitor *PaginationMonitor
+	var outcome *PaginationOutcome
+	headers := map[string]string{}
+	trackDup := false
+	if opts != nil {
+		monitor = opts.Monitor
+		outcome = opts.Outcome
+		headers = opts.Headers
+		trackDup = opts.TrackDupIDs
+	}
+	if monitor == nil && trackDup {
+		monitor = NewPaginationMonitor("", DuplicatePageStrict, nil)
+	}
+
+	session := newPaginationSession(monitor, outcome, trackDup)
 	var all []map[string]any
 	next := ""
-	for page := 0; page < 500; page++ {
+	first := true
+	for {
+		if session.stopped() {
+			break
+		}
 		q := map[string]string{}
 		for k, v := range query {
 			q[k] = v
 		}
 		p := path
+		useHeaders := headers
 		if next != "" {
+			if err := session.checkNextLink(next, first); err != nil {
+				return all, err
+			}
 			p = next
 			q = nil
+			useHeaders = nil
+			first = false
 		}
+
 		var data map[string]any
 		var err error
 		if strings.HasPrefix(p, "http") {
-			data, err = c.getURL(ctx, p)
+			data, err = c.getURLWithHeaders(ctx, p, useHeaders)
 		} else {
-			data, err = c.GetJSON(ctx, p, q)
+			data, err = c.GetJSONWithHeaders(ctx, p, q, useHeaders)
 		}
 		if err != nil {
 			return all, err
 		}
+		first = false
+
+		var pageItems []map[string]any
 		if values, ok := data["value"].([]any); ok {
 			for _, v := range values {
 				if m, ok := v.(map[string]any); ok {
-					all = append(all, m)
+					pageItems = append(pageItems, m)
 				}
 			}
 		}
 		nextLink, _ := data["@odata.nextLink"].(string)
-		if nextLink == "" {
+		yielded, err := session.processPage(pageItems, nextLink)
+		if err != nil {
+			return all, err
+		}
+		all = append(all, yielded...)
+		if session.stopped() || nextLink == "" {
+			session.finish(nextLink == "" && !session.stopped())
 			break
 		}
 		next = nextLink
@@ -367,62 +505,179 @@ type DeltaPage struct {
 	DeltaLink string
 }
 
+// DeltaPaginateOptions configures monitored delta pagination.
+type DeltaPaginateOptions struct {
+	Monitor           *PaginationMonitor
+	Outcome           *PaginationOutcome
+	Headers           map[string]string
+	TrackDupIDs       bool // when true (default), dedupe by item id and detect duplicate-only pages
+	DuplicatePageMode DuplicatePageMode
+}
+
 // PaginateDelta streams delta pages. When selectFields is non-empty it is sent as $select on the initial request.
-func (c *Client) PaginateDelta(ctx context.Context, initialPath, deltaLink, selectFields string, top int) ([]map[string]any, string, error) {
+// onPage is called after each page with the cumulative item count (optional).
+func (c *Client) PaginateDelta(ctx context.Context, initialPath, deltaLink, selectFields string, top int, onPage func(itemsSoFar int)) ([]map[string]any, string, error) {
+	return c.PaginateDeltaOpts(ctx, initialPath, deltaLink, selectFields, top, onPage, nil)
+}
+
+// PaginateDeltaOpts is PaginateDelta with optional monitoring and 410 delta-reset detection.
+func (c *Client) PaginateDeltaOpts(ctx context.Context, initialPath, deltaLink, selectFields string, top int, onPage func(itemsSoFar int), opts *DeltaPaginateOptions) ([]map[string]any, string, error) {
 	if top <= 0 {
 		top = 100
 	}
+	var monitor *PaginationMonitor
+	var outcome *PaginationOutcome
+	headers := map[string]string{}
+	trackDup := true
+	if opts != nil {
+		monitor = opts.Monitor
+		outcome = opts.Outcome
+		headers = opts.Headers
+		trackDup = opts.TrackDupIDs || monitor != nil
+	}
+	if monitor == nil {
+		monitor = ForBackupPagination("", nil)
+	}
+	if opts != nil && opts.DuplicatePageMode != DuplicatePageStrict {
+		monitor.DuplicatePageMode = opts.DuplicatePageMode
+	}
+
 	path := initialPath
-	if strings.TrimSpace(deltaLink) != "" {
+	resume := strings.TrimSpace(deltaLink) != ""
+	if resume {
 		path = deltaLink
 	}
+	monitor.logf("info", "Graph delta sync started path=%s resume=%v", initialPath, resume)
+
+	session := newPaginationSession(monitor, outcome, trackDup)
 	var items []map[string]any
 	var newDelta string
-	for page := 0; page < 500; page++ {
+	first := true
+	capHit := false
+
+	for path != "" && !session.stopped() && !capHit {
+		if !first {
+			if err := session.checkNextLink(path, false); err != nil {
+				return items, "", err
+			}
+		}
+
 		var data map[string]any
 		var err error
 		if strings.HasPrefix(path, "http") {
-			data, err = c.getURL(ctx, path)
+			data, err = c.getURLWithHeaders(ctx, path, headers)
+			headers = nil
 		} else {
 			query := map[string]string{"$top": strconv.Itoa(top)}
 			if selectFields != "" {
 				query["$select"] = selectFields
 			}
-			data, err = c.GetJSON(ctx, path, query)
+			data, err = c.GetJSONWithHeaders(ctx, path, query, headers)
+			headers = nil
 		}
+		first = false
 		if err != nil {
+			if IsDeltaResetError(err) || isDeltaResetStatus(err) {
+				return items, "", &DeltaResetError{Message: err.Error(), StatusCode: 410}
+			}
 			return items, "", err
 		}
+
+		var pageItems []map[string]any
 		if values, ok := data["value"].([]any); ok {
 			for _, v := range values {
 				if m, ok := v.(map[string]any); ok {
-					items = append(items, m)
+					pageItems = append(pageItems, m)
 				}
 			}
 		}
-		if dl, ok := data["@odata.deltaLink"].(string); ok && dl != "" {
-			return items, dl, nil
+
+		nextLink, _ := data["@odata.nextLink"].(string)
+		deltaOut, _ := data["@odata.deltaLink"].(string)
+
+		yielded, err := session.processPage(pageItems, nextLink)
+		if err != nil {
+			return items, "", err
 		}
-		next, _ := data["@odata.nextLink"].(string)
-		if next == "" {
+		items = append(items, yielded...)
+		if onPage != nil {
+			onPage(len(items))
+		}
+		if outcome != nil && outcome.CapReached {
+			capHit = true
 			break
 		}
-		path = next
+		if session.stopped() {
+			break
+		}
+
+		if nextLink != "" {
+			path = nextLink
+			continue
+		}
+		if deltaOut != "" {
+			newDelta = deltaOut
+		}
+		break
+	}
+
+	naturalComplete := newDelta != "" && !capHit && !session.stopped()
+	session.finish(naturalComplete)
+
+	monitor.logf("info", "Graph delta sync completed pages=%d total_items=%d has_delta_link=%v", session.page, len(items), newDelta != "")
+	if newDelta == "" && resume && !capHit {
+		monitor.logf("warning", "Graph delta sync ended without @odata.deltaLink; token not advanced")
 	}
 	return items, newDelta, nil
 }
 
+func isDeltaResetStatus(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "graph 410") ||
+		strings.Contains(msg, "syncstatenotfound") ||
+		strings.Contains(msg, "resyncrequired") ||
+		strings.Contains(msg, "fullsyncrequired")
+}
+
 func (c *Client) getURL(ctx context.Context, rawURL string) (map[string]any, error) {
+	return c.getURLWithHeaders(ctx, rawURL, nil)
+}
+
+func (c *Client) getURLWithHeaders(ctx context.Context, rawURL string, headers map[string]string) (map[string]any, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
 		return nil, err
 	}
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
 	resp, err := c.doRequest(ctx, req)
 	if err != nil {
+		if isDeltaResetStatus(err) {
+			return nil, &DeltaResetError{Message: err.Error(), StatusCode: 410}
+		}
 		return nil, err
 	}
+	if resp.status >= 400 {
+		if resp.status == 410 || isDeltaResetBody(resp.body) {
+			return nil, &DeltaResetError{Message: fmt.Sprintf("graph %d: %s", resp.status, string(resp.body)), StatusCode: resp.status}
+		}
+	}
 	var out map[string]any
-	return out, json.Unmarshal(resp.body, &out)
+	if err := json.Unmarshal(resp.body, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func isDeltaResetBody(body []byte) bool {
+	msg := strings.ToLower(string(body))
+	return strings.Contains(msg, "syncstatenotfound") ||
+		strings.Contains(msg, "resyncrequired") ||
+		strings.Contains(msg, "fullsyncrequired")
 }
 
 func (c *Client) GetMessageJSON(ctx context.Context, userID, messageID string) ([]byte, error) {
@@ -473,7 +728,7 @@ func (c *Client) getStream(ctx context.Context, path string, offset int64) (io.R
 		}
 		reqClone := req.Clone(ctx)
 		if reqClone.Header.Get("Authorization") == "" {
-			reqClone.Header.Set("Authorization", "Bearer "+c.token)
+			reqClone.Header.Set("Authorization", "Bearer "+c.getToken())
 		}
 		if offset > 0 && reqClone.Header.Get("Range") == "" {
 			reqClone.Header.Set("Range", fmt.Sprintf("bytes=%d-", offset))
@@ -565,6 +820,16 @@ func (c *Client) PostJSON(ctx context.Context, path string, body map[string]any)
 	return c.doJSON(ctx, http.MethodPost, path, body)
 }
 
+func (c *Client) Delete(ctx context.Context, path string) error {
+	u := c.graphBase + "/" + strings.TrimPrefix(path, "/")
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, u, nil)
+	if err != nil {
+		return err
+	}
+	_, err = c.doRequest(ctx, req)
+	return err
+}
+
 func (c *Client) PutBytes(ctx context.Context, path string, data []byte) (map[string]any, error) {
 	if len(data) > uploadSessionThreshold {
 		return c.putViaUploadSession(ctx, path, int64(len(data)), bytes.NewReader(data))
@@ -610,12 +875,11 @@ func (c *Client) putViaUploadSession(ctx context.Context, path string, size int6
 			"@microsoft.graph.conflictBehavior": "replace",
 		},
 	}
-	if size > 0 {
-		body["item"].(map[string]any)["size"] = size
-	}
+	// Do not send item.size on createUploadSession — Graph returns 400 invalidRequest
+	// for drive root uploads (size is conveyed via Content-Range on chunk PUTs).
 	session, err := c.PostJSON(ctx, sessionPath, body)
 	if err != nil {
-		return nil, fmt.Errorf("create upload session: %w", err)
+		return nil, fmt.Errorf("create upload session %s: %w", sessionPath, err)
 	}
 	uploadURL, _ := session["uploadUrl"].(string)
 	if uploadURL == "" {

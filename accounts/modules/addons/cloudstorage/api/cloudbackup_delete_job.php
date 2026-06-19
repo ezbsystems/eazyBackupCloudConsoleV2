@@ -3,6 +3,9 @@
 require_once __DIR__ . '/../../../../init.php';
 require_once __DIR__ . '/../lib/Client/MspController.php';
 require_once __DIR__ . '/../lib/Client/UuidBinary.php';
+require_once __DIR__ . '/../lib/Client/CloudBackupController.php';
+require_once __DIR__ . '/../lib/Client/Ms365VaultLifecycleService.php';
+require_once __DIR__ . '/../lib/Client/Ms365VaultNotificationService.php';
 
 if (!defined("WHMCS")) {
     die("This file cannot be accessed directly");
@@ -63,7 +66,23 @@ if (!$accessCheck['valid']) {
     exit();
 }
 
-$result = CloudBackupController::deleteJob($jobId, $loggedInUserId);
+$confirmPhrase = isset($_POST['confirm_phrase']) ? trim((string) $_POST['confirm_phrase']) : '';
+
+$contactId = 0;
+if (isset($_SESSION['contactid']) && (int) $_SESSION['contactid'] > 0) {
+    $contactId = (int) $_SESSION['contactid'];
+} elseif (isset($_SESSION['cid']) && (int) $_SESSION['cid'] > 0) {
+    $contactId = (int) $_SESSION['cid'];
+}
+
+$auditContext = [
+    'actor_client_user_id' => (int) $loggedInUserId,
+    'actor_contact_id' => $contactId > 0 ? $contactId : null,
+    'request_ip' => $_SERVER['REMOTE_ADDR'] ?? null,
+    'request_ua' => $_SERVER['HTTP_USER_AGENT'] ?? null,
+];
+
+$result = CloudBackupController::deleteJob($jobId, $loggedInUserId, $confirmPhrase, $auditContext);
 
 $response = new JsonResponse($result, 200);
 $response->send();

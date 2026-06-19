@@ -3,7 +3,7 @@
 require_once __DIR__ . '/../../../../init.php';
 require_once dirname(__DIR__) . '/../ms365backup/ms365backup_autoload.php';
 
-use Ms365Backup\Ms365KopiaMaintenanceService;
+use Ms365Backup\Ms365KopiaRepoOperationService;
 use Ms365Backup\Ms365WorkerApiAuth;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -25,7 +25,7 @@ if ($nodeId === '') {
 }
 
 try {
-    $job = Ms365KopiaMaintenanceService::claimNextForWorker($nodeId);
+    $job = Ms365KopiaRepoOperationService::claimNextForWorker($nodeId);
     if ($job === null) {
         (new JsonResponse(['status' => 'success', 'data' => null]))->send();
         exit;

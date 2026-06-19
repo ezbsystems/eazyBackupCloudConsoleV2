@@ -170,6 +170,7 @@ final class BackupPlanner
                         '',
                     );
                 }
+                $this->absorbOneDriveJobsForUser($physicalJobs, $graphId);
                 $consumedLogical[$id] = true;
                 continue;
             }
@@ -227,6 +228,34 @@ final class BackupPlanner
                 $meta = is_array($resource['meta'] ?? null) ? $resource['meta'] : [];
                 $ownerId = (string) ($meta['owner_user_id'] ?? TenantResource::graphIdFromResourceId((string) ($resource['parent_id'] ?? '')));
                 $driveId = (string) ($meta['drive_id'] ?? $resource['graph_id'] ?? '');
+                $userKey = $ownerId !== '' ? 'user:' . $ownerId : '';
+                if ($userKey !== '' && isset($physicalJobs[$userKey])) {
+                    $existing = $physicalJobs[$userKey];
+                    $mergedScope = $existing->scope->merge($scope);
+                    $mergedLogical = $existing->logicalSources;
+                    $seen = array_fill_keys(array_column($mergedLogical, 'id'), true);
+                    $logical = $this->logicalSourceFromResource($resource);
+                    $sid = (string) ($logical['id'] ?? '');
+                    if ($sid !== '' && !isset($seen[$sid])) {
+                        $mergedLogical[] = $logical;
+                    }
+                    $primary = $existing->primaryResource;
+                    if ($driveId !== '') {
+                        $primaryMeta = is_array($primary['meta'] ?? null) ? $primary['meta'] : [];
+                        $primaryMeta['drive_id'] = $driveId;
+                        $primary['meta'] = $primaryMeta;
+                    }
+                    $physicalJobs[$userKey] = new PhysicalBackupJob(
+                        $userKey,
+                        $primary,
+                        $mergedLogical,
+                        $mergedScope,
+                        $this->resolveUserEngineStatus($mergedScope),
+                        '',
+                    );
+                    $consumedLogical[$id] = true;
+                    continue;
+                }
                 $physicalKey = $driveId !== '' ? 'drive:' . $driveId : 'onedrive:' . $ownerId;
                 $physicalJobs[$physicalKey] = new PhysicalBackupJob(
                     $physicalKey,
@@ -480,7 +509,9 @@ final class BackupPlanner
         if ($scope->isEnabled(BackupScope::MAIL)
             || $scope->isEnabled(BackupScope::CALENDAR)
             || $scope->isEnabled(BackupScope::CONTACTS)
-            || $scope->isEnabled(BackupScope::TASKS)) {
+            || $scope->isEnabled(BackupScope::TASKS)
+            || $scope->isEnabled(BackupScope::ONEDRIVE)
+            || $scope->isEnabled(BackupScope::FILES)) {
             return PhysicalBackupJob::STATUS_RUNNABLE;
         }
 
@@ -912,5 +943,56 @@ final class BackupPlanner
         }
 
         return $users;
+    }
+
+    /** @param array<string, PhysicalBackupJob> $physicalJobs */
+    private function absorbOneDriveJobsForUser(array &$physicalJobs, string $userGraphId): void
+    {
+        if ($userGraphId === '') {
+            return;
+        }
+        $userKey = 'user:' . $userGraphId;
+        if (!isset($physicalJobs[$userKey])) {
+            return;
+        }
+        foreach (array_keys($physicalJobs) as $key) {
+            if (!str_starts_with($key, 'drive:') && !str_starts_with($key, 'onedrive:')) {
+                continue;
+            }
+            $job = $physicalJobs[$key];
+            $resource = $job->primaryResource;
+            $meta = is_array($resource['meta'] ?? null) ? $resource['meta'] : [];
+            $ownerId = (string) ($meta['owner_user_id'] ?? TenantResource::graphIdFromResourceId((string) ($resource['parent_id'] ?? '')));
+            if ($ownerId !== $userGraphId) {
+                continue;
+            }
+            $userJob = $physicalJobs[$userKey];
+            $mergedScope = $userJob->scope->merge($job->scope);
+            $mergedLogical = $userJob->logicalSources;
+            $seen = array_fill_keys(array_column($mergedLogical, 'id'), true);
+            foreach ($job->logicalSources as $source) {
+                $sid = (string) ($source['id'] ?? '');
+                if ($sid !== '' && !isset($seen[$sid])) {
+                    $mergedLogical[] = $source;
+                    $seen[$sid] = true;
+                }
+            }
+            $driveId = (string) ($meta['drive_id'] ?? $resource['graph_id'] ?? '');
+            $primary = $userJob->primaryResource;
+            if ($driveId !== '') {
+                $primaryMeta = is_array($primary['meta'] ?? null) ? $primary['meta'] : [];
+                $primaryMeta['drive_id'] = $driveId;
+                $primary['meta'] = $primaryMeta;
+            }
+            $physicalJobs[$userKey] = new PhysicalBackupJob(
+                $userKey,
+                $primary,
+                $mergedLogical,
+                $mergedScope,
+                $this->resolveUserEngineStatus($mergedScope),
+                '',
+            );
+            unset($physicalJobs[$key]);
+        }
     }
 }

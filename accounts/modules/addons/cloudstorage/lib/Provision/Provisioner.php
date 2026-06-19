@@ -355,71 +355,320 @@ class Provisioner
 
     public static function provisionMs365(int $clientId, string $username, string $password): string
     {
-        $pid = 52; // Provided by requirements
+        $ms365Autoload = dirname(__DIR__, 2) . '/ms365backup/ms365backup_autoload.php';
+        if (is_file($ms365Autoload)) {
+            require_once $ms365Autoload;
+        }
+
+        $pid = class_exists('\\Ms365Backup\\Ms365BillingConfig')
+            ? (int) \Ms365Backup\Ms365BillingConfig::getPid()
+            : 0;
+        if ($pid <= 0) {
+            if (class_exists('\\Ms365Backup\\Ms365ProductBootstrap')) {
+                \Ms365Backup\Ms365ProductBootstrap::ensure('provision');
+                $pid = (int) \Ms365Backup\Ms365BillingConfig::getPid();
+            }
+        }
+        if ($pid <= 0) {
+            throw new \Exception('MS365 Backup product is not configured. Activate the ms365backup addon to bootstrap the product.');
+        }
+
         $adminUser = 'API';
-        try { logModuleCall('cloudstorage', 'ms365_entry', ['clientId' => $clientId, 'username' => $username], []); } catch (\Throwable $_) {}
-        // Preflight: ensure username is available before placing an order
+        try { logModuleCall('cloudstorage', 'ms365_entry', ['clientId' => $clientId, 'username' => $username, 'pid' => $pid], []); } catch (\Throwable $_) {}
         if (self::cometUsernameExists($username, $pid)) {
             throw new \Exception('The username ' . $username . ' is already taken');
         }
-        $order = localAPI('AddOrder', [
-            'clientid'      => $clientId,
-            'pid'           => [$pid],
-            'billingcycle'  => ['monthly'],
-            'promocode'     => 'trial',
-            'paymentmethod' => 'stripe',
-            'noinvoice'     => true,
-            'noemail'       => true,
-        ], $adminUser);
-        try { logModuleCall('cloudstorage', 'ms365_addorder_res', ['clientId' => $clientId], $order); } catch (\Throwable $_) {}
-        if (($order['result'] ?? '') !== 'success') {
-            throw new \Exception('AddOrder failed: ' . ($order['message'] ?? 'unknown'));
+
+        $existingSvc = Capsule::table('tblhosting')
+            ->where('userid', $clientId)
+            ->where('packageid', $pid)
+            ->whereIn('domainstatus', ['Active', 'Suspended', 'Pending'])
+            ->orderBy('id', 'desc')
+            ->first();
+        $serviceId = $existingSvc ? (int) $existingSvc->id : 0;
+
+        if ($serviceId <= 0) {
+            $order = localAPI('AddOrder', [
+                'clientid'      => $clientId,
+                'pid'           => [$pid],
+                'billingcycle'  => ['monthly'],
+                'promocode'     => 'trial',
+                'paymentmethod' => 'stripe',
+                'noinvoice'     => true,
+                'noemail'       => true,
+            ], $adminUser);
+            try { logModuleCall('cloudstorage', 'ms365_addorder_res', ['clientId' => $clientId], $order); } catch (\Throwable $_) {}
+            if (($order['result'] ?? '') !== 'success') {
+                throw new \Exception('AddOrder failed: ' . ($order['message'] ?? 'unknown'));
+            }
+            $accept = localAPI('AcceptOrder', [
+                'orderid'         => $order['orderid'],
+                'autosetup'       => true,
+                'sendemail'       => true,
+                'serviceusername' => $username,
+                'servicepassword' => $password,
+            ], $adminUser);
+            try { logModuleCall('cloudstorage', 'ms365_accept_res', ['orderid' => $order['orderid'] ?? null], $accept); } catch (\Throwable $_) {}
+            if (($accept['result'] ?? '') !== 'success') {
+                throw new \Exception('AcceptOrder failed: ' . ($accept['message'] ?? 'unknown'));
+            }
+            $serviceId = (int) ($accept['serviceid'] ?? 0);
+            if ($serviceId <= 0 && !empty($order['orderid'])) {
+                try {
+                    $serviceId = (int) Capsule::table('tblhosting')
+                        ->where('orderid', (int) $order['orderid'])
+                        ->orderBy('id', 'desc')
+                        ->value('id');
+                } catch (\Throwable $_) {}
+            }
         }
-        $accept = localAPI('AcceptOrder', [
-            'orderid'         => $order['orderid'],
-            'autosetup'       => true,
-            'sendemail'       => true,
-            'serviceusername' => $username,
-            'servicepassword' => $password,
-        ], $adminUser);
-        try { logModuleCall('cloudstorage', 'ms365_accept_res', ['orderid' => $order['orderid'] ?? null], $accept); } catch (\Throwable $_) {}
-        if (($accept['result'] ?? '') !== 'success') {
-            throw new \Exception('AcceptOrder failed: ' . ($accept['message'] ?? 'unknown'));
+
+        if ($serviceId > 0 && class_exists('\\Ms365Backup\\Ms365BillingService')) {
+            try {
+                \Ms365Backup\Ms365BillingService::applyDefaultConfigOptions($serviceId);
+            } catch (\Throwable $e) {
+                try { logModuleCall('cloudstorage', 'ms365_apply_default_config_options_fail', ['service_id' => $serviceId], $e->getMessage()); } catch (\Throwable $_) {}
+            }
+            try {
+                \Ms365Backup\Ms365BillingTrial::startTrial($serviceId, $clientId);
+            } catch (\Throwable $e) {
+                try { logModuleCall('cloudstorage', 'ms365_start_trial_fail', ['service_id' => $serviceId], $e->getMessage()); } catch (\Throwable $_) {}
+            }
+            try {
+                \Ms365Backup\Ms365BillingService::linkServiceToTenantRecords($clientId, $serviceId);
+            } catch (\Throwable $_) {}
         }
-        // Attempt MS365 LXD container provisioning (same behavior as eazybackup flow)
+
+        // Attempt MS365 LXD container provisioning (legacy eazybackup flow; non-fatal).
         try {
-            // Try autoload; otherwise require the class file manually
             if (!class_exists('\\WHMCS\\Module\\Addon\\Eazybackup\\EazybackupObcMs365')) {
                 $ms365Lib = dirname(__DIR__, 3) . '/eazybackup/lib/EazybackupObcMs365.php';
-                try { logModuleCall('cloudstorage', 'ms365_lxd_require_path', ['path' => $ms365Lib], []); } catch (\Throwable $_) {}
                 if (is_file($ms365Lib)) {
                     require_once $ms365Lib;
                 }
             }
-            try { logModuleCall('cloudstorage', 'ms365_lxd_class_exists', [], ['exists' => class_exists('\\WHMCS\\Module\\Addon\\Eazybackup\\EazybackupObcMs365') ? 'yes' : 'no']); } catch (\Throwable $_) {}
             if (class_exists('\\WHMCS\\Module\\Addon\\Eazybackup\\EazybackupObcMs365')) {
-                $resp = \WHMCS\Module\Addon\Eazybackup\EazybackupObcMs365::provisionLXDContainer($username, $password, (string)$pid);
+                $resp = \WHMCS\Module\Addon\Eazybackup\EazybackupObcMs365::provisionLXDContainer($username, $password, (string) $pid);
                 try { logModuleCall('cloudstorage', 'ms365_lxd_provision', ['clientId' => $clientId, 'username' => $username], $resp); } catch (\Throwable $_) {}
-            } else {
-                try { logModuleCall('cloudstorage', 'ms365_lxd_missing_class', ['clientId' => $clientId], 'Class not found'); } catch (\Throwable $_) {}
             }
         } catch (\Throwable $e) {
             try { logModuleCall('cloudstorage', 'ms365_lxd_exception', ['clientId' => $clientId], $e->getMessage()); } catch (\Throwable $_) {}
-            // Non-fatal: continue redirect; admin can inspect logs
         }
-        // Resolve created service ID for this order (so the ms365 page can display username)
-        try {
-            $service = Capsule::table('tblhosting')
-                ->where('orderid', (int)($order['orderid'] ?? 0))
-                ->orderBy('id', 'desc')
-                ->first();
-            if ($service && (int)$service->userid === $clientId && (int)$service->packageid === $pid) {
-                return 'index.php?m=cloudstorage&page=e3backup&view=ms365&serviceid=' . (int)$service->id;
+
+        if ($serviceId > 0) {
+            return 'index.php?m=cloudstorage&page=e3backup&view=users&serviceid=' . $serviceId;
+        }
+        return 'index.php?m=cloudstorage&page=e3backup&view=users';
+    }
+
+    /**
+     * Ensure a WHMCS MS365 Backup service exists for one backup user (MSP child).
+     * Called at first MS365 job creation. No trial; first bill due +1 month.
+     *
+     * @return int Service id or 0 on failure
+     */
+    public static function ensureMs365ServiceForBackupUser(int $clientId, int $backupUserId): int
+    {
+        if ($clientId <= 0 || $backupUserId <= 0) {
+            return 0;
+        }
+
+        $ms365Autoload = dirname(__DIR__, 2) . '/ms365backup/ms365backup_autoload.php';
+        if (is_file($ms365Autoload)) {
+            require_once $ms365Autoload;
+        }
+
+        $pid = class_exists('\\Ms365Backup\\Ms365BillingConfig')
+            ? (int) \Ms365Backup\Ms365BillingConfig::getPid()
+            : 0;
+        if ($pid <= 0 && class_exists('\\Ms365Backup\\Ms365ProductBootstrap')) {
+            \Ms365Backup\Ms365ProductBootstrap::ensure('ensure_backup_user');
+            $pid = (int) \Ms365Backup\Ms365BillingConfig::getPid();
+        }
+        if ($pid <= 0) {
+            try {
+                logModuleCall('cloudstorage', 'ms365_ensure_no_pid', ['clientId' => $clientId, 'backupUserId' => $backupUserId], '');
+            } catch (\Throwable $_) {
             }
-        } catch (\Throwable $e) {
-            try { logModuleCall('cloudstorage', 'ms365_service_lookup_exception', ['orderid' => $order['orderid'] ?? null], $e->getMessage()); } catch (\Throwable $_) {}
+
+            return 0;
         }
-        return 'index.php?m=cloudstorage&page=e3backup&view=ms365';
+
+        $backupUser = Capsule::table('s3_backup_users')
+            ->where('id', $backupUserId)
+            ->where('client_id', $clientId)
+            ->first(['id', 'username']);
+        if (!$backupUser || trim((string) ($backupUser->username ?? '')) === '') {
+            try {
+                logModuleCall('cloudstorage', 'ms365_ensure_no_backup_user', ['clientId' => $clientId, 'backupUserId' => $backupUserId], '');
+            } catch (\Throwable $_) {
+            }
+
+            return 0;
+        }
+        $username = trim((string) $backupUser->username);
+
+        $existingServiceId = 0;
+        if (class_exists('\\Ms365Backup\\Ms365BillingService')) {
+            $existingServiceId = \Ms365Backup\Ms365BillingService::resolveServiceIdForBackupUser($clientId, $backupUserId);
+        }
+        if ($existingServiceId <= 0) {
+            try {
+                $bound = Capsule::table('ms365_tenant_records')
+                    ->where('whmcs_client_id', $clientId)
+                    ->where('backup_user_id', $backupUserId)
+                    ->where('is_active', 1)
+                    ->where('whmcs_service_id', '>', 0)
+                    ->orderByDesc('id')
+                    ->value('whmcs_service_id');
+                if ($bound) {
+                    $existingServiceId = (int) $bound;
+                }
+            } catch (\Throwable $_) {
+            }
+        }
+        if ($existingServiceId <= 0) {
+            $svcRow = Capsule::table('tblhosting')
+                ->where('userid', $clientId)
+                ->where('packageid', $pid)
+                ->where('username', $username)
+                ->whereIn('domainstatus', ['Active', 'Suspended', 'Pending'])
+                ->orderByDesc('id')
+                ->first();
+            $existingServiceId = $svcRow ? (int) $svcRow->id : 0;
+        }
+
+        if ($existingServiceId > 0) {
+            self::finalizeMs365BackupUserService($existingServiceId, $clientId, $backupUserId);
+
+            return $existingServiceId;
+        }
+
+        if (self::ms365ServiceUsernameTakenForClient($clientId, $pid, $username)) {
+            try {
+                logModuleCall('cloudstorage', 'ms365_ensure_username_taken', [
+                    'clientId' => $clientId,
+                    'backupUserId' => $backupUserId,
+                    'username' => $username,
+                ], '');
+            } catch (\Throwable $_) {
+            }
+
+            return 0;
+        }
+
+        $adminUser = 'API';
+        $servicePassword = bin2hex(random_bytes(16));
+        try {
+            $order = localAPI('AddOrder', [
+                'clientid' => $clientId,
+                'pid' => [$pid],
+                'billingcycle' => ['monthly'],
+                'paymentmethod' => 'stripe',
+                'noinvoice' => true,
+                'noemail' => true,
+            ], $adminUser);
+            if (($order['result'] ?? '') !== 'success') {
+                throw new \Exception('AddOrder failed: ' . ($order['message'] ?? 'unknown'));
+            }
+            $accept = localAPI('AcceptOrder', [
+                'orderid' => $order['orderid'],
+                'autosetup' => false,
+                'sendemail' => false,
+                'serviceusername' => $username,
+                'servicepassword' => $servicePassword,
+            ], $adminUser);
+            if (($accept['result'] ?? '') !== 'success') {
+                throw new \Exception('AcceptOrder failed: ' . ($accept['message'] ?? 'unknown'));
+            }
+            $serviceId = (int) ($accept['serviceid'] ?? 0);
+            if ($serviceId <= 0 && !empty($order['orderid'])) {
+                $serviceId = (int) Capsule::table('tblhosting')
+                    ->where('orderid', (int) $order['orderid'])
+                    ->orderByDesc('id')
+                    ->value('id');
+            }
+            if ($serviceId <= 0) {
+                throw new \Exception('MS365 service could not be resolved after AcceptOrder');
+            }
+
+            self::anchorMs365ServiceBillingDates($serviceId);
+            self::finalizeMs365BackupUserService($serviceId, $clientId, $backupUserId);
+
+            try {
+                logModuleCall('cloudstorage', 'ms365_ensure_service_created', [
+                    'clientId' => $clientId,
+                    'backupUserId' => $backupUserId,
+                    'serviceId' => $serviceId,
+                    'username' => $username,
+                ], 'ok');
+            } catch (\Throwable $_) {
+            }
+
+            return $serviceId;
+        } catch (\Throwable $e) {
+            try {
+                logModuleCall('cloudstorage', 'ms365_ensure_service_fail', [
+                    'clientId' => $clientId,
+                    'backupUserId' => $backupUserId,
+                ], $e->getMessage());
+            } catch (\Throwable $_) {
+            }
+
+            return 0;
+        }
+    }
+
+    private static function ms365ServiceUsernameTakenForClient(int $clientId, int $pid, string $username, int $excludeServiceId = 0): bool
+    {
+        $q = Capsule::table('tblhosting')
+            ->where('userid', $clientId)
+            ->where('packageid', $pid)
+            ->where('username', $username)
+            ->whereIn('domainstatus', ['Active', 'Suspended', 'Pending']);
+        if ($excludeServiceId > 0) {
+            $q->where('id', '!=', $excludeServiceId);
+        }
+
+        return $q->exists();
+    }
+
+    private static function anchorMs365ServiceBillingDates(int $serviceId): void
+    {
+        try {
+            $tz = new \DateTimeZone('America/Toronto');
+            $nextDue = new \DateTime('now', $tz);
+            $nextDue->add(new \DateInterval('P1M'));
+            $formatted = $nextDue->format('Y-m-d');
+            Capsule::table('tblhosting')->where('id', $serviceId)->update([
+                'amount' => 0.00,
+                'nextduedate' => $formatted,
+                'nextinvoicedate' => $formatted,
+                'domainstatus' => 'Active',
+            ]);
+        } catch (\Throwable $e) {
+            try {
+                logModuleCall('cloudstorage', 'ms365_anchor_due_fail', ['service_id' => $serviceId], $e->getMessage());
+            } catch (\Throwable $_) {
+            }
+        }
+    }
+
+    private static function finalizeMs365BackupUserService(int $serviceId, int $clientId, int $backupUserId): void
+    {
+        if ($serviceId <= 0) {
+            return;
+        }
+        if (class_exists('\\Ms365Backup\\Ms365BillingService')) {
+            try {
+                \Ms365Backup\Ms365BillingService::applyDefaultConfigOptions($serviceId);
+            } catch (\Throwable $_) {
+            }
+            try {
+                \Ms365Backup\Ms365BillingService::linkServiceToBackupUser($clientId, $backupUserId, $serviceId);
+            } catch (\Throwable $_) {
+            }
+        }
     }
 
     public static function provisionCloudStorage(int $clientId): string

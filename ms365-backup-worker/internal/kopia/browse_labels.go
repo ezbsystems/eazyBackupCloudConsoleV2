@@ -73,6 +73,18 @@ func browseLabel(
 		return browseLabelResult{Label: opaqueCalendarFolderFallback(name)}
 	}
 	if isGuidLike(name) {
+		if isDriveContentBrowsePath(childPath) {
+			if entryType == "folder" {
+				return browseLabelResult{Label: opaqueDriveFolderFallback(name)}
+			}
+			return browseLabelResult{Label: name}
+		}
+		if entryType == "folder" && strings.Contains(childPath, "/mail/") {
+			if folderLabel := folderDisplayName(ctx, root, childPath); folderLabel != "" {
+				return browseLabelResult{Label: folderLabel}
+			}
+			return browseLabelResult{Label: "Folder"}
+		}
 		return browseLabelResult{}
 	}
 	if entryType == "file" && strings.HasSuffix(lower, ".json") {
@@ -120,6 +132,8 @@ func segmentLabel(segment string) string {
 		return "Planner"
 	case "onenote":
 		return "OneNote"
+	case "onedrive":
+		return "OneDrive"
 	case "content":
 		return "Files"
 	case "lists":
@@ -315,6 +329,23 @@ func opaqueCalendarFolderFallback(name string) string {
 		return "Calendar …" + name[len(name)-8:]
 	}
 	return "Calendar"
+}
+
+func isDriveContentBrowsePath(path string) bool {
+	lower := strings.ToLower(path)
+	return strings.Contains(lower, "/content") &&
+		(strings.Contains(lower, "/drives/") || strings.Contains(lower, "/sites/") || strings.Contains(lower, "/onedrive/"))
+}
+
+func opaqueDriveFolderFallback(name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "Folder"
+	}
+	if len(name) > 20 {
+		return "Folder …" + name[len(name)-8:]
+	}
+	return name
 }
 
 func calendarEventLabels(ctx context.Context, root kopiafs.Directory, filePath string) browseLabelResult {
