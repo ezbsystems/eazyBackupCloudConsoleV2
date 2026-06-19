@@ -28,6 +28,30 @@ func NewRunner(cfg *config.Config, client *api.Client, repoPool *kopia.Pool) *Ru
 	return &Runner{cfg: cfg, client: client, repoPool: repoPool}
 }
 
+// terminalContext returns a short-lived context detached from the run context so that
+// terminal status reports (fail/complete) and final log flushes are delivered to the
+// control plane even if the run context was cancelled or hit its deadline. Without this,
+// a cancelled run could not report its own failure, leaving the run "running" until the
+// lease lapsed and the reconciler re-queued it (burning attempts).
+func terminalContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
+}
+
+// reportFail delivers a failure status (and flushes buffered logs) on a detached context.
+func (r *Runner) reportFail(ctx context.Context, runID, message string) {
+	tctx, cancel := terminalContext(ctx)
+	defer cancel()
+	_ = r.client.Fail(tctx, api.FailUpdate{RunID: runID, Message: message})
+	_ = r.client.FlushRunLogs(tctx, runID)
+}
+
+// reportComplete delivers a completion status on a detached context.
+func (r *Runner) reportComplete(ctx context.Context, upd api.CompleteUpdate) error {
+	tctx, cancel := terminalContext(ctx)
+	defer cancel()
+	return r.client.Complete(tctx, upd)
+}
+
 func (r *Runner) Run(ctx context.Context, job *api.RunJob) error {
 	if job == nil {
 		return nil
@@ -37,7 +61,12 @@ func (r *Runner) Run(ctx context.Context, job *api.RunJob) error {
 		return restoreRunner.Run(ctx, job)
 	}
 	runStart := time.Now()
-	defer func() { _ = r.client.FlushRunLogs(ctx, job.RunID) }()
+	defer func() {
+		// Flush on a detached context so the last lines land even if ctx is cancelled.
+		fctx, cancel := terminalContext(ctx)
+		_ = r.client.FlushRunLogs(fctx, job.RunID)
+		cancel()
+	}()
 	r.client.RunLogf(ctx, job.RunID, "info", "starting run %s resource=%s", job.RunID, job.PhysicalKey)
 	log.Printf("starting run %s resource=%s", job.RunID, job.PhysicalKey)
 
@@ -144,7 +173,7 @@ func (r *Runner) Run(ctx context.Context, job *api.RunJob) error {
 	graphElapsed := time.Since(graphStart)
 	if err != nil {
 		r.client.RunLogf(ctx, job.RunID, "error", "graph_sync failed: %v", err)
-		_ = r.client.Fail(ctx, api.FailUpdate{RunID: job.RunID, Message: err.Error()})
+		r.reportFail(ctx, job.RunID, err.Error())
 		return err
 	}
 	r.client.RunLogf(ctx, job.RunID, "info", "run %s graph_sync completed in %dms items=%d graph_429=%v", job.RunID, graphElapsed.Milliseconds(), wlRes.FileCount, wlRes.Stats["graph_429_hits"])
@@ -154,13 +183,13 @@ func (r *Runner) Run(ctx context.Context, job *api.RunJob) error {
 	}
 	if err := r.ensureOneDriveRootFiles(ctx, gc, job, overlay); err != nil {
 		r.client.RunLogf(ctx, job.RunID, "error", "onedrive root guard: %v", err)
-		_ = r.client.Fail(ctx, api.FailUpdate{RunID: job.RunID, Message: err.Error()})
+		r.reportFail(ctx, job.RunID, err.Error())
 		return err
 	}
 
 	if wlRes.FileCount == 0 && job.PreviousManifest == "" {
 		log.Printf("run %s completed no_changes (empty first run) total=%dms", job.RunID, time.Since(runStart).Milliseconds())
-		_ = r.client.Complete(ctx, api.CompleteUpdate{
+		_ = r.reportComplete(ctx, api.CompleteUpdate{
 			RunID:      job.RunID,
 			ManifestID: "",
 			StatsJSON:  `{"status":"no_changes"}`,
@@ -179,7 +208,7 @@ func (r *Runner) Run(ctx context.Context, job *api.RunJob) error {
 			"graph_sync_ms":  graphElapsed.Milliseconds(),
 		})
 		log.Printf("run %s completed no_changes (incremental unchanged) total=%dms", job.RunID, time.Since(runStart).Milliseconds())
-		return r.client.Complete(ctx, api.CompleteUpdate{
+		return r.reportComplete(ctx, api.CompleteUpdate{
 			RunID:      job.RunID,
 			ManifestID: job.PreviousManifest,
 			StatsJSON:  string(stats),
@@ -197,7 +226,7 @@ func (r *Runner) Run(ctx context.Context, job *api.RunJob) error {
 	})
 
 	if err := kopia.EnsureRunDir(r.cfg.Worker.RunDir); err != nil {
-		_ = r.client.Fail(ctx, api.FailUpdate{RunID: job.RunID, Message: err.Error()})
+		r.reportFail(ctx, job.RunID, err.Error())
 		return err
 	}
 
@@ -209,7 +238,7 @@ func (r *Runner) Run(ctx context.Context, job *api.RunJob) error {
 	if job.GraphID != "" && graphsync.JobIncludesOneDrive(job) {
 		if err := graphsync.VerifyOneDriveOverlayTree(ctx, overlay, tree, job.AzureTenantID, job.GraphID); err != nil {
 			r.client.RunLogf(ctx, job.RunID, "error", "onedrive tree verify: %v", err)
-			_ = r.client.Fail(ctx, api.FailUpdate{RunID: job.RunID, Message: err.Error()})
+			r.reportFail(ctx, job.RunID, err.Error())
 			return err
 		}
 	}
@@ -260,7 +289,8 @@ func (r *Runner) Run(ctx context.Context, job *api.RunJob) error {
 	})
 	snapshotElapsed := time.Since(snapshotStart)
 	if err != nil {
-		_ = r.client.Fail(ctx, api.FailUpdate{RunID: job.RunID, Message: err.Error()})
+		r.client.RunLogf(ctx, job.RunID, "error", "kopia_snapshot failed after %dms: %v", snapshotElapsed.Milliseconds(), err)
+		r.reportFail(ctx, job.RunID, err.Error())
 		return err
 	}
 	log.Printf("run %s kopia_snapshot completed in %dms manifest=%s", job.RunID, snapshotElapsed.Milliseconds(), snapRes.ManifestID)
@@ -281,7 +311,7 @@ func (r *Runner) Run(ctx context.Context, job *api.RunJob) error {
 	log.Printf("run %s completed total=%dms", job.RunID, time.Since(runStart).Milliseconds())
 	r.client.RunLogf(ctx, job.RunID, "info", "run %s completed total=%dms", job.RunID, time.Since(runStart).Milliseconds())
 
-	return r.client.Complete(ctx, api.CompleteUpdate{
+	return r.reportComplete(ctx, api.CompleteUpdate{
 		RunID:      job.RunID,
 		ManifestID: snapRes.ManifestID,
 		StatsJSON:  string(stats),
@@ -343,7 +373,7 @@ func (r *Runner) RunSafe(ctx context.Context, job *api.RunJob) (err error) {
 	defer func() {
 		if rec := recover(); rec != nil {
 			err = fmt.Errorf("panic: %v", rec)
-			_ = r.client.Fail(ctx, api.FailUpdate{RunID: job.RunID, Message: err.Error()})
+			r.reportFail(ctx, job.RunID, err.Error())
 		}
 	}()
 	return r.Run(ctx, job)

@@ -139,11 +139,16 @@ func (s *Scheduler) poll(ctx context.Context) {
 		}
 		go func(j *api.RunJob) {
 			defer s.done(j.RunID)
-			runCtx := s.runContext(ctx, j)
+			runCtx, cancel := s.runContext(ctx, j)
+			defer cancel()
 			if err := s.runner.RunSafe(runCtx, j); err != nil {
 				log.Printf("run %s failed: %v", j.RunID, err)
-				s.client.RunLogf(runCtx, j.RunID, "error", "run %s failed: %v", j.RunID, err)
-				_ = s.client.FlushRunLogs(runCtx, j.RunID)
+				// Use the live scheduler context (not runCtx, which may be cancelled/expired)
+				// so the final failure line is still delivered to the control plane.
+				logCtx, logCancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+				s.client.RunLogf(logCtx, j.RunID, "error", "run %s failed: %v", j.RunID, err)
+				_ = s.client.FlushRunLogs(logCtx, j.RunID)
+				logCancel()
 			}
 		}(job)
 	}
@@ -152,17 +157,19 @@ func (s *Scheduler) poll(ctx context.Context) {
 	}
 }
 
-func (s *Scheduler) runContext(parent context.Context, job *api.RunJob) context.Context {
-	if job.LeaseExpiresAt <= 0 {
-		return parent
+// runContext builds the working context for a run. It is intentionally NOT bound to
+// the claim-time lease (job.LeaseExpiresAt): the control plane keeps a live run's lease
+// fresh via worker heartbeat (renewForNode) and progress (renewForRun), so binding the
+// worker's own context to the initial lease caused long whale-scale snapshots to
+// self-cancel mid-write ("error writing pack file: context deadline exceeded"), which the
+// control plane then mistook for worker loss and re-queued until max attempts. Instead we
+// apply a generous safety ceiling that only bounds genuinely stuck runs.
+func (s *Scheduler) runContext(parent context.Context, job *api.RunJob) (context.Context, context.CancelFunc) {
+	maxRun := s.cfg.MaxRunDuration()
+	if maxRun <= 0 {
+		return context.WithCancel(parent)
 	}
-	deadline := time.Unix(job.LeaseExpiresAt, 0)
-	if d := time.Until(deadline); d <= 0 {
-		runCtx, _ := context.WithDeadline(parent, time.Now())
-		return runCtx
-	}
-	runCtx, _ := context.WithDeadline(parent, deadline)
-	return runCtx
+	return context.WithTimeout(parent, maxRun)
 }
 
 func (s *Scheduler) hasDiskSpace() bool {

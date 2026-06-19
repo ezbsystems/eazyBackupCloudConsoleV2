@@ -36,6 +36,12 @@ type WorkerConfig struct {
 	GraphSharePointDriveParallel  int `yaml:"graph_sharepoint_drive_parallel"`
 	HeartbeatIntervalSeconds   int    `yaml:"heartbeat_interval_seconds"`
 	ProgressHeartbeatSeconds   int    `yaml:"progress_heartbeat_seconds"`
+	// MaxRunSeconds is a safety ceiling on a single run's working context. It is
+	// deliberately decoupled from the server lease: the control plane keeps a live
+	// run's lease fresh via heartbeat/progress, so the worker must NOT self-cancel
+	// at the initial lease window (that killed long whale-scale snapshots mid-write).
+	// This only bounds genuinely stuck runs from holding a slot forever. 0 = unbounded.
+	MaxRunSeconds              int    `yaml:"max_run_seconds"`
 	TokenRefreshSeconds        int    `yaml:"graph_token_refresh_seconds"`
 	InstallPath                string `yaml:"install_path"`
 	RunDir                     string `yaml:"run_dir"`
@@ -118,6 +124,9 @@ func (c *Config) applyDefaults() {
 	}
 	if c.Worker.ProgressHeartbeatSeconds <= 0 {
 		c.Worker.ProgressHeartbeatSeconds = 60
+	}
+	if c.Worker.MaxRunSeconds == 0 {
+		c.Worker.MaxRunSeconds = 43200 // 12h safety net for whale-scale single-resource runs
 	}
 	if c.Worker.RunDir == "" {
 		c.Worker.RunDir = "/var/lib/ms365-backup-worker/runs"
@@ -216,6 +225,15 @@ func (c *Config) HeartbeatInterval() time.Duration {
 
 func (c *Config) ProgressHeartbeat() time.Duration {
 	return time.Duration(c.Worker.ProgressHeartbeatSeconds) * time.Second
+}
+
+// MaxRunDuration returns the working-context safety ceiling for a single run.
+// A value <= 0 means unbounded (rely solely on server-side lease/orphan handling).
+func (c *Config) MaxRunDuration() time.Duration {
+	if c.Worker.MaxRunSeconds <= 0 {
+		return 0
+	}
+	return time.Duration(c.Worker.MaxRunSeconds) * time.Second
 }
 
 func (c *KopiaConfig) CheckpointInterval() time.Duration {
