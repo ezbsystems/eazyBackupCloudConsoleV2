@@ -175,7 +175,16 @@ final class JobQueueRepository
         }
     }
 
-    private const STALE_RUNNING_SECONDS = 7200;
+    // Absolute backstop ceiling for a single run. Kept comfortably above the worker's
+    // own max_run_seconds (default 12h) so a healthy long run self-fails (reportably)
+    // before the server backstop ever fires. This is only a safety net for a run whose
+    // worker is alive (lease kept fresh by node heartbeat) yet wedged.
+    private const STALE_RUNNING_SECONDS = 50400; // 14h
+    // A running row is considered abandoned when it has not reported progress for this
+    // long AND its lease has lapsed (worker process gone). A healthy run updates
+    // ms365_backup_runs.updated_at every ~60s via progress/heartbeat, so legitimately
+    // long single-resource runs are never reaped mid-flight.
+    private const STALE_PROGRESS_SECONDS = 900; // 15m
     private const MAX_RUNNING_PER_CLIENT = 3;
 
     public static function recoverStaleRunning(): int
@@ -183,16 +192,33 @@ final class JobQueueRepository
         if (!class_exists(Capsule::class)) {
             return 0;
         }
-        $cutoff = time() - self::STALE_RUNNING_SECONDS;
+        $now = time();
+        $backstopCutoff = $now - self::STALE_RUNNING_SECONDS;
+        $progressCutoff = $now - self::STALE_PROGRESS_SECONDS;
 
-        $rows = Capsule::table('ms365_job_queue')
-            ->where('status', 'running')
-            ->where('started_at', '<', $cutoff)
-            ->get(['run_id', 'attempts', 'max_attempts']);
+        // Only recover runs that are genuinely dead/abandoned:
+        //  (a) the lease has lapsed AND no recent progress (worker process gone), or
+        //  (b) the run has blown past the absolute backstop ceiling (wedged-but-alive).
+        // This intentionally does NOT reap slow-but-alive long runs, which keep their
+        // lease fresh and keep updating progress.
+        $rows = Capsule::table('ms365_job_queue as q')
+            ->leftJoin('ms365_backup_runs as r', 'r.id', '=', 'q.run_id')
+            ->where('q.status', 'running')
+            ->where(function ($query) use ($now, $progressCutoff, $backstopCutoff) {
+                $query->where(function ($abandoned) use ($now, $progressCutoff) {
+                    $abandoned->where(function ($lease) use ($now) {
+                        $lease->whereNull('q.lease_expires_at')
+                            ->orWhere('q.lease_expires_at', '<', $now);
+                    })->where(function ($progress) use ($progressCutoff) {
+                        $progress->whereNull('r.updated_at')
+                            ->orWhere('r.updated_at', '<', $progressCutoff);
+                    });
+                })->orWhere('q.started_at', '<', $backstopCutoff);
+            })
+            ->get(['q.run_id', 'q.attempts', 'q.max_attempts']);
         if ($rows->isEmpty()) {
             return 0;
         }
-        $now = time();
         $requeue = [];
         $exhausted = [];
         foreach ($rows as $row) {

@@ -9,6 +9,11 @@ worker:
   graph_sharepoint_drive_parallel: 4
   heartbeat_interval_seconds: 30
   progress_heartbeat_seconds: 60
+  # Safety ceiling on a single run's working context. Decoupled from the server lease:
+  # the control plane keeps a live run's lease fresh via heartbeat/progress, so the
+  # worker must NOT self-cancel at the initial lease window (that killed whale-scale
+  # snapshots mid-write). This only bounds genuinely stuck runs. 0 = unbounded.
+  max_run_seconds: 43200
   install_path: /var/lib/ms365-backup-worker/bin/ms365-backup-worker
   run_dir: /var/lib/ms365-backup-worker/runs
   proxmox_vmid: 0  # PROXMOX_VMID env on autoscale clones; or set per manual node

@@ -3,11 +3,20 @@
 **Purpose:** Single handoff document so the next agent knows where work stopped. Update this file at the **end of every session** (or after each meaningful milestone).
 
 **Last updated:** 2026-06-19  
-**Module version (ms365backup):** 1.25.0
+**Module version (ms365backup):** 1.25.0  
+**Worker version (ms365-backup-worker):** 0.2.5
 
 ---
 
 ## Session log
+
+### 2026-06-19 — Fix worker self-cancellation on long runs (context deadline exceeded)
+
+- **Root cause:** `scheduler.runContext` bound a run's working context to the claim-time lease (`job.LeaseExpiresAt`). Whale sites whose graph_sync + kopia snapshot exceeded the lease window self-cancelled mid-write → `error writing pack file: context deadline exceeded`. Because the (now cancelled) run context was reused for `Fail`/`Complete`/log flush, the worker could not report the failure, so the control plane saw it as worker loss → "Stale partial backup re-queued" → "Run exceeded max attempts". The server already renews a live run's lease (heartbeat `renewForNode` + progress `renewForRun`), so the lease was never the limiter — only the worker's own pinned deadline was.
+- **Go (worker 0.2.5):** `runContext` no longer uses the lease; it applies a generous safety ceiling `worker.max_run_seconds` (default **43200 = 12h**, `0` = unbounded) that only bounds genuinely stuck runs. Terminal status reports (`Fail`/`Complete`) and the final log flush now run on a detached context (`context.WithoutCancel` + 2m timeout) via `Runner.reportFail`/`reportComplete`, so failures are always delivered even after cancellation. Scheduler per-run goroutine now propagates `cancel()` and logs run failures on the live parent context.
+- **PHP (server reaper):** `JobQueueRepository::recoverStaleRunning()` was a blunt wall-clock reaper (`started_at < now-7200`) that re-queued *any* run still running after 2h — ignoring lease/progress — so it would have re-killed long single-resource runs even after the worker fix. Now lease/progress-aware (mirrors `reconcileZombieRuns`): only reaps when `(lease lapsed AND no progress for 15m)` OR past the absolute backstop. `STALE_RUNNING_SECONDS` raised **7200 → 50400 (14h)** as a backstop above the worker's 12h ceiling; added `STALE_PROGRESS_SECONDS = 900`.
+- **Config:** new `worker.max_run_seconds` (config.yaml.example).
+- **Verify:** Build/publish worker **0.2.5**; re-run a large PHL Capital site — confirm long snapshots complete (or fail reportably) without re-queue/max-attempts churn.
 
 ### 2026-06-19 — Delta pagination guards + SharePoint list sharding
 
