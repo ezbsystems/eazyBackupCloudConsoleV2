@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/eazybackup/ms365-backup-worker/internal/api"
+	"github.com/eazybackup/ms365-backup-worker/internal/archive"
 	"github.com/eazybackup/ms365-backup-worker/internal/config"
 	"github.com/eazybackup/ms365-backup-worker/internal/graph"
 	"github.com/eazybackup/ms365-backup-worker/internal/graphrestore"
@@ -48,6 +49,9 @@ func (r *RestoreRunner) Run(ctx context.Context, job *api.RunJob, onAbort contex
 	selection := job.RestoreSelection
 	if len(selection.Items) == 0 {
 		return r.fail(ctx, job.RunID, "no items selected")
+	}
+	if strings.EqualFold(strings.TrimSpace(selection.RestoreMode), "archive") {
+		return r.runArchiveExport(ctx, job, onAbort)
 	}
 	if len(selection.Targets) == 0 {
 		return r.fail(ctx, job.RunID, "no restore target")
@@ -241,6 +245,91 @@ func (r *RestoreRunner) Run(ctx context.Context, job *api.RunJob, onAbort contex
 	return r.completeTerminal(ctx, job.RunID, string(statsJSON))
 }
 
+func (r *RestoreRunner) runArchiveExport(ctx context.Context, job *api.RunJob, onAbort context.CancelFunc) error {
+	selection := job.RestoreSelection
+	r.client.RunLogf(r.logCtx(ctx), job.RunID, "info", "starting archive export %s", job.RunID)
+
+	storage := kopia.StorageOptions{
+		Endpoint:     job.DestEndpoint,
+		Region:       job.DestRegion,
+		Bucket:       job.DestBucket,
+		Prefix:       job.DestPrefix,
+		AccessKey:    job.DestAccessKey,
+		SecretKey:    job.DestSecretKey,
+		RepoPassword: job.RepoPassword,
+	}
+
+	manifestByItem := map[string]string{}
+	for _, item := range selection.Items {
+		if item.ManifestID != "" {
+			if item.Path != "" {
+				manifestByItem[item.Path] = item.ManifestID
+			}
+			if item.PathPrefix != "" {
+				manifestByItem[item.PathPrefix] = item.ManifestID
+			}
+		}
+	}
+
+	var lastProgress api.ProgressUpdate
+	lastProgress = api.ProgressUpdate{
+		RunID:      job.RunID,
+		Phase:      "archive_export",
+		Percent:    5,
+		ItemsTotal: len(selection.Items),
+		Message:    "Building archive",
+	}
+	reportProgress := func(done, total int, message string, bytes int64) {
+		pct := 5.0
+		if total > 0 {
+			pct = 5 + (float64(done)/float64(total))*90
+		}
+		lastProgress = api.ProgressUpdate{
+			RunID:         job.RunID,
+			Phase:         "archive_export",
+			Percent:       pct,
+			ItemsDone:     done,
+			ItemsTotal:    total,
+			BytesUploaded: bytes,
+			Message:       message,
+		}
+		r.noteProgress(lastProgress)
+		sendProgress(ctx, r.client, onAbort, lastProgress)
+	}
+	progressStop := r.client.StartProgressHeartbeat(ctx, job.RunID, 45*time.Second, func() api.ProgressUpdate {
+		return lastProgress
+	}, onAbort)
+	defer progressStop()
+
+	result, err := archive.Export(ctx, archive.ExportOptions{
+		Pool:             r.repoPool,
+		Storage:          storage,
+		Items:            selection.Items,
+		SourceManifestID: job.SourceManifestID,
+		ManifestByPath:   manifestByItem,
+		ArchiveExport:    selection.ArchiveExport,
+		DestEndpoint:     job.DestEndpoint,
+		DestRegion:       job.DestRegion,
+		DestAccessKey:    job.DestAccessKey,
+		DestSecretKey:    job.DestSecretKey,
+		OnProgress:       reportProgress,
+	})
+	if err != nil {
+		if isCooperativeCancel(err, ctx) {
+			r.client.RunLogf(r.logCtx(ctx), job.RunID, "info", "archive export cancelled")
+			return err
+		}
+		r.client.RunLogf(r.logCtx(ctx), job.RunID, "error", "archive export failed: %s", err.Error())
+		return r.failTerminal(ctx, job.RunID, err.Error())
+	}
+
+	reportProgress(result.Files, result.Files, "Archive uploaded", result.Bytes)
+	statsJSON, _ := json.Marshal(archive.StatsJSON(*result))
+	r.client.RunLogf(r.logCtx(ctx), job.RunID, "info", "archive export %s completed object_key=%s bytes=%d files=%d",
+		job.RunID, result.ObjectKey, result.Bytes, result.Files)
+	return r.completeTerminal(ctx, job.RunID, string(statsJSON))
+}
+
 func (r *RestoreRunner) logCtx(ctx context.Context) context.Context {
 	return context.WithoutCancel(ctx)
 }
@@ -276,7 +365,7 @@ func (r *RestoreRunner) failTerminal(ctx context.Context, runID, message string)
 	tctx, cancel := r.terminalCtx(ctx)
 	defer cancel()
 	if len(message) > 4000 {
-		message = message[:4000] + "…"
+		message = message[:4000] + "..."
 	}
 	if err := r.client.Fail(tctx, api.FailUpdate{RunID: runID, Message: message}); err != nil {
 		log.Printf("restore %s fail callback failed: %v (message: %s)", runID, err, message)

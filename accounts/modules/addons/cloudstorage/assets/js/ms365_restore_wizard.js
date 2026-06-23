@@ -1,7 +1,7 @@
 (function () {
     'use strict';
 
-    const STEP_LABELS = ['Snapshot', 'Browse & select', 'Destination', 'Review'];
+    const STEP_LABELS = ['Snapshot', 'Restore method', 'Browse & select', 'Destination', 'Review'];
 
     const RESTORE_SECTIONS = [
         { key: 'users', label: 'Users & mailboxes' },
@@ -86,6 +86,7 @@
             selectedItems: [],
             inventoryResources: [],
             targetResource: null,
+            restoreMode: 'tenant',
             backupUserId: '',
             jobId: '',
 
@@ -102,6 +103,7 @@
                 this.selectedItems = [];
                 this.treeNodes = [];
                 this.targetResource = null;
+                this.restoreMode = 'tenant';
                 this.treeSearch = '';
                 document.getElementById('ms365RestoreWizardModal').classList.remove('hidden');
                 this.loadTreeRoots();
@@ -128,25 +130,45 @@
             },
 
             goToStep(n) {
+                if (this.restoreMode === 'archive' && n === 4) {
+                    return;
+                }
                 this.step = n;
-                if (n === 2 && this.treeNodes.length === 0) {
+                if (n === 3 && this.treeNodes.length === 0) {
                     this.loadTreeRoots();
                 }
-                if (n === 3 && this.inventoryResources.length === 0) {
+                if (n === 4 && this.restoreMode === 'tenant' && this.inventoryResources.length === 0) {
                     this.loadInventory();
                 }
             },
 
-            nextStep() {
-                if (this.step < 4) {
-                    this.goToStep(this.step + 1);
+            prevStep() {
+                if (this.step <= 1) {
+                    return 1;
                 }
+                let prev = this.step - 1;
+                if (this.restoreMode === 'archive' && prev === 4) {
+                    prev = 3;
+                }
+                return prev;
+            },
+
+            nextStep() {
+                if (this.step >= 5) {
+                    return;
+                }
+                let next = this.step + 1;
+                if (this.restoreMode === 'archive' && next === 4) {
+                    next = 5;
+                }
+                this.goToStep(next);
             },
 
             canProceed() {
                 if (this.step === 1) return !!this.snapshot;
-                if (this.step === 2) return this.selectedItems.length > 0;
-                if (this.step === 3) return !!this.targetResource;
+                if (this.step === 2) return this.restoreMode === 'tenant' || this.restoreMode === 'archive';
+                if (this.step === 3) return this.selectedItems.length > 0;
+                if (this.step === 4) return this.restoreMode === 'archive' || !!this.targetResource;
                 return true;
             },
 
@@ -344,8 +366,10 @@
             buildSelectionPayload() {
                 const snapshot = this.snapshot || {};
                 const target = this.targetResource;
+                const isArchive = this.restoreMode === 'archive';
                 return {
                     snapshot_batch_run_id: String(snapshot.batch_run_id || snapshot.id || ''),
+                    restore_mode: this.restoreMode,
                     conflict_policy: 'skip_duplicates',
                     items: this.selectedItems.map((s) => ({
                         child_run_id: String(s.child_run_id || ''),
@@ -354,11 +378,11 @@
                         path_prefix: String(s.path_prefix || ''),
                         type: String(s.type || ''),
                     })),
-                    targets: target ? [{
+                    targets: isArchive ? [] : (target ? [{
                         resource_id: String(target.id || ''),
                         graph_id: String(target.graph_id || (target.id || '').replace(/^[^:]+:/, '')),
                         resource_type: String(target.resource_type || 'user'),
-                    }] : [],
+                    }] : []),
                 };
             },
 
@@ -373,7 +397,7 @@
                     if (!selection.items.length) {
                         throw new Error('Select at least one item to restore.');
                     }
-                    if (!selection.targets.length) {
+                    if (this.restoreMode === 'tenant' && !selection.targets.length) {
                         throw new Error('Select a restore destination.');
                     }
                     const res = await fetch(apiBase() + 'ms365_restore_start.php', {

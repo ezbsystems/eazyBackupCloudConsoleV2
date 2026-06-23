@@ -1,5 +1,5 @@
 BINARY=ms365-backup-worker
-VERSION?=0.1.36
+VERSION?=0.3.13
 LDFLAGS=-ldflags "-X github.com/eazybackup/ms365-backup-worker/internal/version.Version=$(VERSION)"
 
 .PHONY: build test tidy licenses

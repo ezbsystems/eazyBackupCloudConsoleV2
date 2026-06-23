@@ -95,10 +95,19 @@ type RunJob struct {
 	RestoreSelection RestoreSelection  `json:"restore_selection"`
 }
 
+type ArchiveExport struct {
+	ObjectKey   string `json:"object_key"`
+	Bucket      string `json:"bucket"`
+	Prefix      string `json:"prefix"`
+	Compression string `json:"compression"`
+}
+
 type RestoreSelection struct {
-	Items          []RestoreItem `json:"items"`
+	Items          []RestoreItem   `json:"items"`
 	Targets        []RestoreTarget `json:"targets"`
-	ConflictPolicy string        `json:"conflict_policy"`
+	ConflictPolicy string          `json:"conflict_policy"`
+	RestoreMode    string          `json:"restore_mode"`
+	ArchiveExport  ArchiveExport   `json:"archive_export"`
 }
 
 type RestoreItem struct {

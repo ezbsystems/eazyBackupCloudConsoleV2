@@ -38,6 +38,22 @@ final class RestoreRunRepository
             $insert['items_skipped'] = (int) ($data['items_skipped'] ?? 0);
         }
 
+        if (Capsule::schema()->hasColumn('ms365_restore_runs', 'restore_mode')) {
+            $insert['restore_mode'] = (string) ($data['restore_mode'] ?? 'tenant');
+        }
+        if (Capsule::schema()->hasColumn('ms365_restore_runs', 'archive_object_key')) {
+            $insert['archive_object_key'] = $data['archive_object_key'] ?? null;
+        }
+        if (Capsule::schema()->hasColumn('ms365_restore_runs', 'archive_bucket')) {
+            $insert['archive_bucket'] = $data['archive_bucket'] ?? null;
+        }
+        if (Capsule::schema()->hasColumn('ms365_restore_runs', 'archive_size_bytes')) {
+            $insert['archive_size_bytes'] = isset($data['archive_size_bytes']) ? (int) $data['archive_size_bytes'] : null;
+        }
+        if (Capsule::schema()->hasColumn('ms365_restore_runs', 'archive_expires_at')) {
+            $insert['archive_expires_at'] = isset($data['archive_expires_at']) ? (int) $data['archive_expires_at'] : null;
+        }
+
         Capsule::table('ms365_restore_runs')->insert($insert);
 
         return $id;
@@ -52,6 +68,7 @@ final class RestoreRunRepository
 
     public static function update(string $id, array $fields): void
     {
+        $fields = self::filterPersistedFields($fields);
         $fields['updated_at'] = time();
         if (isset($fields['selection_json']) && !is_string($fields['selection_json'])) {
             $fields['selection_json'] = self::encodeJson($fields['selection_json']);
@@ -60,6 +77,24 @@ final class RestoreRunRepository
             $fields['scope_json'] = self::encodeJson($fields['scope_json']);
         }
         Capsule::table('ms365_restore_runs')->where('id', $id)->update($fields);
+    }
+
+    /** @param array<string, mixed> $fields */
+    private static function filterPersistedFields(array $fields): array
+    {
+        foreach ([
+            'restore_mode',
+            'archive_object_key',
+            'archive_bucket',
+            'archive_size_bytes',
+            'archive_expires_at',
+        ] as $column) {
+            if (array_key_exists($column, $fields) && !Capsule::schema()->hasColumn('ms365_restore_runs', $column)) {
+                unset($fields[$column]);
+            }
+        }
+
+        return $fields;
     }
 
     public static function isRestoreRun(string $runId): bool

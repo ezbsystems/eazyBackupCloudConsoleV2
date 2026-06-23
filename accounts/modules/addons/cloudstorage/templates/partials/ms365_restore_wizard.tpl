@@ -47,6 +47,48 @@
                     </div>
 
                     <div x-show="step === 2" class="space-y-3">
+                        <p class="eb-card-subtitle">Choose how you want to recover your backed-up data.</p>
+                        <div class="space-y-2">
+                            <button type="button"
+                                    class="eb-choice-card w-full text-left cursor-pointer"
+                                    :class="restoreMode === 'tenant' ? 'is-selected' : ''"
+                                    @click="restoreMode = 'tenant'">
+                                <span class="eb-choice-card-control">
+                                    <input type="radio"
+                                           name="ms365-restore-mode"
+                                           class="eb-radio-input"
+                                           value="tenant"
+                                           :checked="restoreMode === 'tenant'"
+                                           @change="restoreMode = 'tenant'"
+                                           @click.stop>
+                                </span>
+                                <span class="min-w-0 flex-1">
+                                    <span class="eb-choice-card-title block">Restore to Microsoft 365 tenant</span>
+                                    <span class="eb-choice-card-description block">Write mail, files, and other items back into your tenant. Existing duplicates are skipped.</span>
+                                </span>
+                            </button>
+                            <button type="button"
+                                    class="eb-choice-card w-full text-left cursor-pointer"
+                                    :class="restoreMode === 'archive' ? 'is-selected' : ''"
+                                    @click="restoreMode = 'archive'">
+                                <span class="eb-choice-card-control">
+                                    <input type="radio"
+                                           name="ms365-restore-mode"
+                                           class="eb-radio-input"
+                                           value="archive"
+                                           :checked="restoreMode === 'archive'"
+                                           @change="restoreMode = 'archive'"
+                                           @click.stop>
+                                </span>
+                                <span class="min-w-0 flex-1">
+                                    <span class="eb-choice-card-title block">Download as compressed archive</span>
+                                    <span class="eb-choice-card-description block">Export selected items to a .zip file you can download. Nothing is written back to Microsoft 365.</span>
+                                </span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div x-show="step === 3" class="space-y-3">
                         <div class="flex gap-2">
                             <input type="search" class="eb-input flex-1" placeholder="Search tree…" x-model="treeSearch">
                         </div>
@@ -111,7 +153,7 @@
                         </div>
                     </div>
 
-                    <div x-show="step === 3" class="space-y-3">
+                    <div x-show="step === 4" class="space-y-3">
                         <p class="eb-card-subtitle">Choose where to restore data in your Microsoft 365 tenant.</p>
                         <div class="max-h-64 overflow-y-auto space-y-2 pr-1">
                             <template x-for="res in inventoryResources" :key="res.id">
@@ -137,24 +179,29 @@
                         </div>
                     </div>
 
-                    <div x-show="step === 4 && snapshot" class="space-y-4">
-                        <div class="eb-alert eb-alert--info">
+                    <div x-show="step === 5 && snapshot" class="space-y-4">
+                        <div class="eb-alert eb-alert--info" x-show="restoreMode === 'tenant'">
                             <div class="eb-alert-title">Skip duplicates</div>
                             <p class="eb-type-caption !mt-1">Existing mail, calendar events, and files that match backed-up items will be skipped (not overwritten).</p>
+                        </div>
+                        <div class="eb-alert eb-alert--info" x-show="restoreMode === 'archive'">
+                            <div class="eb-alert-title">Archive export</div>
+                            <p class="eb-type-caption !mt-1">Selected items are packaged into a single .zip file. After the export completes, download it from the live run page. The archive is automatically deleted after the retention period (typically 7 days).</p>
                         </div>
                         <ul class="text-sm space-y-1 text-[var(--eb-text-secondary)]">
                             <li><strong>Snapshot:</strong> <span x-text="snapshotTitle()"></span></li>
                             <li><strong>Items:</strong> <span x-text="selectedItems.length"></span></li>
-                            <li><strong>Target:</strong> <span x-text="targetResource ? (targetResource.display_name || targetResource.id) : '—'"></span></li>
+                            <li x-show="restoreMode === 'tenant'"><strong>Target:</strong> <span x-text="targetResource ? (targetResource.display_name || targetResource.id) : '—'"></span></li>
+                            <li x-show="restoreMode === 'archive'"><strong>Delivery:</strong> Download as archive (.zip)</li>
                         </ul>
                     </div>
                 </div>
             </div>
 
             <div class="eb-modal-footer shrink-0 flex items-center justify-between gap-2 px-6 py-4 border-t border-[var(--eb-border-default)]">
-                <button type="button" class="eb-btn eb-btn-secondary" @click="step > 1 ? goToStep(step - 1) : close()">Back</button>
-                <button type="button" class="eb-btn eb-btn-primary" x-show="step < 4" @click="nextStep()" :disabled="!canProceed()">Next</button>
-                <button type="button" class="eb-btn eb-btn-success" x-show="step === 4" @click="startRestore()" :disabled="starting">
+                <button type="button" class="eb-btn eb-btn-secondary" @click="step > 1 ? goToStep(prevStep()) : close()">Back</button>
+                <button type="button" class="eb-btn eb-btn-primary" x-show="step < 5" @click="nextStep()" :disabled="!canProceed()">Next</button>
+                <button type="button" class="eb-btn eb-btn-success" x-show="step === 5" @click="startRestore()" :disabled="starting">
                     <span x-text="starting ? 'Starting…' : 'Start restore'"></span>
                 </button>
             </div>
@@ -162,4 +209,4 @@
     </div>
 </div>
 
-<script src="modules/addons/cloudstorage/assets/js/ms365_restore_wizard.js?v=8"></script>
+<script src="modules/addons/cloudstorage/assets/js/ms365_restore_wizard.js?v=9"></script>

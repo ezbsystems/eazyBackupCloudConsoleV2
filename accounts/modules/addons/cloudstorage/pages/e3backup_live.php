@@ -108,6 +108,11 @@ if (!empty($run['stats_json'])) {
 //  - Backups: the destination bucket *name* (or local path), never the numeric id.
 $destinationHeading = 'Destination';
 $destinationLabel = '';
+$ms365ArchiveRestore = false;
+$ms365ArchiveDownloadReady = false;
+$ms365RestoreRunId = '';
+$ms365BackupUserScopeId = '';
+
 if ($isRestore) {
     $destinationHeading = 'Restore to';
     if ($isMs365Batch) {
@@ -116,8 +121,49 @@ if ($isRestore) {
         } catch (\Throwable $e) {
             $destinationLabel = '';
         }
-        if ($destinationLabel === '') {
+        if ($destinationLabel === 'Download archive') {
+            $ms365ArchiveRestore = true;
+            $destinationHeading = 'Delivery';
+        } elseif ($destinationLabel === '') {
             $destinationLabel = 'Microsoft 365 account';
+        }
+
+        try {
+            $children = \Ms365Backup\Ms365BatchRunRepository::getChildrenForRestoreBatch((string) ($run['run_id'] ?? ''));
+            if ($children !== []) {
+                $child = $children[0];
+                $hasRestoreModeCol = Capsule::schema()->hasColumn('ms365_restore_runs', 'restore_mode');
+                if ($hasRestoreModeCol && strtolower((string) ($child['restore_mode'] ?? '')) === 'archive') {
+                    $ms365ArchiveRestore = true;
+                    $destinationHeading = 'Delivery';
+                    $destinationLabel = 'Download archive';
+                    $ms365RestoreRunId = trim((string) ($child['id'] ?? ''));
+                    $runStatus = strtolower((string) ($run['status'] ?? ''));
+                    $childStatus = strtolower((string) ($child['status'] ?? ''));
+                    $hasArchiveKeyCol = Capsule::schema()->hasColumn('ms365_restore_runs', 'archive_object_key');
+                    $archiveKey = $hasArchiveKeyCol ? trim((string) ($child['archive_object_key'] ?? '')) : '';
+                    $ms365ArchiveDownloadReady = in_array($runStatus, ['success', 'partial_success'], true)
+                        && $childStatus === 'success'
+                        && ($archiveKey !== '' || !$hasArchiveKeyCol);
+                }
+            }
+        } catch (\Throwable $e) {
+            // Best-effort archive restore detection.
+        }
+
+        $backupUserInternalId = (int) ($job['backup_user_id'] ?? 0);
+        if ($backupUserInternalId > 0 && Capsule::schema()->hasTable('s3_backup_users')) {
+            $buCols = ['id'];
+            if (Capsule::schema()->hasColumn('s3_backup_users', 'public_id')) {
+                $buCols[] = 'public_id';
+            }
+            $buRow = Capsule::table('s3_backup_users')
+                ->where('id', $backupUserInternalId)
+                ->first($buCols);
+            if ($buRow) {
+                $publicId = trim((string) ($buRow->public_id ?? ''));
+                $ms365BackupUserScopeId = $publicId !== '' ? $publicId : (string) $buRow->id;
+            }
         }
     } elseif (is_array($restoreMetadata) && !empty($restoreMetadata['target_path'])) {
         $destinationLabel = (string) $restoreMetadata['target_path'];
@@ -175,6 +221,10 @@ return [
     'restore_metadata' => $restoreMetadata,
     'destination_heading' => $destinationHeading,
     'destination_label' => $destinationLabel,
+    'ms365_archive_restore' => $ms365ArchiveRestore,
+    'ms365_archive_download_ready' => $ms365ArchiveDownloadReady,
+    'ms365_restore_run_id' => $ms365RestoreRunId,
+    'ms365_backup_user_scope_id' => $ms365BackupUserScopeId,
     'server_timezone' => $serverTimezone,
     'started_at_epoch_ms' => $startedAtEpochMs,
     'finished_at_epoch_ms' => $finishedAtEpochMs,
