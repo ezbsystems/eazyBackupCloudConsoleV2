@@ -54,8 +54,9 @@ type Client struct {
 	adaptiveCond     *sync.Cond
 	maxConcurrency   int
 	successStreak    int
+	shrinkAllowedAfter time.Time
 	azureTenantID    string
-	throttleWaiting  atomic.Bool
+	throttleWaiting  atomic.Int32
 	lastThrottleAt   atomic.Int64
 }
 
@@ -127,7 +128,7 @@ func (c *Client) ThrottleHits() int64 {
 
 // ThrottleWaiting reports whether the client is sleeping on a Graph 429 Retry-After.
 func (c *Client) ThrottleWaiting() bool {
-	return c.throttleWaiting.Load()
+	return c.throttleWaiting.Load() > 0
 }
 
 // LastThrottleAt returns the time of the most recent Graph 429 (zero when none).
@@ -239,6 +240,52 @@ func IsMailboxUnavailable(err error) bool {
 
 func (c *Client) SetAzureTenantID(tenantID string) {
 	c.azureTenantID = strings.TrimSpace(tenantID)
+	c.applyTenantAdaptiveSeed()
+}
+
+func (c *Client) applyTenantAdaptiveSeed() {
+	if c.azureTenantID == "" {
+		return
+	}
+	learned, ceiling, ok := tenantAdaptiveSeed(c.azureTenantID)
+	if !ok {
+		return
+	}
+	c.throttleMu.Lock()
+	defer c.throttleMu.Unlock()
+	if ceiling > 0 && ceiling < c.maxConcurrency {
+		c.maxConcurrency = ceiling
+	}
+	if c.adaptiveEnabled && learned > 0 {
+		limit := learned
+		if limit > c.maxConcurrency {
+			limit = c.maxConcurrency
+		}
+		if limit < 1 {
+			limit = 1
+		}
+		c.adaptiveLimit = limit
+	}
+}
+
+// ClampAdaptiveCeiling lowers the AIMD ceiling to match a refreshed tenant budget.
+func (c *Client) ClampAdaptiveCeiling(budget int) {
+	if budget <= 0 {
+		return
+	}
+	c.throttleMu.Lock()
+	defer c.throttleMu.Unlock()
+	if budget < c.maxConcurrency {
+		c.maxConcurrency = budget
+	}
+	if c.adaptiveEnabled && c.adaptiveLimit > budget {
+		c.adaptiveLimit = budget
+		if c.adaptiveLimit < 1 {
+			c.adaptiveLimit = 1
+		}
+		c.adaptiveCond.Broadcast()
+	}
+	persistTenantAdaptiveLimit(c.azureTenantID, c.adaptiveLimit)
 }
 
 func (c *Client) acquireTransport(ctx context.Context) error {
@@ -338,16 +385,24 @@ func (c *Client) sleepRetry(ctx context.Context, delay time.Duration) error {
 	}
 }
 
-func (c *Client) record429() {
+func (c *Client) record429(cooldown time.Duration) {
 	atomic.AddInt64(&c.throttle429, 1)
 	c.lastThrottleAt.Store(time.Now().UnixNano())
 	if !c.adaptiveEnabled {
 		return
 	}
+	if cooldown <= 0 {
+		cooldown = time.Second
+	}
 	c.throttleMu.Lock()
 	defer c.throttleMu.Unlock()
 	c.successStreak = 0
+	now := time.Now()
+	if now.Before(c.shrinkAllowedAfter) {
+		return
+	}
 	if c.adaptiveLimit <= 1 {
+		c.shrinkAllowedAfter = now.Add(cooldown)
 		return
 	}
 	newLimit := int(float64(c.adaptiveLimit) * adaptiveDecreaseRatio)
@@ -358,7 +413,9 @@ func (c *Client) record429() {
 		newLimit = c.adaptiveLimit - 1
 	}
 	c.adaptiveLimit = newLimit
+	c.shrinkAllowedAfter = now.Add(cooldown)
 	c.adaptiveCond.Broadcast()
+	persistTenantAdaptiveLimit(c.azureTenantID, c.adaptiveLimit)
 }
 
 func (c *Client) recordSuccess() {
@@ -389,6 +446,7 @@ func (c *Client) growAdaptiveLimit(max int) {
 	}
 	c.adaptiveLimit++
 	c.adaptiveCond.Broadcast()
+	persistTenantAdaptiveLimit(c.azureTenantID, c.adaptiveLimit)
 }
 
 func parseRetryAfter(header string, attempt int, baseDelay time.Duration) time.Duration {
@@ -452,11 +510,32 @@ func (c *Client) setRequestHeaders(req *http.Request) {
 	}
 }
 
+func isThrottleStatus(code int) bool {
+	return code == http.StatusTooManyRequests || isBoundedRetryableStatus(code)
+}
+
 func (c *Client) sleep429(ctx context.Context, delay time.Duration) error {
-	c.throttleWaiting.Store(true)
+	c.throttleWaiting.Add(1)
 	ParkTenantThrottle(c.azureTenantID, delay)
-	defer c.throttleWaiting.Store(false)
+	defer c.throttleWaiting.Add(-1)
 	return c.sleepRetry(ctx, delay)
+}
+
+func (c *Client) sleep429WithWorkload(ctx context.Context, delay time.Duration, workloadHeld *bool) error {
+	if workloadHeld != nil && *workloadHeld {
+		c.releaseWorkload()
+		*workloadHeld = false
+	}
+	if err := c.sleep429(ctx, delay); err != nil {
+		return err
+	}
+	if workloadHeld != nil && !*workloadHeld {
+		if err := c.acquireWorkload(ctx); err != nil {
+			return err
+		}
+		*workloadHeld = true
+	}
+	return nil
 }
 
 type httpResponse struct {
@@ -469,7 +548,12 @@ func (c *Client) doRequest(ctx context.Context, req *http.Request) (*httpRespons
 	if err := c.acquireWorkload(ctx); err != nil {
 		return nil, err
 	}
-	defer c.releaseWorkload()
+	workloadHeld := true
+	defer func() {
+		if workloadHeld {
+			c.releaseWorkload()
+		}
+	}()
 
 	var lastErr error
 	retried401 := false
@@ -506,11 +590,11 @@ func (c *Client) doRequest(ctx context.Context, req *http.Request) (*httpRespons
 		}
 
 		for statusCode == http.StatusTooManyRequests {
-			c.record429()
-			lastErr = fmt.Errorf("graph %d", statusCode)
 			delay := parseRetryAfter429(retryAfter, throttle429Attempt, c.retryDelay)
+			c.record429(delay)
+			lastErr = fmt.Errorf("graph %d", statusCode)
 			throttle429Attempt++
-			if sleepErr := c.sleep429(ctx, delay); sleepErr != nil {
+			if sleepErr := c.sleep429WithWorkload(ctx, delay, &workloadHeld); sleepErr != nil {
 				return nil, sleepErr
 			}
 			if ctx.Err() != nil {
@@ -987,16 +1071,21 @@ func (c *Client) getStream(ctx context.Context, path string, offset int64) (io.R
 	if err := c.acquireWorkload(ctx); err != nil {
 		return nil, 0, err
 	}
+	workloadHeld := true
 
 	var lastErr error
 	throttle429Attempt := 0
 	for attempt := 0; attempt <= c.maxRetries; attempt++ {
 		if ctx.Err() != nil {
-			c.releaseWorkload()
+			if workloadHeld {
+				c.releaseWorkload()
+			}
 			return nil, 0, ctx.Err()
 		}
 		if err := c.acquireTransport(ctx); err != nil {
-			c.releaseWorkload()
+			if workloadHeld {
+				c.releaseWorkload()
+			}
 			return nil, 0, err
 		}
 
@@ -1010,7 +1099,9 @@ func (c *Client) getStream(ctx context.Context, path string, offset int64) (io.R
 		if err != nil {
 			lastErr = err
 			if sleepErr := c.sleepRetry(ctx, parseRetryAfter("", attempt, c.retryDelay)); sleepErr != nil {
-				c.releaseWorkload()
+				if workloadHeld {
+					c.releaseWorkload()
+				}
 				return nil, 0, sleepErr
 			}
 			continue
@@ -1020,22 +1111,26 @@ func (c *Client) getStream(ctx context.Context, path string, offset int64) (io.R
 		retryAfter := resp.Header.Get("Retry-After")
 
 		for statusCode == http.StatusTooManyRequests {
-			c.record429()
 			io.Copy(io.Discard, resp.Body)
 			resp.Body.Close()
 			delay := parseRetryAfter429(retryAfter, throttle429Attempt, c.retryDelay)
+			c.record429(delay)
 			throttle429Attempt++
 			lastErr = fmt.Errorf("graph %d", statusCode)
-			if sleepErr := c.sleep429(ctx, delay); sleepErr != nil {
-				c.releaseWorkload()
+			c.releaseTransport()
+			if sleepErr := c.sleep429WithWorkload(ctx, delay, &workloadHeld); sleepErr != nil {
 				return nil, 0, sleepErr
 			}
 			if ctx.Err() != nil {
-				c.releaseWorkload()
+				if workloadHeld {
+					c.releaseWorkload()
+				}
 				return nil, 0, ctx.Err()
 			}
 			if err := c.acquireTransport(ctx); err != nil {
-				c.releaseWorkload()
+				if workloadHeld {
+					c.releaseWorkload()
+				}
 				return nil, 0, err
 			}
 			reqClone = req.Clone(ctx)
@@ -1054,7 +1149,9 @@ func (c *Client) getStream(ctx context.Context, path string, offset int64) (io.R
 		}
 		if err != nil {
 			if sleepErr := c.sleepRetry(ctx, parseRetryAfter("", attempt, c.retryDelay)); sleepErr != nil {
-				c.releaseWorkload()
+				if workloadHeld {
+					c.releaseWorkload()
+				}
 				return nil, 0, sleepErr
 			}
 			continue
@@ -1063,9 +1160,12 @@ func (c *Client) getStream(ctx context.Context, path string, offset int64) (io.R
 		if isBoundedRetryableStatus(statusCode) && attempt < c.maxRetries {
 			io.Copy(io.Discard, resp.Body)
 			resp.Body.Close()
+			c.releaseTransport()
 			lastErr = fmt.Errorf("graph %d", statusCode)
 			if sleepErr := c.sleepRetry(ctx, parseRetryAfter(retryAfter, attempt, c.retryDelay)); sleepErr != nil {
-				c.releaseWorkload()
+				if workloadHeld {
+					c.releaseWorkload()
+				}
 				return nil, 0, sleepErr
 			}
 			continue
@@ -1074,14 +1174,20 @@ func (c *Client) getStream(ctx context.Context, path string, offset int64) (io.R
 		if statusCode == http.StatusRequestedRangeNotSatisfiable {
 			io.Copy(io.Discard, resp.Body)
 			resp.Body.Close()
-			c.release()
+			c.releaseTransport()
+			if workloadHeld {
+				c.releaseWorkload()
+			}
 			return nil, 0, fmt.Errorf("graph range not satisfiable at offset %d", offset)
 		}
 
 		if statusCode >= 400 {
 			body, _ := io.ReadAll(resp.Body)
 			resp.Body.Close()
-			c.release()
+			c.releaseTransport()
+			if workloadHeld {
+				c.releaseWorkload()
+			}
 			return nil, 0, fmt.Errorf("graph %s: %s", resp.Status, string(body))
 		}
 
@@ -1096,22 +1202,42 @@ func (c *Client) getStream(ctx context.Context, path string, offset int64) (io.R
 			size = resp.ContentLength
 		}
 
-		c.recordSuccess()
-		return &streamBody{ReadCloser: resp.Body, release: c.release}, size, nil
+		releaseHeld := func() {
+			c.releaseTransport()
+			if workloadHeld {
+				c.releaseWorkload()
+				workloadHeld = false
+			}
+		}
+		return &streamBody{
+			ReadCloser: resp.Body,
+			release:    releaseHeld,
+			onClose:    c.recordSuccess,
+		}, size, nil
 	}
-	c.releaseWorkload()
+	if workloadHeld {
+		c.releaseWorkload()
+	}
 	return nil, 0, lastErr
 }
 
 type streamBody struct {
 	io.ReadCloser
 	release func()
+	onClose func()
 	once    sync.Once
 }
 
 func (s *streamBody) Close() error {
 	err := s.ReadCloser.Close()
-	s.once.Do(s.release)
+	s.once.Do(func() {
+		if s.onClose != nil {
+			s.onClose()
+		}
+		if s.release != nil {
+			s.release()
+		}
+	})
 	return err
 }
 
@@ -1227,39 +1353,129 @@ func (c *Client) putViaUploadSession(ctx context.Context, path string, size int6
 			contentRange = fmt.Sprintf("bytes %d-%d/*", offset, end)
 		}
 
-		req, err := http.NewRequestWithContext(ctx, http.MethodPut, uploadURL, bytes.NewReader(chunk))
-		if err != nil {
+		if err := c.acquireWorkload(ctx); err != nil {
 			return nil, err
 		}
-		req.Header.Set("Content-Length", strconv.FormatInt(int64(n), 10))
-		req.Header.Set("Content-Range", contentRange)
-
-		if err := c.acquire(ctx); err != nil {
-			return nil, err
-		}
-		resp, err := c.httpClient.Do(req)
-		c.release()
-		if err != nil {
-			return nil, err
-		}
-		respBody, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
-
-		if resp.StatusCode == http.StatusAccepted || resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusCreated {
-			if resp.StatusCode != http.StatusAccepted {
-				var out map[string]any
-				if len(respBody) > 0 {
-					_ = json.Unmarshal(respBody, &out)
+		workloadHeld := true
+		throttle429Attempt := 0
+		chunkDone := false
+		for !chunkDone {
+			if ctx.Err() != nil {
+				if workloadHeld {
+					c.releaseWorkload()
 				}
-				return out, nil
+				return nil, ctx.Err()
 			}
-			offset += int64(n)
-			if readErr == io.EOF || readErr == io.ErrUnexpectedEOF {
-				break
+			if err := c.acquireTransport(ctx); err != nil {
+				if workloadHeld {
+					c.releaseWorkload()
+				}
+				return nil, err
 			}
-			continue
+
+			req, err := http.NewRequestWithContext(ctx, http.MethodPut, uploadURL, bytes.NewReader(chunk))
+			if err != nil {
+				c.releaseTransport()
+				if workloadHeld {
+					c.releaseWorkload()
+				}
+				return nil, err
+			}
+			req.Header.Set("Content-Length", strconv.FormatInt(int64(n), 10))
+			req.Header.Set("Content-Range", contentRange)
+
+			resp, err := c.httpClient.Do(req)
+			if err != nil {
+				c.releaseTransport()
+				if sleepErr := c.sleepRetry(ctx, parseRetryAfter("", throttle429Attempt, c.retryDelay)); sleepErr != nil {
+					if workloadHeld {
+						c.releaseWorkload()
+					}
+					return nil, sleepErr
+				}
+				continue
+			}
+			respBody, _ := io.ReadAll(resp.Body)
+			statusCode := resp.StatusCode
+			retryAfter := resp.Header.Get("Retry-After")
+			resp.Body.Close()
+
+			for isThrottleStatus(statusCode) {
+				var delay time.Duration
+				if statusCode == http.StatusTooManyRequests {
+					delay = parseRetryAfter429(retryAfter, throttle429Attempt, c.retryDelay)
+					c.record429(delay)
+				} else {
+					delay = parseRetryAfter(retryAfter, throttle429Attempt, c.retryDelay)
+				}
+				throttle429Attempt++
+				c.releaseTransport()
+				if sleepErr := c.sleep429WithWorkload(ctx, delay, &workloadHeld); sleepErr != nil {
+					return nil, sleepErr
+				}
+				if err := c.acquireTransport(ctx); err != nil {
+					if workloadHeld {
+						c.releaseWorkload()
+					}
+					return nil, err
+				}
+				req, err = http.NewRequestWithContext(ctx, http.MethodPut, uploadURL, bytes.NewReader(chunk))
+				if err != nil {
+					c.releaseTransport()
+					if workloadHeld {
+						c.releaseWorkload()
+					}
+					return nil, err
+				}
+				req.Header.Set("Content-Length", strconv.FormatInt(int64(n), 10))
+				req.Header.Set("Content-Range", contentRange)
+				resp, err = c.httpClient.Do(req)
+				if err != nil {
+					c.releaseTransport()
+					if sleepErr := c.sleepRetry(ctx, parseRetryAfter("", throttle429Attempt, c.retryDelay)); sleepErr != nil {
+						if workloadHeld {
+							c.releaseWorkload()
+						}
+						return nil, sleepErr
+					}
+					break
+				}
+				respBody, _ = io.ReadAll(resp.Body)
+				statusCode = resp.StatusCode
+				retryAfter = resp.Header.Get("Retry-After")
+				resp.Body.Close()
+			}
+			if err != nil {
+				continue
+			}
+
+			c.releaseTransport()
+			if statusCode == http.StatusAccepted || statusCode == http.StatusOK || statusCode == http.StatusCreated {
+				if statusCode != http.StatusAccepted {
+					if workloadHeld {
+						c.releaseWorkload()
+					}
+					var out map[string]any
+					if len(respBody) > 0 {
+						_ = json.Unmarshal(respBody, &out)
+					}
+					return out, nil
+				}
+				chunkDone = true
+			} else {
+				if workloadHeld {
+					c.releaseWorkload()
+				}
+				return nil, fmt.Errorf("upload chunk http %d: %s", statusCode, string(respBody))
+			}
 		}
-		return nil, fmt.Errorf("upload chunk http %d: %s", resp.StatusCode, string(respBody))
+		if workloadHeld {
+			c.releaseWorkload()
+		}
+		offset += int64(n)
+		if readErr == io.EOF || readErr == io.ErrUnexpectedEOF {
+			break
+		}
 	}
 	return map[string]any{}, nil
 }

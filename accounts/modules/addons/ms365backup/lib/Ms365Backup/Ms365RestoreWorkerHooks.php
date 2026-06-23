@@ -25,9 +25,7 @@ final class Ms365RestoreWorkerHooks
     public static function onProgress(string $runId, array $body): int
     {
         if (RestoreRunRepository::isRestoreRun($runId)) {
-            self::restoreProgress($runId, $body);
-
-            return 0;
+            return self::restoreProgress($runId, $body);
         }
 
         return self::backupProgress($runId, $body);
@@ -73,13 +71,35 @@ final class Ms365RestoreWorkerHooks
         $delta429 = max(0, $incoming429 - $existingChild429);
 
         $noProgress = !empty($body['no_progress']);
+        $throttleWaiting = !empty($body['throttle_waiting']);
+        $tenantRecordId = (int) ($existing['tenant_record_id'] ?? 0);
+        $azureTenantId = self::azureTenantIdForTenantRecord($tenantRecordId);
         if ($noProgress) {
-            $tenantRecordId = (int) ($existing['tenant_record_id'] ?? 0);
-            $azureTenantId = '';
-            if ($tenantRecordId > 0) {
-                $record = TenantRecordRepository::getById($tenantRecordId);
-                if ($record !== null) {
-                    $azureTenantId = (string) ($record['tenant_id'] ?? '');
+            if ($throttleWaiting || $delta429 > 0) {
+                $fields = ['updated_at' => time()];
+                if (\WHMCS\Database\Capsule::schema()->hasColumn('ms365_backup_runs', 'last_429_at')
+                    && ($throttleWaiting || $delta429 > 0)) {
+                    $fields['last_429_at'] = time();
+                }
+                if ($incoming429 > 0 || $incomingAdaptive > 0) {
+                    $statsPatch = [];
+                    if ($incoming429 > 0) {
+                        $statsPatch['graph_429_hits'] = max(
+                            $incoming429,
+                            (int) self::decodeChildStatsJson($existing)['graph_429_hits'] ?? 0
+                        );
+                    }
+                    if ($incomingAdaptive > 0) {
+                        $statsPatch['graph_adaptive_limit'] = $incomingAdaptive;
+                    }
+                    $encoded = self::encodeMergedChildStatsJson($existing, $statsPatch);
+                    if ($encoded !== null) {
+                        $fields['stats_json'] = $encoded;
+                    }
+                }
+                BackupRunRepository::update($runId, $fields);
+                if ($azureTenantId !== '') {
+                    GraphTenantBudgetService::recordTenant429($tenantRecordId, $azureTenantId, $delta429);
                 }
             }
 
@@ -175,7 +195,7 @@ final class Ms365RestoreWorkerHooks
             }
         }
 
-        if ($delta429 > 0 && \WHMCS\Database\Capsule::schema()->hasColumn('ms365_backup_runs', 'last_429_at')) {
+        if (($delta429 > 0 || $throttleWaiting) && \WHMCS\Database\Capsule::schema()->hasColumn('ms365_backup_runs', 'last_429_at')) {
             $fields['last_429_at'] = time();
         }
 
@@ -207,14 +227,6 @@ final class Ms365RestoreWorkerHooks
             WorkerLeaseService::renewForRun($runId);
         }
 
-        $tenantRecordId = (int) ($existing['tenant_record_id'] ?? 0);
-        $azureTenantId = '';
-        if ($tenantRecordId > 0) {
-            $record = TenantRecordRepository::getById($tenantRecordId);
-            if ($record !== null) {
-                $azureTenantId = (string) ($record['tenant_id'] ?? '');
-            }
-        }
         if ($azureTenantId !== '') {
             GraphTenantBudgetService::recordTenant429($tenantRecordId, $azureTenantId, $delta429);
         }
@@ -272,7 +284,7 @@ final class Ms365RestoreWorkerHooks
     }
 
     /** @param array<string, mixed> $body */
-    private static function restoreProgress(string $runId, array $body): void
+    private static function restoreProgress(string $runId, array $body): int
     {
         $rawPhase = (string) ($body['phase'] ?? '');
         if ($rawPhase === 'graph_sync') {
@@ -281,8 +293,16 @@ final class Ms365RestoreWorkerHooks
                 'Restore worker ran backup instead of restore (upgrade worker to 0.1.6+).'
             );
 
-            return;
+            return 0;
         }
+        $existing = RestoreRunRepository::get($runId) ?? [];
+        $incoming429 = (int) ($body['graph_429_hits'] ?? 0);
+        $existing429 = (int) ($existing['graph_429_hits'] ?? 0);
+        $delta429 = max(0, $incoming429 - $existing429);
+        $throttleWaiting = !empty($body['throttle_waiting']);
+        $tenantRecordId = (int) ($existing['tenant_record_id'] ?? 0);
+        $azureTenantId = self::azureTenantIdForTenantRecord($tenantRecordId);
+
         $fields = [
             'status' => 'running',
             'phase' => CustomerFacingTextSanitizer::scrub($rawPhase),
@@ -292,9 +312,20 @@ final class Ms365RestoreWorkerHooks
         if (\WHMCS\Database\Capsule::schema()->hasColumn('ms365_restore_runs', 'items_skipped')) {
             $fields['items_skipped'] = (int) ($body['items_skipped'] ?? 0);
         }
+        if ($incoming429 > 0 && \WHMCS\Database\Capsule::schema()->hasColumn('ms365_restore_runs', 'graph_429_hits')) {
+            $fields['graph_429_hits'] = max($incoming429, $existing429);
+        }
+        if (($delta429 > 0 || $throttleWaiting)
+            && \WHMCS\Database\Capsule::schema()->hasColumn('ms365_restore_runs', 'last_429_at')) {
+            $fields['last_429_at'] = time();
+        }
         RestoreRunRepository::update($runId, $fields);
 
         WorkerLeaseService::renewForRun($runId);
+
+        if ($azureTenantId !== '') {
+            GraphTenantBudgetService::recordTenant429($tenantRecordId, $azureTenantId, $delta429);
+        }
 
         $run = RestoreRunRepository::get($runId);
         $batchRunId = (string) ($run['e3_batch_run_id'] ?? '');
@@ -312,13 +343,33 @@ final class Ms365RestoreWorkerHooks
             'items_skipped' => (int) ($body['items_skipped'] ?? 0),
         ];
         if ($logMessage === '') {
-            return;
+            return $azureTenantId !== ''
+                ? GraphTenantBudgetService::workerShare($tenantRecordId, $azureTenantId)
+                : 0;
         }
         if (self::isRestoreFailureProgressMessage($logMessage)) {
             $logger->error($logMessage, $context);
         } else {
             $logger->info($logMessage, $context);
         }
+
+        return $azureTenantId !== ''
+            ? GraphTenantBudgetService::workerShare($tenantRecordId, $azureTenantId)
+            : 0;
+    }
+
+    private static function azureTenantIdForTenantRecord(int $tenantRecordId): string
+    {
+        if ($tenantRecordId <= 0) {
+            return '';
+        }
+        $record = TenantRecordRepository::getById($tenantRecordId);
+        if ($record === null) {
+            return '';
+        }
+        $creds = TenantRecordRepository::resolvedCredentialsForRecord($record);
+
+        return trim((string) ($creds['tenant_id'] ?? ''));
     }
 
     private static function isRestoreFailureProgressMessage(string $message): bool

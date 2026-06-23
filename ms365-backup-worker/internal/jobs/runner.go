@@ -92,9 +92,19 @@ func (r *Runner) Run(ctx context.Context, job *api.RunJob, onAbort context.Cance
 	var graphLastPercent float64 = 1
 	var gc *graph.Client
 
+	onTenantBudget := func(budget int) {
+		if job.AzureTenantID == "" || budget <= 0 {
+			return
+		}
+		graph.SetTenantBudget(job.AzureTenantID, budget)
+		if gc != nil {
+			gc.ClampAdaptiveCeiling(budget)
+		}
+	}
+
 	progressStop := r.client.StartProgressHeartbeat(ctx, job.RunID, r.cfg.ProgressHeartbeat(), stallAwareProgressFn(r.cfg.Worker.ProgressStallSeconds, func() api.ProgressUpdate {
 		return r.graphProgressUpdate(job.RunID, graphLastPercent, graphItemsDone, graphItemsTotal, graphBytesTotal, gc)
-	}), onAbort)
+	}), onAbort, onTenantBudget)
 	defer progressStop()
 
 	sendProgressForTenant(ctx, r.client, onAbort, api.ProgressUpdate{
@@ -312,7 +322,7 @@ func (r *Runner) Run(ctx context.Context, job *api.RunJob, onAbort context.Cance
 			BytesHashed: graphBytesTotal,
 			Message:     "Upload in progress",
 		}
-	}), onAbort)
+	}), onAbort, onTenantBudget)
 	defer uploadStop()
 
 	snapshotStart := time.Now()
@@ -492,6 +502,7 @@ func (r *Runner) graphProgressUpdate(runID string, pct float64, itemsDone, items
 		upd.Graph429Hits = gc.ThrottleHits()
 		upd.GraphAdaptiveLimit = gc.AdaptiveConcurrency()
 		if gc.ThrottleWaiting() {
+			upd.ThrottleWaiting = true
 			upd.Message = "Throttled by Microsoft — waiting"
 		}
 	}

@@ -40,12 +40,12 @@ final class GraphTenantBudgetService
         self::applyTimeDecay($azureTenantId, time());
         $row = Capsule::table('ms365_graph_tenant_budget')
             ->where('azure_tenant_id', $azureTenantId)
-            ->first(['graph_budget']);
+            ->first(['graph_budget', 'recent_429_count']);
         if ($row === null) {
             return $max;
         }
         $budget = (int) ($row->graph_budget ?? $max);
-        $floor = self::minBudget($max);
+        $floor = self::minBudget($max, (int) ($row->recent_429_count ?? 0));
 
         return max($floor, min($max, $budget));
     }
@@ -65,9 +65,17 @@ final class GraphTenantBudgetService
         self::touchActiveWorkloads($tenantRecordId, $azureTenantId);
     }
 
-    private static function minBudget(int $max): int
+    private static function minBudget(int $max, int $recent429Count = 0): int
     {
-        return max(2, (int) floor($max / 4));
+        $baseFloor = max(2, (int) floor($max / 4));
+        if ($recent429Count >= 20) {
+            return 1;
+        }
+        if ($recent429Count >= 10) {
+            return min(2, $baseFloor);
+        }
+
+        return $baseFloor;
     }
 
     private static function growStep(int $max, int $budget): int
@@ -122,7 +130,8 @@ final class GraphTenantBudgetService
         }
 
         $max = Ms365EngineConfig::perTenantMaxConcurrent();
-        $floor = self::minBudget($max);
+        $recent429 = (int) ($row->recent_429_count ?? 0);
+        $floor = self::minBudget($max, $recent429);
         $budget = (int) ($row->graph_budget ?? $max);
         $recent429 = (int) ($row->recent_429_count ?? 0);
         $recent429 = max(0, $recent429 - $windows);
@@ -145,9 +154,9 @@ final class GraphTenantBudgetService
     {
         $now = time();
         $max = Ms365EngineConfig::perTenantMaxConcurrent();
-        $floor = self::minBudget($max);
         $row = Capsule::table('ms365_graph_tenant_budget')->where('azure_tenant_id', $azureTenantId)->first();
         if ($row === null) {
+            $floor = self::minBudget($max, $delta429);
             $insert = [
                 'azure_tenant_id' => $azureTenantId,
                 'graph_budget' => max($floor, $max - max(4, min(8, $delta429) * 2)),
@@ -161,6 +170,8 @@ final class GraphTenantBudgetService
 
             return;
         }
+        $recent429 = (int) ($row->recent_429_count ?? 0) + $delta429;
+        $floor = self::minBudget($max, $recent429);
         $budget = (int) ($row->graph_budget ?? $max);
         $shrinkBy = self::shrinkStep($budget, $delta429, $floor);
         $budget = max($floor, $budget - $shrinkBy);
@@ -199,6 +210,26 @@ final class GraphTenantBudgetService
                 ->where('azure_tenant_id', $azureTenantId)
                 ->update(['updated_at' => $now]);
         }
+    }
+
+    /**
+     * True when the tenant had Graph 429 activity within $window seconds (fleet-wide signal).
+     */
+    public static function recentlyThrottled(string $azureTenantId, int $now, int $window): bool
+    {
+        $azureTenantId = trim($azureTenantId);
+        if ($azureTenantId === '' || $window <= 0 || !self::hasLast429AtColumn()) {
+            return false;
+        }
+        $row = Capsule::table('ms365_graph_tenant_budget')
+            ->where('azure_tenant_id', $azureTenantId)
+            ->first(['last_429_at']);
+        if ($row === null) {
+            return false;
+        }
+        $last429At = (int) ($row->last_429_at ?? 0);
+
+        return $last429At > 0 && ($now - $last429At) <= $window;
     }
 
     public static function activeWorkerNodesForTenant(int $tenantRecordId): int

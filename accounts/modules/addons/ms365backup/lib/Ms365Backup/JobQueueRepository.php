@@ -209,6 +209,17 @@ final class JobQueueRepository
         //  (b) the run has blown past the absolute backstop ceiling (wedged-but-alive).
         // This intentionally does NOT reap slow-but-alive long runs, which keep their
         // lease fresh and keep updating progress.
+        $select = [
+            'q.run_id',
+            'q.attempts',
+            'q.max_attempts',
+            'q.lease_expires_at',
+            'q.worker_node_id',
+            'r.tenant_record_id',
+        ];
+        if (Capsule::schema()->hasColumn('ms365_backup_runs', 'last_429_at')) {
+            $select[] = 'r.last_429_at';
+        }
         $rows = Capsule::table('ms365_job_queue as q')
             ->leftJoin('ms365_backup_runs as r', 'r.id', '=', 'q.run_id')
             ->where('q.status', 'running')
@@ -223,13 +234,17 @@ final class JobQueueRepository
                     });
                 })->orWhere('q.started_at', '<', $backstopCutoff);
             })
-            ->get(['q.run_id', 'q.attempts', 'q.max_attempts']);
+            ->select($select)
+            ->get();
         if ($rows->isEmpty()) {
             return 0;
         }
         $requeue = [];
         $exhausted = [];
         foreach ($rows as $row) {
+            if (Ms365BatchRunRepository::shouldSkipThrottleReaper($row, $now)) {
+                continue;
+            }
             $runId = (string) $row->run_id;
             $max = (int) $row->max_attempts > 0 ? (int) $row->max_attempts : 3;
             if ((int) $row->attempts >= $max) {
