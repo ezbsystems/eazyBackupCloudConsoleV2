@@ -27,6 +27,34 @@
     return d.innerHTML;
   }
 
+  function formatMib(mib) {
+    if (mib == null || mib === '') return '—';
+    var n = Number(mib);
+    if (!isFinite(n)) return '—';
+    if (n >= 1024) return (n / 1024).toFixed(1) + ' GiB';
+    return n + ' MiB';
+  }
+
+  function formatPct(pct) {
+    if (pct == null || pct === '') return '—';
+    var n = Number(pct);
+    return isFinite(n) ? n.toFixed(1) + '%' : '—';
+  }
+
+  function telemetryCell(n) {
+    if (!n.telemetry_at) return '<span class="text-muted">—</span>';
+    var cpu = formatPct(n.cpu_pct);
+    var mem = '—';
+    if (n.mem_used_mib != null && n.mem_total_mib != null) {
+      mem = esc(n.mem_used_mib) + '/' + esc(n.mem_total_mib) + ' MiB';
+    }
+    var disk = '—';
+    if (n.disk_free_mib != null && n.disk_total_mib != null) {
+      disk = esc(n.disk_free_mib) + '/' + esc(n.disk_total_mib) + ' MiB free';
+    }
+    return '<small>CPU ' + cpu + '<br>RAM ' + mem + '<br>Disk ' + disk + '</small>';
+  }
+
   function renderDashboard() {
     var el = document.getElementById('fleet-dashboard');
     if (!el) return;
@@ -40,18 +68,31 @@
       }).join(', ') || '—';
       var staleJobs = (s.stale_running_jobs || 0) + ' / ' + (s.exhausted_jobs || 0);
       var staleClass = (s.stale_running_jobs || 0) > 0 || (s.exhausted_jobs || 0) > 0 ? ' well-warning' : '';
+      var queuedBreakdown = Object.keys(s.queued_by_keytype || {}).map(function (k) {
+        return esc(k) + ': ' + s.queued_by_keytype[k];
+      }).join(', ') || '—';
       el.innerHTML =
         '<div class="row">' +
         '<div class="col-md-3"><div class="well text-center"><h4>' + esc(s.active_nodes) + '</h4><small>Active nodes</small></div></div>' +
         '<div class="col-md-3"><div class="well text-center"><h4>' + esc(s.queued_jobs) + ' / ' + esc(s.running_jobs) + '</h4><small>Queued / running jobs</small></div></div>' +
         '<div class="col-md-3"><div class="well text-center' + staleClass + '"><h4>' + esc(staleJobs) + '</h4><small>Stale / exhausted jobs</small></div></div>' +
-        '<div class="col-md-3"><div class="well text-center"><h4>' + esc(s.load) + ' / ' + esc(s.capacity) + '</h4><small>Load / capacity</small></div></div>' +
+        '<div class="col-md-3"><div class="well text-center"><h4>' + esc(s.load) + ' / ' + esc(s.capacity) + ' (' + esc(s.utilization_pct) + '%)</h4><small>Load / capacity</small></div></div>' +
+        '</div>' +
+        '<div class="row">' +
+        '<div class="col-md-3"><div class="well text-center"><h4>' + esc(formatPct(s.avg_cpu_pct)) + '</h4><small>Avg CPU (fleet)</small></div></div>' +
+        '<div class="col-md-3"><div class="well text-center"><h4>' + esc(s.mem_used_mib != null ? s.mem_used_mib : '—') + ' / ' + esc(s.mem_total_mib != null ? s.mem_total_mib : '—') + '</h4><small>RAM MiB (sum active)</small></div></div>' +
+        '<div class="col-md-3"><div class="well text-center"><h4>' + esc(s.disk_free_mib != null ? s.disk_free_mib : '—') + '</h4><small>Disk free MiB (sum)</small></div></div>' +
+        '<div class="col-md-3"><div class="well text-center"><h4>' + esc(s.telemetry_fresh_nodes || 0) + '/' + esc(s.telemetry_fresh_nodes != null ? s.active_nodes : '—') + '</h4><small>Nodes reporting telemetry</small></div></div>' +
         '</div>' +
         '<div class="row">' +
         '<div class="col-md-12"><div class="well text-center"><h4>' + esc(s.engine_mode) + '</h4><small>Engine mode</small></div></div>' +
         '</div>' +
         '<p><strong>Latest release:</strong> ' + esc(latest) + ' &nbsp; <strong>Deploy target:</strong> ' + esc(target) + '</p>' +
-        '<p><strong>Node versions:</strong> ' + versions + '</p>';
+        '<p><strong>Node versions:</strong> ' + versions + '</p>' +
+        '<p><strong>Concurrency limits:</strong> platform ' + esc(s.platform_max_concurrent) +
+        ', per-tenant ' + esc(s.per_tenant_max_concurrent) + ', per-client ' + esc(s.per_client_max_concurrent) + '</p>' +
+        '<p><strong>Queued by workload type:</strong> ' + queuedBreakdown + '</p>' +
+        '<p><strong>Claim admit rejects (last heartbeat):</strong> ' + esc(s.claim_admit_rejects || 0) + '</p>';
       var buildVersionInput = document.querySelector('#fleet-build-form [name=version_label]');
       if (buildVersionInput && s.suggest_next_version) {
         buildVersionInput.placeholder = s.suggest_next_version;
@@ -81,34 +122,64 @@
   function renderNodes() {
     var el = document.getElementById('fleet-nodes');
     if (!el) return;
+    loadScaleNodes();
     get('fleet_nodes').then(function (res) {
       if (!res.ok) { el.innerHTML = '<div class="alert alert-danger">' + esc(res.error) + '</div>'; return; }
       var nodes = res.nodes || [];
       if (!nodes.length) { el.innerHTML = '<p class="text-muted">No worker nodes registered.</p>'; return; }
       el.innerHTML = '<table class="table table-striped table-condensed"><thead><tr>' +
-        '<th>Hostname</th><th>Status</th><th>Version</th><th>Deploy</th><th>Load</th><th>VMID</th><th>Last HB</th><th></th></tr></thead><tbody>' +
+        '<th>Hostname</th><th>Status</th><th>Version</th><th>Deploy</th><th>Config</th><th>Load</th><th>Telemetry</th><th>PVE node</th><th>VMID</th><th>Last HB</th><th></th></tr></thead><tbody>' +
         nodes.map(function (n) {
           var hb = n.last_heartbeat_at ? new Date(n.last_heartbeat_at * 1000).toLocaleString() : '—';
           var status = String(n.status || '').toLowerCase();
+          var statusLabel = status === 'stopped' ? '<span class="label label-default">stopped</span>' : esc(n.status);
+          var pveNode = n.proxmox_node ? esc(n.proxmox_node) : '—';
           var vmidCell = n.proxmox_vmid ? esc(n.proxmox_vmid) : '—';
+          var configLabel = esc(n.config_status || '—');
+          if (n.target_config_version && n.config_version !== n.target_config_version) {
+            configLabel += ' →v' + esc(n.target_config_version);
+          } else if (n.config_version) {
+            configLabel += ' (v' + esc(n.config_version) + ')';
+          }
+          if (n.config_error) {
+            configLabel += ' <span class="text-danger" title="' + esc(n.config_error) + '">!</span>';
+          }
           var actions;
           if (status === 'retired') {
             actions = '<button class="btn btn-xs btn-danger fleet-delete" data-id="' + esc(n.node_id) + '">Delete</button>';
+          } else if (status === 'stopped') {
+            actions = '<button class="btn btn-xs btn-success fleet-start" data-id="' + esc(n.node_id) + '">Start</button> ' +
+              '<button class="btn btn-xs btn-warning fleet-retire" data-id="' + esc(n.node_id) + '">Retire</button>';
+          } else if (status === 'draining') {
+            actions = '<button class="btn btn-xs btn-success fleet-activate" data-id="' + esc(n.node_id) + '">Activate</button> ' +
+              '<button class="btn btn-xs btn-default fleet-stop" data-id="' + esc(n.node_id) + '">Stop</button> ' +
+              '<button class="btn btn-xs btn-warning fleet-retire" data-id="' + esc(n.node_id) + '">Retire</button>';
           } else {
             actions = '<button class="btn btn-xs btn-default fleet-drain" data-id="' + esc(n.node_id) + '">Drain</button> ' +
+              '<button class="btn btn-xs btn-default fleet-stop" data-id="' + esc(n.node_id) + '">Stop</button> ' +
               '<button class="btn btn-xs btn-warning fleet-retire" data-id="' + esc(n.node_id) + '">Retire</button>';
             if (!n.proxmox_vmid) {
               actions += ' <button class="btn btn-xs btn-info fleet-set-vmid" data-id="' + esc(n.node_id) + '" data-hostname="' + esc(n.hostname) + '">Set VMID</button>';
             }
           }
-          return '<tr><td>' + nodeLabel(n) + '</td><td>' + esc(n.status) + '</td><td>' + esc(n.version || '—') + '</td>' +
-            '<td>' + esc(n.deploy_status || '—') + '</td><td>' + esc(n.current_load) + '/' + esc(n.max_concurrent_runs) + '</td>' +
+          return '<tr><td>' + nodeLabel(n) + '</td><td>' + statusLabel + '</td><td>' + esc(n.version || '—') + '</td>' +
+            '<td>' + esc(n.deploy_status || '—') + '</td><td>' + configLabel + '</td><td>' + esc(n.current_load) + '/' + esc(n.max_concurrent_runs) + '</td>' +
+            '<td>' + telemetryCell(n) + '</td>' +
+            '<td>' + pveNode + '</td>' +
             '<td>' + vmidCell + '</td><td>' + esc(hb) + '</td><td>' + actions + '</td></tr>';
         }).join('') + '</tbody></table>';
       el.querySelectorAll('.fleet-drain').forEach(function (btn) {
         btn.addEventListener('click', function () {
           post('fleet_node_drain', { node_id: btn.getAttribute('data-id') }).then(function (res) {
             if (!res.ok) { alert(res.error || 'Drain failed'); return; }
+            renderNodes();
+          });
+        });
+      });
+      el.querySelectorAll('.fleet-activate').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          post('fleet_node_activate', { node_id: btn.getAttribute('data-id') }).then(function (res) {
+            if (!res.ok) { alert(res.error || 'Activate failed'); return; }
             renderNodes();
           });
         });
@@ -153,6 +224,39 @@
           });
         });
       });
+      el.querySelectorAll('.fleet-stop').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          if (!confirm('Stop this worker container? It can be started again later.')) return;
+          post('fleet_node_stop', { node_id: btn.getAttribute('data-id') }).then(function (res) {
+            if (!res.ok) { alert(res.error || 'Stop failed'); return; }
+            renderNodes();
+          });
+        });
+      });
+      el.querySelectorAll('.fleet-start').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          post('fleet_node_start', { node_id: btn.getAttribute('data-id') }).then(function (res) {
+            if (!res.ok) { alert(res.error || 'Start failed'); return; }
+            renderNodes();
+          });
+        });
+      });
+    });
+  }
+
+  function loadScaleNodes() {
+    var sel = document.getElementById('fleet-scale-node');
+    if (!sel) return;
+    get('fleet_proxmox_nodes').then(function (res) {
+      if (!res.ok || !res.nodes || !res.nodes.length) {
+        sel.innerHTML = '<option value="">(configure Proxmox or proxmox_cluster_nodes)</option>';
+        return;
+      }
+      var current = sel.value;
+      sel.innerHTML = res.nodes.map(function (name) {
+        return '<option value="' + esc(name) + '">' + esc(name) + '</option>';
+      }).join('');
+      if (current) sel.value = current;
     });
   }
 
@@ -223,8 +327,13 @@
     });
   }
 
+  var fleetNodesCache = [];
+
   function renderSettings() {
     var el = document.getElementById('fleet-settings');
+    var editor = document.getElementById('fleet-config-editor');
+    var rollout = document.getElementById('fleet-config-rollout');
+    var notice = document.getElementById('fleet-config-notice');
     if (!el) return;
     get('fleet_settings_get').then(function (res) {
       if (!res.ok) return;
@@ -232,6 +341,146 @@
       el.innerHTML = '<dl class="dl-horizontal">' +
         Object.keys(s).map(function (k) { return '<dt>' + esc(k) + '</dt><dd><code>' + esc(s[k]) + '</code></dd>'; }).join('') +
         '</dl>';
+    });
+    get('fleet_config_get').then(function (res) {
+      if (!res.ok) {
+        if (notice) notice.innerHTML = '<div class="alert alert-danger">' + esc(res.error) + '</div>';
+        return;
+      }
+      if (editor) {
+        editor.value = res.yaml || '';
+        var ver = document.getElementById('fleet-config-version');
+        if (ver) ver.textContent = res.version ? ('v' + res.version) : 'template (unsaved)';
+      }
+      fleetNodesCache = (res.status && res.status.nodes) ? res.status.nodes : [];
+      renderConfigRollout(res);
+    });
+    get('fleet_nodes').then(function (res) {
+      if (res.ok && res.nodes) {
+        fleetNodesCache = res.nodes;
+        renderConfigNodeCheckboxes();
+      }
+    });
+  }
+
+  function renderConfigRollout(configRes) {
+    var statusEl = document.getElementById('fleet-config-status');
+    if (!statusEl || !configRes || !configRes.status) return;
+    var st = configRes.status;
+    var counts = st.status_counts || {};
+    statusEl.innerHTML = '<p><strong>Saved version:</strong> v' + esc(st.current_version || 0) +
+      ' &nbsp; <strong>Rollout:</strong> current ' + esc(counts.current || 0) +
+      ', pending ' + esc(counts.pending || 0) + ', applying ' + esc(counts.applying || 0) +
+      ', failed ' + esc(counts.failed || 0) + '</p>';
+    var versionInput = document.getElementById('fleet-config-rollout-version');
+    if (versionInput && st.current_version) versionInput.value = st.current_version;
+    renderConfigNodeCheckboxes();
+  }
+
+  function renderConfigNodeCheckboxes() {
+    var box = document.getElementById('fleet-config-nodes');
+    if (!box) return;
+    var nodes = fleetNodesCache || [];
+    if (!nodes.length) {
+      box.innerHTML = '<p class="text-muted">No nodes.</p>';
+      return;
+    }
+    box.innerHTML = nodes.filter(function (n) { return n.status !== 'retired'; }).map(function (n) {
+      var cfg = esc(n.config_status || '—');
+      if (n.config_version) cfg += ' v' + esc(n.config_version);
+      return '<label class="checkbox" style="display:block;margin:2px 0">' +
+        '<input type="checkbox" class="fleet-config-node" value="' + esc(n.node_id) + '"> ' +
+        esc(n.hostname) + ' <small class="text-muted">(' + esc(n.status) + ', load ' + esc(n.current_load) + '/' + esc(n.max_concurrent_runs) + ', ' + cfg + ')</small></label>';
+    }).join('');
+  }
+
+  function selectedConfigNodeIds() {
+    var ids = [];
+    document.querySelectorAll('.fleet-config-node:checked').forEach(function (cb) {
+      ids.push(cb.value);
+    });
+    return ids;
+  }
+
+  function bindConfigEditor() {
+    var validateBtn = document.getElementById('fleet-config-validate');
+    var saveBtn = document.getElementById('fleet-config-save');
+    var rolloutBtn = document.getElementById('fleet-config-rollout-btn');
+    var notice = document.getElementById('fleet-config-notice');
+    var editor = document.getElementById('fleet-config-editor');
+    if (validateBtn && editor) {
+      validateBtn.addEventListener('click', function () {
+        post('fleet_config_save', { yaml: editor.value, validate_only: '1' }).then(function (res) {
+          if (!notice) return;
+          if (!res.ok) {
+            notice.innerHTML = '<div class="alert alert-danger">' + esc((res.errors || [res.error]).join('; ')) + '</div>';
+            return;
+          }
+          notice.innerHTML = '<div class="alert alert-success">YAML is valid.</div>';
+          if (res.yaml) editor.value = res.yaml;
+        });
+      });
+    }
+    if (saveBtn && editor) {
+      saveBtn.addEventListener('click', function () {
+        post('fleet_config_save', { yaml: editor.value }).then(function (res) {
+          if (!notice) return;
+          if (!res.ok) {
+            notice.innerHTML = '<div class="alert alert-danger">' + esc((res.errors || [res.error]).join('; ')) + '</div>';
+            return;
+          }
+          notice.innerHTML = '<div class="alert alert-success">Saved config v' + esc(res.version) + '.</div>';
+          renderSettings();
+        });
+      });
+    }
+    if (rolloutBtn) {
+      rolloutBtn.addEventListener('click', function () {
+        var versionInput = document.getElementById('fleet-config-rollout-version');
+        var strategySel = document.getElementById('fleet-config-rollout-strategy');
+        var version = versionInput ? parseInt(versionInput.value, 10) : 0;
+        var strategy = strategySel ? strategySel.value : 'explicit';
+        var payload = { config_version: String(version), strategy: strategy };
+        if (strategy === 'explicit') {
+          var ids = selectedConfigNodeIds();
+          if (!ids.length) {
+            alert('Select at least one node');
+            return;
+          }
+          payload.node_ids = ids.join(',');
+        }
+        post('fleet_config_rollout', payload).then(function (res) {
+          if (!notice) return;
+          if (!res.ok) {
+            notice.innerHTML = '<div class="alert alert-danger">' + esc(res.error) + '</div>';
+            return;
+          }
+          notice.innerHTML = '<div class="alert alert-success">Rollout v' + esc(res.config_version) + ' to ' + esc(res.nodes_targeted) + ' node(s), ' + esc(res.nodes_pending) + ' pending.</div>';
+          renderSettings();
+          renderNodes();
+        });
+      });
+    }
+    document.querySelectorAll('.fleet-config-preset').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var preset = btn.getAttribute('data-preset');
+        var strategySel = document.getElementById('fleet-config-rollout-strategy');
+        if (strategySel) strategySel.value = preset;
+        document.querySelectorAll('.fleet-config-node').forEach(function (cb) {
+          var row = cb.closest('label');
+          var text = row ? row.textContent : '';
+          if (preset === 'all') {
+            cb.checked = true;
+          } else if (preset === 'idle') {
+            cb.checked = /load 0\//.test(text);
+          } else if (preset === 'canary') {
+            cb.checked = false;
+          }
+        });
+        if (preset === 'canary' && document.querySelector('.fleet-config-node')) {
+          document.querySelector('.fleet-config-node').checked = true;
+        }
+      });
     });
   }
 
@@ -241,6 +490,7 @@
     renderBuilds();
     renderDeployments();
     renderSettings();
+    bindConfigEditor();
 
     var buildForm = document.getElementById('fleet-build-form');
     if (buildForm) {
@@ -296,11 +546,60 @@
       post('fleet_release_leases').then(function () { renderNodes(); renderDashboard(); });
     });
 
+    var scaleForm = document.getElementById('fleet-scale-form');
+    if (scaleForm) {
+      scaleForm.addEventListener('submit', function (ev) {
+        ev.preventDefault();
+        var fd = new FormData(scaleForm);
+        var node = String(fd.get('proxmox_node') || '').trim();
+        var count = String(fd.get('count') || '1');
+        if (!node) {
+          alert('Select a Proxmox node');
+          return;
+        }
+        post('fleet_scale_up', { proxmox_node: node, count: count }).then(function (res) {
+          var n = document.getElementById('fleet-scale-notice');
+          if (!n) return;
+          if (!res.ok) {
+            n.innerHTML = '<div class="alert alert-danger">' + esc(res.error) + '</div>';
+            return;
+          }
+          var created = (res.result && res.result.created) ? res.result.created : [];
+          var failed = (res.result && res.result.failed) ? res.result.failed : [];
+          var errs = (res.result && res.result.errors) ? res.result.errors : [];
+          var msg = 'Cloned ' + created.length + ' worker(s) on ' + esc(node) + '.';
+          if (created.length) {
+            var details = created.map(function (c) {
+              var v = c.verification || {};
+              var line = 'VMID ' + esc(c.vmid) + ' → ' + esc(c.node_id || '?');
+              if (v.whmcs_status) line += ' (' + esc(v.whmcs_status);
+              if (v.version) line += ', v' + esc(v.version);
+              if (v.whmcs_status) line += ')';
+              if (v.warnings && v.warnings.length) line += ' — ' + esc(v.warnings.join('; '));
+              return line;
+            });
+            msg += '<ul class="list-unstyled" style="margin:8px 0 0"><li>' + details.join('</li><li>') + '</li></ul>';
+          }
+          if (failed.length || errs.length) {
+            var failMsgs = failed.length
+              ? failed.map(function (f) { return esc(f.message || 'failed'); })
+              : errs.map(esc);
+            msg += ' Failed: ' + failMsgs.join('; ');
+          }
+          var alertType = (failed.length || errs.length) && !created.length ? 'danger' : ((failed.length || errs.length) ? 'warning' : 'success');
+          n.innerHTML = '<div class="alert alert-' + alertType + '">' + msg + '</div>';
+          renderNodes();
+          renderDashboard();
+        });
+      });
+    }
+
     setInterval(function () {
       renderDashboard();
       if (document.getElementById('fleet-nodes')) renderNodes();
       if (document.getElementById('fleet-builds')) renderBuilds();
       if (document.getElementById('fleet-deployments')) renderDeployments();
+      if (document.getElementById('fleet-config-editor')) renderSettings();
     }, 15000);
   });
 })();

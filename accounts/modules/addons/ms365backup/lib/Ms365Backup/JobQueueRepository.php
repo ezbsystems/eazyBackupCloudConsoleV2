@@ -24,8 +24,16 @@ final class JobQueueRepository
         if (str_contains($message, 'graph 401 after token refresh')) {
             return true;
         }
+        if (str_contains($message, 'request_unsupportedquery')) {
+            return true;
+        }
+        if (str_contains($message, 'graph 400') && str_contains($message, 'invalid property')) {
+            return true;
+        }
         $patterns = [
             'graph 403',
+            'mailboxnotenabledforrestapi',
+            'mailbox is either inactive, soft-deleted, or is hosted on-premise',
             'unauthorized',
             'invalid_grant',
             'token expired',
@@ -327,11 +335,19 @@ final class JobQueueRepository
     /** Mark queue entry terminal so cancelled runs release concurrency slots. */
     public static function markCancelled(string $runId, string $message = 'Cancelled'): void
     {
-        if (!class_exists(Capsule::class)) {
+        self::markCancelledMany([$runId], $message);
+    }
+
+    /**
+     * @param list<string> $runIds
+     */
+    public static function markCancelledMany(array $runIds, string $message = 'Cancelled'): void
+    {
+        if (!class_exists(Capsule::class) || $runIds === []) {
             return;
         }
         $now = time();
-        Capsule::table('ms365_job_queue')->where('run_id', $runId)->update([
+        Capsule::table('ms365_job_queue')->whereIn('run_id', $runIds)->update([
             'status' => 'failed',
             'finished_at' => $now,
             'worker_node_id' => null,
@@ -339,39 +355,59 @@ final class JobQueueRepository
             'lease_expires_at' => null,
             'error_message' => mb_substr($message, 0, 500),
         ]);
-        Ms365WorkerLogRepository::releaseAssignment($runId, 'cancelled');
+        Ms365WorkerLogRepository::releaseAssignmentsMany($runIds, 'cancelled');
     }
 
-    public static function markFailed(string $runId, string $message): void
+    /**
+     * Mark a queue entry failed, requeuing it for another attempt unless the error
+     * is permanent.
+     *
+     * IMPORTANT: $message must be the RAW technical error from the worker (e.g.
+     * "tasks: graph 401 Unauthorized: {...}"). isNonRetryableError() matches on
+     * technical signatures; passing the customer-sanitized message (e.g. the
+     * generic "Something went wrong…") blinds the classifier and causes permanent
+     * failures to requeue until max_attempts. The customer-facing message belongs
+     * in the run table (ms365_backup_runs.error_message), not here — the queue
+     * table is internal/ops only and never surfaced to customers.
+     *
+     * @return bool true when the job was requeued for another attempt
+     */
+    public static function markFailed(string $runId, string $message): bool
     {
         if (!class_exists(Capsule::class)) {
-            return;
+            return false;
         }
         if (self::isNonRetryableError($message)) {
             self::markTerminalFailed($runId, $message);
 
-            return;
+            return false;
         }
         $job = Capsule::table('ms365_job_queue')->where('run_id', $runId)->first();
         if ($job === null) {
-            return;
+            return false;
         }
         $attempts = (int) $job->attempts;
         $max = (int) $job->max_attempts;
         if ($attempts < $max) {
+            $now = time();
             Capsule::table('ms365_job_queue')->where('run_id', $runId)->update([
                 'status' => 'queued',
-                'scheduled_at' => time() + 60,
-                'error_message' => $message,
+                'scheduled_at' => $now + 60,
+                'error_message' => mb_substr($message, 0, 500),
                 'worker_node_id' => null,
                 'claimed_at' => null,
                 'lease_expires_at' => null,
             ]);
             Ms365WorkerLogRepository::releaseAssignment($runId, 'fail_requeue');
+            if (!RestoreRunRepository::isRestoreRun($runId)) {
+                BackupRunRepository::resetForQueueRequeue($runId, $now);
+            }
 
-            return;
+            return true;
         }
         self::markTerminalFailed($runId, $message);
+
+        return false;
     }
 
     /** Mark a queue entry failed without scheduling another attempt. */
@@ -397,6 +433,36 @@ final class JobQueueRepository
         }
 
         return (int) Capsule::table('ms365_job_queue')->where('status', 'queued')->count();
+    }
+
+    /**
+     * @return array<string, int>
+     */
+    public static function countQueuedByPhysicalKeyPrefix(): array
+    {
+        if (!class_exists(Capsule::class)) {
+            return [];
+        }
+
+        $rows = Capsule::table('ms365_job_queue as q')
+            ->join('ms365_backup_runs as r', 'r.id', '=', 'q.run_id')
+            ->where('q.status', 'queued')
+            ->select(['r.physical_key'])
+            ->get();
+
+        $counts = [];
+        foreach ($rows as $row) {
+            $key = (string) ($row->physical_key ?? '');
+            $prefix = 'other';
+            if (str_contains($key, ':')) {
+                $prefix = explode(':', $key, 2)[0];
+            }
+            $counts[$prefix] = ($counts[$prefix] ?? 0) + 1;
+        }
+
+        ksort($counts);
+
+        return $counts;
     }
 
     public static function countRunningForClient(int $clientId): int

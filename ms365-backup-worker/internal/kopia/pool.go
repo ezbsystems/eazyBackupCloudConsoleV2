@@ -167,7 +167,12 @@ func (p *Pool) Snapshot(ctx context.Context, req SnapshotRequest) (*SnapshotResu
 		previousManifests = snaps
 	}
 
-	counter := NewProgressCounter(req.OnProgress)
+	counter := req.Counter
+	if counter == nil {
+		counter = NewProgressCounter(req.OnProgress)
+	} else if req.OnProgress != nil {
+		counter.callback = req.OnProgress
+	}
 	manifestID := ""
 
 	uploadErr := repo.WriteSession(ctx, rep, repo.WriteSessionOptions{

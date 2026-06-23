@@ -235,9 +235,14 @@
                                     <template x-for="section in inventorySections()" :key="section.key">
                                         <div x-show="sectionHasNodes(section.key)">
                                             <div class="text-xs font-semibold uppercase tracking-wide text-[var(--eb-text-muted)] mb-2 px-1" x-text="section.label"></div>
+                                            <p class="text-xs text-[var(--eb-text-muted)] mb-2 px-1"
+                                               x-show="section.key === 'sharepoint' && inaccessibleSiteCount() > 0"
+                                               x-text="inaccessibleSiteCount() + ' sites cannot be backed up — the app does not have access.'"></p>
                                             <div class="flex flex-col gap-0.5">
                                                 <template x-for="node in visibleSectionNodes(section.key)" :key="section.key + '-' + node.key">
-                                                    <div class="ms365-tree-node" :style="'padding-left:' + (node.depth * 12) + 'px'">
+                                                    <div class="ms365-tree-node"
+                                                         :class="{ 'ms365-tree-node--disabled': node.selectable === false }"
+                                                         :style="'padding-left:' + (node.depth * 12) + 'px'">
                                                         <span class="ms365-tree-toggle-slot">
                                                             <button type="button"
                                                                     class="ms365-tree-toggle"
@@ -247,14 +252,20 @@
                                                         </span>
                                                         <input type="checkbox"
                                                                class="eb-check-input shrink-0"
+                                                               :disabled="node.selectable === false"
+                                                               :title="node.disabledReason || ''"
                                                                :checked="nodeCheckState(section.key, node) === 'checked'"
                                                                x-init="$el.indeterminate = nodeCheckState(section.key, node) === 'indeterminate'"
                                                                @change="toggleTreeNode(section.key, node); $el.indeterminate = nodeCheckState(section.key, node) === 'indeterminate'; $el.checked = nodeCheckState(section.key, node) === 'checked'">
                                                         <button type="button"
                                                                 class="ms365-tree-label"
+                                                                :class="{ 'ms365-tree-label--disabled': node.selectable === false }"
                                                                 @click="node.hasChildren ? toggleExpandNode(section.key, node) : toggleTreeNode(section.key, node)">
                                                             <span class="ms365-tree-label-primary" x-text="node.label"></span>
                                                             <span class="ms365-tree-label-secondary" x-show="node.subtitle" x-text="node.subtitle"></span>
+                                                            <span class="ms365-tree-label-secondary ms365-tree-label-reason"
+                                                                  x-show="node.selectable === false && node.disabledReason"
+                                                                  x-text="node.disabledReason"></span>
                                                         </button>
                                                         <button type="button"
                                                                 class="ms365-tree-info-btn"

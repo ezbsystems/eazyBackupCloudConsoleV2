@@ -5872,6 +5872,155 @@
     color: var(--eb-text-primary);
   }
 
+  /* MS365 workloads table on live progress page */
+  .eb-live-workloads-summary {
+    margin-left: auto;
+    font-size: 12px;
+    color: var(--eb-text-muted);
+  }
+
+  .eb-live-workloads-scroll {
+    max-height: 360px;
+    overflow-x: auto;
+    overflow-y: auto;
+  }
+
+  .eb-table-shell.eb-live-workloads-scroll {
+    border: none;
+    border-radius: 0;
+  }
+
+  .eb-live-workloads-scroll .eb-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: var(--eb-bg-chrome);
+    box-shadow: 0 1px 0 var(--eb-border-default);
+  }
+
+  .eb-live-workloads .eb-table tbody tr:nth-child(odd) {
+    background: var(--eb-bg-card);
+  }
+
+  .eb-live-workloads .eb-table tbody tr:nth-child(even) {
+    background: var(--eb-bg-raised);
+  }
+
+  .eb-live-workloads .eb-table tbody tr:hover {
+    background: var(--eb-bg-hover);
+  }
+
+  .eb-live-workloads-type {
+    display: block;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--eb-text-muted);
+    line-height: 1.3;
+  }
+
+  .eb-live-workloads-name {
+    display: block;
+    margin-top: 2px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--eb-text-primary);
+    line-height: 1.35;
+    word-break: break-word;
+  }
+
+  .eb-live-workloads-error {
+    font-size: 12px;
+    line-height: 1.45;
+    color: var(--eb-danger-text);
+    word-break: break-word;
+  }
+
+  .eb-live-workloads-error.is-empty {
+    color: var(--eb-text-muted);
+  }
+
+  .eb-live-workloads-events {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .eb-live-workloads-event {
+    font-size: 11px;
+    line-height: 1.45;
+  }
+
+  .eb-live-workloads-event-ts {
+    display: inline;
+    margin-right: 6px;
+    font-family: var(--eb-font-mono);
+    font-size: 10px;
+    color: var(--eb-text-muted);
+    white-space: nowrap;
+  }
+
+  .eb-live-workloads-event-msg {
+    color: var(--eb-danger-text);
+    word-break: break-word;
+  }
+
+  .eb-live-workloads-event.is-warning .eb-live-workloads-event-msg {
+    color: var(--eb-warning-text);
+  }
+
+  .eb-live-workloads-progress {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 4px;
+    min-width: 88px;
+  }
+
+  .eb-live-workloads-progress-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--eb-text-primary);
+    white-space: nowrap;
+  }
+
+  .eb-live-workloads-notes {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 2px;
+    max-width: 100%;
+  }
+
+  .eb-live-workloads-note {
+    font-size: 11px;
+    font-weight: 400;
+    line-height: 1.35;
+    color: var(--eb-text-muted);
+    text-align: right;
+    word-break: break-word;
+  }
+
+  .eb-live-workloads-progress .eb-live-bar {
+    width: 100%;
+    height: 4px;
+    margin-bottom: 0;
+    border-radius: 2px;
+  }
+
+  .eb-live-workloads-row--active {
+    background: color-mix(in srgb, var(--eb-info-bg) 40%, var(--eb-bg-raised) 60%);
+  }
+
+  .eb-live-workloads .eb-table tbody tr.eb-live-workloads-row--active:nth-child(odd) {
+    background: color-mix(in srgb, var(--eb-info-bg) 40%, var(--eb-bg-card) 60%);
+  }
+
+  .eb-live-workloads .eb-table tbody tr.eb-live-workloads-row--active:hover {
+    background: color-mix(in srgb, var(--eb-info-bg) 50%, var(--eb-bg-hover) 50%);
+  }
+
   .eb-live-alert {
     padding: 1rem 1.1rem;
     border-radius: var(--eb-radius-lg);

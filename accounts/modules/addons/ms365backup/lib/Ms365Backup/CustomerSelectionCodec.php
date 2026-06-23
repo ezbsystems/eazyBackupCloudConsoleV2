@@ -40,6 +40,7 @@ final class CustomerSelectionCodec
      */
     public static function validate(array $selectedIds, ?array $scopeOverrides, array $inventory): void
     {
+        self::validateSiteSelectability($selectedIds, $scopeOverrides, $inventory);
         $result = self::planSelection($selectedIds, $scopeOverrides, $inventory);
         $summary = $result['plan']['summary'] ?? [];
         if (($summary['runnable'] ?? 0) === 0) {
@@ -98,9 +99,66 @@ final class CustomerSelectionCodec
             $scopeOverrides = self::fromLegacyJob($selectedIds, $inventory);
         }
 
+        return self::pruneInaccessibleSiteSelection($selectedIds, $scopeOverrides, $inventory);
+    }
+
+    /**
+     * Drop or narrow SharePoint selections the backup app cannot access.
+     *
+     * @param list<string> $selectedIds
+     * @param array<string, array<string, bool>> $scopeOverrides
+     * @param array<string, mixed> $inventory
+     * @return array{selected_resource_ids: list<string>, scope_overrides: array<string, array<string, bool>>}
+     */
+    public static function pruneInaccessibleSiteSelection(
+        array $selectedIds,
+        array $scopeOverrides,
+        array $inventory,
+    ): array {
+        $byId = self::resourcesById($inventory);
+        $prunedIds = [];
+        $prunedOverrides = $scopeOverrides;
+
+        foreach ($selectedIds as $id) {
+            $resource = $byId[$id] ?? null;
+            if ($resource === null) {
+                $prunedIds[] = $id;
+                continue;
+            }
+            if ((string) ($resource['resource_type'] ?? '') !== TenantResource::TYPE_SHAREPOINT_SITE) {
+                $prunedIds[] = $id;
+                continue;
+            }
+
+            $selectability = TenantResource::siteSelectability($resource);
+            $flags = $scopeOverrides[$id] ?? [];
+            $filesSelected = array_key_exists(BackupScope::FILES, $flags)
+                ? (bool) $flags[BackupScope::FILES]
+                : $flags === [];
+            $listsSelected = array_key_exists(BackupScope::LISTS, $flags)
+                ? (bool) $flags[BackupScope::LISTS]
+                : $flags === [];
+
+            $filesAccessible = (bool) ($selectability['capability_access']['files'] ?? true);
+            $listsAccessible = (bool) ($selectability['capability_access']['lists'] ?? true);
+            $filesRunnable = $filesSelected && $filesAccessible;
+            $listsRunnable = $listsSelected && $listsAccessible;
+
+            if (!$filesRunnable && !$listsRunnable) {
+                unset($prunedOverrides[$id]);
+                continue;
+            }
+
+            $prunedIds[] = $id;
+            $prunedOverrides[$id] = [
+                BackupScope::FILES => $filesRunnable,
+                BackupScope::LISTS => $listsRunnable,
+            ];
+        }
+
         return [
-            'selected_resource_ids' => $selectedIds,
-            'scope_overrides' => $scopeOverrides,
+            'selected_resource_ids' => $prunedIds,
+            'scope_overrides' => $prunedOverrides,
         ];
     }
 
@@ -164,5 +222,57 @@ final class CustomerSelectionCodec
         }
 
         return $byId;
+    }
+
+    /**
+     * @param list<string> $selectedIds
+     * @param array<string, array<string, bool>>|null $scopeOverrides
+     * @param array<string, mixed> $inventory
+     */
+    private static function validateSiteSelectability(
+        array $selectedIds,
+        ?array $scopeOverrides,
+        array $inventory,
+    ): void {
+        $byId = self::resourcesById($inventory);
+        $overrides = self::normalizeScopeOverrides($scopeOverrides ?? []);
+
+        foreach (self::normalizeIds($selectedIds) as $id) {
+            $resource = $byId[$id] ?? null;
+            if ($resource === null) {
+                continue;
+            }
+            if ((string) ($resource['resource_type'] ?? '') !== TenantResource::TYPE_SHAREPOINT_SITE) {
+                continue;
+            }
+
+            $selectability = TenantResource::siteSelectability($resource);
+            $name = (string) ($resource['display_name'] ?? $id);
+            $flags = $overrides[$id] ?? [];
+            $filesSelected = array_key_exists(BackupScope::FILES, $flags)
+                ? (bool) $flags[BackupScope::FILES]
+                : $flags === [];
+            $listsSelected = array_key_exists(BackupScope::LISTS, $flags)
+                ? (bool) $flags[BackupScope::LISTS]
+                : $flags === [];
+
+            if ($filesSelected && !($selectability['capability_access']['files'] ?? true)) {
+                throw new \RuntimeException(
+                    "Site '{$name}' is not accessible to the backup app (Files)",
+                );
+            }
+            if ($listsSelected && !($selectability['capability_access']['lists'] ?? true)) {
+                throw new \RuntimeException(
+                    "Site '{$name}' is not accessible to the backup app (Lists)",
+                );
+            }
+            if (!$selectability['selectable'] && ($filesSelected || $listsSelected)) {
+                $reason = trim((string) ($selectability['disabled_reason'] ?? ''));
+                $message = $reason !== ''
+                    ? "Site '{$name}' is not accessible to the backup app: {$reason}"
+                    : "Site '{$name}' is not accessible to the backup app";
+                throw new \RuntimeException($message);
+            }
+        }
     }
 }

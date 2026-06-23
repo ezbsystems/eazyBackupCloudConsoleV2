@@ -1,5 +1,7 @@
 <?php
 
+ob_start();
+
 require_once __DIR__ . '/../../../../init.php';
 
 if (!defined("WHMCS")) {
@@ -84,6 +86,9 @@ if (Ms365BatchLiveService::isMs365BatchRun($run)) {
     try {
         $batchRunId = (string) ($run['run_id'] ?? $runIdentifier);
         $progressRun = Ms365BatchLiveService::aggregateProgress($batchRunId, (int) $loggedInUserId, $run);
+        if (ob_get_level() > 0) {
+            ob_end_clean();
+        }
         $response = new JsonResponse([
             'status' => 'success',
             'run' => $progressRun,
@@ -94,6 +99,13 @@ if (Ms365BatchLiveService::isMs365BatchRun($run)) {
         $response->send();
         exit();
     } catch (\Throwable $e) {
+        if (ob_get_level() > 0) {
+            ob_end_clean();
+        }
+        logModuleCall('cloudstorage', 'ms365_progress_error', [
+            'run_uuid' => $runIdentifier,
+            'client_id' => $loggedInUserId,
+        ], $e->getMessage());
         $response = new JsonResponse([
             'status' => 'fail',
             'message' => 'Unable to load backup progress.',

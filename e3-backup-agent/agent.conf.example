@@ -13,6 +13,9 @@
 # --- Common settings (always present) ---
 api_base_url: "https://accounts.eazybackup.ca/modules/addons/cloudstorage/api"
 poll_interval_secs: 5
+# Idle command/repo poll (defaults to 15s; use agent_poll.php when use_combined_poll is true)
+command_poll_interval_secs: 15
+use_combined_poll: true
 run_dir: "C:\\ProgramData\\E3Backup\\runs"
 log_level: "info"
 

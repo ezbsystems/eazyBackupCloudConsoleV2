@@ -1237,6 +1237,31 @@ Global keyframes: **`@keyframes eb-bar-pulse`** (live bar), **`@keyframes eb-liv
 | `eb-log-page-btn` | `button` | Pagination control; **`:disabled`** for first/last page. |
 | `eb-log-page-current` | `span` | **Page X / Y** indicator. |
 
+#### MS365 workloads table (`eb-live-workloads`)
+
+Used on the e3 live progress page for Microsoft 365 batch runs only (`engine=ms365`). Composes **`eb-live-log`** (card shell + toolbar) with **`eb-table`** inside a scroll region. Placed between the beta notice and the Live Logs panel on `e3backup_live.tpl`.
+
+| Class | Element | Purpose |
+|-------|---------|---------|
+| `eb-live-workloads` | `div` | Modifier on `eb-live-log`; no layout change to the shell. |
+| `eb-live-workloads-summary` | `span` | Right-aligned muted caption (e.g. `3/12 complete · 2 active`). |
+| `eb-live-workloads-scroll` | `div` | Wraps `eb-table-shell`; **max-height 360px** with vertical scroll; **no padding or border** (avoids double border with outer `eb-live-log`). |
+| `eb-live-workloads-scroll .eb-table thead th` | `th` | **Sticky** header while scrolling. |
+| `eb-live-workloads-type` | `span` | Uppercase muted resource type line (User, SharePoint Site, OneDrive, Team). |
+| `eb-live-workloads-name` | `span` | Primary display name on the second line. |
+| `eb-live-workloads-error` | `td` | Danger-tone error text with `word-break`. Add **`.is-empty`** for the `—` placeholder. |
+| `eb-live-workloads-events` | `div` | Vertical stack of timestamped workload events (retries/history). |
+| `eb-live-workloads-event` | `div` | One event row. Add **`.is-warning`** for non-fatal events. |
+| `eb-live-workloads-event-ts` | `span` | Monospace timestamp prefix. |
+| `eb-live-workloads-event-msg` | `span` | Event message body. |
+| `eb-live-workloads-progress` | `div` | Right-aligned stack: label + optional mini `eb-live-bar`. |
+| `eb-live-workloads-progress-label` | `span` | Progress text (`Complete` on success, `86/100 items` while running, or `87.5%`). |
+| `eb-live-workloads-notes` | `div` | Vertical stack of muted skip/info notes under the progress label (not errors). |
+| `eb-live-workloads-note` | `span` | One friendly skip note (e.g. `Tasks not available for this mailbox`). |
+| `eb-live-workloads-row--active` | `tr` | Subtle info tint for running/starting/queued workloads. |
+
+Mini progress bars reuse **`eb-live-bar`** / **`eb-live-bar-fill`** state modifiers (`.running`, `.failed`, `eb-live-bar-fill--warning`, etc.) at **4px** height inside the progress column.
+
 #### Log line layout (inside `eb-live-log-output`)
 
 | Class | Element | Purpose |
@@ -1578,6 +1603,7 @@ Use this checklist for every template you convert. Do not skip steps.
 - [ ] Progress UI uses **`eb-live-progress`** → **`eb-live-bar`** / **`eb-live-bar-fill`** with the correct state class (`.running`, `.failed`, or modifiers in §13).
 - [ ] Always-visible metadata uses **`eb-live-details`** / **`eb-live-detail`** (no tab toggle for the same fields).
 - [ ] Logs use **`eb-live-log`** primitives (`eb-log-line`, `eb-log-level`, **`eb-log-btn`**, **`eb-live-log-search`**, footer pagination row).
+- [ ] MS365 batch runs use **`eb-live-workloads`** table primitives between the beta notice and Live Logs (`eb-live-workloads-type`, `eb-live-workloads-progress`, etc.).
 - [ ] Do not duplicate these patterns in a template-local `<style>` block; extend **`tailwind.src.css`** if a new variant is required.
 
 ### Final Verification

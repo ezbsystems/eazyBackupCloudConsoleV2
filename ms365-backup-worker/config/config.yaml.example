@@ -9,6 +9,9 @@ worker:
   graph_sharepoint_drive_parallel: 4
   heartbeat_interval_seconds: 30
   progress_heartbeat_seconds: 60
+  # Emit no_progress heartbeats when items/bytes are flat longer than this (stops lease renewal).
+  progress_stall_seconds: 600
+  progress_min_interval_seconds: 5
   # Safety ceiling on a single run's working context. Decoupled from the server lease:
   # the control plane keeps a live run's lease fresh via heartbeat/progress, so the
   # worker must NOT self-cancel at the initial lease window (that killed whale-scale
@@ -16,7 +19,7 @@ worker:
   max_run_seconds: 43200
   install_path: /var/lib/ms365-backup-worker/bin/ms365-backup-worker
   run_dir: /var/lib/ms365-backup-worker/runs
-  proxmox_vmid: 0  # PROXMOX_VMID env on autoscale clones; or set per manual node
+  proxmox_vmid: 0  # optional: PROXMOX_VMID env for manual clones; autoscale adopts WHMCS row by hostname
   # Admission budgets — set to match host/CT size (defaults target 8G RAM / 32G disk / 4 CPU)
   ram_budget_mib: 6144
   disk_budget_mib: 24576
@@ -27,8 +30,8 @@ worker:
   heavy_job_ram_budget_mib: 1536
   heavy_job_disk_budget_mib: 4096
 
-api:
-  base_url: ""  # MS365_WORKER_API_BASE env (systemd drop-in)
+# api.base_url and worker.token: use MS365_WORKER_API_BASE / MS365_WORKER_TOKEN in
+# /etc/systemd/system/ms365-backup-worker.service.d/environment.conf (not fleet YAML).
 
 kopia:
   repo_config_dir: /var/lib/ms365-backup-worker/kopia
@@ -37,9 +40,15 @@ kopia:
   max_pack_size_mib: 32
   content_cache_size_mib: 256
   checkpoint_interval_minutes: 15
+  stall_seconds: 2700
+  stall_check_interval_seconds: 60
+  stall_grace_seconds: 300
 
 graph:
   max_retries: 5
   retry_base_delay_ms: 2000
   adaptive_concurrency: true
   use_batch_fallback: true
+  # Cancel graph_sync when items/bytes are flat this long despite ongoing 429 throttling.
+  # 0 = disabled (default). Only set when you want to cancel runs stuck in perpetual 429 with no item progress.
+  throttle_stall_ceiling_seconds: 0

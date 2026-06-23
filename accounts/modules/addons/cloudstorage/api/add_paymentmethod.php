@@ -5,6 +5,9 @@ require_once __DIR__ . '/../../../../init.php';
 use WHMCS\ClientArea;
 use WHMCS\Database\Capsule;
 use WHMCS\Authentication\Auth;
+use WHMCS\Payment\PayMethod\Adapter\RemoteCreditCard;
+use WHMCS\Payment\PayMethod\Model as PayMethodModel;
+use WHMCS\User\Client as ClientModel;
 
 header('Content-Type: application/json');
 
@@ -52,6 +55,121 @@ function cloudstorage_resolve_client_id(ClientArea $ca): int
     return $clientId;
 }
 
+function cloudstorage_normalize_card_brand(string $brand): string
+{
+    $brand = trim($brand);
+    if ($brand === '') {
+        return 'Visa';
+    }
+
+    $normalized = strtolower(str_replace(['_', '-'], ' ', $brand));
+    $map = [
+        'visa' => 'Visa',
+        'mastercard' => 'MasterCard',
+        'master card' => 'MasterCard',
+        'amex' => 'American Express',
+        'american express' => 'American Express',
+        'discover' => 'Discover',
+        'diners' => 'Diners Club',
+        'diners club' => 'Diners Club',
+        'jcb' => 'JCB',
+        'unionpay' => 'UnionPay',
+    ];
+
+    return $map[$normalized] ?? ucwords($normalized);
+}
+
+function cloudstorage_create_paymethod_from_request(
+    int $clientId,
+    string $tokenValue,
+    string $description,
+    array $billing = []
+): ?int {
+    if (!class_exists('\\WHMCS\\Http\\Message\\ServerRequest')
+        || !class_exists('\\WHMCS\\Payment\\PayMethod\\Model')
+        || !method_exists(PayMethodModel::class, 'factoryFromRequest')
+    ) {
+        return null;
+    }
+
+    $postBackup = $_POST;
+    $serverMethodBackup = $_SERVER['REQUEST_METHOD'] ?? null;
+
+    $_POST = array_merge($billing, [
+        'type' => 'token_stripe',
+        'paymentmethod' => 'stripe',
+        'description' => $description,
+        'remoteStorageToken' => $tokenValue,
+        'billingcontact' => (string) $clientId,
+    ]);
+    $_SERVER['REQUEST_METHOD'] = 'POST';
+
+    try {
+        $request = \WHMCS\Http\Message\ServerRequest::fromGlobals();
+        $payMethod = PayMethodModel::factoryFromRequest($request);
+        if ($payMethod && isset($payMethod->id) && (int) $payMethod->id > 0) {
+            return (int) $payMethod->id;
+        }
+    } catch (\Throwable $e) {
+        logModuleCall('cloudstorage', 'add_paymentmethod_factory_request_error', [
+            'clientid' => $clientId,
+            'error' => $e->getMessage(),
+        ], '', '', []);
+    } finally {
+        $_POST = $postBackup;
+        if ($serverMethodBackup !== null) {
+            $_SERVER['REQUEST_METHOD'] = $serverMethodBackup;
+        } else {
+            unset($_SERVER['REQUEST_METHOD']);
+        }
+    }
+
+    return null;
+}
+
+function cloudstorage_create_paymethod_via_adapter(
+    ClientModel $client,
+    string $tokenValue,
+    string $description,
+    string $cardLast4,
+    string $cardExpiry,
+    string $cardBrand
+): ?int {
+    $month = (int) substr($cardExpiry, 0, 2);
+    $year = 2000 + (int) substr($cardExpiry, 2, 2);
+    if ($month < 1 || $month > 12 || $year < 2000) {
+        throw new \InvalidArgumentException('Invalid card expiry');
+    }
+
+    $payMethod = RemoteCreditCard::factoryPayMethod($client, null, $description);
+    $payMethod->gateway_name = 'stripe';
+    $payMethod->save();
+
+    $adapter = $payMethod->payment;
+    if (!$adapter instanceof RemoteCreditCard) {
+        throw new \RuntimeException('Remote credit card adapter missing');
+    }
+
+    $adapter->setRemoteToken($tokenValue);
+    $adapter->setLastFour($cardLast4);
+    $adapter->setCardType(cloudstorage_normalize_card_brand($cardBrand));
+    $adapter->setExpiryDate(\WHMCS\Carbon::createFromDate($year, $month, 1));
+
+    try {
+        $adapter->createRemote();
+    } catch (\Throwable $e) {
+        logModuleCall('cloudstorage', 'add_paymentmethod_create_remote_warning', [
+            'clientid' => (int) $client->id,
+            'pay_method_id' => (int) $payMethod->id,
+            'error' => $e->getMessage(),
+        ], '', '', []);
+    }
+
+    $adapter->save();
+
+    return (int) $payMethod->id;
+}
+
 try {
     $ca = new ClientArea();
     if (!$ca->isLoggedIn()) {
@@ -78,13 +196,11 @@ try {
         exit;
     }
 
-    // Extract card details from POST (sent by frontend after retrieving from Stripe)
     $cardLast4 = (string) ($_POST['card_last_four'] ?? $_POST['card_last4'] ?? '');
     $cardExpMonth = (string) ($_POST['card_exp_month'] ?? '');
     $cardExpYear = (string) ($_POST['card_exp_year'] ?? '');
     $cardBrand = (string) ($_POST['card_brand'] ?? '');
 
-    // Build card expiry in MMYY format for WHMCS
     $cardExpiry = '';
     if ($cardExpMonth !== '' && $cardExpYear !== '') {
         $month = str_pad($cardExpMonth, 2, '0', STR_PAD_LEFT);
@@ -92,24 +208,63 @@ try {
         $cardExpiry = $month . $year;
     }
 
-    // Use placeholders if card details weren't provided
-    if ($cardLast4 === '') {
-        $cardLast4 = '0000';
-    }
-    if ($cardExpiry === '') {
-        // Use a future date as placeholder
-        $cardExpiry = '1230'; // December 2030
+    if ($cardLast4 === '' || $cardExpiry === '') {
+        logModuleCall('cloudstorage', 'add_paymentmethod', [
+            'clientid' => $clientId,
+            'card_last4' => $cardLast4,
+            'card_expiry' => $cardExpiry,
+        ], 'missing_card_metadata', '', []);
+        echo json_encode(['status' => 'error', 'message' => 'missing_card_metadata']);
+        exit;
     }
 
-    $tokenValue = $remoteToken !== '' ? $remoteToken : $paymentMethodId;
-    
-    // Build description with card brand if available
+    if ($remoteToken === '') {
+        echo json_encode(['status' => 'error', 'message' => 'missing_payment_method']);
+        exit;
+    }
+
+    $tokenValue = $remoteToken;
+
     $description = 'Primary Card';
     if ($cardBrand !== '') {
-        $description = ucfirst($cardBrand) . ' ending in ' . $cardLast4;
+        $description = cloudstorage_normalize_card_brand($cardBrand) . ' ending in ' . $cardLast4;
     }
 
-    // Log the attempt for debugging
+    $billing = [
+        'billing_name' => (string) ($_POST['billing_name'] ?? ''),
+        'billing_address_1' => (string) ($_POST['billing_address_1'] ?? ''),
+        'billing_address_2' => (string) ($_POST['billing_address_2'] ?? ''),
+        'billing_city' => (string) ($_POST['billing_city'] ?? ''),
+        'billing_state' => (string) ($_POST['billing_state'] ?? ''),
+        'billing_postcode' => (string) ($_POST['billing_postcode'] ?? ''),
+        'billing_country' => (string) ($_POST['billing_country'] ?? ''),
+    ];
+    if ($billing['billing_name'] === '') {
+        try {
+            $clientRow = Capsule::table('tblclients')->where('id', $clientId)->first();
+            if ($clientRow) {
+                $billing['billing_name'] = trim(((string) ($clientRow->firstname ?? '')) . ' ' . ((string) ($clientRow->lastname ?? '')));
+                if ($billing['billing_address_1'] === '') {
+                    $billing['billing_address_1'] = (string) ($clientRow->address1 ?? '');
+                }
+                if ($billing['billing_city'] === '') {
+                    $billing['billing_city'] = (string) ($clientRow->city ?? '');
+                }
+                if ($billing['billing_state'] === '') {
+                    $billing['billing_state'] = (string) ($clientRow->state ?? '');
+                }
+                if ($billing['billing_postcode'] === '') {
+                    $billing['billing_postcode'] = (string) ($clientRow->postcode ?? '');
+                }
+                if ($billing['billing_country'] === '') {
+                    $billing['billing_country'] = (string) ($clientRow->country ?? '');
+                }
+            }
+        } catch (\Throwable $e) {
+            // non-fatal
+        }
+    }
+
     logModuleCall('cloudstorage', 'add_paymentmethod_attempt', [
         'clientid' => $clientId,
         'has_pm_id' => $paymentMethodId !== '',
@@ -120,78 +275,32 @@ try {
         'token_prefix' => substr($tokenValue, 0, 20) . '...',
     ], '', '', ['token_value']);
 
-    $payMethodId = null;
+    $payMethodId = cloudstorage_create_paymethod_from_request(
+        $clientId,
+        $tokenValue,
+        $description,
+        $billing
+    );
 
-    // Skip Method 1 (WHMCS classes) - go directly to database insert for reliability
-    // The WHMCS PayMethod class approach has proven unreliable across versions
-
-    // Direct database insert with transaction for atomicity
     if ($payMethodId === null) {
-        Capsule::connection()->beginTransaction();
+        $client = ClientModel::find($clientId);
+        if (!$client) {
+            echo json_encode(['status' => 'error', 'message' => 'auth']);
+            exit;
+        }
+
         try {
-            // Build expiry date for database
-            $expiryMonth = (int) ($cardExpMonth ?: 12);
-            $expiryYear = (int) ($cardExpYear ?: 2030);
-            if ($expiryYear < 100) {
-                $expiryYear += 2000;
-            }
-            $expiryDate = sprintf('%04d-%02d-01 00:00:00', $expiryYear, $expiryMonth);
-
-            // Create the remote token JSON - format expected by WHMCS Stripe module
-            $remoteTokenJson = json_encode([
-                'customer' => '',  // Will be empty initially, Stripe should work with just the method
-                'method' => $tokenValue,
-            ]);
-
-            // Insert into tblcreditcards first (this is the adapter/payment details table)
-            $adapterId = Capsule::table('tblcreditcards')->insertGetId([
-                'pay_method_id' => 0, // Will update after creating paymethods entry
-                'card_type' => $cardBrand ?: 'Visa', // Default to Visa if unknown
-                'last_four' => $cardLast4,
-                'expiry_date' => $expiryDate,
-                'card_data' => $remoteTokenJson, // Remote token stored in card_data blob
-                'created_at' => date('Y-m-d H:i:s'),
-                'updated_at' => date('Y-m-d H:i:s'),
-            ]);
-
-            if (!$adapterId) {
-                throw new \Exception('Failed to insert credit card record');
-            }
-
-            // Insert into tblpaymethods (the main payment method record)
-            $payMethodId = Capsule::table('tblpaymethods')->insertGetId([
-                'userid' => $clientId,
-                'description' => $description,
-                'gateway_name' => 'stripe',
-                'payment_type' => 'RemoteCreditCard',
-                'payment_id' => $adapterId,
-                'contact_id' => $clientId,
-                'contact_type' => 'Client',
-                'created_at' => date('Y-m-d H:i:s'),
-                'updated_at' => date('Y-m-d H:i:s'),
-            ]);
-
-            if (!$payMethodId) {
-                throw new \Exception('Failed to insert payment method record');
-            }
-
-            // Update the adapter with the correct pay_method_id for bidirectional link
-            Capsule::table('tblcreditcards')
-                ->where('id', $adapterId)
-                ->update(['pay_method_id' => $payMethodId]);
-
-            Capsule::connection()->commit();
-
-            logModuleCall('cloudstorage', 'add_paymentmethod_success', [
-                'pay_method_id' => $payMethodId,
-                'adapter_id' => $adapterId,
-                'card_last4' => $cardLast4,
-                'card_brand' => $cardBrand,
-            ], 'success', '', []);
-
+            $payMethodId = cloudstorage_create_paymethod_via_adapter(
+                $client,
+                $tokenValue,
+                $description,
+                $cardLast4,
+                $cardExpiry,
+                $cardBrand
+            );
         } catch (\Throwable $e) {
-            Capsule::connection()->rollBack();
             logModuleCall('cloudstorage', 'add_paymentmethod_error', [
+                'clientid' => $clientId,
                 'error' => $e->getMessage(),
             ], '', '', []);
             $payMethodId = null;
@@ -199,6 +308,12 @@ try {
     }
 
     if ($payMethodId) {
+        logModuleCall('cloudstorage', 'add_paymentmethod_success', [
+            'pay_method_id' => $payMethodId,
+            'card_last4' => $cardLast4,
+            'card_brand' => $cardBrand,
+        ], 'success', '', []);
+
         echo json_encode(['status' => 'success', 'paymethodid' => $payMethodId]);
     } else {
         echo json_encode(['status' => 'error', 'message' => 'Failed to save payment method. Please try again.']);

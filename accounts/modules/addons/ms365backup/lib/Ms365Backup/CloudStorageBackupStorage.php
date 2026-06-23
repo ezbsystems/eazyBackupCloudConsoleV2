@@ -90,6 +90,19 @@ final class CloudStorageBackupStorage implements BackupStorageInterface
     public function writeJson(string $absolutePath, array $data): void
     {
         $body = json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+        if (str_ends_with($absolutePath, 'inventory.json')) {
+            // #region agent log
+            Ms365AgentDebugLog::write(
+                'CloudStorageBackupStorage::writeJson',
+                'inventory S3 put starting',
+                [
+                    'body_bytes' => strlen((string) $body),
+                    'json_error' => json_last_error_msg(),
+                ],
+                'E',
+            );
+            // #endregion
+        }
         $this->putObject($this->objectKey($absolutePath), (string) $body, 'application/json');
     }
 

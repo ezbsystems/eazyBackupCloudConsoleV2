@@ -25,10 +25,15 @@ final class InventoryService
     /**
      * Full inventory refresh: legacy caches + inventory.json.
      *
+     * @param bool $lightweight Skip Planner/OneNote and SharePoint list item counts (faster for large tenants).
      * @return array<string, mixed>
      */
-    public function refresh(): array
+    public function refresh(bool $lightweight = false): array
     {
+        // #region agent log
+        $__refreshStart = microtime(true);
+        Ms365AgentDebugLog::write('InventoryService::refresh', 'refresh started', [], 'D');
+        // #endregion
         $discoveryCounts = [];
         $this->writeRefreshProgress('users', 'Discovering users and mailboxes…', $discoveryCounts);
 
@@ -46,6 +51,22 @@ final class InventoryService
 
         $rawGroups = $this->listM365Groups();
         $discoveryCounts['groups'] = count($rawGroups);
+
+        // #region agent log
+        Ms365AgentDebugLog::write(
+            'InventoryService::refresh',
+            'discovery phase complete',
+            [
+                'duration_ms' => (int) round((microtime(true) - $__refreshStart) * 1000),
+                'users' => $discoveryCounts['users'] ?? 0,
+                'sites' => $discoveryCounts['sites'] ?? 0,
+                'teams' => $discoveryCounts['teams'] ?? 0,
+                'groups' => $discoveryCounts['groups'] ?? 0,
+                'memory_mb' => (int) round(memory_get_usage(true) / 1048576),
+            ],
+            'G',
+        );
+        // #endregion
 
         $previous = $this->load();
         $accessByGraphUserId = $this->extractUserAccessFromPrevious($previous, $rawUsers);
@@ -110,6 +131,7 @@ final class InventoryService
             'This can take a few minutes on large tenants.',
         );
 
+        $siteIdsForProbe = [];
         foreach ($rawSites as $site) {
             if (!is_array($site)) {
                 continue;
@@ -119,7 +141,7 @@ final class InventoryService
                 continue;
             }
             $resourceId = TenantResource::makeId(TenantResource::TYPE_SHAREPOINT_SITE, $siteId);
-            $access = is_array($site['access'] ?? null) ? $site['access'] : [];
+            $siteIdsForProbe[] = ['site_id' => $siteId, 'resource_id' => $resourceId];
             $resources[$resourceId] = TenantResource::build(
                 TenantResource::TYPE_SHAREPOINT_SITE,
                 $siteId,
@@ -128,15 +150,42 @@ final class InventoryService
                 [
                     'id' => $resourceId,
                     'email' => (string) ($site['webUrl'] ?? ''),
-                    'access' => $access,
+                    'access' => [],
                     'meta' => [
                         'web_url' => (string) ($site['webUrl'] ?? ''),
                         'site_collection' => $site['siteCollection'] ?? null,
                         'drives' => $this->listSiteDrives($siteId),
-                        'lists' => $this->listSiteLists($siteId),
+                        'lists' => $this->listSiteLists($siteId, !$lightweight),
                     ],
                 ],
             );
+        }
+
+        $accessCheckedAt = null;
+        if ($siteIdsForProbe !== []) {
+            $accessService = new ResourceAccessService($this->graph, $this->storage);
+            $siteTotal = count($siteIdsForProbe);
+            $this->writeRefreshProgress(
+                'site_access',
+                'Checking SharePoint site access…',
+                $discoveryCounts,
+            );
+            foreach ($siteIdsForProbe as $siteIndex => $siteInfo) {
+                if ($siteIndex === 0 || ($siteIndex + 1) % 5 === 0 || $siteIndex === $siteTotal - 1) {
+                    $this->writeRefreshProgress(
+                        'site_access',
+                        'Checking SharePoint site access…',
+                        $discoveryCounts,
+                        sprintf('Site %d of %d', $siteIndex + 1, $siteTotal),
+                    );
+                }
+                $probe = $accessService->probeSite($siteInfo['site_id']);
+                $resourceId = $siteInfo['resource_id'];
+                if (isset($resources[$resourceId]) && is_array($resources[$resourceId])) {
+                    $resources[$resourceId]['access'] = $probe;
+                }
+            }
+            $accessCheckedAt = gmdate('c');
         }
 
         foreach ($rawTeams as $team) {
@@ -225,51 +274,53 @@ final class InventoryService
             );
         }
 
-        foreach ($rawGroups as $group) {
-            if (!is_array($group)) {
-                continue;
+        if (!$lightweight) {
+            foreach ($rawGroups as $group) {
+                if (!is_array($group)) {
+                    continue;
+                }
+                $groupId = (string) ($group['id'] ?? '');
+                if ($groupId === '') {
+                    continue;
+                }
+                foreach ($this->discoverPlannerPlansForGroup($groupId) as $planResource) {
+                    $resources[$planResource['id']] = $planResource;
+                }
+                foreach ($this->discoverOneNoteNotebooks('groups', $groupId) as $nbResource) {
+                    $resources[$nbResource['id']] = $nbResource;
+                }
             }
-            $groupId = (string) ($group['id'] ?? '');
-            if ($groupId === '') {
-                continue;
-            }
-            foreach ($this->discoverPlannerPlansForGroup($groupId) as $planResource) {
-                $resources[$planResource['id']] = $planResource;
-            }
-            foreach ($this->discoverOneNoteNotebooks('groups', $groupId) as $nbResource) {
-                $resources[$nbResource['id']] = $nbResource;
-            }
-        }
 
-        foreach ($rawTeams as $team) {
-            if (!is_array($team)) {
-                continue;
+            foreach ($rawTeams as $team) {
+                if (!is_array($team)) {
+                    continue;
+                }
+                $groupId = (string) ($team['id'] ?? '');
+                if ($groupId === '') {
+                    continue;
+                }
+                foreach ($this->discoverPlannerPlansForGroup($groupId) as $planResource) {
+                    $resources[$planResource['id']] = $planResource;
+                }
             }
-            $groupId = (string) ($team['id'] ?? '');
-            if ($groupId === '') {
-                continue;
-            }
-            foreach ($this->discoverPlannerPlansForGroup($groupId) as $planResource) {
-                $resources[$planResource['id']] = $planResource;
-            }
-        }
 
-        foreach ($userGraphIds as $userGraphId) {
-            foreach ($this->discoverOneNoteNotebooks('users', $userGraphId) as $nbResource) {
-                $resources[$nbResource['id']] = $nbResource;
+            foreach ($userGraphIds as $userGraphId) {
+                foreach ($this->discoverOneNoteNotebooks('users', $userGraphId) as $nbResource) {
+                    $resources[$nbResource['id']] = $nbResource;
+                }
             }
-        }
 
-        foreach ($rawSites as $site) {
-            if (!is_array($site)) {
-                continue;
-            }
-            $siteId = (string) ($site['id'] ?? '');
-            if ($siteId === '') {
-                continue;
-            }
-            foreach ($this->discoverOneNoteNotebooks('sites', $siteId) as $nbResource) {
-                $resources[$nbResource['id']] = $nbResource;
+            foreach ($rawSites as $site) {
+                if (!is_array($site)) {
+                    continue;
+                }
+                $siteId = (string) ($site['id'] ?? '');
+                if ($siteId === '') {
+                    continue;
+                }
+                foreach ($this->discoverOneNoteNotebooks('sites', $siteId) as $nbResource) {
+                    $resources[$nbResource['id']] = $nbResource;
+                }
             }
         }
 
@@ -300,8 +351,39 @@ final class InventoryService
             'counts' => TenantResource::countByType($resourceList),
             'warnings' => $warnings,
         ];
+        if ($accessCheckedAt !== null) {
+            $inventory['access_checked_at'] = $accessCheckedAt;
+        }
 
-        $this->storage->writeJson($this->storage->inventoryPath(), $inventory);
+        // #region agent log
+        $__writeStart = microtime(true);
+        $inventoryPath = $this->storage->inventoryPath();
+        Ms365AgentDebugLog::write(
+            'InventoryService::refresh',
+            'writing inventory.json',
+            [
+                'resource_count' => count($resourceList),
+                'memory_mb' => (int) round(memory_get_usage(true) / 1048576),
+                'peak_memory_mb' => (int) round(memory_get_peak_usage(true) / 1048576),
+                'inventory_path_suffix' => basename(dirname($inventoryPath)) . '/' . basename($inventoryPath),
+            ],
+            'E',
+        );
+        // #endregion
+
+        $this->storage->writeJson($inventoryPath, $inventory);
+
+        // #region agent log
+        Ms365AgentDebugLog::write(
+            'InventoryService::refresh',
+            'inventory.json write complete',
+            [
+                'write_duration_ms' => (int) round((microtime(true) - $__writeStart) * 1000),
+                'total_duration_ms' => (int) round((microtime(true) - $__refreshStart) * 1000),
+            ],
+            'E',
+        );
+        // #endregion
         $this->writeRefreshProgress('complete', 'Inventory ready', $discoveryCounts);
 
         return $inventory;
@@ -467,10 +549,10 @@ final class InventoryService
     /**
      * @return list<array<string, mixed>>
      */
-    private function listSiteLists(string $siteId): array
+    private function listSiteLists(string $siteId, bool $probeItemCounts = true): array
     {
         $lists = [];
-        $maxCountProbes = 200;
+        $maxCountProbes = $probeItemCounts ? 200 : 0;
         $probed = 0;
         try {
             foreach ($this->graph->paginate('sites/' . rawurlencode($siteId) . '/lists', [
@@ -916,5 +998,162 @@ final class InventoryService
             'done' => $processed >= $total,
             'unavailable_count' => $unavailableInBatch,
         ];
+    }
+
+    /**
+     * Populate shard metadata (drives, lists, size hints) for selected resources before backup planning.
+     *
+     * @param array<string, mixed> $inventory
+     * @param list<string> $selectedIds
+     */
+    public function enrichResourcesForPlanning(array &$inventory, array $selectedIds): void
+    {
+        if ($selectedIds === [] || !is_array($inventory['resources'] ?? null)) {
+            return;
+        }
+
+        $selected = array_fill_keys($selectedIds, true);
+        $resources = $inventory['resources'];
+        $byId = [];
+        foreach ($resources as $idx => $resource) {
+            if (!is_array($resource)) {
+                continue;
+            }
+            $id = (string) ($resource['id'] ?? '');
+            if ($id === '') {
+                continue;
+            }
+            $byId[$id] = $idx;
+        }
+
+        foreach ($selectedIds as $resourceId) {
+            if (!isset($byId[$resourceId])) {
+                continue;
+            }
+            $idx = $byId[$resourceId];
+            $resource = $resources[$idx];
+            if (!is_array($resource)) {
+                continue;
+            }
+
+            $type = (string) ($resource['resource_type'] ?? '');
+            $graphId = TenantResource::graphIdFromResourceId($resourceId);
+
+            if ($type === TenantResource::TYPE_SHAREPOINT_SITE && $graphId !== '') {
+                $resources[$idx] = $this->enrichSharePointSiteResource($resource, $graphId);
+                continue;
+            }
+
+            if ($type === TenantResource::TYPE_USER_ONEDRIVE && $graphId !== '') {
+                $resources[$idx] = $this->enrichOneDriveResource($resource, $graphId);
+                continue;
+            }
+
+            if (in_array($type, [TenantResource::TYPE_USER, TenantResource::TYPE_MAILBOX], true)) {
+                $onedriveId = TenantResource::makeId(TenantResource::TYPE_USER_ONEDRIVE, $graphId);
+                if (isset($byId[$onedriveId])) {
+                    $odIdx = $byId[$onedriveId];
+                    $odResource = is_array($resources[$odIdx] ?? null) ? $resources[$odIdx] : null;
+                    if ($odResource !== null) {
+                        $odResource = $this->enrichOneDriveResource($odResource, $graphId);
+                        $resources[$odIdx] = $odResource;
+                        $resources[$idx] = $this->mergeOneDriveHintsOntoUser($resource, $odResource);
+                    }
+                }
+            }
+        }
+
+        $inventory['resources'] = $resources;
+    }
+
+    /**
+     * @param array<string, mixed> $resource
+     * @return array<string, mixed>
+     */
+    private function enrichSharePointSiteResource(array $resource, string $siteId): array
+    {
+        $meta = is_array($resource['meta'] ?? null) ? $resource['meta'] : [];
+        $drives = $meta['drives'] ?? null;
+        if (!is_array($drives) || $drives === []) {
+            $meta['drives'] = $this->listSiteDrives($siteId);
+        }
+        $lists = $meta['lists'] ?? null;
+        if (!is_array($lists) || $lists === []) {
+            $meta['lists'] = $this->listSiteLists($siteId, true);
+        }
+
+        $sizeBytes = 0;
+        $itemCount = 0;
+        foreach ($meta['drives'] as $drive) {
+            if (!is_array($drive)) {
+                continue;
+            }
+            $sizeBytes += max(0, (int) ($drive['size_bytes'] ?? 0));
+            $itemCount += max(0, (int) ($drive['item_count'] ?? 0));
+        }
+        if ($sizeBytes > 0) {
+            $meta['size_bytes'] = $sizeBytes;
+        }
+        if ($itemCount > 0) {
+            $meta['item_count'] = $itemCount;
+        }
+        $resource['meta'] = $meta;
+
+        return $resource;
+    }
+
+    /**
+     * @param array<string, mixed> $resource
+     * @return array<string, mixed>
+     */
+    private function enrichOneDriveResource(array $resource, string $userGraphId): array
+    {
+        $meta = is_array($resource['meta'] ?? null) ? $resource['meta'] : [];
+        if ((int) ($meta['size_bytes'] ?? 0) > 0) {
+            return $resource;
+        }
+
+        try {
+            $drive = $this->graph->get('users/' . rawurlencode($userGraphId) . '/drive', [
+                '$select' => self::ONEDRIVE_SELECT,
+            ]);
+        } catch (\Throwable $_) {
+            return $resource;
+        }
+
+        if (!is_array($drive)) {
+            return $resource;
+        }
+
+        $quota = is_array($drive['quota'] ?? null) ? $drive['quota'] : [];
+        $meta['drive_id'] = (string) ($meta['drive_id'] ?? $drive['id'] ?? '');
+        $meta['size_bytes'] = max(0, (int) ($quota['used'] ?? 0));
+        $resource['meta'] = $meta;
+
+        return $resource;
+    }
+
+    /**
+     * @param array<string, mixed> $userResource
+     * @param array<string, mixed> $onedriveResource
+     * @return array<string, mixed>
+     */
+    private function mergeOneDriveHintsOntoUser(array $userResource, array $onedriveResource): array
+    {
+        $userMeta = is_array($userResource['meta'] ?? null) ? $userResource['meta'] : [];
+        $odMeta = is_array($onedriveResource['meta'] ?? null) ? $onedriveResource['meta'] : [];
+        if ((int) ($odMeta['size_bytes'] ?? 0) > 0) {
+            $userMeta['size_bytes'] = (int) $odMeta['size_bytes'];
+        }
+        if ((int) ($odMeta['item_count'] ?? 0) > 0) {
+            $userMeta['item_count'] = (int) $odMeta['item_count'];
+        }
+        $driveId = trim((string) ($odMeta['drive_id'] ?? ''));
+        if ($driveId !== '') {
+            $userMeta['drive_id'] = $driveId;
+        }
+        $userResource['meta'] = $userMeta;
+
+        return $userResource;
     }
 }

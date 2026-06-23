@@ -20,6 +20,14 @@ final class Ms365CustomerError
             return 'Backup storage is not ready yet. Wait a moment and use Refresh inventory again, or contact support if this continues.';
         }
 
+        if (self::isGraphPaginationError($raw)) {
+            if (stripos($raw, 'directory:') !== false) {
+                return 'Directory sync was interrupted while reading users from Microsoft 365. Please retry the backup.';
+            }
+
+            return 'Backup sync was interrupted while reading data from Microsoft 365. Please retry the backup.';
+        }
+
         if (preg_match('/AADSTS\d+/i', $raw) || stripos($raw, 'invalid_client') !== false) {
             return 'Microsoft 365 connection could not be verified. Ask your administrator to reconnect, or contact support.';
         }
@@ -71,6 +79,15 @@ final class Ms365CustomerError
             || stripos($raw, 'backup storage bucket') !== false
             || stripos($raw, 'MS365 cloud bucket') !== false
             || stripos($raw, 'Failed to ensure MS365 storage') !== false;
+    }
+
+    private static function isGraphPaginationError(string $raw): bool
+    {
+        $lower = strtolower($raw);
+
+        return str_contains($lower, 'graph pagination loop')
+            || str_contains($lower, '@odata.nextlink')
+            || str_contains($lower, 'consecutive empty page');
     }
 
     private static function looksInternal(string $raw): bool

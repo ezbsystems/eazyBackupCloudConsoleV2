@@ -27,6 +27,12 @@ final class ProgressLogger
         $this->log('warn', $message, $context);
     }
 
+    /** Alias for warn() — some engine paths call warning(). */
+    public function warning(string $message, array $context = []): void
+    {
+        $this->warn($message, $context);
+    }
+
     public function error(string $message, array $context = []): void
     {
         $this->log('error', $message, $context);

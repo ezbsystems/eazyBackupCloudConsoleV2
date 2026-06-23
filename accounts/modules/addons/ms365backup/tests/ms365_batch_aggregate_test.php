@@ -94,4 +94,112 @@ assert_true(
     'Force-cancelled terminal status is locked',
 );
 
+$speedEta = Ms365BatchRunRepository::computeSpeedAndEta(0, 100, 1_000_000_000, 10_000_000_000, 110);
+assert_true(($speedEta['speed'] ?? 0) === 100_000_000, 'Speed uses bytes_processed delta');
+assert_true(($speedEta['eta_seconds'] ?? 0) === 90, 'ETA based on remaining processed bytes');
+
+$noSpeed = Ms365BatchRunRepository::computeSpeedAndEta(500, 100, 500, 1000, 105);
+assert_true($noSpeed['speed'] === null, 'Zero byte delta yields null speed');
+
+$now = time();
+assert_true(
+    Ms365BatchRunRepository::isWorkerAlive(['status' => 'running', 'last_progress_at' => $now - 60, 'updated_at' => $now - 600], ['status' => 'running', 'lease_expires_at' => 0], $now),
+    'Recent last_progress_at counts as alive',
+);
+assert_true(
+    !Ms365BatchRunRepository::isWorkerAlive(['status' => 'running', 'last_progress_at' => $now - 600, 'updated_at' => $now - 60], ['status' => 'running', 'lease_expires_at' => $now - 10], $now),
+    'Stale last_progress_at with expired lease is not alive',
+);
+assert_true(
+    Ms365BatchRunRepository::progressFreshnessAt(['last_progress_at' => $now - 120, 'updated_at' => $now - 30]) === $now - 120,
+    'progressFreshnessAt prefers last_progress_at',
+);
+assert_true(
+    Ms365BatchRunRepository::progressFreshnessAt(['updated_at' => $now - 90]) === $now - 90,
+    'progressFreshnessAt falls back to updated_at',
+);
+
+$shouldReap = (new ReflectionClass(Ms365BatchRunRepository::class))
+    ->getMethod('shouldReapRunningChild');
+$shouldReap->setAccessible(true);
+$runningChild = [
+    'status' => 'running',
+    'started_at' => $now - 4000,
+    'items_done' => 0,
+    'bytes_hashed' => 0,
+    'last_progress_at' => $now - 60,
+    'updated_at' => $now - 60,
+    'phase' => 'graph_sync',
+];
+assert_true(
+    (bool) $shouldReap->invoke(null, $runningChild, ['status' => 'running', 'lease_expires_at' => $now + 3600], $now),
+    'Wedge stuck child is reaped even with fresh lease',
+);
+$silentChild = [
+    'status' => 'running',
+    'started_at' => $now - 400,
+    'items_done' => 500,
+    'bytes_hashed' => 1_000_000,
+    'last_progress_at' => $now - 2000,
+    'updated_at' => $now - 30,
+    'phase' => 'kopia_upload',
+];
+assert_true(
+    (bool) $shouldReap->invoke(null, $silentChild, ['status' => 'running', 'lease_expires_at' => $now + 3600], $now),
+    'Silent progress child is reaped despite fresh lease',
+);
+$throttledChild = [
+    'status' => 'running',
+    'started_at' => $now - 4000,
+    'items_done' => 0,
+    'bytes_hashed' => 0,
+    'last_progress_at' => $now - 2000,
+    'last_429_at' => $now - 120,
+    'updated_at' => $now - 30,
+    'phase' => 'graph_sync',
+];
+$throttleQueue = ['status' => 'running', 'lease_expires_at' => $now + 3600];
+if (\WHMCS\Database\Capsule::schema()->hasColumn('ms365_backup_runs', 'last_429_at')) {
+    assert_true(
+        Ms365BatchRunRepository::isThrottledWaitingAlive($throttledChild, $throttleQueue, $now),
+        'Recent last_429_at with fresh lease counts as throttled-alive',
+    );
+    assert_true(
+        !(bool) $shouldReap->invoke(null, $throttledChild, $throttleQueue, $now),
+        'Recent last_429_at with fresh lease blocks reap',
+    );
+}
+
+$throttleChildren = [
+    array_merge(child('running', 5.0, 0, 0, 'graph_sync'), ['stats_json' => json_encode(['graph_429_hits' => 12])]),
+    child('success'),
+];
+$throttleAgg = Ms365BatchRunRepository::computeAggregates($throttleChildren);
+assert_true((int) ($throttleAgg['graph_429_hits_total'] ?? 0) === 12, 'Batch aggregate sums graph_429_hits');
+assert_true(empty($throttleAgg['byte_stats_comparable']), 'Graph sync workloads make byte stats incomparable');
+
+$uploadChildren = [
+    child('running', 80.0, 1000, 800, 'kopia_upload'),
+    child('success'),
+];
+$uploadAgg = Ms365BatchRunRepository::computeAggregates($uploadChildren);
+assert_true(!empty($uploadAgg['byte_stats_comparable']), 'Kopia upload workloads allow comparable byte stats');
+
+$itemsSpeed = Ms365BatchRunRepository::computeItemsSpeed(100, 100, 250, 110);
+assert_true($itemsSpeed === 15, 'Items speed uses objects_transferred delta');
+
+$throttleWindow = (new ReflectionClass(Ms365BatchRunRepository::class))
+    ->getMethod('computeWindowedGraphThrottled');
+$throttleWindow->setAccessible(true);
+$windowNow = time();
+$windowResult = $throttleWindow->invoke(null, ['ms365_graph_429_hits_total' => 10], 15, $windowNow);
+assert_true(!empty($windowResult['throttled']), 'Windowed throttle activates on new 429 total');
+$windowStale = $throttleWindow->invoke(
+    null,
+    ['ms365_graph_429_hits_total' => 15, 'ms365_graph_throttle_at' => $windowNow - 300],
+    15,
+    $windowNow
+);
+assert_true(empty($windowStale['throttled']), 'Windowed throttle clears after window expires');
+
 exit($failures > 0 ? 1 : 0);

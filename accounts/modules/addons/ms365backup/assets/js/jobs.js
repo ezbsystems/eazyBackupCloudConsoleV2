@@ -239,6 +239,38 @@
     });
   }
 
+  function formatDurationMs(ms) {
+    if (ms === null || ms === undefined || ms < 0) return '—';
+    var sec = Math.round(ms / 1000);
+    if (sec < 60) return sec + 's';
+    var min = Math.floor(sec / 60);
+    var rem = sec % 60;
+    if (min < 60) return rem > 0 ? (min + 'm ' + rem + 's') : (min + 'm');
+    var hr = Math.floor(min / 60);
+    min = min % 60;
+    return min > 0 ? (hr + 'h ' + min + 'm') : (hr + 'h');
+  }
+
+  function formatChildError(c) {
+    var parts = [];
+    var runError = (c.error_message || '').trim();
+    var queueError = (c.queue_error || c.last_error || '').trim();
+    if (runError) {
+      parts.push(runError);
+    }
+    if (queueError && queueError !== runError) {
+      parts.push('Queue: ' + queueError);
+    }
+    var skipped = c.workload_skipped || {};
+    var skipKeys = Object.keys(skipped);
+    if (skipKeys.length) {
+      parts.push('Skipped: ' + skipKeys.map(function (k) {
+        return k + '=' + skipped[k];
+      }).join(', '));
+    }
+    return parts.join(' · ') || '—';
+  }
+
   function openDetail(batchRunId) {
     if (!batchRunId) return;
     var body = document.getElementById('ms365-jobs-detail-body');
@@ -259,15 +291,18 @@
       }
       body.innerHTML =
         '<table class="table table-condensed"><thead><tr>' +
-        '<th>Workload</th><th>Child run ID</th><th>Status</th><th>Attempts</th><th>Error</th>' +
+        '<th>Workload</th><th>Child run ID</th><th>Status</th><th>Phase</th><th>Graph</th><th>Kopia</th><th>Attempts</th><th>Error</th>' +
         '</tr></thead><tbody>' +
         children.map(function (c) {
           return '<tr><td>' + esc(c.workload_label) + '</td>' +
             '<td><code style="font-size:11px">' + esc(c.run_id) + '</code></td>' +
             '<td>' + statusBadge(c.status) + '</td>' +
+            '<td><small>' + esc(c.phase || '') + '</small></td>' +
+            '<td><small>' + esc(formatDurationMs(c.graph_sync_ms)) + '</small></td>' +
+            '<td><small>' + esc(formatDurationMs(c.kopia_snapshot_ms)) + '</small></td>' +
             '<td>' + esc(c.attempts) + '/' + esc(c.max_attempts) +
             (c.queue_status ? ' <small>(' + esc(c.queue_status) + ')</small>' : '') + '</td>' +
-            '<td><small>' + esc(c.error_message || c.last_error || '') + '</small></td></tr>';
+            '<td><small>' + esc(formatChildError(c)) + '</small></td></tr>';
         }).join('') +
         '</tbody></table>';
     });

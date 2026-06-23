@@ -300,6 +300,24 @@ final class BackupRunRepository
         Capsule::table('ms365_backup_runs')->where('id', $id)->update($fields);
     }
 
+    /** Reset a child backup run so a requeued job can be claimed again. */
+    public static function resetForQueueRequeue(string $id, int $now = 0): void
+    {
+        if ($now <= 0) {
+            $now = time();
+        }
+        self::update($id, [
+            'status' => 'queued',
+            'phase' => '',
+            'percent' => 0,
+            'items_done' => 0,
+            'items_total' => 0,
+            'error_message' => null,
+            'finished_at' => null,
+            'updated_at' => $now,
+        ]);
+    }
+
     public static function isCancelled(string $id): bool
     {
         $run = self::get($id);
@@ -332,6 +350,42 @@ final class BackupRunRepository
         JobQueueRepository::markCancelled($id, $label);
 
         return true;
+    }
+
+    /**
+     * Cancel all queued/running child workloads for a batch in a few SQL statements.
+     * Used by user cancel and batch reconcile — avoids per-child SELECT/UPDATE loops.
+     */
+    public static function bulkCancelBatchChildren(string $batchRunId, string $cancelledBy = 'user'): int
+    {
+        if ($batchRunId === ''
+            || !Capsule::schema()->hasTable('ms365_backup_runs')
+            || !Capsule::schema()->hasColumn('ms365_backup_runs', 'e3_batch_run_id')) {
+            return 0;
+        }
+
+        $activeIds = Capsule::table('ms365_backup_runs')
+            ->where('e3_batch_run_id', $batchRunId)
+            ->whereIn('status', ['queued', 'running'])
+            ->pluck('id')
+            ->all();
+        if ($activeIds === []) {
+            return 0;
+        }
+
+        $label = $cancelledBy === 'user' ? 'Cancelled by user' : 'Cancelled by administrator';
+        $now = time();
+        Capsule::table('ms365_backup_runs')
+            ->whereIn('id', $activeIds)
+            ->update([
+                'status' => 'cancelled',
+                'phase' => 'cancelled',
+                'error_message' => $label,
+                'finished_at' => $now,
+            ]);
+        JobQueueRepository::markCancelledMany($activeIds, $label);
+
+        return count($activeIds);
     }
 
     public static function setPhase(string $id, string $phase, ?int $done = null, ?int $total = null): void

@@ -13,6 +13,36 @@ final class Ms365BatchRunRepository
     /** Stale child workload threshold aligned with WorkerClaimService::reconcileZombieRuns(). */
     private const STALE_CHILD_SECONDS = 120;
 
+    /** Liveness window: worker is alive if progress/lease refreshed within this many seconds (≈4×45s heartbeat). */
+    private const HEARTBEAT_GAP_SECONDS = 180;
+
+    /** Reap running children with no progress posts for this long, even if the queue lease was renewed. */
+    private const STALE_SILENCE_SECONDS = 1800;
+
+    /** Fail graph_sync (and similar) workloads stuck at zero items/bytes after this long. */
+    private const STALE_WEDGE_SECONDS = 1800;
+
+    /** Fail upload/snapshot phases with no progress posts for this long. */
+    private const STALE_UPLOAD_SECONDS = 2700;
+
+    /**
+     * Minimum seconds between persisted parent-row live snapshots for a batch.
+     * Every running child workload posts heartbeats; without this throttle they
+     * all UPDATE the single parent s3_cloudbackup_runs row at once, forming a
+     * row-lock convoy that pins mysqld. The live UI recomputes its own aggregate
+     * per poll, so a slightly stale persisted snapshot is invisible to the user.
+     */
+    private const LIVE_SNAPSHOT_THROTTLE_SECONDS = 3;
+
+    /** Window for showing the Graph throttle badge after recent 429 activity. */
+    private const GRAPH_THROTTLE_WINDOW_SECONDS = 120;
+
+    /** Recent Graph 429 activity + fresh lease = worker alive while waiting out throttling. */
+    public const RECENT_THROTTLE_SECONDS = 600;
+
+    /** Cached result of the parent updated_at column probe (per request). */
+    private static ?bool $parentHasUpdatedAt = null;
+
     /**
      * @param array<string, mixed> $parent
      */
@@ -178,19 +208,11 @@ final class Ms365BatchRunRepository
         }
 
         $now = time();
-        $cutoff = $now - self::STALE_CHILD_SECONDS;
         $cancelRequested = !empty($parentArr['cancel_requested']);
 
         if ($cancelRequested) {
             $cancelledBy = !empty($parentArr['finished_at']) ? 'administrator' : 'user';
-            foreach ($children as $child) {
-                $childId = (string) ($child['id'] ?? '');
-                $status = (string) ($child['status'] ?? '');
-                if ($childId === '' || !in_array($status, ['queued', 'running'], true)) {
-                    continue;
-                }
-                BackupRunRepository::requestCancel($childId, $cancelledBy);
-            }
+            BackupRunRepository::bulkCancelBatchChildren($batchRunId, $cancelledBy);
 
             return;
         }
@@ -199,19 +221,12 @@ final class Ms365BatchRunRepository
 
         foreach ($children as $child) {
             $childId = (string) ($child['id'] ?? '');
-            if ($childId === '' || (string) ($child['status'] ?? '') !== 'running') {
+            if ($childId === '' || !self::shouldReapRunningChild($child, $queueByRun[$childId] ?? null, $now)) {
                 continue;
             }
-            if ((int) ($child['updated_at'] ?? 0) >= $cutoff) {
-                continue;
-            }
-            $queue = $queueByRun[$childId] ?? null;
-            if (is_array($queue)
-                && (string) ($queue['status'] ?? '') === 'running'
-                && (int) ($queue['lease_expires_at'] ?? 0) > $now) {
-                continue;
-            }
-            Ms365RestoreWorkerHooks::onFail($childId, 'Stale workload reconciled during batch sync');
+            $message = 'Stale workload reconciled during batch sync';
+            (new ProgressLogger($childId))->warning($message);
+            WorkerClaimService::requeueBackupRuns([$childId], $message);
         }
 
         $children = self::getChildrenForBatch($batchRunId);
@@ -240,6 +255,194 @@ final class Ms365BatchRunRepository
                 self::cancelChildWithoutStart($childId);
             }
         }
+    }
+
+    /**
+     * Reconcile every active MS365 backup batch parent (running rows in s3_cloudbackup_runs).
+     * Intended for fleet cron so stuck children are reaped without worker completion hooks.
+     *
+     * @return array{batches: int}
+     */
+    public static function reconcileActiveBatches(int $limit = 100): array
+    {
+        if (!Capsule::schema()->hasTable('s3_cloudbackup_runs')
+            || !Capsule::schema()->hasTable('ms365_backup_runs')) {
+            return ['batches' => 0];
+        }
+
+        $query = Capsule::table('s3_cloudbackup_runs')
+            ->where('status', 'running')
+            ->whereNull('finished_at')
+            ->orderByDesc('started_at')
+            ->limit(max(1, $limit));
+
+        if (Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'engine')) {
+            $query->where('engine', 'ms365');
+        }
+        if (Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'run_type')) {
+            $query->where(function ($q) {
+                $q->whereNull('run_type')
+                    ->orWhere('run_type', '!=', 'restore');
+            });
+        }
+
+        $batches = 0;
+        foreach ($query->get() as $row) {
+            $arr = (array) $row;
+            if (self::isParentStatusLocked($arr)) {
+                continue;
+            }
+            $batchRunId = self::normalizeRunUuid($arr['run_id'] ?? '');
+            if ($batchRunId === '' || self::isRestoreBatch($batchRunId)) {
+                continue;
+            }
+            self::syncFromChildren($batchRunId);
+            ++$batches;
+        }
+
+        return ['batches' => $batches];
+    }
+
+    /**
+     * @param array<string, mixed> $child
+     * @param array<string, mixed>|null $queue
+     */
+    private static function shouldReapRunningChild(array $child, ?array $queue, int $now): bool
+    {
+        if ((string) ($child['status'] ?? '') !== 'running') {
+            return false;
+        }
+        if (self::isThrottledWaitingAlive($child, $queue, $now)) {
+            return false;
+        }
+        if (self::isWedgeStuck($child, $now, $queue)) {
+            return true;
+        }
+        if (self::isUploadStalled($child, $now, $queue)) {
+            return true;
+        }
+        $progressAt = self::progressFreshnessAt($child);
+        if ($progressAt > 0 && ($now - $progressAt) >= self::STALE_SILENCE_SECONDS) {
+            return true;
+        }
+        if (self::isWorkerAlive($child, $queue, $now)) {
+            return false;
+        }
+        $updatedAt = (int) ($child['updated_at'] ?? 0);
+        if ($updatedAt >= ($now - self::STALE_CHILD_SECONDS)) {
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Run is actively waiting out Graph throttling (recent 429 + fresh worker lease).
+     *
+     * @param array<string, mixed> $child
+     * @param array<string, mixed>|null $queue
+     */
+    public static function isThrottledWaitingAlive(array $child, ?array $queue, int $now): bool
+    {
+        if (!Capsule::schema()->hasColumn('ms365_backup_runs', 'last_429_at')) {
+            return false;
+        }
+        $last429At = (int) ($child['last_429_at'] ?? 0);
+        if ($last429At <= 0 || ($now - $last429At) > self::RECENT_THROTTLE_SECONDS) {
+            return false;
+        }
+
+        return is_array($queue)
+            && (string) ($queue['status'] ?? '') === 'running'
+            && (int) ($queue['lease_expires_at'] ?? 0) > $now;
+    }
+
+    /**
+     * @param object|array<string, mixed> $row Queue/run join row with optional last_429_at and lease_expires_at.
+     */
+    public static function isThrottledWaitingAliveFromRow(object|array $row, int $now): bool
+    {
+        $last429At = 0;
+        if (Capsule::schema()->hasColumn('ms365_backup_runs', 'last_429_at')) {
+            $last429At = (int) (is_array($row) ? ($row['last_429_at'] ?? 0) : ($row->last_429_at ?? 0));
+        }
+        if ($last429At <= 0 || ($now - $last429At) > self::RECENT_THROTTLE_SECONDS) {
+            return false;
+        }
+        $leaseExpires = (int) (is_array($row) ? ($row['lease_expires_at'] ?? 0) : ($row->lease_expires_at ?? 0));
+
+        return $leaseExpires > $now;
+    }
+
+    /**
+     * Timestamp of last real throughput progress (items/bytes), not lease-only heartbeats.
+     *
+     * @param array<string, mixed> $child
+     */
+    public static function progressFreshnessAt(array $child): int
+    {
+        if (Capsule::schema()->hasColumn('ms365_backup_runs', 'last_progress_at')) {
+            $lastProgress = (int) ($child['last_progress_at'] ?? 0);
+            if ($lastProgress > 0) {
+                return $lastProgress;
+            }
+        }
+
+        return (int) ($child['updated_at'] ?? 0);
+    }
+
+    /**
+     * Worker liveness: fresh lease or recent real-progress signal (not throughput).
+     *
+     * @param array<string, mixed> $child
+     * @param array<string, mixed>|null $queue
+     */
+    public static function isWorkerAlive(array $child, ?array $queue, int $now): bool
+    {
+        $progressAt = self::progressFreshnessAt($child);
+        if ($progressAt >= ($now - self::HEARTBEAT_GAP_SECONDS)) {
+            return true;
+        }
+        if (is_array($queue)
+            && (string) ($queue['status'] ?? '') === 'running'
+            && (int) ($queue['lease_expires_at'] ?? 0) > $now) {
+            return true;
+        }
+
+        return false;
+    }
+
+    /** @param array<string, mixed> $child */
+    private static function isWedgeStuck(array $child, int $now, ?array $queue): bool
+    {
+        if ((string) ($child['status'] ?? '') !== 'running') {
+            return false;
+        }
+        $startedAt = (int) ($child['started_at'] ?? 0);
+        if ($startedAt <= 0 || ($now - $startedAt) < self::STALE_WEDGE_SECONDS) {
+            return false;
+        }
+
+        return (int) ($child['items_done'] ?? 0) === 0
+            && (int) ($child['bytes_hashed'] ?? 0) === 0;
+    }
+
+    /** @param array<string, mixed> $child */
+    private static function isUploadStalled(array $child, int $now, ?array $queue): bool
+    {
+        if ((string) ($child['status'] ?? '') !== 'running') {
+            return false;
+        }
+        $phase = strtolower((string) ($child['phase'] ?? ''));
+        if ($phase === ''
+            || (!str_contains($phase, 'upload')
+                && !str_contains($phase, 'kopia')
+                && !str_contains($phase, 'snapshot'))) {
+            return false;
+        }
+        $progressAt = self::progressFreshnessAt($child);
+
+        return $progressAt > 0 && ($now - $progressAt) >= self::STALE_UPLOAD_SECONDS;
     }
 
     public static function syncForChildRun(string $childRunId): void
@@ -627,6 +830,8 @@ final class Ms365BatchRunRepository
         $queuedWorkloads = 0;
         $activeRunning = 0;
         $totalWorkloads = count($children);
+        $graph429Total = 0;
+        $byteStatsComparable = true;
         $activeChild = null;
         $activeIndex = 0;
         /** @var list<array<string, mixed>> $runningChildren */
@@ -656,6 +861,19 @@ final class Ms365BatchRunRepository
             }
             if ($status === 'running') {
                 ++$activeRunning;
+            }
+
+            $childStats = self::decodeChildStatsJson($child);
+            $hits429 = (int) ($childStats['graph_429_hits'] ?? 0);
+            if ($hits429 > 0) {
+                $graph429Total += $hits429;
+            }
+
+            if ($status === 'running') {
+                $childPhase = strtolower(trim((string) ($child['phase'] ?? '')));
+                if ($childPhase === '' || $childPhase === 'graph_sync' || $childPhase === 'prior_snapshot') {
+                    $byteStatsComparable = false;
+                }
             }
 
             if ($childItemsTotal > 0) {
@@ -759,7 +977,30 @@ final class Ms365BatchRunRepository
             'total_workloads' => $totalWorkloads,
             'queued_workloads' => $queuedWorkloads,
             'active_running_workloads' => $activeRunning,
+            'graph_429_hits_total' => $graph429Total,
+            'byte_stats_comparable' => $byteStatsComparable,
         ];
+    }
+
+    /**
+     * @param array<string, mixed> $child
+     * @return array<string, mixed>
+     */
+    private static function decodeChildStatsJson(array $child): array
+    {
+        if (!Capsule::schema()->hasColumn('ms365_backup_runs', 'stats_json')) {
+            return [];
+        }
+        $raw = $child['stats_json'] ?? null;
+        if (is_array($raw)) {
+            return $raw;
+        }
+        if (!is_string($raw) || $raw === '') {
+            return [];
+        }
+        $decoded = json_decode($raw, true);
+
+        return is_array($decoded) ? $decoded : [];
     }
 
     /**
@@ -795,9 +1036,114 @@ final class Ms365BatchRunRepository
         return 0.05;
     }
 
+    /**
+     * @return array{speed: ?int, eta_seconds: ?int}
+     */
+    public static function computeSpeedAndEta(
+        int $lastBytes,
+        int $lastTs,
+        int $currentBytes,
+        int $bytesTotal,
+        int $now,
+    ): array {
+        $speed = null;
+        $etaSeconds = null;
+        if ($lastTs > 0 && $now > $lastTs && $currentBytes > $lastBytes) {
+            $elapsed = $now - $lastTs;
+            $speed = (int) round(($currentBytes - $lastBytes) / max(1, $elapsed));
+            if ($speed > 0 && $bytesTotal > $currentBytes) {
+                $etaSeconds = (int) ceil(($bytesTotal - $currentBytes) / $speed);
+            }
+        }
+
+        return ['speed' => $speed, 'eta_seconds' => $etaSeconds];
+    }
+
+    public static function computeItemsSpeed(
+        int $lastItems,
+        int $lastTs,
+        int $currentItems,
+        int $now,
+    ): ?int {
+        if ($lastTs > 0 && $now > $lastTs && $currentItems > $lastItems) {
+            $elapsed = $now - $lastTs;
+
+            return (int) round(($currentItems - $lastItems) / max(1, $elapsed));
+        }
+
+        return null;
+    }
+
+    private static function computeWindowedGraphThrottled(
+        array $statsJson,
+        int $current429Total,
+        int $now,
+    ): array {
+        $prev429Total = (int) ($statsJson['ms365_graph_429_hits_total'] ?? 0);
+        $throttleAt = (int) ($statsJson['ms365_graph_throttle_at'] ?? 0);
+        $throttled = false;
+        if ($current429Total > $prev429Total) {
+            $throttleAt = $now;
+            $throttled = true;
+        } elseif ($throttleAt > 0 && ($now - $throttleAt) < self::GRAPH_THROTTLE_WINDOW_SECONDS) {
+            $throttled = true;
+        }
+
+        return [
+            'throttled' => $throttled,
+            'throttle_at' => $throttleAt,
+        ];
+    }
+
+    /**
+     * Atomically claim the right to persist this batch's parent snapshot for the
+     * current throttle window. Returns false when another heartbeat already
+     * refreshed the parent within LIVE_SNAPSHOT_THROTTLE_SECONDS.
+     *
+     * A lock-free point read filters out the vast majority of concurrent
+     * heartbeats without touching the row lock; only the few that pass race on a
+     * conditional UPDATE, where exactly one wins (the rest match zero rows).
+     */
+    private static function claimLiveSnapshotWindow(string $batchRunId): bool
+    {
+        if (self::$parentHasUpdatedAt === null) {
+            self::$parentHasUpdatedAt = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'updated_at');
+        }
+        if (self::$parentHasUpdatedAt !== true) {
+            // No timestamp column to coordinate on; fall back to always updating.
+            return true;
+        }
+
+        $now = time();
+        $cutoff = date('Y-m-d H:i:s', $now - self::LIVE_SNAPSHOT_THROTTLE_SECONDS);
+
+        $last = Capsule::table('s3_cloudbackup_runs')
+            ->whereRaw('run_id = ' . self::uuidToDbExpr($batchRunId))
+            ->value('updated_at');
+        if ($last !== null && (string) $last >= $cutoff) {
+            return false;
+        }
+
+        $claimed = Capsule::table('s3_cloudbackup_runs')
+            ->whereRaw('run_id = ' . self::uuidToDbExpr($batchRunId))
+            ->where(function ($q) use ($cutoff) {
+                $q->whereNull('updated_at')
+                    ->orWhere('updated_at', '<', $cutoff);
+            })
+            ->update(['updated_at' => date('Y-m-d H:i:s', $now)]);
+
+        return $claimed > 0;
+    }
+
     public static function updateLiveSnapshot(string $batchRunId): void
     {
         if (!self::isUuid($batchRunId) || !Capsule::schema()->hasTable('s3_cloudbackup_runs')) {
+            return;
+        }
+
+        // Coalesce concurrent worker heartbeats so only one persists the parent
+        // aggregate per throttle window (prevents the parent-row lock convoy).
+        if (!self::claimLiveSnapshotWindow($batchRunId)) {
             return;
         }
 
@@ -828,25 +1174,37 @@ final class Ms365BatchRunRepository
             }
         }
 
-        $lastBytes = (int) ($statsJson['ms365_last_bytes'] ?? 0);
         $lastTs = (int) ($statsJson['ms365_last_ts'] ?? 0);
-        $speed = null;
-        $etaSeconds = null;
         $bytesTransferred = (int) $agg['bytes_transferred'];
-        if ($lastTs > 0 && $now > $lastTs && $bytesTransferred >= $lastBytes) {
-            $elapsed = $now - $lastTs;
-            $speed = (int) round(($bytesTransferred - $lastBytes) / max(1, $elapsed));
-            $bytesTotal = (int) $agg['bytes_total'];
-            if ($speed > 0 && $bytesTotal > $bytesTransferred) {
-                $etaSeconds = (int) ceil(($bytesTotal - $bytesTransferred) / $speed);
-            }
-        }
+        $bytesProcessed = (int) $agg['bytes_processed'];
+        $bytesTotal = (int) $agg['bytes_total'];
+        $lastProcessed = (int) ($statsJson['ms365_last_bytes_processed'] ?? $statsJson['ms365_last_bytes'] ?? 0);
+        $speedEta = self::computeSpeedAndEta($lastProcessed, $lastTs, $bytesProcessed, $bytesTotal, $now);
+        $speed = $speedEta['speed'];
+        $etaSeconds = $speedEta['eta_seconds'];
+
+        $objectsTransferred = (int) ($agg['objects_transferred'] ?? 0);
+        $lastItems = (int) ($statsJson['ms365_last_items'] ?? 0);
+        $itemsPerSec = self::computeItemsSpeed($lastItems, $lastTs, $objectsTransferred, $now);
+
+        $throttleWindow = self::computeWindowedGraphThrottled(
+            $statsJson,
+            (int) ($agg['graph_429_hits_total'] ?? 0),
+            $now
+        );
 
         $statsJson['ms365_last_bytes'] = $bytesTransferred;
+        $statsJson['ms365_last_bytes_processed'] = $bytesProcessed;
+        $statsJson['ms365_last_items'] = $objectsTransferred;
         $statsJson['ms365_last_ts'] = $now;
         $statsJson['ms365_total_workloads'] = (int) $agg['total_workloads'];
         $statsJson['ms365_active_running_workloads'] = (int) ($agg['active_running_workloads'] ?? 0);
         $statsJson['ms365_queued_workloads'] = (int) ($agg['queued_workloads'] ?? 0);
+        $statsJson['ms365_graph_429_hits_total'] = (int) ($agg['graph_429_hits_total'] ?? 0);
+        $statsJson['ms365_graph_throttled'] = $throttleWindow['throttled'];
+        $statsJson['ms365_graph_throttle_at'] = $throttleWindow['throttle_at'];
+        $statsJson['ms365_items_per_sec'] = $itemsPerSec;
+        $statsJson['ms365_byte_stats_comparable'] = !empty($agg['byte_stats_comparable']);
 
         $progressPct = (float) ($agg['progress_pct'] ?? 0);
         $totalWorkloads = (int) ($agg['total_workloads'] ?? 0);

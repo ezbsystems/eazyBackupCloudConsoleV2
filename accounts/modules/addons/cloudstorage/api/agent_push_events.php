@@ -1,12 +1,16 @@
 <?php
 
 require_once __DIR__ . '/../../../../init.php';
-require_once __DIR__ . '/../lib/Client/AgentIngestSupport.php';
+require_once __DIR__ . '/../lib/Client/AgentAuth.php';
+require_once __DIR__ . '/../lib/Client/RunHeartbeatSupport.php';
 
 use Illuminate\Database\Capsule\Manager as Capsule;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use WHMCS\Module\Addon\CloudStorage\Client\UuidBinary;
 use WHMCS\Module\Addon\CloudStorage\Client\AgentIngestSupport;
+use WHMCS\Module\Addon\CloudStorage\Client\AgentAuth;
+use WHMCS\Module\Addon\CloudStorage\Client\RunHeartbeatSupport;
+use WHMCS\Module\Addon\CloudStorage\Client\AgentAuth;
 
 if (!defined("WHMCS")) {
     die("This file cannot be accessed directly");
@@ -21,25 +25,9 @@ function respond(array $data, int $httpCode = 200): void
 
 function authenticateAgent(): object
 {
-    $agentUuid = $_SERVER['HTTP_X_AGENT_UUID'] ?? ($_POST['agent_uuid'] ?? null);
-    $agentToken = $_SERVER['HTTP_X_AGENT_TOKEN'] ?? ($_POST['agent_token'] ?? null);
-    if (!$agentUuid || !$agentToken) {
-        respond(['status' => 'fail', 'message' => 'Missing agent headers'], 401);
-    }
-
-    $agent = Capsule::table('s3_cloudbackup_agents')
-        ->where('agent_uuid', $agentUuid)
-        ->first();
-
-    if (!$agent || $agent->status !== 'active' || $agent->agent_token !== $agentToken) {
-        respond(['status' => 'fail', 'message' => 'Unauthorized'], 401);
-    }
-
-    Capsule::table('s3_cloudbackup_agents')
-        ->where('agent_uuid', $agentUuid)
-        ->update(['last_seen_at' => Capsule::raw('NOW()')]);
-
-    return $agent;
+    return \WHMCS\Module\Addon\CloudStorage\Client\AgentAuth::authenticate(
+        fn(array $data, int $code) => respond($data, $code)
+    );
 }
 
 function getBodyJson(): array
@@ -226,7 +214,7 @@ if (is_array($logEntries) && !empty($logEntries) && Capsule::schema()->hasTable(
 if ($logRef !== null && Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'log_ref')) {
     Capsule::table('s3_cloudbackup_runs')
         ->whereRaw('run_id = ' . UuidBinary::toDbExpr(UuidBinary::normalize($runId)))
-        ->update(['log_ref' => $logRef, 'updated_at' => Capsule::raw('NOW()')]);
+        ->update(RunHeartbeatSupport::mergeHeartbeat(['log_ref' => $logRef]));
 }
 
 respond([

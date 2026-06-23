@@ -21,6 +21,7 @@
     const CONSENT_POLL_MS = 2500;
     const CONSENT_TIMEOUT_MS = 15 * 60 * 1000;
     const INVENTORY_PROGRESS_POLL_MS = 2000;
+    const INVENTORY_WORKER_START_TIMEOUT_MS = 15000;
 
     const INVENTORY_PROGRESS_LABELS = {
         users: 'Users',
@@ -947,8 +948,8 @@
 
             resetInventoryProgress() {
                 this.inventoryProgress = {
-                    phase: 'users',
-                    message: 'Discovering Microsoft 365 resources…',
+                    phase: 'idle',
+                    message: 'Starting inventory refresh…',
                     detail: '',
                     counts: {},
                     refresh_in_progress: false,
@@ -956,6 +957,10 @@
             },
 
             inventoryProgressMessage() {
+                const phase = this.inventoryProgress.phase || '';
+                if (phase === 'idle') {
+                    return 'Starting inventory refresh…';
+                }
                 return this.inventoryProgress.message || 'Discovering Microsoft 365 resources…';
             },
 
@@ -976,7 +981,9 @@
                 this.inventoryProgress.refresh_in_progress = true;
                 this.pollInventoryProgress();
                 this._inventoryProgressTimer = setInterval(() => {
-                    this.pollInventoryProgress();
+                    if (this.refreshingInventory) {
+                        this.pollInventoryProgress();
+                    }
                 }, INVENTORY_PROGRESS_POLL_MS);
             },
 
@@ -1039,6 +1046,32 @@
                 }
             },
 
+            async waitForInventoryRefreshComplete() {
+                const deadline = Date.now() + 3600000;
+                const workerStartDeadline = Date.now() + INVENTORY_WORKER_START_TIMEOUT_MS;
+                while (Date.now() < deadline) {
+                    await this.pollInventoryProgress();
+                    const phase = this.inventoryProgress.phase || '';
+                    if (phase === 'complete') {
+                        return true;
+                    }
+                    if (phase === 'error') {
+                        return false;
+                    }
+                    if (phase === 'idle' && Date.now() > workerStartDeadline) {
+                        this.inventoryProgress = {
+                            ...this.inventoryProgress,
+                            phase: 'error',
+                            message: 'Inventory refresh failed',
+                            detail: 'Background worker did not start. Please try again.',
+                        };
+                        return false;
+                    }
+                    await new Promise((resolve) => setTimeout(resolve, INVENTORY_PROGRESS_POLL_MS));
+                }
+                return false;
+            },
+
             async ensureFreshInventory(opts = {}) {
                 const silent = !!opts.silent;
                 const showSuccessToast = !!opts.showSuccessToast;
@@ -1055,7 +1088,17 @@
                         body: body.toString(),
                     });
                     const data = await res.json();
-                    if (data.status === 'success') {
+                    const accepted = data.status === 'accepted' || data.refresh_in_progress;
+                    if (data.status === 'success' || accepted) {
+                        if (accepted) {
+                            const completed = await this.waitForInventoryRefreshComplete();
+                            if (!completed) {
+                                if (!silent) {
+                                    toast('error', this.inventoryProgress.detail || this.inventoryProgress.message || 'Inventory refresh failed.');
+                                }
+                                return false;
+                            }
+                        }
                         const loaded = await this.loadInventory({ silent });
                         if (loaded) {
                             if (showSuccessToast) {
@@ -1209,6 +1252,12 @@
             sectionHasNodes(sectionKey) {
                 const nodes = this.treesBySection[sectionKey] || [];
                 return nodes.some((n) => n.depth === 0);
+            },
+
+            inaccessibleSiteCount() {
+                const sel = window.ms365JobSelection;
+                if (!sel || !this.inventory) return 0;
+                return sel.countInaccessibleSites(this.inventory);
             },
 
             visibleSectionNodes(sectionKey) {

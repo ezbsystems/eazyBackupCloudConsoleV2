@@ -54,6 +54,52 @@ func TestIsDeltaResetError(t *testing.T) {
 	}
 }
 
+func TestPaginationSessionEmptyPagesAdvancingSkipToken(t *testing.T) {
+	monitor := ForBackupPagination("directory:users", nil)
+	session := newPaginationSession(monitor, nil, false)
+
+	_, err := session.processPage(mkItems("u1", "u2"), "https://graph.microsoft.com/v1.0/users/delta?$skiptoken=token-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, token := range []string{"token-b", "token-c", "token-d", "token-e"} {
+		link := "https://graph.microsoft.com/v1.0/users/delta?$skiptoken=" + token
+		_, err := session.processPage(nil, link)
+		if err != nil {
+			t.Fatalf("empty page %d with advancing skip token should not error: %v", i+2, err)
+		}
+	}
+}
+
+func TestPaginationSessionEmptyPagesSameSkipTokenWedge(t *testing.T) {
+	monitor := ForBackupPagination("test", nil)
+	session := newPaginationSession(monitor, nil, false)
+
+	link := "https://graph.microsoft.com/v1.0/items/delta?$skiptoken=stuck"
+	_, err := session.processPage(mkItems("a"), link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 3; i++ {
+		_, err = session.processPage(nil, link)
+		if err != nil {
+			if _, ok := err.(*GraphPaginationError); !ok {
+				t.Fatalf("page %d: expected GraphPaginationError, got %T: %v", i+2, err, err)
+			}
+			return
+		}
+	}
+	t.Fatal("expected wedge error after repeated empty pages with same skip token")
+}
+
+func mkItems(ids ...string) []map[string]any {
+	out := make([]map[string]any, 0, len(ids))
+	for _, id := range ids {
+		out = append(out, map[string]any{"id": id})
+	}
+	return out
+}
+
 func TestPaginationSessionDuplicateDetectOnly(t *testing.T) {
 	monitor := ForCalendarNormalScan("test", nil)
 	outcome := &PaginationOutcome{}

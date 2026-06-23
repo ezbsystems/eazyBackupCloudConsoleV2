@@ -62,12 +62,12 @@ final class Ms365EngineConfig
 
     public static function perTenantMaxConcurrent(): int
     {
-        return max(1, (int) self::moduleSetting('ms365_per_tenant_max_concurrent', '3'));
+        return max(1, (int) self::moduleSetting('ms365_per_tenant_max_concurrent', '16'));
     }
 
     public static function perClientMaxConcurrent(): int
     {
-        return max(1, (int) self::moduleSetting('ms365_per_client_max_concurrent', '10'));
+        return max(1, (int) self::moduleSetting('ms365_per_client_max_concurrent', '96'));
     }
 
     public static function workerToken(): string
@@ -99,22 +99,22 @@ final class Ms365EngineConfig
 
     public static function shardMaxCount(): int
     {
-        return max(2, min(64, (int) self::moduleSetting('ms365_shard_max_count', '16')));
+        return max(2, min(64, (int) self::moduleSetting('ms365_shard_max_count', '48')));
     }
 
     public static function shardItemThreshold(): int
     {
-        return max(1, (int) self::moduleSetting('ms365_shard_item_threshold', '50000'));
+        return max(1, (int) self::moduleSetting('ms365_shard_item_threshold', '10000'));
     }
 
     public static function shardTargetItems(): int
     {
-        return max(1, (int) self::moduleSetting('ms365_shard_target_items', '25000'));
+        return max(1, (int) self::moduleSetting('ms365_shard_target_items', '8000'));
     }
 
     public static function listJobItemThreshold(): int
     {
-        return max(1, (int) self::moduleSetting('ms365_list_job_item_threshold', '50000'));
+        return max(1, (int) self::moduleSetting('ms365_list_job_item_threshold', '25000'));
     }
 
     public static function listShardItemThreshold(): int
@@ -194,6 +194,11 @@ final class Ms365EngineConfig
     public static function kopiaMaintenanceIntervalDays(): int
     {
         return max(1, (int) self::moduleSetting('ms365_kopia_maintenance_interval_days', '7'));
+    }
+
+    public static function fairSchedulingEnabled(): bool
+    {
+        return strtolower(trim(self::moduleSetting('ms365_fair_scheduling_enabled', '1'))) !== '0';
     }
 
     public static function batchAutoRetryEnabled(): bool

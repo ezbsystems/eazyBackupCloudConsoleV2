@@ -1,5 +1,7 @@
 <?php
 
+ob_start();
+
 require_once __DIR__ . '/../../../../init.php';
 
 if (!defined("WHMCS")) {
@@ -60,7 +62,15 @@ logModuleCall('cloudstorage', 'cancel_run_request', [
 
 $run = CloudBackupController::getRun($runIdentifier, $loggedInUserId);
 if ($run && Ms365BatchLiveService::isMs365BatchRun($run)) {
-    $result = Ms365BatchLiveService::cancelBatch($runIdentifier, (int) $loggedInUserId, $forceCancel);
+    try {
+        $result = Ms365BatchLiveService::cancelBatch($runIdentifier, (int) $loggedInUserId, $forceCancel);
+    } catch (\Throwable $e) {
+        logModuleCall('cloudstorage', 'ms365_cancel_batch_uncaught', [
+            'run_identifier' => $runIdentifier,
+            'client_id' => $loggedInUserId,
+        ], $e->getMessage());
+        $result = ['status' => 'fail', 'message' => 'Failed to cancel run. Please try again later.'];
+    }
 } else {
     $result = CloudBackupController::cancelRun($runIdentifier, $loggedInUserId, $forceCancel);
 }
@@ -70,6 +80,10 @@ logModuleCall('cloudstorage', 'cancel_run_result', [
     'run_identifier' => $runIdentifier,
     'result' => $result,
 ], 'Cancel result');
+
+if (ob_get_level() > 0) {
+    ob_end_clean();
+}
 
 $response = new JsonResponse($result, 200);
 $response->send();

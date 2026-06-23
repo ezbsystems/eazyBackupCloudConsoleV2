@@ -8,26 +8,73 @@ namespace Ms365Backup;
  */
 final class CustomerInventoryService
 {
+    private const PROGRESS_STALE_SECONDS = 600;
+    private const RUNNING_STALE_SECONDS = 90;
     /** @return array<string, mixed> */
     public static function refreshForClient(int $clientId): array
     {
-        return self::refreshForBackupUser($clientId, 0);
+        $record = TenantRecordRepository::getPrimaryForClient($clientId);
+        if ($record === null) {
+            throw new \RuntimeException('Connect Microsoft 365 before refreshing inventory.');
+        }
+
+        return self::refreshForBackupUser($clientId, (int) ($record['backup_user_id'] ?? 0));
     }
 
     /** @return array<string, mixed> */
     public static function refreshForBackupUser(int $clientId, int $backupUserId): array
     {
+        return InventoryBackgroundRefresh::start($clientId, $backupUserId);
+    }
+
+    /**
+     * Synchronous refresh (admin CLI / tests). Customer UI uses InventoryBackgroundRefresh.
+     *
+     * @return array<string, mixed>
+     */
+    public static function refreshForBackupUserSync(int $clientId, int $backupUserId): array
+    {
         $tenantRecordId = Ms365ConnectionGuard::tenantRecordIdForBackupUser($clientId, $backupUserId);
 
         try {
+            // #region agent log
+            $__bucketStart = microtime(true);
+            // #endregion
             TenantRecordRepository::ensureCloudStorageBucketForBackupUser($clientId, $backupUserId);
+            // #region agent log
+            Ms365AgentDebugLog::write(
+                'CustomerInventoryService::refreshForBackupUser',
+                'bucket bootstrap finished',
+                [
+                    'client_id' => $clientId,
+                    'backup_user_id' => $backupUserId,
+                    'duration_ms' => (int) round((microtime(true) - $__bucketStart) * 1000),
+                ],
+                'C',
+            );
+            $__refreshStart = microtime(true);
+            // #endregion
             $ctx = self::clientContext($clientId, $backupUserId);
             $inventory = new InventoryService(
                 $ctx->graph,
                 $ctx->storageLayout,
                 new DiscoveryService($ctx->graph, $ctx->storageLayout),
             );
-            $data = $inventory->refresh();
+            $data = $inventory->refresh(lightweight: true);
+            // #region agent log
+            Ms365AgentDebugLog::write(
+                'CustomerInventoryService::refreshForBackupUser',
+                'inventory refresh finished',
+                [
+                    'client_id' => $clientId,
+                    'backup_user_id' => $backupUserId,
+                    'duration_ms' => (int) round((microtime(true) - $__refreshStart) * 1000),
+                    'resource_count' => count(is_array($data['resources'] ?? null) ? $data['resources'] : []),
+                    'peak_memory_mb' => (int) round(memory_get_peak_usage(true) / 1048576),
+                ],
+                'D',
+            );
+            // #endregion
             $counts = is_array($data['counts'] ?? null) ? $data['counts'] : [];
             $resources = is_array($data['resources'] ?? null) ? $data['resources'] : [];
 
@@ -40,6 +87,20 @@ final class CustomerInventoryService
                 'warnings' => array_values(array_map('strval', $warnings)),
             ];
         } catch (\Throwable $e) {
+            // #region agent log
+            Ms365AgentDebugLog::write(
+                'CustomerInventoryService::refreshForBackupUser',
+                'inventory refresh exception',
+                [
+                    'client_id' => $clientId,
+                    'backup_user_id' => $backupUserId,
+                    'error_class' => $e::class,
+                    'error_message' => $e->getMessage(),
+                    'peak_memory_mb' => (int) round(memory_get_peak_usage(true) / 1048576),
+                ],
+                'D',
+            );
+            // #endregion
             Ms365ConnectionGuard::throwIfReconnectRequired($tenantRecordId, $e);
         }
     }
@@ -119,8 +180,8 @@ final class CustomerInventoryService
         }
 
         $progress = $ctx->storageLayout->readJson($ctx->storageLayout->discoveryDir() . '/progress.json');
-        $phase = 'users';
-        $message = 'Discovering users and mailboxes…';
+        $phase = 'idle';
+        $message = 'No inventory refresh in progress.';
         $detail = '';
 
         if (is_array($progress)) {
@@ -146,19 +207,37 @@ final class CustomerInventoryService
 
         if ($message === '') {
             $message = match ($phase) {
+                'idle' => 'No inventory refresh in progress.',
+                'running' => 'Inventory refresh started…',
                 'sites' => 'Discovering SharePoint sites…',
                 'teams' => 'Discovering Teams…',
                 'groups' => 'Discovering Microsoft 365 groups…',
                 'onedrive' => 'Checking OneDrive libraries…',
+                'site_access' => 'Checking SharePoint site access…',
                 'details' => 'Loading channels, Planner, and OneNote…',
                 'assembling' => 'Finalizing inventory…',
                 'complete' => 'Inventory ready',
+                'error' => 'Inventory refresh failed',
                 default => 'Discovering users and mailboxes…',
             };
         }
 
         $inProgress = is_array($progress)
-            && ($progress['phase'] ?? '') !== 'complete';
+            && !in_array((string) ($progress['phase'] ?? ''), ['complete', 'error'], true);
+
+        $updatedAt = is_array($progress) ? strtotime((string) ($progress['updated_at'] ?? '')) : 0;
+        if ($inProgress && $updatedAt > 0) {
+            $staleSeconds = $phase === 'running' ? self::RUNNING_STALE_SECONDS : self::PROGRESS_STALE_SECONDS;
+            if ((time() - $updatedAt) > $staleSeconds) {
+                $wasRunning = $phase === 'running';
+                $inProgress = false;
+                $phase = 'error';
+                $message = 'Inventory refresh failed';
+                $detail = $wasRunning
+                    ? 'Background worker did not start. Please try again.'
+                    : 'Inventory refresh appears stalled. Please try again.';
+            }
+        }
 
         return [
             'phase' => $phase,
@@ -203,6 +282,9 @@ final class CustomerInventoryService
                 $type = (string) ($resource['resource_type'] ?? '');
                 $resources[$i]['badge_label'] = TenantResource::badgeLabel($type);
                 $resources[$i]['capability_chips'] = TenantResource::capabilityChips($type);
+                if ($type === TenantResource::TYPE_SHAREPOINT_SITE) {
+                    $resources[$i] = array_merge($resource, TenantResource::siteSelectability($resource));
+                }
             }
 
             $counts = is_array($data['counts'] ?? null) ? $data['counts'] : [];
@@ -217,6 +299,11 @@ final class CustomerInventoryService
         } catch (\Throwable $e) {
             Ms365ConnectionGuard::throwIfReconnectRequired($tenantRecordId, $e);
         }
+    }
+
+    public static function clientContextForRefresh(int $clientId, int $backupUserId): RunTenantContext
+    {
+        return self::clientContext($clientId, $backupUserId);
     }
 
     private static function clientContext(int $clientId, int $backupUserId): RunTenantContext

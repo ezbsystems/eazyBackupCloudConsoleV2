@@ -1,9 +1,11 @@
 <?php
 
-require_once __DIR__ . '/../../../../init.php';
+require_once __DIR__ . '/../lib/Bootstrap/agent_bootstrap.php';
+require_once __DIR__ . '/../lib/Client/AgentAuth.php';
 
 use Illuminate\Database\Capsule\Manager as Capsule;
 use WHMCS\Module\Addon\CloudStorage\Client\UuidBinary;
+use WHMCS\Module\Addon\CloudStorage\Client\AgentAuth;
 use Symfony\Component\HttpFoundation\JsonResponse;
 
 if (!defined("WHMCS")) {
@@ -30,15 +32,7 @@ if (!UuidBinary::isUuid($runId)) {
     respond(['status' => 'fail', 'code' => 'invalid_identifier_format', 'message' => 'run_id must be a valid UUID'], 400);
 }
 
-$agent = Capsule::table('s3_cloudbackup_agents')->where('agent_uuid', $agentUuid)->first();
-if (!$agent || $agent->status !== 'active' || $agent->agent_token !== $agentToken) {
-    respond(['status' => 'fail', 'message' => 'Unauthorized'], 401);
-}
-
-// touch last_seen_at
-Capsule::table('s3_cloudbackup_agents')
-    ->where('agent_uuid', $agentUuid)
-    ->update(['last_seen_at' => Capsule::raw('NOW()')]);
+$agent = AgentAuth::authenticate(fn(array $data, int $code) => respond($data, $code));
 
 $run = Capsule::table('s3_cloudbackup_runs as r')
     ->join('s3_cloudbackup_jobs as j', 'r.job_id', '=', 'j.job_id')

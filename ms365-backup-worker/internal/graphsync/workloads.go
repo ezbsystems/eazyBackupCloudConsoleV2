@@ -21,6 +21,7 @@ type WorkloadRunner struct {
 	Overlay          *graphfs.OverlayBuilder
 	UseBatchFallback bool
 	OnProgress       func(phase string, itemsDone, itemsTotal int, bytesTotal int64)
+	OnCheckpoint     func(deltaStates map[string]map[string]string, itemsDone int, bytesTotal int64)
 	RunLog           RunLogger
 }
 
@@ -79,10 +80,16 @@ func (w *WorkloadRunner) Run(ctx context.Context) (*WorkloadResult, error) {
 			OnProgress:       func(d, t int, b int64) { progress("mail", d, t, b) },
 		})
 		if err != nil {
-			return nil, fmt.Errorf("mail: %w", err)
+			if w.skipIfMailboxNotEnabled("mail", err, stats) {
+				// mailbox unavailable; other workloads may still run
+			} else {
+				return nil, fmt.Errorf("mail: %w", err)
+			}
+		} else {
+			stats["mail"] = mailRes.Stats
+			deltaStates["mail"] = mailRes.DeltaStates
+			w.emitCheckpoint(deltaStates, itemsDone, bytesTotal)
 		}
-		stats["mail"] = mailRes.Stats
-		deltaStates["mail"] = mailRes.DeltaStates
 	}
 
 	if w.allowsWorkload("contacts") && w.Job.GraphID != "" {
@@ -95,11 +102,16 @@ func (w *WorkloadRunner) Run(ctx context.Context) (*WorkloadResult, error) {
 			Log:           w.RunLog,
 		})
 		if err != nil {
-			return nil, fmt.Errorf("contacts: %w", err)
-		}
-		stats["contacts"] = cRes.Stats
-		if len(cRes.DeltaStates) > 0 {
-			deltaStates["contacts"] = cRes.DeltaStates
+			if w.skipIfMailboxNotEnabled("contacts", err, stats) {
+				// mailbox unavailable
+			} else {
+				return nil, fmt.Errorf("contacts: %w", err)
+			}
+		} else {
+			stats["contacts"] = cRes.Stats
+			if len(cRes.DeltaStates) > 0 {
+				deltaStates["contacts"] = cRes.DeltaStates
+			}
 		}
 	}
 
@@ -113,11 +125,16 @@ func (w *WorkloadRunner) Run(ctx context.Context) (*WorkloadResult, error) {
 			Log:           w.RunLog,
 		})
 		if err != nil {
-			return nil, fmt.Errorf("tasks: %w", err)
-		}
-		stats["tasks"] = tRes.Stats
-		if len(tRes.DeltaStates) > 0 {
-			deltaStates["tasks"] = tRes.DeltaStates
+			if w.skipIfMailboxNotEnabled("tasks", err, stats) {
+				// mailbox unavailable
+			} else {
+				return nil, fmt.Errorf("tasks: %w", err)
+			}
+		} else {
+			stats["tasks"] = tRes.Stats
+			if len(tRes.DeltaStates) > 0 {
+				deltaStates["tasks"] = tRes.DeltaStates
+			}
 		}
 	}
 
@@ -145,6 +162,7 @@ func (w *WorkloadRunner) Run(ctx context.Context) (*WorkloadResult, error) {
 		if len(odRes.DeltaStates) > 0 {
 			deltaStates["onedrive"] = odRes.DeltaStates
 		}
+		w.emitCheckpoint(deltaStates, itemsDone, bytesTotal)
 	}
 
 	if w.allowsWorkload("sharepoint") {
@@ -167,14 +185,20 @@ func (w *WorkloadRunner) Run(ctx context.Context) (*WorkloadResult, error) {
 			OnProgress:    func(d, t int, b int64) { progress("sharepoint", d, t, b) },
 		})
 		if err != nil {
-			return nil, fmt.Errorf("sharepoint: %w", err)
-		}
-		stats["sharepoint"] = spRes.Stats
-		if len(spRes.Warnings) > 0 {
-			stats["pagination_warnings"] = spRes.Warnings
-		}
-		if len(spRes.DeltaStates) > 0 {
-			deltaStates["sharepoint"] = spRes.DeltaStates
+			if w.skipIfSharePointAccessDenied("sharepoint", err, stats) {
+				// site access denied; other workloads may still run
+			} else {
+				return nil, fmt.Errorf("sharepoint: %w", err)
+			}
+		} else {
+			stats["sharepoint"] = spRes.Stats
+			if len(spRes.Warnings) > 0 {
+				stats["pagination_warnings"] = spRes.Warnings
+			}
+			if len(spRes.DeltaStates) > 0 {
+				deltaStates["sharepoint"] = spRes.DeltaStates
+			}
+			w.emitCheckpoint(deltaStates, itemsDone, bytesTotal)
 		}
 	}
 
@@ -197,14 +221,19 @@ func (w *WorkloadRunner) Run(ctx context.Context) (*WorkloadResult, error) {
 			OnProgress:      func(d, t int) { progress("sharepoint_lists", d, t, 0) },
 		})
 		if err != nil {
-			return nil, fmt.Errorf("sharepoint_lists: %w", err)
-		}
-		stats["sharepoint_lists"] = splRes.Stats
-		if len(splRes.Warnings) > 0 {
-			stats["pagination_warnings"] = splRes.Warnings
-		}
-		if len(splRes.DeltaStates) > 0 {
-			deltaStates["sharepoint_lists"] = splRes.DeltaStates
+			if w.skipIfSharePointAccessDenied("sharepoint_lists", err, stats) {
+				// site access denied
+			} else {
+				return nil, fmt.Errorf("sharepoint_lists: %w", err)
+			}
+		} else {
+			stats["sharepoint_lists"] = splRes.Stats
+			if len(splRes.Warnings) > 0 {
+				stats["pagination_warnings"] = splRes.Warnings
+			}
+			if len(splRes.DeltaStates) > 0 {
+				deltaStates["sharepoint_lists"] = splRes.DeltaStates
+			}
 		}
 	}
 
@@ -236,11 +265,16 @@ func (w *WorkloadRunner) Run(ctx context.Context) (*WorkloadResult, error) {
 			Log:           w.RunLog,
 		})
 		if err != nil {
-			return nil, fmt.Errorf("calendar: %w", err)
-		}
-		stats["calendar"] = calRes.Stats
-		if len(calRes.DeltaStates) > 0 {
-			deltaStates["calendar"] = calRes.DeltaStates
+			if w.skipIfMailboxNotEnabled("calendar", err, stats) {
+				// mailbox unavailable
+			} else {
+				return nil, fmt.Errorf("calendar: %w", err)
+			}
+		} else {
+			stats["calendar"] = calRes.Stats
+			if len(calRes.DeltaStates) > 0 {
+				deltaStates["calendar"] = calRes.DeltaStates
+			}
 		}
 	}
 
@@ -285,6 +319,7 @@ func (w *WorkloadRunner) Run(ctx context.Context) (*WorkloadResult, error) {
 	}
 
 	stats["graph_429_hits"] = w.Client.ThrottleHits()
+	w.emitCheckpoint(deltaStates, itemsDone, bytesTotal)
 
 	return &WorkloadResult{
 		Stats:       stats,
@@ -293,6 +328,21 @@ func (w *WorkloadRunner) Run(ctx context.Context) (*WorkloadResult, error) {
 		ItemsDone:   atomic.LoadInt64(&itemsDone),
 		BytesTotal:  atomic.LoadInt64(&bytesTotal),
 	}, nil
+}
+
+func (w *WorkloadRunner) emitCheckpoint(deltaStates map[string]map[string]string, itemsDone, bytesTotal int64) {
+	if w.OnCheckpoint == nil || len(deltaStates) == 0 {
+		return
+	}
+	cp := make(map[string]map[string]string, len(deltaStates))
+	for k, v := range deltaStates {
+		inner := make(map[string]string, len(v))
+		for sk, sv := range v {
+			inner[sk] = sv
+		}
+		cp[k] = inner
+	}
+	w.OnCheckpoint(cp, int(itemsDone), int64(bytesTotal))
 }
 
 func (w *WorkloadRunner) deltaForWorkload(workload string) map[string]string {
@@ -325,6 +375,35 @@ func (w *WorkloadRunner) scopeFlag(key string, defaultWhenMissing bool) bool {
 		}
 	}
 	return defaultWhenMissing
+}
+
+// skipIfMailboxNotEnabled records a skipped stat and logs when err is a permanent
+// no-mailbox Graph response. Returns true when the workload should be skipped.
+//
+// This covers both the 404 MailboxNotEnabledForRESTAPI returned by mail/contacts
+// and the 401 UnknownError the To Do (tasks) and Outlook endpoints return for the
+// same no-mailbox users; without the latter, a single no-mailbox user would hard
+// -fail the entire run on the tasks workload and requeue until max attempts.
+func (w *WorkloadRunner) skipIfSharePointAccessDenied(workload string, err error, stats map[string]any) bool {
+	if err == nil || !graph.IsSharePointAccessDenied(err) {
+		return false
+	}
+	if w.RunLog != nil {
+		w.RunLog("warning", fmt.Sprintf("%s skipped: access denied to site", workload))
+	}
+	stats[workload] = map[string]any{"skipped": "access_denied"}
+	return true
+}
+
+func (w *WorkloadRunner) skipIfMailboxNotEnabled(workload string, err error, stats map[string]any) bool {
+	if err == nil || !graph.IsMailboxUnavailable(err) {
+		return false
+	}
+	if w.RunLog != nil {
+		w.RunLog("warning", fmt.Sprintf("%s skipped: mailbox not enabled for REST API", workload))
+	}
+	stats[workload] = map[string]any{"skipped": "mailbox_not_enabled"}
+	return true
 }
 
 func (w *WorkloadRunner) enabled(name string) bool {

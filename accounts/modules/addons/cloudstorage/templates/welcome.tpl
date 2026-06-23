@@ -1210,30 +1210,6 @@ if (window.csrfToken && !window.EB_CSRF_TOKEN) {
         return { status: 'error', message: 'stripe_payment_add_failed' };
     }
 
-    async function ebRetrievePaymentMethodDetails(paymentMethodId) {
-        if (!window.stripe) {
-            return null;
-        }
-        try {
-            var result = await stripe.retrievePaymentMethod(paymentMethodId);
-            if (result && result.paymentMethod && result.paymentMethod.card) {
-                var card = result.paymentMethod.card;
-                return {
-                    last4: card.last4 || '0000',
-                    exp_month: card.exp_month || 12,
-                    exp_year: card.exp_year || 2030,
-                    brand: card.brand || 'unknown'
-                };
-            }
-        } catch (e) {}
-        return {
-            last4: '0000',
-            exp_month: 12,
-            exp_year: 2030,
-            brand: 'unknown'
-        };
-    }
-
     async function ebSaveCardViaApi(remoteToken, cardDetails) {
         var params = { remote_storage_token: remoteToken };
         if (cardDetails) {
@@ -1256,8 +1232,8 @@ if (window.csrfToken && !window.EB_CSRF_TOKEN) {
 
     async function ebFinalizePaymentMethod(paymentMethodId, existingCardDetails) {
         var cardDetails = existingCardDetails;
-        if (!cardDetails || !cardDetails.last4 || cardDetails.last4 === '0000') {
-            cardDetails = await ebRetrievePaymentMethodDetails(paymentMethodId);
+        if (!cardDetails || !cardDetails.last4) {
+            return { status: 'error', message: 'card_details_missing' };
         }
         var tokenRes = await ebGetStripeRemoteToken(paymentMethodId);
         if (tokenRes.status !== 'success' || !tokenRes.token) {
@@ -1281,23 +1257,30 @@ if (window.csrfToken && !window.EB_CSRF_TOKEN) {
         return { status: 'error', message: 'verify_failed' };
     }
 
-    async function ebSubmitCardViaApi() {
-        var form = document.getElementById('eb-addcard-form');
-        if (!form) {
-            return { status: 'error', message: 'form_missing' };
+    function ebCardDetailsFromPaymentMethod(paymentMethod) {
+        if (!paymentMethod || !paymentMethod.card) {
+            return null;
         }
-        ebSyncCsrfToken();
-        if (!window.stripe || !window.card) {
-            return { status: 'error', message: 'stripe_unavailable' };
+        var cardInfo = paymentMethod.card;
+        if (!cardInfo.last4) {
+            return null;
         }
-        var data = new URLSearchParams(new FormData(form));
+        return {
+            last4: cardInfo.last4,
+            exp_month: cardInfo.exp_month || '',
+            exp_year: cardInfo.exp_year || '',
+            brand: cardInfo.brand || ''
+        };
+    }
+
+    async function ebConfirmPaymentMethodWithSetupIntent(formData) {
         var setupUrl = (window.WHMCS && WHMCS.utils && WHMCS.utils.getRouteUrl)
             ? WHMCS.utils.getRouteUrl('/stripe/setup/intent')
             : ebJoinRoot('/index.php?rp=/stripe/setup/intent');
         var setupResponse = await fetch(setupUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: data.toString()
+            body: formData.toString()
         });
         var setupJson = await setupResponse.json();
         if (!setupJson || !setupJson.success || !setupJson.setup_intent) {
@@ -1310,31 +1293,67 @@ if (window.csrfToken && !window.EB_CSRF_TOKEN) {
         if (setupResult.error) {
             return { status: 'error', message: setupResult.error.message || 'card_setup_failed' };
         }
-
+        var paymentMethod = setupResult.setupIntent ? setupResult.setupIntent.payment_method : null;
         var paymentMethodId = '';
-        var cardDetails = null;
-        if (setupResult.setupIntent) {
-            var paymentMethod = setupResult.setupIntent.payment_method;
-            if (typeof paymentMethod === 'object' && paymentMethod !== null) {
-                paymentMethodId = paymentMethod.id || '';
-                if (paymentMethod.card) {
-                    cardDetails = {
-                        last4: paymentMethod.card.last4 || '0000',
-                        exp_month: paymentMethod.card.exp_month || 12,
-                        exp_year: paymentMethod.card.exp_year || 2030,
-                        brand: paymentMethod.card.brand || 'unknown'
-                    };
-                }
-            } else if (typeof paymentMethod === 'string') {
-                paymentMethodId = paymentMethod;
-            }
+        if (typeof paymentMethod === 'object' && paymentMethod !== null) {
+            paymentMethodId = paymentMethod.id || '';
+        } else if (typeof paymentMethod === 'string') {
+            paymentMethodId = paymentMethod;
         }
-
         if (!paymentMethodId) {
             return { status: 'error', message: 'payment_method_missing' };
         }
-
+        var cardDetails = (typeof paymentMethod === 'object' && paymentMethod !== null)
+            ? ebCardDetailsFromPaymentMethod(paymentMethod)
+            : null;
+        if (!cardDetails && window.stripe) {
+            try {
+                var retrieved = await stripe.retrievePaymentMethod(paymentMethodId);
+                cardDetails = ebCardDetailsFromPaymentMethod(retrieved && retrieved.paymentMethod);
+            } catch (e) {}
+        }
+        if (!cardDetails) {
+            return { status: 'error', message: 'card_details_missing' };
+        }
         return await ebFinalizePaymentMethod(paymentMethodId, cardDetails);
+    }
+
+    async function ebSubmitCardViaApi() {
+        var form = document.getElementById('eb-addcard-form');
+        if (!form) {
+            return { status: 'error', message: 'form_missing' };
+        }
+        ebSyncCsrfToken();
+        if (!window.stripe || !window.card) {
+            return { status: 'error', message: 'stripe_unavailable' };
+        }
+        var data = new URLSearchParams(new FormData(form));
+        var pmResult = await stripe.createPaymentMethod('card', card);
+        if (pmResult.error) {
+            var authRequired = pmResult.error.code === 'authentication_required'
+                || (pmResult.error.payment_intent && pmResult.error.payment_intent.status === 'requires_action')
+                || (pmResult.error.setup_intent && pmResult.error.setup_intent.status === 'requires_action');
+            if (authRequired) {
+                return await ebConfirmPaymentMethodWithSetupIntent(data);
+            }
+            return { status: 'error', message: pmResult.error.message || 'card_setup_failed' };
+        }
+
+        var paymentMethod = pmResult.paymentMethod;
+        if (!paymentMethod || !paymentMethod.id) {
+            return { status: 'error', message: 'payment_method_missing' };
+        }
+
+        var cardDetails = ebCardDetailsFromPaymentMethod(paymentMethod);
+        if (!cardDetails) {
+            return { status: 'error', message: 'card_details_missing' };
+        }
+
+        if (paymentMethod.status === 'requires_action') {
+            return await ebConfirmPaymentMethodWithSetupIntent(data);
+        }
+
+        return await ebFinalizePaymentMethod(paymentMethod.id, cardDetails);
     }
 
     async function ebCardSubmit(ev) {

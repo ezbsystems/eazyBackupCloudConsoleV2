@@ -204,20 +204,65 @@ final class Ms365AdminJobsRepository
         foreach ($children as $child) {
             $runId = (string) ($child['id'] ?? '');
             $queue = $queueByRun[$runId] ?? [];
+            $childStats = self::decodeChildStatsJson($child);
+            $queueError = (string) ($queue['error_message'] ?? '');
             $out[] = [
                 'run_id' => $runId,
                 'workload_label' => self::workloadLabel($child),
                 'status' => (string) ($child['status'] ?? ''),
+                'phase' => (string) ($child['phase'] ?? ''),
                 'error_message' => (string) ($child['error_message'] ?? ''),
+                'queue_error' => $queueError,
                 'percent' => $child['percent'] ?? null,
+                'bytes_hashed' => (int) ($child['bytes_hashed'] ?? 0),
+                'bytes_uploaded' => (int) ($child['bytes_uploaded'] ?? 0),
+                'graph_sync_ms' => isset($childStats['graph_sync_ms']) ? (int) $childStats['graph_sync_ms'] : null,
+                'kopia_snapshot_ms' => isset($childStats['kopia_snapshot_ms']) ? (int) $childStats['kopia_snapshot_ms'] : null,
+                'workload_skipped' => self::decodeWorkloadSkipped($childStats),
                 'attempts' => (int) ($queue['attempts'] ?? 0),
                 'max_attempts' => (int) ($queue['max_attempts'] ?? 3),
                 'queue_status' => (string) ($queue['status'] ?? ''),
-                'last_error' => (string) ($queue['error_message'] ?? ''),
+                'last_error' => $queueError,
             ];
         }
 
         return $out;
+    }
+
+    /** @return array<string, mixed> */
+    private static function decodeChildStatsJson(array $child): array
+    {
+        if (!Capsule::schema()->hasColumn('ms365_backup_runs', 'stats_json')) {
+            return [];
+        }
+        $raw = $child['stats_json'] ?? null;
+        if (is_array($raw)) {
+            return $raw;
+        }
+        if (!is_string($raw) || $raw === '') {
+            return [];
+        }
+        $decoded = json_decode($raw, true);
+
+        return is_array($decoded) ? $decoded : [];
+    }
+
+    /** @return array<string, string> */
+    private static function decodeWorkloadSkipped(array $stats): array
+    {
+        $workloads = is_array($stats['workloads'] ?? null) ? $stats['workloads'] : [];
+        $skipped = [];
+        foreach ($workloads as $name => $data) {
+            if (!is_array($data)) {
+                continue;
+            }
+            $reason = trim((string) ($data['skipped'] ?? ''));
+            if ($reason !== '') {
+                $skipped[(string) $name] = $reason;
+            }
+        }
+
+        return $skipped;
     }
 
     /** @param array<string, mixed> $child */

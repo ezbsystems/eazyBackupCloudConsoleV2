@@ -130,11 +130,18 @@
       if (meta.last_modified) sub += ' · Last changed: ' + esc(meta.last_modified);
       sub += '</small>';
     }
-    var disabled = r.backup_enabled === false && (r.resource_type !== TYPE_USER && r.resource_type !== TYPE_MAILBOX);
-    var title = disabled ? ' title="Backup not implemented for this resource type yet"' : '';
+    var notSelectable = r.selectable === false;
+    var disabled = notSelectable
+      || (r.backup_enabled === false && (r.resource_type !== TYPE_USER && r.resource_type !== TYPE_MAILBOX));
+    var title = '';
+    if (notSelectable) {
+      title = ' title="' + esc(r.disabled_reason || 'Backup app cannot access this site') + '"';
+    } else if (disabled) {
+      title = ' title="Backup not implemented for this resource type yet"';
+    }
 
-    return '<tr class="ms365-resource-row' + cls + '" data-resource-id="' + esc(r.id) + '"' + title + '>'
-      + '<td style="width:28px;vertical-align:top"><input type="checkbox" class="ms365-resource-cb"' + (checked ? ' checked' : '') + ' data-resource-id="' + esc(r.id) + '"></td>'
+    return '<tr class="ms365-resource-row' + cls + (notSelectable ? ' ms365-resource-row-disabled' : '') + '" data-resource-id="' + esc(r.id) + '"' + title + '>'
+      + '<td style="width:28px;vertical-align:top"><input type="checkbox" class="ms365-resource-cb"' + (checked ? ' checked' : '') + (disabled ? ' disabled' : '') + ' data-resource-id="' + esc(r.id) + '"></td>'
       + '<td>' + esc(r.display_name) + sub
       + '<div style="margin-top:4px">' + badgeHtml(r) + '</div>'
       + '<div style="margin-top:2px">' + chipsHtml(r) + '</div>'
@@ -148,6 +155,7 @@
       function toggle(sel) {
         var r = resourceById(id);
         if (!r) return;
+        if (r.selectable === false) return;
         if (sel) {
           selectedResources[id] = {
             id: r.id,

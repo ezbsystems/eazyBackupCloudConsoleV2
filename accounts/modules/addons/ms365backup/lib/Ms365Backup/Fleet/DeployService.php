@@ -108,10 +108,14 @@ final class DeployService
     {
         $state = FleetStateRepository::get();
         $releaseId = (int) ($state['target_release_id'] ?? 0);
-        if ($releaseId <= 0) {
-            return null;
+        $release = null;
+        $baselineOnly = false;
+        if ($releaseId > 0) {
+            $release = ReleaseRepository::get($releaseId);
+        } elseif (self::autoBaselineUpdateEnabled()) {
+            $release = ReleaseRepository::latest();
+            $baselineOnly = $release !== null;
         }
-        $release = ReleaseRepository::get($releaseId);
         if ($release === null) {
             return null;
         }
@@ -123,57 +127,137 @@ final class DeployService
             return null;
         }
 
-        $deployStatus = (string) ($node['deploy_status'] ?? 'current');
-        if ($deployStatus === 'updating') {
+        $load = \Ms365Backup\WorkerClaimService::effectiveReportedLoad(
+            $nodeId,
+            (int) ($node['current_load'] ?? 0)
+        );
+        if ($baselineOnly && $load > 0) {
             return null;
         }
 
         $strategy = (string) ($state['deploy_strategy'] ?? 'rolling');
         $force = (int) ($state['deploy_force'] ?? 0) === 1;
-        $load = (int) ($node['current_load'] ?? 0);
-        if (!$force && $load > 0) {
+        if (!$baselineOnly && !self::nodeAllowedInRollout($node, $state, $strategy)) {
             return null;
         }
 
-        if (!self::nodeAllowedInRollout($node, $state, $strategy)) {
-            return null;
+        $releaseId = (int) ($release['id'] ?? 0);
+        $deployStatus = (string) ($node['deploy_status'] ?? 'current');
+        if ($deployStatus !== 'updating') {
+            WorkerNodeRepository::setDeployStatus($nodeId, 'updating', $releaseId > 0 ? $releaseId : null, '');
         }
 
-        WorkerNodeRepository::setDeployStatus($nodeId, 'updating', $releaseId, '');
-
-        return [
+        $offer = [
             'version' => $targetVersion,
             'sha256' => (string) $release['sha256'],
             'download_url' => ArtifactService::downloadUrl($releaseId, $nodeId),
             'release_id' => $releaseId,
         ];
+        // Rolling deploys hand off active jobs one node at a time. Force deploys
+        // (checkbox or strategy=force) must not drain — workers apply in place.
+        $needsDrain = !$baselineOnly
+            && $load > 0
+            && $strategy === 'rolling'
+            && !$force;
+        if ($needsDrain) {
+            $offer['drain'] = true;
+            if (($node['status'] ?? '') !== 'draining') {
+                Capsule::table('ms365_worker_nodes')->where('node_id', $nodeId)->update([
+                    'status' => 'draining',
+                    'updated_at' => time(),
+                ]);
+            }
+        } elseif (($node['status'] ?? '') === 'draining') {
+            Capsule::table('ms365_worker_nodes')->where('node_id', $nodeId)->update([
+                'status' => 'active',
+                'updated_at' => time(),
+            ]);
+        }
+
+        return $offer;
+    }
+
+    private static function autoBaselineUpdateEnabled(): bool
+    {
+        $val = strtolower(trim(\Ms365Backup\Ms365EngineConfig::moduleSettingPublic('ms365_worker_fleet_auto_baseline_update', 'on')));
+
+        return $val !== 'off' && $val !== '0';
+    }
+
+    /** @param array<string, mixed> $node */
+    public static function nodeAwaitingDeploy(array $node): bool
+    {
+        $state = FleetStateRepository::get();
+        $releaseId = (int) ($state['target_release_id'] ?? 0);
+        if ($releaseId <= 0) {
+            return false;
+        }
+        $release = ReleaseRepository::get($releaseId);
+        if ($release === null) {
+            return false;
+        }
+        $deployStatus = (string) ($node['deploy_status'] ?? 'current');
+        if (!in_array($deployStatus, ['pending', 'updating'], true)) {
+            return false;
+        }
+
+        return ReleaseRepository::nodeNeedsUpdate(
+            (string) ($node['version'] ?? ''),
+            (string) $release['version']
+        );
     }
 
     /** @param array<string, mixed> $node */
     /** @param array<string, mixed> $state */
     private static function nodeAllowedInRollout(array $node, array $state, string $strategy): bool
     {
+        $nodeId = (string) ($node['node_id'] ?? '');
+        $effectiveLoad = \Ms365Backup\WorkerClaimService::effectiveReportedLoad(
+            $nodeId,
+            (int) ($node['current_load'] ?? 0)
+        );
         if ($strategy === 'all_idle') {
-            return (int) ($node['current_load'] ?? 0) === 0;
+            return $effectiveLoad === 0;
         }
         if ($strategy === 'canary') {
             $canary = (string) ($state['canary_node_id'] ?? '');
             if ($canary !== '') {
                 $canaryNode = WorkerNodeRepository::get($canary);
                 if ($canaryNode && ReleaseRepository::nodeNeedsUpdate((string) ($canaryNode['version'] ?? ''), (string) (ReleaseRepository::get((int) $state['target_release_id'])['version'] ?? ''))) {
-                    return (string) ($node['node_id'] ?? '') === $canary;
+                    if ((string) ($node['node_id'] ?? '') !== $canary) {
+                        return false;
+                    }
+
+                    return $effectiveLoad === 0;
                 }
             }
         }
         if ($strategy === 'rolling') {
-            if (WorkerNodeRepository::countByDeployStatus('updating') > 0) {
-                return false;
+            $nodeDeployStatus = (string) ($node['deploy_status'] ?? 'current');
+            if ($nodeDeployStatus === 'updating') {
+                return true;
+            }
+            foreach (WorkerNodeRepository::listNodes(['active', 'draining', 'offline'], 'updating') as $updatingNode) {
+                if ((string) ($updatingNode['node_id'] ?? '') !== $nodeId) {
+                    return false;
+                }
             }
             $pending = WorkerNodeRepository::listNodes(['active', 'draining', 'offline'], 'pending');
             if ($pending === []) {
                 return true;
             }
-            usort($pending, static fn ($a, $b) => ((int) ($a['current_load'] ?? 0)) <=> ((int) ($b['current_load'] ?? 0)));
+            usort($pending, static function ($a, $b) {
+                $loadA = \Ms365Backup\WorkerClaimService::effectiveReportedLoad(
+                    (string) ($a['node_id'] ?? ''),
+                    (int) ($a['current_load'] ?? 0)
+                );
+                $loadB = \Ms365Backup\WorkerClaimService::effectiveReportedLoad(
+                    (string) ($b['node_id'] ?? ''),
+                    (int) ($b['current_load'] ?? 0)
+                );
+
+                return $loadA <=> $loadB;
+            });
 
             return (string) ($pending[0]['node_id'] ?? '') === (string) ($node['node_id'] ?? '');
         }
@@ -188,6 +272,12 @@ final class DeployService
 
         WorkerNodeRepository::setDeployStatus($nodeId, 'current', null, '');
         WorkerNodeRepository::setVersion($nodeId, $version);
+        if ($node !== null && ($node['status'] ?? '') === 'draining') {
+            Capsule::table('ms365_worker_nodes')->where('node_id', $nodeId)->update([
+                'status' => 'active',
+                'updated_at' => time(),
+            ]);
+        }
 
         $state = FleetStateRepository::get();
         $deployId = (int) ($state['active_deploy_job_id'] ?? 0);
@@ -293,12 +383,37 @@ final class DeployService
     /** @return int Nodes whose deploy_status was cleared */
     public static function reconcileStuckDeployStatuses(): int
     {
+        $fixed = 0;
+        $now = time();
+        foreach (WorkerNodeRepository::listNodes(['active', 'draining', 'offline', 'registering']) as $node) {
+            $nodeId = (string) ($node['node_id'] ?? '');
+            if ($nodeId === '') {
+                continue;
+            }
+            $deployStatus = (string) ($node['deploy_status'] ?? 'current');
+            if ($deployStatus === 'updating') {
+                $updatedAt = (int) ($node['deploy_updated_at'] ?? 0);
+                $queueLoad = \Ms365Backup\WorkerClaimService::runningClaimCountForNode($nodeId);
+                $effectiveLoad = \Ms365Backup\WorkerClaimService::effectiveReportedLoad(
+                    $nodeId,
+                    (int) ($node['current_load'] ?? 0)
+                );
+                if ($updatedAt > 0 && $updatedAt < $now - 900 && $queueLoad === 0 && $effectiveLoad === 0) {
+                    $state = FleetStateRepository::get();
+                    $releaseId = (int) ($state['target_release_id'] ?? 0);
+                    WorkerNodeRepository::setDeployStatus($nodeId, 'pending', $releaseId > 0 ? $releaseId : null, '');
+                    $fixed++;
+                }
+            }
+        }
+
         $latest = ReleaseRepository::latest();
         if ($latest === null) {
-            return 0;
+            self::reconcileActiveDeploy();
+
+            return $fixed;
         }
         $targetVersion = (string) $latest['version'];
-        $fixed = 0;
         foreach (WorkerNodeRepository::listNodes(['active', 'draining', 'offline', 'registering']) as $node) {
             if (ReleaseRepository::nodeNeedsUpdate((string) ($node['version'] ?? ''), $targetVersion)) {
                 continue;

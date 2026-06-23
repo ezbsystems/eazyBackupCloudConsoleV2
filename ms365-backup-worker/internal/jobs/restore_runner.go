@@ -17,16 +17,27 @@ import (
 )
 
 type RestoreRunner struct {
-	cfg      *config.Config
-	client   *api.Client
-	repoPool *kopia.Pool
+	cfg          *config.Config
+	client       *api.Client
+	repoPool     *kopia.Pool
+	progressHook func(string, api.ProgressUpdate)
 }
 
 func NewRestoreRunner(cfg *config.Config, client *api.Client, repoPool *kopia.Pool) *RestoreRunner {
 	return &RestoreRunner{cfg: cfg, client: client, repoPool: repoPool}
 }
 
-func (r *RestoreRunner) Run(ctx context.Context, job *api.RunJob) error {
+func (r *RestoreRunner) SetProgressHook(fn func(string, api.ProgressUpdate)) {
+	r.progressHook = fn
+}
+
+func (r *RestoreRunner) noteProgress(upd api.ProgressUpdate) {
+	if r.progressHook != nil && upd.RunID != "" {
+		r.progressHook(upd.RunID, upd)
+	}
+}
+
+func (r *RestoreRunner) Run(ctx context.Context, job *api.RunJob, onAbort context.CancelFunc) error {
 	if job == nil || job.JobType != "restore" {
 		return fmt.Errorf("not a restore job")
 	}
@@ -42,7 +53,7 @@ func (r *RestoreRunner) Run(ctx context.Context, job *api.RunJob) error {
 		return r.fail(ctx, job.RunID, "no restore target")
 	}
 
-	_ = r.client.Progress(ctx, api.ProgressUpdate{
+	sendProgress(ctx, r.client, onAbort, api.ProgressUpdate{
 		RunID:      job.RunID,
 		Phase:      "restore_extract",
 		Percent:    5,
@@ -162,13 +173,12 @@ func (r *RestoreRunner) Run(ctx context.Context, job *api.RunJob) error {
 			upd.Phase = "restore_graph"
 		}
 		lastProgress = upd
-		if err := r.client.Progress(ctx, upd); err != nil {
-			log.Printf("restore %s progress warning: %v", job.RunID, err)
-		}
+		r.noteProgress(upd)
+		sendProgress(ctx, r.client, onAbort, upd)
 	}
 	progressStop := r.client.StartProgressHeartbeat(ctx, job.RunID, 45*time.Second, func() api.ProgressUpdate {
 		return lastProgress
-	})
+	}, onAbort)
 	defer progressStop()
 
 	runner := graphrestore.NewRunner(gc, selection.ConflictPolicy, func(done, skipped, total int, message string) {
@@ -191,6 +201,10 @@ func (r *RestoreRunner) Run(ctx context.Context, job *api.RunJob) error {
 
 	stats, err := runner.RestoreItems(ctx, primaryTarget, items, fetch)
 	if err != nil {
+		if isCooperativeCancel(err, ctx) {
+			r.client.RunLogf(r.logCtx(ctx), job.RunID, "info", "restore cancelled")
+			return err
+		}
 		r.client.RunLogf(r.logCtx(ctx), job.RunID, "error", "restore failed: %s", err.Error())
 		return r.failTerminal(ctx, job.RunID, err.Error())
 	}

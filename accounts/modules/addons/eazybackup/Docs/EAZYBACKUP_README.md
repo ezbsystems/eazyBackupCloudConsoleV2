@@ -2202,18 +2202,18 @@ Frontend:
 `eb_notifications`:
 
 
-| column                                            | type                      | notes                                                           |
-| ------------------------------------------------- | ------------------------- | --------------------------------------------------------------- |
-| `id`                                              | INT AUTO_INCREMENT        | PK                                                              |
-| `title`                                           | VARCHAR(191)              |                                                                 |
-| `body`                                            | TEXT                      | plain text; `nl2br` + `htmlspecialchars` applied at render time |
-| `status`                                          | ENUM('draft','published') | only `published` rows are exposed to clients                    |
-| `audience_type`                                   | ENUM('all','filtered')    |                                                                 |
-| `created_by`                                      | INT                       | admin id                                                        |
-| `created_at`, `updated_at`, `published_at`        | TIMESTAMP                 |                                                                 |
-| `expires_at`                                      | TIMESTAMP NULL            | optional hard expiry; once past, hidden for everyone            |
-| KEY `idx_status_published (status, published_at)` |                           |                                                                 |
-| KEY `idx_status_pub_exp (status, published_at, expires_at)` |                 | covering index for the active-lookup hot path                   |
+| column                                                      | type                      | notes                                                           |
+| ----------------------------------------------------------- | ------------------------- | --------------------------------------------------------------- |
+| `id`                                                        | INT AUTO_INCREMENT        | PK                                                              |
+| `title`                                                     | VARCHAR(191)              |                                                                 |
+| `body`                                                      | TEXT                      | plain text; `nl2br` + `htmlspecialchars` applied at render time |
+| `status`                                                    | ENUM('draft','published') | only `published` rows are exposed to clients                    |
+| `audience_type`                                             | ENUM('all','filtered')    |                                                                 |
+| `created_by`                                                | INT                       | admin id                                                        |
+| `created_at`, `updated_at`, `published_at`                  | TIMESTAMP                 |                                                                 |
+| `expires_at`                                                | TIMESTAMP NULL            | optional hard expiry; once past, hidden for everyone            |
+| KEY `idx_status_published (status, published_at)`           |                           |                                                                 |
+| KEY `idx_status_pub_exp (status, published_at, expires_at)` |                           | covering index for the active-lookup hot path                   |
 
 
 `eb_notification_targets` (only used when `audience_type='filtered'`):
@@ -2311,19 +2311,21 @@ A second delivery channel, layered on top of the same modal, lets admins send a 
 
 `eb_client_messages`:
 
-| column | type | notes |
-| --- | --- | --- |
-| `id` | INT AUTO_INCREMENT | PK |
-| `client_id` | INT | FK -> `tblclients.id` |
-| `title` | VARCHAR(191) | |
-| `body` | TEXT | plain text; `nl2br` + `htmlspecialchars` at render time |
-| `expires_at` | TIMESTAMP NULL | optional; once past, hidden from the modal but still visible in inbox as muted |
-| `created_by` | INT NULL | admin id |
-| `created_at`, `updated_at` | TIMESTAMP | |
-| `viewed_at` | TIMESTAMP NULL | set when dismissed in the modal or opened in the inbox |
-| `deleted_at` | TIMESTAMP NULL | soft-delete; hidden from the customer, still visible to admins |
-| KEY `idx_inbox_client (client_id, deleted_at)` | | |
-| KEY `idx_modal_lookup (client_id, viewed_at, deleted_at, expires_at)` | | |
+
+| column                                                                | type               | notes                                                                          |
+| --------------------------------------------------------------------- | ------------------ | ------------------------------------------------------------------------------ |
+| `id`                                                                  | INT AUTO_INCREMENT | PK                                                                             |
+| `client_id`                                                           | INT                | FK -> `tblclients.id`                                                          |
+| `title`                                                               | VARCHAR(191)       |                                                                                |
+| `body`                                                                | TEXT               | plain text; `nl2br` + `htmlspecialchars` at render time                        |
+| `expires_at`                                                          | TIMESTAMP NULL     | optional; once past, hidden from the modal but still visible in inbox as muted |
+| `created_by`                                                          | INT NULL           | admin id                                                                       |
+| `created_at`, `updated_at`                                            | TIMESTAMP          |                                                                                |
+| `viewed_at`                                                           | TIMESTAMP NULL     | set when dismissed in the modal or opened in the inbox                         |
+| `deleted_at`                                                          | TIMESTAMP NULL     | soft-delete; hidden from the customer, still visible to admins                 |
+| KEY `idx_inbox_client (client_id, deleted_at)`                        |                    |                                                                                |
+| KEY `idx_modal_lookup (client_id, viewed_at, deleted_at, expires_at)` |                    |                                                                                |
+
 
 #### Lifecycle
 
@@ -2429,13 +2431,15 @@ The Lite tier offers a reduced-storage backup plan (default 250 GB, 1 device) fo
 
 **Addon module settings (Setup → Addon Modules → eazyBackup → Configure):**
 
-| Setting | Purpose | Example value |
-|---|---|---|
-| `liteobcgroups` | Client groups whose members may purchase OBC-Lite | `15` |
-| `liteeazybackupgroups` | Client groups whose members may purchase eazyBackup-Lite | `16` |
-| `lite_obc_pids` | WHMCS PIDs that represent the OBC-Lite SKU | `102` |
-| `lite_eazybackup_pids` | WHMCS PIDs that represent the eazyBackup-Lite SKU | `103` |
-| `lite_pid_caps` | CSV of `PID:GB` pairs that mark a PID as Lite and define its storage cap | `102:250,103:250` |
+
+| Setting                | Purpose                                                                  | Example value     |
+| ---------------------- | ------------------------------------------------------------------------ | ----------------- |
+| `liteobcgroups`        | Client groups whose members may purchase OBC-Lite                        | `15`              |
+| `liteeazybackupgroups` | Client groups whose members may purchase eazyBackup-Lite                 | `16`              |
+| `lite_obc_pids`        | WHMCS PIDs that represent the OBC-Lite SKU                               | `102`             |
+| `lite_eazybackup_pids` | WHMCS PIDs that represent the eazyBackup-Lite SKU                        | `103`             |
+| `lite_pid_caps`        | CSV of `PID:GB` pairs that mark a PID as Lite and define its storage cap | `102:250,103:250` |
+
 
 A PID is considered "Lite" everywhere in the codebase **iff** it appears in `lite_pid_caps`. Removing a PID from that setting reverts it to a standard unlimited product on the next provisioning / profile update.
 
@@ -2462,9 +2466,9 @@ When a customer in a Lite group places an order:
 
 1. `eazybackup_createorder()` (in `eazybackup.php`) verifies the client is in the matching Lite group via `eazybackup_lite_resolve()` and that the posted PID is one of the client's `allowedPids`. The POST handler also blocks Lite clients from posting the full backup SKUs (58 / 60).
 2. WHMCS provisions via the Comet module:
-   - `comet_CreateAccount()` (in `accounts/modules/servers/comet/comet.php`) creates the Comet user, then calls `comet_UpdateUser()`.
-   - `comet_UpdateUser()` (in `accounts/modules/servers/comet/functions.php`) reads the cap via `comet_LiteCapForPid()`. For Lite PIDs it sets `AllProtectedItemsQuotaEnabled = true`, `AllProtectedItemsQuotaBytes = capGB * 1024^3`, and `MaximumDevices = 1`.
-   - `comet_CreateAccount()` requests the initial Storage Vault, then walks `Profile.Destinations` and stamps `StorageLimitEnabled = true` / `StorageLimitBytes = capGB * 1024^3` on the new vault before the atomic `AdminSetUserProfileHash` call.
+  - `comet_CreateAccount()` (in `accounts/modules/servers/comet/comet.php`) creates the Comet user, then calls `comet_UpdateUser()`.
+  - `comet_UpdateUser()` (in `accounts/modules/servers/comet/functions.php`) reads the cap via `comet_LiteCapForPid()`. For Lite PIDs it sets `AllProtectedItemsQuotaEnabled = true`, `AllProtectedItemsQuotaBytes = capGB * 1024^3`, and `MaximumDevices = 1`.
+  - `comet_CreateAccount()` requests the initial Storage Vault, then walks `Profile.Destinations` and stamps `StorageLimitEnabled = true` / `StorageLimitBytes = capGB * 1024^3` on the new vault before the atomic `AdminSetUserProfileHash` call.
 
 ### Client-area lockdown
 
@@ -2492,3 +2496,4 @@ The Comet user policy on the Comet server is the source of truth for desktop-cli
 - On the client area Profile tab for the Lite service: the "Maximum devices" controls are disabled and the banner is visible; the vault editor's Quota tab shows the read-only Lite limit message; the vault editor's Danger tab shows "Vault deletion is disabled on this plan".
 - POST a Lite PID directly while logged in as a non-Lite client (e.g. via curl with form fields): rejected with `This product is not available for your account.`.
 - Native WHMCS upgrade Lite → Standard (e.g. 102 → 60): confirm the Comet user's `AllProtectedItemsQuotaEnabled` flips to `false` and the existing vault's `StorageLimitEnabled` flips to `false`; the client-area Quotas card unlocks.
+

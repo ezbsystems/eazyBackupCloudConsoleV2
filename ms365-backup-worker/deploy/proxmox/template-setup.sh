@@ -68,6 +68,9 @@ fi
 
 TOKEN="${MS365_WORKER_TOKEN:-}"
 API_BASE="${MS365_WORKER_API_BASE:-https://accounts.eazybackup.ca/modules/addons/cloudstorage/api}"
+if [[ "$API_BASE" != */modules/addons/cloudstorage/api ]]; then
+  die "MS365_WORKER_API_BASE must end with /modules/addons/cloudstorage/api (got: ${API_BASE})"
+fi
 if [[ -n "$TOKEN" && "$TOKEN" != "CHANGE_ME" ]]; then
   sed -i "s|^Environment=MS365_WORKER_TOKEN=.*|Environment=MS365_WORKER_TOKEN=${TOKEN}|" "$SYSTEMD_DROPIN_DIR/environment.conf"
 fi
@@ -104,6 +107,6 @@ Proxmox CT sizing for clones from this template:
 Workers stream Graph → Kopia (no full-resource disk staging). TB tenants use sharding
 across many modest workers, not larger containers.
 
-Autoscale clones receive PROXMOX_VMID via ProxmoxProvisioner post-clone config.
+Autoscale clones: ProxmoxProvisioner sets hostname + WHMCS registerProvisioning row (no API env=; worker adopts by hostname).
 Routine binary updates: WHMCS Worker Fleet → Deployments (heartbeat pull).
 EOF

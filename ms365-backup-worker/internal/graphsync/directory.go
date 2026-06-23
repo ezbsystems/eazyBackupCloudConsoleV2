@@ -23,8 +23,10 @@ type DirectorySyncResult struct {
 }
 
 const (
-	directoryUsersKey  = "users"
-	directoryGroupsKey = "groups"
+	directoryUsersKey   = "users"
+	directoryGroupsKey  = "groups"
+	directoryUsersSelect  = "id,displayName,userPrincipalName,mail"
+	directoryGroupsSelect = "id,displayName,mail"
 )
 
 func SyncDirectory(ctx context.Context, client *graph.Client, opts DirectorySyncOptions) (*DirectorySyncResult, error) {
@@ -45,7 +47,7 @@ func SyncDirectory(ctx context.Context, client *graph.Client, opts DirectorySync
 	}
 
 	userMonitor := graph.ForBackupPagination("directory:users", graphLog(opts.Log))
-	users, userDelta, err := paginateDeltaResilient(ctx, client, "/users/delta", userPrior, "id,displayName,userPrincipalName,mail,lastModifiedDateTime", 100, nil, &graph.DeltaPaginateOptions{Monitor: userMonitor})
+	users, userDelta, err := paginateDeltaResilient(ctx, client, "/users/delta", userPrior, directoryUsersSelect, 100, nil, &graph.DeltaPaginateOptions{Monitor: userMonitor})
 	if err != nil {
 		return nil, fmt.Errorf("users delta: %w", err)
 	}
@@ -70,7 +72,7 @@ func SyncDirectory(ctx context.Context, client *graph.Client, opts DirectorySync
 	}
 
 	groupMonitor := graph.ForBackupPagination("directory:groups", graphLog(opts.Log))
-	groups, groupDelta, err := paginateDeltaResilient(ctx, client, "/groups/delta", groupPrior, "id,displayName,mail,lastModifiedDateTime", 100, nil, &graph.DeltaPaginateOptions{Monitor: groupMonitor})
+	groups, groupDelta, err := paginateDeltaResilient(ctx, client, "/groups/delta", groupPrior, directoryGroupsSelect, 100, nil, &graph.DeltaPaginateOptions{Monitor: groupMonitor})
 	if err != nil {
 		return nil, fmt.Errorf("groups delta: %w", err)
 	}

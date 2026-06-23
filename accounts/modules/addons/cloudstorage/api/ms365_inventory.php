@@ -22,6 +22,10 @@ if ($userId === '') {
     exit;
 }
 
+if (session_status() === PHP_SESSION_ACTIVE) {
+    session_write_close();
+}
+
 try {
     $inventory = Ms365E3Controller::inventoryFull($clientId, $userId);
     (new JsonResponse([

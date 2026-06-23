@@ -143,6 +143,8 @@ final class CustomerBackupService
                 throw new \RuntimeException('No resources match the selected preset. Try refreshing inventory.');
             }
 
+            $inventoryService->enrichResourcesForPlanning($inventory, $selectedIds);
+
             $planner = new BackupPlanner();
             $queue = $planner->buildPhysicalQueue($selectedIds, $inventory, $resolved['scope'], []);
 
@@ -209,6 +211,8 @@ final class CustomerBackupService
             if ($inventory === null || !is_array($inventory['resources'] ?? null) || $inventory['resources'] === []) {
                 throw new \RuntimeException('No inventory found. Refresh inventory first.');
             }
+
+            $inventoryService->enrichResourcesForPlanning($inventory, $selectedIds);
 
             $planner = new BackupPlanner();
             $queue = $planner->buildPhysicalQueue(

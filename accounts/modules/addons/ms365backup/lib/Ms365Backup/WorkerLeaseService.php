@@ -10,6 +10,15 @@ use WHMCS\Database\Capsule;
  */
 final class WorkerLeaseService
 {
+    /**
+     * Minimum spacing between per-run lease writes. Progress posts can arrive
+     * frequently; renewing the lease (a committed write) on every post created an
+     * fsync convoy that stalled the whole database. The lease window is hours, and
+     * the 30s node heartbeat renews every running lease via renewForNode(), so a
+     * per-run renewal cadence of ~60s is more than sufficient.
+     */
+    private const MIN_RUN_RENEW_INTERVAL = 60;
+
     public static function renewForRun(string $runId, ?string $workerNodeId = null): bool
     {
         $runId = trim($runId);
@@ -19,9 +28,17 @@ final class WorkerLeaseService
 
         $now = time();
         $lease = $now + Ms365EngineConfig::leaseSeconds();
+        // Only write when the lease was last renewed more than MIN_RUN_RENEW_INTERVAL
+        // ago. A 0-row conditional UPDATE writes no redo/binlog, so the common case
+        // (frequent progress posts) avoids a synchronous commit entirely.
+        $renewThreshold = $lease - self::MIN_RUN_RENEW_INTERVAL;
         $query = Capsule::table('ms365_job_queue')
             ->where('run_id', $runId)
-            ->where('status', 'running');
+            ->where('status', 'running')
+            ->where(function ($q) use ($renewThreshold) {
+                $q->whereNull('lease_expires_at')
+                    ->orWhere('lease_expires_at', '<', $renewThreshold);
+            });
         if ($workerNodeId !== null && $workerNodeId !== '') {
             $query->where('worker_node_id', $workerNodeId);
         }

@@ -3,6 +3,7 @@
 require_once __DIR__ . '/../../../../init.php';
 require_once dirname(__DIR__) . '/../ms365backup/ms365backup_autoload.php';
 
+use Ms365Backup\GraphTenantBudgetService;
 use Ms365Backup\Ms365RestoreWorkerHooks;
 use Ms365Backup\Ms365WorkerApiAuth;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -25,8 +26,24 @@ if ($runId === '') {
 }
 
 try {
-    Ms365RestoreWorkerHooks::onProgress($runId, $body);
-    (new JsonResponse(['status' => 'success']))->send();
+    $cancelRequested = Ms365RestoreWorkerHooks::isRunCancelled($runId);
+    $graphTenantBudget = 0;
+    if (!$cancelRequested) {
+        $graphTenantBudget = Ms365RestoreWorkerHooks::onProgress($runId, $body);
+    }
+
+    $response = ['status' => 'success'];
+    $data = [];
+    if ($cancelRequested) {
+        $data['cancel_requested'] = true;
+    }
+    if ($graphTenantBudget > 0) {
+        $data['graph_tenant_budget'] = $graphTenantBudget;
+    }
+    if ($data !== []) {
+        $response['data'] = $data;
+    }
+    (new JsonResponse($response))->send();
 } catch (\Throwable $e) {
     (new JsonResponse(['status' => 'error', 'message' => $e->getMessage()], 500))->send();
 }

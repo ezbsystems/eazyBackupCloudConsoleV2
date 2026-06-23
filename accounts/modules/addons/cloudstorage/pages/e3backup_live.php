@@ -40,10 +40,16 @@ if (!$run) {
 $job = CloudBackupController::getJob($run['job_id'], $loggedInUserId) ?? [];
 
 $isMs365Batch = Ms365BatchLiveService::isMs365BatchRun($run);
+$ms365Workloads = [];
 $sourceLabel = $isMs365Batch ? 'Microsoft 365' : null;
 if ($isMs365Batch) {
     cloudstorage_load_ms365backup();
     $run = Ms365BatchLiveService::enrichRunForDisplay($run, (int) $loggedInUserId);
+    try {
+        $ms365Workloads = Ms365BatchLiveService::listWorkloadsForCustomer((string) ($run['run_id'] ?? ''), (int) $loggedInUserId);
+    } catch (\Throwable $e) {
+        $ms365Workloads = [];
+    }
 }
 
 // Resolve agent display name (if available)
@@ -162,6 +168,7 @@ return [
     'agent_name' => $agentName,
     'agent_uuid' => $agentUuid,
     'is_ms365_batch' => $isMs365Batch,
+    'ms365_workloads' => $ms365Workloads,
     'source_label' => $sourceLabel,
     'is_restore' => $isRestore,
     'is_hyperv_restore' => $isHypervRestore,

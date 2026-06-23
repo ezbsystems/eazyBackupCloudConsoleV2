@@ -342,6 +342,7 @@ function eazybackup_upgrade($vars = [])
 {
     
     eazybackup_migrate_schema();
+    eb_prune_redundant_indexes();
 
    
     try { Capsule::statement("ALTER TABLE comet_vaults ADD INDEX idx_bucket_server (bucket_server)"); } catch (\Throwable $e) {}
@@ -391,6 +392,28 @@ function eb_add_index_if_missing(string $table, string $indexSql): void {
         Capsule::connection()->statement($indexSql);
     } catch (\Throwable $e) {
         
+    }
+}
+
+function eb_drop_index_if_exists(string $table, string $indexName): void {
+    if (!eb_index_exists($table, $indexName)) {
+        return;
+    }
+    try {
+        Capsule::connection()->statement("ALTER TABLE `{$table}` DROP INDEX `{$indexName}`");
+    } catch (\Throwable $e) {
+        // Best effort only.
+    }
+}
+
+/**
+ * Drop overlapping indexes identified during DB I/O optimization review.
+ */
+function eb_prune_redundant_indexes(): void {
+    // comet_vaults: idx_username / idx_type duplicate single-column indexes already covered by composite idx_user_server_type.
+    if (eb_index_exists('comet_vaults', 'idx_user_server_type')) {
+        eb_drop_index_if_exists('comet_vaults', 'idx_username');
+        eb_drop_index_if_exists('comet_vaults', 'idx_type');
     }
 }
 
@@ -821,6 +844,8 @@ function eazybackup_migrate_schema(): void {
         eb_add_column_if_missing('eb_jobs_live','last_bytes_ts',    fn(Blueprint $t)=>$t->integer('last_bytes_ts')->default(0));
         eb_add_column_if_missing('eb_jobs_live','cancel_attempts',  fn(Blueprint $t)=>$t->tinyInteger('cancel_attempts')->default(0));
         eb_add_column_if_missing('eb_jobs_live','last_checked_ts',  fn(Blueprint $t)=>$t->integer('last_checked_ts')->default(0));
+        eb_add_index_if_missing('eb_jobs_live', "CREATE INDEX IF NOT EXISTS idx_started_at ON eb_jobs_live (started_at)");
+        eb_add_index_if_missing('eb_jobs_live', "CREATE INDEX IF NOT EXISTS idx_jobs_live_monitor ON eb_jobs_live (server_id, job_type, last_checked_ts)");
     }
 
     // --- eb_jobs_recent_24h ---

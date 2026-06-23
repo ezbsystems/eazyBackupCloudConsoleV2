@@ -10,7 +10,10 @@
  * pending commands that need to be executed.
  */
 
-require_once __DIR__ . '/../../../../init.php';
+if (!defined('WHMCS')) {
+    require_once __DIR__ . '/../lib/Bootstrap/agent_bootstrap.php';
+}
+require_once __DIR__ . '/../lib/Client/AgentAuth.php';
 require_once __DIR__ . '/../lib/Client/AgentUpdateService.php';
 
 use Illuminate\Database\Capsule\Manager as Capsule;
@@ -19,49 +22,38 @@ use Symfony\Component\HttpFoundation\JsonResponse;
 use WHMCS\Module\Addon\CloudStorage\Client\HelperController;
 use WHMCS\Module\Addon\CloudStorage\Client\RepositoryService;
 use WHMCS\Module\Addon\CloudStorage\Client\AgentUpdateService;
+use WHMCS\Module\Addon\CloudStorage\Client\AgentAuth;
 
 if (!defined("WHMCS")) {
     die("This file cannot be accessed directly");
 }
 
-function respond(array $data, int $httpCode = 200): void
-{
-    (new JsonResponse($data, $httpCode))->send();
-    exit;
+if (!function_exists('respond')) {
+    function respond(array $data, int $httpCode = 200): void
+    {
+        (new JsonResponse($data, $httpCode))->send();
+        exit;
+    }
 }
 
-function authenticateAgent(): object
-{
-    $agentUuid = $_SERVER['HTTP_X_AGENT_UUID'] ?? ($_POST['agent_uuid'] ?? null);
-    $agentToken = $_SERVER['HTTP_X_AGENT_TOKEN'] ?? ($_POST['agent_token'] ?? null);
-    if (!$agentUuid || !$agentToken) {
-        respond(['status' => 'fail', 'message' => 'Missing agent headers'], 401);
+if (!function_exists('authenticateAgent')) {
+    function authenticateAgent(): object
+    {
+        $agent = AgentAuth::authenticate(fn(array $data, int $code) => respond($data, $code));
+
+        // Persist the version/platform reported on this poll and finalize any
+        // in-flight remote-update job once the agent comes back online on the
+        // target version. Backfilling OS/arch here lets the update UI detect the
+        // platform without waiting for a fresh enroll/login.
+        AgentUpdateService::noteAgentVersion(
+            (string) $agent->agent_uuid,
+            $_SERVER['HTTP_X_AGENT_VERSION'] ?? null,
+            $_SERVER['HTTP_X_AGENT_OS'] ?? null,
+            $_SERVER['HTTP_X_AGENT_ARCH'] ?? null
+        );
+
+        return $agent;
     }
-
-    $agent = Capsule::table('s3_cloudbackup_agents')
-        ->where('agent_uuid', $agentUuid)
-        ->first();
-
-    if (!$agent || $agent->status !== 'active' || $agent->agent_token !== $agentToken) {
-        respond(['status' => 'fail', 'message' => 'Unauthorized'], 401);
-    }
-
-    Capsule::table('s3_cloudbackup_agents')
-        ->where('agent_uuid', $agentUuid)
-        ->update(['last_seen_at' => Capsule::raw('NOW()')]);
-
-    // Persist the version/platform reported on this poll and finalize any
-    // in-flight remote-update job once the agent comes back online on the
-    // target version. Backfilling OS/arch here lets the update UI detect the
-    // platform without waiting for a fresh enroll/login.
-    AgentUpdateService::noteAgentVersion(
-        (string) $agentUuid,
-        $_SERVER['HTTP_X_AGENT_VERSION'] ?? null,
-        $_SERVER['HTTP_X_AGENT_OS'] ?? null,
-        $_SERVER['HTTP_X_AGENT_ARCH'] ?? null
-    );
-
-    return $agent;
 }
 
 function getModuleSetting(string $key, $default = null)
@@ -103,15 +95,15 @@ function buildRepositoryContext(?string $repositoryId): array
     return $context;
 }
 
-$agent = authenticateAgent();
+function cloudstorage_fetch_pending_commands(object $agent): array
+{
+    if (!Capsule::schema()->hasTable('s3_cloudbackup_run_commands')) {
+        return ['status' => 'success', 'commands' => []];
+    }
 
-if (!Capsule::schema()->hasTable('s3_cloudbackup_run_commands')) {
-    respond(['status' => 'success', 'commands' => []]);
-}
+    $hasAgentUuidJobs = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'agent_uuid');
 
-$hasAgentUuidJobs = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'agent_uuid');
-
-try {
+    try {
     $commands = [];
     
     // First, check for NAS commands (these are tied directly to agent_uuid, not jobs)
@@ -543,9 +535,19 @@ try {
             ->update(['status' => 'processing']);
     }
     
-    respond(['status' => 'success', 'commands' => $commands]);
-} catch (\Throwable $e) {
-    logModuleCall('cloudstorage', 'agent_poll_pending_commands', ['agent_uuid' => $agent->agent_uuid], $e->getMessage());
-    respond(['status' => 'fail', 'message' => 'Server error'], 500);
+    return ['status' => 'success', 'commands' => $commands];
+    } catch (\Throwable $e) {
+        logModuleCall('cloudstorage', 'agent_poll_pending_commands', ['agent_uuid' => $agent->agent_uuid], $e->getMessage());
+        return ['status' => 'fail', 'message' => 'Server error'];
+    }
+}
+
+if (!defined('AGENT_POLL_FUNCTIONS_ONLY')) {
+    $agent = authenticateAgent();
+    $result = cloudstorage_fetch_pending_commands($agent);
+    if (($result['status'] ?? '') === 'fail') {
+        respond($result, 500);
+    }
+    respond($result);
 }
 

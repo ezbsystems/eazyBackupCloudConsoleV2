@@ -6,7 +6,9 @@ namespace WHMCS\Module\Addon\CloudStorage\Client;
 
 use Ms365Backup\BackupRunRepository;
 use Ms365Backup\Ms365BatchRunRepository;
+use Ms365Backup\PhysicalKeyHelper;
 use Ms365Backup\ProgressLogger;
+use Ms365Backup\TenantResource;
 use Ms365Backup\WorkerProcess;
 use WHMCS\Database\Capsule;
 
@@ -30,24 +32,26 @@ final class Ms365BatchLiveService
         cloudstorage_load_ms365backup();
         self::assertBatchOwnership($batchRunId, $clientId);
 
-        Ms365BatchRunRepository::updateLiveSnapshot($batchRunId);
-        if (Ms365BatchRunRepository::isRestoreBatch($batchRunId)) {
-            Ms365BatchRunRepository::syncFromRestoreChildren($batchRunId);
+        $isRestore = Ms365BatchRunRepository::isRestoreBatch($batchRunId);
+
+        // Read-only live snapshot for UI polling. Do not call syncFromChildren here:
+        // it runs reconcileBatchChildren (mutating, expensive) and is intended for
+        // worker hooks/cron — not 2s progress polls on 200+ workload batches.
+        if ($isRestore) {
             Ms365BatchRunRepository::updateLiveSnapshotForRestore($batchRunId);
         } else {
-            Ms365BatchRunRepository::syncFromChildren($batchRunId);
+            Ms365BatchRunRepository::updateLiveSnapshot($batchRunId);
         }
 
-        if ($parentRun === null) {
-            $parentRun = self::loadParentRun($batchRunId, $clientId);
-        }
+        $parentRun = self::loadParentRun($batchRunId, $clientId);
         if ($parentRun === null) {
             throw new \RuntimeException('Run not found or access denied.');
         }
 
         $children = Ms365BatchRunRepository::getBatchChildren($batchRunId);
-        $isRestore = Ms365BatchRunRepository::isRestoreBatch($batchRunId);
         $agg = Ms365BatchRunRepository::computeAggregates($children, $isRestore);
+        $workloads = self::listWorkloadsForCustomer($batchRunId, $clientId, $children);
+        $parentStats = self::decodeParentStatsJson($parentRun);
         $displayStatus = (string) ($parentRun['status'] ?? $agg['status']);
         if (in_array($displayStatus, ['running', 'starting', 'queued'], true)) {
             $displayStatus = (string) $agg['status'];
@@ -75,6 +79,7 @@ final class Ms365BatchLiveService
             'files_total' => (int) $agg['items_total'],
             'folders_done' => null,
             'speed_bytes_per_sec' => $parentRun['speed_bytes_per_sec'] ?? null,
+            'items_per_sec' => isset($parentStats['ms365_items_per_sec']) ? (int) $parentStats['ms365_items_per_sec'] : null,
             'eta_seconds' => $parentRun['eta_seconds'] ?? null,
             'current_item' => CustomerFacingTextSanitizer::scrubLogMessage(
                 (string) ($parentRun['current_item'] ?? $agg['current_item'] ?? '')
@@ -82,6 +87,10 @@ final class Ms365BatchLiveService
             'stage' => self::resolveStageLabel($parentRun, $agg, $isRestore),
             'active_running_workloads' => (int) ($agg['active_running_workloads'] ?? 0),
             'total_workloads' => (int) ($agg['total_workloads'] ?? 0),
+            'workloads' => $workloads,
+            'graph_429_hits_total' => (int) ($parentStats['ms365_graph_429_hits_total'] ?? $agg['graph_429_hits_total'] ?? 0),
+            'graph_throttled' => !empty($parentStats['ms365_graph_throttled']),
+            'byte_stats_comparable' => !empty($parentStats['ms365_byte_stats_comparable']),
             'started_at' => $parentRun['started_at'] ?? null,
             'finished_at' => $parentRun['finished_at'] ?? null,
             'started_at_epoch_ms' => $startedAtEpochMs,
@@ -106,13 +115,14 @@ final class Ms365BatchLiveService
             return [];
         }
 
-        $childIds = array_column(Ms365BatchRunRepository::getBatchChildren($batchRunId), 'id');
+        $children = Ms365BatchRunRepository::getBatchChildren($batchRunId);
+        $childIds = array_column($children, 'id');
         if ($childIds === []) {
             return [];
         }
 
         $childrenById = [];
-        foreach (Ms365BatchRunRepository::getBatchChildren($batchRunId) as $child) {
+        foreach ($children as $child) {
             $childrenById[(string) $child['id']] = $child;
         }
 
@@ -198,98 +208,656 @@ final class Ms365BatchLiveService
     }
 
     /**
-     * @return array{status: string, message?: string}
+     * @return array{status: string, message?: string, run_id?: string}
      */
     public static function cancelBatch(string $batchRunId, int $clientId, bool $forceCancel = false): array
     {
-        cloudstorage_load_ms365backup();
-        self::assertBatchOwnership($batchRunId, $clientId);
+        try {
+            cloudstorage_load_ms365backup();
+            self::assertBatchOwnership($batchRunId, $clientId);
 
-        $parentRun = self::loadParentRun($batchRunId, $clientId);
-        if ($parentRun === null) {
-            return ['status' => 'fail', 'message' => 'Run not found or access denied'];
-        }
-
-        $currentStatus = (string) ($parentRun['status'] ?? '');
-        $cancelableStatuses = ['queued', 'starting', 'running'];
-        $terminalStatuses = ['success', 'warning', 'failed', 'cancelled', 'partial_success'];
-
-        if ($forceCancel) {
-            if (in_array($currentStatus, $terminalStatuses, true)) {
-                return ['status' => 'fail', 'message' => 'Run already completed'];
+            $parentRun = self::loadParentRun($batchRunId, $clientId);
+            if ($parentRun === null) {
+                return ['status' => 'fail', 'message' => 'Run not found or access denied'];
             }
-        } elseif (!in_array($currentStatus, $cancelableStatuses, true)) {
+
             $children = Ms365BatchRunRepository::getBatchChildren($batchRunId);
-            $aggStatus = Ms365BatchRunRepository::aggregateStatus($children);
-            if (!in_array($aggStatus, ['running', 'queued'], true)) {
-                return ['status' => 'fail', 'message' => 'Run cannot be cancelled in current status: ' . $currentStatus];
-            }
-        }
+            $activeCount = self::countActiveChildren($children);
+            $currentStatus = (string) ($parentRun['status'] ?? '');
+            $cancelableStatuses = ['queued', 'starting', 'running'];
+            $terminalStatuses = ['success', 'warning', 'failed', 'cancelled', 'partial_success'];
+            $cancelAlreadyRequested = !empty($parentRun['cancel_requested']);
 
-        $children = Ms365BatchRunRepository::getBatchChildren($batchRunId);
-        $cancelledCount = 0;
-        $firstCancelledId = '';
-        foreach ($children as $child) {
-            $childId = (string) ($child['id'] ?? '');
-            if ($childId === '' || !BackupRunRepository::isCancellable($childId)) {
-                continue;
+            if ($forceCancel) {
+                if ($activeCount === 0 && in_array($currentStatus, $terminalStatuses, true)) {
+                    return ['status' => 'fail', 'message' => 'This backup has already finished. Refresh the page to see the final status.'];
+                }
+            } elseif ($activeCount === 0) {
+                if ($cancelAlreadyRequested || in_array($currentStatus, $terminalStatuses, true)) {
+                    return [
+                        'status' => 'success',
+                        'message' => 'This backup is no longer running.',
+                        'run_id' => $batchRunId,
+                    ];
+                }
+            } elseif (!in_array($currentStatus, $cancelableStatuses, true) && !$cancelAlreadyRequested) {
+                $aggStatus = Ms365BatchRunRepository::aggregateStatus($children);
+                if (!in_array($aggStatus, ['running', 'queued'], true)) {
+                    return [
+                        'status' => 'fail',
+                        'message' => 'Run cannot be cancelled in current status: ' . $currentStatus,
+                    ];
+                }
             }
-            if (!BackupRunRepository::requestCancel($childId, 'user')) {
-                continue;
+
+            // Flag parent first so workers see cancel_requested on their next heartbeat.
+            $update = ['cancel_requested' => 1];
+            if ($forceCancel) {
+                $update['status'] = 'cancelled';
+                $update['finished_at'] = date('Y-m-d H:i:s');
+                $update['error_summary'] = 'Cancellation forced by user';
+            } elseif ($activeCount > 0) {
+                $update['status'] = 'running';
             }
-            ++$cancelledCount;
-            if ($firstCancelledId === '') {
-                $firstCancelledId = $childId;
+
+            Capsule::table('s3_cloudbackup_runs')
+                ->whereRaw('run_id = UUID_TO_BIN(?)', [strtolower($batchRunId)])
+                ->update($update);
+
+            $terminatePaths = [];
+            foreach ($children as $child) {
+                if ((string) ($child['status'] ?? '') !== 'running') {
+                    continue;
+                }
+                if ((string) ($child['engine_mode'] ?? '') === 'kopia') {
+                    continue;
+                }
+                $backupPath = (string) ($child['backup_path'] ?? '');
+                if ($backupPath !== '' && is_dir($backupPath)) {
+                    $terminatePaths[] = $backupPath;
+                }
             }
-            $engineMode = (string) ($child['engine_mode'] ?? '');
-            if ($engineMode === 'kopia') {
-                continue;
+
+            $cancelledCount = 0;
+            if (Ms365BatchRunRepository::isRestoreBatch($batchRunId)) {
+                foreach ($children as $child) {
+                    $childId = (string) ($child['id'] ?? '');
+                    if ($childId === '' || !BackupRunRepository::isCancellable($childId)) {
+                        continue;
+                    }
+                    if (BackupRunRepository::requestCancel($childId, 'user')) {
+                        ++$cancelledCount;
+                    }
+                }
+                // Restore batches are small; sync inline so the parent finalizes promptly.
+                Ms365BatchRunRepository::syncFromRestoreChildren($batchRunId);
+            } else {
+                $cancelledCount = BackupRunRepository::bulkCancelBatchChildren($batchRunId, 'user');
+                // Parent finalize runs via ms365_worker_fleet cron (reconcileActiveBatches).
             }
-            $backupPath = (string) ($child['backup_path'] ?? '');
-            if ($backupPath !== '' && is_dir($backupPath)) {
+
+            foreach ($terminatePaths as $backupPath) {
                 try {
                     WorkerProcess::terminate($backupPath);
                 } catch (\Throwable $e) {
                     // Cancellation is recorded even if the worker cannot be signalled.
                 }
             }
-        }
 
-        if ($firstCancelledId !== '') {
-            $logger = new ProgressLogger($firstCancelledId);
-            $logger->info('Cancellation requested by user', [
+            if ($cancelledCount > 0) {
+                $firstChildId = '';
+                foreach ($children as $child) {
+                    $childId = (string) ($child['id'] ?? '');
+                    if ($childId !== '') {
+                        $firstChildId = $childId;
+                        break;
+                    }
+                }
+                if ($firstChildId !== '') {
+                    $logger = new ProgressLogger($firstChildId);
+                    $logger->info('Cancellation requested by user', [
+                        'batch_run_id' => $batchRunId,
+                        'workloads_cancelled' => $cancelledCount,
+                    ]);
+                }
+            }
+
+            return [
+                'status' => 'success',
+                'message' => $cancelledCount > 0
+                    ? 'Cancellation requested for ' . $cancelledCount . ' workload(s).'
+                    : ($activeCount > 0
+                        ? 'Cancellation requested.'
+                        : 'This backup is no longer running.'),
+                'run_id' => $batchRunId,
+            ];
+        } catch (\Throwable $e) {
+            logModuleCall('cloudstorage', 'ms365_cancel_batch_error', [
                 'batch_run_id' => $batchRunId,
-                'workloads_cancelled' => $cancelledCount,
-            ]);
+                'client_id' => $clientId,
+            ], $e->getMessage());
+
+            return ['status' => 'fail', 'message' => 'Failed to cancel run. Please try again later.'];
+        }
+    }
+
+    /** @param list<array<string, mixed>> $children */
+    private static function countActiveChildren(array $children): int
+    {
+        $count = 0;
+        foreach ($children as $child) {
+            if (in_array((string) ($child['status'] ?? ''), ['queued', 'running'], true)) {
+                ++$count;
+            }
         }
 
-        $update = ['cancel_requested' => 1];
-        if ($forceCancel) {
-            $update['status'] = 'cancelled';
-            $update['finished_at'] = date('Y-m-d H:i:s');
-            $update['error_summary'] = 'Cancellation forced by user';
-        } elseif ($cancelledCount > 0) {
-            $update['status'] = 'running';
+        return $count;
+    }
+
+    /**
+     * Customer-safe workload rows for the e3 live progress panel.
+     *
+     * @param list<array<string, mixed>>|null $children
+     * @return list<array<string, mixed>>
+     */
+    public static function listWorkloadsForCustomer(string $batchRunId, int $clientId, ?array $children = null): array
+    {
+        cloudstorage_load_ms365backup();
+        self::assertBatchOwnership($batchRunId, $clientId);
+
+        if ($children === null) {
+            $children = Ms365BatchRunRepository::getBatchChildren($batchRunId);
         }
 
-        Capsule::table('s3_cloudbackup_runs')
-            ->whereRaw('run_id = UUID_TO_BIN(?)', [strtolower($batchRunId)])
-            ->update($update);
+        $queueByRun = [];
+        if ($children !== [] && Capsule::schema()->hasTable('ms365_job_queue')) {
+            $childIds = array_column($children, 'id');
+            if ($childIds !== []) {
+                foreach (Capsule::table('ms365_job_queue')->whereIn('run_id', $childIds)->get() as $q) {
+                    $queueByRun[(string) $q->run_id] = (array) $q;
+                }
+            }
+        }
 
-        if (Ms365BatchRunRepository::isRestoreBatch($batchRunId)) {
-            Ms365BatchRunRepository::syncFromRestoreChildren($batchRunId);
+        $groups = [];
+        foreach ($children as $child) {
+            $groupKey = self::workloadGroupKey($child);
+            $groups[$groupKey][] = $child;
+        }
+
+        $rows = [];
+        foreach ($groups as $groupChildren) {
+            $rows[] = self::formatCustomerWorkloadGroupRow($groupChildren, $queueByRun);
+        }
+
+        usort($rows, [self::class, 'sortCustomerWorkloadRows']);
+
+        return $rows;
+    }
+
+    /**
+     * @param list<array<string, mixed>> $groupChildren
+     * @param array<string, array<string, mixed>> $queueByRun
+     * @return array<string, mixed>
+     */
+    private static function formatCustomerWorkloadGroupRow(array $groupChildren, array $queueByRun): array
+    {
+        $primary = self::pickPrimaryChild($groupChildren);
+        $row = self::formatCustomerWorkloadRow(
+            $primary,
+            $queueByRun[(string) ($primary['id'] ?? '')] ?? []
+        );
+
+        $mergedStatus = self::mergeGroupStatus($groupChildren);
+        $row['status'] = $mergedStatus;
+
+        [$itemsDone, $itemsTotal, $percent] = self::mergeGroupProgress($groupChildren, $mergedStatus);
+        $row['items_done'] = $itemsDone;
+        $row['items_total'] = $itemsTotal;
+        $row['percent'] = round($percent, 2);
+        $row['progress_label'] = self::formatProgressLabel($itemsDone, $itemsTotal, $percent, $mergedStatus);
+
+        $phaseChild = self::pickPhaseChild($groupChildren);
+        $phase = (string) ($phaseChild['phase'] ?? '');
+        $row['phase'] = $phase;
+        $row['phase_label'] = self::formatPhaseLabel($phase);
+
+        $events = self::collectWorkloadEvents($groupChildren, $queueByRun);
+        $row['events'] = $events;
+        $row['error'] = $events !== [] ? (string) ($events[0]['message'] ?? '') : '';
+        $row['notes'] = self::mergeGroupSkippedNotes($groupChildren);
+
+        return $row;
+    }
+
+    /** @param array<string, mixed> $child */
+    private static function workloadGroupKey(array $child): string
+    {
+        $resourceType = strtolower((string) ($child['resource_type'] ?? 'workload'));
+        $logicalKey = self::workloadLogicalKey($child);
+
+        return $resourceType . "\0" . $logicalKey;
+    }
+
+    /** @param array<string, mixed> $child */
+    private static function workloadLogicalKey(array $child): string
+    {
+        $scope = self::decodeChildScopeJson($child);
+        $siteId = trim((string) ($scope['_site_id'] ?? ''));
+        if ($siteId !== '') {
+            return 'site:' . strtolower($siteId);
+        }
+
+        $physicalKey = (string) ($child['physical_key'] ?? '');
+        $parentKey = PhysicalKeyHelper::aggregateParentKey($physicalKey, $child);
+        if ($parentKey !== '') {
+            return strtolower($parentKey);
+        }
+
+        $graphId = trim((string) ($child['target_graph_id'] ?? $child['graph_id'] ?? ''));
+        if ($graphId !== '') {
+            return strtolower($graphId);
+        }
+
+        return strtolower(trim((string) ($child['user_display_name'] ?? '')));
+    }
+
+    /** @param array<string, mixed> $child */
+    private static function decodeChildScopeJson(array $child): array
+    {
+        $raw = $child['scope_json'] ?? null;
+        if (is_array($raw)) {
+            return $raw;
+        }
+        if (!is_string($raw) || $raw === '') {
+            return [];
+        }
+        $decoded = json_decode($raw, true);
+
+        return is_array($decoded) ? $decoded : [];
+    }
+
+    /**
+     * @param list<array<string, mixed>> $children
+     * @return array<string, mixed>
+     */
+    private static function pickPrimaryChild(array $children): array
+    {
+        $sorted = $children;
+        usort($sorted, static function (array $a, array $b): int {
+            $rankCmp = self::childStatusRank((string) ($a['status'] ?? ''))
+                <=> self::childStatusRank((string) ($b['status'] ?? ''));
+            if ($rankCmp !== 0) {
+                return $rankCmp;
+            }
+
+            return self::childActivityEpoch($b) <=> self::childActivityEpoch($a);
+        });
+
+        return $sorted[0] ?? $children[0];
+    }
+
+    /**
+     * @param list<array<string, mixed>> $children
+     * @return array<string, mixed>
+     */
+    private static function pickPhaseChild(array $children): array
+    {
+        foreach (['running', 'starting', 'queued'] as $activeStatus) {
+            foreach ($children as $child) {
+                if (strtolower((string) ($child['status'] ?? '')) === $activeStatus) {
+                    return $child;
+                }
+            }
+        }
+
+        return self::pickPrimaryChild($children);
+    }
+
+    /**
+     * @param list<array<string, mixed>> $children
+     */
+    private static function mergeGroupStatus(array $children): string
+    {
+        $bestRank = PHP_INT_MAX;
+        $bestStatus = '';
+        foreach ($children as $child) {
+            $status = strtolower((string) ($child['status'] ?? ''));
+            $rank = self::childStatusRank($status);
+            if ($rank < $bestRank) {
+                $bestRank = $rank;
+                $bestStatus = $status;
+            }
+        }
+
+        return $bestStatus !== '' ? $bestStatus : 'unknown';
+    }
+
+    /**
+     * @param list<array<string, mixed>> $children
+     * @return array{0: int, 1: int, 2: float}
+     */
+    private static function mergeGroupProgress(array $children, string $mergedStatus): array
+    {
+        $itemsDone = 0;
+        $itemsTotal = 0;
+        foreach ($children as $child) {
+            $itemsDone += max(0, (int) ($child['items_done'] ?? 0));
+            $itemsTotal += max(0, (int) ($child['items_total'] ?? 0));
+        }
+
+        $percent = 0.0;
+        if ($itemsTotal > 0) {
+            $percent = min(100.0, ($itemsDone / $itemsTotal) * 100);
+        } elseif (count($children) === 1) {
+            $only = $children[0];
+            $percent = isset($only['percent']) ? (float) $only['percent'] : 0.0;
         } else {
-            Ms365BatchRunRepository::reconcileBatchChildren($batchRunId);
-            Ms365BatchRunRepository::syncFromChildren($batchRunId);
+            $parts = [];
+            foreach ($children as $child) {
+                if (isset($child['percent'])) {
+                    $parts[] = (float) $child['percent'];
+                }
+            }
+            if ($parts !== []) {
+                $percent = array_sum($parts) / count($parts);
+            }
+        }
+
+        if ($mergedStatus === 'success') {
+            $percent = 100.0;
+        }
+
+        return [$itemsDone, $itemsTotal, $percent];
+    }
+
+    /**
+     * @param list<array<string, mixed>> $children
+     * @param array<string, array<string, mixed>> $queueByRun
+     * @return list<array{ts: string, level: string, message: string, status: string}>
+     */
+    private static function collectWorkloadEvents(array $children, array $queueByRun): array
+    {
+        $events = [];
+        $seen = [];
+        $sorted = $children;
+        usort($sorted, static fn (array $a, array $b): int => self::childActivityEpoch($b) <=> self::childActivityEpoch($a));
+
+        foreach ($sorted as $child) {
+            $runId = (string) ($child['id'] ?? '');
+            $message = self::formatCustomerWorkloadError($child, $queueByRun[$runId] ?? []);
+            if ($message === '') {
+                continue;
+            }
+
+            $dedupeKey = strtolower($message);
+            if (isset($seen[$dedupeKey])) {
+                continue;
+            }
+            $seen[$dedupeKey] = true;
+
+            $status = strtolower((string) ($child['status'] ?? ''));
+            $events[] = [
+                'ts' => self::formatChildTimestamp($child),
+                'level' => in_array($status, ['failed', 'error'], true) ? 'error' : 'warning',
+                'message' => $message,
+                'status' => $status,
+            ];
+        }
+
+        return $events;
+    }
+
+    private static function childStatusRank(string $status): int
+    {
+        return match (strtolower($status)) {
+            'running' => 0,
+            'starting' => 1,
+            'queued' => 2,
+            'warning', 'partial_success' => 3,
+            'failed', 'error' => 4,
+            'success' => 5,
+            'cancelled' => 6,
+            default => 7,
+        };
+    }
+
+    /** @param array<string, mixed> $child */
+    private static function childActivityEpoch(array $child): int
+    {
+        foreach (['updated_at', 'finished_at', 'started_at', 'created_at'] as $field) {
+            $value = $child[$field] ?? null;
+            if (is_numeric($value) && (int) $value > 0) {
+                return (int) $value;
+            }
+        }
+
+        return 0;
+    }
+
+    /** @param array<string, mixed> $child */
+    private static function formatChildTimestamp(array $child): string
+    {
+        $epoch = self::childActivityEpoch($child);
+        if ($epoch <= 0) {
+            return '';
+        }
+
+        $timezone = date_default_timezone_get() ?: 'UTC';
+        try {
+            $dt = new \DateTime('@' . $epoch);
+            $dt->setTimezone(new \DateTimeZone($timezone));
+
+            return $dt->format('Y-m-d H:i:s');
+        } catch (\Throwable $e) {
+            return '';
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $child
+     * @param array<string, mixed> $queue
+     * @return array<string, mixed>
+     */
+    private static function formatCustomerWorkloadRow(array $child, array $queue): array
+    {
+        $resourceType = (string) ($child['resource_type'] ?? 'workload');
+        $typeLabel = TenantResource::badgeLabel($resourceType);
+        $name = trim((string) ($child['user_display_name'] ?? ''));
+        if ($name === '') {
+            $name = trim((string) ($child['physical_key'] ?? $child['target_graph_id'] ?? ''));
+        }
+
+        $status = strtolower((string) ($child['status'] ?? ''));
+        $phase = (string) ($child['phase'] ?? '');
+        $itemsTotal = max(0, (int) ($child['items_total'] ?? 0));
+        $itemsDone = max(0, (int) ($child['items_done'] ?? 0));
+        $percent = isset($child['percent']) ? (float) $child['percent'] : null;
+        if ($percent === null) {
+            $percent = $itemsTotal > 0 ? min(100.0, ($itemsDone / $itemsTotal) * 100) : 0.0;
+        }
+        if ($status === 'success') {
+            $percent = 100.0;
         }
 
         return [
-            'status' => 'success',
-            'message' => $cancelledCount > 0
-                ? 'Cancellation requested for ' . $cancelledCount . ' workload(s).'
-                : 'Cancellation requested.',
-            'run_id' => $batchRunId,
+            'workload_type' => $typeLabel,
+            'workload_name' => $name,
+            'resource_type' => $resourceType,
+            'status' => $status,
+            'phase' => $phase,
+            'phase_label' => self::formatPhaseLabel($phase),
+            'error' => self::formatCustomerWorkloadError($child, $queue),
+            'notes' => self::formatCustomerWorkloadSkippedNotes($child),
+            'items_done' => $itemsDone,
+            'items_total' => $itemsTotal,
+            'percent' => round($percent, 2),
+            'progress_label' => self::formatProgressLabel($itemsDone, $itemsTotal, $percent, $status),
         ];
+    }
+
+    /** @param array<string, mixed> $a @param array<string, mixed> $b */
+    private static function sortCustomerWorkloadRows(array $a, array $b): int
+    {
+        $rank = static function (string $status): int {
+            return match ($status) {
+                'running' => 0,
+                'starting' => 1,
+                'queued' => 2,
+                'warning', 'partial_success' => 3,
+                'failed', 'error' => 4,
+                'success' => 5,
+                'cancelled' => 6,
+                default => 7,
+            };
+        };
+
+        $statusCmp = $rank((string) ($a['status'] ?? '')) <=> $rank((string) ($b['status'] ?? ''));
+        if ($statusCmp !== 0) {
+            return $statusCmp;
+        }
+
+        $nameA = strtolower((string) (($a['workload_type'] ?? '') . ' ' . ($a['workload_name'] ?? '')));
+        $nameB = strtolower((string) (($b['workload_type'] ?? '') . ' ' . ($b['workload_name'] ?? '')));
+
+        return $nameA <=> $nameB;
+    }
+
+    /** @param array<string, mixed> $child @param array<string, mixed> $queue */
+    private static function formatCustomerWorkloadError(array $child, array $queue): string
+    {
+        $parts = [];
+        $runError = trim((string) ($child['error_message'] ?? ''));
+        $queueError = trim((string) ($queue['error_message'] ?? $queue['last_error'] ?? ''));
+        if ($runError !== '') {
+            $parts[] = CustomerFacingTextSanitizer::scrubLogMessage($runError);
+        }
+        if ($queueError !== '' && $queueError !== $runError) {
+            $parts[] = 'Queue: ' . CustomerFacingTextSanitizer::scrubLogMessage($queueError);
+        }
+
+        return implode(' · ', array_values(array_filter($parts, static fn (string $part): bool => $part !== '')));
+    }
+
+    /**
+     * Friendly notes for sub-workloads skipped without failing the parent run.
+     *
+     * @param array<string, mixed> $child
+     * @return list<string>
+     */
+    private static function formatCustomerWorkloadSkippedNotes(array $child): array
+    {
+        $notes = [];
+        $childStats = self::decodeChildStatsJson($child);
+        $workloads = is_array($childStats['workloads'] ?? null) ? $childStats['workloads'] : [];
+        foreach ($workloads as $workloadName => $data) {
+            if (!is_array($data)) {
+                continue;
+            }
+            $reason = trim((string) ($data['skipped'] ?? ''));
+            if ($reason === '') {
+                continue;
+            }
+            $note = self::formatSkippedWorkloadNote((string) $workloadName, $reason);
+            if ($note !== '') {
+                $notes[] = $note;
+            }
+        }
+
+        return $notes;
+    }
+
+    /**
+     * @param list<array<string, mixed>> $groupChildren
+     * @return list<string>
+     */
+    private static function mergeGroupSkippedNotes(array $groupChildren): array
+    {
+        $notes = [];
+        $seen = [];
+        foreach ($groupChildren as $child) {
+            foreach (self::formatCustomerWorkloadSkippedNotes($child) as $note) {
+                $key = strtolower($note);
+                if (isset($seen[$key])) {
+                    continue;
+                }
+                $seen[$key] = true;
+                $notes[] = $note;
+            }
+        }
+
+        return $notes;
+    }
+
+    private static function formatSkippedWorkloadNote(string $workloadName, string $reason): string
+    {
+        $workloadLabel = match (strtolower($workloadName)) {
+            'mail' => 'Mail',
+            'contacts' => 'Contacts',
+            'tasks' => 'Tasks',
+            'calendar' => 'Calendar',
+            'sharepoint' => 'SharePoint',
+            default => ucwords(str_replace('_', ' ', $workloadName)),
+        };
+
+        return match ($reason) {
+            'mailbox_not_enabled' => $workloadLabel . ' not available for this mailbox',
+            'access_denied' => 'No access to this site',
+            default => $workloadLabel . ' skipped',
+        };
+    }
+
+    /** @param array<string, mixed> $child */
+    private static function decodeChildStatsJson(array $child): array
+    {
+        $raw = $child['stats_json'] ?? null;
+        if (is_array($raw)) {
+            return $raw;
+        }
+        if (!is_string($raw) || $raw === '') {
+            return [];
+        }
+        $decoded = json_decode($raw, true);
+
+        return is_array($decoded) ? $decoded : [];
+    }
+
+    private static function formatPhaseLabel(string $phase): string
+    {
+        $normalized = strtolower(trim($phase));
+        if ($normalized === '') {
+            return '—';
+        }
+
+        $labels = [
+            'graph_sync' => 'Graph sync',
+            'prior_snapshot' => 'Prior snapshot',
+            'kopia_upload' => 'Upload',
+            'upload' => 'Upload',
+            'snapshot' => 'Snapshot',
+            'complete' => 'Complete',
+            'cancelled' => 'Cancelled',
+        ];
+        if (isset($labels[$normalized])) {
+            return $labels[$normalized];
+        }
+
+        return ucwords(str_replace('_', ' ', $normalized));
+    }
+
+    private static function formatProgressLabel(int $itemsDone, int $itemsTotal, float $percent, string $status): string
+    {
+        if ($status === 'success') {
+            return 'Complete';
+        }
+        if ($itemsTotal > 0) {
+            return $itemsDone . '/' . $itemsTotal . ' items';
+        }
+        if ($percent > 0) {
+            return number_format($percent, 1) . '%';
+        }
+
+        return '—';
     }
 
     /**
@@ -383,6 +951,21 @@ final class Ms365BatchLiveService
         $value = $bytes / pow(1024, $pow);
 
         return round($value, $precision) . ' ' . $units[$pow];
+    }
+
+    /** @param array<string, mixed> $parentRun
+     * @return array<string, mixed>
+     */
+    private static function decodeParentStatsJson(array $parentRun): array
+    {
+        if (empty($parentRun['stats_json'])) {
+            return [];
+        }
+        $decoded = is_string($parentRun['stats_json'])
+            ? json_decode($parentRun['stats_json'], true)
+            : $parentRun['stats_json'];
+
+        return is_array($decoded) ? $decoded : [];
     }
 
     private static function resolveProgressPct(array $parentRun, array $agg): mixed

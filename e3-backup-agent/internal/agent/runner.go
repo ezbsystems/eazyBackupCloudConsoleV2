@@ -349,23 +349,55 @@ func (r *Runner) flushVerboseRun(runID string) {
 	r.verbose.Close(runID)
 }
 
-// commandLoop polls pending commands and repo operations frequently to reduce UI latency.
+// commandLoop polls pending commands and repo operations on a configurable interval.
 func (r *Runner) commandLoop(stop <-chan struct{}) {
-	t := time.NewTicker(1 * time.Second)
-	defer t.Stop()
+	interval := time.Duration(r.cfg.CommandPollIntervalSecs) * time.Second
+	if interval <= 0 {
+		interval = 15 * time.Second
+	}
+	// Small jitter spreads fleet poll load across the interval window.
+	jitter := time.Duration(time.Now().UnixNano() % int64(interval/2))
+	time.Sleep(jitter)
+
 	for {
-		if err := r.pollAndHandlePendingCommands(); err != nil {
-			log.Printf("agent: pending commands error: %v", err)
+		wait := interval
+		if r.cfg.combinedPollEnabled() {
+			nextSecs, err := r.pollAndHandleCombined()
+			if err != nil {
+				log.Printf("agent: combined poll error: %v", err)
+			} else if nextSecs > 0 {
+				wait = time.Duration(nextSecs) * time.Second
+			}
+		} else {
+			if err := r.pollAndHandlePendingCommands(); err != nil {
+				log.Printf("agent: pending commands error: %v", err)
+			}
+			if err := r.pollAndHandleRepoOperations(); err != nil {
+				log.Printf("agent: repo operations error: %v", err)
+			}
 		}
-		if err := r.pollAndHandleRepoOperations(); err != nil {
-			log.Printf("agent: repo operations error: %v", err)
-		}
+
 		select {
 		case <-stop:
 			return
-		case <-t.C:
+		case <-time.After(wait):
 		}
 	}
+}
+
+func (r *Runner) pollAndHandleCombined() (int, error) {
+	cmds, op, nextPollSecs, err := r.client.CombinedPoll()
+	if err != nil {
+		return 0, err
+	}
+	for _, cmd := range cmds {
+		r.handlePendingCommand(cmd)
+	}
+	if op != nil {
+		log.Printf("agent: executing repo operation id=%d type=%s repo_id=%d", op.OperationID, op.OpType, op.RepoID)
+		r.executeRepoOperation(op)
+	}
+	return nextPollSecs, nil
 }
 
 // pollAndHandleRepoOperations polls for queued repo operations (retention, maintenance) and dispatches them.
@@ -503,6 +535,11 @@ func (r *Runner) pollAndHandlePendingCommands() error {
 		r.executePendingCommand(cmd)
 	}
 	return nil
+}
+
+func (r *Runner) handlePendingCommand(cmd PendingCommand) {
+	log.Printf("agent: executing pending command %d type=%s job=%s run=%s", cmd.CommandID, cmd.Type, cmd.JobID, cmd.RunID)
+	r.executePendingCommand(cmd)
 }
 
 // executePendingCommand handles restore, maintenance, and NAS commands with full job context.
@@ -1008,8 +1045,8 @@ func (r *Runner) runSync(run *NextRunResponse) error {
 		MessageID: "BACKUP_STARTING",
 	})
 
-	// Progress ticker and cancel polling
-	progressTicker := time.NewTicker(5 * time.Second)
+	// Progress ticker and cancel polling (align sync engine with Kopia live heartbeat cadence)
+	progressTicker := time.NewTicker(2 * time.Second)
 	defer progressTicker.Stop()
 	commandTicker := time.NewTicker(3 * time.Second)
 	defer commandTicker.Stop()
@@ -1018,6 +1055,8 @@ func (r *Runner) runSync(run *NextRunResponse) error {
 	runErr := make(chan error, 1)
 	lastProgressAt := time.Now()
 	var lastBytes int64 = 0
+	var lastSyncEventAt time.Time
+	var lastSyncEventPct float64 = -1
 
 	// Increase parallelism for throughput (default transfers/checkers are lower)
 	// Note: fs.GetConfig is global; safe here because we run one job at a time.
@@ -1078,20 +1117,27 @@ func (r *Runner) runSync(run *NextRunResponse) error {
 				SpeedBytesPerSec:   speed,
 				EtaSeconds:         0,
 			})
-			r.pushEvents(run.RunID, RunEvent{
-				Type:      "progress",
-				Level:     "info",
-				MessageID: "PROGRESS_UPDATE",
-				ParamsJSON: map[string]any{
-					"pct":         pct,
-					"bytes_done":  done,
-					"bytes_total": int64(0),
-					"files_done":  stats.GetTransfers(),
-					"files_total": int64(0),
-					"speed_bps":   speed,
-					"eta_seconds": int64(0),
-				},
-			})
+			shouldPushEvent := lastSyncEventAt.IsZero() ||
+				now.Sub(lastSyncEventAt) >= progressEventInterval(r) ||
+				(progressEventPctStep(r) > 0 && pct-lastSyncEventPct >= progressEventPctStep(r))
+			if shouldPushEvent {
+				lastSyncEventAt = now
+				lastSyncEventPct = pct
+				r.pushEvents(run.RunID, RunEvent{
+					Type:      "progress",
+					Level:     "info",
+					MessageID: "PROGRESS_UPDATE",
+					ParamsJSON: map[string]any{
+						"pct":         pct,
+						"bytes_done":  done,
+						"bytes_total": int64(0),
+						"files_done":  stats.GetTransfers(),
+						"files_total": int64(0),
+						"speed_bps":   speed,
+						"eta_seconds": int64(0),
+					},
+				})
+			}
 		case <-commandTicker.C:
 			cancelReq, cmds, errCmd := r.pollCommands(run.RunID)
 			if errCmd != nil {
