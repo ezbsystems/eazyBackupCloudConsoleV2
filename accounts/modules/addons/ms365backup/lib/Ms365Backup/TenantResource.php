@@ -153,6 +153,62 @@ final class TenantResource
         return self::TYPE_USER;
     }
 
+  /**
+     * @param array<string, mixed> $access
+     */
+    public static function siteCapabilityAccessible(array $access, string $capability): bool
+    {
+        if ($access === []) {
+            return true;
+        }
+        $status = (string) ($access[$capability] ?? '');
+        if ($status === '') {
+            return true;
+        }
+
+        return $status === AccessResult::STATUS_AVAILABLE;
+    }
+
+    /**
+     * Derive wizard selectability for a SharePoint site resource.
+     *
+     * @param array<string, mixed> $resource
+     * @return array{
+     *   selectable: bool,
+     *   disabled_reason: string,
+     *   capability_access: array{files: bool, lists: bool}
+     * }
+     */
+    public static function siteSelectability(array $resource): array
+    {
+        $access = is_array($resource['access'] ?? null) ? $resource['access'] : [];
+        $filesAccessible = self::siteCapabilityAccessible($access, 'files');
+        $listsAccessible = self::siteCapabilityAccessible($access, 'lists');
+        $selectable = $filesAccessible || $listsAccessible;
+
+        $disabledReason = '';
+        if (!$selectable) {
+            $reason = trim((string) (
+                $access['reason']
+                ?? $access['files_reason']
+                ?? $access['lists_reason']
+                ?? ''
+            ));
+            $disabledReason = $reason !== ''
+                ? $reason
+                : 'Backup app cannot access this site';
+        }
+
+        return [
+            'selectable' => $selectable,
+            'disabled_reason' => $disabledReason,
+            'capability_access' => [
+                'files' => $filesAccessible,
+                'lists' => $listsAccessible,
+            ],
+        ];
+    }
+
     /** @return array<string, int> */
     public static function countByType(array $resources): array
     {

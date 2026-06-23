@@ -3,6 +3,8 @@ package api
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -88,6 +90,8 @@ type RunJob struct {
 	Workloads        map[string]bool   `json:"workloads"`
 	GraphPagination  map[string]PaginationLimit `json:"graph_pagination"`
 	LeaseExpiresAt   int64             `json:"lease_expires_at"`
+	// GraphTenantBudget is the per-worker share of tenant Graph concurrency (from control plane).
+	GraphTenantBudget int `json:"graph_tenant_budget"`
 	RestoreSelection RestoreSelection  `json:"restore_selection"`
 }
 
@@ -122,11 +126,19 @@ type ProgressUpdate struct {
 	BytesUploaded  int64   `json:"bytes_uploaded"`
 	ManifestID     string  `json:"manifest_id,omitempty"`
 	Message        string  `json:"message,omitempty"`
+	Graph429Hits       int64 `json:"graph_429_hits,omitempty"`
+	GraphAdaptiveLimit int   `json:"graph_adaptive_limit,omitempty"`
+	// CheckpointDeltaStates persists partial delta links mid-run (resume after requeue).
+	CheckpointDeltaStates map[string]map[string]string `json:"checkpoint_delta_states,omitempty"`
+	// NoProgress tells the control plane to skip lease renewal and last_progress_at bumps.
+	NoProgress bool `json:"no_progress,omitempty"`
 }
 
 type CompleteUpdate struct {
 	RunID      string `json:"run_id"`
 	ManifestID string `json:"manifest_id"`
+	ItemsDone  int    `json:"items_done,omitempty"`
+	ItemsTotal int    `json:"items_total,omitempty"`
 	StatsJSON  string `json:"stats_json"`
 }
 
@@ -140,10 +152,44 @@ type UpdateOffer struct {
 	Sha256      string `json:"sha256"`
 	DownloadURL string `json:"download_url"`
 	ReleaseID   int    `json:"release_id"`
+	Drain       bool   `json:"drain"`
+}
+
+type ConfigOffer struct {
+	Version     int    `json:"version"`
+	Sha256      string `json:"sha256"`
+	DownloadURL string `json:"download_url"`
+}
+
+type TelemetryReport struct {
+	CPUPct        float64 `json:"cpu_pct"`
+	CPUCoresUsed  float64 `json:"cpu_cores_used"`
+	MemUsedMiB    int64   `json:"mem_used_mib"`
+	MemTotalMiB   int64   `json:"mem_total_mib"`
+	DiskFreeMiB   int64   `json:"disk_free_mib"`
+	DiskTotalMiB  int64   `json:"disk_total_mib"`
+	RunDirFreeMiB int64   `json:"run_dir_free_mib"`
+	Goroutines    int     `json:"goroutines"`
+	SampledAt     string  `json:"sampled_at"`
+}
+
+type HeartbeatParams struct {
+	CurrentLoad       int
+	Version           string
+	DeployError       string
+	ProxmoxVmid       int
+	ClaimAdmitRejects int
+	ConfigVersion     int
+	ConfigError       string
+	Telemetry         *TelemetryReport
 }
 
 type HeartbeatResponse struct {
-	Update *UpdateOffer `json:"update"`
+	Update         *UpdateOffer `json:"update"`
+	Config         *ConfigOffer `json:"config"`
+	AwaitingDeploy bool         `json:"awaiting_deploy"`
+	Drain          bool         `json:"drain"`
+	ActiveClaims   []string     `json:"active_claims"`
 }
 
 type RepoOperation struct {
@@ -184,16 +230,22 @@ func (c *Client) Register(ctx context.Context, hostname string, maxConcurrent in
 	return &out, nil
 }
 
-func (c *Client) Heartbeat(ctx context.Context, currentLoad int, version string, deployError string, proxmoxVmid int) (*HeartbeatResponse, error) {
+func (c *Client) Heartbeat(ctx context.Context, p HeartbeatParams) (*HeartbeatResponse, error) {
 	var out HeartbeatResponse
 	payload := map[string]any{
-		"node_id":      c.nodeID,
-		"current_load": currentLoad,
-		"version":      version,
-		"deploy_error": deployError,
+		"node_id":             c.nodeID,
+		"current_load":        p.CurrentLoad,
+		"version":             p.Version,
+		"deploy_error":        p.DeployError,
+		"claim_admit_rejects": p.ClaimAdmitRejects,
+		"config_version":      p.ConfigVersion,
+		"config_error":        p.ConfigError,
 	}
-	if proxmoxVmid > 0 {
-		payload["proxmox_vmid"] = proxmoxVmid
+	if p.ProxmoxVmid > 0 {
+		payload["proxmox_vmid"] = p.ProxmoxVmid
+	}
+	if p.Telemetry != nil {
+		payload["telemetry"] = p.Telemetry
 	}
 	err := c.post(ctx, "ms365_worker_heartbeat.php", payload, &out)
 	if err != nil {
@@ -202,17 +254,49 @@ func (c *Client) Heartbeat(ctx context.Context, currentLoad int, version string,
 	return &out, nil
 }
 
+// FetchConfig downloads fleet config YAML from a token-protected URL.
+func (c *Client) FetchConfig(ctx context.Context, downloadURL string) ([]byte, string, error) {
+	if strings.TrimSpace(downloadURL) == "" {
+		return nil, "", fmt.Errorf("empty config download url")
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, downloadURL, nil)
+	if err != nil {
+		return nil, "", err
+	}
+	req.Header.Set("X-MS365-Worker-Token", c.token)
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, "", err
+	}
+	defer resp.Body.Close()
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, "", err
+	}
+	if resp.StatusCode >= 400 {
+		return nil, "", fmt.Errorf("config download http %d: %s", resp.StatusCode, strings.TrimSpace(string(raw)))
+	}
+	sum := sha256.Sum256(raw)
+	return raw, hex.EncodeToString(sum[:]), nil
+}
+
 func (c *Client) Token() string {
 	return c.token
 }
 
-func (c *Client) Claim(ctx context.Context) (*RunJob, error) {
+func (c *Client) Claim(ctx context.Context, hint map[string]any) (*RunJob, error) {
 	var out struct {
 		Run *RunJob `json:"run"`
 	}
-	err := c.post(ctx, "ms365_worker_claim.php", map[string]any{
+	payload := map[string]any{
 		"node_id": c.nodeID,
-	}, &out)
+	}
+	if hint != nil {
+		for k, v := range hint {
+			payload[k] = v
+		}
+	}
+	err := c.post(ctx, "ms365_worker_claim.php", payload, &out)
 	if err != nil {
 		return nil, err
 	}
@@ -266,9 +350,16 @@ func (c *Client) RefreshGraphToken(ctx context.Context, runID string) (string, e
 	return out.GraphToken, nil
 }
 
-func (c *Client) Progress(ctx context.Context, upd ProgressUpdate) error {
+func (c *Client) Progress(ctx context.Context, upd ProgressUpdate) (cancelRequested bool, graphTenantBudget int, err error) {
 	upd.RunID = strings.TrimSpace(upd.RunID)
-	return c.post(ctx, "ms365_worker_progress.php", upd, &struct{}{})
+	var data struct {
+		CancelRequested   bool `json:"cancel_requested"`
+		GraphTenantBudget int  `json:"graph_tenant_budget"`
+	}
+	if err := c.post(ctx, "ms365_worker_progress.php", upd, &data); err != nil {
+		return false, 0, err
+	}
+	return data.CancelRequested, data.GraphTenantBudget, nil
 }
 
 func (c *Client) Complete(ctx context.Context, upd CompleteUpdate) error {
@@ -279,11 +370,15 @@ func (c *Client) Fail(ctx context.Context, upd FailUpdate) error {
 	return c.postWithRetry(ctx, "ms365_worker_fail.php", upd, &struct{}{}, 3)
 }
 
-func (c *Client) Release(ctx context.Context, runID string) error {
-	return c.post(ctx, "ms365_worker_release.php", map[string]any{
+func (c *Client) Release(ctx context.Context, runID, reason string) error {
+	payload := map[string]any{
 		"node_id": c.nodeID,
 		"run_id":  runID,
-	}, &struct{}{})
+	}
+	if strings.TrimSpace(reason) != "" {
+		payload["reason"] = reason
+	}
+	return c.post(ctx, "ms365_worker_release.php", payload, &struct{}{})
 }
 
 func (c *Client) NodeID() string {
@@ -392,11 +487,20 @@ func BuildAPIURL(base, path string, q map[string]string) string {
 }
 
 // StartProgressHeartbeat sends periodic progress updates (lease renewal on PHP side) during long operations.
-func (c *Client) StartProgressHeartbeat(ctx context.Context, runID string, interval time.Duration, getUpdate func() ProgressUpdate) func() {
+// When the control plane reports cancel_requested, onCancel is invoked once to abort the run context.
+func (c *Client) StartProgressHeartbeat(ctx context.Context, runID string, interval time.Duration, getUpdate func() ProgressUpdate, onCancel func()) func() {
 	if interval <= 0 {
 		interval = 60 * time.Second
 	}
 	stop := make(chan struct{})
+	var cancelOnce sync.Once
+	fireCancel := func() {
+		cancelOnce.Do(func() {
+			if onCancel != nil {
+				onCancel()
+			}
+		})
+	}
 	go func() {
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
@@ -412,7 +516,15 @@ func (c *Client) StartProgressHeartbeat(ctx context.Context, runID string, inter
 				if upd.Phase == "" {
 					upd.Phase = "heartbeat"
 				}
-				_ = c.Progress(ctx, upd)
+				if cancel, budget, err := c.Progress(ctx, upd); err == nil {
+					if budget > 0 {
+						// Reserved for dynamic tenant budget refresh (handled in runner).
+						_ = budget
+					}
+					if cancel {
+						fireCancel()
+					}
+				}
 			}
 		}
 	}()

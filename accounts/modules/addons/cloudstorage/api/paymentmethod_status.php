@@ -5,6 +5,7 @@ require_once __DIR__ . '/../../../../init.php';
 use WHMCS\ClientArea;
 use WHMCS\Database\Capsule;
 use WHMCS\Authentication\Auth;
+use WHMCS\Payment\PayMethod\Model as PayMethodModel;
 
 header('Content-Type: application/json');
 
@@ -104,15 +105,38 @@ function cloudstorage_client_has_stripe_card(int $clientId): bool
     }
 
     $hasCard = false;
+
     try {
-        if (class_exists('\\WHMCS\\Payment\\PayMethod\\PayMethod')) {
-            $pmQuery = \WHMCS\Payment\PayMethod\PayMethod::where('userid', $clientId)
+        if (class_exists('\\WHMCS\\Payment\\PayMethod\\Model')) {
+            $payMethods = PayMethodModel::where('userid', $clientId)
                 ->whereNull('deleted_at')
-                ->whereIn('payment_type', ['CreditCard', 'RemoteCreditCard']);
-            $payMethods = $pmQuery->get();
+                ->where('gateway_name', 'stripe')
+                ->whereIn('payment_type', ['CreditCard', 'RemoteCreditCard'])
+                ->get();
+
             foreach ($payMethods as $pm) {
-                $hasCard = true;
-                break;
+                try {
+                    $adapter = $pm->payment;
+                    if (!$adapter) {
+                        continue;
+                    }
+                    $last4 = method_exists($adapter, 'getLastFour')
+                        ? (string) $adapter->getLastFour()
+                        : '';
+                    if ($last4 === '' || $last4 === '0000') {
+                        continue;
+                    }
+                    if (method_exists($adapter, 'getRemoteToken')) {
+                        $remoteToken = (string) $adapter->getRemoteToken();
+                        if ($remoteToken === '') {
+                            continue;
+                        }
+                    }
+                    $hasCard = true;
+                    break;
+                } catch (\Throwable $e) {
+                    continue;
+                }
             }
         }
     } catch (\Throwable $e) {
@@ -121,27 +145,19 @@ function cloudstorage_client_has_stripe_card(int $clientId): bool
 
     if (!$hasCard) {
         try {
-            if (Capsule::schema()->hasTable('tblpaymethods')) {
-                $q = Capsule::table('tblpaymethods')
-                    ->where('userid', $clientId)
-                    ->whereNull('deleted_at')
-                    ->whereIn('payment_type', ['CreditCard', 'RemoteCreditCard']);
-                $hasCard = $q->exists();
-            }
-        } catch (\Throwable $e) {
-            $hasCard = false;
-        }
-    }
-
-    if (!$hasCard) {
-        try {
             $resp = localAPI('GetPayMethods', ['clientid' => $clientId]);
             if (($resp['result'] ?? '') === 'success' && !empty($resp['paymethods']) && is_array($resp['paymethods'])) {
                 foreach ($resp['paymethods'] as $pm) {
                     $ptype = strtolower((string) ($pm['payment_type'] ?? ''));
-                    if ($ptype === 'creditcard' || $ptype === 'remotecreditcard') {
-                        $hasCard = true;
-                        break;
+                    $gateway = strtolower((string) ($pm['gateway_type'] ?? $pm['gateway'] ?? $pm['gateway_name'] ?? ''));
+                    if (($ptype === 'creditcard' || $ptype === 'remotecreditcard')
+                        && ($gateway === '' || $gateway === 'stripe')
+                    ) {
+                        $last4 = (string) ($pm['card_last4'] ?? $pm['last_four'] ?? '');
+                        if ($last4 !== '' && $last4 !== '0000') {
+                            $hasCard = true;
+                            break;
+                        }
                     }
                 }
             }

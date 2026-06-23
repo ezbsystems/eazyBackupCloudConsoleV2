@@ -394,6 +394,19 @@ function getClientIdForUsername(PDO $pdo, string $username, ?string $profile = n
 function resolveWhmcsUser(PDO $pdo, string $username, ?string $profile = null): array {
     // Return ['client_id'=>?int, 'username'=>?string] with strong disambiguation.
     // Prefer exact-case; if case-insensitive yields multiple client_ids, treat as ambiguous.
+    $normalized = trim($username);
+    if ($normalized === '') {
+        return ['client_id' => null, 'username' => null];
+    }
+
+    static $cache = [];
+    $cacheTtl = max(60, (int)(getenv('EB_WHMCS_USER_CACHE_TTL') ?: 300));
+    $cacheKey = ($profile ?? '') . ':' . $normalized;
+    $now = time();
+    if (isset($cache[$cacheKey]) && ($cache[$cacheKey]['expires'] ?? 0) > $now) {
+        return $cache[$cacheKey]['data'];
+    }
+
     $result = ['client_id' => null, 'username' => null];
     try {
         // Optional scoping by server group (profile → tblservergroups.name)
@@ -405,43 +418,78 @@ function resolveWhmcsUser(PDO $pdo, string $username, ?string $profile = null): 
         }
         // 0) Prefer existing mapping in comet_users (exact-case, then case-insensitive if unique)
         $stmt = $pdo->prepare("SELECT client_id, username FROM comet_users WHERE BINARY username = ? LIMIT 1");
-        $stmt->execute([$username]);
+        $stmt->execute([$normalized]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
         if ($row && (int)$row['client_id'] > 0) {
-            return ['client_id' => (int)$row['client_id'], 'username' => (string)$row['username']];
+            $resolved = ['client_id' => (int)$row['client_id'], 'username' => (string)$row['username']];
+            $cache[$cacheKey] = ['data' => $resolved, 'expires' => $now + $cacheTtl];
+            return $resolved;
         }
         $stmt = $pdo->prepare("SELECT DISTINCT client_id, username FROM comet_users WHERE LOWER(username) = LOWER(?)");
-        $stmt->execute([$username]);
+        $stmt->execute([$normalized]);
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
         $distinctClients = array_values(array_unique(array_map(fn($r)=> (int)$r['client_id'], $rows)));
         if (count($distinctClients) === 1 && $distinctClients[0] > 0) {
             // Use whichever username casing is stored
-            return ['client_id' => $distinctClients[0], 'username' => (string)($rows[0]['username'] ?? $username)];
+            $resolved = ['client_id' => $distinctClients[0], 'username' => (string)($rows[0]['username'] ?? $normalized)];
+            $cache[$cacheKey] = ['data' => $resolved, 'expires' => $now + $cacheTtl];
+            return $resolved;
         } elseif (count($distinctClients) > 1) {
             // Ambiguous mapping in comet_users; continue to tblhosting resolution instead of bailing out
-            if (EB_WS_DEBUG) logLine('resolver', "Ambiguous in comet_users for username={$username}; falling back to tblhosting search");
+            if (EB_WS_DEBUG) logLine('resolver', "Ambiguous in comet_users for username={$normalized}; falling back to tblhosting search");
         }
 
-        // 1) Exact case-sensitive match on Active services (prefer trimmed)
-        $sql1 = "SELECT h.userid, h.username FROM tblhosting h" . $joinGroup . " WHERE BINARY TRIM(h.username) = TRIM(?) AND h.domainstatus = 'Active'" . $andGroup . " ORDER BY h.id ASC LIMIT 1";
+        // 1) Indexed equality on trimmed username (Active services)
+        $sql1 = "SELECT h.userid, h.username FROM tblhosting h" . $joinGroup . " WHERE h.username = ? AND h.domainstatus = 'Active'" . $andGroup . " ORDER BY h.id ASC LIMIT 1";
         $stmt = $pdo->prepare($sql1);
-        $params = [$username]; if ($andGroup) { $params[] = $profile; }
+        $params = [$normalized]; if ($andGroup) { $params[] = $profile; }
         $stmt->execute($params);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
-        if ($row) { return ['client_id' => (int)$row['userid'], 'username' => (string)$row['username']]; }
+        if ($row) {
+            $resolved = ['client_id' => (int)$row['userid'], 'username' => (string)$row['username']];
+            $cache[$cacheKey] = ['data' => $resolved, 'expires' => $now + $cacheTtl];
+            return $resolved;
+        }
 
-        // 2) Exact case-sensitive match on any status
-        $sql2 = "SELECT h.userid, h.username FROM tblhosting h" . $joinGroup . " WHERE BINARY TRIM(h.username) = TRIM(?)" . $andGroup . " ORDER BY h.id ASC LIMIT 1";
+        // 2) Indexed equality on any status
+        $sql2 = "SELECT h.userid, h.username FROM tblhosting h" . $joinGroup . " WHERE h.username = ?" . $andGroup . " ORDER BY h.id ASC LIMIT 1";
         $stmt = $pdo->prepare($sql2);
-        $params = [$username]; if ($andGroup) { $params[] = $profile; }
+        $params = [$normalized]; if ($andGroup) { $params[] = $profile; }
         $stmt->execute($params);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
-        if ($row) { return ['client_id' => (int)$row['userid'], 'username' => (string)$row['username']]; }
+        if ($row) {
+            $resolved = ['client_id' => (int)$row['userid'], 'username' => (string)$row['username']];
+            $cache[$cacheKey] = ['data' => $resolved, 'expires' => $now + $cacheTtl];
+            return $resolved;
+        }
 
-        // 3) Case-insensitive match; prefer exact-case among matches; otherwise unique client
+        // 3) Legacy rows with surrounding whitespace (fallback scan)
+        $sql1legacy = "SELECT h.userid, h.username FROM tblhosting h" . $joinGroup . " WHERE BINARY TRIM(h.username) = ? AND h.domainstatus = 'Active'" . $andGroup . " ORDER BY h.id ASC LIMIT 1";
+        $stmt = $pdo->prepare($sql1legacy);
+        $params = [$normalized]; if ($andGroup) { $params[] = $profile; }
+        $stmt->execute($params);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($row) {
+            $resolved = ['client_id' => (int)$row['userid'], 'username' => (string)$row['username']];
+            $cache[$cacheKey] = ['data' => $resolved, 'expires' => $now + $cacheTtl];
+            return $resolved;
+        }
+
+        $sql2legacy = "SELECT h.userid, h.username FROM tblhosting h" . $joinGroup . " WHERE BINARY TRIM(h.username) = ?" . $andGroup . " ORDER BY h.id ASC LIMIT 1";
+        $stmt = $pdo->prepare($sql2legacy);
+        $params = [$normalized]; if ($andGroup) { $params[] = $profile; }
+        $stmt->execute($params);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($row) {
+            $resolved = ['client_id' => (int)$row['userid'], 'username' => (string)$row['username']];
+            $cache[$cacheKey] = ['data' => $resolved, 'expires' => $now + $cacheTtl];
+            return $resolved;
+        }
+
+        // 4) Case-insensitive match; prefer exact-case among matches; otherwise unique client
         $sql3 = "SELECT h.userid, h.username FROM tblhosting h" . $joinGroup . " WHERE LOWER(h.username) = LOWER(?)" . $andGroup . " ORDER BY (BINARY h.username = ?) DESC, h.id ASC";
         $stmt = $pdo->prepare($sql3);
-        $params = [$username]; if ($andGroup) { $params[] = $profile; } $params[] = $username;
+        $params = [$normalized]; if ($andGroup) { $params[] = $profile; } $params[] = $normalized;
         $stmt->execute($params);
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
         if (!empty($rows)) {
@@ -449,49 +497,83 @@ function resolveWhmcsUser(PDO $pdo, string $username, ?string $profile = null): 
             // Check if only one client_id among all rows
             $distinctClients = array_values(array_unique(array_map(fn($r)=> (int)$r['userid'], $rows)));
             if (count($distinctClients) === 1) {
-                return ['client_id' => (int)$first['userid'], 'username' => (string)$first['username']];
+                $resolved = ['client_id' => (int)$first['userid'], 'username' => (string)$first['username']];
+                $cache[$cacheKey] = ['data' => $resolved, 'expires' => $now + $cacheTtl];
+                return $resolved;
             }
             // If multiple clients, but the first row is exact-case match, select it
-            if (isset($first['username']) && $first['username'] === $username) {
-                return ['client_id' => (int)$first['userid'], 'username' => (string)$first['username']];
+            if (isset($first['username']) && $first['username'] === $normalized) {
+                $resolved = ['client_id' => (int)$first['userid'], 'username' => (string)$first['username']];
+                $cache[$cacheKey] = ['data' => $resolved, 'expires' => $now + $cacheTtl];
+                return $resolved;
             }
-        if (EB_WS_DEBUG) { logLine('resolver', "Ambiguous in tblhosting for username={$username} clients=" . json_encode($distinctClients) . ($profile?" profile={$profile}":"")); }
+        if (EB_WS_DEBUG) { logLine('resolver', "Ambiguous in tblhosting for username={$normalized} clients=" . json_encode($distinctClients) . ($profile?" profile={$profile}":"")); }
         }
     } catch (Throwable $e) { /* ignore */ }
     // Fallback: retry without server-group scoping if profile scoping yielded nothing
     try {
-        // 1) Exact case-sensitive match on Active services
-        $sql1 = "SELECT h.userid, h.username FROM tblhosting h WHERE BINARY TRIM(h.username) = TRIM(?) AND h.domainstatus = 'Active' ORDER BY h.id ASC LIMIT 1";
+        $sql1 = "SELECT h.userid, h.username FROM tblhosting h WHERE h.username = ? AND h.domainstatus = 'Active' ORDER BY h.id ASC LIMIT 1";
         $stmt = $pdo->prepare($sql1);
-        $stmt->execute([$username]);
+        $stmt->execute([$normalized]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
-        if ($row) { return ['client_id' => (int)$row['userid'], 'username' => (string)$row['username']]; }
+        if ($row) {
+            $resolved = ['client_id' => (int)$row['userid'], 'username' => (string)$row['username']];
+            $cache[$cacheKey] = ['data' => $resolved, 'expires' => $now + $cacheTtl];
+            return $resolved;
+        }
 
-        // 2) Exact case-sensitive match on any status
-        $sql2 = "SELECT h.userid, h.username FROM tblhosting h WHERE BINARY TRIM(h.username) = TRIM(?) ORDER BY h.id ASC LIMIT 1";
+        $sql2 = "SELECT h.userid, h.username FROM tblhosting h WHERE h.username = ? ORDER BY h.id ASC LIMIT 1";
         $stmt = $pdo->prepare($sql2);
-        $stmt->execute([$username]);
+        $stmt->execute([$normalized]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
-        if ($row) { return ['client_id' => (int)$row['userid'], 'username' => (string)$row['username']]; }
+        if ($row) {
+            $resolved = ['client_id' => (int)$row['userid'], 'username' => (string)$row['username']];
+            $cache[$cacheKey] = ['data' => $resolved, 'expires' => $now + $cacheTtl];
+            return $resolved;
+        }
 
-        // 3) Case-insensitive match; prefer exact-case among matches; otherwise unique client
+        $sql1legacy = "SELECT h.userid, h.username FROM tblhosting h WHERE BINARY TRIM(h.username) = ? AND h.domainstatus = 'Active' ORDER BY h.id ASC LIMIT 1";
+        $stmt = $pdo->prepare($sql1legacy);
+        $stmt->execute([$normalized]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($row) {
+            $resolved = ['client_id' => (int)$row['userid'], 'username' => (string)$row['username']];
+            $cache[$cacheKey] = ['data' => $resolved, 'expires' => $now + $cacheTtl];
+            return $resolved;
+        }
+
+        $sql2legacy = "SELECT h.userid, h.username FROM tblhosting h WHERE BINARY TRIM(h.username) = ? ORDER BY h.id ASC LIMIT 1";
+        $stmt = $pdo->prepare($sql2legacy);
+        $stmt->execute([$normalized]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($row) {
+            $resolved = ['client_id' => (int)$row['userid'], 'username' => (string)$row['username']];
+            $cache[$cacheKey] = ['data' => $resolved, 'expires' => $now + $cacheTtl];
+            return $resolved;
+        }
+
         $sql3 = "SELECT h.userid, h.username FROM tblhosting h WHERE LOWER(h.username) = LOWER(?) ORDER BY (BINARY h.username = ?) DESC, h.id ASC";
         $stmt = $pdo->prepare($sql3);
-        $stmt->execute([$username, $username]);
+        $stmt->execute([$normalized, $normalized]);
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
         if (!empty($rows)) {
             $first = $rows[0];
             $distinctClients = array_values(array_unique(array_map(fn($r)=> (int)$r['userid'], $rows)));
             if (count($distinctClients) === 1) {
-                return ['client_id' => (int)$first['userid'], 'username' => (string)$first['username']];
+                $resolved = ['client_id' => (int)$first['userid'], 'username' => (string)$first['username']];
+                $cache[$cacheKey] = ['data' => $resolved, 'expires' => $now + $cacheTtl];
+                return $resolved;
             }
-            if (isset($first['username']) && $first['username'] === $username) {
-                return ['client_id' => (int)$first['userid'], 'username' => (string)$first['username']];
+            if (isset($first['username']) && $first['username'] === $normalized) {
+                $resolved = ['client_id' => (int)$first['userid'], 'username' => (string)$first['username']];
+                $cache[$cacheKey] = ['data' => $resolved, 'expires' => $now + $cacheTtl];
+                return $resolved;
             }
-            if (EB_WS_DEBUG) { logLine('resolver', "Ambiguous in tblhosting (no profile scope) for username={$username} clients=" . json_encode($distinctClients)); }
+            if (EB_WS_DEBUG) { logLine('resolver', "Ambiguous in tblhosting (no profile scope) for username={$normalized} clients=" . json_encode($distinctClients)); }
         }
     } catch (Throwable $e) { /* ignore */ }
 
+    $cache[$cacheKey] = ['data' => $result, 'expires' => $now + min(60, $cacheTtl)];
     return $result;
 }
 
@@ -1178,6 +1260,13 @@ function refreshDeviceOnlineStatus(PDO $pdo, string $profile): void {
 }
 
 function upsertLive(PDO $pdo, array $row): void {
+    static $lastLive = [];
+    $key = ($row['server_id'] ?? '') . ':' . ($row['job_id'] ?? '');
+    $bytes = (int)($row['bytes_done'] ?? 0);
+    if ($key !== ':' && isset($lastLive[$key]) && $lastLive[$key] === $bytes) {
+        return;
+    }
+
     try {
         $sql = "INSERT INTO eb_jobs_live
                 (server_id, job_id, username, device, job_type, started_at, bytes_done, throughput_bps, last_update)
@@ -1202,6 +1291,7 @@ function upsertLive(PDO $pdo, array $row): void {
             ':last_update'    => time(),
         ]);
         if (EB_DB_DEBUG) logLine($row['server_id'], "DB upsert LIVE ok job={$row['job_id']} rc=" . $stmt->rowCount());
+        $lastLive[$key] = $bytes;
     } catch (Throwable $e) {
         logLine($row['server_id'], "DB upsert LIVE ERROR: " . $e->getMessage());
     }
@@ -1246,11 +1336,53 @@ function finishJob(PDO $pdo, array $row): void {
     }
 }
 
-function saveCursor(PDO &$pdo, string $profile, int $ts, ?string $jobId): void {
+function saveCursor(PDO &$pdo, string $profile, int $ts, ?string $jobId, bool $forceFlush = false): void {
+    static $state = [];
+    $flushInterval = max(5, (int)(getenv('EB_CURSOR_FLUSH_SECONDS') ?: 30));
+    $flushEveryEvents = max(1, (int)(getenv('EB_CURSOR_FLUSH_EVENTS') ?: 100));
+
+    if (!isset($state[$profile])) {
+        $state[$profile] = ['ts' => 0, 'job_id' => null, 'dirty' => false, 'events' => 0, 'last_flush' => 0];
+    }
+
+    $state[$profile]['ts'] = max($state[$profile]['ts'], $ts);
+    if ($jobId !== null && $jobId !== '') {
+        $state[$profile]['job_id'] = $jobId;
+    }
+    $state[$profile]['dirty'] = true;
+    $state[$profile]['events']++;
+
+    $now = time();
+    $shouldFlush = $forceFlush
+        || ($now - (int)$state[$profile]['last_flush']) >= $flushInterval
+        || $state[$profile]['events'] >= $flushEveryEvents;
+
+    if (!$shouldFlush) {
+        return;
+    }
+
+    flushCursor($pdo, $profile, $state);
+}
+
+function flushCursor(PDO &$pdo, string $profile, ?array &$state = null): void {
+    static $defaultState = [];
+    if ($state === null) {
+        $state = &$defaultState;
+    }
+    if (empty($state[$profile]['dirty'])) {
+        return;
+    }
+
+    $ts = (int)($state[$profile]['ts'] ?? 0);
+    $jobId = $state[$profile]['job_id'] ?? null;
     withDbRetry($pdo, $profile, function (PDO &$pdo) use ($profile, $ts, $jobId): void {
         $pdo->prepare("REPLACE INTO eb_event_cursor (source, last_ts, last_id) VALUES (?, ?, ?)")
             ->execute(['comet-ws:' . $profile, $ts, $jobId]);
     });
+
+    $state[$profile]['dirty'] = false;
+    $state[$profile]['events'] = 0;
+    $state[$profile]['last_flush'] = time();
 }
 
 /////////////////////
@@ -1303,7 +1435,8 @@ function handleEvent(PDO &$pdo, string $profile, array $evt): void {
     // Ignore non-job noise; allow SEVT_ACCOUNT_UPDATED (used for item sync)
     if ($lab === '' || str_starts_with($lab, 'SEVT_META_') || $lab === 'SEVT_ACCOUNT_LOGIN') {
         if (EB_WS_DEBUG) logLine($profile, "IGNORED {$lab}");
-        saveCursor($pdo, $profile, $ts, null);
+        // Track cursor in memory only; throttled flush skips DB write for noise events.
+        saveCursor($pdo, $profile, $ts, null, false);
         return;
     }
 
@@ -1464,7 +1597,7 @@ function handleEvent(PDO &$pdo, string $profile, array $evt): void {
         if (EB_WS_DEBUG) logLine($profile, "IGNORED {$lab} (not mapped)");
     }
 
-    saveCursor($pdo, $profile, $ended_at ?: $ts, $jobId ?: null);
+    saveCursor($pdo, $profile, $ended_at ?: $ts, $jobId ?: null, true);
 }
 
 

@@ -9,8 +9,10 @@
  */
 
 require_once __DIR__ . '/../../../../init.php';
+require_once __DIR__ . '/../lib/Client/AgentAuth.php';
 
 use Illuminate\Database\Capsule\Manager as Capsule;
+use WHMCS\Module\Addon\CloudStorage\Client\AgentAuth;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use WHMCS\Module\Addon\CloudStorage\Admin\AdminOps;
 use WHMCS\Module\Addon\CloudStorage\Admin\ProductConfig;
@@ -29,25 +31,7 @@ function respondPendingMounts(array $data, int $httpCode = 200): void
 
 function authenticatePendingMountsAgent(): object
 {
-    $agentUuid = $_SERVER['HTTP_X_AGENT_UUID'] ?? ($_POST['agent_uuid'] ?? null);
-    $agentToken = $_SERVER['HTTP_X_AGENT_TOKEN'] ?? ($_POST['agent_token'] ?? null);
-    if (!$agentUuid || !$agentToken) {
-        respondPendingMounts(['status' => 'fail', 'message' => 'Missing agent headers'], 401);
-    }
-
-    $agent = Capsule::table('s3_cloudbackup_agents')
-        ->where('agent_uuid', $agentUuid)
-        ->first();
-
-    if (!$agent || $agent->status !== 'active' || $agent->agent_token !== $agentToken) {
-        respondPendingMounts(['status' => 'fail', 'message' => 'Unauthorized'], 401);
-    }
-
-    Capsule::table('s3_cloudbackup_agents')
-        ->where('agent_uuid', $agentUuid)
-        ->update(['last_seen_at' => Capsule::raw('NOW()')]);
-
-    return $agent;
+    return AgentAuth::authenticate(fn(array $data, int $code) => respondPendingMounts($data, $code));
 }
 
 function markPendingMountError(int $mountId, string $message): void

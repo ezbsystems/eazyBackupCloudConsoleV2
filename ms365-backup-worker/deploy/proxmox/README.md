@@ -37,8 +37,33 @@ Build **0.1.11+** via **Addons → MS365 Backup → Worker Fleet → Builds** if
 - Worker lease seconds: `7200`
 - Sharding enabled: yes
 - Proxmox API URL: `https://192.168.92.195:8006/api2/json`
-- Proxmox node: *(hostname of Proxmox host)*
+- Proxmox node: *(hostname of Proxmox host where the golden template lives)*
 - LXC template VMID: `9010`
+- Proxmox API token: dedicated user with fleet role (see **API token permissions** below)
+
+### 1.2a Proxmox API token permissions
+
+Fleet scale-up calls `POST /nodes/{source}/lxc/{template}/clone`. The token must have:
+
+```text
+/vms/9010          → VM.Clone
+/storage/local-lvm → Datastore.Allocate, Datastore.AllocateSpace  (on each node)
+/vms               → VM.Allocate, VM.Config, VM.PowerMgmt, VM.Monitor  (propagate)
+```
+
+Example (CLI on Proxmox):
+
+```bash
+pveum role add MS365Fleet -privs "VM.Clone,VM.Allocate,VM.Config,VM.PowerMgmt,VM.Monitor,Datastore.Allocate,Datastore.AllocateSpace"
+pveum aclmod /vms/9010 -user whmcs-fleet@pve -role MS365Fleet
+pveum aclmod /storage/local-lvm -user whmcs-fleet@pve -role MS365Fleet
+pveum aclmod /vms -user whmcs-fleet@pve -role MS365Fleet
+pveum user token add whmcs-fleet@pve whmcs-fleet -privsep 0
+```
+
+For multi-node clusters, repeat storage ACLs per node or use `/storage` with propagate. Cross-node clone from `proxmox_node` to another host uses the `target` parameter — both nodes need storage allocate rights.
+
+Per-node local templates: set WHMCS `proxmox_template_vmid_map` JSON, e.g. `{"yow-pve-r630-01":9010,"yow-pve-r640-01":9010}`.
 
 ### 1.3 Crons
 
@@ -69,7 +94,7 @@ scp "$BINARY" root@192.168.92.195:/tmp/ms365-backup-worker
 Use your WHMCS API base (LAN example):
 
 ```bash
-export MS365_WORKER_API_BASE='http://192.168.92.79/accounts/modules/addons/cloudstorage/api'
+export MS365_WORKER_API_BASE='http://192.168.92.79/modules/addons/cloudstorage/api'
 ```
 
 ---
@@ -84,7 +109,7 @@ export STORAGE=local-lvm
 export BRIDGE=vmbr0
 export VZTEMPLATE=local:vztmpl/debian-12-standard_12.12-1_amd64.tar.zst
 export MS365_WORKER_TOKEN='your-fleet-token'
-export MS365_WORKER_API_BASE='http://192.168.92.79/accounts/modules/addons/cloudstorage/api'
+export MS365_WORKER_API_BASE='http://192.168.92.79/modules/addons/cloudstorage/api'
 ```
 
 Download the OS template if needed:
@@ -183,7 +208,7 @@ VMID **9010** is now the golden template. Set **Proxmox LXC template VMID** = `9
 for pair in "9011 ms365-worker-01" "9012 ms365-worker-02"; do
   set -- $pair
   pct clone 9010 $1 --hostname $2 --full 1 --storage local-lvm
-  pct set $1 -env PROXMOX_VMID=$1
+  pct set $1 --env PROXMOX_VMID=$1
   pct start $1
 done
 ```
@@ -233,11 +258,15 @@ Or **Worker Fleet → Nodes** in the admin UI.
 
 `ProxmoxProvisioner::cloneWorkerLxc()` after clone:
 
-1. Sets `PROXMOX_VMID=<newid>` on the LXC
-2. Sets container hostname to `ms365-worker-<hash>`
-3. Starts the container and registers a `registering` node row
+1. `PUT .../lxc/{vmid}/config` with `hostname=ms365-worker-<hash>` (schema-valid keys only; the LXC config REST API does **not** accept `env` on PVE 8+)
+2. Inserts a WHMCS `registering` row with `proxmox_vmid` **before** start (so the worker can adopt it on first register)
+3. Starts the container
+
+The worker does **not** need `PROXMOX_VMID` in the container environment for autoscale: it registers with the Proxmox hostname and WHMCS matches the pre-created `registering` row (`WorkerNodeRepository::adoptProvisioningRow`).
 
 Leave `hostname` empty in the template so autoscale clones adopt the Proxmox hostname.
+
+**Manual clones** may still use `pct set --env PROXMOX_VMID=<vmid>` (CLI-only on some nodes) or set `proxmox_vmid` in config.yaml.
 
 ---
 

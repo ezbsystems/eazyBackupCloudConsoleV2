@@ -27,13 +27,13 @@ final class WorkerSpawner
     {
         $candidates = [
             PHP_BINARY ?: '',
-            '/usr/bin/php',
             '/usr/bin/php8.2',
             '/usr/bin/php8.3',
+            '/usr/bin/php',
             'php',
         ];
         foreach ($candidates as $bin) {
-            if ($bin === '') {
+            if ($bin === '' || self::isFpmBinary($bin)) {
                 continue;
             }
             if ($bin === 'php' || is_executable($bin)) {
@@ -42,5 +42,10 @@ final class WorkerSpawner
         }
 
         return 'php';
+    }
+
+    private static function isFpmBinary(string $bin): bool
+    {
+        return str_contains(strtolower($bin), 'fpm');
     }
 }

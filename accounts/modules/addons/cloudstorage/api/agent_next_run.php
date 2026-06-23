@@ -1,7 +1,10 @@
 <?php
 
-require_once __DIR__ . '/../../../../init.php';
+require_once __DIR__ . '/../lib/Bootstrap/agent_bootstrap.php';
+require_once __DIR__ . '/../lib/Client/AgentAuth.php';
+require_once __DIR__ . '/../lib/Client/AgentTimingConfig.php';
 require_once __DIR__ . '/../lib/Client/KopiaRetentionSourceService.php';
+require_once __DIR__ . '/../lib/Client/RunHeartbeatSupport.php';
 
 use Illuminate\Database\Capsule\Manager as Capsule;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -10,6 +13,9 @@ use WHMCS\Module\Addon\CloudStorage\Client\KopiaRetentionSourceService;
 use WHMCS\Module\Addon\CloudStorage\Client\RepositoryService;
 use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupBootstrapService;
 use WHMCS\Module\Addon\CloudStorage\Client\UuidBinary;
+use WHMCS\Module\Addon\CloudStorage\Client\AgentAuth;
+use WHMCS\Module\Addon\CloudStorage\Client\AgentTimingConfig;
+use WHMCS\Module\Addon\CloudStorage\Client\RunHeartbeatSupport;
 
 if (!defined("WHMCS")) {
     die("This file cannot be accessed directly");
@@ -24,52 +30,7 @@ function respond(array $data, int $httpCode = 200): void
 
 function authenticateAgent(): object
 {
-    $agentUuid = $_SERVER['HTTP_X_AGENT_UUID'] ?? ($_POST['agent_uuid'] ?? null);
-    $agentToken = $_SERVER['HTTP_X_AGENT_TOKEN'] ?? ($_POST['agent_token'] ?? null);
-    if (!$agentUuid || !$agentToken) {
-        respond(['status' => 'fail', 'message' => 'Missing agent headers'], 401);
-    }
-
-    $agent = Capsule::table('s3_cloudbackup_agents')
-        ->where('agent_uuid', $agentUuid)
-        ->first();
-
-    if (!$agent || $agent->status !== 'active' || $agent->agent_token !== $agentToken) {
-        respond(['status' => 'fail', 'message' => 'Unauthorized'], 401);
-    }
-
-    Capsule::table('s3_cloudbackup_agents')
-        ->where('agent_uuid', $agentUuid)
-        ->update(['last_seen_at' => Capsule::raw('NOW()')]);
-
-    return $agent;
-}
-
-function getIntEnv(string $key, int $default): int
-{
-    $val = getenv($key);
-    if ($val === false) {
-        return $default;
-    }
-
-    $val = (int) $val;
-    return $val > 0 ? $val : $default;
-}
-
-function getBoolEnv(string $key, bool $default): bool
-{
-    $val = getenv($key);
-    if ($val === false) {
-        return $default;
-    }
-    $normalized = strtolower(trim((string) $val));
-    if (in_array($normalized, ['0', 'false', 'off', 'no'], true)) {
-        return false;
-    }
-    if (in_array($normalized, ['1', 'true', 'on', 'yes'], true)) {
-        return true;
-    }
-    return $default;
+    return AgentAuth::authenticate(fn(array $data, int $code) => respond($data, $code));
 }
 
 function sanitizePathInput(string $value): string
@@ -79,76 +40,47 @@ function sanitizePathInput(string $value): string
     return trim($trimmed, " \t\n\r\0\x0B\"'");
 }
 
-function getModuleSetting(string $key, $default = null)
-{
-    try {
-        $val = Capsule::table('tbladdonmodules')
-            ->where('module', 'cloudstorage')
-            ->where('setting', $key)
-            ->value('value');
-        return ($val !== null && $val !== '') ? $val : $default;
-    } catch (\Throwable $e) {
-        return $default;
-    }
-}
-
-function getAgentTimingConfig(): array
-{
-    $defaultWatchdog = 720;
-    $defaultReclaim = 180;
-    $defaultReclaimEnabled = true;
-
-    $dbWatchdog = (int) getModuleSetting('cloudbackup_agent_watchdog_timeout_seconds', $defaultWatchdog);
-    $dbReclaim = (int) getModuleSetting('cloudbackup_agent_reclaim_grace_seconds', $defaultReclaim);
-    $dbReclaimEnabledRaw = getModuleSetting('cloudbackup_agent_reclaim_enabled', $defaultReclaimEnabled ? '1' : '0');
-    $dbReclaimEnabled = !in_array(strtolower((string) $dbReclaimEnabledRaw), ['0', 'false', 'off', 'no'], true);
-
-    $watchdog = getIntEnv('AGENT_WATCHDOG_TIMEOUT_SECONDS', $dbWatchdog);
-    $reclaim = getIntEnv('AGENT_RECLAIM_GRACE_SECONDS', $dbReclaim);
-    $reclaimEnabled = getBoolEnv('AGENT_RECLAIM_ENABLED', $dbReclaimEnabled);
-
-    if ($reclaim >= $watchdog) {
-        $reclaim = max(60, (int) floor($watchdog * 0.25));
-        if ($reclaim >= $watchdog) {
-            $reclaim = max(60, $watchdog - 60);
-        }
-    }
-
-    return [
-        'watchdog_timeout_seconds' => $watchdog,
-        'reclaim_grace_seconds' => $reclaim,
-        'reclaim_enabled' => $reclaimEnabled,
-    ];
-}
-
 $agent = authenticateAgent();
-$timing = getAgentTimingConfig();
+$timing = AgentTimingConfig::get();
 $hasAgentUuidRuns = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'agent_uuid');
 $hasAgentUuidJobs = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'agent_uuid');
-$hasUpdatedAtRuns = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'updated_at');
 $hasDiskSource = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'disk_source_volume');
 $hasDiskFormat = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'disk_image_format');
 $hasDiskTemp = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'disk_temp_dir');
 
 try {
     $runData = null;
-    $debugInfo = [];
-    $isReclaim = false;
-    $lastHeartbeatAt = null;
-
-    Capsule::connection()->transaction(function () use (&$runData, &$debugInfo, &$isReclaim, &$lastHeartbeatAt, $agent, $hasAgentUuidRuns, $hasAgentUuidJobs, $hasUpdatedAtRuns, $timing) {
-        $heartbeatExpr = $hasUpdatedAtRuns ? "COALESCE(r.updated_at, r.started_at, r.created_at)" : "COALESCE(r.started_at, r.created_at)";
-        $debugInfo['timing'] = [
+    $debugInfo = [
+        'timing' => [
             'watchdog_timeout_seconds' => $timing['watchdog_timeout_seconds'],
             'reclaim_grace_seconds' => $timing['reclaim_grace_seconds'],
             'reclaim_enabled' => $timing['reclaim_enabled'],
-        ];
+        ],
+    ];
+    $isReclaim = false;
+    $lastHeartbeatAt = null;
+    $run = null;
 
-        // Attempt to reclaim an in-progress run for this agent (UUID schema: job_id/run_id are BINARY(16) PKs)
-        $run = null;
-        $hasRunIdPk = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'run_id');
-        $hasJobIdPk = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'job_id');
-        $hasRunTypeColumnReclaim = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'run_type');
+    $hasRunIdPk = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'run_id');
+    $hasJobIdPk = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'job_id');
+    $hasRunTypeColumnReclaim = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'run_type');
+    $heartbeatSelect = RunHeartbeatSupport::selectHeartbeatColumn('r');
+
+    // Short transaction: reclaim lookup or optimistic queued-run claim only (no row locks held during heavy work).
+    Capsule::connection()->transaction(function () use (
+        &$run,
+        &$debugInfo,
+        &$isReclaim,
+        &$lastHeartbeatAt,
+        $agent,
+        $hasAgentUuidRuns,
+        $hasAgentUuidJobs,
+        $timing,
+        $hasRunIdPk,
+        $hasJobIdPk,
+        $hasRunTypeColumnReclaim,
+        $heartbeatSelect
+    ) {
         if (!empty($timing['reclaim_enabled'])) {
             $reclaimJoin = $hasJobIdPk ? ['j.job_id', '=', 'r.job_id'] : ['j.id', '=', 'r.job_id'];
             $reclaimQuery = Capsule::table('s3_cloudbackup_runs as r')
@@ -174,11 +106,14 @@ try {
                 $reclaimQuery->where('j.agent_uuid', $agent->agent_uuid);
             }
 
-            $reclaimQuery
-                ->whereRaw("TIMESTAMPDIFF(SECOND, $heartbeatExpr, NOW()) >= ?", [$timing['reclaim_grace_seconds']])
-                ->whereRaw("TIMESTAMPDIFF(SECOND, $heartbeatExpr, NOW()) < ?", [$timing['watchdog_timeout_seconds']]);
+            RunHeartbeatSupport::applyReclaimWindow(
+                $reclaimQuery,
+                (int) $timing['reclaim_grace_seconds'],
+                (int) $timing['watchdog_timeout_seconds'],
+                'r'
+            );
 
-            $reclaimSelect = ['r.*', Capsule::raw("$heartbeatExpr as last_heartbeat_at")];
+            $reclaimSelect = ['r.*', Capsule::raw("{$heartbeatSelect} as last_heartbeat_at")];
             if ($hasRunIdPk) {
                 $reclaimSelect[] = Capsule::raw('BIN_TO_UUID(r.run_id) as run_id_uuid');
                 $reclaimSelect[] = Capsule::raw('BIN_TO_UUID(r.job_id) as job_id_uuid');
@@ -187,7 +122,6 @@ try {
             $reclaimRun = $reclaimQuery
                 ->select($reclaimSelect)
                 ->orderBy($reclaimOrder, 'asc')
-                ->lockForUpdate()
                 ->first();
 
             if ($reclaimRun) {
@@ -259,7 +193,6 @@ try {
             $runQuery = (clone $query)->select($runSelect);
 
             $run = $runQuery->orderBy($hasRunIdPk ? 'r.created_at' : 'r.id', 'asc')
-                ->lockForUpdate()
                 ->first();
 
             if (!$run) {
@@ -270,11 +203,11 @@ try {
             $debugInfo['selected_run_id'] = $hasRunIdPk ? ($run->run_id_uuid ?? null) : ($run->id ?? null);
 
             // Claim the run
-            $claimData = [
+            $claimData = RunHeartbeatSupport::mergeHeartbeat([
                 'status' => 'starting',
                 'worker_host' => 'agent-' . $agent->agent_uuid,
                 'started_at' => Capsule::raw('NOW()'),
-            ];
+            ]);
             if ($hasAgentUuidRuns) {
                 $claimData['agent_uuid'] = $agent->agent_uuid;
             }
@@ -295,8 +228,18 @@ try {
         if (!$run) {
             return;
         }
+    });
 
-        // Fetch related data
+    if (!$run) {
+        respond(['status' => 'no_run']);
+    }
+
+    // Heavy credential / Hyper-V work runs after the claim transaction commits.
+    $hasJobIdPk = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'job_id');
+    $hasRunIdPk = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'run_id');
+    $hasRunTypeColumn = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'run_type');
+
+    // Fetch related data
         $job = $hasJobIdPk
             ? Capsule::table('s3_cloudbackup_jobs')->where('job_id', $run->job_id)->first()
             : Capsule::table('s3_cloudbackup_jobs')->where('id', $run->job_id)->first();
@@ -609,7 +552,6 @@ try {
         $debugInfo['last_heartbeat_at'] = $lastHeartbeatAt;
         $runData['resume'] = $isReclaim;
         $runData['last_heartbeat_at'] = $lastHeartbeatAt ? (string) $lastHeartbeatAt : null;
-    });
 
     if (!$runData) {
         // Common, expected response on every agent poll; do not log to avoid module log spam.

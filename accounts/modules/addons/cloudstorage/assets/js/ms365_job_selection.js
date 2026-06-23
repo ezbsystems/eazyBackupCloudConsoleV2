@@ -96,20 +96,33 @@
     }
 
     function buildVirtualNodes(parent, sectionKey, virtualDefs, depth) {
-        return virtualDefs.map((def) => ({
-            key: nodeKey('cap', parent.id, def.scopeKey),
-            kind: 'capability',
-            sectionKey,
-            resourceId: parent.id,
-            scopeKey: def.scopeKey,
-            label: def.chip,
-            subtitle: '',
-            parentKey: nodeKey('parent', parent.id),
-            depth,
-            expanded: false,
-            hasChildren: false,
-            selectable: true,
-        }));
+        const isSite = parent.resource_type === TYPE_SITE;
+        return virtualDefs.map((def) => {
+            let selectable = true;
+            let disabledReason = '';
+            if (isSite) {
+                const capabilityAccess = parent.capability_access || {};
+                if (capabilityAccess[def.scopeKey] === false) {
+                    selectable = false;
+                    disabledReason = parent.disabled_reason || 'Backup app cannot access this capability';
+                }
+            }
+            return {
+                key: nodeKey('cap', parent.id, def.scopeKey),
+                kind: 'capability',
+                sectionKey,
+                resourceId: parent.id,
+                scopeKey: def.scopeKey,
+                label: def.chip,
+                subtitle: '',
+                parentKey: nodeKey('parent', parent.id),
+                depth,
+                expanded: false,
+                hasChildren: false,
+                selectable,
+                disabledReason,
+            };
+        });
     }
 
     function buildResourceChildNodes(parent, children, sectionKey, depth) {
@@ -131,6 +144,9 @@
     }
 
     function buildParentNode(resource, sectionKey, hasChildren) {
+        const isSite = resource.resource_type === TYPE_SITE;
+        const selectable = !isSite || resource.selectable !== false;
+        const disabledReason = isSite ? (resource.disabled_reason || '') : '';
         return {
             key: nodeKey('parent', resource.id),
             kind: 'parent',
@@ -144,7 +160,8 @@
             depth: 0,
             expanded: false,
             hasChildren,
-            selectable: true,
+            selectable,
+            disabledReason,
         };
     }
 
@@ -278,8 +295,15 @@
         else delete selection[key];
     }
 
+    function selectableChildren(sectionNodes, parentKey) {
+        return getDescendants(sectionNodes, parentKey).filter((c) => c.selectable !== false);
+    }
+
     function toggleParent(sectionNodes, selection, parentNode) {
-        const children = getDescendants(sectionNodes, parentNode.key);
+        if (parentNode.selectable === false) {
+            return;
+        }
+        const children = selectableChildren(sectionNodes, parentNode.key);
         const allChecked = children.every((c) => isChecked(selection, c.key)) && children.length > 0;
         const next = !allChecked;
         if (next) setChecked(selection, parentNode.key, true);
@@ -288,6 +312,9 @@
     }
 
     function toggleNode(sectionNodes, selection, node) {
+        if (node.selectable === false) {
+            return;
+        }
         if (node.kind === 'parent') {
             toggleParent(sectionNodes, selection, node);
             return;
@@ -301,7 +328,7 @@
     }
 
     function syncParentState(sectionNodes, selection, parentNode) {
-        const children = getDescendants(sectionNodes, parentNode.key);
+        const children = selectableChildren(sectionNodes, parentNode.key);
         if (children.length === 0) return;
         const checkedCount = children.filter((c) => isChecked(selection, c.key)).length;
         if (checkedCount === children.length) {
@@ -314,7 +341,7 @@
     }
 
     function parentCheckState(sectionNodes, selection, parentNode) {
-        const children = getDescendants(sectionNodes, parentNode.key);
+        const children = selectableChildren(sectionNodes, parentNode.key);
         if (children.length === 0) {
             return isChecked(selection, parentNode.key) ? 'checked' : 'unchecked';
         }
@@ -381,6 +408,7 @@
         SECTIONS.forEach((section) => {
             const nodes = treesBySection[section.key] || [];
             nodes.forEach((node) => {
+                if (node.selectable === false) return;
                 if (!isChecked(selection, node.key)) return;
                 if (node.kind === 'parent') return;
 
@@ -453,12 +481,15 @@
                     });
                 }
             });
-            return selection;
+            return pruneDisabledSelection(trees, selection);
         }
 
         SECTIONS.forEach((section) => {
             const nodes = trees[section.key] || [];
             nodes.forEach((node) => {
+                if (node.selectable === false) {
+                    return;
+                }
                 if (node.kind === 'leaf') {
                     if (ids.has(node.resourceId)) selection[node.key] = true;
                     return;
@@ -475,6 +506,22 @@
                 }
                 if (node.kind === 'resource_child') {
                     if (ids.has(node.resourceId)) selection[node.key] = true;
+                }
+            });
+            nodes.filter((n) => n.kind === 'parent').forEach((parent) => {
+                syncParentState(nodes, selection, parent);
+            });
+        });
+
+        return pruneDisabledSelection(trees, selection);
+    }
+
+    function pruneDisabledSelection(treesBySection, selection) {
+        SECTIONS.forEach((section) => {
+            const nodes = treesBySection[section.key] || [];
+            nodes.forEach((node) => {
+                if (node.selectable === false) {
+                    delete selection[node.key];
                 }
             });
             nodes.filter((n) => n.kind === 'parent').forEach((parent) => {
@@ -533,6 +580,7 @@
         SECTIONS.forEach((section) => {
             const nodes = treesBySection[section.key] || [];
             nodes.forEach((node) => {
+                if (node.selectable === false) return;
                 if (node.kind === 'capability' || node.kind === 'resource_child' || node.kind === 'leaf') {
                     keys.push(node.key);
                 }
@@ -541,13 +589,23 @@
         return keys;
     }
 
+    function countInaccessibleSites(inventory) {
+        const resources = (inventory && inventory.resources) || [];
+        return resources.filter((r) => {
+            return r
+                && r.resource_type === TYPE_SITE
+                && r.selectable === false;
+        }).length;
+    }
+
     function selectAll(treesBySection) {
         const selection = {};
         SECTIONS.forEach((section) => {
             const nodes = treesBySection[section.key] || [];
             nodes.forEach((node) => {
+                if (node.selectable === false) return;
                 if (node.kind === 'parent') {
-                    const children = getDescendants(nodes, node.key);
+                    const children = selectableChildren(nodes, node.key);
                     if (children.length > 0) {
                         setChecked(selection, node.key, true);
                     }
@@ -626,5 +684,6 @@
         summaryRowCount,
         visibleNodes,
         getDescendants,
+        countInaccessibleSites,
     };
 })();

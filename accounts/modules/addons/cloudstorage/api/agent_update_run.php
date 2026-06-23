@@ -1,8 +1,10 @@
 <?php
 
-require_once __DIR__ . '/../../../../init.php';
+require_once __DIR__ . '/../lib/Bootstrap/agent_bootstrap.php';
 require_once __DIR__ . '/../lib/Client/AgentIngestSupport.php';
 require_once __DIR__ . '/../lib/Client/AgentUpdateService.php';
+require_once __DIR__ . '/../lib/Client/AgentAuth.php';
+require_once __DIR__ . '/../lib/Client/RunHeartbeatSupport.php';
 
 use Illuminate\Database\Capsule\Manager as Capsule;
 use WHMCS\Module\Addon\CloudStorage\Client\UuidBinary;
@@ -12,6 +14,8 @@ use WHMCS\Module\Addon\CloudStorage\Client\KopiaRetentionHookService;
 use WHMCS\Module\Addon\CloudStorage\Client\KopiaRetentionOperationService;
 use WHMCS\Module\Addon\CloudStorage\Client\AgentIngestSupport;
 use WHMCS\Module\Addon\CloudStorage\Client\AgentUpdateService;
+use WHMCS\Module\Addon\CloudStorage\Client\AgentAuth;
+use WHMCS\Module\Addon\CloudStorage\Client\RunHeartbeatSupport;
 
 if (!defined("WHMCS")) {
     die("This file cannot be accessed directly");
@@ -26,25 +30,9 @@ function respond(array $data, int $httpCode = 200): void
 
 function authenticateAgent(): object
 {
-    $agentUuid = $_SERVER['HTTP_X_AGENT_UUID'] ?? ($_POST['agent_uuid'] ?? null);
-    $agentToken = $_SERVER['HTTP_X_AGENT_TOKEN'] ?? ($_POST['agent_token'] ?? null);
-    if (!$agentUuid || !$agentToken) {
-        respond(['status' => 'fail', 'message' => 'Missing agent headers'], 401);
-    }
-
-    $agent = Capsule::table('s3_cloudbackup_agents')
-        ->where('agent_uuid', $agentUuid)
-        ->first();
-
-    if (!$agent || $agent->status !== 'active' || $agent->agent_token !== $agentToken) {
-        respond(['status' => 'fail', 'message' => 'Unauthorized'], 401);
-    }
-
-    Capsule::table('s3_cloudbackup_agents')
-        ->where('agent_uuid', $agentUuid)
-        ->update(['last_seen_at' => Capsule::raw('NOW()')]);
-
-    return $agent;
+    return \WHMCS\Module\Addon\CloudStorage\Client\AgentAuth::authenticate(
+        fn(array $data, int $code) => respond($data, $code)
+    );
 }
 
 function getBodyJson(): array
@@ -231,18 +219,14 @@ if (array_key_exists('manifest_id', $body) && !array_key_exists('log_ref', $body
 $hasUpdatedAtColumn = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'updated_at');
 
 if (empty($update)) {
-    if ($hasUpdatedAtColumn) {
-        // Treat an empty payload as a heartbeat when updated_at exists
-        $update['updated_at'] = Capsule::raw('NOW()');
+    if ($hasUpdatedAtColumn || RunHeartbeatSupport::hasColumn()) {
+        $update = RunHeartbeatSupport::mergeHeartbeat([]);
     } else {
         logModuleCall('cloudstorage', 'agent_update_run_no_fields', ['run_id' => $runId, 'agent_uuid' => $agent->agent_uuid], ['body_keys' => array_keys($body)]);
         respond(['status' => 'success', 'message' => 'No fields to update']);
     }
-}
-
-// Touch updated_at when the column exists (older schemas may not have it)
-if ($hasUpdatedAtColumn) {
-    $update['updated_at'] = Capsule::raw('NOW()');
+} else {
+    $update = RunHeartbeatSupport::mergeHeartbeat($update);
 }
 
 // Force terminal failure if the agent reports an error summary before a terminal status

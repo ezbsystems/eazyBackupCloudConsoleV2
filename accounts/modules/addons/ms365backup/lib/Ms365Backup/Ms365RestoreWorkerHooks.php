@@ -10,15 +10,27 @@ use WHMCS\Module\Addon\CloudStorage\Client\CustomerFacingTextSanitizer;
  */
 final class Ms365RestoreWorkerHooks
 {
+    public static function isRunCancelled(string $runId): bool
+    {
+        if (RestoreRunRepository::isRestoreRun($runId)) {
+            $run = RestoreRunRepository::get($runId);
+
+            return $run !== null && ($run['status'] ?? '') === 'cancelled';
+        }
+
+        return BackupRunRepository::isCancelled($runId);
+    }
+
     /** @param array<string, mixed> $body */
-    public static function onProgress(string $runId, array $body): void
+    public static function onProgress(string $runId, array $body): int
     {
         if (RestoreRunRepository::isRestoreRun($runId)) {
             self::restoreProgress($runId, $body);
 
-            return;
+            return 0;
         }
-        self::backupProgress($runId, $body);
+
+        return self::backupProgress($runId, $body);
     }
 
     /** @param array<string, mixed> $body */
@@ -43,7 +55,7 @@ final class Ms365RestoreWorkerHooks
     }
 
     /** @param array<string, mixed> $body */
-    private static function backupProgress(string $runId, array $body): void
+    private static function backupProgress(string $runId, array $body): int
     {
         $rawPhase = (string) ($body['phase'] ?? '');
         $message = (string) ($body['message'] ?? $rawPhase);
@@ -54,6 +66,27 @@ final class Ms365RestoreWorkerHooks
         $incomingItemsTotal = (int) ($body['items_total'] ?? 0);
         $incomingBytesHashed = (int) ($body['bytes_hashed'] ?? 0);
         $incomingBytesUploaded = (int) ($body['bytes_uploaded'] ?? 0);
+        $incoming429 = (int) ($body['graph_429_hits'] ?? 0);
+        $incomingAdaptive = (int) ($body['graph_adaptive_limit'] ?? 0);
+        $existingChildStats = self::decodeChildStatsJson($existing);
+        $existingChild429 = (int) ($existingChildStats['graph_429_hits'] ?? 0);
+        $delta429 = max(0, $incoming429 - $existingChild429);
+
+        $noProgress = !empty($body['no_progress']);
+        if ($noProgress) {
+            $tenantRecordId = (int) ($existing['tenant_record_id'] ?? 0);
+            $azureTenantId = '';
+            if ($tenantRecordId > 0) {
+                $record = TenantRecordRepository::getById($tenantRecordId);
+                if ($record !== null) {
+                    $azureTenantId = (string) ($record['tenant_id'] ?? '');
+                }
+            }
+
+            return $azureTenantId !== ''
+                ? GraphTenantBudgetService::workerShare($tenantRecordId, $azureTenantId)
+                : 0;
+        }
 
         $isHeartbeat = strtolower(trim($message)) === 'heartbeat'
             || self::isLeaseOnlyProgressPayload(
@@ -87,6 +120,12 @@ final class Ms365RestoreWorkerHooks
                 $fields['items_total'] = max($storedItemsTotal, $incomingItemsTotal);
             }
 
+            $effectiveItemsDone = (int) ($fields['items_done'] ?? $storedItemsDone);
+            $effectiveItemsTotal = (int) ($fields['items_total'] ?? $storedItemsTotal);
+            if ($effectiveItemsTotal > 0 && $effectiveItemsDone > $effectiveItemsTotal) {
+                $fields['items_done'] = $effectiveItemsTotal;
+            }
+
             if (\WHMCS\Database\Capsule::schema()->hasColumn('ms365_backup_runs', 'bytes_hashed')) {
                 $storedBytesHashed = (int) ($existing['bytes_hashed'] ?? 0);
                 if ($incomingBytesHashed > 0 || $storedBytesHashed <= 0) {
@@ -100,13 +139,85 @@ final class Ms365RestoreWorkerHooks
             }
         }
 
+        if (!$isHeartbeat && \WHMCS\Database\Capsule::schema()->hasColumn('ms365_backup_runs', 'last_progress_at')) {
+            $storedItemsDone = (int) ($existing['items_done'] ?? 0);
+            $storedBytesHashed = (int) ($existing['bytes_hashed'] ?? 0);
+            $storedBytesUploaded = (int) ($existing['bytes_uploaded'] ?? 0);
+            $effectiveItemsDone = (int) ($fields['items_done'] ?? $storedItemsDone);
+            $effectiveBytesHashed = (int) ($fields['bytes_hashed'] ?? $storedBytesHashed);
+            $effectiveBytesUploaded = (int) ($fields['bytes_uploaded'] ?? $storedBytesUploaded);
+            if ($effectiveItemsDone > $storedItemsDone
+                || $effectiveBytesHashed > $storedBytesHashed
+                || $effectiveBytesUploaded > $storedBytesUploaded) {
+                $fields['last_progress_at'] = time();
+            }
+        }
+
         if (!empty($body['manifest_id'])) {
             $fields['manifest_id'] = (string) $body['manifest_id'];
         }
 
+        $statsPatch = [];
+        if ($incoming429 > 0 || $incomingAdaptive > 0) {
+            $statsPatch['graph_429_hits'] = max($incoming429, (int) self::decodeChildStatsJson($existing)['graph_429_hits'] ?? 0);
+            if ($incomingAdaptive > 0) {
+                $statsPatch['graph_adaptive_limit'] = $incomingAdaptive;
+            }
+        }
+        $phasePatch = self::buildPhaseTimingStatsPatch($existing, $rawPhase, time(), $isHeartbeat);
+        if ($phasePatch !== null) {
+            $statsPatch = array_merge($statsPatch, $phasePatch);
+        }
+        if ($statsPatch !== []) {
+            $encoded = self::encodeMergedChildStatsJson($existing, $statsPatch);
+            if ($encoded !== null) {
+                $fields['stats_json'] = $encoded;
+            }
+        }
+
+        if ($delta429 > 0 && \WHMCS\Database\Capsule::schema()->hasColumn('ms365_backup_runs', 'last_429_at')) {
+            $fields['last_429_at'] = time();
+        }
+
+        $checkpointStates = $body['checkpoint_delta_states'] ?? null;
+        if (is_array($checkpointStates) && $checkpointStates !== []) {
+            $tenantRecordId = (int) ($existing['tenant_record_id'] ?? 0);
+            $physicalKey = (string) ($existing['physical_key'] ?? '');
+            $e3JobId = trim((string) ($existing['e3_job_id'] ?? ''));
+            if ($tenantRecordId > 0 && $physicalKey !== '') {
+                DeltaStateRepository::saveStates(
+                    $tenantRecordId,
+                    $physicalKey,
+                    $checkpointStates,
+                    $e3JobId !== '' ? $e3JobId : null
+                );
+            }
+            $encoded = self::encodeMergedChildStatsJson(
+                array_merge($existing, isset($fields['stats_json']) ? ['stats_json' => $fields['stats_json']] : []),
+                ['checkpoint_delta_states_saved_at' => time()]
+            );
+            if ($encoded !== null) {
+                $fields['stats_json'] = $encoded;
+            }
+        }
+
         BackupRunRepository::update($runId, $fields);
 
-        WorkerLeaseService::renewForRun($runId);
+        if (!$isHeartbeat) {
+            WorkerLeaseService::renewForRun($runId);
+        }
+
+        $tenantRecordId = (int) ($existing['tenant_record_id'] ?? 0);
+        $azureTenantId = '';
+        if ($tenantRecordId > 0) {
+            $record = TenantRecordRepository::getById($tenantRecordId);
+            if ($record !== null) {
+                $azureTenantId = (string) ($record['tenant_id'] ?? '');
+            }
+        }
+        if ($azureTenantId !== '') {
+            GraphTenantBudgetService::recordTenant429($tenantRecordId, $azureTenantId, $delta429);
+        }
 
         $batchRunId = $existing['e3_batch_run_id'] ?? BackupRunRepository::get($runId)['e3_batch_run_id'] ?? null;
         if (is_string($batchRunId) && $batchRunId !== '') {
@@ -114,12 +225,16 @@ final class Ms365RestoreWorkerHooks
         }
 
         if ($isHeartbeat) {
-            return;
+            return $azureTenantId !== ''
+                ? GraphTenantBudgetService::workerShare($tenantRecordId, $azureTenantId)
+                : 0;
         }
 
         $logMessage = CustomerFacingTextSanitizer::scrubLogMessage($message);
         if (!self::shouldPersistProgressLog($runId, $logMessage, $rawPhase)) {
-            return;
+            return $azureTenantId !== ''
+                ? GraphTenantBudgetService::workerShare($tenantRecordId, $azureTenantId)
+                : 0;
         }
 
         $logger = new ProgressLogger($runId);
@@ -127,7 +242,19 @@ final class Ms365RestoreWorkerHooks
             'percent' => $fields['percent'] ?? ($existing['percent'] ?? null),
             'bytes_hashed' => $body['bytes_hashed'] ?? null,
             'bytes_uploaded' => $body['bytes_uploaded'] ?? null,
+            'graph_429_hits' => $incoming429 > 0 ? $incoming429 : null,
         ]);
+
+        if ($incoming429 >= 5 && !$isHeartbeat) {
+            $logger->warning('Microsoft Graph throttling detected', [
+                'graph_429_hits' => $incoming429,
+                'graph_adaptive_limit' => $incomingAdaptive > 0 ? $incomingAdaptive : null,
+            ]);
+        }
+
+        return $azureTenantId !== ''
+            ? GraphTenantBudgetService::workerShare($tenantRecordId, $azureTenantId)
+            : 0;
     }
 
     private static function isLeaseOnlyProgressPayload(
@@ -220,6 +347,7 @@ final class Ms365RestoreWorkerHooks
     private static function backupComplete(string $runId, array $body): void
     {
         $now = time();
+        $existing = BackupRunRepository::get($runId) ?? [];
         $update = [
             'status' => 'success',
             'phase' => 'complete',
@@ -233,32 +361,58 @@ final class Ms365RestoreWorkerHooks
             $update['manifest_id'] = $manifestId;
         }
         $statsRaw = (string) ($body['stats_json'] ?? '');
+        $stats = [];
         if ($statsRaw !== '') {
-            $stats = json_decode($statsRaw, true);
-            if (is_array($stats)) {
-                if (isset($stats['bytes_hashed'])) {
-                    $update['bytes_hashed'] = (int) $stats['bytes_hashed'];
-                }
-                if (isset($stats['bytes_uploaded'])) {
-                    $update['bytes_uploaded'] = (int) $stats['bytes_uploaded'];
-                }
-                if (array_key_exists('delta_states', $stats)) {
-                    $deltaStates = is_array($stats['delta_states']) ? $stats['delta_states'] : [];
-                    if ($deltaStates !== []) {
-                        $run = BackupRunRepository::get($runId);
-                        if ($run !== null) {
-                            DeltaStateRepository::advanceOnShardSuccess(
-                                (int) ($run['tenant_record_id'] ?? 0),
-                                (string) ($run['physical_key'] ?? ''),
-                                $deltaStates,
-                                trim((string) ($run['e3_job_id'] ?? '')) !== '' ? (string) $run['e3_job_id'] : null
-                            );
-                        }
+            $decoded = json_decode($statsRaw, true);
+            if (is_array($decoded)) {
+                $stats = $decoded;
+            }
+        }
+        $filesFromStats = (int) ($stats['files'] ?? 0);
+        $finalItemCount = max(
+            (int) ($existing['items_done'] ?? 0),
+            (int) ($existing['items_total'] ?? 0),
+            (int) ($body['items_done'] ?? 0),
+            (int) ($body['items_total'] ?? 0),
+            $filesFromStats,
+        );
+        if ($finalItemCount > 0) {
+            $update['items_done'] = $finalItemCount;
+            $update['items_total'] = $finalItemCount;
+        }
+        if ($stats !== []) {
+            if (isset($stats['bytes_hashed'])) {
+                $update['bytes_hashed'] = (int) $stats['bytes_hashed'];
+            }
+            if (isset($stats['bytes_uploaded'])) {
+                $update['bytes_uploaded'] = (int) $stats['bytes_uploaded'];
+            }
+            if (array_key_exists('delta_states', $stats)) {
+                $deltaStates = is_array($stats['delta_states']) ? $stats['delta_states'] : [];
+                if ($deltaStates !== []) {
+                    $run = BackupRunRepository::get($runId);
+                    if ($run !== null) {
+                        DeltaStateRepository::advanceOnShardSuccess(
+                            (int) ($run['tenant_record_id'] ?? 0),
+                            (string) ($run['physical_key'] ?? ''),
+                            $deltaStates,
+                            trim((string) ($run['e3_job_id'] ?? '')) !== '' ? (string) $run['e3_job_id'] : null
+                        );
                     }
-                    if (\WHMCS\Database\Capsule::schema()->hasColumn('ms365_backup_runs', 'delta_states_json')) {
-                        $encoded = json_encode($deltaStates, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
-                        $update['delta_states_json'] = is_string($encoded) ? $encoded : '{}';
-                    }
+                }
+                if (\WHMCS\Database\Capsule::schema()->hasColumn('ms365_backup_runs', 'delta_states_json')) {
+                    $encoded = json_encode($deltaStates, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+                    $update['delta_states_json'] = is_string($encoded) ? $encoded : '{}';
+                }
+            }
+            if (\WHMCS\Database\Capsule::schema()->hasColumn('ms365_backup_runs', 'stats_json')) {
+                $existingForStats = BackupRunRepository::get($runId) ?? [];
+                $merged = self::decodeChildStatsJson($existingForStats);
+                $merged = array_merge($merged, $stats);
+                unset($merged['kopia_upload_started_at']);
+                $encoded = json_encode($merged, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+                if (is_string($encoded)) {
+                    $update['stats_json'] = $encoded;
                 }
             }
         }
@@ -331,17 +485,94 @@ final class Ms365RestoreWorkerHooks
         ]);
     }
 
+    /** @return array<string, mixed> */
+    private static function decodeChildStatsJson(array $run): array
+    {
+        if (!\WHMCS\Database\Capsule::schema()->hasColumn('ms365_backup_runs', 'stats_json')) {
+            return [];
+        }
+        $raw = $run['stats_json'] ?? null;
+        if (is_array($raw)) {
+            return $raw;
+        }
+        if (!is_string($raw) || $raw === '') {
+            return [];
+        }
+        $decoded = json_decode($raw, true);
+
+        return is_array($decoded) ? $decoded : [];
+    }
+
+    /**
+     * @param array<string, mixed> $patch
+     */
+    private static function encodeMergedChildStatsJson(array $existing, array $patch): ?string
+    {
+        if (!\WHMCS\Database\Capsule::schema()->hasColumn('ms365_backup_runs', 'stats_json')) {
+            return null;
+        }
+        $merged = array_merge(self::decodeChildStatsJson($existing), $patch);
+        $encoded = json_encode($merged, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+
+        return is_string($encoded) ? $encoded : null;
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private static function buildPhaseTimingStatsPatch(
+        array $existing,
+        string $newPhase,
+        int $now,
+        bool $isHeartbeat,
+    ): ?array {
+        if (!\WHMCS\Database\Capsule::schema()->hasColumn('ms365_backup_runs', 'stats_json')) {
+            return null;
+        }
+        $phase = strtolower(trim($newPhase));
+        if ($phase === '') {
+            return null;
+        }
+        $prevPhase = strtolower(trim((string) ($existing['phase'] ?? '')));
+        $stats = self::decodeChildStatsJson($existing);
+        $patch = [];
+        $graphPhases = ['graph_sync', 'prior_snapshot'];
+
+        if ($phase === 'kopia_upload' && in_array($prevPhase, $graphPhases, true) && !isset($stats['graph_sync_ms'])) {
+            $startedAt = (int) ($existing['started_at'] ?? 0);
+            if ($startedAt > 0) {
+                $patch['graph_sync_ms'] = ($now - $startedAt) * 1000;
+            }
+            $patch['kopia_upload_started_at'] = $now;
+        }
+
+        if ($phase === 'kopia_upload' && !$isHeartbeat) {
+            $kopiaStart = (int) ($patch['kopia_upload_started_at'] ?? $stats['kopia_upload_started_at'] ?? 0);
+            if ($kopiaStart <= 0 && $phase !== $prevPhase) {
+                $kopiaStart = $now;
+                $patch['kopia_upload_started_at'] = $now;
+            }
+            if ($kopiaStart > 0) {
+                $patch['kopia_snapshot_ms'] = ($now - $kopiaStart) * 1000;
+            }
+        }
+
+        return $patch === [] ? null : $patch;
+    }
+
     private static function backupFail(string $runId, string $message): void
     {
         $now = time();
         $customerMessage = Ms365CustomerError::message(new \RuntimeException($message));
-        BackupRunRepository::update($runId, [
-            'status' => 'error',
-            'error_message' => $customerMessage,
-            'finished_at' => $now,
-            'updated_at' => $now,
-        ]);
-        JobQueueRepository::markFailed($runId, $customerMessage);
+        $requeued = JobQueueRepository::markFailed($runId, $message);
+        if (!$requeued) {
+            BackupRunRepository::update($runId, [
+                'status' => 'error',
+                'error_message' => $customerMessage,
+                'finished_at' => $now,
+                'updated_at' => $now,
+            ]);
+        }
         Ms365BatchRunRepository::syncForChildRun($runId);
 
         $logger = new ProgressLogger($runId);

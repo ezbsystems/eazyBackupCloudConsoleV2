@@ -26,34 +26,46 @@ func (c *Config) GraphTokenRefreshInterval() time.Duration {
 }
 
 type WorkerConfig struct {
-	NodeID                     string `yaml:"node_id"`
-	Hostname                   string `yaml:"hostname"`
-	Token                      string `yaml:"token"`
-	PollIntervalSeconds        int    `yaml:"poll_interval_seconds"`
-	MaxConcurrentRuns          int    `yaml:"max_concurrent_runs"`
-	GraphParallelRequests         int `yaml:"graph_parallel_requests"`
-	GraphFolderParallel           int `yaml:"graph_folder_parallel"`
-	GraphSharePointDriveParallel  int `yaml:"graph_sharepoint_drive_parallel"`
-	HeartbeatIntervalSeconds   int    `yaml:"heartbeat_interval_seconds"`
-	ProgressHeartbeatSeconds   int    `yaml:"progress_heartbeat_seconds"`
+	NodeID                       string `yaml:"node_id"`
+	Hostname                     string `yaml:"hostname"`
+	Token                        string `yaml:"token"`
+	PollIntervalSeconds          int    `yaml:"poll_interval_seconds"`
+	MaxConcurrentRuns            int    `yaml:"max_concurrent_runs"`
+	GraphParallelRequests        int    `yaml:"graph_parallel_requests"`
+	GraphFolderParallel          int    `yaml:"graph_folder_parallel"`
+	GraphSharePointDriveParallel int    `yaml:"graph_sharepoint_drive_parallel"`
+	HeartbeatIntervalSeconds     int    `yaml:"heartbeat_interval_seconds"`
+	ProgressHeartbeatSeconds     int    `yaml:"progress_heartbeat_seconds"`
+	// ProgressMinIntervalSeconds coalesces high-frequency progress callbacks (Kopia
+	// emits a progress event per hashed/uploaded chunk). Without this throttle the
+	// worker POSTs thousands of progress updates per run, each fanning out to several
+	// committed DB transactions on the control plane and pinning mysqld via the
+	// fsync commit convoy. The periodic ProgressHeartbeat still guarantees lease
+	// renewal, so coalescing intermediate updates only trades UI granularity for DB health.
+	ProgressMinIntervalSeconds int `yaml:"progress_min_interval_seconds"`
+	// ProgressStallSeconds marks heartbeat payloads with no_progress after items/bytes
+	// are flat for this long so the control plane stops renewing the lease.
+	ProgressStallSeconds int `yaml:"progress_stall_seconds"`
 	// MaxRunSeconds is a safety ceiling on a single run's working context. It is
 	// deliberately decoupled from the server lease: the control plane keeps a live
 	// run's lease fresh via heartbeat/progress, so the worker must NOT self-cancel
 	// at the initial lease window (that killed long whale-scale snapshots mid-write).
 	// This only bounds genuinely stuck runs from holding a slot forever. 0 = unbounded.
-	MaxRunSeconds              int    `yaml:"max_run_seconds"`
-	TokenRefreshSeconds        int    `yaml:"graph_token_refresh_seconds"`
-	InstallPath                string `yaml:"install_path"`
-	RunDir                     string `yaml:"run_dir"`
-	ProxmoxVmid                int    `yaml:"proxmox_vmid"`
-	DiskWatermarkMiB           int    `yaml:"disk_watermark_mib"`
-	RamBudgetMiB               int    `yaml:"ram_budget_mib"`
-	DiskBudgetMiB              int    `yaml:"disk_budget_mib"`
-	MaxCPUCores                float64 `yaml:"max_cpu_cores"`
-	JobRamBudgetMiB            int    `yaml:"job_ram_budget_mib"`
-	JobDiskBudgetMiB           int    `yaml:"job_disk_budget_mib"`
-	HeavyJobRamBudgetMiB       int    `yaml:"heavy_job_ram_budget_mib"`
-	HeavyJobDiskBudgetMiB      int    `yaml:"heavy_job_disk_budget_mib"`
+	MaxRunSeconds         int     `yaml:"max_run_seconds"`
+	TokenRefreshSeconds   int     `yaml:"graph_token_refresh_seconds"`
+	InstallPath           string  `yaml:"install_path"`
+	RunDir                string  `yaml:"run_dir"`
+	ProxmoxVmid           int     `yaml:"proxmox_vmid"`
+	DiskWatermarkMiB      int     `yaml:"disk_watermark_mib"`
+	RamBudgetMiB          int     `yaml:"ram_budget_mib"`
+	DiskBudgetMiB         int     `yaml:"disk_budget_mib"`
+	MaxCPUCores           float64 `yaml:"max_cpu_cores"`
+	JobRamBudgetMiB       int     `yaml:"job_ram_budget_mib"`
+	JobDiskBudgetMiB      int     `yaml:"job_disk_budget_mib"`
+	HeavyJobRamBudgetMiB  int     `yaml:"heavy_job_ram_budget_mib"`
+	HeavyJobDiskBudgetMiB int     `yaml:"heavy_job_disk_budget_mib"`
+	// HeavyJobCPUCores is the CPU budget charged per drive/site/onedrive job (I/O-bound; default 1).
+	HeavyJobCPUCores float64 `yaml:"heavy_job_cpu_cores"`
 }
 
 type APIConfig struct {
@@ -61,12 +73,15 @@ type APIConfig struct {
 }
 
 type KopiaConfig struct {
-	RepoConfigDir              string `yaml:"repo_config_dir"`
-	ParallelUploads            int    `yaml:"parallel_uploads"`
-	Compressor                 string `yaml:"compressor"`
-	MaxPackSizeMiB             int    `yaml:"max_pack_size_mib"`
-	ContentCacheSizeMiB        int    `yaml:"content_cache_size_mib"`
-	CheckpointIntervalMinutes  int    `yaml:"checkpoint_interval_minutes"`
+	RepoConfigDir             string `yaml:"repo_config_dir"`
+	ParallelUploads           int    `yaml:"parallel_uploads"`
+	Compressor                string `yaml:"compressor"`
+	MaxPackSizeMiB            int    `yaml:"max_pack_size_mib"`
+	ContentCacheSizeMiB       int    `yaml:"content_cache_size_mib"`
+	CheckpointIntervalMinutes int    `yaml:"checkpoint_interval_minutes"`
+	StallSeconds              int    `yaml:"stall_seconds"`
+	StallCheckIntervalSeconds int    `yaml:"stall_check_interval_seconds"`
+	StallGraceSeconds         int    `yaml:"stall_grace_seconds"`
 }
 
 type GraphConfig struct {
@@ -75,6 +90,10 @@ type GraphConfig struct {
 	AdaptiveConcurrency  *bool `yaml:"adaptive_concurrency"`
 	UseBatchFallback     bool  `yaml:"use_batch_fallback"`
 	GlobalMaxConcurrency int   `yaml:"global_max_concurrency"`
+	// ThrottleStallCeilingSeconds cancels graph_sync when items/bytes are flat for
+	// this long even if Graph 429 activity continues (perpetual throttle wedge).
+	// 0 = disabled (default); rely on MaxRunSeconds as the ultimate ceiling.
+	ThrottleStallCeilingSeconds int `yaml:"throttle_stall_ceiling_seconds"`
 }
 
 func (g GraphConfig) AdaptiveEnabled() bool {
@@ -125,6 +144,12 @@ func (c *Config) applyDefaults() {
 	if c.Worker.ProgressHeartbeatSeconds <= 0 {
 		c.Worker.ProgressHeartbeatSeconds = 60
 	}
+	if c.Worker.ProgressMinIntervalSeconds <= 0 {
+		c.Worker.ProgressMinIntervalSeconds = 5
+	}
+	if c.Worker.ProgressStallSeconds <= 0 {
+		c.Worker.ProgressStallSeconds = 600
+	}
 	if c.Worker.MaxRunSeconds == 0 {
 		c.Worker.MaxRunSeconds = 43200 // 12h safety net for whale-scale single-resource runs
 	}
@@ -158,6 +183,9 @@ func (c *Config) applyDefaults() {
 	if c.Worker.HeavyJobDiskBudgetMiB <= 0 {
 		c.Worker.HeavyJobDiskBudgetMiB = 8192
 	}
+	if c.Worker.HeavyJobCPUCores <= 0 {
+		c.Worker.HeavyJobCPUCores = 1
+	}
 	if c.Kopia.RepoConfigDir == "" {
 		c.Kopia.RepoConfigDir = "/var/lib/ms365-backup-worker/kopia"
 	}
@@ -176,6 +204,15 @@ func (c *Config) applyDefaults() {
 	if c.Kopia.CheckpointIntervalMinutes <= 0 {
 		c.Kopia.CheckpointIntervalMinutes = 15
 	}
+	if c.Kopia.StallCheckIntervalSeconds <= 0 {
+		c.Kopia.StallCheckIntervalSeconds = 60
+	}
+	if c.Kopia.StallGraceSeconds <= 0 {
+		c.Kopia.StallGraceSeconds = 300
+	}
+	if c.Kopia.StallSeconds <= 0 {
+		c.Kopia.StallSeconds = 2700
+	}
 	if c.Graph.MaxRetries <= 0 {
 		c.Graph.MaxRetries = 5
 	}
@@ -185,6 +222,8 @@ func (c *Config) applyDefaults() {
 	if c.Graph.GlobalMaxConcurrency <= 0 {
 		c.Graph.GlobalMaxConcurrency = 24
 	}
+	// ThrottleStallCeilingSeconds defaults to 0 (disabled) so throttle-parked runs
+	// are not cancelled; MaxRunSeconds remains the ultimate safety ceiling.
 	if c.Worker.Hostname == "" {
 		if h, err := os.Hostname(); err == nil && h != "" {
 			c.Worker.Hostname = h
@@ -201,6 +240,12 @@ func (c *Config) applyDefaults() {
 			if n, err := strconv.Atoi(v); err == nil && n > 0 {
 				c.Worker.ProxmoxVmid = n
 			}
+		}
+	}
+	if c.Worker.ProxmoxVmid > 0 {
+		h := strings.TrimSpace(c.Worker.Hostname)
+		if h == "" || strings.EqualFold(h, "ms365-template") {
+			c.Worker.Hostname = fmt.Sprintf("ms365-worker-%d", c.Worker.ProxmoxVmid)
 		}
 	}
 }
@@ -225,6 +270,22 @@ func (c *Config) HeartbeatInterval() time.Duration {
 
 func (c *Config) ProgressHeartbeat() time.Duration {
 	return time.Duration(c.Worker.ProgressHeartbeatSeconds) * time.Second
+}
+
+// ProgressMinInterval is the minimum spacing between intermediate progress POSTs
+// emitted from high-frequency callbacks (Kopia per-chunk hash/upload events).
+func (c *Config) ProgressMinInterval() time.Duration {
+	if c.Worker.ProgressMinIntervalSeconds <= 0 {
+		return 5 * time.Second
+	}
+	return time.Duration(c.Worker.ProgressMinIntervalSeconds) * time.Second
+}
+
+func (c *Config) ProgressStallDuration() time.Duration {
+	if c.Worker.ProgressStallSeconds <= 0 {
+		return 600 * time.Second
+	}
+	return time.Duration(c.Worker.ProgressStallSeconds) * time.Second
 }
 
 // MaxRunDuration returns the working-context safety ceiling for a single run.

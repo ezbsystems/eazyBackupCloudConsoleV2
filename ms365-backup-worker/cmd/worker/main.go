@@ -36,7 +36,7 @@ func main() {
 	}
 
 	client := api.NewClient(cfg.API.BaseURL, cfg.Worker.Token, cfg.Worker.NodeID)
-	scheduler := jobs.NewScheduler(cfg, client)
+	scheduler := jobs.NewScheduler(cfg, client, configPath)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -48,7 +48,8 @@ func main() {
 		cancel()
 	}()
 
-	log.Printf("ms365-backup-worker starting host=%s max_concurrent=%d", cfg.Worker.Hostname, cfg.Worker.MaxConcurrentRuns)
+	log.Printf("ms365-backup-worker starting host=%s max_concurrent=%d stall_seconds=%d graph_stall_check=%ds",
+		cfg.Worker.Hostname, cfg.Worker.MaxConcurrentRuns, cfg.Kopia.StallSeconds, cfg.Kopia.StallCheckIntervalSeconds)
 	if err := scheduler.Run(ctx); err != nil && err != context.Canceled {
 		log.Fatalf("scheduler: %v", err)
 	}

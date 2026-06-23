@@ -28,6 +28,10 @@ use Ms365Backup\Seeder\SeederTokenProvider;
 use Ms365Backup\Seeder\SeederWorkerSpawner;
 use Ms365Backup\Seeder\SeederProfileCatalog;
 
+while (ob_get_level() > 0) {
+    ob_end_clean();
+}
+
 header('Content-Type: application/json; charset=utf-8');
 
 if (!isset($_SESSION['adminid']) || (int) $_SESSION['adminid'] <= 0) {
@@ -525,6 +529,16 @@ try {
             echo json_encode(['ok' => true]);
             break;
 
+        case 'fleet_node_activate':
+            $nodeId = trim((string) ($_POST['node_id'] ?? ''));
+            if ($nodeId === '') {
+                throw new \RuntimeException('node_id required');
+            }
+            \Ms365Backup\WorkerNodeRepository::activate($nodeId);
+            \Ms365Backup\Fleet\FleetAuditLog::write('node_activate', 'Node reactivated from draining', 'node', $nodeId);
+            echo json_encode(['ok' => true]);
+            break;
+
         case 'fleet_node_retire':
             $nodeId = trim((string) ($_POST['node_id'] ?? ''));
             if ($nodeId === '') {
@@ -574,6 +588,102 @@ try {
 
         case 'fleet_audit':
             echo json_encode(['ok' => true, 'entries' => \Ms365Backup\Fleet\FleetAuditLog::recent((int) ($_GET['limit'] ?? 50))]);
+            break;
+
+        case 'fleet_node_telemetry':
+            $nodeId = trim((string) ($_GET['node_id'] ?? ''));
+            if ($nodeId === '') {
+                throw new \RuntimeException('node_id required');
+            }
+            $limit = max(1, min(500, (int) ($_GET['limit'] ?? 96)));
+            $history = \Ms365Backup\WorkerNodeRepository::telemetryHistory($nodeId, $limit);
+            $node = \Ms365Backup\WorkerNodeRepository::get($nodeId);
+            echo json_encode(['ok' => true, 'node' => $node, 'history' => $history]);
+            break;
+
+        case 'fleet_proxmox_nodes':
+            echo json_encode(['ok' => true, 'nodes' => \Ms365Backup\ProxmoxProvisioner::clusterNodes()]);
+            break;
+
+        case 'fleet_scale_up':
+            $proxmoxNode = trim((string) ($_POST['proxmox_node'] ?? ''));
+            $count = max(1, min(20, (int) ($_POST['count'] ?? 1)));
+            if ($proxmoxNode === '') {
+                throw new \RuntimeException('proxmox_node required');
+            }
+            $result = \Ms365Backup\ProxmoxProvisioner::scaleUp($proxmoxNode, $count);
+            \Ms365Backup\Fleet\FleetAuditLog::write('fleet_scale_up', 'Scaled up ' . $count . ' worker(s) on ' . $proxmoxNode, 'proxmox_node', $proxmoxNode, [
+                'count' => $count,
+                'created' => count($result['created'] ?? []),
+                'failed' => $result['failed'] ?? [],
+                'errors' => $result['errors'] ?? [],
+            ]);
+            echo json_encode(['ok' => true, 'result' => $result]);
+            break;
+
+        case 'fleet_node_stop':
+            $nodeId = trim((string) ($_POST['node_id'] ?? ''));
+            if ($nodeId === '') {
+                throw new \RuntimeException('node_id required');
+            }
+            \Ms365Backup\ProxmoxProvisioner::stopWorker($nodeId);
+            \Ms365Backup\Fleet\FleetAuditLog::write('node_stop', 'Worker container stopped', 'node', $nodeId);
+            echo json_encode(['ok' => true]);
+            break;
+
+        case 'fleet_node_start':
+            $nodeId = trim((string) ($_POST['node_id'] ?? ''));
+            if ($nodeId === '') {
+                throw new \RuntimeException('node_id required');
+            }
+            \Ms365Backup\ProxmoxProvisioner::startWorker($nodeId);
+            \Ms365Backup\Fleet\FleetAuditLog::write('node_start', 'Worker container started', 'node', $nodeId);
+            echo json_encode(['ok' => true]);
+            break;
+
+        case 'fleet_config_get':
+            $current = \Ms365Backup\Fleet\WorkerConfigService::current();
+            $yaml = $current ? (string) ($current['yaml'] ?? '') : \Ms365Backup\Fleet\WorkerConfigService::templateYaml();
+            echo json_encode([
+                'ok' => true,
+                'version' => $current ? (int) $current['version'] : 0,
+                'sha256' => $current ? (string) ($current['sha256'] ?? '') : '',
+                'yaml' => $yaml,
+                'status' => \Ms365Backup\Fleet\WorkerConfigService::statusSummary(),
+            ]);
+            break;
+
+        case 'fleet_config_save':
+            $yaml = (string) ($_POST['yaml'] ?? '');
+            $validateOnly = (string) ($_POST['validate_only'] ?? '') === '1';
+            $validated = \Ms365Backup\Fleet\WorkerConfigService::validateYaml($yaml);
+            if ($validated['errors'] !== []) {
+                echo json_encode(['ok' => false, 'errors' => $validated['errors'], 'yaml' => $validated['yaml']]);
+                break;
+            }
+            if ($validateOnly) {
+                echo json_encode(['ok' => true, 'valid' => true, 'yaml' => $validated['yaml']]);
+                break;
+            }
+            $adminId = isset($_SESSION['adminid']) ? (int) $_SESSION['adminid'] : null;
+            $saved = \Ms365Backup\Fleet\WorkerConfigService::saveNewVersion($validated['yaml'], $adminId);
+            echo json_encode(['ok' => true, 'version' => $saved['version'], 'sha256' => $saved['sha256']]);
+            break;
+
+        case 'fleet_config_rollout':
+            $version = (int) ($_POST['config_version'] ?? 0);
+            if ($version <= 0) {
+                throw new \RuntimeException('config_version required');
+            }
+            $strategy = trim((string) ($_POST['strategy'] ?? 'explicit'));
+            $nodeIdsRaw = trim((string) ($_POST['node_ids'] ?? ''));
+            $nodeIds = $nodeIdsRaw !== '' ? array_values(array_filter(array_map('trim', explode(',', $nodeIdsRaw)))) : [];
+            $result = \Ms365Backup\Fleet\WorkerConfigService::rollout($version, $nodeIds, $strategy);
+            echo json_encode(['ok' => true] + $result);
+            break;
+
+        case 'fleet_config_status':
+            echo json_encode(['ok' => true, 'status' => \Ms365Backup\Fleet\WorkerConfigService::statusSummary()]);
             break;
 
         case 'jobs_list':
@@ -628,7 +738,7 @@ try {
             if ($version === '') {
                 throw new \RuntimeException('version_label required');
             }
-            \Ms365Backup\Fleet\ReleaseRepository::validateVersionLabel($version);
+            \Ms365Backup\Fleet\ReleaseRepository::assertVersionAvailable($version);
             $jobId = \Ms365Backup\Fleet\BuildJobStore::createJob([
                 'admin_id' => (int) $_SESSION['adminid'],
                 'git_ref' => trim((string) ($_POST['git_ref'] ?? 'main')),
@@ -643,7 +753,7 @@ try {
             break;
 
         case 'worker_build_list':
-            echo json_encode(['ok' => true, 'jobs' => \Ms365Backup\Fleet\BuildJobStore::listRecent(25)]);
+            ms365backup_echo_json(['ok' => true, 'jobs' => \Ms365Backup\Fleet\BuildJobStore::listRecent(25)]);
             break;
 
         case 'worker_build_status':
@@ -700,7 +810,7 @@ try {
             if ($version === '') {
                 throw new \RuntimeException('version_label required');
             }
-            \Ms365Backup\Fleet\ReleaseRepository::validateVersionLabel($version);
+            \Ms365Backup\Fleet\ReleaseRepository::assertVersionAvailable($version);
             $jobId = \Ms365Backup\Fleet\BuildJobStore::createJob([
                 'admin_id' => (int) $_SESSION['adminid'],
                 'git_ref' => trim((string) ($_POST['git_ref'] ?? 'main')),
@@ -975,9 +1085,13 @@ function ms365backup_build_physical_queue(array $selectedIds, BackupScope $defau
         $storage,
         ms365backup_discovery_service($storage),
     );
+    $inventory = $inventoryService->load();
+    if ($inventory !== null && $selectedIds !== []) {
+        $inventoryService->enrichResourcesForPlanning($inventory, $selectedIds);
+    }
     $planner = new BackupPlanner();
 
-    return $planner->buildPhysicalQueue($selectedIds, $inventoryService->load(), $defaultScope, $scopeOverrides);
+    return $planner->buildPhysicalQueue($selectedIds, $inventory, $defaultScope, $scopeOverrides);
 }
 
 /**

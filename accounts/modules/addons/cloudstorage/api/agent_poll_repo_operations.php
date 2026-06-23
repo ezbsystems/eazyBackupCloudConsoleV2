@@ -7,7 +7,10 @@
  * Authenticates agent, claims one eligible operation, acquires repo lock, returns payload.
  */
 
-require_once __DIR__ . '/../../../../init.php';
+if (!defined('WHMCS')) {
+    require_once __DIR__ . '/../lib/Bootstrap/agent_bootstrap.php';
+}
+require_once __DIR__ . '/../lib/Client/AgentAuth.php';
 
 use Illuminate\Database\Capsule\Manager as Capsule;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -15,49 +18,36 @@ use WHMCS\Module\Addon\CloudStorage\Client\HelperController;
 use WHMCS\Module\Addon\CloudStorage\Client\KopiaRetentionPayloadBuilder;
 use WHMCS\Module\Addon\CloudStorage\Client\KopiaRetentionLockService;
 use WHMCS\Module\Addon\CloudStorage\Client\KopiaRetentionPolicyService;
+use WHMCS\Module\Addon\CloudStorage\Client\AgentAuth;
 
 if (!defined('WHMCS')) {
     die('This file cannot be accessed directly');
 }
 
-function respond(array $data, int $httpCode = 200): void
-{
-    (new JsonResponse($data, $httpCode))->send();
-    exit;
+if (!function_exists('respond')) {
+    function respond(array $data, int $httpCode = 200): void
+    {
+        (new JsonResponse($data, $httpCode))->send();
+        exit;
+    }
 }
 
-function authenticateAgent(): object
+if (!function_exists('authenticateAgent')) {
+    function authenticateAgent(): object
+    {
+        return AgentAuth::authenticate(fn(array $data, int $code) => respond($data, $code));
+    }
+}
+
+function cloudstorage_fetch_repo_operation(object $agent): array
 {
-    $agentUuid = $_SERVER['HTTP_X_AGENT_UUID'] ?? ($_POST['agent_uuid'] ?? null);
-    $agentToken = $_SERVER['HTTP_X_AGENT_TOKEN'] ?? ($_POST['agent_token'] ?? null);
-    if (!$agentUuid || !$agentToken) {
-        respond(['status' => 'fail', 'message' => 'Missing agent headers'], 401);
+    if (!Capsule::schema()->hasTable('s3_kopia_repo_operations')
+        || !Capsule::schema()->hasTable('s3_kopia_repos')
+        || !Capsule::schema()->hasTable('s3_kopia_repo_locks')) {
+        return ['status' => 'success', 'operation' => null];
     }
 
-    $agent = Capsule::table('s3_cloudbackup_agents')
-        ->where('agent_uuid', $agentUuid)
-        ->first();
-
-    if (!$agent || $agent->status !== 'active' || $agent->agent_token !== $agentToken) {
-        respond(['status' => 'fail', 'message' => 'Unauthorized'], 401);
-    }
-
-    Capsule::table('s3_cloudbackup_agents')
-        ->where('agent_uuid', $agentUuid)
-        ->update(['last_seen_at' => Capsule::raw('NOW()')]);
-
-    return $agent;
-}
-
-$agent = authenticateAgent();
-
-if (!Capsule::schema()->hasTable('s3_kopia_repo_operations')
-    || !Capsule::schema()->hasTable('s3_kopia_repos')
-    || !Capsule::schema()->hasTable('s3_kopia_repo_locks')) {
-    respond(['status' => 'fail', 'message' => 'Repo operations not supported on this installation'], 200);
-}
-
-$agentClientId = (int) $agent->client_id;
+    $agentClientId = (int) $agent->client_id;
 $hasAgentTenant = Capsule::schema()->hasColumn('s3_cloudbackup_agents', 'tenant_id');
 $agentTenantId = $hasAgentTenant && isset($agent->tenant_id) && $agent->tenant_id !== '' && $agent->tenant_id !== null
     ? (int) $agent->tenant_id
@@ -134,7 +124,7 @@ try {
     });
 
     if ($result['operation'] === null) {
-        respond(['status' => 'success', 'operation' => null]);
+        return ['status' => 'success', 'operation' => null];
     }
 
     $op = $result['operation'];
@@ -234,11 +224,21 @@ try {
     $payload['dest_access_key'] = $destAccessKey;
     $payload['dest_secret_key'] = $destSecretKey;
 
-    respond([
+    return [
         'status' => 'success',
         'operation' => $payload,
-    ]);
-} catch (\Throwable $e) {
-    logModuleCall('cloudstorage', 'agent_poll_repo_operations', ['agent_id' => $agent->id], $e->getMessage());
-    respond(['status' => 'fail', 'message' => 'Server error'], 500);
+    ];
+    } catch (\Throwable $e) {
+        logModuleCall('cloudstorage', 'agent_poll_repo_operations', ['agent_id' => $agent->id], $e->getMessage());
+        return ['status' => 'fail', 'message' => 'Server error'];
+    }
+}
+
+if (!defined('AGENT_POLL_FUNCTIONS_ONLY')) {
+    $agent = authenticateAgent();
+    $result = cloudstorage_fetch_repo_operation($agent);
+    if (($result['status'] ?? '') === 'fail') {
+        respond($result, 500);
+    }
+    respond($result);
 }

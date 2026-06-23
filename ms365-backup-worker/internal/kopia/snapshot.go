@@ -27,6 +27,7 @@ type SnapshotRequest struct {
 	MaxPackSizeMiB     int
 	CheckpointInterval time.Duration
 	OnProgress         func(ProgressCounter)
+	Counter            *ProgressCounter
 }
 
 type SnapshotResult struct {

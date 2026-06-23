@@ -81,6 +81,19 @@
                     </div>
                     <p id="speedHint" class="eb-live-stat-hint"></p>
                 </div>
+                {if isset($is_ms365_batch) && $is_ms365_batch}
+                <div class="eb-live-stat">
+                    <div class="eb-live-stat-label">Items/s</div>
+                    <div class="eb-live-stat-value highlight" id="itemsSpeedValue">—</div>
+                    <p id="itemsSpeedHint" class="eb-live-stat-hint">Enumeration rate</p>
+                </div>
+                {/if}
+                <div id="graphThrottleHint" class="eb-live-stat hidden" style="grid-column: 1 / -1;">
+                    <p class="eb-live-alert-copy" style="color: var(--eb-warning-text); margin: 0;">
+                        Throttled by Microsoft Graph — backup is slower than usual while rate limits recover.
+                        <span id="graphThrottleCount"></span>
+                    </p>
+                </div>
                 <div class="eb-live-stat">
                     <div class="eb-live-stat-label">Processed</div>
                     <div class="eb-live-stat-value" id="bytesProcessedValue">
@@ -194,6 +207,36 @@
             <p class="eb-live-alert-title">Cloud Backup (Beta)</p>
             <p class="eb-live-alert-copy">Cloud Backup is in beta. Keep a primary backup strategy in place and contact support if you notice any issues.</p>
         </div>
+
+        {if isset($is_ms365_batch) && $is_ms365_batch}
+        <div class="eb-live-log eb-live-workloads" id="ms365WorkloadsPanel">
+            <div class="eb-live-log-toolbar">
+                <div class="eb-live-log-title">
+                    <span id="ms365WorkloadsLiveDot" class="live-dot" style="display: none;" aria-hidden="true"></span>
+                    <span>Workloads</span>
+                </div>
+                <span id="ms365WorkloadsSummary" class="eb-live-workloads-summary"></span>
+            </div>
+            <div class="eb-table-shell eb-live-workloads-scroll">
+                <table class="eb-table min-w-full text-sm">
+                    <thead>
+                        <tr>
+                            <th>Workload</th>
+                            <th>Status</th>
+                            <th>Phase</th>
+                            <th>Error</th>
+                            <th class="eb-table-cell-numeric">Progress</th>
+                        </tr>
+                    </thead>
+                    <tbody id="ms365WorkloadsBody">
+                        <tr id="ms365WorkloadsEmptyRow">
+                            <td colspan="5" class="eb-type-caption italic eb-text-muted">Loading workloads…</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {/if}
 
         <div class="eb-live-log" id="ebLiveLogPanel">
             <div class="eb-live-log-toolbar">
@@ -365,6 +408,25 @@ let isRunning = {if $isRunningStatus}true{else}false{/if};
 const RUN_UUID = '{$run.run_id}';
 const LIVE_IS_MS365 = {if isset($is_ms365_batch) && $is_ms365_batch}true{else}false{/if};
 const LIVE_IS_RESTORE = {if $is_restore}true{else}false{/if};
+const MS365_INITIAL_WORKLOADS = {if isset($is_ms365_batch) && $is_ms365_batch}{$ms365_workloads|@json_encode nofilter}{else}[]{/if};
+const E3_API_ROOT = '{$WEB_ROOT|escape:'javascript'}/modules/addons/cloudstorage/api';
+
+async function fetchE3Json(path, options) {
+    const base = E3_API_ROOT.replace(/\/$/, '');
+    const url = (path.indexOf('http') === 0) ? path : (base + '/' + String(path).replace(/^\//, ''));
+    const opts = Object.assign({ credentials: 'same-origin', cache: 'no-store' }, options || {});
+    const response = await fetch(url, opts);
+    const text = await response.text();
+    if (!text || !text.trim()) {
+        throw new Error('Empty response from server (HTTP ' + response.status + ')');
+    }
+    try {
+        return JSON.parse(text);
+    } catch (e) {
+        const preview = text.trim().substring(0, 160).replace(/\s+/g, ' ');
+        throw new Error('Server returned non-JSON (HTTP ' + response.status + '): ' + preview);
+    }
+}
 const SHOW_FILES_METRIC = {if $showFilesMetric}true{else}false{/if};
 const SHOW_ITEMS_METRIC = {if $showItemsMetric}true{else}false{/if};
 let lastLogsHash = null;
@@ -398,6 +460,226 @@ const STAGE_FALLBACKS = {
 };
 
 const TERMINAL_STATUSES = ['success', 'failed', 'cancelled', 'warning', 'partial_success'];
+
+const WORKLOAD_STATUS_BADGES = {
+    'success': 'eb-badge eb-badge--success eb-badge--dot',
+    'failed': 'eb-badge eb-badge--danger eb-badge--dot',
+    'error': 'eb-badge eb-badge--danger eb-badge--dot',
+    'running': 'eb-badge eb-badge--info eb-badge--dot',
+    'starting': 'eb-badge eb-badge--info eb-badge--dot',
+    'queued': 'eb-badge eb-badge--warning eb-badge--dot',
+    'warning': 'eb-badge eb-badge--warning eb-badge--dot',
+    'partial_success': 'eb-badge eb-badge--warning eb-badge--dot',
+    'cancelled': 'eb-badge eb-badge--neutral eb-badge--dot'
+};
+
+function workloadStatusLabel(status) {
+    const normalized = String(status || '').toLowerCase();
+    if (!normalized) return 'Unknown';
+    if (normalized === 'partial_success') return 'Partial success';
+    return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+}
+
+function workloadStatusBadgeClass(status) {
+    const normalized = String(status || '').toLowerCase();
+    return WORKLOAD_STATUS_BADGES[normalized] || 'eb-badge eb-badge--neutral eb-badge--dot';
+}
+
+function workloadProgressBarState(status) {
+    const normalized = String(status || '').toLowerCase();
+    if (['running', 'starting', 'queued'].includes(normalized)) return 'running';
+    if (['failed', 'error'].includes(normalized)) return 'failed';
+    if (['warning', 'partial_success'].includes(normalized)) return 'warning';
+    if (normalized === 'cancelled') return 'neutral';
+    if (normalized === 'success') return 'success';
+    return 'neutral';
+}
+
+function workloadIsActive(status) {
+    return ['running', 'starting', 'queued'].includes(String(status || '').toLowerCase());
+}
+
+function setLiveBarFillStateOnElement(bar, state) {
+    if (!bar) return;
+    bar.className = 'eb-live-bar-fill';
+    if (state === 'running') bar.classList.add('running');
+    else if (state === 'failed') bar.classList.add('failed');
+    else if (state === 'warning') bar.classList.add('eb-live-bar-fill--warning');
+    else if (state === 'neutral') bar.classList.add('eb-live-bar-fill--neutral');
+}
+
+function updateMs365WorkloadsSummary(workloads) {
+    const summary = document.getElementById('ms365WorkloadsSummary');
+    if (!summary) return;
+    const list = Array.isArray(workloads) ? workloads : [];
+    if (!list.length) {
+        summary.textContent = 'No workloads';
+        return;
+    }
+    const total = list.length;
+    const complete = list.filter(w => ['success', 'cancelled'].includes(String(w.status || '').toLowerCase())).length;
+    const failed = list.filter(w => ['failed', 'error'].includes(String(w.status || '').toLowerCase())).length;
+    const running = list.filter(w => ['running', 'starting', 'queued'].includes(String(w.status || '').toLowerCase())).length;
+    let text = complete + '/' + total + ' complete';
+    if (running > 0) {
+        text += ' · ' + running + ' active';
+    }
+    if (failed > 0) {
+        text += ' · ' + failed + ' failed';
+    }
+    summary.textContent = text;
+}
+
+function syncMs365WorkloadsChrome(live) {
+    const dot = document.getElementById('ms365WorkloadsLiveDot');
+    if (dot) {
+        dot.style.display = live ? '' : 'none';
+    }
+}
+
+function renderWorkloadErrorCell(errorCell, workload) {
+    while (errorCell.firstChild) {
+        errorCell.removeChild(errorCell.firstChild);
+    }
+    errorCell.removeAttribute('title');
+
+    const events = Array.isArray(workload.events) ? workload.events : [];
+    const fallback = (workload.error || '').trim();
+
+    if (!events.length && !fallback) {
+        errorCell.className = 'eb-live-workloads-error is-empty';
+        errorCell.textContent = '—';
+        return;
+    }
+
+    errorCell.className = 'eb-live-workloads-error';
+
+    if (!events.length) {
+        errorCell.textContent = fallback;
+        if (fallback.length > 120) {
+            errorCell.title = fallback;
+        }
+        return;
+    }
+
+    const list = document.createElement('div');
+    list.className = 'eb-live-workloads-events';
+    events.forEach(eventItem => {
+        const item = document.createElement('div');
+        const level = String(eventItem.level || 'error').toLowerCase();
+        item.className = 'eb-live-workloads-event' + (level === 'warning' ? ' is-warning' : '');
+        if (eventItem.ts) {
+            const ts = document.createElement('span');
+            ts.className = 'eb-live-workloads-event-ts';
+            ts.textContent = '[' + eventItem.ts + ']';
+            item.appendChild(ts);
+        }
+        const msg = document.createElement('span');
+        msg.className = 'eb-live-workloads-event-msg';
+        msg.textContent = eventItem.message || '';
+        item.appendChild(msg);
+        list.appendChild(item);
+    });
+    errorCell.appendChild(list);
+}
+
+function renderMs365Workloads(workloads) {
+    if (!LIVE_IS_MS365) return;
+    const tbody = document.getElementById('ms365WorkloadsBody');
+    if (!tbody) return;
+
+    const list = Array.isArray(workloads) ? workloads : [];
+    updateMs365WorkloadsSummary(list);
+
+    while (tbody.firstChild) {
+        tbody.removeChild(tbody.firstChild);
+    }
+
+    if (!list.length) {
+        const emptyRow = document.createElement('tr');
+        const emptyCell = document.createElement('td');
+        emptyCell.colSpan = 5;
+        emptyCell.className = 'eb-type-caption italic eb-text-muted';
+        emptyCell.textContent = 'No workloads found for this run.';
+        emptyRow.appendChild(emptyCell);
+        tbody.appendChild(emptyRow);
+        return;
+    }
+
+    list.forEach(workload => {
+        const row = document.createElement('tr');
+        if (workloadIsActive(workload.status)) {
+            row.classList.add('eb-live-workloads-row--active');
+        }
+
+        const workloadCell = document.createElement('td');
+        const typeLine = document.createElement('span');
+        typeLine.className = 'eb-live-workloads-type';
+        typeLine.textContent = workload.workload_type || 'Workload';
+        const nameLine = document.createElement('span');
+        nameLine.className = 'eb-live-workloads-name';
+        nameLine.textContent = workload.workload_name || '—';
+        workloadCell.appendChild(typeLine);
+        workloadCell.appendChild(nameLine);
+
+        const statusCell = document.createElement('td');
+        const statusBadge = document.createElement('span');
+        statusBadge.className = workloadStatusBadgeClass(workload.status);
+        statusBadge.textContent = workloadStatusLabel(workload.status);
+        statusCell.appendChild(statusBadge);
+
+        const phaseCell = document.createElement('td');
+        phaseCell.textContent = workload.phase_label || workload.phase || '—';
+
+        const errorCell = document.createElement('td');
+        renderWorkloadErrorCell(errorCell, workload);
+
+        const progressCell = document.createElement('td');
+        progressCell.className = 'eb-table-cell-numeric';
+        const progressWrap = document.createElement('div');
+        progressWrap.className = 'eb-live-workloads-progress';
+        const progressLabel = document.createElement('span');
+        progressLabel.className = 'eb-live-workloads-progress-label';
+        progressLabel.textContent = workload.progress_label || '—';
+        progressWrap.appendChild(progressLabel);
+
+        const notes = Array.isArray(workload.notes) ? workload.notes.filter(n => String(n || '').trim() !== '') : [];
+        if (notes.length > 0) {
+            const notesWrap = document.createElement('div');
+            notesWrap.className = 'eb-live-workloads-notes';
+            notes.forEach(noteText => {
+                const noteLine = document.createElement('span');
+                noteLine.className = 'eb-live-workloads-note';
+                noteLine.textContent = noteText;
+                notesWrap.appendChild(noteLine);
+            });
+            progressWrap.appendChild(notesWrap);
+        }
+
+        const itemsTotal = Number(workload.items_total) || 0;
+        const percent = Number(workload.percent) || 0;
+        if (itemsTotal > 0 || percent > 0) {
+            const barShell = document.createElement('div');
+            barShell.className = 'eb-live-bar';
+            barShell.setAttribute('aria-hidden', 'true');
+            const barFill = document.createElement('div');
+            barFill.className = 'eb-live-bar-fill';
+            const barWidth = Math.max(0, Math.min(100, percent));
+            barFill.style.width = barWidth + '%';
+            setLiveBarFillStateOnElement(barFill, workloadProgressBarState(workload.status));
+            barShell.appendChild(barFill);
+            progressWrap.appendChild(barShell);
+        }
+        progressCell.appendChild(progressWrap);
+
+        row.appendChild(workloadCell);
+        row.appendChild(statusCell);
+        row.appendChild(phaseCell);
+        row.appendChild(errorCell);
+        row.appendChild(progressCell);
+        tbody.appendChild(row);
+    });
+}
 
 window.__ebE3ServerTz = '{$server_timezone|default:'UTC'|escape:'javascript'}';
 let durationStartMs = {if $started_at_epoch_ms}{$started_at_epoch_ms}{else}null{/if};
@@ -454,7 +736,11 @@ function setLiveBarFillState(bar, state) {
 
 const etaModel = {
     startMs: null,
-    predictedTotalSec: null
+    predictedTotalSec: null,
+    lastProcessedBytes: null,
+    lastProcessedTs: null,
+    lastItemsDone: null,
+    lastItemsTs: null
 };
 
 function parseRunTimestamp(value) {
@@ -524,12 +810,15 @@ function resolveRunEpochMs(run, field, epochField) {
 function updateProgress() {
     if (isPaused) return;
     const ts = Date.now();
-    fetch('modules/addons/cloudstorage/api/cloudbackup_progress.php?run_uuid={$run.run_id}&ts=' + ts, { cache: 'no-store' })
-        .then(response => response.json())
+    fetchE3Json('cloudbackup_progress.php?run_uuid={$run.run_id}&ts=' + ts)
         .then(data => {
             if (data.status === 'success' && data.run) {
                 const run = data.run;
                 refreshErrorSummary(run);
+
+                if (LIVE_IS_MS365 && Array.isArray(run.workloads)) {
+                    renderMs365Workloads(run.workloads);
+                }
 
                 let progressPct = 0;
                 const apiPct = parseFloat(run.progress_pct);
@@ -610,7 +899,8 @@ function updateProgress() {
 
                 const uploadedSavingsEl = document.getElementById('uploadedSavings');
                 if (uploadedSavingsEl) {
-                    if (bytesProcessed > 0) {
+                    const byteStatsComparable = run.byte_stats_comparable !== false;
+                    if (bytesProcessed > 0 && byteStatsComparable) {
                         const transferred = run.bytes_transferred || 0;
                         const savedBytes = Math.max(0, bytesProcessed - transferred);
                         const savedPercent = bytesProcessed > 0 ? (savedBytes / bytesProcessed) * 100 : 0;
@@ -626,14 +916,94 @@ function updateProgress() {
                         speedValueEl.textContent = '—';
                         speedValueEl.classList.remove('highlight');
                     } else {
-                        speedValueEl.textContent = run.speed_bytes_per_sec ? (formatBytes(run.speed_bytes_per_sec) + '/s') : '—';
-                        if (run.speed_bytes_per_sec) speedValueEl.classList.add('highlight');
+                        let speedBps = run.speed_bytes_per_sec || 0;
+                        const processedNow = run.bytes_processed || run.bytes_transferred || 0;
+                        const pollTs = Date.now();
+                        if (!speedBps && processedNow > 0 && etaModel.lastProcessedTs && pollTs > etaModel.lastProcessedTs) {
+                            const lastProcessed = etaModel.lastProcessedBytes;
+                            if (lastProcessed !== null && processedNow >= lastProcessed) {
+                                const elapsedSec = Math.max(1, (pollTs - etaModel.lastProcessedTs) / 1000);
+                                speedBps = Math.round((processedNow - lastProcessed) / elapsedSec);
+                            }
+                        }
+                        if (processedNow > 0) {
+                            etaModel.lastProcessedBytes = processedNow;
+                            etaModel.lastProcessedTs = pollTs;
+                        }
+                        speedValueEl.textContent = speedBps ? (formatBytes(speedBps) + '/s') : '—';
+                        if (speedBps) speedValueEl.classList.add('highlight');
                         else speedValueEl.classList.remove('highlight');
                     }
                 }
                 const speedHintEl = document.getElementById('speedHint');
                 if (speedHintEl) {
-                    speedHintEl.textContent = (!isFinished && run.speed_bytes_per_sec) ? 'Instantaneous' : '';
+                    if (isFinished || !(run.speed_bytes_per_sec || run.bytes_processed)) {
+                        speedHintEl.textContent = '';
+                    } else {
+                        const processed = run.bytes_processed || 0;
+                        const transferred = run.bytes_transferred || 0;
+                        speedHintEl.textContent = processed > transferred
+                            ? 'Upload speed (hashed bytes)'
+                            : 'Instantaneous';
+                    }
+                }
+
+                const itemsSpeedValueEl = document.getElementById('itemsSpeedValue');
+                const itemsSpeedHintEl = document.getElementById('itemsSpeedHint');
+                if (itemsSpeedValueEl) {
+                    if (isFinished) {
+                        itemsSpeedValueEl.textContent = '—';
+                        itemsSpeedValueEl.classList.remove('highlight');
+                        if (itemsSpeedHintEl) {
+                            itemsSpeedHintEl.textContent = '';
+                        }
+                    } else {
+                        let itemsPerSec = run.items_per_sec || 0;
+                        const itemsDoneNow = (run.objects_transferred !== undefined && run.objects_transferred !== null)
+                            ? run.objects_transferred
+                            : (run.files_done || 0);
+                        const pollTsItems = Date.now();
+                        if (!itemsPerSec && itemsDoneNow > 0 && etaModel.lastItemsTs && pollTsItems > etaModel.lastItemsTs) {
+                            const lastItems = etaModel.lastItemsDone;
+                            if (lastItems !== null && itemsDoneNow >= lastItems) {
+                                const elapsedSec = Math.max(1, (pollTsItems - etaModel.lastItemsTs) / 1000);
+                                itemsPerSec = Math.round((itemsDoneNow - lastItems) / elapsedSec);
+                            }
+                        }
+                        if (itemsDoneNow > 0) {
+                            etaModel.lastItemsDone = itemsDoneNow;
+                            etaModel.lastItemsTs = pollTsItems;
+                        }
+                        itemsSpeedValueEl.textContent = itemsPerSec ? formatCount(itemsPerSec) + '/s' : '—';
+                        if (itemsPerSec) {
+                            itemsSpeedValueEl.classList.add('highlight');
+                        } else {
+                            itemsSpeedValueEl.classList.remove('highlight');
+                        }
+                        if (itemsSpeedHintEl) {
+                            itemsSpeedHintEl.textContent = itemsPerSec ? 'Enumeration rate' : '';
+                        }
+                    }
+                }
+
+                const graphThrottleHint = document.getElementById('graphThrottleHint');
+                const graphThrottleCount = document.getElementById('graphThrottleCount');
+                if (graphThrottleHint) {
+                    const throttled = !!run.graph_throttled;
+                    const hits429 = parseInt(run.graph_429_hits_total, 10) || 0;
+                    if (throttled && !isFinished) {
+                        graphThrottleHint.classList.remove('hidden');
+                        if (graphThrottleCount) {
+                            graphThrottleCount.textContent = hits429 > 0
+                                ? ' (' + formatCount(hits429) + ' rate-limit responses)'
+                                : '';
+                        }
+                    } else {
+                        graphThrottleHint.classList.add('hidden');
+                        if (graphThrottleCount) {
+                            graphThrottleCount.textContent = '';
+                        }
+                    }
                 }
 
                 if (SHOW_ITEMS_METRIC) {
@@ -747,6 +1117,7 @@ function updateProgress() {
                 }
                 isRunning = newIsRunning;
                 syncLogPanelChrome(newIsRunning);
+                syncMs365WorkloadsChrome(newIsRunning);
 
                 if (TERMINAL_STATUSES.includes(run.status)) {
                     if (progressInterval) {
@@ -769,6 +1140,7 @@ function updateProgress() {
                         }
                     }
                     syncLogPanelChrome(false);
+                    syncMs365WorkloadsChrome(false);
                 }
             }
         })
@@ -995,16 +1367,14 @@ function submitCancelRun() {
     setCancelButtonsBusy(true);
     setCancelConfirmModalBusy(true);
 
-    fetch('modules/addons/cloudstorage/api/cloudbackup_cancel_run.php', {
+    fetchE3Json('cloudbackup_cancel_run.php', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({
             run_id: runIdentifier,
             force: forceCancel ? '1' : '0'
-        }),
-        credentials: 'same-origin'
+        })
     })
-        .then(response => response.json())
         .then(data => {
             if (!data || data.status !== 'success') {
                 throw new Error((data && data.message) ? data.message : 'Cancel request failed');
@@ -1309,12 +1679,7 @@ function setStructuredLogs(entries) {
 }
 
 function updateFormattedLogs() {
-    let url = 'modules/addons/cloudstorage/api/cloudbackup_get_live_logs.php?run_uuid={$run.run_id}&ts=' + Date.now();
-    if (lastLogsHash) {
-        url += '&hash=' + encodeURIComponent(lastLogsHash);
-    }
-    fetch(url, { cache: 'no-store' })
-        .then(r => r.json())
+    fetchE3Json('cloudbackup_get_live_logs.php?run_uuid={$run.run_id}&ts=' + Date.now() + (lastLogsHash ? '&hash=' + encodeURIComponent(lastLogsHash) : ''))
         .then(d => {
             if (d.status === 'success' && !d.unchanged) {
                 if (Array.isArray(d.entries) && d.entries.length > 0) {
@@ -1333,12 +1698,11 @@ let terminalEventSeen = false;
 
 function updateEventLogs() {
     if (isPaused) return;
-    let url = 'modules/addons/cloudstorage/api/cloudbackup_get_run_events.php?run_uuid={$run.run_id}&limit=500&ts=' + Date.now();
+    let url = 'cloudbackup_get_run_events.php?run_uuid={$run.run_id}&limit=500&ts=' + Date.now();
     if (lastEventId > 0) {
         url += '&since_id=' + encodeURIComponent(String(lastEventId));
     }
-    fetch(url, { cache: 'no-store' })
-        .then(r => r.json())
+    fetchE3Json(url)
         .then(d => {
             if (d.status !== 'success' || !Array.isArray(d.events)) return;
             if (d.events.length === 0) return;
@@ -1566,6 +1930,10 @@ function updateStatusDisplay(statusConfig) {
 {if $run.status eq 'running' || $run.status eq 'starting' || $run.status eq 'queued'}
     clearLogs();
     syncLogPanelChrome(true);
+    syncMs365WorkloadsChrome(true);
+    if (LIVE_IS_MS365 && Array.isArray(MS365_INITIAL_WORKLOADS)) {
+        renderMs365Workloads(MS365_INITIAL_WORKLOADS);
+    }
     updateProgress();
     updateEventLogs();
     progressInterval = setInterval(updateProgress, 2000);
@@ -1573,6 +1941,10 @@ function updateStatusDisplay(statusConfig) {
 {else}
     clearLogs();
     syncLogPanelChrome(false);
+    syncMs365WorkloadsChrome(false);
+    if (LIVE_IS_MS365 && Array.isArray(MS365_INITIAL_WORKLOADS)) {
+        renderMs365Workloads(MS365_INITIAL_WORKLOADS);
+    }
     updateProgress();
     updateFormattedLogs();
 {/if}

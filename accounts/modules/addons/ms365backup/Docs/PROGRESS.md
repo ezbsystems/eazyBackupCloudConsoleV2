@@ -2,13 +2,200 @@
 
 **Purpose:** Single handoff document so the next agent knows where work stopped. Update this file at the **end of every session** (or after each meaningful milestone).
 
-**Last updated:** 2026-06-19  
-**Module version (ms365backup):** 1.25.0  
-**Worker version (ms365-backup-worker):** 0.2.5
+**Last updated:** 2026-06-23  
+**Module version (ms365backup):** 1.42.0  
+**Worker version (ms365-backup-worker):** 0.3.11
 
 ---
 
 ## Session log
+
+### 2026-06-23 — Orphan thrash fix + completion item reconcile (PHP 1.42.0)
+
+- **Goal:** Stop `releaseOrphanedClaimsForIdleNode` from reclaiming healthy workers with fresh leases (root cause of perpetual cancel/restart thrash on slow graph_sync / throttle waits); reconcile confusing "Complete but 226/346 items" accounting.
+- **PHP 1.42.0:** `releaseOrphanedClaimsForIdleNode()` gates reclaim on expired lease + throttle-aware skip (`isThrottledWaitingAliveFromRow`); `backupComplete()` sets `items_done = items_total = max(items_done, items_total, files)`; `backupProgress()` clamps `items_done <= items_total`.
+- **Tests:** `ms365_orphan_lease_test.php` — fresh-lease not reclaimed, expired-lease reclaimed, throttled-waiting skipped, completion reconcile, progress clamp.
+- **Verify:** Deploy PHP 1.42.0; re-run throttled whale batch — no "Orphaned claim released (worker idle)" on healthy running workloads; completed mailboxes read coherent 100% item ratio.
+
+### 2026-06-23 — Graph throttle resilience (PHP 1.41.0 / worker 0.3.11)
+
+- **Goal:** Treat Graph 429 as wait-it-out (never hard-fail); stop stall reapers from requeuing throttled-but-alive runs; persist conservative per-tenant Graph budget; lower default concurrency.
+- **Worker 0.3.11:** Unbounded 429 retry path (honors `Retry-After` up to 600s, separate from `maxRetries`); `User-Agent: eazyBackup-MS365-Backup/<version>`; AIMD starts at `max(2, concurrency/2)`; `ThrottleWaiting()`/`LastThrottleAt()`; tenant cooldown in `graph/limiter.go`; rising 429 counts as progress (no `NoProgress`); `"Throttled by Microsoft — waiting"` progress message; `ThrottleStallCeilingSeconds` default **0** (disabled).
+- **PHP 1.41.0:** `upgrade_phase19_throttle_liveness.sql` adds `last_429_at`; reapers skip throttled-but-alive runs (600s window + fresh lease); `perTenantMaxConcurrent` default **96 → 16**; `GraphTenantBudgetService` slower decay / faster shrink.
+- **Tests:** `go test ./...`; `ms365_batch_aggregate_test.php`; `ms365_graph_budget_test.php`.
+- **Verify:** Module upgrade (phase19 SQL) + deploy worker **0.3.11**; re-run whale batch `fc175718-c524-412d-a11b-644fc8446be6` — stuck SharePoint sites should advance without "Stale workload reconciled" or hard 429 failures.
+
+### 2026-06-23 — MS365 workloads live panel dedupe + styling fixes
+
+- **Problem:** Same logical workload (e.g. SharePoint site after retries/shards) appeared on multiple table rows; workloads scroll area had extra padding/border and non-sticky header.
+- **Fix:** `Ms365BatchLiveService::listWorkloadsForCustomer()` groups child runs by `resource_type` + `PhysicalKeyHelper::aggregateParentKey()`, merges status/progress, and exposes timestamped `events[]` for historical errors. `e3backup_live.tpl` renders events in the Error column. CSS: removed `eb-live-workloads-scroll` padding/border-radius/border; sticky `thead`; `eb-live-workloads-event*` classes.
+- **Files:** `Ms365BatchLiveService.php`, `e3backup_live.tpl`, `tailwind.src.css`, `SEMANTIC-THEME-REFERENCE.md`
+- **Verify:** PHP lint; Tailwind build; browser check run `fc175718-c524-412d-a11b-644fc8446be6` — one row per site with event history.
+
+### 2026-06-23 — MS365 workloads live progress panel (e3 client UI)
+
+- **Goal:** Customer-facing workloads status table on the e3 live run page for MS365 backup and restore batches — granular per-workload status, phase, error, and progress between the Beta notice and Live Logs.
+- **UI:** `e3backup_live.tpl` — upgraded `#ms365WorkloadsPanel` with two-line workload cells (type + name), status badges, phase labels, wrapped errors, progress label + mini bar, active-row highlight; gated by `is_ms365_batch` only.
+- **CSS:** New `eb-live-workloads-*` semantic classes in `tailwind.src.css` / compiled `tailwind.css`.
+- **Backend:** `Ms365BatchLiveService::formatCustomerWorkloadError()` prefixes queue errors with `Queue: ` (admin parity).
+- **Docs:** `SEMANTIC-THEME-REFERENCE.md` — workloads table section + live-page checklist item.
+- **Verify:** PHP lint on `Ms365BatchLiveService.php`; template confirms MS365-only gating and Live Logs panel unchanged; Tailwind build succeeded.
+- **Next:** Browser E2E on a multi-workload MS365 batch (live polling, summary line, long error wrapping).
+
+### 2026-06-22 — Directory delta pagination guard + fail_requeue lifecycle (PHP 1.40.1 / worker 0.3.10)
+
+- **Run 68acba53 follow-ups:** `/users/delta` returned users on page 1 then empty pages with advancing `$skiptoken` — the 3-empty-page guard aborted falsely; `fail_requeue` left child runs in `error` so `reconcileQueuedErroredRuns()` terminal-failed retries ~3 min later.
+- **Worker 0.3.10:** Empty-page wedge detection only counts when `$skiptoken` does not advance (legacy behavior when token absent); advancing skip tokens on empty delta pages no longer trip the guard.
+- **PHP 1.40.1:** `markFailed()` returns whether it requeued and resets child backup runs via `BackupRunRepository::resetForQueueRequeue()` (shared with batch auto-retry); `failClaimedRun` / `backupFail` only set terminal `error` when not requeued. `Ms365CustomerError` maps Graph pagination loop errors to friendly directory/generic sync messages.
+- **Tests:** `pagination_test.go` (advancing skip token + same-token wedge); `ms365_non_retryable_error_test.php` (pagination customer messages).
+- **Verify:** `go test ./...` in `ms365-backup-worker`; `php …/ms365_non_retryable_error_test.php`.
+
+### 2026-06-22 — SharePoint site access probing + wizard selectability (PHP 1.40.0)
+
+- **Goal:** Probe SharePoint site access during inventory refresh; disable inaccessible sites in job wizard; validate selections server-side; improve admin jobs observability for queue errors and workload skips.
+- **WS3:** `ResourceAccessClassifier` maps Graph 403 `accessDenied` and site 404s to `unavailable` (skippable). `InventoryService::refresh()` runs `site_access` phase with `ResourceAccessService::probeSite()` per site and sets `access_checked_at`.
+- **WS4:** `TenantResource::siteSelectability()` helpers; `CustomerInventoryService::loadForBackupUser` enriches sites; `CustomerSelectionCodec::validate` rejects non-selectable sites/capabilities; `BackupPlanner` warnings for legacy inaccessible selections.
+- **WS5:** Job wizard JS/template/CSS — disabled but visible sites with per-capability Files/Lists disable; section note for inaccessible count.
+- **WS6:** Admin jobs child detail exposes `queue_error` + `workload_skipped`; stale batch child reconcile logs as `warning` via `ProgressLogger`.
+- **Tests:** `ms365_site_selectability_test.php` (classifier, selectability, codec validation, planner warnings).
+- **Verify:** Run PHP tests; refresh inventory on dev tenant — Designer/inaccessible sites appear disabled in wizard.
+
+### 2026-06-22 — Stall detection, progress-preserving reap, resume (PHP 1.39.0 / worker 0.3.7)
+
+- **Goal:** Detect genuinely stalled child runs (even while heartbeating), reap via infrastructure requeue so re-claims resume incrementally, stop worker from masking stalls via lease renewal and 429-only "activity".
+- **Schema:** `upgrade_phase18_progress_freshness.sql` — `last_progress_at` on `ms365_backup_runs` + index `(status, last_progress_at)`.
+- **PHP:** `backupProgress()` sets `last_progress_at` only on strict items/bytes increases; honors `no_progress` (skip lease renew + field bump). `Ms365BatchRunRepository` reaps via `requeueBackupRuns` (not `onFail`); `isWorkerAlive` / wedge / upload / silence use `last_progress_at`. `WorkerClaimService` requeues stalled-but-leased zombies and per-run orphans when node load > 0.
+- **Worker:** `ProgressUpdate.NoProgress`; `progress_stall_seconds` (default 600); `graph.throttle_stall_ceiling_seconds` (default 1800) cancels perpetual-429 no-forward-progress graph_sync.
+- **Verify:** Apply phase18 migration; run PHP + Go tests; deploy worker 0.3.7; confirm stale whale shards requeue with phase/percent/delta_states preserved.
+
+### 2026-06-22 — Manual worker fleet scaling (PHP/UI 1.34.0)
+
+- **Goal:** Admin-driven scale up onto a chosen Proxmox node, scale down by stopping (not destroying) containers, disable cron autoscale by default, force new clones to latest release before claiming jobs.
+- **Schema:** `upgrade_phase17_fleet_scaling.sql` — `proxmox_node` column; `stopped` status enum value.
+- **Settings:** `ms365_worker_fleet_autoscale_enabled` (off), `ms365_worker_fleet_auto_baseline_update` (on), `proxmox_cluster_nodes`, `proxmox_template_vmid_map`.
+- **Backend:** `ProxmoxProvisioner::scaleUp/stopWorker/startWorker/clusterNodes`; cross-node clone via `target` + per-node template map; `WorkerNodeRepository::stop/start/setProxmoxNode`; baseline update in `DeployService`; claim gate in `WorkerClaimService`.
+- **Admin UI:** Nodes tab — Scale fleet panel, Stop/Start, PVE node column; API ops `fleet_proxmox_nodes`, `fleet_scale_up`, `fleet_node_stop`, `fleet_node_start`.
+- **Verify:** Run module upgrade for phase17 migration; scale up 1 worker from UI; confirm `registering` + `proxmox_node`; stop/start cycle; stale clone gets no claim until updated; cron does not auto-clone/destroy with autoscale off.
+
+### 2026-06-22 — Initial inventory collection fix (new backup job wizard)
+
+- **Problem:** New MS365 backup wizard for backup user `06FEZ233X9ZS6VDN65YSVTZMSM` (internal id 20) stuck on "Discovering users and mailboxes…" with `refresh_in_progress: false` and empty counts. Existing-job inventory refresh on other users appeared fine.
+- **Root cause:** `InventoryBackgroundRefresh::spawnWorker()` used `PHP_BINARY`, which under Apache PHP-FPM resolves to `php-fpm8.2` — the FPM binary prints help and exits without running the CLI script. `/tmp/ms365_inventory_refresh.log` was full of FPM help text; debug log showed `spawnWorker` success but no `ms365_customer_inventory_refresh.php:entry` for user 20. Progress API defaulted to misleading `phase: users` when `progress.json` was missing.
+- **Fix:**
+  - `WorkerSpawner::resolvePhpBinary()` skips FPM binaries; prefers `/usr/bin/php8.2`.
+  - `InventoryBackgroundRefresh` uses shared resolver, `exec()` guard, per-user log path (`ms365_inventory_refresh_{client}_{backupUser}.log`), and bootstraps S3 bucket **before** writing `progress.json`.
+  - `CustomerInventoryService::discoveryProgressForBackupUser()` returns `phase: idle` when no progress file; stale non-running phases (>10 min) flip to error.
+  - Wizard `waitForInventoryRefreshComplete()` fails fast after 15s if worker never leaves `idle`.
+- **Verify:** `php8.2 bin/ms365_customer_inventory_refresh.php --client-id=2574 --backup-user-id=20` → `OK … resources=75` (~20s). FPM-skip test: `resolvePhpBinary()` returns `/usr/bin/php8.2` when `PHP_BINARY` is `php-fpm8.2`.
+- **Files:** `WorkerSpawner.php`, `InventoryBackgroundRefresh.php`, `CustomerInventoryService.php`, `ms365_job_wizard.js`
+- **Next:** Re-test wizard flow in browser for user 20; confirm web-spawned worker writes to per-user log (not FPM help).
+
+### 2026-06-22 — Graceful worker drain + rolling deploy (worker 0.3.6)
+
+- **Problem:** Admin **Drain** only cordoned new claims; in-flight backups kept `current_load` flat so rolling deploys stalled on busy nodes. Workers waited passively for runs to finish instead of handing them off.
+- **PHP:** `releaseClaim()` accepts `reason=drain` — infrastructure hand-off (attempt rollback, progress preserved). Heartbeat returns `data.drain` when node status is `draining` or deploy offer includes `drain`. `DeployService` no longer skips busy nodes for rolling/force; offers `drain => true` and marks target `draining`. Rolling rollout allows the active `updating` node to proceed while load > 0; only one other node may start at a time.
+- **Go 0.3.6:** `UpdateOffer.Drain` + `HeartbeatResponse.Drain`; `Release(runID, reason)`; scheduler evicts via `repoPool.Drain` + `releaseAllActiveClaims("drain")` with best-effort progress checkpoint flush on standalone drain and deploy/config apply.
+- **Admin UI:** **Activate** button + `fleet_node_activate` API to uncordon operator-drained nodes.
+- **Deploy:** build and roll out worker **0.3.6** via fleet build runner; PHP/UI changes are live on next request.
+
+### 2026-06-22 — DB stall with 2 active jobs: progress flood + claim/release spin (worker 0.3.5)
+
+- **Symptom:** With only ~2 MS365 batches active, WHMCS pages crawled, admin button clicks lagged, server CPU ~30%. `SHOW PROCESSLIST` showed a convoy of `UPDATE ms365_backup_runs … phase='upload'` each stuck 1–3s in `updating` / `waiting for handler commit`.
+- **Evidence:** Apache access log: **434,800** `ms365_worker_progress.php` POSTs vs **4** completes (~108k posts/run), **~4.8 POSTs/sec** with 2 jobs; **27,171 claims vs 23,372 releases** (86% of claims released, reason `release` = 74,435). Reconcile/claim queries themselves were all fast (<2ms) — the load was write/commit volume. MySQL durability: `innodb_flush_log_at_trx_commit=1` + `sync_binlog=1` (two fsyncs/commit) with low `innodb_io_capacity=200` → every commit is an fsync, so the high commit rate forms an fsync convoy that stalls all other clients (WHMCS).
+- **Root cause #1 — progress flood:** Kopia's `ProgressCounter` calls `notify()` on every `HashedBytes`/`UploadedBytes` chunk; the upload/graph-sync callbacks posted to `ms365_worker_progress.php` **unthrottled**, and each POST fanned out to ~3 committed transactions (run update + lease renew + tenant budget + parent live-snapshot).
+- **Root cause #2 — claim/release spin:** `Scheduler.poll()` loops while `availableSlots()>0` (slot **count**), but `canAdmit()` rejects on **resource budget** (RAM/disk/CPU). With free slots but full budget, the worker claimed the head-of-queue job, `canAdmit`-rejected, released, and `continue`d — re-claiming the same row in a tight loop (each cycle = several committed writes). Same 7 runs were claimed ~480×/hr each.
+- **Fixes:**
+  - **Worker (Go 0.3.5):** `newThrottledProgressSender()` coalesces high-frequency progress callbacks to ≥`progress_min_interval_seconds` (default 5s) per run; applied to graph-sync `OnProgress` and the kopia upload counter callback. First event passes through; the periodic `StartProgressHeartbeat` still renews leases. Poll loop now (a) breaks if it can't admit even a light job (no budget), and (b) breaks instead of `continue` on admit/tryStart reject, bounding claim/release to ≤1 cycle per poll tick.
+  - **PHP:** `WorkerLeaseService::renewForRun()` now writes only when the lease is >60s old (conditional 0-row UPDATE = no redo/binlog), so frequent progress posts no longer each commit a lease write; the 30s node heartbeat still renews all running leases.
+  - **Retention:** new `Fleet\RetentionService::prune()` (wired into `ms365_worker_fleet.php` cron) batch-deletes `ms365_run_worker_assignments` (released >7d), terminal `ms365_job_queue` rows (finished >7d), and `ms365_worker_log_lines` (>30d) — these tables were unbounded (assignments had grown to 76k, queue held 6,139 terminal rows).
+- **Recommended (server, not auto-applied):** set `innodb_flush_log_at_trx_commit=2` and raise `innodb_io_capacity` (e.g. 2000 on SSD) in `my.cnf` to cut fsync pressure — a server-global durability trade-off (≤1s of commits lost only on OS crash), so left for operator approval.
+- **Deploy:** rebuild + roll out worker 0.3.5 via the fleet build runner / self-update; PHP changes are live on next request; retention runs on the next fleet cron tick.
+
+### 2026-06-22 — Worker fleet telemetry + config push (PHP/UI)
+
+- **Workstream 2 (PHP/UI):** `upgrade_phase16_worker_telemetry.sql` adds latest CPU/RAM/disk columns on `ms365_worker_nodes` plus `ms365_worker_telemetry` history; `WorkerNodeRepository::recordTelemetry()` + `pruneTelemetryHistory()`; heartbeat persists `telemetry` object; fleet cron prunes history >48h; `FleetSummaryService` fleet aggregates; `fleet_node_telemetry` API op; Nodes tab + dashboard show per-node and fleet-wide telemetry.
+- **Workstream 3 (PHP/UI):** `upgrade_phase16_worker_config.sql` adds versioned `ms365_worker_config` table + node `config_version`/`target_config_version`/`config_status` columns; `WorkerConfigService` validates YAML (rejects non-empty `worker.token` / `api.base_url`, strips per-node identity keys); admin ops `fleet_config_get`/`save`/`rollout`/`status`; `ms365_worker_config.php` token+nonce config download; heartbeat emits `config` instruction and reconciles applied version; Fleet Settings tab is a YAML editor with validate/save + node-targeted rollout (all/idle/canary).
+- **Module 1.33.0** — bump triggers phase16 migrations on upgrade.
+- **Pending (Go worker):** telemetry sampling in heartbeat payload; config apply + `RestartSelf` on worker side (separate workstream).
+
+### 2026-06-21 — Parent-row live-snapshot lock convoy (high mysqld CPU during batches)
+
+- **Symptom:** During an active MS365 batch, WHMCS mysqld CPU was pinned and admin navigation crawled. Live `SHOW PROCESSLIST` showed **39 of 52 active queries** were concurrent `UPDATE s3_cloudbackup_runs …` writing the **same aggregate values to the same parent run row**, all stuck in `updating` / `waiting for handler commit`.
+- **Root cause:** `Ms365RestoreWorkerHooks::backupProgress()` called `Ms365BatchRunRepository::updateLiveSnapshot($batchRunId)` on **every worker heartbeat**. Each call scans all children (`getChildrenForBatch`), recomputes aggregates, runs ~6 `information_schema` probes (`hasColumn`), and UPDATEs the single shared parent row. With N child workloads heartbeating at once this is O(N) work ×N concurrent, all serialized on one row lock → a lock convoy that saturates mysqld. The control plane (progress/logs/heartbeats/claims for the whole fleet) lives in the WHMCS DB, so "workers do the work" still drives heavy WHMCS DB load.
+- **Fix (PHP 1.31.0):**
+  - `Ms365BatchRunRepository::updateLiveSnapshot()` now throttles via `claimLiveSnapshotWindow()`: a lock-free point read on the parent `updated_at` skips heartbeats inside a 3s window, then an atomic conditional UPDATE lets exactly one heartbeat per window persist the snapshot (the rest match 0 rows and return). The live UI recomputes its own aggregate per poll, so the persisted snapshot being ≤3s stale is invisible to users. No schema change (reuses `updated_at`; `hasColumn` result cached per request).
+  - `Ms365BatchLiveService::aggregateEvents()` no longer calls `getBatchChildren()` twice per 2s events poll.
+- **Verified live:** parent-update convoy dropped **39 → 0** across repeated processlist samples immediately after the change; remaining activity is legitimate per-child heartbeat writes (distinct rows, no contention).
+- **Secondary finding — `tblerrorlog` `Array to string conversion` spam (in progress):**
+  - **Done:** `TRUNCATE TABLE tblerrorlog` (was ~3.05M rows; the dominant message was `Array to string conversion` at `vendor/illuminate/support/helpers.php:171` = Laravel `data_get()` reached with an array key segment).
+  - **Investigation:** No app-level `data_get(` calls exist anywhere in `accounts/` (excluding vendor) — so it is triggered by a Laravel Collection/Eloquent internal invoked with an array key. Reproduced/ruled out every MS365 hot path via probes (live UI poll `aggregateProgress`/`aggregateEvents`, `getRun`, `updateLiveSnapshot` body, worker `backupProgress` incl. `checkpoint_delta_states`, log ingestion) — **all clean**. The warning was not recurring after truncate (the batch had wound down), so it could not be caught live.
+  - **Capture armed:** Added sentinel-gated, chained error handler `accounts/includes/hooks/zzz_ms365_dataget_capture.php`. Active only while `accounts/.dataget_capture_on` exists; writes de-duplicated backtraces (with request URI) to `accounts/.dataget_capture.log`, capped at 3 MB; for this specific warning it returns handled so it is NOT re-logged to `tblerrorlog` (also stops re-bloat). Sentinel is currently **armed** — the next real backup run / page activity will record the exact caller. Then: read the log, fix the source, delete the hook + sentinel.
+  - Also consider caching `hasColumn`/`hasTable` probes used per heartbeat (minor, now largely mitigated by the snapshot throttle).
+
+### 2026-06-21 — Fail-report retry classifier fed sanitized text (requeue storm on permanent errors)
+
+- **Root cause:** The worker `reportFail` path (`ms365_worker_fail.php` → `Ms365RestoreWorkerHooks::backupFail`, and `WorkerClaimService::failClaimedRun`) ran the raw worker error through `Ms365CustomerError::message()` **before** passing it to `JobQueueRepository::markFailed()`. For any error >180 chars or containing internal markers, that returns the generic *"Something went wrong. Please try again or contact support."* — which matches none of `isNonRetryableError()`'s technical patterns (`graph 401`, `unauthorized`, `mailboxnotenabledforrestapi`, …). So **every permanent failure was treated as retryable and requeued to `max_attempts`** instead of failing fast. The 2026-06-20 mailbox-404 fix only appeared to work because that error is short (~157 chars) and passes the `looksInternal` filter, so it survived sanitization; the unit test also fed `isNonRetryableError()` raw strings, masking the integration gap. This is the source of the `fail_requeue` ×N loop seen in run `abef5a51`.
+- **Fix (PHP 1.30.0):** Classify retryability on the **raw** worker error while keeping the **sanitized** message for customers:
+  - `backupFail` / `failClaimedRun` now call `markFailed($runId, $message)` (raw) and still store `$customerMessage` in `ms365_backup_runs.error_message` (the only customer-facing field; the queue table is internal/ops, verified not surfaced by `ms365_runs_list`/`ms365_worker_log`).
+  - `markFailed()` documented as requiring the raw error; stored queue message truncated to 500 chars.
+  - `failSupersededRun` now `markTerminalFailed` (a newer run already succeeded — never retry).
+  - `Ms365BatchRetryService::isEligibleForRetry` classifies on the raw queue `error_message` (falls back to the run message) so batch auto-retry doesn't re-run permanent failures.
+- **Tests:** `ms365_non_retryable_error_test.php` (raw tasks 401 = terminal; asserts the sanitized form is the generic message and is NOT classifiable — guards the regression); `ms365_batch_retry_test.php` (sanitized run message + raw queue 401 = ineligible; + retryable queue error = eligible). All pass.
+- **Relationship to worker 0.3.1:** The worker fix makes the *no-mailbox tasks* case a graceful skip, so it never reaches this path. This PHP fix is the broader correctness fix for **all** permanent failures (403, invalid_grant, expired token, gzip/JSON parse, etc.) that previously churned through retries.
+- **Verify:** `php …/tests/ms365_non_retryable_error_test.php` and `…/ms365_batch_retry_test.php`; on a real permanent failure, queue `status=failed` (reason `fail`) on the **first** attempt — no `fail_requeue` loop — while the customer UI still shows the friendly message.
+
+### 2026-06-21 — Tasks (To Do) 401 UnknownError graceful skip (no-mailbox users)
+
+- **Root cause:** Extends the 2026-06-20 `MailboxNotEnabledForRESTAPI` work. For no-mailbox/unlicensed users, mail and contacts return `404 MailboxNotEnabledForRESTAPI` (skipped gracefully), but the To Do endpoint `/users/{id}/todo/lists` returns `401 Unauthorized` with an empty-message `UnknownError` body instead. `graph.IsMailboxNotEnabled()` only matched the 404 form, so `SyncTasks` hard-failed → `WorkloadRunner.Run` returned `tasks: graph 401 Unauthorized` → run failed and requeued until max attempts. Observed in run `abef5a51-f02b-497d-b4d9-0feea0e04464`: every resource skipped mail+contacts, then died on tasks within ~21s, completely failing the batch.
+- **Go worker 0.3.1:** New `graph.IsMailboxUnavailable(err)` recognizes both the 404 form and the To Do/Outlook `401 + "code":"unknownerror"` form; explicitly excludes `graph 401 after token refresh` (real bad token) and other 401 error codes (e.g. missing scope) to avoid masking genuine auth failures. `WorkloadRunner.skipIfMailboxNotEnabled()` now uses it, so tasks/calendar/mail/contacts all skip gracefully and the run completes `no_changes`.
+- **Tests:** `client_test.go` (`TestIsMailboxUnavailable`), `workloads_test.go` (`TestWorkloadRunnerSkipsTasksWhenMailboxNotEnabled` — reproduces the failing run via a 401 UnknownError on `/todo/lists`).
+- **Verify:** `go test ./...` (all pass); build/publish worker **0.3.1** and roll out; re-run a no-mailbox tenant batch — tasks logs `tasks skipped: mailbox not enabled for REST API` (warning) and the run completes instead of requeuing. (Note: the server `isNonRetryableError()` safety net did **not** actually catch this in production — the fail-report path fed it the sanitized customer message; see the 1.30.0 entry. The worker fix removes the failure entirely; the 1.30.0 fix repairs the classifier for all other permanent errors.)
+
+### 2026-06-21 — Whale-scale reliability (Graph AIMD, liveness reaps, tenant budget, checkpoints)
+
+- **Root cause:** Graph 429 throttling ratcheted adaptive concurrency to 1 (`growAdaptiveLimit` never called); no `graph_sync` stall watchdog; false reaps on slow-but-heartbeating whales; delta tokens only on success; 429s invisible in live UI; fleet hammered single tenant without per-tenant Graph cap.
+- **Go worker 0.3.0:** AIMD recovery in `graph/client.go` (success streak grows limit after 429 shrink); `graph_stall_watch.go` cancels wedged enumeration (429 backoff counts as activity); default `kopia.stall_seconds=2700` in `applyDefaults()`; progress heartbeats include `graph_429_hits` + `graph_adaptive_limit`; mid-run `checkpoint_delta_states` via `graphsync.OnCheckpoint`; per-tenant semaphore in `graph/limiter.go` sized from claim/progress `graph_tenant_budget`; `effectiveGraphParallel()` clamps workload parallelism.
+- **PHP 1.29.0:** Liveness-based reaps (`isWorkerAlive`, heartbeat gap 180s) — wedge/upload stall only when worker dead; `WorkerClaimService::isActivelyRunningClaim()` treats fresh lease as alive; `GraphTenantBudgetService` + `ms365_graph_tenant_budget` table (`upgrade_phase14_graph_budget.sql`); claim/progress return `graph_tenant_budget` share; throttle aggregation (`graph_throttled`, `graph_429_hits_total`) in live snapshot; UI badge in `e3backup_live.tpl`; finer whale sharding defaults (`shard_item_threshold` 10k, `shard_target_items` 8k, `shard_max_count` 48).
+- **Tests:** `client_test.go` (AIMD), `graph_stall_watch_test.go`, `limiter_test.go`, `ms365_batch_aggregate_test.php` (liveness + throttle).
+- **Verify:** `go test ./...`; redeploy worker **0.3.0** + module upgrade for phase14 SQL; whale batch — adaptive limit recovers after 429 burst, no false "Stale workload reconciled", throttle badge when throttled, killed worker resumes enumeration from checkpointed deltas.
+
+### 2026-06-20 — Cooperative worker cancel on backup cancellation
+
+- **Root cause:** Cancelling a batch only updated DB status (`bulkCancelBatchChildren`); Go kopia workers were explicitly skipped by `WorkerProcess::terminate` and never polled cancellation. Workers kept cancelled runs in `s.running` for hours → `current_load` stayed high → nodes blocked new claims and fleet rollouts (`draining=true` while waiting for idle). `releaseOrphanedClaimsForNode` only runs when load=0.
+- **PHP 1.28.0:** `ms365_worker_progress.php` returns `data.cancel_requested` when run is cancelled; skips `onProgress` (no lease renewal) via `Ms365RestoreWorkerHooks::isRunCancelled()`.
+- **Go worker 0.2.9:** `Progress()` parses `cancel_requested`; `StartProgressHeartbeat` invokes `onAbort` once; scheduler passes run `cancel()` to runner; cooperative `context.Canceled` exits without Fail/Complete. Scheduler resets `draining=false` when heartbeat no longer offers an update (fixes stuck poll after withdrawn rollout).
+- **Verify:** Build/publish worker **0.2.9** and roll out; cancel active whale batch — workers should drop load within ~45s (`progress_heartbeat_seconds`), accept new jobs, and resume rollouts.
+
+### 2026-06-20 — MailboxNotEnabledForRESTAPI graceful skip (no-mailbox users)
+
+- **Root cause:** Users without Exchange Online mailboxes (e.g. `aidan`, `ali`) return Graph `404 MailboxNotEnabledForRESTAPI` on `/mailFolders`. Worker failed the whole run; server `isNonRetryableError()` did not classify the 404 as permanent, so each resource retried 5× then `Run exceeded max attempts`. Amplified by whale perf work (higher concurrency surfaces all no-mailbox users at once).
+- **Go worker 0.2.8:** `graph.IsMailboxNotEnabled(err)`; `WorkloadRunner` skips mail/contacts/tasks/calendar with warning + `stats[workload].skipped=mailbox_not_enabled`; mail-only jobs complete as `no_changes`.
+- **PHP 1.27.0:** `JobQueueRepository::isNonRetryableError()` includes `mailboxnotenabledforrestapi` patterns (defense-in-depth: terminal fail on first attempt if error still surfaces).
+- **Tests:** `workloads_test.go`, `client_test.go` (`TestIsMailboxNotEnabled`), `tests/ms365_non_retryable_error_test.php`.
+- **Deferred:** Plan-time inventory filter to exclude non-mailbox users from mail jobs.
+- **Verify:** Build/publish worker **0.2.8** and roll out; new batch — no-mailbox users complete with warning, no 404 ERROR spam or max-attempts churn.
+
+### 2026-06-20 — Whale-tenant backup performance (fleet unlock + sharding + claim fairness)
+
+- **Root cause:** Worker admission budgets (`heavy_job_cpu_cores=2`, `max_cpu_cores=3`) capped fleet at ~10 concurrent jobs despite 96 capacity; claim head-of-line blocked light `user:` jobs behind heavy `site:` jobs; SharePoint sharding never fired because inventory lacked `meta.drives[]`/`lists[]` on plan.
+- **Go worker 0.2.7:** Configurable `heavy_job_cpu_cores` (default 1); claim hints (`accept_heavy`) on claim API; admit-reject counter on heartbeat; template budgets right-sized for 20G/4-core CTs (`max_cpu_cores: 16`, `ram_budget_mib: 18432`); `kopia.parallel_uploads: 16`, `graph.global_max_concurrency: 48`.
+- **PHP 1.26.0:** `WorkerClaimService::claimNext($nodeId, $claimHint)` skips heavy jobs when node cannot admit; `InventoryService::enrichResourcesForPlanning()` before backup plan; `BackupPlanner::absorbOneDriveJobsForUser()` carries size/item hints; `ProgressLogger::warning()` alias; fleet dashboard shows utilization, queued-by-type, claim admit rejects; `reconcileQueuedErroredRuns()` on fleet cron; shard defaults tuned (max 32, item threshold 25k).
+- **Settings:** `ms365_per_tenant_max_concurrent` → 96 on dev server.
+- **Verify:** Build/publish worker **0.2.7** and roll out; redeploy worker `config.yaml` on fleet CTs; start new whale batch — expect many `drive:`/`list:`/`#shard:` child runs and fleet load approaching capacity.
+
+### 2026-06-19 — Progress observability + Kopia stall watchdog (worker 0.2.6)
+
+- **Live UI:** `updateLiveSnapshot()` computes parent `speed_bytes_per_sec` / `eta_seconds` from `bytes_processed` (`bytes_hashed` sum), not upload bytes. `e3backup_live.tpl` shows "Processing speed (hashed)" during dedup-heavy phases with client-side fallback.
+- **Child stats:** `ms365_backup_runs.stats_json` column (`upgrade_phase13_child_stats_json.sql`); `backupComplete` / `backupProgress` persist `graph_sync_ms` / `kopia_snapshot_ms`. Admin Jobs detail modal shows Phase / Graph / Kopia columns.
+- **Go 0.2.6:** `kopia.stall_seconds` (default 2700, 0=off) cancels wedged snapshots and `reportFail` with retryable `kopia upload stalled: no hashing progress for Ns`. `ProgressCounter` tracks last hash/upload timestamps.
+- **Verify:** `go test ./internal/kopia/...`; whale batch live page shows processing speed; admin batch detail shows timings; lower `stall_seconds` in dev to confirm retry.
+
+### 2026-06-19 — Active batch child reconcile on fleet cron
+
+- **Root cause (stuck children):** `reconcileBatchChildren()` only ran on worker complete/fail hooks, cancel, and admin job list — not on a timer. Stale running children blocked tenant concurrency slots (`ms365_per_tenant_max_concurrent`) while the parent batch stayed `running`. Fresh queue leases (heartbeat renewals) shielded wedged graph_sync workloads (0 items/bytes for hours). `reconcileZombieRuns()` also skipped stale rows when the worker node's `current_load > 0` (other jobs on same node).
+- **PHP:** `Ms365BatchRunRepository::reconcileActiveBatches()` — fleet cron calls `syncFromChildren()` for every running MS365 backup parent. Improved `shouldReapRunningChild()`: wedge detector (0 items/bytes after 30m), upload stall (45m silence in kopia/upload phase), silence override (reap after 30m even if lease fresh). Removed worker `current_load > 0` skip from zombie reconcile.
+- **Cron:** `ms365_worker_fleet.php` now emits `active_batches_reconciled` in JSON output (schedule every 2–5m).
+- **Verify:** Run fleet cron during an active whale batch; confirm wedged mailboxes fail with "Stale workload reconciled during batch sync" and queued children resume claiming.
 
 ### 2026-06-19 — Fix worker self-cancellation on long runs (context deadline exceeded)
 
@@ -201,14 +388,15 @@
 
 ## Known gaps / next work (prioritized)
 
-1. **File backup staging E2E** — Execute `Docs/KOPIA_FILE_BACKUP_E2E.md` on dev tenant (OneDrive + SP files/lists + mail attachments); confirm browse shows `content/` bytes.
-2. **Publish worker release** — Build/publish Go worker with `sharepoint_lists` + shard filtering; roll fleet to new artifact.
-3. **Tenant Seeder E2E** — Register seeder Entra app; run Light profile; verify backup picks up seeded files.
-4. ~~**Metering / billing**~~ — MS365 billing per `MS365_BILLING_AND_STORAGE_DESIGN.md` (meter/rate cron, trial, invoice hook, Usage & Billing drawer).
-5. **Admin support view** — Impersonate client tenant, re-run inventory from admin addon.
-6. **Remove Comet LXD path** — `Provisioner::provisionMs365` still provisions legacy order/LXD.
-7. **Async inventory refresh** — Large tenants may need background job instead of synchronous POST.
-8. **Calendar verify on Kopia** — `CalendarVerifier` still reads legacy PHP layout paths; port to snapshot browse or drop.
+1. **Manual fleet scaling E2E** — After 1.34.0 deploy: scale up on each Proxmox node; verify cross-node clone with `proxmox_template_vmid_map` or shared storage; confirm baseline auto-update + claim gate on fresh clones.
+2. **File backup staging E2E** — Execute `Docs/KOPIA_FILE_BACKUP_E2E.md` on dev tenant (OneDrive + SP files/lists + mail attachments); confirm browse shows `content/` bytes.
+3. **Publish worker release** — Build/publish Go worker with `sharepoint_lists` + shard filtering; roll fleet to new artifact.
+4. **Tenant Seeder E2E** — Register seeder Entra app; run Light profile; verify backup picks up seeded files.
+5. ~~**Metering / billing**~~ — MS365 billing per `MS365_BILLING_AND_STORAGE_DESIGN.md` (meter/rate cron, trial, invoice hook, Usage & Billing drawer).
+6. **Admin support view** — Impersonate client tenant, re-run inventory from admin addon.
+7. **Remove Comet LXD path** — `Provisioner::provisionMs365` still provisions legacy order/LXD.
+8. **Async inventory refresh** — Large tenants may need background job instead of synchronous POST.
+9. **Calendar verify on Kopia** — `CalendarVerifier` still reads legacy PHP layout paths; port to snapshot browse or drop.
 
 ---
 

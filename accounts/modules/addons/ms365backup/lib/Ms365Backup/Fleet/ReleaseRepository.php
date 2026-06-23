@@ -69,6 +69,22 @@ final class ReleaseRepository
         }
     }
 
+    public static function assertVersionAvailable(string $version): void
+    {
+        self::validateVersionLabel($version);
+        $existing = self::getByVersion($version);
+        if ($existing === null) {
+            return;
+        }
+        $next = self::suggestNextVersion();
+        throw new \RuntimeException(sprintf(
+            'Version %s is already published (release #%d). Use the next version (e.g. %s) or delete the existing release first.',
+            $version,
+            (int) $existing['id'],
+            $next
+        ));
+    }
+
     /** Suggest next patch from latest release (0.1.17 -> 0.1.18). */
     public static function suggestNextVersion(): string
     {

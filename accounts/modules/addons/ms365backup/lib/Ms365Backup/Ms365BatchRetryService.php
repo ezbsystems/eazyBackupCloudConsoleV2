@@ -106,7 +106,15 @@ final class Ms365BatchRetryService
             return true;
         }
 
-        return !JobQueueRepository::isNonRetryableError($errorMsg);
+        // The child run's error_message is customer-sanitized and will not match
+        // the technical signatures in isNonRetryableError(). Prefer the queue's
+        // raw error (internal/ops only) so permanent failures aren't re-run.
+        $technicalMsg = is_array($queue) ? trim((string) ($queue['error_message'] ?? '')) : '';
+        if ($technicalMsg === '') {
+            $technicalMsg = $errorMsg;
+        }
+
+        return !JobQueueRepository::isNonRetryableError($technicalMsg);
     }
 
     private static function requeueChildForBatchRetry(string $runId, string $message): void
@@ -131,16 +139,7 @@ final class Ms365BatchRetryService
         }
         Capsule::table('ms365_job_queue')->where('run_id', $runId)->update($queueUpdate);
 
-        BackupRunRepository::update($runId, [
-            'status' => 'queued',
-            'phase' => '',
-            'percent' => 0,
-            'items_done' => 0,
-            'items_total' => 0,
-            'error_message' => null,
-            'finished_at' => null,
-            'updated_at' => $now,
-        ]);
+        BackupRunRepository::resetForQueueRequeue($runId, $now);
     }
 
     /**

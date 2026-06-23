@@ -8,24 +8,36 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/eazybackup/ms365-backup-worker/internal/api"
 	"github.com/eazybackup/ms365-backup-worker/internal/config"
 	"github.com/eazybackup/ms365-backup-worker/internal/graph"
-	"github.com/eazybackup/ms365-backup-worker/internal/graphsync"
 	"github.com/eazybackup/ms365-backup-worker/internal/graphfs"
+	"github.com/eazybackup/ms365-backup-worker/internal/graphsync"
 	"github.com/eazybackup/ms365-backup-worker/internal/kopia"
 )
 
 type Runner struct {
-	cfg      *config.Config
-	client   *api.Client
-	repoPool *kopia.Pool
+	cfg           *config.Config
+	client        *api.Client
+	repoPool      *kopia.Pool
+	progressHook  func(string, api.ProgressUpdate)
 }
 
 func NewRunner(cfg *config.Config, client *api.Client, repoPool *kopia.Pool) *Runner {
 	return &Runner{cfg: cfg, client: client, repoPool: repoPool}
+}
+
+func (r *Runner) SetProgressHook(fn func(string, api.ProgressUpdate)) {
+	r.progressHook = fn
+}
+
+func (r *Runner) noteProgress(upd api.ProgressUpdate) {
+	if r.progressHook != nil && upd.RunID != "" {
+		r.progressHook(upd.RunID, upd)
+	}
 }
 
 // terminalContext returns a short-lived context detached from the run context so that
@@ -52,13 +64,14 @@ func (r *Runner) reportComplete(ctx context.Context, upd api.CompleteUpdate) err
 	return r.client.Complete(tctx, upd)
 }
 
-func (r *Runner) Run(ctx context.Context, job *api.RunJob) error {
+func (r *Runner) Run(ctx context.Context, job *api.RunJob, onAbort context.CancelFunc) error {
 	if job == nil {
 		return nil
 	}
 	if job.JobType == "restore" {
 		restoreRunner := NewRestoreRunner(r.cfg, r.client, r.repoPool)
-		return restoreRunner.Run(ctx, job)
+		restoreRunner.SetProgressHook(r.progressHook)
+		return restoreRunner.Run(ctx, job, onAbort)
 	}
 	runStart := time.Now()
 	defer func() {
@@ -77,26 +90,19 @@ func (r *Runner) Run(ctx context.Context, job *api.RunJob) error {
 	var graphItemsDone, graphItemsTotal int
 	var graphBytesTotal int64
 	var graphLastPercent float64 = 1
+	var gc *graph.Client
 
-	progressStop := r.client.StartProgressHeartbeat(ctx, job.RunID, r.cfg.ProgressHeartbeat(), func() api.ProgressUpdate {
-		return api.ProgressUpdate{
-			RunID:       job.RunID,
-			Phase:       "graph_sync",
-			Percent:     graphLastPercent,
-			ItemsDone:   graphItemsDone,
-			ItemsTotal:  graphItemsTotal,
-			BytesHashed: graphBytesTotal,
-			Message:     "heartbeat",
-		}
-	})
+	progressStop := r.client.StartProgressHeartbeat(ctx, job.RunID, r.cfg.ProgressHeartbeat(), stallAwareProgressFn(r.cfg.Worker.ProgressStallSeconds, func() api.ProgressUpdate {
+		return r.graphProgressUpdate(job.RunID, graphLastPercent, graphItemsDone, graphItemsTotal, graphBytesTotal, gc)
+	}), onAbort)
 	defer progressStop()
 
-	_ = r.client.Progress(ctx, api.ProgressUpdate{
+	sendProgressForTenant(ctx, r.client, onAbort, api.ProgressUpdate{
 		RunID:   job.RunID,
 		Phase:   "graph_sync",
 		Percent: 1,
 		Message: "Syncing from Microsoft Graph",
-	})
+	}, job.AzureTenantID)
 
 	storage := kopia.StorageOptions{
 		Endpoint:     job.DestEndpoint,
@@ -111,12 +117,12 @@ func (r *Runner) Run(ctx context.Context, job *api.RunJob) error {
 	overlay := graphfs.NewOverlayBuilder()
 	if job.IncrementalEnabled && job.PreviousManifest != "" {
 		priorStart := time.Now()
-		_ = r.client.Progress(ctx, api.ProgressUpdate{
+		sendProgressForTenant(ctx, r.client, onAbort, api.ProgressUpdate{
 			RunID:   job.RunID,
 			Phase:   "prior_snapshot",
 			Percent: 5,
 			Message: "Loading prior snapshot metadata",
-		})
+		}, job.AzureTenantID)
 		graphLastPercent = 5
 		priorRoot, err := kopia.PriorSnapshotRoot(ctx, r.repoPool, storage, job.PreviousManifest)
 		if err != nil {
@@ -128,20 +134,53 @@ func (r *Runner) Run(ctx context.Context, job *api.RunJob) error {
 		}
 	}
 
-	gc := graph.NewClient(job.GraphToken, job.GraphRegion, graph.ClientOptions{
+	gc = graph.NewClient(job.GraphToken, job.GraphRegion, graph.ClientOptions{
 		MaxRetries:       r.cfg.Graph.MaxRetries,
 		RetryBaseDelayMs: r.cfg.Graph.RetryBaseDelayMs,
-		MaxConcurrency:   r.cfg.Worker.GraphParallelRequests,
+		MaxConcurrency:   effectiveGraphParallel(r.cfg, job),
 		AdaptiveLimit:    r.cfg.Graph.AdaptiveEnabled(),
 	})
 	stopTokenRefresh := bindGraphTokenRefresh(ctx, r.cfg, r.client, gc, job.RunID)
 	defer stopTokenRefresh()
+	if job.AzureTenantID != "" {
+		gc.SetAzureTenantID(job.AzureTenantID)
+		if job.GraphTenantBudget > 0 {
+			graph.SetTenantBudget(job.AzureTenantID, job.GraphTenantBudget)
+		}
+	}
+
+	graphCtx, graphCancel := context.WithCancel(ctx)
+	defer graphCancel()
+	var graphStalled atomic.Bool
+	if r.cfg.Kopia.StallSeconds > 0 {
+		stopGraphWatch := StartGraphStallWatch(graphCtx, graphCancel, GraphProgressSnapshot{
+			ItemsDone:    func() int { return graphItemsDone },
+			BytesTotal:   func() int64 { return graphBytesTotal },
+			ThrottleHits: gc.ThrottleHits,
+		}, GraphStallWatchConfig{
+			StallSeconds:                r.cfg.Kopia.StallSeconds,
+			ThrottleStallCeilingSeconds: r.cfg.Graph.ThrottleStallCeilingSeconds,
+			CheckIntervalSeconds:        r.cfg.Kopia.StallCheckIntervalSeconds,
+			GraceSeconds:                r.cfg.Kopia.StallGraceSeconds,
+			RunID:                       job.RunID,
+			OnStall: func(snapshot map[string]any) {
+				graphStalled.Store(true)
+				r.client.RunLogf(ctx, job.RunID, "error", "graph_sync stalled: %v", snapshot)
+			},
+		})
+		defer stopGraphWatch()
+	}
 
 	graphStart := time.Now()
+	emitGraphProgress := newThrottledProgressSender(ctx, r.client, onAbort, job.AzureTenantID, r.cfg.ProgressMinInterval())
+	emitAndRecordGraph := func(upd api.ProgressUpdate) {
+		r.noteProgress(upd)
+		emitGraphProgress(upd)
+	}
 	wl := &graphsync.WorkloadRunner{
 		Client:           gc,
 		Job:              job,
-		Parallel:         r.cfg.Worker.GraphParallelRequests,
+		Parallel:         effectiveGraphParallel(r.cfg, job),
 		FolderParallel:   r.cfg.Worker.GraphFolderParallel,
 		DriveParallel:    r.cfg.Worker.GraphSharePointDriveParallel,
 		Overlay:          overlay,
@@ -158,20 +197,31 @@ func (r *Runner) Run(ctx context.Context, job *api.RunJob) error {
 				pct = 10 + (float64(done)/float64(total))*25
 			}
 			graphLastPercent = pct
-			_ = r.client.Progress(ctx, api.ProgressUpdate{
-				RunID:         job.RunID,
-				Phase:         "graph_sync",
-				Percent:       pct,
-				ItemsDone:     done,
-				ItemsTotal:    total,
-				BytesHashed:   bytes,
-				Message:       fmt.Sprintf("Graph sync: %s", phase),
-			})
+			upd := r.graphProgressUpdate(job.RunID, pct, done, total, bytes, gc)
+			upd.Message = fmt.Sprintf("Graph sync: %s", phase)
+			emitAndRecordGraph(upd)
+		},
+		OnCheckpoint: func(states map[string]map[string]string, done int, bytes int64) {
+			upd := r.graphProgressUpdate(job.RunID, graphLastPercent, done, graphItemsTotal, bytes, gc)
+			upd.Message = "graph_sync checkpoint"
+			upd.CheckpointDeltaStates = states
+			r.noteProgress(upd)
+			sendProgressForTenant(ctx, r.client, onAbort, upd, job.AzureTenantID)
 		},
 	}
-	wlRes, err := wl.Run(ctx)
+	wlRes, err := wl.Run(graphCtx)
 	graphElapsed := time.Since(graphStart)
 	if err != nil {
+		if graphStalled.Load() {
+			msg := fmt.Sprintf("graph_sync stalled: no enumeration progress for %ds", r.cfg.Kopia.StallSeconds)
+			r.client.RunLogf(ctx, job.RunID, "error", "%s", msg)
+			r.reportFail(ctx, job.RunID, msg)
+			return err
+		}
+		if isCooperativeCancel(err, ctx) {
+			r.client.RunLogf(ctx, job.RunID, "info", "run cancelled during graph sync")
+			return err
+		}
 		r.client.RunLogf(ctx, job.RunID, "error", "graph_sync failed: %v", err)
 		r.reportFail(ctx, job.RunID, err.Error())
 		return err
@@ -182,6 +232,10 @@ func (r *Runner) Run(ctx context.Context, job *api.RunJob) error {
 		r.client.RunLogf(ctx, job.RunID, "info", "onedrive sync stats: %+v", odStats)
 	}
 	if err := r.ensureOneDriveRootFiles(ctx, gc, job, overlay); err != nil {
+		if isCooperativeCancel(err, ctx) {
+			r.client.RunLogf(ctx, job.RunID, "info", "run cancelled during onedrive root guard")
+			return err
+		}
 		r.client.RunLogf(ctx, job.RunID, "error", "onedrive root guard: %v", err)
 		r.reportFail(ctx, job.RunID, err.Error())
 		return err
@@ -189,16 +243,20 @@ func (r *Runner) Run(ctx context.Context, job *api.RunJob) error {
 
 	if wlRes.FileCount == 0 && job.PreviousManifest == "" {
 		log.Printf("run %s completed no_changes (empty first run) total=%dms", job.RunID, time.Since(runStart).Milliseconds())
+		done, total := completionItemCounts(0)
 		_ = r.reportComplete(ctx, api.CompleteUpdate{
 			RunID:      job.RunID,
 			ManifestID: "",
+			ItemsDone:  done,
+			ItemsTotal: total,
 			StatsJSON:  `{"status":"no_changes"}`,
 		})
 		return nil
 	}
 
 	if job.PreviousManifest != "" && !overlay.HasChanges() {
-		stats, _ := json.Marshal(map[string]any{
+		done, total := completionItemCounts(wlRes.FileCount)
+		stats, _ := json.Marshal(mergeCompletionStats(map[string]any{
 			"status":         "no_changes",
 			"manifest_id":    job.PreviousManifest,
 			"workloads":      wlRes.Stats,
@@ -206,16 +264,18 @@ func (r *Runner) Run(ctx context.Context, job *api.RunJob) error {
 			"graph_429_hits": wlRes.Stats["graph_429_hits"],
 			"physical_key":   job.PhysicalKey,
 			"graph_sync_ms":  graphElapsed.Milliseconds(),
-		})
+		}, wlRes.Stats))
 		log.Printf("run %s completed no_changes (incremental unchanged) total=%dms", job.RunID, time.Since(runStart).Milliseconds())
 		return r.reportComplete(ctx, api.CompleteUpdate{
 			RunID:      job.RunID,
 			ManifestID: job.PreviousManifest,
+			ItemsDone:  done,
+			ItemsTotal: total,
 			StatsJSON:  string(stats),
 		})
 	}
 
-	_ = r.client.Progress(ctx, api.ProgressUpdate{
+	sendProgressForTenant(ctx, r.client, onAbort, api.ProgressUpdate{
 		RunID:       job.RunID,
 		Phase:       "kopia_upload",
 		Percent:     40,
@@ -223,7 +283,7 @@ func (r *Runner) Run(ctx context.Context, job *api.RunJob) error {
 		ItemsDone:   int(wlRes.ItemsDone),
 		BytesHashed: wlRes.BytesTotal,
 		Message:     "Uploading snapshot to Kopia repository",
-	})
+	}, job.AzureTenantID)
 
 	if err := kopia.EnsureRunDir(r.cfg.Worker.RunDir); err != nil {
 		r.reportFail(ctx, job.RunID, err.Error())
@@ -243,7 +303,7 @@ func (r *Runner) Run(ctx context.Context, job *api.RunJob) error {
 		}
 	}
 
-	uploadStop := r.client.StartProgressHeartbeat(ctx, job.RunID, r.cfg.ProgressHeartbeat(), func() api.ProgressUpdate {
+	uploadStop := r.client.StartProgressHeartbeat(ctx, job.RunID, r.cfg.ProgressHeartbeat(), stallAwareProgressFn(r.cfg.Worker.ProgressStallSeconds, func() api.ProgressUpdate {
 		return api.ProgressUpdate{
 			RunID:       job.RunID,
 			Phase:       "kopia_upload",
@@ -252,11 +312,58 @@ func (r *Runner) Run(ctx context.Context, job *api.RunJob) error {
 			BytesHashed: graphBytesTotal,
 			Message:     "Upload in progress",
 		}
-	})
+	}), onAbort)
 	defer uploadStop()
 
 	snapshotStart := time.Now()
-	snapRes, err := r.repoPool.Snapshot(ctx, kopia.SnapshotRequest{
+	emitUploadProgress := newThrottledProgressSender(ctx, r.client, onAbort, job.AzureTenantID, r.cfg.ProgressMinInterval())
+	emitAndRecordUpload := func(upd api.ProgressUpdate) {
+		r.noteProgress(upd)
+		emitUploadProgress(upd)
+	}
+	progressCounter := kopia.NewProgressCounter(func(p kopia.ProgressCounter) {
+		done := int(p.FilesDone.Load())
+		total := wlRes.FileCount
+		if graphItemsTotal > total {
+			total = graphItemsTotal
+		}
+		pct := 40.0
+		if total > 0 {
+			pct = 40 + (float64(done)/float64(total))*55
+		}
+		emitAndRecordUpload(api.ProgressUpdate{
+			RunID:         job.RunID,
+			Phase:         "kopia_upload",
+			Percent:       pct,
+			BytesHashed:   p.BytesHashed.Load(),
+			BytesUploaded: p.BytesUploaded.Load(),
+			ItemsDone:     done,
+			ItemsTotal:    total,
+		})
+	})
+
+	snapCtx, cancelSnap := context.WithCancel(ctx)
+	defer cancelSnap()
+	var stalled atomic.Bool
+	if r.cfg.Kopia.StallSeconds > 0 {
+		stallSeconds := r.cfg.Kopia.StallSeconds
+		runDir := filepath.Join(r.cfg.Worker.RunDir, job.RunID)
+		_ = os.MkdirAll(runDir, 0o755)
+		stopWatch := kopia.StartStallWatch(snapCtx, cancelSnap, progressCounter, kopia.StallWatchConfig{
+			StallSeconds:         stallSeconds,
+			CheckIntervalSeconds: r.cfg.Kopia.StallCheckIntervalSeconds,
+			GraceSeconds:         r.cfg.Kopia.StallGraceSeconds,
+			RunID:                job.RunID,
+			RunDir:               runDir,
+			OnStall: func(snapshot map[string]any) {
+				stalled.Store(true)
+				r.client.RunLogf(ctx, job.RunID, "error", "kopia upload stalled: %v", snapshot)
+			},
+		})
+		defer stopWatch()
+	}
+
+	snapRes, err := r.repoPool.Snapshot(snapCtx, kopia.SnapshotRequest{
 		Storage:            storage,
 		SourcePath:         sourcePath,
 		Host:               r.cfg.Worker.Hostname,
@@ -266,29 +373,20 @@ func (r *Runner) Run(ctx context.Context, job *api.RunJob) error {
 		Compressor:         r.cfg.Kopia.Compressor,
 		MaxPackSizeMiB:     r.cfg.Kopia.MaxPackSizeMiB,
 		CheckpointInterval: r.cfg.Kopia.CheckpointInterval(),
-		OnProgress: func(p kopia.ProgressCounter) {
-			done := int(p.FilesDone.Load())
-			total := wlRes.FileCount
-			if graphItemsTotal > total {
-				total = graphItemsTotal
-			}
-			pct := 40.0
-			if total > 0 {
-				pct = 40 + (float64(done)/float64(total))*55
-			}
-			_ = r.client.Progress(ctx, api.ProgressUpdate{
-				RunID:         job.RunID,
-				Phase:         "kopia_upload",
-				Percent:       pct,
-				BytesHashed:   p.BytesHashed.Load(),
-				BytesUploaded: p.BytesUploaded.Load(),
-				ItemsDone:     done,
-				ItemsTotal:    total,
-			})
-		},
+		Counter:            progressCounter,
 	})
 	snapshotElapsed := time.Since(snapshotStart)
 	if err != nil {
+		if isCooperativeCancel(err, ctx) || isCooperativeCancel(snapCtx.Err(), ctx) {
+			r.client.RunLogf(ctx, job.RunID, "info", "run cancelled during kopia snapshot")
+			return err
+		}
+		if stalled.Load() {
+			msg := fmt.Sprintf("kopia upload stalled: no hashing progress for %ds", r.cfg.Kopia.StallSeconds)
+			r.client.RunLogf(ctx, job.RunID, "error", "%s", msg)
+			r.reportFail(ctx, job.RunID, msg)
+			return err
+		}
 		r.client.RunLogf(ctx, job.RunID, "error", "kopia_snapshot failed after %dms: %v", snapshotElapsed.Milliseconds(), err)
 		r.reportFail(ctx, job.RunID, err.Error())
 		return err
@@ -296,24 +394,27 @@ func (r *Runner) Run(ctx context.Context, job *api.RunJob) error {
 	log.Printf("run %s kopia_snapshot completed in %dms manifest=%s", job.RunID, snapshotElapsed.Milliseconds(), snapRes.ManifestID)
 	r.client.RunLogf(ctx, job.RunID, "info", "run %s kopia_snapshot completed in %dms manifest=%s", job.RunID, snapshotElapsed.Milliseconds(), snapRes.ManifestID)
 
-	stats, _ := json.Marshal(map[string]any{
-		"manifest_id":    snapRes.ManifestID,
-		"bytes_hashed":   snapRes.BytesHashed,
-		"bytes_uploaded": snapRes.BytesUploaded,
-		"files":          snapRes.FilesDone,
-		"workloads":      wlRes.Stats,
-		"delta_states":   wlRes.DeltaStates,
-		"graph_429_hits": wlRes.Stats["graph_429_hits"],
-		"physical_key":   job.PhysicalKey,
-		"graph_sync_ms":  graphElapsed.Milliseconds(),
+	stats, _ := json.Marshal(mergeCompletionStats(map[string]any{
+		"manifest_id":       snapRes.ManifestID,
+		"bytes_hashed":      snapRes.BytesHashed,
+		"bytes_uploaded":    snapRes.BytesUploaded,
+		"files":             snapRes.FilesDone,
+		"workloads":         wlRes.Stats,
+		"delta_states":      wlRes.DeltaStates,
+		"graph_429_hits":    wlRes.Stats["graph_429_hits"],
+		"physical_key":      job.PhysicalKey,
+		"graph_sync_ms":     graphElapsed.Milliseconds(),
 		"kopia_snapshot_ms": snapshotElapsed.Milliseconds(),
-	})
+	}, wlRes.Stats))
 	log.Printf("run %s completed total=%dms", job.RunID, time.Since(runStart).Milliseconds())
 	r.client.RunLogf(ctx, job.RunID, "info", "run %s completed total=%dms", job.RunID, time.Since(runStart).Milliseconds())
 
+	done, total := completionItemCounts(wlRes.FileCount)
 	return r.reportComplete(ctx, api.CompleteUpdate{
 		RunID:      job.RunID,
 		ManifestID: snapRes.ManifestID,
+		ItemsDone:  done,
+		ItemsTotal: total,
 		StatsJSON:  string(stats),
 	})
 }
@@ -369,12 +470,42 @@ func (r *Runner) ensureOneDriveRootFiles(ctx context.Context, gc *graph.Client, 
 	return nil
 }
 
-func (r *Runner) RunSafe(ctx context.Context, job *api.RunJob) (err error) {
+func effectiveGraphParallel(cfg *config.Config, job *api.RunJob) int {
+	parallel := cfg.Worker.GraphParallelRequests
+	if job != nil && job.GraphTenantBudget > 0 && job.GraphTenantBudget < parallel {
+		parallel = job.GraphTenantBudget
+	}
+	return parallel
+}
+
+func (r *Runner) graphProgressUpdate(runID string, pct float64, itemsDone, itemsTotal int, bytes int64, gc *graph.Client) api.ProgressUpdate {
+	upd := api.ProgressUpdate{
+		RunID:       runID,
+		Phase:       "graph_sync",
+		Percent:     pct,
+		ItemsDone:   itemsDone,
+		ItemsTotal:  itemsTotal,
+		BytesHashed: bytes,
+		Message:     "heartbeat",
+	}
+	if gc != nil {
+		upd.Graph429Hits = gc.ThrottleHits()
+		upd.GraphAdaptiveLimit = gc.AdaptiveConcurrency()
+		if gc.ThrottleWaiting() {
+			upd.Message = "Throttled by Microsoft — waiting"
+		}
+	}
+	return upd
+}
+
+func (r *Runner) RunSafe(ctx context.Context, job *api.RunJob, onAbort context.CancelFunc) (err error) {
 	defer func() {
 		if rec := recover(); rec != nil {
 			err = fmt.Errorf("panic: %v", rec)
-			r.reportFail(ctx, job.RunID, err.Error())
+			if job != nil && !isCooperativeCancel(err, ctx) {
+				r.reportFail(ctx, job.RunID, err.Error())
+			}
 		}
 	}()
-	return r.Run(ctx, job)
+	return r.Run(ctx, job, onAbort)
 }

@@ -113,6 +113,14 @@ final class BuildRunner
                         if ($sha256 === '' && is_file($buildOut)) {
                             $sha256 = hash_file('sha256', $buildOut);
                         }
+                        $existingRelease = ReleaseRepository::getByVersion($version);
+                        if ($existingRelease !== null) {
+                            throw new \RuntimeException(sprintf(
+                                'Version %s is already published (release #%d)',
+                                $version,
+                                (int) $existingRelease['id']
+                            ));
+                        }
                         if (!is_dir($artifactDir)) {
                             @mkdir($artifactDir, 0755, true);
                         }

@@ -1,6 +1,10 @@
 package api
 
 import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 )
 
@@ -73,4 +77,99 @@ func TestClaimRepoOperationValidation(t *testing.T) {
 		return
 	}
 	t.Fatal("expected validation guard to treat empty op as no job")
+}
+
+func TestProgressCancelRequested(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"success","data":{"cancel_requested":true}}`))
+	}))
+	defer srv.Close()
+
+	c := &Client{
+		token:      "test",
+		baseURL:    srv.URL + "/",
+		httpClient: srv.Client(),
+	}
+	cancel, _, err := c.Progress(context.Background(), ProgressUpdate{RunID: "run-1", Phase: "graph_sync"})
+	if err != nil {
+		t.Fatalf("Progress: %v", err)
+	}
+	if !cancel {
+		t.Fatal("expected cancel_requested=true")
+	}
+}
+
+func TestHeartbeatPayloadIncludesTelemetryAndConfig(t *testing.T) {
+	var got map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&got)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"success","data":{"active_claims":[]}}`))
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "tok", "node-1")
+	_, err := c.Heartbeat(context.Background(), HeartbeatParams{
+		CurrentLoad:   2,
+		Version:       "0.3.4",
+		ConfigVersion: 3,
+		ConfigError:   "nope",
+		Telemetry: &TelemetryReport{
+			CPUPct:       12.5,
+			CPUCoresUsed: 0.5,
+			MemUsedMiB:   1024,
+			SampledAt:    "2026-06-22T12:00:00Z",
+		},
+	})
+	if err != nil {
+		t.Fatalf("Heartbeat: %v", err)
+	}
+	if got["config_version"] != float64(3) {
+		t.Fatalf("config_version = %v", got["config_version"])
+	}
+	if got["config_error"] != "nope" {
+		t.Fatalf("config_error = %v", got["config_error"])
+	}
+	tel, ok := got["telemetry"].(map[string]any)
+	if !ok {
+		t.Fatalf("telemetry missing: %#v", got["telemetry"])
+	}
+	if tel["cpu_pct"] != 12.5 {
+		t.Fatalf("cpu_pct = %v", tel["cpu_pct"])
+	}
+}
+
+func TestDecodeEnvelopeResponseConfigOffer(t *testing.T) {
+	raw := []byte(`{"status":"success","data":{"config":{"version":5,"sha256":"abc","download_url":"https://example.test/cfg"}}}`)
+	var out HeartbeatResponse
+	if err := decodeEnvelopeResponse(raw, &out); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if out.Config == nil || out.Config.Version != 5 {
+		t.Fatalf("config offer = %+v", out.Config)
+	}
+}
+
+func TestFetchConfig(t *testing.T) {
+	body := []byte("api:\n  base_url: https://example.test\nworker:\n  token: tok\n")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-MS365-Worker-Token") != "secret" {
+			t.Fatalf("token header = %q", r.Header.Get("X-MS365-Worker-Token"))
+		}
+		_, _ = w.Write(body)
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "secret", "node-1")
+	raw, sum, err := c.FetchConfig(context.Background(), srv.URL)
+	if err != nil {
+		t.Fatalf("FetchConfig: %v", err)
+	}
+	if string(raw) != string(body) {
+		t.Fatalf("body mismatch")
+	}
+	if sum == "" {
+		t.Fatal("expected sha256")
+	}
 }

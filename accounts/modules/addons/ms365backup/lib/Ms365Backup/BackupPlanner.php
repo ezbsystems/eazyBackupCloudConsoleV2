@@ -94,6 +94,21 @@ final class BackupPlanner
             }
         }
 
+        foreach ($selectedIds as $id) {
+            $resource = $byId[$id] ?? null;
+            if ($resource === null) {
+                continue;
+            }
+            if ((string) ($resource['resource_type'] ?? '') !== TenantResource::TYPE_SHAREPOINT_SITE) {
+                continue;
+            }
+            $selectability = TenantResource::siteSelectability($resource);
+            if (!$selectability['selectable']) {
+                $name = (string) ($resource['display_name'] ?? $id);
+                $warnings[] = "Site '{$name}' is selected but not accessible to the backup app";
+            }
+        }
+
         $consumedLogical = [];
         $physicalJobs = [];
 
@@ -274,15 +289,14 @@ final class BackupPlanner
             if ($type === TenantResource::TYPE_SHAREPOINT_SITE) {
                 if (!isset($physicalJobs['site:' . ($resource['graph_id'] ?? '')])) {
                     $siteKey = 'site:' . (string) $resource['graph_id'];
+                    [$siteStatus, $deferReason] = $this->resolveSitePhysicalStatus($resource, $scope);
                     $physicalJobs[$siteKey] = new PhysicalBackupJob(
                         $siteKey,
                         $resource,
                         [$this->logicalSourceFromResource($resource)],
                         $scope,
-                        $this->resolveSiteEngineStatus($scope),
-                        $this->resolveSiteEngineStatus($scope) === PhysicalBackupJob::STATUS_DEFERRED
-                            ? 'SharePoint files/lists scope not enabled'
-                            : '',
+                        $siteStatus,
+                        $deferReason,
                     );
                 }
                 $consumedLogical[$id] = true;
@@ -534,6 +548,33 @@ final class BackupPlanner
         }
 
         return PhysicalBackupJob::STATUS_DEFERRED;
+    }
+
+    /**
+     * @param array<string, mixed> $resource
+     * @return array{0: string, 1: string}
+     */
+    private function resolveSitePhysicalStatus(array $resource, BackupScope $scope): array
+    {
+        $selectability = TenantResource::siteSelectability($resource);
+        if (!$selectability['selectable']) {
+            $reason = trim((string) ($selectability['disabled_reason'] ?? ''));
+
+            return [
+                PhysicalBackupJob::STATUS_DEFERRED,
+                $reason !== '' ? $reason : 'Site not accessible to the backup app',
+            ];
+        }
+
+        $filesRunnable = $scope->isEnabled(BackupScope::FILES)
+            && ($selectability['capability_access']['files'] ?? true);
+        $listsRunnable = $scope->isEnabled(BackupScope::LISTS)
+            && ($selectability['capability_access']['lists'] ?? true);
+        if ($filesRunnable || $listsRunnable) {
+            return [PhysicalBackupJob::STATUS_RUNNABLE, ''];
+        }
+
+        return [PhysicalBackupJob::STATUS_DEFERRED, 'SharePoint files/lists scope not enabled'];
     }
 
     private function resolveTeamEngineStatus(BackupScope $scope): string
@@ -982,6 +1023,14 @@ final class BackupPlanner
             if ($driveId !== '') {
                 $primaryMeta = is_array($primary['meta'] ?? null) ? $primary['meta'] : [];
                 $primaryMeta['drive_id'] = $driveId;
+                $sizeBytes = max(0, (int) ($meta['size_bytes'] ?? 0));
+                $itemCount = max(0, (int) ($meta['item_count'] ?? 0));
+                if ($sizeBytes > 0) {
+                    $primaryMeta['size_bytes'] = max((int) ($primaryMeta['size_bytes'] ?? 0), $sizeBytes);
+                }
+                if ($itemCount > 0) {
+                    $primaryMeta['item_count'] = max((int) ($primaryMeta['item_count'] ?? 0), $itemCount);
+                }
                 $primary['meta'] = $primaryMeta;
             }
             $physicalJobs[$userKey] = new PhysicalBackupJob(

@@ -1,0 +1,2 @@
+ALTER TABLE `ms365_worker_nodes`
+  ADD COLUMN `claim_admit_rejects` INT UNSIGNED NOT NULL DEFAULT 0 AFTER `current_load`;

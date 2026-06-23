@@ -14,9 +14,66 @@ final class WorkerClaimService
     /** Fast reclaim for never-started claims (no progress posted). */
     private const ORPHAN_UNACKED_SECONDS = 60;
 
-    public static function claimNext(string $nodeId): ?array
+    /** Requeue running claims with no real items/bytes progress for this long (even with a fresh lease). */
+    private const STALE_PROGRESS_SILENCE_SECONDS = 1800;
+
+    /** Run IDs the control plane considers actively claimed by this worker. */
+    public static function activeClaimRunIds(string $nodeId): array
     {
-        WorkerNodeRepository::markOfflineStale();
+        if ($nodeId === '' || !Capsule::schema()->hasTable('ms365_job_queue')) {
+            return [];
+        }
+
+        return Capsule::table('ms365_job_queue')
+            ->where('worker_node_id', $nodeId)
+            ->where('status', 'running')
+            ->orderBy('claimed_at')
+            ->pluck('run_id')
+            ->map(static fn ($id) => (string) $id)
+            ->all();
+    }
+
+    public static function runningClaimCountForNode(string $nodeId): int
+    {
+        return count(self::activeClaimRunIds($nodeId));
+    }
+
+    /**
+     * When the worker reports in-memory load but owns no queue claims, treat the node as idle
+     * for fleet gates (deploy, orphan release, claim capacity) until the worker reconciles.
+     */
+    public static function effectiveReportedLoad(string $nodeId, int $reportedLoad): int
+    {
+        if ($reportedLoad <= 0) {
+            return 0;
+        }
+        $queueLoad = self::runningClaimCountForNode($nodeId);
+
+        return $queueLoad === 0 ? 0 : max($reportedLoad, $queueLoad);
+    }
+
+    /** @return int Nodes whose stored load was corrected to match queue truth */
+    public static function reconcileGhostNodeLoads(): int
+    {
+        $fixed = 0;
+        foreach (WorkerNodeRepository::listNodes(['active', 'draining', 'offline', 'registering']) as $node) {
+            $nodeId = (string) ($node['node_id'] ?? '');
+            if ($nodeId === '') {
+                continue;
+            }
+            $reported = (int) ($node['current_load'] ?? 0);
+            $effective = self::effectiveReportedLoad($nodeId, $reported);
+            if ($effective !== $reported) {
+                WorkerNodeRepository::heartbeat($nodeId, $effective, '', null, 0);
+                $fixed++;
+            }
+        }
+
+        return $fixed;
+    }
+
+    public static function claimNext(string $nodeId, ?array $claimHint = null): ?array
+    {
         self::releaseOrphanedClaimsForAllNodes(self::ORPHAN_STALE_SECONDS);
         self::releaseExpiredLeases();
         self::recoverStaleRunning();
@@ -27,7 +84,15 @@ final class WorkerClaimService
             return null;
         }
 
-        if ((int) ($node['current_load'] ?? 0) >= (int) ($node['max_concurrent_runs'] ?? 1)) {
+        if (self::isBlockedByBaselineVersion($node)) {
+            return null;
+        }
+
+        $effectiveLoad = self::effectiveReportedLoad(
+            $nodeId,
+            (int) ($node['current_load'] ?? 0)
+        );
+        if ($effectiveLoad >= (int) ($node['max_concurrent_runs'] ?? 1)) {
             return null;
         }
 
@@ -35,52 +100,41 @@ final class WorkerClaimService
             return null;
         }
 
-        $backupQuery = Capsule::table('ms365_job_queue as q')
-            ->join('ms365_backup_runs as r', 'r.id', '=', 'q.run_id')
-            ->where('q.status', 'queued')
-            ->where('q.scheduled_at', '<=', time())
-            ->where(function ($q) {
-                $q->whereNull('q.worker_node_id')->orWhere('q.lease_expires_at', '<', time());
-            });
-        if (Capsule::schema()->hasColumn('ms365_job_queue', 'job_type')) {
-            $backupQuery->where(function ($inner) {
-                $inner->where('q.job_type', 'backup')->orWhereNull('q.job_type');
-            });
-        }
-        $candidates = $backupQuery
-            ->where('r.status', 'queued')
-            ->orderBy('q.priority')
-            ->orderBy('q.id')
-            ->select(['q.*', 'r.tenant_record_id', 'r.whmcs_client_id', 'r.resource_id', 'r.resource_type', 'r.graph_id', 'r.physical_key', 'r.scope_json'])
-            ->limit(50)
-            ->get();
+        $backupQuery = self::buildBackupClaimQuery();
+        $fairScheduling = Ms365EngineConfig::fairSchedulingEnabled();
+        $candidates = $fairScheduling
+            ? self::fetchBackupClaimCandidatesFair($backupQuery)
+            : self::fetchBackupClaimCandidatesFifo($backupQuery);
 
         $restoreCandidates = collect();
         if (self::restoreClaimQueryReady()) {
-            $restoreQ = Capsule::table('ms365_job_queue as q')
-                ->join('ms365_restore_runs as r', 'r.id', '=', 'q.run_id')
-                ->where('q.status', 'queued')
-                ->where('q.scheduled_at', '<=', time())
-                ->where(function ($q) {
-                    $q->whereNull('q.worker_node_id')->orWhere('q.lease_expires_at', '<', time());
-                });
-            if (Capsule::schema()->hasColumn('ms365_job_queue', 'job_type')) {
-                $restoreQ->where('q.job_type', 'restore');
-            }
-            $restoreCandidates = $restoreQ
-                ->orderBy('q.priority')
-                ->orderBy('q.id')
-                ->select(self::restoreClaimSelectColumns())
-                ->limit(50)
-                ->get();
+            $restoreQ = self::buildRestoreClaimQuery();
+            $restoreCandidates = $fairScheduling
+                ? self::fetchRestoreClaimCandidatesFair($restoreQ)
+                : self::fetchRestoreClaimCandidatesFifo($restoreQ);
         }
 
-        $merged = $candidates->merge($restoreCandidates)->sortBy([
-            ['priority', 'asc'],
-            ['id', 'asc'],
-        ])->values();
+        $merged = $candidates->merge($restoreCandidates);
+        if ($fairScheduling) {
+            $merged = $merged->sortBy([
+                ['priority', 'asc'],
+                ['fair_rank', 'asc'],
+                ['id', 'asc'],
+            ])->values();
+        } else {
+            $merged = $merged->sortBy([
+                ['priority', 'asc'],
+                ['id', 'asc'],
+            ])->values();
+        }
+
+        $acceptHeavy = $claimHint === null || (bool) ($claimHint['accept_heavy'] ?? true);
 
         foreach ($merged as $candidate) {
+            $physicalKey = (string) ($candidate->physical_key ?? '');
+            if (!$acceptHeavy && self::isHeavyPhysicalKey($physicalKey)) {
+                continue;
+            }
             $clientId = (int) ($candidate->whmcs_client_id ?? 0);
             $tenantRecordId = (int) ($candidate->tenant_record_id ?? 0);
             if ($clientId > 0 && self::countRunningForClient($clientId) >= Ms365EngineConfig::perClientMaxConcurrent()) {
@@ -129,11 +183,15 @@ final class WorkerClaimService
 
                     continue;
                 }
-                BackupRunRepository::update($runId, [
+                $runUpdate = [
                     'status' => 'running',
                     'started_at' => $now,
                     'engine_mode' => 'kopia',
-                ]);
+                ];
+                if (Capsule::schema()->hasColumn('ms365_backup_runs', 'last_progress_at')) {
+                    $runUpdate['last_progress_at'] = $now;
+                }
+                BackupRunRepository::update($runId, $runUpdate);
             }
 
             try {
@@ -184,7 +242,8 @@ final class WorkerClaimService
             'finished_at' => $now,
             'updated_at' => $now,
         ]);
-        JobQueueRepository::markFailed($runId, $message);
+        // A newer run already succeeded; retrying this one is pointless.
+        JobQueueRepository::markTerminalFailed($runId, $message);
         Ms365BatchRunRepository::syncForChildRun($runId);
     }
 
@@ -234,13 +293,15 @@ final class WorkerClaimService
         }
         $now = time();
         $customerMessage = Ms365CustomerError::message(new \RuntimeException($message));
-        BackupRunRepository::update($runId, [
-            'status' => 'error',
-            'error_message' => $customerMessage,
-            'finished_at' => $now,
-            'updated_at' => $now,
-        ]);
-        JobQueueRepository::markFailed($runId, $customerMessage);
+        $requeued = JobQueueRepository::markFailed($runId, $message);
+        if (!$requeued) {
+            BackupRunRepository::update($runId, [
+                'status' => 'error',
+                'error_message' => $customerMessage,
+                'finished_at' => $now,
+                'updated_at' => $now,
+            ]);
+        }
         Ms365BatchRunRepository::syncForChildRun($runId);
     }
 
@@ -354,6 +415,10 @@ final class WorkerClaimService
             'graph_pagination' => Ms365EngineConfig::paginationLimitsForWorkloads($workloads),
             'lease_expires_at' => WorkerLeaseService::leaseExpiresAt($runId),
             'kopia_source_path' => PhysicalKeyHelper::kopiaSourcePath((string) ($creds['tenant_id'] ?? ''), $physicalKey, $scope),
+            'graph_tenant_budget' => GraphTenantBudgetService::workerShare(
+                $tenantRecordId,
+                (string) ($creds['tenant_id'] ?? '')
+            ),
         ];
         if ($shard !== null) {
             $shardMeta = [];
@@ -890,37 +955,62 @@ final class WorkerClaimService
      */
     public static function releaseOrphanedClaimsForNode(string $nodeId, int $reportedLoad, int $staleProgressSeconds = 300): int
     {
-        if ($nodeId === '' || $reportedLoad > 0) {
+        if ($nodeId === '') {
             return 0;
         }
+        $reportedLoad = self::effectiveReportedLoad($nodeId, $reportedLoad);
+        if ($reportedLoad > 0) {
+            return self::releaseStalledClaimsForBusyNode($nodeId, $staleProgressSeconds);
+        }
 
+        return self::releaseOrphanedClaimsForIdleNode($nodeId, $staleProgressSeconds);
+    }
+
+    private static function releaseOrphanedClaimsForIdleNode(string $nodeId, int $staleProgressSeconds): int
+    {
         $now = time();
         $staleProgressSeconds = max(self::ORPHAN_STALE_SECONDS, $staleProgressSeconds);
         $staleCutoff = $now - $staleProgressSeconds;
         $unackedCutoff = $now - self::ORPHAN_UNACKED_SECONDS;
+
+        $select = [
+            'q.run_id',
+            'q.lease_expires_at',
+            'r.updated_at',
+            'r.percent',
+            'r.items_done',
+            'r.phase',
+        ];
+        if (Capsule::schema()->hasColumn('ms365_backup_runs', 'last_progress_at')) {
+            $select[] = 'r.last_progress_at';
+        }
+        if (Capsule::schema()->hasColumn('ms365_backup_runs', 'last_429_at')) {
+            $select[] = 'r.last_429_at';
+        }
 
         $candidates = Capsule::table('ms365_job_queue as q')
             ->join('ms365_backup_runs as r', 'r.id', '=', 'q.run_id')
             ->where('q.status', 'running')
             ->where('q.worker_node_id', $nodeId)
             ->where('q.claimed_at', '<', $unackedCutoff)
-            ->select([
-                'q.run_id',
-                'r.updated_at',
-                'r.percent',
-                'r.items_done',
-                'r.phase',
-            ])
+            ->select($select)
             ->get();
 
         $toRequeue = [];
         foreach ($candidates as $row) {
-            $updatedAt = (int) ($row->updated_at ?? 0);
+            if (Ms365BatchRunRepository::isThrottledWaitingAliveFromRow($row, $now)) {
+                continue;
+            }
+            $leaseExpires = (int) ($row->lease_expires_at ?? 0);
+            if ($leaseExpires > $now) {
+                continue;
+            }
+            $progressAt = self::claimProgressFreshnessAt($row);
             if (self::isUnacknowledgedClaimRow($row)) {
-                if ($updatedAt >= $unackedCutoff) {
+                if ($progressAt >= $unackedCutoff) {
                     continue;
                 }
-            } elseif ($updatedAt >= $staleCutoff) {
+            } elseif ($progressAt >= $staleCutoff) {
                 continue;
             }
             $runId = (string) ($row->run_id ?? '');
@@ -933,6 +1023,58 @@ final class WorkerClaimService
             return 0;
         }
         self::requeueRuns($toRequeue, 'Orphaned claim released (worker idle)');
+
+        return count($toRequeue);
+    }
+
+    private static function releaseStalledClaimsForBusyNode(string $nodeId, int $staleProgressSeconds): int
+    {
+        $now = time();
+        $silenceSeconds = max(self::STALE_PROGRESS_SILENCE_SECONDS, $staleProgressSeconds);
+        $silenceCutoff = $now - $silenceSeconds;
+
+        $select = [
+            'q.run_id',
+            'r.updated_at',
+            'r.percent',
+            'r.items_done',
+            'r.phase',
+        ];
+        if (Capsule::schema()->hasColumn('ms365_backup_runs', 'last_progress_at')) {
+            $select[] = 'r.last_progress_at';
+        }
+        if (Capsule::schema()->hasColumn('ms365_backup_runs', 'last_429_at')) {
+            $select[] = 'r.last_429_at';
+        }
+        $select[] = 'q.lease_expires_at';
+
+        $candidates = Capsule::table('ms365_job_queue as q')
+            ->join('ms365_backup_runs as r', 'r.id', '=', 'q.run_id')
+            ->where('q.status', 'running')
+            ->where('q.worker_node_id', $nodeId)
+            ->whereIn('r.status', ['queued', 'running'])
+            ->select($select)
+            ->get();
+
+        $toRequeue = [];
+        foreach ($candidates as $row) {
+            if (Ms365BatchRunRepository::isThrottledWaitingAliveFromRow($row, $now)) {
+                continue;
+            }
+            $progressAt = self::claimProgressFreshnessAt($row);
+            if ($progressAt <= 0 || $progressAt >= $silenceCutoff) {
+                continue;
+            }
+            $runId = (string) ($row->run_id ?? '');
+            if ($runId !== '') {
+                $toRequeue[] = $runId;
+            }
+        }
+
+        if ($toRequeue === []) {
+            return 0;
+        }
+        self::requeueRuns($toRequeue, 'Stale progress (worker busy)');
 
         return count($toRequeue);
     }
@@ -965,17 +1107,24 @@ final class WorkerClaimService
         $failed = 0;
         $synced = 0;
 
+        $exhaustedSelect = [
+            'q.run_id',
+            'q.status as queue_status',
+            'q.lease_expires_at',
+            'q.worker_node_id',
+            'br.updated_at as backup_updated_at',
+        ];
+        if (Capsule::schema()->hasColumn('ms365_backup_runs', 'last_progress_at')) {
+            $exhaustedSelect[] = 'br.last_progress_at';
+        }
+        if (Capsule::schema()->hasColumn('ms365_backup_runs', 'last_429_at')) {
+            $exhaustedSelect[] = 'br.last_429_at';
+        }
         $exhausted = Capsule::table('ms365_job_queue as q')
             ->leftJoin('ms365_backup_runs as br', 'br.id', '=', 'q.run_id')
             ->whereIn('q.status', ['queued', 'running'])
             ->whereColumn('q.attempts', '>=', 'q.max_attempts')
-            ->select([
-                'q.run_id',
-                'q.status as queue_status',
-                'q.lease_expires_at',
-                'q.worker_node_id',
-                'br.updated_at as backup_updated_at',
-            ])
+            ->select($exhaustedSelect)
             ->get();
         foreach ($exhausted as $row) {
             $runId = (string) ($row->run_id ?? '');
@@ -1015,19 +1164,56 @@ final class WorkerClaimService
             if ($runId === '') {
                 continue;
             }
-            $nodeId = (string) ($row->worker_node_id ?? '');
-            if ($nodeId !== '') {
-                $load = (int) Capsule::table('ms365_worker_nodes')->where('node_id', $nodeId)->value('current_load');
-                if ($load > 0) {
-                    continue;
-                }
-            }
             $max = (int) ($row->max_attempts ?? 0) > 0 ? (int) $row->max_attempts : 3;
             if ((int) ($row->attempts ?? 0) >= $max) {
                 Ms365RestoreWorkerHooks::onFail($runId, 'Stale run gave up after max attempts');
                 ++$failed;
             } else {
                 self::requeueRuns([$runId], 'Stale run reconciled');
+                ++$requeued;
+            }
+        }
+
+        $silenceCutoff = $now - self::STALE_PROGRESS_SILENCE_SECONDS;
+        $stalledLeasedQuery = Capsule::table('ms365_job_queue as q')
+            ->join('ms365_backup_runs as r', 'r.id', '=', 'q.run_id')
+            ->where('q.status', 'running')
+            ->whereIn('r.status', ['queued', 'running'])
+            ->where('q.lease_expires_at', '>', $now);
+
+        if (Capsule::schema()->hasColumn('ms365_backup_runs', 'last_progress_at')) {
+            $stalledLeasedQuery->where(function ($query) use ($silenceCutoff) {
+                $query->where(function ($q) use ($silenceCutoff) {
+                    $q->whereNotNull('r.last_progress_at')
+                        ->where('r.last_progress_at', '<', $silenceCutoff);
+                })->orWhere(function ($q) use ($silenceCutoff) {
+                    $q->whereNull('r.last_progress_at')
+                        ->where('r.updated_at', '<', $silenceCutoff);
+                });
+            });
+        } else {
+            $stalledLeasedQuery->where('r.updated_at', '<', $silenceCutoff);
+        }
+
+        $stalledSelect = ['q.run_id', 'q.attempts', 'q.max_attempts', 'q.lease_expires_at'];
+        if (Capsule::schema()->hasColumn('ms365_backup_runs', 'last_429_at')) {
+            $stalledSelect[] = 'r.last_429_at';
+        }
+
+        foreach ($stalledLeasedQuery->get($stalledSelect) as $row) {
+            if (Ms365BatchRunRepository::isThrottledWaitingAliveFromRow($row, $now)) {
+                continue;
+            }
+            $runId = (string) ($row->run_id ?? '');
+            if ($runId === '') {
+                continue;
+            }
+            $max = (int) ($row->max_attempts ?? 0) > 0 ? (int) $row->max_attempts : 3;
+            if ((int) ($row->attempts ?? 0) >= $max) {
+                Ms365RestoreWorkerHooks::onFail($runId, 'Stale progress gave up after max attempts');
+                ++$failed;
+            } else {
+                self::requeueRuns([$runId], 'Stale progress reconciled');
                 ++$requeued;
             }
         }
@@ -1072,10 +1258,14 @@ final class WorkerClaimService
         return count($runIds);
     }
 
-    public static function releaseClaim(string $nodeId, string $runId, string $message = 'Worker released claim'): bool
+    public static function releaseClaim(string $nodeId, string $runId, string $message = 'Worker released claim', string $reason = ''): bool
     {
         if ($nodeId === '' || $runId === '') {
             return false;
+        }
+        $isDrain = $reason === 'drain';
+        if ($isDrain) {
+            $message = 'Worker drain hand-off';
         }
         $now = time();
         $updated = Capsule::table('ms365_job_queue')
@@ -1093,8 +1283,12 @@ final class WorkerClaimService
         if ($updated === 0) {
             return false;
         }
-        self::rollbackAttemptIfUnacked($runId);
-        Ms365WorkerLogRepository::releaseAssignment($runId, 'release');
+        if ($isDrain) {
+            self::rollbackAttemptForInfrastructureRequeue($runId);
+        } else {
+            self::rollbackAttemptIfUnacked($runId);
+        }
+        Ms365WorkerLogRepository::releaseAssignment($runId, $isDrain ? 'drain' : 'release');
         if (RestoreRunRepository::isRestoreRun($runId)) {
             RestoreRunRepository::update($runId, [
                 'status' => 'queued',
@@ -1244,6 +1438,233 @@ final class WorkerClaimService
         return true;
     }
 
+    /** @return \Illuminate\Database\Query\Builder */
+    private static function buildBackupClaimQuery()
+    {
+        $backupQuery = Capsule::table('ms365_job_queue as q')
+            ->join('ms365_backup_runs as r', 'r.id', '=', 'q.run_id')
+            ->where('q.status', 'queued')
+            ->where('q.scheduled_at', '<=', time())
+            ->where(function ($q) {
+                $q->whereNull('q.worker_node_id')->orWhere('q.lease_expires_at', '<', time());
+            });
+        if (Capsule::schema()->hasColumn('ms365_job_queue', 'job_type')) {
+            $backupQuery->where(function ($inner) {
+                $inner->where('q.job_type', 'backup')->orWhereNull('q.job_type');
+            });
+        }
+
+        return $backupQuery;
+    }
+
+    /** @return \Illuminate\Database\Query\Builder */
+    private static function buildRestoreClaimQuery()
+    {
+        $restoreQ = Capsule::table('ms365_job_queue as q')
+            ->join('ms365_restore_runs as r', 'r.id', '=', 'q.run_id')
+            ->where('q.status', 'queued')
+            ->where('q.scheduled_at', '<=', time())
+            ->where(function ($q) {
+                $q->whereNull('q.worker_node_id')->orWhere('q.lease_expires_at', '<', time());
+            });
+        if (Capsule::schema()->hasColumn('ms365_job_queue', 'job_type')) {
+            $restoreQ->where('q.job_type', 'restore');
+        }
+
+        return $restoreQ;
+    }
+
+    /** @return list<string> */
+    private static function backupClaimSelectColumns(): array
+    {
+        return [
+            'q.*',
+            'r.tenant_record_id',
+            'r.whmcs_client_id',
+            'r.resource_id',
+            'r.resource_type',
+            'r.graph_id',
+            'r.physical_key',
+            'r.scope_json',
+            'r.e3_batch_run_id',
+        ];
+    }
+
+    /** @return \Illuminate\Support\Collection<int, object> */
+    private static function fetchBackupClaimCandidatesFifo($backupQuery)
+    {
+        return $backupQuery
+            ->where('r.status', 'queued')
+            ->orderBy('q.priority')
+            ->orderBy('q.id')
+            ->select(self::backupClaimSelectColumns())
+            ->limit(50)
+            ->get();
+    }
+
+    /** @return \Illuminate\Support\Collection<int, object> */
+    private static function fetchBackupClaimCandidatesFair($backupQuery)
+    {
+        if (self::windowFunctionsSupported()) {
+            return self::fetchBackupClaimCandidatesFairSql($backupQuery);
+        }
+
+        return self::fetchBackupClaimCandidatesFairPhp($backupQuery);
+    }
+
+    /** @return \Illuminate\Support\Collection<int, object> */
+    private static function fetchBackupClaimCandidatesFairSql($backupQuery)
+    {
+        return $backupQuery
+            ->where('r.status', 'queued')
+            ->selectRaw(
+                'q.*, r.tenant_record_id, r.whmcs_client_id, r.resource_id, r.resource_type,'
+                . ' r.graph_id, r.physical_key, r.scope_json, r.e3_batch_run_id,'
+                . ' ROW_NUMBER() OVER (PARTITION BY COALESCE(r.e3_batch_run_id, q.run_id)'
+                . ' ORDER BY q.priority ASC, q.id ASC) AS fair_rank'
+            )
+            ->orderByRaw('q.priority ASC, fair_rank ASC, q.id ASC')
+            ->limit(50)
+            ->get();
+    }
+
+    /** @return \Illuminate\Support\Collection<int, object> */
+    private static function fetchBackupClaimCandidatesFairPhp($backupQuery)
+    {
+        $rows = $backupQuery
+            ->where('r.status', 'queued')
+            ->select(self::backupClaimSelectColumns())
+            ->orderByRaw('COALESCE(r.e3_batch_run_id, q.run_id)')
+            ->orderBy('q.priority')
+            ->orderBy('q.id')
+            ->limit(5000)
+            ->get();
+
+        return self::assignFairRankInPhp($rows);
+    }
+
+    /** @return \Illuminate\Support\Collection<int, object> */
+    private static function fetchRestoreClaimCandidatesFifo($restoreQ)
+    {
+        return $restoreQ
+            ->orderBy('q.priority')
+            ->orderBy('q.id')
+            ->select(self::restoreClaimSelectColumns())
+            ->limit(50)
+            ->get();
+    }
+
+    /** @return \Illuminate\Support\Collection<int, object> */
+    private static function fetchRestoreClaimCandidatesFair($restoreQ)
+    {
+        if (!self::restoreHasBatchColumn()) {
+            return self::fetchRestoreClaimCandidatesFifo($restoreQ)
+                ->each(static function ($row): void {
+                    $row->fair_rank = 1;
+                });
+        }
+        if (self::windowFunctionsSupported()) {
+            return self::fetchRestoreClaimCandidatesFairSql($restoreQ);
+        }
+
+        return self::fetchRestoreClaimCandidatesFairPhp($restoreQ);
+    }
+
+    /** @return \Illuminate\Support\Collection<int, object> */
+    private static function fetchRestoreClaimCandidatesFairSql($restoreQ)
+    {
+        $columns = implode(', ', self::restoreClaimSelectColumns());
+
+        return $restoreQ
+            ->selectRaw(
+                $columns . ', r.e3_batch_run_id,'
+                . ' ROW_NUMBER() OVER (PARTITION BY COALESCE(r.e3_batch_run_id, q.run_id)'
+                . ' ORDER BY q.priority ASC, q.id ASC) AS fair_rank'
+            )
+            ->orderByRaw('q.priority ASC, fair_rank ASC, q.id ASC')
+            ->limit(50)
+            ->get();
+    }
+
+    /** @return \Illuminate\Support\Collection<int, object> */
+    private static function fetchRestoreClaimCandidatesFairPhp($restoreQ)
+    {
+        $columns = self::restoreClaimSelectColumns();
+        if (!in_array('r.e3_batch_run_id', $columns, true)) {
+            $columns[] = 'r.e3_batch_run_id';
+        }
+        $rows = $restoreQ
+            ->select($columns)
+            ->orderByRaw('COALESCE(r.e3_batch_run_id, q.run_id)')
+            ->orderBy('q.priority')
+            ->orderBy('q.id')
+            ->limit(5000)
+            ->get();
+
+        return self::assignFairRankInPhp($rows);
+    }
+
+    /**
+     * @param \Illuminate\Support\Collection<int, object> $rows
+     *
+     * @return \Illuminate\Support\Collection<int, object>
+     */
+    private static function assignFairRankInPhp($rows)
+    {
+        $grouped = $rows->groupBy(static function ($row) {
+            $batch = trim((string) ($row->e3_batch_run_id ?? ''));
+            if ($batch !== '') {
+                return $batch;
+            }
+
+            return (string) ($row->run_id ?? '');
+        });
+        $ranked = collect();
+        foreach ($grouped as $group) {
+            $sorted = $group->sortBy([
+                ['priority', 'asc'],
+                ['id', 'asc'],
+            ])->values();
+            foreach ($sorted as $i => $row) {
+                $row->fair_rank = $i + 1;
+                $ranked->push($row);
+            }
+        }
+
+        return $ranked->sortBy([
+            ['priority', 'asc'],
+            ['fair_rank', 'asc'],
+            ['id', 'asc'],
+        ])->take(50)->values();
+    }
+
+    private static ?bool $windowFunctionsSupported = null;
+
+    private static function windowFunctionsSupported(): bool
+    {
+        if (self::$windowFunctionsSupported === null) {
+            try {
+                Capsule::select('SELECT ROW_NUMBER() OVER (ORDER BY 1) AS rn FROM (SELECT 1 AS x) AS t LIMIT 1');
+                self::$windowFunctionsSupported = true;
+            } catch (\Throwable $e) {
+                self::$windowFunctionsSupported = false;
+            }
+        }
+
+        return self::$windowFunctionsSupported;
+    }
+
+    private static ?bool $restoreHasBatchColumn = null;
+
+    private static function restoreHasBatchColumn(): bool
+    {
+        if (self::$restoreHasBatchColumn === null) {
+            self::$restoreHasBatchColumn = Capsule::schema()->hasColumn('ms365_restore_runs', 'e3_batch_run_id');
+        }
+
+        return self::$restoreHasBatchColumn;
+    }
+
     /** @return list<string> */
     private static function restoreClaimSelectColumns(): array
     {
@@ -1325,9 +1746,24 @@ final class WorkerClaimService
             || str_contains($message, 'worker idle')
             || str_contains($message, 'lease expired')
             || str_contains($message, 'worker released claim')
+            || str_contains($message, 'worker drain hand-off')
             || str_contains($message, 'stale run')
             || str_contains($message, 'stale workload')
+            || str_contains($message, 'stale progress')
             || str_contains($message, 'stale partial backup');
+    }
+
+    /** @param object|array<string, mixed> $row */
+    private static function claimProgressFreshnessAt(object|array $row): int
+    {
+        if (Capsule::schema()->hasColumn('ms365_backup_runs', 'last_progress_at')) {
+            $lastProgress = (int) (is_array($row) ? ($row['last_progress_at'] ?? 0) : ($row->last_progress_at ?? 0));
+            if ($lastProgress > 0) {
+                return $lastProgress;
+            }
+        }
+
+        return (int) (is_array($row) ? ($row['updated_at'] ?? 0) : ($row->updated_at ?? $row->backup_updated_at ?? 0));
     }
 
     /**
@@ -1392,19 +1828,22 @@ final class WorkerClaimService
         if ((string) ($queueRow->queue_status ?? '') !== 'running') {
             return false;
         }
+        if (Ms365BatchRunRepository::isThrottledWaitingAliveFromRow($queueRow, $now)) {
+            return true;
+        }
+        $progressAt = self::claimProgressFreshnessAt($queueRow);
+        $silenceCutoff = $now - self::STALE_PROGRESS_SILENCE_SECONDS;
+        if ($progressAt > 0 && $progressAt < $silenceCutoff) {
+            return false;
+        }
         $leaseExpires = (int) ($queueRow->lease_expires_at ?? 0);
         if ($leaseExpires > $now) {
-            $nodeId = (string) ($queueRow->worker_node_id ?? '');
-            if ($nodeId !== '') {
-                $load = (int) Capsule::table('ms365_worker_nodes')->where('node_id', $nodeId)->value('current_load');
-                if ($load > 0) {
-                    return true;
-                }
-            }
+            return true;
         }
         $updatedAt = (int) ($queueRow->backup_updated_at ?? 0);
+        $heartbeatCutoff = $now - 180;
 
-        return $updatedAt >= $staleCutoff;
+        return $updatedAt >= max($staleCutoff, $heartbeatCutoff);
     }
 
     private static function releaseReasonFromRequeueMessage(string $message): string
@@ -1419,7 +1858,72 @@ final class WorkerClaimService
         if (str_contains($lower, 'stale')) {
             return 'stale';
         }
+        if (str_contains($lower, 'drain')) {
+            return 'drain';
+        }
 
         return 'requeue';
+    }
+
+    private static function isBlockedByBaselineVersion(array $node): bool
+    {
+        $val = strtolower(trim(Ms365EngineConfig::moduleSettingPublic('ms365_worker_fleet_auto_baseline_update', 'on')));
+        if ($val === 'off' || $val === '0') {
+            return false;
+        }
+        $latest = \Ms365Backup\Fleet\ReleaseRepository::latest();
+        if ($latest === null) {
+            return false;
+        }
+
+        return \Ms365Backup\Fleet\ReleaseRepository::nodeNeedsUpdate(
+            (string) ($node['version'] ?? ''),
+            (string) ($latest['version'] ?? '')
+        );
+    }
+
+    private static function isHeavyPhysicalKey(string $physicalKey): bool
+    {
+        $base = PhysicalKeyHelper::baseKey($physicalKey);
+        if ($base === '') {
+            return false;
+        }
+
+        return str_starts_with($base, 'site:')
+            || str_starts_with($base, 'drive:')
+            || str_starts_with($base, 'onedrive:');
+    }
+
+    /**
+     * Fail queued rows whose backup run is already terminal (error/cancelled).
+     *
+     * @return int rows updated
+     */
+    public static function reconcileQueuedErroredRuns(): int
+    {
+        $now = time();
+        $rows = Capsule::table('ms365_job_queue as q')
+            ->join('ms365_backup_runs as r', 'r.id', '=', 'q.run_id')
+            ->where('q.status', 'queued')
+            ->whereIn('r.status', ['error', 'cancelled', 'failed'])
+            ->select(['q.id', 'q.run_id', 'r.status', 'r.error_message'])
+            ->limit(500)
+            ->get();
+
+        $count = 0;
+        foreach ($rows as $row) {
+            $message = trim((string) ($row->error_message ?? ''));
+            if ($message === '') {
+                $message = 'Run status ' . (string) ($row->status ?? 'error') . ' while queue was still queued';
+            }
+            Capsule::table('ms365_job_queue')->where('id', $row->id)->update([
+                'status' => 'failed',
+                'error_message' => mb_substr($message, 0, 500),
+                'finished_at' => $now,
+            ]);
+            $count++;
+        }
+
+        return $count;
     }
 }

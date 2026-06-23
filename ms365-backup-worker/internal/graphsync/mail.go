@@ -71,13 +71,25 @@ func SyncMail(ctx context.Context, client *graph.Client, opts MailSyncOptions) (
 	}
 
 	stats := MailStats{Folders: len(folders)}
-	if opts.OnProgress != nil {
-		opts.OnProgress(0, len(folders), 0)
-	}
 	newDelta := map[string]string{}
 	var mu sync.Mutex
 	var bytesTotal int64
-	var foldersDone atomic.Int32
+	var messagesEnumerated atomic.Int32
+	emitProgress := func() {
+		if opts.OnProgress == nil {
+			return
+		}
+		mu.Lock()
+		done := stats.Messages
+		bytes := bytesTotal
+		mu.Unlock()
+		total := int(messagesEnumerated.Load())
+		if total < done {
+			total = done
+		}
+		opts.OnProgress(done, total, bytes)
+	}
+	emitProgress()
 
 	g, gctx := errgroup.WithContext(ctx)
 	g.SetLimit(opts.FolderParallel)
@@ -85,12 +97,6 @@ func SyncMail(ctx context.Context, client *graph.Client, opts MailSyncOptions) (
 	for _, folder := range folders {
 		folder := folder
 		g.Go(func() error {
-			defer func() {
-				if opts.OnProgress != nil {
-					done := int(foldersDone.Add(1))
-					opts.OnProgress(done, len(folders), 0)
-				}
-			}()
 			folderID, _ := folder["id"].(string)
 			if folderID == "" {
 				return nil
@@ -118,6 +124,7 @@ func SyncMail(ctx context.Context, client *graph.Client, opts MailSyncOptions) (
 			if err != nil {
 				return fmt.Errorf("folder %s: %w", folderName, err)
 			}
+			messagesEnumerated.Add(int32(len(items)))
 
 			mu.Lock()
 			if deltaLink != "" {
@@ -158,7 +165,8 @@ func SyncMail(ctx context.Context, client *graph.Client, opts MailSyncOptions) (
 					stats.Updated++
 					bytesTotal += int64(len(body))
 					mu.Unlock()
-					if err := syncMailAttachments(gctx, client, opts, folderID, msgID, item, &mu, &stats, &bytesTotal); err != nil {
+					emitProgress()
+					if err := syncMailAttachments(gctx, client, opts, folderID, msgID, item, &mu, &stats, &bytesTotal, emitProgress); err != nil {
 						return err
 					}
 					continue
@@ -174,7 +182,8 @@ func SyncMail(ctx context.Context, client *graph.Client, opts MailSyncOptions) (
 				stats.Updated++
 				bytesTotal += int64(len(body))
 				mu.Unlock()
-				return syncMailAttachments(gctx, client, opts, folderID, msgID, item, &mu, &stats, &bytesTotal)
+				emitProgress()
+				return syncMailAttachments(gctx, client, opts, folderID, msgID, item, &mu, &stats, &bytesTotal, emitProgress)
 			}
 
 			if len(needBatch) == 0 {
@@ -227,6 +236,7 @@ func SyncMail(ctx context.Context, client *graph.Client, opts MailSyncOptions) (
 	if err := g.Wait(); err != nil {
 		return nil, err
 	}
+	emitProgress()
 
 	stats.Graph429Hits = client.ThrottleHits()
 	return &MailSyncResult{
@@ -238,7 +248,7 @@ func SyncMail(ctx context.Context, client *graph.Client, opts MailSyncOptions) (
 	}, nil
 }
 
-func syncMailAttachments(ctx context.Context, client *graph.Client, opts MailSyncOptions, folderID, msgID string, item map[string]any, mu *sync.Mutex, stats *MailStats, bytesTotal *int64) error {
+func syncMailAttachments(ctx context.Context, client *graph.Client, opts MailSyncOptions, folderID, msgID string, item map[string]any, mu *sync.Mutex, stats *MailStats, bytesTotal *int64, onStored func()) error {
 	hasAttachments, _ := item["hasAttachments"].(bool)
 	if !hasAttachments {
 		return nil
@@ -268,6 +278,9 @@ func syncMailAttachments(ctx context.Context, client *graph.Client, opts MailSyn
 		stats.Messages++
 		*bytesTotal += size
 		mu.Unlock()
+		if onStored != nil {
+			onStored()
+		}
 	}
 	return nil
 }

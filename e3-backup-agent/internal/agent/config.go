@@ -39,6 +39,9 @@ type AgentConfig struct {
 
 	LogLevel         string `yaml:"log_level" json:"log_level,omitempty"`
 	PollIntervalSecs int    `yaml:"poll_interval_secs" json:"poll_interval_secs,omitempty"`
+	// CommandPollIntervalSecs controls the idle command/repo poll loop (default 15s).
+	CommandPollIntervalSecs int  `yaml:"command_poll_interval_secs,omitempty" json:"command_poll_interval_secs,omitempty"`
+	UseCombinedPoll         *bool `yaml:"use_combined_poll,omitempty" json:"use_combined_poll,omitempty"`
 
 	// Throttling controls for durable server-side progress events.
 	// Live UpdateRun heartbeats are unaffected. Defaults: 30 seconds and 1.0%.
@@ -102,6 +105,13 @@ func (c *AgentConfig) Validate() error {
 	return nil
 }
 
+func (c *AgentConfig) combinedPollEnabled() bool {
+	if c.UseCombinedPoll == nil {
+		return true
+	}
+	return *c.UseCombinedPoll
+}
+
 func (c *AgentConfig) applyDefaults() {
 	if c.EnrollRememberMe == nil {
 		// Default is to remember credentials (installer/tray may override).
@@ -111,6 +121,13 @@ func (c *AgentConfig) applyDefaults() {
 	}
 	if c.PollIntervalSecs == 0 {
 		c.PollIntervalSecs = 5
+	}
+	if c.CommandPollIntervalSecs == 0 {
+		c.CommandPollIntervalSecs = 15
+	}
+	if c.UseCombinedPoll == nil {
+		def := true
+		c.UseCombinedPoll = &def
 	}
 	if c.RcloneBinary == "" {
 		c.RcloneBinary = "rclone"

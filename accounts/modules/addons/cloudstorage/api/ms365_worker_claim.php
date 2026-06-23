@@ -25,7 +25,10 @@ if ($nodeId === '') {
 }
 
 try {
-    $run = WorkerClaimService::claimNext($nodeId);
+    $claimHint = [
+        'accept_heavy' => (bool) ($body['accept_heavy'] ?? true),
+    ];
+    $run = WorkerClaimService::claimNext($nodeId, $claimHint);
     if ($run === null) {
         (new JsonResponse(['status' => 'success', 'data' => ['run' => null]]))->send();
         exit;

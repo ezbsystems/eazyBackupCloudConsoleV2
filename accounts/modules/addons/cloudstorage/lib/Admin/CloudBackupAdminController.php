@@ -2,9 +2,12 @@
 
 namespace WHMCS\Module\Addon\CloudStorage\Admin;
 
+require_once dirname(__DIR__) . '/Client/AgentLiveness.php';
+
 use WHMCS\Database\Capsule;
 use WHMCS\Module\Addon\CloudStorage\Client\UuidBinary;
 use WHMCS\Module\Addon\CloudStorage\Client\MspController;
+use WHMCS\Module\Addon\CloudStorage\Client\AgentLiveness;
 
 class CloudBackupAdminController {
 
@@ -163,14 +166,22 @@ class CloudBackupAdminController {
 
             $rows = $query->get();
             $threshold = self::getOnlineThresholdSeconds();
+            $redisOnlineByUuid = AgentLiveness::bulkOnlineStatus(
+                $rows->pluck('agent_uuid')->filter()->values()->all()
+            );
             foreach ($rows as $row) {
-                $secs = isset($row->seconds_since_seen) ? (int) $row->seconds_since_seen : null;
-                if (empty($row->last_seen_at)) {
-                    $row->online_status = 'never';
-                } elseif ($secs !== null && $secs <= $threshold) {
+                $redisOnline = $redisOnlineByUuid[(string) ($row->agent_uuid ?? '')] ?? null;
+                if ($redisOnline === true) {
                     $row->online_status = 'online';
                 } else {
-                    $row->online_status = 'offline';
+                    $secs = isset($row->seconds_since_seen) ? (int) $row->seconds_since_seen : null;
+                    if (empty($row->last_seen_at)) {
+                        $row->online_status = 'never';
+                    } elseif ($secs !== null && $secs <= $threshold) {
+                        $row->online_status = 'online';
+                    } else {
+                        $row->online_status = 'offline';
+                    }
                 }
                 $row->online_threshold_seconds = $threshold;
                 $row->client_name = trim(($row->firstname ?? '') . ' ' . ($row->lastname ?? ''));

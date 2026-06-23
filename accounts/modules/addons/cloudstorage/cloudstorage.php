@@ -384,6 +384,37 @@ function cloudstorage_config()
                 'Default' => '',
                 'Description' => 'Strict minimum local backup agent version. Older agents are rejected with HTTP 426. Leave blank to disable the gate.'
             ],
+            'cloudbackup_agent_fast_bootstrap' => [
+                'FriendlyName' => 'Agent Fast Bootstrap',
+                'Type' => 'yesno',
+                'Description' => 'Use lightweight PHP bootstrap for high-frequency agent poll endpoints (skips full WHMCS init). Env CLOUDBACKUP_AGENT_FAST_BOOTSTRAP overrides.'
+            ],
+            'cloudbackup_redis_liveness_enabled' => [
+                'FriendlyName' => 'Redis Agent Liveness',
+                'Type' => 'yesno',
+                'Description' => 'Write agent online heartbeats to Redis (SETEX) with debounced MySQL rollup. Requires CLOUDBACKUP_REDIS_URL.'
+            ],
+            'cloudbackup_liveness_redis_ttl' => [
+                'FriendlyName' => 'Redis Liveness TTL (seconds)',
+                'Type' => 'text',
+                'Size' => '10',
+                'Default' => '180',
+                'Description' => 'Redis key TTL for agent:liveness:{uuid}. Should match or exceed cloudbackup_agent_online_threshold_seconds.'
+            ],
+            'cloudbackup_agent_heartbeat_debounce_seconds' => [
+                'FriendlyName' => 'Agent Heartbeat Debounce (seconds)',
+                'Type' => 'text',
+                'Size' => '10',
+                'Default' => '60',
+                'Description' => 'Minimum seconds between MySQL last_seen_at updates per agent. Redis liveness is written more frequently when enabled.'
+            ],
+            'cloudbackup_agent_command_poll_secs' => [
+                'FriendlyName' => 'Agent Command Poll Hint (seconds)',
+                'Type' => 'text',
+                'Size' => '10',
+                'Default' => '15',
+                'Description' => 'Server-driven idle poll interval hint returned by agent_poll.php (next_poll_secs).'
+            ],
             'msp_client_groups' => [
                 'FriendlyName' => 'MSP Client Groups',
                 'Type'         => 'textarea',
@@ -2939,6 +2970,19 @@ function cloudstorage_activate() {
                 });
                 logModuleCall('cloudstorage', 'activate', [], 'Added updated_at to s3_cloudbackup_runs', [], []);
             }
+            if (!\WHMCS\Database\Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'last_heartbeat_at')) {
+                \WHMCS\Database\Capsule::schema()->table('s3_cloudbackup_runs', function ($table) {
+                    $table->timestamp('last_heartbeat_at')->nullable()->after('updated_at');
+                });
+                logModuleCall('cloudstorage', 'activate', [], 'Added last_heartbeat_at to s3_cloudbackup_runs', [], []);
+                try {
+                    \WHMCS\Database\Capsule::statement(
+                        'UPDATE s3_cloudbackup_runs SET last_heartbeat_at = COALESCE(updated_at, started_at, created_at) WHERE last_heartbeat_at IS NULL'
+                    );
+                } catch (\Throwable $e) {
+                    // Best effort backfill.
+                }
+            }
             // Kopia/engine metadata on runs
             if (!\WHMCS\Database\Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'engine')) {
                 \WHMCS\Database\Capsule::schema()->table('s3_cloudbackup_runs', function ($table) {
@@ -2965,6 +3009,14 @@ function cloudstorage_activate() {
         cloudstorage_ensure_table_index('s3_cloudbackup_runs', function ($table) {
             $table->index(['job_id', 'started_at'], 'idx_runs_job_started');
         }, 'idx_runs_job_started');
+
+        cloudstorage_ensure_table_index('s3_cloudbackup_runs', function ($table) {
+            $table->index(['status', 'last_heartbeat_at'], 'idx_runs_status_heartbeat');
+        }, 'idx_runs_status_heartbeat');
+
+        cloudstorage_ensure_table_index('s3_cloudbackup_runs', function ($table) {
+            $table->index(['agent_uuid', 'status', 'last_heartbeat_at'], 'idx_runs_agent_status_heartbeat');
+        }, 'idx_runs_agent_status_heartbeat');
 
         if (!Capsule::schema()->hasTable('s3_cloudbackup_agent_destinations')) {
             Capsule::schema()->create('s3_cloudbackup_agent_destinations', function ($table) {
@@ -4896,6 +4948,29 @@ function cloudstorage_upgrade($vars) {
         cloudstorage_ensure_table_index('s3_cloudbackup_runs', function ($table) {
             $table->index(['job_id', 'started_at'], 'idx_runs_job_started');
         }, 'idx_runs_job_started', 'upgrade');
+
+        if (\WHMCS\Database\Capsule::schema()->hasTable('s3_cloudbackup_runs')
+            && !\WHMCS\Database\Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'last_heartbeat_at')) {
+            try {
+                \WHMCS\Database\Capsule::schema()->table('s3_cloudbackup_runs', function ($table) {
+                    $table->timestamp('last_heartbeat_at')->nullable()->after('updated_at');
+                });
+                \WHMCS\Database\Capsule::statement(
+                    'UPDATE s3_cloudbackup_runs SET last_heartbeat_at = COALESCE(updated_at, started_at, created_at) WHERE last_heartbeat_at IS NULL'
+                );
+                logModuleCall('cloudstorage', 'upgrade', [], 'Added last_heartbeat_at to s3_cloudbackup_runs', [], []);
+            } catch (\Throwable $e) {
+                logModuleCall('cloudstorage', 'upgrade_last_heartbeat_at_fail', [], $e->getMessage(), [], []);
+            }
+        }
+
+        cloudstorage_ensure_table_index('s3_cloudbackup_runs', function ($table) {
+            $table->index(['status', 'last_heartbeat_at'], 'idx_runs_status_heartbeat');
+        }, 'idx_runs_status_heartbeat', 'upgrade');
+
+        cloudstorage_ensure_table_index('s3_cloudbackup_runs', function ($table) {
+            $table->index(['agent_uuid', 'status', 'last_heartbeat_at'], 'idx_runs_agent_status_heartbeat');
+        }, 'idx_runs_agent_status_heartbeat', 'upgrade');
 
         // Ensure recovery tokens table exists on upgrades
         if (!\WHMCS\Database\Capsule::schema()->hasTable('s3_cloudbackup_recovery_tokens')) {

@@ -52,6 +52,32 @@ final class ResourceAccessClassifier
             );
         }
 
+        if ($e->statusCode === 404 && (
+            str_contains($msg, 'site')
+            || str_contains($msg, 'sharepoint')
+            || $code === 'itemnotfound'
+        )) {
+            return new AccessResult(
+                AccessResult::STATUS_UNAVAILABLE,
+                $e->getMessage(),
+                true,
+            );
+        }
+
+        if ($e->statusCode === 403 && (
+            $code === 'accessdenied'
+            || $inner === 'accessdenied'
+            || str_contains($msg, 'access denied')
+            || str_contains($msg, 'accessdenied')
+            || str_contains($msg, 'authorization_requestdenied')
+        )) {
+            return new AccessResult(
+                AccessResult::STATUS_UNAVAILABLE,
+                $e->getMessage(),
+                true,
+            );
+        }
+
         return new AccessResult(
             AccessResult::STATUS_ERROR,
             $e->getMessage(),

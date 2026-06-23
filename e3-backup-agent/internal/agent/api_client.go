@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -1070,6 +1071,48 @@ type JobContext struct {
 	PolicyJSON              map[string]any `json:"policy_json"`
 }
 
+// CombinedPoll fetches pending commands and an optional repo operation in one request.
+// The returned nextPollSecs hint is advisory; zero means use the configured default.
+func (c *Client) CombinedPoll() ([]PendingCommand, *RepoOperation, int, error) {
+	endpoint := c.baseURL + "/agent_poll.php"
+	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+	c.authHeaders(req)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusTooManyRequests {
+		retry := parseRetryAfter(resp.Header.Get("Retry-After"), 5)
+		time.Sleep(time.Duration(retry) * time.Second)
+		return nil, nil, retry, fmt.Errorf("combined poll rate limited (retry after %ds)", retry)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, nil, 0, fmt.Errorf("combined poll status %d", resp.StatusCode)
+	}
+
+	var out struct {
+		Status        string           `json:"status"`
+		Message       string           `json:"message,omitempty"`
+		Commands      []PendingCommand `json:"commands"`
+		RepoOperation *RepoOperation   `json:"repo_operation"`
+		NextPollSecs  int              `json:"next_poll_secs"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, nil, 0, err
+	}
+	if out.Status != "success" {
+		return nil, nil, 0, fmt.Errorf("combined poll failed: %s", out.Message)
+	}
+	return out.Commands, out.RepoOperation, out.NextPollSecs, nil
+}
+
 // PollPendingCommands fetches pending commands (restore, maintenance) for this agent.
 // This is called independently of active runs so the agent can handle restores.
 func (c *Client) PollPendingCommands() ([]PendingCommand, error) {
@@ -1540,4 +1583,15 @@ func (c *Client) PushLogChunk(runID string, chunkSeq int, source string, gzipped
 		time.Sleep(time.Duration(attempt+1) * 300 * time.Millisecond)
 	}
 	return lastErr
+}
+
+func parseRetryAfter(header string, fallback int) int {
+	header = strings.TrimSpace(header)
+	if header == "" {
+		return fallback
+	}
+	if secs, err := strconv.Atoi(header); err == nil && secs > 0 {
+		return secs
+	}
+	return fallback
 }

@@ -28,7 +28,7 @@ function ms365backup_config(): array
     return [
         'name' => 'MS365 Backup',
         'description' => 'Admin-only Microsoft 365 backup development tool (mail, calendar, contacts, To Do, OneDrive).',
-        'version' => '1.25.0',
+        'version' => '1.42.0',
         'author' => 'eazyBackup',
         'language' => 'english',
         'fields' => [
@@ -72,13 +72,13 @@ function ms365backup_config(): array
                 'FriendlyName' => 'Max concurrent per Entra tenant',
                 'Type' => 'text',
                 'Size' => '4',
-                'Default' => '3',
+                'Default' => '96',
             ],
             'ms365_per_client_max_concurrent' => [
                 'FriendlyName' => 'Max concurrent per WHMCS client',
                 'Type' => 'text',
                 'Size' => '4',
-                'Default' => '10',
+                'Default' => '96',
             ],
             'ms365_worker_lease_seconds' => [
                 'FriendlyName' => 'Worker lease seconds',
@@ -86,6 +86,11 @@ function ms365backup_config(): array
                 'Size' => '8',
                 'Default' => '7200',
                 'Description' => 'Claim lease duration; renewed on worker progress/heartbeat for long runs.',
+            ],
+            'ms365_fair_scheduling_enabled' => [
+                'FriendlyName' => 'Fair-share job queue scheduling',
+                'Type' => 'yesno',
+                'Description' => 'Round-robin claim order across backup batches (e3_batch_run_id) so large jobs do not starve newer jobs.',
             ],
             'ms365_sharding_enabled' => [
                 'FriendlyName' => 'Enable large-resource sharding',
@@ -110,20 +115,20 @@ function ms365backup_config(): array
                 'FriendlyName' => 'Max shards per resource',
                 'Type' => 'text',
                 'Size' => '4',
-                'Default' => '16',
+                'Default' => '32',
             ],
             'ms365_shard_item_threshold' => [
                 'FriendlyName' => 'Shard item-count threshold',
                 'Type' => 'text',
                 'Size' => '16',
-                'Default' => '50000',
+                'Default' => '25000',
                 'Description' => 'Shard when inventory item_count hint exceeds this value.',
             ],
             'ms365_shard_target_items' => [
                 'FriendlyName' => 'Shard target items',
                 'Type' => 'text',
                 'Size' => '16',
-                'Default' => '25000',
+                'Default' => '15000',
                 'Description' => 'Target items per range shard when splitting by item count.',
             ],
             'ms365_list_job_item_threshold' => [
@@ -196,6 +201,7 @@ function ms365backup_config(): array
                 'FriendlyName' => 'Proxmox API token ID',
                 'Type' => 'text',
                 'Size' => '64',
+                'Description' => 'API token with VM.Clone on the template VMID, Datastore.Allocate on proxmox_lxc_storage, and VM.Config/PowerMgmt for workers. See Docs/MS365_WORKER_FLEET.md.',
             ],
             'proxmox_api_token_secret' => [
                 'FriendlyName' => 'Proxmox API token secret',
@@ -206,11 +212,19 @@ function ms365backup_config(): array
                 'FriendlyName' => 'Proxmox node name',
                 'Type' => 'text',
                 'Size' => '64',
+                'Description' => 'Node where the golden LXC template lives; used as clone source when scaling to other cluster nodes.',
             ],
             'proxmox_lxc_template_vmid' => [
                 'FriendlyName' => 'Proxmox LXC template VMID',
                 'Type' => 'text',
                 'Size' => '8',
+            ],
+            'proxmox_lxc_storage' => [
+                'FriendlyName' => 'Proxmox LXC clone storage',
+                'Type' => 'text',
+                'Size' => '64',
+                'Default' => 'local-lvm',
+                'Description' => 'Proxmox storage ID for worker rootfs on clone (e.g. ceph-rbd for shared cluster storage, local-lvm for node-local). Golden template should live on this pool for cross-node scale-up.',
             ],
             'ms365_worker_fleet_min_nodes' => [
                 'FriendlyName' => 'Worker fleet min nodes',
@@ -223,6 +237,41 @@ function ms365backup_config(): array
                 'Type' => 'text',
                 'Size' => '4',
                 'Default' => '20',
+            ],
+            'ms365_worker_fleet_autoscale_enabled' => [
+                'FriendlyName' => 'Worker fleet cron autoscale',
+                'Type' => 'yesno',
+                'Description' => 'When off (default), the fleet cron does not auto-clone or auto-destroy workers; use manual scale up/down in Worker Fleet → Nodes.',
+            ],
+            'ms365_worker_fleet_auto_baseline_update' => [
+                'FriendlyName' => 'Worker fleet auto baseline update',
+                'Type' => 'yesno',
+                'Default' => 'on',
+                'Description' => 'When on (default), idle nodes behind the latest release self-update via heartbeat and cannot claim jobs until current.',
+            ],
+            'proxmox_cluster_nodes' => [
+                'FriendlyName' => 'Proxmox cluster nodes (CSV)',
+                'Type' => 'text',
+                'Size' => '128',
+                'Description' => 'Optional comma-separated node names for the manual scale-up picker; empty uses live Proxmox /nodes discovery.',
+            ],
+            'proxmox_template_vmid_map' => [
+                'FriendlyName' => 'Proxmox per-node template map (JSON)',
+                'Type' => 'text',
+                'Size' => '256',
+                'Description' => 'Optional JSON object {"nodeName":9010} for local-storage clusters when cloning to nodes other than the template home.',
+            ],
+            'proxmox_ssh_target' => [
+                'FriendlyName' => 'Proxmox SSH target (optional)',
+                'Type' => 'text',
+                'Size' => '64',
+                'Description' => 'SSH target for post-clone worker env injection when LXC exec API is unavailable, e.g. root@192.168.92.195. Requires passwordless SSH from the WHMCS host.',
+            ],
+            'proxmox_ssh_identity' => [
+                'FriendlyName' => 'Proxmox SSH identity file (optional)',
+                'Type' => 'text',
+                'Size' => '128',
+                'Description' => 'Path to private key for proxmox_ssh_target (empty = auto-detect /var/www/.ssh/ms365_proxmox_ed25519, id_rsa, id_ed25519).',
             ],
             'ms365_worker_repo_path' => [
                 'FriendlyName' => 'Worker Go repo path',
@@ -540,22 +589,25 @@ function ms365backup_sidebar(array $vars): string
 
 function ms365backup_output(array $vars): void
 {
-    if (!isset($_SESSION['adminid']) || (int) $_SESSION['adminid'] <= 0) {
-        echo '<div class="alert alert-danger">Admin login required.</div>';
-        return;
-    }
-
     $action = (string) ($_GET['action'] ?? 'dashboard');
     $baseUrl = 'addonmodules.php?module=ms365backup';
 
-    if ($action === 'api') {
-        require __DIR__ . '/pages/admin/api.php';
+    // JSON / bare responses must discard WHMCS admin chrome already in the buffer.
+    if ($action === 'api' || $action === 'seeder_oauth_callback') {
+        while (ob_get_level() > 0) {
+            ob_end_clean();
+        }
+        if ($action === 'api') {
+            require __DIR__ . '/pages/admin/api.php';
+            exit;
+        }
+        require __DIR__ . '/pages/admin/seeder_oauth_callback.php';
         exit;
     }
 
-    if ($action === 'seeder_oauth_callback') {
-        require __DIR__ . '/pages/admin/seeder_oauth_callback.php';
-        exit;
+    if (!isset($_SESSION['adminid']) || (int) $_SESSION['adminid'] <= 0) {
+        echo '<div class="alert alert-danger">Admin login required.</div>';
+        return;
     }
 
     echo '<div class="tablebg">';

@@ -170,6 +170,7 @@ type paginationSession struct {
 	seenNextLinks         map[string]bool
 	seenItemIDs           map[string]bool
 	emptyPagesWithNext    int
+	lastNextLinkSkipToken string
 	page                  int
 	totalItems            int
 	stoppedOnDuplicate    bool
@@ -251,7 +252,18 @@ func (s *paginationSession) processPage(items []map[string]any, nextLink string)
 	}
 
 	if itemCount == 0 && nextLink != "" {
-		s.emptyPagesWithNext++
+		skipToken := extractSkipToken(nextLink)
+		wedge := false
+		if skipToken != "" {
+			wedge = s.lastNextLinkSkipToken != "" && skipToken == s.lastNextLinkSkipToken
+		} else {
+			wedge = true
+		}
+		if wedge {
+			s.emptyPagesWithNext++
+		} else {
+			s.emptyPagesWithNext = 0
+		}
 		maxEmpty := DefaultMaxEmptyPagesWithNext
 		if s.monitor != nil && s.monitor.MaxEmptyPagesWithNext > 0 {
 			maxEmpty = s.monitor.MaxEmptyPagesWithNext
@@ -265,6 +277,12 @@ func (s *paginationSession) processPage(items []map[string]any, nextLink string)
 		}
 	} else {
 		s.emptyPagesWithNext = 0
+	}
+
+	if nextLink != "" {
+		s.lastNextLinkSkipToken = extractSkipToken(nextLink)
+	} else {
+		s.lastNextLinkSkipToken = ""
 	}
 
 	return yielded, nil

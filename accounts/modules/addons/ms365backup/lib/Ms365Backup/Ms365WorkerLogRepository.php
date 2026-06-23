@@ -31,12 +31,20 @@ final class Ms365WorkerLogRepository
 
     public static function releaseAssignment(string $runId, string $reason): void
     {
-        if (!self::tablesReady() || $runId === '') {
+        self::releaseAssignmentsMany([$runId], $reason);
+    }
+
+    /**
+     * @param list<string> $runIds
+     */
+    public static function releaseAssignmentsMany(array $runIds, string $reason): void
+    {
+        if (!self::tablesReady() || $runIds === []) {
             return;
         }
         $now = time();
         Capsule::table('ms365_run_worker_assignments')
-            ->where('run_id', $runId)
+            ->whereIn('run_id', $runIds)
             ->whereNull('released_at')
             ->update([
                 'released_at' => $now,

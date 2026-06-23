@@ -110,6 +110,15 @@ final class Ms365AdminJobsService
             if (!empty($detail['error_message'])) {
                 $logLines[] = 'Error: ' . (string) $detail['error_message'];
             }
+            if (!empty($detail['phase'])) {
+                $logLines[] = 'Phase: ' . (string) $detail['phase'];
+            }
+            if (isset($detail['graph_sync_ms']) && $detail['graph_sync_ms'] !== null) {
+                $logLines[] = 'Graph sync: ' . self::formatDurationMs((int) $detail['graph_sync_ms']);
+            }
+            if (isset($detail['kopia_snapshot_ms']) && $detail['kopia_snapshot_ms'] !== null) {
+                $logLines[] = 'Kopia snapshot: ' . self::formatDurationMs((int) $detail['kopia_snapshot_ms']);
+            }
             if (!empty($detail['last_error']) && $detail['last_error'] !== ($detail['error_message'] ?? '')) {
                 $logLines[] = 'Queue error: ' . (string) $detail['last_error'];
             }
@@ -347,5 +356,25 @@ final class Ms365AdminJobsService
         }
 
         return self::sanitizeForJson($parent);
+    }
+
+    private static function formatDurationMs(int $ms): string
+    {
+        if ($ms < 0) {
+            return '—';
+        }
+        $sec = (int) round($ms / 1000);
+        if ($sec < 60) {
+            return $sec . 's';
+        }
+        $min = intdiv($sec, 60);
+        $rem = $sec % 60;
+        if ($min < 60) {
+            return $rem > 0 ? sprintf('%dm %ds', $min, $rem) : $min . 'm';
+        }
+        $hr = intdiv($min, 60);
+        $min = $min % 60;
+
+        return $min > 0 ? sprintf('%dh %dm', $hr, $min) : $hr . 'h';
     }
 }

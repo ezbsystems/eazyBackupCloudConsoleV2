@@ -5,6 +5,7 @@ require_once __DIR__ . '/../../../../init.php';
 use Illuminate\Database\Capsule\Manager as Capsule;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use WHMCS\Module\Addon\CloudStorage\Client\RecoveryMediaBundleService;
+use WHMCS\Module\Addon\CloudStorage\Client\AgentAuth;
 
 if (!defined("WHMCS")) {
     die("This file cannot be accessed directly");

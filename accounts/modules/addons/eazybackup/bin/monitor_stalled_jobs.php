@@ -363,20 +363,27 @@ function bumpAttempt(PDO $pdo, string $serverId, string $jobId): void {
     $stmt->execute([':s'=>$serverId, ':j'=>$jobId]);
 }
 
-/** Update only last_checked_ts without incrementing attempts */
-function markChecked(PDO $pdo, string $serverId, string $jobId): void {
+/** Update only last_checked_ts without incrementing attempts (rate-limited). */
+function markChecked(PDO $pdo, string $serverId, string $jobId, int $recheckSecs = 300): void {
     $stmt = $pdo->prepare("
         UPDATE eb_jobs_live
            SET last_checked_ts = UNIX_TIMESTAMP()
          WHERE server_id=:s AND job_id=:j
+           AND (last_checked_ts IS NULL OR last_checked_ts = 0 OR last_checked_ts < UNIX_TIMESTAMP() - :recheck)
     ");
-    $stmt->execute([':s'=>$serverId, ':j'=>$jobId]);
+    $stmt->execute([':s'=>$serverId, ':j'=>$jobId, ':recheck'=>$recheckSecs]);
 }
 
 /** Reset strike/attempt counter after observing progress/heartbeat */
-function resetAttempts(PDO $pdo, string $serverId, string $jobId): void {
-    $stmt = $pdo->prepare("\n        UPDATE eb_jobs_live\n           SET cancel_attempts = 0,\n               last_checked_ts = UNIX_TIMESTAMP()\n         WHERE server_id=:s AND job_id=:j\n    ");
-    $stmt->execute([':s'=>$serverId, ':j'=>$jobId]);
+function resetAttempts(PDO $pdo, string $serverId, string $jobId, int $recheckSecs = 300): void {
+    $stmt = $pdo->prepare("
+        UPDATE eb_jobs_live
+           SET cancel_attempts = 0,
+               last_checked_ts = UNIX_TIMESTAMP()
+         WHERE server_id=:s AND job_id=:j
+           AND (cancel_attempts > 0 OR last_checked_ts IS NULL OR last_checked_ts = 0 OR last_checked_ts < UNIX_TIMESTAMP() - :recheck)
+    ");
+    $stmt->execute([':s'=>$serverId, ':j'=>$jobId, ':recheck'=>$recheckSecs]);
 }
 
 /** ---------- core logic ---------- */
@@ -453,8 +460,8 @@ function processProfile(
                         'would_action'=>'bootstrap_heartbeat_fresh'
                     ], JSON_UNESCAPED_SLASHES) . PHP_EOL;
                 } else {
-                    markChecked($pdo, $profileName, $bJob);
-                    resetAttempts($pdo, $profileName, $bJob);
+                    markChecked($pdo, $profileName, $bJob, $RECHECK_SECS);
+                    resetAttempts($pdo, $profileName, $bJob, $RECHECK_SECS);
                 }
             } else {
                 if ($DRY_RUN) {
@@ -616,8 +623,8 @@ function processProfile(
                         'would_action' => 'heartbeat_fresh'
                     ]);
                 } else {
-                    markChecked($pdo, $server, $jobId);
-                    resetAttempts($pdo, $server, $jobId);
+                    markChecked($pdo, $server, $jobId, $RECHECK_SECS);
+                    resetAttempts($pdo, $server, $jobId, $RECHECK_SECS);
                 }
                 continue;
             }

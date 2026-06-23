@@ -504,33 +504,36 @@ class NotificationService
      */
     private function serviceForUsername(PDO $pdo, string $username): ?array
     {
-        // 1) Capsule path (preferred)
+        $normalized = trim($username);
+        if ($normalized === '') {
+            return null;
+        }
+
+        // 1) Capsule path (preferred) — indexed equality on trimmed username
         try {
             $row = Capsule::table('tblhosting')
-                ->where('username', $username)
+                ->where('username', $normalized)
                 ->where('domainstatus', 'Active')
                 ->select('id','userid')
+                ->orderBy('id')
                 ->first();
             if ($row) { return ['service_id'=>(int)$row->id, 'client_id'=>(int)$row->userid]; }
         } catch (\Throwable $e) { /* ignore */ }
 
-        // 2) PDO fallback with robust matching (case/collation independent)
+        // 2) PDO fallback with legacy whitespace-tolerant matching
         try {
-            // Exact case-sensitive Active
-            $stmt = $pdo->prepare("SELECT id, userid FROM tblhosting WHERE BINARY TRIM(username)=TRIM(?) AND domainstatus='Active' ORDER BY id ASC LIMIT 1");
-            $stmt->execute([$username]);
+            $stmt = $pdo->prepare("SELECT id, userid FROM tblhosting WHERE BINARY TRIM(username)=? AND domainstatus='Active' ORDER BY id ASC LIMIT 1");
+            $stmt->execute([$normalized]);
             $r = $stmt->fetch(\PDO::FETCH_ASSOC);
             if ($r) { return ['service_id'=>(int)$r['id'], 'client_id'=>(int)$r['userid']]; }
 
-            // Exact case-sensitive any status (prefer Active via ORDER BY)
-            $stmt = $pdo->prepare("SELECT id, userid, (domainstatus='Active') AS is_active FROM tblhosting WHERE BINARY TRIM(username)=TRIM(?) ORDER BY is_active DESC, id ASC LIMIT 1");
-            $stmt->execute([$username]);
+            $stmt = $pdo->prepare("SELECT id, userid, (domainstatus='Active') AS is_active FROM tblhosting WHERE BINARY TRIM(username)=? ORDER BY is_active DESC, id ASC LIMIT 1");
+            $stmt->execute([$normalized]);
             $r = $stmt->fetch(\PDO::FETCH_ASSOC);
             if ($r && (int)$r['is_active'] === 1) { return ['service_id'=>(int)$r['id'], 'client_id'=>(int)$r['userid']]; }
 
-            // Case-insensitive, prefer Active
             $stmt = $pdo->prepare("SELECT id, userid, (domainstatus='Active') AS is_active FROM tblhosting WHERE LOWER(username)=LOWER(?) ORDER BY is_active DESC, id ASC LIMIT 1");
-            $stmt->execute([$username]);
+            $stmt->execute([$normalized]);
             $r = $stmt->fetch(\PDO::FETCH_ASSOC);
             if ($r && (int)$r['is_active'] === 1) { return ['service_id'=>(int)$r['id'], 'client_id'=>(int)$r['userid']]; }
         } catch (\Throwable $e) { /* ignore */ }

@@ -1,6 +1,7 @@
 <?php
 
 require_once __DIR__ . '/../../../../init.php';
+require_once __DIR__ . '/../lib/Client/AgentLiveness.php';
 require_once __DIR__ . '/../lib/Client/MspController.php';
 require_once __DIR__ . '/../lib/Client/AgentUpdateService.php';
 
@@ -10,6 +11,7 @@ use WHMCS\ClientArea;
 use WHMCS\Module\Addon\CloudStorage\Client\MspController;
 use WHMCS\Module\Addon\CloudStorage\Client\AgentUpdateService;
 use WHMCS\Module\Addon\CloudStorage\Client\AgentIngestSupport;
+use WHMCS\Module\Addon\CloudStorage\Client\AgentLiveness;
 
 if (!defined("WHMCS")) {
     die("This file cannot be accessed directly");
@@ -171,14 +173,22 @@ if (Capsule::schema()->hasTable('s3_agent_update_jobs')) {
 }
 
 // Add computed online/offline status.
+$redisOnlineByUuid = AgentLiveness::bulkOnlineStatus(
+    $agents->pluck('agent_uuid')->filter()->values()->all()
+);
 foreach ($agents as $a) {
-    $secs = isset($a->seconds_since_seen) ? (int) $a->seconds_since_seen : null;
-    if (empty($a->last_seen_at)) {
-        $a->online_status = 'never';
-    } elseif ($secs !== null && $secs <= $onlineThresholdSeconds) {
+    $redisOnline = $redisOnlineByUuid[(string) $a->agent_uuid] ?? null;
+    if ($redisOnline === true) {
         $a->online_status = 'online';
     } else {
-        $a->online_status = 'offline';
+        $secs = isset($a->seconds_since_seen) ? (int) $a->seconds_since_seen : null;
+        if (empty($a->last_seen_at)) {
+            $a->online_status = 'never';
+        } elseif ($secs !== null && $secs <= $onlineThresholdSeconds) {
+            $a->online_status = 'online';
+        } else {
+            $a->online_status = 'offline';
+        }
     }
     $a->online_threshold_seconds = $onlineThresholdSeconds;
     $backupUserId = (int) ($a->backup_user_id ?? 0);

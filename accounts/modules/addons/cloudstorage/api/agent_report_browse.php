@@ -1,8 +1,10 @@
 <?php
 
 require_once __DIR__ . '/../../../../init.php';
+require_once __DIR__ . '/../lib/Client/AgentAuth.php';
 
 use Illuminate\Database\Capsule\Manager as Capsule;
+use WHMCS\Module\Addon\CloudStorage\Client\AgentAuth;
 use Symfony\Component\HttpFoundation\JsonResponse;
 
 if (!defined("WHMCS")) {
@@ -16,24 +18,7 @@ function respond(array $data, int $httpCode = 200): void
 }
 
 // Agent authentication
-$agentUuid = $_SERVER['HTTP_X_AGENT_UUID'] ?? ($_POST['agent_uuid'] ?? null);
-$agentToken = $_SERVER['HTTP_X_AGENT_TOKEN'] ?? ($_POST['agent_token'] ?? null);
-if (!$agentUuid || !$agentToken) {
-    respond(['status' => 'fail', 'message' => 'Missing agent headers'], 401);
-}
-
-$agent = Capsule::table('s3_cloudbackup_agents')
-    ->where('agent_uuid', $agentUuid)
-    ->first();
-
-if (!$agent || $agent->status !== 'active' || $agent->agent_token !== $agentToken) {
-    respond(['status' => 'fail', 'message' => 'Unauthorized'], 401);
-}
-
-// Touch last_seen_at
-Capsule::table('s3_cloudbackup_agents')
-    ->where('agent_uuid', $agentUuid)
-    ->update(['last_seen_at' => Capsule::raw('NOW()')]);
+$agent = AgentAuth::authenticate(fn(array $data, int $code) => respond($data, $code));
 
 $bodyRaw = file_get_contents('php://input');
 $body = $bodyRaw ? json_decode($bodyRaw, true) : [];

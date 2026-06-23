@@ -126,3 +126,16 @@
 .ms365-directory-info-table tbody tr:last-child td {
     border-bottom: none;
 }
+
+.ms365-tree-node--disabled {
+    opacity: 0.6;
+}
+
+.ms365-tree-label--disabled {
+    cursor: not-allowed;
+}
+
+.ms365-tree-label-reason {
+    display: block;
+    font-style: italic;
+}

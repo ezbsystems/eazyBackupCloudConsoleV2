@@ -79,6 +79,18 @@ WHMCS setting `ms365_graph_pagination_json` (default: SharePoint `max_pages=2500
 
 Workers call `ms365_worker_graph_token.php` on Graph **401** and proactively every `graph_token_refresh_seconds` (default 2700). `graph 401 after token refresh` is terminal non-retryable.
 
+## Kopia upload observability
+
+| Knob | Default | Purpose |
+|------|---------|---------|
+| `kopia.stall_seconds` | `2700` (45m); `0` = disabled | Worker fails retryably when hashing progress stops during `kopia_upload` |
+| `kopia.stall_check_interval_seconds` | `60` | Stall watchdog poll interval |
+| `kopia.stall_grace_seconds` | `300` | Ignore stall checks during initial repo open |
+
+**Live UI:** Parent batch speed/ETA uses `bytes_processed` (sum of child `bytes_hashed`), not `bytes_transferred`, so dedup-heavy whale uploads show non-zero throughput.
+
+**Child stats:** `ms365_backup_runs.stats_json` stores `graph_sync_ms` and `kopia_snapshot_ms` (live during run, final on complete). Admin Jobs batch detail shows per-workload phase timings.
+
 ## Batch shard auto-retry
 
 When `ms365_batch_auto_retry_enabled` is on (default), a parent batch with partial failures **re-queues only failed or never-started child workloads** on the same `e3_batch_run_id` instead of requiring a full manual Run Now. Eligible children:

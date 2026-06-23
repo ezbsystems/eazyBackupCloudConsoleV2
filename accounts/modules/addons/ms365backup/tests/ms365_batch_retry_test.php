@@ -65,6 +65,25 @@ assert_true(
     'User-cancelled child is ineligible',
 );
 
+// Production reality: the run's error_message is customer-sanitized while the
+// queue holds the raw technical error. Eligibility must classify on the raw
+// queue message so permanent failures are not re-run.
+assert_true(
+    !Ms365BatchRetryService::isEligibleForRetry(
+        child('error', 'Something went wrong. Please try again or contact support.'),
+        ['error_message' => 'tasks: graph 401 Unauthorized: {"error":{"code":"UnknownError"}}']
+    ),
+    'Sanitized run message + raw queue 401 is ineligible',
+);
+
+assert_true(
+    Ms365BatchRetryService::isEligibleForRetry(
+        child('error', 'Something went wrong. Please try again or contact support.'),
+        ['error_message' => 'sharepoint: context deadline exceeded']
+    ),
+    'Sanitized run message + retryable queue error is eligible',
+);
+
 assert_true(
     !Ms365BatchRetryService::isEligibleForRetry(child('success')),
     'Successful child is ineligible',

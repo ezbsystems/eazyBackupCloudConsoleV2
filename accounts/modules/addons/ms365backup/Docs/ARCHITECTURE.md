@@ -496,6 +496,19 @@ Run `status` values: `queued`, `running`, `success`, `error`, `cancelled`, `skip
 - **Client area:** `ms365backup_clientarea()` → `templates/clientarea/dashboard.tpl`.
 - See [PHASE3_PRD.md](PHASE3_PRD.md), [CUSTOMER_ONBOARDING.md](CUSTOMER_ONBOARDING.md).
 
+### Graph throttling (control plane)
+
+Microsoft Graph service protection returns **429** with `Retry-After`; sustained throttling is a **wait-it-out** condition, not a run failure.
+
+| Layer | Behavior |
+|-------|----------|
+| **Worker (Go)** | Honors `Retry-After`; AIMD shrinks concurrency; rising `graph_429_hits` counts as liveness while waiting |
+| **`ms365_backup_runs.last_429_at`** | Set on each 429 delta in `backupProgress()`; reapers treat recent 429 + fresh lease as alive (**600s** window) |
+| **`GraphTenantBudgetService`** | Per-Entra-tenant `ms365_graph_tenant_budget`; shrinks on 429 deltas, slow decay (**600s** windows); default cap **16** concurrent (`ms365_per_tenant_max_concurrent`) |
+| **Reapers** | `shouldReapRunningChild`, `releaseStalledClaimsForBusyNode`, `reconcileZombieRuns` skip throttled-but-alive runs; genuine wedges (no 429, no progress) and expired leases still requeue |
+
+Worker claim/progress responses include `graph_tenant_budget` (per-node share of tenant budget). Live UI shows a throttle badge when child `stats_json.graph_429_hits` rises.
+
 ## Out of scope (later)
 
 - Calendar Graph delta / `calendarView`
