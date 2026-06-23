@@ -1,0 +1,36 @@
+
+[2026-06-22 14:16:15] $ 'git' '-C' '/srv/agent-build/eazyBackupCloudConsoleV2' 'fetch' '--all' '--tags' '--prune'
+Fetching origin
+From github.com:ezbsystems/eazyBackupCloudConsoleV2
+   363f57bd..c04c6aae  main       -> origin/main
+[2026-06-22 14:16:19] exit=0
+
+[2026-06-22 14:16:19] $ 'git' '-C' '/srv/agent-build/eazyBackupCloudConsoleV2' 'checkout' 'c7dc16ea0ac64e6a7310416a0d03601e285e43bf'
+Note: switching to 'c7dc16ea0ac64e6a7310416a0d03601e285e43bf'.
+
+You are in 'detached HEAD' state. You can look around, make experimental
+changes and commit them, and you can discard any commits you make in this
+state without impacting any branches by switching back to a branch.
+
+If you want to create a new branch to retain commits you create, you may
+do so (now or later) by using -c with the switch command. Example:
+
+  git switch -c <new-branch-name>
+
+Or undo this operation with:
+
+  git switch -
+
+Turn off this advice by setting config variable advice.detachedHead to false
+
+HEAD is now at c7dc16ea e3agent: command poll interval + next_poll_secs support (dev build 1.0.14)
+[2026-06-22 14:16:19] exit=0
+
+[2026-06-22 14:16:19] $ 'git' '-C' '/srv/agent-build/eazyBackupCloudConsoleV2' 'pull' '--ff-only'
+You are not currently on a branch.
+Please specify which branch you want to merge with.
+See git-pull(1) for details.
+
+    git pull <remote> <branch>
+
+[2026-06-22 14:16:20] exit=1

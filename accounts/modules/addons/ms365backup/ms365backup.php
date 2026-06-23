@@ -28,7 +28,7 @@ function ms365backup_config(): array
     return [
         'name' => 'MS365 Backup',
         'description' => 'Admin-only Microsoft 365 backup development tool (mail, calendar, contacts, To Do, OneDrive).',
-        'version' => '1.42.0',
+        'version' => '1.43.0',
         'author' => 'eazyBackup',
         'language' => 'english',
         'fields' => [
@@ -190,6 +190,13 @@ function ms365backup_config(): array
                 'Rows' => '4',
                 'Cols' => '60',
                 'Description' => 'Optional JSON object e.g. {"mail":true,"calendar":true}. Empty = all enabled.',
+            ],
+            'ms365_archive_export_ttl_days' => [
+                'FriendlyName' => 'Archive export TTL (days)',
+                'Type' => 'text',
+                'Size' => '4',
+                'Default' => '7',
+                'Description' => 'Days before auto-expiration of MS365 restore archive exports under exports/ prefix.',
             ],
             'proxmox_api_url' => [
                 'FriendlyName' => 'Proxmox API URL',

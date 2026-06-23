@@ -3,12 +3,21 @@
 **Purpose:** Single handoff document so the next agent knows where work stopped. Update this file at the **end of every session** (or after each meaningful milestone).
 
 **Last updated:** 2026-06-23  
-**Module version (ms365backup):** 1.42.0  
-**Worker version (ms365-backup-worker):** 0.3.11
+**Module version (ms365backup):** 1.43.0  
+**Worker version (ms365-backup-worker):** 0.3.13
 
 ---
 
 ## Session log
+
+### 2026-06-23 — MS365 archive restore (Phase 5 enhancement; PHP 1.43.0 / worker 0.3.13)
+
+- **Goal:** Alternative restore path — export selected snapshot items to a streamed `.zip` in the job bucket (`exports/` prefix) with presigned download instead of writing back to Graph.
+- **UI:** Restore wizard step 2 **Restore method** (`tenant` vs `archive`); archive mode skips Destination; review copy + expiry note; live run page **Download archive** button calling `ms365_restore_download.php`.
+- **PHP:** `upgrade_phase20_archive_restore.sql`; `RestoreJobService` archive branch (single run); `Ms365ArchiveExportService` (lifecycle + presign); `ms365_restore_download.php`; claim/complete hooks.
+- **Worker 0.3.13:** `internal/archive` — recursive Kopia browse, `zip.Store` stream via `io.Pipe`, minio `PutObject` to `exports/{run_id}/…`.
+- **Settings:** `ms365_archive_export_ttl_days` (default 7) drives `exports/` bucket lifecycle expiration.
+- **Verify:** Deploy PHP 1.43.0 + worker 0.3.13; module upgrade (phase20 SQL); wizard archive flow; confirm lifecycle rule + presigned download; tenant restore unchanged.
 
 ### 2026-06-23 — Orphan thrash fix + completion item reconcile (PHP 1.42.0)
 
@@ -388,15 +397,16 @@
 
 ## Known gaps / next work (prioritized)
 
-1. **Manual fleet scaling E2E** — After 1.34.0 deploy: scale up on each Proxmox node; verify cross-node clone with `proxmox_template_vmid_map` or shared storage; confirm baseline auto-update + claim gate on fresh clones.
-2. **File backup staging E2E** — Execute `Docs/KOPIA_FILE_BACKUP_E2E.md` on dev tenant (OneDrive + SP files/lists + mail attachments); confirm browse shows `content/` bytes.
-3. **Publish worker release** — Build/publish Go worker with `sharepoint_lists` + shard filtering; roll fleet to new artifact.
-4. **Tenant Seeder E2E** — Register seeder Entra app; run Light profile; verify backup picks up seeded files.
-5. ~~**Metering / billing**~~ — MS365 billing per `MS365_BILLING_AND_STORAGE_DESIGN.md` (meter/rate cron, trial, invoice hook, Usage & Billing drawer).
-6. **Admin support view** — Impersonate client tenant, re-run inventory from admin addon.
-7. **Remove Comet LXD path** — `Provisioner::provisionMs365` still provisions legacy order/LXD.
-8. **Async inventory refresh** — Large tenants may need background job instead of synchronous POST.
-9. **Calendar verify on Kopia** — `CalendarVerifier` still reads legacy PHP layout paths; port to snapshot browse or drop.
+1. **Archive restore E2E** — Deploy PHP 1.43.0 + worker 0.3.12; run module upgrade (`upgrade_phase20_archive_restore.sql`); verify wizard archive path, `exports/` lifecycle on job bucket, presigned download via `ms365_restore_download.php`, and tenant restore regression.
+2. **Manual fleet scaling E2E** — After 1.34.0 deploy: scale up on each Proxmox node; verify cross-node clone with `proxmox_template_vmid_map` or shared storage; confirm baseline auto-update + claim gate on fresh clones.
+3. **File backup staging E2E** — Execute `Docs/KOPIA_FILE_BACKUP_E2E.md` on dev tenant (OneDrive + SP files/lists + mail attachments); confirm browse shows `content/` bytes.
+4. **Publish worker release** — Build/publish Go worker with `sharepoint_lists` + shard filtering; roll fleet to new artifact.
+5. **Tenant Seeder E2E** — Register seeder Entra app; run Light profile; verify backup picks up seeded files.
+6. ~~**Metering / billing**~~ — MS365 billing per `MS365_BILLING_AND_STORAGE_DESIGN.md` (meter/rate cron, trial, invoice hook, Usage & Billing drawer).
+7. **Admin support view** — Impersonate client tenant, re-run inventory from admin addon.
+8. **Remove Comet LXD path** — `Provisioner::provisionMs365` still provisions legacy order/LXD.
+9. **Async inventory refresh** — Large tenants may need background job instead of synchronous POST.
+10. **Calendar verify on Kopia** — `CalendarVerifier` still reads legacy PHP layout paths; port to snapshot browse or drop.
 
 ---
 

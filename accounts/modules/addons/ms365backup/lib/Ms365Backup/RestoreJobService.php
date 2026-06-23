@@ -38,13 +38,34 @@ final class RestoreJobService
             throw new \RuntimeException('At least one item must be selected for restore.');
         }
 
+        $restoreMode = (string) ($selection['restore_mode'] ?? 'tenant');
+        if ($restoreMode !== 'archive') {
+            $restoreMode = 'tenant';
+        }
+
         $targets = $selection['targets'] ?? [];
-        if (!is_array($targets) || $targets === []) {
+        if ($restoreMode === 'tenant' && (!is_array($targets) || $targets === [])) {
             throw new \RuntimeException('Restore target is required.');
+        }
+        if (!is_array($targets)) {
+            $targets = [];
         }
 
         $conflictPolicy = (string) ($selection['conflict_policy'] ?? 'skip_duplicates');
         $batchRunId = Ms365BatchRunRepository::createRestoreBatch($clientId, $jobId);
+
+        if ($restoreMode === 'archive') {
+            return self::startArchiveRestore(
+                $clientId,
+                $backupUserId,
+                $record,
+                $jobId,
+                $batchRunId,
+                $sourceBatchRunId,
+                $items,
+                $conflictPolicy,
+            );
+        }
 
         $grouped = self::groupItemsByWorkload($items);
         $restoreRunIds = [];
@@ -101,6 +122,90 @@ final class RestoreJobService
         return [
             'batch_run_id' => $batchRunId,
             'restore_run_ids' => $restoreRunIds,
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $record
+     * @param list<array<string, mixed>> $items
+     * @return array{batch_run_id: string, restore_run_ids: list<string>}
+     */
+    private static function startArchiveRestore(
+        int $clientId,
+        int $backupUserId,
+        array $record,
+        string $jobId,
+        string $batchRunId,
+        string $sourceBatchRunId,
+        array $items,
+        string $conflictPolicy,
+    ): array {
+        $manifestId = '';
+        $childRunId = '';
+        foreach ($items as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            if (trim((string) ($item['manifest_id'] ?? '')) !== '') {
+                $manifestId = (string) $item['manifest_id'];
+            }
+            if (trim((string) ($item['child_run_id'] ?? '')) !== '') {
+                $childRunId = (string) $item['child_run_id'];
+            }
+            if ($manifestId !== '') {
+                break;
+            }
+        }
+        if ($manifestId === '' && $childRunId !== '') {
+            $backupRun = BackupRunRepository::get($childRunId);
+            $manifestId = (string) ($backupRun['manifest_id'] ?? '');
+        }
+        if ($manifestId === '') {
+            throw new \RuntimeException('No restorable workloads found in selection.');
+        }
+
+        $dest = Ms365JobDestinationService::resolveForJobId($jobId, $record);
+        $archiveBucket = trim((string) ($dest['bucket'] ?? ''));
+
+        Ms365ArchiveExportService::ensureLifecycleRule(
+            $clientId,
+            $backupUserId,
+            $jobId,
+            Ms365ArchiveExportService::archiveExportTtlDays(),
+        );
+
+        $createData = [
+            'tenant_record_id' => (int) $record['id'],
+            'whmcs_client_id' => $clientId,
+            'resource_type' => '',
+            'target_graph_id' => '',
+            'target_resource_id' => '',
+            'backup_run_id' => $childRunId !== '' ? $childRunId : null,
+            'e3_batch_run_id' => $batchRunId,
+            'source_batch_run_id' => $sourceBatchRunId,
+            'source_manifest_id' => $manifestId,
+            'restore_mode' => 'archive',
+            'selection_json' => [
+                'items' => $items,
+                'targets' => [],
+                'restore_mode' => 'archive',
+                'conflict_policy' => $conflictPolicy,
+                'snapshot_batch_run_id' => $sourceBatchRunId,
+            ],
+            'conflict_policy' => $conflictPolicy,
+            'items_total' => count($items),
+        ];
+        if ($archiveBucket !== '') {
+            $createData['archive_bucket'] = $archiveBucket;
+        }
+
+        $restoreId = RestoreRunRepository::create($createData);
+
+        JobQueueRepository::enqueueRestore($restoreId);
+
+        return [
+            'batch_run_id' => $batchRunId,
+            'restore_run_ids' => [$restoreId],
         ];
     }
 

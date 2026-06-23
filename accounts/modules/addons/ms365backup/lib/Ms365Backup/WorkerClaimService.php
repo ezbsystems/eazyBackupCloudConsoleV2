@@ -610,9 +610,21 @@ final class WorkerClaimService
 
         $driveId = self::driveIdForRestoreRun($run, $restoreItems);
 
-        return [
+        $restoreMode = 'tenant';
+        if (Capsule::schema()->hasColumn('ms365_restore_runs', 'restore_mode')) {
+            $restoreMode = trim((string) ($run['restore_mode'] ?? ''));
+        }
+        if ($restoreMode === '') {
+            $restoreMode = trim((string) ($selection['restore_mode'] ?? 'tenant'));
+        }
+        if ($restoreMode !== 'archive') {
+            $restoreMode = 'tenant';
+        }
+
+        $payload = [
             'run_id' => $restoreRunId,
             'job_type' => 'restore',
+            'restore_mode' => $restoreMode,
             'tenant_record_id' => $tenantRecordId,
             'whmcs_client_id' => (int) ($run['whmcs_client_id'] ?? 0),
             'azure_tenant_id' => (string) ($creds['tenant_id'] ?? ''),
@@ -635,9 +647,23 @@ final class WorkerClaimService
                 'items' => $restoreItems,
                 'targets' => $restoreTargets,
                 'conflict_policy' => (string) ($run['conflict_policy'] ?? 'skip_duplicates'),
+                'restore_mode' => $restoreMode,
             ],
             'lease_expires_at' => WorkerLeaseService::leaseExpiresAt($restoreRunId),
         ];
+
+        if ($restoreMode === 'archive') {
+            $archiveExport = [
+                'object_key' => Ms365ArchiveExportService::precomputedObjectKey($restoreRunId),
+                'bucket' => (string) ($dest['bucket'] ?? ''),
+                'prefix' => 'exports/',
+                'compression' => 'store',
+            ];
+            $payload['archive_export'] = $archiveExport;
+            $payload['restore_selection']['archive_export'] = $archiveExport;
+        }
+
+        return $payload;
     }
 
     /** @return array<string, bool> */

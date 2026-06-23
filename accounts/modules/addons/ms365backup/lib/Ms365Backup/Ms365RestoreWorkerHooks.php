@@ -443,11 +443,71 @@ final class Ms365RestoreWorkerHooks
 
         $run = RestoreRunRepository::get($runId);
         $expectedItems = 0;
+        $restoreMode = 'tenant';
         if ($run !== null) {
+            if (\WHMCS\Database\Capsule::schema()->hasColumn('ms365_restore_runs', 'restore_mode')) {
+                $restoreMode = (string) ($run['restore_mode'] ?? 'tenant');
+            }
             $selection = json_decode((string) ($run['selection_json'] ?? ''), true);
             if (is_array($selection) && is_array($selection['items'] ?? null)) {
                 $expectedItems = count($selection['items']);
             }
+            if ($restoreMode === '' && is_array($selection)) {
+                $restoreMode = (string) ($selection['restore_mode'] ?? 'tenant');
+            }
+        }
+
+        if ($restoreMode === 'archive') {
+            $objectKey = trim((string) ($stats['object_key'] ?? ''));
+            $bytes = (int) ($stats['bytes'] ?? 0);
+            if ($objectKey === '' || $bytes <= 0) {
+                self::restoreFail($runId, 'Archive export finished without a downloadable archive.');
+
+                return;
+            }
+
+            $ttlDays = Ms365ArchiveExportService::archiveExportTtlDays();
+            $update = [
+                'status' => 'success',
+                'phase' => 'complete',
+                'items_done' => max(1, (int) ($stats['files'] ?? $expectedItems)),
+                'items_skipped' => 0,
+                'finished_at' => $now,
+            ];
+            if (\WHMCS\Database\Capsule::schema()->hasColumn('ms365_restore_runs', 'archive_object_key')) {
+                $update['archive_object_key'] = $objectKey;
+            }
+            if (\WHMCS\Database\Capsule::schema()->hasColumn('ms365_restore_runs', 'archive_bucket')) {
+                $archiveBucket = trim((string) ($stats['bucket'] ?? ''));
+                if ($archiveBucket === '' && $run !== null) {
+                    $archiveBucket = trim((string) ($run['archive_bucket'] ?? ''));
+                }
+                $update['archive_bucket'] = $archiveBucket !== '' ? $archiveBucket : null;
+            }
+            if (\WHMCS\Database\Capsule::schema()->hasColumn('ms365_restore_runs', 'archive_size_bytes')) {
+                $update['archive_size_bytes'] = $bytes;
+            }
+            if (\WHMCS\Database\Capsule::schema()->hasColumn('ms365_restore_runs', 'archive_expires_at')) {
+                $update['archive_expires_at'] = $now + ($ttlDays * 86400);
+            }
+
+            RestoreRunRepository::update($runId, $update);
+            JobQueueRepository::markDone($runId);
+            Ms365BatchRunRepository::syncForRestoreChildRun($runId);
+
+            $logger = new RestoreProgressLogger($runId);
+            $files = (int) ($stats['files'] ?? 0);
+            $summary = 'Archive export completed (' . $bytes . ' bytes)';
+            if ($files > 0) {
+                $summary .= ', ' . $files . ' file(s)';
+            }
+            $logger->info($summary, [
+                'object_key' => $objectKey,
+                'bytes' => $bytes,
+                'files' => $files,
+            ]);
+
+            return;
         }
 
         $noopBackupStats = ($stats['status'] ?? '') === 'no_changes';

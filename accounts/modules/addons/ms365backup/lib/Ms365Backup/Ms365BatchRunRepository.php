@@ -540,6 +540,15 @@ final class Ms365BatchRunRepository
             return '';
         }
 
+        $hasRestoreModeCol = Capsule::schema()->hasColumn('ms365_restore_runs', 'restore_mode');
+        if ($hasRestoreModeCol) {
+            foreach ($children as $child) {
+                if (strtolower((string) ($child['restore_mode'] ?? '')) === 'archive') {
+                    return 'Download archive';
+                }
+            }
+        }
+
         $labels = [];
         foreach ($children as $child) {
             $graphId = trim((string) ($child['target_graph_id'] ?? ''));

@@ -4,6 +4,7 @@ go 1.24.0
 
 require (
 	github.com/kopia/kopia v0.9.8
+	github.com/minio/minio-go/v7 v7.0.18
 	golang.org/x/sync v0.10.0
 	gopkg.in/yaml.v3 v3.0.1
 )
@@ -19,7 +20,6 @@ require (
 	github.com/klauspost/cpuid/v2 v2.0.9 // indirect
 	github.com/klauspost/pgzip v1.2.5 // indirect
 	github.com/minio/md5-simd v1.1.2 // indirect
-	github.com/minio/minio-go/v7 v7.0.18 // indirect
 	github.com/minio/sha256-simd v1.0.0 // indirect
 	github.com/mitchellh/go-homedir v1.1.0 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect

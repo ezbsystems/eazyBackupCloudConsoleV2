@@ -191,6 +191,14 @@
             </div>
         </div>
 
+        {if $is_restore && isset($ms365_archive_restore) && $ms365_archive_restore}
+        <div id="ms365ArchiveDownloadPanel" class="eb-live-alert eb-live-alert--success{if !$ms365_archive_download_ready} hidden{/if}">
+            <p class="eb-live-alert-title">Archive ready</p>
+            <p class="eb-live-alert-copy">Your compressed archive is ready to download. The file is automatically removed after the retention period (typically 7 days).</p>
+            <button type="button" class="eb-btn eb-btn-primary eb-btn-sm mt-3" id="ms365ArchiveDownloadBtn" onclick="downloadMs365Archive()">Download archive</button>
+        </div>
+        {/if}
+
         {if $is_restore && $restore_metadata && $restore_metadata.type ne 'ms365_restore'}
             <div class="eb-live-alert eb-live-alert--success">
                 {if $is_hyperv_restore}
@@ -408,6 +416,10 @@ let isRunning = {if $isRunningStatus}true{else}false{/if};
 const RUN_UUID = '{$run.run_id}';
 const LIVE_IS_MS365 = {if isset($is_ms365_batch) && $is_ms365_batch}true{else}false{/if};
 const LIVE_IS_RESTORE = {if $is_restore}true{else}false{/if};
+const MS365_ARCHIVE_RESTORE = {if isset($ms365_archive_restore) && $ms365_archive_restore}true{else}false{/if};
+const MS365_ARCHIVE_USER_ID = {if isset($ms365_backup_user_scope_id) && $ms365_backup_user_scope_id}{$ms365_backup_user_scope_id|@json_encode nofilter}{else}''{/if};
+const MS365_ARCHIVE_BATCH_RUN_ID = {if isset($run.run_id)}{$run.run_id|@json_encode nofilter}{else}''{/if};
+const MS365_ARCHIVE_RESTORE_RUN_ID = {if isset($ms365_restore_run_id) && $ms365_restore_run_id}{$ms365_restore_run_id|@json_encode nofilter}{else}''{/if};
 const MS365_INITIAL_WORKLOADS = {if isset($is_ms365_batch) && $is_ms365_batch}{$ms365_workloads|@json_encode nofilter}{else}[]{/if};
 const E3_API_ROOT = '{$WEB_ROOT|escape:'javascript'}/modules/addons/cloudstorage/api';
 
@@ -427,6 +439,53 @@ async function fetchE3Json(path, options) {
         throw new Error('Server returned non-JSON (HTTP ' + response.status + '): ' + preview);
     }
 }
+
+function updateMs365ArchiveDownloadPanel(run) {
+    if (!MS365_ARCHIVE_RESTORE) return;
+    const panel = document.getElementById('ms365ArchiveDownloadPanel');
+    if (!panel) return;
+    const ready = run && ['success', 'partial_success'].includes(String(run.status || '').toLowerCase());
+    panel.classList.toggle('hidden', !ready);
+}
+
+async function downloadMs365Archive() {
+    const btn = document.getElementById('ms365ArchiveDownloadBtn');
+    if (!MS365_ARCHIVE_RESTORE || !MS365_ARCHIVE_USER_ID) {
+        if (window.toast && window.toast.error) window.toast.error('Download is not available for this run.');
+        return;
+    }
+    const originalLabel = btn ? btn.textContent : '';
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Preparing…';
+    }
+    try {
+        const params = new URLSearchParams({
+            user_id: String(MS365_ARCHIVE_USER_ID),
+            batch_run_id: String(MS365_ARCHIVE_BATCH_RUN_ID || RUN_UUID),
+        });
+        if (MS365_ARCHIVE_RESTORE_RUN_ID) {
+            params.set('restore_run_id', String(MS365_ARCHIVE_RESTORE_RUN_ID));
+        }
+        const data = await fetchE3Json('ms365_restore_download.php?' + params.toString());
+        if (data.status === 'success' && data.download_url) {
+            window.open(data.download_url, '_blank');
+        } else {
+            throw new Error(data.message || 'Download link unavailable');
+        }
+    } catch (e) {
+        const msg = (e && e.message) ? e.message : 'Failed to prepare download';
+        if (window.toast && window.toast.error) window.toast.error(msg);
+        else if (typeof window.e3backupNotify === 'function') window.e3backupNotify('error', msg);
+        else alert(msg);
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = originalLabel || 'Download archive';
+        }
+    }
+}
+
 const SHOW_FILES_METRIC = {if $showFilesMetric}true{else}false{/if};
 const SHOW_ITEMS_METRIC = {if $showItemsMetric}true{else}false{/if};
 let lastLogsHash = null;
@@ -1089,6 +1148,7 @@ function updateProgress() {
                 updateStatusDisplay(statusConfig);
                 updateStageLabel(run);
                 updateDuration(run);
+                updateMs365ArchiveDownloadPanel(run);
 
                 const cancelButton = document.getElementById('cancelButton');
                 if (cancelButton) {

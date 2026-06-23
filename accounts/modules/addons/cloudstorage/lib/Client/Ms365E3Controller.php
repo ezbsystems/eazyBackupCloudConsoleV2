@@ -23,6 +23,8 @@ use Symfony\Component\HttpFoundation\JsonResponse;
 use Ms365Backup\KopiaSnapshotBrowseService;
 use Ms365Backup\Ms365RestoreSnapshotService;
 use Ms365Backup\RestoreJobService;
+use Ms365Backup\Ms365ArchiveExportService;
+use Ms365Backup\RestoreRunRepository;
 use Ms365Backup\TenantRecordRepository;
 
 /**
@@ -349,6 +351,36 @@ final class Ms365E3Controller
     public static function startRestore(int $clientId, int $backupUserId, string $jobId, array $selection): array
     {
         return RestoreJobService::start($clientId, $backupUserId, $jobId, $selection);
+    }
+
+    /**
+     * @return array{download_url: string, expires_at: int}
+     */
+    public static function restoreArchiveDownloadUrl(int $clientId, string $restoreRunId, int $ttlSeconds = 3600): array
+    {
+        $run = RestoreRunRepository::get($restoreRunId);
+        if ($run === null || (int) ($run['whmcs_client_id'] ?? 0) !== $clientId) {
+            throw new \RuntimeException('Restore run not found.');
+        }
+
+        $restoreMode = (string) ($run['restore_mode'] ?? 'tenant');
+        if ($restoreMode !== 'archive') {
+            throw new \RuntimeException('This restore run is not an archive export.');
+        }
+        if ((string) ($run['status'] ?? '') !== 'success') {
+            throw new \RuntimeException('Archive export is not ready for download.');
+        }
+
+        $ttlSeconds = max(60, min(86400, $ttlSeconds));
+        $downloadUrl = Ms365ArchiveExportService::presignDownload($run, $ttlSeconds);
+        if ($downloadUrl === '') {
+            throw new \RuntimeException('Unable to generate archive download link.');
+        }
+
+        return [
+            'download_url' => $downloadUrl,
+            'expires_at' => time() + $ttlSeconds,
+        ];
     }
 
     private static function restoreBrowseSectionKey(string $resourceType, string $physicalKey): string
