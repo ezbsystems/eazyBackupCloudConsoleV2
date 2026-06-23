@@ -105,6 +105,54 @@ func TestTenantCooldownCapped(t *testing.T) {
 	tenantCooldownMu.Unlock()
 }
 
+func TestAcquireTenantPrunesExpiredCooldown(t *testing.T) {
+	tenantID := "tenant-prune"
+	tenantCooldownMu.Lock()
+	tenantCooldownUntil[tenantID] = time.Now().Add(-time.Second)
+	tenantCooldownMu.Unlock()
+	defer func() {
+		tenantCooldownMu.Lock()
+		delete(tenantCooldownUntil, tenantID)
+		tenantCooldownMu.Unlock()
+	}()
+
+	ctx := context.Background()
+	if err := acquireTenant(ctx, tenantID); err != nil {
+		t.Fatalf("acquire: %v", err)
+	}
+	tenantCooldownMu.Lock()
+	_, stillCooling := tenantCooldownUntil[tenantID]
+	tenantCooldownMu.Unlock()
+	if stillCooling {
+		t.Fatal("expected expired cooldown entry to be pruned")
+	}
+}
+
+func TestTenantAdaptiveSeedOnNewClient(t *testing.T) {
+	tenantID := "tenant-seed"
+	persistTenantAdaptiveLimit(tenantID, 3)
+	SetTenantBudget(tenantID, 8)
+	defer func() {
+		tenantAdaptiveMu.Lock()
+		delete(tenantAdaptiveLimit, tenantID)
+		delete(tenantAdaptiveCeiling, tenantID)
+		tenantAdaptiveMu.Unlock()
+		tenantLimitMu.Lock()
+		delete(tenantSem, tenantID)
+		delete(tenantBudget, tenantID)
+		tenantLimitMu.Unlock()
+	}()
+
+	c := NewClient("token", "", ClientOptions{
+		MaxConcurrency: 16,
+		AdaptiveLimit:  true,
+	})
+	c.SetAzureTenantID(tenantID)
+	if c.AdaptiveConcurrency() != 3 {
+		t.Fatalf("seeded adaptive=%d want 3", c.AdaptiveConcurrency())
+	}
+}
+
 func TestSetTenantBudgetConcurrentUpdate(t *testing.T) {
 	var wg sync.WaitGroup
 	for i := 0; i < 20; i++ {

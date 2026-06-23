@@ -1,11 +1,13 @@
 package graph
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -264,7 +266,7 @@ func TestClientAdaptiveConcurrencyRecovery(t *testing.T) {
 	if c.AdaptiveConcurrency() != 4 {
 		t.Fatalf("initial adaptive=%d want 4", c.AdaptiveConcurrency())
 	}
-	c.record429()
+	c.record429(time.Second)
 	if c.AdaptiveConcurrency() != 2 {
 		t.Fatalf("after 429 adaptive=%d want 2", c.AdaptiveConcurrency())
 	}
@@ -351,5 +353,244 @@ func TestClientReleasesTransportDuring429Backoff(t *testing.T) {
 func TestBatchGetMessagesChunking(t *testing.T) {
 	if maxBatchRequests != 20 {
 		t.Fatalf("unexpected batch size %d", maxBatchRequests)
+	}
+}
+
+func TestUploadChunkRetries429(t *testing.T) {
+	var chunkCalls int
+	var srv *httptest.Server
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "createUploadSession") {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"uploadUrl":"` + srv.URL + `/upload"}`))
+			return
+		}
+		if r.Method == http.MethodPut {
+			chunkCalls++
+			if chunkCalls == 1 {
+				w.Header().Set("Retry-After", "1")
+				w.WriteHeader(http.StatusTooManyRequests)
+				return
+			}
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte(`{"id":"file-1"}`))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	c := NewClient("token", "", ClientOptions{
+		MaxRetries:     3,
+		MaxConcurrency: 4,
+		AdaptiveLimit:  true,
+	})
+	c.graphBase = srv.URL
+	c.httpClient = srv.Client()
+
+	data := []byte("hello upload chunk")
+	_, err := c.putViaUploadSession(context.Background(), "/drive/root:/test.txt:/content", int64(len(data)), bytes.NewReader(data))
+	if err != nil {
+		t.Fatalf("putViaUploadSession: %v", err)
+	}
+	if chunkCalls < 2 {
+		t.Fatalf("expected chunk retry after 429, calls=%d", chunkCalls)
+	}
+}
+
+func TestRecord429DebouncesConcurrentShrink(t *testing.T) {
+	c := NewClient("token", "", ClientOptions{
+		MaxConcurrency: 16,
+		AdaptiveLimit:  true,
+	})
+	if c.AdaptiveConcurrency() != 8 {
+		t.Fatalf("initial adaptive=%d want 8", c.AdaptiveConcurrency())
+	}
+	delay := 500 * time.Millisecond
+	var wg sync.WaitGroup
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			c.record429(delay)
+		}()
+	}
+	wg.Wait()
+	if got := c.AdaptiveConcurrency(); got != 4 {
+		t.Fatalf("after concurrent 429 burst adaptive=%d want 4 (single shrink)", got)
+	}
+}
+
+func TestClientReleasesWorkloadDuring429Backoff(t *testing.T) {
+	c := NewClient("token", "", ClientOptions{
+		MaxRetries:     3,
+		MaxConcurrency: 2,
+		AdaptiveLimit:  true,
+	})
+
+	sleeping := make(chan struct{})
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls == 1 {
+			w.Header().Set("Retry-After", "1")
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		close(sleeping)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"value":[]}`))
+	}))
+	defer srv.Close()
+	c.graphBase = srv.URL
+	c.httpClient = srv.Client()
+
+	acquired := make(chan struct{}, 1)
+	blocker := make(chan struct{})
+	go func() {
+		if err := c.acquireWorkload(context.Background()); err != nil {
+			t.Errorf("acquireWorkload during backoff: %v", err)
+			return
+		}
+		acquired <- struct{}{}
+		<-blocker
+		c.releaseWorkload()
+	}()
+
+	select {
+	case <-acquired:
+	case <-time.After(2 * time.Second):
+		t.Fatal("workload slot was not released during 429 Retry-After backoff")
+	}
+	close(blocker)
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := c.GetJSON(context.Background(), "/users", nil)
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("GetJSON: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("GetJSON did not complete")
+	}
+}
+
+func TestBatchGetMessagesRetriesSub429(t *testing.T) {
+	var batchCalls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/$batch" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		batchCalls++
+		w.Header().Set("Content-Type", "application/json")
+		if batchCalls == 1 {
+			_, _ = w.Write([]byte(`{"responses":[{"id":"msg-1","status":429,"headers":{"Retry-After":"1"},"body":{"error":{"code":"activityLimitReached"}}}]}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"responses":[{"id":"msg-1","status":200,"body":{"id":"msg-1","subject":"hi"}}]}`))
+	}))
+	defer srv.Close()
+
+	c := NewClient("token", "", ClientOptions{MaxRetries: 3, MaxConcurrency: 4})
+	c.graphBase = srv.URL
+	c.httpClient = srv.Client()
+
+	out, err := c.BatchGetMessages(context.Background(), "user-1", []string{"msg-1"})
+	if err != nil {
+		t.Fatalf("BatchGetMessages: %v", err)
+	}
+	if len(out) != 1 {
+		t.Fatalf("expected 1 message body, got %d", len(out))
+	}
+	if batchCalls < 2 {
+		t.Fatalf("expected batch retry after sub-429, calls=%d", batchCalls)
+	}
+}
+
+func TestClampAdaptiveCeilingTracksTenantBudget(t *testing.T) {
+	c := NewClient("token", "", ClientOptions{
+		MaxConcurrency: 16,
+		AdaptiveLimit:  true,
+	})
+	c.SetAzureTenantID("tenant-aimd")
+	if c.AdaptiveConcurrency() != 8 {
+		t.Fatalf("initial adaptive=%d want 8", c.AdaptiveConcurrency())
+	}
+	c.ClampAdaptiveCeiling(4)
+	if c.AdaptiveConcurrency() != 4 {
+		t.Fatalf("after clamp adaptive=%d want 4", c.AdaptiveConcurrency())
+	}
+	learned, _, ok := tenantAdaptiveSeed("tenant-aimd")
+	if !ok || learned != 4 {
+		t.Fatalf("persisted adaptive=%d ok=%v want 4", learned, ok)
+	}
+	tenantAdaptiveMu.Lock()
+	delete(tenantAdaptiveLimit, "tenant-aimd")
+	delete(tenantAdaptiveCeiling, "tenant-aimd")
+	tenantAdaptiveMu.Unlock()
+}
+
+func TestStreamSuccessCountedOnClose(t *testing.T) {
+	payload := strings.Repeat("x", 1024)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", "1024")
+		_, _ = w.Write([]byte(payload))
+	}))
+	defer srv.Close()
+
+	c := NewClient("token", "", ClientOptions{
+		MaxConcurrency: 4,
+		AdaptiveLimit:  true,
+	})
+	c.graphBase = srv.URL
+	c.httpClient = srv.Client()
+	if c.AdaptiveConcurrency() != 2 {
+		t.Fatalf("initial adaptive=%d want 2", c.AdaptiveConcurrency())
+	}
+
+	rc, _, err := c.GetStream(context.Background(), "/content")
+	if err != nil {
+		t.Fatalf("GetStream: %v", err)
+	}
+	if c.AdaptiveConcurrency() != 2 {
+		t.Fatalf("adaptive should not grow before close, got %d", c.AdaptiveConcurrency())
+	}
+	_, _ = io.ReadAll(rc)
+	if err := rc.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	for i := 0; i < adaptiveSuccessStreak-1; i++ {
+		c.recordSuccess()
+	}
+	if c.AdaptiveConcurrency() != 3 {
+		t.Fatalf("after close+streak adaptive=%d want 3", c.AdaptiveConcurrency())
+	}
+}
+
+func TestThrottleWaitingRefcount(t *testing.T) {
+	c := NewClient("token", "", ClientOptions{MaxConcurrency: 2})
+	var wg sync.WaitGroup
+	for i := 0; i < 3; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			c.throttleWaiting.Add(1)
+			time.Sleep(100 * time.Millisecond)
+			c.throttleWaiting.Add(-1)
+		}()
+	}
+	time.Sleep(20 * time.Millisecond)
+	if !c.ThrottleWaiting() {
+		t.Fatal("expected ThrottleWaiting true while sleepers active")
+	}
+	wg.Wait()
+	time.Sleep(10 * time.Millisecond)
+	if c.ThrottleWaiting() {
+		t.Fatal("expected ThrottleWaiting false after all sleepers done")
 	}
 }

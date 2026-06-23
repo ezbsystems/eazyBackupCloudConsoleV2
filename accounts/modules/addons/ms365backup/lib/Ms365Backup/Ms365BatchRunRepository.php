@@ -37,11 +37,14 @@ final class Ms365BatchRunRepository
     /** Window for showing the Graph throttle badge after recent 429 activity. */
     private const GRAPH_THROTTLE_WINDOW_SECONDS = 120;
 
-    /** Recent Graph 429 activity + fresh lease = worker alive while waiting out throttling. */
-    public const RECENT_THROTTLE_SECONDS = 600;
+      /** Recent Graph 429 activity + fresh lease = worker alive while waiting out throttling. */
+    public const RECENT_THROTTLE_SECONDS = 1200;
 
     /** Cached result of the parent updated_at column probe (per request). */
     private static ?bool $parentHasUpdatedAt = null;
+
+    /** @var array<int, string> tenant_record_id → azure_tenant_id (per reconcile pass) */
+    private static array $azureTenantIdCache = [];
 
     /**
      * @param array<string, mixed> $parent
@@ -344,34 +347,124 @@ final class Ms365BatchRunRepository
      */
     public static function isThrottledWaitingAlive(array $child, ?array $queue, int $now): bool
     {
-        if (!Capsule::schema()->hasColumn('ms365_backup_runs', 'last_429_at')) {
-            return false;
-        }
-        $last429At = (int) ($child['last_429_at'] ?? 0);
-        if ($last429At <= 0 || ($now - $last429At) > self::RECENT_THROTTLE_SECONDS) {
+        if (!is_array($queue)
+            || (string) ($queue['status'] ?? '') !== 'running'
+            || (int) ($queue['lease_expires_at'] ?? 0) <= $now) {
             return false;
         }
 
-        return is_array($queue)
-            && (string) ($queue['status'] ?? '') === 'running'
-            && (int) ($queue['lease_expires_at'] ?? 0) > $now;
+        if (Capsule::schema()->hasColumn('ms365_backup_runs', 'last_429_at')) {
+            $last429At = (int) ($child['last_429_at'] ?? 0);
+            if ($last429At > 0 && ($now - $last429At) <= self::RECENT_THROTTLE_SECONDS) {
+                return true;
+            }
+        }
+
+        $tenantRecordId = (int) ($child['tenant_record_id'] ?? 0);
+        if ($tenantRecordId > 0) {
+            $azureTenantId = self::azureTenantIdForTenantRecord($tenantRecordId);
+            if ($azureTenantId !== ''
+                && GraphTenantBudgetService::recentlyThrottled($azureTenantId, $now, self::RECENT_THROTTLE_SECONDS)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
-     * @param object|array<string, mixed> $row Queue/run join row with optional last_429_at and lease_expires_at.
+     * @param object|array<string, mixed> $row Queue/run join row with optional last_429_at, tenant_record_id, lease_expires_at.
      */
     public static function isThrottledWaitingAliveFromRow(object|array $row, int $now): bool
     {
-        $last429At = 0;
-        if (Capsule::schema()->hasColumn('ms365_backup_runs', 'last_429_at')) {
-            $last429At = (int) (is_array($row) ? ($row['last_429_at'] ?? 0) : ($row->last_429_at ?? 0));
-        }
-        if ($last429At <= 0 || ($now - $last429At) > self::RECENT_THROTTLE_SECONDS) {
+        $leaseExpires = (int) (is_array($row) ? ($row['lease_expires_at'] ?? 0) : ($row->lease_expires_at ?? 0));
+        if ($leaseExpires <= $now) {
             return false;
         }
-        $leaseExpires = (int) (is_array($row) ? ($row['lease_expires_at'] ?? 0) : ($row->lease_expires_at ?? 0));
 
-        return $leaseExpires > $now;
+        if (Capsule::schema()->hasColumn('ms365_backup_runs', 'last_429_at')) {
+            $last429At = (int) (is_array($row) ? ($row['last_429_at'] ?? 0) : ($row->last_429_at ?? 0));
+            if ($last429At > 0 && ($now - $last429At) <= self::RECENT_THROTTLE_SECONDS) {
+                return true;
+            }
+        }
+
+        $tenantRecordId = (int) (is_array($row) ? ($row['tenant_record_id'] ?? 0) : ($row->tenant_record_id ?? 0));
+        if ($tenantRecordId > 0) {
+            $azureTenantId = self::azureTenantIdForTenantRecord($tenantRecordId);
+            if ($azureTenantId !== ''
+                && GraphTenantBudgetService::recentlyThrottled($azureTenantId, $now, self::RECENT_THROTTLE_SECONDS)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Skip infrastructure reapers when the tenant is throttled and the worker node is still alive.
+     *
+     * @param object|array<string, mixed> $row Queue/run join row with optional last_429_at, tenant_record_id, worker_node_id, lease_expires_at.
+     */
+    public static function shouldSkipThrottleReaper(object|array $row, int $now): bool
+    {
+        if (self::isThrottledWaitingAliveFromRow($row, $now)) {
+            return true;
+        }
+        if (!self::isWorkerNodeAliveFromRow($row, $now)) {
+            return false;
+        }
+        if (Capsule::schema()->hasColumn('ms365_backup_runs', 'last_429_at')) {
+            $last429At = (int) (is_array($row) ? ($row['last_429_at'] ?? 0) : ($row->last_429_at ?? 0));
+            if ($last429At > 0 && ($now - $last429At) <= self::RECENT_THROTTLE_SECONDS) {
+                return true;
+            }
+        }
+        $tenantRecordId = (int) (is_array($row) ? ($row['tenant_record_id'] ?? 0) : ($row->tenant_record_id ?? 0));
+        if ($tenantRecordId > 0) {
+            $azureTenantId = self::azureTenantIdForTenantRecord($tenantRecordId);
+            if ($azureTenantId !== ''
+                && GraphTenantBudgetService::recentlyThrottled($azureTenantId, $now, self::RECENT_THROTTLE_SECONDS)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param object|array<string, mixed> $row
+     */
+    public static function isWorkerNodeAliveFromRow(object|array $row, int $now): bool
+    {
+        $nodeId = trim((string) (is_array($row) ? ($row['worker_node_id'] ?? '') : ($row->worker_node_id ?? '')));
+        if ($nodeId === '' || !Capsule::schema()->hasTable('ms365_worker_nodes')) {
+            return false;
+        }
+        $heartbeat = Capsule::table('ms365_worker_nodes')->where('node_id', $nodeId)->value('last_heartbeat_at');
+        if ($heartbeat === null) {
+            return false;
+        }
+
+        return (int) $heartbeat >= ($now - self::HEARTBEAT_GAP_SECONDS);
+    }
+
+    private static function azureTenantIdForTenantRecord(int $tenantRecordId): string
+    {
+        if ($tenantRecordId <= 0) {
+            return '';
+        }
+        if (!array_key_exists($tenantRecordId, self::$azureTenantIdCache)) {
+            $record = TenantRecordRepository::getById($tenantRecordId);
+            if ($record === null) {
+                self::$azureTenantIdCache[$tenantRecordId] = '';
+            } else {
+                $creds = TenantRecordRepository::resolvedCredentialsForRecord($record);
+                self::$azureTenantIdCache[$tenantRecordId] = trim((string) ($creds['tenant_id'] ?? ''));
+            }
+        }
+
+        return self::$azureTenantIdCache[$tenantRecordId];
     }
 
     /**
@@ -416,6 +509,9 @@ final class Ms365BatchRunRepository
     private static function isWedgeStuck(array $child, int $now, ?array $queue): bool
     {
         if ((string) ($child['status'] ?? '') !== 'running') {
+            return false;
+        }
+        if (self::isThrottledWaitingAlive($child, $queue, $now)) {
             return false;
         }
         $startedAt = (int) ($child['started_at'] ?? 0);

@@ -182,7 +182,7 @@ func (r *RestoreRunner) Run(ctx context.Context, job *api.RunJob, onAbort contex
 	}
 	progressStop := r.client.StartProgressHeartbeat(ctx, job.RunID, 45*time.Second, func() api.ProgressUpdate {
 		return lastProgress
-	}, onAbort)
+	}, onAbort, nil)
 	defer progressStop()
 
 	runner := graphrestore.NewRunner(gc, selection.ConflictPolicy, func(done, skipped, total int, message string) {
@@ -298,7 +298,7 @@ func (r *RestoreRunner) runArchiveExport(ctx context.Context, job *api.RunJob, o
 	}
 	progressStop := r.client.StartProgressHeartbeat(ctx, job.RunID, 45*time.Second, func() api.ProgressUpdate {
 		return lastProgress
-	}, onAbort)
+	}, onAbort, nil)
 	defer progressStop()
 
 	result, err := archive.Export(ctx, archive.ExportOptions{

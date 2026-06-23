@@ -126,7 +126,8 @@ Backups run **multiple workloads in parallel** (one child run per user mailbox, 
 | Layer | Setting | Default | Location |
 |-------|---------|---------|----------|
 | Platform | max concurrent | 100 | `WorkerClaimService` |
-| Per Entra tenant | `ms365_per_tenant_max_concurrent` | **3** | WHMCS addon settings |
+| Per Entra tenant (running workloads) | `ms365_per_tenant_max_concurrent_workloads` | **6** | `WorkerClaimService::claimNext` |
+| Per Entra tenant (Graph HTTP budget) | `ms365_per_tenant_max_concurrent` | **16** | `GraphTenantBudgetService` / worker `graph_tenant_budget` |
 | Per WHMCS client | `ms365_per_client_max_concurrent` | 10 | WHMCS addon settings |
 | Per worker node | `max_concurrent_runs` | **16** | `config.yaml` |
 | Per worker node | `heavy_job_cpu_cores` | **1** | `config.yaml` (I/O-bound site/drive jobs; was hardcoded 2) |
@@ -136,11 +137,14 @@ Backups run **multiple workloads in parallel** (one child run per user mailbox, 
 | Mail folders (per workload) | `graph_folder_parallel` | **4** | `config.yaml` |
 | SharePoint drives (per site workload) | `graph_sharepoint_drive_parallel` | **4** | `config.yaml` |
 
+**Workload vs HTTP budget (1.44.0+):** `claimNext` gates how many child workloads may be **running** per tenant (`ms365_per_tenant_max_concurrent_workloads`, default 6). The separate `ms365_per_tenant_max_concurrent` (16) is the fleet-wide **in-flight Graph HTTP** budget divided across active workers (`GraphTenantBudgetService::workerShare`). Claiming too many workloads against the same HTTP budget starves children on the shared limiter (no progress, no per-child 429s) and inflates the 429 rate.
+
 **Tuning for faster large-tenant backups** (increase gradually; watch Graph 429 throttling and worker RAM):
 
 | Knob | Conservative → aggressive | Notes |
 |------|---------------------------|-------|
-| `ms365_per_tenant_max_concurrent` | 3 → **5–10** | More users syncing at once |
+| `ms365_per_tenant_max_concurrent_workloads` | 4 → **6–8** | Running child workloads per tenant (claim gate) |
+| `ms365_per_tenant_max_concurrent` | 8 → **16** | Shared Graph HTTP slots per tenant (AIMD budget ceiling) |
 | `max_concurrent_runs` | 4 → **6** | Needs ~16 GB RAM per CT |
 | `graph_parallel_requests` | 16 → **32** | See `MS365_KOPIA_ENGINE.md` |
 | `graph_folder_parallel` | 4 → **8** | Parallel mail-folder delta |
@@ -158,6 +162,8 @@ OneDrive workloads use the **heavy job** RAM/disk budget (`heavy_job_ram_budget_
 | AIMD adaptive limit (`graph/client.go`) | After 429, concurrency shrinks; after a success streak it grows back toward `graph_parallel_requests` |
 | `graph_sync` stall watchdog | Same `kopia.stall_seconds` as upload watchdog; 429 Retry-After backoff counts as activity |
 | Per-tenant Graph budget | Control plane divides tenant AIMD budget across active workers; worker clamps in-flight Graph requests |
+| Adaptive budget floor (1.45.0+) | Under sustained `recent_429_count` (≥10 → floor 2, ≥20 → floor 1) so hammered tenants truly back off |
+| `throttle_waiting` progress flag (worker 0.3.13+) | Control plane refreshes `last_429_at` during parked Retry-After waits even when `no_progress` |
 | Mid-run delta checkpoints | `checkpoint_delta_states` on progress API → `DeltaStateRepository::saveStates`; requeued runs resume enumeration |
 
 Default `kopia.stall_seconds` is **2700** in worker config (`applyDefaults()`); set `0` to disable both upload and graph_sync stall watches.
@@ -168,7 +174,7 @@ When a worker restarts (e.g. after self-update) without completing or failing in
 
 **Detection** (`WorkerClaimService::releaseOrphanedClaimsForNode`):
 
-- **Idle node** (`current_load=0`): queue row `status=running` on that node with `claimed_at` and run progress freshness older than **120 seconds** (uses `last_progress_at`, falls back to `updated_at`). **1.42.0+:** skip when `lease_expires_at` is still in the future (worker alive) or `last_429_at` within **600s** with fresh lease (throttled-but-alive). Fast unacked reclaim only when lease is expired/absent.
+- **Idle node** (`current_load=0`): queue row `status=running` on that node with `claimed_at` and run progress freshness older than **120 seconds** (uses `last_progress_at`, falls back to `updated_at`). **1.42.0+:** skip when `lease_expires_at` is still in the future (worker alive) or throttled-but-alive (per-child `last_429_at` **or** tenant `ms365_graph_tenant_budget.last_429_at` within **1200s** with fresh lease). Fast unacked reclaim only when lease is expired/absent.
 - **Busy node** (`current_load>0`): per-run scan — only individual runs whose `last_progress_at` is older than **1800s** are re-queued; healthy runs on the same node are left alone.
 
 Matching runs are re-queued via the infrastructure-requeue path (progress fields and `delta_states` preserved).
@@ -190,13 +196,15 @@ Runs can wedge the fleet when a worker fails without clearing its claim, retries
 | Condition | Action |
 |-----------|--------|
 | `attempts >= max_attempts` but queue still `queued`/`running` | Terminal fail via `ms365_worker_fail` hooks |
-| Queue `running`, worker not alive (expired lease + stale `last_progress_at`) | Infrastructure requeue if attempts remain |
-| Queue `running`, fresh lease but `last_progress_at` stale **≥1800s** | Infrastructure requeue (`Stale progress reconciled`) — **unless** `last_429_at` within **600s** (throttled-but-alive) |
-| Child `running`, recent `last_429_at` (**≤600s**) + fresh lease | **Skip** infrastructure requeue (worker waiting out Graph throttling) |
+| Queue `running`, worker not alive (expired lease + stale `last_progress_at`) | Infrastructure requeue if attempts remain — **unless** `shouldSkipThrottleReaper` (tenant throttled + node heartbeat fresh) |
+| Queue `running`, fresh lease but `last_progress_at` stale **≥1800s** | Infrastructure requeue (`Stale progress reconciled`) — **unless** throttled-but-alive (per-child **or** tenant `last_429_at` within **1200s**) |
+| Child `running`, recent throttle signal (**≤1200s**) + fresh lease | **Skip** infrastructure requeue (worker waiting on Graph limiter / Retry-After) |
+| Expired lease + stale `updated_at` (`releaseExpiredLeases`, staleRows, `recoverStaleRunning`) | **Skip** when tenant throttled and worker node heartbeat fresh (**1.45.0+**) |
+| Wedge (`0` items/bytes after **1800s**) | Infrastructure requeue — **unless** throttled-but-alive (**1.45.0+**) |
 | Idle node, `running` claim, fresh lease (even if progress stale) | **Skip** orphan reclaim (`releaseOrphanedClaimsForIdleNode`, **1.42.0+**) |
 | Idle node, `running` claim, expired/absent lease + stale progress | Orphan reclaim (`Orphaned claim released (worker idle)`) |
-| Child `running` but queue row missing or not `running` | Re-queue child and sync batch parent |
-| Wedge (`0` items/bytes after **1800s**) or upload stall (**2700s** silence in kopia/upload phase) | Infrastructure requeue via `reconcileBatchChildren` / fleet cron |
+| Child `running` but queue row missing or not `running` | Re-queue child and sync batch parent — **unless** `shouldSkipThrottleReaper` (**1.45.0+**) |
+| Upload stall (**2700s** silence in kopia/upload phase) | Infrastructure requeue via `reconcileBatchChildren` / fleet cron |
 
 **Batch child reaper:** `Ms365BatchRunRepository::reconcileBatchChildren()` uses `requeueBackupRuns` (not `onFail`) so `phase`/`percent`/`items_*` and `delta_states` survive re-claims.
 

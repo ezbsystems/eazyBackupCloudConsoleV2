@@ -3,12 +3,26 @@
 **Purpose:** Single handoff document so the next agent knows where work stopped. Update this file at the **end of every session** (or after each meaningful milestone).
 
 **Last updated:** 2026-06-23  
-**Module version (ms365backup):** 1.43.0  
+**Module version (ms365backup):** 1.45.0  
 **Worker version (ms365-backup-worker):** 0.3.13
 
 ---
 
 ## Session log
+
+### 2026-06-23 — Reaper coverage + budget tuning (PHP 1.45.0)
+
+- **Goal:** Close remaining control-plane reaper holes that reap throttled-but-alive runs past the 1200s cliff; tune adaptive budget floor for hammered tenants; share tenant Graph budget with restore jobs.
+- **PHP 1.45.0:** `reconcileZombieRuns` exhausted select includes `tenant_record_id`; `shouldSkipThrottleReaper` guards `releaseExpiredLeases`, staleRows, orphan-children, `recoverStaleRunning`; `isWedgeStuck` honors `isThrottledWaitingAlive`; `backupProgress` refreshes `last_429_at` on `throttle_waiting` / cumulative 429 even in `no_progress` path; azure tenant id resolved via `resolvedCredentialsForRecord` everywhere; `GraphTenantBudgetService::minBudget` adaptive floor (1–2 under sustained `recent_429_count`); restore claim/progress returns `graph_tenant_budget` + `recordTenant429`.
+- **Tests:** `ms365_reaper_throttle_test.php`; extended `ms365_graph_budget_test.php`.
+- **Verify:** Deploy PHP 1.45.0 (+ worker 0.3.13 for `throttle_waiting` payload); whale batch — no false reaps during long Retry-After waits; restore + backup on same tenant share one budget.
+
+### 2026-06-23 — Tenant-aware throttle liveness + workload claim cap (PHP 1.44.0)
+
+- **Goal:** Stop progress-silence reapers from requeuing children that are alive but starved on the shared tenant Graph limiter; reduce 429 burst by separating per-tenant running-workload claim cap from the Graph HTTP budget.
+- **PHP 1.44.0:** `GraphTenantBudgetService::recentlyThrottled()` reads `ms365_graph_tenant_budget.last_429_at`; `isThrottledWaitingAlive` / `FromRow` fall back to tenant-level signal (azure tenant resolved from `tenant_record_id`, cached per reconcile pass); `RECENT_THROTTLE_SECONDS` **600 → 1200**; `releaseStalledClaimsForBusyNode` + `reconcileZombieRuns` stalled-leased loops select `tenant_record_id`; new `ms365_per_tenant_max_concurrent_workloads` (default **6**) gates `claimNext` while `ms365_per_tenant_max_concurrent` (**16**) remains the Graph HTTP budget.
+- **Tests:** `ms365_tenant_throttle_liveness_test.php` — tenant throttle blocks reap when per-child `last_429_at` stale; idle tenant still reaps wedge; workload cap vs HTTP budget defaults.
+- **Verify:** Deploy PHP 1.44.0; re-run whale batch — no "Stale workload reconciled" / "Stale progress (worker busy)" while tenant is throttled; fewer concurrent children per tenant; steady completion instead of churn.
 
 ### 2026-06-23 — MS365 archive restore (Phase 5 enhancement; PHP 1.43.0 / worker 0.3.13)
 

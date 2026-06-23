@@ -17,6 +17,10 @@ var (
 
 	tenantCooldownMu    sync.Mutex
 	tenantCooldownUntil = make(map[string]time.Time)
+
+	tenantAdaptiveMu      sync.RWMutex
+	tenantAdaptiveLimit   = make(map[string]int)
+	tenantAdaptiveCeiling = make(map[string]int)
 )
 
 // tenantCooldownMax bounds a single parked cooldown window. Graph 429 Retry-After is
@@ -61,12 +65,51 @@ func SetTenantBudget(tenantID string, budget int) {
 		return
 	}
 	tenantLimitMu.Lock()
-	defer tenantLimitMu.Unlock()
 	if cur, ok := tenantBudget[tenantID]; ok && cur == budget {
+		tenantLimitMu.Unlock()
 		return
 	}
 	tenantBudget[tenantID] = budget
 	tenantSem[tenantID] = make(chan struct{}, budget)
+	tenantLimitMu.Unlock()
+
+	tenantAdaptiveMu.Lock()
+	tenantAdaptiveCeiling[tenantID] = budget
+	if cur, ok := tenantAdaptiveLimit[tenantID]; ok && cur > budget {
+		tenantAdaptiveLimit[tenantID] = budget
+	}
+	tenantAdaptiveMu.Unlock()
+}
+
+func tenantAdaptiveSeed(tenantID string) (learned, ceiling int, ok bool) {
+	tenantID = normalizeTenantID(tenantID)
+	if tenantID == "" {
+		return 0, 0, false
+	}
+	tenantAdaptiveMu.RLock()
+	defer tenantAdaptiveMu.RUnlock()
+	learned, hasLearned := tenantAdaptiveLimit[tenantID]
+	ceiling, hasCeiling := tenantAdaptiveCeiling[tenantID]
+	if !hasLearned && !hasCeiling {
+		return 0, 0, false
+	}
+	if !hasLearned {
+		learned = 0
+	}
+	if !hasCeiling {
+		ceiling = 0
+	}
+	return learned, ceiling, true
+}
+
+func persistTenantAdaptiveLimit(tenantID string, limit int) {
+	tenantID = normalizeTenantID(tenantID)
+	if tenantID == "" || limit <= 0 {
+		return
+	}
+	tenantAdaptiveMu.Lock()
+	tenantAdaptiveLimit[tenantID] = limit
+	tenantAdaptiveMu.Unlock()
 }
 
 func normalizeTenantID(tenantID string) string {
@@ -108,6 +151,11 @@ func acquireTenant(ctx context.Context, tenantID string) error {
 		until, cooling := tenantCooldownUntil[tenantID]
 		tenantCooldownMu.Unlock()
 		if !cooling || time.Now().After(until) {
+			if cooling {
+				tenantCooldownMu.Lock()
+				delete(tenantCooldownUntil, tenantID)
+				tenantCooldownMu.Unlock()
+			}
 			break
 		}
 		wait := time.Until(until)

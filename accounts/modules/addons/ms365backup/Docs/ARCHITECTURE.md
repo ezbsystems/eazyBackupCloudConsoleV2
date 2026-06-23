@@ -503,11 +503,11 @@ Microsoft Graph service protection returns **429** with `Retry-After`; sustained
 | Layer | Behavior |
 |-------|----------|
 | **Worker (Go)** | Honors `Retry-After`; AIMD shrinks concurrency; rising `graph_429_hits` counts as liveness while waiting |
-| **`ms365_backup_runs.last_429_at`** | Set on each 429 delta in `backupProgress()`; reapers treat recent 429 + fresh lease as alive (**600s** window) |
-| **`GraphTenantBudgetService`** | Per-Entra-tenant `ms365_graph_tenant_budget`; shrinks on 429 deltas, slow decay (**600s** windows); default cap **16** concurrent (`ms365_per_tenant_max_concurrent`) |
-| **Reapers** | `shouldReapRunningChild`, `releaseStalledClaimsForBusyNode`, `reconcileZombieRuns` skip throttled-but-alive runs; genuine wedges (no 429, no progress) and expired leases still requeue |
+| **`ms365_backup_runs.last_429_at`** | Set on 429 delta or `throttle_waiting` in `backupProgress()` (including `no_progress` path); reapers treat recent 429 + fresh lease as alive (**1200s** window) |
+| **`GraphTenantBudgetService`** | Per-Entra-tenant `ms365_graph_tenant_budget`; shrinks on 429 deltas, slow decay (**600s** windows); adaptive floor **1–2** under sustained `recent_429_count`; default cap **16** concurrent (`ms365_per_tenant_max_concurrent`) |
+| **Reapers** | `shouldSkipThrottleReaper` on all infrastructure reaper paths; `shouldReapRunningChild`, `releaseStalledClaimsForBusyNode`, `reconcileZombieRuns` skip throttled-but-alive runs; wedge detection honors throttle (**1.45.0+**) |
 
-Worker claim/progress responses include `graph_tenant_budget` (per-node share of tenant budget). Live UI shows a throttle badge when child `stats_json.graph_429_hits` rises.
+Worker claim/progress responses include `graph_tenant_budget` (per-node share of tenant budget) for **backup and restore**. Live UI shows a throttle badge when child `stats_json.graph_429_hits` rises.
 
 ## Out of scope (later)
 

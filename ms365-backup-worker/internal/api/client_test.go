@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 func TestDecodeEnvelopeResponseGraphToken(t *testing.T) {
@@ -148,6 +149,34 @@ func TestDecodeEnvelopeResponseConfigOffer(t *testing.T) {
 	}
 	if out.Config == nil || out.Config.Version != 5 {
 		t.Fatalf("config offer = %+v", out.Config)
+	}
+}
+
+func TestHeartbeatAppliesBudget(t *testing.T) {
+	var gotBudget int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"success","data":{"graph_tenant_budget":12}}`))
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "tok", "node-1")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	stop := c.StartProgressHeartbeat(ctx, "run-1", 20*time.Millisecond, func() ProgressUpdate {
+		return ProgressUpdate{Phase: "graph_sync"}
+	}, nil, func(budget int) {
+		gotBudget = budget
+	})
+	defer stop()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for gotBudget == 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if gotBudget != 12 {
+		t.Fatalf("onBudget got %d want 12", gotBudget)
 	}
 }
 

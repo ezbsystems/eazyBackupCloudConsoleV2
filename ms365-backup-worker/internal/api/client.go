@@ -137,6 +137,7 @@ type ProgressUpdate struct {
 	Message        string  `json:"message,omitempty"`
 	Graph429Hits       int64 `json:"graph_429_hits,omitempty"`
 	GraphAdaptiveLimit int   `json:"graph_adaptive_limit,omitempty"`
+	ThrottleWaiting    bool  `json:"throttle_waiting,omitempty"`
 	// CheckpointDeltaStates persists partial delta links mid-run (resume after requeue).
 	CheckpointDeltaStates map[string]map[string]string `json:"checkpoint_delta_states,omitempty"`
 	// NoProgress tells the control plane to skip lease renewal and last_progress_at bumps.
@@ -497,7 +498,8 @@ func BuildAPIURL(base, path string, q map[string]string) string {
 
 // StartProgressHeartbeat sends periodic progress updates (lease renewal on PHP side) during long operations.
 // When the control plane reports cancel_requested, onCancel is invoked once to abort the run context.
-func (c *Client) StartProgressHeartbeat(ctx context.Context, runID string, interval time.Duration, getUpdate func() ProgressUpdate, onCancel func()) func() {
+// onBudget is called when the control plane returns an updated graph_tenant_budget (may be nil).
+func (c *Client) StartProgressHeartbeat(ctx context.Context, runID string, interval time.Duration, getUpdate func() ProgressUpdate, onCancel func(), onBudget func(int)) func() {
 	if interval <= 0 {
 		interval = 60 * time.Second
 	}
@@ -526,9 +528,8 @@ func (c *Client) StartProgressHeartbeat(ctx context.Context, runID string, inter
 					upd.Phase = "heartbeat"
 				}
 				if cancel, budget, err := c.Progress(ctx, upd); err == nil {
-					if budget > 0 {
-						// Reserved for dynamic tenant budget refresh (handled in runner).
-						_ = budget
+					if budget > 0 && onBudget != nil {
+						onBudget(budget)
 					}
 					if cancel {
 						fireCancel()

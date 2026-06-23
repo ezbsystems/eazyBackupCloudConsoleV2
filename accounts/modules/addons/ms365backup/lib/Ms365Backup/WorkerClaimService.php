@@ -140,7 +140,7 @@ final class WorkerClaimService
             if ($clientId > 0 && self::countRunningForClient($clientId) >= Ms365EngineConfig::perClientMaxConcurrent()) {
                 continue;
             }
-            if ($tenantRecordId > 0 && self::countRunningForTenant($tenantRecordId) >= Ms365EngineConfig::perTenantMaxConcurrent()) {
+            if ($tenantRecordId > 0 && self::countRunningForTenant($tenantRecordId) >= Ms365EngineConfig::perTenantMaxConcurrentWorkloads()) {
                 continue;
             }
             $jobType = (string) ($candidate->job_type ?? 'backup');
@@ -650,6 +650,10 @@ final class WorkerClaimService
                 'restore_mode' => $restoreMode,
             ],
             'lease_expires_at' => WorkerLeaseService::leaseExpiresAt($restoreRunId),
+            'graph_tenant_budget' => GraphTenantBudgetService::workerShare(
+                $tenantRecordId,
+                (string) ($creds['tenant_id'] ?? '')
+            ),
         ];
 
         if ($restoreMode === 'archive') {
@@ -885,18 +889,41 @@ final class WorkerClaimService
     public static function releaseExpiredLeases(): int
     {
         $now = time();
-        $rows = Capsule::table('ms365_job_queue')
-            ->where('status', 'running')
-            ->whereNotNull('lease_expires_at')
-            ->where('lease_expires_at', '<', $now)
-            ->pluck('run_id')
-            ->all();
-        if ($rows === []) {
+        $select = [
+            'q.run_id',
+            'q.lease_expires_at',
+            'q.worker_node_id',
+            'r.tenant_record_id',
+        ];
+        if (Capsule::schema()->hasColumn('ms365_backup_runs', 'last_429_at')) {
+            $select[] = 'r.last_429_at';
+        }
+        $rows = Capsule::table('ms365_job_queue as q')
+            ->leftJoin('ms365_backup_runs as r', 'r.id', '=', 'q.run_id')
+            ->where('q.status', 'running')
+            ->whereNotNull('q.lease_expires_at')
+            ->where('q.lease_expires_at', '<', $now)
+            ->select($select)
+            ->get();
+        if ($rows->isEmpty()) {
             return 0;
         }
-        self::requeueRuns($rows, 'Lease expired; re-queued');
+        $toRequeue = [];
+        foreach ($rows as $row) {
+            if (Ms365BatchRunRepository::shouldSkipThrottleReaper($row, $now)) {
+                continue;
+            }
+            $runId = (string) ($row->run_id ?? '');
+            if ($runId !== '') {
+                $toRequeue[] = $runId;
+            }
+        }
+        if ($toRequeue === []) {
+            return 0;
+        }
+        self::requeueRuns($toRequeue, 'Lease expired; re-queued');
 
-        return count($rows);
+        return count($toRequeue);
     }
 
     /**
@@ -1013,6 +1040,7 @@ final class WorkerClaimService
         if (Capsule::schema()->hasColumn('ms365_backup_runs', 'last_429_at')) {
             $select[] = 'r.last_429_at';
         }
+        $select[] = 'r.tenant_record_id';
 
         $candidates = Capsule::table('ms365_job_queue as q')
             ->join('ms365_backup_runs as r', 'r.id', '=', 'q.run_id')
@@ -1073,6 +1101,7 @@ final class WorkerClaimService
             $select[] = 'r.last_429_at';
         }
         $select[] = 'q.lease_expires_at';
+        $select[] = 'r.tenant_record_id';
 
         $candidates = Capsule::table('ms365_job_queue as q')
             ->join('ms365_backup_runs as r', 'r.id', '=', 'q.run_id')
@@ -1139,6 +1168,7 @@ final class WorkerClaimService
             'q.lease_expires_at',
             'q.worker_node_id',
             'br.updated_at as backup_updated_at',
+            'br.tenant_record_id',
         ];
         if (Capsule::schema()->hasColumn('ms365_backup_runs', 'last_progress_at')) {
             $exhaustedSelect[] = 'br.last_progress_at';
@@ -1174,6 +1204,17 @@ final class WorkerClaimService
             ++$failed;
         }
 
+        $staleSelect = [
+            'q.run_id',
+            'q.attempts',
+            'q.max_attempts',
+            'q.worker_node_id',
+            'q.lease_expires_at',
+            'r.tenant_record_id',
+        ];
+        if (Capsule::schema()->hasColumn('ms365_backup_runs', 'last_429_at')) {
+            $staleSelect[] = 'r.last_429_at';
+        }
         $staleRows = Capsule::table('ms365_job_queue as q')
             ->join('ms365_backup_runs as r', 'r.id', '=', 'q.run_id')
             ->where('q.status', 'running')
@@ -1183,9 +1224,13 @@ final class WorkerClaimService
                 $query->whereNull('q.lease_expires_at')
                     ->orWhere('q.lease_expires_at', '<', $now);
             })
-            ->get(['q.run_id', 'q.attempts', 'q.max_attempts', 'q.worker_node_id']);
+            ->select($staleSelect)
+            ->get();
 
         foreach ($staleRows as $row) {
+            if (Ms365BatchRunRepository::shouldSkipThrottleReaper($row, $now)) {
+                continue;
+            }
             $runId = (string) ($row->run_id ?? '');
             if ($runId === '') {
                 continue;
@@ -1221,7 +1266,7 @@ final class WorkerClaimService
             $stalledLeasedQuery->where('r.updated_at', '<', $silenceCutoff);
         }
 
-        $stalledSelect = ['q.run_id', 'q.attempts', 'q.max_attempts', 'q.lease_expires_at'];
+        $stalledSelect = ['q.run_id', 'q.attempts', 'q.max_attempts', 'q.lease_expires_at', 'r.tenant_record_id'];
         if (Capsule::schema()->hasColumn('ms365_backup_runs', 'last_429_at')) {
             $stalledSelect[] = 'r.last_429_at';
         }
@@ -1244,6 +1289,17 @@ final class WorkerClaimService
             }
         }
 
+        $orphanSelect = [
+            'r.id as run_id',
+            'r.tenant_record_id',
+            'r.updated_at',
+            'q.worker_node_id',
+            'q.lease_expires_at',
+            'q.status as queue_status',
+        ];
+        if (Capsule::schema()->hasColumn('ms365_backup_runs', 'last_429_at')) {
+            $orphanSelect[] = 'r.last_429_at';
+        }
         $orphanChildren = Capsule::table('ms365_backup_runs as r')
             ->leftJoin('ms365_job_queue as q', 'q.run_id', '=', 'r.id')
             ->where('r.status', 'running')
@@ -1252,11 +1308,14 @@ final class WorkerClaimService
                     ->orWhere('q.status', '!=', 'running');
             })
             ->where('r.updated_at', '<', $cutoff)
-            ->pluck('r.id')
-            ->all();
+            ->select($orphanSelect)
+            ->get();
 
-        foreach ($orphanChildren as $runId) {
-            $runId = (string) $runId;
+        foreach ($orphanChildren as $row) {
+            if (Ms365BatchRunRepository::shouldSkipThrottleReaper($row, $now)) {
+                continue;
+            }
+            $runId = (string) ($row->run_id ?? '');
             if ($runId === '') {
                 continue;
             }
