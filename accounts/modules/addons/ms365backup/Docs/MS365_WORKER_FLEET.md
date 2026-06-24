@@ -221,3 +221,32 @@ Runs can wedge the fleet when a worker fails without clearing its claim, retries
 Cron output includes `zombies_reconciled: { requeued, failed, synced }`.
 
 See `ms365-backup-worker/deploy/proxmox/README.md`.
+
+## Dual fleet (dev control plane + prod runtime) — 1.50.0+
+
+Development WHMCS remains the **sole build/deploy console**. Production workers register, heartbeat, and claim jobs against production WHMCS (`192.168.92.75/accounts` by default).
+
+| Setting | Host | Purpose |
+|---------|------|---------|
+| `ms365_server_environment` | both | `development` or `production` |
+| `ms365_production_system_url` | dev | Prod WHMCS base URL (ends with `/accounts`) |
+| `ms365_fleet_deploy_shared_secret` | both | M2M auth header `X-MS365-Fleet-Deploy-Token` |
+| `ms365_auto_sync_release_to_prod` | dev | Push release artifact after build publish |
+| `ms365_production_release_sync_enabled` | prod | Enable pull sync cron fallback |
+| `ms365_development_system_url` | prod | Dev URL for pull sync cron |
+
+**Dev UI:** Worker Fleet adds a fleet target selector (session-persisted): Development fleet | Production fleet. Dashboard, Nodes, Deployments, and Settings call `FleetFacade` which routes production target ops to prod via `FleetRemoteClient` → `fleet_remote.php`.
+
+**Prod UI:** No fleet picker; **Builds** tab hidden. Local prod fleet only.
+
+**Production worker API base:** When scaling production fleet from dev, `environment.conf` injects  
+`MS365_WORKER_API_BASE=http://192.168.92.75/accounts/modules/addons/cloudstorage/api`  
+(secrets stay in `environment.conf`; `config.yaml` must not contain `api.base_url`).
+
+**VMID allocation:** Production scale-up calls prod `fleet_provision_prepare` first so `ms365_worker_nodes` rows and VMIDs live on **prod DB**, not dev.
+
+**Release sync:** Dev `ReleaseSyncService::publishToProduction()` POSTs `fleet_release_upsert` (multipart artifact). Prod optional cron `crons/ms365_worker_release_sync.php` pulls from dev manifest when push fails.
+
+**Remote API:** `addonmodules.php?module=ms365backup&action=fleet_remote&op=…` (shared secret; no admin session).
+
+**Smoke:** `php bin/ms365_fleet_smoke.php` reports `fleet_context` and production URL normalization.

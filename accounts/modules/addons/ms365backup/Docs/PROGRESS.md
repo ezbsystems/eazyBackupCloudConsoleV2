@@ -3,12 +3,93 @@
 **Purpose:** Single handoff document so the next agent knows where work stopped. Update this file at the **end of every session** (or after each meaningful milestone).
 
 **Last updated:** 2026-06-24  
-**Module version (ms365backup):** 1.48.0  
+**Module version (ms365backup):** 1.50.0  
 **Worker version (ms365-backup-worker):** 0.3.16
 
 ---
 
 ## Session log
+
+### 2026-06-24 — Dual fleet worker deployment (PHP 1.50.0)
+
+- **Feature:** Dev WHMCS remains build/deploy console; prod workers register/heartbeat against prod WHMCS (`192.168.92.75/accounts`).
+- **Core:** `FleetContext`, `FleetRemoteAuth`, `FleetRemoteClient`, `FleetFacade`, `ReleaseSyncService`, `FleetProvisionService`; prod M2M endpoint `pages/admin/fleet_remote.php`.
+- **UI:** Dev fleet target selector (development|production); Builds tab hidden on production server; `fleet` param on all fleet API calls.
+- **Proxmox:** Production scale-up calls prod `fleet_provision_prepare` first; injects prod `MS365_WORKER_API_BASE` in `environment.conf`.
+- **Release sync:** Push via `fleet_release_upsert` after build publish; optional prod cron `ms365_worker_release_sync.php`.
+- **Settings:** `ms365_server_environment`, `ms365_production_system_url`, `ms365_fleet_deploy_shared_secret`, `ms365_production_release_sync_enabled`, `ms365_auto_sync_release_to_prod`.
+- **Docs:** `MS365_WORKER_FLEET.md`, `ARCHITECTURE_BOUNDARIES.md`; smoke test extended in `bin/ms365_fleet_smoke.php`.
+
+### 2026-06-24 — Per-workload throttle shield + zombie recovery (PHP 1.49.4)
+
+- **Symptom:** Whale `39b9838c` resumed briefly then slowed; UI pacing banner (253× 429 @ 1.54% ratio) but Charity (`held=2919s`, `graph_req=0`) and Brad (`held=2153s`) blocked cap while Cathy actively paced Graph.
+- **Root cause:** `isThrottledWaitingAlive` tenant-wide fallback + heartbeat `last_429_at` refresh shielded **sibling** workloads with stale per-workload `last_progress_at`. `countRunningForTenant(5)=7` vs cap=4.
+- **Fix (1.49.4):** Throttle shield requires this workload's `last_progress_at` within `STALE_SILENCE_SECONDS` (1800s). Tenant-wide `recentlyThrottled` only applies while **this** run still has fresh progress. Cap excludes slots silent ≥1800s even if throttle heartbeats continue.
+- **Tests:** `ms365_tenant_throttle_liveness_test.php` — zombie heartbeat excluded from cap; active pacer (fresh progress + own 429) still shielded.
+- **Ops:** `reconcileBatchChildren` reaped Brad + Charity; manual requeue Brent; whale `running` 7→4, `countRunningForTenant(5)` 7→4.
+
+### 2026-06-24 — Whale stall recurrence: stall errors requeued + cap counted zombies (PHP 1.49.3)
+
+- **Symptom:** Batches `39b9838c` (2675 workloads, tenant 5) and `74abc070` (100 workloads, tenant 7) flat; UI `graph_sync stalled: no enumeration progress for 2700s`, `Recovering this workload`, `stale running slots blocking tenant cap`; 5/4 tenant slots occupied.
+- **Evidence (live DB):**
+  - Al Caron `attempts=5/5`, queue+run still `running`, error `graph_sync stalled: no enumeration progress for 2700s` — worker stall fired but never terminal-failed.
+  - Betty Demarce `infra_requeue.count=3`, queue error `Workload stalled during Graph sync`, run still `running` — infra stall cap called `onFail` → `markFailed` **requeued** (retryable).
+  - `reconcileZombieRuns` returned 0; throttle shield on Amy/Charity (`last_429_at` &lt;120s); Betty/Brad/Al not shielded but under 1800s reaper silence.
+  - `countRunningForTenant(5)=5` with cap=4 blocked all new claims; fleet healthy, module 1.49.2 deployed.
+  - Graph 429 **contributing** on Amy upload (`last_429_at` 31s ago) but tenant `recent_429_count=0`, `last_429_at` 7796s — not a sustained Graph storm; primary issue is **control-plane zombie slots**.
+- **Root cause (code):** (1) Graph stall + infra stall messages not in `isNonRetryableError` → `onFail`/`permanentlyStalled` requeued instead of terminal fail. (2) Exhausted `attempts>=max_attempts` with queue `running` never reconciled. (3) `countRunningForTenant` counted progress-stale wedged slots against cap.
+- **Fix (1.49.3):** `isNonRetryableError` adds graph_sync/kopia stall patterns; `terminalFailBackupRun()` for infra stall cap; `reconcileExhaustedRunningClaims()` in reaper slot; `countsAgainstTenantWorkloadCap()` excludes stalled (≥180s, not throttle-alive) and exhausted runs from cap.
+- **Ops:** Ran `reconcileExhaustedRunningClaims` (failed Al), `terminalFailBackupRun` (Betty), `reconcileActiveBatches` — tenant-5 cap 5→2, new workloads claimed (Brandi/Brent/Brian/Ben), whale `running` resumed with fresh `held_s` &lt;10s.
+- **Tests:** `ms365_non_retryable_error_test.php`, `ms365_tenant_throttle_liveness_test.php` — OK.
+
+### 2026-06-24 — New batch `74abc070-…abec` starved: claim pool monopolization (PHP 1.49.2)
+
+- **Symptom:** Batch `74abc070` (100 workloads, tenant 7) enqueued but 0 started; whale `39b9838c` (tenant 5) appears stalled at ~23%.
+- **Evidence:** Fleet healthy (17 active nodes, HB &lt;60s, 9/162 load). Platform cap 5/200. Tenant-5 cap saturated (5 running, cap=4). New batch correctly enqueued (`ms365_job_queue` 100× `queued`). Top-50 FIFO claim pool is **100% whale/tenant-5** (queue ids 10322+); tenant-7 ids 12545+ never enter candidate set. All 50 candidates skipped at `perTenantMaxConcurrentWorkloads` gate → workers idle despite capacity.
+- **Root cause:** `fetchBackupClaimCandidatesFairSql` pre-filtered global FIFO 500 rows; one backlog monopolized the pool. Not worker health, not enqueue bug, not platform cap. Whale slow due to tenant-5 Graph throttle + cap=4 (separate issue).
+- **Fix (1.49.2):** Fair claim pool now takes per-batch head (`FAIR_CANDIDATE_PER_BATCH_POOL=50`) before fair-rank sort so other batches/tenants are claimable when an earlier tenant is cap-blocked.
+- **Ops (immediate):** Requeue stale whale `graph_sync` slots if tenant 5 stays at 5/4; optional priority boost on `74abc070` queue rows (`priority=1`) until 1.49.2 deploys.
+
+### 2026-06-24 (recurrence) — batch `39b9838c-…cca00` re-stalled: zombie claims + throttle shield
+
+- **Symptom:** Batch flat again ~10 min after earlier cap-4 recovery; UI "Recovering this workload"; operator reports raising cap to 24 had no effect.
+- **Evidence (live @ 10:33 UTC):**
+  - Fleet **alive**: 17 nodes, heartbeats 2–30s; `current_load` sum 5 vs 4 queue-running (phantom +1 on worker-03/9021; worker-04 load=0 with 1 running claim).
+  - **Cap is 4, not 24** in `tbladdonmodules` (`ms365_per_tenant_max_concurrent_workloads=4`, `ms365_per_tenant_max_concurrent=12`); PHP **1.49.0** deployed. Earlier incident intentionally lowered 24→4.
+  - **4/4 tenant slots occupied**, all silent since 10:24:27 requeue wave: Christopher Schwartz (zero worker logs, zombie on worker-04); Al Caron / Ben Berlinguette (reassigned, no `starting run` on new nodes); Amy Boire (upload throttle 10:25:59 then silent).
+  - **No claim loop** (0 requeue finishes in 2h); fleet cron reaped 0 zombies — `releaseOrphanedClaimsForIdleNode` skipped all four because **valid leases** (`lease_expires_at` ~11:24) even on idle nodes; `isThrottledWaitingAlive` shielded graph_sync for 1200s after tenant `last_429_at`.
+  - Logs: 5 backup-log lines / 53 worker-log lines in prior 10 min, all ending 10:25:59; zero graph_requests delta on wedged children.
+- **Root cause:** Tenant cap saturated by **zombie running claims** (PHP assigned workers, Go never started or cancelled without load decrement) plus **throttle-reaper shield** blocking auto-recovery for up to 30 min. Raising cap to 24 never persisted (still 4) and would re-amplify Graph throttle anyway.
+- **Fix applied:**
+  - **Operational:** `WorkerClaimService::requeueBackupRuns()` on the 4 stalled run IDs — slots freed; 4 new workloads claimed by 10:35:53 with fresh `graph_requests` within 34s.
+  - **Code (1.49.1):** `releaseOrphanedClaimsForIdleNode` — idle node (`current_load=0`) + stale progress now reclaims even when lease is still valid (previously blocked until lease expiry). **Version bumped** in `ms365backup_config()` so WHMCS addon page reflects 1.49.1.
+- **Do not raise** `ms365_per_tenant_max_concurrent_workloads` above 4 for this tenant until Graph budget governor 429 feedback is fixed.
+
+
+- **Symptom:** Whole batch stalled in `graph_sync` ("Recovering this workload"); `graph_requests`/bytes/items flat. Operator had raised `ms365_per_tenant_max_concurrent_workloads` 6 → **24** with **no effect**.
+- **Evidence gathered (read-only):**
+  - Fleet **alive**: 17 nodes heartbeating <30s; backup-log lines flowing; leases renewed (expire ~11:16). Rejected "dead/hung fleet".
+  - Deploy **confirmed**: module `1.49.0`, cap setting = 24 in `tbladdonmodules`, nodes show `max_concurrent_runs=16`. Rejected "not deployed".
+  - **All 24 running children belong to ONE tenant** (`tenant_record_id=5`, azure `f2d17fb3-…`). Workloads held **up to 85 min** (`held_s=5147`) by single workers, `attempts` not climbing → genuine stall, not lease churn.
+  - **Throttling active**: children logged `Throttled by Microsoft — waiting` on an exact **45s cadence** (honoring `Retry-After: 45` → re-throttle → repeat). `last_429_at` updating within 30–120s; 20/24 had no progress >10 min.
+  - **Smoking gun:** `ms365_graph_tenant_budget` for the tenant was pinned at `graph_budget=96, recent_429_count=0` while the HTTP budget ceiling `ms365_per_tenant_max_concurrent` was **96**. The PHP adaptive governor was **not registering the ongoing 429s**, so the fleet never backed off; worker per-process tenant controllers held the in-flight slot during each 45s backoff and shrank `limit→1`, starving sibling workloads on the same node.
+- **Root cause:** Tenant-wide Microsoft Graph throttling (hypothesis **B**) driven by gross over-concurrency against a single tenant (24 workloads × Graph budget 96), sustained because the adaptive budget governor stayed pinned at max (429 feedback gap) and the per-process held-slot backoff synchronized retries. Raising the workload cap **amplified** the throttle — hence "no difference / worse". (A, C, D rejected.)
+- **Fix applied (operational, reversible):**
+  - `tbladdonmodules`: `ms365_per_tenant_max_concurrent` **96 → 12**; `ms365_per_tenant_max_concurrent_workloads` **24 → 4**.
+  - Reset pinned governor row: `ms365_graph_tenant_budget` for `f2d17fb3-…` → `graph_budget=12, recent_429_count=8, last_429_at=now`.
+  - Requeued stalled running children (no-progress >600s, then the remaining wedged slots) — mirroring `WorkerClaimService::requeueRuns` field updates (`status=queued`, null worker/claim/lease, `scheduled_at=now`) — so the lower cap re-gates them.
+- **Result:** Fleet-wide throttle waits dropped from a continuous 45s storm to ~1 per 180s. Running steady at cap=4. Formerly-wedged `60eef596` (Amy Boire) advanced `graph_sync items 1430 → upload items 1867`; logs show `Syncing from Microsoft Graph`, `graph_sync checkpoint`, `Uploading snapshot to repository`. Batch resuming normally.
+- **Tests:** `ms365_tenant_throttle_liveness_test`, `ms365_batch_aggregate_test`, `ms365_graph_budget_test`, `ms365_reaper_throttle_test` — all OK (invariant `workload cap (4) < Graph budget (12)` holds).
+- **Follow-up (code, not yet done):** (1) The 429→`GraphTenantBudgetService::recordTenant429` feedback path is not shrinking `graph_budget` (stayed 96 / `recent_429_count=0`) during a real storm — the governor is blind; needs a fix so budget auto-shrinks fleet-wide. (2) Worker `tenant_controller` holds the in-flight slot during the full `Retry-After` while `limit` is shrunk to 1, starving siblings; consider releasing the slot during long backoff or adding cross-process coordination. (3) Reaper `STALE_PROGRESS_SILENCE_SECONDS=1800` is slow to reclaim wedged slots that still heartbeat; consider keying on `graph_requests`/items deltas rather than `last_progress_at` alone.
+
+### 2026-06-24 — Throughput cap + wedged graph_sync slot recovery (PHP 1.49.0)
+
+- **Goal:** Raise per-tenant running-workload claim cap; stop node-level lease renewal from masking per-run stalls; cap infrastructure requeues for permanently wedging `graph_sync` workloads so concurrency slots free up.
+- **Settings:** New WHMCS module field `ms365_per_tenant_max_concurrent_workloads` (default **24**, was code-only fallback **6**). `ms365_per_tenant_max_concurrent` remains the Graph HTTP budget ceiling.
+- **PHP 1.49.0:** `Ms365EngineConfig::perTenantMaxConcurrentWorkloads()` reads the new setting (fallback 24). `WorkerLeaseService::renewForNode()` joins `ms365_backup_runs` and skips lease renewal when `last_progress_at` (or `updated_at`) is older than `STALE_SILENCE_SECONDS` (**1800s**) so reapers can reclaim wedged runs. `WorkerClaimService::requeueRuns()` tracks `stats_json.infra_requeue` — after **4** infrastructure requeues with no items/bytes/`graph_requests` improvement on `graph_sync` / `prior_snapshot`, marks the workload `error` ("Workload stalled during Graph sync") instead of infinite requeue. `Ms365BatchRunRepository::STALE_SILENCE_SECONDS` made public for lease scoping.
+- **Wedge investigation (batch `39b9838c-…cca00`):** `ddbb9352` (Al Caron) and `60eef596` (Amy Boire) were `graph_sync` at ~68–71% with `last_progress_at` frozen at claim time (~82 min silence) while `graph_requests` in `stats_json` showed prior enumeration (289 / 224). Both were infrastructure-requeued ("Stale workload reconciled during batch sync" / "Stale progress (worker busy)") with worker unassigned — slots freed but workloads churn without terminal fail. Last worker logs show brief `Graph sync: onedrive` then silence; prior throttle waits (`Throttled by Microsoft — waiting`). Local `/var/www/eazybackup/ms365/_logs/worker.log` has no entries for these run IDs (fleet logs live on worker nodes). Root cause: node heartbeat renewed leases across all node claims, masking per-run `last_progress_at` stall; repeated infra requeue without progress cap allowed indefinite slot hold/churn.
+- **Tests:** `ms365_batch_aggregate_test.php`, `ms365_tenant_throttle_liveness_test.php`.
+- **Verify:** Deploy PHP 1.49.0; optional set `ms365_per_tenant_max_concurrent_workloads` (e.g. 24); confirm wedged `graph_sync` children lose lease renewal after 30m silence, fail after 4 no-progress infra requeues, and `countRunningForTenant` excludes >2700s-stale slots.
 
 ### 2026-06-24 — Phase-scoped throttle shield + stalled slot cap (PHP 1.48.0)
 

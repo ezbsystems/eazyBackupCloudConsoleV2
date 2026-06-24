@@ -72,20 +72,26 @@ final class FleetSettings
         return rtrim((string) $row, '/');
     }
 
-    public static function workerApiBaseUrl(): string
+    public static function workerApiBaseUrl(?string $fleet = null): string
     {
+        if (class_exists(FleetContext::class)) {
+            return FleetContext::workerApiBaseUrl($fleet);
+        }
+
         return self::systemUrl() . '/modules/addons/cloudstorage/api';
     }
 
     /** @return array<string, string> */
-    public static function publicConfig(): array
+    public static function publicConfig(?string $fleet = null): array
     {
         return [
             'repo_path' => self::repoPath(),
             'go_binary' => self::goBinary(),
             'artifact_root' => self::artifactRoot(),
-            'api_base_url' => self::workerApiBaseUrl(),
+            'api_base_url' => self::workerApiBaseUrl($fleet),
             'stale_heartbeat_seconds' => (string) self::staleHeartbeatSeconds(),
+            'server_environment' => class_exists(FleetContext::class) ? FleetContext::serverEnvironment() : 'development',
+            'active_fleet' => class_exists(FleetContext::class) ? FleetContext::activeFleet() : 'development',
         ];
     }
 }

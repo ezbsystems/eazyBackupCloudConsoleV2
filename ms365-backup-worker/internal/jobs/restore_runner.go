@@ -327,6 +327,7 @@ func (r *RestoreRunner) runArchiveExport(ctx context.Context, job *api.RunJob, o
 		DestRegion:       job.DestRegion,
 		DestAccessKey:    job.DestAccessKey,
 		DestSecretKey:    job.DestSecretKey,
+		ParallelExtracts: r.cfg.Worker.ArchiveParallelExtracts,
 		OnProgress:       reportProgress,
 	})
 	if err != nil {

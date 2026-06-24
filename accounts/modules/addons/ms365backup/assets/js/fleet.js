@@ -3,9 +3,19 @@
 
   var api = window.MS365_FLEET_API || '';
   var token = window.MS365_TOKEN || '';
+  var fleetMeta = window.MS365_FLEET_META || {};
+  var fleetTarget = window.MS365_FLEET_TARGET || 'development';
+
+  function withFleet(params) {
+    var p = params || {};
+    if (fleetMeta.can_select_fleet) {
+      p.fleet = fleetTarget;
+    }
+    return p;
+  }
 
   function post(op, data) {
-    var body = new URLSearchParams(data || {});
+    var body = new URLSearchParams(withFleet(data || {}));
     body.set('token', token);
     return fetch(api + '&op=' + encodeURIComponent(op), {
       method: 'POST',
@@ -16,7 +26,7 @@
   }
 
   function get(op, params) {
-    var q = new URLSearchParams(params || {});
+    var q = new URLSearchParams(withFleet(params || {}));
     q.set('op', op);
     return fetch(api + '&' + q.toString(), { credentials: 'same-origin' }).then(function (r) { return r.json(); });
   }
@@ -484,7 +494,57 @@
     });
   }
 
+  function updateFleetTargetUi() {
+    var detail = document.getElementById('fleet-target-detail');
+    if (detail) {
+      var label = fleetTarget === 'production' ? 'Production fleet' : 'Development fleet';
+      var remote = fleetTarget === 'production';
+      detail.textContent = 'Viewing: ' + label + (remote && fleetMeta.production_system_url ? ' — worker API ' + fleetMeta.production_system_url : '');
+    }
+    document.querySelectorAll('.fleet-target-btn').forEach(function (btn) {
+      var active = btn.getAttribute('data-fleet') === fleetTarget;
+      btn.classList.toggle('btn-primary', active);
+      btn.classList.toggle('btn-default', !active);
+    });
+    var prodWarn = document.getElementById('fleet-scale-prod-warning');
+    var prodUrl = document.getElementById('fleet-scale-prod-url');
+    if (prodWarn) {
+      prodWarn.style.display = fleetTarget === 'production' ? 'block' : 'none';
+    }
+    if (prodUrl && fleetMeta.production_system_url) {
+      prodUrl.textContent = fleetMeta.production_system_url;
+    }
+  }
+
+  function bindFleetTargetSelector() {
+    document.querySelectorAll('.fleet-target-btn').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var next = btn.getAttribute('data-fleet') || 'development';
+        if (next === fleetTarget) return;
+        post('fleet_set_target', { fleet: next }).then(function (res) {
+          if (!res.ok) {
+            alert(res.error || 'Failed to switch fleet target');
+            return;
+          }
+          fleetTarget = (res.meta && res.meta.active_fleet) ? res.meta.active_fleet : next;
+          window.MS365_FLEET_TARGET = fleetTarget;
+          if (res.meta) {
+            fleetMeta = res.meta;
+            window.MS365_FLEET_META = fleetMeta;
+          }
+          updateFleetTargetUi();
+          renderDashboard();
+          renderNodes();
+          renderDeployments();
+          renderSettings();
+        });
+      });
+    });
+    updateFleetTargetUi();
+  }
+
   document.addEventListener('DOMContentLoaded', function () {
+    bindFleetTargetSelector();
     renderDashboard();
     renderNodes();
     renderBuilds();

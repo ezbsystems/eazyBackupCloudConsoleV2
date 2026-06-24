@@ -29,6 +29,8 @@ worker:
   job_disk_budget_mib: 2048
   heavy_job_ram_budget_mib: 1536
   heavy_job_disk_budget_mib: 4096
+  # Concurrent Kopia reads during restore archive export (zip entries written in order).
+  archive_parallel_extracts: 32
 
 # api.base_url and worker.token: use MS365_WORKER_API_BASE / MS365_WORKER_TOKEN in
 # /etc/systemd/system/ms365-backup-worker.service.d/environment.conf (not fleet YAML).

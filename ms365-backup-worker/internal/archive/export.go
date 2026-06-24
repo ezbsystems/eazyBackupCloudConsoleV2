@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"strings"
-	"time"
 
 	"github.com/eazybackup/ms365-backup-worker/internal/api"
 	"github.com/eazybackup/ms365-backup-worker/internal/kopia"
@@ -23,6 +22,7 @@ type ExportOptions struct {
 	DestRegion       string
 	DestAccessKey    string
 	DestSecretKey    string
+	ParallelExtracts int
 	OnProgress       func(done, total int, message string, bytes int64)
 }
 
@@ -106,42 +106,10 @@ func Export(ctx context.Context, opts ExportOptions) (*ExportResult, error) {
 		zw := zip.NewWriter(pw)
 		defer zw.Close()
 
-		for i, file := range files {
-			if err := ctx.Err(); err != nil {
-				return err
-			}
-			report(i, len(files), fmt.Sprintf("Archiving %s", shortName(file.Path)), contentBytes)
-
-			reader, size, err := opts.Pool.ExtractReader(ctx, kopia.ExtractRequest{
-				Storage:    opts.Storage,
-				ManifestID: file.ManifestID,
-				Path:       file.Path,
-				SourcePath: "/ms365",
-			})
-			if err != nil {
-				return fmt.Errorf("extract %s: %w", file.Path, err)
-			}
-
-			zipName := snapshotToZipPath(file.Path)
-			header := &zip.FileHeader{
-				Name:   zipName,
-				Method: zipMethod,
-			}
-			if size > 0 {
-				header.UncompressedSize64 = uint64(size)
-			}
-			header.SetModTime(time.Now().UTC())
-			w, err := zw.CreateHeader(header)
-			if err != nil {
-				_ = reader.Close()
-				return fmt.Errorf("zip header %s: %w", zipName, err)
-			}
-			n, err := io.Copy(w, reader)
-			_ = reader.Close()
-			if err != nil {
-				return fmt.Errorf("zip write %s: %w", zipName, err)
-			}
-			contentBytes += n
+		var err error
+		contentBytes, err = buildZipFromFiles(ctx, opts.Pool, opts.Storage, opts.ParallelExtracts, zw, files, zipMethod, report)
+		if err != nil {
+			return err
 		}
 		report(len(files), len(files), "Finalizing archive", contentBytes)
 		return zw.Close()

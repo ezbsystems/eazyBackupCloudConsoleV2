@@ -148,6 +148,7 @@ final class BuildRunner
                             'build_job_id' => $jobId,
                             'created_by_admin_id' => $job['created_by_admin_id'] ?? null,
                         ]);
+                        ReleaseSyncService::autoPublishAfterBuild($releaseId);
                         $rc = 0;
                         $summary = 'release #' . $releaseId;
                         break;

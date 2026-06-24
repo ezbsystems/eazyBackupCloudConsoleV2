@@ -161,6 +161,149 @@ func browseWithRepo(ctx context.Context, req BrowseRequest, acquire repoAcquirer
 	return &BrowseResult{Entries: entries}, nil
 }
 
+func listDirectoryWithRepo(ctx context.Context, req BrowseRequest, acquire repoAcquirer) (*BrowseResult, error) {
+	if strings.TrimSpace(req.ManifestID) == "" {
+		return nil, fmt.Errorf("manifest_id required")
+	}
+	if req.Host == "" {
+		req.Host = "ms365-worker"
+	}
+	if req.Username == "" {
+		req.Username = "ms365"
+	}
+	if req.SourcePath == "" {
+		req.SourcePath = "/ms365"
+	}
+
+	rep, release, err := acquire(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+
+	man, err := snapshot.LoadSnapshot(ctx, rep, manifest.ID(req.ManifestID))
+	if err != nil {
+		return nil, fmt.Errorf("load snapshot: %w", err)
+	}
+
+	rootEntry, err := snapshotfs.SnapshotRoot(rep, man)
+	if err != nil {
+		return nil, fmt.Errorf("snapshot root: %w", err)
+	}
+	root, ok := rootEntry.(kopiafs.Directory)
+	if !ok {
+		return nil, fmt.Errorf("snapshot root is not a directory")
+	}
+
+	targetPath := normalizeBrowsePath(req.Path)
+	cur := root
+	if targetPath != "" {
+		curEntry, err := walkPath(ctx, root, targetPath)
+		if err != nil {
+			return nil, err
+		}
+		var dirOk bool
+		cur, dirOk = curEntry.(kopiafs.Directory)
+		if !dirOk {
+			return &BrowseResult{Entries: []BrowseEntry{}}, nil
+		}
+	}
+
+	children, err := cur.Readdir(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("readdir: %w", err)
+	}
+
+	type entrySort struct {
+		entry BrowseEntry
+	}
+	sorted := make([]entrySort, 0, len(children))
+	for _, child := range children {
+		name := child.Name()
+		if shouldHideBrowseName(name) {
+			continue
+		}
+		childPath := joinBrowsePath(targetPath, name)
+		entryType := "file"
+		hasChildren := false
+		var size int64
+		if _, isDir := child.(kopiafs.Directory); isDir {
+			entryType = "folder"
+			hasChildren = true
+		} else if f, ok := child.(kopiafs.File); ok {
+			size = f.Size()
+		}
+		sorted = append(sorted, entrySort{
+			entry: BrowseEntry{
+				Name:        name,
+				Path:        childPath,
+				Type:        entryType,
+				HasChildren: hasChildren,
+				Size:        size,
+			},
+		})
+	}
+	sort.Slice(sorted, func(i, j int) bool {
+		a, b := sorted[i].entry, sorted[j].entry
+		if a.Type != b.Type {
+			return a.Type == "folder"
+		}
+		return strings.ToLower(a.Name) < strings.ToLower(b.Name)
+	})
+	entries := make([]BrowseEntry, len(sorted))
+	for i, item := range sorted {
+		entries[i] = item.entry
+	}
+
+	return &BrowseResult{Entries: entries}, nil
+}
+
+// IsSnapshotFile reports whether path refers to a leaf file in the snapshot (not a directory).
+func (p *Pool) IsSnapshotFile(ctx context.Context, req BrowseRequest, path string) (bool, error) {
+	return isSnapshotFileWithRepo(ctx, req, path, func(ctx context.Context) (repo.Repository, func(), error) {
+		return p.Acquire(ctx, req.Storage, 64)
+	})
+}
+
+func isSnapshotFileWithRepo(ctx context.Context, req BrowseRequest, path string, acquire repoAcquirer) (bool, error) {
+	path = normalizeBrowsePath(path)
+	if path == "" {
+		return false, nil
+	}
+	if strings.TrimSpace(req.ManifestID) == "" {
+		return false, fmt.Errorf("manifest_id required")
+	}
+	if req.SourcePath == "" {
+		req.SourcePath = "/ms365"
+	}
+
+	rep, release, err := acquire(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer release()
+
+	man, err := snapshot.LoadSnapshot(ctx, rep, manifest.ID(req.ManifestID))
+	if err != nil {
+		return false, fmt.Errorf("load snapshot: %w", err)
+	}
+	rootEntry, err := snapshotfs.SnapshotRoot(rep, man)
+	if err != nil {
+		return false, fmt.Errorf("snapshot root: %w", err)
+	}
+	root, ok := rootEntry.(kopiafs.Directory)
+	if !ok {
+		return false, fmt.Errorf("snapshot root is not a directory")
+	}
+
+	cur, err := walkPath(ctx, root, path)
+	if err != nil {
+		return false, err
+	}
+	_, isFile := cur.(kopiafs.File)
+	return isFile, nil
+}
+
 func Extract(ctx context.Context, req ExtractRequest) ([]byte, error) {
 	pool := NewPool(RepoCacheSettings{RepoConfigDir: "/tmp/ms365-browse"})
 	return pool.Extract(ctx, req)

@@ -1,17 +1,53 @@
 <?php
 declare(strict_types=1);
 
+use Ms365Backup\Fleet\FleetContext;
+
 $tab = (string) ($_GET['tab'] ?? 'dashboard');
 $e = static fn ($s) => htmlspecialchars((string) $s, ENT_QUOTES, 'UTF-8');
 $apiBase = 'addonmodules.php?module=ms365backup&action=api';
 $token = generate_token('plain');
 $fleetBase = 'addonmodules.php?module=ms365backup&action=fleet';
+$fleetMeta = FleetContext::uiMeta();
+$buildsEnabled = !empty($fleetMeta['builds_enabled']);
+if (!$buildsEnabled && $tab === 'builds') {
+    $tab = 'dashboard';
+}
 ?>
-<script>window.MS365_FLEET_API = <?= json_encode($apiBase) ?>; window.MS365_TOKEN = <?= json_encode($token) ?>;</script>
+<script>
+window.MS365_FLEET_API = <?= json_encode($apiBase) ?>;
+window.MS365_TOKEN = <?= json_encode($token) ?>;
+window.MS365_FLEET_META = <?= json_encode($fleetMeta) ?>;
+window.MS365_FLEET_TARGET = <?= json_encode($fleetMeta['active_fleet'] ?? 'development') ?>;
+window.MS365_SERVER_ENV = <?= json_encode($fleetMeta['server_environment'] ?? 'development') ?>;
+</script>
 <script src="<?= $e(ms365backup_asset_url('assets/js/fleet.js')) ?>?v=<?= (int) @filemtime(__DIR__ . '/../../assets/js/fleet.js') ?>"></script>
 
+<?php if (!empty($fleetMeta['can_select_fleet'])): ?>
+<div id="fleet-target-banner" class="alert alert-info" style="margin-bottom:12px;padding:8px 12px">
+    <strong>Fleet target:</strong>
+    <div class="btn-group" style="margin-left:8px">
+        <button type="button" class="btn btn-xs fleet-target-btn" data-fleet="development">Development fleet</button>
+        <button type="button" class="btn btn-xs fleet-target-btn" data-fleet="production">Production fleet</button>
+    </div>
+    <span id="fleet-target-detail" class="text-muted" style="margin-left:10px"></span>
+</div>
+<?php elseif (!$buildsEnabled): ?>
+<div class="alert alert-warning" style="margin-bottom:12px;padding:8px 12px">
+    <strong>Production server.</strong> Build and publish worker releases on the development WHMCS console. This UI manages the local production worker fleet only.
+</div>
+<?php endif; ?>
+
 <ul class="nav nav-tabs" style="margin-bottom:15px">
-<?php foreach (['dashboard' => 'Dashboard', 'nodes' => 'Nodes', 'builds' => 'Builds', 'deployments' => 'Deployments', 'settings' => 'Settings'] as $key => $label): ?>
+<?php
+$tabs = ['dashboard' => 'Dashboard', 'nodes' => 'Nodes'];
+if ($buildsEnabled) {
+    $tabs['builds'] = 'Builds';
+}
+$tabs['deployments'] = 'Deployments';
+$tabs['settings'] = 'Settings';
+foreach ($tabs as $key => $label):
+?>
     <li<?= $tab === $key ? ' class="active"' : '' ?>><a href="<?= $e($fleetBase . '&tab=' . $key) ?>"><?= $e($label) ?></a></li>
 <?php endforeach; ?>
 </ul>
@@ -41,6 +77,7 @@ $fleetBase = 'addonmodules.php?module=ms365backup&action=fleet';
         </form>
         <div id="fleet-scale-notice" style="margin-top:10px"></div>
         <p class="text-muted" style="margin-top:8px;margin-bottom:0"><small>Stops containers (reusable) via per-node <strong>Stop</strong>; cron autoscale is off by default. Cross-node clone needs shared storage or <code>proxmox_template_vmid_map</code>.</small></p>
+        <p id="fleet-scale-prod-warning" class="text-warning" style="display:none;margin-top:8px;margin-bottom:0"><small><strong>Production fleet:</strong> workers register and heartbeat against production WHMCS (<span id="fleet-scale-prod-url"></span>).</small></p>
     </div>
 </div>
 <div class="panel panel-default">

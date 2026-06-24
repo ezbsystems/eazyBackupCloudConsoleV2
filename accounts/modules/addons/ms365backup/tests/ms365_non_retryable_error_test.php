@@ -83,6 +83,16 @@ assert_true(
     'SharePoint accessDenied 403 is non-retryable (safety net)'
 );
 
+assert_true(
+    JobQueueRepository::isNonRetryableError('graph_sync stalled: no enumeration progress for 2700s'),
+    'graph_sync enumeration stall is non-retryable'
+);
+
+assert_true(
+    JobQueueRepository::isNonRetryableError('Workload stalled during Graph sync'),
+    'infra graph_sync stall cap message is non-retryable'
+);
+
 $directoryPagination = 'directory: Graph pagination loop suspected: 3 consecutive empty page(s) still have @odata.nextLink [directory:users]';
 assert_true(
     Ms365CustomerError::message(new \RuntimeException($directoryPagination))

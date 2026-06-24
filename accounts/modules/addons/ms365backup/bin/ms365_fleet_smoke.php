@@ -16,6 +16,8 @@ require_once dirname(__DIR__) . '/ms365backup.php';
 require_once dirname(__DIR__) . '/ms365backup_autoload.php';
 
 use Ms365Backup\Fleet\ArtifactService;
+use Ms365Backup\Fleet\FleetContext;
+use Ms365Backup\Fleet\FleetRemoteAuth;
 use Ms365Backup\Fleet\FleetSettings;
 use Ms365Backup\Fleet\FleetSummaryService;
 use Ms365Backup\Fleet\ReleaseRepository;
@@ -40,6 +42,20 @@ $check('artifact_root', is_dir($artifactRoot) || @mkdir($artifactRoot, 0750, tru
 
 $summary = FleetSummaryService::summary();
 $check('fleet_summary', isset($summary['active_nodes']), 'nodes=' . ($summary['active_nodes'] ?? 0));
+
+$meta = FleetContext::uiMeta();
+$check('fleet_context', isset($meta['server_environment']), 'env=' . ($meta['server_environment'] ?? '?') . ' fleet=' . ($meta['active_fleet'] ?? '?'));
+$check('worker_api_base', FleetSettings::workerApiBaseUrl() !== '', FleetSettings::workerApiBaseUrl());
+
+if (FleetContext::isDevelopmentServer()) {
+    $prodUrl = FleetContext::productionSystemUrl();
+    $check('production_system_url', str_ends_with($prodUrl, '/accounts'), $prodUrl);
+    if (FleetRemoteAuth::sharedToken() !== '') {
+        echo "[INFO] fleet_deploy_secret — configured (remote API smoke requires reachable prod host)\n";
+    } else {
+        echo "[WARN] fleet_deploy_secret — not configured (dual fleet remote ops disabled)\n";
+    }
+}
 
 $check('engine_mode_kopia', Ms365EngineConfig::engineMode() === Ms365EngineConfig::MODE_KOPIA, Ms365EngineConfig::engineMode());
 

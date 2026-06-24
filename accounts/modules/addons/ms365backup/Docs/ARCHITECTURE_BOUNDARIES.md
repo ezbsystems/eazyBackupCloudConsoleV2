@@ -59,6 +59,17 @@ Backup and restore are separate: PHP **control plane** (`BackupPlanner`, `Worker
 
 ---
 
+## Worker fleet environments (1.50.0+)
+
+| Plane | WHMCS host | Worker fleet DB | Builds / publish |
+|-------|------------|-----------------|------------------|
+| **Development control** | Dev WHMCS | Dev `ms365_worker_nodes` for dev fleet | Yes — Worker Fleet Builds tab |
+| **Production runtime** | Prod WHMCS (`ms365_production_system_url`) | Prod `ms365_worker_nodes`, queue, releases | No — dev pushes releases via `ReleaseSyncService` |
+
+Dev admin UI can **view and operate** the production fleet remotely (`FleetFacade` → `fleet_remote.php`) using `ms365_fleet_deploy_shared_secret`. Proxmox scale-up for production workers still runs on the dev host (shared cluster) but registers nodes against prod.
+
+---
+
 ## Key entry points
 
 | Surface | Location |

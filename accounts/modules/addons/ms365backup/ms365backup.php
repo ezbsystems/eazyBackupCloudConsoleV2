@@ -28,7 +28,7 @@ function ms365backup_config(): array
     return [
         'name' => 'MS365 Backup',
         'description' => 'Admin-only Microsoft 365 backup development tool (mail, calendar, contacts, To Do, OneDrive).',
-        'version' => '1.48.0',
+        'version' => '1.50.0',
         'author' => 'eazyBackup',
         'language' => 'english',
         'fields' => [
@@ -60,7 +60,44 @@ function ms365backup_config(): array
                 'FriendlyName' => 'Worker API token',
                 'Type' => 'password',
                 'Size' => '64',
-                'Description' => 'Shared secret for ms365-backup-worker fleet (X-MS365-Worker-Token header).',
+                'Description' => 'Shared secret for ms365-backup-worker fleet (X-MS365-Worker-Token header). Use the same value on dev and prod.',
+            ],
+            'ms365_server_environment' => [
+                'FriendlyName' => 'Server environment',
+                'Type' => 'dropdown',
+                'Options' => 'development,production',
+                'Default' => 'development',
+                'Description' => 'Identifies this WHMCS host. Set production on prod (192.168.92.75); development on the build/deploy console.',
+            ],
+            'ms365_production_system_url' => [
+                'FriendlyName' => 'Production WHMCS base URL',
+                'Type' => 'text',
+                'Size' => '128',
+                'Default' => 'http://192.168.92.75/accounts',
+                'Description' => 'Dev server only: base URL for production worker API and remote fleet control (must end with /accounts).',
+            ],
+            'ms365_development_system_url' => [
+                'FriendlyName' => 'Development WHMCS base URL',
+                'Type' => 'text',
+                'Size' => '128',
+                'Description' => 'Prod server only (optional): dev WHMCS URL for pull-based worker release sync fallback.',
+            ],
+            'ms365_fleet_deploy_shared_secret' => [
+                'FriendlyName' => 'Fleet deploy shared secret',
+                'Type' => 'password',
+                'Size' => '64',
+                'Description' => 'M2M auth between dev and prod fleet APIs (X-MS365-Fleet-Deploy-Token). Set the identical value on both servers.',
+            ],
+            'ms365_production_release_sync_enabled' => [
+                'FriendlyName' => 'Production release pull sync',
+                'Type' => 'yesno',
+                'Description' => 'Prod only: enable cron pull of worker releases from development when push sync fails.',
+            ],
+            'ms365_auto_sync_release_to_prod' => [
+                'FriendlyName' => 'Auto-sync releases to production',
+                'Type' => 'yesno',
+                'Default' => 'on',
+                'Description' => 'Dev only: after a successful build publish, push the release artifact to production via fleet_release_upsert.',
             ],
             'ms365_platform_max_concurrent' => [
                 'FriendlyName' => 'Platform max concurrent backups',
@@ -73,6 +110,13 @@ function ms365backup_config(): array
                 'Type' => 'text',
                 'Size' => '4',
                 'Default' => '96',
+            ],
+            'ms365_per_tenant_max_concurrent_workloads' => [
+                'FriendlyName' => 'Max concurrent workloads per Entra tenant',
+                'Type' => 'text',
+                'Size' => '4',
+                'Default' => '24',
+                'Description' => 'Running child workloads per tenant (claim gate). Keep below max concurrent per Entra tenant (Graph HTTP budget).',
             ],
             'ms365_per_client_max_concurrent' => [
                 'FriendlyName' => 'Max concurrent per WHMCS client',
@@ -600,12 +644,16 @@ function ms365backup_output(array $vars): void
     $baseUrl = 'addonmodules.php?module=ms365backup';
 
     // JSON / bare responses must discard WHMCS admin chrome already in the buffer.
-    if ($action === 'api' || $action === 'seeder_oauth_callback') {
+    if ($action === 'api' || $action === 'seeder_oauth_callback' || $action === 'fleet_remote') {
         while (ob_get_level() > 0) {
             ob_end_clean();
         }
         if ($action === 'api') {
             require __DIR__ . '/pages/admin/api.php';
+            exit;
+        }
+        if ($action === 'fleet_remote') {
+            require __DIR__ . '/pages/admin/fleet_remote.php';
             exit;
         }
         require __DIR__ . '/pages/admin/seeder_oauth_callback.php';

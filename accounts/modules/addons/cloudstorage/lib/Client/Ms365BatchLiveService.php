@@ -19,6 +19,9 @@ require_once dirname(__DIR__) . '/Ms365BackupBootstrap.php';
  */
 final class Ms365BatchLiveService
 {
+    /** Aligns with Ms365BatchRunRepository heartbeat gap — fresher progress reads as "Active". */
+    private const WORKLOAD_ACTIVE_PROGRESS_SECONDS = 180;
+
     public static function isMs365BatchRun(array $run): bool
     {
         return strtolower((string) ($run['engine'] ?? '')) === 'ms365';
@@ -97,6 +100,7 @@ final class Ms365BatchLiveService
                 $agg,
                 !empty($parentStats['ms365_graph_throttled'])
             ),
+            'graph_requests_total' => (int) ($parentStats['ms365_graph_requests_total'] ?? $agg['graph_requests_total'] ?? 0),
             'byte_stats_comparable' => !empty($parentStats['ms365_byte_stats_comparable']),
             'started_at' => $parentRun['started_at'] ?? null,
             'finished_at' => $parentRun['finished_at'] ?? null,
@@ -433,6 +437,9 @@ final class Ms365BatchLiveService
         $row['events'] = $events;
         $row['error'] = $events !== [] ? (string) ($events[0]['message'] ?? '') : '';
         $row['notes'] = self::mergeGroupSkippedNotes($groupChildren);
+        foreach (self::mergeGroupFreshness($groupChildren, $queueByRun) as $key => $value) {
+            $row[$key] = $value;
+        }
 
         return $row;
     }
@@ -687,7 +694,7 @@ final class Ms365BatchLiveService
             $percent = 100.0;
         }
 
-        return [
+        $row = [
             'workload_type' => $typeLabel,
             'workload_name' => $name,
             'resource_type' => $resourceType,
@@ -701,6 +708,11 @@ final class Ms365BatchLiveService
             'percent' => round($percent, 2),
             'progress_label' => self::formatProgressLabel($itemsDone, $itemsTotal, $percent, $status),
         ];
+        foreach (self::computeWorkloadFreshness($child, $queue) as $key => $value) {
+            $row[$key] = $value;
+        }
+
+        return $row;
     }
 
     /** @param array<string, mixed> $a @param array<string, mixed> $b */
@@ -737,13 +749,100 @@ final class Ms365BatchLiveService
         $runError = trim((string) ($child['error_message'] ?? ''));
         $queueError = trim((string) ($queue['error_message'] ?? $queue['last_error'] ?? ''));
         if ($runError !== '') {
-            $parts[] = CustomerFacingTextSanitizer::scrubLogMessage($runError);
+            $parts[] = self::softenInfrastructureQueueMessage($runError);
         }
         if ($queueError !== '' && $queueError !== $runError) {
-            $parts[] = 'Queue: ' . CustomerFacingTextSanitizer::scrubLogMessage($queueError);
+            $softened = self::softenInfrastructureQueueMessage($queueError);
+            if ($softened !== '') {
+                $parts[] = $softened === 'Recovering this workload'
+                    ? $softened
+                    : 'Queue: ' . $softened;
+            }
         }
 
         return implode(' · ', array_values(array_filter($parts, static fn (string $part): bool => $part !== '')));
+    }
+
+    private static function softenInfrastructureQueueMessage(string $message): string
+    {
+        $normalized = trim($message);
+        if ($normalized === '') {
+            return '';
+        }
+
+        $recoveringNeedles = [
+            'stale progress (worker busy)',
+            'stale progress reconciled',
+            'stale workload reconciled during batch sync',
+        ];
+        $lower = strtolower($normalized);
+        foreach ($recoveringNeedles as $needle) {
+            if ($lower === $needle || str_contains($lower, $needle)) {
+                return 'Recovering this workload';
+            }
+        }
+
+        return CustomerFacingTextSanitizer::scrubLogMessage($normalized);
+    }
+
+    /**
+     * @param array<string, mixed> $child
+     * @param array<string, mixed> $queue
+     * @return array{last_progress_age_seconds: ?int, stalled: bool}
+     */
+    private static function computeWorkloadFreshness(array $child, array $queue): array
+    {
+        $status = strtolower((string) ($child['status'] ?? ''));
+        if (!in_array($status, ['running', 'starting'], true)) {
+            return ['last_progress_age_seconds' => null, 'stalled' => false];
+        }
+
+        $now = time();
+        $progressAt = Ms365BatchRunRepository::progressFreshnessAt($child);
+        if ($progressAt <= 0) {
+            return ['last_progress_age_seconds' => null, 'stalled' => false];
+        }
+
+        $ageSeconds = max(0, $now - $progressAt);
+        $queuePayload = $queue !== [] ? $queue : null;
+        $throttledAlive = Ms365BatchRunRepository::isThrottledWaitingAlive($child, $queuePayload, $now);
+        $stalled = !$throttledAlive && $ageSeconds >= self::WORKLOAD_ACTIVE_PROGRESS_SECONDS;
+
+        return [
+            'last_progress_age_seconds' => $ageSeconds,
+            'stalled' => $stalled,
+        ];
+    }
+
+    /**
+     * @param list<array<string, mixed>> $groupChildren
+     * @param array<string, array<string, mixed>> $queueByRun
+     * @return array{last_progress_age_seconds: ?int, stalled: bool}
+     */
+    private static function mergeGroupFreshness(array $groupChildren, array $queueByRun): array
+    {
+        $worstAge = null;
+        $stalled = false;
+        foreach ($groupChildren as $child) {
+            $status = strtolower((string) ($child['status'] ?? ''));
+            if (!in_array($status, ['running', 'starting'], true)) {
+                continue;
+            }
+            $runId = (string) ($child['id'] ?? '');
+            $freshness = self::computeWorkloadFreshness($child, $queueByRun[$runId] ?? []);
+            $age = $freshness['last_progress_age_seconds'];
+            if ($age !== null && ($worstAge === null || $age > $worstAge)) {
+                $worstAge = $age;
+            }
+            if ($freshness['stalled']) {
+                $stalled = true;
+            }
+        }
+
+        return [
+            'last_progress_age_seconds' => $worstAge,
+            'stalled' => $stalled,
+        ];
     }
 
     /**
@@ -885,7 +984,7 @@ final class Ms365BatchLiveService
 
         try {
             $progress = self::aggregateProgress($batchRunId, $clientId, $run);
-            foreach (['progress_pct', 'bytes_processed', 'bytes_transferred', 'bytes_total', 'objects_total', 'objects_transferred', 'speed_bytes_per_sec', 'eta_seconds', 'current_item', 'stage', 'status'] as $key) {
+            foreach (['progress_pct', 'bytes_processed', 'bytes_transferred', 'bytes_total', 'objects_total', 'objects_transferred', 'speed_bytes_per_sec', 'eta_seconds', 'current_item', 'stage', 'status', 'total_workloads', 'completed_workloads', 'active_running_workloads', 'queued_workloads', 'graph_requests_total', 'byte_stats_comparable'] as $key) {
                 if (array_key_exists($key, $progress) && $progress[$key] !== null) {
                     $run[$key] = $progress[$key];
                 }
