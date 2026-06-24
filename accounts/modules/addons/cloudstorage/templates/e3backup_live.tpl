@@ -63,6 +63,13 @@
             </div>
 
             <div class="eb-live-stats">
+                {if isset($is_ms365_batch) && $is_ms365_batch}
+                <div class="eb-live-stat">
+                    <div class="eb-live-stat-label">Workloads</div>
+                    <div class="eb-live-stat-value highlight" id="ms365WorkloadsValue">—</div>
+                    <p id="ms365WorkloadsHint" class="eb-live-stat-hint"></p>
+                </div>
+                {/if}
                 {if $showItemsMetric}
                 <div class="eb-live-stat">
                     <div class="eb-live-stat-label">Items</div>
@@ -74,7 +81,7 @@
                 {/if}
                 {if $showByteMetrics}
                 <div class="eb-live-stat">
-                    <div class="eb-live-stat-label">Speed</div>
+                    <div class="eb-live-stat-label" id="speedStatLabel">Speed</div>
                     <div class="eb-live-stat-value highlight" id="speedValue">
                         {if $run.speed_bytes_per_sec}
                             {\WHMCS\Module\Addon\CloudStorage\Client\HelperController::formatSizeUnits($run.speed_bytes_per_sec)}/s
@@ -89,6 +96,11 @@
                     <div class="eb-live-stat-label">Items/s</div>
                     <div class="eb-live-stat-value highlight" id="itemsSpeedValue">—</div>
                     <p id="itemsSpeedHint" class="eb-live-stat-hint">Enumeration rate</p>
+                </div>
+                <div id="ms365GraphActivityStat" class="eb-live-stat hidden">
+                    <div class="eb-live-stat-label">Graph requests</div>
+                    <div class="eb-live-stat-value highlight" id="graphRequestsValue">—</div>
+                    <p id="graphRequestsHint" class="eb-live-stat-hint">Enumeration activity</p>
                 </div>
                 {/if}
                 <div id="graphThrottleHint" class="eb-live-stat hidden" style="grid-column: 1 / -1;">
@@ -126,7 +138,7 @@
                     <div class="eb-live-stat-label">Files</div>
                     <div class="eb-live-stat-value" id="filesValue">-</div>
                     {if isset($is_ms365_batch) && $is_ms365_batch}
-                    <p id="filesHint" class="eb-live-stat-hint"></p>
+                    <p id="filesHint" class="eb-live-stat-hint">enumerated so far</p>
                     {/if}
                 </div>
                 <div class="eb-live-stat">
@@ -573,6 +585,27 @@ function setLiveBarFillStateOnElement(bar, state) {
     else if (state === 'neutral') bar.classList.add('eb-live-bar-fill--neutral');
 }
 
+function formatMs365WorkloadSummary(run) {
+    const total = parseInt(run.total_workloads, 10) || 0;
+    if (total <= 0) {
+        return '';
+    }
+
+    const completed = parseInt(run.completed_workloads, 10) || 0;
+    const running = parseInt(run.active_running_workloads, 10) || 0;
+    const queued = parseInt(run.queued_workloads, 10) || 0;
+
+    let text = formatCount(completed) + ' / ' + formatCount(total) + ' complete';
+    if (running > 0) {
+        text += ' · ' + formatCount(running) + ' running';
+    }
+    if (queued > 0) {
+        text += ' · ' + formatCount(queued) + ' queued';
+    }
+
+    return text;
+}
+
 function updateMs365WorkloadsSummary(workloads) {
     const summary = document.getElementById('ms365WorkloadsSummary');
     if (!summary) return;
@@ -602,42 +635,69 @@ function updateMs365WorkloadsSummary(workloads) {
 function updateMs365BatchWorkloadsLine(run) {
     if (!LIVE_IS_MS365) return;
     const line = document.getElementById('ms365WorkloadsProgressLine');
-    if (!line) return;
+    const valueEl = document.getElementById('ms365WorkloadsValue');
+    const hintEl = document.getElementById('ms365WorkloadsHint');
+    const summary = formatMs365WorkloadSummary(run);
 
-    const total = parseInt(run.total_workloads, 10) || 0;
-    if (total <= 0) {
-        line.textContent = '';
-        line.classList.add('hidden');
-        return;
+    if (line) {
+        if (!summary) {
+            line.textContent = '';
+            line.classList.add('hidden');
+        } else {
+            line.textContent = summary;
+            line.classList.remove('hidden');
+        }
     }
 
-    const completed = parseInt(run.completed_workloads, 10) || 0;
-    const running = parseInt(run.active_running_workloads, 10) || 0;
-    const queued = parseInt(run.queued_workloads, 10) || 0;
-
-    let text = formatCount(completed) + ' of ' + formatCount(total) + ' workloads complete';
-    if (running > 0) {
-        text += ' · ' + formatCount(running) + ' running';
-    }
-    if (queued > 0) {
-        text += ' · ' + formatCount(queued) + ' queued';
+    if (valueEl) {
+        valueEl.textContent = summary || '—';
     }
 
-    line.textContent = text;
-    line.classList.remove('hidden');
+    if (hintEl) {
+        const total = parseInt(run.total_workloads, 10) || 0;
+        const completed = parseInt(run.completed_workloads, 10) || 0;
+        if (total > 0 && completed < total) {
+            hintEl.textContent = formatCount(total - completed) + ' remaining';
+        } else {
+            hintEl.textContent = '';
+        }
+    }
 }
 
 function updateMs365FilesHint(run) {
     if (!LIVE_IS_MS365) return;
     const hint = document.getElementById('filesHint');
     if (!hint) return;
+    hint.textContent = 'enumerated so far';
+}
 
-    const queued = parseInt(run.queued_workloads, 10) || 0;
-    if (queued > 0) {
-        hint.textContent = '+' + formatCount(queued) + ' workloads not yet counted';
-    } else {
-        hint.textContent = '';
+function formatWorkloadFreshnessAge(seconds) {
+    const s = Math.max(0, Math.floor(Number(seconds) || 0));
+    if (s < 60) {
+        return s + 's';
     }
+    if (s < 3600) {
+        return Math.floor(s / 60) + 'm';
+    }
+    const hours = Math.floor(s / 3600);
+    const minutes = Math.floor((s % 3600) / 60);
+    return minutes > 0 ? (hours + 'h ' + minutes + 'm') : (hours + 'h');
+}
+
+function formatWorkloadFreshnessLabel(workload) {
+    const status = String(workload.status || '').toLowerCase();
+    if (!['running', 'starting'].includes(status)) {
+        return null;
+    }
+    const age = workload.last_progress_age_seconds;
+    if (age === null || age === undefined) {
+        return null;
+    }
+    const ageText = formatWorkloadFreshnessAge(age);
+    if (workload.stalled) {
+        return 'No progress ' + ageText;
+    }
+    return 'Active ' + ageText + ' ago';
 }
 
 function syncMs365WorkloadsChrome(live) {
@@ -733,10 +793,22 @@ function renderMs365Workloads(workloads) {
         workloadCell.appendChild(nameLine);
 
         const statusCell = document.createElement('td');
+        const statusWrap = document.createElement('div');
+        statusWrap.className = 'eb-live-workloads-status';
         const statusBadge = document.createElement('span');
         statusBadge.className = workloadStatusBadgeClass(workload.status);
         statusBadge.textContent = workloadStatusLabel(workload.status);
-        statusCell.appendChild(statusBadge);
+        statusWrap.appendChild(statusBadge);
+        const freshnessLabel = formatWorkloadFreshnessLabel(workload);
+        if (freshnessLabel) {
+            const freshnessBadge = document.createElement('span');
+            freshnessBadge.className = workload.stalled
+                ? 'eb-badge eb-badge--warning eb-badge--dot eb-live-workloads-freshness'
+                : 'eb-badge eb-badge--success eb-badge--dot eb-live-workloads-freshness';
+            freshnessBadge.textContent = freshnessLabel;
+            statusWrap.appendChild(freshnessBadge);
+        }
+        statusCell.appendChild(statusWrap);
 
         const phaseCell = document.createElement('td');
         phaseCell.textContent = workload.phase_label || workload.phase || '—';
@@ -1023,6 +1095,12 @@ function updateProgress() {
                 }
 
                 const speedValueEl = document.getElementById('speedValue');
+                const speedStatLabel = document.getElementById('speedStatLabel');
+                const byteStatsComparable = run.byte_stats_comparable !== false;
+                const graphPhase = LIVE_IS_MS365 && !byteStatsComparable && !isFinished;
+                if (speedStatLabel && LIVE_IS_MS365) {
+                    speedStatLabel.textContent = graphPhase ? 'Processing' : 'Speed';
+                }
                 if (speedValueEl) {
                     if (isFinished) {
                         speedValueEl.textContent = '—';
@@ -1049,7 +1127,9 @@ function updateProgress() {
                 }
                 const speedHintEl = document.getElementById('speedHint');
                 if (speedHintEl) {
-                    if (isFinished || !(run.speed_bytes_per_sec || run.bytes_processed)) {
+                    if (graphPhase) {
+                        speedHintEl.textContent = 'Reading from Microsoft 365';
+                    } else if (isFinished || !(run.speed_bytes_per_sec || run.bytes_processed)) {
                         speedHintEl.textContent = '';
                     } else {
                         const processed = run.bytes_processed || 0;
@@ -1057,6 +1137,19 @@ function updateProgress() {
                         speedHintEl.textContent = processed > transferred
                             ? 'Upload speed (hashed bytes)'
                             : 'Instantaneous';
+                    }
+                }
+
+                const graphActivityStat = document.getElementById('ms365GraphActivityStat');
+                const graphRequestsValue = document.getElementById('graphRequestsValue');
+                if (graphActivityStat && graphRequestsValue) {
+                    const graphRequests = parseInt(run.graph_requests_total, 10) || 0;
+                    if (graphPhase && graphRequests > 0) {
+                        graphActivityStat.classList.remove('hidden');
+                        graphRequestsValue.textContent = formatCount(graphRequests);
+                    } else {
+                        graphActivityStat.classList.add('hidden');
+                        graphRequestsValue.textContent = '—';
                     }
                 }
 

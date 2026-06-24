@@ -122,7 +122,7 @@ assert_true(
 );
 assert_true(
     Ms365EngineConfig::perTenantMaxConcurrentWorkloads() < Ms365EngineConfig::perTenantMaxConcurrent(),
-    'workload claim cap is lower than Graph HTTP budget by default',
+    'workload claim cap is lower than Graph HTTP budget',
 );
 
 $tenantRecordId = 0;
@@ -169,21 +169,34 @@ try {
         $starvedChild = (array) Capsule::table('ms365_backup_runs')->where('id', $starvedRunId)->first();
         $starvedQueue = (array) Capsule::table('ms365_job_queue')->where('run_id', $starvedRunId)->first();
         assert_true(
-            Ms365BatchRunRepository::isThrottledWaitingAlive($starvedChild, $starvedQueue, $now),
-            'tenant throttle blocks liveness when per-child last_429_at is stale',
+            !Ms365BatchRunRepository::isThrottledWaitingAlive($starvedChild, $starvedQueue, $now),
+            'tenant throttle does not shield sibling with stale per-workload progress',
         );
 
         WorkerClaimService::releaseOrphanedClaimsForNode($nodeId, 4, 120);
         assert_true(
-            queueStatus($starvedRunId) === 'running',
-            'busy-node stale-progress reaper skips tenant-throttled starved child',
+            queueStatus($starvedRunId) === 'queued',
+            'busy-node stale-progress reaper reclaims tenant-hot but progress-stale child',
         );
 
         $shouldReap = (new ReflectionClass(Ms365BatchRunRepository::class))->getMethod('shouldReapRunningChild');
         $shouldReap->setAccessible(true);
+
+        $starvedRunId2 = test_uuid('tenant-throttle-starved-2');
+        $runIds[] = $starvedRunId2;
+        insertTestRun($starvedRunId2, [
+            'tenant_record_id' => $tenantRecordId,
+            'last_429_at' => $now - 2000,
+            'last_progress_at' => $now - 2000,
+            'updated_at' => $now - 30,
+            'started_at' => $now - 2000,
+        ]);
+        insertTestQueue($starvedRunId2, $nodeId);
+        $starvedChild2 = (array) Capsule::table('ms365_backup_runs')->where('id', $starvedRunId2)->first();
+        $starvedQueue2 = (array) Capsule::table('ms365_job_queue')->where('run_id', $starvedRunId2)->first();
         assert_true(
-            !(bool) $shouldReap->invoke(null, $starvedChild, $starvedQueue, $now),
-            'batch child reaper skips tenant-throttled starved child',
+            (bool) $shouldReap->invoke(null, $starvedChild2, $starvedQueue2, $now),
+            'batch child reaper reclaims tenant-hot sibling with stale progress',
         );
 
         Capsule::table('ms365_graph_tenant_budget')
@@ -233,14 +246,105 @@ try {
         $graphWedgeChild = (array) Capsule::table('ms365_backup_runs')->where('id', $graphWedgeRunId)->first();
         $graphWedgeQueue = (array) Capsule::table('ms365_job_queue')->where('run_id', $graphWedgeRunId)->first();
         assert_true(
-            Ms365BatchRunRepository::isThrottledWaitingAlive($graphWedgeChild, $graphWedgeQueue, $now),
-            'graph_sync wedge remains tenant throttle-shielded while tenant is hot',
+            !Ms365BatchRunRepository::isThrottledWaitingAlive($graphWedgeChild, $graphWedgeQueue, $now),
+            'graph_sync wedge is not tenant throttle-shielded when its own progress is stale',
         );
         $isWedgeStuck = (new ReflectionClass(Ms365BatchRunRepository::class))->getMethod('isWedgeStuck');
         $isWedgeStuck->setAccessible(true);
         assert_true(
-            !(bool) $isWedgeStuck->invoke(null, $graphWedgeChild, $now, $graphWedgeQueue),
-            'graph_sync wedge honors throttle shield via isWedgeStuck',
+            (bool) $isWedgeStuck->invoke(null, $graphWedgeChild, $now, $graphWedgeQueue),
+            'graph_sync wedge is reapable when per-workload progress is stale',
+        );
+
+        $activeThrottleRunId = test_uuid('graph-active-throttle');
+        $runIds[] = $activeThrottleRunId;
+        insertTestRun($activeThrottleRunId, [
+            'tenant_record_id' => $tenantRecordId,
+            'phase' => 'graph_sync',
+            'last_429_at' => $now - 30,
+            'last_progress_at' => $now - 60,
+            'updated_at' => $now - 30,
+            'started_at' => $now - 4000,
+            'items_done' => 120,
+            'bytes_hashed' => 1024,
+        ]);
+        insertTestQueue($activeThrottleRunId, $nodeId);
+        $activeThrottleChild = (array) Capsule::table('ms365_backup_runs')->where('id', $activeThrottleRunId)->first();
+        $activeThrottleQueue = (array) Capsule::table('ms365_job_queue')->where('run_id', $activeThrottleRunId)->first();
+        assert_true(
+            Ms365BatchRunRepository::isThrottledWaitingAlive($activeThrottleChild, $activeThrottleQueue, $now),
+            'actively pacing workload remains throttle-shielded with fresh progress',
+        );
+        assert_true(
+            Ms365BatchRunRepository::countsAgainstTenantWorkloadCap($activeThrottleChild, $activeThrottleQueue, $now),
+            'actively pacing workload still counts against tenant cap',
+        );
+
+        $zombieHeartbeatRunId = test_uuid('graph-zombie-heartbeat');
+        $runIds[] = $zombieHeartbeatRunId;
+        insertTestRun($zombieHeartbeatRunId, [
+            'tenant_record_id' => $tenantRecordId,
+            'phase' => 'graph_sync',
+            'last_429_at' => $now - 30,
+            'last_progress_at' => $now - 2500,
+            'updated_at' => $now - 30,
+            'started_at' => $now - 4000,
+            'items_done' => 0,
+            'bytes_hashed' => 0,
+            'stats_json' => json_encode(['graph_requests' => 0]),
+        ]);
+        insertTestQueue($zombieHeartbeatRunId, $nodeId);
+        $zombieHeartbeatChild = (array) Capsule::table('ms365_backup_runs')->where('id', $zombieHeartbeatRunId)->first();
+        $zombieHeartbeatQueue = (array) Capsule::table('ms365_job_queue')->where('run_id', $zombieHeartbeatRunId)->first();
+        assert_true(
+            !Ms365BatchRunRepository::isThrottledWaitingAlive($zombieHeartbeatChild, $zombieHeartbeatQueue, $now),
+            'heartbeat-only throttle on stale enumeration is not shielded',
+        );
+        assert_true(
+            !Ms365BatchRunRepository::countsAgainstTenantWorkloadCap($zombieHeartbeatChild, $zombieHeartbeatQueue, $now),
+            'zombie heartbeat slot is excluded from tenant cap',
+        );
+
+        $uploadStaleCapRunId = test_uuid('upload-stale-cap');
+        $runIds[] = $uploadStaleCapRunId;
+        insertTestRun($uploadStaleCapRunId, [
+            'tenant_record_id' => $tenantRecordId,
+            'phase' => 'kopia_upload',
+            'last_429_at' => $now - 30,
+            'last_progress_at' => $now - 700,
+            'updated_at' => $now - 30,
+            'started_at' => $now - 4000,
+            'bytes_uploaded' => 1024,
+        ]);
+        insertTestQueue($uploadStaleCapRunId, $nodeId);
+        $uploadStaleCapChild = (array) Capsule::table('ms365_backup_runs')->where('id', $uploadStaleCapRunId)->first();
+        $uploadStaleCapQueue = (array) Capsule::table('ms365_job_queue')->where('run_id', $uploadStaleCapRunId)->first();
+        assert_true(
+            !Ms365BatchRunRepository::isThrottledWaitingAlive($uploadStaleCapChild, $uploadStaleCapQueue, $now),
+            'upload with stale material progress is not throttle-shielded despite fresh last_429_at',
+        );
+        assert_true(
+            !Ms365BatchRunRepository::countsAgainstTenantWorkloadCap($uploadStaleCapChild, $uploadStaleCapQueue, $now),
+            'upload silent past UPLOAD_THROTTLE_PROGRESS_SECONDS is excluded from tenant cap',
+        );
+
+        $uploadHot429RunId = test_uuid('upload-hot-429');
+        $runIds[] = $uploadHot429RunId;
+        insertTestRun($uploadHot429RunId, [
+            'tenant_record_id' => $tenantRecordId,
+            'phase' => 'kopia_upload',
+            'last_429_at' => $now - 30,
+            'last_progress_at' => $now - 250,
+            'updated_at' => $now - 30,
+            'started_at' => $now - 4000,
+            'bytes_uploaded' => 1024,
+        ]);
+        insertTestQueue($uploadHot429RunId, $nodeId);
+        $uploadHot429Child = (array) Capsule::table('ms365_backup_runs')->where('id', $uploadHot429RunId)->first();
+        $uploadHot429Queue = (array) Capsule::table('ms365_job_queue')->where('run_id', $uploadHot429RunId)->first();
+        assert_true(
+            !Ms365BatchRunRepository::isThrottledWaitingAlive($uploadHot429Child, $uploadHot429Queue, $now),
+            'upload phase is not throttle-shielded by per-child last_429_at alone',
         );
 
         $uploadHotRunId = test_uuid('upload-hot-tenant');

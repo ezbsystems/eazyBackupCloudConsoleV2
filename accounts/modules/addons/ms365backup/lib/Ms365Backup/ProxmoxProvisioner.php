@@ -4,6 +4,9 @@ declare(strict_types=1);
 namespace Ms365Backup;
 
 use Ms365Backup\Fleet\FleetAuditLog;
+use Ms365Backup\Fleet\FleetContext;
+use Ms365Backup\Fleet\FleetProvisionService;
+use Ms365Backup\Fleet\FleetRemoteClient;
 use Ms365Backup\Fleet\FleetSettings;
 use Ms365Backup\Fleet\ReleaseRepository;
 use WHMCS\Database\Capsule;
@@ -67,18 +70,37 @@ final class ProxmoxProvisioner
     }
 
     /** @return array{created: list<array<string, mixed>>, failed: list<array<string, mixed>>, errors: list<string>} */
-    public static function scaleUp(string $targetNode, int $count): array
+    public static function scaleUp(string $targetNode, int $count, string $fleet = FleetContext::FLEET_DEVELOPMENT): array
     {
         $targetNode = trim($targetNode);
         $count = max(1, min(20, $count));
+        $fleet = FleetContext::normalizeFleet($fleet);
         $created = [];
         $failed = [];
         if ($targetNode === '') {
             return ['created' => [], 'failed' => [], 'errors' => ['proxmox_node required']];
         }
+
+        $preparedSlots = [];
+        if (FleetContext::isRemoteFleet($fleet)) {
+            $remote = FleetRemoteClient::post('fleet_provision_prepare', [
+                'proxmox_node' => $targetNode,
+                'count' => $count,
+            ]);
+            $preparedSlots = is_array($remote['prepared'] ?? null) ? $remote['prepared'] : [];
+            if ($preparedSlots === []) {
+                return ['created' => [], 'failed' => [], 'errors' => ['Production fleet prepare returned no slots']];
+            }
+        }
+
         $blockedVmids = [];
+        $slotIndex = 0;
         for ($i = 0; $i < $count; $i++) {
-            $res = self::cloneWorkerLxc($targetNode, null, $blockedVmids);
+            $prepared = $preparedSlots[$slotIndex] ?? null;
+            if ($prepared !== null) {
+                $slotIndex++;
+            }
+            $res = self::cloneWorkerLxc($targetNode, null, $blockedVmids, $fleet, is_array($prepared) ? $prepared : null);
             if (($res['status'] ?? '') === 'success') {
                 $created[] = $res;
             } else {
@@ -100,6 +122,37 @@ final class ProxmoxProvisioner
             'failed' => $failed,
             'errors' => array_map(static fn (array $f): string => (string) ($f['message'] ?? 'clone failed'), $failed),
         ];
+    }
+
+    /** @param list<int> $extraBlockedVmids */
+    public static function allocateNextVmid(string $targetNode, array $extraBlockedVmids = []): int
+    {
+        $apiUrl = rtrim(Ms365EngineConfig::moduleSettingPublic('proxmox_api_url', ''), '/');
+        $tokenId = Ms365EngineConfig::moduleSettingPublic('proxmox_api_token_id', '');
+        $tokenSecret = Ms365EngineConfig::moduleSettingPublic('proxmox_api_token_secret', '');
+
+        return self::nextAvailableVmid($targetNode, $apiUrl, $tokenId, $tokenSecret, $extraBlockedVmids);
+    }
+
+    public static function stopLxcByVmid(int $vmid, string $hostNode): bool
+    {
+        if ($vmid <= 0) {
+            throw new \RuntimeException('Invalid VMID');
+        }
+
+        return self::stopLxc($vmid, $hostNode);
+    }
+
+    public static function startLxcByVmid(int $vmid, string $hostNode): bool
+    {
+        if ($vmid <= 0) {
+            throw new \RuntimeException('Invalid VMID');
+        }
+        if (!self::startLxc($vmid, $hostNode)) {
+            throw new \RuntimeException('Proxmox start failed for VMID ' . $vmid);
+        }
+
+        return true;
     }
 
     public static function stopWorker(string $nodeId): bool
@@ -198,10 +251,18 @@ final class ProxmoxProvisioner
 
     /**
      * @param list<int> $extraBlockedVmids VMIDs to skip (e.g. failed in the same scale-up batch)
+     * @param array{node_id?: string, vmid?: int, hostname?: string, proxmox_node?: string}|null $prepared
      * @return array{status: string, vmid?: int, hostname?: string, message?: string, node_id?: string, proxmox_node?: string, verification?: array<string, mixed>}
      */
-    public static function cloneWorkerLxc(?string $targetNode = null, ?int $templateVmid = null, array $extraBlockedVmids = []): array
-    {
+    public static function cloneWorkerLxc(
+        ?string $targetNode = null,
+        ?int $templateVmid = null,
+        array $extraBlockedVmids = [],
+        string $fleet = FleetContext::FLEET_DEVELOPMENT,
+        ?array $prepared = null
+    ): array {
+        $fleet = FleetContext::normalizeFleet($fleet);
+        $remoteFleet = FleetContext::isRemoteFleet($fleet);
         $apiUrl = rtrim(Ms365EngineConfig::moduleSettingPublic('proxmox_api_url', ''), '/');
         $templateHomeNode = Ms365EngineConfig::moduleSettingPublic('proxmox_node', '');
         $defaultTemplateVmid = (int) Ms365EngineConfig::moduleSettingPublic('proxmox_lxc_template_vmid', '0');
@@ -216,15 +277,24 @@ final class ProxmoxProvisioner
             return ['status' => 'skip', 'message' => 'Proxmox not configured'];
         }
 
-        try {
-            $newVmid = self::nextAvailableVmid($hostNode, $apiUrl, $tokenId, $tokenSecret, $extraBlockedVmids);
-        } catch (\Throwable $e) {
-            return ['status' => 'error', 'message' => $e->getMessage()];
+        if ($prepared !== null && (int) ($prepared['vmid'] ?? 0) > 0) {
+            $newVmid = (int) $prepared['vmid'];
+            $hostname = (string) ($prepared['hostname'] ?? ('ms365-prod-worker-' . $newVmid));
+            $nodeId = isset($prepared['node_id']) ? (string) $prepared['node_id'] : null;
+            if (!empty($prepared['proxmox_node'])) {
+                $hostNode = trim((string) $prepared['proxmox_node']);
+            }
+        } else {
+            try {
+                $newVmid = self::nextAvailableVmid($hostNode, $apiUrl, $tokenId, $tokenSecret, $extraBlockedVmids);
+            } catch (\Throwable $e) {
+                return ['status' => 'error', 'message' => $e->getMessage()];
+            }
+            $hostname = ($remoteFleet ? 'ms365-prod-worker-' : 'ms365-worker-') . $newVmid;
+            $nodeId = null;
         }
 
-        $hostname = 'ms365-worker-' . $newVmid;
         $cloned = false;
-        $nodeId = null;
 
         try {
             $storage = self::lxcCloneStorage();
@@ -278,14 +348,16 @@ final class ProxmoxProvisioner
                 );
             }
 
-            $envInject = self::injectWorkerEnvironment($newVmid, $hostNode, $apiUrl, $tokenId, $tokenSecret);
+            $envInject = self::injectWorkerEnvironment($newVmid, $hostNode, $apiUrl, $tokenId, $tokenSecret, $fleet);
             if (!($envInject['ok'] ?? false)) {
                 throw new \RuntimeException(
                     (string) ($envInject['message'] ?? 'post-clone environment.conf injection failed')
                 );
             }
 
-            $nodeId = WorkerNodeRepository::registerProvisioning($hostname, $newVmid, $hostNode);
+            if ($nodeId === null || $nodeId === '') {
+                $nodeId = WorkerNodeRepository::registerProvisioning($hostname, $newVmid, $hostNode);
+            }
 
             $startPath = '/nodes/' . rawurlencode($hostNode) . '/lxc/' . $newVmid . '/status/start';
             $startRes = self::apiPostWithLockRetry($apiUrl, $startPath, [], $tokenId, $tokenSecret);
@@ -295,10 +367,10 @@ final class ProxmoxProvisioner
                 );
             }
 
-            $verification = self::verifyProvisionedWorker($newVmid, $hostNode, $nodeId, $apiUrl, $tokenId, $tokenSecret);
+            $verification = self::verifyProvisionedWorker($newVmid, $hostNode, $nodeId, $apiUrl, $tokenId, $tokenSecret, $fleet);
             if (!($verification['ok'] ?? false)) {
                 $reason = (string) ($verification['message'] ?? 'post-create verification failed');
-                self::cleanupFailedProvision($newVmid, $hostNode, $nodeId, $reason);
+                self::cleanupFailedProvision($newVmid, $hostNode, $nodeId, $reason, $fleet);
                 $verification['partial'] = true;
 
                 return [
@@ -322,7 +394,7 @@ final class ProxmoxProvisioner
             ];
         } catch (\Throwable $e) {
             if ($cloned) {
-                self::cleanupFailedProvision($newVmid, $hostNode, $nodeId, $e->getMessage());
+                self::cleanupFailedProvision($newVmid, $hostNode, $nodeId, $e->getMessage(), $fleet);
             }
 
             return [
@@ -514,10 +586,26 @@ final class ProxmoxProvisioner
         return $status !== '' ? $status : null;
     }
 
-    private static function cleanupFailedProvision(int $vmid, string $hostNode, ?string $nodeId, string $reason): void
-    {
+    private static function cleanupFailedProvision(
+        int $vmid,
+        string $hostNode,
+        ?string $nodeId,
+        string $reason,
+        string $fleet = FleetContext::FLEET_DEVELOPMENT
+    ): void {
         $destroyed = self::cleanupOrphanVmid($vmid, $hostNode);
-        WorkerNodeRepository::abandonProvisioning($nodeId, $vmid);
+        if (FleetContext::isRemoteFleet($fleet) && $nodeId !== null && $nodeId !== '') {
+            try {
+                FleetRemoteClient::post('fleet_provision_abandon', [
+                    'node_id' => $nodeId,
+                    'proxmox_vmid' => $vmid,
+                ]);
+            } catch (\Throwable $e) {
+                // best effort
+            }
+        } else {
+            WorkerNodeRepository::abandonProvisioning($nodeId, $vmid);
+        }
         FleetAuditLog::write(
             'provision_cleanup',
             'Rolled back failed worker provision VMID ' . $vmid . ' on ' . $hostNode . ': ' . mb_substr($reason, 0, 200),
@@ -546,8 +634,10 @@ final class ProxmoxProvisioner
         string $nodeId,
         string $apiUrl,
         string $tokenId,
-        string $tokenSecret
+        string $tokenSecret,
+        string $fleet = FleetContext::FLEET_DEVELOPMENT
     ): array {
+        $remoteFleet = FleetContext::isRemoteFleet($fleet);
         $warnings = [];
         $proxmoxStatus = null;
         $deadline = time() + 75;
@@ -575,7 +665,16 @@ final class ProxmoxProvisioner
         $deployStatus = '';
         $registerDeadline = time() + 150;
         while (time() < $registerDeadline) {
-            $node = WorkerNodeRepository::get($nodeId);
+            if ($remoteFleet) {
+                try {
+                    $remote = FleetRemoteClient::get('fleet_node_get', ['node_id' => $nodeId]);
+                    $node = is_array($remote['node'] ?? null) ? $remote['node'] : null;
+                } catch (\Throwable $e) {
+                    $node = null;
+                }
+            } else {
+                $node = WorkerNodeRepository::get($nodeId);
+            }
             if ($node === null) {
                 break;
             }
@@ -1174,9 +1273,10 @@ final class ProxmoxProvisioner
         string $hostNode,
         string $apiUrl,
         string $tokenId,
-        string $tokenSecret
+        string $tokenSecret,
+        string $fleet = FleetContext::FLEET_DEVELOPMENT
     ): array {
-        $content = self::buildWorkerEnvironmentConf($vmid);
+        $content = self::buildWorkerEnvironmentConf($vmid, $fleet);
         $b64 = base64_encode($content);
         $dropin = self::WORKER_ENV_DROPIN;
         $shell = 'mkdir -p ' . escapeshellarg(dirname($dropin))
@@ -1259,13 +1359,13 @@ final class ProxmoxProvisioner
         return ['ok' => true, 'method' => 'skipped', 'warnings' => $warnings];
     }
 
-    private static function buildWorkerEnvironmentConf(int $vmid = 0): string
+    private static function buildWorkerEnvironmentConf(int $vmid = 0, string $fleet = FleetContext::FLEET_DEVELOPMENT): string
     {
         $token = Ms365EngineConfig::workerToken();
         if ($token === '') {
             throw new \RuntimeException('ms365_worker_token is not configured');
         }
-        $apiBase = FleetSettings::workerApiBaseUrl();
+        $apiBase = FleetSettings::workerApiBaseUrl($fleet);
 
         $lines = [
             '[Service]',

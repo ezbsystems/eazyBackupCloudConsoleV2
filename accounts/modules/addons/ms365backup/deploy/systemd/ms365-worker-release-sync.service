@@ -1,0 +1,6 @@
+[Unit]
+Description=MS365 worker release pull sync (dev to prod)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/php /var/www/eazybackup.ca/accounts/modules/addons/ms365backup/crons/ms365_worker_release_sync.php

@@ -56,11 +56,36 @@ final class WorkerLeaseService
 
         $now = time();
         $lease = $now + Ms365EngineConfig::leaseSeconds();
+        $silenceCutoff = $now - Ms365BatchRunRepository::STALE_SILENCE_SECONDS;
 
-        return Capsule::table('ms365_job_queue')
+        $query = Capsule::table('ms365_job_queue')
             ->where('worker_node_id', $nodeId)
-            ->where('status', 'running')
-            ->update(['lease_expires_at' => $lease]);
+            ->where('status', 'running');
+
+        if (Capsule::schema()->hasTable('ms365_backup_runs')
+            && Capsule::schema()->hasColumn('ms365_backup_runs', 'last_progress_at')) {
+            $staleBackupRunIds = Capsule::table('ms365_job_queue as q')
+                ->join('ms365_backup_runs as r', 'r.id', '=', 'q.run_id')
+                ->where('q.worker_node_id', $nodeId)
+                ->where('q.status', 'running')
+                ->where(function ($sub) use ($silenceCutoff) {
+                    $sub->where(function ($fresh) use ($silenceCutoff) {
+                        $fresh->whereNotNull('r.last_progress_at')
+                            ->where('r.last_progress_at', '<', $silenceCutoff);
+                    })->orWhere(function ($fallback) use ($silenceCutoff) {
+                        $fallback->whereNull('r.last_progress_at')
+                            ->where('r.updated_at', '<', $silenceCutoff);
+                    });
+                })
+                ->pluck('q.run_id')
+                ->map(static fn ($id) => (string) $id)
+                ->all();
+            if ($staleBackupRunIds !== []) {
+                $query->whereNotIn('run_id', $staleBackupRunIds);
+            }
+        }
+
+        return $query->update(['lease_expires_at' => $lease]);
     }
 
     public static function leaseExpiresAt(string $runId): int

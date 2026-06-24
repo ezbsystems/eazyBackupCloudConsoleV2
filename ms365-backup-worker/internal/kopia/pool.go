@@ -220,6 +220,15 @@ func (p *Pool) Browse(ctx context.Context, req BrowseRequest) (*BrowseResult, er
 	})
 }
 
+// ListDirectory lists snapshot entries for archive export without UI label filtering.
+// Browse omits GUID-like folder segments (e.g. tenant id at snapshot root); archive
+// export must see every child to recurse into workload data.
+func (p *Pool) ListDirectory(ctx context.Context, req BrowseRequest) (*BrowseResult, error) {
+	return listDirectoryWithRepo(ctx, req, func(ctx context.Context) (repo.Repository, func(), error) {
+		return p.Acquire(ctx, req.Storage, 64)
+	})
+}
+
 // Extract reads a file from a snapshot using the warm pool.
 func (p *Pool) Extract(ctx context.Context, req ExtractRequest) ([]byte, error) {
 	rep, release, err := p.Acquire(ctx, req.Storage, 64)

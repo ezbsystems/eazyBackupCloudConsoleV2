@@ -17,11 +17,19 @@ final class WorkerClaimService
     /** Requeue running claims with no real items/bytes progress for this long (even with a fresh lease). */
     private const STALE_PROGRESS_SILENCE_SECONDS = 1800;
 
+    /** Infrastructure requeues without progress improvement before marking graph_sync workloads error. */
+    private const INFRA_REQUEUE_STALL_LIMIT = 4;
+
+    private const INFRA_REQUEUE_STALL_MESSAGE = 'Workload stalled during Graph sync';
+
     /** Minimum seconds between fleet-wide maintenance sweeps (run from the claim path). */
     private const REAPER_MIN_INTERVAL_SECONDS = 15;
 
     /** Max eligible rows ranked per fair-scheduling claim poll (bounds the per-poll sort). */
     private const FAIR_CANDIDATE_POOL_CAP = 500;
+
+    /** Per-batch head rows in the fair claim pool so one backlog cannot monopolize it. */
+    private const FAIR_CANDIDATE_PER_BATCH_POOL = 50;
 
     /**
      * Fleet-wide interval lock for the maintenance sweeps. Only the poll that wins the
@@ -130,6 +138,7 @@ final class WorkerClaimService
             self::releaseOrphanedClaimsForAllNodes(self::ORPHAN_STALE_SECONDS);
             self::releaseExpiredLeases();
             self::recoverStaleRunning();
+            self::reconcileExhaustedRunningClaims();
             self::reconcileZombieRuns();
         }
 
@@ -195,6 +204,21 @@ final class WorkerClaimService
                 continue;
             }
             if ($tenantRecordId > 0 && self::countRunningForTenant($tenantRecordId) >= Ms365EngineConfig::perTenantMaxConcurrentWorkloads()) {
+                // #region agent log
+                @file_put_contents('/var/www/eazybackup.ca/.cursor/debug-f6115a.log', json_encode([
+                    'sessionId' => 'f6115a',
+                    'hypothesisId' => 'H2',
+                    'location' => 'WorkerClaimService.php:claimNext:cap-block',
+                    'message' => 'tenant cap blocked candidate',
+                    'data' => [
+                        'tenant_record_id' => $tenantRecordId,
+                        'run_id' => (string) ($candidate->run_id ?? ''),
+                        'cap_count' => self::countRunningForTenant($tenantRecordId),
+                        'cap_max' => Ms365EngineConfig::perTenantMaxConcurrentWorkloads(),
+                    ],
+                    'timestamp' => (int) round(microtime(true) * 1000),
+                ]) . "\n", FILE_APPEND);
+                // #endregion
                 continue;
             }
             $jobType = (string) ($candidate->job_type ?? 'backup');
@@ -206,6 +230,20 @@ final class WorkerClaimService
             }
 
             $runId = (string) $candidate->run_id;
+            $tenantClaimLockHeld = false;
+            if ($jobType !== 'restore' && $tenantRecordId > 0) {
+                if (!self::acquireTenantClaimLock($tenantRecordId)) {
+                    continue;
+                }
+                $tenantClaimLockHeld = true;
+                if (self::countRunningForTenant($tenantRecordId) >= Ms365EngineConfig::perTenantMaxConcurrentWorkloads()) {
+                    self::releaseTenantClaimLock($tenantRecordId);
+                    $tenantClaimLockHeld = false;
+                    continue;
+                }
+            }
+
+            try {
             $now = time();
             $lease = $now + Ms365EngineConfig::leaseSeconds();
             $updated = Capsule::table('ms365_job_queue')
@@ -221,6 +259,33 @@ final class WorkerClaimService
                 ]);
             if ($updated === 0) {
                 continue;
+            }
+
+            if ($jobType !== 'restore' && $tenantRecordId > 0) {
+                $tenantCapCount = self::countRunningForTenant($tenantRecordId);
+                $tenantCapMax = Ms365EngineConfig::perTenantMaxConcurrentWorkloads();
+                // #region agent log
+                @file_put_contents('/var/www/eazybackup.ca/.cursor/debug-f6115a.log', json_encode([
+                    'sessionId' => 'f6115a',
+                    'hypothesisId' => 'H2',
+                    'location' => 'WorkerClaimService.php:claimNext:post-claim',
+                    'message' => 'tenant cap after claim',
+                    'data' => [
+                        'tenant_record_id' => $tenantRecordId,
+                        'run_id' => $runId,
+                        'node_id' => $nodeId,
+                        'cap_count' => $tenantCapCount,
+                        'cap_max' => $tenantCapMax,
+                        'rolled_back' => $tenantCapCount > $tenantCapMax,
+                    ],
+                    'timestamp' => (int) round(microtime(true) * 1000),
+                ]) . "\n", FILE_APPEND);
+                // #endregion
+                if ($tenantCapCount > $tenantCapMax) {
+                    self::rollbackClaim($runId, 'Tenant workload cap exceeded after claim');
+
+                    continue;
+                }
             }
 
             Ms365WorkerLogRepository::recordAssignment($runId, $nodeId);
@@ -262,9 +327,43 @@ final class WorkerClaimService
                     self::rollbackClaim($runId, $message);
                 }
             }
+            } finally {
+                if ($tenantClaimLockHeld) {
+                    self::releaseTenantClaimLock($tenantRecordId);
+                }
+            }
         }
 
         return null;
+    }
+
+    private static function tenantClaimLockName(int $tenantRecordId): string
+    {
+        return 'ms365_tenant_claim_' . $tenantRecordId;
+    }
+
+    private static function acquireTenantClaimLock(int $tenantRecordId, int $timeoutSeconds = 3): bool
+    {
+        if ($tenantRecordId <= 0) {
+            return true;
+        }
+        $row = Capsule::connection()->selectOne(
+            'SELECT GET_LOCK(?, ?) AS acquired',
+            [self::tenantClaimLockName($tenantRecordId), max(1, $timeoutSeconds)]
+        );
+
+        return (int) ($row->acquired ?? 0) === 1;
+    }
+
+    private static function releaseTenantClaimLock(int $tenantRecordId): void
+    {
+        if ($tenantRecordId <= 0) {
+            return;
+        }
+        Capsule::connection()->select(
+            'SELECT RELEASE_LOCK(?)',
+            [self::tenantClaimLockName($tenantRecordId)]
+        );
     }
 
     private static function isSupersededRun(string $runId, int $tenantRecordId, string $physicalKey): bool
@@ -1110,16 +1209,19 @@ final class WorkerClaimService
             if (Ms365BatchRunRepository::isThrottledWaitingAliveFromRow($row, $now)) {
                 continue;
             }
+            $progressAt = self::claimProgressFreshnessAt($row);
+            $progressStale = $progressAt <= 0 || $progressAt < $staleCutoff;
             $leaseExpires = (int) ($row->lease_expires_at ?? 0);
-            if ($leaseExpires > $now) {
+            // Idle node + stale progress: reclaim even when lease was renewed (worker
+            // reports load=0 so it is not executing this run).
+            if (!$progressStale && $leaseExpires > $now) {
                 continue;
             }
-            $progressAt = self::claimProgressFreshnessAt($row);
             if (self::isUnacknowledgedClaimRow($row)) {
                 if ($progressAt >= $unackedCutoff) {
                     continue;
                 }
-            } elseif ($progressAt >= $staleCutoff) {
+            } elseif (!$progressStale) {
                 continue;
             }
             $runId = (string) ($row->run_id ?? '');
@@ -1465,6 +1567,20 @@ final class WorkerClaimService
             }
         }
 
+        $permanentlyStalled = [];
+        if ($infrastructureRequeue) {
+            $stillEligible = [];
+            foreach ($runIds as $runId) {
+                if (self::shouldFailInfrastructureStalledRun($runId)) {
+                    $permanentlyStalled[] = $runId;
+                } else {
+                    self::recordInfrastructureRequeueAttempt($runId);
+                    $stillEligible[] = $runId;
+                }
+            }
+            $runIds = $stillEligible;
+        }
+
         // Partition runs by remaining attempts so a permanently-failing run cannot
         // thrash the queue forever (claim -> stall/fail -> requeue -> reclaim ...),
         // which previously overflowed the attempts column to 255.
@@ -1535,6 +1651,74 @@ final class WorkerClaimService
                 $message . ' (gave up after max attempts)'
             );
         }
+
+        foreach ($permanentlyStalled as $runId) {
+            if (BackupRunRepository::isCancelled($runId)) {
+                continue;
+            }
+            $run = BackupRunRepository::get($runId);
+            if ($run !== null && in_array($run['status'] ?? '', ['success', 'error', 'cancelled'], true)) {
+                continue;
+            }
+            self::terminalFailBackupRun($runId, self::INFRA_REQUEUE_STALL_MESSAGE);
+        }
+    }
+
+    /**
+     * Terminal-fail a backup run without requeueing (stall / infra-gave-up paths).
+     */
+    public static function terminalFailBackupRun(string $runId, string $message): void
+    {
+        if ($runId === '' || RestoreRunRepository::isRestoreRun($runId)) {
+            return;
+        }
+        $now = time();
+        $customerMessage = Ms365CustomerError::message(new \RuntimeException($message));
+        JobQueueRepository::markTerminalFailed($runId, $message);
+        BackupRunRepository::update($runId, [
+            'status' => 'error',
+            'error_message' => $customerMessage,
+            'finished_at' => $now,
+            'updated_at' => $now,
+        ]);
+        Ms365BatchRunRepository::syncForChildRun($runId);
+        (new ProgressLogger($runId))->error($customerMessage !== '' ? $customerMessage : 'Backup failed');
+    }
+
+    /**
+     * Fail backup queue rows stuck at running with exhausted attempts (zombie terminal state).
+     *
+     * @return int rows terminal-failed
+     */
+    public static function reconcileExhaustedRunningClaims(): int
+    {
+        if (!Capsule::schema()->hasTable('ms365_job_queue')) {
+            return 0;
+        }
+        $now = time();
+        $rows = Capsule::table('ms365_job_queue as q')
+            ->join('ms365_backup_runs as r', 'r.id', '=', 'q.run_id')
+            ->where('q.status', 'running')
+            ->where('r.status', 'running')
+            ->whereColumn('q.attempts', '>=', 'q.max_attempts')
+            ->select(['q.run_id', 'q.error_message', 'r.tenant_record_id'])
+            ->get();
+
+        $failed = 0;
+        foreach ($rows as $row) {
+            $runId = (string) ($row->run_id ?? '');
+            if ($runId === '') {
+                continue;
+            }
+            $message = trim((string) ($row->error_message ?? ''));
+            if ($message === '') {
+                $message = 'Worker stopped responding and the run exceeded its retry limit.';
+            }
+            self::terminalFailBackupRun($runId, $message);
+            ++$failed;
+        }
+
+        return $failed;
     }
 
     public static function recoverStaleRunning(): int
@@ -1556,9 +1740,24 @@ final class WorkerClaimService
     {
         $now = time();
         $cutoff = $now - JobQueueRepository::zombieStaleSeconds();
-        $progressStaleCutoff = $now - Ms365BatchRunRepository::STALE_UPLOAD_SECONDS;
 
-        $query = Capsule::table('ms365_job_queue as q')
+        $select = [
+            'r.id',
+            'r.status',
+            'r.phase',
+            'r.tenant_record_id',
+            'r.updated_at',
+            'r.last_429_at',
+            'q.status as queue_status',
+            'q.attempts',
+            'q.max_attempts',
+            'q.lease_expires_at',
+        ];
+        if (Capsule::schema()->hasColumn('ms365_backup_runs', 'last_progress_at')) {
+            $select[] = 'r.last_progress_at';
+        }
+
+        $rows = Capsule::table('ms365_job_queue as q')
             ->join('ms365_backup_runs as r', 'r.id', '=', 'q.run_id')
             ->where('q.status', 'running')
             ->where('r.status', 'running')
@@ -1566,23 +1765,25 @@ final class WorkerClaimService
             ->where(function ($sub) use ($now, $cutoff) {
                 $sub->where('q.lease_expires_at', '>', $now)
                     ->orWhere('r.updated_at', '>=', $cutoff);
-            });
+            })
+            ->select($select)
+            ->get();
 
-        if (Capsule::schema()->hasColumn('ms365_backup_runs', 'last_progress_at')) {
-            $query->where(function ($sub) use ($progressStaleCutoff) {
-                $sub->where(function ($fresh) use ($progressStaleCutoff) {
-                    $fresh->whereNotNull('r.last_progress_at')
-                        ->where('r.last_progress_at', '>=', $progressStaleCutoff);
-                })->orWhere(function ($fallback) use ($progressStaleCutoff) {
-                    $fallback->whereNull('r.last_progress_at')
-                        ->where('r.updated_at', '>=', $progressStaleCutoff);
-                });
-            });
-        } else {
-            $query->where('r.updated_at', '>=', $progressStaleCutoff);
+        $counted = 0;
+        foreach ($rows as $row) {
+            $child = (array) $row;
+            $queue = [
+                'status' => (string) ($row->queue_status ?? ''),
+                'attempts' => (int) ($row->attempts ?? 0),
+                'max_attempts' => (int) ($row->max_attempts ?? 0),
+                'lease_expires_at' => (int) ($row->lease_expires_at ?? 0),
+            ];
+            if (Ms365BatchRunRepository::countsAgainstTenantWorkloadCap($child, $queue, $now)) {
+                ++$counted;
+            }
         }
 
-        return (int) $query->count();
+        return $counted;
     }
 
     private static function restoreClaimQueryReady(): bool
@@ -1676,23 +1877,25 @@ final class WorkerClaimService
     /**
      * Fair claim ranking, bounded to the most-eligible candidates.
      *
-     * The window function must rank every input row before LIMIT applies, which over a
-     * large queued backlog forces a full temp-table + filesort on every poll. We first
-     * narrow to the top-N eligible rows (by priority, id — the same order claims drain in)
-     * using an indexed scan, then rank only that bounded pool. Fairness across batches is
-     * preserved within the eligible frontier; only the deep tail (which could not be
-     * claimed this poll anyway) is excluded.
+     * The pool is the per-batch head (priority, id) so a single large backlog cannot
+     * fill the entire candidate set and starve other batches when an earlier tenant is
+     * at its workload cap. Fair rank is then applied within that multi-batch pool.
      *
      * @return \Illuminate\Support\Collection<int, object>
      */
     private static function fetchBackupClaimCandidatesFairSql($backupQuery)
     {
-        $pool = $backupQuery
+        $ranked = $backupQuery
             ->where('r.status', 'queued')
             ->select(self::backupClaimSelectColumns())
-            ->orderBy('q.priority')
-            ->orderBy('q.id')
-            ->limit(self::FAIR_CANDIDATE_POOL_CAP);
+            ->selectRaw(
+                'ROW_NUMBER() OVER (PARTITION BY COALESCE(r.e3_batch_run_id, q.run_id)'
+                . ' ORDER BY q.priority ASC, q.id ASC) AS batch_pool_rank'
+            );
+
+        $pool = Capsule::connection()->query()
+            ->fromSub($ranked, 'ranked')
+            ->where('ranked.batch_pool_rank', '<=', self::FAIR_CANDIDATE_PER_BATCH_POOL);
 
         return Capsule::connection()->query()
             ->fromSub($pool, 'pool')
@@ -1716,6 +1919,8 @@ final class WorkerClaimService
             ->orderBy('q.id')
             ->limit(5000)
             ->get();
+
+        $rows = self::headRowsPerBatch($rows, self::FAIR_CANDIDATE_PER_BATCH_POOL);
 
         return self::assignFairRankInPhp($rows);
     }
@@ -1779,6 +1984,25 @@ final class WorkerClaimService
             ->get();
 
         return self::assignFairRankInPhp($rows);
+    }
+
+    /**
+     * @param \Illuminate\Support\Collection<int, object> $rows
+     *
+     * @return \Illuminate\Support\Collection<int, object>
+     */
+    private static function headRowsPerBatch($rows, int $perBatchLimit)
+    {
+        return $rows->groupBy(static function ($row) {
+            $batch = trim((string) ($row->e3_batch_run_id ?? ''));
+            if ($batch !== '') {
+                return $batch;
+            }
+
+            return (string) ($row->run_id ?? '');
+        })->flatMap(static function ($group) use ($perBatchLimit) {
+            return $group->take($perBatchLimit);
+        })->values();
     }
 
     /**
@@ -1928,6 +2152,136 @@ final class WorkerClaimService
             || str_contains($message, 'stale workload')
             || str_contains($message, 'stale progress')
             || str_contains($message, 'stale partial backup');
+    }
+
+    private static function shouldFailInfrastructureStalledRun(string $runId): bool
+    {
+        if ($runId === '' || RestoreRunRepository::isRestoreRun($runId)) {
+            return false;
+        }
+        $run = BackupRunRepository::get($runId);
+        if ($run === null) {
+            return false;
+        }
+        $phase = strtolower(trim((string) ($run['phase'] ?? '')));
+        if (!in_array($phase, ['graph_sync', 'prior_snapshot'], true)) {
+            return false;
+        }
+        $stats = self::decodeRunStatsJson($run);
+        $tracker = is_array($stats['infra_requeue'] ?? null) ? $stats['infra_requeue'] : [];
+        $count = (int) ($tracker['count'] ?? 0);
+        if ($count < self::INFRA_REQUEUE_STALL_LIMIT - 1) {
+            return false;
+        }
+        $current = self::progressSnapshotForRun($run, $stats);
+        $previous = is_array($tracker['snapshot'] ?? null) ? $tracker['snapshot'] : [];
+        if ($previous === []) {
+            return false;
+        }
+
+        return !self::progressImprovedSince($previous, $current, $phase);
+    }
+
+    private static function recordInfrastructureRequeueAttempt(string $runId): void
+    {
+        if ($runId === '' || RestoreRunRepository::isRestoreRun($runId)) {
+            return;
+        }
+        $run = BackupRunRepository::get($runId);
+        if ($run === null) {
+            return;
+        }
+        $phase = strtolower(trim((string) ($run['phase'] ?? '')));
+        if (!in_array($phase, ['graph_sync', 'prior_snapshot'], true)) {
+            return;
+        }
+        $stats = self::decodeRunStatsJson($run);
+        $current = self::progressSnapshotForRun($run, $stats);
+        $tracker = is_array($stats['infra_requeue'] ?? null) ? $stats['infra_requeue'] : [];
+        $previous = is_array($tracker['snapshot'] ?? null) ? $tracker['snapshot'] : [];
+        $count = (int) ($tracker['count'] ?? 0);
+        if ($previous !== [] && self::progressImprovedSince($previous, $current, $phase)) {
+            $count = 0;
+        } else {
+            ++$count;
+        }
+        $stats['infra_requeue'] = [
+            'count' => $count,
+            'snapshot' => $current,
+        ];
+        $encoded = self::encodeRunStatsJson($stats);
+        if ($encoded === null) {
+            return;
+        }
+        BackupRunRepository::update($runId, [
+            'stats_json' => $encoded,
+            'updated_at' => time(),
+        ]);
+    }
+
+    /**
+     * @param array<string, mixed> $run
+     * @param array<string, mixed> $stats
+     *
+     * @return array{items_done: int, percent: float, bytes_hashed: int, bytes_uploaded: int, graph_requests: int}
+     */
+    private static function progressSnapshotForRun(array $run, array $stats): array
+    {
+        return [
+            'items_done' => (int) ($run['items_done'] ?? 0),
+            'percent' => (float) ($run['percent'] ?? 0),
+            'bytes_hashed' => (int) ($run['bytes_hashed'] ?? 0),
+            'bytes_uploaded' => (int) ($run['bytes_uploaded'] ?? 0),
+            'graph_requests' => (int) ($stats['graph_requests'] ?? 0),
+        ];
+    }
+
+    /**
+     * @param array{items_done: int, percent: float, bytes_hashed: int, bytes_uploaded: int, graph_requests: int} $previous
+     * @param array{items_done: int, percent: float, bytes_hashed: int, bytes_uploaded: int, graph_requests: int} $current
+     */
+    private static function progressImprovedSince(array $previous, array $current, string $phase): bool
+    {
+        if ($current['items_done'] > $previous['items_done']) {
+            return true;
+        }
+        if ($current['percent'] > $previous['percent']) {
+            return true;
+        }
+        if ($current['bytes_hashed'] > $previous['bytes_hashed']) {
+            return true;
+        }
+        if ($current['bytes_uploaded'] > $previous['bytes_uploaded']) {
+            return true;
+        }
+        if (in_array($phase, ['graph_sync', 'prior_snapshot'], true)
+            && $current['graph_requests'] > $previous['graph_requests']) {
+            return true;
+        }
+
+        return false;
+    }
+
+    /** @return array<string, mixed> */
+    private static function decodeRunStatsJson(array $run): array
+    {
+        $raw = $run['stats_json'] ?? '';
+        if (!is_string($raw) || $raw === '') {
+            return [];
+        }
+        $decoded = json_decode($raw, true);
+
+        return is_array($decoded) ? $decoded : [];
+    }
+
+    /** @param array<string, mixed> $stats */
+    private static function encodeRunStatsJson(array $stats): ?string
+    {
+        if (!Capsule::schema()->hasColumn('ms365_backup_runs', 'stats_json')) {
+            return null;
+        }
+
+        return json_encode($stats, JSON_UNESCAPED_SLASHES);
     }
 
     /** @param object|array<string, mixed> $row */

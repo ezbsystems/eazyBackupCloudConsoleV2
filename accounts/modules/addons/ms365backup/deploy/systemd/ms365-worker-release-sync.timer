@@ -1,0 +1,10 @@
+[Unit]
+Description=Run MS365 worker release pull sync every 15 minutes
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=15min
+Unit=ms365-worker-release-sync.service
+
+[Install]
+WantedBy=timers.target

@@ -42,6 +42,14 @@ if (!isset($_SESSION['adminid']) || (int) $_SESSION['adminid'] <= 0) {
 
 $op = (string) ($_GET['op'] ?? $_POST['op'] ?? $_REQUEST['op'] ?? '');
 
+/** Resolve fleet target from request (development|production). */
+function ms365backup_fleet_target(): string
+{
+    $fleet = trim((string) ($_GET['fleet'] ?? $_POST['fleet'] ?? ''));
+
+    return \Ms365Backup\Fleet\FleetFacade::resolveFleetFromRequest($fleet !== '' ? $fleet : null);
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && !check_token('WHMCS.admin.default')) {
     http_response_code(400);
     echo json_encode(['ok' => false, 'error' => 'Invalid CSRF token']);
@@ -509,14 +517,29 @@ try {
             echo json_encode(['ok' => true, 'runs' => $runs]);
             break;
 
+        case 'fleet_meta':
+            echo json_encode(['ok' => true, 'meta' => \Ms365Backup\Fleet\FleetContext::uiMeta()]);
+            break;
+
+        case 'fleet_set_target':
+            if (!\Ms365Backup\Fleet\FleetContext::isDevelopmentServer()) {
+                throw new \RuntimeException('Fleet target selection is only available on the development server');
+            }
+            $target = trim((string) ($_POST['fleet'] ?? ''));
+            if ($target === '') {
+                throw new \RuntimeException('fleet required');
+            }
+            \Ms365Backup\Fleet\FleetContext::setActiveFleet($target);
+            echo json_encode(['ok' => true, 'meta' => \Ms365Backup\Fleet\FleetContext::uiMeta()]);
+            break;
+
         case 'fleet_summary':
-            echo json_encode(['ok' => true, 'summary' => \Ms365Backup\Fleet\FleetSummaryService::summary()]);
+            echo json_encode(['ok' => true, 'summary' => \Ms365Backup\Fleet\FleetFacade::summary(ms365backup_fleet_target())]);
             break;
 
         case 'fleet_nodes':
             $status = trim((string) ($_GET['status'] ?? ''));
-            $statuses = $status !== '' ? array_map('trim', explode(',', $status)) : [];
-            echo json_encode(['ok' => true, 'nodes' => \Ms365Backup\WorkerNodeRepository::listNodes($statuses)]);
+            echo json_encode(['ok' => true, 'nodes' => \Ms365Backup\Fleet\FleetFacade::nodes($status, ms365backup_fleet_target())]);
             break;
 
         case 'fleet_node_drain':
@@ -524,8 +547,7 @@ try {
             if ($nodeId === '') {
                 throw new \RuntimeException('node_id required');
             }
-            \Ms365Backup\WorkerNodeRepository::drain($nodeId);
-            \Ms365Backup\Fleet\FleetAuditLog::write('node_drain', 'Node set to draining', 'node', $nodeId);
+            \Ms365Backup\Fleet\FleetFacade::nodeDrain($nodeId, ms365backup_fleet_target());
             echo json_encode(['ok' => true]);
             break;
 
@@ -534,8 +556,7 @@ try {
             if ($nodeId === '') {
                 throw new \RuntimeException('node_id required');
             }
-            \Ms365Backup\WorkerNodeRepository::activate($nodeId);
-            \Ms365Backup\Fleet\FleetAuditLog::write('node_activate', 'Node reactivated from draining', 'node', $nodeId);
+            \Ms365Backup\Fleet\FleetFacade::nodeActivate($nodeId, ms365backup_fleet_target());
             echo json_encode(['ok' => true]);
             break;
 
@@ -544,8 +565,7 @@ try {
             if ($nodeId === '') {
                 throw new \RuntimeException('node_id required');
             }
-            \Ms365Backup\WorkerNodeRepository::retire($nodeId);
-            \Ms365Backup\Fleet\FleetAuditLog::write('node_retire', 'Node retired', 'node', $nodeId);
+            \Ms365Backup\Fleet\FleetFacade::nodeRetire($nodeId, ms365backup_fleet_target());
             echo json_encode(['ok' => true]);
             break;
 
@@ -554,10 +574,7 @@ try {
             if ($nodeId === '') {
                 throw new \RuntimeException('node_id required');
             }
-            if (!\Ms365Backup\WorkerNodeRepository::deleteRetired($nodeId)) {
-                throw new \RuntimeException('Only retired nodes can be deleted');
-            }
-            \Ms365Backup\Fleet\FleetAuditLog::write('node_delete', 'Retired node removed', 'node', $nodeId);
+            \Ms365Backup\Fleet\FleetFacade::nodeDelete($nodeId, ms365backup_fleet_target());
             echo json_encode(['ok' => true]);
             break;
 
@@ -570,24 +587,21 @@ try {
             if ($vmid <= 0) {
                 throw new \RuntimeException('proxmox_vmid must be a positive integer');
             }
-            \Ms365Backup\WorkerNodeRepository::setProxmoxVmid($nodeId, $vmid);
-            \Ms365Backup\Fleet\FleetAuditLog::write('node_set_vmid', 'Set Proxmox VMID to ' . $vmid, 'node', $nodeId);
+            \Ms365Backup\Fleet\FleetFacade::nodeSetVmid($nodeId, $vmid, ms365backup_fleet_target());
             echo json_encode(['ok' => true]);
             break;
 
         case 'fleet_release_leases':
-            $released = \Ms365Backup\WorkerClaimService::releaseExpiredLeases();
-            $recovered = \Ms365Backup\WorkerClaimService::recoverStaleRunning();
-            $orphans = \Ms365Backup\WorkerClaimService::releaseOrphanedClaimsForAllNodes(120);
-            echo json_encode(['ok' => true, 'released' => $released, 'recovered' => $recovered, 'orphans_requeued' => $orphans]);
+            $result = \Ms365Backup\Fleet\FleetFacade::releaseLeases(ms365backup_fleet_target());
+            echo json_encode(['ok' => true] + $result);
             break;
 
         case 'fleet_settings_get':
-            echo json_encode(['ok' => true, 'settings' => \Ms365Backup\Fleet\FleetSettings::publicConfig()]);
+            echo json_encode(['ok' => true, 'settings' => \Ms365Backup\Fleet\FleetFacade::settingsGet(ms365backup_fleet_target())]);
             break;
 
         case 'fleet_audit':
-            echo json_encode(['ok' => true, 'entries' => \Ms365Backup\Fleet\FleetAuditLog::recent((int) ($_GET['limit'] ?? 50))]);
+            echo json_encode(['ok' => true, 'entries' => \Ms365Backup\Fleet\FleetFacade::audit((int) ($_GET['limit'] ?? 50), ms365backup_fleet_target())]);
             break;
 
         case 'fleet_node_telemetry':
@@ -596,9 +610,8 @@ try {
                 throw new \RuntimeException('node_id required');
             }
             $limit = max(1, min(500, (int) ($_GET['limit'] ?? 96)));
-            $history = \Ms365Backup\WorkerNodeRepository::telemetryHistory($nodeId, $limit);
-            $node = \Ms365Backup\WorkerNodeRepository::get($nodeId);
-            echo json_encode(['ok' => true, 'node' => $node, 'history' => $history]);
+            $payload = \Ms365Backup\Fleet\FleetFacade::nodeTelemetry($nodeId, $limit, ms365backup_fleet_target());
+            echo json_encode(['ok' => true] + $payload);
             break;
 
         case 'fleet_proxmox_nodes':
@@ -611,9 +624,11 @@ try {
             if ($proxmoxNode === '') {
                 throw new \RuntimeException('proxmox_node required');
             }
-            $result = \Ms365Backup\ProxmoxProvisioner::scaleUp($proxmoxNode, $count);
-            \Ms365Backup\Fleet\FleetAuditLog::write('fleet_scale_up', 'Scaled up ' . $count . ' worker(s) on ' . $proxmoxNode, 'proxmox_node', $proxmoxNode, [
+            $fleet = ms365backup_fleet_target();
+            $result = \Ms365Backup\Fleet\FleetFacade::scaleUp($proxmoxNode, $count, $fleet);
+            \Ms365Backup\Fleet\FleetAuditLog::write('fleet_scale_up', 'Scaled up ' . $count . ' worker(s) on ' . $proxmoxNode . ' (' . $fleet . ' fleet)', 'proxmox_node', $proxmoxNode, [
                 'count' => $count,
+                'fleet' => $fleet,
                 'created' => count($result['created'] ?? []),
                 'failed' => $result['failed'] ?? [],
                 'errors' => $result['errors'] ?? [],
@@ -626,8 +641,7 @@ try {
             if ($nodeId === '') {
                 throw new \RuntimeException('node_id required');
             }
-            \Ms365Backup\ProxmoxProvisioner::stopWorker($nodeId);
-            \Ms365Backup\Fleet\FleetAuditLog::write('node_stop', 'Worker container stopped', 'node', $nodeId);
+            \Ms365Backup\Fleet\FleetFacade::nodeStop($nodeId, ms365backup_fleet_target());
             echo json_encode(['ok' => true]);
             break;
 
@@ -636,38 +650,21 @@ try {
             if ($nodeId === '') {
                 throw new \RuntimeException('node_id required');
             }
-            \Ms365Backup\ProxmoxProvisioner::startWorker($nodeId);
-            \Ms365Backup\Fleet\FleetAuditLog::write('node_start', 'Worker container started', 'node', $nodeId);
+            \Ms365Backup\Fleet\FleetFacade::nodeStart($nodeId, ms365backup_fleet_target());
             echo json_encode(['ok' => true]);
             break;
 
         case 'fleet_config_get':
-            $current = \Ms365Backup\Fleet\WorkerConfigService::current();
-            $yaml = $current ? (string) ($current['yaml'] ?? '') : \Ms365Backup\Fleet\WorkerConfigService::templateYaml();
-            echo json_encode([
-                'ok' => true,
-                'version' => $current ? (int) $current['version'] : 0,
-                'sha256' => $current ? (string) ($current['sha256'] ?? '') : '',
-                'yaml' => $yaml,
-                'status' => \Ms365Backup\Fleet\WorkerConfigService::statusSummary(),
-            ]);
+            $payload = \Ms365Backup\Fleet\FleetFacade::configGet(ms365backup_fleet_target());
+            echo json_encode(['ok' => true] + $payload);
             break;
 
         case 'fleet_config_save':
             $yaml = (string) ($_POST['yaml'] ?? '');
             $validateOnly = (string) ($_POST['validate_only'] ?? '') === '1';
-            $validated = \Ms365Backup\Fleet\WorkerConfigService::validateYaml($yaml);
-            if ($validated['errors'] !== []) {
-                echo json_encode(['ok' => false, 'errors' => $validated['errors'], 'yaml' => $validated['yaml']]);
-                break;
-            }
-            if ($validateOnly) {
-                echo json_encode(['ok' => true, 'valid' => true, 'yaml' => $validated['yaml']]);
-                break;
-            }
             $adminId = isset($_SESSION['adminid']) ? (int) $_SESSION['adminid'] : null;
-            $saved = \Ms365Backup\Fleet\WorkerConfigService::saveNewVersion($validated['yaml'], $adminId);
-            echo json_encode(['ok' => true, 'version' => $saved['version'], 'sha256' => $saved['sha256']]);
+            $result = \Ms365Backup\Fleet\FleetFacade::configSave($yaml, $validateOnly, $adminId, ms365backup_fleet_target());
+            echo json_encode($result);
             break;
 
         case 'fleet_config_rollout':
@@ -678,12 +675,21 @@ try {
             $strategy = trim((string) ($_POST['strategy'] ?? 'explicit'));
             $nodeIdsRaw = trim((string) ($_POST['node_ids'] ?? ''));
             $nodeIds = $nodeIdsRaw !== '' ? array_values(array_filter(array_map('trim', explode(',', $nodeIdsRaw)))) : [];
-            $result = \Ms365Backup\Fleet\WorkerConfigService::rollout($version, $nodeIds, $strategy);
-            echo json_encode(['ok' => true] + $result);
+            $result = \Ms365Backup\Fleet\FleetFacade::configRollout($version, $nodeIds, $strategy, ms365backup_fleet_target());
+            echo json_encode($result);
             break;
 
         case 'fleet_config_status':
-            echo json_encode(['ok' => true, 'status' => \Ms365Backup\Fleet\WorkerConfigService::statusSummary()]);
+            echo json_encode(['ok' => true, 'status' => \Ms365Backup\Fleet\FleetFacade::configStatus(ms365backup_fleet_target())]);
+            break;
+
+        case 'fleet_release_sync':
+            $releaseId = (int) ($_POST['release_id'] ?? 0);
+            if ($releaseId <= 0) {
+                throw new \RuntimeException('release_id required');
+            }
+            $result = \Ms365Backup\Fleet\FleetFacade::releaseSyncToProduction($releaseId);
+            echo json_encode(['ok' => true] + $result);
             break;
 
         case 'jobs_list':
@@ -780,7 +786,7 @@ try {
             break;
 
         case 'worker_release_list':
-            echo json_encode(['ok' => true, 'releases' => \Ms365Backup\Fleet\ReleaseRepository::listRecent(25)]);
+            echo json_encode(['ok' => true, 'releases' => \Ms365Backup\Fleet\FleetFacade::releaseList(ms365backup_fleet_target())]);
             break;
 
         case 'worker_deploy_create':
@@ -791,18 +797,19 @@ try {
             $strategy = trim((string) ($_POST['strategy'] ?? 'rolling'));
             $force = !empty($_POST['force_deploy']);
             $canary = trim((string) ($_POST['canary_node_id'] ?? ''));
-            $result = \Ms365Backup\Fleet\DeployService::startDeploy(
+            $result = \Ms365Backup\Fleet\FleetFacade::deployCreate(
                 $releaseId,
                 $strategy,
                 $force,
                 $canary !== '' ? $canary : null,
-                (int) $_SESSION['adminid']
+                (int) $_SESSION['adminid'],
+                ms365backup_fleet_target()
             );
-            echo json_encode(['ok' => true] + $result);
+            echo json_encode($result);
             break;
 
         case 'worker_deploy_list':
-            echo json_encode(['ok' => true, 'jobs' => \Ms365Backup\Fleet\DeployService::listDeployJobs(25)]);
+            echo json_encode(['ok' => true, 'jobs' => \Ms365Backup\Fleet\FleetFacade::deployList(ms365backup_fleet_target())]);
             break;
 
         case 'worker_build_and_deploy':

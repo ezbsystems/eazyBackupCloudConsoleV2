@@ -28,19 +28,24 @@ func collectSelectionFiles(
 
 	for _, item := range items {
 		root := itemRoot(item)
-		if root == "" {
+		if root == "" && !isWholeManifestSelection(item) {
 			continue
 		}
 		manifestID := resolveManifestID(item, root, sourceManifestID, manifestByPath)
 		collected, err := collectFiles(ctx, pool, storage, manifestID, root)
 		if err != nil {
-			return nil, fmt.Errorf("collect %s: %w", root, err)
+			label := root
+			if label == "" {
+				label = "manifest:" + manifestID
+			}
+			return nil, fmt.Errorf("collect %s: %w", label, err)
 		}
 		for _, f := range collected {
-			if _, ok := seen[f.Path]; ok {
+			key := manifestID + "\x00" + f.Path
+			if _, ok := seen[key]; ok {
 				continue
 			}
-			seen[f.Path] = struct{}{}
+			seen[key] = struct{}{}
 			f.ManifestID = manifestID
 			files = append(files, f)
 		}
@@ -53,6 +58,16 @@ func itemRoot(item api.RestoreItem) string {
 		return strings.Trim(strings.TrimSuffix(item.Path, "/"), "/")
 	}
 	return strings.Trim(strings.TrimSuffix(item.PathPrefix, "/"), "/")
+}
+
+// isWholeManifestSelection is true when the UI selected a top-level workload
+// resource (type=resource) with no path — export the entire Kopia manifest.
+func isWholeManifestSelection(item api.RestoreItem) bool {
+	if strings.TrimSpace(item.Path) != "" || strings.TrimSpace(item.PathPrefix) != "" {
+		return false
+	}
+	return strings.TrimSpace(item.ManifestID) != "" &&
+		strings.EqualFold(strings.TrimSpace(item.Type), "resource")
 }
 
 func resolveManifestID(item api.RestoreItem, path, fallback string, manifestByPath map[string]string) string {
@@ -75,7 +90,7 @@ func collectFiles(
 	rootPath string,
 ) ([]fileEntry, error) {
 	rootPath = strings.Trim(rootPath, "/")
-	result, err := pool.Browse(ctx, kopia.BrowseRequest{
+	result, err := pool.ListDirectory(ctx, kopia.BrowseRequest{
 		Storage:    storage,
 		ManifestID: manifestID,
 		Path:       rootPath,
@@ -86,7 +101,18 @@ func collectFiles(
 	}
 	if len(result.Entries) == 0 {
 		if rootPath != "" && shouldExportFile(rootPath) {
-			return []fileEntry{{Path: rootPath}}, nil
+			isFile, err := pool.IsSnapshotFile(ctx, kopia.BrowseRequest{
+				Storage:    storage,
+				ManifestID: manifestID,
+				Path:       rootPath,
+				SourcePath: "/ms365",
+			}, rootPath)
+			if err != nil {
+				return nil, err
+			}
+			if isFile {
+				return []fileEntry{{Path: rootPath}}, nil
+			}
 		}
 		return nil, nil
 	}

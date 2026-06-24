@@ -5930,6 +5930,19 @@
     word-break: break-word;
   }
 
+  .eb-live-workloads-status {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+  }
+
+  .eb-live-workloads-freshness {
+    font-size: 11px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
   .eb-live-workloads-error {
     font-size: 12px;
     line-height: 1.45;

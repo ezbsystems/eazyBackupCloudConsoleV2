@@ -68,7 +68,7 @@ final class Ms365EngineConfig
     /** Max concurrent child workloads claimed per Entra tenant (distinct from Graph HTTP budget). */
     public static function perTenantMaxConcurrentWorkloads(): int
     {
-        return max(1, (int) self::moduleSetting('ms365_per_tenant_max_concurrent_workloads', '6'));
+        return max(1, (int) self::moduleSetting('ms365_per_tenant_max_concurrent_workloads', '24'));
     }
 
     public static function perClientMaxConcurrent(): int

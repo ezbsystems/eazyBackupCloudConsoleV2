@@ -13,20 +13,38 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// writableStateDir is where applied-version markers and config staging files live.
+// Fleet nodes keep config.yaml under /etc (directory not writable by ms365worker) while
+// /var/lib/ms365-backup-worker is writable.
+func writableStateDir(configPath string) string {
+	if dir := strings.TrimSpace(os.Getenv("MS365_WORKER_STATE_DIR")); dir != "" {
+		return dir
+	}
+	_ = configPath
+	return "/var/lib/ms365-backup-worker"
+}
+
 func AppliedVersionPath(configPath string) string {
+	return filepath.Join(writableStateDir(configPath), "config.applied_version")
+}
+
+func legacyAppliedVersionPath(configPath string) string {
 	return configPath + ".applied_version"
 }
 
 func ReadAppliedVersion(configPath string) int {
-	data, err := os.ReadFile(AppliedVersionPath(configPath))
-	if err != nil {
-		return 0
+	for _, path := range []string{AppliedVersionPath(configPath), legacyAppliedVersionPath(configPath)} {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		v, err := strconv.Atoi(strings.TrimSpace(string(data)))
+		if err != nil || v < 0 {
+			continue
+		}
+		return v
 	}
-	v, err := strconv.Atoi(strings.TrimSpace(string(data)))
-	if err != nil || v < 0 {
-		return 0
-	}
-	return v
+	return 0
 }
 
 func WriteAppliedVersion(configPath string, version int) error {
@@ -74,17 +92,51 @@ func Apply(configPath string, version int, wantSHA256 string, yamlBytes []byte) 
 		return err
 	}
 
-	dir := filepath.Dir(configPath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := writeConfigFile(configPath, merged); err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(dir, ".config-*.yaml")
+	if err := WriteAppliedVersion(configPath, version); err != nil {
+		return fmt.Errorf("record applied version: %w", err)
+	}
+	return nil
+}
+
+func writeConfigFile(configPath string, data []byte) error {
+	// Prefer same-directory atomic rename when the config dir is writable.
+	dir := filepath.Dir(configPath)
+	if err := os.MkdirAll(dir, 0755); err == nil {
+		if tmp, err := os.CreateTemp(dir, ".config-*.yaml"); err == nil {
+			tmpPath := tmp.Name()
+			cleanup := func() { _ = os.Remove(tmpPath) }
+			if _, err := tmp.Write(data); err != nil {
+				tmp.Close()
+				cleanup()
+				return err
+			}
+			if err := tmp.Close(); err != nil {
+				cleanup()
+				return err
+			}
+			if err := os.Rename(tmpPath, configPath); err == nil {
+				return nil
+			}
+			cleanup()
+		}
+	}
+
+	// Fleet LXC: /etc/ms365-backup-worker is not writable but the existing config
+	// file is group-writable — overwrite in place after staging in state dir.
+	stagingDir := writableStateDir(configPath)
+	if err := os.MkdirAll(stagingDir, 0755); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(stagingDir, ".config-*.yaml")
 	if err != nil {
 		return err
 	}
 	tmpPath := tmp.Name()
 	cleanup := func() { _ = os.Remove(tmpPath) }
-	if _, err := tmp.Write(merged); err != nil {
+	if _, err := tmp.Write(data); err != nil {
 		tmp.Close()
 		cleanup()
 		return err
@@ -93,13 +145,15 @@ func Apply(configPath string, version int, wantSHA256 string, yamlBytes []byte) 
 		cleanup()
 		return err
 	}
-	if err := os.Rename(tmpPath, configPath); err != nil {
+	mode := os.FileMode(0640)
+	if info, err := os.Stat(configPath); err == nil {
+		mode = info.Mode().Perm()
+	}
+	if err := os.WriteFile(configPath, data, mode); err != nil {
 		cleanup()
 		return err
 	}
-	if err := WriteAppliedVersion(configPath, version); err != nil {
-		return fmt.Errorf("record applied version: %w", err)
-	}
+	cleanup()
 	return nil
 }
 
@@ -131,11 +185,11 @@ func mergeFleetYAML(configPath string, fleetYAML []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	dir := filepath.Dir(configPath)
-	if dir == "" || dir == "." {
-		dir = os.TempDir()
+	stagingDir := writableStateDir(configPath)
+	if err := os.MkdirAll(stagingDir, 0755); err != nil {
+		return nil, err
 	}
-	tmp, err := os.CreateTemp(dir, ".config-merge-*.yaml")
+	tmp, err := os.CreateTemp(stagingDir, ".config-merge-*.yaml")
 	if err != nil {
 		return nil, err
 	}

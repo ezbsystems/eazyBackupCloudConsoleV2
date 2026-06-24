@@ -45,6 +45,18 @@ final class JobQueueRepository
                 return true;
             }
         }
+        if (str_contains($message, 'workload stalled during graph sync')) {
+            return true;
+        }
+        if (str_contains($message, 'graph_sync stalled')) {
+            return true;
+        }
+        if (str_contains($message, 'no enumeration progress')) {
+            return true;
+        }
+        if (str_contains($message, 'kopia upload stalled')) {
+            return true;
+        }
 
         return false;
     }

@@ -87,7 +87,8 @@ final class Ms365RestoreWorkerHooks
                     $fields['last_progress_at'] = time();
                 }
                 if (\WHMCS\Database\Capsule::schema()->hasColumn('ms365_backup_runs', 'last_429_at')
-                    && ($throttleWaiting || $delta429 > 0)) {
+                    && ($delta429 > 0
+                        || ($throttleWaiting && Ms365BatchRunRepository::isGraphBoundPhase($effectivePhase)))) {
                     $fields['last_429_at'] = time();
                 }
                 if ($incoming429 > 0 || $incomingAdaptive > 0 || $incomingRequests > 0) {

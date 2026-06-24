@@ -66,6 +66,9 @@ type WorkerConfig struct {
 	HeavyJobDiskBudgetMiB int     `yaml:"heavy_job_disk_budget_mib"`
 	// HeavyJobCPUCores is the CPU budget charged per drive/site/onedrive job (I/O-bound; default 1).
 	HeavyJobCPUCores float64 `yaml:"heavy_job_cpu_cores"`
+	// ArchiveParallelExtracts is the number of concurrent Kopia reads while building
+	// a restore archive zip (zip entries are still written in order).
+	ArchiveParallelExtracts int `yaml:"archive_parallel_extracts"`
 }
 
 type APIConfig struct {
@@ -185,6 +188,12 @@ func (c *Config) applyDefaults() {
 	}
 	if c.Worker.HeavyJobCPUCores <= 0 {
 		c.Worker.HeavyJobCPUCores = 1
+	}
+	if c.Worker.ArchiveParallelExtracts <= 0 {
+		c.Worker.ArchiveParallelExtracts = 32
+	}
+	if c.Worker.ArchiveParallelExtracts > 64 {
+		c.Worker.ArchiveParallelExtracts = 64
 	}
 	if c.Kopia.RepoConfigDir == "" {
 		c.Kopia.RepoConfigDir = "/var/lib/ms365-backup-worker/kopia"

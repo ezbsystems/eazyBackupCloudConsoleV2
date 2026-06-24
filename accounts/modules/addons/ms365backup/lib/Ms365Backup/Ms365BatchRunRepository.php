@@ -24,7 +24,13 @@ final class Ms365BatchRunRepository
     private const HEARTBEAT_GAP_SECONDS = 180;
 
     /** Reap running children with no progress posts for this long, even if the queue lease was renewed. */
-    private const STALE_SILENCE_SECONDS = 1800;
+    public const STALE_SILENCE_SECONDS = 1800;
+
+    /** Running workloads silent longer than this do not count against the per-tenant claim cap. */
+    public const STALLED_FOR_CAP_SECONDS = 180;
+
+    /** Upload phases: cap/throttle shield requires material progress within this window. */
+    public const UPLOAD_THROTTLE_PROGRESS_SECONDS = 600;
 
     /** Fail graph_sync (and similar) workloads stuck at zero items/bytes after this long. */
     private const STALE_WEDGE_SECONDS = 1800;
@@ -354,8 +360,28 @@ final class Ms365BatchRunRepository
         return $phase === '' || $phase === 'graph_sync' || $phase === 'prior_snapshot';
     }
 
+    /** Upload / snapshot phases use a shorter material-progress window than graph_sync. */
+    public static function isUploadLikePhase(string $phase): bool
+    {
+        $phase = strtolower(trim($phase));
+
+        return str_contains($phase, 'upload')
+            || str_contains($phase, 'kopia')
+            || str_contains($phase, 'snapshot');
+    }
+
+    public static function maxThrottleShieldProgressAgeSeconds(string $phase): int
+    {
+        return self::isUploadLikePhase($phase)
+            ? self::UPLOAD_THROTTLE_PROGRESS_SECONDS
+            : self::STALE_SILENCE_SECONDS;
+    }
+
     /**
      * Run is actively waiting out Graph throttling (recent 429 + fresh worker lease).
+     * Tenant-wide throttle signals only shield this workload while it still shows
+     * recent progress; siblings' 429s must not pin cap slots or block reapers on
+     * individually wedged runs (heartbeat-only throttle loops included).
      *
      * @param array<string, mixed> $child
      * @param array<string, mixed>|null $queue
@@ -368,14 +394,22 @@ final class Ms365BatchRunRepository
             return false;
         }
 
+        $progressAt = self::progressFreshnessAt($child);
+        $progressAgeSeconds = $progressAt > 0 ? ($now - $progressAt) : PHP_INT_MAX;
+        $phase = strtolower(trim((string) ($child['phase'] ?? '')));
+        if ($progressAgeSeconds >= self::maxThrottleShieldProgressAgeSeconds($phase)) {
+            return false;
+        }
+
         if (Capsule::schema()->hasColumn('ms365_backup_runs', 'last_429_at')) {
             $last429At = (int) ($child['last_429_at'] ?? 0);
-            if ($last429At > 0 && ($now - $last429At) <= self::RECENT_THROTTLE_SECONDS) {
+            if ($last429At > 0
+                && ($now - $last429At) <= self::RECENT_THROTTLE_SECONDS
+                && self::isGraphBoundPhase($phase)) {
                 return true;
             }
         }
 
-        $phase = strtolower(trim((string) ($child['phase'] ?? '')));
         if (!self::isGraphBoundPhase($phase)) {
             return false;
         }
@@ -402,14 +436,22 @@ final class Ms365BatchRunRepository
             return false;
         }
 
+        $progressAt = self::progressFreshnessAt(is_array($row) ? $row : (array) $row);
+        $progressAgeSeconds = $progressAt > 0 ? ($now - $progressAt) : PHP_INT_MAX;
+        $phase = strtolower(trim((string) (is_array($row) ? ($row['phase'] ?? '') : ($row->phase ?? ''))));
+        if ($progressAgeSeconds >= self::maxThrottleShieldProgressAgeSeconds($phase)) {
+            return false;
+        }
+
         if (Capsule::schema()->hasColumn('ms365_backup_runs', 'last_429_at')) {
             $last429At = (int) (is_array($row) ? ($row['last_429_at'] ?? 0) : ($row->last_429_at ?? 0));
-            if ($last429At > 0 && ($now - $last429At) <= self::RECENT_THROTTLE_SECONDS) {
+            if ($last429At > 0
+                && ($now - $last429At) <= self::RECENT_THROTTLE_SECONDS
+                && self::isGraphBoundPhase($phase)) {
                 return true;
             }
         }
 
-        $phase = strtolower(trim((string) (is_array($row) ? ($row['phase'] ?? '') : ($row->phase ?? ''))));
         if (!self::isGraphBoundPhase($phase)) {
             return false;
         }
@@ -422,6 +464,62 @@ final class Ms365BatchRunRepository
                 return true;
             }
         }
+
+        return false;
+    }
+
+    /**
+     * Whether a running child should occupy a per-tenant workload claim slot.
+     * Stalled workloads (no progress while not throttle-waiting) and exhausted
+     * queue attempts are excluded so wedged whales do not pin the cap at max.
+     *
+     * @param array<string, mixed> $child
+     * @param array<string, mixed>|null $queue
+     */
+    public static function countsAgainstTenantWorkloadCap(array $child, ?array $queue, int $now): bool
+    {
+        if ((string) ($child['status'] ?? '') !== 'running') {
+            return false;
+        }
+        if (is_array($queue) && (string) ($queue['status'] ?? '') === 'running') {
+            $maxAttempts = (int) ($queue['max_attempts'] ?? 0) > 0 ? (int) $queue['max_attempts'] : 3;
+            if ((int) ($queue['attempts'] ?? 0) >= $maxAttempts) {
+                return false;
+            }
+        }
+        $progressAt = self::progressFreshnessAt($child);
+        if ($progressAt <= 0) {
+            return true;
+        }
+        $ageSeconds = $now - $progressAt;
+        $phase = strtolower(trim((string) ($child['phase'] ?? '')));
+        if ($ageSeconds >= self::maxThrottleShieldProgressAgeSeconds($phase)) {
+            return false;
+        }
+        if ($ageSeconds < self::STALLED_FOR_CAP_SECONDS) {
+            return true;
+        }
+        if (self::isThrottledWaitingAlive($child, $queue, $now)) {
+            return true;
+        }
+
+        // #region agent log
+        if ($ageSeconds >= self::STALLED_FOR_CAP_SECONDS) {
+            @file_put_contents('/var/www/eazybackup.ca/.cursor/debug-f6115a.log', json_encode([
+                'sessionId' => 'f6115a',
+                'hypothesisId' => 'H1',
+                'location' => 'Ms365BatchRunRepository.php:countsAgainstTenantWorkloadCap',
+                'message' => 'running slot excluded from tenant cap',
+                'data' => [
+                    'run_id' => (string) ($child['id'] ?? ''),
+                    'phase' => $phase,
+                    'progress_age_s' => $ageSeconds,
+                    'max_progress_age_s' => self::maxThrottleShieldProgressAgeSeconds($phase),
+                ],
+                'timestamp' => (int) round(microtime(true) * 1000),
+            ]) . "\n", FILE_APPEND);
+        }
+        // #endregion
 
         return false;
     }
