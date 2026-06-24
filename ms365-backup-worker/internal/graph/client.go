@@ -45,19 +45,13 @@ type Client struct {
 	httpClient *http.Client
 	maxRetries int
 	retryDelay time.Duration
-	sem              chan struct{}
-	throttleMu       sync.Mutex
-	throttle429      int64
-	adaptiveEnabled  bool
-	adaptiveLimit    int
-	adaptiveInFlight int
-	adaptiveCond     *sync.Cond
-	maxConcurrency   int
-	successStreak    int
-	shrinkAllowedAfter time.Time
-	azureTenantID    string
-	throttleWaiting  atomic.Int32
-	lastThrottleAt   atomic.Int64
+	sem             chan struct{}
+	throttle429     int64
+	adaptiveEnabled bool
+	maxConcurrency  int
+	azureTenantID   string
+	lastThrottleAt  atomic.Int64
+	requestsTotal   int64
 }
 
 // TokenRefreshFunc fetches a new Graph bearer token (e.g. from WHMCS mid-run refresh API).
@@ -112,8 +106,6 @@ func NewClient(token, region string, opts ClientOptions) *Client {
 	}
 	if opts.AdaptiveLimit {
 		c.adaptiveEnabled = true
-		c.adaptiveLimit = max(2, concurrency/2)
-		c.adaptiveCond = sync.NewCond(&c.throttleMu)
 	}
 	return c
 }
@@ -126,9 +118,14 @@ func (c *Client) ThrottleHits() int64 {
 	return atomic.LoadInt64(&c.throttle429)
 }
 
-// ThrottleWaiting reports whether the client is sleeping on a Graph 429 Retry-After.
+// RequestsTotal returns the number of completed Graph HTTP round-trips.
+func (c *Client) RequestsTotal() int64 {
+	return atomic.LoadInt64(&c.requestsTotal)
+}
+
+// ThrottleWaiting reports whether the tenant controller is sleeping on Graph 429 backoff.
 func (c *Client) ThrottleWaiting() bool {
-	return c.throttleWaiting.Load() > 0
+	return getTenantController(c.azureTenantID).throttleWaiting()
 }
 
 // LastThrottleAt returns the time of the most recent Graph 429 (zero when none).
@@ -140,14 +137,12 @@ func (c *Client) LastThrottleAt() time.Time {
 	return time.Unix(0, ns)
 }
 
-// AdaptiveConcurrency returns the current adaptive in-flight limit (0 when disabled).
+// AdaptiveConcurrency returns the current tenant adaptive in-flight limit (0 when disabled).
 func (c *Client) AdaptiveConcurrency() int {
 	if !c.adaptiveEnabled {
 		return 0
 	}
-	c.throttleMu.Lock()
-	defer c.throttleMu.Unlock()
-	return c.adaptiveLimit
+	return getTenantController(c.azureTenantID).limitValue()
 }
 
 func (c *Client) SetToken(token string) {
@@ -240,81 +235,39 @@ func IsMailboxUnavailable(err error) bool {
 
 func (c *Client) SetAzureTenantID(tenantID string) {
 	c.azureTenantID = strings.TrimSpace(tenantID)
-	c.applyTenantAdaptiveSeed()
+	ceiling := c.maxConcurrency
+	if ceiling <= 0 {
+		ceiling = defaultTenantCeiling
+	}
+	getTenantController(c.azureTenantID).ensureAdaptiveLimit(ceiling)
 }
 
-func (c *Client) applyTenantAdaptiveSeed() {
-	if c.azureTenantID == "" {
-		return
-	}
-	learned, ceiling, ok := tenantAdaptiveSeed(c.azureTenantID)
-	if !ok {
-		return
-	}
-	c.throttleMu.Lock()
-	defer c.throttleMu.Unlock()
-	if ceiling > 0 && ceiling < c.maxConcurrency {
-		c.maxConcurrency = ceiling
-	}
-	if c.adaptiveEnabled && learned > 0 {
-		limit := learned
-		if limit > c.maxConcurrency {
-			limit = c.maxConcurrency
-		}
-		if limit < 1 {
-			limit = 1
-		}
-		c.adaptiveLimit = limit
-	}
-}
-
-// ClampAdaptiveCeiling lowers the AIMD ceiling to match a refreshed tenant budget.
-func (c *Client) ClampAdaptiveCeiling(budget int) {
+// SetTenantCeilingFromClient applies a refreshed fleet budget ceiling for this client's tenant.
+func (c *Client) SetTenantCeilingFromClient(budget int) {
 	if budget <= 0 {
 		return
 	}
-	c.throttleMu.Lock()
-	defer c.throttleMu.Unlock()
 	if budget < c.maxConcurrency {
 		c.maxConcurrency = budget
 	}
-	if c.adaptiveEnabled && c.adaptiveLimit > budget {
-		c.adaptiveLimit = budget
-		if c.adaptiveLimit < 1 {
-			c.adaptiveLimit = 1
-		}
-		c.adaptiveCond.Broadcast()
-	}
-	persistTenantAdaptiveLimit(c.azureTenantID, c.adaptiveLimit)
+	SetTenantCeiling(c.azureTenantID, budget)
+}
+
+func (c *Client) tenantController() *tenantController {
+	return getTenantController(c.azureTenantID)
 }
 
 func (c *Client) acquireTransport(ctx context.Context) error {
-	if err := acquireTenant(ctx, c.azureTenantID); err != nil {
-		return err
-	}
-	if err := acquireGlobal(ctx); err != nil {
-		releaseTenant(c.azureTenantID)
-		return err
-	}
-	return nil
+	return acquireGlobal(ctx)
 }
 
 func (c *Client) releaseTransport() {
 	releaseGlobal()
-	releaseTenant(c.azureTenantID)
 }
 
 func (c *Client) acquireWorkload(ctx context.Context) error {
 	if c.adaptiveEnabled {
-		c.throttleMu.Lock()
-		defer c.throttleMu.Unlock()
-		for c.adaptiveInFlight >= c.adaptiveLimit {
-			if c.waitAdaptive(ctx) {
-				return ctx.Err()
-			}
-		}
-		c.adaptiveInFlight++
-		return nil
+		return c.tenantController().acquire(ctx)
 	}
 	select {
 	case c.sem <- struct{}{}:
@@ -324,34 +277,9 @@ func (c *Client) acquireWorkload(ctx context.Context) error {
 	}
 }
 
-func (c *Client) waitAdaptive(ctx context.Context) bool {
-	if ctx.Err() != nil {
-		return true
-	}
-	done := make(chan struct{})
-	go func() {
-		select {
-		case <-ctx.Done():
-			c.throttleMu.Lock()
-			c.adaptiveCond.Broadcast()
-			c.throttleMu.Unlock()
-		case <-done:
-		}
-	}()
-	c.adaptiveCond.Wait()
-	close(done)
-	return ctx.Err() != nil
-}
-
 func (c *Client) releaseWorkload() {
 	if c.adaptiveEnabled {
-		c.throttleMu.Lock()
-		c.adaptiveInFlight--
-		if c.adaptiveInFlight < 0 {
-			c.adaptiveInFlight = 0
-		}
-		c.adaptiveCond.Signal()
-		c.throttleMu.Unlock()
+		c.tenantController().release()
 		return
 	}
 	<-c.sem
@@ -388,65 +316,15 @@ func (c *Client) sleepRetry(ctx context.Context, delay time.Duration) error {
 func (c *Client) record429(cooldown time.Duration) {
 	atomic.AddInt64(&c.throttle429, 1)
 	c.lastThrottleAt.Store(time.Now().UnixNano())
-	if !c.adaptiveEnabled {
-		return
+	if c.adaptiveEnabled {
+		c.tenantController().record429(cooldown)
 	}
-	if cooldown <= 0 {
-		cooldown = time.Second
-	}
-	c.throttleMu.Lock()
-	defer c.throttleMu.Unlock()
-	c.successStreak = 0
-	now := time.Now()
-	if now.Before(c.shrinkAllowedAfter) {
-		return
-	}
-	if c.adaptiveLimit <= 1 {
-		c.shrinkAllowedAfter = now.Add(cooldown)
-		return
-	}
-	newLimit := int(float64(c.adaptiveLimit) * adaptiveDecreaseRatio)
-	if newLimit < 1 {
-		newLimit = 1
-	}
-	if newLimit >= c.adaptiveLimit {
-		newLimit = c.adaptiveLimit - 1
-	}
-	c.adaptiveLimit = newLimit
-	c.shrinkAllowedAfter = now.Add(cooldown)
-	c.adaptiveCond.Broadcast()
-	persistTenantAdaptiveLimit(c.azureTenantID, c.adaptiveLimit)
 }
 
 func (c *Client) recordSuccess() {
-	if !c.adaptiveEnabled {
-		return
+	if c.adaptiveEnabled {
+		c.tenantController().recordSuccess()
 	}
-	c.throttleMu.Lock()
-	c.successStreak++
-	streak := c.successStreak
-	max := c.maxConcurrency
-	c.throttleMu.Unlock()
-	if streak >= adaptiveSuccessStreak {
-		c.growAdaptiveLimit(max)
-		c.throttleMu.Lock()
-		c.successStreak = 0
-		c.throttleMu.Unlock()
-	}
-}
-
-func (c *Client) growAdaptiveLimit(max int) {
-	if !c.adaptiveEnabled || max <= 0 {
-		return
-	}
-	c.throttleMu.Lock()
-	defer c.throttleMu.Unlock()
-	if c.adaptiveLimit >= max {
-		return
-	}
-	c.adaptiveLimit++
-	c.adaptiveCond.Broadcast()
-	persistTenantAdaptiveLimit(c.azureTenantID, c.adaptiveLimit)
 }
 
 func parseRetryAfter(header string, attempt int, baseDelay time.Duration) time.Duration {
@@ -515,27 +393,15 @@ func isThrottleStatus(code int) bool {
 }
 
 func (c *Client) sleep429(ctx context.Context, delay time.Duration) error {
-	c.throttleWaiting.Add(1)
-	ParkTenantThrottle(c.azureTenantID, delay)
-	defer c.throttleWaiting.Add(-1)
+	tc := c.tenantController()
+	tc.beginThrottleWait()
+	defer tc.endThrottleWait()
 	return c.sleepRetry(ctx, delay)
 }
 
 func (c *Client) sleep429WithWorkload(ctx context.Context, delay time.Duration, workloadHeld *bool) error {
-	if workloadHeld != nil && *workloadHeld {
-		c.releaseWorkload()
-		*workloadHeld = false
-	}
-	if err := c.sleep429(ctx, delay); err != nil {
-		return err
-	}
-	if workloadHeld != nil && !*workloadHeld {
-		if err := c.acquireWorkload(ctx); err != nil {
-			return err
-		}
-		*workloadHeld = true
-	}
-	return nil
+	_ = workloadHeld // slot stays held during Retry-After for self-clocking backpressure.
+	return c.sleep429(ctx, delay)
 }
 
 type httpResponse struct {
@@ -581,6 +447,7 @@ func (c *Client) doRequest(ctx context.Context, req *http.Request) (*httpRespons
 		statusCode := resp.StatusCode
 		retryAfter := resp.Header.Get("Retry-After")
 		resp.Body.Close()
+		atomic.AddInt64(&c.requestsTotal, 1)
 		if readErr != nil {
 			lastErr = readErr
 			if sleepErr := c.sleepRetry(ctx, parseRetryAfter("", attempt, c.retryDelay)); sleepErr != nil {
@@ -615,6 +482,7 @@ func (c *Client) doRequest(ctx context.Context, req *http.Request) (*httpRespons
 			statusCode = resp.StatusCode
 			retryAfter = resp.Header.Get("Retry-After")
 			resp.Body.Close()
+			atomic.AddInt64(&c.requestsTotal, 1)
 			if readErr != nil {
 				c.releaseTransport()
 				lastErr = readErr

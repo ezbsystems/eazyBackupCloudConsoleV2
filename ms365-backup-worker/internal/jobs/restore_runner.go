@@ -75,11 +75,26 @@ func (r *RestoreRunner) Run(ctx context.Context, job *api.RunJob, onAbort contex
 	gc := graph.NewClient(job.GraphToken, job.GraphRegion, graph.ClientOptions{
 		MaxRetries:       r.cfg.Graph.MaxRetries,
 		RetryBaseDelayMs: r.cfg.Graph.RetryBaseDelayMs,
-		MaxConcurrency:   r.cfg.Worker.GraphParallelRequests,
+		MaxConcurrency:   effectiveGraphParallel(r.cfg, job),
 		AdaptiveLimit:    r.cfg.Graph.AdaptiveEnabled(),
 	})
 	stopTokenRefresh := bindGraphTokenRefresh(ctx, r.cfg, r.client, gc, job.RunID)
 	defer stopTokenRefresh()
+	if job.AzureTenantID != "" {
+		gc.SetAzureTenantID(job.AzureTenantID)
+		if job.GraphTenantBudget > 0 {
+			graph.SetTenantCeiling(job.AzureTenantID, job.GraphTenantBudget)
+		}
+	}
+
+	onTenantBudget := func(budget int) {
+		if job.AzureTenantID == "" || budget <= 0 {
+			return
+		}
+		graph.SetTenantCeiling(job.AzureTenantID, budget)
+		gc.SetTenantCeilingFromClient(budget)
+		graph.LogTenantControllerState(job.AzureTenantID, gc.RequestsTotal(), gc.ThrottleHits())
+	}
 
 	storage := kopia.StorageOptions{
 		Endpoint:     job.DestEndpoint,
@@ -182,7 +197,7 @@ func (r *RestoreRunner) Run(ctx context.Context, job *api.RunJob, onAbort contex
 	}
 	progressStop := r.client.StartProgressHeartbeat(ctx, job.RunID, 45*time.Second, func() api.ProgressUpdate {
 		return lastProgress
-	}, onAbort, nil)
+	}, onAbort, onTenantBudget)
 	defer progressStop()
 
 	runner := graphrestore.NewRunner(gc, selection.ConflictPolicy, func(done, skipped, total int, message string) {

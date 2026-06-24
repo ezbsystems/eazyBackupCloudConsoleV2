@@ -28,7 +28,7 @@ function ms365backup_config(): array
     return [
         'name' => 'MS365 Backup',
         'description' => 'Admin-only Microsoft 365 backup development tool (mail, calendar, contacts, To Do, OneDrive).',
-        'version' => '1.45.0',
+        'version' => '1.48.0',
         'author' => 'eazyBackup',
         'language' => 'english',
         'fields' => [

@@ -2,13 +2,36 @@
 
 **Purpose:** Single handoff document so the next agent knows where work stopped. Update this file at the **end of every session** (or after each meaningful milestone).
 
-**Last updated:** 2026-06-23  
-**Module version (ms365backup):** 1.45.0  
-**Worker version (ms365-backup-worker):** 0.3.13
+**Last updated:** 2026-06-24  
+**Module version (ms365backup):** 1.48.0  
+**Worker version (ms365-backup-worker):** 0.3.16
 
 ---
 
 ## Session log
+
+### 2026-06-24 — Phase-scoped throttle shield + stalled slot cap (PHP 1.48.0)
+
+- **Goal:** Free upload-wedged workloads that held per-tenant slots for hours while SharePoint Graph jobs kept the tenant 429 signal hot; stop counting progress-stale slots against the per-tenant claim cap.
+- **PHP 1.48.0:** `Ms365BatchRunRepository::isGraphBoundPhase()` — tenant-wide `recentlyThrottled()` shield only for `''` / `graph_sync` / `prior_snapshot`; upload/snapshot phases shield only on the child's own fresh `last_429_at`. `shouldReapRunningChild()` evaluates `isUploadStalled()` before throttle liveness so silent `kopia_upload` past **2700s** reaps even when the tenant is hot. `WorkerClaimService::countRunningForTenant()` excludes runs whose `last_progress_at` (or `updated_at`) is older than `STALE_UPLOAD_SECONDS`. `STALE_UPLOAD_SECONDS` exposed as public const.
+- **Tests:** `ms365_reaper_throttle_test.php`, `ms365_tenant_throttle_liveness_test.php` — `kopia_upload` + hot tenant + stale own `last_429_at` is not shielded and is reapable; `graph_sync` wedge remains shielded.
+- **Verify:** Deploy PHP 1.48.0; wedged upload child reaps within ~45 min of upload silence and frees a slot for queued workloads; `countRunningForTenant` no longer pins at cap with a stalled slot.
+
+### 2026-06-23 — Unified tenant Graph congestion control (PHP 1.47.0 / worker 0.3.16)
+
+- **Goal:** Replace fragmented per-client AIMD + tenant semaphore + cooldown park with one process-global adaptive controller per Entra tenant; PHP fleet budget sets ceiling only; acceptable steady-state 429 ratio under ~5%.
+- **Worker 0.3.16:** `internal/graph/tenant_controller.go` — shared acquire/release, proportional short-debounced shrink, slot-held 429 backpressure, jittered cooldown recovery, idle decay; `graph_429_ratio` + structured controller heartbeat log; restore runner shares tenant controller.
+- **PHP 1.47.0:** `GraphTenantBudgetService` additive +1 growStep, no growth while `recentlyThrottled`; parent `ms365_graph_429_ratio` / `ms365_graph_requests_total`; live UI shows throttle banner only when material (ratio ≥5% or active window).
+- **Tests:** `tenant_controller_test.go`, updated `client_test.go`, `ms365_graph_budget_test.php`; `go test ./...` + PHP suite.
+- **Verify:** Deploy worker 0.3.16 + PHP 1.47.0 together; large tenant — 429 ratio under target, smooth window recovery in logs, no cooldown herd, UI calm on handful of 429s.
+
+### 2026-06-23 — Graph-sync liveness + reaper guards (PHP 1.46.0 / worker 0.3.15)
+
+- **Goal:** Stop false "Stale progress" reaps during long silent graph_sync enumeration (no item progress, no 429s); align remaining stale-progress reaper paths with full `shouldSkipThrottleReaper` guard.
+- **Worker 0.3.15:** Monotonic `graph_requests` counter on Graph client (`RequestsTotal()`); included in progress heartbeats; rising `graph_requests` counts as liveness in `stallAwareProgressFn` (no `no_progress` while paging).
+- **PHP 1.46.0:** `releaseStalledClaimsForBusyNode` + `reconcileZombieRuns` stalled-leased loops use `shouldSkipThrottleReaper` (with `worker_node_id` in select); `backupProgress` bumps `last_progress_at` when `phase=graph_sync` and `graph_requests` rose (both `no_progress` and normal paths); persists `graph_requests` in `stats_json`.
+- **Tests:** `progress_stall_test.go`, `graph/client_test.go`, `ms365_reaper_throttle_test.php`.
+- **Verify:** Deploy worker 0.3.15 + PHP 1.46.0 together; whale batch — no "Stale progress (worker busy)" / "Stale progress reconciled" during active Graph enumeration; `last_progress_at` advances while `graph_requests` rises.
 
 ### 2026-06-23 — Reaper coverage + budget tuning (PHP 1.45.0)
 

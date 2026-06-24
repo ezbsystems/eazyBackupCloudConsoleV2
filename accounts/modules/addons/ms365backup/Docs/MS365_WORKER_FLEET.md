@@ -132,8 +132,8 @@ Backups run **multiple workloads in parallel** (one child run per user mailbox, 
 | Per worker node | `max_concurrent_runs` | **16** | `config.yaml` |
 | Per worker node | `heavy_job_cpu_cores` | **1** | `config.yaml` (I/O-bound site/drive jobs; was hardcoded 2) |
 | Graph HTTP (per workload) | `graph_parallel_requests` | **32** | `config.yaml` |
-| Graph HTTP (per Entra tenant, fleet-coordinated) | `graph_tenant_budget` (claim + progress) | AIMD from control plane | `ms365_graph_tenant_budget` |
-| Graph adaptive concurrency (per workload) | `graph.adaptive_limit` | on | shrinks on 429, grows on success streak |
+| Graph HTTP (per Entra tenant, fleet-coordinated) | `graph_tenant_budget` (claim + progress) | Ceiling for worker controller | `ms365_graph_tenant_budget` |
+| Graph adaptive concurrency (per tenant, in-process) | `graph.adaptive_limit` + `tenant_controller.go` | Fast AIMD loop below PHP ceiling | worker process-global |
 | Mail folders (per workload) | `graph_folder_parallel` | **4** | `config.yaml` |
 | SharePoint drives (per site workload) | `graph_sharepoint_drive_parallel` | **4** | `config.yaml` |
 
@@ -153,17 +153,19 @@ Backups run **multiple workloads in parallel** (one child run per user mailbox, 
 
 OneDrive workloads use the **heavy job** RAM/disk budget (`heavy_job_ram_budget_mib`); raising `max_concurrent_runs` without more RAM can block claims.
 
-**UI note:** The live page stage shows e.g. `Syncing from Microsoft Graph (3 of 12 workloads active)` when multiple children run in parallel; parent progress blends completed workloads plus in-flight graph_sync fraction. When Graph returns many 429s, a **Throttled by Microsoft Graph** badge appears (aggregated `graph_429_hits` from child `stats_json`).
+**UI note:** The live page stage shows e.g. `Syncing from Microsoft Graph (3 of 12 workloads active)` when multiple children run in parallel; parent progress blends completed workloads plus in-flight graph_sync fraction. When Graph pacing is **material** (429 ratio ≥5% or active throttle window), a reassuring pacing banner appears — a handful of 429s alone does not alarm.
 
-## Graph throttling and stall safety (worker 0.3.0+)
+## Graph throttling and stall safety (worker 0.3.16+)
 
 | Mechanism | Purpose |
 |-----------|---------|
-| AIMD adaptive limit (`graph/client.go`) | After 429, concurrency shrinks; after a success streak it grows back toward `graph_parallel_requests` |
+| Tenant congestion controller (`graph/tenant_controller.go`) | Single adaptive window per Entra tenant per worker: proportional shrink on 429, additive grow on success streak, slot-held Retry-After backpressure, jittered cooldown, idle decay |
+| PHP fleet budget (`GraphTenantBudgetService`) | Slow loop: multiplicative shrink on 429 deltas; additive +1 ceiling grow per 600s decay when not recently throttled |
 | `graph_sync` stall watchdog | Same `kopia.stall_seconds` as upload watchdog; 429 Retry-After backoff counts as activity |
-| Per-tenant Graph budget | Control plane divides tenant AIMD budget across active workers; worker clamps in-flight Graph requests |
+| Per-tenant Graph budget ceiling | Control plane divides tenant budget across active workers; worker `setCeiling` clamps the controller ceiling |
 | Adaptive budget floor (1.45.0+) | Under sustained `recent_429_count` (≥10 → floor 2, ≥20 → floor 1) so hammered tenants truly back off |
 | `throttle_waiting` progress flag (worker 0.3.13+) | Control plane refreshes `last_429_at` during parked Retry-After waits even when `no_progress` |
+| `graph_requests` liveness (worker 0.3.15+ / PHP 1.46.0+) | Monotonic completed Graph HTTP counter; rising value during `graph_sync` bumps `last_progress_at` so enumeration paging counts as alive |
 | Mid-run delta checkpoints | `checkpoint_delta_states` on progress API → `DeltaStateRepository::saveStates`; requeued runs resume enumeration |
 
 Default `kopia.stall_seconds` is **2700** in worker config (`applyDefaults()`); set `0` to disable both upload and graph_sync stall watches.
@@ -175,7 +177,7 @@ When a worker restarts (e.g. after self-update) without completing or failing in
 **Detection** (`WorkerClaimService::releaseOrphanedClaimsForNode`):
 
 - **Idle node** (`current_load=0`): queue row `status=running` on that node with `claimed_at` and run progress freshness older than **120 seconds** (uses `last_progress_at`, falls back to `updated_at`). **1.42.0+:** skip when `lease_expires_at` is still in the future (worker alive) or throttled-but-alive (per-child `last_429_at` **or** tenant `ms365_graph_tenant_budget.last_429_at` within **1200s** with fresh lease). Fast unacked reclaim only when lease is expired/absent.
-- **Busy node** (`current_load>0`): per-run scan — only individual runs whose `last_progress_at` is older than **1800s** are re-queued; healthy runs on the same node are left alone.
+- **Busy node** (`current_load>0`): per-run scan — only individual runs whose `last_progress_at` is older than **1800s** are re-queued; healthy runs on the same node are left alone. **1.46.0+:** skip via `shouldSkipThrottleReaper` (tenant throttled + node heartbeat fresh).
 
 Matching runs are re-queued via the infrastructure-requeue path (progress fields and `delta_states` preserved).
 
@@ -189,7 +191,7 @@ Fleet cron (`ms365_worker_fleet.php`) invokes orphan release on every active nod
 
 Runs can wedge the fleet when a worker fails without clearing its claim, retries exhaust, or progress stops updating. The control plane reconciles these automatically.
 
-**Liveness rule (1.39.0+):** A child is **alive** when `last_progress_at` (real items/bytes progress) or a fresh queue lease refreshed within **180s** (`HEARTBEAT_GAP_SECONDS`). Flat heartbeats and `no_progress` beats do not bump `last_progress_at` or renew leases.
+**Liveness rule (1.39.0+):** A child is **alive** when `last_progress_at` (real items/bytes progress, rising `graph_requests` during `graph_sync` since **1.46.0**, or throttle signals) or a fresh queue lease refreshed within **180s** (`HEARTBEAT_GAP_SECONDS`). Flat heartbeats and `no_progress` beats do not bump `last_progress_at` or renew leases (except throttle / `graph_requests` liveness paths above).
 
 **`WorkerClaimService::reconcileZombieRuns()`** (fleet cron + each `claimNext`):
 
@@ -197,7 +199,7 @@ Runs can wedge the fleet when a worker fails without clearing its claim, retries
 |-----------|--------|
 | `attempts >= max_attempts` but queue still `queued`/`running` | Terminal fail via `ms365_worker_fail` hooks |
 | Queue `running`, worker not alive (expired lease + stale `last_progress_at`) | Infrastructure requeue if attempts remain — **unless** `shouldSkipThrottleReaper` (tenant throttled + node heartbeat fresh) |
-| Queue `running`, fresh lease but `last_progress_at` stale **≥1800s** | Infrastructure requeue (`Stale progress reconciled`) — **unless** throttled-but-alive (per-child **or** tenant `last_429_at` within **1200s**) |
+| Queue `running`, fresh lease but `last_progress_at` stale **≥1800s** | Infrastructure requeue (`Stale progress reconciled`) — **unless** `shouldSkipThrottleReaper` (tenant throttled + node heartbeat fresh, **1.46.0+**) |
 | Child `running`, recent throttle signal (**≤1200s**) + fresh lease | **Skip** infrastructure requeue (worker waiting on Graph limiter / Retry-After) |
 | Expired lease + stale `updated_at` (`releaseExpiredLeases`, staleRows, `recoverStaleRunning`) | **Skip** when tenant throttled and worker node heartbeat fresh (**1.45.0+**) |
 | Wedge (`0` items/bytes after **1800s**) | Infrastructure requeue — **unless** throttled-but-alive (**1.45.0+**) |

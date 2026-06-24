@@ -84,7 +84,7 @@ final class GraphTenantBudgetService
             return 0;
         }
 
-        return max(2, (int) floor(($max - $budget) / 4));
+        return 1;
     }
 
     private static function shrinkStep(int $budget, int $delta429, int $floor): int
@@ -135,7 +135,10 @@ final class GraphTenantBudgetService
         $budget = (int) ($row->graph_budget ?? $max);
         $recent429 = (int) ($row->recent_429_count ?? 0);
         $recent429 = max(0, $recent429 - $windows);
-        $grow = self::growStep($max, $budget);
+        $grow = 0;
+        if (!self::recentlyThrottled($azureTenantId, $now, self::DECAY_WINDOW_SECONDS)) {
+            $grow = self::growStep($max, $budget);
+        }
         if ($grow > 0) {
             $budget = min($max, $budget + $grow * $windows);
         }

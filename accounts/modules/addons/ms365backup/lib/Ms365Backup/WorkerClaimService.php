@@ -17,6 +17,55 @@ final class WorkerClaimService
     /** Requeue running claims with no real items/bytes progress for this long (even with a fresh lease). */
     private const STALE_PROGRESS_SILENCE_SECONDS = 1800;
 
+    /** Minimum seconds between fleet-wide maintenance sweeps (run from the claim path). */
+    private const REAPER_MIN_INTERVAL_SECONDS = 15;
+
+    /** Max eligible rows ranked per fair-scheduling claim poll (bounds the per-poll sort). */
+    private const FAIR_CANDIDATE_POOL_CAP = 500;
+
+    /**
+     * Fleet-wide interval lock for the maintenance sweeps. Only the poll that wins the
+     * atomic update for the current window actually runs the reapers; all other polls
+     * skip them. Keeps the hot claim path free of full queue/run reconciler scans.
+     */
+    private static function tryAcquireReaperSlot(): bool
+    {
+        if (!class_exists(Capsule::class)) {
+            return true;
+        }
+        $now = time();
+        $cutoff = $now - self::REAPER_MIN_INTERVAL_SECONDS;
+        $key = 'ms365_reapers_last_run';
+        try {
+            $affected = Capsule::table('tbladdonmodules')
+                ->where('module', 'ms365backup')
+                ->where('setting', $key)
+                ->whereRaw('CAST(`value` AS UNSIGNED) <= ?', [$cutoff])
+                ->update(['value' => (string) $now]);
+            if ($affected > 0) {
+                return true;
+            }
+            $exists = Capsule::table('tbladdonmodules')
+                ->where('module', 'ms365backup')
+                ->where('setting', $key)
+                ->exists();
+            if (!$exists) {
+                Capsule::table('tbladdonmodules')->insert([
+                    'module' => 'ms365backup',
+                    'setting' => $key,
+                    'value' => (string) $now,
+                ]);
+
+                return true;
+            }
+        } catch (\Throwable $e) {
+            // On any contention/error, default to running the sweeps (safe behaviour).
+            return true;
+        }
+
+        return false;
+    }
+
     /** Run IDs the control plane considers actively claimed by this worker. */
     public static function activeClaimRunIds(string $nodeId): array
     {
@@ -74,10 +123,15 @@ final class WorkerClaimService
 
     public static function claimNext(string $nodeId, ?array $claimHint = null): ?array
     {
-        self::releaseOrphanedClaimsForAllNodes(self::ORPHAN_STALE_SECONDS);
-        self::releaseExpiredLeases();
-        self::recoverStaleRunning();
-        self::reconcileZombieRuns();
+        // Maintenance sweeps are fleet-wide and need only run periodically, not on
+        // every poll. Gate them behind a shared interval lock so the hot claim path
+        // is not dominated by reconciler scans across the whole queue.
+        if (self::tryAcquireReaperSlot()) {
+            self::releaseOrphanedClaimsForAllNodes(self::ORPHAN_STALE_SECONDS);
+            self::releaseExpiredLeases();
+            self::recoverStaleRunning();
+            self::reconcileZombieRuns();
+        }
 
         $node = WorkerNodeRepository::get($nodeId);
         if ($node === null || ($node['status'] ?? '') !== 'active') {
@@ -898,6 +952,7 @@ final class WorkerClaimService
         if (Capsule::schema()->hasColumn('ms365_backup_runs', 'last_429_at')) {
             $select[] = 'r.last_429_at';
         }
+        $select[] = 'r.phase';
         $rows = Capsule::table('ms365_job_queue as q')
             ->leftJoin('ms365_backup_runs as r', 'r.id', '=', 'q.run_id')
             ->where('q.status', 'running')
@@ -1101,6 +1156,7 @@ final class WorkerClaimService
             $select[] = 'r.last_429_at';
         }
         $select[] = 'q.lease_expires_at';
+        $select[] = 'q.worker_node_id';
         $select[] = 'r.tenant_record_id';
 
         $candidates = Capsule::table('ms365_job_queue as q')
@@ -1113,7 +1169,7 @@ final class WorkerClaimService
 
         $toRequeue = [];
         foreach ($candidates as $row) {
-            if (Ms365BatchRunRepository::isThrottledWaitingAliveFromRow($row, $now)) {
+            if (Ms365BatchRunRepository::shouldSkipThrottleReaper($row, $now)) {
                 continue;
             }
             $progressAt = self::claimProgressFreshnessAt($row);
@@ -1176,6 +1232,7 @@ final class WorkerClaimService
         if (Capsule::schema()->hasColumn('ms365_backup_runs', 'last_429_at')) {
             $exhaustedSelect[] = 'br.last_429_at';
         }
+        $exhaustedSelect[] = 'br.phase';
         $exhausted = Capsule::table('ms365_job_queue as q')
             ->leftJoin('ms365_backup_runs as br', 'br.id', '=', 'q.run_id')
             ->whereIn('q.status', ['queued', 'running'])
@@ -1215,6 +1272,7 @@ final class WorkerClaimService
         if (Capsule::schema()->hasColumn('ms365_backup_runs', 'last_429_at')) {
             $staleSelect[] = 'r.last_429_at';
         }
+        $staleSelect[] = 'r.phase';
         $staleRows = Capsule::table('ms365_job_queue as q')
             ->join('ms365_backup_runs as r', 'r.id', '=', 'q.run_id')
             ->where('q.status', 'running')
@@ -1266,13 +1324,14 @@ final class WorkerClaimService
             $stalledLeasedQuery->where('r.updated_at', '<', $silenceCutoff);
         }
 
-        $stalledSelect = ['q.run_id', 'q.attempts', 'q.max_attempts', 'q.lease_expires_at', 'r.tenant_record_id'];
+        $stalledSelect = ['q.run_id', 'q.attempts', 'q.max_attempts', 'q.lease_expires_at', 'q.worker_node_id', 'r.tenant_record_id'];
         if (Capsule::schema()->hasColumn('ms365_backup_runs', 'last_429_at')) {
             $stalledSelect[] = 'r.last_429_at';
         }
+        $stalledSelect[] = 'r.phase';
 
         foreach ($stalledLeasedQuery->get($stalledSelect) as $row) {
-            if (Ms365BatchRunRepository::isThrottledWaitingAliveFromRow($row, $now)) {
+            if (Ms365BatchRunRepository::shouldSkipThrottleReaper($row, $now)) {
                 continue;
             }
             $runId = (string) ($row->run_id ?? '');
@@ -1300,6 +1359,7 @@ final class WorkerClaimService
         if (Capsule::schema()->hasColumn('ms365_backup_runs', 'last_429_at')) {
             $orphanSelect[] = 'r.last_429_at';
         }
+        $orphanSelect[] = 'r.phase';
         $orphanChildren = Capsule::table('ms365_backup_runs as r')
             ->leftJoin('ms365_job_queue as q', 'q.run_id', '=', 'r.id')
             ->where('r.status', 'running')
@@ -1496,17 +1556,33 @@ final class WorkerClaimService
     {
         $now = time();
         $cutoff = $now - JobQueueRepository::zombieStaleSeconds();
+        $progressStaleCutoff = $now - Ms365BatchRunRepository::STALE_UPLOAD_SECONDS;
 
-        return (int) Capsule::table('ms365_job_queue as q')
+        $query = Capsule::table('ms365_job_queue as q')
             ->join('ms365_backup_runs as r', 'r.id', '=', 'q.run_id')
             ->where('q.status', 'running')
             ->where('r.status', 'running')
             ->where('r.tenant_record_id', $tenantRecordId)
-            ->where(function ($query) use ($now, $cutoff) {
-                $query->where('q.lease_expires_at', '>', $now)
+            ->where(function ($sub) use ($now, $cutoff) {
+                $sub->where('q.lease_expires_at', '>', $now)
                     ->orWhere('r.updated_at', '>=', $cutoff);
-            })
-            ->count();
+            });
+
+        if (Capsule::schema()->hasColumn('ms365_backup_runs', 'last_progress_at')) {
+            $query->where(function ($sub) use ($progressStaleCutoff) {
+                $sub->where(function ($fresh) use ($progressStaleCutoff) {
+                    $fresh->whereNotNull('r.last_progress_at')
+                        ->where('r.last_progress_at', '>=', $progressStaleCutoff);
+                })->orWhere(function ($fallback) use ($progressStaleCutoff) {
+                    $fallback->whereNull('r.last_progress_at')
+                        ->where('r.updated_at', '>=', $progressStaleCutoff);
+                });
+            });
+        } else {
+            $query->where('r.updated_at', '>=', $progressStaleCutoff);
+        }
+
+        return (int) $query->count();
     }
 
     private static function restoreClaimQueryReady(): bool
@@ -1597,18 +1673,34 @@ final class WorkerClaimService
         return self::fetchBackupClaimCandidatesFairPhp($backupQuery);
     }
 
-    /** @return \Illuminate\Support\Collection<int, object> */
+    /**
+     * Fair claim ranking, bounded to the most-eligible candidates.
+     *
+     * The window function must rank every input row before LIMIT applies, which over a
+     * large queued backlog forces a full temp-table + filesort on every poll. We first
+     * narrow to the top-N eligible rows (by priority, id — the same order claims drain in)
+     * using an indexed scan, then rank only that bounded pool. Fairness across batches is
+     * preserved within the eligible frontier; only the deep tail (which could not be
+     * claimed this poll anyway) is excluded.
+     *
+     * @return \Illuminate\Support\Collection<int, object>
+     */
     private static function fetchBackupClaimCandidatesFairSql($backupQuery)
     {
-        return $backupQuery
+        $pool = $backupQuery
             ->where('r.status', 'queued')
+            ->select(self::backupClaimSelectColumns())
+            ->orderBy('q.priority')
+            ->orderBy('q.id')
+            ->limit(self::FAIR_CANDIDATE_POOL_CAP);
+
+        return Capsule::connection()->query()
+            ->fromSub($pool, 'pool')
             ->selectRaw(
-                'q.*, r.tenant_record_id, r.whmcs_client_id, r.resource_id, r.resource_type,'
-                . ' r.graph_id, r.physical_key, r.scope_json, r.e3_batch_run_id,'
-                . ' ROW_NUMBER() OVER (PARTITION BY COALESCE(r.e3_batch_run_id, q.run_id)'
-                . ' ORDER BY q.priority ASC, q.id ASC) AS fair_rank'
+                'pool.*, ROW_NUMBER() OVER (PARTITION BY COALESCE(pool.e3_batch_run_id, pool.run_id)'
+                . ' ORDER BY pool.priority ASC, pool.id ASC) AS fair_rank'
             )
-            ->orderByRaw('q.priority ASC, fair_rank ASC, q.id ASC')
+            ->orderByRaw('pool.priority ASC, fair_rank ASC, pool.id ASC')
             ->limit(50)
             ->get();
     }
@@ -1729,7 +1821,7 @@ final class WorkerClaimService
     {
         if (self::$windowFunctionsSupported === null) {
             try {
-                Capsule::select('SELECT ROW_NUMBER() OVER (ORDER BY 1) AS rn FROM (SELECT 1 AS x) AS t LIMIT 1');
+                Capsule::select('SELECT ROW_NUMBER() OVER (ORDER BY (SELECT 1)) AS rn FROM (SELECT 1 AS x) AS t LIMIT 1');
                 self::$windowFunctionsSupported = true;
             } catch (\Throwable $e) {
                 self::$windowFunctionsSupported = false;

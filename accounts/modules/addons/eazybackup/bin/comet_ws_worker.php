@@ -1597,7 +1597,16 @@ function handleEvent(PDO &$pdo, string $profile, array $evt): void {
         if (EB_WS_DEBUG) logLine($profile, "IGNORED {$lab} (not mapped)");
     }
 
-    saveCursor($pdo, $profile, $ended_at ?: $ts, $jobId ?: null, true);
+    // Only force a durable cursor flush on terminal job events, where replay after
+    // a crash could otherwise resend completion notifications. All other events
+    // (logins, login failures, device connect/disconnect, etc.) rely on the
+    // throttled flush (time/event-count) to avoid a committed binlog-fsync write
+    // per high-frequency noise event.
+    $isTerminalJobEvent = in_array($lab, [
+        'SEVT_JOB_COMPLETED', 'SEVT_JOB_COMPLETE', 'SEVT_JOB_FINISH', 'SEVT_JOB_END',
+        'SEVT_JOB_FAILED', 'SEVT_JOB_CANCELLED', 'SEVT_JOB_ABORTED',
+    ], true);
+    saveCursor($pdo, $profile, $ended_at ?: $ts, $jobId ?: null, $isTerminalJobEvent);
 }
 
 

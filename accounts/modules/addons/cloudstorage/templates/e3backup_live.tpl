@@ -45,6 +45,9 @@
                     <span id="stageEta" class="eb-live-stage-eta"></span>
                 </div>
             </div>
+            {if isset($is_ms365_batch) && $is_ms365_batch}
+            <p id="ms365WorkloadsProgressLine" class="eb-live-stat-hint" style="margin: 0 0 12px;" aria-live="polite"></p>
+            {/if}
 
             <div class="eb-live-bar" aria-hidden="true">
                 <div
@@ -90,7 +93,7 @@
                 {/if}
                 <div id="graphThrottleHint" class="eb-live-stat hidden" style="grid-column: 1 / -1;">
                     <p class="eb-live-alert-copy" style="color: var(--eb-warning-text); margin: 0;">
-                        Throttled by Microsoft Graph — backup is slower than usual while rate limits recover.
+                        Pacing requests to stay within Microsoft Graph limits — this is normal for large tenants.
                         <span id="graphThrottleCount"></span>
                     </p>
                 </div>
@@ -122,6 +125,9 @@
                 <div class="eb-live-stat">
                     <div class="eb-live-stat-label">Files</div>
                     <div class="eb-live-stat-value" id="filesValue">-</div>
+                    {if isset($is_ms365_batch) && $is_ms365_batch}
+                    <p id="filesHint" class="eb-live-stat-hint"></p>
+                    {/if}
                 </div>
                 <div class="eb-live-stat">
                     <div class="eb-live-stat-label">Folders</div>
@@ -578,15 +584,60 @@ function updateMs365WorkloadsSummary(workloads) {
     const total = list.length;
     const complete = list.filter(w => ['success', 'cancelled'].includes(String(w.status || '').toLowerCase())).length;
     const failed = list.filter(w => ['failed', 'error'].includes(String(w.status || '').toLowerCase())).length;
-    const running = list.filter(w => ['running', 'starting', 'queued'].includes(String(w.status || '').toLowerCase())).length;
+    const running = list.filter(w => ['running', 'starting'].includes(String(w.status || '').toLowerCase())).length;
+    const queued = list.filter(w => String(w.status || '').toLowerCase() === 'queued').length;
     let text = complete + '/' + total + ' complete';
     if (running > 0) {
-        text += ' · ' + running + ' active';
+        text += ' · ' + running + ' running';
+    }
+    if (queued > 0) {
+        text += ' · ' + queued + ' queued';
     }
     if (failed > 0) {
         text += ' · ' + failed + ' failed';
     }
     summary.textContent = text;
+}
+
+function updateMs365BatchWorkloadsLine(run) {
+    if (!LIVE_IS_MS365) return;
+    const line = document.getElementById('ms365WorkloadsProgressLine');
+    if (!line) return;
+
+    const total = parseInt(run.total_workloads, 10) || 0;
+    if (total <= 0) {
+        line.textContent = '';
+        line.classList.add('hidden');
+        return;
+    }
+
+    const completed = parseInt(run.completed_workloads, 10) || 0;
+    const running = parseInt(run.active_running_workloads, 10) || 0;
+    const queued = parseInt(run.queued_workloads, 10) || 0;
+
+    let text = formatCount(completed) + ' of ' + formatCount(total) + ' workloads complete';
+    if (running > 0) {
+        text += ' · ' + formatCount(running) + ' running';
+    }
+    if (queued > 0) {
+        text += ' · ' + formatCount(queued) + ' queued';
+    }
+
+    line.textContent = text;
+    line.classList.remove('hidden');
+}
+
+function updateMs365FilesHint(run) {
+    if (!LIVE_IS_MS365) return;
+    const hint = document.getElementById('filesHint');
+    if (!hint) return;
+
+    const queued = parseInt(run.queued_workloads, 10) || 0;
+    if (queued > 0) {
+        hint.textContent = '+' + formatCount(queued) + ' workloads not yet counted';
+    } else {
+        hint.textContent = '';
+    }
 }
 
 function syncMs365WorkloadsChrome(live) {
@@ -878,6 +929,8 @@ function updateProgress() {
                 if (LIVE_IS_MS365 && Array.isArray(run.workloads)) {
                     renderMs365Workloads(run.workloads);
                 }
+                updateMs365BatchWorkloadsLine(run);
+                updateMs365FilesHint(run);
 
                 let progressPct = 0;
                 const apiPct = parseFloat(run.progress_pct);
@@ -1050,11 +1103,13 @@ function updateProgress() {
                 if (graphThrottleHint) {
                     const throttled = !!run.graph_throttled;
                     const hits429 = parseInt(run.graph_429_hits_total, 10) || 0;
-                    if (throttled && !isFinished) {
+                    const ratio = parseFloat(run.graph_429_ratio) || 0;
+                    const material = throttled || ratio >= 0.05;
+                    if (material && !isFinished) {
                         graphThrottleHint.classList.remove('hidden');
                         if (graphThrottleCount) {
                             graphThrottleCount.textContent = hits429 > 0
-                                ? ' (' + formatCount(hits429) + ' rate-limit responses)'
+                                ? ' (' + formatCount(hits429) + ' rate-limit responses so far)'
                                 : '';
                         }
                     } else {

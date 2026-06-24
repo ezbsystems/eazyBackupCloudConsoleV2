@@ -46,6 +46,27 @@ func TestStallAwareProgressFnIgnoresRising429(t *testing.T) {
 	}
 }
 
+func TestStallAwareProgressFnIgnoresRisingGraphRequests(t *testing.T) {
+	requests := int64(0)
+	fn := stallAwareProgressFn(1, func() api.ProgressUpdate {
+		return api.ProgressUpdate{
+			RunID:         "run-1",
+			Phase:         "graph_sync",
+			ItemsDone:     10,
+			BytesHashed:   100,
+			GraphRequests: requests,
+		}
+	})
+
+	_ = fn()
+	time.Sleep(1100 * time.Millisecond)
+	requests = 5
+	upd := fn()
+	if upd.NoProgress {
+		t.Fatalf("rising graph_requests should count as activity, got %+v", upd)
+	}
+}
+
 func TestStallAwareProgressFnClearsNoProgressOnChange(t *testing.T) {
 	items := 5
 	fn := stallAwareProgressFn(1, func() api.ProgressUpdate {

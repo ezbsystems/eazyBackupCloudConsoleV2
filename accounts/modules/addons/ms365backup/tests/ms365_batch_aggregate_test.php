@@ -63,6 +63,9 @@ $largeAgg = Ms365BatchRunRepository::computeAggregates($largeBatch);
 assert_near((float) $largeAgg['progress_pct'], 12.21, 0.5, 'Large batch progress reflects queued workloads');
 assert_true($largeAgg['status'] === 'running', 'Large batch with queued children stays running');
 assert_true((int) ($largeAgg['queued_workloads'] ?? 0) === 184, 'Large batch reports queued workload count');
+assert_true((int) ($largeAgg['completed_workloads'] ?? 0) === 14, 'Large batch reports completed workload count');
+assert_true((int) ($largeAgg['active_running_workloads'] ?? 0) === 5, 'Large batch reports active running workload count');
+assert_true((int) ($largeAgg['total_workloads'] ?? 0) === 213, 'Large batch reports total workload count');
 
 $allTerminal = array_merge(
     array_fill(0, 14, child('success')),

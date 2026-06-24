@@ -66,22 +66,31 @@ final class Ms365RestoreWorkerHooks
         $incomingBytesUploaded = (int) ($body['bytes_uploaded'] ?? 0);
         $incoming429 = (int) ($body['graph_429_hits'] ?? 0);
         $incomingAdaptive = (int) ($body['graph_adaptive_limit'] ?? 0);
+        $incomingRequests = (int) ($body['graph_requests'] ?? 0);
         $existingChildStats = self::decodeChildStatsJson($existing);
         $existingChild429 = (int) ($existingChildStats['graph_429_hits'] ?? 0);
+        $existingChildRequests = (int) ($existingChildStats['graph_requests'] ?? 0);
         $delta429 = max(0, $incoming429 - $existingChild429);
+        $deltaRequests = max(0, $incomingRequests - $existingChildRequests);
+        $effectivePhase = strtolower(trim($rawPhase !== '' ? $rawPhase : (string) ($existing['phase'] ?? '')));
+        $graphSyncRequestLiveness = $effectivePhase === 'graph_sync' && $deltaRequests > 0;
 
         $noProgress = !empty($body['no_progress']);
         $throttleWaiting = !empty($body['throttle_waiting']);
         $tenantRecordId = (int) ($existing['tenant_record_id'] ?? 0);
         $azureTenantId = self::azureTenantIdForTenantRecord($tenantRecordId);
         if ($noProgress) {
-            if ($throttleWaiting || $delta429 > 0) {
+            if ($throttleWaiting || $delta429 > 0 || $graphSyncRequestLiveness) {
                 $fields = ['updated_at' => time()];
+                if ($graphSyncRequestLiveness
+                    && \WHMCS\Database\Capsule::schema()->hasColumn('ms365_backup_runs', 'last_progress_at')) {
+                    $fields['last_progress_at'] = time();
+                }
                 if (\WHMCS\Database\Capsule::schema()->hasColumn('ms365_backup_runs', 'last_429_at')
                     && ($throttleWaiting || $delta429 > 0)) {
                     $fields['last_429_at'] = time();
                 }
-                if ($incoming429 > 0 || $incomingAdaptive > 0) {
+                if ($incoming429 > 0 || $incomingAdaptive > 0 || $incomingRequests > 0) {
                     $statsPatch = [];
                     if ($incoming429 > 0) {
                         $statsPatch['graph_429_hits'] = max(
@@ -91,6 +100,9 @@ final class Ms365RestoreWorkerHooks
                     }
                     if ($incomingAdaptive > 0) {
                         $statsPatch['graph_adaptive_limit'] = $incomingAdaptive;
+                    }
+                    if ($incomingRequests > 0) {
+                        $statsPatch['graph_requests'] = max($incomingRequests, $existingChildRequests);
                     }
                     $encoded = self::encodeMergedChildStatsJson($existing, $statsPatch);
                     if ($encoded !== null) {
@@ -173,15 +185,25 @@ final class Ms365RestoreWorkerHooks
             }
         }
 
+        if ($graphSyncRequestLiveness
+            && \WHMCS\Database\Capsule::schema()->hasColumn('ms365_backup_runs', 'last_progress_at')) {
+            $fields['last_progress_at'] = time();
+        }
+
         if (!empty($body['manifest_id'])) {
             $fields['manifest_id'] = (string) $body['manifest_id'];
         }
 
         $statsPatch = [];
-        if ($incoming429 > 0 || $incomingAdaptive > 0) {
-            $statsPatch['graph_429_hits'] = max($incoming429, (int) self::decodeChildStatsJson($existing)['graph_429_hits'] ?? 0);
-            if ($incomingAdaptive > 0) {
-                $statsPatch['graph_adaptive_limit'] = $incomingAdaptive;
+        if ($incoming429 > 0 || $incomingAdaptive > 0 || $incomingRequests > 0) {
+            if ($incoming429 > 0 || $incomingAdaptive > 0) {
+                $statsPatch['graph_429_hits'] = max($incoming429, (int) self::decodeChildStatsJson($existing)['graph_429_hits'] ?? 0);
+                if ($incomingAdaptive > 0) {
+                    $statsPatch['graph_adaptive_limit'] = $incomingAdaptive;
+                }
+            }
+            if ($incomingRequests > 0) {
+                $statsPatch['graph_requests'] = max($incomingRequests, $existingChildRequests);
             }
         }
         $phasePatch = self::buildPhaseTimingStatsPatch($existing, $rawPhase, time(), $isHeartbeat);
