@@ -96,9 +96,12 @@ func (r *Runner) Run(ctx context.Context, job *api.RunJob, onAbort context.Cance
 		if job.AzureTenantID == "" || budget <= 0 {
 			return
 		}
-		graph.SetTenantBudget(job.AzureTenantID, budget)
+		graph.SetTenantCeiling(job.AzureTenantID, budget)
 		if gc != nil {
-			gc.ClampAdaptiveCeiling(budget)
+			gc.SetTenantCeilingFromClient(budget)
+		}
+		if gc != nil {
+			graph.LogTenantControllerState(job.AzureTenantID, gc.RequestsTotal(), gc.ThrottleHits())
 		}
 	}
 
@@ -155,7 +158,7 @@ func (r *Runner) Run(ctx context.Context, job *api.RunJob, onAbort context.Cance
 	if job.AzureTenantID != "" {
 		gc.SetAzureTenantID(job.AzureTenantID)
 		if job.GraphTenantBudget > 0 {
-			graph.SetTenantBudget(job.AzureTenantID, job.GraphTenantBudget)
+			graph.SetTenantCeiling(job.AzureTenantID, job.GraphTenantBudget)
 		}
 	}
 
@@ -392,7 +395,7 @@ func (r *Runner) Run(ctx context.Context, job *api.RunJob, onAbort context.Cance
 			return err
 		}
 		if stalled.Load() {
-			msg := fmt.Sprintf("kopia upload stalled: no hashing progress for %ds", r.cfg.Kopia.StallSeconds)
+			msg := fmt.Sprintf("kopia upload stalled: no hashing or upload progress for %ds", r.cfg.Kopia.StallSeconds)
 			r.client.RunLogf(ctx, job.RunID, "error", "%s", msg)
 			r.reportFail(ctx, job.RunID, msg)
 			return err
@@ -500,7 +503,11 @@ func (r *Runner) graphProgressUpdate(runID string, pct float64, itemsDone, items
 	}
 	if gc != nil {
 		upd.Graph429Hits = gc.ThrottleHits()
+		upd.GraphRequests = gc.RequestsTotal()
 		upd.GraphAdaptiveLimit = gc.AdaptiveConcurrency()
+		if upd.GraphRequests > 0 {
+			upd.Graph429Ratio = float64(upd.Graph429Hits) / float64(upd.GraphRequests)
+		}
 		if gc.ThrottleWaiting() {
 			upd.ThrottleWaiting = true
 			upd.Message = "Throttled by Microsoft — waiting"

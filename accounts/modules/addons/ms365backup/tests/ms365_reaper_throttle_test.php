@@ -292,6 +292,125 @@ try {
             queueStatus($exhaustedRunId) === $exhaustedBefore,
             'exhausted path keeps throttle+alive run via tenant_record_id in select',
         );
+
+        $busyNodeRunId = test_uuid('busy-node-stale');
+        $runIds[] = $busyNodeRunId;
+        insertTestRun($busyNodeRunId, [
+            'tenant_record_id' => $tenantRecordId,
+            'last_429_at' => $now - 300,
+            'last_progress_at' => $now - 2000,
+            'updated_at' => $now - 2000,
+        ]);
+        insertTestQueue($busyNodeRunId, $nodeId, ['lease_expires_at' => $now + 3600]);
+        WorkerClaimService::releaseOrphanedClaimsForNode($nodeId, 4, 120);
+        assert_true(
+            queueStatus($busyNodeRunId) === 'running',
+            'busy-node stale-progress reaper skips throttle+alive-node run',
+        );
+
+        $stalledLeasedRunId = test_uuid('stalled-leased');
+        $runIds[] = $stalledLeasedRunId;
+        insertTestRun($stalledLeasedRunId, [
+            'tenant_record_id' => $tenantRecordId,
+            'last_429_at' => $now - 300,
+            'last_progress_at' => $now - 2000,
+            'updated_at' => $now - 2000,
+        ]);
+        insertTestQueue($stalledLeasedRunId, $nodeId, ['lease_expires_at' => $now + 3600]);
+        $stalledBefore = queueStatus($stalledLeasedRunId);
+        WorkerClaimService::reconcileZombieRuns(120);
+        assert_true(
+            queueStatus($stalledLeasedRunId) === $stalledBefore,
+            'stalled-leased path skips throttle+alive-node run',
+        );
+
+        $graphLivenessRunId = test_uuid('graph-requests-liveness');
+        $runIds[] = $graphLivenessRunId;
+        insertTestRun($graphLivenessRunId, [
+            'tenant_record_id' => $tenantRecordId,
+            'phase' => 'graph_sync',
+            'last_progress_at' => $now - 2000,
+            'updated_at' => $now - 2000,
+            'stats_json' => json_encode(['graph_requests' => 10], JSON_THROW_ON_ERROR),
+        ]);
+        insertTestQueue($graphLivenessRunId, $nodeId, ['lease_expires_at' => $now + 3600]);
+        Ms365RestoreWorkerHooks::onProgress($graphLivenessRunId, [
+            'phase' => 'graph_sync',
+            'no_progress' => true,
+            'graph_requests' => 25,
+            'message' => 'heartbeat',
+        ]);
+        $graphLiveness = BackupRunRepository::get($graphLivenessRunId) ?? [];
+        assert_true(
+            (int) ($graphLiveness['last_progress_at'] ?? 0) >= ($now - 5),
+            'graph_sync rising graph_requests bumps last_progress_at in no_progress path',
+        );
+        $graphStats = json_decode((string) ($graphLiveness['stats_json'] ?? '{}'), true);
+        assert_true(
+            (int) ($graphStats['graph_requests'] ?? 0) === 25,
+            'graph_requests persisted in stats_json',
+        );
+
+        $uploadLivenessRunId = test_uuid('upload-graph-requests');
+        $runIds[] = $uploadLivenessRunId;
+        insertTestRun($uploadLivenessRunId, [
+            'tenant_record_id' => $tenantRecordId,
+            'phase' => 'kopia_upload',
+            'last_progress_at' => $now - 2000,
+            'updated_at' => $now - 2000,
+            'stats_json' => json_encode(['graph_requests' => 10], JSON_THROW_ON_ERROR),
+        ]);
+        insertTestQueue($uploadLivenessRunId, $nodeId, ['lease_expires_at' => $now + 3600]);
+        Ms365RestoreWorkerHooks::onProgress($uploadLivenessRunId, [
+            'phase' => 'kopia_upload',
+            'no_progress' => true,
+            'graph_requests' => 25,
+            'message' => 'heartbeat',
+        ]);
+        $uploadLiveness = BackupRunRepository::get($uploadLivenessRunId) ?? [];
+        assert_true(
+            (int) ($uploadLiveness['last_progress_at'] ?? 0) < ($now - 100),
+            'non-graph_sync phase does not bump last_progress_at from graph_requests',
+        );
+
+        assert_true(
+            Ms365BatchRunRepository::isGraphBoundPhase('graph_sync')
+            && Ms365BatchRunRepository::isGraphBoundPhase('')
+            && !Ms365BatchRunRepository::isGraphBoundPhase('kopia_upload'),
+            'isGraphBoundPhase scopes graph vs upload phases',
+        );
+
+        $uploadWedgeRunId = test_uuid('upload-wedge-hot-tenant');
+        $runIds[] = $uploadWedgeRunId;
+        insertTestRun($uploadWedgeRunId, [
+            'tenant_record_id' => $tenantRecordId,
+            'phase' => 'kopia_upload',
+            'last_429_at' => $now - 5000,
+            'last_progress_at' => $now - 3000,
+            'updated_at' => $now - 30,
+            'started_at' => $now - 4000,
+        ]);
+        insertTestQueue($uploadWedgeRunId, $nodeId, ['lease_expires_at' => $now + 3600]);
+        Capsule::table('ms365_graph_tenant_budget')
+            ->where('azure_tenant_id', $azureTenantId)
+            ->update(['last_429_at' => $now - 120, 'recent_429_count' => 12]);
+        $uploadWedgeChild = (array) Capsule::table('ms365_backup_runs')->where('id', $uploadWedgeRunId)->first();
+        $uploadWedgeQueue = (array) Capsule::table('ms365_job_queue')->where('run_id', $uploadWedgeRunId)->first();
+        assert_true(
+            !Ms365BatchRunRepository::isThrottledWaitingAlive($uploadWedgeChild, $uploadWedgeQueue, $now),
+            'kopia_upload with stale own last_429_at is not tenant throttle-shielded',
+        );
+        $shouldReapUpload = (new ReflectionClass(Ms365BatchRunRepository::class))->getMethod('shouldReapRunningChild');
+        $shouldReapUpload->setAccessible(true);
+        assert_true(
+            (bool) $shouldReapUpload->invoke(null, $uploadWedgeChild, $uploadWedgeQueue, $now),
+            'kopia_upload silent past STALE_UPLOAD_SECONDS is upload-stalled/reapable',
+        );
+        WorkerClaimService::releaseOrphanedClaimsForNode($nodeId, 4, 120);
+        assert_true(
+            queueStatus($uploadWedgeRunId) === 'queued',
+            'busy-node stale-progress reaper requeues upload wedge despite hot tenant',
+        );
     } else {
         echo "SKIP: reaper throttle DB fixtures unavailable\n";
     }

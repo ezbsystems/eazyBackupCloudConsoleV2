@@ -135,6 +135,48 @@ func TestClientRetries429PastMaxRetries(t *testing.T) {
 	if calls != 8 {
 		t.Fatalf("expected 8 calls (7x429 + success), got %d", calls)
 	}
+	if got := c.RequestsTotal(); got != int64(calls) {
+		t.Fatalf("RequestsTotal=%d want %d completed round-trips", got, calls)
+	}
+}
+
+func TestClientRequestsTotalIncrements(t *testing.T) {
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"value":[]}`))
+	}))
+	defer srv.Close()
+
+	c := &Client{
+		token:      "test",
+		graphBase:  srv.URL,
+		httpClient: srv.Client(),
+		maxRetries: 1,
+		retryDelay: 50 * time.Millisecond,
+		sem:        make(chan struct{}, 2),
+	}
+	if c.RequestsTotal() != 0 {
+		t.Fatalf("initial RequestsTotal=%d want 0", c.RequestsTotal())
+	}
+	_, err := c.GetJSON(context.Background(), "/users", nil)
+	if err != nil {
+		t.Fatalf("GetJSON: %v", err)
+	}
+	if got := c.RequestsTotal(); got != 1 {
+		t.Fatalf("RequestsTotal=%d want 1 after single GET", got)
+	}
+	_, err = c.GetJSON(context.Background(), "/users", nil)
+	if err != nil {
+		t.Fatalf("second GetJSON: %v", err)
+	}
+	if got := c.RequestsTotal(); got != 2 {
+		t.Fatalf("RequestsTotal=%d want 2 after two GETs", got)
+	}
+	if calls != 2 {
+		t.Fatalf("expected 2 HTTP calls, got %d", calls)
+	}
 }
 
 func TestClientSetsUserAgent(t *testing.T) {
@@ -165,17 +207,22 @@ func TestClientSetsUserAgent(t *testing.T) {
 }
 
 func TestClientAdaptiveConservativeStart(t *testing.T) {
+	const tenantID = "tenant-start"
+	ResetTenantControllerForTest(tenantID)
 	c := NewClient("token", "", ClientOptions{
 		MaxConcurrency: 8,
 		AdaptiveLimit:  true,
 	})
+	c.SetAzureTenantID(tenantID)
 	if got := c.AdaptiveConcurrency(); got != 4 {
 		t.Fatalf("initial adaptive=%d want 4 (max(2, concurrency/2))", got)
 	}
+	ResetTenantControllerForTest(tenantID)
 	c = NewClient("token", "", ClientOptions{
 		MaxConcurrency: 2,
 		AdaptiveLimit:  true,
 	})
+	c.SetAzureTenantID(tenantID)
 	if got := c.AdaptiveConcurrency(); got != 2 {
 		t.Fatalf("initial adaptive=%d want 2 for low concurrency", got)
 	}
@@ -258,11 +305,14 @@ func TestGetStreamReturnsBodyWithoutBuffering(t *testing.T) {
 }
 
 func TestClientAdaptiveConcurrencyRecovery(t *testing.T) {
+	const tenantID = "tenant-recovery"
+	ResetTenantControllerForTest(tenantID)
 	c := NewClient("token", "", ClientOptions{
 		MaxRetries:     1,
 		MaxConcurrency: 8,
 		AdaptiveLimit:  true,
 	})
+	c.SetAzureTenantID(tenantID)
 	if c.AdaptiveConcurrency() != 4 {
 		t.Fatalf("initial adaptive=%d want 4", c.AdaptiveConcurrency())
 	}
@@ -278,14 +328,10 @@ func TestClientAdaptiveConcurrencyRecovery(t *testing.T) {
 	}
 }
 
-func TestClientReleasesTransportDuring429Backoff(t *testing.T) {
-	SetTenantBudget("tenant-transport-test", 1)
-	defer func() {
-		tenantLimitMu.Lock()
-		delete(tenantSem, "tenant-transport-test")
-		delete(tenantBudget, "tenant-transport-test")
-		tenantLimitMu.Unlock()
-	}()
+func TestClientHoldsWorkloadSlotDuring429Backoff(t *testing.T) {
+	const tenantID = "tenant-transport-test"
+	ResetTenantControllerForTest(tenantID)
+	SetTenantCeiling(tenantID, 1)
 
 	sleeping := make(chan struct{})
 	var calls int
@@ -307,29 +353,27 @@ func TestClientReleasesTransportDuring429Backoff(t *testing.T) {
 		MaxConcurrency: 4,
 		AdaptiveLimit:  true,
 	})
-	c.SetAzureTenantID("tenant-transport-test")
+	c.SetAzureTenantID(tenantID)
 	c.graphBase = srv.URL
 	c.httpClient = srv.Client()
 
 	blocker := make(chan struct{})
 	acquired := make(chan struct{}, 1)
 	go func() {
-		if err := acquireTenant(context.Background(), "tenant-transport-test"); err != nil {
-			t.Errorf("acquireTenant during backoff: %v", err)
+		if err := c.acquireWorkload(context.Background()); err != nil {
+			t.Errorf("acquireWorkload during backoff: %v", err)
 			return
 		}
 		acquired <- struct{}{}
 		<-blocker
-		releaseTenant("tenant-transport-test")
+		c.releaseWorkload()
 	}()
 
 	select {
 	case <-acquired:
 	case <-time.After(2 * time.Second):
-		t.Fatal("tenant slot was not released during 429 Retry-After backoff")
+		t.Fatal("workload slot should stay held during 429 Retry-After backoff")
 	}
-
-	close(blocker)
 
 	done := make(chan error, 1)
 	go func() {
@@ -339,11 +383,20 @@ func TestClientReleasesTransportDuring429Backoff(t *testing.T) {
 
 	select {
 	case err := <-done:
+		if err == nil {
+			t.Fatal("GetJSON should block while workload slot is held")
+		}
+	case <-time.After(300 * time.Millisecond):
+	}
+
+	close(blocker)
+	select {
+	case err := <-done:
 		if err != nil {
 			t.Fatalf("GetJSON: %v", err)
 		}
 	case <-time.After(5 * time.Second):
-		t.Fatal("GetJSON did not complete after transport slot was freed")
+		t.Fatal("GetJSON did not complete after workload slot was freed")
 	}
 	if calls < 2 {
 		t.Fatalf("expected retry after backoff, calls=%d", calls)
@@ -399,10 +452,13 @@ func TestUploadChunkRetries429(t *testing.T) {
 }
 
 func TestRecord429DebouncesConcurrentShrink(t *testing.T) {
+	const tenantID = "tenant-debounce"
+	ResetTenantControllerForTest(tenantID)
 	c := NewClient("token", "", ClientOptions{
 		MaxConcurrency: 16,
 		AdaptiveLimit:  true,
 	})
+	c.SetAzureTenantID(tenantID)
 	if c.AdaptiveConcurrency() != 8 {
 		t.Fatalf("initial adaptive=%d want 8", c.AdaptiveConcurrency())
 	}
@@ -421,14 +477,18 @@ func TestRecord429DebouncesConcurrentShrink(t *testing.T) {
 	}
 }
 
-func TestClientReleasesWorkloadDuring429Backoff(t *testing.T) {
+func TestClientKeepsWorkloadSlotDuring429Backoff(t *testing.T) {
+	const tenantID = "tenant-workload-hold"
+	ResetTenantControllerForTest(tenantID)
+	SetTenantCeiling(tenantID, 1)
+
 	c := NewClient("token", "", ClientOptions{
 		MaxRetries:     3,
 		MaxConcurrency: 2,
 		AdaptiveLimit:  true,
 	})
+	c.SetAzureTenantID(tenantID)
 
-	sleeping := make(chan struct{})
 	var calls int
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls++
@@ -437,7 +497,6 @@ func TestClientReleasesWorkloadDuring429Backoff(t *testing.T) {
 			w.WriteHeader(http.StatusTooManyRequests)
 			return
 		}
-		close(sleeping)
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"value":[]}`))
 	}))
@@ -446,36 +505,31 @@ func TestClientReleasesWorkloadDuring429Backoff(t *testing.T) {
 	c.httpClient = srv.Client()
 
 	acquired := make(chan struct{}, 1)
-	blocker := make(chan struct{})
 	go func() {
 		if err := c.acquireWorkload(context.Background()); err != nil {
 			t.Errorf("acquireWorkload during backoff: %v", err)
 			return
 		}
 		acquired <- struct{}{}
-		<-blocker
+		time.Sleep(300 * time.Millisecond)
 		c.releaseWorkload()
 	}()
 
 	select {
 	case <-acquired:
 	case <-time.After(2 * time.Second):
-		t.Fatal("workload slot was not released during 429 Retry-After backoff")
+		t.Fatal("first workload slot should be acquired")
 	}
-	close(blocker)
 
-	done := make(chan error, 1)
+	blocked := make(chan struct{}, 1)
 	go func() {
-		_, err := c.GetJSON(context.Background(), "/users", nil)
-		done <- err
+		_ = c.acquireWorkload(context.Background())
+		close(blocked)
 	}()
 	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatalf("GetJSON: %v", err)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("GetJSON did not complete")
+	case <-blocked:
+		t.Fatal("second acquire should block while first holds slot during 429 sleep")
+	case <-time.After(100 * time.Millisecond):
 	}
 }
 
@@ -512,30 +566,30 @@ func TestBatchGetMessagesRetriesSub429(t *testing.T) {
 	}
 }
 
-func TestClampAdaptiveCeilingTracksTenantBudget(t *testing.T) {
+func TestSetTenantCeilingFromClientTracksBudget(t *testing.T) {
+	const tenantID = "tenant-aimd"
+	ResetTenantControllerForTest(tenantID)
 	c := NewClient("token", "", ClientOptions{
 		MaxConcurrency: 16,
 		AdaptiveLimit:  true,
 	})
-	c.SetAzureTenantID("tenant-aimd")
+	c.SetAzureTenantID(tenantID)
 	if c.AdaptiveConcurrency() != 8 {
 		t.Fatalf("initial adaptive=%d want 8", c.AdaptiveConcurrency())
 	}
-	c.ClampAdaptiveCeiling(4)
+	c.SetTenantCeilingFromClient(4)
 	if c.AdaptiveConcurrency() != 4 {
-		t.Fatalf("after clamp adaptive=%d want 4", c.AdaptiveConcurrency())
+		t.Fatalf("after ceiling adaptive=%d want 4", c.AdaptiveConcurrency())
 	}
-	learned, _, ok := tenantAdaptiveSeed("tenant-aimd")
-	if !ok || learned != 4 {
-		t.Fatalf("persisted adaptive=%d ok=%v want 4", learned, ok)
+	snap := getTenantController(tenantID).snapshot()
+	if snap.Ceiling != 4 {
+		t.Fatalf("controller ceiling=%d want 4", snap.Ceiling)
 	}
-	tenantAdaptiveMu.Lock()
-	delete(tenantAdaptiveLimit, "tenant-aimd")
-	delete(tenantAdaptiveCeiling, "tenant-aimd")
-	tenantAdaptiveMu.Unlock()
 }
 
 func TestStreamSuccessCountedOnClose(t *testing.T) {
+	const tenantID = "tenant-stream"
+	ResetTenantControllerForTest(tenantID)
 	payload := strings.Repeat("x", 1024)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Length", "1024")
@@ -547,6 +601,7 @@ func TestStreamSuccessCountedOnClose(t *testing.T) {
 		MaxConcurrency: 4,
 		AdaptiveLimit:  true,
 	})
+	c.SetAzureTenantID(tenantID)
 	c.graphBase = srv.URL
 	c.httpClient = srv.Client()
 	if c.AdaptiveConcurrency() != 2 {
@@ -573,18 +628,22 @@ func TestStreamSuccessCountedOnClose(t *testing.T) {
 }
 
 func TestThrottleWaitingRefcount(t *testing.T) {
-	c := NewClient("token", "", ClientOptions{MaxConcurrency: 2})
+	const tenantID = "tenant-wait"
+	ResetTenantControllerForTest(tenantID)
+	tc := getTenantController(tenantID)
 	var wg sync.WaitGroup
 	for i := 0; i < 3; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			c.throttleWaiting.Add(1)
+			tc.beginThrottleWait()
 			time.Sleep(100 * time.Millisecond)
-			c.throttleWaiting.Add(-1)
+			tc.endThrottleWait()
 		}()
 	}
 	time.Sleep(20 * time.Millisecond)
+	c := NewClient("token", "", ClientOptions{MaxConcurrency: 2, AdaptiveLimit: true})
+	c.SetAzureTenantID(tenantID)
 	if !c.ThrottleWaiting() {
 		t.Fatal("expected ThrottleWaiting true while sleepers active")
 	}

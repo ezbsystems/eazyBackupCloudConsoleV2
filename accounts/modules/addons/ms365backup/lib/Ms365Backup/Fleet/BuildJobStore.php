@@ -21,42 +21,44 @@ final class BuildJobStore
 
     public static function createJob(array $data): int
     {
-        $now = time();
-        $flags = $data['flags'] ?? [];
-        $runTests = !array_key_exists('run_tests', $flags) || !empty($flags['run_tests']);
-        $gitSync = !empty($flags['git_sync']);
+        return (int) Capsule::connection()->transaction(function () use ($data) {
+            $now = time();
+            $flags = $data['flags'] ?? [];
+            $runTests = !array_key_exists('run_tests', $flags) || !empty($flags['run_tests']);
+            $gitSync = !empty($flags['git_sync']);
 
-        $id = (int) Capsule::table('ms365_worker_build_jobs')->insertGetId([
-            'created_by_admin_id' => $data['admin_id'] ?? null,
-            'git_ref' => (string) ($data['git_ref'] ?? 'main'),
-            'version_label' => (string) ($data['version_label'] ?? ''),
-            'flags_json' => json_encode($flags),
-            'status' => 'queued',
-            'host_runner' => gethostname() ?: null,
-            'created_at' => $now,
-            'updated_at' => $now,
-        ]);
-
-        $seq = 0;
-        foreach (self::STEPS as $stepKey) {
-            $skip = false;
-            if ($stepKey === 'go_test' && !$runTests) {
-                $skip = true;
-            }
-            if ($stepKey === 'git_sync' && !$gitSync) {
-                $skip = true;
-            }
-            Capsule::table('ms365_worker_build_steps')->insert([
-                'job_id' => $id,
-                'step_key' => $stepKey,
-                'seq' => $seq++,
-                'status' => $skip ? 'skipped' : 'pending',
+            $id = (int) Capsule::table('ms365_worker_build_jobs')->insertGetId([
+                'created_by_admin_id' => $data['admin_id'] ?? null,
+                'git_ref' => (string) ($data['git_ref'] ?? 'main'),
+                'version_label' => (string) ($data['version_label'] ?? ''),
+                'flags_json' => json_encode($flags),
+                'status' => 'queued',
+                'host_runner' => gethostname() ?: null,
                 'created_at' => $now,
                 'updated_at' => $now,
             ]);
-        }
 
-        return $id;
+            $seq = 0;
+            foreach (self::STEPS as $stepKey) {
+                $skip = false;
+                if ($stepKey === 'go_test' && !$runTests) {
+                    $skip = true;
+                }
+                if ($stepKey === 'git_sync' && !$gitSync) {
+                    $skip = true;
+                }
+                Capsule::table('ms365_worker_build_steps')->insert([
+                    'job_id' => $id,
+                    'step_key' => $stepKey,
+                    'seq' => $seq++,
+                    'status' => $skip ? 'skipped' : 'pending',
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ]);
+            }
+
+            return $id;
+        });
     }
 
     public static function claimNextQueuedJob(): ?array
@@ -64,6 +66,11 @@ final class BuildJobStore
         return Capsule::connection()->transaction(function () {
             $row = Capsule::table('ms365_worker_build_jobs')
                 ->where('status', 'queued')
+                ->whereExists(static function ($q) {
+                    $q->select(Capsule::raw('1'))
+                        ->from('ms365_worker_build_steps')
+                        ->whereColumn('ms365_worker_build_steps.job_id', 'ms365_worker_build_jobs.id');
+                })
                 ->orderBy('id')
                 ->lockForUpdate()
                 ->first();

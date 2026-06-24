@@ -28,16 +28,23 @@ final class BuildRunner
         $runner = new ProcRunner();
         $runner->addSecret(Ms365EngineConfig::workerToken());
 
+        $stepRows = BuildJobStore::steps($jobId);
+        if ($stepRows === []) {
+            throw new \RuntimeException('Build steps not initialized for job #' . $jobId);
+        }
+
         $finalStatus = 'succeeded';
         $errMsg = null;
         $sha256 = '';
         $releaseId = null;
+        $ranStep = false;
 
-        foreach (BuildJobStore::steps($jobId) as $row) {
+        foreach ($stepRows as $row) {
             $key = (string) $row['step_key'];
             if ($row['status'] === 'skipped') {
                 continue;
             }
+            $ranStep = true;
             $logPath = $logDir . '/' . $key . '.log';
             BuildJobStore::updateJob($jobId, ['current_step' => $key]);
             BuildJobStore::updateStep($jobId, $key, [
@@ -165,6 +172,13 @@ final class BuildRunner
                 $errMsg = $summary;
                 break;
             }
+        }
+
+        if ($finalStatus === 'succeeded' && (!$ranStep || $releaseId === null)) {
+            $finalStatus = 'failed';
+            $errMsg = $ranStep
+                ? 'Build finished without publishing a release'
+                : 'Build finished without running any steps';
         }
 
         BuildJobStore::updateJob($jobId, [

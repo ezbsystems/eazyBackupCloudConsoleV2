@@ -212,6 +212,58 @@ try {
             (bool) $shouldReap->invoke(null, $wedgeChild, $wedgeQueue, $now),
             'idle tenant wedge child is still reaped',
         );
+
+        Capsule::table('ms365_graph_tenant_budget')
+            ->where('azure_tenant_id', $azureTenantId)
+            ->update(['last_429_at' => $now - 120, 'recent_429_count' => 12, 'updated_at' => $now]);
+
+        $graphWedgeRunId = test_uuid('graph-wedge-hot-tenant');
+        $runIds[] = $graphWedgeRunId;
+        insertTestRun($graphWedgeRunId, [
+            'tenant_record_id' => $tenantRecordId,
+            'phase' => 'graph_sync',
+            'last_429_at' => $now - 5000,
+            'last_progress_at' => $now - 2000,
+            'updated_at' => $now - 30,
+            'started_at' => $now - 2000,
+            'items_done' => 0,
+            'bytes_hashed' => 0,
+        ]);
+        insertTestQueue($graphWedgeRunId, $nodeId);
+        $graphWedgeChild = (array) Capsule::table('ms365_backup_runs')->where('id', $graphWedgeRunId)->first();
+        $graphWedgeQueue = (array) Capsule::table('ms365_job_queue')->where('run_id', $graphWedgeRunId)->first();
+        assert_true(
+            Ms365BatchRunRepository::isThrottledWaitingAlive($graphWedgeChild, $graphWedgeQueue, $now),
+            'graph_sync wedge remains tenant throttle-shielded while tenant is hot',
+        );
+        $isWedgeStuck = (new ReflectionClass(Ms365BatchRunRepository::class))->getMethod('isWedgeStuck');
+        $isWedgeStuck->setAccessible(true);
+        assert_true(
+            !(bool) $isWedgeStuck->invoke(null, $graphWedgeChild, $now, $graphWedgeQueue),
+            'graph_sync wedge honors throttle shield via isWedgeStuck',
+        );
+
+        $uploadHotRunId = test_uuid('upload-hot-tenant');
+        $runIds[] = $uploadHotRunId;
+        insertTestRun($uploadHotRunId, [
+            'tenant_record_id' => $tenantRecordId,
+            'phase' => 'kopia_upload',
+            'last_429_at' => $now - 5000,
+            'last_progress_at' => $now - 3000,
+            'updated_at' => $now - 30,
+            'started_at' => $now - 4000,
+        ]);
+        insertTestQueue($uploadHotRunId, $nodeId);
+        $uploadHotChild = (array) Capsule::table('ms365_backup_runs')->where('id', $uploadHotRunId)->first();
+        $uploadHotQueue = (array) Capsule::table('ms365_job_queue')->where('run_id', $uploadHotRunId)->first();
+        assert_true(
+            !Ms365BatchRunRepository::isThrottledWaitingAlive($uploadHotChild, $uploadHotQueue, $now),
+            'kopia_upload child is not throttle-shielded by hot tenant signal alone',
+        );
+        assert_true(
+            (bool) $shouldReap->invoke(null, $uploadHotChild, $uploadHotQueue, $now),
+            'kopia_upload child with stale progress is reapable while tenant is hot',
+        );
     } else {
         echo "SKIP: tenant throttle DB fixtures unavailable\n";
     }
@@ -240,6 +292,26 @@ try {
         assert_true(
             WorkerClaimService::countRunningForTenant($tenantRecordId) >= Ms365EngineConfig::perTenantMaxConcurrentWorkloads(),
             'claim gate would block at perTenantMaxConcurrentWorkloads',
+        );
+
+        $countBeforeStalled = WorkerClaimService::countRunningForTenant($tenantRecordId);
+        $stalledCapRunId = test_uuid('cap-stalled');
+        $runIds[] = $stalledCapRunId;
+        insertTestRun($stalledCapRunId, [
+            'tenant_record_id' => $tenantRecordId,
+            'status' => 'running',
+            'phase' => 'kopia_upload',
+            'last_progress_at' => $now - 3000,
+            'updated_at' => $now - 3000,
+        ]);
+        insertTestQueue($stalledCapRunId, 'cap-node-stalled', [
+            'lease_expires_at' => $now + 3600,
+            'claimed_at' => $now - 3000,
+        ]);
+        $countAfterStalled = WorkerClaimService::countRunningForTenant($tenantRecordId);
+        assert_true(
+            $countAfterStalled === $countBeforeStalled,
+            'progress-stale wedged slot is excluded from tenant running count',
         );
     } else {
         echo "SKIP: claim cap fixture needs an active tenant record\n";

@@ -502,12 +502,16 @@ Microsoft Graph service protection returns **429** with `Retry-After`; sustained
 
 | Layer | Behavior |
 |-------|----------|
-| **Worker (Go)** | Honors `Retry-After`; AIMD shrinks concurrency; rising `graph_429_hits` counts as liveness while waiting |
+| **Worker tenant controller (0.3.16+)** | One in-process adaptive controller per Entra tenant: shared acquire/release, proportional shrink on 429 (short debounce), slot-held Retry-After backpressure, jittered cooldown recovery, idle decay; structured heartbeat log with `graph_429_ratio` |
+| **Worker (Go)** | Honors `Retry-After`; rising `graph_429_hits` and `graph_requests` count as liveness while waiting or paging |
 | **`ms365_backup_runs.last_429_at`** | Set on 429 delta or `throttle_waiting` in `backupProgress()` (including `no_progress` path); reapers treat recent 429 + fresh lease as alive (**1200s** window) |
-| **`GraphTenantBudgetService`** | Per-Entra-tenant `ms365_graph_tenant_budget`; shrinks on 429 deltas, slow decay (**600s** windows); adaptive floor **1–2** under sustained `recent_429_count`; default cap **16** concurrent (`ms365_per_tenant_max_concurrent`) |
-| **Reapers** | `shouldSkipThrottleReaper` on all infrastructure reaper paths; `shouldReapRunningChild`, `releaseStalledClaimsForBusyNode`, `reconcileZombieRuns` skip throttled-but-alive runs; wedge detection honors throttle (**1.45.0+**) |
+| **`stats_json.graph_requests`** | Monotonic Graph HTTP counter from worker; rising during `graph_sync` bumps `last_progress_at` (**1.46.0+**) |
+| **`GraphTenantBudgetService`** | Per-Entra-tenant `ms365_graph_tenant_budget` — **ceiling only** for the worker controller; multiplicative shrink on 429 deltas; additive **+1** grow per **600s** decay window when not recently throttled; adaptive floor **1–2** under sustained `recent_429_count`; default cap **16** (`ms365_per_tenant_max_concurrent`) |
+| **Reapers** | `shouldSkipThrottleReaper` on all infrastructure reaper paths including `releaseStalledClaimsForBusyNode` and stalled-leased `reconcileZombieRuns` (**1.46.0+**); `shouldReapRunningChild` skips throttled-but-alive runs; wedge detection honors throttle (**1.45.0+**) |
 
-Worker claim/progress responses include `graph_tenant_budget` (per-node share of tenant budget) for **backup and restore**. Live UI shows a throttle badge when child `stats_json.graph_429_hits` rises.
+**Success bar (0.3.16+):** Steady-state 429:success ratio under **~5%**; adaptive window recovers toward ceiling within **~2–3 minutes** of the last 429.
+
+Worker claim/progress responses include `graph_tenant_budget` (per-node share of tenant budget ceiling) for **backup and restore**. Live UI shows a pacing banner only when throttling is **material** (ratio ≥5% or active throttle window).
 
 ## Out of scope (later)
 

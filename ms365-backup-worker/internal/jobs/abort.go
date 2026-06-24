@@ -21,7 +21,7 @@ func sendProgress(ctx context.Context, client *api.Client, onAbort context.Cance
 func sendProgressForTenant(ctx context.Context, client *api.Client, onAbort context.CancelFunc, upd api.ProgressUpdate, tenantID string) {
 	if cancel, budget, err := client.Progress(ctx, upd); err == nil {
 		if tenantID != "" && budget > 0 {
-			graph.SetTenantBudget(tenantID, budget)
+			graph.SetTenantCeiling(tenantID, budget)
 		}
 		if cancel && onAbort != nil {
 			onAbort()

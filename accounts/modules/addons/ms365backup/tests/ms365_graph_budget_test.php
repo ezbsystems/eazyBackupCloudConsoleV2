@@ -52,7 +52,8 @@ assert_true($shrinkAtFloor <= 1, 'Hard-throttle floor allows budget to reach 1')
 
 $growStep = $budgetClass->getMethod('growStep');
 $growStep->setAccessible(true);
-assert_true((int) $growStep->invoke(null, 16, 8) === 2, 'Grow step is conservative at mid budget');
+assert_true((int) $growStep->invoke(null, 16, 8) === 1, 'Grow step is additive +1 per decay window');
+assert_true((int) $growStep->invoke(null, 16, 16) === 0, 'Grow step is zero at max budget');
 
 assert_true(Ms365EngineConfig::perTenantMaxConcurrent() >= 1, 'perTenantMaxConcurrent is positive');
 

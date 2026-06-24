@@ -20,8 +20,8 @@ type StallWatchConfig struct {
 	OnStall                func(snapshot map[string]any)
 }
 
-// StartStallWatch monitors hashing progress during a Kopia snapshot and cancels
-// the provided context when progress stalls for StallSeconds.
+// StartStallWatch monitors hashing and upload progress during a Kopia snapshot
+// and cancels the provided context when both are flat for StallSeconds.
 func StartStallWatch(ctx context.Context, cancel context.CancelFunc, counter *ProgressCounter, cfg StallWatchConfig) func() {
 	if cancel == nil || counter == nil || cfg.StallSeconds <= 0 {
 		return func() {}
@@ -42,6 +42,7 @@ func StartStallWatch(ctx context.Context, cancel context.CancelFunc, counter *Pr
 		ticker := time.NewTicker(time.Duration(interval) * time.Second)
 		defer ticker.Stop()
 		var lastFilesDone int64 = -1
+		var lastBytesUploaded int64 = -1
 		for {
 			select {
 			case <-ctx.Done():
@@ -54,21 +55,33 @@ func StartStallWatch(ctx context.Context, cancel context.CancelFunc, counter *Pr
 				}
 				snapshot := counter.DebugSnapshot()
 				sinceHash, _ := snapshot["seconds_since_last_hash"].(int64)
+				sinceUpload, _ := snapshot["seconds_since_last_upload"].(int64)
 				filesDone := counter.FilesDone.Load()
-				if sinceHash < 0 || sinceHash < int64(cfg.StallSeconds) {
+				bytesUploaded := counter.BytesUploaded.Load()
+				if sinceHash < 0 || sinceUpload < 0 {
 					lastFilesDone = filesDone
+					lastBytesUploaded = bytesUploaded
 					continue
 				}
+				hashStalled := sinceHash >= int64(cfg.StallSeconds)
 				if lastFilesDone >= 0 && filesDone != lastFilesDone {
+					hashStalled = false
+				}
+				uploadStalled := sinceUpload >= int64(cfg.StallSeconds)
+				if lastBytesUploaded >= 0 && bytesUploaded != lastBytesUploaded {
+					uploadStalled = false
+				}
+				if !hashStalled || !uploadStalled {
 					lastFilesDone = filesDone
+					lastBytesUploaded = bytesUploaded
 					continue
 				}
 				if cfg.OnStall != nil {
 					cfg.OnStall(snapshot)
 				}
 				if atomic.CompareAndSwapInt32(&dumped, 0, 1) {
-					log.Printf("kopia stall watchdog run=%s since_hash=%ds files_done=%d snapshot=%v",
-						cfg.RunID, sinceHash, filesDone, snapshot)
+					log.Printf("kopia stall watchdog run=%s since_hash=%ds since_upload=%ds files_done=%d bytes_uploaded=%d snapshot=%v",
+						cfg.RunID, sinceHash, sinceUpload, filesDone, bytesUploaded, snapshot)
 					if cfg.RunDir != "" {
 						dumpPath := cfg.RunDir + "/kopia_stall_dump.txt"
 						buf := make([]byte, 1<<20)

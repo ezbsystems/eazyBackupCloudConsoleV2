@@ -87,9 +87,16 @@ final class Ms365BatchLiveService
             'stage' => self::resolveStageLabel($parentRun, $agg, $isRestore),
             'active_running_workloads' => (int) ($agg['active_running_workloads'] ?? 0),
             'total_workloads' => (int) ($agg['total_workloads'] ?? 0),
+            'queued_workloads' => (int) ($agg['queued_workloads'] ?? 0),
+            'completed_workloads' => (int) ($agg['completed_workloads'] ?? 0),
             'workloads' => $workloads,
             'graph_429_hits_total' => (int) ($parentStats['ms365_graph_429_hits_total'] ?? $agg['graph_429_hits_total'] ?? 0),
-            'graph_throttled' => !empty($parentStats['ms365_graph_throttled']),
+            'graph_429_ratio' => (float) ($parentStats['ms365_graph_429_ratio'] ?? 0),
+            'graph_throttled' => self::isMaterialGraphThrottle(
+                $parentStats,
+                $agg,
+                !empty($parentStats['ms365_graph_throttled'])
+            ),
             'byte_stats_comparable' => !empty($parentStats['ms365_byte_stats_comparable']),
             'started_at' => $parentRun['started_at'] ?? null,
             'finished_at' => $parentRun['finished_at'] ?? null,
@@ -1009,6 +1016,29 @@ final class Ms365BatchLiveService
         $stage = CustomerFacingTextSanitizer::scrubLogMessage($stage);
 
         return $stage !== '' ? $stage : null;
+    }
+
+    /**
+     * Show throttle UI only when pacing is material (active window or high 429 ratio).
+     *
+     * @param array<string, mixed> $parentStats
+     * @param array<string, mixed> $agg
+     */
+    private static function isMaterialGraphThrottle(array $parentStats, array $agg, bool $windowThrottled): bool
+    {
+        if ($windowThrottled) {
+            return true;
+        }
+        $ratio = (float) ($parentStats['ms365_graph_429_ratio'] ?? 0);
+        if ($ratio <= 0) {
+            $requests = (int) ($parentStats['ms365_graph_requests_total'] ?? $agg['graph_requests_total'] ?? 0);
+            $hits = (int) ($parentStats['ms365_graph_429_hits_total'] ?? $agg['graph_429_hits_total'] ?? 0);
+            if ($requests > 0) {
+                $ratio = $hits / $requests;
+            }
+        }
+
+        return $ratio >= 0.05;
     }
 
     private static function binaryToUuid(string $binary): string

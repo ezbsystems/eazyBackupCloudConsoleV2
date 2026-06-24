@@ -10,6 +10,13 @@ use WHMCS\Database\Capsule;
  */
 final class Ms365BatchRunRepository
 {
+    /**
+     * Per-request memo for the ms365_backup_runs.stats_json column probe.
+     * The schema is immutable within a request, so this avoids issuing one
+     * information_schema query per child workload on hot progress polls.
+     */
+    private static ?bool $hasStatsJsonColumn = null;
+
     /** Stale child workload threshold aligned with WorkerClaimService::reconcileZombieRuns(). */
     private const STALE_CHILD_SECONDS = 120;
 
@@ -23,7 +30,7 @@ final class Ms365BatchRunRepository
     private const STALE_WEDGE_SECONDS = 1800;
 
     /** Fail upload/snapshot phases with no progress posts for this long. */
-    private const STALE_UPLOAD_SECONDS = 2700;
+    public const STALE_UPLOAD_SECONDS = 2700;
 
     /**
      * Minimum seconds between persisted parent-row live snapshots for a batch.
@@ -315,13 +322,13 @@ final class Ms365BatchRunRepository
         if ((string) ($child['status'] ?? '') !== 'running') {
             return false;
         }
+        if (self::isUploadStalled($child, $now, $queue)) {
+            return true;
+        }
         if (self::isThrottledWaitingAlive($child, $queue, $now)) {
             return false;
         }
         if (self::isWedgeStuck($child, $now, $queue)) {
-            return true;
-        }
-        if (self::isUploadStalled($child, $now, $queue)) {
             return true;
         }
         $progressAt = self::progressFreshnessAt($child);
@@ -337,6 +344,14 @@ final class Ms365BatchRunRepository
         }
 
         return true;
+    }
+
+    /** True when the workload phase depends on Microsoft Graph (not object-storage upload). */
+    public static function isGraphBoundPhase(string $phase): bool
+    {
+        $phase = strtolower(trim($phase));
+
+        return $phase === '' || $phase === 'graph_sync' || $phase === 'prior_snapshot';
     }
 
     /**
@@ -358,6 +373,11 @@ final class Ms365BatchRunRepository
             if ($last429At > 0 && ($now - $last429At) <= self::RECENT_THROTTLE_SECONDS) {
                 return true;
             }
+        }
+
+        $phase = strtolower(trim((string) ($child['phase'] ?? '')));
+        if (!self::isGraphBoundPhase($phase)) {
+            return false;
         }
 
         $tenantRecordId = (int) ($child['tenant_record_id'] ?? 0);
@@ -387,6 +407,11 @@ final class Ms365BatchRunRepository
             if ($last429At > 0 && ($now - $last429At) <= self::RECENT_THROTTLE_SECONDS) {
                 return true;
             }
+        }
+
+        $phase = strtolower(trim((string) (is_array($row) ? ($row['phase'] ?? '') : ($row->phase ?? ''))));
+        if (!self::isGraphBoundPhase($phase)) {
+            return false;
         }
 
         $tenantRecordId = (int) (is_array($row) ? ($row['tenant_record_id'] ?? 0) : ($row->tenant_record_id ?? 0));
@@ -419,6 +444,10 @@ final class Ms365BatchRunRepository
             if ($last429At > 0 && ($now - $last429At) <= self::RECENT_THROTTLE_SECONDS) {
                 return true;
             }
+        }
+        $phase = strtolower(trim((string) (is_array($row) ? ($row['phase'] ?? '') : ($row->phase ?? ''))));
+        if (!self::isGraphBoundPhase($phase)) {
+            return false;
         }
         $tenantRecordId = (int) (is_array($row) ? ($row['tenant_record_id'] ?? 0) : ($row->tenant_record_id ?? 0));
         if ($tenantRecordId > 0) {
@@ -936,6 +965,7 @@ final class Ms365BatchRunRepository
         $activeRunning = 0;
         $totalWorkloads = count($children);
         $graph429Total = 0;
+        $graphRequestsTotal = 0;
         $byteStatsComparable = true;
         $activeChild = null;
         $activeIndex = 0;
@@ -972,6 +1002,10 @@ final class Ms365BatchRunRepository
             $hits429 = (int) ($childStats['graph_429_hits'] ?? 0);
             if ($hits429 > 0) {
                 $graph429Total += $hits429;
+            }
+            $requests = (int) ($childStats['graph_requests'] ?? 0);
+            if ($requests > 0) {
+                $graphRequestsTotal += $requests;
             }
 
             if ($status === 'running') {
@@ -1083,6 +1117,7 @@ final class Ms365BatchRunRepository
             'queued_workloads' => $queuedWorkloads,
             'active_running_workloads' => $activeRunning,
             'graph_429_hits_total' => $graph429Total,
+            'graph_requests_total' => $graphRequestsTotal,
             'byte_stats_comparable' => $byteStatsComparable,
         ];
     }
@@ -1093,7 +1128,10 @@ final class Ms365BatchRunRepository
      */
     private static function decodeChildStatsJson(array $child): array
     {
-        if (!Capsule::schema()->hasColumn('ms365_backup_runs', 'stats_json')) {
+        if (self::$hasStatsJsonColumn === null) {
+            self::$hasStatsJsonColumn = Capsule::schema()->hasColumn('ms365_backup_runs', 'stats_json');
+        }
+        if (!self::$hasStatsJsonColumn) {
             return [];
         }
         $raw = $child['stats_json'] ?? null;
@@ -1306,6 +1344,14 @@ final class Ms365BatchRunRepository
         $statsJson['ms365_active_running_workloads'] = (int) ($agg['active_running_workloads'] ?? 0);
         $statsJson['ms365_queued_workloads'] = (int) ($agg['queued_workloads'] ?? 0);
         $statsJson['ms365_graph_429_hits_total'] = (int) ($agg['graph_429_hits_total'] ?? 0);
+        $graphRequestsTotal = (int) ($agg['graph_requests_total'] ?? 0);
+        $statsJson['ms365_graph_requests_total'] = $graphRequestsTotal;
+        if ($graphRequestsTotal > 0) {
+            $statsJson['ms365_graph_429_ratio'] = round(
+                (int) ($agg['graph_429_hits_total'] ?? 0) / $graphRequestsTotal,
+                4
+            );
+        }
         $statsJson['ms365_graph_throttled'] = $throttleWindow['throttled'];
         $statsJson['ms365_graph_throttle_at'] = $throttleWindow['throttle_at'];
         $statsJson['ms365_items_per_sec'] = $itemsPerSec;

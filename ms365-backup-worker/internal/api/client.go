@@ -135,8 +135,10 @@ type ProgressUpdate struct {
 	BytesUploaded  int64   `json:"bytes_uploaded"`
 	ManifestID     string  `json:"manifest_id,omitempty"`
 	Message        string  `json:"message,omitempty"`
-	Graph429Hits       int64 `json:"graph_429_hits,omitempty"`
-	GraphAdaptiveLimit int   `json:"graph_adaptive_limit,omitempty"`
+	Graph429Hits       int64   `json:"graph_429_hits,omitempty"`
+	GraphRequests      int64   `json:"graph_requests,omitempty"`
+	Graph429Ratio      float64 `json:"graph_429_ratio,omitempty"`
+	GraphAdaptiveLimit int     `json:"graph_adaptive_limit,omitempty"`
 	ThrottleWaiting    bool  `json:"throttle_waiting,omitempty"`
 	// CheckpointDeltaStates persists partial delta links mid-run (resume after requeue).
 	CheckpointDeltaStates map[string]map[string]string `json:"checkpoint_delta_states,omitempty"`
