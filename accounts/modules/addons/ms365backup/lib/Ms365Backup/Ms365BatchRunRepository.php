@@ -32,6 +32,13 @@ final class Ms365BatchRunRepository
     /** Upload phases: cap/throttle shield requires material progress within this window. */
     public const UPLOAD_THROTTLE_PROGRESS_SECONDS = 600;
 
+    /**
+     * Graph-bound phases: throttle reaper shield requires material progress within this window.
+     * Aligns with worker progress_stall_seconds (default 600) so wedged graph_sync after a
+     * handful of 429s is not shielded for the full RECENT_THROTTLE_SECONDS window.
+     */
+    public const GRAPH_THROTTLE_MATERIAL_PROGRESS_SECONDS = 600;
+
     /** Fail graph_sync (and similar) workloads stuck at zero items/bytes after this long. */
     private const STALE_WEDGE_SECONDS = 1800;
 
@@ -378,6 +385,25 @@ final class Ms365BatchRunRepository
     }
 
     /**
+     * Whether a graph-bound workload posted real progress recently enough to justify
+     * throttle reaper shielding (items/bytes/graph_requests), not heartbeat-only silence.
+     *
+     * @param array<string, mixed> $child
+     */
+    public static function hasMaterialGraphProgressRecently(array $child, int $now, string $phase): bool
+    {
+        if (!self::isGraphBoundPhase($phase)) {
+            return true;
+        }
+        $progressAt = self::progressFreshnessAt($child);
+        if ($progressAt <= 0) {
+            return false;
+        }
+
+        return ($now - $progressAt) < self::GRAPH_THROTTLE_MATERIAL_PROGRESS_SECONDS;
+    }
+
+    /**
      * Run is actively waiting out Graph throttling (recent 429 + fresh worker lease).
      * Tenant-wide throttle signals only shield this workload while it still shows
      * recent progress; siblings' 429s must not pin cap slots or block reapers on
@@ -405,7 +431,8 @@ final class Ms365BatchRunRepository
             $last429At = (int) ($child['last_429_at'] ?? 0);
             if ($last429At > 0
                 && ($now - $last429At) <= self::RECENT_THROTTLE_SECONDS
-                && self::isGraphBoundPhase($phase)) {
+                && self::isGraphBoundPhase($phase)
+                && self::hasMaterialGraphProgressRecently($child, $now, $phase)) {
                 return true;
             }
         }
@@ -415,7 +442,8 @@ final class Ms365BatchRunRepository
         }
 
         $tenantRecordId = (int) ($child['tenant_record_id'] ?? 0);
-        if ($tenantRecordId > 0) {
+        if ($tenantRecordId > 0
+            && self::hasMaterialGraphProgressRecently($child, $now, $phase)) {
             $azureTenantId = self::azureTenantIdForTenantRecord($tenantRecordId);
             if ($azureTenantId !== ''
                 && GraphTenantBudgetService::recentlyThrottled($azureTenantId, $now, self::RECENT_THROTTLE_SECONDS)) {
@@ -445,9 +473,11 @@ final class Ms365BatchRunRepository
 
         if (Capsule::schema()->hasColumn('ms365_backup_runs', 'last_429_at')) {
             $last429At = (int) (is_array($row) ? ($row['last_429_at'] ?? 0) : ($row->last_429_at ?? 0));
+            $child = is_array($row) ? $row : (array) $row;
             if ($last429At > 0
                 && ($now - $last429At) <= self::RECENT_THROTTLE_SECONDS
-                && self::isGraphBoundPhase($phase)) {
+                && self::isGraphBoundPhase($phase)
+                && self::hasMaterialGraphProgressRecently($child, $now, $phase)) {
                 return true;
             }
         }
@@ -457,7 +487,9 @@ final class Ms365BatchRunRepository
         }
 
         $tenantRecordId = (int) (is_array($row) ? ($row['tenant_record_id'] ?? 0) : ($row->tenant_record_id ?? 0));
-        if ($tenantRecordId > 0) {
+        $child = is_array($row) ? $row : (array) $row;
+        if ($tenantRecordId > 0
+            && self::hasMaterialGraphProgressRecently($child, $now, $phase)) {
             $azureTenantId = self::azureTenantIdForTenantRecord($tenantRecordId);
             if ($azureTenantId !== ''
                 && GraphTenantBudgetService::recentlyThrottled($azureTenantId, $now, self::RECENT_THROTTLE_SECONDS)) {
@@ -503,24 +535,6 @@ final class Ms365BatchRunRepository
             return true;
         }
 
-        // #region agent log
-        if ($ageSeconds >= self::STALLED_FOR_CAP_SECONDS) {
-            @file_put_contents('/var/www/eazybackup.ca/.cursor/debug-f6115a.log', json_encode([
-                'sessionId' => 'f6115a',
-                'hypothesisId' => 'H1',
-                'location' => 'Ms365BatchRunRepository.php:countsAgainstTenantWorkloadCap',
-                'message' => 'running slot excluded from tenant cap',
-                'data' => [
-                    'run_id' => (string) ($child['id'] ?? ''),
-                    'phase' => $phase,
-                    'progress_age_s' => $ageSeconds,
-                    'max_progress_age_s' => self::maxThrottleShieldProgressAgeSeconds($phase),
-                ],
-                'timestamp' => (int) round(microtime(true) * 1000),
-            ]) . "\n", FILE_APPEND);
-        }
-        // #endregion
-
         return false;
     }
 
@@ -539,12 +553,21 @@ final class Ms365BatchRunRepository
         }
         if (Capsule::schema()->hasColumn('ms365_backup_runs', 'last_429_at')) {
             $last429At = (int) (is_array($row) ? ($row['last_429_at'] ?? 0) : ($row->last_429_at ?? 0));
+            $phase = strtolower(trim((string) (is_array($row) ? ($row['phase'] ?? '') : ($row->phase ?? ''))));
+            $child = is_array($row) ? $row : (array) $row;
             if ($last429At > 0 && ($now - $last429At) <= self::RECENT_THROTTLE_SECONDS) {
-                return true;
+                if (!self::isGraphBoundPhase($phase)
+                    || self::hasMaterialGraphProgressRecently($child, $now, $phase)) {
+                    return true;
+                }
             }
         }
         $phase = strtolower(trim((string) (is_array($row) ? ($row['phase'] ?? '') : ($row->phase ?? ''))));
         if (!self::isGraphBoundPhase($phase)) {
+            return false;
+        }
+        $child = is_array($row) ? $row : (array) $row;
+        if (!self::hasMaterialGraphProgressRecently($child, $now, $phase)) {
             return false;
         }
         $tenantRecordId = (int) (is_array($row) ? ($row['tenant_record_id'] ?? 0) : ($row->tenant_record_id ?? 0));

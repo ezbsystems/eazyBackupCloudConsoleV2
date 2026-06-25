@@ -37,7 +37,6 @@ if ($nodeId === '') {
 }
 
 try {
-    $activeClaims = WorkerClaimService::activeClaimRunIds($nodeId);
     $effectiveLoad = WorkerClaimService::effectiveReportedLoad($nodeId, $load);
     WorkerNodeRepository::heartbeat($nodeId, $effectiveLoad, $version, $proxmoxVmid > 0 ? $proxmoxVmid : null, $claimAdmitRejects);
     if ($telemetry !== []) {
@@ -48,6 +47,7 @@ try {
     }
     WorkerClaimService::releaseOrphanedClaimsForNode($nodeId, $effectiveLoad, 120);
     WorkerClaimService::failOrphanedRestoreRunsForNode($nodeId, $effectiveLoad, 180);
+    $activeClaims = WorkerClaimService::activeClaimRunIds($nodeId);
     if ($effectiveLoad > 0) {
         WorkerLeaseService::renewForNode($nodeId);
     }

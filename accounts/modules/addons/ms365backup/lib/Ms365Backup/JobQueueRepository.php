@@ -355,6 +355,7 @@ final class JobQueueRepository
         Capsule::table('ms365_job_queue')->where('run_id', $runId)->update([
             'status' => 'done',
             'finished_at' => time(),
+            'error_message' => '',
         ]);
         Ms365WorkerLogRepository::releaseAssignment($runId, 'complete');
     }

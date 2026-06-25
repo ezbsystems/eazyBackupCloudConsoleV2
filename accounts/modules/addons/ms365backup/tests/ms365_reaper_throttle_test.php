@@ -169,8 +169,10 @@ try {
         $runIds[] = $throttledRunId;
         insertTestRun($throttledRunId, [
             'tenant_record_id' => $tenantRecordId,
+            'phase' => 'graph_sync',
             'last_429_at' => $now - 300,
-            'updated_at' => $now - 2000,
+            'last_progress_at' => $now - 60,
+            'updated_at' => $now - 60,
         ]);
         insertTestQueue($throttledRunId, $nodeId, ['lease_expires_at' => $now - 60]);
         WorkerClaimService::releaseExpiredLeases();
@@ -204,8 +206,10 @@ try {
         $runIds[] = $staleRunId;
         insertTestRun($staleRunId, [
             'tenant_record_id' => $tenantRecordId,
+            'phase' => 'graph_sync',
             'last_429_at' => $now - 300,
-            'updated_at' => $now - 2000,
+            'last_progress_at' => $now - 60,
+            'updated_at' => $now - 60,
         ]);
         insertTestQueue($staleRunId, $nodeId, ['lease_expires_at' => $now - 60]);
         $beforeStale = queueStatus($staleRunId);
@@ -219,8 +223,10 @@ try {
         $runIds[] = $recoverRunId;
         insertTestRun($recoverRunId, [
             'tenant_record_id' => $tenantRecordId,
+            'phase' => 'graph_sync',
             'last_429_at' => $now - 300,
-            'updated_at' => $now - 2000,
+            'last_progress_at' => $now - 60,
+            'updated_at' => $now - 60,
         ]);
         insertTestQueue($recoverRunId, $nodeId, [
             'lease_expires_at' => $now - 60,
@@ -297,6 +303,7 @@ try {
         $runIds[] = $busyNodeRunId;
         insertTestRun($busyNodeRunId, [
             'tenant_record_id' => $tenantRecordId,
+            'phase' => 'graph_sync',
             'last_429_at' => $now - 300,
             'last_progress_at' => $now - 2000,
             'updated_at' => $now - 2000,
@@ -304,17 +311,34 @@ try {
         insertTestQueue($busyNodeRunId, $nodeId, ['lease_expires_at' => $now + 3600]);
         WorkerClaimService::releaseOrphanedClaimsForNode($nodeId, 4, 120);
         assert_true(
-            queueStatus($busyNodeRunId) === 'running',
-            'busy-node stale-progress reaper skips throttle+alive-node run',
+            queueStatus($busyNodeRunId) === 'queued',
+            'busy-node stale-progress reaper reclaims graph_sync wedge despite hot tenant',
+        );
+
+        $busyNodeShieldRunId = test_uuid('busy-node-shield');
+        $runIds[] = $busyNodeShieldRunId;
+        insertTestRun($busyNodeShieldRunId, [
+            'tenant_record_id' => $tenantRecordId,
+            'phase' => 'graph_sync',
+            'last_429_at' => $now - 300,
+            'last_progress_at' => $now - 60,
+            'updated_at' => $now - 60,
+        ]);
+        insertTestQueue($busyNodeShieldRunId, $nodeId, ['lease_expires_at' => $now + 3600]);
+        WorkerClaimService::releaseOrphanedClaimsForNode($nodeId, 4, 120);
+        assert_true(
+            queueStatus($busyNodeShieldRunId) === 'running',
+            'busy-node stale-progress reaper skips throttle+alive-node run with fresh material progress',
         );
 
         $stalledLeasedRunId = test_uuid('stalled-leased');
         $runIds[] = $stalledLeasedRunId;
         insertTestRun($stalledLeasedRunId, [
             'tenant_record_id' => $tenantRecordId,
+            'phase' => 'graph_sync',
             'last_429_at' => $now - 300,
-            'last_progress_at' => $now - 2000,
-            'updated_at' => $now - 2000,
+            'last_progress_at' => $now - 60,
+            'updated_at' => $now - 60,
         ]);
         insertTestQueue($stalledLeasedRunId, $nodeId, ['lease_expires_at' => $now + 3600]);
         $stalledBefore = queueStatus($stalledLeasedRunId);

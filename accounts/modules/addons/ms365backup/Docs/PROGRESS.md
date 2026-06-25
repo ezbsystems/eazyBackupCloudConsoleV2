@@ -10,6 +10,25 @@
 
 ## Session log
 
+### 2026-06-25 — Tenant-owner redesign (design doc + plan; claim unit → tenant batch)
+
+- **Decision:** The fleet-of-workers-per-tenant claim model is the root cause of the recurring
+  reaper/throttle/zombie firefight (the `Recovering this workload` flapping and
+  `graph 401 after token refresh ... Run is not active.` races). Microsoft Graph throttling is
+  per-application-per-tenant, so fanning one tenant across N workers contends for one externally-enforced
+  limit that the control plane divides via DB rows and polices with unanswerable liveness guesses.
+- **Plan:** Change the **claim unit from "child workload" to "tenant batch."** One worker owns an entire
+  tenant's batch, runs all children in-process with its single `tenant_controller` Graph governor, emits
+  one lease/heartbeat, and on loss the whole batch requeues and resumes from per-child checkpoints. This
+  deletes the per-child reaper suite, the `ms365_graph_tenant_budget` division, and the threshold zoo.
+- **Doc:** New **`Docs/MS365_TENANT_OWNER_REDESIGN.md`** — full as-is/to-be, data model
+  (`ms365_batch_claims`), control-plane + Go worker changes, checkpoint/resume, whale handling, 6-phase
+  migration plan, dev process, acceptance criteria. Feature-flagged (`ms365_claim_unit=child|batch`) for
+  reversible rollout; both protocols coexist until the cleanup phase.
+- **Mitigation skipped (per product owner):** product is pre-GA, so we go straight to the structural
+  change rather than patching the current reaper race first.
+- **Status:** Design only — not yet implemented. Next: Phase 0 scaffolding (migration + flag).
+
 ### 2026-06-24 — Live page UI polish (e3 MS365 batch)
 
 - **Header:** Username links to user detail Profile tab (`#overview`) when `backup_user_route_id` is present.
@@ -710,6 +729,7 @@ Append newest entries at the **top**.
 | Doc | Path |
 |-----|------|
 | **Product roadmap (read first for goals/phases)** | `modules/addons/ms365backup/Docs/PRODUCT_ROADMAP.md` |
+| **Tenant-owner redesign (active; claim unit → tenant batch)** | `modules/addons/ms365backup/Docs/MS365_TENANT_OWNER_REDESIGN.md` |
 | Architecture boundaries | `modules/addons/ms365backup/Docs/ARCHITECTURE_BOUNDARIES.md` |
 | Engine architecture | `modules/addons/ms365backup/Docs/ARCHITECTURE.md` |
 | PRD summary (legacy) | `modules/addons/ms365backup/Docs/PHASE3_PRD.md` |

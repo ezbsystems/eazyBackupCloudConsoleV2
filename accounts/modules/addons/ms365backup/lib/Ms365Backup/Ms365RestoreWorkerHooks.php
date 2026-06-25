@@ -114,6 +114,16 @@ final class Ms365RestoreWorkerHooks
                 if ($azureTenantId !== '') {
                     GraphTenantBudgetService::recordTenant429($tenantRecordId, $azureTenantId, $delta429);
                 }
+            } elseif (Ms365BatchRunRepository::isUploadLikePhase($effectivePhase)) {
+                // Kopia upload/hash can run for long stretches without byte deltas; keep
+                // liveness fresh so reapers and the live UI do not treat the run as stalled.
+                $uploadFields = ['updated_at' => time()];
+                if (\WHMCS\Database\Capsule::schema()->hasColumn('ms365_backup_runs', 'last_progress_at')) {
+                    $uploadFields['last_progress_at'] = time();
+                }
+                BackupRunRepository::update($runId, $uploadFields);
+                WorkerLeaseService::renewForRun($runId);
+                self::clearQueueOperationalMessage($runId);
             }
 
             return $azureTenantId !== ''
@@ -248,6 +258,16 @@ final class Ms365RestoreWorkerHooks
 
         if (!$isHeartbeat) {
             WorkerLeaseService::renewForRun($runId);
+            self::clearQueueOperationalMessage($runId);
+        } elseif (Ms365BatchRunRepository::isUploadLikePhase($effectivePhase)) {
+            WorkerLeaseService::renewForRun($runId);
+            if (\WHMCS\Database\Capsule::schema()->hasColumn('ms365_backup_runs', 'last_progress_at')) {
+                BackupRunRepository::update($runId, [
+                    'updated_at' => time(),
+                    'last_progress_at' => time(),
+                ]);
+            }
+            self::clearQueueOperationalMessage($runId);
         }
 
         if ($azureTenantId !== '') {

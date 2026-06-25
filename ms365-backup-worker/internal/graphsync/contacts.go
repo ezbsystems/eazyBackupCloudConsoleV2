@@ -49,7 +49,10 @@ func SyncContacts(ctx context.Context, client *graph.Client, opts ContactsSyncOp
 		}
 		deltaPath := fmt.Sprintf("/users/%s/contactFolders/%s/contacts/delta", opts.UserID, folderID)
 		folderMonitor := graph.ForBackupPagination("contacts:"+folderID, graphLog(opts.Log))
-		items, deltaLink, err := paginateDeltaResilient(ctx, client, deltaPath, priorDelta, "", 100, nil, &graph.DeltaPaginateOptions{Monitor: folderMonitor})
+		items, deltaLink, err := paginateDeltaResilient(ctx, client, deltaPath, priorDelta, "", 100, nil, &graph.DeltaPaginateOptions{
+			Monitor:              folderMonitor,
+			OmitDeltaQueryParams: true,
+		})
 		if err != nil {
 			return nil, err
 		}
