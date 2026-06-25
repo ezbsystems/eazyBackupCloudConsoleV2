@@ -73,8 +73,8 @@ function ms365backup_config(): array
                 'FriendlyName' => 'Production WHMCS base URL',
                 'Type' => 'text',
                 'Size' => '128',
-                'Default' => 'https://accounts.eazybackup.ca',
-                'Description' => 'Dev server only: production WHMCS SystemURL root (e.g. https://accounts.eazybackup.ca). Do not append /accounts unless that is your actual web path.',
+                'Default' => 'http://192.168.92.75',
+                'Description' => 'Dev server only: production WHMCS SystemURL root (web root = accounts dir). Use internal IP on LAN, e.g. http://192.168.92.75 — do not append /accounts.',
             ],
             'ms365_development_system_url' => [
                 'FriendlyName' => 'Development WHMCS base URL',
