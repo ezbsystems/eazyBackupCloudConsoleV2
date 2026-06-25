@@ -368,6 +368,66 @@ try {
             (bool) $shouldReap->invoke(null, $uploadHotChild, $uploadHotQueue, $now),
             'kopia_upload child with stale progress is reapable while tenant is hot',
         );
+
+        $drainWedgeRunId = test_uuid('graph-drain-wedge');
+        $runIds[] = $drainWedgeRunId;
+        insertTestRun($drainWedgeRunId, [
+            'tenant_record_id' => $tenantRecordId,
+            'phase' => 'graph_sync',
+            'last_429_at' => $now - 760,
+            'last_progress_at' => $now - 760,
+            'updated_at' => $now - 760,
+            'started_at' => $now - 4000,
+            'items_done' => 3314,
+            'items_total' => 7736,
+            'stats_json' => json_encode(['graph_requests' => 20, 'graph_429_hits' => 2]),
+        ]);
+        insertTestQueue($drainWedgeRunId, $nodeId);
+        $drainWedgeChild = (array) Capsule::table('ms365_backup_runs')->where('id', $drainWedgeRunId)->first();
+        $drainWedgeQueue = (array) Capsule::table('ms365_job_queue')->where('run_id', $drainWedgeRunId)->first();
+        assert_true(
+            !Ms365BatchRunRepository::isThrottledWaitingAlive($drainWedgeChild, $drainWedgeQueue, $now),
+            'post-drain graph_sync wedge with fresh last_429 but stale material progress is not shielded',
+        );
+        WorkerClaimService::releaseOrphanedClaimsForNode($nodeId, 0, 120);
+        assert_true(
+            queueStatus($drainWedgeRunId) === 'queued',
+            'idle-node orphan reaper reclaims post-drain graph_sync wedge',
+        );
+
+        $ghostThrottleRunId = test_uuid('idle-ghost-throttle');
+        $runIds[] = $ghostThrottleRunId;
+        insertTestRun($ghostThrottleRunId, [
+            'tenant_record_id' => $tenantRecordId,
+            'phase' => 'graph_sync',
+            'last_429_at' => $now - 250,
+            'last_progress_at' => $now - 220,
+            'updated_at' => $now - 220,
+            'started_at' => $now - 4000,
+            'items_done' => 6126,
+            'items_total' => 6127,
+            'percent' => 95.0,
+            'stats_json' => json_encode(['graph_requests' => 30, 'graph_429_hits' => 4]),
+        ]);
+        insertTestQueue($ghostThrottleRunId, $nodeId, [
+            'claimed_at' => $now - 120,
+            'lease_expires_at' => $now + 3600,
+        ]);
+        assert_true(
+            Ms365BatchRunRepository::isThrottledWaitingAliveFromRow(
+                (object) array_merge(
+                    (array) Capsule::table('ms365_backup_runs')->where('id', $ghostThrottleRunId)->first(),
+                    (array) Capsule::table('ms365_job_queue')->where('run_id', $ghostThrottleRunId)->first(),
+                ),
+                $now,
+            ),
+            'fixture would be throttle-shielded on busy-node path',
+        );
+        WorkerClaimService::releaseOrphanedClaimsForNode($nodeId, 0, 120);
+        assert_true(
+            queueStatus($ghostThrottleRunId) === 'queued',
+            'idle-node reaper reclaims ghost claim even when throttle shield would apply',
+        );
     } else {
         echo "SKIP: tenant throttle DB fixtures unavailable\n";
     }

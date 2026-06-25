@@ -732,6 +732,10 @@ type DeltaPaginateOptions struct {
 	Headers           map[string]string
 	TrackDupIDs       bool // when true (default), dedupe by item id and detect duplicate-only pages
 	DuplicatePageMode DuplicatePageMode
+	// OmitDeltaQueryParams skips $top, $select, and similar query params on the initial delta
+	// request. Required for Graph resources like contactFolder/contacts/delta that reject
+	// query parameters with change tracking.
+	OmitDeltaQueryParams bool
 }
 
 // PaginateDelta streams delta pages. When selectFields is non-empty it is sent as $select on the initial request.
@@ -788,9 +792,13 @@ func (c *Client) PaginateDeltaOpts(ctx context.Context, initialPath, deltaLink, 
 			data, err = c.getURLWithHeaders(ctx, path, headers)
 			headers = nil
 		} else {
-			query := map[string]string{"$top": strconv.Itoa(top)}
-			if selectFields != "" {
-				query["$select"] = selectFields
+			var query map[string]string
+			omitQuery := opts != nil && opts.OmitDeltaQueryParams
+			if !omitQuery {
+				query = map[string]string{"$top": strconv.Itoa(top)}
+				if selectFields != "" {
+					query["$select"] = selectFields
+				}
 			}
 			data, err = c.GetJSONWithHeaders(ctx, path, query, headers)
 			headers = nil

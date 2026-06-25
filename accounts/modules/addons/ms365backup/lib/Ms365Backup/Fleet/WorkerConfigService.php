@@ -247,24 +247,33 @@ final class WorkerConfigService
     }
   }
 
-  /** @param array<string, mixed> $node */
-  public static function configInstructionForNode(array $node): ?array
-  {
-    if (!Capsule::schema()->hasColumn('ms365_worker_nodes', 'target_config_version')) {
-      return null;
-    }
-    $nodeId = (string) ($node['node_id'] ?? '');
-    $applied = (int) ($node['config_version'] ?? 0);
-    $target = (int) ($node['target_config_version'] ?? 0);
-    if ($target <= 0 || $target <= $applied) {
-      return null;
-    }
-    $config = self::getVersion($target);
-    if ($config === null) {
-      return null;
-    }
+    /** @param array<string, mixed> $node */
+    public static function configInstructionForNode(array $node): ?array
+    {
+        if (!Capsule::schema()->hasColumn('ms365_worker_nodes', 'target_config_version')) {
+            return null;
+        }
+        $nodeId = (string) ($node['node_id'] ?? '');
+        $applied = (int) ($node['config_version'] ?? 0);
+        $target = (int) ($node['target_config_version'] ?? 0);
+        if ($target <= 0 || $target <= $applied) {
+            return null;
+        }
+        $config = self::getVersion($target);
+        if ($config === null) {
+            return null;
+        }
 
-    $status = (string) ($node['config_status'] ?? 'current');
+        // Config apply restarts the worker — defer until the node is fully idle so
+        // active backups are not cancelled mid-run (same policy as baseline deploy).
+        $reportedLoad = (int) ($node['current_load'] ?? 0);
+        $effectiveLoad = WorkerClaimService::effectiveReportedLoad($nodeId, $reportedLoad);
+        $queueClaims = WorkerClaimService::runningClaimCountForNode($nodeId);
+        if ($reportedLoad > 0 || $effectiveLoad > 0 || $queueClaims > 0) {
+            return null;
+        }
+
+        $status = (string) ($node['config_status'] ?? 'current');
     if ($status !== 'applying') {
       Capsule::table('ms365_worker_nodes')->where('node_id', $nodeId)->update([
         'config_status' => 'applying',

@@ -154,3 +154,30 @@ func TestPaginateDeltaOptsCapWarnContinue(t *testing.T) {
 		t.Fatalf("items=%d delta=%q", len(items), delta)
 	}
 }
+
+func TestPaginateDeltaOptsOmitQueryParams(t *testing.T) {
+	var gotQuery string
+	c, _ := testGraphClient(t, func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.RawQuery
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(deltaResponse(
+			[]map[string]any{{"id": "c1"}},
+			"",
+			"https://graph.microsoft.com/v1.0/contacts/delta?$deltatoken=abc",
+		))
+	})
+
+	_, delta, err := c.PaginateDeltaOpts(context.Background(), "/users/u1/contactFolders/f1/contacts/delta", "", "id", 100, nil, &DeltaPaginateOptions{
+		Monitor:              ForBackupPagination("contacts-omit", nil),
+		OmitDeltaQueryParams: true,
+	})
+	if err != nil {
+		t.Fatalf("PaginateDeltaOpts: %v", err)
+	}
+	if gotQuery != "" {
+		t.Fatalf("expected no query params on contacts delta, got %q", gotQuery)
+	}
+	if delta == "" {
+		t.Fatal("expected delta link")
+	}
+}

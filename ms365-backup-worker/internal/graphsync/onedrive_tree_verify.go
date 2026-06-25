@@ -14,6 +14,10 @@ func VerifyOneDriveOverlayTree(ctx context.Context, overlay *graphfs.OverlayBuil
 	if overlay == nil || root == nil || strings.TrimSpace(userID) == "" {
 		return nil
 	}
+	prefix := fmt.Sprintf("%s/users/%s/onedrive/content/", tenantID, userID)
+	if !overlayHasOneDriveRootFiles(overlay, prefix) {
+		return nil
+	}
 	contentDir, err := walkOneDriveContentDir(ctx, root, tenantID, userID)
 	if err != nil {
 		return fmt.Errorf("onedrive tree: %w", err)
@@ -30,7 +34,6 @@ func VerifyOneDriveOverlayTree(ctx context.Context, overlay *graphfs.OverlayBuil
 		present[ch.Name()] = struct{}{}
 	}
 
-	prefix := fmt.Sprintf("%s/users/%s/onedrive/content/", tenantID, userID)
 	var missing []string
 	for _, path := range overlay.Paths() {
 		if !strings.HasPrefix(path, prefix) {
@@ -48,6 +51,19 @@ func VerifyOneDriveOverlayTree(ctx context.Context, overlay *graphfs.OverlayBuil
 		return fmt.Errorf("onedrive tree missing overlay root files: %s", strings.Join(missing, ", "))
 	}
 	return nil
+}
+
+func overlayHasOneDriveRootFiles(overlay *graphfs.OverlayBuilder, prefix string) bool {
+	for _, path := range overlay.Paths() {
+		if !strings.HasPrefix(path, prefix) {
+			continue
+		}
+		rel := strings.TrimPrefix(path, prefix)
+		if rel != "" && !strings.Contains(rel, "/") {
+			return true
+		}
+	}
+	return false
 }
 
 func walkOneDriveContentDir(ctx context.Context, root kopiafs.Entry, tenantID, userID string) (kopiafs.Directory, error) {

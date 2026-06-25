@@ -745,6 +745,11 @@ final class Ms365BatchLiveService
     /** @param array<string, mixed> $child @param array<string, mixed> $queue */
     private static function formatCustomerWorkloadError(array $child, array $queue): string
     {
+        $status = strtolower((string) ($child['status'] ?? ''));
+        if (in_array($status, ['success', 'complete', 'skipped', 'cancelled'], true)) {
+            return '';
+        }
+
         $parts = [];
         $runError = trim((string) ($child['error_message'] ?? ''));
         $queueError = trim((string) ($queue['error_message'] ?? $queue['last_error'] ?? ''));
@@ -774,6 +779,13 @@ final class Ms365BatchLiveService
             'stale progress (worker busy)',
             'stale progress reconciled',
             'stale workload reconciled during batch sync',
+            'orphaned claim released',
+            'worker idle',
+            'worker drain hand-off',
+            'worker released claim',
+            'near-complete recovery',
+            'lease expired',
+            'run re-queued',
         ];
         $lower = strtolower($normalized);
         foreach ($recoveringNeedles as $needle) {
