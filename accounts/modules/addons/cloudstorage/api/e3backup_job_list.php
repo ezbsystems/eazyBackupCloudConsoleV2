@@ -330,10 +330,10 @@ try {
             if ($hasRunErrorSummary) {
                 $extraCols .= ', error_summary';
             }
-            $sql = 'SELECT BIN_TO_UUID(job_id) AS job_id_str, status, started_at, finished_at, bytes_transferred'
+            $sql = 'SELECT BIN_TO_UUID(job_id) AS job_id_str, BIN_TO_UUID(run_id) AS run_id, status, started_at, finished_at, bytes_transferred'
                 . $extraCols
                 . ' FROM ('
-                . '   SELECT job_id, status, started_at, finished_at, bytes_transferred'
+                . '   SELECT job_id, run_id, status, started_at, finished_at, bytes_transferred'
                 . $extraCols
                 . ',     ROW_NUMBER() OVER (PARTITION BY job_id ORDER BY started_at DESC, run_id DESC) AS rn'
                 . '   FROM s3_cloudbackup_runs'
@@ -345,6 +345,7 @@ try {
                 $jid = $r->job_id_str;
                 if (!isset($lastRunByJob[$jid])) {
                     $lastRunByJob[$jid] = [
+                        'run_id' => (string) ($r->run_id ?? ''),
                         'status' => $r->status,
                         'started_at' => $r->started_at,
                         'finished_at' => $r->finished_at,
@@ -359,9 +360,9 @@ try {
         } else {
             // Latest-run-per-job only (legacy integer PK path).
             $placeholders = implode(',', array_fill(0, count($jobIds), '?'));
-            $sql = 'SELECT job_id, status, started_at, finished_at, bytes_transferred'
+            $sql = 'SELECT job_id, id AS run_id, status, started_at, finished_at, bytes_transferred'
                 . ' FROM ('
-                . '   SELECT job_id, status, started_at, finished_at, bytes_transferred,'
+                . '   SELECT job_id, id, status, started_at, finished_at, bytes_transferred,'
                 . '     ROW_NUMBER() OVER (PARTITION BY job_id ORDER BY started_at DESC, id DESC) AS rn'
                 . '   FROM s3_cloudbackup_runs'
                 . '   WHERE job_id IN (' . $placeholders . ')'
@@ -372,6 +373,7 @@ try {
                 $jid = (int) $r->job_id;
                 if (!isset($lastRunByJob[$jid])) {
                     $lastRunByJob[$jid] = [
+                        'run_id' => (string) ($r->run_id ?? ''),
                         'status' => $r->status,
                         'started_at' => $r->started_at,
                         'finished_at' => $r->finished_at,

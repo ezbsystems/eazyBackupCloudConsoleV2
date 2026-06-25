@@ -5781,10 +5781,15 @@ function cloudstorage_clientarea($vars) {
                     $viewVars = require 'pages/e3backup_tokens.php';
                     break;
                 case 'jobs':
-                    $pagetitle = 'e3 Cloud Backup - Jobs';
-                    $templatefile = 'templates/e3backup_jobs';
-                    $viewVars = require 'pages/e3backup_jobs.php';
-                    break;
+                    $extraQs = [];
+                    parse_str((string) ($_SERVER['QUERY_STRING'] ?? ''), $extraQs);
+                    unset($extraQs['m'], $extraQs['page'], $extraQs['view']);
+                    $target = 'index.php?m=cloudstorage&page=e3backup&view=users';
+                    if (!empty($extraQs)) {
+                        $target .= '&' . http_build_query($extraQs);
+                    }
+                    header('Location: ' . $target);
+                    exit;
                 case 'job_logs':
                     $pagetitle = 'e3 Cloud Backup - Job Logs';
                     $templatefile = 'templates/e3backup_job_logs';

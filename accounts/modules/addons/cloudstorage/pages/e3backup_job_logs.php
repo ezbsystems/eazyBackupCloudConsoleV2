@@ -47,7 +47,7 @@ if ($jobIdRaw !== '') {
 
     $job = CloudBackupController::getJob($jobIdRaw, $loggedInUserId);
     if (!$job) {
-        header('Location: index.php?m=cloudstorage&page=e3backup&view=jobs');
+        header('Location: index.php?m=cloudstorage&page=e3backup&view=users');
         exit;
     }
     $scopeJobId = (string) ($job['job_id'] ?? $jobIdRaw);

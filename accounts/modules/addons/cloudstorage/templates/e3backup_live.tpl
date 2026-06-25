@@ -1,7 +1,18 @@
 {capture assign=ebE3TitleHtml}
 <div class="min-w-0 flex-1">
     <div class="flex flex-wrap items-center gap-2.5 gap-y-1">
-        <h1 class="eb-app-header-title">{if $job.name}{$job.name|escape:'html'}{else}Unnamed job{/if}</h1>
+        <h1 class="eb-app-header-title">
+            {if $backup_username|default:'' neq ''}
+                {if $backup_user_route_id|default:'' neq ''}
+                    <a href="index.php?m=cloudstorage&page=e3backup&view=user_detail&user_id={$backup_user_route_id|escape:'url'}#overview"
+                       class="eb-link text-[var(--eb-text-secondary)] font-normal">{$backup_username|escape:'html'}</a>
+                {else}
+                    <span class="text-[var(--eb-text-secondary)] font-normal">{$backup_username|escape:'html'}</span>
+                {/if}
+                <span class="text-[var(--eb-text-muted)] mx-1.5" aria-hidden="true">&gt;</span>
+            {/if}
+            <span>{if $job.name}{$job.name|escape:'html'}{else}Unnamed job{/if}</span>
+        </h1>
         <span id="liveHeaderBadge" class="eb-badge eb-badge--info eb-badge--dot">{$run.status|ucfirst|escape:'html'}</span>
     </div>
 </div>
@@ -45,10 +56,6 @@
                     <span id="stageEta" class="eb-live-stage-eta"></span>
                 </div>
             </div>
-            {if isset($is_ms365_batch) && $is_ms365_batch}
-            <p id="ms365WorkloadsProgressLine" class="eb-live-stat-hint" style="margin: 0 0 12px;" aria-live="polite"></p>
-            {/if}
-
             <div class="eb-live-bar" aria-hidden="true">
                 <div
                     class="eb-live-bar-fill running"
@@ -62,14 +69,88 @@
                 ></div>
             </div>
 
-            <div class="eb-live-stats">
-                {if isset($is_ms365_batch) && $is_ms365_batch}
-                <div class="eb-live-stat">
-                    <div class="eb-live-stat-label">Workloads</div>
-                    <div class="eb-live-stat-value highlight" id="ms365WorkloadsValue">—</div>
-                    <p id="ms365WorkloadsHint" class="eb-live-stat-hint"></p>
+            {if isset($is_ms365_batch) && $is_ms365_batch}
+            <div class="eb-live-stats eb-live-stats--split">
+                <div class="eb-live-stats-row">
+                    <div class="eb-live-stat">
+                        <div class="eb-live-stat-label">Workloads</div>
+                        <div class="eb-live-stat-value highlight" id="ms365WorkloadsValue">—</div>
+                    </div>
+                    <div class="eb-live-stat">
+                        <div class="eb-live-stat-label">Running Workloads</div>
+                        <div class="eb-live-stat-value highlight" id="ms365RunningWorkloadsValue">—</div>
+                    </div>
+                    <div class="eb-live-stat">
+                        <div class="eb-live-stat-label" id="speedStatLabel">Processing</div>
+                        <div class="eb-live-stat-value highlight" id="speedValue">
+                            {if $run.speed_bytes_per_sec}
+                                {\WHMCS\Module\Addon\CloudStorage\Client\HelperController::formatSizeUnits($run.speed_bytes_per_sec)}/s
+                            {else}
+                                —
+                            {/if}
+                        </div>
+                        <p id="speedHint" class="eb-live-stat-hint"></p>
+                    </div>
+                    <div class="eb-live-stat">
+                        <div class="eb-live-stat-label">Items/s</div>
+                        <div class="eb-live-stat-value highlight" id="itemsSpeedValue">—</div>
+                        <p id="itemsSpeedHint" class="eb-live-stat-hint">Enumeration rate</p>
+                    </div>
+                    <div id="ms365GraphActivityStat" class="eb-live-stat hidden">
+                        <div class="eb-live-stat-label">Graph requests</div>
+                        <div class="eb-live-stat-value highlight" id="graphRequestsValue">—</div>
+                        <p id="graphRequestsHint" class="eb-live-stat-hint">Enumeration activity</p>
+                    </div>
                 </div>
-                {/if}
+                <div class="eb-live-stats-row">
+                    <div class="eb-live-stat">
+                        <div class="eb-live-stat-label">Processed</div>
+                        <div class="eb-live-stat-value" id="bytesProcessedValue">
+                            {if $run.bytes_processed}
+                                {\WHMCS\Module\Addon\CloudStorage\Client\HelperController::formatSizeUnits($run.bytes_processed)}
+                            {elseif $run.bytes_transferred}
+                                {\WHMCS\Module\Addon\CloudStorage\Client\HelperController::formatSizeUnits($run.bytes_transferred)}
+                            {else}
+                                0.00 Bytes
+                            {/if}
+                        </div>
+                    </div>
+                    <div class="eb-live-stat">
+                        <div class="eb-live-stat-label">Uploaded</div>
+                        <div class="eb-live-stat-value" id="bytesTransferredValue">
+                            {if $run.bytes_transferred}
+                                {\WHMCS\Module\Addon\CloudStorage\Client\HelperController::formatSizeUnits($run.bytes_transferred)}
+                            {else}
+                                0.00 Bytes
+                            {/if}
+                        </div>
+                        <p id="uploadedSavings" class="eb-live-stat-hint"></p>
+                    </div>
+                    {if $showFilesMetric}
+                    <div class="eb-live-stat">
+                        <div class="eb-live-stat-label">Files</div>
+                        <div class="eb-live-stat-value" id="filesValue">-</div>
+                        <p id="filesHint" class="eb-live-stat-hint">enumerated so far</p>
+                    </div>
+                    <div class="eb-live-stat">
+                        <div class="eb-live-stat-label">Folders</div>
+                        <div class="eb-live-stat-value" id="foldersValue">—</div>
+                    </div>
+                    {/if}
+                    <div class="eb-live-stat">
+                        <div class="eb-live-stat-label" id="durationStatLabel">{if $isRunningStatus}Elapsed{else}Duration{/if}</div>
+                        <div class="eb-live-stat-value mono" id="durationValue">—</div>
+                    </div>
+                </div>
+                <div id="graphThrottleHint" class="eb-live-stat eb-live-stat--full hidden">
+                    <p class="eb-live-alert-copy" style="color: var(--eb-warning-text); margin: 0;">
+                        Pacing requests to stay within Microsoft Graph limits — this is normal for large tenants.
+                        <span id="graphThrottleCount"></span>
+                    </p>
+                </div>
+            </div>
+            {else}
+            <div class="eb-live-stats">
                 {if $showItemsMetric}
                 <div class="eb-live-stat">
                     <div class="eb-live-stat-label">Items</div>
@@ -91,18 +172,6 @@
                     </div>
                     <p id="speedHint" class="eb-live-stat-hint"></p>
                 </div>
-                {if isset($is_ms365_batch) && $is_ms365_batch}
-                <div class="eb-live-stat">
-                    <div class="eb-live-stat-label">Items/s</div>
-                    <div class="eb-live-stat-value highlight" id="itemsSpeedValue">—</div>
-                    <p id="itemsSpeedHint" class="eb-live-stat-hint">Enumeration rate</p>
-                </div>
-                <div id="ms365GraphActivityStat" class="eb-live-stat hidden">
-                    <div class="eb-live-stat-label">Graph requests</div>
-                    <div class="eb-live-stat-value highlight" id="graphRequestsValue">—</div>
-                    <p id="graphRequestsHint" class="eb-live-stat-hint">Enumeration activity</p>
-                </div>
-                {/if}
                 <div id="graphThrottleHint" class="eb-live-stat hidden" style="grid-column: 1 / -1;">
                     <p class="eb-live-alert-copy" style="color: var(--eb-warning-text); margin: 0;">
                         Pacing requests to stay within Microsoft Graph limits — this is normal for large tenants.
@@ -137,9 +206,6 @@
                 <div class="eb-live-stat">
                     <div class="eb-live-stat-label">Files</div>
                     <div class="eb-live-stat-value" id="filesValue">-</div>
-                    {if isset($is_ms365_batch) && $is_ms365_batch}
-                    <p id="filesHint" class="eb-live-stat-hint">enumerated so far</p>
-                    {/if}
                 </div>
                 <div class="eb-live-stat">
                     <div class="eb-live-stat-label">Folders</div>
@@ -151,6 +217,7 @@
                     <div class="eb-live-stat-value mono" id="durationValue">—</div>
                 </div>
             </div>
+            {/if}
 
             <div class="eb-live-current-file" id="currentFileRow" x-show="isRunning" x-cloak>
                 <span class="file-spinner" aria-hidden="true"></span>
@@ -160,13 +227,37 @@
             <div id="currentItemEmpty" class="hidden" aria-hidden="true"></div>
         </section>
 
+        {if isset($is_ms365_batch) && $is_ms365_batch}
         <div class="eb-live-details" id="liveDetailsStrip">
             <div class="eb-live-detail">
-                <div class="eb-live-detail-label">{if isset($is_ms365_batch) && $is_ms365_batch}Source{else}Agent{/if}</div>
+                <div class="eb-live-detail-label">Source</div>
+                <div class="eb-live-detail-value" id="detailsAgent">Microsoft 365</div>
+            </div>
+            <div class="eb-live-detail">
+                <div class="eb-live-detail-label">Job</div>
+                <div class="eb-live-detail-value min-w-0 max-w-full overflow-hidden text-ellipsis whitespace-nowrap" id="detailsJob">{if $job.name}{$job.name|escape:'html'}{else}Unnamed job{/if}</div>
+            </div>
+            <div class="eb-live-detail">
+                <div class="eb-live-detail-label">Started</div>
+                <div class="eb-live-detail-value" id="detailsStartedAt">{$run.started_at|default:'-'|escape:'html'}</div>
+            </div>
+            <div class="eb-live-detail">
+                <div class="eb-live-detail-label">Finished</div>
+                <div class="eb-live-detail-value" id="detailsFinishedAt">{$run.finished_at|default:'-'|escape:'html'}</div>
+            </div>
+        </div>
+        <div class="eb-live-details eb-live-details-row2">
+            <div class="eb-live-detail">
+                <div class="eb-live-detail-label">Run ID</div>
+                <div class="eb-live-detail-value eb-live-detail-value--mono" id="detailsRunId" title="{$run.run_id|escape:'html'}">{$run.run_id|escape:'html'}</div>
+            </div>
+        </div>
+        {else}
+        <div class="eb-live-details" id="liveDetailsStrip">
+            <div class="eb-live-detail">
+                <div class="eb-live-detail-label">{if $job.source_type eq 'local_agent'}Agent{else}Source{/if}</div>
                 <div class="eb-live-detail-value" id="detailsAgent">
-                    {if isset($is_ms365_batch) && $is_ms365_batch}
-                        Microsoft 365
-                    {elseif $job.source_type eq 'local_agent'}
+                    {if $job.source_type eq 'local_agent'}
                         {if $agent_name}{$agent_name|escape:'html'}{elseif $agent_uuid}{$agent_uuid|escape:'html'}{else}Agent unavailable{/if}
                     {else}
                         Cloud Backup
@@ -208,6 +299,7 @@
                 </div>
             </div>
         </div>
+        {/if}
 
         {if $is_restore && isset($ms365_archive_restore) && $ms365_archive_restore}
         <div id="ms365ArchiveDownloadPanel" class="eb-live-alert eb-live-alert--success{if !$ms365_archive_download_ready} hidden{/if}">
@@ -228,11 +320,6 @@
                 {/if}
             </div>
         {/if}
-
-        <div class="eb-live-alert eb-live-alert--warning">
-            <p class="eb-live-alert-title">Cloud Backup (Beta)</p>
-            <p class="eb-live-alert-copy">Cloud Backup is in beta. Keep a primary backup strategy in place and contact support if you notice any issues.</p>
-        </div>
 
         {if isset($is_ms365_batch) && $is_ms365_batch}
         <div class="eb-live-log eb-live-workloads" id="ms365WorkloadsPanel">
@@ -416,9 +503,27 @@
     </div>
 {/capture}
 
+{if $show_user_subnav|default:false}
+<script>
+window.__ebE3UserSubnavConfig = {
+    external: true,
+    userRouteId: {$backup_user_route_id|@json_encode nofilter},
+    activeTab: 'jobs'
+};
+</script>
+{else}
+<script>
+window.__ebE3UserSubnavConfig = null;
+</script>
+{/if}
+
 {include
     file="modules/addons/cloudstorage/templates/partials/e3backup_shell.tpl"
-    ebE3SidebarPage="jobs"
+    ebE3SidebarPage='user_detail'
+    ebE3ShowUserSubnav=$show_user_subnav|default:false
+    ebE3SidebarUsername=$backup_username|default:''
+    ebE3SidebarUserRouteId=$backup_user_route_id|default:''
+    ebE3UserSubnavActive=''
     ebE3Title=""
     ebE3Description=""
     ebE3TitleHtml=$ebE3TitleHtml
@@ -592,18 +697,20 @@ function formatMs365WorkloadSummary(run) {
     }
 
     const completed = parseInt(run.completed_workloads, 10) || 0;
+    return formatCount(completed) + ' / ' + formatCount(total) + ' complete';
+}
+
+function formatMs365RunningQueuedSummary(run) {
     const running = parseInt(run.active_running_workloads, 10) || 0;
     const queued = parseInt(run.queued_workloads, 10) || 0;
-
-    let text = formatCount(completed) + ' / ' + formatCount(total) + ' complete';
+    const parts = [];
     if (running > 0) {
-        text += ' · ' + formatCount(running) + ' running';
+        parts.push(formatCount(running) + ' running');
     }
     if (queued > 0) {
-        text += ' · ' + formatCount(queued) + ' queued';
+        parts.push(formatCount(queued) + ' queued');
     }
-
-    return text;
+    return parts.length ? parts.join(' · ') : '—';
 }
 
 function updateMs365WorkloadsSummary(workloads) {
@@ -634,33 +741,16 @@ function updateMs365WorkloadsSummary(workloads) {
 
 function updateMs365BatchWorkloadsLine(run) {
     if (!LIVE_IS_MS365) return;
-    const line = document.getElementById('ms365WorkloadsProgressLine');
     const valueEl = document.getElementById('ms365WorkloadsValue');
-    const hintEl = document.getElementById('ms365WorkloadsHint');
+    const runningEl = document.getElementById('ms365RunningWorkloadsValue');
     const summary = formatMs365WorkloadSummary(run);
-
-    if (line) {
-        if (!summary) {
-            line.textContent = '';
-            line.classList.add('hidden');
-        } else {
-            line.textContent = summary;
-            line.classList.remove('hidden');
-        }
-    }
 
     if (valueEl) {
         valueEl.textContent = summary || '—';
     }
 
-    if (hintEl) {
-        const total = parseInt(run.total_workloads, 10) || 0;
-        const completed = parseInt(run.completed_workloads, 10) || 0;
-        if (total > 0 && completed < total) {
-            hintEl.textContent = formatCount(total - completed) + ' remaining';
-        } else {
-            hintEl.textContent = '';
-        }
+    if (runningEl) {
+        runningEl.textContent = formatMs365RunningQueuedSummary(run);
     }
 }
 
@@ -801,12 +891,10 @@ function renderMs365Workloads(workloads) {
         statusWrap.appendChild(statusBadge);
         const freshnessLabel = formatWorkloadFreshnessLabel(workload);
         if (freshnessLabel) {
-            const freshnessBadge = document.createElement('span');
-            freshnessBadge.className = workload.stalled
-                ? 'eb-badge eb-badge--warning eb-badge--dot eb-live-workloads-freshness'
-                : 'eb-badge eb-badge--success eb-badge--dot eb-live-workloads-freshness';
-            freshnessBadge.textContent = freshnessLabel;
-            statusWrap.appendChild(freshnessBadge);
+            const freshnessText = document.createElement('span');
+            freshnessText.className = 'eb-live-workloads-freshness-text' + (workload.stalled ? ' is-stalled' : '');
+            freshnessText.textContent = freshnessLabel;
+            statusWrap.appendChild(freshnessText);
         }
         statusCell.appendChild(statusWrap);
 

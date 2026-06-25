@@ -153,7 +153,7 @@
                         </tr>
                     </template>
                     <template x-for="row in rows" :key="row.run_id">
-                        <tr class="cursor-pointer" @click="openRun(row)" title="Click to view log">
+                        <tr class="cursor-pointer" @click="openRunRow(row)" :title="isLiveRunRow(row) ? 'View live progress' : 'Click to view log'">
                             <td x-show="cols.started" class="eb-table-primary" x-text="fmtDate(row.started_at)"></td>
                             <td x-show="cols.job && showJobCol" x-text="row.job_name || '-'"></td>
                             <td x-show="cols.agent" x-text="row.agent_hostname || '-'"></td>
@@ -168,7 +168,14 @@
                             <td x-show="cols.size" x-text="row.size_formatted"></td>
                             <td x-show="cols.duration" x-text="row.duration"></td>
                             <td class="text-right">
-                                <button type="button" class="eb-btn eb-btn-ghost eb-btn-sm" @click.stop="openRun(row)">View log</button>
+                                <button type="button"
+                                        x-show="isLiveRunRow(row)"
+                                        class="eb-btn eb-btn-ghost eb-btn-sm text-[var(--eb-info-text)]"
+                                        @click.stop="goToLiveRun(row)">View Live</button>
+                                <button type="button"
+                                        x-show="!isLiveRunRow(row)"
+                                        class="eb-btn eb-btn-ghost eb-btn-sm"
+                                        @click.stop="openRun(row)">View log</button>
                             </td>
                         </tr>
                     </template>
@@ -366,6 +373,30 @@ function e3JobLogsApp() {
             var start = (this.page - 1) * this.pageSize + 1;
             var end = Math.min(this.total, this.page * this.pageSize);
             return start + '-' + end + ' of ' + this.total + ' runs';
+        },
+        isLiveRunRow(row) {
+            const s = (row && row.status ? row.status : '').toLowerCase();
+            return ['running', 'starting', 'queued'].includes(s) && !!(row && row.run_id);
+        },
+        liveRunUrl(runId) {
+            const id = runId ? String(runId) : '';
+            if (!id) return '#';
+            let url = 'index.php?m=cloudstorage&page=e3backup&view=live&run_id=' + encodeURIComponent(id);
+            if (this.scopeUserId) {
+                url += '&user_id=' + encodeURIComponent(String(this.scopeUserId));
+            }
+            return url;
+        },
+        goToLiveRun(row) {
+            if (!row || !row.run_id) return;
+            window.location.href = this.liveRunUrl(row.run_id);
+        },
+        openRunRow(row) {
+            if (this.isLiveRunRow(row)) {
+                this.goToLiveRun(row);
+                return;
+            }
+            this.openRun(row);
         },
         openRun(row) {
             if (!window.ebE3RunModal) return;

@@ -640,6 +640,10 @@
                                                         <div class="eb-job-last-run-status">
                                                             <span class="eb-job-last-run-dot" :class="lastRunDotClassForRun(job.last_run)"></span>
                                                             <span class="eb-job-last-run-label" :class="lastRunLabelClassForRun(job.last_run)" x-text="lastRunStatusLabel(job.last_run)"></span>
+                                                            <a :href="liveProgressUrl(job.last_run)"
+                                                               x-show="isLiveLastRun(job.last_run)"
+                                                               class="eb-link text-[var(--eb-info-text)] text-xs ml-1.5"
+                                                               @click.stop>View Live</a>
                                                         </div>
                                                     </template>
                                                 </div>
