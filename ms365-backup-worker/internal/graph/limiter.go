@@ -45,3 +45,18 @@ func releaseGlobal() {
 	}
 	<-sem
 }
+
+// #region agent log
+// GlobalSemStats reports global transport semaphore occupancy (debug only;
+// retained to verify the 429 over-release deadlock fix on the live fleet).
+func GlobalSemStats() (inUse, capacity int) {
+	globalLimitMu.RLock()
+	sem := globalSem
+	globalLimitMu.RUnlock()
+	if sem == nil {
+		return 0, 0
+	}
+	return len(sem), cap(sem)
+}
+
+// #endregion

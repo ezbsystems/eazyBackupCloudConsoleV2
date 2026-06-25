@@ -474,6 +474,125 @@ func TestTransportSemaphoreBalancedOnRetryAfter429TransportError(t *testing.T) {
 	}
 }
 
+// TestGetStreamSemaphoreBalancedOnRetryAfter429 reproduces the global-transport
+// semaphore over-release in getStream's 429 retry loop: the loop calls
+// releaseTransport() explicitly AND then sleep429WithWorkload -> sleepRetry which
+// releases it again, so a single acquired permit is released twice. With the
+// global semaphore active (production sets it), the second receive on an empty
+// channel blocks forever while the goroutine still holds its tenant workload
+// slot. Under high concurrency the extra receive merely steals another
+// goroutine's permit (corrupting the count); late in a run when concurrency is
+// low the receive finally blocks, deadlocking the whole tenant (observed live:
+// inflight stuck >= limit, global=0, zero progress, no 429s).
+func TestGetStreamSemaphoreBalancedOnRetryAfter429(t *testing.T) {
+	SetGlobalConcurrency(4)
+	defer SetGlobalConcurrency(0)
+
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls == 1 {
+			w.Header().Set("Retry-After", "1")
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		w.Header().Set("Content-Length", "4")
+		_, _ = w.Write([]byte("data"))
+	}))
+	defer srv.Close()
+
+	c := NewClient("token", "", ClientOptions{MaxRetries: 3, RetryBaseDelayMs: 1, MaxConcurrency: 4})
+	c.graphBase = srv.URL
+	c.httpClient = srv.Client()
+
+	done := make(chan error, 1)
+	go func() {
+		rc, _, err := c.GetStream(context.Background(), "/content")
+		if err != nil {
+			done <- err
+			return
+		}
+		_, _ = io.Copy(io.Discard, rc)
+		_ = rc.Close()
+		done <- nil
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("GetStream: %v", err)
+		}
+	case <-time.After(6 * time.Second):
+		t.Fatal("GetStream deadlocked: global transport semaphore over-released on 429 backoff in getStream")
+	}
+
+	if got := len(globalSem); got != 0 {
+		t.Fatalf("global transport semaphore unbalanced after GetStream: occupancy=%d, want 0", got)
+	}
+}
+
+// TestUploadSessionSemaphoreBalancedOnRetryAfter429 is the upload-session
+// counterpart: putViaUploadSession's 429 loop has the same redundant
+// releaseTransport() before sleep429WithWorkload, over-draining the global sem.
+func TestUploadSessionSemaphoreBalancedOnRetryAfter429(t *testing.T) {
+	SetGlobalConcurrency(4)
+	defer SetGlobalConcurrency(0)
+
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		switch {
+		case r.Method == http.MethodPost: // createUploadSession
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"uploadUrl":"` + uploadURLBase(r) + `/upload"}`))
+		case r.Method == http.MethodPut:
+			// First chunk PUT is throttled, then accepted.
+			if calls == 2 {
+				w.Header().Set("Retry-After", "1")
+				w.WriteHeader(http.StatusTooManyRequests)
+				return
+			}
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte(`{}`))
+		default:
+			w.WriteHeader(http.StatusOK)
+		}
+	}))
+	defer srv.Close()
+
+	c := NewClient("token", "", ClientOptions{MaxRetries: 3, RetryBaseDelayMs: 1, MaxConcurrency: 4})
+	c.graphBase = srv.URL
+	c.httpClient = srv.Client()
+
+	payload := bytes.Repeat([]byte("x"), uploadSessionThreshold+1024)
+	done := make(chan error, 1)
+	go func() {
+		_, err := c.PutStream(context.Background(), "/drives/d/items/i/content", int64(len(payload)), bytes.NewReader(payload))
+		done <- err
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("PutStream: %v", err)
+		}
+	case <-time.After(6 * time.Second):
+		t.Fatal("PutStream deadlocked: global transport semaphore over-released on 429 backoff in putViaUploadSession")
+	}
+
+	if got := len(globalSem); got != 0 {
+		t.Fatalf("global transport semaphore unbalanced after PutStream: occupancy=%d, want 0", got)
+	}
+}
+
+func uploadURLBase(r *http.Request) string {
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	return scheme + "://" + r.Host
+}
+
 func TestBatchGetMessagesChunking(t *testing.T) {
 	if maxBatchRequests != 20 {
 		t.Fatalf("unexpected batch size %d", maxBatchRequests)

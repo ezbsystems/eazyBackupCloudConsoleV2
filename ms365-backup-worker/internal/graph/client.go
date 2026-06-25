@@ -994,7 +994,11 @@ func (c *Client) getStream(ctx context.Context, path string, offset int64) (io.R
 			c.record429(delay)
 			throttle429Attempt++
 			lastErr = fmt.Errorf("graph %d", statusCode)
-			c.releaseTransport()
+			// sleep429WithWorkload -> sleepRetry releases the transport exactly
+			// once. A redundant releaseTransport() here over-drained the global
+			// transport semaphore (one acquire, two receives), which under low
+			// concurrency late in a run blocked forever in releaseGlobal while
+			// holding the tenant workload slot, deadlocking the whole tenant.
 			if sleepErr := c.sleep429WithWorkload(ctx, delay, &workloadHeld); sleepErr != nil {
 				return nil, 0, sleepErr
 			}
@@ -1289,7 +1293,10 @@ func (c *Client) putViaUploadSession(ctx context.Context, path string, size int6
 					delay = parseRetryAfter(retryAfter, throttle429Attempt, c.retryDelay)
 				}
 				throttle429Attempt++
-				c.releaseTransport()
+				// sleep429WithWorkload -> sleepRetry releases the transport once;
+				// a redundant releaseTransport() here over-drained the global
+				// transport semaphore and deadlocked the tenant under low
+				// concurrency (see getStream for the full explanation).
 				if sleepErr := c.sleep429WithWorkload(ctx, delay, &workloadHeld); sleepErr != nil {
 					return nil, sleepErr
 				}
