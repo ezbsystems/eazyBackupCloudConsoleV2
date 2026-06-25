@@ -8,7 +8,8 @@
 
   function withFleet(params) {
     var p = params || {};
-    if (fleetMeta.can_select_fleet) {
+    // Do not overwrite an explicit fleet param (e.g. fleet_set_target passes the new target).
+    if (fleetMeta.can_select_fleet && p.fleet == null) {
       p.fleet = fleetTarget;
     }
     return p;

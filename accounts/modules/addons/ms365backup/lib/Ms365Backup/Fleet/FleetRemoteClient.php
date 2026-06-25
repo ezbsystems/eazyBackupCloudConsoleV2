@@ -88,7 +88,13 @@ final class FleetRemoteClient
 
         $decoded = json_decode((string) $raw, true);
         if (!is_array($decoded)) {
-            throw new \RuntimeException('Remote fleet returned non-JSON (HTTP ' . $code . ')');
+            $snippet = trim(preg_replace('/\s+/', ' ', substr(strip_tags((string) $raw), 0, 160)));
+            $detail = 'Remote fleet returned non-JSON (HTTP ' . $code . ')';
+            if ($snippet !== '') {
+                $detail .= ': ' . $snippet;
+            }
+
+            throw new \RuntimeException($detail);
         }
         if ($code >= 400 || empty($decoded['ok'])) {
             $message = (string) ($decoded['error'] ?? $decoded['message'] ?? 'Remote fleet error HTTP ' . $code);

@@ -73,8 +73,8 @@ function ms365backup_config(): array
                 'FriendlyName' => 'Production WHMCS base URL',
                 'Type' => 'text',
                 'Size' => '128',
-                'Default' => 'http://192.168.92.75/accounts',
-                'Description' => 'Dev server only: base URL for production worker API and remote fleet control (must end with /accounts).',
+                'Default' => 'https://accounts.eazybackup.ca',
+                'Description' => 'Dev server only: production WHMCS SystemURL root (e.g. https://accounts.eazybackup.ca). Do not append /accounts unless that is your actual web path.',
             ],
             'ms365_development_system_url' => [
                 'FriendlyName' => 'Development WHMCS base URL',
@@ -84,9 +84,9 @@ function ms365backup_config(): array
             ],
             'ms365_fleet_deploy_shared_secret' => [
                 'FriendlyName' => 'Fleet deploy shared secret',
-                'Type' => 'password',
+                'Type' => 'text',
                 'Size' => '64',
-                'Description' => 'M2M auth between dev and prod fleet APIs (X-MS365-Fleet-Deploy-Token). Set the identical value on both servers.',
+                'Description' => 'M2M auth between dev and prod fleet APIs (X-MS365-Fleet-Deploy-Token). Paste the identical value on both servers (generate with: openssl rand -hex 32).',
             ],
             'ms365_production_release_sync_enabled' => [
                 'FriendlyName' => 'Production release pull sync',
