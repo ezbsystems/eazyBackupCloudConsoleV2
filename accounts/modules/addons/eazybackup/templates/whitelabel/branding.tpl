@@ -9,7 +9,7 @@
 
 {capture assign=ebPhContent}
     <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-      <div class="md:col-span-2 space-y-6" x-data="{ useParent: {if $email.inherit|default:1}true{else}false{/if} }">
+      <div class="md:col-span-2 space-y-6" x-data="wlBrandingEmailSection({ useParentInitial: {if $email.inherit|default:1}true{else}false{/if}, tenantTid: '{$tenant.public_id|default:''|escape:'javascript'}', csrfToken: '{$csrf_token|default:''|escape:'javascript'}', testUrl: '{$modulelink|escape:'javascript'}&a=whitelabel-branding-testsmtp' })">
         <form method="post" enctype="multipart/form-data" id="brandingForm" class="space-y-6">
           <section class="eb-card-raised !p-0 overflow-hidden" data-eb-ph-section="system-branding">
             <div class="eb-card-header eb-card-header--divided !-mx-0 !-mt-0 !mb-0 !px-6 !py-5">
@@ -294,12 +294,49 @@
                 <input id="smtp_password" type="password" name="smtp_password" value="{$email.SMTPPassword|default:''}" class="eb-input w-full" :disabled="useParent"/>
               </div>
               <div class="md:col-span-2">
-                <label for="smtp_security" class="eb-field-label">Security</label>
-                <select id="smtp_security" name="smtp_security" class="eb-select w-full" :disabled="useParent">
-                  <option value="SSL/TLS" {if $email.Mode=='smtp-ssl'}selected{/if}>SSL/TLS</option>
-                  <option value="STARTTLS" {if $email.Mode=='smtp' && !$email.SMTPAllowUnencrypted|default:false}selected{/if}>STARTTLS</option>
-                  <option value="Plain" {if $email.Mode=='smtp' && $email.SMTPAllowUnencrypted|default:false}selected{/if}>Plain</option>
-                </select>
+                <span class="eb-field-label">Security</span>
+                <div class="relative eb-select-field-mount mt-1"
+                     x-data="wlSmtpSecuritySelect('{$smtp_security_initial|default:'STARTTLS'|escape:'javascript'}')"
+                     x-init="init()"
+                     @keydown.escape.prevent="close()"
+                     @click.outside="close()"
+                     :class="$parent.useParent && 'opacity-50 pointer-events-none'">
+                  <input type="hidden" name="smtp_security" :value="currentValue()" />
+                  {include file="modules/addons/eazybackup/templates/console/partials/eb-select-menu.tpl"}
+                </div>
+              </div>
+            </div>
+            <div class="pt-2">
+              <button type="button" class="eb-btn eb-btn-secondary eb-btn-sm" :disabled="useParent" @click="openTestModal()">Test</button>
+              <p class="eb-field-help mt-2">Sends a test message using the settings above (save is not required).</p>
+            </div>
+
+            <div x-show="testModalOpen"
+                 x-cloak
+                 class="fixed inset-0 z-50 flex items-center justify-center p-4"
+                 style="display: none;"
+                 @keydown.escape.window="closeTestModal()">
+              <div class="absolute inset-0 eb-modal-backdrop backdrop-blur-sm" @click="closeTestModal()"></div>
+              <div class="eb-modal eb-modal--confirm relative z-10 w-full max-w-lg" @click.stop>
+                <div class="eb-modal-header">
+                  <h3 class="eb-modal-title">Send SMTP test</h3>
+                  <button type="button" class="eb-modal-close" @click="closeTestModal()" aria-label="Close">✕</button>
+                </div>
+                <div class="eb-modal-body space-y-4 text-sm">
+                  <div>
+                    <label for="wl-smtp-test-to" class="eb-field-label">Recipient email</label>
+                    <input id="wl-smtp-test-to" type="email" class="eb-input mt-1 w-full" placeholder="you@example.com" x-model="testTo" @keydown.enter.prevent="submitTest()" />
+                    <p class="eb-field-error mt-1" x-show="testError" x-text="testError"></p>
+                    <p class="eb-field-help mt-2">We will send a simple test message using the SMTP settings above.</p>
+                  </div>
+                </div>
+                <div class="eb-modal-footer !justify-end !gap-3">
+                  <button type="button" class="eb-btn eb-btn-secondary eb-btn-sm" :disabled="testBusy" @click="closeTestModal()">Cancel</button>
+                  <button type="button" class="eb-btn eb-btn-primary eb-btn-sm" :disabled="testBusy" @click="submitTest()">
+                    <span x-show="!testBusy">Send</span>
+                    <span x-show="testBusy">Sending…</span>
+                  </button>
+                </div>
               </div>
             </div>
             </div>
@@ -692,4 +729,6 @@
 })();
 </script>
 
+<script src="modules/addons/eazybackup/assets/js/eb-select-menu.js"></script>
+<script src="modules/addons/eazybackup/assets/js/branding-email.js"></script>
 

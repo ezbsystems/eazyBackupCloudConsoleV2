@@ -863,6 +863,13 @@ function eazybackup_whitelabel_branding(array $vars)
             if (!empty($liveEmail)) { return $liveEmail; }
             return json_decode($emailJson, true) ?: [];
         })(),
+            'smtp_security_initial' => (function() use ($ct, $orgId, $emailJson) {
+                $liveEmail = $orgId ? $ct->getOrgEmailOptions($orgId) : [];
+                $email = !empty($liveEmail) ? $liveEmail : (json_decode($emailJson, true) ?: []);
+                if (($email['Mode'] ?? '') === 'smtp-ssl') { return 'SSL/TLS'; }
+                if (($email['Mode'] ?? '') === 'smtp' && !empty($email['SMTPAllowUnencrypted'])) { return 'Plain'; }
+                return 'STARTTLS';
+            })(),
             'assetStatus' => $assetStatus,
             'eula_text' => $eulaText,
             'sync_notice' => $syncNotice,
@@ -1044,6 +1051,97 @@ function eazybackup_whitelabel_loader(array $vars)
             'devMode' => (int)($vars['whitelabel_dev_mode'] ?? 0),
         ],
     ];
+}
+
+/** AJAX: Send SMTP test using unsaved branding form values */
+function eazybackup_whitelabel_branding_testsmtp(array $vars): void
+{
+    header('Content-Type: application/json');
+    try {
+        if (!((int)($_SESSION['uid'] ?? 0) > 0)) { echo json_encode(['ok' => false, 'error' => 'Not authenticated']); return; }
+        if (strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') { echo json_encode(['ok' => false, 'error' => 'Invalid method']); return; }
+        $token = (string)($_POST['token'] ?? '');
+        if (function_exists('check_token')) {
+            try {
+                if (!check_token('plain', $token)) { echo json_encode(['ok' => false, 'error' => 'Invalid token']); return; }
+            } catch (\Throwable $_) {}
+        }
+
+        $tenantId = 0;
+        $tidPost = strtoupper(trim((string)($_POST['tenant_tid'] ?? '')));
+        if ($tidPost !== '' && preg_match('/^[0-9A-HJ-NP-TV-Z]{26}$/', $tidPost)) {
+            $trow = Capsule::table('eb_whitelabel_tenants')->where('public_id', $tidPost)->first();
+            if ($trow) { $tenantId = (int)$trow->id; }
+        }
+        if ($tenantId <= 0) { echo json_encode(['ok' => false, 'error' => 'Tenant not found']); return; }
+
+        $tenant = Capsule::table('eb_whitelabel_tenants')->where('id', $tenantId)->first();
+        if (!$tenant || (int)$tenant->client_id !== (int)$_SESSION['uid']) { echo json_encode(['ok' => false, 'error' => 'Tenant not found']); return; }
+
+        if (isset($_POST['use_parent_mail'])) {
+            echo json_encode(['ok' => false, 'error' => 'parent_mail']);
+            return;
+        }
+
+        $smtpHost = trim((string)($_POST['smtp_server'] ?? ''));
+        $smtpPort = (int)($_POST['smtp_port'] ?? 0);
+        if ($smtpHost === '' || $smtpPort <= 0) {
+            echo json_encode(['ok' => false, 'error' => 'smtp_invalid']);
+            return;
+        }
+
+        $to = trim((string)($_POST['to'] ?? ''));
+        if ($to === '' || !preg_match('/^[^@\s]+@[^@\s]+\.[^@\s]+$/', $to)) {
+            echo json_encode(['ok' => false, 'error' => 'invalid_recipient']);
+            return;
+        }
+
+        $rawSec = (string)($_POST['smtp_security'] ?? '');
+        $mode = 'smtp';
+        $allowUnenc = false;
+        if (strcasecmp($rawSec, 'SSL/TLS') === 0) {
+            $mode = 'smtp-ssl';
+        } else if (strcasecmp($rawSec, 'Plain') === 0) {
+            $mode = 'smtp';
+            $allowUnenc = true;
+        }
+
+        $password = (string)($_POST['smtp_password'] ?? '');
+        if ($password === '') {
+            $emailJson = json_decode((string)($tenant->email_json ?? '{}'), true) ?: [];
+            $password = (string)($emailJson['SMTPPassword'] ?? '');
+            if ($password === '') {
+                $existing = Capsule::table('eb_whitelabel_tenant_mail')->where('tenant_id', $tenantId)->first();
+                if ($existing) {
+                    $enc = (string)($existing->password_enc ?? '');
+                    if ($enc !== '' && function_exists('decrypt')) { $password = (string)decrypt($enc); }
+                }
+            }
+        }
+
+        $config = [
+            'host' => $smtpHost,
+            'port' => $smtpPort,
+            'username' => (string)($_POST['smtp_username'] ?? ''),
+            'password' => $password,
+            'mode' => $mode,
+            'allow_unencrypted' => $allowUnenc,
+            'from_name' => (string)($_POST['smtp_sendas_name'] ?? ''),
+            'from_email' => (string)($_POST['smtp_sendas_email'] ?? ''),
+            'fqdn' => (string)($tenant->fqdn ?? ''),
+        ];
+
+        $ms = new \EazyBackup\Whitelabel\MailService($vars);
+        $result = $ms->sendSmtpTest($config, $to);
+        if (!($result['ok'] ?? false)) {
+            echo json_encode(['ok' => false, 'error' => (string)($result['error'] ?? 'send_failed')]);
+            return;
+        }
+        echo json_encode(['ok' => true]);
+    } catch (\Throwable $e) {
+        try { logModuleCall('eazybackup', 'branding_testsmtp_error', ['post_keys' => array_keys($_POST ?? [])], (string)$e->getMessage()); } catch (\Throwable $_) {}
+        echo json_encode(['ok' => false, 'error' => 'send_failed']);
+    }
 }
 
 /** AJAX: Check DNS for custom domain */

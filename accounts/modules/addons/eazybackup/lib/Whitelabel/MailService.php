@@ -145,6 +145,67 @@ class MailService
         return $this->sendTemplate($tenantId, $key, $toEmail, $vars, true);
     }
 
+    /**
+     * Send a fixed SMTP test message using the provided transport config.
+     *
+     * @param array{host:string,port:int,username?:string,password?:string,mode?:string,allow_unencrypted?:bool,from_name?:string,from_email?:string,fqdn?:string} $config
+     */
+    public function sendSmtpTest(array $config, string $toEmail): array
+    {
+        $host = (string)($config['host'] ?? '');
+        $port = (int)($config['port'] ?? 0);
+        if ($host === '' || $port <= 0) {
+            return ['ok' => false, 'error' => 'smtp_invalid'];
+        }
+
+        $fqdn = (string)($config['fqdn'] ?? '');
+        $subject = 'eazyBackup SMTP test';
+        $text = 'This is a test message from eazyBackup confirming your SMTP settings are working.';
+        if ($fqdn !== '') {
+            $text .= ' Tenant: ' . $fqdn . '.';
+        }
+        $html = '<p>' . htmlspecialchars($text, ENT_QUOTES, 'UTF-8') . '</p>';
+
+        try {
+            if (!class_exists('PHPMailer\\PHPMailer\\PHPMailer')) {
+                throw new \RuntimeException('phpmailer_missing');
+            }
+            $mail = new \PHPMailer\PHPMailer\PHPMailer(true);
+            $mail->isSMTP();
+            $mail->Host = $host;
+            $mail->Port = $port;
+            $username = (string)($config['username'] ?? '');
+            $password = (string)($config['password'] ?? '');
+            $mail->SMTPAuth = ($username !== '' || $password !== '');
+            if ($mail->SMTPAuth) {
+                $mail->Username = $username;
+                $mail->Password = $password;
+            }
+            $mode = (string)($config['mode'] ?? 'smtp');
+            $allowUnenc = !empty($config['allow_unencrypted']);
+            if ($mode === 'smtp-ssl') {
+                $mail->SMTPSecure = \PHPMailer\PHPMailer\PHPMailer::ENCRYPTION_SMTPS;
+            } else if ($mode === 'smtp') {
+                if ($allowUnenc) { $mail->SMTPSecure = false; }
+                else { $mail->SMTPSecure = \PHPMailer\PHPMailer\PHPMailer::ENCRYPTION_STARTTLS; }
+            }
+            $fromEmail = (string)($config['from_email'] ?? '') ?: 'no-reply@example.com';
+            $fromName  = (string)($config['from_name'] ?? '') ?: 'eazyBackup';
+            $mail->setFrom($fromEmail, $fromName);
+            $mail->addAddress($toEmail);
+            $mail->Subject = $subject;
+            $mail->isHTML(true);
+            $mail->Body = $html;
+            $mail->AltBody = $text;
+            $mail->send();
+            try { logModuleCall('eazybackup', 'smtp_test', ['to' => $toEmail, 'host' => $host], 'ok'); } catch (\Throwable $_) {}
+            return ['ok' => true];
+        } catch (\Throwable $e) {
+            try { logModuleCall('eazybackup', 'smtp_test', ['to' => $toEmail, 'host' => $host], (string)$e->getMessage()); } catch (\Throwable $_) {}
+            return ['ok' => false, 'error' => 'send_failed'];
+        }
+    }
+
     public function renderString(string $tpl, array $vars): string
     {
         if ($tpl === '') return '';

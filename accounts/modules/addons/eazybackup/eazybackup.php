@@ -5429,6 +5429,10 @@ function eazybackup_clientarea(array $vars)
         require_once __DIR__ . "/pages/whitelabel/BuildController.php";
         eazybackup_whitelabel_branding_attachdomain($vars);
         exit;
+    } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'whitelabel-branding-testsmtp') {
+        require_once __DIR__ . "/pages/whitelabel/BuildController.php";
+        eazybackup_whitelabel_branding_testsmtp($vars);
+        exit;
     } else if (isset($_REQUEST['a']) && $_REQUEST['a'] === 'whitelabel-status') {
         require_once __DIR__ . "/pages/whitelabel/BuildController.php";
         eazybackup_whitelabel_status($vars);
