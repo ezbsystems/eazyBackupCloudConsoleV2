@@ -45,17 +45,3 @@ func releaseGlobal() {
 	}
 	<-sem
 }
-
-// #region agent log
-// GlobalSemStats reports the global transport semaphore occupancy (debug only).
-func GlobalSemStats() (inUse, capacity int) {
-	globalLimitMu.RLock()
-	sem := globalSem
-	globalLimitMu.RUnlock()
-	if sem == nil {
-		return 0, 0
-	}
-	return len(sem), cap(sem)
-}
-
-// #endregion
