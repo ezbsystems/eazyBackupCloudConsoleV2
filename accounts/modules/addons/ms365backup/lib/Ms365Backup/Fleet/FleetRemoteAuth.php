@@ -32,28 +32,25 @@ final class FleetRemoteAuth
 
     public static function sharedToken(): string
     {
-        $enc = trim(Ms365EngineConfig::moduleSettingPublic('ms365_fleet_deploy_shared_secret', ''));
-        if ($enc === '') {
+        $stored = trim(Ms365EngineConfig::moduleSettingPublic('ms365_fleet_deploy_shared_secret', ''));
+        if ($stored === '') {
             return '';
         }
-        try {
-            if (function_exists('localAPI')) {
-                $r = localAPI('DecryptPassword', ['password2' => $enc]);
-                if (is_array($r) && isset($r['password']) && $r['password'] !== '') {
-                    return trim((string) $r['password']);
-                }
-            }
-            if (function_exists('decrypt')) {
-                $plain = decrypt($enc);
-                if (is_string($plain) && $plain !== '') {
-                    return trim($plain);
-                }
-            }
-        } catch (\Throwable $e) {
-            // fall through to raw value (non-encrypted test setups)
+        // Match workerToken(): use the stored addon value as-is. WHMCS password fields persist
+        // an encrypted blob that must be compared identically on dev and prod; decrypt() here
+        // produced binary secrets with null bytes and broke HTTP headers (Apache 400).
+        if (self::isHttpHeaderSafeSecret($stored)) {
+            return $stored;
         }
 
-        return $enc;
+        return '';
+    }
+
+    private static function isHttpHeaderSafeSecret(string $value): bool
+    {
+        return $value !== ''
+            && preg_match('/^[\x21-\x7E]+$/', $value) === 1
+            && strpos($value, "\0") === false;
     }
 
     public static function authHeaders(): array

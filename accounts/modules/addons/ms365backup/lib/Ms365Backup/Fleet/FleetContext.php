@@ -87,17 +87,13 @@ final class FleetContext
     {
         $url = trim(Ms365EngineConfig::moduleSettingPublic(
             'ms365_production_system_url',
-            'http://192.168.92.75/accounts'
+            'https://accounts.eazybackup.ca'
         ));
         if ($url === '') {
-            $url = 'http://192.168.92.75/accounts';
-        }
-        $url = rtrim($url, '/');
-        if (!str_ends_with($url, '/accounts')) {
-            $url .= '/accounts';
+            $url = 'https://accounts.eazybackup.ca';
         }
 
-        return $url;
+        return rtrim($url, '/');
     }
 
     public static function developmentSystemUrl(): string
@@ -124,8 +120,13 @@ final class FleetContext
 
     public static function remoteFleetApiUrl(string $op): string
     {
-        return self::productionSystemUrl()
-            . '/admin/addonmodules.php?module=ms365backup&action=fleet_remote&op='
+        return self::fleetRemoteApiUrl(self::productionSystemUrl(), $op);
+    }
+
+    public static function fleetRemoteApiUrl(string $systemUrl, string $op): string
+    {
+        return rtrim($systemUrl, '/')
+            . '/modules/addons/cloudstorage/api/ms365_fleet_remote.php?op='
             . rawurlencode($op);
     }
 

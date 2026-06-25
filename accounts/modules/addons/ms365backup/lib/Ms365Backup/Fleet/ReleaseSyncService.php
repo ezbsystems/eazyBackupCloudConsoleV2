@@ -68,8 +68,7 @@ final class ReleaseSyncService
             return ['status' => 'failed', 'message' => 'Fleet deploy shared secret not configured'];
         }
 
-        $manifestUrl = rtrim($devUrl, '/')
-            . '/admin/addonmodules.php?module=ms365backup&action=fleet_remote&op=fleet_release_manifest';
+        $manifestUrl = FleetContext::fleetRemoteApiUrl($devUrl, 'fleet_release_manifest');
 
         try {
             $manifest = self::fetchDevManifest($manifestUrl, $token);
@@ -141,9 +140,8 @@ final class ReleaseSyncService
     {
         $sourceId = (int) ($manifest['id'] ?? 0);
         $version = (string) ($manifest['version'] ?? '');
-        $artifactUrl = rtrim($devUrl, '/')
-            . '/admin/addonmodules.php?module=ms365backup&action=fleet_remote&op=fleet_release_artifact&release_id='
-            . $sourceId;
+        $artifactUrl = FleetContext::fleetRemoteApiUrl($devUrl, 'fleet_release_artifact')
+            . '&release_id=' . $sourceId;
 
         $tmp = tempnam(sys_get_temp_dir(), 'ms365rel_');
         if ($tmp === false) {

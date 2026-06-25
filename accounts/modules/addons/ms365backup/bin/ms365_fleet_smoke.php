@@ -49,7 +49,11 @@ $check('worker_api_base', FleetSettings::workerApiBaseUrl() !== '', FleetSetting
 
 if (FleetContext::isDevelopmentServer()) {
     $prodUrl = FleetContext::productionSystemUrl();
-    $check('production_system_url', str_ends_with($prodUrl, '/accounts'), $prodUrl);
+    $check(
+        'production_system_url',
+        preg_match('#^https?://#i', $prodUrl) === 1,
+        $prodUrl
+    );
     if (FleetRemoteAuth::sharedToken() !== '') {
         echo "[INFO] fleet_deploy_secret — configured (remote API smoke requires reachable prod host)\n";
     } else {
