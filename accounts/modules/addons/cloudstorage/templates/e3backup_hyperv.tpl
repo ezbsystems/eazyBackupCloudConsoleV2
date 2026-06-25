@@ -209,7 +209,7 @@
                     <div class="eb-app-empty-title mt-4">No Hyper-V Jobs Configured</div>
                     <p class="eb-app-empty-copy">Create a new backup job with Hyper-V as the source type to get started.</p>
                     <div class="mt-6">
-                        <a href="index.php?m=cloudstorage&page=e3backup&view=jobs" class="eb-btn eb-btn-orange eb-btn-sm">
+                        <a href="index.php?m=cloudstorage&page=e3backup&view=users" class="eb-btn eb-btn-orange eb-btn-sm">
                             <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
                             </svg>

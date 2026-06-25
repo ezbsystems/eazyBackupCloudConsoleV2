@@ -125,7 +125,7 @@ User detail (`e3backup_user_detail.tpl`) includes:
 - Create Job dropdown contextualized by `backup_type` (hides irrelevant job types)
 - Agents tab hidden when `backup_type` is `cloud_only`
 
-The standalone Jobs page (`e3backup_jobs.tpl`) has been deprecated. Jobs are now managed from each User's detail page. The page still exists with a deprecation banner for legacy bookmarks.
+The standalone Jobs page (`e3backup_jobs.tpl`) has been removed. `view=jobs` redirects to the Users list; jobs are managed from each User's detail page.
 
 ## Non-goals in this phase
 

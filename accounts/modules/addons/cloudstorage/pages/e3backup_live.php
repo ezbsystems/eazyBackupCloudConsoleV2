@@ -7,6 +7,7 @@ use WHMCS\Module\Addon\CloudStorage\Admin\ProductConfig;
 use WHMCS\Module\Addon\CloudStorage\Client\DBController;
 use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupController;
 use WHMCS\Module\Addon\CloudStorage\Client\Ms365BatchLiveService;
+use WHMCS\Module\Addon\CloudStorage\Client\MspController;
 use WHMCS\Database\Capsule;
 
 $packageId = ProductConfig::e3CloudBackupPid();
@@ -25,19 +26,133 @@ if (is_null($product) || empty($product->username)) {
 
 $runIdentifier = $_GET['run_uuid'] ?? ($_GET['run_id'] ?? null);
 if (!$runIdentifier) {
-    header('Location: index.php?m=cloudstorage&page=e3backup&view=jobs');
+    header('Location: index.php?m=cloudstorage&page=e3backup&view=users');
     exit;
 }
 
 // Verify run ownership
 $run = CloudBackupController::getRun($runIdentifier, $loggedInUserId);
 if (!$run) {
-    header('Location: index.php?m=cloudstorage&page=e3backup&view=jobs');
+    header('Location: index.php?m=cloudstorage&page=e3backup&view=users');
     exit;
 }
 
 // Get job details
 $job = CloudBackupController::getJob($run['job_id'], $loggedInUserId) ?? [];
+
+$hasPublicIdCol = Capsule::schema()->hasColumn('s3_backup_users', 'public_id');
+$isMspClient = MspController::isMspClient($loggedInUserId);
+$tenantTable = MspController::getTenantTableName();
+$userIdRaw = trim((string) ($_GET['user_id'] ?? ''));
+$backupUsername = '';
+$backupUserRouteId = '';
+$backupUserInternalId = 0;
+
+$resolveBackupUserRow = static function (int $internalId) use ($loggedInUserId, $hasPublicIdCol, $isMspClient, $tenantTable): ?object {
+    if ($internalId <= 0 || !Capsule::schema()->hasTable('s3_backup_users')) {
+        return null;
+    }
+    $tenantOwnerSelect = $tenantTable === 'eb_tenants' ? 't.msp_id as tenant_owner_id' : 't.client_id as tenant_owner_id';
+    $mspId = MspController::getMspIdForClient($loggedInUserId);
+    $tenantOwnerId = ($tenantTable === 'eb_tenants') ? (int) ($mspId ?? 0) : (int) $loggedInUserId;
+
+    $cols = [
+        'u.id',
+        'u.username',
+        'u.tenant_id as storage_tenant_id',
+        Capsule::raw($tenantOwnerSelect),
+        't.status as tenant_status',
+    ];
+    if ($hasPublicIdCol) {
+        $cols[] = 'u.public_id';
+    }
+
+    $row = Capsule::table('s3_backup_users as u')
+        ->leftJoin($tenantTable . ' as t', 'u.tenant_id', '=', 't.id')
+        ->where('u.client_id', $loggedInUserId)
+        ->where('u.id', $internalId)
+        ->select($cols)
+        ->first();
+
+    if (!$row) {
+        return null;
+    }
+
+    if ($isMspClient && !empty($row->storage_tenant_id)) {
+        $tenantClientId = (int) ($row->tenant_owner_id ?? 0);
+        $tenantStatus = strtolower((string) ($row->tenant_status ?? ''));
+        if ($tenantClientId !== $tenantOwnerId || $tenantStatus === 'deleted') {
+            return null;
+        }
+    } elseif (!$isMspClient && !empty($row->storage_tenant_id)) {
+        return null;
+    }
+
+    return $row;
+};
+
+if ($userIdRaw !== '') {
+    $tenantOwnerSelect = $tenantTable === 'eb_tenants' ? 't.msp_id as tenant_owner_id' : 't.client_id as tenant_owner_id';
+    $mspId = MspController::getMspIdForClient($loggedInUserId);
+    $tenantOwnerId = ($tenantTable === 'eb_tenants') ? (int) ($mspId ?? 0) : (int) $loggedInUserId;
+
+    $userLookup = Capsule::table('s3_backup_users as u')
+        ->leftJoin($tenantTable . ' as t', 'u.tenant_id', '=', 't.id')
+        ->where('u.client_id', $loggedInUserId);
+    if ($hasPublicIdCol && !ctype_digit($userIdRaw)) {
+        $userLookup->where('u.public_id', $userIdRaw);
+    } else {
+        $userLookup->where('u.id', (int) $userIdRaw);
+    }
+    $scopeUser = $userLookup->select([
+        'u.id',
+        'u.username',
+        'u.tenant_id as storage_tenant_id',
+        Capsule::raw($tenantOwnerSelect),
+        't.status as tenant_status',
+    ] + ($hasPublicIdCol ? ['u.public_id'] : []))->first();
+
+    if ($scopeUser) {
+        $allowed = true;
+        if ($isMspClient && !empty($scopeUser->storage_tenant_id)) {
+            $tenantClientId = (int) ($scopeUser->tenant_owner_id ?? 0);
+            $tenantStatus = strtolower((string) ($scopeUser->tenant_status ?? ''));
+            if ($tenantClientId !== $tenantOwnerId || $tenantStatus === 'deleted') {
+                $allowed = false;
+            }
+        } elseif (!$isMspClient && !empty($scopeUser->storage_tenant_id)) {
+            $allowed = false;
+        }
+        if ($allowed) {
+            $backupUsername = (string) ($scopeUser->username ?? '');
+            $backupUserInternalId = (int) $scopeUser->id;
+            $backupUserRouteId = $hasPublicIdCol && !empty($scopeUser->public_id)
+                ? (string) $scopeUser->public_id
+                : (string) $backupUserInternalId;
+        }
+    }
+}
+
+if ($backupUserRouteId === '') {
+    $backupUserInternalId = (int) ($job['backup_user_id'] ?? 0);
+    $agentUuidForUser = $job['agent_uuid'] ?? ($run['agent_uuid'] ?? null);
+    if ($backupUserInternalId <= 0 && !empty($agentUuidForUser)
+        && Capsule::schema()->hasColumn('s3_cloudbackup_agents', 'backup_user_id')) {
+        $agentBackupUserId = Capsule::table('s3_cloudbackup_agents')
+            ->where('agent_uuid', $agentUuidForUser)
+            ->value('backup_user_id');
+        $backupUserInternalId = (int) ($agentBackupUserId ?? 0);
+    }
+    $backupUserRow = $resolveBackupUserRow($backupUserInternalId);
+    if ($backupUserRow) {
+        $backupUsername = (string) ($backupUserRow->username ?? '');
+        $backupUserRouteId = $hasPublicIdCol && !empty($backupUserRow->public_id)
+            ? (string) $backupUserRow->public_id
+            : (string) ((int) $backupUserRow->id);
+    }
+}
+
+$showUserSubnav = $backupUserRouteId !== '';
 
 $isMs365Batch = Ms365BatchLiveService::isMs365BatchRun($run);
 $ms365Workloads = [];
@@ -211,6 +326,9 @@ if (!empty($run['finished_at'])) {
 return [
     'run' => $run,
     'job' => $job,
+    'backup_username' => $backupUsername,
+    'backup_user_route_id' => $backupUserRouteId,
+    'show_user_subnav' => $showUserSubnav,
     'agent_name' => $agentName,
     'agent_uuid' => $agentUuid,
     'is_ms365_batch' => $isMs365Batch,

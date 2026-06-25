@@ -10,6 +10,34 @@
 
 ## Session log
 
+### 2026-06-24 — Live page UI polish (e3 MS365 batch)
+
+- **Header:** Username links to user detail Profile tab (`#overview`) when `backup_user_route_id` is present.
+- **Stats:** MS365 batch uses two-row stats grid (Workloads, Running Workloads, Processing, Items/s, Graph requests / Processed, Uploaded, Files, Folders, Elapsed); Workloads stat shows only `N / M complete`; new Running Workloads stat shows `N running · M queued`.
+- **Workloads table:** Freshness in Status column is muted text (`.eb-live-workloads-freshness-text`), not a badge; stalled workloads use warning text color.
+- **Details:** MS365 hides Mode/Destination; Run ID on second row below Source/Job/Started/Finished.
+- **Removed:** Cloud Backup (Beta) warning alert from live page.
+- **CSS:** `eb-live-stats--split`, `eb-live-stats-row`, `eb-live-stat--full`, `eb-live-details-row2`, `eb-live-workloads-freshness-text` in `tailwind.src.css` / `tailwind.css`.
+- **Files:** `templates/e3backup_live.tpl`, `templates/eazyBackup/css/tailwind.src.css`, `templates/eazyBackup/css/tailwind.css`.
+- **Verify:** MS365 live page — username link, two-row stats, split workload stats, details layout, no beta banner; non-MS365 live page layout unchanged.
+
+### 2026-06-24 — Live page user context + jobs template removal
+
+- **Live progress sidebar:** [`e3backup_live.php`](accounts/modules/addons/cloudstorage/pages/e3backup_live.php) resolves backup user from `user_id` query param or job/agent `backup_user_id`; passes `show_user_subnav`, username, and route id to shell so Users section stays expanded with user subnav (Jobs tab highlighted).
+- **Live header:** Shows `Username > Job Name` in `e3backup_live.tpl`.
+- **Live URLs:** `user_id` appended when navigating from user detail, job logs, and dashboard View Live links.
+- **Jobs page removed:** Deleted `e3backup_jobs.tpl` and `e3backup_jobs.php`; `view=jobs` redirects to `view=users` (query string preserved). Updated agents create-job flow, oauth redirects, dashboard/hyperv links, provisioner return URL.
+- **Files:** `pages/e3backup_live.php`, `templates/e3backup_live.tpl`, `pages/e3backup_dashboard.php`, `templates/e3backup_dashboard.tpl`, `templates/partials/e3backup_jobs_client_script.tpl`, `templates/e3backup_job_logs.tpl`, `cloudstorage.php`, `templates/e3backup_agents.tpl`, oauth pages, `Provisioner.php`, others.
+
+### 2026-06-24 — Live progress navigation (e3 Cloud Backup UI)
+
+- **Feature:** Customers can return to the live progress page after navigating away from an in-flight backup.
+- **User Detail → Jobs tab:** "View Live" link (`var(--eb-info-text)`) beside Running/Starting/Queued last-run status when `last_run.run_id` is present.
+- **Job Logs page:** Running rows show blue **View Live** in the actions column (replaces View log); row click routes to live page for active runs.
+- **API:** `e3backup_job_list.php` now includes `run_id` on each job's `last_run` object (UUID + legacy SQL paths).
+- **Files:** `api/e3backup_job_list.php`, `templates/partials/e3backup_jobs_client_script.tpl`, `templates/e3backup_user_detail.tpl`, `templates/e3backup_job_logs.tpl`.
+- **Verify:** Start manual backup → leave live page → confirm View Live from Jobs tab and Job Logs for the same `run_id`.
+
 ### 2026-06-24 — Dual fleet worker deployment (PHP 1.50.0)
 
 - **Feature:** Dev WHMCS remains build/deploy console; prod workers register/heartbeat against prod WHMCS (`192.168.92.75/accounts`).

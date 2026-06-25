@@ -742,7 +742,7 @@ function jobsApp(opts) {
                         e3backupNotify('success', `Started ${count} Microsoft 365 backup workload(s). Redirecting to progress...`);
                         setTimeout(() => {
                             window.location.href = 'index.php?m=cloudstorage&page=e3backup&view=live&run_id='
-                                + encodeURIComponent(batchRunId);
+                                + encodeURIComponent(batchRunId) + this.liveRunUserQuery();
                         }, 500);
                     } else {
                         e3backupNotify('error', data.message || 'Run failed.');
@@ -763,7 +763,8 @@ function jobsApp(opts) {
                     const runParam = data.run_id;
                     e3backupNotify('success', 'Backup started! Redirecting to progress...');
                     setTimeout(() => {
-                        window.location.href = 'index.php?m=cloudstorage&page=e3backup&view=live&run_id=' + encodeURIComponent(runParam);
+                        window.location.href = 'index.php?m=cloudstorage&page=e3backup&view=live&run_id='
+                            + encodeURIComponent(runParam) + this.liveRunUserQuery();
                     }, 500);
                 } else {
                     e3backupNotify('error', data.message || 'Failed to start backup');
@@ -1223,6 +1224,26 @@ function jobsApp(opts) {
             } catch (e) {
                 return job.last_run.started_at;
             }
+        },
+        isActiveLiveRunStatus(status) {
+            const s = (status || '').toLowerCase();
+            return ['running', 'starting', 'queued'].includes(s);
+        },
+        isLiveLastRun(lastRun) {
+            if (!lastRun || !lastRun.run_id) return false;
+            return this.isActiveLiveRunStatus(lastRun.status);
+        },
+        liveRunUserQuery() {
+            const scopeId = this.scopeUserId != null && String(this.scopeUserId) !== ''
+                ? String(this.scopeUserId)
+                : (window.userDetailJobsScopeId ? String(window.userDetailJobsScopeId) : '');
+            return scopeId ? '&user_id=' + encodeURIComponent(scopeId) : '';
+        },
+        liveProgressUrl(lastRun) {
+            const runId = lastRun && lastRun.run_id ? String(lastRun.run_id) : '';
+            if (!runId) return '#';
+            return 'index.php?m=cloudstorage&page=e3backup&view=live&run_id='
+                + encodeURIComponent(runId) + this.liveRunUserQuery();
         },
         lastRunDotClass(status) {
             const s = (status || '').toLowerCase();

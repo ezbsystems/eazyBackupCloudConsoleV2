@@ -230,6 +230,15 @@ if ($hasJobTenant) {
 }
 $liveSelect[] = $hasProgressPct ? 'r.progress_pct' : Capsule::raw('NULL as progress_pct');
 $liveSelect[] = Capsule::raw('NULL as run_type');
+$hasJobBackupUserId = $schema->hasColumn('s3_cloudbackup_jobs', 'backup_user_id');
+$hasAgentBackupUserId = $schema->hasColumn('s3_cloudbackup_agents', 'backup_user_id');
+$hasBackupUserPublicId = $schema->hasColumn('s3_backup_users', 'public_id');
+if ($hasJobBackupUserId) {
+    $liveSelect[] = 'j.backup_user_id';
+}
+if ($hasAgentBackupUserId) {
+    $liveSelect[] = 'a.backup_user_id as agent_backup_user_id';
+}
 
 $jobRunJoin = $hasJobIdPk ? ['r.job_id', '=', 'j.job_id'] : ['r.job_id', '=', 'j.id'];
 $liveRunsQuery = Capsule::table('s3_cloudbackup_runs as r')
@@ -250,8 +259,26 @@ $liveRuns = $liveRunsQuery
     ->get($liveSelect);
 
 if (is_object($liveRuns) && method_exists($liveRuns, 'map')) {
-    $liveRuns = $liveRuns->map(function ($row) {
-        return (array) $row;
+    $liveRuns = $liveRuns->map(function ($row) use ($hasJobBackupUserId, $hasAgentBackupUserId, $hasBackupUserPublicId) {
+        $r = (array) $row;
+        $backupUserInternalId = $hasJobBackupUserId ? (int) ($r['backup_user_id'] ?? 0) : 0;
+        if ($backupUserInternalId <= 0 && $hasAgentBackupUserId) {
+            $backupUserInternalId = (int) ($r['agent_backup_user_id'] ?? 0);
+        }
+        $r['backup_user_route_id'] = '';
+        if ($backupUserInternalId > 0) {
+            $buCols = ['id'];
+            if ($hasBackupUserPublicId) {
+                $buCols[] = 'public_id';
+            }
+            $buRow = Capsule::table('s3_backup_users')->where('id', $backupUserInternalId)->first($buCols);
+            if ($buRow) {
+                $r['backup_user_route_id'] = $hasBackupUserPublicId && !empty($buRow->public_id)
+                    ? (string) $buRow->public_id
+                    : (string) $buRow->id;
+            }
+        }
+        return $r;
     })->toArray();
 }
 

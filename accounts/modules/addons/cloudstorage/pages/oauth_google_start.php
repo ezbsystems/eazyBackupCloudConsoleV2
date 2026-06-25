@@ -9,7 +9,7 @@ if (!defined('WHMCS')) {
 
 $ca = new ClientArea();
 if (!$ca->isLoggedIn()) {
-    header('Location: index.php?m=cloudstorage&page=e3backup&view=jobs');
+    header('Location: index.php?m=cloudstorage&page=e3backup&view=users');
     exit;
 }
 
@@ -25,7 +25,7 @@ try {
 
     if (!$clientId || !$clientSecret) {
         $_SESSION['message'] = 'Google OAuth is not configured. Please contact support.';
-        header('Location: index.php?m=cloudstorage&page=e3backup&view=jobs');
+        header('Location: index.php?m=cloudstorage&page=e3backup&view=users');
         exit;
     }
 
@@ -73,7 +73,7 @@ try {
     exit;
 } catch (\Exception $e) {
     $_SESSION['message'] = 'Failed to initiate Google OAuth. Please try again.';
-    header('Location: index.php?m=cloudstorage&page=e3backup&view=jobs');
+    header('Location: index.php?m=cloudstorage&page=e3backup&view=users');
     exit;
 }
 

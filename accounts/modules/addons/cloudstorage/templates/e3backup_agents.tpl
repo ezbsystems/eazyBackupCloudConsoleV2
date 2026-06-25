@@ -920,20 +920,26 @@ function agentsApp() {
 
         goToCreateJob(agent) {
             if (!agent) return;
+            const backupUserRouteId = agent.backup_user_route_id ? String(agent.backup_user_route_id) : '';
+            if (!backupUserRouteId) {
+                e3backupNotify('error', 'Agent is not linked to a backup user.');
+                return;
+            }
             const isMsp = {/literal}{if $isMspClient}true{else}false{/if}{literal};
-            const params = [];
-            params.push('open_create=1');
-            params.push('prefill_source=local_agent');
-            if (agent.agent_uuid) params.push('prefill_agent_uuid=' + encodeURIComponent(agent.agent_uuid));
+            const params = new URLSearchParams();
+            params.set('user_id', backupUserRouteId);
+            params.set('open_create', '1');
+            params.set('prefill_source', 'local_agent');
+            if (agent.agent_uuid) params.set('prefill_agent_uuid', String(agent.agent_uuid));
             if (isMsp) {
                 if (agent.tenant_id) {
-                    params.push('tenant_id=' + encodeURIComponent(agent.tenant_id));
+                    params.set('tenant_id', String(agent.tenant_id));
                 } else {
-                    params.push('tenant_id=direct');
+                    params.set('tenant_id', 'direct');
                 }
             }
-            const qs = params.length ? '&' + params.join('&') : '';
-            window.location.href = 'index.php?m=cloudstorage&page=e3backup&view=jobs' + qs;
+            window.location.href = 'index.php?m=cloudstorage&page=e3backup&view=user_detail&'
+                + params.toString() + '#jobs';
         }
     };
 }

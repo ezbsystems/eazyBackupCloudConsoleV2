@@ -30,7 +30,7 @@
         {elseif $status24hTotal == 0}
             {assign var=statusColor value='default'}
         {/if}
-        <a href="index.php?m=cloudstorage&page=e3backup&view=jobs" class="block eb-card-raised group h-full transition-all duration-200 hover:-translate-y-0.5 {if $statusColor == 'success'}hover:border-[var(--eb-success-border)]{elseif $statusColor == 'danger'}hover:border-[var(--eb-danger-border)]{elseif $statusColor == 'warning'}hover:border-[var(--eb-warning-border)]{else}hover:border-[var(--eb-border-default)]{/if}">
+        <a href="index.php?m=cloudstorage&page=e3backup&view=users" class="block eb-card-raised group h-full transition-all duration-200 hover:-translate-y-0.5 {if $statusColor == 'success'}hover:border-[var(--eb-success-border)]{elseif $statusColor == 'danger'}hover:border-[var(--eb-danger-border)]{elseif $statusColor == 'warning'}hover:border-[var(--eb-warning-border)]{else}hover:border-[var(--eb-border-default)]{/if}">
             <div class="flex items-start justify-between gap-3">
                 <div>
                     <div class="eb-stat-label">Backup Status (24h)</div>
@@ -119,7 +119,7 @@
         </div>
 
         {* Active Jobs *}
-        <a href="index.php?m=cloudstorage&page=e3backup&view=jobs" class="block eb-card-raised group h-full transition-all duration-200 hover:-translate-y-0.5 hover:border-[var(--eb-success-border)]">
+        <a href="index.php?m=cloudstorage&page=e3backup&view=users" class="block eb-card-raised group h-full transition-all duration-200 hover:-translate-y-0.5 hover:border-[var(--eb-success-border)]">
             <div class="flex items-start justify-between gap-3">
                 <div>
                     <div class="eb-stat-label">Active Jobs</div>
@@ -324,7 +324,7 @@
                     </div>
                 </div>
 
-                <a href="index.php?m=cloudstorage&page=e3backup&view=jobs" class="eb-card flex items-start gap-4 !p-4 transition-colors hover:border-[var(--eb-premium-border)]">
+                <a href="index.php?m=cloudstorage&page=e3backup&view=users" class="eb-card flex items-start gap-4 !p-4 transition-colors hover:border-[var(--eb-premium-border)]">
                     <span class="flex-shrink-0 flex items-center justify-center w-8 h-8 rounded-full text-sm font-bold" style="background:var(--eb-premium-bg);color:var(--eb-premium-text);">3</span>
                     <div class="min-w-0">
                         <div class="text-sm font-semibold" style="color:var(--eb-text-primary)">Create Your First Backup Job</div>
@@ -343,7 +343,7 @@
             </div>
         </div>
         <div class="grid grid-cols-1 gap-4 p-6 md:grid-cols-2 xl:grid-cols-{if $isMspClient}4{else}3{/if}">
-            <a href="index.php?m=cloudstorage&page=e3backup&view=jobs" class="eb-card flex h-full items-start gap-4 !p-4 transition-colors hover:border-[var(--eb-success-border)]">
+            <a href="index.php?m=cloudstorage&page=e3backup&view=users" class="eb-card flex h-full items-start gap-4 !p-4 transition-colors hover:border-[var(--eb-success-border)]">
                 <span class="eb-icon-box eb-icon-box--success eb-icon-box--sm">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
@@ -367,7 +367,7 @@
                 </div>
             </div>
 
-            <a href="index.php?m=cloudstorage&page=e3backup&view=jobs" class="eb-card flex h-full items-start gap-4 !p-4 transition-colors hover:border-[var(--eb-warning-border)]">
+            <a href="index.php?m=cloudstorage&page=e3backup&view=users" class="eb-card flex h-full items-start gap-4 !p-4 transition-colors hover:border-[var(--eb-warning-border)]">
                 <span class="eb-icon-box eb-icon-box--warning eb-icon-box--sm">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 12h16.5m-16.5 3.75h16.5M3.75 19.5h16.5M5.625 4.5h12.75a1.875 1.875 0 0 1 0 3.75H5.625a1.875 1.875 0 0 1 0-3.75Z" />
@@ -528,7 +528,7 @@
                                 </td>
                                 <td>{$run.started_at|default:'—'}</td>
                                 <td>
-                                    <a href="index.php?m=cloudstorage&page=e3backup&view=live&run_id={$run.run_id}" class="eb-btn eb-btn-primary eb-btn-xs">
+                                    <a href="index.php?m=cloudstorage&page=e3backup&view=live&run_id={$run.run_id}{if $run.backup_user_route_id|default:'' neq ''}&user_id={$run.backup_user_route_id|escape:'url'}{/if}" class="eb-btn eb-btn-primary eb-btn-xs">
                                         View Live
                                     </a>
                                 </td>
