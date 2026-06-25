@@ -254,9 +254,6 @@ final class JobQueueRepository
         $requeue = [];
         $exhausted = [];
         foreach ($rows as $row) {
-            if (Ms365BatchRunRepository::shouldSkipThrottleReaper($row, $now)) {
-                continue;
-            }
             $runId = (string) $row->run_id;
             $max = (int) $row->max_attempts > 0 ? (int) $row->max_attempts : 3;
             if ((int) $row->attempts >= $max) {

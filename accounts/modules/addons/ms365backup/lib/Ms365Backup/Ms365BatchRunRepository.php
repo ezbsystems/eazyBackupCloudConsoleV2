@@ -17,33 +17,11 @@ final class Ms365BatchRunRepository
      */
     private static ?bool $hasStatsJsonColumn = null;
 
-    /** Stale child workload threshold aligned with WorkerClaimService::reconcileZombieRuns(). */
-    private const STALE_CHILD_SECONDS = 120;
-
     /** Liveness window: worker is alive if progress/lease refreshed within this many seconds (≈4×45s heartbeat). */
     private const HEARTBEAT_GAP_SECONDS = 180;
 
     /** Reap running children with no progress posts for this long, even if the queue lease was renewed. */
     public const STALE_SILENCE_SECONDS = 1800;
-
-    /** Running workloads silent longer than this do not count against the per-tenant claim cap. */
-    public const STALLED_FOR_CAP_SECONDS = 180;
-
-    /** Upload phases: cap/throttle shield requires material progress within this window. */
-    public const UPLOAD_THROTTLE_PROGRESS_SECONDS = 600;
-
-    /**
-     * Graph-bound phases: throttle reaper shield requires material progress within this window.
-     * Aligns with worker progress_stall_seconds (default 600) so wedged graph_sync after a
-     * handful of 429s is not shielded for the full RECENT_THROTTLE_SECONDS window.
-     */
-    public const GRAPH_THROTTLE_MATERIAL_PROGRESS_SECONDS = 600;
-
-    /** Fail graph_sync (and similar) workloads stuck at zero items/bytes after this long. */
-    private const STALE_WEDGE_SECONDS = 1800;
-
-    /** Fail upload/snapshot phases with no progress posts for this long. */
-    public const STALE_UPLOAD_SECONDS = 2700;
 
     /**
      * Minimum seconds between persisted parent-row live snapshots for a batch.
@@ -57,14 +35,8 @@ final class Ms365BatchRunRepository
     /** Window for showing the Graph throttle badge after recent 429 activity. */
     private const GRAPH_THROTTLE_WINDOW_SECONDS = 120;
 
-      /** Recent Graph 429 activity + fresh lease = worker alive while waiting out throttling. */
-    public const RECENT_THROTTLE_SECONDS = 1200;
-
     /** Cached result of the parent updated_at column probe (per request). */
     private static ?bool $parentHasUpdatedAt = null;
-
-    /** @var array<int, string> tenant_record_id → azure_tenant_id (per reconcile pass) */
-    private static array $azureTenantIdCache = [];
 
     /**
      * @param array<string, mixed> $parent
@@ -230,7 +202,6 @@ final class Ms365BatchRunRepository
             return;
         }
 
-        $now = time();
         $cancelRequested = !empty($parentArr['cancel_requested']);
 
         if ($cancelRequested) {
@@ -238,18 +209,6 @@ final class Ms365BatchRunRepository
             BackupRunRepository::bulkCancelBatchChildren($batchRunId, $cancelledBy);
 
             return;
-        }
-
-        $queueByRun = self::queueRowsByChildId(array_column($children, 'id'));
-
-        foreach ($children as $child) {
-            $childId = (string) ($child['id'] ?? '');
-            if ($childId === '' || !self::shouldReapRunningChild($child, $queueByRun[$childId] ?? null, $now)) {
-                continue;
-            }
-            $message = 'Stale workload reconciled during batch sync';
-            (new ProgressLogger($childId))->warning($message);
-            WorkerClaimService::requeueBackupRuns([$childId], $message);
         }
 
         $children = self::getChildrenForBatch($batchRunId);
@@ -326,295 +285,12 @@ final class Ms365BatchRunRepository
         return ['batches' => $batches];
     }
 
-    /**
-     * @param array<string, mixed> $child
-     * @param array<string, mixed>|null $queue
-     */
-    private static function shouldReapRunningChild(array $child, ?array $queue, int $now): bool
-    {
-        if ((string) ($child['status'] ?? '') !== 'running') {
-            return false;
-        }
-        if (self::isUploadStalled($child, $now, $queue)) {
-            return true;
-        }
-        if (self::isThrottledWaitingAlive($child, $queue, $now)) {
-            return false;
-        }
-        if (self::isWedgeStuck($child, $now, $queue)) {
-            return true;
-        }
-        $progressAt = self::progressFreshnessAt($child);
-        if ($progressAt > 0 && ($now - $progressAt) >= self::STALE_SILENCE_SECONDS) {
-            return true;
-        }
-        if (self::isWorkerAlive($child, $queue, $now)) {
-            return false;
-        }
-        $updatedAt = (int) ($child['updated_at'] ?? 0);
-        if ($updatedAt >= ($now - self::STALE_CHILD_SECONDS)) {
-            return false;
-        }
-
-        return true;
-    }
-
     /** True when the workload phase depends on Microsoft Graph (not object-storage upload). */
     public static function isGraphBoundPhase(string $phase): bool
     {
         $phase = strtolower(trim($phase));
 
         return $phase === '' || $phase === 'graph_sync' || $phase === 'prior_snapshot';
-    }
-
-    /** Upload / snapshot phases use a shorter material-progress window than graph_sync. */
-    public static function isUploadLikePhase(string $phase): bool
-    {
-        $phase = strtolower(trim($phase));
-
-        return str_contains($phase, 'upload')
-            || str_contains($phase, 'kopia')
-            || str_contains($phase, 'snapshot');
-    }
-
-    public static function maxThrottleShieldProgressAgeSeconds(string $phase): int
-    {
-        return self::isUploadLikePhase($phase)
-            ? self::UPLOAD_THROTTLE_PROGRESS_SECONDS
-            : self::STALE_SILENCE_SECONDS;
-    }
-
-    /**
-     * Whether a graph-bound workload posted real progress recently enough to justify
-     * throttle reaper shielding (items/bytes/graph_requests), not heartbeat-only silence.
-     *
-     * @param array<string, mixed> $child
-     */
-    public static function hasMaterialGraphProgressRecently(array $child, int $now, string $phase): bool
-    {
-        if (!self::isGraphBoundPhase($phase)) {
-            return true;
-        }
-        $progressAt = self::progressFreshnessAt($child);
-        if ($progressAt <= 0) {
-            return false;
-        }
-
-        return ($now - $progressAt) < self::GRAPH_THROTTLE_MATERIAL_PROGRESS_SECONDS;
-    }
-
-    /**
-     * Run is actively waiting out Graph throttling (recent 429 + fresh worker lease).
-     * Tenant-wide throttle signals only shield this workload while it still shows
-     * recent progress; siblings' 429s must not pin cap slots or block reapers on
-     * individually wedged runs (heartbeat-only throttle loops included).
-     *
-     * @param array<string, mixed> $child
-     * @param array<string, mixed>|null $queue
-     */
-    public static function isThrottledWaitingAlive(array $child, ?array $queue, int $now): bool
-    {
-        if (!is_array($queue)
-            || (string) ($queue['status'] ?? '') !== 'running'
-            || (int) ($queue['lease_expires_at'] ?? 0) <= $now) {
-            return false;
-        }
-
-        $progressAt = self::progressFreshnessAt($child);
-        $progressAgeSeconds = $progressAt > 0 ? ($now - $progressAt) : PHP_INT_MAX;
-        $phase = strtolower(trim((string) ($child['phase'] ?? '')));
-        if ($progressAgeSeconds >= self::maxThrottleShieldProgressAgeSeconds($phase)) {
-            return false;
-        }
-
-        if (Capsule::schema()->hasColumn('ms365_backup_runs', 'last_429_at')) {
-            $last429At = (int) ($child['last_429_at'] ?? 0);
-            if ($last429At > 0
-                && ($now - $last429At) <= self::RECENT_THROTTLE_SECONDS
-                && self::isGraphBoundPhase($phase)
-                && self::hasMaterialGraphProgressRecently($child, $now, $phase)) {
-                return true;
-            }
-        }
-
-        if (!self::isGraphBoundPhase($phase)) {
-            return false;
-        }
-
-        $tenantRecordId = (int) ($child['tenant_record_id'] ?? 0);
-        if ($tenantRecordId > 0
-            && self::hasMaterialGraphProgressRecently($child, $now, $phase)) {
-            $azureTenantId = self::azureTenantIdForTenantRecord($tenantRecordId);
-            if ($azureTenantId !== ''
-                && GraphTenantBudgetService::recentlyThrottled($azureTenantId, $now, self::RECENT_THROTTLE_SECONDS)) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    /**
-     * @param object|array<string, mixed> $row Queue/run join row with optional last_429_at, tenant_record_id, lease_expires_at.
-     */
-    public static function isThrottledWaitingAliveFromRow(object|array $row, int $now): bool
-    {
-        $leaseExpires = (int) (is_array($row) ? ($row['lease_expires_at'] ?? 0) : ($row->lease_expires_at ?? 0));
-        if ($leaseExpires <= $now) {
-            return false;
-        }
-
-        $progressAt = self::progressFreshnessAt(is_array($row) ? $row : (array) $row);
-        $progressAgeSeconds = $progressAt > 0 ? ($now - $progressAt) : PHP_INT_MAX;
-        $phase = strtolower(trim((string) (is_array($row) ? ($row['phase'] ?? '') : ($row->phase ?? ''))));
-        if ($progressAgeSeconds >= self::maxThrottleShieldProgressAgeSeconds($phase)) {
-            return false;
-        }
-
-        if (Capsule::schema()->hasColumn('ms365_backup_runs', 'last_429_at')) {
-            $last429At = (int) (is_array($row) ? ($row['last_429_at'] ?? 0) : ($row->last_429_at ?? 0));
-            $child = is_array($row) ? $row : (array) $row;
-            if ($last429At > 0
-                && ($now - $last429At) <= self::RECENT_THROTTLE_SECONDS
-                && self::isGraphBoundPhase($phase)
-                && self::hasMaterialGraphProgressRecently($child, $now, $phase)) {
-                return true;
-            }
-        }
-
-        if (!self::isGraphBoundPhase($phase)) {
-            return false;
-        }
-
-        $tenantRecordId = (int) (is_array($row) ? ($row['tenant_record_id'] ?? 0) : ($row->tenant_record_id ?? 0));
-        $child = is_array($row) ? $row : (array) $row;
-        if ($tenantRecordId > 0
-            && self::hasMaterialGraphProgressRecently($child, $now, $phase)) {
-            $azureTenantId = self::azureTenantIdForTenantRecord($tenantRecordId);
-            if ($azureTenantId !== ''
-                && GraphTenantBudgetService::recentlyThrottled($azureTenantId, $now, self::RECENT_THROTTLE_SECONDS)) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    /**
-     * Whether a running child should occupy a per-tenant workload claim slot.
-     * Stalled workloads (no progress while not throttle-waiting) and exhausted
-     * queue attempts are excluded so wedged whales do not pin the cap at max.
-     *
-     * @param array<string, mixed> $child
-     * @param array<string, mixed>|null $queue
-     */
-    public static function countsAgainstTenantWorkloadCap(array $child, ?array $queue, int $now): bool
-    {
-        if ((string) ($child['status'] ?? '') !== 'running') {
-            return false;
-        }
-        if (is_array($queue) && (string) ($queue['status'] ?? '') === 'running') {
-            $maxAttempts = (int) ($queue['max_attempts'] ?? 0) > 0 ? (int) $queue['max_attempts'] : 3;
-            if ((int) ($queue['attempts'] ?? 0) >= $maxAttempts) {
-                return false;
-            }
-        }
-        $progressAt = self::progressFreshnessAt($child);
-        if ($progressAt <= 0) {
-            return true;
-        }
-        $ageSeconds = $now - $progressAt;
-        $phase = strtolower(trim((string) ($child['phase'] ?? '')));
-        if ($ageSeconds >= self::maxThrottleShieldProgressAgeSeconds($phase)) {
-            return false;
-        }
-        if ($ageSeconds < self::STALLED_FOR_CAP_SECONDS) {
-            return true;
-        }
-        if (self::isThrottledWaitingAlive($child, $queue, $now)) {
-            return true;
-        }
-
-        return false;
-    }
-
-    /**
-     * Skip infrastructure reapers when the tenant is throttled and the worker node is still alive.
-     *
-     * @param object|array<string, mixed> $row Queue/run join row with optional last_429_at, tenant_record_id, worker_node_id, lease_expires_at.
-     */
-    public static function shouldSkipThrottleReaper(object|array $row, int $now): bool
-    {
-        if (self::isThrottledWaitingAliveFromRow($row, $now)) {
-            return true;
-        }
-        if (!self::isWorkerNodeAliveFromRow($row, $now)) {
-            return false;
-        }
-        if (Capsule::schema()->hasColumn('ms365_backup_runs', 'last_429_at')) {
-            $last429At = (int) (is_array($row) ? ($row['last_429_at'] ?? 0) : ($row->last_429_at ?? 0));
-            $phase = strtolower(trim((string) (is_array($row) ? ($row['phase'] ?? '') : ($row->phase ?? ''))));
-            $child = is_array($row) ? $row : (array) $row;
-            if ($last429At > 0 && ($now - $last429At) <= self::RECENT_THROTTLE_SECONDS) {
-                if (!self::isGraphBoundPhase($phase)
-                    || self::hasMaterialGraphProgressRecently($child, $now, $phase)) {
-                    return true;
-                }
-            }
-        }
-        $phase = strtolower(trim((string) (is_array($row) ? ($row['phase'] ?? '') : ($row->phase ?? ''))));
-        if (!self::isGraphBoundPhase($phase)) {
-            return false;
-        }
-        $child = is_array($row) ? $row : (array) $row;
-        if (!self::hasMaterialGraphProgressRecently($child, $now, $phase)) {
-            return false;
-        }
-        $tenantRecordId = (int) (is_array($row) ? ($row['tenant_record_id'] ?? 0) : ($row->tenant_record_id ?? 0));
-        if ($tenantRecordId > 0) {
-            $azureTenantId = self::azureTenantIdForTenantRecord($tenantRecordId);
-            if ($azureTenantId !== ''
-                && GraphTenantBudgetService::recentlyThrottled($azureTenantId, $now, self::RECENT_THROTTLE_SECONDS)) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    /**
-     * @param object|array<string, mixed> $row
-     */
-    public static function isWorkerNodeAliveFromRow(object|array $row, int $now): bool
-    {
-        $nodeId = trim((string) (is_array($row) ? ($row['worker_node_id'] ?? '') : ($row->worker_node_id ?? '')));
-        if ($nodeId === '' || !Capsule::schema()->hasTable('ms365_worker_nodes')) {
-            return false;
-        }
-        $heartbeat = Capsule::table('ms365_worker_nodes')->where('node_id', $nodeId)->value('last_heartbeat_at');
-        if ($heartbeat === null) {
-            return false;
-        }
-
-        return (int) $heartbeat >= ($now - self::HEARTBEAT_GAP_SECONDS);
-    }
-
-    private static function azureTenantIdForTenantRecord(int $tenantRecordId): string
-    {
-        if ($tenantRecordId <= 0) {
-            return '';
-        }
-        if (!array_key_exists($tenantRecordId, self::$azureTenantIdCache)) {
-            $record = TenantRecordRepository::getById($tenantRecordId);
-            if ($record === null) {
-                self::$azureTenantIdCache[$tenantRecordId] = '';
-            } else {
-                $creds = TenantRecordRepository::resolvedCredentialsForRecord($record);
-                self::$azureTenantIdCache[$tenantRecordId] = trim((string) ($creds['tenant_id'] ?? ''));
-            }
-        }
-
-        return self::$azureTenantIdCache[$tenantRecordId];
     }
 
     /**
@@ -653,42 +329,6 @@ final class Ms365BatchRunRepository
         }
 
         return false;
-    }
-
-    /** @param array<string, mixed> $child */
-    private static function isWedgeStuck(array $child, int $now, ?array $queue): bool
-    {
-        if ((string) ($child['status'] ?? '') !== 'running') {
-            return false;
-        }
-        if (self::isThrottledWaitingAlive($child, $queue, $now)) {
-            return false;
-        }
-        $startedAt = (int) ($child['started_at'] ?? 0);
-        if ($startedAt <= 0 || ($now - $startedAt) < self::STALE_WEDGE_SECONDS) {
-            return false;
-        }
-
-        return (int) ($child['items_done'] ?? 0) === 0
-            && (int) ($child['bytes_hashed'] ?? 0) === 0;
-    }
-
-    /** @param array<string, mixed> $child */
-    private static function isUploadStalled(array $child, int $now, ?array $queue): bool
-    {
-        if ((string) ($child['status'] ?? '') !== 'running') {
-            return false;
-        }
-        $phase = strtolower((string) ($child['phase'] ?? ''));
-        if ($phase === ''
-            || (!str_contains($phase, 'upload')
-                && !str_contains($phase, 'kopia')
-                && !str_contains($phase, 'snapshot'))) {
-            return false;
-        }
-        $progressAt = self::progressFreshnessAt($child);
-
-        return $progressAt > 0 && ($now - $progressAt) >= self::STALE_UPLOAD_SECONDS;
     }
 
     public static function syncForChildRun(string $childRunId): void

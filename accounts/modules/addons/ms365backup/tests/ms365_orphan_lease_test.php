@@ -108,41 +108,6 @@ $now = time();
 $runIds = [];
 
 try {
-    $freshLeaseRunId = test_uuid('fresh-lease');
-    $runIds[] = $freshLeaseRunId;
-    insertTestRun($freshLeaseRunId, ['updated_at' => $now - 300]);
-    insertTestQueue($freshLeaseRunId, $nodeId, ['lease_expires_at' => $now + 3600]);
-    WorkerClaimService::releaseOrphanedClaimsForNode($nodeId, 0, 120);
-    assert_true(
-        queueStatus($freshLeaseRunId) === 'running',
-        'Fresh-lease running claim on idle node is not orphan-reclaimed',
-    );
-
-    $expiredLeaseRunId = test_uuid('expired-lease');
-    $runIds[] = $expiredLeaseRunId;
-    insertTestRun($expiredLeaseRunId, ['updated_at' => $now - 300]);
-    insertTestQueue($expiredLeaseRunId, $nodeId, ['lease_expires_at' => $now - 60]);
-    WorkerClaimService::releaseOrphanedClaimsForNode($nodeId, 0, 120);
-    assert_true(
-        queueStatus($expiredLeaseRunId) === 'queued',
-        'Expired-lease running claim on idle node is orphan-reclaimed',
-    );
-
-    if (Capsule::schema()->hasColumn('ms365_backup_runs', 'last_429_at')) {
-        $throttledRunId = test_uuid('throttled');
-        $runIds[] = $throttledRunId;
-        insertTestRun($throttledRunId, [
-            'updated_at' => $now - 300,
-            'last_429_at' => $now - 120,
-        ]);
-        insertTestQueue($throttledRunId, $nodeId, ['lease_expires_at' => $now + 3600]);
-        WorkerClaimService::releaseOrphanedClaimsForNode($nodeId, 0, 120);
-        assert_true(
-            queueStatus($throttledRunId) === 'running',
-            'Throttled-waiting claim with fresh lease is skipped by orphan reclaim',
-        );
-    }
-
     $completeRunId = test_uuid('complete');
     $runIds[] = $completeRunId;
     insertTestRun($completeRunId, [

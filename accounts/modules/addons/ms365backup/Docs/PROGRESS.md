@@ -2,15 +2,57 @@
 
 **Purpose:** Single handoff document so the next agent knows where work stopped. Update this file at the **end of every session** (or after each meaningful milestone).
 
-**Last updated:** 2026-06-24  
-**Module version (ms365backup):** 1.50.0  
-**Worker version (ms365-backup-worker):** 0.3.16
+**Last updated:** 2026-06-25  
+**Module version (ms365backup):** 1.52.0  
+**Worker version (ms365-backup-worker):** 0.3.27
 
 ---
 
 ## Session log
 
-### 2026-06-25 — Tenant-owner redesign (design doc + plan; claim unit → tenant batch)
+### 2026-06-25 — Tenant-owner claim Phases 2 + 5 (Go batch runner + PHP cleanup)
+
+- **Phase 2 (worker 0.3.27):** Go `BatchRunner` + scheduler claims `ms365_worker_batch_claim.php`; coalesced
+  `BatchProgress`/`BatchComplete`/`BatchRelease`; restore stays per-run `Claim`. Tests green in
+  `internal/jobs/`.
+- **Phase 5 (PHP 1.52.0):** Removed per-child backup reaper suite (`releaseOrphanedClaimsFor*`,
+  `reconcileZombieRuns`, `reconcileExhaustedRunningClaims`, `recoverStaleRunning` from claim path,
+  `countRunningForTenant`, backup fair-claim pool, per-child tenant `GET_LOCK` in
+  `WorkerClaimService`). Removed throttle-shield apparatus from `Ms365BatchRunRepository`
+  (`shouldReapRunningChild`, `isThrottledWaitingAlive*`, `shouldSkipThrottleReaper`,
+  `countsAgainstTenantWorkloadCap`). Deleted `Ms365EngineConfig::perTenantMaxConcurrentWorkloads()`.
+  `GraphTenantBudgetService::workerShare` returns full tenant ceiling (advisory only).
+  Per-run worker endpoints (`progress`/`complete`/`fail`/`release`) are **restore-only**; backup uses
+  batch endpoints. Fleet cron + `fleet_release_leases` call `Ms365BatchClaimRepository::reapStaleBatches()`.
+  Deleted `ms365_tenant_throttle_liveness_test.php`, `ms365_reaper_throttle_test.php`,
+  `ms365_exhausted_claim_liveness_test.php`.
+- **Phase 3 rollout (ops, not executed here):** Deploy worker **0.3.27** to **one** canary fleet node via
+  Deployments tab; leave other nodes on prior binary until soak passes. Run one whale tenant batch + a
+  multi-tenant mix. Verify: zero `Recovering this workload`, zero `Run is not active.`, exactly one batch
+  lease/heartbeat in `ms365_batch_claims`, progress POST volume down ≥10× vs per-child path, tail-end
+  completes with no stranded `Queued`.
+- **Phase 4 rollout (ops, not executed here):** Roll **0.3.27** fleet-wide from Deployments tab; soak
+  several whale + tail-end runs; monitor Worker Fleet dashboard (queue depth, batch claim heartbeats).
+
+### 2026-06-25 — Tenant-owner claim Phases 0–1 (PHP control plane cutover)
+
+- **Phase 0:** Migration `sql/upgrade_phase22_tenant_owner.sql` creates `ms365_batch_claims` (batch lease,
+  heartbeat, attempts, `running_tenant_key` unique index for one running batch per tenant). Module version
+  **1.51.0**. `Ms365EngineConfig`: `batchHeartbeatGapSeconds()` (180), `maxBatchesPerNode()` (1),
+  `batchMaxAttempts()` (5).
+- **Phase 1 (direct cutover, no feature flag):** New `Ms365BatchClaimRepository` (enqueue, atomic
+  `claimForNode` under per-tenant `GET_LOCK`, renew/progress/complete/fail/release, `reapStaleBatches` with
+  heartbeat-gap + lease backstop). `WorkerClaimService::claimNextBatch` + `buildBatchPayload` with
+  `children[]`; `claimNext` is **restore-only**; backup workers use `ms365_worker_batch_claim.php`.
+  `CustomerBackupService::startCustomBackup` enqueues batch claim after child queue rows. Batch API endpoints:
+  `ms365_worker_batch_claim/progress/complete/release.php`. `WorkerLeaseService::renewForBatch`;
+  `Ms365RestoreWorkerHooks::onBatchProgress/onBatchComplete` (per-child progress without per-child lease
+  renewal). `refreshGraphTokenForRun` authorizes by live batch lease; inactive runs return soft
+  `retry_after` instead of 500. `GraphTenantBudgetService::workerShare` returns full tenant ceiling (no
+  division). Tests: `tests/ms365_batch_claim_test.php`.
+- **Next:** Phase 3 canary deploy (ops) — see rollout notes above.
+
+### 2026-06-25 — Tenant-owner redesign (design doc + plan)
 
 - **Decision:** The fleet-of-workers-per-tenant claim model is the root cause of the recurring
   reaper/throttle/zombie firefight (the `Recovering this workload` flapping and
@@ -27,7 +69,7 @@
   reversible rollout; both protocols coexist until the cleanup phase.
 - **Mitigation skipped (per product owner):** product is pre-GA, so we go straight to the structural
   change rather than patching the current reaper race first.
-- **Status:** Design only — not yet implemented. Next: Phase 0 scaffolding (migration + flag).
+- **Status:** Implemented — see Phases 0–2 + 5 entries above.
 
 ### 2026-06-24 — Live page UI polish (e3 MS365 batch)
 

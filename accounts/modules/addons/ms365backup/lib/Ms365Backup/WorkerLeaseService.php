@@ -88,6 +88,36 @@ final class WorkerLeaseService
         return $query->update(['lease_expires_at' => $lease]);
     }
 
+    public static function renewForBatch(string $batchRunId, ?string $workerNodeId = null): bool
+    {
+        $batchRunId = trim($batchRunId);
+        if ($batchRunId === '' || !Ms365BatchClaimRepository::tableReady()) {
+            return false;
+        }
+
+        $now = time();
+        $lease = $now + Ms365EngineConfig::leaseSeconds();
+        $renewThreshold = $lease - self::MIN_RUN_RENEW_INTERVAL;
+        $query = Capsule::table('ms365_batch_claims')
+            ->where('batch_run_id', $batchRunId)
+            ->where('status', 'running')
+            ->where(function ($q) use ($renewThreshold) {
+                $q->whereNull('lease_expires_at')
+                    ->orWhere('lease_expires_at', '<', $renewThreshold);
+            });
+        if ($workerNodeId !== null && $workerNodeId !== '') {
+            $query->where('worker_node_id', $workerNodeId);
+        }
+
+        $renewed = $query->update([
+            'lease_expires_at' => $lease,
+            'last_heartbeat_at' => $now,
+            'updated_at' => $now,
+        ]) > 0;
+
+        return $renewed;
+    }
+
     public static function leaseExpiresAt(string $runId): int
     {
         if ($runId === '') {

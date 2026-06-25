@@ -180,6 +180,39 @@ func TestHeartbeatAppliesBudget(t *testing.T) {
 	}
 }
 
+func TestClaimBatchNull(t *testing.T) {
+	raw := []byte(`{"status":"success","data":{"batch":null}}`)
+	var out struct {
+		Batch *BatchJob `json:"batch"`
+	}
+	if err := decodeEnvelopeResponse(raw, &out); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if out.Batch != nil {
+		t.Fatalf("expected nil batch, got %+v", out.Batch)
+	}
+}
+
+func TestBatchProgressCancelRequested(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"success","data":{"cancel_requested":true,"graph_tenant_budget":16}}`))
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "tok", "node-1")
+	cancel, budget, err := c.BatchProgress(context.Background(), BatchProgressUpdate{
+		BatchRunID: "batch-1",
+		Children:   []ProgressUpdate{{RunID: "c1", Phase: "graph_sync"}},
+	})
+	if err != nil {
+		t.Fatalf("BatchProgress: %v", err)
+	}
+	if !cancel || budget != 16 {
+		t.Fatalf("cancel=%v budget=%d", cancel, budget)
+	}
+}
+
 func TestFetchConfig(t *testing.T) {
 	body := []byte("api:\n  base_url: https://example.test\nworker:\n  token: tok\n")
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

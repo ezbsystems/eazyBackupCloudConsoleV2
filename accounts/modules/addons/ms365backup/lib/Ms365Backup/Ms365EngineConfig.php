@@ -65,12 +65,6 @@ final class Ms365EngineConfig
         return max(1, (int) self::moduleSetting('ms365_per_tenant_max_concurrent', '16'));
     }
 
-    /** Max concurrent child workloads claimed per Entra tenant (distinct from Graph HTTP budget). */
-    public static function perTenantMaxConcurrentWorkloads(): int
-    {
-        return max(1, (int) self::moduleSetting('ms365_per_tenant_max_concurrent_workloads', '24'));
-    }
-
     public static function perClientMaxConcurrent(): int
     {
         return max(1, (int) self::moduleSetting('ms365_per_client_max_concurrent', '96'));
@@ -205,6 +199,24 @@ final class Ms365EngineConfig
     public static function fairSchedulingEnabled(): bool
     {
         return strtolower(trim(self::moduleSetting('ms365_fair_scheduling_enabled', '1'))) !== '0';
+    }
+
+    /** Seconds without batch heartbeat before the batch reaper requeues the whole batch. */
+    public static function batchHeartbeatGapSeconds(): int
+    {
+        return max(60, (int) self::moduleSetting('ms365_batch_heartbeat_gap_seconds', '180'));
+    }
+
+    /** Max tenant batches one worker node may own concurrently (default 1). */
+    public static function maxBatchesPerNode(): int
+    {
+        return max(1, (int) self::moduleSetting('ms365_max_batches_per_node', '1'));
+    }
+
+    /** Batch-level retry budget before terminal failure. */
+    public static function batchMaxAttempts(): int
+    {
+        return max(1, (int) self::moduleSetting('ms365_batch_max_attempts', '5'));
     }
 
     public static function batchAutoRetryEnabled(): bool

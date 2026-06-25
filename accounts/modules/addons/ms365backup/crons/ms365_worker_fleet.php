@@ -18,6 +18,7 @@ use Ms365Backup\Fleet\DeployService;
 use Ms365Backup\Fleet\FleetAlertService;
 use Ms365Backup\Fleet\FleetSettings;
 use Ms365Backup\Fleet\RetentionService;
+use Ms365Backup\Ms365BatchClaimRepository;
 use Ms365Backup\Ms365BatchRunRepository;
 use Ms365Backup\ProxmoxProvisioner;
 use Ms365Backup\WorkerClaimService;
@@ -27,12 +28,7 @@ try {
     WorkerNodeRepository::markOfflineStale(FleetSettings::staleHeartbeatSeconds());
     $reconciled = DeployService::reconcileStuckDeployStatuses();
     $ghostLoads = WorkerClaimService::reconcileGhostNodeLoads();
-    WorkerClaimService::releaseExpiredLeases();
-    WorkerClaimService::recoverStaleRunning();
-    foreach (WorkerNodeRepository::activeNodes() as $node) {
-        WorkerClaimService::releaseOrphanedClaimsForNode((string) $node['node_id'], (int) ($node['current_load'] ?? 0), 120);
-    }
-    $zombies = WorkerClaimService::reconcileZombieRuns(120);
+    $batchesReaped = Ms365BatchClaimRepository::reapStaleBatches();
     $erroredQueued = WorkerClaimService::reconcileQueuedErroredRuns();
     $activeBatches = Ms365BatchRunRepository::reconcileActiveBatches();
     FleetAlertService::checkOfflineNodes();
@@ -45,7 +41,7 @@ try {
         'result' => $result,
         'deploy_reconciled' => $reconciled,
         'ghost_loads_corrected' => $ghostLoads,
-        'zombies_reconciled' => $zombies,
+        'batches_reaped' => $batchesReaped,
         'errored_queued_failed' => $erroredQueued,
         'active_batches_reconciled' => $activeBatches,
         'telemetry_pruned' => $telemetryPruned,

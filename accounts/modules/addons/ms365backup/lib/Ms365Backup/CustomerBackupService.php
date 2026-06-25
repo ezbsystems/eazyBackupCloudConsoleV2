@@ -238,6 +238,7 @@ final class CustomerBackupService
                 $batchRunId,
             );
             JobQueueRepository::enqueueMany($runIds, 50);
+            Ms365BatchClaimRepository::enqueueBatch($batchRunId, $tenantRecordId, 50);
 
             if ($runIds === []) {
                 Ms365BatchRunRepository::finalize($batchRunId, 'failed');

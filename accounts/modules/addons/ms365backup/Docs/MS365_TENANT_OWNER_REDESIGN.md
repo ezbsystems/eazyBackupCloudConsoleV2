@@ -1,6 +1,6 @@
 # MS365 Backup — Tenant-Owner Redesign (claim unit: tenant batch)
 
-**Status:** Proposed (design + plan) — not yet implemented
+**Status:** Implemented (Phases 0–2, 5) — direct cutover, no feature flag. Phases 3–4 are operational rollout.
 **Author:** Architecture review, 2026-06-25
 **Supersedes (operationally):** the fleet-of-workers-per-tenant claim model documented in `MS365_WORKER_FLEET.md` §Concurrency / §Orphan claim recovery / §Zombie recovery
 **Scope:** Backup execution control plane (PHP) + Go worker scheduler. Does **not** change the e3 customer UI, inventory, Graph workload engines, Kopia repo layout, or restore wizard.
@@ -301,40 +301,30 @@ already caps a single tenant's effective throughput. Options in priority order:
 
 Each phase is independently shippable and reversible. The dev WHMCS + fleet are the test bed.
 
-### Phase 0 — Spec & scaffolding (no behavior change)
-- Land this doc; add `ms365_batch_claims` migration (`sql/upgrade_phaseNN_tenant_owner.sql`) **unused**.
-- Add a feature flag `ms365_claim_unit` = `child` (default) | `batch` in addon settings.
-- Add `FleetSettings`/`Ms365EngineConfig` accessor for the flag.
+### Phase 0 — Spec & scaffolding ✅ (1.51.0)
+- `ms365_batch_claims` migration; `Ms365EngineConfig` batch accessors.
 
-### Phase 1 — Control-plane batch claim (behind flag)
-- Implement `claimNextBatch`, batch lease in `ms365_batch_claims`, batch reaper, and the new
-  `ms365_worker_batch_*.php` endpoints.
-- Keep the old per-child path fully working when flag = `child`.
-- PHP unit tests: batch claim atomicity, single-owner-per-tenant invariant, batch reaper requeue/terminal,
-  fair batch ranking, token-refresh authorized-by-lease.
+### Phase 1 — Control-plane batch claim ✅ (1.51.0, direct cutover)
+- `claimNextBatch`, batch lease, batch reaper, `ms365_worker_batch_*.php` endpoints.
+- `claimNext` restore-only for backup workers.
 
-### Phase 2 — Worker `BatchRunner` (behind worker config)
-- New `internal/jobs/batch_runner.go` + `ClaimBatch`/`BatchProgress`/`BatchComplete`/`BatchRelease` API
-  client methods; reuse `Runner.Run` per child unchanged.
-- Worker reads claim-unit mode from claim response (control plane tells the worker which protocol to use),
-  so a mixed fleet during rollout is safe.
-- Go tests: batch runner runs N children, resumes skipping `success` children, single tenant controller,
-  coalesced progress, drain hand-off releases batch with checkpoints intact.
+### Phase 2 — Worker `BatchRunner` ✅ (0.3.27)
+- `internal/jobs/batch_runner.go` + batch API client; scheduler claims batch (1/node).
 
-### Phase 3 — Shadow / canary
-- Flip `ms365_claim_unit=batch` for **one** test tenant (or a canary worker) on dev.
-- Run the whale batch (`39b9838c…`-class) and a multi-tenant mix.
-- Verify: no `Recovering this workload`, no `Run is not active.`, one heartbeat per batch, DB POST volume
-  down by ~1–2 orders of magnitude, throttle handled entirely in-worker.
+### Phase 3 — Canary (ops)
+- Deploy **0.3.27** to one fleet node; whale + multi-tenant soak on dev.
 
-### Phase 4 — Fleet rollout
-- Flip the flag fleet-wide on dev; soak across several whale + tail-end runs.
-- Roll the worker binary that defaults to batch protocol.
+### Phase 4 — Fleet rollout (ops)
+- Roll **0.3.27** fleet-wide via Deployments tab.
 
-### Phase 5 — Remove dead code
-- Delete the per-child reaper suite, budget division, `perTenantMaxConcurrentWorkloads`, and the
-  threshold zoo (§4.5). Demote `ms365_job_queue` per-row lease columns to child-manifest only.
-- Update `MS365_WORKER_FLEET.md`, `ARCHITECTURE.md`, `PROGRESS.md`.
+### Phase 5 — Remove dead code ✅ (1.52.0)
+- Per-child reaper suite, throttle-shield apparatus, `perTenantMaxConcurrentWorkloads`, budget division removed.
+- Per-run worker APIs restore-only; docs updated.
+
+**Deferred whale escape hatch (design only):** If a single CT cannot hold one whale batch, split by a
+**static partition key** — e.g. `resource_type` band (`user`/`drive` vs `site`) or hashed `physical_key`
+range — with **disjoint** child sets per owner (not dynamic DB budget division). Partition key to be chosen
+when/if vertical sizing is insufficient; not built in Phases 0–5.
 
 ### Phase 6 — (optional) coordination off MySQL
 - Only if batch-level POST volume still pressures the DB: move the high-frequency owner heartbeat/progress

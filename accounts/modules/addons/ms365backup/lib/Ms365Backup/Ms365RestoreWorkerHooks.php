@@ -22,13 +22,65 @@ final class Ms365RestoreWorkerHooks
     }
 
     /** @param array<string, mixed> $body */
-    public static function onProgress(string $runId, array $body): int
+    public static function onProgress(string $runId, array $body, bool $renewLease = true): int
     {
         if (RestoreRunRepository::isRestoreRun($runId)) {
             return self::restoreProgress($runId, $body);
         }
 
-        return self::backupProgress($runId, $body);
+        return self::backupProgress($runId, $body, $renewLease);
+    }
+
+    /**
+     * Batched backup progress: one batch lease renewal, per-child progress without per-child leases.
+     *
+     * @param list<array<string, mixed>> $children
+     */
+    public static function onBatchProgress(string $batchRunId, string $nodeId, array $children): int
+    {
+        if ($batchRunId === '' || $nodeId === '') {
+            return 0;
+        }
+        WorkerLeaseService::renewForBatch($batchRunId, $nodeId);
+        Ms365BatchClaimRepository::recordProgress($batchRunId, $nodeId);
+
+        $graphTenantBudget = 0;
+        foreach ($children as $childBody) {
+            if (!is_array($childBody)) {
+                continue;
+            }
+            $runId = trim((string) ($childBody['run_id'] ?? ''));
+            if ($runId === '') {
+                continue;
+            }
+            if (Ms365RestoreWorkerHooks::isRunCancelled($runId)) {
+                continue;
+            }
+            $graphTenantBudget = max($graphTenantBudget, self::backupProgress($runId, $childBody, false));
+        }
+
+        return $graphTenantBudget;
+    }
+
+    /**
+     * @param list<array<string, mixed>> $children
+     */
+    public static function onBatchComplete(string $batchRunId, string $nodeId, array $children): void
+    {
+        foreach ($children as $childBody) {
+            if (!is_array($childBody)) {
+                continue;
+            }
+            $runId = trim((string) ($childBody['run_id'] ?? ''));
+            if ($runId === '') {
+                continue;
+            }
+            self::backupComplete($runId, $childBody);
+        }
+        if ($batchRunId !== '' && $nodeId !== '') {
+            Ms365BatchClaimRepository::complete($batchRunId, $nodeId);
+            Ms365BatchRunRepository::syncFromChildren($batchRunId);
+        }
     }
 
     /** @param array<string, mixed> $body */
@@ -53,7 +105,7 @@ final class Ms365RestoreWorkerHooks
     }
 
     /** @param array<string, mixed> $body */
-    private static function backupProgress(string $runId, array $body): int
+    private static function backupProgress(string $runId, array $body, bool $renewLease = true): int
     {
         $rawPhase = (string) ($body['phase'] ?? '');
         $message = (string) ($body['message'] ?? $rawPhase);
@@ -122,8 +174,10 @@ final class Ms365RestoreWorkerHooks
                     $uploadFields['last_progress_at'] = time();
                 }
                 BackupRunRepository::update($runId, $uploadFields);
-                WorkerLeaseService::renewForRun($runId);
-                self::clearQueueOperationalMessage($runId);
+                if ($renewLease) {
+                    WorkerLeaseService::renewForRun($runId);
+                }
+                WorkerClaimService::clearQueueOperationalMessage($runId);
             }
 
             return $azureTenantId !== ''
@@ -257,17 +311,21 @@ final class Ms365RestoreWorkerHooks
         BackupRunRepository::update($runId, $fields);
 
         if (!$isHeartbeat) {
-            WorkerLeaseService::renewForRun($runId);
-            self::clearQueueOperationalMessage($runId);
+            if ($renewLease) {
+                WorkerLeaseService::renewForRun($runId);
+            }
+            WorkerClaimService::clearQueueOperationalMessage($runId);
         } elseif (Ms365BatchRunRepository::isUploadLikePhase($effectivePhase)) {
-            WorkerLeaseService::renewForRun($runId);
+            if ($renewLease) {
+                WorkerLeaseService::renewForRun($runId);
+            }
             if (\WHMCS\Database\Capsule::schema()->hasColumn('ms365_backup_runs', 'last_progress_at')) {
                 BackupRunRepository::update($runId, [
                     'updated_at' => time(),
                     'last_progress_at' => time(),
                 ]);
             }
-            self::clearQueueOperationalMessage($runId);
+            WorkerClaimService::clearQueueOperationalMessage($runId);
         }
 
         if ($azureTenantId !== '') {

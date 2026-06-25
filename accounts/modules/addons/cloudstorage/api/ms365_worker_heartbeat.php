@@ -45,7 +45,6 @@ try {
     if ($configVersion > 0 || $configError !== '') {
         WorkerConfigService::reconcileFromHeartbeat($nodeId, $configVersion, $configError);
     }
-    WorkerClaimService::releaseOrphanedClaimsForNode($nodeId, $effectiveLoad, 120);
     WorkerClaimService::failOrphanedRestoreRunsForNode($nodeId, $effectiveLoad, 180);
     $activeClaims = WorkerClaimService::activeClaimRunIds($nodeId);
     if ($effectiveLoad > 0) {
