@@ -11,7 +11,15 @@ use WHMCS\Database\Capsule;
 final class GraphTenantBudgetService
 {
     /** Seconds without new 429s before budget/recent count decay toward recovery. */
-    private const DECAY_WINDOW_SECONDS = 600;
+    private const DECAY_WINDOW_SECONDS = 120;
+
+    /**
+     * Upper bound on recent_429_count. Without a cap it accumulated unbounded
+     * during long batches (observed 24, 67) because trickle 429s keep
+     * last_429_at fresh and block decay, which used to pin the budget floor to 1
+     * and serialize the whole tenant for hours.
+     */
+    private const RECENT_429_CAP = 12;
 
     public static function tableReady(): bool
     {
@@ -63,15 +71,16 @@ final class GraphTenantBudgetService
 
     private static function minBudget(int $max, int $recent429Count = 0): int
     {
-        $baseFloor = max(2, (int) floor($max / 4));
-        if ($recent429Count >= 20) {
-            return 1;
-        }
-        if ($recent429Count >= 10) {
-            return min(2, $baseFloor);
-        }
+        unset($recent429Count);
 
-        return $baseFloor;
+        // Never serialize a tenant. The worker's per-request adaptive controller
+        // (AIMD + Retry-After backoff) is the correct fine-grained throttle
+        // response; the fleet budget is only a coordination ceiling. Flooring
+        // the budget to 1 forced the worker tenant controller ceiling to 1,
+        // which serialized every workload in the batch through a single Graph
+        // request (~0 CPU "stall") and prevented the worker AIMD from recovering.
+        // Keep enough headroom for the controller to operate and climb back.
+        return max(2, (int) floor($max / 4));
     }
 
     private static function growStep(int $max, int $budget): int
@@ -159,7 +168,7 @@ final class GraphTenantBudgetService
             $insert = [
                 'azure_tenant_id' => $azureTenantId,
                 'graph_budget' => max($floor, $max - max(4, min(8, $delta429) * 2)),
-                'recent_429_count' => $delta429,
+                'recent_429_count' => min(self::RECENT_429_CAP, $delta429),
                 'updated_at' => $now,
             ];
             if (self::hasLast429AtColumn()) {
@@ -169,14 +178,14 @@ final class GraphTenantBudgetService
 
             return;
         }
-        $recent429 = (int) ($row->recent_429_count ?? 0) + $delta429;
+        $recent429 = min(self::RECENT_429_CAP, (int) ($row->recent_429_count ?? 0) + $delta429);
         $floor = self::minBudget($max, $recent429);
         $budget = (int) ($row->graph_budget ?? $max);
         $shrinkBy = self::shrinkStep($budget, $delta429, $floor);
         $budget = max($floor, $budget - $shrinkBy);
         $update = [
             'graph_budget' => $budget,
-            'recent_429_count' => (int) ($row->recent_429_count ?? 0) + $delta429,
+            'recent_429_count' => $recent429,
             'updated_at' => $now,
         ];
         if (self::hasLast429AtColumn()) {

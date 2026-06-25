@@ -31,24 +31,27 @@ function assert_true(bool $cond, string $message): void
 $budgetClass = new ReflectionClass(GraphTenantBudgetService::class);
 
 $decayWindow = $budgetClass->getConstant('DECAY_WINDOW_SECONDS');
-assert_true($decayWindow === 600, 'Decay window is 600s (slow recovery)');
+assert_true($decayWindow === 120, 'Decay window is 120s (recovers in minutes, not hours)');
 
 $minBudget = $budgetClass->getMethod('minBudget');
 $minBudget->setAccessible(true);
 assert_true($minBudget->invoke(null, 16) === 4, 'minBudget floor is max/4 for default max=16');
-assert_true($minBudget->invoke(null, 16, 10) === 2, 'minBudget drops to 2 under sustained recent_429_count');
-assert_true($minBudget->invoke(null, 16, 20) === 1, 'minBudget drops to 1 under heavy recent_429_count');
+assert_true($minBudget->invoke(null, 16, 10) === 4, 'minBudget never collapses under sustained recent_429_count');
+assert_true($minBudget->invoke(null, 16, 20) === 4, 'minBudget never serializes to 1 even under heavy recent_429_count');
+assert_true($minBudget->invoke(null, 12, 24) === 3, 'minBudget for max=12 stays at 3 (the regression that pinned budget=1)');
 
 $shrinkStep = $budgetClass->getMethod('shrinkStep');
 $shrinkStep->setAccessible(true);
 $floor = $minBudget->invoke(null, 16);
-$floorHard = $minBudget->invoke(null, 16, 20);
 $shrinkLarge = (int) $shrinkStep->invoke(null, 16, 5, $floor);
 assert_true($shrinkLarge >= 4, 'Large delta429 shrinks budget aggressively');
 $shrinkSmall = (int) $shrinkStep->invoke(null, 8, 1, $floor);
 assert_true($shrinkSmall >= 2, 'Single 429 still shrinks by at least 2');
-$shrinkAtFloor = (int) $shrinkStep->invoke(null, 2, 5, $floorHard);
-assert_true($shrinkAtFloor <= 1, 'Hard-throttle floor allows budget to reach 1');
+$shrinkAtFloor = (int) $shrinkStep->invoke(null, 4, 5, $floor);
+assert_true($shrinkAtFloor === 0, 'Budget cannot shrink below the non-serializing floor');
+
+$recentCap = $budgetClass->getConstant('RECENT_429_CAP');
+assert_true($recentCap === 12, 'recent_429_count is capped to prevent unbounded accumulation');
 
 $growStep = $budgetClass->getMethod('growStep');
 $growStep->setAccessible(true);
