@@ -189,6 +189,53 @@ final class Ms365BatchClaimRepository
             ]) > 0;
     }
 
+    /**
+     * Complete any running batch claim on this node whose children are all in a
+     * terminal state (no queued/running children remain).
+     *
+     * A batch claim could otherwise stay 'running' forever after the batch
+     * finished — e.g. the worker process died/restarted before sending a
+     * terminal batch_complete, or the children were cancelled out-of-band. The
+     * node heartbeat renews such a claim's lease every cycle (it is still
+     * status='running'), so the stale-heartbeat reaper never fires and the
+     * zombie claim permanently occupies the per-node / per-tenant batch slot,
+     * blocking every subsequent batch for that tenant.
+     *
+     * @return int number of finished claims completed
+     */
+    public static function completeFinishedClaimsForNode(string $nodeId): int
+    {
+        if (!self::tableReady() || $nodeId === '') {
+            return 0;
+        }
+        $batchRunIds = self::activeBatchRunIdsForNode($nodeId);
+        $completed = 0;
+        foreach ($batchRunIds as $batchRunId) {
+            if (self::batchHasActiveChildren($batchRunId)) {
+                continue;
+            }
+            if (self::complete($batchRunId, $nodeId)) {
+                ++$completed;
+            }
+        }
+
+        return $completed;
+    }
+
+    private static function batchHasActiveChildren(string $batchRunId): bool
+    {
+        if ($batchRunId === '' || !Capsule::schema()->hasTable('ms365_backup_runs')) {
+            // Without a children table we cannot prove the batch is finished;
+            // err on the safe side and treat it as still active.
+            return true;
+        }
+
+        return Capsule::table('ms365_backup_runs')
+            ->where('e3_batch_run_id', $batchRunId)
+            ->whereIn('status', ['queued', 'running'])
+            ->exists();
+    }
+
     public static function fail(string $batchRunId, string $nodeId, string $message): bool
     {
         if (!self::tableReady() || $batchRunId === '' || $nodeId === '') {
