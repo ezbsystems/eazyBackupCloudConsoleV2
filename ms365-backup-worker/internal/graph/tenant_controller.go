@@ -54,6 +54,10 @@ type tenantController struct {
 	nextGrowAt         time.Time
 
 	throttleWaiters atomic.Int32
+
+	// #region agent log
+	acquireWaiters atomic.Int32 // goroutines currently blocked waiting for a slot
+	// #endregion
 }
 
 func normalizeControllerTenantID(tenantID string) string {
@@ -237,8 +241,20 @@ func (tc *tenantController) acquire(ctx context.Context) error {
 		tc.maybeGrowLocked(now)
 		tc.touchActivityLocked()
 
+		// #region agent log
+		waiting := false
+		// #endregion
 		for tc.inFlight >= tc.limit || now.Before(tc.cooldownUntil) {
+			// #region agent log
+			if !waiting {
+				waiting = true
+				tc.acquireWaiters.Add(1)
+			}
+			// #endregion
 			if ctx.Err() != nil {
+				// #region agent log
+				tc.acquireWaiters.Add(-1)
+				// #endregion
 				tc.mu.Unlock()
 				return ctx.Err()
 			}
@@ -262,11 +278,19 @@ func (tc *tenantController) acquire(ctx context.Context) error {
 				continue
 			}
 			if err := tc.waitLocked(ctx); err != nil {
+				// #region agent log
+				tc.acquireWaiters.Add(-1)
+				// #endregion
 				tc.mu.Unlock()
 				return err
 			}
 			now = time.Now()
 		}
+		// #region agent log
+		if waiting {
+			tc.acquireWaiters.Add(-1)
+		}
+		// #endregion
 		tc.inFlight++
 		tc.mu.Unlock()
 		return nil
@@ -407,6 +431,17 @@ func (tc *tenantController) snapshot() tenantControllerSnapshot {
 		Cooldown: tc.cooldownUntil,
 	}
 }
+
+// #region agent log
+// TenantControllerDebug reports live controller state for a tenant (debug only).
+func TenantControllerDebug(tenantID string) (limit, inFlight, waiters int, last429 time.Time, cooldownUntil time.Time) {
+	tc := getTenantController(tenantID)
+	tc.mu.Lock()
+	defer tc.mu.Unlock()
+	return tc.limit, tc.inFlight, int(tc.acquireWaiters.Load()), tc.last429, tc.cooldownUntil
+}
+
+// #endregion
 
 // LogTenantControllerState emits a structured heartbeat line for fleet observability.
 func LogTenantControllerState(tenantID string, requestsTotal, throttle429 int64) {
