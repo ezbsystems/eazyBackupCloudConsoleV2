@@ -45,6 +45,9 @@ final class Ms365RestoreWorkerHooks
         Ms365BatchClaimRepository::recordProgress($batchRunId, $nodeId);
 
         $graphTenantBudget = 0;
+        $tenantRecordId = 0;
+        $azureTenantId = '';
+        $sharedCumulative429 = 0;
         foreach ($children as $childBody) {
             if (!is_array($childBody)) {
                 continue;
@@ -57,7 +60,22 @@ final class Ms365RestoreWorkerHooks
                 continue;
             }
             Ms365BatchClaimRepository::promoteBatchChildToRunning($runId, $nodeId);
-            $graphTenantBudget = max($graphTenantBudget, self::backupProgress($runId, $childBody, false));
+            // Batch children share one graph.Client, so each reports the SAME
+            // cumulative 429 count. Suppress per-child budget recording here and
+            // record the shared client's throttle exactly once below (high-water
+            // mark) to avoid multiplying every 429 by the child count.
+            $graphTenantBudget = max($graphTenantBudget, self::backupProgress($runId, $childBody, false, false));
+            $sharedCumulative429 = max($sharedCumulative429, (int) ($childBody['graph_429_hits'] ?? 0));
+            if ($tenantRecordId === 0) {
+                $existing = BackupRunRepository::get($runId) ?? [];
+                $tenantRecordId = (int) ($existing['tenant_record_id'] ?? 0);
+                $azureTenantId = self::azureTenantIdForTenantRecord($tenantRecordId);
+            }
+        }
+
+        if ($azureTenantId !== '') {
+            GraphTenantBudgetService::recordSharedThrottle($tenantRecordId, $azureTenantId, $sharedCumulative429);
+            $graphTenantBudget = max($graphTenantBudget, GraphTenantBudgetService::workerShare($tenantRecordId, $azureTenantId));
         }
 
         return $graphTenantBudget;
@@ -113,7 +131,7 @@ final class Ms365RestoreWorkerHooks
     }
 
     /** @param array<string, mixed> $body */
-    private static function backupProgress(string $runId, array $body, bool $renewLease = true): int
+    private static function backupProgress(string $runId, array $body, bool $renewLease = true, bool $recordTenantThrottle = true): int
     {
         $rawPhase = (string) ($body['phase'] ?? '');
         $message = (string) ($body['message'] ?? $rawPhase);
@@ -171,7 +189,7 @@ final class Ms365RestoreWorkerHooks
                     }
                 }
                 BackupRunRepository::update($runId, $fields);
-                if ($azureTenantId !== '') {
+                if ($recordTenantThrottle && $azureTenantId !== '') {
                     GraphTenantBudgetService::recordTenant429($tenantRecordId, $azureTenantId, $delta429);
                 }
             } elseif (Ms365BatchRunRepository::isUploadLikePhase($effectivePhase)) {
@@ -336,7 +354,7 @@ final class Ms365RestoreWorkerHooks
             WorkerClaimService::clearQueueOperationalMessage($runId);
         }
 
-        if ($azureTenantId !== '') {
+        if ($recordTenantThrottle && $azureTenantId !== '') {
             GraphTenantBudgetService::recordTenant429($tenantRecordId, $azureTenantId, $delta429);
         }
 

@@ -69,6 +69,70 @@ final class GraphTenantBudgetService
         self::touchActiveWorkloads($tenantRecordId, $azureTenantId);
     }
 
+    private static function hasSharedCumulativeColumn(): bool
+    {
+        static $has = null;
+        if ($has === null) {
+            $has = self::tableReady() && Capsule::schema()->hasColumn('ms365_graph_tenant_budget', 'last_seen_429_cumulative');
+        }
+
+        return $has;
+    }
+
+    /**
+     * Record a batch's shared Graph client 429 activity exactly once per tenant.
+     *
+     * In batch mode all children share one graph.Client, so each child reports
+     * the same cumulative 429 count. Recording a per-child delta multiplied each
+     * real 429 by the number of active children, pinning recent_429_count to its
+     * cap and continuously refreshing last_429_at (blocking decay/recovery).
+     * Here we track the shared cumulative high-water mark and only shrink for the
+     * genuine increment.
+     */
+    public static function recordSharedThrottle(int $tenantRecordId, string $azureTenantId, int $cumulative429): void
+    {
+        $azureTenantId = trim($azureTenantId);
+        if ($azureTenantId === '' || !self::tableReady()) {
+            return;
+        }
+        if (!self::hasSharedCumulativeColumn()) {
+            // Column missing (pre-migration): fall back to never over-counting by
+            // treating the cumulative as a single-unit signal.
+            self::touchActiveWorkloads($tenantRecordId, $azureTenantId);
+            return;
+        }
+        if ($cumulative429 < 0) {
+            $cumulative429 = 0;
+        }
+
+        $row = Capsule::table('ms365_graph_tenant_budget')
+            ->where('azure_tenant_id', $azureTenantId)
+            ->first(['last_seen_429_cumulative']);
+        $lastSeen = $row === null ? 0 : (int) ($row->last_seen_429_cumulative ?? 0);
+
+        // A lower cumulative means the shared client was recreated (worker
+        // restart / new batch); count its 429s from zero.
+        if ($cumulative429 < $lastSeen) {
+            $lastSeen = 0;
+        }
+        $delta = $cumulative429 - $lastSeen;
+
+        if ($delta > 0) {
+            self::shrinkBudget($azureTenantId, $delta);
+        }
+        // Persist the new high-water mark and keep the row warm.
+        if (Capsule::table('ms365_graph_tenant_budget')->where('azure_tenant_id', $azureTenantId)->exists()) {
+            Capsule::table('ms365_graph_tenant_budget')
+                ->where('azure_tenant_id', $azureTenantId)
+                ->update(['last_seen_429_cumulative' => $cumulative429, 'updated_at' => time()]);
+        } else {
+            self::touchActiveWorkloads($tenantRecordId, $azureTenantId);
+            Capsule::table('ms365_graph_tenant_budget')
+                ->where('azure_tenant_id', $azureTenantId)
+                ->update(['last_seen_429_cumulative' => $cumulative429]);
+        }
+    }
+
     private static function minBudget(int $max, int $recent429Count = 0): int
     {
         unset($recent429Count);
