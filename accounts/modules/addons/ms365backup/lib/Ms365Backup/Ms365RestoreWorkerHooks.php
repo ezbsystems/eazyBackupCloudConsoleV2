@@ -56,6 +56,7 @@ final class Ms365RestoreWorkerHooks
             if (Ms365RestoreWorkerHooks::isRunCancelled($runId)) {
                 continue;
             }
+            Ms365BatchClaimRepository::promoteBatchChildToRunning($runId, $nodeId);
             $graphTenantBudget = max($graphTenantBudget, self::backupProgress($runId, $childBody, false));
         }
 
@@ -77,9 +78,16 @@ final class Ms365RestoreWorkerHooks
             }
             self::backupComplete($runId, $childBody);
         }
-        if ($batchRunId !== '' && $nodeId !== '') {
+        if ($batchRunId === '' || $nodeId === '') {
+            return;
+        }
+
+        Ms365BatchRunRepository::syncFromChildren($batchRunId);
+
+        $allChildren = Ms365BatchRunRepository::getChildrenForBatch($batchRunId);
+        $aggregate = Ms365BatchRunRepository::aggregateStatus($allChildren);
+        if (!in_array($aggregate, ['running', 'queued'], true)) {
             Ms365BatchClaimRepository::complete($batchRunId, $nodeId);
-            Ms365BatchRunRepository::syncFromChildren($batchRunId);
         }
     }
 

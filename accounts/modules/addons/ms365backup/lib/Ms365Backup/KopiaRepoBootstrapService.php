@@ -26,23 +26,49 @@ final class KopiaRepoBootstrapService
 
     public static function latestManifestForSource(int $tenantRecordId, string $physicalKey, ?string $e3JobId = null): string
     {
-        if ($tenantRecordId <= 0 || $physicalKey === '' || !class_exists(Capsule::class)) {
+        if ($tenantRecordId <= 0 || $physicalKey === '') {
             return '';
+        }
+        $jobScope = DeltaStateRepository::computeJobScope($e3JobId, $tenantRecordId);
+        $all = self::latestManifestForSources($tenantRecordId, [$physicalKey], $jobScope);
+
+        return $all[$physicalKey] ?? '';
+    }
+
+    /**
+     * @param list<string> $physicalKeys
+     * @param array{e3_job_id: string, legacy_shared_bucket: bool} $jobScope
+     *
+     * @return array<string, string> physical_key => manifest_id
+     */
+    public static function latestManifestForSources(int $tenantRecordId, array $physicalKeys, array $jobScope): array
+    {
+        if ($tenantRecordId <= 0 || $physicalKeys === [] || !class_exists(Capsule::class)) {
+            return [];
         }
         if (!Capsule::schema()->hasColumn('ms365_backup_runs', 'manifest_id')) {
-            return '';
+            return [];
         }
+
+        $physicalKeys = array_values(array_unique(array_filter(
+            $physicalKeys,
+            static fn ($key) => is_string($key) && $key !== '',
+        )));
+        if ($physicalKeys === []) {
+            return [];
+        }
+
+        $e3JobId = trim((string) ($jobScope['e3_job_id'] ?? ''));
+        $legacy = (bool) ($jobScope['legacy_shared_bucket'] ?? true);
 
         $q = Capsule::table('ms365_backup_runs')
             ->where('tenant_record_id', $tenantRecordId)
-            ->where('physical_key', $physicalKey)
+            ->whereIn('physical_key', $physicalKeys)
             ->where('status', 'success')
             ->where('manifest_id', '!=', '');
 
-        if ($e3JobId !== null && $e3JobId !== '' && Capsule::schema()->hasColumn('ms365_backup_runs', 'e3_job_id')) {
-            $legacy = Ms365JobDestinationService::loadJobRow($e3JobId);
-            $tenant = TenantRecordRepository::getById($tenantRecordId);
-            if ($legacy !== null && $tenant !== null && Ms365JobDestinationService::isLegacySharedBucket($legacy, $tenant)) {
+        if ($e3JobId !== '' && Capsule::schema()->hasColumn('ms365_backup_runs', 'e3_job_id')) {
+            if ($legacy) {
                 $q->where(function ($sub) use ($e3JobId): void {
                     $sub->where('e3_job_id', $e3JobId)->orWhereNull('e3_job_id')->orWhere('e3_job_id', '');
                 });
@@ -51,9 +77,20 @@ final class KopiaRepoBootstrapService
             }
         }
 
-        $row = $q->orderByDesc('finished_at')->first();
+        $rows = $q->orderByDesc('finished_at')->get(['physical_key', 'manifest_id']);
+        $out = [];
+        foreach ($rows as $row) {
+            $physicalKey = (string) ($row->physical_key ?? '');
+            if ($physicalKey === '' || isset($out[$physicalKey])) {
+                continue;
+            }
+            $manifestId = (string) ($row->manifest_id ?? '');
+            if ($manifestId !== '') {
+                $out[$physicalKey] = $manifestId;
+            }
+        }
 
-        return $row ? (string) $row->manifest_id : '';
+        return $out;
     }
 
     /**

@@ -51,6 +51,21 @@ final class Ms365BatchClaimRepository
             ->count();
     }
 
+    /** @return list<string> */
+    public static function activeBatchRunIdsForNode(string $nodeId): array
+    {
+        if (!self::tableReady() || $nodeId === '') {
+            return [];
+        }
+
+        return Capsule::table('ms365_batch_claims')
+            ->where('worker_node_id', $nodeId)
+            ->where('status', 'running')
+            ->pluck('batch_run_id')
+            ->map(static fn ($id) => (string) $id)
+            ->all();
+    }
+
     public static function countPlatformRunning(): int
     {
         if (!self::tableReady()) {
@@ -475,8 +490,6 @@ final class Ms365BatchClaimRepository
             return null;
         }
 
-        self::activateBatchChildren($batchRunId, $nodeId, $now, $lease);
-
         $row = Capsule::table('ms365_batch_claims')
             ->where('batch_run_id', $batchRunId)
             ->first();
@@ -484,41 +497,34 @@ final class Ms365BatchClaimRepository
         return $row !== null ? (array) $row : null;
     }
 
-    private static function activateBatchChildren(
-        string $batchRunId,
-        string $nodeId,
-        int $now,
-        int $lease,
-    ): void {
-        $children = Ms365BatchRunRepository::getChildrenForBatch($batchRunId);
-        foreach ($children as $child) {
-            $runId = (string) ($child['id'] ?? '');
-            $status = (string) ($child['status'] ?? '');
-            if ($runId === '' || $status === 'success' || $status === 'cancelled') {
-                continue;
-            }
-            if (BackupRunRepository::isCancelled($runId)) {
-                continue;
-            }
-            Capsule::table('ms365_job_queue')
-                ->where('run_id', $runId)
-                ->whereIn('status', ['queued', 'running'])
-                ->update([
-                    'status' => 'running',
-                    'worker_node_id' => $nodeId,
-                    'claimed_at' => $now,
-                    'lease_expires_at' => $lease,
-                    'started_at' => $now,
-                    'error_message' => '',
-                ]);
-            BackupRunRepository::update($runId, [
-                'status' => 'running',
-                'started_at' => $now,
-                'engine_mode' => 'kopia',
-                'updated_at' => $now,
-            ]);
-            Ms365WorkerLogRepository::recordAssignment($runId, $nodeId);
+    public static function promoteBatchChildToRunning(string $runId, string $nodeId): void
+    {
+        if ($runId === '' || $nodeId === '') {
+            return;
         }
+        $now = time();
+        $lease = $now + Ms365EngineConfig::leaseSeconds();
+        $updated = Capsule::table('ms365_job_queue')
+            ->where('run_id', $runId)
+            ->where('status', 'queued')
+            ->update([
+                'status' => 'running',
+                'worker_node_id' => $nodeId,
+                'claimed_at' => $now,
+                'lease_expires_at' => $lease,
+                'started_at' => $now,
+                'error_message' => '',
+            ]);
+        if ($updated === 0) {
+            return;
+        }
+        BackupRunRepository::update($runId, [
+            'status' => 'running',
+            'started_at' => $now,
+            'engine_mode' => 'kopia',
+            'updated_at' => $now,
+        ]);
+        Ms365WorkerLogRepository::recordAssignment($runId, $nodeId);
     }
 
     private static function requeueBatchChildren(string $batchRunId, string $message, bool $incrementAttempts): void

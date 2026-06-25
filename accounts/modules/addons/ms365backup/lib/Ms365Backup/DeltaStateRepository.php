@@ -13,32 +13,91 @@ final class DeltaStateRepository
     /** @return array<string, array<string, string>> workload => state_key => delta_link */
     public static function getStatesForSource(int $tenantRecordId, string $physicalKey, ?string $e3JobId = null): array
     {
-        if ($tenantRecordId <= 0 || $physicalKey === '' || !self::tableReady()) {
+        if ($tenantRecordId <= 0 || $physicalKey === '') {
+            return [];
+        }
+        $scopedJobId = self::scopedJobId($e3JobId, $tenantRecordId);
+        $all = self::getStatesForSources($tenantRecordId, [$physicalKey], $scopedJobId);
+
+        return $all[$physicalKey] ?? [];
+    }
+
+    /**
+     * @param list<string> $physicalKeys
+     *
+     * @return array<string, array<string, array<string, string>>> physical_key => workload => state_key => delta_link
+     */
+    public static function getStatesForSources(int $tenantRecordId, array $physicalKeys, ?string $scopedJobId): array
+    {
+        if ($tenantRecordId <= 0 || $physicalKeys === [] || !self::tableReady()) {
+            return [];
+        }
+
+        $physicalKeys = array_values(array_unique(array_filter(
+            $physicalKeys,
+            static fn ($key) => is_string($key) && $key !== '',
+        )));
+        if ($physicalKeys === []) {
             return [];
         }
 
         $q = Capsule::table('ms365_delta_state')
             ->where('tenant_record_id', $tenantRecordId)
-            ->where('physical_key', $physicalKey);
+            ->whereIn('physical_key', $physicalKeys);
 
-        self::applyJobScope($q, $e3JobId, $tenantRecordId);
+        if (self::jobColumnReady()) {
+            if ($scopedJobId === null) {
+                $q->whereNull('e3_job_id');
+            } else {
+                $q->where('e3_job_id', $scopedJobId);
+            }
+        }
 
-        $rows = $q->get(['workload', 'state_key', 'delta_link']);
+        $rows = $q->get(['physical_key', 'workload', 'state_key', 'delta_link']);
         $out = [];
         foreach ($rows as $row) {
+            $physicalKey = (string) ($row->physical_key ?? '');
             $workload = (string) ($row->workload ?? '');
             $stateKey = (string) ($row->state_key ?? '');
             $link = (string) ($row->delta_link ?? '');
-            if ($workload === '' || $stateKey === '' || $link === '') {
+            if ($physicalKey === '' || $workload === '' || $stateKey === '' || $link === '') {
                 continue;
             }
-            if (!isset($out[$workload])) {
-                $out[$workload] = [];
+            if (!isset($out[$physicalKey])) {
+                $out[$physicalKey] = [];
             }
-            $out[$workload][$stateKey] = $link;
+            if (!isset($out[$physicalKey][$workload])) {
+                $out[$physicalKey][$workload] = [];
+            }
+            $out[$physicalKey][$workload][$stateKey] = $link;
         }
 
         return $out;
+    }
+
+    /**
+     * @return array{e3_job_id: string, legacy_shared_bucket: bool, scoped_job_id: ?string}
+     */
+    public static function computeJobScope(?string $e3JobId, int $tenantRecordId): array
+    {
+        $e3JobId = trim((string) $e3JobId);
+        if ($e3JobId === '') {
+            return [
+                'e3_job_id' => '',
+                'legacy_shared_bucket' => true,
+                'scoped_job_id' => null,
+            ];
+        }
+
+        $job = Ms365JobDestinationService::loadJobRow($e3JobId);
+        $tenant = TenantRecordRepository::getById($tenantRecordId);
+        $legacy = $job !== null && $tenant !== null && Ms365JobDestinationService::isLegacySharedBucket($job, $tenant);
+
+        return [
+            'e3_job_id' => $e3JobId,
+            'legacy_shared_bucket' => $legacy,
+            'scoped_job_id' => $legacy ? null : $e3JobId,
+        ];
     }
 
     /** @param array<string, mixed> $deltaStates */
@@ -97,17 +156,7 @@ final class DeltaStateRepository
 
     private static function scopedJobId(?string $e3JobId, int $tenantRecordId): ?string
     {
-        $e3JobId = trim((string) $e3JobId);
-        if ($e3JobId === '') {
-            return null;
-        }
-        $job = Ms365JobDestinationService::loadJobRow($e3JobId);
-        $tenant = TenantRecordRepository::getById($tenantRecordId);
-        if ($job !== null && $tenant !== null && Ms365JobDestinationService::isLegacySharedBucket($job, $tenant)) {
-            return null;
-        }
-
-        return $e3JobId;
+        return self::computeJobScope($e3JobId, $tenantRecordId)['scoped_job_id'];
     }
 
   /**

@@ -403,6 +403,77 @@ func TestClientHoldsWorkloadSlotDuring429Backoff(t *testing.T) {
 	}
 }
 
+// TestTransportSemaphoreBalancedOnRetryAfter429TransportError reproduces the
+// global-transport semaphore double-release: when a transport-level Do error
+// occurs inside the 429 retry inner loop, the inner loop released the transport
+// AND the shared post-loop handler released it again via sleepRetry. Because
+// releaseGlobal() is a channel receive, the extra receive drains a permit that
+// was never acquired, permanently eroding global transport capacity until every
+// Graph request blocks in acquireTransport.
+func TestTransportSemaphoreBalancedOnRetryAfter429TransportError(t *testing.T) {
+	SetGlobalConcurrency(2)
+	defer SetGlobalConcurrency(0)
+
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		switch calls {
+		case 1:
+			// First response is a 429, entering the retry inner loop.
+			w.Header().Set("Retry-After", "1")
+			w.WriteHeader(http.StatusTooManyRequests)
+		case 2:
+			// Second response (inner-loop retry) forces a transport-level
+			// Do error by closing the connection before responding.
+			if hj, ok := w.(http.Hijacker); ok {
+				conn, _, err := hj.Hijack()
+				if err == nil {
+					_ = conn.Close()
+					return
+				}
+			}
+			w.WriteHeader(http.StatusInternalServerError)
+		default:
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"value":[]}`))
+		}
+	}))
+	defer srv.Close()
+
+	c := NewClient("token", "", ClientOptions{
+		MaxRetries:       3,
+		RetryBaseDelayMs: 1,
+		MaxConcurrency:   4,
+	})
+	c.graphBase = srv.URL
+	// Disable keep-alives so the hijacked-and-closed connection on call 2 is not
+	// silently auto-retried by Go's transport (which only retries reused conns);
+	// this lets the transport-level Do error reach the 429 inner-loop error path.
+	c.httpClient = &http.Client{
+		Timeout:   120 * time.Second,
+		Transport: &http.Transport{DisableKeepAlives: true},
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := c.GetJSON(context.Background(), "/users", nil)
+		done <- err
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("GetJSON: %v", err)
+		}
+	case <-time.After(6 * time.Second):
+		t.Fatal("GetJSON deadlocked: global transport semaphore double-released on 429+transport error")
+	}
+
+	if got := len(globalSem); got != 0 {
+		t.Fatalf("global transport semaphore unbalanced after request: occupancy=%d, want 0", got)
+	}
+}
+
 func TestBatchGetMessagesChunking(t *testing.T) {
 	if maxBatchRequests != 20 {
 		t.Fatalf("unexpected batch size %d", maxBatchRequests)

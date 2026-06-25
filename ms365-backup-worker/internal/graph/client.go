@@ -474,7 +474,9 @@ func (c *Client) doRequest(ctx context.Context, req *http.Request) (*httpRespons
 			c.setRequestHeaders(reqClone)
 			resp, err = c.httpClient.Do(reqClone)
 			if err != nil {
-				c.releaseTransport()
+				// Transport still held here; the shared post-loop error handler
+				// releases it exactly once via sleepRetry. Releasing here too
+				// double-drained the global transport semaphore.
 				lastErr = err
 				break
 			}
@@ -484,7 +486,6 @@ func (c *Client) doRequest(ctx context.Context, req *http.Request) (*httpRespons
 			resp.Body.Close()
 			atomic.AddInt64(&c.requestsTotal, 1)
 			if readErr != nil {
-				c.releaseTransport()
 				lastErr = readErr
 				break
 			}
@@ -1016,7 +1017,9 @@ func (c *Client) getStream(ctx context.Context, path string, offset int64) (io.R
 			}
 			resp, err = c.httpClient.Do(reqClone)
 			if err != nil {
-				c.releaseTransport()
+				// Transport still held here; the shared post-loop error handler
+				// releases it exactly once via sleepRetry. Releasing here too
+				// double-drained the global transport semaphore.
 				lastErr = err
 				break
 			}
@@ -1262,7 +1265,8 @@ func (c *Client) putViaUploadSession(ctx context.Context, path string, size int6
 
 			resp, err := c.httpClient.Do(req)
 			if err != nil {
-				c.releaseTransport()
+				// sleepRetry releases the transport exactly once; an extra
+				// releaseTransport here double-drained the global semaphore.
 				if sleepErr := c.sleepRetry(ctx, parseRetryAfter("", throttle429Attempt, c.retryDelay)); sleepErr != nil {
 					if workloadHeld {
 						c.releaseWorkload()
@@ -1307,7 +1311,8 @@ func (c *Client) putViaUploadSession(ctx context.Context, path string, size int6
 				req.Header.Set("Content-Range", contentRange)
 				resp, err = c.httpClient.Do(req)
 				if err != nil {
-					c.releaseTransport()
+					// sleepRetry releases the transport exactly once; an extra
+					// releaseTransport here double-drained the global semaphore.
 					if sleepErr := c.sleepRetry(ctx, parseRetryAfter("", throttle429Attempt, c.retryDelay)); sleepErr != nil {
 						if workloadHeld {
 							c.releaseWorkload()

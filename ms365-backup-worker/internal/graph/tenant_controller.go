@@ -19,7 +19,18 @@ const (
 	tenantCooldownJitterMax        = 500 * time.Millisecond
 	defaultTenantControllerID      = "__default__"
 	defaultTenantCeiling           = 16
+
+	// tenantGrowQuietWindow is how long after the most recent 429 the controller
+	// must stay quiet before time-based additive increase may resume.
+	tenantGrowQuietWindow = 3 * time.Second
 )
+
+// tenantGrowInterval is the elapsed time between time-based additive increases.
+// It is a var so tests can shorten it. Success-streak growth alone is starved
+// when many workloads multiplex one controller and a trickle of 429s keeps
+// resetting the streak; elapsed-time growth guarantees a tenant cannot stay
+// pinned at the floor once throttling subsides, restoring AIMD equilibrium.
+var tenantGrowInterval = 5 * time.Second
 
 var (
 	tenantControllersMu sync.RWMutex
@@ -40,6 +51,7 @@ type tenantController struct {
 	cooldownUntil      time.Time
 	lastActivity       time.Time
 	last429            time.Time
+	nextGrowAt         time.Time
 
 	throttleWaiters atomic.Int32
 }
@@ -175,6 +187,37 @@ func (tc *tenantController) touchActivityLocked() {
 	tc.lastActivity = time.Now()
 }
 
+// maybeGrowLocked performs time-based additive increase. Microsoft Graph
+// throttling is per-tenant and a single owner controller is shared by every
+// workload in the batch, so the success-streak additive increase is easily
+// starved: a 0.3%-ish 429 rate keeps resetting the shared streak before it can
+// reach the threshold, leaving the limit pinned at the floor and serializing the
+// whole tenant. Growing by one every tenantGrowInterval of throttle-free time
+// guarantees the controller climbs back toward its ceiling once 429s subside.
+func (tc *tenantController) maybeGrowLocked(now time.Time) {
+	if tc.limit >= tc.ceiling {
+		return
+	}
+	if now.Before(tc.cooldownUntil) {
+		return
+	}
+	if !tc.last429.IsZero() && now.Sub(tc.last429) < tenantGrowQuietWindow {
+		return
+	}
+	if tc.nextGrowAt.IsZero() {
+		// Start the recovery clock on first eligible observation.
+		tc.nextGrowAt = now.Add(tenantGrowInterval)
+		return
+	}
+	if now.Before(tc.nextGrowAt) {
+		return
+	}
+	tc.limit++
+	tc.successStreak = 0
+	tc.nextGrowAt = now.Add(tenantGrowInterval)
+	tc.cond.Broadcast()
+}
+
 func (tc *tenantController) maybeIdleDecayLocked(now time.Time) {
 	if tc.lastActivity.IsZero() || now.Sub(tc.lastActivity) < tenantIdleDecayAfter {
 		return
@@ -191,6 +234,7 @@ func (tc *tenantController) acquire(ctx context.Context) error {
 		tc.mu.Lock()
 		now := time.Now()
 		tc.maybeIdleDecayLocked(now)
+		tc.maybeGrowLocked(now)
 		tc.touchActivityLocked()
 
 		for tc.inFlight >= tc.limit || now.Before(tc.cooldownUntil) {
@@ -304,6 +348,9 @@ func (tc *tenantController) record429(retryAfter time.Duration) {
 		tc.limit = newLimit
 	}
 	tc.shrinkAllowedAfter = now.Add(debounce)
+	// Defer the next time-based grow so recovery waits a fresh interval of
+	// throttle-free traffic rather than immediately undoing this shrink.
+	tc.nextGrowAt = now.Add(tenantGrowInterval)
 	tc.cond.Broadcast()
 }
 

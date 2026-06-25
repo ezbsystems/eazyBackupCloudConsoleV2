@@ -43,6 +43,83 @@ func TestTenantControllerLimitsConcurrency(t *testing.T) {
 	tc.release()
 }
 
+// TestTenantControllerSuccessStreakStarvedBySporadic429 documents the root cause
+// of the live "limit pinned at 1" crawl: when a 429 lands before the shared
+// success streak reaches its threshold, success-based additive increase never
+// fires, so the limit cannot climb off the floor under a steady trickle of 429s.
+func TestTenantControllerSuccessStreakStarvedBySporadic429(t *testing.T) {
+	tc := newTenantController(16)
+	tc.mu.Lock()
+	tc.limit = 1
+	tc.mu.Unlock()
+
+	for round := 0; round < 30; round++ {
+		for i := 0; i < adaptiveSuccessStreak-1; i++ {
+			tc.recordSuccess()
+		}
+		// A 429 arrives just before the streak would have triggered a grow.
+		tc.mu.Lock()
+		tc.shrinkAllowedAfter = time.Time{}
+		tc.mu.Unlock()
+		tc.record429(time.Second)
+	}
+
+	if got := tc.limitValue(); got != 1 {
+		t.Fatalf("success-streak recovery should be starved and stay at floor, got %d", got)
+	}
+}
+
+// TestTenantControllerTimeBasedRecoveryFromFloor verifies the fix: throttle-free
+// elapsed time grows the limit back toward the ceiling even when the success
+// streak is unavailable.
+func TestTenantControllerTimeBasedRecoveryFromFloor(t *testing.T) {
+	prev := tenantGrowInterval
+	tenantGrowInterval = 5 * time.Second
+	defer func() { tenantGrowInterval = prev }()
+
+	tc := newTenantController(16)
+	tc.mu.Lock()
+	defer tc.mu.Unlock()
+	tc.limit = 1
+	tc.last429 = time.Time{}
+	tc.cooldownUntil = time.Time{}
+	tc.nextGrowAt = time.Time{}
+
+	base := time.Unix(1_700_000_000, 0)
+	tc.maybeGrowLocked(base) // first observation arms the recovery clock, no grow
+	if tc.limit != 1 {
+		t.Fatalf("first observation must not grow, got %d", tc.limit)
+	}
+	for i := 1; i <= 8; i++ {
+		tc.maybeGrowLocked(base.Add(time.Duration(i) * tenantGrowInterval))
+	}
+	if tc.limit < 8 {
+		t.Fatalf("expected time-based recovery toward ceiling, got %d", tc.limit)
+	}
+}
+
+// TestTenantControllerGrowBlockedDuringThrottleWindow ensures recovery does not
+// fight active throttling: no growth within the quiet window after a 429.
+func TestTenantControllerGrowBlockedDuringThrottleWindow(t *testing.T) {
+	prev := tenantGrowInterval
+	tenantGrowInterval = 5 * time.Second
+	defer func() { tenantGrowInterval = prev }()
+
+	tc := newTenantController(16)
+	tc.mu.Lock()
+	defer tc.mu.Unlock()
+	tc.limit = 1
+	tc.cooldownUntil = time.Time{}
+	base := time.Unix(1_700_000_000, 0)
+	tc.last429 = base
+
+	tc.maybeGrowLocked(base.Add(1 * time.Second))
+	tc.maybeGrowLocked(base.Add(2 * time.Second))
+	if tc.limit != 1 {
+		t.Fatalf("limit must not grow within throttle quiet window, got %d", tc.limit)
+	}
+}
+
 func TestTenantControllerProportionalShrinkAcrossWaves(t *testing.T) {
 	const tenantID = "tenant-shrink"
 	ResetTenantControllerForTest(tenantID)
