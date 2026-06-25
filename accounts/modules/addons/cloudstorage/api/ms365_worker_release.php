@@ -27,6 +27,7 @@ if ($nodeId === '' || $runId === '') {
 }
 
 try {
+    WorkerClaimService::requireRestoreRunId($runId);
     $released = WorkerClaimService::releaseClaim($nodeId, $runId, 'Worker released claim', $reason);
     (new JsonResponse(['status' => 'success', 'data' => ['released' => $released]]))->send();
 } catch (\Throwable $e) {

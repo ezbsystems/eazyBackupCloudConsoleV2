@@ -18,16 +18,12 @@ final class GraphTenantBudgetService
         return class_exists(Capsule::class) && Capsule::schema()->hasTable('ms365_graph_tenant_budget');
     }
 
+    /** Advisory Graph HTTP ceiling for a tenant (not divided across workers). */
     public static function workerShare(int $tenantRecordId, string $azureTenantId): int
     {
-        $azureTenantId = trim($azureTenantId);
-        if ($azureTenantId === '') {
-            return Ms365EngineConfig::perTenantMaxConcurrent();
-        }
-        $budget = self::currentBudget($azureTenantId);
-        $workers = max(1, self::activeWorkerNodesForTenant($tenantRecordId));
+        unset($tenantRecordId);
 
-        return max(1, (int) floor($budget / $workers));
+        return self::currentBudget($azureTenantId);
     }
 
     public static function currentBudget(string $azureTenantId): int
@@ -233,27 +229,5 @@ final class GraphTenantBudgetService
         $last429At = (int) ($row->last_429_at ?? 0);
 
         return $last429At > 0 && ($now - $last429At) <= $window;
-    }
-
-    public static function activeWorkerNodesForTenant(int $tenantRecordId): int
-    {
-        if ($tenantRecordId <= 0 || !Capsule::schema()->hasTable('ms365_job_queue')) {
-            return 1;
-        }
-        $now = time();
-        $nodes = Capsule::table('ms365_job_queue as q')
-            ->join('ms365_backup_runs as r', 'r.id', '=', 'q.run_id')
-            ->where('r.tenant_record_id', $tenantRecordId)
-            ->where('q.status', 'running')
-            ->where('r.status', 'running')
-            ->where(function ($query) use ($now) {
-                $query->where('q.lease_expires_at', '>', $now)
-                    ->orWhere('r.updated_at', '>=', $now - 180);
-            })
-            ->whereNotNull('q.worker_node_id')
-            ->distinct()
-            ->count('q.worker_node_id');
-
-        return max(1, (int) $nodes);
     }
 }

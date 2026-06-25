@@ -817,8 +817,7 @@ final class Ms365BatchLiveService
 
         $ageSeconds = max(0, $now - $progressAt);
         $queuePayload = $queue !== [] ? $queue : null;
-        $throttledAlive = Ms365BatchRunRepository::isThrottledWaitingAlive($child, $queuePayload, $now);
-        $stalled = !$throttledAlive && $ageSeconds >= self::WORKLOAD_ACTIVE_PROGRESS_SECONDS;
+        $stalled = $ageSeconds >= self::WORKLOAD_ACTIVE_PROGRESS_SECONDS;
 
         return [
             'last_progress_age_seconds' => $ageSeconds,

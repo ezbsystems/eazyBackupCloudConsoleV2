@@ -93,6 +93,52 @@ type RunJob struct {
 	// GraphTenantBudget is the per-worker share of tenant Graph concurrency (from control plane).
 	GraphTenantBudget int `json:"graph_tenant_budget"`
 	RestoreSelection RestoreSelection  `json:"restore_selection"`
+	// Status is set on batch child payloads so a resumed owner can skip finished children.
+	Status string `json:"status,omitempty"`
+}
+
+// BatchJob is a tenant-scoped backup claim: shared tenant/repo context plus child workloads.
+type BatchJob struct {
+	BatchRunID        string    `json:"batch_run_id"`
+	TenantRecordID    int       `json:"tenant_record_id"`
+	WhmcsClientID     int       `json:"whmcs_client_id"`
+	AzureTenantID     string    `json:"azure_tenant_id"`
+	GraphToken        string    `json:"graph_token"`
+	GraphRegion       string    `json:"graph_region"`
+	DestEndpoint      string    `json:"dest_endpoint"`
+	DestRegion        string    `json:"dest_region"`
+	DestBucket        string    `json:"dest_bucket"`
+	DestPrefix        string    `json:"dest_prefix"`
+	DestAccessKey     string    `json:"dest_access_key"`
+	DestSecretKey     string    `json:"dest_secret_key"`
+	RepoPassword      string    `json:"repo_password"`
+	KopiaRepoID       string    `json:"kopia_repo_id"`
+	Children          []*RunJob `json:"children"`
+	GraphTenantBudget int       `json:"graph_tenant_budget"`
+	LeaseExpiresAt    int64     `json:"lease_expires_at"`
+}
+
+// BatchProgressUpdate carries coalesced per-child progress in one batch lease renewal POST.
+type BatchProgressUpdate struct {
+	BatchRunID string           `json:"batch_run_id"`
+	Children   []ProgressUpdate `json:"children"`
+}
+
+// BatchChildResult is the per-child terminal outcome inside a batch complete POST.
+type BatchChildResult struct {
+	RunID      string `json:"run_id"`
+	Status     string `json:"status,omitempty"`
+	ManifestID string `json:"manifest_id,omitempty"`
+	ItemsDone  int    `json:"items_done,omitempty"`
+	ItemsTotal int    `json:"items_total,omitempty"`
+	StatsJSON  string `json:"stats_json,omitempty"`
+	Message    string `json:"message,omitempty"`
+}
+
+// BatchCompleteUpdate reports finished children (one or many) for a tenant batch.
+type BatchCompleteUpdate struct {
+	BatchRunID string             `json:"batch_run_id"`
+	Children   []BatchChildResult `json:"children"`
 }
 
 type ArchiveExport struct {
@@ -294,6 +340,59 @@ func (c *Client) FetchConfig(ctx context.Context, downloadURL string) ([]byte, s
 
 func (c *Client) Token() string {
 	return c.token
+}
+
+func (c *Client) ClaimBatch(ctx context.Context, hint map[string]any) (*BatchJob, error) {
+	var out struct {
+		Batch *BatchJob `json:"batch"`
+	}
+	payload := map[string]any{
+		"node_id": c.nodeID,
+	}
+	if hint != nil {
+		for k, v := range hint {
+			payload[k] = v
+		}
+	}
+	err := c.post(ctx, "ms365_worker_batch_claim.php", payload, &out)
+	if err != nil {
+		return nil, err
+	}
+	if out.Batch == nil {
+		return nil, nil
+	}
+	return out.Batch, nil
+}
+
+func (c *Client) BatchProgress(ctx context.Context, upd BatchProgressUpdate) (cancelRequested bool, graphTenantBudget int, err error) {
+	upd.BatchRunID = strings.TrimSpace(upd.BatchRunID)
+	for i := range upd.Children {
+		upd.Children[i].RunID = strings.TrimSpace(upd.Children[i].RunID)
+	}
+	var data struct {
+		CancelRequested   bool `json:"cancel_requested"`
+		GraphTenantBudget int  `json:"graph_tenant_budget"`
+	}
+	if err := c.post(ctx, "ms365_worker_batch_progress.php", upd, &data); err != nil {
+		return false, 0, err
+	}
+	return data.CancelRequested, data.GraphTenantBudget, nil
+}
+
+func (c *Client) BatchComplete(ctx context.Context, upd BatchCompleteUpdate) error {
+	upd.BatchRunID = strings.TrimSpace(upd.BatchRunID)
+	return c.postWithRetry(ctx, "ms365_worker_batch_complete.php", upd, &struct{}{}, 3)
+}
+
+func (c *Client) BatchRelease(ctx context.Context, batchRunID, reason string) error {
+	payload := map[string]any{
+		"node_id":      c.nodeID,
+		"batch_run_id": strings.TrimSpace(batchRunID),
+	}
+	if strings.TrimSpace(reason) != "" {
+		payload["reason"] = reason
+	}
+	return c.post(ctx, "ms365_worker_batch_release.php", payload, &struct{}{})
 }
 
 func (c *Client) Claim(ctx context.Context, hint map[string]any) (*RunJob, error) {
@@ -530,6 +629,46 @@ func (c *Client) StartProgressHeartbeat(ctx context.Context, runID string, inter
 					upd.Phase = "heartbeat"
 				}
 				if cancel, budget, err := c.Progress(ctx, upd); err == nil {
+					if budget > 0 && onBudget != nil {
+						onBudget(budget)
+					}
+					if cancel {
+						fireCancel()
+					}
+				}
+			}
+		}
+	}()
+	return func() { close(stop) }
+}
+
+// StartBatchProgressHeartbeat renews the batch lease and fans out cancel/budget signals.
+func (c *Client) StartBatchProgressHeartbeat(ctx context.Context, batchRunID string, interval time.Duration, getUpdate func() BatchProgressUpdate, onCancel func(), onBudget func(int)) func() {
+	if interval <= 0 {
+		interval = 60 * time.Second
+	}
+	stop := make(chan struct{})
+	var cancelOnce sync.Once
+	fireCancel := func() {
+		cancelOnce.Do(func() {
+			if onCancel != nil {
+				onCancel()
+			}
+		})
+	}
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-stop:
+				return
+			case <-ticker.C:
+				upd := getUpdate()
+				upd.BatchRunID = batchRunID
+				if cancel, budget, err := c.BatchProgress(ctx, upd); err == nil {
 					if budget > 0 && onBudget != nil {
 						onBudget(budget)
 					}

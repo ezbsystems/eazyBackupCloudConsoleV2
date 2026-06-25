@@ -125,31 +125,28 @@ Backups run **multiple workloads in parallel** (one child run per user mailbox, 
 
 | Layer | Setting | Default | Location |
 |-------|---------|---------|----------|
-| Platform | max concurrent | 100 | `WorkerClaimService` |
-| Per Entra tenant (running workloads) | `ms365_per_tenant_max_concurrent_workloads` | **6** | `WorkerClaimService::claimNext` |
-| Per Entra tenant (Graph HTTP budget) | `ms365_per_tenant_max_concurrent` | **16** | `GraphTenantBudgetService` / worker `graph_tenant_budget` |
+| Platform | max concurrent tenant batches | 100 | `Ms365BatchClaimRepository` / `WorkerClaimService::claimNextBatch` |
+| Per worker node | max batches owned | **1** | `ms365_max_batches_per_node` |
+| Per Entra tenant (Graph HTTP advisory ceiling) | `ms365_per_tenant_max_concurrent` | **16** | `GraphTenantBudgetService` / batch payload `graph_tenant_budget` |
 | Per WHMCS client | `ms365_per_client_max_concurrent` | 10 | WHMCS addon settings |
-| Per worker node | `max_concurrent_runs` | **16** | `config.yaml` |
+| Per worker node | `max_concurrent_runs` | **16** | `config.yaml` (in-process child pool under one batch owner) |
 | Per worker node | `heavy_job_cpu_cores` | **1** | `config.yaml` (I/O-bound site/drive jobs; was hardcoded 2) |
-| Graph HTTP (per workload) | `graph_parallel_requests` | **32** | `config.yaml` |
-| Graph HTTP (per Entra tenant, fleet-coordinated) | `graph_tenant_budget` (claim + progress) | Ceiling for worker controller | `ms365_graph_tenant_budget` |
-| Graph adaptive concurrency (per tenant, in-process) | `graph.adaptive_limit` + `tenant_controller.go` | Fast AIMD loop below PHP ceiling | worker process-global |
+| Graph HTTP (in-process) | `graph_parallel_requests` + `tenant_controller.go` | **32** / adaptive AIMD | worker process (sole governor per batch) |
 | Mail folders (per workload) | `graph_folder_parallel` | **4** | `config.yaml` |
 | SharePoint drives (per site workload) | `graph_sharepoint_drive_parallel` | **4** | `config.yaml` |
 
-**Workload vs HTTP budget (1.44.0+):** `claimNext` gates how many child workloads may be **running** per tenant (`ms365_per_tenant_max_concurrent_workloads`, default 6). The separate `ms365_per_tenant_max_concurrent` (16) is the fleet-wide **in-flight Graph HTTP** budget divided across active workers (`GraphTenantBudgetService::workerShare`). Claiming too many workloads against the same HTTP budget starves children on the shared limiter (no progress, no per-child 429s) and inflates the 429 rate.
+**Tenant-owner model (1.52.0+):** Backup claims one **tenant batch** per worker (`ms365_batch_claims`). The
+batch owner runs all child workloads in-process under a single `tenant_controller`; there is no per-child
+claim gate or fleet-wide budget division. Restore keeps per-run `claimNext` via `ms365_worker_claim.php`.
 
 **Tuning for faster large-tenant backups** (increase gradually; watch Graph 429 throttling and worker RAM):
 
 | Knob | Conservative → aggressive | Notes |
 |------|---------------------------|-------|
-| `ms365_per_tenant_max_concurrent_workloads` | 4 → **6–8** | Running child workloads per tenant (claim gate) |
-| `ms365_per_tenant_max_concurrent` | 8 → **16** | Shared Graph HTTP slots per tenant (AIMD budget ceiling) |
-| `max_concurrent_runs` | 4 → **6** | Needs ~16 GB RAM per CT |
+| `ms365_per_tenant_max_concurrent` | 8 → **16** | Advisory Graph HTTP ceiling passed to worker controller |
+| `max_concurrent_runs` | 4 → **8–16** | In-process child parallelism inside one batch |
 | `graph_parallel_requests` | 16 → **32** | See `MS365_KOPIA_ENGINE.md` |
-| `graph_folder_parallel` | 4 → **8** | Parallel mail-folder delta |
-| `graph_sharepoint_drive_parallel` | 4 → **6** | Parallel SharePoint drive delta (monolithic `site:{id}` jobs) |
-| Fleet size | 2 → **3+** nodes | More worker capacity |
+| Fleet size | 2 → **3+** nodes | More tenant batches in parallel |
 
 OneDrive workloads use the **heavy job** RAM/disk budget (`heavy_job_ram_budget_mib`); raising `max_concurrent_runs` without more RAM can block claims.
 
@@ -162,7 +159,7 @@ OneDrive workloads use the **heavy job** RAM/disk budget (`heavy_job_ram_budget_
 | Tenant congestion controller (`graph/tenant_controller.go`) | Single adaptive window per Entra tenant per worker: proportional shrink on 429, additive grow on success streak, slot-held Retry-After backpressure, jittered cooldown, idle decay |
 | PHP fleet budget (`GraphTenantBudgetService`) | Slow loop: multiplicative shrink on 429 deltas; additive +1 ceiling grow per 600s decay when not recently throttled |
 | `graph_sync` stall watchdog | Same `kopia.stall_seconds` as upload watchdog; 429 Retry-After backoff counts as activity |
-| Per-tenant Graph budget ceiling | Control plane divides tenant budget across active workers; worker `setCeiling` clamps the controller ceiling |
+| Per-tenant Graph budget ceiling | Batch payload `graph_tenant_budget` — full ceiling, not divided | Worker `setCeiling` clamps the in-process controller |
 | Adaptive budget floor (1.45.0+) | Under sustained `recent_429_count` (≥10 → floor 2, ≥20 → floor 1) so hammered tenants truly back off |
 | `throttle_waiting` progress flag (worker 0.3.13+) | Control plane refreshes `last_429_at` during parked Retry-After waits even when `no_progress` |
 | `graph_requests` liveness (worker 0.3.15+ / PHP 1.46.0+) | Monotonic completed Graph HTTP counter; rising value during `graph_sync` bumps `last_progress_at` so enumeration paging counts as alive |
@@ -170,55 +167,31 @@ OneDrive workloads use the **heavy job** RAM/disk budget (`heavy_job_ram_budget_
 
 Default `kopia.stall_seconds` is **2700** in worker config (`applyDefaults()`); set `0` to disable both upload and graph_sync stall watches.
 
-## Orphan claim recovery
+## Batch lease recovery (1.52.0+)
 
-When a worker restarts (e.g. after self-update) without completing or failing in-flight runs, the control plane can leave jobs stuck at `running` while the worker reports `current_load=0`. That blocks per-tenant concurrency slots.
+Backup workloads use **one batch lease** in `ms365_batch_claims` per tenant batch. Worker loss or stale
+heartbeat requeues the **whole batch** (preserving per-child checkpoints); a new owner resumes skipping
+`success` children.
 
-**Detection** (`WorkerClaimService::releaseOrphanedClaimsForNode`):
+| Mechanism | Purpose |
+|-----------|---------|
+| `Ms365BatchClaimRepository::reapStaleBatches()` | `running` batch with `now - last_heartbeat_at > batchHeartbeatGapSeconds` → requeue or terminal-fail whole batch |
+| Fleet cron (`ms365_worker_fleet.php`) | Runs batch reaper each cycle; `batches_reaped` in cron JSON |
+| `fleet_release_leases` admin API | Manual batch reaper trigger (`recovered` = batches reaped) |
 
-- **Idle node** (`current_load=0`): queue row `status=running` on that node with `claimed_at` and run progress freshness older than **120 seconds** (uses `last_progress_at`, falls back to `updated_at`). **1.42.0+:** skip when `lease_expires_at` is still in the future (worker alive) or throttled-but-alive (per-child `last_429_at` **or** tenant `ms365_graph_tenant_budget.last_429_at` within **1200s** with fresh lease). Fast unacked reclaim only when lease is expired/absent.
-- **Busy node** (`current_load>0`): per-run scan — only individual runs whose `last_progress_at` is older than **1800s** are re-queued; healthy runs on the same node are left alone. **1.46.0+:** skip via `shouldSkipThrottleReaper` (tenant throttled + node heartbeat fresh).
+Restore orphan handling: `failOrphanedRestoreRunsForNode` on heartbeat when node reports zero load.
 
-Matching runs are re-queued via the infrastructure-requeue path (progress fields and `delta_states` preserved).
+## Orphan / zombie recovery (legacy per-child — removed 1.52.0)
 
-**Lease renewal:** `ms365_worker_heartbeat.php` calls `WorkerLeaseService::renewForNode` only when `current_load > 0`. Active runs renew via `ms365_worker_progress.php` on each **non-`no_progress`** progress POST. Worker **0.3.7+** emits `no_progress` heartbeats when items/bytes are flat longer than `progress_stall_seconds` (default 600s) so flat graph/upload phases do not renew leases.
+Per-child backup reapers (`releaseOrphanedClaimsFor*`, `reconcileZombieRuns`, throttle-shield apparatus)
+were removed when backup moved to tenant-batch ownership. See **Batch lease recovery** above.
 
-**Manual recovery:** Admin API `fleet_release_leases` also runs `releaseOrphanedClaimsForAllNodes` and returns `orphans_requeued` in the JSON response.
+**Lease renewal:** Batch lease renews via `ms365_worker_batch_progress.php`. Restore per-run lease renews via
+`ms365_worker_progress.php` and `WorkerLeaseService::renewForNode` when `current_load > 0`.
 
-Fleet cron (`ms365_worker_fleet.php`) invokes orphan release on every active node each cycle.
+**Fail-fast (no retry):** `JobQueueRepository::isNonRetryableError()` matches permanent failures. `markFailed()` terminal-fails these immediately.
 
-## Zombie / stale job recovery
-
-Runs can wedge the fleet when a worker fails without clearing its claim, retries exhaust, or progress stops updating. The control plane reconciles these automatically.
-
-**Liveness rule (1.39.0+):** A child is **alive** when `last_progress_at` (real items/bytes progress, rising `graph_requests` during `graph_sync` since **1.46.0**, or throttle signals) or a fresh queue lease refreshed within **180s** (`HEARTBEAT_GAP_SECONDS`). Flat heartbeats and `no_progress` beats do not bump `last_progress_at` or renew leases (except throttle / `graph_requests` liveness paths above).
-
-**`WorkerClaimService::reconcileZombieRuns()`** (fleet cron + each `claimNext`):
-
-| Condition | Action |
-|-----------|--------|
-| `attempts >= max_attempts` but queue still `queued`/`running` | Terminal fail via `ms365_worker_fail` hooks |
-| Queue `running`, worker not alive (expired lease + stale `last_progress_at`) | Infrastructure requeue if attempts remain — **unless** `shouldSkipThrottleReaper` (tenant throttled + node heartbeat fresh) |
-| Queue `running`, fresh lease but `last_progress_at` stale **≥1800s** | Infrastructure requeue (`Stale progress reconciled`) — **unless** `shouldSkipThrottleReaper` (tenant throttled + node heartbeat fresh, **1.46.0+**) |
-| Child `running`, recent throttle signal (**≤1200s**) + fresh lease | **Skip** infrastructure requeue (worker waiting on Graph limiter / Retry-After) |
-| Expired lease + stale `updated_at` (`releaseExpiredLeases`, staleRows, `recoverStaleRunning`) | **Skip** when tenant throttled and worker node heartbeat fresh (**1.45.0+**) |
-| Wedge (`0` items/bytes after **1800s**) | Infrastructure requeue — **unless** throttled-but-alive (**1.45.0+**) |
-| Idle node, `running` claim, fresh lease (even if progress stale) | **Skip** orphan reclaim (`releaseOrphanedClaimsForIdleNode`, **1.42.0+**) |
-| Idle node, `running` claim, expired/absent lease + stale progress | Orphan reclaim (`Orphaned claim released (worker idle)`) |
-| Child `running` but queue row missing or not `running` | Re-queue child and sync batch parent — **unless** `shouldSkipThrottleReaper` (**1.45.0+**) |
-| Upload stall (**2700s** silence in kopia/upload phase) | Infrastructure requeue via `reconcileBatchChildren` / fleet cron |
-
-**Batch child reaper:** `Ms365BatchRunRepository::reconcileBatchChildren()` uses `requeueBackupRuns` (not `onFail`) so `phase`/`percent`/`items_*` and `delta_states` survive re-claims.
-
-**Fail-fast (no retry):** `JobQueueRepository::isNonRetryableError()` matches permanent failures (e.g. Graph gzip/JSON parse `invalid character '\x1f'`, auth/token errors). `markFailed()` terminal-fails these immediately.
-
-**Concurrency slots:** `countRunningForTenant()` / `countRunningForClient()` ignore stale `running` rows (expired lease and no progress within 120s) so zombies do not block new claims while reconciliation runs.
-
-**Dashboard fields:** `stale_running_jobs` / `exhausted_jobs` on the Worker Fleet dashboard. Hourly `logActivity` alert when either count is non-zero.
-
-**Worker requirement:** Deploy worker **0.1.19+** for the Graph gzip response fix (`internal/graph/client.go`). Without it, mail/OneDrive workloads fail instantly with `invalid character '\x1f'`.
-
-Cron output includes `zombies_reconciled: { requeued, failed, synced }`.
+Cron output includes `batches_reaped` (replaces `zombies_reconciled`).
 
 See `ms365-backup-worker/deploy/proxmox/README.md`.
 

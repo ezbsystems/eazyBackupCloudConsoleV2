@@ -18,7 +18,7 @@ use Ms365Backup\Fleet\FleetSettings;
 use Ms365Backup\Fleet\FleetSummaryService;
 use Ms365Backup\Fleet\ReleaseRepository;
 use Ms365Backup\Fleet\WorkerConfigService;
-use Ms365Backup\WorkerClaimService;
+use Ms365Backup\Ms365BatchClaimRepository;
 use Ms365Backup\WorkerNodeRepository;
 
 $authError = FleetRemoteAuth::authenticate();
@@ -127,10 +127,8 @@ try {
             break;
 
         case 'fleet_release_leases':
-            $released = WorkerClaimService::releaseExpiredLeases();
-            $recovered = WorkerClaimService::recoverStaleRunning();
-            $orphans = WorkerClaimService::releaseOrphanedClaimsForAllNodes(120);
-            echo json_encode(['ok' => true, 'released' => $released, 'recovered' => $recovered, 'orphans_requeued' => $orphans]);
+            $batchesReaped = Ms365BatchClaimRepository::reapStaleBatches();
+            echo json_encode(['ok' => true, 'released' => 0, 'recovered' => $batchesReaped, 'orphans_requeued' => 0, 'batches_reaped' => $batchesReaped]);
             break;
 
         case 'fleet_settings_get':

@@ -45,6 +45,11 @@ type Scheduler struct {
 	admitRejectMu        sync.Mutex
 	admitRejects         int
 	runProgress          sync.Map
+	batchMu              sync.Mutex
+	activeBatchID        string
+	batchCancel          context.CancelFunc
+	batchProgress        sync.Map
+	batchRunner          *BatchRunner
 }
 
 type resourceBudget struct {
@@ -67,12 +72,14 @@ func NewScheduler(cfg *config.Config, client *api.Client, configPath string) *Sc
 		telemetry:            telemetry.NewCollector(cfg.Worker.RunDir, cfg.Worker.MaxCPUCores),
 		repoPool:             repoPool,
 		runner:               NewRunner(cfg, client, repoPool),
+		batchRunner:          nil,
 		running:              make(map[string]struct{}),
 		runCancels:           make(map[string]context.CancelFunc),
 		activeBuckets:        make(map[string]int),
 		appliedConfigVersion: configapply.ReadAppliedVersion(configPath),
 	}
 	s.runner.SetProgressHook(s.recordRunProgress)
+	s.batchRunner = NewBatchRunner(cfg, client, s.runner, s)
 	s.gcOrphanedRuns()
 	go s.periodicGC()
 	return s
@@ -299,6 +306,14 @@ func (s *Scheduler) poll(ctx context.Context) {
 		log.Printf("skipping claim: RunDir free space below watermark")
 		return
 	}
+
+	if s.tryClaimBatch(ctx) {
+		if !s.draining {
+			s.tryRepoOperation(ctx)
+		}
+		return
+	}
+
 	for s.availableSlots() > 0 {
 		// A free run slot (by count) does not imply free resource budget: heavy
 		// jobs reserve RAM/disk/CPU, so the worker can have idle slots yet no budget
@@ -317,6 +332,11 @@ func (s *Scheduler) poll(ctx context.Context) {
 			return
 		}
 		if job == nil {
+			break
+		}
+		if job.JobType != "restore" {
+			s.recordAdmitReject()
+			_ = s.client.Release(ctx, job.RunID, "unexpected_backup_child_claim")
 			break
 		}
 		if !s.canAdmit(job) {
@@ -439,6 +459,128 @@ func (s *Scheduler) jobBudget(job *api.RunJob) (ramMiB, diskMiB int, cpuCores fl
 	return ramMiB, diskMiB, cpuCores
 }
 
+func (s *Scheduler) tryClaimBatch(ctx context.Context) bool {
+	if s.ownsBatch() {
+		return true
+	}
+	if s.draining || !s.hasDiskSpace() {
+		return false
+	}
+	if !s.canAdmit(&api.RunJob{PhysicalKey: "site:_admit_probe"}) {
+		return false
+	}
+	batch, err := s.client.ClaimBatch(ctx, s.claimHints())
+	if err != nil {
+		log.Printf("batch claim failed: %v", err)
+		return false
+	}
+	if batch == nil {
+		return false
+	}
+	if !s.startBatch(ctx, batch) {
+		s.recordAdmitReject()
+		_ = s.client.BatchRelease(ctx, batch.BatchRunID, "")
+		return false
+	}
+	return true
+}
+
+func (s *Scheduler) ownsBatch() bool {
+	s.batchMu.Lock()
+	defer s.batchMu.Unlock()
+	return s.activeBatchID != ""
+}
+
+func (s *Scheduler) startBatch(ctx context.Context, batch *api.BatchJob) bool {
+	if batch == nil || strings.TrimSpace(batch.BatchRunID) == "" {
+		return false
+	}
+	s.batchMu.Lock()
+	if s.draining || s.activeBatchID != "" {
+		s.batchMu.Unlock()
+		return false
+	}
+	s.activeBatchID = strings.TrimSpace(batch.BatchRunID)
+	runCtx, cancel := context.WithCancel(ctx)
+	s.batchCancel = cancel
+	s.batchMu.Unlock()
+
+	go func(b *api.BatchJob) {
+		defer s.endBatch(b.BatchRunID)
+		if err := s.batchRunner.RunSafe(runCtx, b, cancel); err != nil {
+			if isCooperativeCancel(err, runCtx) {
+				log.Printf("batch %s cancelled cooperatively", b.BatchRunID)
+				return
+			}
+			log.Printf("batch %s failed: %v", b.BatchRunID, err)
+		}
+	}(batch)
+	return true
+}
+
+func (s *Scheduler) endBatch(batchRunID string) {
+	s.batchMu.Lock()
+	if s.activeBatchID == batchRunID {
+		s.activeBatchID = ""
+	}
+	cancel := s.batchCancel
+	s.batchCancel = nil
+	s.batchMu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+	s.batchProgress.Range(func(key, _ any) bool {
+		s.batchProgress.Delete(key)
+		return true
+	})
+}
+
+func (s *Scheduler) cancelBatch(batchRunID string) {
+	s.batchMu.Lock()
+	if s.activeBatchID != batchRunID {
+		s.batchMu.Unlock()
+		return
+	}
+	cancel := s.batchCancel
+	s.batchMu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+}
+
+func (s *Scheduler) tryReserve(job *api.RunJob) bool {
+	if job == nil {
+		return false
+	}
+	ramMiB, diskMiB, cpuCores := s.jobBudget(job)
+	s.reserved.mu.Lock()
+	defer s.reserved.mu.Unlock()
+	if s.reserved.ramMiB+ramMiB > s.cfg.Worker.RamBudgetMiB ||
+		s.reserved.diskMiB+diskMiB > s.cfg.Worker.DiskBudgetMiB ||
+		s.reserved.cpuCores+cpuCores > s.cfg.Worker.MaxCPUCores {
+		return false
+	}
+	s.reserved.ramMiB += ramMiB
+	s.reserved.diskMiB += diskMiB
+	s.reserved.cpuCores += cpuCores
+	activeJobs.Store(job.RunID, activeJob{ramMiB: ramMiB, diskMiB: diskMiB, cpuCores: cpuCores, bucket: job.DestBucket})
+	s.trackBucket(job.DestBucket, 1)
+	return true
+}
+
+func (s *Scheduler) releaseReserve(runID string) {
+	if v, ok := activeJobs.LoadAndDelete(runID); ok {
+		if aj, ok := v.(activeJob); ok {
+			s.trackBucket(aj.bucket, -1)
+			s.reserved.mu.Lock()
+			s.reserved.ramMiB -= aj.ramMiB
+			s.reserved.diskMiB -= aj.diskMiB
+			s.reserved.cpuCores -= aj.cpuCores
+			s.reserved.mu.Unlock()
+		}
+	}
+}
+
 func (s *Scheduler) claimHints() map[string]any {
 	probe := &api.RunJob{PhysicalKey: "site:_admit_probe"}
 	return map[string]any{
@@ -480,12 +622,24 @@ func (s *Scheduler) canAdmit(job *api.RunJob) bool {
 }
 
 func (s *Scheduler) availableSlots() int {
+	s.batchMu.Lock()
+	if s.activeBatchID != "" {
+		s.batchMu.Unlock()
+		return 0
+	}
+	s.batchMu.Unlock()
 	s.runningMu.Lock()
 	defer s.runningMu.Unlock()
 	return s.cfg.Worker.MaxConcurrentRuns - len(s.running)
 }
 
 func (s *Scheduler) currentLoad() int {
+	s.batchMu.Lock()
+	if s.activeBatchID != "" {
+		s.batchMu.Unlock()
+		return 1
+	}
+	s.batchMu.Unlock()
 	s.runningMu.Lock()
 	defer s.runningMu.Unlock()
 	return len(s.running)
@@ -546,8 +700,34 @@ func (s *Scheduler) done(runID string) {
 	}
 }
 
+func (s *Scheduler) flushBatchProgressCheckpoint(ctx context.Context, batchRunID string) {
+	snapshot := make(map[string]api.ProgressUpdate)
+	s.runProgress.Range(func(key, value any) bool {
+		runID, _ := key.(string)
+		upd, ok := value.(api.ProgressUpdate)
+		if !ok || runID == "" {
+			return true
+		}
+		snapshot[runID] = upd
+		return true
+	})
+	if s.batchRunner != nil {
+		s.batchRunner.FlushProgressCheckpoint(ctx, batchRunID, "", snapshot)
+	}
+}
+
 func (s *Scheduler) recordRunProgress(runID string, upd api.ProgressUpdate) {
 	s.runProgress.Store(runID, upd)
+	if batchRunID := s.activeBatchRunID(); batchRunID != "" {
+		s.batchProgress.Store(runID, upd)
+		_ = batchRunID
+	}
+}
+
+func (s *Scheduler) activeBatchRunID() string {
+	s.batchMu.Lock()
+	defer s.batchMu.Unlock()
+	return s.activeBatchID
 }
 
 func (s *Scheduler) flushProgressCheckpoint(ctx context.Context, runID string) {
@@ -569,6 +749,19 @@ func (s *Scheduler) flushProgressCheckpoint(ctx context.Context, runID string) {
 }
 
 func (s *Scheduler) releaseAllActiveClaims(ctx context.Context, reason string) {
+	s.batchMu.Lock()
+	batchID := s.activeBatchID
+	s.batchMu.Unlock()
+	if batchID != "" {
+		s.cancelBatch(batchID)
+		if reason == "drain" {
+			s.flushBatchProgressCheckpoint(ctx, batchID)
+		}
+		if err := s.client.BatchRelease(ctx, batchID, reason); err != nil {
+			log.Printf("batch release %s before update: %v", batchID, err)
+		}
+	}
+
 	s.runningMu.Lock()
 	runIDs := make([]string, 0, len(s.running))
 	for id := range s.running {
@@ -626,6 +819,17 @@ func (s *Scheduler) reconcileActiveClaims(authorized []string) {
 	for _, id := range authorized {
 		if id != "" {
 			allowed[id] = struct{}{}
+		}
+	}
+
+	s.batchMu.Lock()
+	batchID := s.activeBatchID
+	s.batchMu.Unlock()
+	if batchID != "" {
+		if _, ok := allowed[batchID]; !ok {
+			log.Printf("reconciling ghost batch %s (no active batch claim)", batchID)
+			s.cancelBatch(batchID)
+			s.endBatch(batchID)
 		}
 	}
 

@@ -3,8 +3,8 @@ declare(strict_types=1);
 
 namespace Ms365Backup\Fleet;
 
+use Ms365Backup\Ms365BatchClaimRepository;
 use Ms365Backup\ProxmoxProvisioner;
-use Ms365Backup\WorkerClaimService;
 use Ms365Backup\WorkerNodeRepository;
 
 /**
@@ -181,9 +181,9 @@ final class FleetFacade
         }
 
         return [
-            'released' => WorkerClaimService::releaseExpiredLeases(),
-            'recovered' => WorkerClaimService::recoverStaleRunning(),
-            'orphans_requeued' => WorkerClaimService::releaseOrphanedClaimsForAllNodes(120),
+            'released' => 0,
+            'recovered' => Ms365BatchClaimRepository::reapStaleBatches(),
+            'orphans_requeued' => 0,
         ];
     }
 

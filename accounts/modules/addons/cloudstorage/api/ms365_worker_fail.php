@@ -5,6 +5,7 @@ require_once dirname(__DIR__) . '/../ms365backup/ms365backup_autoload.php';
 
 use Ms365Backup\Ms365RestoreWorkerHooks;
 use Ms365Backup\Ms365WorkerApiAuth;
+use Ms365Backup\WorkerClaimService;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use WHMCS\Module\Addon\CloudStorage\Client\CustomerFacingTextSanitizer;
@@ -27,6 +28,7 @@ if ($runId === '') {
 }
 
 try {
+    WorkerClaimService::requireRestoreRunId($runId);
     Ms365RestoreWorkerHooks::onFail($runId, $message);
     (new JsonResponse(['status' => 'success']))->send();
 } catch (\Throwable $e) {

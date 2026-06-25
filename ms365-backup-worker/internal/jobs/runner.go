@@ -51,6 +51,13 @@ func terminalContext(ctx context.Context) (context.Context, context.CancelFunc) 
 
 // reportFail delivers a failure status (and flushes buffered logs) on a detached context.
 func (r *Runner) reportFail(ctx context.Context, runID, message string) {
+	if brc := batchRunContextFrom(ctx); brc != nil && brc.failSink != nil {
+		brc.failSink(runID, message)
+		tctx, cancel := terminalContext(ctx)
+		defer cancel()
+		_ = r.client.FlushRunLogs(tctx, runID)
+		return
+	}
 	tctx, cancel := terminalContext(ctx)
 	defer cancel()
 	_ = r.client.Fail(tctx, api.FailUpdate{RunID: runID, Message: message})
@@ -59,6 +66,9 @@ func (r *Runner) reportFail(ctx context.Context, runID, message string) {
 
 // reportComplete delivers a completion status on a detached context.
 func (r *Runner) reportComplete(ctx context.Context, upd api.CompleteUpdate) error {
+	if brc := batchRunContextFrom(ctx); brc != nil && brc.completeSink != nil {
+		return brc.completeSink(upd)
+	}
 	tctx, cancel := terminalContext(ctx)
 	defer cancel()
 	return r.client.Complete(tctx, upd)
@@ -83,6 +93,9 @@ func (r *Runner) Run(ctx context.Context, job *api.RunJob, onAbort context.Cance
 	r.client.RunLogf(ctx, job.RunID, "info", "starting run %s resource=%s", job.RunID, job.PhysicalKey)
 	log.Printf("starting run %s resource=%s", job.RunID, job.PhysicalKey)
 
+	brc := batchRunContextFrom(ctx)
+	batchMode := brc != nil && brc.sharedGC != nil
+
 	runDir := filepath.Join(r.cfg.Worker.RunDir, job.RunID)
 	_ = os.MkdirAll(runDir, 0o755)
 	defer os.RemoveAll(runDir)
@@ -105,17 +118,37 @@ func (r *Runner) Run(ctx context.Context, job *api.RunJob, onAbort context.Cance
 		}
 	}
 
-	progressStop := r.client.StartProgressHeartbeat(ctx, job.RunID, r.cfg.ProgressHeartbeat(), stallAwareProgressFn(r.cfg.Worker.ProgressStallSeconds, func() api.ProgressUpdate {
-		return r.graphProgressUpdate(job.RunID, graphLastPercent, graphItemsDone, graphItemsTotal, graphBytesTotal, gc)
-	}), onAbort, onTenantBudget)
-	defer progressStop()
+	recordProgress := func(upd api.ProgressUpdate) {
+		upd.RunID = job.RunID
+		r.noteProgress(upd)
+		if batchMode && brc.progressSink != nil {
+			brc.progressSink(upd)
+		}
+	}
 
-	sendProgressForTenant(ctx, r.client, onAbort, api.ProgressUpdate{
+	if !batchMode {
+		progressStop := r.client.StartProgressHeartbeat(ctx, job.RunID, r.cfg.ProgressHeartbeat(), stallAwareProgressFn(r.cfg.Worker.ProgressStallSeconds, func() api.ProgressUpdate {
+			return r.graphProgressUpdate(job.RunID, graphLastPercent, graphItemsDone, graphItemsTotal, graphBytesTotal, gc)
+		}), onAbort, onTenantBudget)
+		defer progressStop()
+	}
+
+	sendChildProgress := func(upd api.ProgressUpdate) {
+		upd.RunID = job.RunID
+		r.noteProgress(upd)
+		if batchMode && brc.progressSink != nil {
+			brc.progressSink(upd)
+			return
+		}
+		sendProgressForTenant(ctx, r.client, onAbort, upd, job.AzureTenantID)
+	}
+
+	sendChildProgress(api.ProgressUpdate{
 		RunID:   job.RunID,
 		Phase:   "graph_sync",
 		Percent: 1,
 		Message: "Syncing from Microsoft Graph",
-	}, job.AzureTenantID)
+	})
 
 	storage := kopia.StorageOptions{
 		Endpoint:     job.DestEndpoint,
@@ -130,12 +163,12 @@ func (r *Runner) Run(ctx context.Context, job *api.RunJob, onAbort context.Cance
 	overlay := graphfs.NewOverlayBuilder()
 	if job.IncrementalEnabled && job.PreviousManifest != "" {
 		priorStart := time.Now()
-		sendProgressForTenant(ctx, r.client, onAbort, api.ProgressUpdate{
+		sendChildProgress(api.ProgressUpdate{
 			RunID:   job.RunID,
 			Phase:   "prior_snapshot",
 			Percent: 5,
 			Message: "Loading prior snapshot metadata",
-		}, job.AzureTenantID)
+		})
 		graphLastPercent = 5
 		priorRoot, err := kopia.PriorSnapshotRoot(ctx, r.repoPool, storage, job.PreviousManifest)
 		if err != nil {
@@ -153,12 +186,16 @@ func (r *Runner) Run(ctx context.Context, job *api.RunJob, onAbort context.Cance
 		MaxConcurrency:   effectiveGraphParallel(r.cfg, job),
 		AdaptiveLimit:    r.cfg.Graph.AdaptiveEnabled(),
 	})
-	stopTokenRefresh := bindGraphTokenRefresh(ctx, r.cfg, r.client, gc, job.RunID)
-	defer stopTokenRefresh()
-	if job.AzureTenantID != "" {
-		gc.SetAzureTenantID(job.AzureTenantID)
-		if job.GraphTenantBudget > 0 {
-			graph.SetTenantCeiling(job.AzureTenantID, job.GraphTenantBudget)
+	if batchMode {
+		gc = brc.sharedGC
+	} else {
+		stopTokenRefresh := bindGraphTokenRefresh(ctx, r.cfg, r.client, gc, job.RunID)
+		defer stopTokenRefresh()
+		if job.AzureTenantID != "" {
+			gc.SetAzureTenantID(job.AzureTenantID)
+			if job.GraphTenantBudget > 0 {
+				graph.SetTenantCeiling(job.AzureTenantID, job.GraphTenantBudget)
+			}
 		}
 	}
 
@@ -185,10 +222,15 @@ func (r *Runner) Run(ctx context.Context, job *api.RunJob, onAbort context.Cance
 	}
 
 	graphStart := time.Now()
-	emitGraphProgress := newThrottledProgressSender(ctx, r.client, onAbort, job.AzureTenantID, r.cfg.ProgressMinInterval())
-	emitAndRecordGraph := func(upd api.ProgressUpdate) {
-		r.noteProgress(upd)
-		emitGraphProgress(upd)
+	var emitAndRecordGraph func(api.ProgressUpdate)
+	if batchMode {
+		emitAndRecordGraph = recordProgress
+	} else {
+		emitGraphProgress := newThrottledProgressSender(ctx, r.client, onAbort, job.AzureTenantID, r.cfg.ProgressMinInterval())
+		emitAndRecordGraph = func(upd api.ProgressUpdate) {
+			recordProgress(upd)
+			emitGraphProgress(upd)
+		}
 	}
 	wl := &graphsync.WorkloadRunner{
 		Client:           gc,
@@ -218,8 +260,8 @@ func (r *Runner) Run(ctx context.Context, job *api.RunJob, onAbort context.Cance
 			upd := r.graphProgressUpdate(job.RunID, graphLastPercent, done, graphItemsTotal, bytes, gc)
 			upd.Message = "graph_sync checkpoint"
 			upd.CheckpointDeltaStates = states
-			r.noteProgress(upd)
-			sendProgressForTenant(ctx, r.client, onAbort, upd, job.AzureTenantID)
+			recordProgress(upd)
+			sendChildProgress(upd)
 		},
 	}
 	wlRes, err := wl.Run(graphCtx)
@@ -288,7 +330,7 @@ func (r *Runner) Run(ctx context.Context, job *api.RunJob, onAbort context.Cance
 		})
 	}
 
-	sendProgressForTenant(ctx, r.client, onAbort, api.ProgressUpdate{
+	sendChildProgress(api.ProgressUpdate{
 		RunID:       job.RunID,
 		Phase:       "kopia_upload",
 		Percent:     40,
@@ -296,7 +338,7 @@ func (r *Runner) Run(ctx context.Context, job *api.RunJob, onAbort context.Cance
 		ItemsDone:   int(wlRes.ItemsDone),
 		BytesHashed: wlRes.BytesTotal,
 		Message:     "Uploading snapshot to Kopia repository",
-	}, job.AzureTenantID)
+	})
 
 	if err := kopia.EnsureRunDir(r.cfg.Worker.RunDir); err != nil {
 		r.reportFail(ctx, job.RunID, err.Error())
@@ -316,23 +358,30 @@ func (r *Runner) Run(ctx context.Context, job *api.RunJob, onAbort context.Cance
 		}
 	}
 
-	uploadStop := r.client.StartProgressHeartbeat(ctx, job.RunID, r.cfg.ProgressHeartbeat(), stallAwareProgressFn(r.cfg.Worker.ProgressStallSeconds, func() api.ProgressUpdate {
-		return api.ProgressUpdate{
-			RunID:       job.RunID,
-			Phase:       "kopia_upload",
-			ItemsDone:   graphItemsDone,
-			ItemsTotal:  graphItemsTotal,
-			BytesHashed: graphBytesTotal,
-			Message:     "Upload in progress",
-		}
-	}), onAbort, onTenantBudget)
-	defer uploadStop()
+	if !batchMode {
+		uploadStop := r.client.StartProgressHeartbeat(ctx, job.RunID, r.cfg.ProgressHeartbeat(), stallAwareProgressFn(r.cfg.Worker.ProgressStallSeconds, func() api.ProgressUpdate {
+			return api.ProgressUpdate{
+				RunID:       job.RunID,
+				Phase:       "kopia_upload",
+				ItemsDone:   graphItemsDone,
+				ItemsTotal:  graphItemsTotal,
+				BytesHashed: graphBytesTotal,
+				Message:     "Upload in progress",
+			}
+		}), onAbort, onTenantBudget)
+		defer uploadStop()
+	}
 
 	snapshotStart := time.Now()
-	emitUploadProgress := newThrottledProgressSender(ctx, r.client, onAbort, job.AzureTenantID, r.cfg.ProgressMinInterval())
-	emitAndRecordUpload := func(upd api.ProgressUpdate) {
-		r.noteProgress(upd)
-		emitUploadProgress(upd)
+	var emitAndRecordUpload func(api.ProgressUpdate)
+	if batchMode {
+		emitAndRecordUpload = recordProgress
+	} else {
+		emitUploadProgress := newThrottledProgressSender(ctx, r.client, onAbort, job.AzureTenantID, r.cfg.ProgressMinInterval())
+		emitAndRecordUpload = func(upd api.ProgressUpdate) {
+			recordProgress(upd)
+			emitUploadProgress(upd)
+		}
 	}
 	progressCounter := kopia.NewProgressCounter(func(p kopia.ProgressCounter) {
 		done := int(p.FilesDone.Load())

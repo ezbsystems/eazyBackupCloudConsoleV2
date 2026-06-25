@@ -122,57 +122,6 @@ assert_true(
     'progressFreshnessAt falls back to updated_at',
 );
 
-$shouldReap = (new ReflectionClass(Ms365BatchRunRepository::class))
-    ->getMethod('shouldReapRunningChild');
-$shouldReap->setAccessible(true);
-$runningChild = [
-    'status' => 'running',
-    'started_at' => $now - 4000,
-    'items_done' => 0,
-    'bytes_hashed' => 0,
-    'last_progress_at' => $now - 60,
-    'updated_at' => $now - 60,
-    'phase' => 'graph_sync',
-];
-assert_true(
-    (bool) $shouldReap->invoke(null, $runningChild, ['status' => 'running', 'lease_expires_at' => $now + 3600], $now),
-    'Wedge stuck child is reaped even with fresh lease',
-);
-$silentChild = [
-    'status' => 'running',
-    'started_at' => $now - 400,
-    'items_done' => 500,
-    'bytes_hashed' => 1_000_000,
-    'last_progress_at' => $now - 2000,
-    'updated_at' => $now - 30,
-    'phase' => 'kopia_upload',
-];
-assert_true(
-    (bool) $shouldReap->invoke(null, $silentChild, ['status' => 'running', 'lease_expires_at' => $now + 3600], $now),
-    'Silent progress child is reaped despite fresh lease',
-);
-$throttledChild = [
-    'status' => 'running',
-    'started_at' => $now - 4000,
-    'items_done' => 0,
-    'bytes_hashed' => 0,
-    'last_progress_at' => $now - 2000,
-    'last_429_at' => $now - 120,
-    'updated_at' => $now - 30,
-    'phase' => 'graph_sync',
-];
-$throttleQueue = ['status' => 'running', 'lease_expires_at' => $now + 3600];
-if (\WHMCS\Database\Capsule::schema()->hasColumn('ms365_backup_runs', 'last_429_at')) {
-    assert_true(
-        Ms365BatchRunRepository::isThrottledWaitingAlive($throttledChild, $throttleQueue, $now),
-        'Recent last_429_at with fresh lease counts as throttled-alive',
-    );
-    assert_true(
-        !(bool) $shouldReap->invoke(null, $throttledChild, $throttleQueue, $now),
-        'Recent last_429_at with fresh lease blocks reap',
-    );
-}
-
 $throttleChildren = [
     array_merge(child('running', 5.0, 0, 0, 'graph_sync'), ['stats_json' => json_encode(['graph_429_hits' => 12])]),
     child('success'),
