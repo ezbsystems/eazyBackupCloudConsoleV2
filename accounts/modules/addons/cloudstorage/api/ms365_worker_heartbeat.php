@@ -47,6 +47,10 @@ try {
         WorkerConfigService::reconcileFromHeartbeat($nodeId, $configVersion, $configError);
     }
     WorkerClaimService::failOrphanedRestoreRunsForNode($nodeId, $effectiveLoad, 180);
+    // Release any batch claim whose children are all terminal before renewing
+    // leases, so a finished-but-not-completed claim cannot keep renewing itself
+    // and block new batches for the tenant.
+    Ms365BatchClaimRepository::completeFinishedClaimsForNode($nodeId);
     $activeClaims = WorkerClaimService::activeClaimRunIds($nodeId);
     $batchClaimIds = Ms365BatchClaimRepository::activeBatchRunIdsForNode($nodeId);
     $activeClaims = array_values(array_unique(array_merge(
