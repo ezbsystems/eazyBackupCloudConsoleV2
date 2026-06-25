@@ -13,9 +13,12 @@ require_once dirname(__DIR__, 2) . '/cloudstorage/lib/Ms365BackupBootstrap.php';
 cloudstorage_load_ms365backup();
 
 use Ms365Backup\BackupRunRepository;
+use Ms365Backup\DeltaStateRepository;
+use Ms365Backup\KopiaRepoBootstrapService;
 use Ms365Backup\Ms365BatchClaimRepository;
 use Ms365Backup\Ms365EngineConfig;
 use Ms365Backup\Ms365RestoreWorkerHooks;
+use Ms365Backup\TenantRecordRepository;
 use Ms365Backup\WorkerClaimService;
 use Ms365Backup\WorkerLeaseService;
 use WHMCS\Database\Capsule;
@@ -120,6 +123,29 @@ function cleanupBatchTestRows(array $batchRunIds, array $runIds): void
     }
 }
 
+/** @param array<string, mixed> $payload */
+function normalizePayloadForCompare(array $payload): array
+{
+    unset($payload['graph_token'], $payload['graph_tenant_budget'], $payload['lease_expires_at']);
+    if (isset($payload['delta_states']) && $payload['delta_states'] instanceof stdClass) {
+        $payload['delta_states'] = (array) $payload['delta_states'];
+    }
+    if (isset($payload['scope']) && is_object($payload['scope'])) {
+        $payload['scope'] = (array) $payload['scope'];
+    }
+    ksort($payload);
+
+    return $payload;
+}
+
+/** @param array<string, mixed> $expected @param array<string, mixed> $actual */
+function assert_payload_golden(array $expected, array $actual, string $message): void
+{
+    $normExpected = normalizePayloadForCompare($expected);
+    $normActual = normalizePayloadForCompare($actual);
+    assert_true($normExpected === $normActual, $message);
+}
+
 ensureBatchClaimsTable();
 assert_true(Ms365BatchClaimRepository::tableReady(), 'ms365_batch_claims table exists');
 
@@ -154,6 +180,22 @@ try {
 
     $claimed1 = Ms365BatchClaimRepository::claimForNode($nodeA);
     assert_true($claimed1 !== null && ($claimed1['batch_run_id'] ?? '') === $batch1, 'node A claims first queued batch');
+
+    $activeBatchIds = Ms365BatchClaimRepository::activeBatchRunIdsForNode($nodeA);
+    assert_true(in_array($batch1, $activeBatchIds, true), 'activeBatchRunIdsForNode returns running batch id');
+
+    $queueStatusAfterClaim = (string) Capsule::table('ms365_job_queue')->where('run_id', $run1)->value('status');
+    $runStatusAfterClaim = (string) Capsule::table('ms365_backup_runs')->where('id', $run1)->value('status');
+    assert_true($queueStatusAfterClaim === 'queued', 'child queue remains queued after batch claim');
+    assert_true($runStatusAfterClaim === 'queued', 'child run remains queued after batch claim');
+
+    Ms365RestoreWorkerHooks::onBatchProgress($batch1, $nodeA, [
+        ['run_id' => $run1, 'phase' => 'graph_sync', 'message' => 'syncing', 'items_done' => 1, 'items_total' => 100],
+    ]);
+    $queueStatusAfterProgress = (string) Capsule::table('ms365_job_queue')->where('run_id', $run1)->value('status');
+    $runStatusAfterProgress = (string) Capsule::table('ms365_backup_runs')->where('id', $run1)->value('status');
+    assert_true($queueStatusAfterProgress === 'running', 'child queue promotes to running on first onBatchProgress');
+    assert_true($runStatusAfterProgress === 'running', 'child run promotes to running on first onBatchProgress');
 
     $claimed2 = Ms365BatchClaimRepository::claimForNode($nodeB);
     assert_true($claimed2 === null, 'second tenant batch blocked while first is running (single-owner)');
@@ -222,6 +264,39 @@ try {
     Capsule::table('ms365_batch_claims')
         ->where('batch_run_id', $batch1)
         ->update(['status' => 'done', 'worker_node_id' => null, 'running_tenant_key' => null, 'lease_expires_at' => null]);
+
+    $batchPartial = test_uuid('batch-partial');
+    $runPartialDone = test_uuid('child-partial-done');
+    $runPartialQueued = test_uuid('child-partial-queued');
+    $batchRunIds[] = $batchPartial;
+    $runIds[] = $runPartialDone;
+    $runIds[] = $runPartialQueued;
+    Ms365BatchClaimRepository::enqueueBatch($batchPartial, $tenantRecordId, 50);
+    insertTestRun($runPartialDone, ['e3_batch_run_id' => $batchPartial, 'status' => 'running']);
+    insertTestQueue($runPartialDone, ['status' => 'running', 'worker_node_id' => $nodeA]);
+    insertTestRun($runPartialQueued, ['e3_batch_run_id' => $batchPartial]);
+    insertTestQueue($runPartialQueued);
+    Capsule::table('ms365_batch_claims')->where('batch_run_id', $batchPartial)->update([
+        'status' => 'running',
+        'worker_node_id' => $nodeA,
+        'running_tenant_key' => $tenantRecordId,
+        'claimed_at' => $now,
+        'lease_expires_at' => $now + 3600,
+        'last_heartbeat_at' => $now,
+        'attempts' => 1,
+    ]);
+    Ms365RestoreWorkerHooks::onBatchComplete($batchPartial, $nodeA, [
+        ['run_id' => $runPartialDone, 'manifest_id' => 'm1', 'stats_json' => '{"status":"no_changes"}'],
+    ]);
+    $claimStatusAfterPartial = (string) Capsule::table('ms365_batch_claims')
+        ->where('batch_run_id', $batchPartial)
+        ->value('status');
+    assert_true($claimStatusAfterPartial === 'running', 'partial onBatchComplete keeps batch claim running');
+    assert_true(
+        Ms365BatchClaimRepository::hasLiveLease($batchPartial, $nodeA),
+        'partial onBatchComplete preserves live batch lease'
+    );
+
     Capsule::table('ms365_job_queue')
         ->where('run_id', $run1)
         ->update(['status' => 'failed']);
@@ -259,6 +334,167 @@ try {
     assert_true($afterChildRenew === $beforeChildRenew, 'batch progress does not renew per-child queue lease');
 } finally {
     cleanupBatchTestRows($batchRunIds, $runIds);
+}
+
+$payloadBatchRunIds = [];
+$payloadRunIds = [];
+$payloadTenantRecordId = 1;
+
+try {
+    $tenantRecord = TenantRecordRepository::getById($payloadTenantRecordId);
+    assert_true(is_array($tenantRecord), 'tenant record 1 exists for payload perf tests');
+
+    $payloadBatch = test_uuid('payload-batch');
+    $payloadBatchRunIds[] = $payloadBatch;
+    $childA = test_uuid('payload-child-a');
+    $childB = test_uuid('payload-child-b');
+    $legacyChild = test_uuid('payload-child-legacy');
+    $payloadRunIds[] = $childA;
+    $payloadRunIds[] = $childB;
+    $payloadRunIds[] = $legacyChild;
+
+    $physicalA = 'user:payload-perf-a';
+    $physicalB = 'user:payload-perf-b';
+    $physicalLegacy = 'user:payload-perf-legacy';
+    $legacyDeltaJson = json_encode(['mail' => ['inbox' => 'https://graph.test/delta/legacy-inbox']], JSON_UNESCAPED_SLASHES);
+    $finishedAt = $now - 3600;
+
+    insertTestRun($childA, [
+        'tenant_record_id' => $payloadTenantRecordId,
+        'e3_batch_run_id' => $payloadBatch,
+        'physical_key' => $physicalA,
+        'resource_id' => $physicalA,
+        'graph_id' => 'payload-perf-a',
+        'scope_json' => json_encode(['mail' => true, 'calendar' => true, 'onedrive' => true]),
+    ]);
+    insertTestRun($childB, [
+        'tenant_record_id' => $payloadTenantRecordId,
+        'e3_batch_run_id' => $payloadBatch,
+        'physical_key' => $physicalB,
+        'resource_id' => $physicalB,
+        'graph_id' => 'payload-perf-b',
+        'scope_json' => json_encode(['mail' => true, 'calendar' => true]),
+    ]);
+    insertTestRun($legacyChild, [
+        'tenant_record_id' => $payloadTenantRecordId,
+        'e3_batch_run_id' => $payloadBatch,
+        'physical_key' => $physicalLegacy,
+        'resource_id' => $physicalLegacy,
+        'graph_id' => 'payload-perf-legacy',
+        'scope_json' => json_encode(['mail' => true]),
+    ]);
+
+    $priorManifestA = test_uuid('prior-manifest-a');
+    $priorManifestLegacy = test_uuid('prior-manifest-legacy');
+    Capsule::table('ms365_backup_runs')->insert([
+        'id' => test_uuid('prior-run-a'),
+        'status' => 'success',
+        'phase' => 'done',
+        'physical_key' => $physicalA,
+        'tenant_record_id' => $payloadTenantRecordId,
+        'whmcs_client_id' => (int) ($tenantRecord['whmcs_client_id'] ?? 1),
+        'manifest_id' => $priorManifestA,
+        'finished_at' => $finishedAt,
+        'created_at' => $finishedAt,
+        'updated_at' => $finishedAt,
+    ]);
+    Capsule::table('ms365_backup_runs')->insert([
+        'id' => test_uuid('prior-run-legacy'),
+        'status' => 'success',
+        'phase' => 'done',
+        'physical_key' => $physicalLegacy,
+        'tenant_record_id' => $payloadTenantRecordId,
+        'whmcs_client_id' => (int) ($tenantRecord['whmcs_client_id'] ?? 1),
+        'manifest_id' => $priorManifestLegacy,
+        'delta_states_json' => $legacyDeltaJson,
+        'finished_at' => $finishedAt - 60,
+        'created_at' => $finishedAt - 60,
+        'updated_at' => $finishedAt - 60,
+    ]);
+
+    Ms365BatchClaimRepository::enqueueBatch($payloadBatch, $payloadTenantRecordId, 50);
+    Capsule::table('ms365_batch_claims')
+        ->where('batch_run_id', $payloadBatch)
+        ->update([
+            'status' => 'running',
+            'worker_node_id' => 'test-batch-payload-node',
+            'running_tenant_key' => $payloadTenantRecordId,
+            'claimed_at' => $now,
+            'lease_expires_at' => $now + 3600,
+            'last_heartbeat_at' => $now,
+        ]);
+
+    $childrenRows = Capsule::table('ms365_backup_runs')
+        ->where('e3_batch_run_id', $payloadBatch)
+        ->orderBy('created_at')
+        ->get()
+        ->map(static fn ($row) => (array) $row)
+        ->all();
+
+    $workerClaimReflection = new ReflectionClass(WorkerClaimService::class);
+    $batchContextMethod = $workerClaimReflection->getMethod('batchPayloadContextForTenant');
+    $batchContextMethod->setAccessible(true);
+    $baseContext = $batchContextMethod->invoke(null, $payloadTenantRecordId);
+    assert_true(is_array($baseContext), 'batch payload tenant context resolves');
+
+    $enrichMethod = $workerClaimReflection->getMethod('enrichBatchPayloadContext');
+    $enrichMethod->setAccessible(true);
+
+    $batchContext = $enrichMethod->invoke(null, $baseContext, $childrenRows, $payloadTenantRecordId);
+    $destinationsByJob = $batchContext['destinations_by_job'] ?? [];
+    assert_true(count($destinationsByJob) === 1, 'destination resolves once per batch job id');
+
+    $goldenRuns = [$childA, $childB, $legacyChild];
+    foreach ($goldenRuns as $goldenRunId) {
+        $row = BackupRunRepository::get($goldenRunId);
+        assert_true(is_array($row), 'golden child run exists: ' . $goldenRunId);
+        $reference = WorkerClaimService::buildRunPayload($goldenRunId, null);
+        $optimized = WorkerClaimService::buildRunPayload($goldenRunId, $batchContext, $row);
+        assert_true(is_array($reference) && is_array($optimized), 'reference and batch payloads build for ' . $goldenRunId);
+        assert_payload_golden($reference, $optimized, 'batch payload matches per-run golden for ' . $goldenRunId);
+    }
+
+    $legacyPayload = WorkerClaimService::buildRunPayload($legacyChild, $batchContext, BackupRunRepository::get($legacyChild));
+    assert_true(is_array($legacyPayload), 'legacy delta fallback payload builds');
+    $legacyDelta = $legacyPayload['delta_states'] ?? null;
+    if ($legacyDelta instanceof stdClass) {
+        $legacyDelta = (array) $legacyDelta;
+    }
+    assert_true(
+        is_array($legacyDelta)
+        && (($legacyDelta['mail']['inbox'] ?? '') === 'https://graph.test/delta/legacy-inbox'),
+        'legacy delta_states_json fallback resolves in batch path',
+    );
+    assert_true(
+        ($legacyPayload['previous_manifest_id'] ?? '') === $priorManifestLegacy,
+        'batch prefetch resolves prior manifest id',
+    );
+
+    $manifestMap = KopiaRepoBootstrapService::latestManifestForSources(
+        $payloadTenantRecordId,
+        [$physicalA, $physicalB],
+        DeltaStateRepository::computeJobScope('', $payloadTenantRecordId),
+    );
+    assert_true(
+        ($manifestMap[$physicalA] ?? '') === $priorManifestA,
+        'latestManifestForSources returns latest manifest per key',
+    );
+
+    $batchPayload = WorkerClaimService::buildBatchPayload($payloadBatch, 'test-batch-payload-node');
+    assert_true(
+        isset($batchPayload['graph_token']) && ($batchPayload['graph_token'] ?? '') !== '',
+        'batch payload carries a single shared graph token',
+    );
+    assert_true(count($batchPayload['children'] ?? []) === 3, 'batch payload includes all pending children');
+    foreach ($batchPayload['children'] as $childPayload) {
+        assert_true(!isset($childPayload['graph_token']), 'child payloads omit per-run graph_token');
+    }
+} finally {
+    cleanupBatchTestRows($payloadBatchRunIds, $payloadRunIds);
+    Capsule::table('ms365_backup_runs')
+        ->whereIn('physical_key', ['user:payload-perf-a', 'user:payload-perf-b', 'user:payload-perf-legacy'])
+        ->where('status', 'success')
+        ->delete();
 }
 
 exit($failures > 0 ? 1 : 0);

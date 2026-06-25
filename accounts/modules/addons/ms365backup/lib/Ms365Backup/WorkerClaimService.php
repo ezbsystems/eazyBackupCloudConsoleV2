@@ -324,8 +324,28 @@ final class WorkerClaimService
             throw new \RuntimeException('Batch has no child workloads.');
         }
 
-        $children = [];
         $tenantRecordId = 0;
+        foreach ($childrenRows as $child) {
+            $status = (string) ($child['status'] ?? '');
+            if ($status === 'success' || $status === 'cancelled') {
+                continue;
+            }
+            $tenantRecordId = (int) ($child['tenant_record_id'] ?? 0);
+            if ($tenantRecordId > 0) {
+                break;
+            }
+        }
+        if ($tenantRecordId <= 0) {
+            throw new \RuntimeException('Tenant record not found for batch.');
+        }
+
+        $batchContext = self::batchPayloadContextForTenant($tenantRecordId);
+        if ($batchContext === null) {
+            throw new \RuntimeException('Tenant record not found for batch.');
+        }
+        $batchContext = self::enrichBatchPayloadContext($batchContext, $childrenRows, $tenantRecordId);
+
+        $children = [];
         foreach ($childrenRows as $child) {
             $status = (string) ($child['status'] ?? '');
             if ($status === 'success' || $status === 'cancelled') {
@@ -335,10 +355,7 @@ final class WorkerClaimService
             if ($runId === '') {
                 continue;
             }
-            if ($tenantRecordId <= 0) {
-                $tenantRecordId = (int) ($child['tenant_record_id'] ?? 0);
-            }
-            $payload = self::buildRunPayload($runId);
+            $payload = self::buildRunPayload($runId, $batchContext, $child);
             if ($payload !== null) {
                 $children[] = $payload;
             }
@@ -349,25 +366,162 @@ final class WorkerClaimService
             throw new \RuntimeException('Batch has no pending child workloads.');
         }
 
+        return [
+            'batch_run_id' => $batchRunId,
+            'job_type' => 'backup_batch',
+            'tenant_record_id' => $tenantRecordId,
+            'azure_tenant_id' => $batchContext['azure_tenant_id'],
+            'graph_token' => $batchContext['graph_token'],
+            'graph_region' => $batchContext['graph_region'],
+            'graph_tenant_budget' => $batchContext['graph_tenant_budget'],
+            'lease_expires_at' => Ms365BatchClaimRepository::leaseExpiresAt($batchRunId),
+            'engine_mode' => Ms365EngineConfig::engineMode(),
+            'children' => $children,
+        ];
+    }
+
+    /**
+     * Shared tenant credentials for batch claim payloads (one Graph token per batch).
+     *
+     * @return array{record: array<string, mixed>, creds: array<string, mixed>, azure_tenant_id: string, graph_token: string, graph_region: string, graph_tenant_budget: int}|null
+     */
+    private static function batchPayloadContextForTenant(int $tenantRecordId): ?array
+    {
+        if ($tenantRecordId <= 0) {
+            return null;
+        }
         $record = TenantRecordRepository::getById($tenantRecordId);
         if ($record === null) {
-            throw new \RuntimeException('Tenant record not found for batch.');
+            return null;
         }
         $creds = TenantRecordRepository::resolvedCredentialsForRecord($record);
         $azureTenantId = trim((string) ($creds['tenant_id'] ?? ''));
 
         return [
-            'batch_run_id' => $batchRunId,
-            'job_type' => 'backup_batch',
-            'tenant_record_id' => $tenantRecordId,
+            'record' => $record,
+            'creds' => $creds,
             'azure_tenant_id' => $azureTenantId,
             'graph_token' => self::graphTokenForTenantRecord($record),
             'graph_region' => (string) ($creds['region'] ?? 'GlobalPublicCloud'),
             'graph_tenant_budget' => GraphTenantBudgetService::workerShare($tenantRecordId, $azureTenantId),
-            'lease_expires_at' => Ms365BatchClaimRepository::leaseExpiresAt($batchRunId),
-            'engine_mode' => Ms365EngineConfig::engineMode(),
-            'children' => $children,
         ];
+    }
+
+    /**
+     * @param array<string, mixed> $batchContext
+     * @param list<array<string, mixed>> $childrenRows
+     *
+     * @return array<string, mixed>
+     */
+    private static function enrichBatchPayloadContext(array $batchContext, array $childrenRows, int $tenantRecordId): array
+    {
+        $record = $batchContext['record'] ?? null;
+        if (!is_array($record)) {
+            throw new \RuntimeException('Invalid batch payload context.');
+        }
+
+        $pendingChildren = [];
+        $e3JobIds = [];
+        foreach ($childrenRows as $child) {
+            $status = (string) ($child['status'] ?? '');
+            if ($status === 'success' || $status === 'cancelled') {
+                continue;
+            }
+            $pendingChildren[] = $child;
+            $e3JobIds[trim((string) ($child['e3_job_id'] ?? ''))] = true;
+        }
+
+        $destinationsByJob = [];
+        foreach (array_keys($e3JobIds) as $e3JobId) {
+            foreach ($pendingChildren as $child) {
+                if (trim((string) ($child['e3_job_id'] ?? '')) !== $e3JobId) {
+                    continue;
+                }
+                $destinationsByJob[$e3JobId] = Ms365JobDestinationService::resolveForRun($child, $record);
+                break;
+            }
+        }
+
+        $firstE3JobId = '';
+        foreach ($pendingChildren as $child) {
+            $firstE3JobId = trim((string) ($child['e3_job_id'] ?? ''));
+            if ($firstE3JobId !== '') {
+                break;
+            }
+        }
+
+        $jobScope = DeltaStateRepository::computeJobScope($firstE3JobId, $tenantRecordId);
+        $physicalKeys = self::prefetchPhysicalKeysForBatch($childrenRows);
+
+        $batchContext['destinations_by_job'] = $destinationsByJob;
+        $batchContext['job_scope'] = $jobScope;
+        $batchContext['platform_workload_flags'] = Ms365EngineConfig::workloadFlags();
+        $batchContext['pagination_limits'] = Ms365EngineConfig::paginationLimits();
+        $batchContext['manifests'] = KopiaRepoBootstrapService::latestManifestForSources(
+            $tenantRecordId,
+            $physicalKeys,
+            $jobScope,
+        );
+        $batchContext['delta_states'] = DeltaStateRepository::getStatesForSources(
+            $tenantRecordId,
+            $physicalKeys,
+            $jobScope['scoped_job_id'] ?? null,
+        );
+        $batchContext['legacy_delta_states'] = self::latestDeltaStatesForSources(
+            $tenantRecordId,
+            $physicalKeys,
+            $jobScope,
+        );
+
+        return $batchContext;
+    }
+
+    /**
+     * @param list<array<string, mixed>> $childrenRows
+     *
+     * @return list<string>
+     */
+    private static function prefetchPhysicalKeysForBatch(array $childrenRows): array
+    {
+        $keys = [];
+        foreach ($childrenRows as $child) {
+            $status = (string) ($child['status'] ?? '');
+            if ($status === 'success' || $status === 'cancelled') {
+                continue;
+            }
+            $physicalKey = (string) ($child['physical_key'] ?? '');
+            if ($physicalKey === '') {
+                continue;
+            }
+            $keys[$physicalKey] = true;
+            $parentPhysicalKey = PhysicalKeyHelper::aggregateParentKey($physicalKey, $child);
+            if ($parentPhysicalKey !== '') {
+                $keys[$parentPhysicalKey] = true;
+            }
+
+            $scope = [];
+            $scopeRaw = (string) ($child['scope_json'] ?? '');
+            if ($scopeRaw !== '') {
+                $decoded = json_decode($scopeRaw, true);
+                if (is_array($decoded)) {
+                    $scope = $decoded;
+                }
+            }
+            $logical = [];
+            $logicalRaw = (string) ($child['logical_sources_json'] ?? '');
+            if ($logicalRaw !== '') {
+                $decoded = json_decode($logicalRaw, true);
+                if (is_array($decoded)) {
+                    $logical = $decoded;
+                }
+            }
+            $driveId = self::driveIdForRun($child, $scope, $logical);
+            if ($driveId !== '' && str_starts_with(PhysicalKeyHelper::baseKey($physicalKey), 'user:')) {
+                $keys['drive:' . $driveId] = true;
+            }
+        }
+
+        return array_keys($keys);
     }
 
     public static function releaseBatchClaim(
@@ -535,24 +689,34 @@ final class WorkerClaimService
         }
     }
 
-    public static function buildRunPayload(string $runId): ?array
+    public static function buildRunPayload(string $runId, ?array $batchContext = null, ?array $preloadedRun = null): ?array
     {
-        $run = BackupRunRepository::get($runId);
+        $run = $preloadedRun ?? BackupRunRepository::get($runId);
         if ($run === null) {
             return null;
         }
         $tenantRecordId = (int) ($run['tenant_record_id'] ?? 0);
-        $record = TenantRecordRepository::getById($tenantRecordId);
-        if ($record === null) {
-            throw new \RuntimeException('Tenant record not found for run.');
+        if ($batchContext !== null) {
+            $record = $batchContext['record'] ?? null;
+            $creds = $batchContext['creds'] ?? null;
+            if (!is_array($record) || !is_array($creds)) {
+                throw new \RuntimeException('Invalid batch payload context.');
+            }
+        } else {
+            $record = TenantRecordRepository::getById($tenantRecordId);
+            if ($record === null) {
+                throw new \RuntimeException('Tenant record not found for run.');
+            }
+            $creds = TenantRecordRepository::resolvedCredentialsForRecord($record);
         }
 
-        $graphToken = self::graphTokenForTenantRecord($record);
-        $creds = TenantRecordRepository::resolvedCredentialsForRecord($record);
-
-        $storage = BackupStorageFactory::createForTenantRecord($record);
         $e3JobId = trim((string) ($run['e3_job_id'] ?? ''));
-        $dest = Ms365JobDestinationService::resolveForRun($run, $record);
+        if ($batchContext !== null) {
+            $destinationsByJob = $batchContext['destinations_by_job'] ?? [];
+            $dest = $destinationsByJob[$e3JobId] ?? Ms365JobDestinationService::resolveForRun($run, $record);
+        } else {
+            $dest = Ms365JobDestinationService::resolveForRun($run, $record);
+        }
 
         $scope = [];
         $scopeRaw = (string) ($run['scope_json'] ?? '');
@@ -575,19 +739,29 @@ final class WorkerClaimService
         $physicalKey = (string) ($run['physical_key'] ?? '');
         $parentPhysicalKey = PhysicalKeyHelper::aggregateParentKey($physicalKey, $run);
         $shard = PhysicalKeyHelper::parseShard($physicalKey);
-        $previousManifest = KopiaRepoBootstrapService::latestManifestForSource($tenantRecordId, $physicalKey, $e3JobId !== '' ? $e3JobId : null);
-        $deltaStates = DeltaStateRepository::getStatesForSource($tenantRecordId, $physicalKey, $e3JobId !== '' ? $e3JobId : null);
-        if ($deltaStates === [] && $parentPhysicalKey !== $physicalKey) {
-            $deltaStates = DeltaStateRepository::getStatesForSource($tenantRecordId, $parentPhysicalKey, $e3JobId !== '' ? $e3JobId : null);
-        }
-        if ($deltaStates === []) {
-            $legacy = self::latestDeltaStates($tenantRecordId, $physicalKey, $e3JobId);
-            if (is_array($legacy) && $legacy !== []) {
-                $deltaStates = $legacy;
-            } elseif ($parentPhysicalKey !== $physicalKey) {
-                $legacyParent = self::latestDeltaStates($tenantRecordId, $parentPhysicalKey, $e3JobId);
-                if (is_array($legacyParent)) {
-                    $deltaStates = $legacyParent;
+        if ($batchContext !== null) {
+            $manifestMap = $batchContext['manifests'] ?? [];
+            $previousManifest = $manifestMap[$physicalKey] ?? '';
+            $deltaStates = self::resolveDeltaStatesFromBatchContext(
+                $physicalKey,
+                $parentPhysicalKey,
+                $batchContext,
+            );
+        } else {
+            $previousManifest = KopiaRepoBootstrapService::latestManifestForSource($tenantRecordId, $physicalKey, $e3JobId !== '' ? $e3JobId : null);
+            $deltaStates = DeltaStateRepository::getStatesForSource($tenantRecordId, $physicalKey, $e3JobId !== '' ? $e3JobId : null);
+            if ($deltaStates === [] && $parentPhysicalKey !== $physicalKey) {
+                $deltaStates = DeltaStateRepository::getStatesForSource($tenantRecordId, $parentPhysicalKey, $e3JobId !== '' ? $e3JobId : null);
+            }
+            if ($deltaStates === []) {
+                $legacy = self::latestDeltaStates($tenantRecordId, $physicalKey, $e3JobId);
+                if (is_array($legacy) && $legacy !== []) {
+                    $deltaStates = $legacy;
+                } elseif ($parentPhysicalKey !== $physicalKey) {
+                    $legacyParent = self::latestDeltaStates($tenantRecordId, $parentPhysicalKey, $e3JobId);
+                    if (is_array($legacyParent)) {
+                        $deltaStates = $legacyParent;
+                    }
                 }
             }
         }
@@ -596,11 +770,15 @@ final class WorkerClaimService
         $driveId = self::driveIdForRun($run, $scope, $logical);
         if ($driveId !== '' && str_starts_with(PhysicalKeyHelper::baseKey($physicalKey), 'user:')) {
             $driveKey = 'drive:' . $driveId;
-            $driveDeltas = DeltaStateRepository::getStatesForSource($tenantRecordId, $driveKey, $e3JobId !== '' ? $e3JobId : null);
-            if ($driveDeltas === []) {
-                $driveDeltas = self::latestDeltaStates($tenantRecordId, $driveKey, $e3JobId);
-                if (!is_array($driveDeltas)) {
-                    $driveDeltas = [];
+            if ($batchContext !== null) {
+                $driveDeltas = self::resolveDriveDeltaStatesFromBatchContext($driveKey, $batchContext);
+            } else {
+                $driveDeltas = DeltaStateRepository::getStatesForSource($tenantRecordId, $driveKey, $e3JobId !== '' ? $e3JobId : null);
+                if ($driveDeltas === []) {
+                    $driveDeltas = self::latestDeltaStates($tenantRecordId, $driveKey, $e3JobId);
+                    if (!is_array($driveDeltas)) {
+                        $driveDeltas = [];
+                    }
                 }
             }
             if (is_array($driveDeltas['onedrive'] ?? null)) {
@@ -608,8 +786,15 @@ final class WorkerClaimService
             }
         }
 
-        $workloads = self::workloadsForRun($run, $scope);
+        $platformFlags = null;
+        if ($batchContext !== null) {
+            $platformFlags = $batchContext['platform_workload_flags'] ?? null;
+        }
+        $workloads = self::workloadsForRun($run, $scope, is_array($platformFlags) ? $platformFlags : null);
         $siteId = self::siteIdForRun($run, $scope);
+        $paginationAll = $batchContext !== null
+            ? ($batchContext['pagination_limits'] ?? Ms365EngineConfig::paginationLimits())
+            : null;
         $payload = [
             'run_id' => $runId,
             'job_type' => 'backup',
@@ -627,7 +812,6 @@ final class WorkerClaimService
             'excluded_list_ids' => self::excludedListIdsForRun($scope),
             'scope' => (object) $scopeFlags,
             'logical_sources' => $logical,
-            'graph_token' => $graphToken,
             'graph_region' => (string) ($creds['region'] ?? 'GlobalPublicCloud'),
             'dest_endpoint' => $dest['endpoint'],
             'dest_region' => $dest['region'],
@@ -642,14 +826,19 @@ final class WorkerClaimService
             'delta_states' => $deltaStates !== [] ? $deltaStates : new \stdClass(),
             'engine_mode' => Ms365EngineConfig::engineMode(),
             'workloads' => $workloads,
-            'graph_pagination' => Ms365EngineConfig::paginationLimitsForWorkloads($workloads),
+            'graph_pagination' => $paginationAll !== null
+                ? self::paginationLimitsForWorkloadsFromCache($workloads, $paginationAll)
+                : Ms365EngineConfig::paginationLimitsForWorkloads($workloads),
             'lease_expires_at' => WorkerLeaseService::leaseExpiresAt($runId),
             'kopia_source_path' => PhysicalKeyHelper::kopiaSourcePath((string) ($creds['tenant_id'] ?? ''), $physicalKey, $scope),
-            'graph_tenant_budget' => GraphTenantBudgetService::workerShare(
+        ];
+        if ($batchContext === null) {
+            $payload['graph_token'] = self::graphTokenForTenantRecord($record);
+            $payload['graph_tenant_budget'] = GraphTenantBudgetService::workerShare(
                 $tenantRecordId,
                 (string) ($creds['tenant_id'] ?? '')
-            ),
-        ];
+            );
+        }
         if ($shard !== null) {
             $shardMeta = [];
             if (is_array($scope['_shard'] ?? null)) {
@@ -739,6 +928,127 @@ final class WorkerClaimService
         return $tokenProvider->getAccessToken();
     }
 
+    /** @return array<string, array<string, string>> */
+    private static function resolveDeltaStatesFromBatchContext(
+        string $physicalKey,
+        string $parentPhysicalKey,
+        array $batchContext,
+    ): array {
+        $deltaMap = $batchContext['delta_states'] ?? [];
+        $legacyMap = $batchContext['legacy_delta_states'] ?? [];
+
+        $deltaStates = $deltaMap[$physicalKey] ?? [];
+        if ($deltaStates === [] && $parentPhysicalKey !== $physicalKey) {
+            $deltaStates = $deltaMap[$parentPhysicalKey] ?? [];
+        }
+        if ($deltaStates === []) {
+            $legacy = $legacyMap[$physicalKey] ?? null;
+            if (is_array($legacy) && $legacy !== []) {
+                $deltaStates = $legacy;
+            } elseif ($parentPhysicalKey !== $physicalKey) {
+                $legacyParent = $legacyMap[$parentPhysicalKey] ?? null;
+                if (is_array($legacyParent) && $legacyParent !== []) {
+                    $deltaStates = $legacyParent;
+                }
+            }
+        }
+
+        return $deltaStates;
+    }
+
+    /** @return array<string, array<string, string>> */
+    private static function resolveDriveDeltaStatesFromBatchContext(string $driveKey, array $batchContext): array
+    {
+        $deltaMap = $batchContext['delta_states'] ?? [];
+        $driveDeltas = $deltaMap[$driveKey] ?? [];
+        if ($driveDeltas !== []) {
+            return $driveDeltas;
+        }
+        $legacyMap = $batchContext['legacy_delta_states'] ?? [];
+        $legacyDrive = $legacyMap[$driveKey] ?? null;
+
+        return is_array($legacyDrive) ? $legacyDrive : [];
+    }
+
+    /**
+     * @param list<string> $physicalKeys
+     * @param array{e3_job_id: string, legacy_shared_bucket: bool} $jobScope
+     *
+     * @return array<string, array<string, mixed>> physical_key => decoded delta_states_json
+     */
+    private static function latestDeltaStatesForSources(int $tenantRecordId, array $physicalKeys, array $jobScope): array
+    {
+        if ($tenantRecordId <= 0 || $physicalKeys === [] || !Capsule::schema()->hasColumn('ms365_backup_runs', 'delta_states_json')) {
+            return [];
+        }
+
+        $physicalKeys = array_values(array_unique(array_filter(
+            $physicalKeys,
+            static fn ($key) => is_string($key) && $key !== '',
+        )));
+        if ($physicalKeys === []) {
+            return [];
+        }
+
+        $e3JobId = trim((string) ($jobScope['e3_job_id'] ?? ''));
+        $legacy = (bool) ($jobScope['legacy_shared_bucket'] ?? true);
+
+        $q = Capsule::table('ms365_backup_runs')
+            ->where('tenant_record_id', $tenantRecordId)
+            ->whereIn('physical_key', $physicalKeys)
+            ->where('status', 'success')
+            ->whereNotNull('delta_states_json')
+            ->where('delta_states_json', '!=', '');
+
+        if ($e3JobId !== '' && Capsule::schema()->hasColumn('ms365_backup_runs', 'e3_job_id')) {
+            if ($legacy) {
+                $q->where(function ($sub) use ($e3JobId): void {
+                    $sub->where('e3_job_id', $e3JobId)->orWhereNull('e3_job_id')->orWhere('e3_job_id', '');
+                });
+            } else {
+                $q->where('e3_job_id', $e3JobId);
+            }
+        }
+
+        $rows = $q->orderByDesc('finished_at')->get(['physical_key', 'delta_states_json']);
+        $out = [];
+        foreach ($rows as $row) {
+            $physicalKey = (string) ($row->physical_key ?? '');
+            if ($physicalKey === '' || isset($out[$physicalKey])) {
+                continue;
+            }
+            $raw = (string) ($row->delta_states_json ?? '');
+            if ($raw === '') {
+                continue;
+            }
+            $decoded = json_decode($raw, true);
+            if (is_array($decoded) && $decoded !== []) {
+                $out[$physicalKey] = $decoded;
+            }
+        }
+
+        return $out;
+    }
+
+    /** @param array<string, mixed> $workloads */
+    private static function paginationLimitsForWorkloadsFromCache(array $workloads, array $allLimits): array
+    {
+        $out = [];
+        if (isset($allLimits['default'])) {
+            $out['default'] = $allLimits['default'];
+        }
+        foreach ($workloads as $name => $enabled) {
+            if (!$enabled || !is_string($name)) {
+                continue;
+            }
+            if (isset($allLimits[$name])) {
+                $out[$name] = $allLimits[$name];
+            }
+        }
+
+        return $out;
+    }
+
     /**
      * Most recent successful delta_states for a source, emitted verbatim into the claim payload.
      * Returns an object (stdClass) when none exist so JSON encodes to {} for the Go map decoder.
@@ -761,9 +1071,8 @@ final class WorkerClaimService
             ->whereNotNull('delta_states_json')
             ->where('delta_states_json', '!=', '');
         if ($e3JobId !== null && $e3JobId !== '' && Capsule::schema()->hasColumn('ms365_backup_runs', 'e3_job_id')) {
-            $job = Ms365JobDestinationService::loadJobRow($e3JobId);
-            $tenant = TenantRecordRepository::getById($tenantRecordId);
-            if ($job !== null && $tenant !== null && Ms365JobDestinationService::isLegacySharedBucket($job, $tenant)) {
+            $jobScope = DeltaStateRepository::computeJobScope($e3JobId, $tenantRecordId);
+            if ($jobScope['legacy_shared_bucket']) {
                 $q->where(function ($sub) use ($e3JobId): void {
                     $sub->where('e3_job_id', $e3JobId)->orWhereNull('e3_job_id')->orWhere('e3_job_id', '');
                 });
@@ -921,9 +1230,9 @@ final class WorkerClaimService
     }
 
     /** @return array<string, bool> */
-    private static function workloadsForRun(array $run, array $scope): array
+    private static function workloadsForRun(array $run, array $scope, ?array $platformFlags = null): array
     {
-        $flags = Ms365EngineConfig::workloadFlags();
+        $flags = $platformFlags ?? Ms365EngineConfig::workloadFlags();
         $physical = PhysicalKeyHelper::baseKey((string) ($run['physical_key'] ?? ''));
         if ($physical === '') {
             return $flags;
@@ -972,7 +1281,7 @@ final class WorkerClaimService
             return array_fill_keys(array_keys($flags), false);
         }
 
-        $platform = Ms365EngineConfig::workloadFlags();
+        $platform = $platformFlags ?? Ms365EngineConfig::workloadFlags();
         $narrowed = array_fill_keys(array_keys($flags), false);
         foreach ($only as $w) {
             $narrowed[$w] = (bool) ($platform[$w] ?? false);

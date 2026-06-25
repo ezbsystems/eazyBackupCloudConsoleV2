@@ -5,6 +5,7 @@ require_once dirname(__DIR__) . '/../ms365backup/ms365backup_autoload.php';
 
 use Ms365Backup\Fleet\DeployService;
 use Ms365Backup\Fleet\WorkerConfigService;
+use Ms365Backup\Ms365BatchClaimRepository;
 use Ms365Backup\Ms365WorkerApiAuth;
 use Ms365Backup\WorkerClaimService;
 use Ms365Backup\WorkerLeaseService;
@@ -47,6 +48,14 @@ try {
     }
     WorkerClaimService::failOrphanedRestoreRunsForNode($nodeId, $effectiveLoad, 180);
     $activeClaims = WorkerClaimService::activeClaimRunIds($nodeId);
+    $batchClaimIds = Ms365BatchClaimRepository::activeBatchRunIdsForNode($nodeId);
+    $activeClaims = array_values(array_unique(array_merge(
+        $activeClaims,
+        $batchClaimIds
+    )));
+    foreach ($batchClaimIds as $batchRunId) {
+        WorkerLeaseService::renewForBatch($batchRunId, $nodeId);
+    }
     if ($effectiveLoad > 0) {
         WorkerLeaseService::renewForNode($nodeId);
     }
