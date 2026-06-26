@@ -339,6 +339,16 @@ func (s *Scheduler) poll(ctx context.Context) {
 			_ = s.client.Release(ctx, job.RunID, "unexpected_backup_child_claim")
 			break
 		}
+		if s.isRunning(job.RunID) {
+			// The control plane resumed (resumeOwnedRunningClaim) a run this
+			// worker is already executing. Releasing it here would drop our own
+			// live claim back to the queue, where another idle worker grabs it
+			// and our next heartbeat reconcile then cancels the run — an
+			// ownership ping-pong that restarts the restore from zero every few
+			// seconds. We already own and run it, so treat as a no-op and stop
+			// claiming this cycle (do NOT release).
+			break
+		}
 		if !s.canAdmit(job) {
 			s.recordAdmitReject()
 			_ = s.client.Release(ctx, job.RunID, "")
@@ -682,6 +692,13 @@ func (s *Scheduler) tryStart(job *api.RunJob) bool {
 	s.running[job.RunID] = struct{}{}
 	s.trackBucket(job.DestBucket, 1)
 	return true
+}
+
+func (s *Scheduler) isRunning(runID string) bool {
+	s.runningMu.Lock()
+	defer s.runningMu.Unlock()
+	_, ok := s.running[runID]
+	return ok
 }
 
 func (s *Scheduler) done(runID string) {
