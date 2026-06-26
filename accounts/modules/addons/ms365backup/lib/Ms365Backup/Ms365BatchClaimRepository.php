@@ -222,6 +222,56 @@ final class Ms365BatchClaimRepository
         return $completed;
     }
 
+    /**
+     * Complete any claim (queued or running, with or without an owner) whose
+     * children are all terminal.
+     *
+     * A claimable batch whose children are all success/cancelled/error can never
+     * produce a valid payload — buildBatchPayload() derives the tenant from the
+     * first non-terminal child and otherwise throws "Tenant record not found for
+     * batch", which made workers claim such a batch, fail payload build, requeue,
+     * and churn attempts indefinitely (observed attempts 10 and 39 >> max 5).
+     * Marking these done removes them from the claimable pool so they stop
+     * wasting claim cycles and never block the per-tenant single-owner guard.
+     *
+     * @return int number of finished claims completed
+     */
+    public static function completeFinishedClaims(): int
+    {
+        if (!self::tableReady()) {
+            return 0;
+        }
+        $rows = Capsule::table('ms365_batch_claims')
+            ->whereIn('status', ['queued', 'running'])
+            ->get(['batch_run_id']);
+
+        $now = time();
+        $completed = 0;
+        foreach ($rows as $row) {
+            $batchRunId = (string) ($row->batch_run_id ?? '');
+            if ($batchRunId === '' || !self::batchChildrenAllTerminal($batchRunId)) {
+                continue;
+            }
+            $updated = Capsule::table('ms365_batch_claims')
+                ->where('batch_run_id', $batchRunId)
+                ->whereIn('status', ['queued', 'running'])
+                ->update([
+                    'status' => 'done',
+                    'worker_node_id' => null,
+                    'running_tenant_key' => null,
+                    'claimed_at' => null,
+                    'lease_expires_at' => null,
+                    'error_message' => 'All child workloads terminal',
+                    'updated_at' => $now,
+                ]);
+            if ($updated > 0) {
+                ++$completed;
+            }
+        }
+
+        return $completed;
+    }
+
     private static function batchHasActiveChildren(string $batchRunId): bool
     {
         if ($batchRunId === '' || !Capsule::schema()->hasTable('ms365_backup_runs')) {
@@ -234,6 +284,26 @@ final class Ms365BatchClaimRepository
             ->where('e3_batch_run_id', $batchRunId)
             ->whereIn('status', ['queued', 'running'])
             ->exists();
+    }
+
+    /**
+     * True only when the batch has at least one child row and none are active
+     * (queued/running). A batch with zero child rows is treated as NOT finished
+     * (it may be mid-enqueue), so it is never spuriously completed.
+     */
+    private static function batchChildrenAllTerminal(string $batchRunId): bool
+    {
+        if ($batchRunId === '' || !Capsule::schema()->hasTable('ms365_backup_runs')) {
+            return false;
+        }
+        $total = Capsule::table('ms365_backup_runs')
+            ->where('e3_batch_run_id', $batchRunId)
+            ->count();
+        if ($total === 0) {
+            return false;
+        }
+
+        return !self::batchHasActiveChildren($batchRunId);
     }
 
     public static function fail(string $batchRunId, string $nodeId, string $message): bool
@@ -307,6 +377,10 @@ final class Ms365BatchClaimRepository
         if (!self::tableReady()) {
             return 0;
         }
+        // Retire claims whose children are all terminal before reaping stale
+        // running claims, so finished-but-not-completed batches stop churning
+        // through the claim pool ("Tenant record not found" requeue loop).
+        self::completeFinishedClaims();
         $now = time();
         $heartbeatGap = Ms365EngineConfig::batchHeartbeatGapSeconds();
         $heartbeatCutoff = $now - $heartbeatGap;
