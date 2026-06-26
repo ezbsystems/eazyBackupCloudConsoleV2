@@ -452,7 +452,81 @@ final class Ms365BatchClaimRepository
             ++$reaped;
         }
 
+        $reaped += self::recoverStrandedFailedBatches();
+
         return $reaped;
+    }
+
+    /**
+     * Re-queue batches that terminal-failed for a transient infra reason
+     * (heartbeat/lease stale — e.g. the owning worker restarted during a deploy)
+     * but still have pending children.
+     *
+     * Terminal-failing such a batch permanently strands customer work even
+     * though an available worker could finish it (observed: a tenant batch
+     * exhausted its 5 attempts purely from worker restarts, leaving 15 children
+     * stuck 'queued' forever while other nodes sat idle). Pending work with
+     * available capacity must remain runnable, so we give the batch a fresh
+     * attempt budget. Genuinely-stuck batches re-fail after max_attempts
+     * heartbeat gaps and are revived again on a bounded ~max_attempts*gap cycle
+     * (visible and far better than permanent stranding); failures that are not
+     * transient infra (different error_message) are left failed.
+     *
+     * @return int number of batches re-queued
+     */
+    public static function recoverStrandedFailedBatches(): int
+    {
+        if (!self::tableReady()) {
+            return 0;
+        }
+        $rows = Capsule::table('ms365_batch_claims')
+            ->where('status', 'failed')
+            ->get(['batch_run_id', 'error_message']);
+
+        $now = time();
+        $recovered = 0;
+        foreach ($rows as $row) {
+            $batchRunId = (string) ($row->batch_run_id ?? '');
+            if ($batchRunId === '') {
+                continue;
+            }
+            if (!self::isTransientFailureReason((string) ($row->error_message ?? ''))) {
+                continue;
+            }
+            // Only revive when there is still pending (non-terminal) work to run.
+            if (!self::batchHasActiveChildren($batchRunId)) {
+                continue;
+            }
+            $updated = Capsule::table('ms365_batch_claims')
+                ->where('batch_run_id', $batchRunId)
+                ->where('status', 'failed')
+                ->update([
+                    'status' => 'queued',
+                    'worker_node_id' => null,
+                    'running_tenant_key' => null,
+                    'claimed_at' => null,
+                    'lease_expires_at' => null,
+                    'attempts' => 0,
+                    'error_message' => 'Re-queued after transient failure (pending children remain)',
+                    'updated_at' => $now,
+                ]);
+            if ($updated > 0) {
+                ++$recovered;
+            }
+        }
+
+        return $recovered;
+    }
+
+    private static function isTransientFailureReason(string $message): bool
+    {
+        $m = strtolower(trim($message));
+        if ($m === '') {
+            return false;
+        }
+
+        return strpos($m, 'heartbeat stale') !== false
+            || strpos($m, 'lease expired') !== false;
     }
 
     public static function hasLiveLease(string $batchRunId, ?string $nodeId = null): bool
