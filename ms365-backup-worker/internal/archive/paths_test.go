@@ -42,7 +42,26 @@ func TestShouldExportFile(t *testing.T) {
 	if shouldExportFile("tenant/users/u1/mail/inbox/_folder.json") != false {
 		t.Fatal("expected _folder.json to skip")
 	}
+	if shouldExportFile("tenant/sites/s1/_site.json") != false {
+		t.Fatal("expected _site.json to skip")
+	}
+	if shouldExportFile("tenant/users/u1/calendar/c1/e1/attachments.json") != false {
+		t.Fatal("expected attachments.json to skip")
+	}
 	if shouldExportFile("tenant/users/u1/mail/inbox/msg.removed.json") != false {
 		t.Fatal("expected .removed.json to skip")
+	}
+}
+
+func TestFilterExportFilesSkipsEmbeddedAttachments(t *testing.T) {
+	files := []fileEntry{
+		{Path: "tenant/users/u1/mail/f1/msg.json"},
+		{Path: "tenant/users/u1/mail/f1/msg/attachments/doc.pdf"},
+		{Path: "tenant/users/u1/calendar/c1/e1.json"},
+		{Path: "tenant/users/u1/calendar/c1/e1/attachments.json"},
+	}
+	filtered := filterExportFiles(files)
+	if len(filtered) != 2 {
+		t.Fatalf("expected 2 exportable files, got %d", len(filtered))
 	}
 }

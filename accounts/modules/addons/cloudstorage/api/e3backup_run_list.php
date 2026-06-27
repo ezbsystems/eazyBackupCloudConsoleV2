@@ -128,6 +128,7 @@ if ($userScopeIdRaw !== '' && $userScopeIdRaw !== '0') {
 try {
     $schema = Capsule::schema();
     $hasRunIdCol = $schema->hasColumn('s3_cloudbackup_runs', 'run_id');
+    $hasRunTypeCol = $schema->hasColumn('s3_cloudbackup_runs', 'run_type');
     $hasStatsJsonCol = $schema->hasColumn('s3_cloudbackup_runs', 'stats_json');
     $hasErrorSummaryCol = $schema->hasColumn('s3_cloudbackup_runs', 'error_summary');
     $hasJobIdPk = $schema->hasColumn('s3_cloudbackup_jobs', 'job_id');
@@ -267,6 +268,7 @@ try {
             'r.bytes_processed',
             'r.bytes_transferred',
             $hasStatsJsonCol ? 'r.stats_json' : null,
+            $hasRunTypeCol ? 'r.run_type' : null,
             $hasErrorSummaryCol ? 'r.error_summary' : null,
             'j.name as job_name',
             'a.hostname as agent_hostname',
@@ -307,6 +309,19 @@ try {
             $decoded = json_decode((string) $r->stats_json, true);
             $scheduleSkipped = is_array($decoded) && !empty($decoded['ms365_schedule_skip']);
         }
+        $operationType = 'Backup';
+        $restoreTypes = ['restore', 'hyperv_restore', 'disk_restore'];
+        if ($hasRunTypeCol && !empty($r->run_type) && in_array((string) $r->run_type, $restoreTypes, true)) {
+            $operationType = 'Restore';
+        } elseif ($hasStatsJsonCol && isset($r->stats_json)) {
+            $decoded = json_decode((string) $r->stats_json, true);
+            if (is_array($decoded)) {
+                $stype = (string) ($decoded['type'] ?? '');
+                if (in_array($stype, $restoreTypes, true)) {
+                    $operationType = 'Restore';
+                }
+            }
+        }
         $out[] = [
             'run_id' => (string) ($r->run_id ?? ''),
             'status' => (string) $r->status,
@@ -316,6 +331,7 @@ try {
             'finished_at' => (string) ($r->finished_at ?? ''),
             'trigger_type' => (string) ($r->trigger_type ?? ''),
             'engine' => (string) ($r->engine ?? 'sync'),
+            'operation_type' => $operationType,
             'job_name' => (string) ($r->job_name ?? ''),
             'agent_hostname' => (string) ($r->agent_hostname ?? ''),
             'agent_uuid' => (string) ($r->agent_uuid ?? ''),

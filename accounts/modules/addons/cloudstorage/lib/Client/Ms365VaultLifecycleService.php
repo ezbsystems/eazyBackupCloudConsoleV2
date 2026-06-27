@@ -181,6 +181,79 @@ final class Ms365VaultLifecycleService
         return ['vaults_active' => $active, 'vaults_recycle' => $recycle];
     }
 
+    /**
+     * @return array{vaults_active: list<array<string, mixed>>, vaults_recycle: list<array<string, mixed>>, legacy_vaults: list<array<string, mixed>>, grace_days: int}
+     */
+    public static function listVaultsForClient(int $clientId, ?int $tenantFilter = null, bool $directOnly = false): array
+    {
+        $active = [];
+        $recycle = [];
+        $legacyVaults = [];
+        $graceDays = self::getGraceDays();
+
+        if ($clientId <= 0) {
+            return [
+                'vaults_active' => $active,
+                'vaults_recycle' => $recycle,
+                'legacy_vaults' => $legacyVaults,
+                'grace_days' => $graceDays,
+            ];
+        }
+
+        $seenMs365BucketIds = [];
+        $seenLegacyBucketIds = [];
+
+        foreach (self::getInScopeBackupUsers($clientId, $tenantFilter, $directOnly) as $user) {
+            $backupUserId = (int) $user['id'];
+            $enrichFields = [
+                'username' => (string) $user['username'],
+                'user_route_id' => !empty($user['public_id']) ? (string) $user['public_id'] : (string) $backupUserId,
+                'backup_user_id' => $backupUserId,
+                'tenant_name' => $user['tenant_name'] ?? null,
+            ];
+
+            $vaultData = self::listVaultsForBackupUser($clientId, $backupUserId);
+            foreach ($vaultData['vaults_active'] as $vault) {
+                $bid = (int) ($vault['id'] ?? 0);
+                if ($bid > 0 && isset($seenMs365BucketIds[$bid])) {
+                    continue;
+                }
+                if ($bid > 0) {
+                    $seenMs365BucketIds[$bid] = true;
+                }
+                $active[] = array_merge($vault, $enrichFields);
+            }
+            foreach ($vaultData['vaults_recycle'] as $vault) {
+                $bid = (int) ($vault['id'] ?? 0);
+                if ($bid > 0 && isset($seenMs365BucketIds[$bid])) {
+                    continue;
+                }
+                if ($bid > 0) {
+                    $seenMs365BucketIds[$bid] = true;
+                }
+                $recycle[] = array_merge($vault, $enrichFields);
+            }
+
+            foreach (self::legacyVaultsForBackupUser($clientId, $backupUserId, $user['storage_tenant_id'] ?? null) as $vault) {
+                $bid = (int) ($vault['id'] ?? 0);
+                if ($bid > 0 && isset($seenLegacyBucketIds[$bid])) {
+                    continue;
+                }
+                if ($bid > 0) {
+                    $seenLegacyBucketIds[$bid] = true;
+                }
+                $legacyVaults[] = array_merge($vault, $enrichFields);
+            }
+        }
+
+        return [
+            'vaults_active' => $active,
+            'vaults_recycle' => $recycle,
+            'legacy_vaults' => $legacyVaults,
+            'grace_days' => $graceDays,
+        ];
+    }
+
     public static function queueExpiredVaultsForTeardown(): int
     {
         if (!Capsule::schema()->hasColumn('s3_buckets', 'recycle_status')) {
@@ -472,6 +545,173 @@ final class Ms365VaultLifecycleService
     }
 
     /**
+     * @return list<array{id: int, public_id: string, username: string, storage_tenant_id: int|null, tenant_name: string|null}>
+     */
+    private static function getInScopeBackupUsers(int $clientId, ?int $tenantFilter, bool $directOnly): array
+    {
+        if (!Capsule::schema()->hasTable('s3_backup_users')) {
+            return [];
+        }
+
+        $isMsp = MspController::isMspClient($clientId);
+        $tenantTable = MspController::getTenantTableName();
+        $mspId = MspController::getMspIdForClient($clientId);
+        $hasPublicId = Capsule::schema()->hasColumn('s3_backup_users', 'public_id');
+
+        $userQuery = Capsule::table('s3_backup_users as u')
+            ->leftJoin($tenantTable . ' as t', function ($join) use ($clientId, $tenantTable, $mspId) {
+                $join->on('u.tenant_id', '=', 't.id')
+                    ->where('t.status', '!=', 'deleted');
+                if ($tenantTable === 'eb_tenants') {
+                    $join->where('t.msp_id', '=', (int) ($mspId ?? 0));
+                } else {
+                    $join->where('t.client_id', '=', (int) $clientId);
+                }
+            })
+            ->where('u.client_id', $clientId)
+            ->select(array_merge([
+                'u.id',
+                'u.username',
+                'u.tenant_id as storage_tenant_id',
+                't.name as tenant_name',
+            ], $hasPublicId ? ['u.public_id'] : []));
+
+        if ($directOnly) {
+            $userQuery->whereNull('u.tenant_id');
+        } elseif ($tenantFilter !== null) {
+            $userQuery->where('u.tenant_id', $tenantFilter);
+        } elseif ($isMsp) {
+            $userQuery->where(function ($q) {
+                $q->whereNull('u.tenant_id')->orWhereNotNull('t.id');
+            });
+        }
+
+        $users = [];
+        foreach ($userQuery->orderBy('u.username')->get() as $user) {
+            $users[] = [
+                'id' => (int) $user->id,
+                'public_id' => $hasPublicId ? (string) ($user->public_id ?? '') : '',
+                'username' => (string) $user->username,
+                'storage_tenant_id' => $user->storage_tenant_id !== null ? (int) $user->storage_tenant_id : null,
+                'tenant_name' => $user->tenant_name ?? null,
+            ];
+        }
+
+        return $users;
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private static function legacyVaultsForBackupUser(int $clientId, int $backupUserId, ?int $storageTenantId): array
+    {
+        $vaults = [];
+        if ($backupUserId <= 0
+            || !Capsule::schema()->hasTable('s3_cloudbackup_jobs')
+            || !Capsule::schema()->hasTable('s3_cloudbackup_agents')
+            || !Capsule::schema()->hasTable('s3_buckets')) {
+            return $vaults;
+        }
+
+        $hasJobBackupUser = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'backup_user_id');
+        $hasAgentBackupUser = Capsule::schema()->hasColumn('s3_cloudbackup_agents', 'backup_user_id');
+
+        $jobQuery = Capsule::table('s3_cloudbackup_jobs as j')
+            ->leftJoin('s3_cloudbackup_agents as a', 'j.agent_uuid', '=', 'a.agent_uuid')
+            ->where('j.client_id', $clientId)
+            ->where('j.status', '!=', 'deleted');
+
+        if ($hasJobBackupUser) {
+            if ($hasAgentBackupUser) {
+                $jobQuery->where(function ($scoped) use ($backupUserId) {
+                    $scoped->where('j.backup_user_id', $backupUserId)
+                        ->orWhere(function ($legacy) use ($backupUserId) {
+                            $legacy->whereNull('j.backup_user_id')
+                                ->where('a.backup_user_id', $backupUserId);
+                        });
+                });
+            } else {
+                $jobQuery->where('j.backup_user_id', $backupUserId);
+            }
+        } elseif ($hasAgentBackupUser) {
+            if ($storageTenantId === null) {
+                $jobQuery->whereNull('a.tenant_id');
+            } else {
+                $jobQuery->where('a.tenant_id', $storageTenantId);
+            }
+        } else {
+            return $vaults;
+        }
+
+        $jobCollection = $jobQuery->get(['j.dest_bucket_id', 'j.dest_prefix']);
+
+        $bucketIds = [];
+        $jobsUsingBucket = [];
+        foreach ($jobCollection as $jr) {
+            $bid = $jr->dest_bucket_id ?? null;
+            if ($bid !== null && $bid !== '') {
+                $ik = (int) $bid;
+                $bucketIds[$ik] = true;
+                $jobsUsingBucket[$ik] = ($jobsUsingBucket[$ik] ?? 0) + 1;
+            }
+        }
+
+        if (empty($bucketIds)) {
+            return $vaults;
+        }
+
+        $bucketRows = Capsule::table('s3_buckets')
+            ->whereIn('id', array_keys($bucketIds))
+            ->get(['id', 'name', 'created_at']);
+
+        foreach ($bucketRows as $b) {
+            $bid = (int) ($b->id ?? 0);
+            $name = (string) ($b->name ?? '');
+            if ($name === '' || self::isMs365VaultBucketName($name)) {
+                continue;
+            }
+
+            $path = '';
+            foreach ($jobCollection as $jr) {
+                if ((int) ($jr->dest_bucket_id ?? 0) !== $bid) {
+                    continue;
+                }
+                $p = trim((string) ($jr->dest_prefix ?? ''));
+                if ($p !== '') {
+                    $path = '/' . ltrim($p, '/');
+                    break;
+                }
+            }
+
+            $createdOut = null;
+            if (!empty($b->created_at)) {
+                try {
+                    $createdOut = (new \DateTimeImmutable((string) $b->created_at))->format('Y-m-d');
+                } catch (\Throwable $e) {
+                    $createdOut = null;
+                }
+            }
+
+            $vaults[] = [
+                'id' => $bid,
+                'name' => $name,
+                'provider_label' => 'eazyBackup Cloud',
+                'bucket_path' => $path !== '' ? $path : '—',
+                'storage_used_display' => '—',
+                'created' => $createdOut,
+                'jobs_using' => (int) ($jobsUsingBucket[$bid] ?? 0),
+                'is_ms365' => false,
+                'retention_tier' => '—',
+                'protection_label' => '—',
+                'job_name' => '—',
+            ];
+        }
+
+        return $vaults;
+    }
+
+    /**
+     * @param object $bucket
      * @param object|null $job
      * @return array<string, mixed>
      */
@@ -515,6 +755,7 @@ final class Ms365VaultLifecycleService
             'days_remaining' => $daysRemaining,
             'early_delete_request_status' => $earlyDeleteStatus ?? null,
             'is_ms365' => true,
+            'jobs_using' => $job !== null ? 1 : 0,
         ];
     }
 

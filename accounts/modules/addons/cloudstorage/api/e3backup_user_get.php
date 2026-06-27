@@ -531,6 +531,10 @@ if ($cloudJobsOk) {
             'storage_used_display' => '—',
             'created' => $createdOut,
             'jobs_using' => (int) ($jobsUsingBucket[$bid] ?? 0),
+            'is_ms365' => false,
+            'retention_tier' => '—',
+            'protection_label' => '—',
+            'job_name' => '—',
         ];
     }
 

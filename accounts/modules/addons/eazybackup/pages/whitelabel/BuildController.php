@@ -1097,6 +1097,15 @@ function eazybackup_whitelabel_branding_testsmtp(array $vars): void
         }
 
         $rawSec = (string)($_POST['smtp_security'] ?? '');
+        if ($smtpPort === 465 && strcasecmp($rawSec, 'STARTTLS') === 0) {
+            echo json_encode(['ok' => false, 'error' => 'smtp_security_mismatch']);
+            return;
+        }
+        if ($smtpPort === 587 && strcasecmp($rawSec, 'SSL/TLS') === 0) {
+            echo json_encode(['ok' => false, 'error' => 'smtp_security_mismatch']);
+            return;
+        }
+
         $mode = 'smtp';
         $allowUnenc = false;
         if (strcasecmp($rawSec, 'SSL/TLS') === 0) {
@@ -1133,6 +1142,7 @@ function eazybackup_whitelabel_branding_testsmtp(array $vars): void
 
         $ms = new \EazyBackup\Whitelabel\MailService($vars);
         $result = $ms->sendSmtpTest($config, $to);
+
         if (!($result['ok'] ?? false)) {
             echo json_encode(['ok' => false, 'error' => (string)($result['error'] ?? 'send_failed')]);
             return;

@@ -836,7 +836,7 @@
                                 :class="vaultSubTab === 'active' ? 'is-active' : ''"
                                 :aria-selected="vaultSubTab === 'active' ? 'true' : 'false'"
                                 @click="selectVaultSubTab('active')">
-                            Active vaults (<span x-text="ms365VaultsActive().length"></span>)
+                            Active vaults (<span x-text="ms365VaultsActive().length + legacyVaultsDetail().length"></span>)
                         </button>
                         <button type="button"
                                 role="tab"
@@ -852,175 +852,7 @@
                         Vaults remain recoverable until the grace period ends. Permanent deletion is queued automatically afterward. Requests for early deletion are reviewed by platform administrators.
                     </p>
 
-                    <div class="eb-table-toolbar">
-                        <div class="relative" x-data="{ isOpen: false }" @click.away="isOpen = false">
-                            <button type="button"
-                                    @click="isOpen = !isOpen"
-                                    class="eb-btn eb-btn-secondary eb-btn-sm">
-                                <span x-text="'Show ' + vaultEntriesPerPage"></span>
-                                <svg class="eb-dropdown-chevron" :class="isOpen ? 'is-open' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-                                    <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
-                                </svg>
-                            </button>
-                            <div x-show="isOpen"
-                                 x-transition
-                                 class="eb-dropdown-menu absolute left-0 z-20 mt-2 w-40 overflow-hidden"
-                                 style="display: none;">
-                                <template x-for="size in [10,25,50,100]" :key="'vault-entries-' + size">
-                                    <button type="button"
-                                            class="eb-menu-option"
-                                            :class="vaultEntriesPerPage === size ? 'is-active' : ''"
-                                            @click="setVaultEntries(size); isOpen=false;">
-                                        <span x-text="size"></span>
-                                    </button>
-                                </template>
-                            </div>
-                        </div>
-
-                        <div class="eb-table-toolbar-grow" aria-hidden="true"></div>
-
-                        <input type="search"
-                               :placeholder="vaultSubTab === 'recycle' ? 'Search recycle bin' : 'Search vaults'"
-                               x-model.debounce.200ms="vaultSearchQuery"
-                               @input="vaultCurrentPage = 1"
-                               class="eb-toolbar-search eb-toolbar-search--wide">
-                    </div>
-
-                    <template x-if="pagedVaults().length === 0">
-                        <div class="eb-app-empty">
-                            <div class="eb-app-empty-title" x-text="vaultSearchQuery.trim() ? 'No matching vaults found' : (vaultSubTab === 'recycle' ? 'Recycle bin is empty' : 'No active vaults yet')"></div>
-                            <p class="eb-app-empty-copy" x-text="vaultSearchQuery.trim() ? 'Try a different search term or clear your filters.' : (vaultSubTab === 'recycle' ? 'Deleted Microsoft 365 backup vaults appear here during the grace period.' : 'Microsoft 365 backup vaults appear here when jobs are created for this user.')"></p>
-                        </div>
-                    </template>
-
-                    <template x-if="pagedVaults().length > 0">
-                        <div class="eb-table-shell">
-                            <table class="eb-table">
-                                <thead>
-                                    <tr>
-                                        <th>
-                                            <button type="button" class="eb-table-sort-button" @click="vaultSortBy('name')">
-                                                Vault name <span class="eb-sort-indicator" x-text="vaultSortIndicator('name')"></span>
-                                            </button>
-                                        </th>
-                                        <th>
-                                            <button type="button" class="eb-table-sort-button" @click="vaultSortBy('retention_tier')">
-                                                Retention <span class="eb-sort-indicator" x-text="vaultSortIndicator('retention_tier')"></span>
-                                            </button>
-                                        </th>
-                                        <th>
-                                            <button type="button" class="eb-table-sort-button" @click="vaultSortBy('protection_label')">
-                                                Protection <span class="eb-sort-indicator" x-text="vaultSortIndicator('protection_label')"></span>
-                                            </button>
-                                        </th>
-                                        <th class="eb-table-cell-numeric">
-                                            <button type="button" class="eb-table-sort-button" @click="vaultSortBy('storage')">
-                                                Stored <span class="eb-sort-indicator" x-text="vaultSortIndicator('storage')"></span>
-                                            </button>
-                                        </th>
-                                        <th>
-                                            <button type="button" class="eb-table-sort-button" @click="vaultSortBy('job_name')">
-                                                Source job <span class="eb-sort-indicator" x-text="vaultSortIndicator('job_name')"></span>
-                                            </button>
-                                        </th>
-                                        <th class="eb-table-cell-numeric" x-show="vaultSubTab === 'recycle'" x-cloak>
-                                            <button type="button" class="eb-table-sort-button" @click="vaultSortBy('days_remaining')">
-                                                Days left <span class="eb-sort-indicator" x-text="vaultSortIndicator('days_remaining')"></span>
-                                            </button>
-                                        </th>
-                                        <th x-show="vaultSubTab === 'recycle'" x-cloak>Actions</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <template x-for="(vault, vIdx) in pagedVaults()" :key="'vault-row-' + vaultSubTab + '-' + (vault.id || vIdx)">
-                                        <tr>
-                                            <td class="eb-table-primary">
-                                                <div class="font-mono text-sm break-all" x-text="vault.name"></div>
-                                                <div class="text-xs text-[var(--eb-text-muted)] mt-0.5" x-text="vault.provider_label || 'Microsoft 365 Backup'"></div>
-                                                <span class="eb-badge eb-badge--warning mt-1" x-show="vaultSubTab === 'recycle'">In recycle bin</span>
-                                            </td>
-                                            <td x-text="vault.retention_tier || '—'"></td>
-                                            <td x-text="vault.protection_label || 'Versioning enabled'"></td>
-                                            <td class="eb-table-cell-numeric" x-text="vault.storage_used_display || '—'"></td>
-                                            <td x-text="vault.job_name || '—'"></td>
-                                            <td class="eb-table-cell-numeric" x-show="vaultSubTab === 'recycle'" x-cloak>
-                                                <div x-text="vault.days_remaining != null ? (vault.days_remaining + ' days') : '—'"></div>
-                                                <div class="text-xs text-[var(--eb-text-muted)]" x-show="vault.recycle_teardown_at" x-text="'on ' + formatDateShort(vault.recycle_teardown_at)"></div>
-                                            </td>
-                                            <td x-show="vaultSubTab === 'recycle'" x-cloak>
-                                                <button type="button"
-                                                        class="eb-btn eb-btn-secondary eb-btn-sm"
-                                                        :disabled="vault.early_delete_request_status === 'pending' || earlyDeleteInProgress"
-                                                        @click="openEarlyDeleteModal(vault)">
-                                                    <span x-text="vault.early_delete_request_status === 'pending' ? 'Requested' : 'Request early deletion'"></span>
-                                                </button>
-                                            </td>
-                                        </tr>
-                                    </template>
-                                </tbody>
-                            </table>
-                        </div>
-
-                        <div class="eb-table-pagination">
-                            <div class="text-xs font-medium text-[var(--eb-text-muted)]" x-text="vaultPageSummary()"></div>
-                            <div class="eb-table-pagination-actions">
-                                <button type="button"
-                                        class="eb-table-pagination-button"
-                                        :disabled="vaultCurrentPage <= 1"
-                                        @click="vaultCurrentPage = Math.max(1, vaultCurrentPage - 1)">
-                                    Prev
-                                </button>
-                                <span class="eb-table-pagination-page" x-text="'Page ' + vaultCurrentPage + ' / ' + vaultTotalPages()"></span>
-                                <button type="button"
-                                        class="eb-table-pagination-button"
-                                        :disabled="vaultCurrentPage >= vaultTotalPages()"
-                                        @click="vaultCurrentPage = Math.min(vaultTotalPages(), vaultCurrentPage + 1)">
-                                    Next
-                                </button>
-                            </div>
-                        </div>
-                    </template>
-
-                    <template x-if="legacyVaultsDetail().length">
-                        <div class="mt-8">
-                            <h3 class="eb-section-title mb-3">Other destination buckets</h3>
-                            <div class="eb-vault-grid">
-                                <template x-for="(vault, vIdx) in legacyVaultsDetail()" :key="'vault-' + (vault.id || vIdx)">
-                                    <div class="eb-vault-card">
-                                        <div class="eb-vault-card-header">
-                                            <div class="eb-vault-icon">
-                                                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2z"/></svg>
-                                            </div>
-                                            <div>
-                                                <a class="eb-vault-name eb-link"
-                                                   :href="'index.php?m=cloudstorage&page=buckets#bucketRow' + encodeURIComponent(vault.id)"
-                                                   x-text="vault.name"></a>
-                                                <div class="eb-vault-provider" x-text="vault.provider_label"></div>
-                                            </div>
-                                        </div>
-                                        <div class="eb-vault-stats">
-                                            <div class="eb-vault-stat">
-                                                <div class="eb-vault-stat-label">Storage used</div>
-                                                <div class="eb-vault-stat-value" x-text="vault.storage_used_display"></div>
-                                            </div>
-                                            <div class="eb-vault-stat">
-                                                <div class="eb-vault-stat-label">Bucket path</div>
-                                                <div class="eb-vault-stat-value" x-text="vault.bucket_path"></div>
-                                            </div>
-                                            <div class="eb-vault-stat">
-                                                <div class="eb-vault-stat-label">Created</div>
-                                                <div class="eb-vault-stat-value" x-text="vault.created || '—'"></div>
-                                            </div>
-                                            <div class="eb-vault-stat">
-                                                <div class="eb-vault-stat-label">Jobs using</div>
-                                                <div class="eb-vault-stat-value" x-text="vault.jobs_using"></div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </template>
-                            </div>
-                        </div>
-                    </template>
+                    {include file="{$smarty.const.ROOTDIR}/modules/addons/cloudstorage/templates/partials/e3backup_vaults_table.tpl" ebE3VaultsShowUserCol=false}
 
                     <div x-show="earlyDeleteModalOpen"
                          x-cloak
@@ -1700,8 +1532,25 @@ function backupUserDetailApp() {
         vaultSortDirection: 'asc',
         vaultEntriesPerPage: 25,
         vaultCurrentPage: 1,
+        vaultColsOpen: false,
+        showUserCol: false,
+        cols: {
+            retention: true,
+            protection: false,
+            stored: true,
+            source_job: true,
+            bucket_path: false,
+            jobs_using: true,
+            created: true,
+            days_left: true,
+        },
 
         init() {
+            try {
+                if (window.EB && window.EB.bindCols) {
+                    window.EB.bindCols(this, 'e3-vaults-user');
+                }
+            } catch (e) {}
             this.activeTab = this.resolveInitialTab();
             this.loadUser();
             window.ebUserDetailReload = () => this.loadUser();
@@ -1948,7 +1797,17 @@ function backupUserDetailApp() {
             this.vaultCurrentPage = 1;
         },
         vaultSourceList() {
-            return this.vaultSubTab === 'recycle' ? this.ms365VaultsRecycle() : this.ms365VaultsActive();
+            if (this.vaultSubTab === 'recycle') return this.ms365VaultsRecycle();
+            return this.ms365VaultsActive().concat(this.legacyVaultsDetail());
+        },
+        vaultEmptyCopy() {
+            return 'Microsoft 365 vaults and other destination buckets appear here when backup jobs use them.';
+        },
+        vaultJobsUsingDisplay(vault) {
+            if (vault.is_ms365) {
+                return vault.jobs_using ? vault.jobs_using : '—';
+            }
+            return vault.jobs_using != null ? vault.jobs_using : '—';
         },
         vaultMatchesSearch(vault, query) {
             const fields = [
@@ -1958,6 +1817,9 @@ function backupUserDetailApp() {
                 vault.storage_used_display,
                 vault.job_name,
                 vault.provider_label,
+                vault.bucket_path,
+                vault.created,
+                String(vault.jobs_using ?? ''),
             ];
             if (this.vaultSubTab === 'recycle') {
                 fields.push(String(vault.days_remaining ?? ''));
@@ -1981,6 +1843,12 @@ function backupUserDetailApp() {
                 } else if (key === 'storage') {
                     left = a.storage_used_bytes ?? 0;
                     right = b.storage_used_bytes ?? 0;
+                } else if (key === 'jobs_using') {
+                    left = a.jobs_using ?? 0;
+                    right = b.jobs_using ?? 0;
+                } else if (key === 'created') {
+                    left = a.created ? new Date(a.created).getTime() : 0;
+                    right = b.created ? new Date(b.created).getTime() : 0;
                 } else {
                     left = a[key] ?? '';
                     right = b[key] ?? '';
@@ -1998,7 +1866,7 @@ function backupUserDetailApp() {
                 this.vaultSortDirection = this.vaultSortDirection === 'asc' ? 'desc' : 'asc';
             } else {
                 this.vaultSortKey = key;
-                this.vaultSortDirection = key === 'storage' || key === 'days_remaining' ? 'desc' : 'asc';
+                this.vaultSortDirection = key === 'storage' || key === 'days_remaining' || key === 'jobs_using' || key === 'created' ? 'desc' : 'asc';
             }
             this.vaultCurrentPage = 1;
         },
@@ -2469,3 +2337,4 @@ function backupUserDetailApp() {
 {/literal}
 
 {include file="{$smarty.const.ROOTDIR}/modules/addons/cloudstorage/templates/partials/e3backup_jobs_client_script.tpl" userDetailJobsScopeId=$user->public_id|default:$user->id}
+<script src="modules/addons/eazybackup/assets/js/eazybackup-ui-helpers.js" defer></script>

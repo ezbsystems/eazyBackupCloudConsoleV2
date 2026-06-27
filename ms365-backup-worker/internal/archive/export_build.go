@@ -39,22 +39,33 @@ type preparedEntry struct {
 	err     error
 }
 
+type exportPipeline struct {
+	pool        *kopia.Pool
+	storage     kopia.StorageOptions
+	resolver    *ZipPathResolver
+	attachments *mailAttachmentIndex
+}
+
 func buildZipFromFiles(
 	ctx context.Context,
 	pool *kopia.Pool,
 	storage kopia.StorageOptions,
+	pipeline *exportPipeline,
 	parallel int,
 	zw *zip.Writer,
 	files []fileEntry,
 	zipMethod uint16,
 	report func(done, total int, message string, bytes int64),
 ) (int64, error) {
+	if pipeline == nil {
+		pipeline = &exportPipeline{pool: pool, storage: storage, resolver: NewZipPathResolver(NewMetadataIndex())}
+	}
 	if len(files) == 0 {
 		return 0, nil
 	}
 	parallel = clampParallelExtracts(parallel)
 	if len(files) == 1 || parallel == 1 {
-		return buildZipSequential(ctx, pool, storage, zw, files, zipMethod, report)
+		return buildZipSequential(ctx, pipeline, zw, files, zipMethod, report)
 	}
 
 	jobs := make(chan int, parallel*2)
@@ -68,7 +79,7 @@ func buildZipFromFiles(
 				results <- preparedEntry{index: idx, err: err}
 				continue
 			}
-			results <- prepareEntry(ctx, pool, storage, files[idx], idx, zipMethod)
+			results <- prepareEntry(ctx, pipeline, files[idx], idx, zipMethod)
 		}
 	}
 	workers.Add(parallel)
@@ -111,7 +122,7 @@ func buildZipFromFiles(
 			if pe.err != nil {
 				return contentBytes, pe.err
 			}
-			n, err := writePreparedEntry(ctx, pool, storage, zw, pe)
+			n, err := writePreparedEntry(ctx, pipeline, zw, pe)
 			if err != nil {
 				return contentBytes, err
 			}
@@ -126,8 +137,7 @@ func buildZipFromFiles(
 
 func buildZipSequential(
 	ctx context.Context,
-	pool *kopia.Pool,
-	storage kopia.StorageOptions,
+	pipeline *exportPipeline,
 	zw *zip.Writer,
 	files []fileEntry,
 	zipMethod uint16,
@@ -138,11 +148,11 @@ func buildZipSequential(
 		if err := ctx.Err(); err != nil {
 			return contentBytes, err
 		}
-		pe := prepareEntry(ctx, pool, storage, file, i, zipMethod)
+		pe := prepareEntry(ctx, pipeline, file, i, zipMethod)
 		if pe.err != nil {
 			return contentBytes, pe.err
 		}
-		n, err := writePreparedEntry(ctx, pool, storage, zw, pe)
+		n, err := writePreparedEntry(ctx, pipeline, zw, pe)
 		if err != nil {
 			return contentBytes, err
 		}
@@ -154,19 +164,35 @@ func buildZipSequential(
 
 func prepareEntry(
 	ctx context.Context,
-	pool *kopia.Pool,
-	storage kopia.StorageOptions,
+	pipeline *exportPipeline,
 	file fileEntry,
 	index int,
 	zipMethod uint16,
 ) preparedEntry {
 	pe := preparedEntry{
 		index:   index,
-		zipName: snapshotToZipPath(file.Path),
+		zipName: pipeline.resolver.ZipPath(file.Path),
 		method:  zipMethod,
 		file:    file,
 	}
+	pool := pipeline.pool
+	storage := pipeline.storage
+
 	if file.Size > streamExtractThreshold {
+		if transform := pipeline.entryTransform(ctx, file); transform != nil {
+			pe.stream = false
+			data, name, err := transform(nil)
+			if err != nil {
+				pe.err = err
+				return pe
+			}
+			pe.body = data
+			pe.size = int64(len(data))
+			if name != "" {
+				pe.zipName = replaceZipBaseName(pe.zipName, name)
+			}
+			return pe
+		}
 		pe.stream = true
 		pe.size = file.Size
 		return pe
@@ -185,6 +211,24 @@ func prepareEntry(
 	defer reader.Close()
 
 	if size > streamExtractThreshold {
+		if transform := pipeline.entryTransform(ctx, file); transform != nil {
+			data, err := io.ReadAll(reader)
+			if err != nil {
+				pe.err = fmt.Errorf("read %s: %w", file.Path, err)
+				return pe
+			}
+			out, name, err := transform(data)
+			if err != nil {
+				pe.err = err
+				return pe
+			}
+			pe.body = out
+			pe.size = int64(len(out))
+			if name != "" {
+				pe.zipName = replaceZipBaseName(pe.zipName, name)
+			}
+			return pe
+		}
 		pe.stream = true
 		pe.size = size
 		return pe
@@ -195,18 +239,85 @@ func prepareEntry(
 		pe.err = fmt.Errorf("read %s: %w", file.Path, err)
 		return pe
 	}
+
+	if transform := pipeline.entryTransform(ctx, file); transform != nil {
+		out, name, err := transform(data)
+		if err != nil {
+			pe.err = err
+			return pe
+		}
+		pe.body = out
+		pe.size = int64(len(out))
+		if name != "" {
+			pe.zipName = replaceZipBaseName(pe.zipName, name)
+		}
+		return pe
+	}
+
 	pe.body = data
 	pe.size = int64(len(data))
 	return pe
 }
 
+type entryTransformFunc func(data []byte) ([]byte, string, error)
+
+func (pipeline *exportPipeline) entryTransform(ctx context.Context, file fileEntry) entryTransformFunc {
+	switch {
+	case isMailMessageJSON(file.Path):
+		return pipeline.mailTransform(ctx, file)
+	case isCalendarEventJSON(file.Path) || isCalendarSeriesJSON(file.Path):
+		return pipeline.calendarTransform(file)
+	default:
+		return nil
+	}
+}
+
+func (pipeline *exportPipeline) mailTransform(ctx context.Context, file fileEntry) entryTransformFunc {
+	attachments := pipeline.attachments.byMessage[file.Path]
+	return func(data []byte) ([]byte, string, error) {
+		msg, err := parseMailMessageJSON(data)
+		if err != nil {
+			return nil, "", fmt.Errorf("mail json %s: %w", file.Path, err)
+		}
+		loadAttachment := func(ref mailAttachmentRef) (io.ReadCloser, error) {
+			reader, _, err := pipeline.pool.ExtractReader(ctx, kopia.ExtractRequest{
+				Storage:    pipeline.storage,
+				ManifestID: file.ManifestID,
+				Path:       ref.Path,
+				SourcePath: "/ms365",
+			})
+			return reader, err
+		}
+		eml, err := buildMailEML(msg, attachments, loadAttachment)
+		if err != nil {
+			return nil, "", fmt.Errorf("mail eml %s: %w", file.Path, err)
+		}
+		return eml, mailEMLFilename(msg), nil
+	}
+}
+
+func (pipeline *exportPipeline) calendarTransform(file fileEntry) entryTransformFunc {
+	return func(data []byte) ([]byte, string, error) {
+		ev, err := parseCalendarEventJSON(data)
+		if err != nil {
+			return nil, "", err
+		}
+		ics, err := buildCalendarICS(ev)
+		if err != nil {
+			return nil, "", fmt.Errorf("calendar ics %s: %w", file.Path, err)
+		}
+		return ics, calendarICSFilename(ev), nil
+	}
+}
+
 func writePreparedEntry(
 	ctx context.Context,
-	pool *kopia.Pool,
-	storage kopia.StorageOptions,
+	pipeline *exportPipeline,
 	zw *zip.Writer,
 	pe preparedEntry,
 ) (int64, error) {
+	pool := pipeline.pool
+	storage := pipeline.storage
 	header := &zip.FileHeader{
 		Name:   pe.zipName,
 		Method: pe.method,

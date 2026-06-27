@@ -43,6 +43,10 @@ func SyncContacts(ctx context.Context, client *graph.Client, opts ContactsSyncOp
 		if folderID == "" {
 			continue
 		}
+		folderMeta, _ := json.Marshal(folder)
+		metaPath := fmt.Sprintf("%s/users/%s/contacts/%s/_folder.json", opts.AzureTenantID, opts.UserID, safeID(folderID))
+		opts.Staging.PutJSON(metaPath, folderMeta, graphfsModTime(folder["lastModifiedDateTime"]))
+
 		priorDelta := ""
 		if opts.DeltaStates != nil {
 			priorDelta = opts.DeltaStates[folderID]

@@ -42,6 +42,25 @@ if (!isset($_SESSION['adminid']) || (int) $_SESSION['adminid'] <= 0) {
 
 $op = (string) ($_GET['op'] ?? $_POST['op'] ?? $_REQUEST['op'] ?? '');
 
+// #region agent log
+$__ms365_dbg_op = $op;
+$__ms365_dbg_start = microtime(true);
+@file_put_contents('/var/www/eazybackup.ca/.cursor/debug-e8409d.log', json_encode([
+    'sessionId' => 'e8409d', 'runId' => 'nodes-tab', 'hypothesisId' => 'B',
+    'location' => 'admin/api.php:start', 'message' => 'admin api op start',
+    'data' => ['op' => $op, 'method' => $_SERVER['REQUEST_METHOD'] ?? '', 'tab' => $_GET['tab'] ?? ''],
+    'timestamp' => (int) round($__ms365_dbg_start * 1000),
+], JSON_UNESCAPED_SLASHES) . "\n", FILE_APPEND);
+register_shutdown_function(static function () use (&$__ms365_dbg_op, &$__ms365_dbg_start): void {
+    @file_put_contents('/var/www/eazybackup.ca/.cursor/debug-e8409d.log', json_encode([
+        'sessionId' => 'e8409d', 'runId' => 'nodes-tab', 'hypothesisId' => 'B',
+        'location' => 'admin/api.php:end', 'message' => 'admin api op end',
+        'data' => ['op' => $__ms365_dbg_op, 'elapsed_ms' => (int) round((microtime(true) - $__ms365_dbg_start) * 1000)],
+        'timestamp' => (int) round(microtime(true) * 1000),
+    ], JSON_UNESCAPED_SLASHES) . "\n", FILE_APPEND);
+});
+// #endregion
+
 /** Resolve fleet target from request (development|production). */
 function ms365backup_fleet_target(): string
 {

@@ -151,7 +151,8 @@ final class Ms365ArchiveExportService
 
         $settings = Capsule::table('tbladdonmodules')
             ->where('module', 'cloudstorage')
-            ->pluck('value', 'setting');
+            ->pluck('value', 'setting')
+            ->all();
         $endpoint = trim((string) ($settings['cloudbackup_agent_s3_endpoint'] ?? ''));
         if ($endpoint === '') {
             $endpoint = trim((string) ($settings['s3_endpoint'] ?? ''));
