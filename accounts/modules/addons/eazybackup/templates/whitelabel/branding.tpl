@@ -300,7 +300,7 @@
                      x-init="init()"
                      @keydown.escape.prevent="close()"
                      @click.outside="close()"
-                     :class="$parent.useParent && 'opacity-50 pointer-events-none'">
+                     :class="disabled && 'opacity-50 pointer-events-none'">
                   <input type="hidden" name="smtp_security" :value="currentValue()" />
                   {include file="modules/addons/eazybackup/templates/console/partials/eb-select-menu.tpl"}
                 </div>

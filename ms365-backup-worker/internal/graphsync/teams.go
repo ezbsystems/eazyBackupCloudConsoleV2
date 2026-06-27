@@ -39,7 +39,26 @@ func SyncTeams(ctx context.Context, client *graph.Client, opts TeamsSyncOptions)
 	if err != nil {
 		return nil, err
 	}
-	meta, _ := json.Marshal(map[string]any{"team_id": opts.TeamID, "channels": len(channels)})
+	teamDisplayName := ""
+	if teamInfo, err := client.GetJSON(ctx, fmt.Sprintf("/teams/%s", opts.TeamID), map[string]string{
+		"$select": "id,displayName",
+	}); err == nil {
+		teamDisplayName = stringFromAny(teamInfo["displayName"])
+	}
+	channelMeta := make([]map[string]string, 0, len(channels))
+	for _, ch := range channels {
+		chID, _ := ch["id"].(string)
+		chName, _ := ch["displayName"].(string)
+		if chID == "" {
+			continue
+		}
+		channelMeta = append(channelMeta, map[string]string{"id": chID, "displayName": chName})
+	}
+	meta, _ := json.Marshal(map[string]any{
+		"team_id":     opts.TeamID,
+		"displayName": teamDisplayName,
+		"channels":    channelMeta,
+	})
 	metaPath := fmt.Sprintf("%s/teams/%s/metadata.json", opts.AzureTenantID, safeID(opts.TeamID))
 	opts.Staging.PutJSON(metaPath, meta, time.Now().UTC())
 	for _, ch := range channels {

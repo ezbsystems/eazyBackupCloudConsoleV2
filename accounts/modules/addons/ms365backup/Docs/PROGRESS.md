@@ -2,13 +2,31 @@
 
 **Purpose:** Single handoff document so the next agent knows where work stopped. Update this file at the **end of every session** (or after each meaningful milestone).
 
-**Last updated:** 2026-06-25  
+**Last updated:** 2026-06-26  
 **Module version (ms365backup):** 1.52.0  
-**Worker version (ms365-backup-worker):** 0.3.27
+**Worker version (ms365-backup-worker):** 0.3.34
 
 ---
 
 ## Session log
+
+### 2026-06-26 — Archive human-readable export (worker 0.3.34)
+
+- **Archive export pipeline:** New `MetadataIndex` + `ZipPathResolver` prefetch sidecars from Kopia and
+  emit human-readable zip paths for mail, calendar, contacts, OneDrive, SharePoint, Teams, groups,
+  Planner, and OneNote. Collision-safe `sanitizeZipSegment()` for cross-platform archives.
+- **Mail → EML:** Graph message JSON converted to RFC 5322 MIME (`multipart/alternative` body,
+  `multipart/mixed` when attachments present). Standalone `attachments/` files skipped when embedded
+  in parent `.eml`.
+- **Calendar → ICS:** Graph event/series JSON converted to `.ics` via `github.com/emersion/go-ical`;
+  `attachments.json` sidecars skipped.
+- **Backup metadata sidecars (backward-compatible):** `_site.json` (SharePoint), expanded team
+  `metadata.json` (displayName + channels), contacts `_folder.json`, planner `_plan.json` /
+  `_bucket.json`, OneNote `_notebook.json` / `_section.json`.
+- **Tests:** `go test ./internal/archive/...` green; graphsync unit tests (`-short`) green.
+- **Limitations (v1):** Old snapshots without directory sync or new sidecars fall back to GUID
+  segments; inline Graph item attachments not embedded; calendar ICS has metadata-only attachments;
+  very large mail messages (>16 MB JSON) still stream as raw content without EML transform.
 
 ### 2026-06-25 — Tenant-owner claim Phases 2 + 5 (Go batch runner + PHP cleanup)
 

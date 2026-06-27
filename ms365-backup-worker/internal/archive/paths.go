@@ -11,7 +11,9 @@ func shouldExportFile(snapshotPath string) bool {
 		return false
 	}
 	switch base {
-	case "folders.json", "delta_state.json", "_folder.json", "_calendar.json":
+	case "folders.json", "delta_state.json", "_folder.json", "_calendar.json",
+		"_site.json", "_plan.json", "_bucket.json", "_notebook.json", "_section.json",
+		"metadata.json", "drives.json", "lists.json", "attachments.json":
 		return false
 	}
 	if strings.HasSuffix(base, ".removed.json") {

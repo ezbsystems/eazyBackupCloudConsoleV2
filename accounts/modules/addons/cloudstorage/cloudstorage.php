@@ -5775,6 +5775,11 @@ function cloudstorage_clientarea($vars) {
                     $templatefile = 'templates/e3backup_agents';
                     $viewVars = require 'pages/e3backup_agents.php';
                     break;
+                case 'vaults':
+                    $pagetitle = 'e3 Cloud Backup - Vaults';
+                    $templatefile = 'templates/e3backup_vaults';
+                    $viewVars = require 'pages/e3backup_vaults.php';
+                    break;
                 case 'tokens':
                     $pagetitle = 'e3 Cloud Backup - Enrollment Tokens';
                     $templatefile = 'templates/e3backup_tokens';

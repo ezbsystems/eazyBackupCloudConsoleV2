@@ -62,6 +62,17 @@ func SyncSharePoint(ctx context.Context, client *graph.Client, opts SharePointSy
 
 	siteBase := siteStoragePath(opts.AzureTenantID, opts.SiteID)
 
+	if siteInfo, err := client.GetJSON(ctx, fmt.Sprintf("/sites/%s", opts.SiteID), map[string]string{
+		"$select": "id,displayName,webUrl",
+	}); err == nil {
+		sidecar, _ := json.Marshal(map[string]any{
+			"id":          stringFromAny(siteInfo["id"]),
+			"displayName": stringFromAny(siteInfo["displayName"]),
+			"webUrl":      stringFromAny(siteInfo["webUrl"]),
+		})
+		opts.Staging.PutJSON(siteBase+"/_site.json", sidecar, time.Now().UTC())
+	}
+
 	var drives []map[string]any
 	if opts.DriveID != "" {
 		drives = []map[string]any{{"id": opts.DriveID}}

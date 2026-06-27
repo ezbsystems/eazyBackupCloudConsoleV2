@@ -68,7 +68,6 @@ func Export(ctx context.Context, opts ExportOptions) (*ExportResult, error) {
 		}
 	}
 
-	report(0, len(opts.Items), "Collecting snapshot files", 0)
 	files, err := collectSelectionFiles(ctx, opts.Pool, opts.Storage, opts.SourceManifestID, opts.ManifestByPath, opts.Items)
 	if err != nil {
 		return nil, err
@@ -76,6 +75,25 @@ func Export(ctx context.Context, opts ExportOptions) (*ExportResult, error) {
 	if len(files) == 0 {
 		return nil, fmt.Errorf("no exportable files found in selection")
 	}
+
+	attachmentIndex := newMailAttachmentIndex(files)
+	files = filterExportFiles(files)
+	if len(files) == 0 {
+		return nil, fmt.Errorf("no exportable files found in selection")
+	}
+
+	meta, err := PrefetchMetadata(ctx, opts.Pool, opts.Storage, files)
+	if err != nil {
+		return nil, err
+	}
+	pipeline := &exportPipeline{
+		pool:        opts.Pool,
+		storage:     opts.Storage,
+		resolver:    NewZipPathResolver(meta),
+		attachments: attachmentIndex,
+	}
+
+	report(0, len(files), "Collecting snapshot files", 0)
 
 	client, err := newMinioClient(opts.DestEndpoint, opts.DestRegion, opts.DestAccessKey, opts.DestSecretKey)
 	if err != nil {
@@ -107,7 +125,7 @@ func Export(ctx context.Context, opts ExportOptions) (*ExportResult, error) {
 		defer zw.Close()
 
 		var err error
-		contentBytes, err = buildZipFromFiles(ctx, opts.Pool, opts.Storage, opts.ParallelExtracts, zw, files, zipMethod, report)
+		contentBytes, err = buildZipFromFiles(ctx, opts.Pool, opts.Storage, pipeline, opts.ParallelExtracts, zw, files, zipMethod, report)
 		if err != nil {
 			return err
 		}

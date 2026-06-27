@@ -172,9 +172,10 @@ class MailService
             }
             $mail = new \PHPMailer\PHPMailer\PHPMailer(true);
             $mail->isSMTP();
+            $mail->Timeout = 30;
             $mail->Host = $host;
             $mail->Port = $port;
-            $username = (string)($config['username'] ?? '');
+            $username = trim((string)($config['username'] ?? ''));
             $password = (string)($config['password'] ?? '');
             $mail->SMTPAuth = ($username !== '' || $password !== '');
             if ($mail->SMTPAuth) {
@@ -201,9 +202,23 @@ class MailService
             try { logModuleCall('eazybackup', 'smtp_test', ['to' => $toEmail, 'host' => $host], 'ok'); } catch (\Throwable $_) {}
             return ['ok' => true];
         } catch (\Throwable $e) {
-            try { logModuleCall('eazybackup', 'smtp_test', ['to' => $toEmail, 'host' => $host], (string)$e->getMessage()); } catch (\Throwable $_) {}
-            return ['ok' => false, 'error' => 'send_failed'];
+            $errMsg = (string) $e->getMessage();
+            $errorCode = self::classifySmtpError($errMsg);
+            try { logModuleCall('eazybackup', 'smtp_test', ['to' => $toEmail, 'host' => $host], $errMsg); } catch (\Throwable $_) {}
+            return ['ok' => false, 'error' => $errorCode];
         }
+    }
+
+    private static function classifySmtpError(string $message): string
+    {
+        $m = strtolower($message);
+        if (strpos($m, 'could not authenticate') !== false || strpos($m, 'authentication failed') !== false) {
+            return 'smtp_auth_failed';
+        }
+        if (strpos($m, 'connect()') !== false || strpos($m, 'failed to connect') !== false || strpos($m, 'connection refused') !== false) {
+            return 'smtp_connect_failed';
+        }
+        return 'send_failed';
     }
 
     public function renderString(string $tpl, array $vars): string

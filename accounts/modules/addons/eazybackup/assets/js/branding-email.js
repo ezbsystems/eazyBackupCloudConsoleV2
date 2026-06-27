@@ -112,6 +112,9 @@
         var map = {
           parent_mail: 'Disable parent mail server to test custom SMTP.',
           smtp_invalid: 'SMTP server and port are required.',
+          smtp_security_mismatch: 'Port and security do not match. Use SSL/TLS on port 465, or STARTTLS on port 587.',
+          smtp_auth_failed: 'SMTP authentication failed. Check your username and password (for AWS SES, use the SMTP credentials from the SES console, not your IAM secret key).',
+          smtp_connect_failed: 'Could not connect to the SMTP server. Check the host, port, and firewall rules.',
           invalid_recipient: 'Enter a valid recipient email.',
           send_failed: 'Failed to send test email. Check your SMTP settings.',
           'Not authenticated': 'Please sign in.',

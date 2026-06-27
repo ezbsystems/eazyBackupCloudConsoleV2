@@ -57,8 +57,30 @@ try {
         $activeClaims,
         $batchClaimIds
     )));
-    foreach ($batchClaimIds as $batchRunId) {
-        WorkerLeaseService::renewForBatch($batchRunId, $nodeId);
+    // #region agent log
+    @file_put_contents('/var/www/eazybackup.ca/.cursor/debug-e8409d.log', json_encode([
+        'sessionId' => 'e8409d', 'runId' => 'post-fix', 'hypothesisId' => 'A',
+        'location' => 'ms365_worker_heartbeat.php:60', 'message' => 'heartbeat batch renew decision',
+        'data' => [
+            'node' => substr($nodeId, 0, 8),
+            'reported_load' => $load,
+            'effective_load' => $effectiveLoad,
+            'batch_claims' => array_map(static fn ($b) => substr((string) $b, 0, 8), $batchClaimIds),
+            'will_renew_batch' => ($load > 0),
+        ],
+        'timestamp' => (int) round(microtime(true) * 1000),
+    ], JSON_UNESCAPED_SLASHES) . "\n", FILE_APPEND);
+    // #endregion
+    // Only renew the batch lease when the worker reports it is actually running a
+    // batch (currentLoad() returns >=1 while a batch is active in-memory). A worker
+    // that owns a batch in the DB but is NOT executing it (load 0 — e.g. it failed
+    // to resume after a restart) must NOT keep its lease alive, otherwise the
+    // batch heartbeat stays fresh forever and reapStaleBatches() never reclaims it,
+    // stranding the tenant's children with zero progress while idle workers starve.
+    if ($load > 0) {
+        foreach ($batchClaimIds as $batchRunId) {
+            WorkerLeaseService::renewForBatch($batchRunId, $nodeId);
+        }
     }
     if ($effectiveLoad > 0) {
         WorkerLeaseService::renewForNode($nodeId);

@@ -135,6 +135,21 @@ func collectFiles(
 	return files, nil
 }
 
+func filterExportFiles(files []fileEntry) []fileEntry {
+	mailMsgs := mailMessagePathsSet(files)
+	out := make([]fileEntry, 0, len(files))
+	for _, f := range files {
+		if shouldSkipAsEmbeddedAttachment(f.Path, mailMsgs) {
+			continue
+		}
+		if shouldSkipCalendarExport(f.Path) {
+			continue
+		}
+		out = append(out, f)
+	}
+	return out
+}
+
 func stringsHasPrefix(s, prefix string) bool {
 	return len(s) >= len(prefix) && s[:len(prefix)] == prefix
 }

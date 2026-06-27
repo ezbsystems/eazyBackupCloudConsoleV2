@@ -49,6 +49,7 @@
                             <label class="eb-menu-checklist-item"><span>Agent</span><input type="checkbox" class="eb-checkbox" x-model="cols.agent"></label>
                             <label class="eb-menu-checklist-item" x-show="showUserCol"><span>User</span><input type="checkbox" class="eb-checkbox" x-model="cols.user"></label>
                             <label class="eb-menu-checklist-item"><span>Engine</span><input type="checkbox" class="eb-checkbox" x-model="cols.engine"></label>
+                            <label class="eb-menu-checklist-item"><span>Type</span><input type="checkbox" class="eb-checkbox" x-model="cols.type"></label>
                             <label class="eb-menu-checklist-item"><span>Status</span><input type="checkbox" class="eb-checkbox" x-model="cols.status"></label>
                             <label class="eb-menu-checklist-item"><span>Size</span><input type="checkbox" class="eb-checkbox" x-model="cols.size"></label>
                             <label class="eb-menu-checklist-item"><span>Duration</span><input type="checkbox" class="eb-checkbox" x-model="cols.duration"></label>
@@ -123,7 +124,7 @@
             </div>
         </div>
 
-        <div class="table-scroll eb-table-shell overflow-x-auto px-4 pb-2">
+        <div class="table-scroll eb-table-shell overflow-x-auto pb-2">
             <table class="eb-table min-w-full text-sm">
                 <thead>
                     <tr>
@@ -132,6 +133,7 @@
                         <th x-show="cols.agent" class="cursor-pointer" @click="setSort('agent')">Agent</th>
                         <th x-show="cols.user && showUserCol">User</th>
                         <th x-show="cols.engine" class="whitespace-nowrap">Engine</th>
+                        <th x-show="cols.type" class="whitespace-nowrap">Type</th>
                         <th x-show="cols.status" class="cursor-pointer" @click="setSort('status')">Status</th>
                         <th x-show="cols.size">Size</th>
                         <th x-show="cols.duration">Duration</th>
@@ -160,6 +162,9 @@
                             <td x-show="cols.user && showUserCol" x-text="row.username || '-'"></td>
                             <td x-show="cols.engine" class="whitespace-nowrap">
                                 <span class="eb-badge eb-badge--neutral whitespace-nowrap" x-text="engineLabel(row.engine)"></span>
+                            </td>
+                            <td x-show="cols.type" class="whitespace-nowrap">
+                                <span class="eb-badge eb-badge--neutral whitespace-nowrap" x-text="row.operation_type || 'Backup'"></span>
                             </td>
                             <td x-show="cols.status">
                                 <span class="eb-badge" :class="statusBadge(row)" x-text="statusLabel(row)"></span>
@@ -266,6 +271,7 @@ function e3JobLogsApp() {
             agent: true,
             user: true,
             engine: true,
+            type: true,
             status: true,
             size: true,
             duration: true
