@@ -52,7 +52,7 @@ final class FleetFacade
             ? array_map('trim', explode(',', $statusCsv))
             : [];
 
-        return WorkerNodeRepository::listNodes($statuses);
+        return WorkerConfigService::enrichNodesForFleetList(WorkerNodeRepository::listNodes($statuses));
     }
 
     /** @return list<array<string, mixed>> */

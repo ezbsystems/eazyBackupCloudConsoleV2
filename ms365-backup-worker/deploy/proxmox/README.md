@@ -8,7 +8,7 @@ Whale-scale workers stream Microsoft Graph content into Kopia via a virtual over
 |----------|---------|-------|
 | RAM | **8192 MB** (8 GB) | Matches `ram_budget_mib: 6144` in template config |
 | CPU | **4 cores** | Matches `max_cpu_cores: 3` admission headroom |
-| rootfs | **32 GB** | Matches `disk_budget_mib: 24576`; Kopia cache + run metadata only |
+| rootfs | **60 GB** | Matches `disk_budget_mib: 40960`; ephemeral Kopia cache + run metadata only |
 
 **Comfort tier** (busier single node): 16 GB RAM, 8 cores, 64 GB disk — raise `ram_budget_mib` / `disk_budget_mib` / `max_concurrent_runs` in `config.yaml` to match.
 
@@ -126,14 +126,14 @@ pct stop 9010 2>/dev/null || true
 pct destroy 9010 2>/dev/null || true
 ```
 
-Create the builder CT (**8 GB RAM, 4 cores, 32 GB disk**):
+Create the builder CT (**8 GB RAM, 4 cores, 60 GB disk**):
 
 ```bash
 pct create $TEMPLATE_VMID $VZTEMPLATE \
   --hostname ms365-template \
   --memory 8192 \
   --cores 4 \
-  --rootfs ${STORAGE}:32 \
+  --rootfs ${STORAGE}:60 \
   --net0 name=eth0,bridge=$BRIDGE,ip=dhcp \
   --unprivileged 1 \
   --onboot 0
@@ -180,9 +180,11 @@ pct exec $TEMPLATE_VMID -- bash -c '
 
 Expected config highlights:
 
-- `max_concurrent_runs: 4`
-- `ram_budget_mib: 6144`
-- `disk_budget_mib: 24576`
+- `max_concurrent_runs: 8`
+- `ram_budget_mib: 18432`
+- `disk_budget_mib: 40960`
+- `disk_watermark_mib: 4096`
+- `content_cache_size_mib: 512`
 
 ---
 
@@ -247,8 +249,8 @@ Or **Worker Fleet → Nodes** in the admin UI.
 | Path | Purpose |
 |------|---------|
 | `/var/lib/ms365-backup-worker/bin/ms365-backup-worker` | Worker binary (self-update target) |
-| `/var/lib/ms365-backup-worker/runs` | Run metadata / checkpoints (not full backup staging) |
-| `/var/lib/ms365-backup-worker/kopia` | Kopia repo config cache |
+| `/var/lib/ms365-backup-worker/runs` | Run metadata / checkpoints; orphaned dirs GC'd after `run_dir_gc_ttl_seconds` (default 1h) |
+| `/var/lib/ms365-backup-worker/kopia` | Kopia repo config (`repos/*.config`); content cache under `cache/` is ephemeral (evicted per batch + on disk pressure) |
 | `/etc/ms365-backup-worker/config.yaml` | Budget-tuned settings (`hostname` / `node_id` empty) |
 | `.../ms365-backup-worker.service.d/environment.conf` | `MS365_WORKER_TOKEN`, `MS365_WORKER_API_BASE` |
 

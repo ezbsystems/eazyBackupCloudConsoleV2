@@ -384,6 +384,13 @@ final class Ms365BatchClaimRepository
         $now = time();
         $heartbeatGap = Ms365EngineConfig::batchHeartbeatGapSeconds();
         $heartbeatCutoff = $now - $heartbeatGap;
+        // A wedged owner can keep heartbeating (load>0 from stale "running" child
+        // rows) yet post zero progress for a very long time. The heartbeat-gap
+        // rule alone never reclaims such a batch, so it sits "running" while idle
+        // workers starve. Treat a running batch as stale once it has made no
+        // progress (floored by claim time, so a freshly claimed batch is never
+        // reaped before its first progress post) for STALE_SILENCE_SECONDS.
+        $progressCutoff = $now - Ms365BatchRunRepository::STALE_SILENCE_SECONDS;
 
         $rows = Capsule::table('ms365_batch_claims')
             ->where('status', 'running')
@@ -394,6 +401,8 @@ final class Ms365BatchClaimRepository
                 'attempts',
                 'max_attempts',
                 'last_heartbeat_at',
+                'last_progress_at',
+                'claimed_at',
                 'lease_expires_at',
             ]);
 
@@ -405,9 +414,11 @@ final class Ms365BatchClaimRepository
             }
             $lastHeartbeat = (int) ($row->last_heartbeat_at ?? 0);
             $leaseExpires = (int) ($row->lease_expires_at ?? 0);
+            $progressRef = max((int) ($row->last_progress_at ?? 0), (int) ($row->claimed_at ?? 0));
             $staleHeartbeat = $lastHeartbeat <= 0 || $lastHeartbeat < $heartbeatCutoff;
             $staleLease = $leaseExpires > 0 && $leaseExpires < $now;
-            if (!$staleHeartbeat && !$staleLease) {
+            $staleProgress = $progressRef > 0 && $progressRef < $progressCutoff;
+            if (!$staleHeartbeat && !$staleLease && !$staleProgress) {
                 continue;
             }
 
@@ -418,7 +429,9 @@ final class Ms365BatchClaimRepository
             $terminal = $attempts >= $maxAttempts;
             $message = $staleLease
                 ? 'Batch lease expired (max_run backstop)'
-                : 'Batch heartbeat stale';
+                : ($staleProgress && !$staleHeartbeat
+                    ? 'Batch progress stale (owner heartbeating without progress)'
+                    : 'Batch heartbeat stale');
 
             if ($terminal) {
                 Capsule::table('ms365_batch_claims')
@@ -526,7 +539,8 @@ final class Ms365BatchClaimRepository
         }
 
         return strpos($m, 'heartbeat stale') !== false
-            || strpos($m, 'lease expired') !== false;
+            || strpos($m, 'lease expired') !== false
+            || strpos($m, 'progress stale') !== false;
     }
 
     public static function hasLiveLease(string $batchRunId, ?string $nodeId = null): bool

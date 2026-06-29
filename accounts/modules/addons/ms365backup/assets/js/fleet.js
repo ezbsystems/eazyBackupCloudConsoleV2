@@ -130,6 +130,38 @@
     return esc(n.hostname) + (suffix ? ' <small class="text-muted">(' + esc(suffix) + '…)</small>' : '');
   }
 
+  function formatConfigCell(n) {
+    var status = String(n.config_effective_status || n.config_status || '—').toLowerCase();
+    var applied = Number(n.config_version) || 0;
+    var target = Number(n.target_config_version) || 0;
+    var latest = Number(n.latest_config_version) || 0;
+    var labelClass = {
+      current: 'success',
+      outdated: 'warning',
+      pending: 'info',
+      applying: 'info',
+      failed: 'danger'
+    }[status] || 'default';
+    var detail = '';
+    if (status === 'outdated' && latest > 0) {
+      detail = 'v' + applied + ', latest v' + latest;
+    } else if (target > 0 && applied < target) {
+      detail = 'v' + applied + ' \u2192 v' + target;
+    } else if (applied > 0) {
+      detail = 'v' + applied;
+    } else if (latest > 0) {
+      detail = 'none, latest v' + latest;
+    }
+    var html = '<span class="label label-' + labelClass + '">' + esc(status) + '</span>';
+    if (detail) {
+      html += ' <small class="text-muted">(' + esc(detail) + ')</small>';
+    }
+    if (n.config_error) {
+      html += ' <span class="text-danger" title="' + esc(n.config_error) + '">!</span>';
+    }
+    return html;
+  }
+
   function renderNodes() {
     var el = document.getElementById('fleet-nodes');
     if (!el) return;
@@ -146,15 +178,7 @@
           var statusLabel = status === 'stopped' ? '<span class="label label-default">stopped</span>' : esc(n.status);
           var pveNode = n.proxmox_node ? esc(n.proxmox_node) : '—';
           var vmidCell = n.proxmox_vmid ? esc(n.proxmox_vmid) : '—';
-          var configLabel = esc(n.config_status || '—');
-          if (n.target_config_version && n.config_version !== n.target_config_version) {
-            configLabel += ' →v' + esc(n.target_config_version);
-          } else if (n.config_version) {
-            configLabel += ' (v' + esc(n.config_version) + ')';
-          }
-          if (n.config_error) {
-            configLabel += ' <span class="text-danger" title="' + esc(n.config_error) + '">!</span>';
-          }
+          var configLabel = formatConfigCell(n);
           var actions;
           if (status === 'retired') {
             actions = '<button class="btn btn-xs btn-danger fleet-delete" data-id="' + esc(n.node_id) + '">Delete</button>';
@@ -381,6 +405,7 @@
     var counts = st.status_counts || {};
     statusEl.innerHTML = '<p><strong>Saved version:</strong> v' + esc(st.current_version || 0) +
       ' &nbsp; <strong>Rollout:</strong> current ' + esc(counts.current || 0) +
+      ', outdated ' + esc(counts.outdated || 0) +
       ', pending ' + esc(counts.pending || 0) + ', applying ' + esc(counts.applying || 0) +
       ', failed ' + esc(counts.failed || 0) + '</p>';
     var versionInput = document.getElementById('fleet-config-rollout-version');
@@ -397,11 +422,19 @@
       return;
     }
     box.innerHTML = nodes.filter(function (n) { return n.status !== 'retired'; }).map(function (n) {
-      var cfg = esc(n.config_status || '—');
-      if (n.config_version) cfg += ' v' + esc(n.config_version);
+      var cfgStatus = esc(n.config_effective_status || n.config_status || '—');
+      var cfgDetail = '';
+      if (n.config_version) {
+        cfgDetail = ' v' + esc(n.config_version);
+      }
+      if (n.config_effective_status === 'outdated' && n.latest_config_version) {
+        cfgDetail += ', latest v' + esc(n.latest_config_version);
+      } else if (n.target_config_version && n.config_version !== n.target_config_version) {
+        cfgDetail += ' \u2192 v' + esc(n.target_config_version);
+      }
       return '<label class="checkbox" style="display:block;margin:2px 0">' +
         '<input type="checkbox" class="fleet-config-node" value="' + esc(n.node_id) + '"> ' +
-        esc(n.hostname) + ' <small class="text-muted">(' + esc(n.status) + ', load ' + esc(n.current_load) + '/' + esc(n.max_concurrent_runs) + ', ' + cfg + ')</small></label>';
+        esc(n.hostname) + ' <small class="text-muted">(' + esc(n.status) + ', load ' + esc(n.current_load) + '/' + esc(n.max_concurrent_runs) + ', ' + cfgStatus + cfgDetail + ')</small></label>';
     }).join('');
   }
 

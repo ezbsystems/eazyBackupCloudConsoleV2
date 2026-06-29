@@ -207,6 +207,15 @@ final class ProxmoxProvisioner
         if (!self::startLxc($vmid, $hostNode)) {
             throw new \RuntimeException('Proxmox start failed for VMID ' . $vmid);
         }
+        $apiUrl = rtrim(Ms365EngineConfig::moduleSettingPublic('proxmox_api_url', ''), '/');
+        $tokenId = Ms365EngineConfig::moduleSettingPublic('proxmox_api_token_id', '');
+        $tokenSecret = Ms365EngineConfig::moduleSettingPublic('proxmox_api_token_secret', '');
+        $bootstrap = self::bootstrapWorkerService($vmid, $hostNode, $apiUrl, $tokenId, $tokenSecret);
+        if (!($bootstrap['ok'] ?? false)) {
+            throw new \RuntimeException(
+                (string) ($bootstrap['message'] ?? 'worker service bootstrap failed after Proxmox start')
+            );
+        }
         WorkerNodeRepository::start($nodeId);
 
         return true;
@@ -364,6 +373,13 @@ final class ProxmoxProvisioner
             if (($startRes['status'] ?? '') !== 'success') {
                 throw new \RuntimeException(
                     'clone configured but start failed: ' . ($startRes['message'] ?? 'unknown')
+                );
+            }
+
+            $bootstrap = self::bootstrapWorkerService($newVmid, $hostNode, $apiUrl, $tokenId, $tokenSecret);
+            if (!($bootstrap['ok'] ?? false)) {
+                throw new \RuntimeException(
+                    (string) ($bootstrap['message'] ?? 'post-start worker service bootstrap failed')
                 );
             }
 
@@ -1266,6 +1282,7 @@ final class ProxmoxProvisioner
     }
 
     private const WORKER_ENV_DROPIN = '/etc/systemd/system/ms365-backup-worker.service.d/environment.conf';
+    private const WORKER_SYSTEMD_UNIT = 'ms365-backup-worker';
 
     /** @return array{ok: bool, method?: string, message?: string, warnings?: list<string>} */
     private static function injectWorkerEnvironment(
@@ -1301,6 +1318,7 @@ final class ProxmoxProvisioner
             $hostTmp = '/tmp/ms365-worker-env-' . $vmid . '.conf';
             $remoteCmd = 'echo ' . escapeshellarg($b64)
                 . ' | base64 -d > ' . escapeshellarg($hostTmp)
+                . ' && chmod 600 ' . escapeshellarg($hostTmp)
                 . ' && pct push ' . $vmid . ' ' . escapeshellarg($hostTmp) . ' ' . escapeshellarg($dropin)
                 . ' && rm -f ' . escapeshellarg($hostTmp);
             $sshRes = self::runSshCommand($sshTarget, $remoteCmd);
@@ -1321,19 +1339,19 @@ final class ProxmoxProvisioner
                 ? 'LXC exec API also unavailable on this Proxmox build.'
                 : 'LXC exec failed: ' . ($execRes['message'] ?? 'unknown') . '.';
 
-            return self::skipEnvInjectUsingTemplate($vmid, $hostNode, [
+            return self::skipEnvInjectUsingTemplate($vmid, $hostNode, $fleet, [
                 'SSH environment injection failed (' . $sshDetail . '); ' . $lxcNote,
                 'Relying on golden template environment.conf. Expected MS365_WORKER_API_BASE='
-                    . FleetSettings::workerApiBaseUrl()
+                    . FleetSettings::workerApiBaseUrl($fleet)
                     . '. Fix proxmox_ssh_target / proxmox_ssh_identity or bake env into template VMID '
                     . Ms365EngineConfig::moduleSettingPublic('proxmox_lxc_template_vmid', '9010') . '.',
             ]);
         }
 
         if (self::isLxcExecUnavailable($execRes)) {
-            return self::skipEnvInjectUsingTemplate($vmid, $hostNode, [
+            return self::skipEnvInjectUsingTemplate($vmid, $hostNode, $fleet, [
                 'LXC exec API unavailable on this Proxmox version; relying on golden template environment.conf.'
-                    . ' Expected MS365_WORKER_API_BASE=' . FleetSettings::workerApiBaseUrl()
+                    . ' Expected MS365_WORKER_API_BASE=' . FleetSettings::workerApiBaseUrl($fleet)
                     . '. Set proxmox_ssh_target (e.g. root@192.168.92.195) to inject env on every clone.',
             ]);
         }
@@ -1346,7 +1364,7 @@ final class ProxmoxProvisioner
     }
 
     /** @param list<string> $warnings */
-    private static function skipEnvInjectUsingTemplate(int $vmid, string $hostNode, array $warnings): array
+    private static function skipEnvInjectUsingTemplate(int $vmid, string $hostNode, string $fleet, array $warnings): array
     {
         FleetAuditLog::write(
             'provision_env_inject',
@@ -1361,11 +1379,31 @@ final class ProxmoxProvisioner
 
     private static function buildWorkerEnvironmentConf(int $vmid = 0, string $fleet = FleetContext::FLEET_DEVELOPMENT): string
     {
+        $fleet = FleetContext::normalizeFleet($fleet);
         $token = Ms365EngineConfig::workerToken();
+        $apiBase = FleetSettings::workerApiBaseUrl($fleet);
+
+        if (FleetContext::isRemoteFleet($fleet)) {
+            try {
+                $remote = FleetRemoteClient::post('fleet_worker_env');
+                $remoteToken = trim((string) ($remote['token'] ?? ''));
+                $remoteApiBase = trim((string) ($remote['api_base'] ?? ''));
+                if ($remoteToken !== '') {
+                    $token = $remoteToken;
+                }
+                if ($remoteApiBase !== '') {
+                    $apiBase = $remoteApiBase;
+                }
+            } catch (\Throwable $e) {
+                throw new \RuntimeException(
+                    'Could not fetch production worker credentials for environment.conf: ' . $e->getMessage()
+                );
+            }
+        }
+
         if ($token === '') {
             throw new \RuntimeException('ms365_worker_token is not configured');
         }
-        $apiBase = FleetSettings::workerApiBaseUrl($fleet);
 
         $lines = [
             '[Service]',
@@ -1521,6 +1559,91 @@ final class ProxmoxProvisioner
         }
 
         return ['ok' => false, 'message' => 'exec timed out waiting for pid ' . $pid, 'output' => $output];
+    }
+
+    /** @return array{ok: bool, method?: string, message?: string, output?: string} */
+    private static function runShellInLxc(
+        int $vmid,
+        string $hostNode,
+        string $apiUrl,
+        string $tokenId,
+        string $tokenSecret,
+        string $shell
+    ): array {
+        $execRes = self::execLxcShell($apiUrl, $hostNode, $vmid, $shell, $tokenId, $tokenSecret);
+        if ($execRes['ok']) {
+            return ['ok' => true, 'method' => 'lxc_exec', 'output' => (string) ($execRes['output'] ?? '')];
+        }
+
+        $sshTarget = self::proxmoxShellTarget();
+        if ($sshTarget === '') {
+            return [
+                'ok' => false,
+                'message' => (string) ($execRes['message'] ?? 'LXC exec failed')
+                    . '; proxmox_ssh_target not configured for SSH pct exec fallback',
+            ];
+        }
+
+        $remoteCmd = 'pct exec ' . $vmid . ' -- /bin/sh -c ' . escapeshellarg($shell);
+        $sshRes = self::runSshCommand($sshTarget, $remoteCmd);
+        if ($sshRes['ok']) {
+            return ['ok' => true, 'method' => 'ssh_pct_exec', 'output' => (string) ($sshRes['output'] ?? '')];
+        }
+
+        return [
+            'ok' => false,
+            'message' => 'SSH pct exec failed: ' . (string) ($sshRes['message'] ?? 'unknown')
+                . '; LXC exec: ' . (string) ($execRes['message'] ?? 'unknown'),
+        ];
+    }
+
+    /** @return array{ok: bool, method?: string, message?: string} */
+    private static function bootstrapWorkerService(
+        int $vmid,
+        string $hostNode,
+        string $apiUrl,
+        string $tokenId,
+        string $tokenSecret
+    ): array {
+        sleep(2);
+
+        $unit = self::WORKER_SYSTEMD_UNIT;
+        $shell = 'systemctl daemon-reload'
+            . ' && systemctl enable ' . escapeshellarg($unit)
+            . ' && systemctl restart ' . escapeshellarg($unit)
+            . ' && systemctl is-active ' . escapeshellarg($unit);
+
+        $run = self::runShellInLxc($vmid, $hostNode, $apiUrl, $tokenId, $tokenSecret, $shell);
+        if (!($run['ok'] ?? false)) {
+            return [
+                'ok' => false,
+                'message' => (string) ($run['message'] ?? 'bootstrap worker service failed'),
+            ];
+        }
+
+        $state = trim((string) ($run['output'] ?? ''));
+        if ($state !== 'active') {
+            $journal = self::fetchWorkerJournal($vmid, '-2 min', 'now', self::WORKER_SYSTEMD_UNIT);
+            $hint = $journal !== ''
+                ? mb_substr(preg_replace('/\s+/', ' ', $journal), 0, 240)
+                : 'no journal output';
+
+            return [
+                'ok' => false,
+                'message' => self::WORKER_SYSTEMD_UNIT . ' is not active after bootstrap (state='
+                    . ($state !== '' ? $state : 'empty') . '). ' . $hint,
+            ];
+        }
+
+        FleetAuditLog::write(
+            'provision_service_bootstrap',
+            'Enabled and started ' . self::WORKER_SYSTEMD_UNIT . ' in VMID ' . $vmid,
+            'vmid',
+            (string) $vmid,
+            ['proxmox_node' => $hostNode, 'method' => $run['method'] ?? 'unknown']
+        );
+
+        return ['ok' => true, 'method' => $run['method'] ?? 'unknown'];
     }
 
     /** @param array{ok: bool, message?: string} $execRes */
