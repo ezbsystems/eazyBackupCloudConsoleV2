@@ -55,6 +55,55 @@ final class WorkerConfigService
     return $row ? (array) $row : null;
   }
 
+  public static function latestSavedVersion(): int
+  {
+    $current = self::current();
+
+    return $current ? (int) ($current['version'] ?? 0) : 0;
+  }
+
+  /**
+   * Derive UI-facing config status by comparing applied version to latest saved config
+   * and any pending rollout target. DB config_status alone only tracks rollout lifecycle.
+   *
+   * @param array<string, mixed> $node
+   * @return array{latest_config_version: int, config_effective_status: string}
+   */
+  public static function effectiveNodeConfigDisplay(array $node, int $latestSavedVersion): array
+  {
+    $applied = (int) ($node['config_version'] ?? 0);
+    $target = (int) ($node['target_config_version'] ?? 0);
+    $dbStatus = (string) ($node['config_status'] ?? 'current');
+
+    if ($dbStatus === 'failed') {
+      $effective = 'failed';
+    } elseif ($target > 0 && $applied < $target) {
+      $effective = $dbStatus === 'applying' ? 'applying' : 'pending';
+    } elseif ($latestSavedVersion > 0 && $applied < $latestSavedVersion) {
+      $effective = 'outdated';
+    } else {
+      $effective = 'current';
+    }
+
+    return [
+      'latest_config_version' => $latestSavedVersion,
+      'config_effective_status' => $effective,
+    ];
+  }
+
+  /** @param list<array<string, mixed>> $nodes @return list<array<string, mixed>> */
+  public static function enrichNodesForFleetList(array $nodes): array
+  {
+    if ($nodes === []) {
+      return [];
+    }
+    $latest = self::latestSavedVersion();
+
+    return array_map(static function (array $node) use ($latest): array {
+      return array_merge($node, self::effectiveNodeConfigDisplay($node, $latest));
+    }, $nodes);
+  }
+
   /** @return list<array<string, mixed>> */
   public static function versionHistory(int $limit = 20): array
   {
@@ -297,13 +346,15 @@ final class WorkerConfigService
     }
     $current = self::current();
     $nodes = WorkerNodeRepository::listNodes();
-    $byStatus = ['current' => 0, 'pending' => 0, 'applying' => 0, 'failed' => 0];
+    $byStatus = ['current' => 0, 'outdated' => 0, 'pending' => 0, 'applying' => 0, 'failed' => 0];
+    $latest = $current ? (int) ($current['version'] ?? 0) : 0;
     $nodeStates = [];
     foreach ($nodes as $n) {
       if (($n['status'] ?? '') === 'retired') {
         continue;
       }
-      $st = (string) ($n['config_status'] ?? 'current');
+      $display = self::effectiveNodeConfigDisplay($n, $latest);
+      $st = (string) ($display['config_effective_status'] ?? 'current');
       if (isset($byStatus[$st])) {
         $byStatus[$st]++;
       }
@@ -314,6 +365,8 @@ final class WorkerConfigService
         'config_version' => (int) ($n['config_version'] ?? 0),
         'target_config_version' => $n['target_config_version'] !== null ? (int) $n['target_config_version'] : null,
         'config_status' => $st,
+        'config_effective_status' => $st,
+        'latest_config_version' => $latest,
         'config_error' => (string) ($n['config_error'] ?? ''),
       ];
     }

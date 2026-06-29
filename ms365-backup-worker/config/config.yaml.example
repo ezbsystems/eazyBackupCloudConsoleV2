@@ -24,7 +24,9 @@ worker:
   ram_budget_mib: 6144
   disk_budget_mib: 24576
   max_cpu_cores: 3
-  disk_watermark_mib: 1024
+  disk_watermark_mib: 4096
+  disk_flush_watermark_mib: 8192
+  run_dir_gc_ttl_seconds: 3600
   job_ram_budget_mib: 512
   job_disk_budget_mib: 2048
   heavy_job_ram_budget_mib: 1536
@@ -40,7 +42,7 @@ kopia:
   parallel_uploads: 4
   compressor: zstd-default
   max_pack_size_mib: 32
-  content_cache_size_mib: 256
+  content_cache_size_mib: 512
   checkpoint_interval_minutes: 15
   stall_seconds: 2700
   stall_check_interval_seconds: 60

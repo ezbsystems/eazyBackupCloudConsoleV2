@@ -19,6 +19,7 @@ use Ms365Backup\Fleet\FleetSummaryService;
 use Ms365Backup\Fleet\ReleaseRepository;
 use Ms365Backup\Fleet\WorkerConfigService;
 use Ms365Backup\Ms365BatchClaimRepository;
+use Ms365Backup\Ms365EngineConfig;
 use Ms365Backup\WorkerNodeRepository;
 
 $authError = FleetRemoteAuth::authenticate();
@@ -39,7 +40,7 @@ try {
         case 'fleet_nodes':
             $status = trim((string) ($_GET['status'] ?? $_POST['status'] ?? ''));
             $statuses = $status !== '' ? array_map('trim', explode(',', $status)) : [];
-            echo json_encode(['ok' => true, 'nodes' => WorkerNodeRepository::listNodes($statuses)]);
+            echo json_encode(['ok' => true, 'nodes' => WorkerConfigService::enrichNodesForFleetList(WorkerNodeRepository::listNodes($statuses))]);
             break;
 
         case 'fleet_node_get':
@@ -158,6 +159,18 @@ try {
             $prepared = FleetProvisionService::prepareSlots($proxmoxNode, $count, 'ms365-prod-worker-');
             FleetAuditLog::write('fleet_provision_prepare', 'Prepared ' . count($prepared) . ' production slot(s) on ' . $proxmoxNode, 'proxmox_node', $proxmoxNode);
             echo json_encode(['ok' => true, 'prepared' => $prepared]);
+            break;
+
+        case 'fleet_worker_env':
+            $token = trim(Ms365EngineConfig::workerToken());
+            if ($token === '') {
+                throw new \RuntimeException('ms365_worker_token is not configured on production');
+            }
+            echo json_encode([
+                'ok' => true,
+                'api_base' => FleetSettings::workerApiBaseUrl(FleetContext::FLEET_PRODUCTION),
+                'token' => $token,
+            ]);
             break;
 
         case 'fleet_provision_abandon':

@@ -1,5 +1,5 @@
 # Golden LXC template — non-secret settings only.
-# Sized for fleet CT: 20 GB RAM, 4 CPU, 32 GB rootfs (streaming overlay; no disk staging).
+# Sized for fleet CT: 20 GB RAM, 4 CPU, 60 GB rootfs (streaming overlay; ephemeral Kopia cache).
 # Secrets: /etc/systemd/system/ms365-backup-worker.service.d/environment.conf
 # Per-clone identity: leave node_id / hostname empty; autoscale adopts WHMCS registerProvisioning row by hostname.
 
@@ -7,7 +7,7 @@ worker:
   node_id: ""
   hostname: ""
   poll_interval_seconds: 5
-  max_concurrent_runs: 16
+  max_concurrent_runs: 8
   graph_parallel_requests: 32
   graph_folder_parallel: 8
   graph_sharepoint_drive_parallel: 6
@@ -16,11 +16,13 @@ worker:
   install_path: /var/lib/ms365-backup-worker/bin/ms365-backup-worker
   run_dir: /var/lib/ms365-backup-worker/runs
   proxmox_vmid: 0
-  # Admission budgets — sized for 20G RAM / 4 CPU CTs (I/O-bound jobs use ~150–650 MiB each).
+  # Admission budgets — sized for 20G RAM / 4 CPU / 60G rootfs CTs.
   ram_budget_mib: 18432
-  disk_budget_mib: 24576
+  disk_budget_mib: 40960
   max_cpu_cores: 16
-  disk_watermark_mib: 1024
+  disk_watermark_mib: 4096
+  disk_flush_watermark_mib: 8192
+  run_dir_gc_ttl_seconds: 3600
   job_ram_budget_mib: 384
   job_disk_budget_mib: 2048
   heavy_job_ram_budget_mib: 768
@@ -30,10 +32,10 @@ worker:
 
 kopia:
   repo_config_dir: /var/lib/ms365-backup-worker/kopia
-  parallel_uploads: 16
+  parallel_uploads: 8
   compressor: zstd-default
   max_pack_size_mib: 32
-  content_cache_size_mib: 1024
+  content_cache_size_mib: 512
   checkpoint_interval_minutes: 15
 
 graph:

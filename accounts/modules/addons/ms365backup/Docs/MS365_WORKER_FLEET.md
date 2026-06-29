@@ -45,6 +45,8 @@ Cross-node clone also needs the above on **both** the template home node and the
 
 **Post-clone secrets (1.37+):** After hostname config and before start, the provisioner writes `environment.conf` with `MS365_WORKER_TOKEN` and `MS365_WORKER_API_BASE` from WHMCS (`FleetSettings::workerApiBaseUrl()` → `{SystemURL}/modules/addons/cloudstorage/api`). Injection uses the LXC exec API when available; otherwise optional `proxmox_ssh_target` SSH (`pct push`) on the Proxmox host. If neither is available, clones inherit the golden template drop-in — it **must** include the full API path (not just `http://192.168.92.79`). A wrong base causes `ms365_worker_register.php http 404` in the worker journal. WHMCS addon UI uses `proxmox_ssh_target` (not `proxmox_shell_target`; keys containing `shell` may be stripped by the admin UI).
 
+**Post-clone service bootstrap (1.53+):** After `pct start`, the provisioner runs `systemctl daemon-reload`, `enable`, and `restart` on `ms365-backup-worker` inside the CT (LXC exec or SSH `pct exec` fallback). Golden templates may ship with the unit disabled; without this step the worker never registers and verification fails — triggering **provision rollback** (`pct destroy`). Audit event: `provision_service_bootstrap`.
+
 **Golden template check:** `deploy/proxmox/template-setup.sh` rejects `MS365_WORKER_API_BASE` values that do not end with `/modules/addons/cloudstorage/api`.
 
 **Async clone wait (1.36+):** Full LXC clone returns a Proxmox task UPID; the provisioner polls `/nodes/{node}/tasks/{upid}/status` until `status=stopped` and `exitstatus=OK` (up to 180s) before config PUT or start. Config/start calls retry up to 5 times with exponential backoff (2–10s) if the CT is still locked.
@@ -213,8 +215,10 @@ Development WHMCS remains the **sole build/deploy console**. Production workers 
 **Prod UI:** No fleet picker; **Builds** tab hidden. Local prod fleet only.
 
 **Production worker API base:** When scaling production fleet from dev, `environment.conf` injects  
-`MS365_WORKER_API_BASE=http://192.168.92.75/accounts/modules/addons/cloudstorage/api`  
+`MS365_WORKER_API_BASE=http://192.168.92.75/modules/addons/cloudstorage/api`  
 (secrets stay in `environment.conf`; `config.yaml` must not contain `api.base_url`).
+
+**Production WHMCS scale-up checklist:** On the production server (`ms365_server_environment=production`), configure the same Proxmox API settings as dev plus `proxmox_ssh_target` and SSH key at `/var/www/.ssh/ms365_proxmox_ed25519`. WHMCS **SystemURL** must be the production base (e.g. `http://192.168.92.75`) so injected workers register locally. Scale up from **Worker Fleet → Nodes** on production (no fleet picker). Failed verification destroys the new CT — check audit for `provision_cleanup` vs `provision_service_bootstrap` / `provision_env_inject`.
 
 **VMID allocation:** Production scale-up calls prod `fleet_provision_prepare` first so `ms365_worker_nodes` rows and VMIDs live on **prod DB**, not dev.
 

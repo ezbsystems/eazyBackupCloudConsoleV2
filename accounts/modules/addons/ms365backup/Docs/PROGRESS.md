@@ -10,6 +10,13 @@
 
 ## Session log
 
+### 2026-06-28 — Production worker scale-up bootstrap
+
+- **Root cause:** New clones inherited disabled `ms365-backup-worker` systemd unit and (when env inject skipped) dev `MS365_WORKER_API_BASE`. Verification timed out → `cleanupFailedProvision` destroyed the CT (appeared as “starts then shuts down”).
+- **Fix:** `ProxmoxProvisioner::bootstrapWorkerService()` after `pct start` — `daemon-reload`, `enable`, `restart`, verify `active`. Same bootstrap on admin **Start node**. Dev→prod env inject fetches prod token/API via `fleet_worker_env` remote op. SSH `pct push` sets mode 600 on temp file.
+- **Ops:** Production WHMCS needs Proxmox API settings, `proxmox_ssh_target`, SSH key at `/var/www/.ssh/ms365_proxmox_ed25519`, SystemURL `http://192.168.92.75`.
+- **Files:** `ProxmoxProvisioner.php`, `fleet_remote.php`, `MS365_WORKER_FLEET.md`, `ms365_fleet_smoke.php`.
+
 ### 2026-06-26 — Archive human-readable export (worker 0.3.34)
 
 - **Archive export pipeline:** New `MetadataIndex` + `ZipPathResolver` prefetch sidecars from Kopia and

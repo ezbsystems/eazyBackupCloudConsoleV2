@@ -57,6 +57,12 @@ type WorkerConfig struct {
 	RunDir                string  `yaml:"run_dir"`
 	ProxmoxVmid           int     `yaml:"proxmox_vmid"`
 	DiskWatermarkMiB      int     `yaml:"disk_watermark_mib"`
+	// DiskFlushWatermarkMiB triggers mid-batch flush (GC run dirs + evict idle caches) when
+	// real free space drops below this threshold. Defaults to 2× disk_watermark_mib.
+	DiskFlushWatermarkMiB int `yaml:"disk_flush_watermark_mib"`
+	// RunDirGCTTLSeconds is the grace period before an orphaned run directory (not in s.running)
+	// may be deleted by gcOrphanedRuns. Active runs are always protected.
+	RunDirGCTTLSeconds    int     `yaml:"run_dir_gc_ttl_seconds"`
 	RamBudgetMiB          int     `yaml:"ram_budget_mib"`
 	DiskBudgetMiB         int     `yaml:"disk_budget_mib"`
 	MaxCPUCores           float64 `yaml:"max_cpu_cores"`
@@ -164,6 +170,12 @@ func (c *Config) applyDefaults() {
 	}
 	if c.Worker.DiskWatermarkMiB <= 0 {
 		c.Worker.DiskWatermarkMiB = 2048
+	}
+	if c.Worker.DiskFlushWatermarkMiB <= 0 {
+		c.Worker.DiskFlushWatermarkMiB = c.Worker.DiskWatermarkMiB * 2
+	}
+	if c.Worker.RunDirGCTTLSeconds <= 0 {
+		c.Worker.RunDirGCTTLSeconds = 3600
 	}
 	if c.Worker.RamBudgetMiB <= 0 {
 		c.Worker.RamBudgetMiB = 92160 // ~90 GB headroom on 100 GB nodes
@@ -312,4 +324,12 @@ func (c *KopiaConfig) CheckpointInterval() time.Duration {
 
 func (c *WorkerConfig) DiskWatermarkBytes() int64 {
 	return int64(c.DiskWatermarkMiB) << 20
+}
+
+func (c *WorkerConfig) DiskFlushWatermarkBytes() int64 {
+	return int64(c.DiskFlushWatermarkMiB) << 20
+}
+
+func (c *Config) RunDirGCTTL() time.Duration {
+	return time.Duration(c.Worker.RunDirGCTTLSeconds) * time.Second
 }

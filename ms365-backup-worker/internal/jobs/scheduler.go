@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -21,6 +22,8 @@ import (
 	"github.com/eazybackup/ms365-backup-worker/internal/updater"
 	"github.com/eazybackup/ms365-backup-worker/internal/version"
 )
+
+const reservedRunDirKopia = "kopia"
 
 type Scheduler struct {
 	cfg                  *config.Config
@@ -50,6 +53,7 @@ type Scheduler struct {
 	batchCancel          context.CancelFunc
 	batchProgress        sync.Map
 	batchRunner          *BatchRunner
+	diskCritical         atomic.Bool
 }
 
 type resourceBudget struct {
@@ -80,8 +84,13 @@ func NewScheduler(cfg *config.Config, client *api.Client, configPath string) *Sc
 	}
 	s.runner.SetProgressHook(s.recordRunProgress)
 	s.batchRunner = NewBatchRunner(cfg, client, s.runner, s)
+	cacheRoot := filepath.Join(cfg.Kopia.RepoConfigDir, "cache")
+	if err := os.RemoveAll(cacheRoot); err != nil && !os.IsNotExist(err) {
+		log.Printf("startup cache sweep failed: %v", err)
+	}
 	s.gcOrphanedRuns()
 	go s.periodicGC()
+	go s.diskMonitor()
 	return s
 }
 
@@ -408,19 +417,57 @@ func (s *Scheduler) runContext(parent context.Context, job *api.RunJob) (context
 }
 
 func (s *Scheduler) hasDiskSpace() bool {
+	return s.hasRealHeadroom(0)
+}
+
+func (s *Scheduler) realFreeMiB() int64 {
 	var st syscall.Statfs_t
 	if err := syscall.Statfs(s.cfg.Worker.RunDir, &st); err != nil {
+		return 1 << 30 // statfs failure: do not block admission
+	}
+	return (int64(st.Bavail) * int64(st.Bsize)) >> 20
+}
+
+func (s *Scheduler) hasRealHeadroom(jobDiskMiB int) bool {
+	free := s.realFreeMiB()
+	if free >= 1<<29 {
 		return true
 	}
-	free := int64(st.Bavail) * int64(st.Bsize)
-	return free >= s.cfg.Worker.DiskWatermarkBytes()
+	watermark := int64(s.cfg.Worker.DiskWatermarkMiB)
+	return free >= watermark+int64(jobDiskMiB)
 }
 
 func (s *Scheduler) periodicGC() {
-	ticker := time.NewTicker(10 * time.Minute)
+	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
 	for range ticker.C {
 		s.gcOrphanedRuns()
+	}
+}
+
+func (s *Scheduler) diskMonitor() {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+	flushMarkMiB := int64(s.cfg.Worker.DiskFlushWatermarkMiB)
+	for range ticker.C {
+		free := s.realFreeMiB()
+		if free >= 1<<29 {
+			continue
+		}
+		if free < flushMarkMiB {
+			if !s.diskCritical.Load() {
+				log.Printf("disk pressure: %d MiB free below flush mark %d MiB; flushing caches and pausing new child reservations",
+					free, flushMarkMiB)
+			}
+			s.diskCritical.Store(true)
+			s.gcOrphanedRuns()
+			evictCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			s.repoPool.EvictIdle(evictCtx)
+			cancel()
+		} else if s.diskCritical.Load() {
+			log.Printf("disk recovered: %d MiB free above flush mark %d MiB; resuming child reservations", free, flushMarkMiB)
+			s.diskCritical.Store(false)
+		}
 	}
 }
 
@@ -436,17 +483,28 @@ func (s *Scheduler) gcOrphanedRuns() {
 	}
 	s.runningMu.Unlock()
 
+	ttl := s.cfg.RunDirGCTTL()
+	cutoff := time.Now().Add(-ttl)
+
 	for _, e := range entries {
 		if !e.IsDir() {
 			continue
 		}
-		if _, ok := running[e.Name()]; ok {
+		name := e.Name()
+		if name == reservedRunDirKopia {
 			continue
 		}
-		path := filepath.Join(s.cfg.Worker.RunDir, e.Name())
-		if strings.Contains(e.Name(), "staging") {
+		if _, ok := running[name]; ok {
 			continue
 		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		if info.ModTime().After(cutoff) {
+			continue
+		}
+		path := filepath.Join(s.cfg.Worker.RunDir, name)
 		_ = os.RemoveAll(path)
 	}
 }
@@ -520,10 +578,13 @@ func (s *Scheduler) startBatch(ctx context.Context, batch *api.BatchJob) bool {
 		if err := s.batchRunner.RunSafe(runCtx, b, cancel); err != nil {
 			if isCooperativeCancel(err, runCtx) {
 				log.Printf("batch %s cancelled cooperatively", b.BatchRunID)
-				return
+			} else {
+				log.Printf("batch %s failed: %v", b.BatchRunID, err)
 			}
-			log.Printf("batch %s failed: %v", b.BatchRunID, err)
 		}
+		evictCtx, evictCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer evictCancel()
+		s.repoPool.EvictRepo(evictCtx, batchStorageOptions(b))
 	}(batch)
 	return true
 }
@@ -558,11 +619,32 @@ func (s *Scheduler) cancelBatch(batchRunID string) {
 	}
 }
 
+func batchStorageOptions(batch *api.BatchJob) kopia.StorageOptions {
+	if batch == nil {
+		return kopia.StorageOptions{}
+	}
+	return kopia.StorageOptions{
+		Endpoint:     batch.DestEndpoint,
+		Region:       batch.DestRegion,
+		Bucket:       batch.DestBucket,
+		Prefix:       batch.DestPrefix,
+		AccessKey:    batch.DestAccessKey,
+		SecretKey:    batch.DestSecretKey,
+		RepoPassword: batch.RepoPassword,
+	}
+}
+
 func (s *Scheduler) tryReserve(job *api.RunJob) bool {
 	if job == nil {
 		return false
 	}
+	if s.diskCritical.Load() {
+		return false
+	}
 	ramMiB, diskMiB, cpuCores := s.jobBudget(job)
+	if !s.hasRealHeadroom(diskMiB) {
+		return false
+	}
 	s.reserved.mu.Lock()
 	defer s.reserved.mu.Unlock()
 	if s.reserved.ramMiB+ramMiB > s.cfg.Worker.RamBudgetMiB ||
@@ -617,6 +699,9 @@ func (s *Scheduler) canAdmit(job *api.RunJob) bool {
 		return false
 	}
 	ramMiB, diskMiB, cpuCores := s.jobBudget(job)
+	if !s.hasRealHeadroom(diskMiB) {
+		return false
+	}
 	s.reserved.mu.Lock()
 	defer s.reserved.mu.Unlock()
 	if s.reserved.ramMiB+ramMiB > s.cfg.Worker.RamBudgetMiB {

@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -24,9 +26,10 @@ type Pool struct {
 }
 
 type poolEntry struct {
-	rep    repo.Repository
-	refs   int
-	opened time.Time
+	rep      repo.Repository
+	refs     int
+	opened   time.Time
+	cacheDir string
 }
 
 func NewPool(cache RepoCacheSettings) *Pool {
@@ -64,7 +67,7 @@ func (p *Pool) Acquire(ctx context.Context, storage StorageOptions, maxPackSizeM
 		p.mu.Unlock()
 		return entry.rep, func() { p.release(key) }, nil
 	}
-	p.repos[key] = &poolEntry{rep: rep, refs: 1, opened: time.Now()}
+	p.repos[key] = &poolEntry{rep: rep, refs: 1, opened: time.Now(), cacheDir: p.cacheDir(storage)}
 	p.mu.Unlock()
 	return rep, func() { p.release(key) }, nil
 }
@@ -77,6 +80,58 @@ func (p *Pool) release(key string) {
 		return
 	}
 	entry.refs--
+}
+
+func (p *Pool) cacheDir(storage StorageOptions) string {
+	return filepath.Join(p.cache.RepoConfigDir, "cache", storage.repoHash())
+}
+
+// EvictRepo closes and removes a pooled repository when it has no active references,
+// then deletes its on-disk content cache directory. Tiny repos/{hash}.config files are kept.
+func (p *Pool) EvictRepo(ctx context.Context, storage StorageOptions) {
+	key := storage.RepoIdentity()
+	cacheDir := p.cacheDir(storage)
+
+	p.mu.Lock()
+	entry, ok := p.repos[key]
+	if !ok || entry == nil || entry.refs > 0 {
+		p.mu.Unlock()
+		return
+	}
+	rep := entry.rep
+	if entry.cacheDir != "" {
+		cacheDir = entry.cacheDir
+	}
+	delete(p.repos, key)
+	p.mu.Unlock()
+
+	if rep != nil {
+		_ = rep.Close(ctx)
+	}
+	_ = os.RemoveAll(cacheDir)
+}
+
+// EvictIdle evicts every pooled repository with no active references and deletes cache dirs.
+func (p *Pool) EvictIdle(ctx context.Context) {
+	p.mu.Lock()
+	var idle []*poolEntry
+	for key, entry := range p.repos {
+		if entry == nil || entry.refs > 0 {
+			continue
+		}
+		idle = append(idle, entry)
+		delete(p.repos, key)
+	}
+	p.mu.Unlock()
+
+	for _, entry := range idle {
+		if entry.rep != nil {
+			_ = entry.rep.Close(ctx)
+		}
+		if entry.cacheDir != "" {
+			_ = os.RemoveAll(entry.cacheDir)
+		}
+	}
 }
 
 // Drain closes all pooled repositories (e.g. before worker update).

@@ -66,6 +66,23 @@ $check('engine_mode_kopia', Ms365EngineConfig::engineMode() === Ms365EngineConfi
 $workerToken = Ms365EngineConfig::workerToken();
 $check('worker_token_configured', $workerToken !== '', $workerToken !== '' ? 'set' : 'missing');
 
+$sshTarget = trim(Ms365EngineConfig::moduleSettingPublic('proxmox_ssh_target', ''));
+$sshIdentity = trim(Ms365EngineConfig::moduleSettingPublic('proxmox_ssh_identity', ''));
+if ($sshIdentity === '') {
+    foreach (['/var/www/.ssh/ms365_proxmox_ed25519', '/var/www/.ssh/id_rsa', '/var/www/.ssh/id_ed25519'] as $candidate) {
+        if (is_readable($candidate)) {
+            $sshIdentity = $candidate;
+            break;
+        }
+    }
+}
+if ($sshTarget === '') {
+    echo "[WARN] proxmox_ssh_target — not set (post-clone env inject + service bootstrap may fail without LXC exec API)\n";
+} else {
+    $check('proxmox_ssh_target', true, $sshTarget);
+    $check('proxmox_ssh_identity', $sshIdentity !== '' && is_readable($sshIdentity), $sshIdentity !== '' ? $sshIdentity : 'missing');
+}
+
 $activeNodes = (int) ($summary['active_nodes'] ?? 0);
 if ($activeNodes < 1) {
     echo "[WARN] active_worker_nodes — none registered (deploy Proxmox fleet)\n";
