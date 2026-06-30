@@ -25,6 +25,7 @@
 /ms365-backup-worker/bin/
 /ms365-backup-worker/bin/**
 /ms365-backup-worker/ms365-backup-worker
+/ms365-backup-worker/worker
 
 # Our local backup agent
 !/e3-backup-agent/
