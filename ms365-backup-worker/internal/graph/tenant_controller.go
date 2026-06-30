@@ -437,18 +437,6 @@ func (tc *tenantController) snapshot() tenantControllerSnapshot {
 	}
 }
 
-// #region agent log
-// TenantControllerDebug reports live controller state for a tenant (debug only;
-// retained to verify the 429 over-release deadlock fix on the live fleet).
-func TenantControllerDebug(tenantID string) (limit, inFlight int, last429 time.Time, cooldownUntil time.Time) {
-	tc := getTenantController(tenantID)
-	tc.mu.Lock()
-	defer tc.mu.Unlock()
-	return tc.limit, tc.inFlight, tc.last429, tc.cooldownUntil
-}
-
-// #endregion
-
 // LogTenantControllerState emits a structured heartbeat line for fleet observability.
 func LogTenantControllerState(tenantID string, requestsTotal, throttle429 int64) {
 	if tenantID == "" {

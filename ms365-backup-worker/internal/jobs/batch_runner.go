@@ -209,11 +209,6 @@ func (br *BatchRunner) Run(ctx context.Context, batch *api.BatchJob, onAbort con
 	stopTokenRefresh := bindGraphTokenRefresh(ctx, br.cfg, br.client, gc, tokenRunID)
 	defer stopTokenRefresh()
 
-	// #region agent log
-	stopLimiterDiag := startLimiterDiag(ctx, br.client, tokenRunID, batch.AzureTenantID, gc)
-	defer stopLimiterDiag()
-	// #endregion
-
 	hub := newBatchProgressHub(br.client, batchRunID, batch.AzureTenantID, br.cfg.ProgressMinInterval())
 	emitProgress := func(upd api.ProgressUpdate) {
 		hub.record(upd)

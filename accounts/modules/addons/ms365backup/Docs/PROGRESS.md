@@ -2,13 +2,34 @@
 
 **Purpose:** Single handoff document so the next agent knows where work stopped. Update this file at the **end of every session** (or after each meaningful milestone).
 
-**Last updated:** 2026-06-29  
+**Last updated:** 2026-06-30  
 **Module version (ms365backup):** 1.52.1  
-**Worker version (ms365-backup-worker):** 0.3.46 (built; deploy via Fleet)
+**Worker version (ms365-backup-worker):** 0.3.47 (built; deploy via Fleet)
 
 ---
 
 ## Session log
+
+### 2026-06-30 — Batch `f2be05c4` stuck at 99.83% (SiteMG shard:7 semaphore deadlock)
+
+**Symptom:** Batch `f2be05c4-3da5-4bb4-9890-fc636515722e` (535 workloads) stuck 11+ hours at 99.83%; sole child `ede2c468` (MG Inc. Team Site `sharepoint_site` shard:7) in `graph_sync` / `sharepoint_lists` with UI showing 82065/82065 items and no progress ~6h.
+
+**Runtime evidence (worker-9004 journald + goroutine dump + DB):**
+
+1. **Goroutine 590** wedged 364+ min in `releaseGlobal()` inside `doRequest` success path (`sharepoint_lists.go:176` → `paginateDeltaResilient`), while **BatchRunner** goroutine 16 blocked on `wg.Wait()` for the same child.
+2. **Tenant controller:** `in_flight=1`, `requests_total=2243` frozen for hours — workload slot leaked while HTTP was done.
+3. **Root cause:** `getStream` bounded-retry path (503/504) called `releaseTransport()` and then `sleepRetry()` (which also releases) → **double-release** on the channel-based global transport semaphore. Under high concurrency the extra receive steals permits; late in the batch the next successful `doRequest` blocks forever on `releaseGlobal()` (empty channel).
+4. **Stall watchdog fired** at 05:00:51 (`since_activity=2700s`, `items_done=0`) but could not recover — goroutine was already past HTTP, blocked on semaphore not ctx.
+5. **Immediate unblock:** `SIGQUIT` / worker restart killed the wedged goroutine; batch re-claimed 1 child; `ede2c468` completed in ~6 min (graph_sync 20516 items → kopia → success). Batch `done` 11:00:29 UTC.
+
+**Fix (worker 0.3.47):**
+
+- Removed redundant `releaseTransport()` before `sleepRetry` in `getStream` 503/504 bounded-retry path (`client.go`).
+- Replaced channel-based global semaphore with **mutex + counter** that tolerates over-release without deadlock (`limiter.go`).
+- Test: `TestGetStreamSemaphoreBalancedOnBoundedRetry503`; `TestGlobalSemaphoreToleratesOverRelease`.
+- Deployed to worker-9004; fleet-wide deploy recommended.
+
+**Files:** `internal/graph/client.go`, `internal/graph/limiter.go`, `internal/graph/limiter_test.go`, `internal/graph/client_test.go`, `internal/version/version.go`.
 
 ### 2026-06-29 — ModSecurity `batch_complete` block + batch `66aaa73d` investigation
 
