@@ -3,27 +3,17 @@
 require_once __DIR__ . '/../../eazybackup/pages/partnerhub/TenantStorageLinksController.php';
 require_once __DIR__ . '/../lib/Client/Ms365VaultLifecycleService.php';
 
-use WHMCS\ClientArea;
 use WHMCS\Database\Capsule;
 use WHMCS\Module\Addon\CloudStorage\Admin\ProductConfig;
 use WHMCS\Module\Addon\CloudStorage\Client\DBController;
+use WHMCS\Module\Addon\CloudStorage\Client\E3BackupAccess;
 use WHMCS\Module\Addon\CloudStorage\Client\E3BackupPricingPanelData;
 use WHMCS\Module\Addon\CloudStorage\Client\Ms365VaultLifecycleService;
 use WHMCS\Module\Addon\CloudStorage\Client\MspController;
 
-$packageId = ProductConfig::e3CloudBackupPid();
-$ca = new ClientArea();
-if (!$ca->isLoggedIn()) {
-    header('Location: clientarea.php');
-    exit;
-}
+require_once __DIR__ . '/../lib/Client/E3BackupAccess.php';
 
-$loggedInUserId = $ca->getUserID();
-$product = DBController::getProduct($loggedInUserId, $packageId);
-if (is_null($product) || empty($product->username)) {
-    header('Location: index.php?m=cloudstorage&page=welcome');
-    exit;
-}
+$loggedInUserId = E3BackupAccess::requireE3BackupClientAreaAccess('user_detail');
 
 $userIdRaw = trim((string) ($_GET['user_id'] ?? ''));
 $hasPublicIdCol = Capsule::schema()->hasColumn('s3_backup_users', 'public_id');
@@ -123,8 +113,11 @@ if ($isMspClient) {
 }
 $csrfToken = function_exists('generate_token') ? generate_token('plain') : '';
 
-$username = $product->username;
-$s3AccountUser = DBController::getUser($username);
+$username = E3BackupAccess::resolveServiceUsername((int) $loggedInUserId);
+if ($username === '') {
+    $username = trim((string) ($user->username ?? ''));
+}
+$s3AccountUser = $username !== '' ? DBController::getUser($username) : null;
 
 $tenants = [];
 if ($isMspClient) {
@@ -192,15 +185,19 @@ foreach ($agents as $agent) {
     $agent->online_status = ($secondsSinceSeen !== null && $secondsSinceSeen <= $onlineThresholdSeconds) ? 'online' : 'offline';
 }
 
-$s3Tenants = DBController::getResult('s3_users', [
-    ['parent_id', '=', $s3AccountUser->id],
-], [
-    'id', 'username',
-])->pluck('username', 'id')->toArray();
+$s3Tenants = [];
+$buckets = [];
+if ($s3AccountUser) {
+    $s3Tenants = DBController::getResult('s3_users', [
+        ['parent_id', '=', $s3AccountUser->id],
+    ], [
+        'id', 'username',
+    ])->pluck('username', 'id')->toArray();
 
-$s3Tenants[$s3AccountUser->id] = $username;
-$bucketUserIds = array_keys($s3Tenants);
-$buckets = DBController::getUserBuckets($bucketUserIds);
+    $s3Tenants[$s3AccountUser->id] = $username;
+    $bucketUserIds = array_keys($s3Tenants);
+    $buckets = DBController::getUserBuckets($bucketUserIds);
+}
 $initialRestoreJobId = trim((string) ($_GET['restore_job_id'] ?? ''));
 
 return [
@@ -213,7 +210,7 @@ return [
     'agents' => $agents,
     'buckets' => $buckets,
     'client_id' => $loggedInUserId,
-    's3_user_id' => $s3AccountUser->id,
+    's3_user_id' => $s3AccountUser ? (int) $s3AccountUser->id : 0,
     'backup_user_id' => $user->id,
     'backup_user_public_id' => (string) ($user->public_id ?? ''),
     'initial_restore_job_id' => $initialRestoreJobId,

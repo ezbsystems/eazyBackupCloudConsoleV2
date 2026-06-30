@@ -344,7 +344,7 @@
                         </button>
                     </div>
 
-                    <!-- Step 4: Retention placeholder -->
+                    <!-- Step 4: Retention -->
                     <div x-show="step === 4" class="space-y-3">
                         <p class="eb-card-subtitle">Choose a retention policy (billing integration coming soon).</p>
                         <template x-for="opt in retentionOptions" :key="opt.id">
@@ -356,9 +356,14 @@
                                 <span class="block text-sm text-[var(--eb-text-muted)] mt-1" x-text="opt.description"></span>
                             </button>
                         </template>
-                        <div class="pt-2">
-                            <label class="eb-field-label">Job name</label>
-                            <input type="text" class="eb-input w-full" x-model="jobName" placeholder="Microsoft 365 Backup">
+                    </div>
+
+                    <!-- Step 5: Job name -->
+                    <div x-show="step === 5" class="space-y-3">
+                        <p class="eb-card-subtitle">Give this backup job a name you will recognize in your job list and reports.</p>
+                        <div>
+                            <label class="eb-field-label" for="ms365-job-name">Job name</label>
+                            <input id="ms365-job-name" type="text" class="eb-input w-full mt-1" x-model="jobName" :placeholder="defaultJobName()">
                         </div>
                     </div>
                 </div>
@@ -367,10 +372,10 @@
             <div class="eb-modal-footer shrink-0 flex items-center justify-between gap-2 px-6 py-4 border-t border-[var(--eb-border-default)]">
                 <button type="button" class="eb-btn eb-btn-secondary" @click="step > 1 ? goToStep(step - 1) : close()" x-text="step > 1 ? 'Back' : 'Cancel'"></button>
                 <div class="flex gap-2">
-                    <button type="button" class="eb-btn eb-btn-primary" x-show="step < 4" @click="nextStep()" :disabled="!canProceed()">
+                    <button type="button" class="eb-btn eb-btn-primary" x-show="step < 5" @click="nextStep()" :disabled="!canProceed()">
                         Next
                     </button>
-                    <button type="button" class="eb-btn eb-btn-success" x-show="step === 4" @click="save()" :disabled="saving">
+                    <button type="button" class="eb-btn eb-btn-success" x-show="step === 5" @click="save()" :disabled="saving">
                         <span x-text="saving ? 'Saving…' : (editMode ? 'Save job' : 'Create job')"></span>
                     </button>
                 </div>
@@ -453,4 +458,4 @@
 </div>
 
 <script src="modules/addons/cloudstorage/assets/js/ms365_job_selection.js?v=3"></script>
-<script src="modules/addons/cloudstorage/assets/js/ms365_job_wizard.js?v=16"></script>
+<script src="modules/addons/cloudstorage/assets/js/ms365_job_wizard.js?v=17"></script>

@@ -1005,6 +1005,19 @@ The `templates/welcome.tpl` page presents new customers with product selection o
 4. **Trial Period**: Sets the next due date to 14 days out for the trial period.
 5. **Redirect**: Sends user to the eazyBackup download page.
 
+### Microsoft 365 Backup Provisioning (welcome signup)
+
+`Provisioner::provisionMs365()` performs the following (no Comet / LXD):
+
+1. **Order Creation**: WHMCS order for `pid_ms365_backup` (ms365backup addon; production default PID 107).
+2. **Order Acceptance**: `AcceptOrder` with `autosetup=false`, service username/password from welcome drawer.
+3. **Backup user**: `s3_backup_users` row with `backup_type=cloud_only`.
+4. **Billing**: `Ms365BillingService::applyDefaultConfigOptions`, `Ms365BillingTrial::startTrial` (length from `ms365_trial_days`), service `nextduedate` aligned to trial end.
+5. **Storage**: `Ms365StorageBootstrapService::ensureForBackupUser()` — platform owner + `e3ms365-*` bucket (required; provision fails if bucket cannot be created).
+6. **Redirect**: `index.php?m=cloudstorage&page=e3backup&view=ms365_getting_started`.
+
+See [`MS365_ONBOARDING.md`](MS365_ONBOARDING.md) for the Getting Started page.
+
 ### Config Options Logic
 
 The `applyDefaultConfigOptions()` method ensures trial orders receive the correct initial quantities:

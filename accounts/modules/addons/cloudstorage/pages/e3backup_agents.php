@@ -1,24 +1,12 @@
 <?php
 
-use WHMCS\ClientArea;
 use WHMCS\Database\Capsule;
-use WHMCS\Module\Addon\CloudStorage\Admin\ProductConfig;
-use WHMCS\Module\Addon\CloudStorage\Client\DBController;
+use WHMCS\Module\Addon\CloudStorage\Client\E3BackupAccess;
 use WHMCS\Module\Addon\CloudStorage\Client\MspController;
 
-$packageId = ProductConfig::e3CloudBackupPid();
-$ca = new ClientArea();
-if (!$ca->isLoggedIn()) {
-    header('Location: clientarea.php');
-    exit;
-}
+require_once __DIR__ . '/../lib/Client/E3BackupAccess.php';
 
-$loggedInUserId = $ca->getUserID();
-$product = DBController::getProduct($loggedInUserId, $packageId);
-if (is_null($product) || empty($product->username)) {
-    header('Location: index.php?m=cloudstorage&page=welcome');
-    exit;
-}
+$loggedInUserId = E3BackupAccess::requireE3BackupClientAreaAccess('agents');
 
 $isMspClient = MspController::isMspClient($loggedInUserId);
 

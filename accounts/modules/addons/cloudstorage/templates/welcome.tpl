@@ -146,7 +146,7 @@
                                             Protect Exchange, OneDrive, SharePoint, and Teams with automated backups, retention controls, and point-in-time restore workflows.
                                         </p>
                                         <p class="eb-service-option-note">
-                                            Best for organizations that need dedicated Microsoft 365 recovery beyond Microsoft's built-in retention.
+                                            Cloud-native Microsoft 365 protection — connect your tenant and run backups without installing an agent.
                                         </p>
                                     </div>
                                 </div>
@@ -1116,6 +1116,7 @@ if (window.csrfToken && !window.EB_CSRF_TOKEN) {
         var subtitle = document.getElementById('eb-setpw-subtitle');
         var title = document.getElementById('eb-setpw-title');
         var usernameInput = document.getElementById('eb-username');
+        var usernameLabel = document.getElementById('eb-username-label');
         var submitBtn = document.getElementById('eb-pw-submit');
 
         if (usernameRow) {
@@ -1143,12 +1144,15 @@ if (window.csrfToken && !window.EB_CSRF_TOKEN) {
         if (choice === 'e3backup') {
             title.textContent = 'Pick your e3 Cloud Backup agent username';
             subtitle.textContent = 'Choose the username your e3 Cloud Backup agent will use to sign in. Your portal password (set earlier) is also the password for this backup agent.';
+            if (usernameLabel) { usernameLabel.textContent = 'Backup agent username'; }
         } else if (choice === 'backup') {
             title.textContent = 'Pick your Cloud Backup agent username';
             subtitle.textContent = 'Choose the username your Cloud Backup agent will use to sign in. Your portal password (set earlier) is also the password for this backup agent.';
+            if (usernameLabel) { usernameLabel.textContent = 'Backup agent username'; }
         } else if (choice === 'ms365') {
             title.textContent = 'Pick your Microsoft 365 Backup username';
-            subtitle.textContent = 'Choose the username this Microsoft 365 Backup service will use. Your portal password (set earlier) is also the password for this service.';
+            subtitle.textContent = 'Choose the username for your Microsoft 365 Backup service. After provisioning, you will connect your tenant and create your first backup job.';
+            if (usernameLabel) { usernameLabel.textContent = 'Backup account username'; }
         } else {
             title.textContent = 'Ready to provision';
             subtitle.textContent = 'We will use the portal password you set earlier. Click Continue to finish provisioning.';

@@ -415,6 +415,10 @@ final class Ms365BatchRunRepository
                 }
             }
         }
+
+        if (!self::isRestoreBatch($batchRunId)) {
+            Ms365BackupReportEmailService::maybeSendForBatch($batchRunId, $status);
+        }
     }
 
     /**

@@ -391,6 +391,12 @@ function ms365backup_config(): array
                 'Size' => '4',
                 'Default' => '30',
             ],
+            'ms365_backup_report_email_template' => [
+                'FriendlyName' => 'MS365 Backup Report Email Template',
+                'Type' => 'dropdown',
+                'Options' => ms365backup_get_email_templates(),
+                'Description' => 'WHMCS General template for per-run MS365 backup workload reports.',
+            ],
             'ms365_config_option_ids' => [
                 'FriendlyName' => 'Config option map (JSON)',
                 'Type' => 'textarea',
@@ -570,6 +576,68 @@ function ms365backup_restore_settings(): void
     }
 }
 
+function ms365backup_get_email_templates(): array
+{
+    try {
+        if (!function_exists('localAPI')) {
+            return ['' => 'None (Disable Email Notifications)'];
+        }
+
+        $results = localAPI('GetEmailTemplates', ['type' => 'general']);
+        $templates = ['' => 'None (Disable Email Notifications)'];
+
+        if (isset($results['emailtemplates']['emailtemplate']) && is_array($results['emailtemplates']['emailtemplate'])) {
+            foreach ($results['emailtemplates']['emailtemplate'] as $template) {
+                if (isset($template['id'], $template['name'])) {
+                    $templates[$template['id']] = $template['name'];
+                }
+            }
+        }
+
+        return $templates;
+    } catch (\Throwable $e) {
+        logModuleCall('ms365backup', 'get_email_templates', [], $e->getMessage());
+        return ['' => 'Error loading templates'];
+    }
+}
+
+function ms365backup_create_email_templates(): void
+{
+    try {
+        $exists = Capsule::table('tblemailtemplates')
+            ->where('name', 'MS365 Backup Report')
+            ->where('type', 'general')
+            ->exists();
+
+        if ($exists) {
+            return;
+        }
+
+        Capsule::table('tblemailtemplates')->insert([
+            'type' => 'general',
+            'name' => 'MS365 Backup Report',
+            'subject' => 'Microsoft 365 backup {$job_name} — {$run_status}',
+            'message' => '<p>Your Microsoft 365 backup <strong>{$job_name}</strong> for account <strong>{$backup_username}</strong> has completed.</p>
+<p>Status: {$run_status} · Finished: {$finished_at}</p>
+{$workload_report_html}',
+            'attachments' => '',
+            'fromname' => '',
+            'fromemail' => '',
+            'disabled' => 0,
+            'custom' => 0,
+            'language' => '',
+            'copyto' => '',
+            'blind_copy_to' => '',
+            'plaintext' => 0,
+            'created_at' => date('Y-m-d H:i:s'),
+            'updated_at' => date('Y-m-d H:i:s'),
+        ]);
+        logModuleCall('ms365backup', 'create_email_templates', [], 'Created MS365 Backup Report template', [], []);
+    } catch (\Throwable $e) {
+        logModuleCall('ms365backup', 'create_email_templates', [], $e->getMessage());
+    }
+}
+
 function ms365backup_activate(): array
 {
     try {
@@ -578,6 +646,7 @@ function ms365backup_activate(): array
         ms365backup_apply_migrations();
         ms365backup_ensure_storage();
         ms365backup_bootstrap_billing('activate');
+        ms365backup_create_email_templates();
         return ['status' => 'success', 'description' => 'MS365 Backup activated. Module settings restored from backup when available.'];
     } catch (\Throwable $e) {
         return ['status' => 'error', 'description' => 'Activation failed: ' . $e->getMessage()];
@@ -610,6 +679,7 @@ function ms365backup_upgrade(array $vars): void
         ms365backup_apply_migrations();
         ms365backup_ensure_storage();
         ms365backup_bootstrap_billing('upgrade');
+        ms365backup_create_email_templates();
     } catch (\Throwable $e) {
         logActivity('MS365 Backup upgrade error: ' . $e->getMessage());
     }

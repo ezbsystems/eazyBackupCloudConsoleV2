@@ -84,9 +84,20 @@
 
     window.ms365WizardState = {
         backupUserId: '',
+        backupUsername: '',
         editMode: false,
         jobId: '',
     };
+
+    const DEFAULT_JOB_NAME_SUFFIX = 'Microsoft 365 Backup';
+
+    function buildDefaultJobName(username) {
+        const clean = String(username || '').trim();
+        if (clean !== '') {
+            return `${clean} - ${DEFAULT_JOB_NAME_SUFFIX}`;
+        }
+        return DEFAULT_JOB_NAME_SUFFIX;
+    }
 
     function apiBase() {
         return 'modules/addons/cloudstorage/api/';
@@ -247,7 +258,7 @@
     window.ms365WizardApp = function ms365WizardApp() {
         return {
             step: 1,
-            stepLabels: ['Connect', 'Inventory', 'Schedule', 'Retention'],
+            stepLabels: ['Connect', 'Inventory', 'Schedule', 'Retention', 'Job name'],
             loading: false,
             saving: false,
             connecting: false,
@@ -269,6 +280,7 @@
             editMode: false,
             jobId: '',
             backupUserId: '',
+            backupUsername: '',
             status: { connected: false, needs_reconnect: false },
             connectMode: 'automatic',
             manualRegions: MANUAL_REGIONS,
@@ -296,7 +308,7 @@
             scheduleFrequency: 'once_daily',
             retentionTier: '1y',
             retentionOptions: RETENTION_OPTIONS,
-            jobName: 'Microsoft 365 Backup',
+            jobName: DEFAULT_JOB_NAME_SUFFIX,
             _consentPollTimer: null,
             _consentTimeoutTimer: null,
             _inventoryProgressTimer: null,
@@ -342,6 +354,10 @@
                 }
 
                 window.ms365WizardState.backupUserId = this.backupUserId;
+                this.backupUsername = opts.backupUsername
+                    || window.ms365WizardState.backupUsername
+                    || '';
+                await this.resolveBackupUsername();
 
                 this.editMode = !!opts.editMode;
                 this.jobId = opts.jobId || '';
@@ -355,7 +371,7 @@
                 this.savedSelectionIds = [];
                 this.scheduleFrequency = 'once_daily';
                 this.retentionTier = '1y';
-                this.jobName = 'Microsoft 365 Backup';
+                this.jobName = this.defaultJobName();
                 this.inventory = { resources: [] };
 
                 modal.classList.remove('hidden');
@@ -662,6 +678,31 @@
                 }
             },
 
+            defaultJobName() {
+                return buildDefaultJobName(this.backupUsername);
+            },
+
+            async resolveBackupUsername() {
+                if ((this.backupUsername || '').trim() !== '') {
+                    window.ms365WizardState.backupUsername = this.backupUsername;
+                    return this.backupUsername;
+                }
+                try {
+                    const res = await fetch(
+                        `${apiBase()}e3backup_user_get.php?user_id=${encodeURIComponent(this.backupUserId)}`,
+                        { credentials: 'same-origin' },
+                    );
+                    const data = await res.json();
+                    if (data.status === 'success' && data.user && data.user.username) {
+                        this.backupUsername = String(data.user.username).trim();
+                        window.ms365WizardState.backupUsername = this.backupUsername;
+                    }
+                } catch (e) {
+                    /* optional */
+                }
+                return this.backupUsername;
+            },
+
             close() {
                 this.stopConsentWait();
                 this.stopInventoryProgressPoll();
@@ -724,7 +765,12 @@
                     toast('warning', 'No runnable backup workloads match the current selection.');
                     return;
                 }
-                if (this.step < 4) {
+                if (this.step === 4) {
+                    if (!this.jobName || this.jobName === DEFAULT_JOB_NAME_SUFFIX) {
+                        this.jobName = this.defaultJobName();
+                    }
+                }
+                if (this.step < 5) {
                     this.step += 1;
                 }
             },
@@ -738,6 +784,8 @@
                 }
                 if (this.step === 2) return this.selectionCount() > 0 && (this.planSummary.runnable || 0) > 0;
                 if (this.step === 3) return !!this.scheduleFrequency;
+                if (this.step === 4) return !!this.retentionTier;
+                if (this.step === 5) return String(this.jobName || '').trim().length > 0;
                 return true;
             },
 
@@ -1142,7 +1190,7 @@
                     const data = await res.json();
                     if (data.status === 'success' && data.job) {
                         const j = data.job;
-                        this.jobName = j.name || 'Microsoft 365 Backup';
+                        this.jobName = j.name || this.defaultJobName();
                         this.savedSelectionIds = Array.isArray(j.selected_resource_ids) ? [...j.selected_resource_ids] : [];
                         this.scopeOverrides = j.scope_overrides || {};
                         this.scheduleFrequency = j.schedule_frequency || 'once_daily';
@@ -1330,6 +1378,13 @@
                     toast('warning', 'No runnable backup workloads match the current selection.');
                     return;
                 }
+                const trimmedName = String(this.jobName || '').trim();
+                if (!trimmedName) {
+                    toast('warning', 'Job name is required.');
+                    this.step = 5;
+                    return;
+                }
+                this.jobName = trimmedName;
                 this.saving = true;
                 try {
                     const body = new URLSearchParams({
@@ -1387,6 +1442,9 @@
 
     window.openMs365JobWizard = function openMs365JobWizard(opts = {}) {
         window.ms365WizardState.backupUserId = opts.backupUserId || window.ms365WizardState.backupUserId || '';
+        if (opts.backupUsername) {
+            window.ms365WizardState.backupUsername = opts.backupUsername;
+        }
         const modal = document.getElementById('ms365JobWizardModal');
         if (!modal) {
             toast('error', 'Microsoft 365 wizard is not loaded on this page.');
@@ -1421,8 +1479,10 @@
                 return;
             }
             let userId = '';
+            let backupUsername = '';
             if (data.users.length === 1) {
                 userId = data.users[0].public_id || String(data.users[0].id);
+                backupUsername = data.users[0].username || '';
             } else {
                 const names = data.users.map((u, i) => `${i + 1}. ${u.username}`).join('\n');
                 const pick = window.prompt(`Select backup user number for this Microsoft 365 job:\n${names}`);
@@ -1431,8 +1491,9 @@
                     return;
                 }
                 userId = data.users[idx].public_id || String(data.users[idx].id);
+                backupUsername = data.users[idx].username || '';
             }
-            openMs365JobWizard({ backupUserId: userId });
+            openMs365JobWizard({ backupUserId: userId, backupUsername });
         } catch (e) {
             toast('error', 'Could not load backup users.');
         }
@@ -1450,17 +1511,21 @@
             || params.get('user_id')
             || (ctx && ctx.backupUserId)
             || '';
+        const backupUsername = el?.getAttribute('data-backup-username') || '';
 
         if (!uid) {
             return;
         }
 
         window.ms365WizardState.backupUserId = uid;
+        if (backupUsername) {
+            window.ms365WizardState.backupUsername = backupUsername;
+        }
         const connectOk = params.get('connect_ok') === '1';
         const connectError = params.get('connect_error') || '';
 
         setTimeout(() => {
-            openMs365JobWizard({ backupUserId: uid, step: connectOk ? 2 : 1 });
+            openMs365JobWizard({ backupUserId: uid, backupUsername, step: connectOk ? 2 : 1 });
             if (connectError) {
                 toast('error', connectError);
             }

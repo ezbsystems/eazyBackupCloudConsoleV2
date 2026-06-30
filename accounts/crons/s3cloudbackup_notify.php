@@ -56,6 +56,15 @@ $jobIdSelectExpr = $hasJobIdPk
 
 $completedRuns = $notifyQuery
     ->whereIn('s3_cloudbackup_runs.status', ['success', 'warning', 'failed'])
+    ->when(
+        Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'engine'),
+        static function ($query) {
+            $query->where(function ($q) {
+                $q->whereNull('s3_cloudbackup_runs.engine')
+                    ->orWhere('s3_cloudbackup_runs.engine', '!=', 'ms365');
+            });
+        }
+    )
     ->whereNotNull('s3_cloudbackup_runs.finished_at')
     ->where('s3_cloudbackup_runs.finished_at', '>=', date('Y-m-d H:i:s', strtotime('-1 hour')))
     ->whereNull('s3_cloudbackup_runs.notified_at')

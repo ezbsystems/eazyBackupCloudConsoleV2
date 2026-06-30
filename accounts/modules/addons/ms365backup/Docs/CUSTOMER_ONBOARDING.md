@@ -2,12 +2,26 @@
 
 ## Overview
 
+### New signup (welcome page)
+
+Trial customers who choose **Microsoft 365 Backup** on [`welcome.tpl`](../../cloudstorage/templates/welcome.tpl) are provisioned by `Provisioner::provisionMs365()`:
+
+1. WHMCS MS365 Backup service (`pid_ms365_backup`, default PID 107) — `AcceptOrder` with `autosetup=false` (no Comet).
+2. `s3_backup_users` row (`backup_type=cloud_only`) matching the service username.
+3. Trial via `Ms365BillingTrial::startTrial()` (`ms365_trial_days` addon setting).
+4. Platform-managed `e3ms365-*` bucket via `Ms365StorageBootstrapService::ensureForBackupUser()` at signup.
+5. Redirect to **`view=ms365_getting_started`** (3-step connect → inventory → first backup).
+
+See [`cloudstorage/docs/MS365_ONBOARDING.md`](../../cloudstorage/docs/MS365_ONBOARDING.md).
+
+### Existing / MSP customers
+
 Customers onboard from **e3 Cloud Backup → Users → User detail → New Microsoft 365 backup** (wizard). Each backup user gets:
 
 1. **Automatic (default):** Admin consent to the platform Entra app
 2. **Manual (advanced):** Customer-owned Entra app credentials (`REGION`, `CLIENT_ID`, `TENANT_ID`, `APP_SECRET`) entered in wizard Step 1
 3. A row in `ms365_tenant_records` with `azure_tenant_id`, `connection_status`, and `connection_auth_mode` (`platform_consent` or `customer_app`)
-4. A dedicated **e3 object storage bucket** (`e3ms365-{token}`) provisioned automatically after a successful connect
+4. A dedicated **e3 object storage bucket** (`e3ms365-{token}`) — provisioned at **welcome signup** and again ensured after Entra connect for MSP paths
 
 ## Platform Entra app (operations)
 

@@ -5,25 +5,13 @@
  * Displays and manages Hyper-V VMs configured for backup.
  */
 
-use WHMCS\ClientArea;
-use WHMCS\Module\Addon\CloudStorage\Admin\ProductConfig;
-use WHMCS\Module\Addon\CloudStorage\Client\DBController;
+use WHMCS\Module\Addon\CloudStorage\Client\E3BackupAccess;
 use WHMCS\Module\Addon\CloudStorage\Client\UuidBinary;
 use Illuminate\Database\Capsule\Manager as Capsule;
 
-$packageId = ProductConfig::e3CloudBackupPid();
-$ca = new ClientArea();
-if (!$ca->isLoggedIn()) {
-    header('Location: clientarea.php');
-    exit;
-}
+require_once __DIR__ . '/../lib/Client/E3BackupAccess.php';
 
-$loggedInUserId = $ca->getUserID();
-$product = DBController::getProduct($loggedInUserId, $packageId);
-if (is_null($product) || empty($product->username)) {
-    header('Location: index.php?m=cloudstorage&page=welcome');
-    exit;
-}
+$loggedInUserId = E3BackupAccess::requireE3BackupClientAreaAccess('hyperv');
 
 $jobIdRaw = isset($_GET['job_id']) ? trim((string) $_GET['job_id']) : '';
 $jobId = ($jobIdRaw !== '' && UuidBinary::isUuid($jobIdRaw)) ? $jobIdRaw : '';
