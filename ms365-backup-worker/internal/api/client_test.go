@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -210,6 +211,76 @@ func TestBatchProgressCancelRequested(t *testing.T) {
 	}
 	if !cancel || budget != 16 {
 		t.Fatalf("cancel=%v budget=%d", cancel, budget)
+	}
+}
+
+func TestTerminalRetry403Then200(t *testing.T) {
+	var attempts atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := attempts.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		if n <= 2 {
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = w.Write([]byte(`forbidden`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"status":"success","data":{}}`))
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "tok", "node-1")
+	err := c.BatchComplete(context.Background(), BatchCompleteUpdate{
+		BatchRunID: "batch-1",
+		Children:   []BatchChildResult{{RunID: "child-1", Status: "success"}},
+	})
+	if err != nil {
+		t.Fatalf("BatchComplete: %v", err)
+	}
+	if attempts.Load() < 3 {
+		t.Fatalf("expected >=3 attempts, got %d", attempts.Load())
+	}
+}
+
+func TestTerminalRetry401NoRetry(t *testing.T) {
+	var attempts atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts.Add(1)
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`unauthorized`))
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "tok", "node-1")
+	err := c.Complete(context.Background(), CompleteUpdate{RunID: "run-1", StatsJSON: `{}`})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if attempts.Load() != 1 {
+		t.Fatalf("expected single attempt on 401, got %d", attempts.Load())
+	}
+}
+
+func TestTerminalRetry503Then200(t *testing.T) {
+	var attempts atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := attempts.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		if n == 1 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = w.Write([]byte(`unavailable`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"status":"success","data":{}}`))
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "tok", "node-1")
+	err := c.Complete(context.Background(), CompleteUpdate{RunID: "run-1", StatsJSON: `{}`})
+	if err != nil {
+		t.Fatalf("Complete: %v", err)
+	}
+	if attempts.Load() != 2 {
+		t.Fatalf("expected 2 attempts, got %d", attempts.Load())
 	}
 }
 

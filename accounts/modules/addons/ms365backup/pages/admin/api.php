@@ -758,6 +758,28 @@ try {
             echo json_encode(['ok' => true] + $payload);
             break;
 
+        case 'jobs_cancel_batches':
+            $raw = (string) ($_POST['batch_run_ids_json'] ?? '[]');
+            $decoded = json_decode($raw, true);
+            if (!is_array($decoded)) {
+                throw new \RuntimeException('batch_run_ids_json must be a JSON array');
+            }
+            $ids = [];
+            $uuidPattern = '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i';
+            foreach ($decoded as $id) {
+                $id = strtolower(trim((string) $id));
+                if ($id === '' || preg_match($uuidPattern, $id) !== 1) {
+                    throw new \RuntimeException('Invalid batch run ID: ' . (string) $id);
+                }
+                $ids[] = $id;
+            }
+            if (count($ids) > 50) {
+                throw new \RuntimeException('Maximum 50 batch runs per request');
+            }
+            $result = \Ms365Backup\Ms365AdminJobsService::cancelBatches($ids);
+            echo json_encode(['ok' => true] + $result);
+            break;
+
         case 'worker_build_create':
             $version = trim((string) ($_POST['version_label'] ?? ''));
             if ($version === '') {

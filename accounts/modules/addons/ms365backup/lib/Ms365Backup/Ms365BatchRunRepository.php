@@ -293,6 +293,15 @@ final class Ms365BatchRunRepository
         return $phase === '' || $phase === 'graph_sync' || $phase === 'prior_snapshot';
     }
 
+    /** True when the workload is in object-storage upload/hash (Kopia), not Graph paging. */
+    public static function isUploadLikePhase(string $phase): bool
+    {
+        $phase = strtolower(trim($phase));
+
+        // Worker emits kopia_upload; legacy/sanitized rows use upload (see phaseWeight).
+        return in_array($phase, ['kopia_upload', 'upload'], true);
+    }
+
     /**
      * Timestamp of last real throughput progress (items/bytes), not lease-only heartbeats.
      *

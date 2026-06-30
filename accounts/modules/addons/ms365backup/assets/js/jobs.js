@@ -8,6 +8,17 @@
   var logModalText = '';
   var logModalFilename = 'ms365-logs.txt';
 
+  function post(op, data) {
+    var body = new URLSearchParams(data || {});
+    body.set('token', token);
+    return fetch(api + '&op=' + encodeURIComponent(op), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: body.toString(),
+      credentials: 'same-origin'
+    }).then(function (r) { return r.json(); });
+  }
+
   function get(op, params) {
     var q = new URLSearchParams(params || {});
     q.set('op', op);
@@ -18,6 +29,106 @@
     var d = document.createElement('div');
     d.textContent = s == null ? '' : String(s);
     return d.innerHTML;
+  }
+
+  function isCancellableStatus(status) {
+    var s = String(status || '').toLowerCase();
+    return s === 'queued' || s === 'starting' || s === 'running';
+  }
+
+  function updateBulkToolbar() {
+    var checked = document.querySelectorAll('.ms365-jobs-select:checked');
+    var count = checked.length;
+    var countEl = document.getElementById('ms365-jobs-selected-count');
+    var toggle = document.getElementById('ms365-jobs-bulk-toggle');
+    if (countEl) countEl.textContent = String(count);
+    if (toggle) toggle.disabled = count === 0;
+    var selectAll = document.getElementById('ms365-jobs-select-all');
+    var rowBoxes = document.querySelectorAll('.ms365-jobs-select');
+    if (selectAll && rowBoxes.length) {
+      selectAll.checked = count > 0 && count === rowBoxes.length;
+      selectAll.indeterminate = count > 0 && count < rowBoxes.length;
+    }
+  }
+
+  function selectedRunIds() {
+    return Array.prototype.map.call(
+      document.querySelectorAll('.ms365-jobs-select:checked'),
+      function (el) { return el.value; }
+    ).filter(Boolean);
+  }
+
+  function clearSelection() {
+    document.querySelectorAll('.ms365-jobs-select').forEach(function (el) {
+      el.checked = false;
+    });
+    var selectAll = document.getElementById('ms365-jobs-select-all');
+    if (selectAll) {
+      selectAll.checked = false;
+      selectAll.indeterminate = false;
+    }
+    updateBulkToolbar();
+  }
+
+  function summarizeCancelResult(res) {
+    if (!res || !res.ok) {
+      return res && res.error ? res.error : 'Cancel request failed';
+    }
+    var cancelled = res.cancelled_count || 0;
+    var skipped = res.skipped_count || 0;
+    var parts = [];
+    if (cancelled > 0) {
+      parts.push(cancelled + ' cancelled');
+    }
+    if (skipped > 0) {
+      parts.push(skipped + ' skipped');
+    }
+    if (!parts.length) {
+      return 'No batches were cancelled';
+    }
+    var summary = parts.join(', ');
+    var detail = (res.results || []).filter(function (r) { return !r.ok; }).map(function (r) {
+      return (r.batch_run_id || '').slice(0, 8) + '…: ' + (r.message || 'skipped');
+    });
+    if (detail.length) {
+      summary += ' — ' + detail.slice(0, 3).join('; ');
+    }
+    return summary;
+  }
+
+  function cancelBatches(ids, confirmMessage) {
+    if (!ids.length) return;
+    if (!window.confirm(confirmMessage)) return;
+    post('jobs_cancel_batches', { batch_run_ids_json: JSON.stringify(ids) }).then(function (res) {
+      alert(summarizeCancelResult(res));
+      clearSelection();
+      loadJobs();
+    });
+  }
+
+  function buildActionsDropdown(row) {
+    var rid = row.run_id || '';
+    var status = String(row.status || '').toLowerCase();
+    var cancellable = isCancellableStatus(status);
+    var cancelPending = !!row.cancel_requested && cancellable;
+    var cancelItem;
+    if (cancelPending) {
+      cancelItem = '<li class="disabled"><a href="#" class="text-muted" title="Cancellation already requested">Cancelling…</a></li>';
+    } else if (cancellable) {
+      cancelItem = '<li class="ms365-batch-cancel-wrap"><a href="#" class="ms365-batch-cancel" data-run-id="' + esc(rid) + '">Cancel</a></li>';
+    } else {
+      cancelItem = '<li class="disabled"><a href="#" class="text-muted" title="Only queued, starting, or running batches can be cancelled">Cancel</a></li>';
+    }
+    return '<div class="btn-group">' +
+      '<button type="button" class="btn btn-xs btn-default dropdown-toggle" data-toggle="dropdown">' +
+      'Actions <span class="caret"></span></button>' +
+      '<ul class="dropdown-menu dropdown-menu-right">' +
+      '<li><a href="#" class="ms365-job-logs" data-run-id="' + esc(rid) + '">Job logs</a></li>' +
+      '<li><a href="#" class="ms365-worker-logs" data-run-id="' + esc(rid) + '">Worker logs</a></li>' +
+      '<li><a href="#" class="ms365-batch-detail" data-run-id="' + esc(rid) + '">Detail</a></li>' +
+      '<li class="divider"></li>' +
+      cancelItem +
+      '</ul></div>';
   }
 
   function statusBadge(status) {
@@ -64,6 +175,58 @@
     return data;
   }
 
+  function bindTableActions(wrap) {
+    if (!wrap) return;
+    wrap.querySelectorAll('.ms365-copy-run').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var id = btn.getAttribute('data-run-id') || '';
+        if (navigator.clipboard && id) {
+          navigator.clipboard.writeText(id);
+        }
+      });
+    });
+    wrap.querySelectorAll('.ms365-job-logs').forEach(function (link) {
+      link.addEventListener('click', function (e) {
+        e.preventDefault();
+        openJobLogs(link.getAttribute('data-run-id'));
+      });
+    });
+    wrap.querySelectorAll('.ms365-worker-logs').forEach(function (link) {
+      link.addEventListener('click', function (e) {
+        e.preventDefault();
+        openWorkerLogs(link.getAttribute('data-run-id'));
+      });
+    });
+    wrap.querySelectorAll('.ms365-batch-detail').forEach(function (link) {
+      link.addEventListener('click', function (e) {
+        e.preventDefault();
+        openDetail(link.getAttribute('data-run-id'));
+      });
+    });
+    wrap.querySelectorAll('.ms365-batch-cancel').forEach(function (link) {
+      link.addEventListener('click', function (e) {
+        e.preventDefault();
+        var id = link.getAttribute('data-run-id') || '';
+        if (!id) return;
+        cancelBatches([id], 'Cancel this batch? Active workloads will stop cooperatively.');
+      });
+    });
+    wrap.querySelectorAll('.ms365-jobs-select').forEach(function (cb) {
+      cb.addEventListener('change', updateBulkToolbar);
+    });
+    var selectAll = document.getElementById('ms365-jobs-select-all');
+    if (selectAll) {
+      selectAll.addEventListener('change', function () {
+        var checked = selectAll.checked;
+        wrap.querySelectorAll('.ms365-jobs-select').forEach(function (el) {
+          el.checked = checked;
+        });
+        updateBulkToolbar();
+      });
+    }
+    updateBulkToolbar();
+  }
+
   function renderTable(res) {
     var wrap = document.getElementById('ms365-jobs-table-wrap');
     var pag = document.getElementById('ms365-jobs-pagination');
@@ -71,16 +234,19 @@
     if (!res.ok) {
       wrap.innerHTML = '<div class="alert alert-danger">' + esc(res.error || 'Failed to load jobs') + '</div>';
       if (pag) pag.innerHTML = '';
+      updateBulkToolbar();
       return;
     }
     var rows = res.rows || [];
     if (!rows.length) {
       wrap.innerHTML = '<p class="text-muted">No MS365 batch runs found.</p>';
       if (pag) pag.innerHTML = '';
+      updateBulkToolbar();
       return;
     }
     wrap.innerHTML =
       '<table class="table table-striped table-condensed table-hover"><thead><tr>' +
+      '<th style="width:28px"><input type="checkbox" id="ms365-jobs-select-all" title="Select all on this page"></th>' +
       '<th>Client</th><th>Job</th><th>Protected</th><th>OD Overage</th><th>Type</th><th>Run ID</th><th>Status</th>' +
       '<th>Started</th><th>Duration</th><th>Progress</th><th>Actions</th>' +
       '</tr></thead><tbody>' +
@@ -95,7 +261,12 @@
           ? ' <small class="text-muted">(' + esc(row.child_count) + ' workloads' +
             ((row.failed_child_count || 0) > 0 ? ', ' + esc(row.failed_child_count) + ' failed' : '') + ')</small>'
           : '';
+        var statusHtml = statusBadge(row.status);
+        if (row.cancel_requested && isCancellableStatus(row.status)) {
+          statusHtml += ' <small class="text-muted">(cancelling)</small>';
+        }
         return '<tr data-run-id="' + esc(rid) + '">' +
+          '<td><input type="checkbox" class="ms365-jobs-select" value="' + esc(rid) + '"></td>' +
           '<td>' + esc(row.client_name) + trialHint + '</td>' +
           '<td>' + esc(row.job_name) + childHint + '</td>' +
           '<td>' + esc(protectedUsers) + '</td>' +
@@ -103,37 +274,17 @@
           '<td>' + esc(row.type || 'backup') + '</td>' +
           '<td><code style="font-size:11px">' + esc(rid) + '</code> ' +
           '<button type="button" class="btn btn-xs btn-default ms365-copy-run" data-run-id="' + esc(rid) + '" title="Copy run ID">Copy</button></td>' +
-          '<td>' + statusBadge(row.status) +
+          '<td>' + statusHtml +
           (row.error_summary ? '<br><small class="text-danger">' + esc(row.error_summary).slice(0, 80) + '</small>' : '') +
           '</td>' +
           '<td>' + esc(formatTs(row.started_at)) + '</td>' +
           '<td>' + esc(formatDuration(row.duration_seconds)) + '</td>' +
           '<td>' + esc(pct) + '</td>' +
-          '<td style="white-space:nowrap">' +
-          '<button type="button" class="btn btn-xs btn-primary ms365-job-logs" data-run-id="' + esc(rid) + '">Job logs</button> ' +
-          '<button type="button" class="btn btn-xs btn-info ms365-worker-logs" data-run-id="' + esc(rid) + '">Worker logs</button> ' +
-          '<button type="button" class="btn btn-xs btn-default ms365-batch-detail" data-run-id="' + esc(rid) + '">Detail</button>' +
-          '</td></tr>';
+          '<td style="white-space:nowrap">' + buildActionsDropdown(row) + '</td></tr>';
       }).join('') +
       '</tbody></table>';
 
-    wrap.querySelectorAll('.ms365-copy-run').forEach(function (btn) {
-      btn.addEventListener('click', function () {
-        var id = btn.getAttribute('data-run-id') || '';
-        if (navigator.clipboard && id) {
-          navigator.clipboard.writeText(id);
-        }
-      });
-    });
-    wrap.querySelectorAll('.ms365-job-logs').forEach(function (btn) {
-      btn.addEventListener('click', function () { openJobLogs(btn.getAttribute('data-run-id')); });
-    });
-    wrap.querySelectorAll('.ms365-worker-logs').forEach(function (btn) {
-      btn.addEventListener('click', function () { openWorkerLogs(btn.getAttribute('data-run-id')); });
-    });
-    wrap.querySelectorAll('.ms365-batch-detail').forEach(function (btn) {
-      btn.addEventListener('click', function () { openDetail(btn.getAttribute('data-run-id')); });
-    });
+    bindTableActions(wrap);
 
     if (pag) {
       var total = res.total || 0;
@@ -156,6 +307,7 @@
       pag.querySelectorAll('.ms365-page').forEach(function (btn) {
         btn.addEventListener('click', function () {
           currentPage = parseInt(btn.getAttribute('data-page'), 10) || 1;
+          clearSelection();
           loadJobs();
         });
       });
@@ -315,6 +467,7 @@
         e.preventDefault();
         currentFilters = collectFilters(form);
         currentPage = 1;
+        clearSelection();
         loadJobs();
       });
     }
@@ -324,11 +477,22 @@
         if (form) form.reset();
         currentFilters = {};
         currentPage = 1;
+        clearSelection();
         loadJobs();
       });
     }
     var refresh = document.getElementById('ms365-jobs-refresh');
     if (refresh) refresh.addEventListener('click', loadJobs);
+
+    var bulkCancel = document.getElementById('ms365-jobs-bulk-cancel');
+    if (bulkCancel) {
+      bulkCancel.addEventListener('click', function (e) {
+        e.preventDefault();
+        var ids = selectedRunIds();
+        if (!ids.length) return;
+        cancelBatches(ids, 'Cancel ' + ids.length + ' selected batch(es)?');
+      });
+    }
 
     var logSearch = document.getElementById('ms365-jobs-log-search');
     if (logSearch) {
@@ -359,6 +523,7 @@
       });
     }
 
+    updateBulkToolbar();
     loadJobs();
   });
 })();

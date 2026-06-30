@@ -221,7 +221,12 @@ final class Ms365BatchLiveService
     /**
      * @return array{status: string, message?: string, run_id?: string}
      */
-    public static function cancelBatch(string $batchRunId, int $clientId, bool $forceCancel = false): array
+    public static function cancelBatch(
+        string $batchRunId,
+        int $clientId,
+        bool $forceCancel = false,
+        string $cancelledBy = 'user'
+    ): array
     {
         try {
             cloudstorage_load_ms365backup();
@@ -296,14 +301,14 @@ final class Ms365BatchLiveService
                     if ($childId === '' || !BackupRunRepository::isCancellable($childId)) {
                         continue;
                     }
-                    if (BackupRunRepository::requestCancel($childId, 'user')) {
+                    if (BackupRunRepository::requestCancel($childId, $cancelledBy)) {
                         ++$cancelledCount;
                     }
                 }
                 // Restore batches are small; sync inline so the parent finalizes promptly.
                 Ms365BatchRunRepository::syncFromRestoreChildren($batchRunId);
             } else {
-                $cancelledCount = BackupRunRepository::bulkCancelBatchChildren($batchRunId, 'user');
+                $cancelledCount = BackupRunRepository::bulkCancelBatchChildren($batchRunId, $cancelledBy);
                 // Parent finalize runs via ms365_worker_fleet cron (reconcileActiveBatches).
             }
 
@@ -326,7 +331,8 @@ final class Ms365BatchLiveService
                 }
                 if ($firstChildId !== '') {
                     $logger = new ProgressLogger($firstChildId);
-                    $logger->info('Cancellation requested by user', [
+                    $cancelByLabel = $cancelledBy === 'administrator' ? 'administrator' : 'user';
+                    $logger->info('Cancellation requested by ' . $cancelByLabel, [
                         'batch_run_id' => $batchRunId,
                         'workloads_cancelled' => $cancelledCount,
                     ]);
@@ -341,6 +347,7 @@ final class Ms365BatchLiveService
                         ? 'Cancellation requested.'
                         : 'This backup is no longer running.'),
                 'run_id' => $batchRunId,
+                'workloads_cancelled' => $cancelledCount,
             ];
         } catch (\Throwable $e) {
             logModuleCall('cloudstorage', 'ms365_cancel_batch_error', [

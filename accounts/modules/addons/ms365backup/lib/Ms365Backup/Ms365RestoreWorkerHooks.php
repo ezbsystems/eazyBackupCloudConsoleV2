@@ -526,6 +526,10 @@ final class Ms365RestoreWorkerHooks
     {
         $now = time();
         $existing = BackupRunRepository::get($runId) ?? [];
+        $manifestId = trim((string) ($body['manifest_id'] ?? ''));
+        $existingManifest = trim((string) ($existing['manifest_id'] ?? ''));
+        $isSuccessReplay = strtolower((string) ($existing['status'] ?? '')) === 'success'
+            && ($manifestId === $existingManifest || ($manifestId === '' && $existingManifest === ''));
         $update = [
             'status' => 'success',
             'phase' => 'complete',
@@ -534,7 +538,6 @@ final class Ms365RestoreWorkerHooks
             'updated_at' => $now,
             'engine_mode' => 'kopia',
         ];
-        $manifestId = trim((string) ($body['manifest_id'] ?? ''));
         if ($manifestId !== '') {
             $update['manifest_id'] = $manifestId;
         }
@@ -567,7 +570,7 @@ final class Ms365RestoreWorkerHooks
             }
             if (array_key_exists('delta_states', $stats)) {
                 $deltaStates = is_array($stats['delta_states']) ? $stats['delta_states'] : [];
-                if ($deltaStates !== []) {
+                if ($deltaStates !== [] && !$isSuccessReplay) {
                     $run = BackupRunRepository::get($runId);
                     if ($run !== null) {
                         DeltaStateRepository::advanceOnShardSuccess(

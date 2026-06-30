@@ -20,14 +20,19 @@ import (
 )
 
 type Runner struct {
-	cfg           *config.Config
-	client        *api.Client
-	repoPool      *kopia.Pool
-	progressHook  func(string, api.ProgressUpdate)
+	cfg              *config.Config
+	client           *api.Client
+	repoPool         *kopia.Pool
+	progressHook     func(string, api.ProgressUpdate)
+	completionOutbox *CompletionOutbox
 }
 
 func NewRunner(cfg *config.Config, client *api.Client, repoPool *kopia.Pool) *Runner {
 	return &Runner{cfg: cfg, client: client, repoPool: repoPool}
+}
+
+func (r *Runner) SetCompletionOutbox(o *CompletionOutbox) {
+	r.completionOutbox = o
 }
 
 func (r *Runner) SetProgressHook(fn func(string, api.ProgressUpdate)) {
@@ -65,13 +70,20 @@ func (r *Runner) reportFail(ctx context.Context, runID, message string) {
 }
 
 // reportComplete delivers a completion status on a detached context.
+// Backup work success must not fail the run when delivery fails; failures are outboxed.
 func (r *Runner) reportComplete(ctx context.Context, upd api.CompleteUpdate) error {
 	if brc := batchRunContextFrom(ctx); brc != nil && brc.completeSink != nil {
 		return brc.completeSink(upd)
 	}
 	tctx, cancel := terminalContext(ctx)
 	defer cancel()
-	return r.client.Complete(tctx, upd)
+	if err := r.client.Complete(tctx, upd); err != nil {
+		r.client.RunLogf(ctx, upd.RunID, "error", "completion delivery failed (backup succeeded): %v", err)
+		if r.completionOutbox != nil {
+			r.completionOutbox.Enqueue("", upd)
+		}
+	}
+	return nil
 }
 
 func (r *Runner) Run(ctx context.Context, job *api.RunJob, onAbort context.CancelFunc) error {

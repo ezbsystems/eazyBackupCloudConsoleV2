@@ -42,8 +42,11 @@ class KopiaRetentionRepositoryService
             $policy = self::parsePolicy($raw);
             $policyJson = json_encode($policy);
 
+            // policy_json is a JSON column: a plain `where('policy_json', $string)`
+            // compares JSON to a string literal and never matches, so every call
+            // inserted a duplicate and refetch returned null. Compare as JSON.
             $existing = Capsule::table('s3_kopia_policy_versions')
-                ->where('policy_json', $policyJson)
+                ->whereRaw('policy_json = CAST(? AS JSON)', [$policyJson])
                 ->orderBy('id', 'desc')
                 ->first();
 
@@ -51,18 +54,11 @@ class KopiaRetentionRepositoryService
                 return (int) $existing->id;
             }
 
-            Capsule::table('s3_kopia_policy_versions')->insert([
+            return (int) Capsule::table('s3_kopia_policy_versions')->insertGetId([
                 'policy_json' => $policyJson,
                 'schema_version' => 1,
                 'created_at' => date('Y-m-d H:i:s'),
             ]);
-
-            $row = Capsule::table('s3_kopia_policy_versions')
-                ->where('policy_json', $policyJson)
-                ->orderBy('id', 'desc')
-                ->first();
-
-            return $row ? (int) $row->id : null;
         } catch (\Throwable $e) {
             logModuleCall(self::MODULE, 'ensureDefaultVaultPolicyVersion', [], $e->getMessage(), [], []);
             return null;
@@ -94,26 +90,20 @@ class KopiaRetentionRepositoryService
             ];
             $policyJson = json_encode($normalized);
 
+            // JSON column: compare as JSON, not as a string literal (see note above).
             $existing = Capsule::table('s3_kopia_policy_versions')
-                ->where('policy_json', $policyJson)
+                ->whereRaw('policy_json = CAST(? AS JSON)', [$policyJson])
                 ->orderByDesc('id')
                 ->first();
             if ($existing) {
                 return (int) $existing->id;
             }
 
-            Capsule::table('s3_kopia_policy_versions')->insert([
+            return (int) Capsule::table('s3_kopia_policy_versions')->insertGetId([
                 'policy_json' => $policyJson,
                 'schema_version' => 1,
                 'created_at' => date('Y-m-d H:i:s'),
             ]);
-
-            $row = Capsule::table('s3_kopia_policy_versions')
-                ->where('policy_json', $policyJson)
-                ->orderByDesc('id')
-                ->first();
-
-            return $row ? (int) $row->id : null;
         } catch (\Throwable $e) {
             logModuleCall(self::MODULE, 'ensurePolicyVersionFromDocument', [], $e->getMessage(), [], []);
 

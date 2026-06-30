@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Ms365Backup;
 
 use WHMCS\Database\Capsule;
+use WHMCS\Module\Addon\CloudStorage\Client\Ms365BatchLiveService;
 use WHMCS\Module\Addon\CloudStorage\Client\Ms365LogFormatter;
 
 require_once dirname(__DIR__, 3) . '/cloudstorage/lib/Ms365BackupBootstrap.php';
@@ -345,6 +346,77 @@ final class Ms365AdminJobsService
         }
 
         return $value;
+    }
+
+    /** @return array{status: string, message?: string, run_id?: string, workloads_cancelled?: int} */
+    public static function cancelBatch(string $batchRunId): array
+    {
+        cloudstorage_load_ms365backup();
+        $parent = self::loadParentRun($batchRunId);
+        if ($parent === null) {
+            throw new \RuntimeException('Batch run not found.');
+        }
+        if (!Ms365BatchLiveService::isMs365BatchRun($parent)) {
+            throw new \RuntimeException('Not an MS365 batch run.');
+        }
+        $clientId = (int) ($parent['client_id'] ?? 0);
+        if ($clientId <= 0) {
+            throw new \RuntimeException('Invalid client for batch run.');
+        }
+
+        return Ms365BatchLiveService::cancelBatch($batchRunId, $clientId, false, 'administrator');
+    }
+
+    /**
+     * @param list<string> $batchRunIds
+     * @return array{
+     *   cancelled_count: int,
+     *   skipped_count: int,
+     *   results: list<array{batch_run_id: string, ok: bool, message: string, workloads_cancelled: int}>
+     * }
+     */
+    public static function cancelBatches(array $batchRunIds): array
+    {
+        $unique = array_values(array_unique(array_filter(array_map('strval', $batchRunIds))));
+        $cancelledCount = 0;
+        $skippedCount = 0;
+        $results = [];
+
+        foreach ($unique as $batchRunId) {
+            try {
+                $result = self::cancelBatch($batchRunId);
+                $message = (string) ($result['message'] ?? '');
+                $workloadsCancelled = (int) ($result['workloads_cancelled'] ?? 0);
+                $ok = ($result['status'] ?? '') === 'success'
+                    && ($workloadsCancelled > 0
+                        || str_contains($message, 'Cancellation requested'));
+                if ($ok) {
+                    ++$cancelledCount;
+                } else {
+                    ++$skippedCount;
+                }
+                $results[] = [
+                    'batch_run_id' => $batchRunId,
+                    'ok' => $ok,
+                    'message' => $message !== '' ? $message : (string) ($result['status'] ?? 'unknown'),
+                    'workloads_cancelled' => $workloadsCancelled,
+                ];
+            } catch (\Throwable $e) {
+                ++$skippedCount;
+                $results[] = [
+                    'batch_run_id' => $batchRunId,
+                    'ok' => false,
+                    'message' => $e->getMessage(),
+                    'workloads_cancelled' => 0,
+                ];
+            }
+        }
+
+        return [
+            'cancelled_count' => $cancelledCount,
+            'skipped_count' => $skippedCount,
+            'results' => $results,
+        ];
     }
 
     /** @return array<string, mixed> */

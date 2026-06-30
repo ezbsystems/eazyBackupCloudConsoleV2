@@ -23,6 +23,13 @@ type Pool struct {
 	cache RepoCacheSettings
 	mu    sync.Mutex
 	repos map[string]*poolEntry
+	// opening single-flights concurrent first-opens of the same repo. Without it,
+	// every child workload of a tenant batch (all sharing one bucket) that Acquires
+	// before the repo is cached opens its OWN connection in parallel — N redundant,
+	// expensive opens of the same repo (each fetching the full pack-index set from
+	// object storage). With a large/uncompacted index this consumes every
+	// max_concurrent_runs slot in duplicate repo-opens and stalls the batch.
+	opening map[string]chan struct{}
 }
 
 type poolEntry struct {
@@ -34,8 +41,9 @@ type poolEntry struct {
 
 func NewPool(cache RepoCacheSettings) *Pool {
 	return &Pool{
-		cache: cache,
-		repos: make(map[string]*poolEntry),
+		cache:   cache,
+		repos:   make(map[string]*poolEntry),
+		opening: make(map[string]chan struct{}),
 	}
 }
 
@@ -43,33 +51,52 @@ func NewPool(cache RepoCacheSettings) *Pool {
 func (p *Pool) Acquire(ctx context.Context, storage StorageOptions, maxPackSizeMiB int) (repo.Repository, func(), error) {
 	key := storage.RepoIdentity()
 
-	p.mu.Lock()
-	if entry, ok := p.repos[key]; ok && entry.rep != nil {
-		entry.refs++
+	for {
+		p.mu.Lock()
+		if entry, ok := p.repos[key]; ok && entry.rep != nil {
+			entry.refs++
+			p.mu.Unlock()
+			return entry.rep, func() { p.release(key) }, nil
+		}
+		// Single-flight: if another goroutine is already opening this repo, wait for
+		// it to finish and re-check the cache rather than opening a duplicate.
+		if ch, ok := p.opening[key]; ok {
+			p.mu.Unlock()
+			select {
+			case <-ch:
+				continue
+			case <-ctx.Done():
+				return nil, nil, ctx.Err()
+			}
+		}
+		// We are the designated opener for this key.
+		ch := make(chan struct{})
+		p.opening[key] = ch
 		p.mu.Unlock()
-		return entry.rep, func() { p.release(key) }, nil
-	}
-	p.mu.Unlock()
 
-	rep, err := openRepository(ctx, openRepoOptions{
-		storage:        storage,
-		cache:          p.cache,
-		maxPackSizeMiB: maxPackSizeMiB,
-	})
-	if err != nil {
-		return nil, nil, err
-	}
+		rep, err := openRepository(ctx, openRepoOptions{
+			storage:        storage,
+			cache:          p.cache,
+			maxPackSizeMiB: maxPackSizeMiB,
+		})
 
-	p.mu.Lock()
-	if entry, ok := p.repos[key]; ok && entry.rep != nil {
-		_ = rep.Close(ctx)
-		entry.refs++
+		p.mu.Lock()
+		delete(p.opening, key)
+		close(ch)
+		if err != nil {
+			p.mu.Unlock()
+			return nil, nil, err
+		}
+		if entry, ok := p.repos[key]; ok && entry.rep != nil {
+			_ = rep.Close(ctx)
+			entry.refs++
+			p.mu.Unlock()
+			return entry.rep, func() { p.release(key) }, nil
+		}
+		p.repos[key] = &poolEntry{rep: rep, refs: 1, opened: time.Now(), cacheDir: p.cacheDir(storage)}
 		p.mu.Unlock()
-		return entry.rep, func() { p.release(key) }, nil
+		return rep, func() { p.release(key) }, nil
 	}
-	p.repos[key] = &poolEntry{rep: rep, refs: 1, opened: time.Now(), cacheDir: p.cacheDir(storage)}
-	p.mu.Unlock()
-	return rep, func() { p.release(key) }, nil
 }
 
 func (p *Pool) release(key string) {
