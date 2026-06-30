@@ -53,4 +53,20 @@ class ProductConfig {
         }
         return self::$E3_PRODUCT_ID;
     }
+
+    /**
+     * Resolve the configured WHMCS product ID for Microsoft 365 Backup.
+     * Reads pid_ms365_backup from the ms365backup addon settings.
+     */
+    public static function ms365BackupPid(): int
+    {
+        try {
+            return (int) Capsule::table('tbladdonmodules')
+                ->where('module', 'ms365backup')
+                ->where('setting', 'pid_ms365_backup')
+                ->value('value');
+        } catch (\Throwable $e) {
+            return 0;
+        }
+    }
 }

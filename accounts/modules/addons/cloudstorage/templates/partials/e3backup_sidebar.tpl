@@ -9,6 +9,11 @@
 {assign var=ebE3OnboardingCompleted value=$ebE3OnboardingCompleted|default:0}
 {assign var=ebE3OnboardingTotal value=$ebE3OnboardingTotal|default:4}
 {assign var=ebE3OnboardingHidden value=$ebE3OnboardingHidden|default:false}
+{assign var=ebMs365Only value=$ebMs365Only|default:false}
+{assign var=ebMs365ShowGettingStarted value=$ebMs365ShowGettingStarted|default:false}
+{assign var=ebMs365OnboardingCompleted value=$ebMs365OnboardingCompleted|default:0}
+{assign var=ebMs365OnboardingTotal value=$ebMs365OnboardingTotal|default:3}
+{assign var=ebMs365OnboardingHidden value=$ebMs365OnboardingHidden|default:true}
 
 <aside
     :class="sidebarCollapsed ? 'w-20' : 'w-56'"
@@ -27,7 +32,18 @@
         </div>
 
         <nav class="flex-1 space-y-1 overflow-y-auto px-3 py-3">
-            {if not $ebE3OnboardingHidden}
+            {if $ebMs365ShowGettingStarted and not $ebMs365OnboardingHidden}
+            <a href="index.php?m=cloudstorage&page=e3backup&view=ms365_getting_started"
+               class="eb-sidebar-link {if $activeNav eq 'ms365_getting_started'}is-active{/if}"
+               :class="sidebarCollapsed && 'justify-center px-4'"
+               :title="sidebarCollapsed ? 'Getting Started' : ''">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                </svg>
+                <span x-show="!sidebarCollapsed" x-transition.opacity>Getting Started</span>
+                <span x-show="!sidebarCollapsed" x-transition.opacity class="eb-sidebar-badge">{$ebMs365OnboardingCompleted}/{$ebMs365OnboardingTotal}</span>
+            </a>
+            {elseif not $ebE3OnboardingHidden}
             <a href="index.php?m=cloudstorage&page=e3backup&view=getting_started"
                data-tour="sidebar-getting-started"
                class="eb-sidebar-link {if $activeNav eq 'getting_started'}is-active{/if}"
@@ -75,7 +91,12 @@
                 </a>
             {/if}
 
-            <a href="index.php?m=cloudstorage&page=e3backup&view=agents" class="eb-sidebar-link {if $activeNav eq 'agents'}is-active{/if}" :class="sidebarCollapsed && 'justify-center px-4'" :title="sidebarCollapsed ? 'Agents' : ''">
+            <a href="{if $ebMs365Only}#{else}index.php?m=cloudstorage&page=e3backup&view=agents{/if}"
+               class="eb-sidebar-link {if $ebMs365Only}is-disabled{elseif not $ebE3HasAgents}is-disabled{elseif $activeNav eq 'agents'}is-active{/if}"
+               {if $ebMs365Only}aria-disabled="true" onclick="return false;" tabindex="-1" title="Not required for Microsoft 365 Backup"
+               {elseif not $ebE3HasAgents}aria-disabled="true" onclick="return false;" tabindex="-1" title="Available after you enroll an agent"{/if}
+               :class="sidebarCollapsed && 'justify-center px-4'"
+               :title="sidebarCollapsed ? 'Agents' : ''">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M9 17.25v1.007a3 3 0 0 1-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0 1 15 18.257V17.25m6-12V15a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 15V5.25m18 0A2.25 2.25 0 0 0 18.75 3H5.25A2.25 2.25 0 0 0 3 5.25m18 0V12a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 12V5.25" />
                 </svg>
@@ -142,6 +163,7 @@
         </nav>
 
         <div class="border-t border-[var(--eb-border-subtle)] px-3 py-3">
+            {if not $ebMs365Only}
             <div x-show="!sidebarCollapsed" x-transition.opacity class="eb-type-eyebrow mb-2 px-1">Install agent</div>
             {* Avoid inline object literals here - Smarty parses bare "{" as a tag.
                The flyout's own open handler records the download_clicked event,
@@ -160,6 +182,7 @@
             </button>
 
             <div class="eb-sidebar-divider"></div>
+            {/if}
 
             <button type="button" @click="toggleCollapse()" class="eb-sidebar-link w-full cursor-pointer text-left" :class="sidebarCollapsed && 'justify-center px-4'" :title="sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="transition-transform duration-300" :class="sidebarCollapsed && 'rotate-180'">

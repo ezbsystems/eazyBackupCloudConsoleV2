@@ -1,29 +1,14 @@
 <?php
 
-use WHMCS\ClientArea;
 use WHMCS\Database\Capsule;
-use WHMCS\Module\Addon\CloudStorage\Admin\ProductConfig;
 use WHMCS\Module\Addon\CloudStorage\Client\DBController;
+use WHMCS\Module\Addon\CloudStorage\Client\E3BackupAccess;
 use WHMCS\Module\Addon\CloudStorage\Client\HelperController;
 use WHMCS\Module\Addon\CloudStorage\Client\MspController;
 
-$packageId = ProductConfig::e3CloudBackupPid();
-$ca = new ClientArea();
-if (!$ca->isLoggedIn()) {
-    header('Location: clientarea.php');
-    exit;
-}
+require_once __DIR__ . '/../lib/Client/E3BackupAccess.php';
 
-$loggedInUserId = $ca->getUserID();
-$product = DBController::getProduct($loggedInUserId, $packageId);
-// After a Reset Onboarding / Deprovision, tblhosting.username is set to ''
-// rather than NULL. Use empty() so we redirect off this dashboard when the
-// Ceph user has not been provisioned (matches the dashboard.php gate and
-// avoids ambiguous "logged in but no Ceph user" states).
-if (is_null($product) || empty($product->username)) {
-    header('Location: index.php?m=cloudstorage&page=welcome');
-    exit;
-}
+$loggedInUserId = E3BackupAccess::requireE3BackupClientAreaAccess('dashboard');
 
 $isMspClient = MspController::isMspClient($loggedInUserId);
 $tenantTable = MspController::getTenantTableName();

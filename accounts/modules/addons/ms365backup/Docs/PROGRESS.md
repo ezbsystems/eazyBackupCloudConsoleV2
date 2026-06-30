@@ -10,6 +10,25 @@
 
 ## Session log
 
+### 2026-06-30 — MS365 backup report email (batch finalize)
+
+- **Setting:** `ms365_backup_report_email_template` dropdown on MS365 Backup addon (WHMCS General templates). Default **MS365 Backup Report** template created on activate/upgrade if missing.
+- **Trigger:** `Ms365BatchRunRepository::finalize()` calls `Ms365BackupReportEmailService::maybeSendForBatch()` for backup batches only (restores excluded).
+- **Merge fields:** `backup_username`, `job_name`, `run_status`, `finished_at`, `workload_report_html`, `workload_report`.
+- **Workload table:** Customer columns Workload / Status / Attempts / Error — same child data as admin Batch workloads modal (`getBatchChildrenDetail`), including `Skipped: key=reason` lines.
+- **Notification policy:** Job/client `notify_on_*` toggles and recipient resolution match `CloudBackupEmailService`; `partial_success` maps to warning toggle.
+- **Dedup:** Sets `s3_cloudbackup_runs.notified_at` on send or intentional skip; generic cron excludes `engine = ms365`.
+- **Files:** `ms365backup.php`, `Ms365BackupReportEmailService.php`, `Ms365BatchRunRepository.php`, `s3cloudbackup_notify.php`, `tests/ms365_backup_report_email_test.php`.
+
+### 2026-06-30 — MS365 welcome provisioning cutover (Comet → addon module)
+
+- **Provisioner:** `provisionMs365()` no longer calls Comet preflight or LXD; uses `autosetup=false`, creates `s3_backup_users` (`cloud_only`), trial via `Ms365BillingTrial`, bucket via `Ms365StorageBootstrapService::ensureForBackupUser()`, redirects to `view=ms365_getting_started`.
+- **Access:** `E3BackupAccess` + `ProductConfig::ms365BackupPid()`; e3backup `users`, `user_detail`, `live` gates accept MS365-only clients.
+- **UI:** `e3backup_ms365_getting_started.tpl` (3-step stepper, polls `ms365_onboarding_status.php`); sidebar MS365 Getting Started link; welcome copy updated.
+- **Docs:** `CUSTOMER_ONBOARDING.md`, `CLOUD_STORAGE_README.md`, `cloudstorage/docs/MS365_ONBOARDING.md`.
+- **Ops:** Product PID 107 has empty `servertype` (no Comet). Set `ms365_trial_days` to desired trial length (e.g. 14) in addon settings.
+- **Files:** `Provisioner.php`, `E3BackupAccess.php`, `ProductConfig.php`, `e3backup_ms365_getting_started.php`/`.tpl`, `cloudstorage.php`, `e3backup_sidebar.tpl`, `welcome.tpl`, page guards.
+
 ### 2026-06-30 — Batch `f2be05c4` stuck at 99.83% (SiteMG shard:7 semaphore deadlock)
 
 **Symptom:** Batch `f2be05c4-3da5-4bb4-9890-fc636515722e` (535 workloads) stuck 11+ hours at 99.83%; sole child `ede2c468` (MG Inc. Team Site `sharepoint_site` shard:7) in `graph_sync` / `sharepoint_lists` with UI showing 82065/82065 items and no progress ~6h.
@@ -793,7 +812,7 @@ Four real bugs found and fixed (each confirmed with goroutine dumps / DB evidenc
 5. **Tenant Seeder E2E** — Register seeder Entra app; run Light profile; verify backup picks up seeded files.
 6. ~~**Metering / billing**~~ — MS365 billing per `MS365_BILLING_AND_STORAGE_DESIGN.md` (meter/rate cron, trial, invoice hook, Usage & Billing drawer).
 7. **Admin support view** — Impersonate client tenant, re-run inventory from admin addon.
-8. **Remove Comet LXD path** — `Provisioner::provisionMs365` still provisions legacy order/LXD.
+8. ~~**Remove Comet LXD path**~~ — Done: `provisionMs365` signup path uses ms365backup product + bucket bootstrap only.
 9. **Async inventory refresh** — Large tenants may need background job instead of synchronous POST.
 10. **Calendar verify on Kopia** — `CalendarVerifier` still reads legacy PHP layout paths; port to snapshot browse or drop.
 

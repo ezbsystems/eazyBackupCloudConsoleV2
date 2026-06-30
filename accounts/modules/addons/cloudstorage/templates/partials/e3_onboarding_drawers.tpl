@@ -114,7 +114,7 @@
             <form id="eb-setpw-form" class="space-y-5" onsubmit="return ebPwSubmit(event);">
                 <input type="hidden" name="product_choice" id="eb-product-choice" value="">
                 <div id="eb-username-row" class="hidden">
-                    <label for="eb-username" class="eb-field-label">Backup agent username</label>
+                    <label for="eb-username" id="eb-username-label" class="eb-field-label">Backup agent username</label>
                     <input
                         id="eb-username"
                         name="username"

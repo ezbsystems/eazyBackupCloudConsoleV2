@@ -5721,6 +5721,13 @@ function cloudstorage_clientarea($vars) {
                 'ebE3OnboardingHidden'    => false,
                 'ebE3HasAgents'           => false,
                 'ebIsAdminSession'        => !empty($_SESSION['adminid']),
+                'ebMs365Only'             => false,
+                'ebMs365OnboardingState'  => null,
+                'ebMs365OnboardingCompleted' => 0,
+                'ebMs365OnboardingTotal'  => 3,
+                'ebMs365OnboardingComplete' => false,
+                'ebMs365OnboardingHidden' => true,
+                'ebMs365ShowGettingStarted' => false,
             ];
             try {
                 $obStatePath = __DIR__ . '/lib/Client/OnboardingState.php';
@@ -5749,6 +5756,30 @@ function cloudstorage_clientarea($vars) {
                         !empty($obState['all_complete'])
                         && (!empty($obState['tour_completed']) || !empty($obState['tour_dismissed']))
                     );
+                }
+
+                $e3AccessPath = __DIR__ . '/lib/Client/E3BackupAccess.php';
+                if (is_file($e3AccessPath)) {
+                    require_once $e3AccessPath;
+                }
+                $ms365Autoload = __DIR__ . '/../ms365backup/ms365backup_autoload.php';
+                if (is_file($ms365Autoload)) {
+                    require_once $ms365Autoload;
+                }
+                if ($obClientId > 0 && class_exists('\\WHMCS\\Module\\Addon\\CloudStorage\\Client\\E3BackupAccess')) {
+                    $ebE3OnboardingShared['ebMs365Only'] = \WHMCS\Module\Addon\CloudStorage\Client\E3BackupAccess::clientIsMs365Only($obClientId);
+                    $defaultBu = \WHMCS\Module\Addon\CloudStorage\Client\E3BackupAccess::defaultBackupUser($obClientId);
+                    if ($defaultBu && class_exists('\\Ms365Backup\\Ms365Onboarding')) {
+                        $msOb = \Ms365Backup\Ms365Onboarding::computeForBackupUser($obClientId, (int) $defaultBu['id']);
+                        $ebE3OnboardingShared['ebMs365OnboardingState'] = $msOb;
+                        $ebE3OnboardingShared['ebMs365OnboardingCompleted'] = (int) ($msOb['completed_count'] ?? 0);
+                        $ebE3OnboardingShared['ebMs365OnboardingTotal'] = (int) ($msOb['total_count'] ?? 3);
+                        $ebE3OnboardingShared['ebMs365OnboardingComplete'] = (bool) ($msOb['all_complete'] ?? false);
+                        $ebE3OnboardingShared['ebMs365OnboardingHidden'] = !empty($msOb['all_complete']);
+                        $ebE3OnboardingShared['ebMs365ShowGettingStarted'] = (
+                            $ebE3OnboardingShared['ebMs365Only'] && empty($msOb['all_complete'])
+                        );
+                    }
                 }
             } catch (\Throwable $e) {
                 // best-effort - leave defaults
@@ -5836,6 +5867,11 @@ function cloudstorage_clientarea($vars) {
                     $pagetitle = 'e3 Cloud Backup - Getting Started';
                     $templatefile = 'templates/e3backup_getting_started';
                     $viewVars = require 'pages/e3backup_getting_started.php';
+                    break;
+                case 'ms365_getting_started':
+                    $pagetitle = 'Microsoft 365 Backup - Getting Started';
+                    $templatefile = 'templates/e3backup_ms365_getting_started';
+                    $viewVars = require 'pages/e3backup_ms365_getting_started.php';
                     break;
                 case 'ms365_connect_callback':
                     require 'pages/e3backup_ms365_connect_callback.php';

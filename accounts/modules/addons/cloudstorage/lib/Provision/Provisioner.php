@@ -6,6 +6,7 @@ use WHMCS\Database\Capsule;
 use WHMCS\Module\Addon\CloudStorage\Admin\AdminOps;
 use WHMCS\Module\Addon\CloudStorage\Client\DBController;
 use WHMCS\Module\Addon\CloudStorage\Client\HelperController;
+use WHMCS\Module\Addon\CloudStorage\Client\Ms365StorageBootstrapService;
 
 class Provisioner
 {
@@ -355,7 +356,7 @@ class Provisioner
 
     public static function provisionMs365(int $clientId, string $username, string $password): string
     {
-        $ms365Autoload = dirname(__DIR__, 2) . '/ms365backup/ms365backup_autoload.php';
+        $ms365Autoload = dirname(__DIR__, 3) . '/ms365backup/ms365backup_autoload.php';
         if (is_file($ms365Autoload)) {
             require_once $ms365Autoload;
         }
@@ -373,11 +374,14 @@ class Provisioner
             throw new \Exception('MS365 Backup product is not configured. Activate the ms365backup addon to bootstrap the product.');
         }
 
+        $clean = preg_replace('/[^A-Za-z0-9_.-]+/', '', $username);
+        if ($clean === '' || strlen($clean) < 6) {
+            throw new \Exception('Backup username must be at least 6 characters and may contain only a-z, A-Z, 0-9, _, ., -');
+        }
+        $username = $clean;
+
         $adminUser = 'API';
         try { logModuleCall('cloudstorage', 'ms365_entry', ['clientId' => $clientId, 'username' => $username, 'pid' => $pid], []); } catch (\Throwable $_) {}
-        if (self::cometUsernameExists($username, $pid)) {
-            throw new \Exception('The username ' . $username . ' is already taken');
-        }
 
         $existingSvc = Capsule::table('tblhosting')
             ->where('userid', $clientId)
@@ -388,11 +392,17 @@ class Provisioner
         $serviceId = $existingSvc ? (int) $existingSvc->id : 0;
 
         if ($serviceId <= 0) {
+            if (self::ms365ServiceUsernameTakenForClient($clientId, $pid, $username)) {
+                throw new \Exception('The username ' . $username . ' is already taken');
+            }
+            if (self::ms365BackupUserUsernameTaken($clientId, $username)) {
+                throw new \Exception('The username ' . $username . ' is already taken');
+            }
+
             $order = localAPI('AddOrder', [
                 'clientid'      => $clientId,
                 'pid'           => [$pid],
                 'billingcycle'  => ['monthly'],
-                'promocode'     => 'trial',
                 'paymentmethod' => 'stripe',
                 'noinvoice'     => true,
                 'noemail'       => true,
@@ -403,8 +413,8 @@ class Provisioner
             }
             $accept = localAPI('AcceptOrder', [
                 'orderid'         => $order['orderid'],
-                'autosetup'       => true,
-                'sendemail'       => true,
+                'autosetup'       => false,
+                'sendemail'       => false,
                 'serviceusername' => $username,
                 'servicepassword' => $password,
             ], $adminUser);
@@ -423,42 +433,57 @@ class Provisioner
             }
         }
 
-        if ($serviceId > 0 && class_exists('\\Ms365Backup\\Ms365BillingService')) {
-            try {
-                \Ms365Backup\Ms365BillingService::applyDefaultConfigOptions($serviceId);
-            } catch (\Throwable $e) {
-                try { logModuleCall('cloudstorage', 'ms365_apply_default_config_options_fail', ['service_id' => $serviceId], $e->getMessage()); } catch (\Throwable $_) {}
-            }
+        if ($serviceId <= 0) {
+            throw new \Exception('MS365 Backup service could not be resolved after provisioning.');
+        }
+
+        $backupUserId = self::ensureMs365DefaultBackupUser($clientId, $username, $password);
+        if ($backupUserId <= 0) {
+            throw new \Exception('Failed to create backup user for Microsoft 365 Backup.');
+        }
+
+        self::finalizeMs365BackupUserService($serviceId, $clientId, $backupUserId);
+
+        if (class_exists('\\Ms365Backup\\Ms365BillingTrial')) {
             try {
                 \Ms365Backup\Ms365BillingTrial::startTrial($serviceId, $clientId);
             } catch (\Throwable $e) {
                 try { logModuleCall('cloudstorage', 'ms365_start_trial_fail', ['service_id' => $serviceId], $e->getMessage()); } catch (\Throwable $_) {}
             }
-            try {
-                \Ms365Backup\Ms365BillingService::linkServiceToTenantRecords($clientId, $serviceId);
-            } catch (\Throwable $_) {}
         }
 
-        // Attempt MS365 LXD container provisioning (legacy eazybackup flow; non-fatal).
         try {
-            if (!class_exists('\\WHMCS\\Module\\Addon\\Eazybackup\\EazybackupObcMs365')) {
-                $ms365Lib = dirname(__DIR__, 3) . '/eazybackup/lib/EazybackupObcMs365.php';
-                if (is_file($ms365Lib)) {
-                    require_once $ms365Lib;
-                }
+            $trialDays = class_exists('\\Ms365Backup\\Ms365BillingConfig')
+                ? (int) \Ms365Backup\Ms365BillingConfig::trialDays()
+                : 30;
+            if ($trialDays <= 0) {
+                $trialDays = 30;
             }
-            if (class_exists('\\WHMCS\\Module\\Addon\\Eazybackup\\EazybackupObcMs365')) {
-                $resp = \WHMCS\Module\Addon\Eazybackup\EazybackupObcMs365::provisionLXDContainer($username, $password, (string) $pid);
-                try { logModuleCall('cloudstorage', 'ms365_lxd_provision', ['clientId' => $clientId, 'username' => $username], $resp); } catch (\Throwable $_) {}
-            }
+            $tz = new \DateTimeZone('America/Toronto');
+            $nextDue = new \DateTime('now', $tz);
+            $nextDue->add(new \DateInterval('P' . $trialDays . 'D'));
+            $formattedDue = $nextDue->format('Y-m-d');
+            Capsule::table('tblhosting')
+                ->where('id', $serviceId)
+                ->update([
+                    'amount'          => 0.00,
+                    'nextduedate'     => $formattedDue,
+                    'nextinvoicedate' => $formattedDue,
+                    'domainstatus'    => 'Active',
+                ]);
         } catch (\Throwable $e) {
-            try { logModuleCall('cloudstorage', 'ms365_lxd_exception', ['clientId' => $clientId], $e->getMessage()); } catch (\Throwable $_) {}
+            try { logModuleCall('cloudstorage', 'ms365_anchor_due_fail', ['service_id' => $serviceId], $e->getMessage()); } catch (\Throwable $_) {}
         }
 
-        if ($serviceId > 0) {
-            return 'index.php?m=cloudstorage&page=e3backup&view=users&serviceid=' . $serviceId;
+        $bucketRes = Ms365StorageBootstrapService::ensureForBackupUser($clientId, $backupUserId);
+        if (($bucketRes['status'] ?? '') !== 'success') {
+            $msg = (string) ($bucketRes['message'] ?? 'Failed to provision MS365 backup storage.');
+            try { logModuleCall('cloudstorage', 'ms365_bucket_bootstrap_fail', ['clientId' => $clientId, 'backupUserId' => $backupUserId], $msg); } catch (\Throwable $_) {}
+            throw new \Exception($msg);
         }
-        return 'index.php?m=cloudstorage&page=e3backup&view=users';
+        try { logModuleCall('cloudstorage', 'ms365_bucket_bootstrap_ok', ['clientId' => $clientId, 'backupUserId' => $backupUserId], $bucketRes); } catch (\Throwable $_) {}
+
+        return 'index.php?m=cloudstorage&page=e3backup&view=ms365_getting_started&serviceid=' . $serviceId;
     }
 
     /**
@@ -473,7 +498,7 @@ class Provisioner
             return 0;
         }
 
-        $ms365Autoload = dirname(__DIR__, 2) . '/ms365backup/ms365backup_autoload.php';
+        $ms365Autoload = dirname(__DIR__, 3) . '/ms365backup/ms365backup_autoload.php';
         if (is_file($ms365Autoload)) {
             require_once $ms365Autoload;
         }
@@ -1240,6 +1265,75 @@ class Provisioner
         // navigate to the user detail page via the stepper once an agent
         // enrolls.
         return 'index.php?m=cloudstorage&page=e3backup&view=getting_started';
+    }
+
+    /**
+     * Create or return the id of a default s3_backup_users row for MS365 signup (cloud_only).
+     */
+    private static function ensureMs365DefaultBackupUser(int $clientId, string $usernameHint, string $password): int
+    {
+        try {
+            $existing = Capsule::table('s3_backup_users')
+                ->where('client_id', $clientId)
+                ->orderBy('id', 'asc')
+                ->first();
+            if ($existing) {
+                return (int) $existing->id;
+            }
+        } catch (\Throwable $e) {
+        }
+
+        $clean = preg_replace('/[^A-Za-z0-9_.-]+/', '', $usernameHint);
+        if ($clean === '' || strlen($clean) < 3) {
+            $clean = 'ms365' . $clientId;
+        }
+        try {
+            $email = (string) Capsule::table('tblclients')->where('id', $clientId)->value('email');
+        } catch (\Throwable $e) {
+            $email = '';
+        }
+        $hash = password_hash($password, PASSWORD_DEFAULT);
+        $publicId = strtoupper(bin2hex(random_bytes(13)));
+        try {
+            $id = (int) Capsule::table('s3_backup_users')->insertGetId([
+                'public_id'     => $publicId,
+                'client_id'     => $clientId,
+                'tenant_id'     => null,
+                'username'      => $clean,
+                'password_hash' => $hash ?: '',
+                'email'         => $email,
+                'status'        => 'active',
+                'backup_type'   => 'cloud_only',
+                'created_at'    => date('Y-m-d H:i:s'),
+                'updated_at'    => date('Y-m-d H:i:s'),
+            ]);
+            try { logModuleCall('cloudstorage', 'provision_ms365_backup_user_created', ['client_id' => $clientId, 'id' => $id], $clean); } catch (\Throwable $_) {}
+
+            return $id;
+        } catch (\Throwable $e) {
+            try { logModuleCall('cloudstorage', 'provision_ms365_backup_user_insert_fail', ['client_id' => $clientId], $e->getMessage()); } catch (\Throwable $_) {}
+
+            return 0;
+        }
+    }
+
+    private static function ms365BackupUserUsernameTaken(int $clientId, string $username, int $excludeId = 0): bool
+    {
+        try {
+            if (!Capsule::schema()->hasTable('s3_backup_users')) {
+                return false;
+            }
+            $q = Capsule::table('s3_backup_users')
+                ->where('client_id', $clientId)
+                ->where('username', $username);
+            if ($excludeId > 0) {
+                $q->where('id', '!=', $excludeId);
+            }
+
+            return $q->exists();
+        } catch (\Throwable $_) {
+            return false;
+        }
     }
 
     /**

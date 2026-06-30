@@ -1,6 +1,6 @@
 
 {capture assign=ebE3Content}
-<div x-data="backupUserDetailApp()" x-init="init()" data-e3backup-user-detail-app data-backup-user-public-id="{$user->public_id|default:$user->id|escape:'html'}" class="eb-section-stack">
+<div x-data="backupUserDetailApp()" x-init="init()" data-e3backup-user-detail-app data-backup-user-public-id="{$user->public_id|default:$user->id|escape:'html'}" data-backup-username="{$user->username|escape:'html'}" class="eb-section-stack">
     <template x-if="loading">
         <div class="eb-card">
             <div class="eb-loading-inline">
@@ -116,7 +116,7 @@
                                 </button>
                                 </template>
                                 <button type="button"
-                                        @click="isOpen = false; window.openMs365JobWizard({ backupUserId: '{$user->public_id|default:$user->id|escape:'javascript'}' })"
+                                        @click="isOpen = false; window.openMs365JobWizard({ backupUserId: '{$user->public_id|default:$user->id|escape:'javascript'}', backupUsername: '{$user->username|escape:'javascript'}' })"
                                         class="eb-menu-item">
                                     <span class="eb-icon-box eb-icon-box--sm eb-icon-box--default">
                                         {include file="modules/addons/cloudstorage/templates/partials/e3backup_brand_icon.tpl" ebBrandIconClass='eb-brand-icon eb-brand-icon--sm'}

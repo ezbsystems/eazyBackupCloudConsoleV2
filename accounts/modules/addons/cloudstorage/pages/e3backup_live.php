@@ -10,19 +10,9 @@ use WHMCS\Module\Addon\CloudStorage\Client\Ms365BatchLiveService;
 use WHMCS\Module\Addon\CloudStorage\Client\MspController;
 use WHMCS\Database\Capsule;
 
-$packageId = ProductConfig::e3CloudBackupPid();
-$ca = new ClientArea();
-if (!$ca->isLoggedIn()) {
-    header('Location: clientarea.php');
-    exit;
-}
+require_once dirname(__DIR__) . '/lib/Client/E3BackupAccess.php';
 
-$loggedInUserId = $ca->getUserID();
-$product = DBController::getProduct($loggedInUserId, $packageId);
-if (is_null($product) || empty($product->username)) {
-    header('Location: index.php?m=cloudstorage&page=welcome');
-    exit;
-}
+$loggedInUserId = E3BackupAccess::requireE3BackupClientAreaAccess('live');
 
 $runIdentifier = $_GET['run_uuid'] ?? ($_GET['run_id'] ?? null);
 if (!$runIdentifier) {
