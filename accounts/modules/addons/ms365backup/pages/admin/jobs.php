@@ -62,8 +62,18 @@ $token = generate_token('plain');
     </div>
 
     <div class="panel panel-default">
-        <div class="panel-heading">
-            <strong>MS365 batch runs</strong>
+        <div class="panel-heading clearfix">
+            <div class="pull-left" style="margin-top:2px">
+                <strong>MS365 batch runs</strong>
+                <span class="btn-group" id="ms365-jobs-bulk-toolbar" style="margin-left:12px">
+                    <button type="button" class="btn btn-xs btn-default dropdown-toggle" id="ms365-jobs-bulk-toggle" data-toggle="dropdown" disabled>
+                        With selected (<span id="ms365-jobs-selected-count">0</span>) <span class="caret"></span>
+                    </button>
+                    <ul class="dropdown-menu">
+                        <li><a href="#" id="ms365-jobs-bulk-cancel">Cancel</a></li>
+                    </ul>
+                </span>
+            </div>
             <button type="button" class="btn btn-xs btn-default pull-right" id="ms365-jobs-refresh">Refresh</button>
         </div>
         <div class="panel-body" id="ms365-jobs-table-wrap">

@@ -2,13 +2,149 @@
 
 **Purpose:** Single handoff document so the next agent knows where work stopped. Update this file at the **end of every session** (or after each meaningful milestone).
 
-**Last updated:** 2026-06-26  
-**Module version (ms365backup):** 1.52.0  
-**Worker version (ms365-backup-worker):** 0.3.34
+**Last updated:** 2026-06-29  
+**Module version (ms365backup):** 1.52.1  
+**Worker version (ms365-backup-worker):** 0.3.46 (built; deploy via Fleet)
 
 ---
 
 ## Session log
+
+### 2026-06-29 — ModSecurity `batch_complete` block + batch `66aaa73d` investigation
+
+Investigated live batch `66aaa73d-10a2-4a61-816d-465d3f2234df` stuck at **3/21 workloads complete** with 18 children `running` at ~95% upload and "no progress for 20+ minutes" in the UI.
+
+**Runtime findings (worker journald + DB + nginx):**
+
+1. **Children complete successfully on the worker** — journald shows `graph_sync completed` → `kopia_snapshot completed` → `run … completed` with manifests for every child. Backup work is fine; control-plane delivery is not.
+2. **ModSecurity blocked ~46k worker POSTs** on `dev.eazybackup.ca` (00:01–16:53 EDT): rule **1000001** ("Bad bot user-agent blocked") on `User-Agent: Go-http-client/1.1`. Primary victims: `ms365_worker_batch_complete.php` (32k), `ms365_worker_log.php` (13k), `ms365_worker_batch_progress.php` (1.2k). Apache upstream never saw these requests (403 returned at nginx edge with HTML "Access Blocked").
+3. **Cascade:** lost `batch_complete` → child stays `running` in DB → batch re-claims and **re-runs entire child** → Kopia content cache grows (observed **57 GB** in `/var/lib/ms365-backup-worker/kopia/cache` on worker-9000) → RunDir **100% full** → `diskCritical` latched → `skipping claim: RunDir free space below watermark` → further stall.
+4. **UI "no progress"** — `updated_at` fresh from batch progress hub but `last_progress_at` frozen when `items_done == items_total` at 95% upload (kopia WriteSession finalization); not Graph throttling (`requests_total` frozen with `in_flight=0`).
+
+**Ops / infra fixes applied (outside repo):**
+
+- nginx ModSecurity: whitelist worker API paths + exclude rule 1000001; later full CRS body-rule exclusion for `/modules/addons/cloudstorage/api/` and `/modules/addons/ms365backup/api/` (large `stats_json` payloads with Graph `$deltatoken=` URLs also tripped body CRS rules after UA fix).
+- Worker-9000: stopped worker → cleared `kopia/cache` (100% → 2% disk) → restarted; `batch_complete` HTTP 200s resumed; children began flipping to `success`.
+- **Auth was not the issue** — WHMCS `ms365_worker_token` matches worker env; transient 401 at 17:23:27 was during ModSecurity rollout window. Verified: 15 KB `batch_complete` POST from worker container with `X-MS365-Worker-Token` → HTTP 200.
+
+**Code fix (same session, see next entry):** worker 0.3.46 completion outbox + PHP `isUploadLikePhase()` to prevent re-run churn on future delivery failures and `batch_progress` fatals.
+
+**Deploy:** PHP 1.52.1 first, then worker **0.3.46** via Fleet fleet-wide.
+
+### 2026-06-29 — Batch completion resilience (outbox + isUploadLikePhase)
+
+- **Root cause chain:** transient HTTP 403/503 on `batch_complete` → `reportComplete` / `completeSink` error → child `Run()` fails → `firstErr` set → successful backup work re-run → Kopia cache churn / disk pressure. Separately, `batch_progress` with `no_progress` + `kopia_upload` called missing `Ms365BatchRunRepository::isUploadLikePhase()` → PHP fatal.
+- **PHP 1.52.1:** `isUploadLikePhase()` for `kopia_upload` / `upload`; `backupComplete()` idempotency guard skips `advanceOnShardSuccess` on success replay with same `manifest_id`.
+- **Worker 0.3.46:** `APIHTTPError` + `postTerminalWithRetry` (9 attempts, 500ms→30s backoff; retry 403/408/429/5xx; no retry 400/401/409); `node_id` on `BatchCompleteUpdate`. `CompletionOutbox` (memory + optional `pending_completions.ndjson`); wired into `completeSink`, `Run` defer, batch progress heartbeat, scheduler heartbeat; `reportComplete` never fails the run on delivery error.
+- **Tests:** `ms365_batch_progress_liveness_test.php`; `client_test.go` terminal retry; `completion_outbox_test.go`; `batch_runner_test.go` delivery-failure does not set `firstErr`.
+- **Verified:** `go test ./internal/api/... ./internal/jobs/...`, `go build ./...`, `php -l`, `ms365_batch_progress_liveness_test.php` (5/5).
+- **Files:** `Ms365BatchRunRepository.php`, `Ms365RestoreWorkerHooks.php`, `ms365backup.php`; `client.go`, `completion_outbox.go`, `batch_runner.go`, `runner.go`, `scheduler.go`, `version.go` + tests.
+
+### 2026-06-29 (cont.) — Worker crash-loop fixes: batch backups now complete end-to-end
+
+Continuation of the tenant-batch stall debugging. After the earlier fixes (Graph deadlock,
+repo-open stampede, Kopia maintenance/JSON-policy bug) batches progressed but **still completed
+0 workloads**. Root cause was found in worker journald (`journalctl -u ms365-backup-worker`):
+the worker was **crash-looping** (`systemd NRestarts` in the 300s) on **Go fatal errors**, dying
+mid-batch before completions persisted. Two distinct crashes, both fixed:
+
+1. **`fatal error: concurrent map writes`** in `internal/graphfs/overlay.go`
+   (`OverlayBuilder.Put` ← `SyncMail.func2`). In tenant-owner batch mode a workload's mail folders /
+   OneDrive-SharePoint drives sync concurrently (`graph_folder_parallel` /
+   `graph_sharepoint_drive_parallel` > 1), all writing one `OverlayBuilder`'s unsynchronized maps.
+   **Fix (worker 0.3.44):** added `sync.Mutex` guarding all `OverlayBuilder` map access
+   (put/remove/read/`Build`/`MergePrior`), via unlocked `putLocked`/`removeLocked` helpers to avoid
+   re-entrant deadlock. Verified: `concurrent map writes` count froze and workloads began completing.
+2. **`panic: sync/atomic: compare and swap of inconsistently typed value`** at
+   `internal/jobs/batch_runner.go` (`firstErr.CompareAndSwap(nil, err)`). `atomic.Value` requires a
+   single concrete type, but children fail with different concrete `error` types (e.g. a wrapped HTTP
+   error vs a kopia error) → CAS panic → crash. **Fix (worker 0.3.45):** replaced the `atomic.Value`
+   with a `sync.Once`-guarded plain `error`.
+
+- **Verified:** with both fixes, `NRestarts` stabilized and batch `900ca16b` completed workloads
+  end-to-end (`batch_complete` → child `success`). Apache shows `ms365_worker_batch_complete.php`
+  succeeding systematically (~2044× HTTP 200).
+- **Observations / follow-ups (superseded by later session):**
+  - Rare **HTTP 403 (HTML)** on `batch_complete` — later confirmed as **ModSecurity rule 1000001**
+    fleet-wide (see ModSecurity session above). Addressed by nginx whitelist + worker 0.3.46 outbox.
+  - High volume of **HTTP 403 on `ms365_worker_log.php`** (~3.8k) = the worker-log endpoint correctly
+    rejecting log lines for runs no longer active on the node (`isRunActiveOnNode`); harmless but noisy.
+  - `batch_progress` had a notable count of **HTTP 500s** in Apache logs — worth a separate look.
+  - Per-tenant Graph throttling can pause a tenant's children together during `Retry-After` cooldowns
+    (expected); shows as transient "no progress for N minutes" in the live UI.
+- **Files:** `ms365-backup-worker/internal/graphfs/overlay.go`, `internal/jobs/batch_runner.go`.
+  All debug instrumentation from this session removed (worker `log.Printf`/`graph_diag` flush tweak
+  reverted to 30s; PHP `batch_complete`/`backupComplete` logging removed; scratch scripts + dumps
+  deleted). `go build ./...` + `go test ./internal/{graph,kopia,jobs,graphfs}` + `php -l` green.
+  Worker must be rebuilt/deployed at **0.3.45** fleet-wide.
+
+### 2026-06-29 — Jobs admin UI: bulk cancel + actions dropdown
+
+- **Backend:** Extended `Ms365BatchLiveService::cancelBatch()` with optional `$cancelledBy` (default `user`);
+  threads into `bulkCancelBatchChildren`, per-child `requestCancel`, and `ProgressLogger` message.
+  Added `Ms365AdminJobsService::cancelBatch()` / `cancelBatches()` delegating to live service with
+  `cancelledBy=administrator`. New admin API op `jobs_cancel_batches` (POST, UUID validation, max 50).
+  `Ms365AdminJobsRepository::listJobs()` now returns `cancel_requested` per row.
+- **Frontend:** Jobs table — checkbox column + select-all, bulk toolbar ("With selected (N)" → Cancel),
+  per-row Actions dropdown (Job logs, Worker logs, Detail, Cancel). Single/bulk cancel POST to
+  `jobs_cancel_batches` with confirm dialogs; Cancel disabled as "Cancelling…" when `cancel_requested`.
+- **Files:** `cloudstorage/.../Ms365BatchLiveService.php`, `Ms365AdminJobsService.php`,
+  `Ms365AdminJobsRepository.php`, `pages/admin/api.php`, `pages/admin/jobs.php`, `assets/js/jobs.js`.
+- **Verified:** `php -l` on all changed PHP files.
+
+### 2026-06-29 — Tenant-batch stall debugging: 4 root causes fixed (worker 0.3.39 + cloudstorage)
+
+Investigated a report of "worker running two tenants / load 57/6 / no progress" on the dev fleet
+(0.3.35). Used live endpoint instrumentation + `SIGUSR1` goroutine dumps to get runtime evidence.
+**Isolation was never broken** — one tenant per worker held throughout (`ms365_batch_claims` +
+per-child `ms365_job_queue` attribution). The admin **"Load N/6" column is a unit mismatch**: it shows
+the count of children in `running` state (per-batch) against the per-node `max_concurrent_runs` limit,
+not a concurrency violation (the in-process semaphore is enforced; CPU stayed 4–8%).
+
+Four real bugs found and fixed (each confirmed with goroutine dumps / DB evidence):
+
+1. **Graph tenant-controller deadlock** (`internal/graph/tenant_controller.go`) — the actual cause of the
+   frozen worker. `release()` used `cond.Signal()` (lost wakeups when a woken waiter re-waits after a
+   429 shrink) and `maybeGrowLocked` only ran at `acquire()` entry, so a fully-parked controller could
+   never grow back after a 429 and stranded all workloads in `cond.Wait` with free capacity
+   (`graph_diag` showed `inflight=1<limit=3, req_delta_30s=0` for 10+ min). **Fix:** `Broadcast()` on
+   release, bounded `cond.Wait` poll (`tenantWaitPollInterval=1s`), and re-evaluate grow/decay on every
+   wake. Verified: Graph traffic resumed, no later `cond.Wait` deadlock in dumps.
+2. **Lost batch completions** (`internal/jobs/batch_runner.go`) — `completeSink`/`failSink` sent the
+   terminal `BatchComplete` POST on the cancelable batch ctx; when `Run()` returned, `endBatch` cancelled
+   the ctx and aborted in-flight completions. **Fix:** detached `context.WithoutCancel(ctx)` + 2m timeout
+   (mirrors the per-run `terminalContext` pattern).
+3. **Kopia repo-open stampede** (`internal/kopia/pool.go`) — `Pool.Acquire` released the lock before
+   `openRepository`, so every child of a batch (all sharing one bucket) opened the same repo in parallel,
+   consuming all `max_concurrent_runs` slots in duplicate opens. **Fix:** single-flight (`opening` map +
+   channel) — one opener, others wait and reuse. Verified in dumps (1 opener vs 6).
+4. **`policy_json` JSON-column compared as string** (`cloudstorage/.../KopiaRetentionRepositoryService.php`)
+   — `ensureDefaultVaultPolicyVersion`/`ensurePolicyVersionFromDocument` deduped/refetched via
+   `where('policy_json', $jsonString)` against a `json` column, which never matches in MySQL → returned
+   null → `ensureRepoRecordForRepositoryId` skipped the insert ("Could not get default vault policy
+   version"). Result: **`s3_kopia_repos` had 0 rows** (no ms365 repo ever registered for maintenance) and
+   **202k duplicate `s3_kopia_policy_versions`** (only 2 distinct). With no maintenance, Kopia indexes grew
+   unbounded (~5,866 blobs) → minutes-long cold repo opens → `prior_snapshot` stalls. **Fix:**
+   `whereRaw('policy_json = CAST(? AS JSON)')` + `insertGetId`. Verified: registration works, dedup works,
+   `maintenance_full` ran and compacted the index **5,866 → 172 blobs**.
+
+- **Ops actions taken on dev:** cancelled the degraded test batches to free workers; registered the 3
+  affected repos (`s3_kopia_repos` repo_id 1/2/3) and enqueued `maintenance_full` (2/3 succeeded, the
+  largest still running at session end).
+- **Verified post-fix:** repo opens fast (172 blobs), Graph enumeration advances (items 6,874 → 25,479),
+  no deadlock/stampede/lock in dumps.
+- **STILL OPEN (next session):** whale-batch **completion** — children enumerate but a child was observed
+  regressing `upload → graph_sync → prior_snapshot` (re-run within one batch claim, `attempts=1`,
+  `bytes_uploaded` stuck), and 0 children reached `success`. Last dump showed **no worker pathology** (no
+  deadlock/lock/upload-hang — just legitimate S3 read I/O), so this is a separate resume/churn (and/or
+  Kopia→RGW upload) investigation, not one of the four bugs above. The `s3_kopia_repos` registration gap
+  (defect #4) likely left other tenants' repos unregistered too — worth a fleet-wide backfill +
+  maintenance sweep.
+- **Files:** `ms365-backup-worker/internal/graph/tenant_controller.go`,
+  `internal/jobs/batch_runner.go`, `internal/kopia/pool.go`, `cmd/worker/main.go` (instrumentation
+  removed); `cloudstorage/lib/Client/KopiaRetentionRepositoryService.php`. Worker rebuilt as **0.3.39**
+  (needs Fleet deploy fleet-wide; dev nodes already on it). All debug instrumentation and scratch scripts
+  removed; `go build ./...` + `go test ./internal/{graph,kopia,jobs}` + `php -l` green.
 
 ### 2026-06-28 — Production worker scale-up bootstrap
 

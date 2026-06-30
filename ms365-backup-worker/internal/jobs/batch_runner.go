@@ -14,15 +14,20 @@ import (
 	"github.com/eazybackup/ms365-backup-worker/internal/graph"
 )
 
-type BatchRunner struct {
-	cfg       *config.Config
-	client    *api.Client
-	runner    *Runner
-	scheduler *Scheduler
+type batchChildRunner interface {
+	RunSafe(context.Context, *api.RunJob, context.CancelFunc) error
 }
 
-func NewBatchRunner(cfg *config.Config, client *api.Client, runner *Runner, scheduler *Scheduler) *BatchRunner {
-	return &BatchRunner{cfg: cfg, client: client, runner: runner, scheduler: scheduler}
+type BatchRunner struct {
+	cfg              *config.Config
+	client           *api.Client
+	runner           batchChildRunner
+	scheduler        *Scheduler
+	completionOutbox *CompletionOutbox
+}
+
+func NewBatchRunner(cfg *config.Config, client *api.Client, runner *Runner, scheduler *Scheduler, outbox *CompletionOutbox) *BatchRunner {
+	return &BatchRunner{cfg: cfg, client: client, runner: runner, scheduler: scheduler, completionOutbox: outbox}
 }
 
 type batchProgressHub struct {
@@ -171,6 +176,17 @@ func (br *BatchRunner) Run(ctx context.Context, batch *api.BatchJob, onAbort con
 	batchRunID := strings.TrimSpace(batch.BatchRunID)
 	log.Printf("starting batch %s tenant=%s children=%d", batchRunID, batch.AzureTenantID, len(batch.Children))
 
+	defer func() {
+		if br.completionOutbox != nil {
+			fctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
+			acked, remaining := br.completionOutbox.Flush(fctx, br.client)
+			cancel()
+			if acked > 0 || remaining > 0 {
+				log.Printf("batch %s completion outbox defer flush: acked=%d remaining=%d", batchRunID, acked, remaining)
+			}
+		}
+	}()
+
 	gc := graph.NewClient(batch.GraphToken, batch.GraphRegion, graph.ClientOptions{
 		MaxRetries:       br.cfg.Graph.MaxRetries,
 		RetryBaseDelayMs: br.cfg.Graph.RetryBaseDelayMs,
@@ -218,14 +234,30 @@ func (br *BatchRunner) Run(ctx context.Context, batch *api.BatchJob, onAbort con
 			BatchRunID: batchRunID,
 			Children:   hub.snapshot(),
 		}
-	}), onAbort, onTenantBudget)
+	}), onAbort, onTenantBudget, func() {
+		if br.completionOutbox != nil {
+			fctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+			br.completionOutbox.Flush(fctx, br.client)
+			cancel()
+		}
+	})
 	defer progressStop()
 
 	brc := &batchRunContext{
 		sharedGC:     gc,
 		progressSink: emitProgress,
+		// Terminal child reports MUST be delivered on a context detached from the
+		// batch ctx. Children frequently complete in a fast burst (e.g. no-change
+		// incrementals), and the moment the last child returns, Run() returns and
+		// endBatch cancels the batch ctx — aborting any in-flight BatchComplete
+		// POSTs issued with that ctx. Lost completions leave children stuck
+		// 'running', so the control plane re-claims and re-runs the whole batch
+		// forever (observed: 0 batch_complete delivered, 0 children -> success,
+		// endless re-claim churn). Mirror the per-run terminalContext pattern.
 		completeSink: func(upd api.CompleteUpdate) error {
-			return br.client.BatchComplete(ctx, api.BatchCompleteUpdate{
+			tctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
+			defer cancel()
+			err := br.client.BatchComplete(tctx, api.BatchCompleteUpdate{
 				BatchRunID: batchRunID,
 				Children: []api.BatchChildResult{{
 					RunID:      upd.RunID,
@@ -236,9 +268,18 @@ func (br *BatchRunner) Run(ctx context.Context, batch *api.BatchJob, onAbort con
 					StatsJSON:  upd.StatsJSON,
 				}},
 			})
+			if err != nil {
+				log.Printf("batch %s completeSink delivery failed for %s (backup succeeded): %v", batchRunID, upd.RunID, err)
+				if br.completionOutbox != nil {
+					br.completionOutbox.Enqueue(batchRunID, upd)
+				}
+			}
+			return nil
 		},
 		failSink: func(runID, message string) {
-			_ = br.client.BatchComplete(ctx, api.BatchCompleteUpdate{
+			tctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
+			defer cancel()
+			_ = br.client.BatchComplete(tctx, api.BatchCompleteUpdate{
 				BatchRunID: batchRunID,
 				Children: []api.BatchChildResult{{
 					RunID:   runID,
@@ -269,7 +310,13 @@ func (br *BatchRunner) Run(ctx context.Context, batch *api.BatchJob, onAbort con
 	}
 	sem := make(chan struct{}, maxConcurrent)
 	var wg sync.WaitGroup
-	var firstErr atomic.Value
+	// firstErr captures the first non-cooperative child error. It must NOT be an
+	// atomic.Value: children fail with different concrete error types (e.g. a
+	// wrapped HTTP error vs a kopia error), and atomic.Value.CompareAndSwap
+	// panics ("compare and swap of inconsistently typed value") when the stored
+	// concrete type differs between calls — which crash-looped the whole worker.
+	var firstErr error
+	var firstErrOnce sync.Once
 
 	for _, child := range pending {
 		child := child
@@ -296,18 +343,13 @@ func (br *BatchRunner) Run(ctx context.Context, batch *api.BatchJob, onAbort con
 				if isCooperativeCancel(err, childCtx) {
 					return
 				}
-				firstErr.CompareAndSwap(nil, err)
+				firstErrOnce.Do(func() { firstErr = err })
 			}
 		}()
 	}
 	wg.Wait()
 
-	if errVal := firstErr.Load(); errVal != nil {
-		if err, ok := errVal.(error); ok {
-			return err
-		}
-	}
-	return nil
+	return firstErr
 }
 
 func (br *BatchRunner) FlushProgressCheckpoint(ctx context.Context, batchRunID, tenantID string, snapshot map[string]api.ProgressUpdate) {

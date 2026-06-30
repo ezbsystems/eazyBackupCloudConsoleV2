@@ -23,6 +23,16 @@ const (
 	// tenantGrowQuietWindow is how long after the most recent 429 the controller
 	// must stay quiet before time-based additive increase may resume.
 	tenantGrowQuietWindow = 3 * time.Second
+
+	// tenantWaitPollInterval bounds how long a workload may park in cond.Wait
+	// before it re-evaluates limit growth and available capacity. Without a
+	// bounded wait, a parked waiter can sleep forever while capacity is actually
+	// free — e.g. after a 429-induced shrink drains in-flight requests, no
+	// running goroutine remains to run the (acquire-entry-only) time-based grow,
+	// and a missed Signal leaves waiters stranded with inFlight < limit. This
+	// guarantees liveness: every waiter wakes periodically, grows the limit over
+	// throttle-free time, and proceeds once a slot is available.
+	tenantWaitPollInterval = 1 * time.Second
 )
 
 // tenantGrowInterval is the elapsed time between time-based additive increases.
@@ -266,6 +276,12 @@ func (tc *tenantController) acquire(ctx context.Context) error {
 				return err
 			}
 			now = time.Now()
+			// Re-evaluate growth/decay on every wake (including the bounded poll
+			// wake) so a fully-parked controller can still climb back toward its
+			// ceiling after a 429 shrink and never stays pinned below capacity.
+			tc.maybeIdleDecayLocked(now)
+			tc.maybeGrowLocked(now)
+			tc.touchActivityLocked()
 		}
 		tc.inFlight++
 		tc.mu.Unlock()
@@ -278,9 +294,17 @@ func (tc *tenantController) waitLocked(ctx context.Context) error {
 		return ctx.Err()
 	}
 	done := make(chan struct{})
+	// Bounded wait: a timer broadcast wakes this waiter periodically so it
+	// re-evaluates limit growth and free capacity even if a Signal was lost or
+	// an in-flight slot leaked.
+	timer := time.NewTimer(tenantWaitPollInterval)
 	go func() {
 		select {
 		case <-ctx.Done():
+			tc.mu.Lock()
+			tc.cond.Broadcast()
+			tc.mu.Unlock()
+		case <-timer.C:
 			tc.mu.Lock()
 			tc.cond.Broadcast()
 			tc.mu.Unlock()
@@ -288,6 +312,7 @@ func (tc *tenantController) waitLocked(ctx context.Context) error {
 		}
 	}()
 	tc.cond.Wait()
+	timer.Stop()
 	close(done)
 	return ctx.Err()
 }
@@ -299,7 +324,11 @@ func (tc *tenantController) release() {
 		tc.inFlight = 0
 	}
 	tc.touchActivityLocked()
-	tc.cond.Signal()
+	// Broadcast (not Signal): a single Signal is lost when the woken waiter finds
+	// the condition still false (e.g. during a transient post-429 shrink) and
+	// re-waits, stranding other waiters even after capacity frees. Waking all
+	// waiters to re-check is correct and cheap at these concurrency levels.
+	tc.cond.Broadcast()
 	tc.mu.Unlock()
 }
 

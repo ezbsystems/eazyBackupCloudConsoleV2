@@ -53,6 +53,7 @@ type Scheduler struct {
 	batchCancel          context.CancelFunc
 	batchProgress        sync.Map
 	batchRunner          *BatchRunner
+	completionOutbox     *CompletionOutbox
 	diskCritical         atomic.Bool
 }
 
@@ -81,9 +82,11 @@ func NewScheduler(cfg *config.Config, client *api.Client, configPath string) *Sc
 		runCancels:           make(map[string]context.CancelFunc),
 		activeBuckets:        make(map[string]int),
 		appliedConfigVersion: configapply.ReadAppliedVersion(configPath),
+		completionOutbox:     NewCompletionOutbox(cfg.Worker.RunDir),
 	}
+	s.runner.SetCompletionOutbox(s.completionOutbox)
 	s.runner.SetProgressHook(s.recordRunProgress)
-	s.batchRunner = NewBatchRunner(cfg, client, s.runner, s)
+	s.batchRunner = NewBatchRunner(cfg, client, s.runner, s, s.completionOutbox)
 	cacheRoot := filepath.Join(cfg.Kopia.RepoConfigDir, "cache")
 	if err := os.RemoveAll(cacheRoot); err != nil && !os.IsNotExist(err) {
 		log.Printf("startup cache sweep failed: %v", err)
@@ -126,6 +129,13 @@ func (s *Scheduler) Run(ctx context.Context) error {
 }
 
 func (s *Scheduler) heartbeat(ctx context.Context) {
+	if s.completionOutbox != nil {
+		fctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+		if acked, remaining := s.completionOutbox.Flush(fctx, s.client); acked > 0 || remaining > 0 {
+			log.Printf("completion outbox heartbeat flush: acked=%d remaining=%d", acked, remaining)
+		}
+		cancel()
+	}
 	load := s.currentLoad()
 	admitRejects := s.resetAdmitRejects()
 	hb, err := s.client.Heartbeat(ctx, s.heartbeatParams(load, admitRejects))

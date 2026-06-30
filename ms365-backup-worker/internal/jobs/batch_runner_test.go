@@ -16,6 +16,17 @@ import (
 	"github.com/eazybackup/ms365-backup-worker/internal/graph"
 )
 
+type stubChildRunner struct {
+	onRun func(context.Context, *api.RunJob) error
+}
+
+func (s *stubChildRunner) RunSafe(ctx context.Context, job *api.RunJob, _ context.CancelFunc) error {
+	if s.onRun != nil {
+		return s.onRun(ctx, job)
+	}
+	return nil
+}
+
 func TestChildAlreadySuccess(t *testing.T) {
 	if !childAlreadySuccess(&api.RunJob{Status: "success"}) {
 		t.Fatal("expected success child to skip")
@@ -94,8 +105,13 @@ func TestBatchRunnerSkipsSuccessChildren(t *testing.T) {
 	cfg := testBatchConfig(t)
 	client := api.NewClient(srv.URL, "tok", "node-1")
 	scheduler := NewScheduler(cfg, client, t.TempDir()+"/config.yaml")
-	runner := NewRunner(cfg, client, scheduler.repoPool)
-	br := NewBatchRunner(cfg, client, runner, scheduler)
+	br := &BatchRunner{
+		cfg:              cfg,
+		client:           client,
+		runner:           &stubChildRunner{},
+		scheduler:        scheduler,
+		completionOutbox: scheduler.completionOutbox,
+	}
 
 	batch := &api.BatchJob{
 		BatchRunID:    "batch-1",
@@ -127,7 +143,13 @@ func TestBatchRunnerSingleTenantController(t *testing.T) {
 	cfg := testBatchConfig(t)
 	client := api.NewClient("http://example.test", "tok", "node-1")
 	scheduler := NewScheduler(cfg, client, t.TempDir()+"/config.yaml")
-	br := NewBatchRunner(cfg, client, scheduler.runner, scheduler)
+	br := &BatchRunner{
+		cfg:              cfg,
+		client:           client,
+		runner:           &stubChildRunner{},
+		scheduler:        scheduler,
+		completionOutbox: scheduler.completionOutbox,
+	}
 
 	batch := &api.BatchJob{
 		BatchRunID:        "batch-ctrl",
@@ -138,13 +160,17 @@ func TestBatchRunnerSingleTenantController(t *testing.T) {
 		Children:          []*api.RunJob{{RunID: "c1", PhysicalKey: "mailbox:a"}},
 	}
 
-	// Run will fail on network, but graph client + ceiling should be initialized once.
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	_ = br.Run(ctx, batch, nil)
 
-	// A second batch runner reusing the tenant should hit the same controller map entry.
-	br2 := NewBatchRunner(cfg, client, scheduler.runner, scheduler)
+	br2 := &BatchRunner{
+		cfg:              cfg,
+		client:           client,
+		runner:           &stubChildRunner{},
+		scheduler:        scheduler,
+		completionOutbox: scheduler.completionOutbox,
+	}
 	_ = br2.Run(ctx, batch, nil)
 }
 
@@ -226,6 +252,71 @@ func TestClaimBatchDecode(t *testing.T) {
 	}
 	if batch == nil || batch.BatchRunID != "b1" || len(batch.Children) != 1 {
 		t.Fatalf("batch = %+v", batch)
+	}
+}
+
+func TestBatchRunnerDeliveryFailureDoesNotSetFirstErr(t *testing.T) {
+	var completeAttempts atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.Contains(r.URL.Path, "batch_complete"):
+			n := completeAttempts.Add(1)
+			if n <= 2 {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				_, _ = w.Write([]byte(`unavailable`))
+				return
+			}
+			_, _ = w.Write([]byte(`{"status":"success","data":{}}`))
+		default:
+			_, _ = w.Write([]byte(`{"status":"success","data":{}}`))
+		}
+	}))
+	defer srv.Close()
+
+	cfg := testBatchConfig(t)
+	client := api.NewClient(srv.URL, "tok", "node-1")
+	scheduler := NewScheduler(cfg, client, t.TempDir()+"/config.yaml")
+	outbox := NewCompletionOutbox(cfg.Worker.RunDir)
+	stub := &stubChildRunner{
+		onRun: func(ctx context.Context, job *api.RunJob) error {
+			brc := batchRunContextFrom(ctx)
+			if brc != nil && brc.completeSink != nil {
+				_ = brc.completeSink(api.CompleteUpdate{
+					RunID:      job.RunID,
+					ManifestID: "manifest-1",
+					StatsJSON:  `{"status":"no_changes"}`,
+				})
+			}
+			return nil
+		},
+	}
+	br := &BatchRunner{
+		cfg:              cfg,
+		client:           client,
+		runner:           stub,
+		scheduler:        scheduler,
+		completionOutbox: outbox,
+	}
+
+	batch := &api.BatchJob{
+		BatchRunID:    "batch-delivery",
+		AzureTenantID: "tenant-a",
+		GraphToken:    "tok",
+		GraphRegion:   "GlobalPublicCloud",
+		Children: []*api.RunJob{
+			{RunID: "pending-1", Status: "queued", PhysicalKey: "mailbox:u1", JobType: "backup"},
+		},
+	}
+
+	if err := br.Run(context.Background(), batch, nil); err != nil {
+		t.Fatalf("Run() err = %v, want nil", err)
+	}
+	if outbox.Len() != 0 {
+		t.Fatalf("expected outbox empty after defer flush, len=%d", outbox.Len())
+	}
+	if completeAttempts.Load() < 3 {
+		t.Fatalf("expected batch_complete retried then succeeded, attempts=%d", completeAttempts.Load())
 	}
 }
 

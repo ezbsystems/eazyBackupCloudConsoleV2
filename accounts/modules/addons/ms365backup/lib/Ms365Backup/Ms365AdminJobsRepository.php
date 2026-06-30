@@ -26,6 +26,7 @@ final class Ms365AdminJobsRepository
         $hasRunIdBinary = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'run_id');
         $hasEngine = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'engine');
         $hasRunType = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'run_type');
+        $hasCancelRequested = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'cancel_requested');
         $hasJobIdPk = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'job_id');
         $hasJobBackupUserId = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'backup_user_id');
 
@@ -115,6 +116,9 @@ final class Ms365AdminJobsRepository
         if ($hasRunType) {
             $select[] = 'r.run_type';
         }
+        if ($hasCancelRequested) {
+            $select[] = 'r.cancel_requested';
+        }
 
         $rows = $query
             ->select($select)
@@ -142,9 +146,13 @@ final class Ms365AdminJobsRepository
                 } else {
                     Ms365BatchRunRepository::syncFromRestoreChildren($runId);
                 }
+                $freshColumns = ['r.status', 'r.progress_pct', 'r.error_summary', 'r.finished_at'];
+                if ($hasCancelRequested) {
+                    $freshColumns[] = 'r.cancel_requested';
+                }
                 $fresh = Capsule::table('s3_cloudbackup_runs as r')
                     ->whereRaw('r.run_id = UUID_TO_BIN(?)', [strtolower($runId)])
-                    ->first(['r.status', 'r.progress_pct', 'r.error_summary', 'r.finished_at']);
+                    ->first($freshColumns);
                 if ($fresh) {
                     $freshArr = (array) $fresh;
                     $arr['status'] = $freshArr['status'] ?? $arr['status'];
@@ -174,6 +182,7 @@ final class Ms365AdminJobsRepository
                 'child_count' => $counts['total'],
                 'failed_child_count' => $counts['failed'],
                 'duration_seconds' => self::durationSeconds($arr['started_at'] ?? null, $arr['finished_at'] ?? null),
+                'cancel_requested' => !empty($arr['cancel_requested']),
             ];
         }
 

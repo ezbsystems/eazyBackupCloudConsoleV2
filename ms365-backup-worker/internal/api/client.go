@@ -6,8 +6,10 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"math/rand"
 	"net/http"
 	"net/url"
 	"strings"
@@ -138,6 +140,7 @@ type BatchChildResult struct {
 // BatchCompleteUpdate reports finished children (one or many) for a tenant batch.
 type BatchCompleteUpdate struct {
 	BatchRunID string             `json:"batch_run_id"`
+	NodeID     string             `json:"node_id,omitempty"`
 	Children   []BatchChildResult `json:"children"`
 }
 
@@ -381,7 +384,8 @@ func (c *Client) BatchProgress(ctx context.Context, upd BatchProgressUpdate) (ca
 
 func (c *Client) BatchComplete(ctx context.Context, upd BatchCompleteUpdate) error {
 	upd.BatchRunID = strings.TrimSpace(upd.BatchRunID)
-	return c.postWithRetry(ctx, "ms365_worker_batch_complete.php", upd, &struct{}{}, 3)
+	upd.NodeID = c.nodeID
+	return c.postTerminalWithRetry(ctx, "ms365_worker_batch_complete.php", upd, &struct{}{})
 }
 
 func (c *Client) BatchRelease(ctx context.Context, batchRunID, reason string) error {
@@ -474,11 +478,11 @@ func (c *Client) Progress(ctx context.Context, upd ProgressUpdate) (cancelReques
 }
 
 func (c *Client) Complete(ctx context.Context, upd CompleteUpdate) error {
-	return c.postWithRetry(ctx, "ms365_worker_complete.php", upd, &struct{}{}, 3)
+	return c.postTerminalWithRetry(ctx, "ms365_worker_complete.php", upd, &struct{}{})
 }
 
 func (c *Client) Fail(ctx context.Context, upd FailUpdate) error {
-	return c.postWithRetry(ctx, "ms365_worker_fail.php", upd, &struct{}{}, 3)
+	return c.postTerminalWithRetry(ctx, "ms365_worker_fail.php", upd, &struct{}{})
 }
 
 func (c *Client) Release(ctx context.Context, runID, reason string) error {
@@ -502,6 +506,60 @@ func (c *Client) SetNodeID(id string) {
 
 func (c *Client) post(ctx context.Context, endpoint string, body any, out any) error {
 	return c.postWithRetry(ctx, endpoint, body, out, 1)
+}
+
+// APIHTTPError is returned from postOnce when the control plane responds with HTTP >= 400.
+type APIHTTPError struct {
+	Endpoint   string
+	StatusCode int
+	Body       string
+}
+
+func (e *APIHTTPError) Error() string {
+	return fmt.Sprintf("api %s http %d: %s", e.Endpoint, e.StatusCode, e.Body)
+}
+
+func retryableTerminalStatus(code int) bool {
+	if code >= 500 {
+		return true
+	}
+	switch code {
+	case 403, 408, 429:
+		return true
+	default:
+		return false
+	}
+}
+
+const terminalRetryAttempts = 9
+const terminalRetryBase = 500 * time.Millisecond
+const terminalRetryMaxBackoff = 30 * time.Second
+
+func (c *Client) postTerminalWithRetry(ctx context.Context, endpoint string, body any, out any) error {
+	var lastErr error
+	for attempt := 0; attempt < terminalRetryAttempts; attempt++ {
+		if attempt > 0 {
+			backoff := terminalRetryBase * time.Duration(1<<uint(attempt-1))
+			if backoff > terminalRetryMaxBackoff {
+				backoff = terminalRetryMaxBackoff
+			}
+			jitter := time.Duration(rand.Int63n(int64(backoff / 4)))
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(backoff + jitter):
+			}
+		}
+		lastErr = c.postOnce(ctx, endpoint, body, out)
+		if lastErr == nil {
+			return nil
+		}
+		var httpErr *APIHTTPError
+		if errors.As(lastErr, &httpErr) && !retryableTerminalStatus(httpErr.StatusCode) {
+			return lastErr
+		}
+	}
+	return lastErr
 }
 
 func (c *Client) postWithRetry(ctx context.Context, endpoint string, body any, out any, attempts int) error {
@@ -550,7 +608,11 @@ func (c *Client) postOnce(ctx context.Context, endpoint string, body any, out an
 		return err
 	}
 	if resp.StatusCode >= 400 {
-		return fmt.Errorf("api %s http %d: %s", endpoint, resp.StatusCode, string(raw))
+		return &APIHTTPError{
+			Endpoint:   endpoint,
+			StatusCode: resp.StatusCode,
+			Body:       string(raw),
+		}
 	}
 	if out == nil {
 		return nil
@@ -643,7 +705,8 @@ func (c *Client) StartProgressHeartbeat(ctx context.Context, runID string, inter
 }
 
 // StartBatchProgressHeartbeat renews the batch lease and fans out cancel/budget signals.
-func (c *Client) StartBatchProgressHeartbeat(ctx context.Context, batchRunID string, interval time.Duration, getUpdate func() BatchProgressUpdate, onCancel func(), onBudget func(int)) func() {
+// onTick is invoked after each successful heartbeat tick (optional outbox flush, etc.).
+func (c *Client) StartBatchProgressHeartbeat(ctx context.Context, batchRunID string, interval time.Duration, getUpdate func() BatchProgressUpdate, onCancel func(), onBudget func(int), onTick func()) func() {
 	if interval <= 0 {
 		interval = 60 * time.Second
 	}
@@ -674,6 +737,9 @@ func (c *Client) StartBatchProgressHeartbeat(ctx context.Context, batchRunID str
 					}
 					if cancel {
 						fireCancel()
+					}
+					if onTick != nil {
+						onTick()
 					}
 				}
 			}
