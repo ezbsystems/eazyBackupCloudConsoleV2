@@ -3,12 +3,23 @@ package graph
 import (
 	"context"
 	"sync"
+	"time"
 )
 
 var (
 	globalLimitMu sync.RWMutex
-	globalSem     chan struct{}
+	globalSem     *countingSem
 )
+
+type countingSem struct {
+	mu    sync.Mutex
+	cap   int
+	inUse int
+}
+
+func newCountingSem(cap int) *countingSem {
+	return &countingSem{cap: cap}
+}
 
 // SetGlobalConcurrency caps in-flight Graph HTTP requests across all runs on this worker.
 func SetGlobalConcurrency(max int) {
@@ -18,7 +29,7 @@ func SetGlobalConcurrency(max int) {
 		globalSem = nil
 		return
 	}
-	globalSem = make(chan struct{}, max)
+	globalSem = newCountingSem(max)
 }
 
 func acquireGlobal(ctx context.Context) error {
@@ -28,12 +39,7 @@ func acquireGlobal(ctx context.Context) error {
 	if sem == nil {
 		return nil
 	}
-	select {
-	case sem <- struct{}{}:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	}
+	return sem.acquire(ctx)
 }
 
 func releaseGlobal() {
@@ -43,12 +49,40 @@ func releaseGlobal() {
 	if sem == nil {
 		return
 	}
-	<-sem
+	sem.release()
 }
 
-// #region agent log
-// GlobalSemStats reports global transport semaphore occupancy (debug only;
-// retained to verify the 429 over-release deadlock fix on the live fleet).
+const globalAcquirePoll = 50 * time.Millisecond
+
+func (s *countingSem) acquire(ctx context.Context) error {
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		s.mu.Lock()
+		if s.inUse < s.cap {
+			s.inUse++
+			s.mu.Unlock()
+			return nil
+		}
+		s.mu.Unlock()
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(globalAcquirePoll):
+		}
+	}
+}
+
+func (s *countingSem) release() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.inUse > 0 {
+		s.inUse--
+	}
+}
+
+// GlobalSemStats reports global transport semaphore occupancy.
 func GlobalSemStats() (inUse, capacity int) {
 	globalLimitMu.RLock()
 	sem := globalSem
@@ -56,7 +90,7 @@ func GlobalSemStats() (inUse, capacity int) {
 	if sem == nil {
 		return 0, 0
 	}
-	return len(sem), cap(sem)
+	sem.mu.Lock()
+	defer sem.mu.Unlock()
+	return sem.inUse, sem.cap
 }
-
-// #endregion

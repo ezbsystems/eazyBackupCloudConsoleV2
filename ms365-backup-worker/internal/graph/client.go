@@ -1043,7 +1043,10 @@ func (c *Client) getStream(ctx context.Context, path string, offset int64) (io.R
 		if isBoundedRetryableStatus(statusCode) && attempt < c.maxRetries {
 			io.Copy(io.Discard, resp.Body)
 			resp.Body.Close()
-			c.releaseTransport()
+			// sleepRetry releases the transport exactly once; an extra
+			// releaseTransport here double-drained the global semaphore and
+			// deadlocked later requests in releaseGlobal (observed live on
+			// sharepoint_lists delta pagination after getStream 503 retries).
 			lastErr = fmt.Errorf("graph %d", statusCode)
 			if sleepErr := c.sleepRetry(ctx, parseRetryAfter(retryAfter, attempt, c.retryDelay)); sleepErr != nil {
 				if workloadHeld {

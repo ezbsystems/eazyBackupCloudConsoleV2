@@ -469,8 +469,8 @@ func TestTransportSemaphoreBalancedOnRetryAfter429TransportError(t *testing.T) {
 		t.Fatal("GetJSON deadlocked: global transport semaphore double-released on 429+transport error")
 	}
 
-	if got := len(globalSem); got != 0 {
-		t.Fatalf("global transport semaphore unbalanced after request: occupancy=%d, want 0", got)
+	if inUse, _ := GlobalSemStats(); inUse != 0 {
+		t.Fatalf("global transport semaphore unbalanced after request: occupancy=%d, want 0", inUse)
 	}
 }
 
@@ -526,8 +526,77 @@ func TestGetStreamSemaphoreBalancedOnRetryAfter429(t *testing.T) {
 		t.Fatal("GetStream deadlocked: global transport semaphore over-released on 429 backoff in getStream")
 	}
 
-	if got := len(globalSem); got != 0 {
-		t.Fatalf("global transport semaphore unbalanced after GetStream: occupancy=%d, want 0", got)
+	if inUse, _ := GlobalSemStats(); inUse != 0 {
+		t.Fatalf("global transport semaphore unbalanced after GetStream: occupancy=%d, want 0", inUse)
+	}
+}
+
+// TestGetStreamSemaphoreBalancedOnBoundedRetry503 reproduces the live deadlock on
+// batch f2be05c4: getStream's 503/504 retry path called releaseTransport and then
+// sleepRetry (which also releases), corrupting the global transport semaphore until
+// a later doRequest success path blocked forever in releaseGlobal.
+func TestGetStreamSemaphoreBalancedOnBoundedRetry503(t *testing.T) {
+	SetGlobalConcurrency(2)
+	defer SetGlobalConcurrency(0)
+
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls == 1 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		if strings.HasSuffix(r.URL.Path, "/content") {
+			w.Header().Set("Content-Length", "4")
+			_, _ = w.Write([]byte("data"))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"value":[]}`))
+	}))
+	defer srv.Close()
+
+	c := NewClient("token", "", ClientOptions{MaxRetries: 3, RetryBaseDelayMs: 1, MaxConcurrency: 4})
+	c.graphBase = srv.URL
+	c.httpClient = srv.Client()
+
+	done := make(chan error, 1)
+	go func() {
+		rc, _, err := c.GetStream(context.Background(), "/content")
+		if err != nil {
+			done <- err
+			return
+		}
+		_, _ = io.Copy(io.Discard, rc)
+		_ = rc.Close()
+		done <- nil
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("GetStream: %v", err)
+		}
+	case <-time.After(6 * time.Second):
+		t.Fatal("GetStream deadlocked: global transport semaphore double-released on 503 bounded retry")
+	}
+
+	if inUse, _ := GlobalSemStats(); inUse != 0 {
+		t.Fatalf("global transport semaphore unbalanced after 503 retry GetStream: occupancy=%d, want 0", inUse)
+	}
+
+	done2 := make(chan error, 1)
+	go func() {
+		_, err := c.GetJSON(context.Background(), "/users", nil)
+		done2 <- err
+	}()
+	select {
+	case err := <-done2:
+		if err != nil {
+			t.Fatalf("follow-up GetJSON after 503 GetStream: %v", err)
+		}
+	case <-time.After(6 * time.Second):
+		t.Fatal("follow-up GetJSON deadlocked after 503 GetStream corrupted global semaphore")
 	}
 }
 
@@ -580,8 +649,8 @@ func TestUploadSessionSemaphoreBalancedOnRetryAfter429(t *testing.T) {
 		t.Fatal("PutStream deadlocked: global transport semaphore over-released on 429 backoff in putViaUploadSession")
 	}
 
-	if got := len(globalSem); got != 0 {
-		t.Fatalf("global transport semaphore unbalanced after PutStream: occupancy=%d, want 0", got)
+	if inUse, _ := GlobalSemStats(); inUse != 0 {
+		t.Fatalf("global transport semaphore unbalanced after PutStream: occupancy=%d, want 0", inUse)
 	}
 }
 

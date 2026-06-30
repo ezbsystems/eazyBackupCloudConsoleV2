@@ -39,3 +39,22 @@ func TestGlobalConcurrencyLimitsAcquire(t *testing.T) {
 	releaseGlobal()
 	releaseGlobal()
 }
+
+func TestGlobalSemaphoreToleratesOverRelease(t *testing.T) {
+	SetGlobalConcurrency(2)
+	defer SetGlobalConcurrency(0)
+
+	releaseGlobal() // must not block
+	releaseGlobal()
+
+	ctx := context.Background()
+	if err := acquireGlobal(ctx); err != nil {
+		t.Fatalf("acquire after over-release: %v", err)
+	}
+	releaseGlobal()
+
+	inUse, cap := GlobalSemStats()
+	if inUse != 0 || cap != 2 {
+		t.Fatalf("stats after balanced cycle: inUse=%d cap=%d", inUse, cap)
+	}
+}
