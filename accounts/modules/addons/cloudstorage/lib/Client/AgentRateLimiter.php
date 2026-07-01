@@ -2,7 +2,9 @@
 
 /**
  * Per-UUID and per-IP token-bucket rate limiter for agent poll endpoints.
- * Uses Redis when CLOUDBACKUP_REDIS_URL is set; APCu or file fallback otherwise.
+ * Uses Redis when CLOUDBACKUP_REDIS_URL is set; APCu when available.
+ * Without Redis or APCu, rate limiting is skipped (fail-open) — the former
+ * file-based fallback was removed because it created millions of temp files.
  */
 class AgentRateLimiter
 {
@@ -87,56 +89,8 @@ class AgentRateLimiter
             return ['allowed' => true, 'retry_after' => 0];
         }
 
-        return self::consumeFile($key, $burst);
-    }
-
-    /** @return array{allowed:bool,retry_after:int} */
-    private static function consumeFile(string $key, int $burst): array
-    {
-        $dir = sys_get_temp_dir() . '/cloudbackup_agent_rl';
-        if (!is_dir($dir)) {
-            @mkdir($dir, 0700, true);
-        }
-        $path = $dir . '/' . hash('sha256', $key) . '.cnt';
-        $fp = @fopen($path, 'c+');
-        if ($fp === false) {
-            return ['allowed' => true, 'retry_after' => 0];
-        }
-
-        $allowed = true;
-        $retry = 1;
-        try {
-            if (!flock($fp, LOCK_EX)) {
-                return ['allowed' => true, 'retry_after' => 0];
-            }
-            $raw = stream_get_contents($fp);
-            $count = 0;
-            $expires = 0;
-            if (is_string($raw) && $raw !== '') {
-                $parts = explode(':', $raw, 2);
-                $count = (int) ($parts[0] ?? 0);
-                $expires = (int) ($parts[1] ?? 0);
-            }
-            $now = time();
-            if ($expires <= $now) {
-                $count = 0;
-                $expires = $now + self::WINDOW_SECS + 1;
-            }
-            $count++;
-            ftruncate($fp, 0);
-            rewind($fp);
-            fwrite($fp, $count . ':' . $expires);
-            fflush($fp);
-            if ($count > $burst) {
-                $allowed = false;
-                $retry = max(1, $expires - $now);
-            }
-        } finally {
-            flock($fp, LOCK_UN);
-            fclose($fp);
-        }
-
-        return ['allowed' => $allowed, 'retry_after' => $retry];
+        // No Redis or APCu: skip rate limiting rather than writing per-request temp files.
+        return ['allowed' => true, 'retry_after' => 0];
     }
 
     private static function redis(): ?\Redis
