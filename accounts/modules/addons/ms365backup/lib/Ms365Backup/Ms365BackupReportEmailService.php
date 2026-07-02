@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Ms365Backup;
 
 use WHMCS\Database\Capsule;
+use WHMCS\Mail\Emailer;
 use WHMCS\Module\Addon\CloudStorage\Client\DBController;
 
 /**
@@ -50,18 +51,19 @@ final class Ms365BackupReportEmailService
             }
 
             $runStatus = (string) ($parent['status'] ?? $status);
-            $notifyDecision = self::shouldNotify($runStatus, $job);
+            $notifyDecision = \WHMCS\Module\Addon\CloudStorage\Client\CloudBackupNotificationPolicy::resolve($job, $runStatus, $client);
             if (!$notifyDecision['send']) {
-                self::markNotified($batchRunId);
-                logModuleCall(self::MODULE, 'backup_report_email_skip', [
-                    'batch_run_id' => $batchRunId,
-                    'reason' => $notifyDecision['reason'],
-                ], '');
+                if (self::tryClaimNotification($batchRunId)) {
+                    logModuleCall(self::MODULE, 'backup_report_email_skip', [
+                        'batch_run_id' => $batchRunId,
+                        'reason' => $notifyDecision['reason'],
+                    ], '');
+                }
                 return;
             }
 
-            $templateName = self::getTemplateName($templateSetting);
-            if ($templateName === null) {
+            $templateRow = self::loadTemplateRow($templateSetting);
+            if ($templateRow === null) {
                 logModuleCall(self::MODULE, 'backup_report_email_error', [
                     'batch_run_id' => $batchRunId,
                     'reason' => 'template_not_found',
@@ -70,49 +72,236 @@ final class Ms365BackupReportEmailService
                 return;
             }
 
+            if (!self::tryClaimNotification($batchRunId)) {
+                return;
+            }
+
             $children = Ms365AdminJobsRepository::getBatchChildrenDetail($batchRunId);
             $reports = self::buildWorkloadReports($children);
             $backupUsername = self::resolveBackupUsername((int) ($job['backup_user_id'] ?? 0));
+            $recipients = self::normalizeRecipients($notifyDecision['recipients']);
+            if ($recipients === []) {
+                self::clearNotified($batchRunId);
+                return;
+            }
 
-            $mergeVars = [
-                'backup_username' => $backupUsername,
-                'job_name' => (string) ($job['name'] ?? ''),
-                'run_status' => self::humanizeRunStatus($runStatus),
-                'finished_at' => self::formatTimestamp($parent['finished_at'] ?? null),
-                'workload_report_html' => $reports['html'],
-                'workload_report' => $reports['text'],
-            ];
+            $mergeVars = self::buildMergeVars(
+                $job,
+                $parent,
+                $client,
+                $backupUsername,
+                $runStatus,
+                $reports,
+            );
 
-            if (!function_exists('localAPI')) {
+            if (!class_exists(Emailer::class)) {
+                self::clearNotified($batchRunId);
                 logModuleCall(self::MODULE, 'backup_report_email_error', [
                     'batch_run_id' => $batchRunId,
-                    'reason' => 'localAPI_unavailable',
+                    'reason' => 'mailer_unavailable',
                 ], '');
                 return;
             }
 
-            $payload = [
-                'messagename' => $templateName,
-                'id' => (int) ($job['client_id'] ?? 0),
-                'customvars' => base64_encode(serialize($mergeVars)),
-            ];
-            $response = localAPI('SendEmail', $payload);
+            $sent = self::sendTemplateToRecipients(
+                (string) ($templateRow->name ?? ''),
+                (int) ($job['client_id'] ?? 0),
+                $mergeVars,
+                $recipients,
+            );
 
             logModuleCall(self::MODULE, 'backup_report_email_send', [
                 'batch_run_id' => $batchRunId,
                 'client_id' => (int) ($job['client_id'] ?? 0),
-                'template' => $templateName,
-                'recipients' => $notifyDecision['recipients'],
-            ], json_encode($response));
+                'template' => (string) ($templateRow->name ?? ''),
+                'recipients' => $recipients,
+            ], $sent ? 'success' : 'fail');
 
-            if (($response['result'] ?? '') === 'success') {
-                self::markNotified($batchRunId);
+            if (!$sent) {
+                self::clearNotified($batchRunId);
             }
         } catch (\Throwable $e) {
             logModuleCall(self::MODULE, 'backup_report_email_error', [
                 'batch_run_id' => $batchRunId,
             ], $e->getMessage());
         }
+    }
+
+    /**
+     * @param array<string, mixed> $job
+     * @param array<string, mixed> $parent
+     * @param array{html: string, text: string} $reports
+     * @return array<string, string>
+     */
+    public static function buildMergeVars(
+        array $job,
+        array $parent,
+        object $client,
+        string $backupUsername,
+        string $runStatus,
+        array $reports,
+    ): array {
+        return [
+            'backup_username' => $backupUsername,
+            'job_name' => (string) ($job['name'] ?? ''),
+            'run_status' => self::humanizeRunStatus($runStatus),
+            'finished_at' => self::formatTimestamp($parent['finished_at'] ?? null),
+            'workload_report_html' => $reports['html'],
+            'workload_report' => $reports['text'],
+            'client_first_name' => trim((string) ($client->firstname ?? '')),
+            'client_last_name' => trim((string) ($client->lastname ?? '')),
+            'client_name' => trim((string) (($client->firstname ?? '') . ' ' . ($client->lastname ?? ''))),
+            'client_email' => trim((string) ($client->email ?? '')),
+            'client_company_name' => trim((string) ($client->companyname ?? '')),
+        ];
+    }
+
+    /**
+     * @param array<string, string> $mergeVars
+     * @return array{subject: string, message: string}
+     */
+    public static function renderTemplateContent(string $subject, string $message, array $mergeVars): array
+    {
+        $subject = html_entity_decode($subject, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $message = html_entity_decode($message, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+
+        return [
+            'subject' => self::applyMergeFields($subject, $mergeVars),
+            'message' => self::applyMergeFields($message, $mergeVars),
+        ];
+    }
+
+    /** @param list<string> $recipients @return list<string> */
+    public static function normalizeRecipients(array $recipients): array
+    {
+        $seen = [];
+        $normalized = [];
+        foreach ($recipients as $recipient) {
+            $email = strtolower(trim((string) $recipient));
+            if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL) || isset($seen[$email])) {
+                continue;
+            }
+            $seen[$email] = true;
+            $normalized[] = $email;
+        }
+
+        return $normalized;
+    }
+
+    /**
+     * @param array<string, string> $mergeVars
+     * @param list<string> $recipients
+     */
+    private static function sendTemplateToRecipients(
+        string $templateName,
+        int $clientId,
+        array $mergeVars,
+        array $recipients,
+    ): bool {
+        if ($templateName === '' || $clientId <= 0 || $recipients === []) {
+            return false;
+        }
+
+        $emailer = Emailer::factoryByTemplate($templateName, $clientId);
+        self::setNonClientEmail($emailer, true);
+
+        $message = $emailer->getMessage();
+        foreach (['to', 'cc', 'bcc'] as $type) {
+            $message->clearRecipients($type);
+        }
+        foreach ($recipients as $recipient) {
+            $message->addRecipient('to', $recipient, '');
+        }
+
+        foreach ($mergeVars as $key => $value) {
+            $emailer->assign((string) $key, $value);
+        }
+
+        try {
+            $emailer->send();
+
+            return true;
+        } catch (\Throwable $e) {
+            logModuleCall(self::MODULE, 'backup_report_email_error', [
+                'reason' => 'emailer_send_failed',
+                'template' => $templateName,
+                'client_id' => $clientId,
+                'recipients' => $recipients,
+            ], $e->getMessage());
+
+            return false;
+        }
+    }
+
+    private static function setNonClientEmail(Emailer $emailer, bool $enabled): void
+    {
+        $reflection = new \ReflectionObject($emailer);
+        $property = $reflection->getProperty('isNonClientEmail');
+        $property->setAccessible(true);
+        $property->setValue($emailer, $enabled);
+    }
+
+    /** @param array<string, string> $mergeVars */
+    private static function applyMergeFields(string $template, array $mergeVars): string
+    {
+        $rendered = $template;
+        foreach ($mergeVars as $key => $value) {
+            $rendered = str_replace('{$' . $key . '}', $value, $rendered);
+        }
+
+        return $rendered;
+    }
+
+    /** @return object|null */
+    private static function loadTemplateRow(string $templateSetting): ?object
+    {
+        if ($templateSetting === '') {
+            return null;
+        }
+
+        try {
+            $query = Capsule::table('tblemailtemplates')->where('type', 'general');
+            if (ctype_digit($templateSetting)) {
+                $query->where('id', (int) $templateSetting);
+            } else {
+                $query->where('name', $templateSetting);
+            }
+
+            return $query->first(['id', 'name', 'subject', 'message']);
+        } catch (\Throwable $e) {
+            logModuleCall(self::MODULE, 'loadTemplateRow', ['template_setting' => $templateSetting], $e->getMessage());
+
+            return null;
+        }
+    }
+
+    private static function tryClaimNotification(string $batchRunId): bool
+    {
+        if (!Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'notified_at')) {
+            return true;
+        }
+
+        $updated = Capsule::table('s3_cloudbackup_runs')
+            ->whereRaw('run_id = UUID_TO_BIN(\'' . addslashes(strtolower($batchRunId)) . '\')')
+            ->whereNull('notified_at')
+            ->update(['notified_at' => date('Y-m-d H:i:s')]);
+
+        return $updated > 0;
+    }
+
+    private static function clearNotified(string $batchRunId): void
+    {
+        if (!Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'notified_at')) {
+            return;
+        }
+
+        $query = Capsule::table('s3_cloudbackup_runs');
+        if (Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'run_id')) {
+            $query->whereRaw('run_id = UUID_TO_BIN(\'' . addslashes(strtolower($batchRunId)) . '\')');
+        } else {
+            $query->where('id', $batchRunId);
+        }
+        $query->update(['notified_at' => null]);
     }
 
     /**
@@ -279,92 +468,6 @@ final class Ms365BackupReportEmailService
         return $publicId !== '' ? $publicId : '—';
     }
 
-    /**
-     * @param array<string, mixed> $job
-     * @return array{send: bool, reason: string, recipients: list<string>}
-     */
-    private static function shouldNotify(string $runStatus, array $job): array
-    {
-        $defaultNotifyOnSuccess = 1;
-        $defaultNotifyOnWarning = 1;
-        $defaultNotifyOnFailure = 1;
-        $notifyEmails = [];
-
-        $settings = Capsule::table('s3_cloudbackup_settings')
-            ->where('client_id', (int) ($job['client_id'] ?? 0))
-            ->first();
-        if ($settings !== null) {
-            if (!empty($settings->default_notify_emails)) {
-                $notifyEmails = self::parseEmailList((string) $settings->default_notify_emails);
-            }
-            if (isset($settings->default_notify_on_success)) {
-                $defaultNotifyOnSuccess = (int) $settings->default_notify_on_success;
-            }
-            if (isset($settings->default_notify_on_warning)) {
-                $defaultNotifyOnWarning = (int) $settings->default_notify_on_warning;
-            }
-            if (isset($settings->default_notify_on_failure)) {
-                $defaultNotifyOnFailure = (int) $settings->default_notify_on_failure;
-            }
-        }
-
-        $jobNOS = isset($job['notify_on_success']) && $job['notify_on_success'] !== null
-            ? (int) $job['notify_on_success'] : null;
-        $jobNOW = isset($job['notify_on_warning']) && $job['notify_on_warning'] !== null
-            ? (int) $job['notify_on_warning'] : null;
-        $jobNOF = isset($job['notify_on_failure']) && $job['notify_on_failure'] !== null
-            ? (int) $job['notify_on_failure'] : null;
-
-        $notifyOnSuccess = $defaultNotifyOnSuccess;
-        $notifyOnWarning = $defaultNotifyOnWarning;
-        $notifyOnFailure = $defaultNotifyOnFailure;
-        if ($jobNOS !== null) {
-            $notifyOnSuccess = $jobNOS;
-        }
-        if ($jobNOW !== null) {
-            $notifyOnWarning = $jobNOW;
-        }
-        if ($jobNOF !== null) {
-            $notifyOnFailure = $jobNOF;
-        }
-        if ($jobNOS === 0 && $jobNOW === 0 && $jobNOF === 0) {
-            $notifyOnSuccess = $defaultNotifyOnSuccess;
-            $notifyOnWarning = $defaultNotifyOnWarning;
-            $notifyOnFailure = $defaultNotifyOnFailure;
-        }
-
-        if (!empty($job['notify_override_email'])) {
-            $notifyEmails = self::parseEmailList((string) $job['notify_override_email']);
-        }
-        if ($notifyEmails === []) {
-            self::ensureCloudStorageLoaded();
-            $client = DBController::getClient((int) ($job['client_id'] ?? 0));
-            if ($client !== null && !empty($client->email)) {
-                $notifyEmails = [(string) $client->email];
-            }
-        }
-
-        if ($notifyEmails === []) {
-            return ['send' => false, 'reason' => 'no_recipients', 'recipients' => []];
-        }
-
-        $status = strtolower($runStatus);
-        if ($status === 'success' && !$notifyOnSuccess) {
-            return ['send' => false, 'reason' => 'success_disabled', 'recipients' => $notifyEmails];
-        }
-        if (in_array($status, ['partial_success', 'warning'], true) && !$notifyOnWarning) {
-            return ['send' => false, 'reason' => 'warning_disabled', 'recipients' => $notifyEmails];
-        }
-        if ($status === 'failed' && !$notifyOnFailure) {
-            return ['send' => false, 'reason' => 'failure_disabled', 'recipients' => $notifyEmails];
-        }
-        if ($status === 'cancelled' && !$notifyOnFailure) {
-            return ['send' => false, 'reason' => 'cancelled_disabled', 'recipients' => $notifyEmails];
-        }
-
-        return ['send' => true, 'reason' => '', 'recipients' => $notifyEmails];
-    }
-
     private static function markNotified(string $batchRunId): void
     {
         if (!Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'notified_at')) {
@@ -417,23 +520,6 @@ final class Ms365BackupReportEmailService
         } catch (\Throwable $_) {
             return $default;
         }
-    }
-
-    /** @return list<string> */
-    private static function parseEmailList(string $emailList): array
-    {
-        if ($emailList === '') {
-            return [];
-        }
-
-        $decoded = json_decode($emailList, true);
-        if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
-            return array_values(array_filter(array_map('trim', $decoded)));
-        }
-
-        $emails = preg_split('/[;,]+/', $emailList) ?: [];
-
-        return array_values(array_filter(array_map('trim', $emails)));
     }
 
     private static function humanizeRunStatus(string $status): string
