@@ -1,0 +1,370 @@
+"Sources": {
+    "1957C8BB-F760-4CA4-88C1-02391201B708": {
+        "Engine": "engine1\/hyperv",
+        "Description": "Dell R730 Hyper-V",
+        "OwnerDevice": "0a3bdde14b5f6b847d5f7960ba44c08522f72bba",
+        "CreateTime": 1718964,
+        "ModifyTime": 1732052991,
+        "PreExec": [],
+        "ThawExec": [],
+        "PostExec": [],
+        "EngineProps": {
+            "METHOD": "copy",
+            "ALL_VMS": "1"
+        },
+        "PolicySourceID": "",
+        "ExistingUserUpdate": false,
+        "OverrideDestinationRetention": [],
+        "Statistics": {
+            "LastStartTime": 1737539100,
+            "LastBackupJob": {
+                "GUID": "cb4fabce-1096-471b-a690-c4ddc156a938",
+                "Username": "eazyBackup",
+                "Classification": 4001,
+                "Status": 7001,
+                "StartTime": 1737539100,
+                "EndTime": 1737540297,
+                "SourceGUID": "1957C8BB-F760-4CA4-88C1-02391201B708",
+                "DestinationGUID": "6A5F9D0A-E3E4-463A-BB99-3A8E7112AFEA",
+                "DeviceID": "0a3bdde14b5f6b847d5f7960ba44c08522f72bba",
+                "SnapshotID": "c45bd345129e7139146fbbfd501e434c83e37c68f91087b5dff574d34a9f1bc5",
+                "ClientVersion": "24.9.7",
+                "TotalDirectories": 6,
+                "TotalFiles": 13,
+                "TotalSize": 646427361280,
+                "TotalChunks": 0,
+                "UploadSize": 99154935,
+                "DownloadSize": 55274821,
+                "TotalVmCount": 12,
+                "TotalMailsCount": 0,
+                "TotalSitesCount": 0,
+                "TotalAccountsCount": 0,
+                "TotalLicensedMailsCount": 0,
+                "TotalUnlicensedMailsCount": 0,
+                "CancellationID": "",
+                "Progress": null,
+                "DestinationSizeStart": {
+                    "Size": 174337798688,
+                    "MeasureStarted": 1737539106,
+                    "MeasureCompleted": 1737539106
+                },
+                "DestinationSizeEnd": {
+                    "Size": 174436952509,
+                    "MeasureStarted": 1737540296,
+                    "MeasureCompleted": 1737540297
+                }
+            },
+            "LastSuccessfulBackupJob": {
+                "GUID": "c3e20923-85db-486b-920c-7b92bd9fc36a",
+                "Username": "eazyBackup",
+                "Classification": 4001,
+                "Status": 5000,
+                "StartTime": 1733219100,
+                "EndTime": 1733221538,
+                "SourceGUID": "1957C8BB-F760-4CA4-88C1-02391201B708",
+                "DestinationGUID": "6A5F9D0A-E3E4-463A-BB99-3A8E7112AFEA",
+                "DeviceID": "0a3bdde14b5f6b847d5f7960ba44c08522f72bba",
+                "SnapshotID": "b05d1c0d8ac0b884a3b3060d40e4428acc6dce37101d7213c28855b076c3c2ad",
+                "ClientVersion": "24.9.7",
+                "TotalDirectories": 12,
+                "TotalFiles": 27,
+                "TotalSize": 934220541952,
+                "TotalChunks": 0,
+                "UploadSize": 50602314,
+                "DownloadSize": 135644235,
+                "TotalVmCount": 12,
+                "TotalMailsCount": 0,
+                "TotalSitesCount": 0,
+                "TotalAccountsCount": 0,
+                "TotalLicensedMailsCount": 0,
+                "TotalUnlicensedMailsCount": 0,
+                "CancellationID": "",
+                "Progress": null,
+                "DestinationSizeStart": {
+                    "Size": 568056409137,
+                    "MeasureStarted": 1733219112,
+                    "MeasureCompleted": 1733219113
+                },
+                "DestinationSizeEnd": {
+                    "Size": 568107008660,
+                    "MeasureStarted": 1733221537,
+                    "MeasureCompleted": 1733221538
+                }
+            }
+        }
+    },
+    "8206e756-6975-462c-8f36-483372960781": {
+        "Engine": "engine1\/windisk",
+        "Description": "ss015 Disk Image",
+        "OwnerDevice": "3cbb432522dd819a4a5c96c68a17a08b994e306f",
+        "CreateTime": 1733412506,
+        "ModifyTime": 1733412506,
+        "PreExec": [],
+        "ThawExec": [],
+        "PostExec": [],
+        "EngineProps": {
+            "INCLUDE-0000": "\/13308bc1-59de-58ca-91dd-22388095ded7"
+        },
+        "PolicySourceID": "",
+        "ExistingUserUpdate": false,
+        "OverrideDestinationRetention": [],
+        "Statistics": {
+            "LastStartTime": 1733415700,
+            "LastBackupJob": {
+                "GUID": "a69f5449-a02e-4d1f-8305-0330202251e3",
+                "Username": "eazyBackup",
+                "Classification": 4001,
+                "Status": 7001,
+                "StartTime": 1733415700,
+                "EndTime": 1733415768,
+                "SourceGUID": "8206e756-6975-462c-8f36-483372960781",
+                "DestinationGUID": "6A5F9D0A-E3E4-463A-BB99-3A8E7112AFEA",
+                "DeviceID": "3cbb432522dd819a4a5c96c68a17a08b994e306f",
+                "SnapshotID": "d4e8ac53cc935911b5e817bc2afc4f2c966e5aa6524768457823437dd57c9d78",
+                "ClientVersion": "24.11.0",
+                "TotalDirectories": 1,
+                "TotalFiles": 1,
+                "TotalSize": 246780266496,
+                "TotalChunks": 0,
+                "UploadSize": 582924523,
+                "DownloadSize": 106777941,
+                "TotalVmCount": 0,
+                "TotalMailsCount": 0,
+                "TotalSitesCount": 0,
+                "TotalAccountsCount": 0,
+                "TotalLicensedMailsCount": 0,
+                "TotalUnlicensedMailsCount": 0,
+                "CancellationID": "",
+                "Progress": null,
+                "DestinationSizeStart": {
+                    "Size": 542261642596,
+                    "MeasureStarted": 1733415726,
+                    "MeasureCompleted": 1733415727
+                },
+                "DestinationSizeEnd": {
+                    "Size": 542844566831,
+                    "MeasureStarted": 1733415766,
+                    "MeasureCompleted": 1733415767
+                }
+            },
+            "LastSuccessfulBackupJob": {
+                "GUID": "",
+                "Username": "",
+                "Classification": 0,
+                "Status": 0,
+                "StartTime": 0,
+                "EndTime": 0,
+                "SourceGUID": "",
+                "DestinationGUID": "",
+                "DeviceID": "",
+                "SnapshotID": "",
+                "ClientVersion": "",
+                "TotalDirectories": 0,
+                "TotalFiles": 0,
+                "TotalSize": 0,
+                "TotalChunks": 0,
+                "UploadSize": 0,
+                "DownloadSize": 0,
+                "TotalVmCount": 0,
+                "TotalMailsCount": 0,
+                "TotalSitesCount": 0,
+                "TotalAccountsCount": 0,
+                "TotalLicensedMailsCount": 0,
+                "TotalUnlicensedMailsCount": 0,
+                "CancellationID": "",
+                "Progress": null,
+                "DestinationSizeStart": null,
+                "DestinationSizeEnd": null
+            }
+        }
+    }
+},
+"BackupRules": {
+    "B7182302-C57F-4BCD-9E62-A4DAC9F6F7D0": {
+        "Description": "New Schedule (Mon Jul 15 07:57:08 2024)",
+        "CreateTime": 1721044,
+        "ModifyTime": 1721177764,
+        "PreExec": [],
+        "ThawExec": [],
+        "PostExec": [],
+        "Source": "1957C8BB-F760-4CA4-88C1-02391201B708",
+        "Destination": "6A5F9D0A-E3E4-463A-BB99-3A8E7112AFEA",
+        "SkipAlreadyRunning": true,
+        "StopAfter": 0,
+        "LimitVaultSpeedBps": 0,
+        "ReduceDiskConcurrency": false,
+        "UseOnDiskIndexes": false,
+        "AllowZeroFilesSuccess": false,
+        "AutoRetentionLevel": 0,
+        "ConcurrencyCount": 0,
+        "LogLevel": "",
+        "Schedules": [
+            {
+                "FrequencyType": 8011,
+                "SecondsPast": 17100,
+                "Offset": 0,
+                "RestrictRuntime": false,
+                "FromTime": {
+                    "Hour": 0,
+                    "Minutes": 0
+                },
+                "ToTime": {
+                    "Hour": 0,
+                    "Minutes": 0
+                },
+                "RestrictDays": false,
+                "DaysSelect": {
+                    "Sunday": false,
+                    "Monday": false,
+                    "Tuesday": false,
+                    "Wednesday": false,
+                    "Thursday": false,
+                    "Friday": false,
+                    "Saturday": false
+                },
+                "RandomDelaySecs": 0
+            }
+        ],
+        "EventTriggers": {
+            "OnPCBoot": false,
+            "OnPCBootIfLastJobMissed": true
+        }
+    }
+},
+"Devices": {
+    "3cbb432522dd819a4a5c96c68a17a08b994e306f": {
+        "FriendlyName": "ss015",
+        "RegistrationTime": 1733412483,
+        "PlatformVersion": {
+            "Version": "20.04",
+            "Distribution": "ubuntu",
+            "Build": "20.04.6 LTS (Focal Fossa)",
+            "OS": "linux",
+            "Arch": "amd64"
+        },
+        "Sources": [],
+        "DeviceTimezone": "America\/Toronto",
+        "ClientVersion": "24.11.0",
+        "SyncroUUID": ""
+    },
+    "0a3bdde14b5f6b847d5f7960ba44c08522f72bba": {
+        "FriendlyName": "DELL-R730",
+        "RegistrationTime": 1718964656,
+        "PlatformVersion": {
+            "Version": "2009",
+            "Distribution": "Windows Server 2022 Datacenter",
+            "Build": "20348",
+            "OS": "windows",
+            "Arch": "amd64"
+        },
+        "Sources": [],
+        "DeviceTimezone": "America\/New_York",
+        "ClientVersion": "24.9.7",
+        "SyncroUUID": ""
+    }
+},
+"IsSuspended": false,
+"LastSuspended": 0,
+"AllProtectedItemsQuotaEnabled": false,
+"AllProtectedItemsQuotaBytes": 0,
+"MaximumDevices": 0,
+"QuotaOffice365ProtectedAccounts": 0,
+"PolicyID": "9a192785-8223-488f-b68a-5e31905e1a95",
+"Policy": {
+    "PreventRequestStorageVault": false,
+    "PreventAddCustomStorageVault": false,
+    "PreventEditStorageVault": false,
+    "HideCloudStorageBranding": false,
+    "PreventDeleteStorageVault": false,
+    "StorageVaultProviders": {
+        "ShouldRestrictProviderList": false,
+        "AllowedProvidersWhenRestricted": [
+            1000,
+            1001,
+            1002,
+            1003,
+            1004,
+            1005,
+            1006,
+            1007,
+            1008
+        ]
+    },
+    "PreventNewProtectedItem": false,
+    "PreventEditProtectedItem": false,
+    "PreventDeleteProtectedItem": false,
+    "ProtectedItemEngineTypes": {
+        "ShouldRestrictEngineTypeList": false,
+        "AllowedEngineTypeWhenRestricted": [
+            "engine1\/file",
+            "engine1\/exchangeedb",
+            "engine1\/mssql",
+            "engine1\/mysql",
+            "engine1\/mongodb",
+            "engine1\/stdout",
+            "engine1\/systemstate",
+            "engine1\/windowssystem",
+            "engine1\/vsswriter",
+            "engine1\/hyperv",
+            "engine1\/windisk",
+            "engine1\/winmsofficemail",
+            "engine1\/vmware"
+        ]
+    },
+    "FileAndFolderMandatoryExclusions": [],
+    "ModeScheduleSkipAlreadyRunning": 3,
+    "ModeAdminResetPassword": 3,
+    "ModeAdminViewFilenames": 3,
+    "ModeRequireUserResetPassword": 0,
+    "PreventDeleteSingleSnapshots": false,
+    "PreventChangeAccountPassword": false,
+    "PreventChangeEmailSettings": false,
+    "PreventChangeAccountName": false,
+    "PreventOpenAppUI": false,
+    "RequirePasswordOpenAppUI": false,
+    "HideAppImport": true,
+    "HideAppVersion": true,
+    "PreventOpenWebUI": false,
+    "PreventViewDeviceNames": false,
+    "DefaultEmailReports": {
+        "ShouldOverrideDefaultReports": false,
+        "Reports": []
+    },
+    "DefaultStorageVaultRetention": {
+        "Mode": 802,
+        "Ranges": [
+            {
+                "Type": 902,
+                "Timestamp": 0,
+                "Jobs": 0,
+                "Days": 0,
+                "Weeks": 0,
+                "Months": 1,
+                "WeekOffset": 0,
+                "MonthOffset": 1
+            }
+        ]
+    },
+    "EnforceStorageVaultRetention": false,
+    "PreventProtectedItemRetention": false,
+    "AllowEditObjectLockRetention": false,
+    "DefaultSources": [],
+    "DefaultSourcesBackupRules": [],
+    "DefaultSourcesWithOSRestriction": [],
+    "DefaultBackupRules": [],
+    "RandomDelaySecs": 0
+},
+"PasswordFormat": 102,
+"PasswordHash": "JDJhJDEwJC40UGJGajN4ZTBLdmYyS3NJbTAzSHVTWnZwRlhFNkM0NFBmT0drcC5SellhdEU5VWlqbFZP",
+"PasswordRecovery": "aTIW6yD9E\/p9qRGIbgVwCeJLSkO3vZtC",
+"AllowPasswordLogin": true,
+"AllowPasswordAndTOTPLogin": false,
+"TOTPKeyEncryptionFormat": 0,
+"TOTPKey": "",
+"RequirePasswordChange": false,
+"CreateTime": 1709853026,
+"CreationGUID": "994d12fd-12be-4bcc-b732-ed262249e59a",
+"ServerConfig": {
+    "RandomDelaySecs": 0
+}
+}
