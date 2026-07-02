@@ -21,6 +21,8 @@ use WHMCS\Module\Addon\CloudStorage\Client\TimezoneHelper;
 use WHMCS\Module\Addon\CloudStorage\Client\UuidBinary;
 use WHMCS\Database\Capsule;
 
+const CLOUDBACKUP_PROGRESS_API_REV = '20260702-run-ownership-v2';
+
 $debugLogPath = '/var/www/eazybackup.ca/.cursor/debug-91dc3e.log';
 function progressDebugLog(string $message, array $data, string $hypothesisId, string $logPath): void
 {
@@ -37,15 +39,37 @@ function progressDebugLog(string $message, array $data, string $hypothesisId, st
     @file_put_contents($logPath, json_encode($entry) . PHP_EOL, FILE_APPEND);
 }
 
-$ca = new ClientArea();
-if (!$ca->isLoggedIn()) {
-    $jsonData = [
-        'status' => 'fail',
-        'message' => 'Session timeout.'
-    ];
-    $response = new JsonResponse($jsonData, 200);
+function progressSendJson(array $payload, int $status = 200): void
+{
+    $payload['api_rev'] = CLOUDBACKUP_PROGRESS_API_REV;
+    $payload['_host'] = gethostname() ?: 'unknown';
+    if (ob_get_level() > 0) {
+        ob_end_clean();
+    }
+    $response = new JsonResponse($payload, $status);
+    $response->headers->set('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+    $response->headers->set('Pragma', 'no-cache');
+    $response->headers->set('Expires', '0');
+    $response->headers->set('X-CloudBackup-Progress-Rev', CLOUDBACKUP_PROGRESS_API_REV);
     $response->send();
     exit();
+}
+
+// #region agent log
+progressDebugLog('progress_request_start', [
+    'api_rev' => CLOUDBACKUP_PROGRESS_API_REV,
+    'host' => gethostname() ?: 'unknown',
+    'run_uuid' => (string) ($_GET['run_uuid'] ?? $_GET['run_id'] ?? ''),
+    'file' => __FILE__,
+], 'H-G', $debugLogPath);
+// #endregion
+
+$ca = new ClientArea();
+if (!$ca->isLoggedIn()) {
+    progressSendJson([
+        'status' => 'fail',
+        'message' => 'Session timeout.',
+    ]);
 }
 
 require_once __DIR__ . '/../lib/Client/E3BackupAccess.php';
@@ -54,13 +78,10 @@ $loggedInUserId = (int) $ca->getUserID();
 
 $runIdentifier = $_GET['run_uuid'] ?? $_GET['run_id'] ?? null;
 if (!$runIdentifier) {
-    $jsonData = [
+    progressSendJson([
         'status' => 'fail',
-        'message' => 'Run ID is required.'
-    ];
-    $response = new JsonResponse($jsonData, 200);
-    $response->send();
-    exit();
+        'message' => 'Run ID is required.',
+    ]);
 }
 
 $run = CloudBackupController::getRun($runIdentifier, $loggedInUserId);
@@ -74,13 +95,10 @@ progressDebugLog('progress_run_ownership', [
 ], 'H-F', $debugLogPath);
 // #endregion
 if (!$run) {
-    $jsonData = [
+    progressSendJson([
         'status' => 'fail',
-        'message' => 'Run not found or access denied.'
-    ];
-    $response = new JsonResponse($jsonData, 200);
-    $response->send();
-    exit();
+        'message' => 'Run not found or access denied.',
+    ]);
 }
 
 if (Ms365BatchLiveService::isMs365BatchRun($run)) {
@@ -102,32 +120,19 @@ if (Ms365BatchLiveService::isMs365BatchRun($run)) {
             'progress_pct' => $progressRun['progress_pct'] ?? null,
         ], 'H-A-fix', $debugLogPath);
         // #endregion
-        if (ob_get_level() > 0) {
-            ob_end_clean();
-        }
-        $response = new JsonResponse([
+        progressSendJson([
             'status' => 'success',
             'run' => $progressRun,
-        ], 200);
-        $response->headers->set('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
-        $response->headers->set('Pragma', 'no-cache');
-        $response->headers->set('Expires', '0');
-        $response->send();
-        exit();
+        ]);
     } catch (\Throwable $e) {
-        if (ob_get_level() > 0) {
-            ob_end_clean();
-        }
         logModuleCall('cloudstorage', 'ms365_progress_error', [
             'run_uuid' => $runIdentifier,
             'client_id' => $loggedInUserId,
         ], $e->getMessage());
-        $response = new JsonResponse([
+        progressSendJson([
             'status' => 'fail',
             'message' => 'Unable to load backup progress.',
-        ], 200);
-        $response->send();
-        exit();
+        ]);
     }
 }
 
@@ -381,10 +386,5 @@ try {
     logModuleCall('cloudstorage', 'progress_notify_error', ['run_id' => $run['id'] ?? $runIdentifier], $e->getMessage());
 }
 
-$response = new JsonResponse($jsonData, 200);
-$response->headers->set('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
-$response->headers->set('Pragma', 'no-cache');
-$response->headers->set('Expires', '0');
-$response->send();
-exit();
+progressSendJson($jsonData);
 
