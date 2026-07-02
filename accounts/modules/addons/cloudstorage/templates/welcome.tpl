@@ -4,13 +4,25 @@
             <div class="eb-panel">
                 <div class="eb-page-header">
                     <div>
+                        {if $ebWelcomeExistingClient}
+                        <div class="eb-type-eyebrow">Add a service</div>
+                        <h1 class="eb-page-title mt-2">Welcome to eazyBackup</h1>
+                        <p class="eb-page-description">
+                            Choose an additional product to activate on your account. You can manage all services from your client area.
+                        </p>
+                        {else}
                         <div class="eb-type-eyebrow">Getting Started</div>
                         <h1 class="eb-page-title mt-2">Welcome to eazyBackup</h1>
                         <p class="eb-page-description">
                             Choose the first product you want to activate. You can add more services later from your client area.
                         </p>
+                        {/if}
                     </div>
+                    {if $ebWelcomeExistingClient}
+                    <div class="eb-badge eb-badge--default">Existing account</div>
+                    {else}
                     <div class="eb-badge eb-badge--orange">New Account Setup</div>
+                    {/if}
                 </div>
 
                 <div class="space-y-6">
@@ -57,7 +69,8 @@
                         {/if}
                         <div id="eb-product-select"
                              data-must-set-password="{if $ebMustSetPortalPassword}1{else}0{/if}"
-                             class="grid grid-cols-1 gap-4 md:grid-cols-2 {if $EB_SHOW_E3_BACKUP}xl:grid-cols-5{else}xl:grid-cols-4{/if} {if $ebMustSetPortalPassword}is-locked{/if}">
+                             class="grid grid-cols-1 gap-4 md:grid-cols-2 {if $ebHideLegacyCloudBackupCard}{if $EB_SHOW_E3_BACKUP}xl:grid-cols-4{else}xl:grid-cols-3{/if}{else}{if $EB_SHOW_E3_BACKUP}xl:grid-cols-5{else}xl:grid-cols-4{/if}{/if} {if $ebMustSetPortalPassword}is-locked{/if}">
+                            {if !$ebHideLegacyCloudBackupCard}
                             <button
                                 type="button"
                                 class="eb-service-option is-popular text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--eb-primary)]"
@@ -80,6 +93,7 @@
                                     </div>
                                 </div>
                             </button>
+                            {/if}
 
                             <button
                                 type="button"
@@ -394,7 +408,7 @@
     }
 </style>
 
-{include file="modules/addons/cloudstorage/templates/partials/e3_onboarding_drawers.tpl" ebExistingClientOnboarding=false}
+{include file="modules/addons/cloudstorage/templates/partials/e3_onboarding_drawers.tpl" ebExistingClientOnboarding=$ebWelcomeExistingClient|default:false}
 
 <div id="eb-portalpw-overlay"
      class="fixed inset-0 z-[100] hidden items-center justify-center p-4"
@@ -600,6 +614,7 @@
 <script>
 window.EB_WEB_ROOT = '{$WEB_ROOT}';
 window.EB_CSRF_TOKEN = '{$token|default:$csrfToken}';
+window.EB_WELCOME_EXISTING_CLIENT = {if $ebWelcomeExistingClient}true{else}false{/if};
 if (window.csrfToken && !window.EB_CSRF_TOKEN) {
     window.EB_CSRF_TOKEN = window.csrfToken;
 }
@@ -1068,12 +1083,14 @@ if (window.csrfToken && !window.EB_CSRF_TOKEN) {
         var showUser = (choice === 'backup' || choice === 'ms365' || choice === 'e3backup');
         var usernameRow = document.getElementById('eb-username-row');
         var noUsernameRow = document.getElementById('eb-no-username-row');
+        var existingPwRow = document.getElementById('eb-existing-pw-row');
         var hint = document.getElementById('eb-username-hint');
         var subtitle = document.getElementById('eb-setpw-subtitle');
         var title = document.getElementById('eb-setpw-title');
         var usernameInput = document.getElementById('eb-username');
         var usernameLabel = document.getElementById('eb-username-label');
         var submitBtn = document.getElementById('eb-pw-submit');
+        var isExistingClientMs365OrE3 = window.EB_WELCOME_EXISTING_CLIENT && (choice === 'ms365' || choice === 'e3backup');
 
         if (usernameRow) {
             if (showUser) {
@@ -1089,6 +1106,13 @@ if (window.csrfToken && !window.EB_CSRF_TOKEN) {
                 noUsernameRow.classList.add('hidden');
             }
         }
+        if (existingPwRow) {
+            if (isExistingClientMs365OrE3) {
+                existingPwRow.classList.remove('hidden');
+            } else {
+                existingPwRow.classList.add('hidden');
+            }
+        }
         if (hint) {
             hint.textContent = '';
             hint.classList.add('hidden');
@@ -1096,10 +1120,15 @@ if (window.csrfToken && !window.EB_CSRF_TOKEN) {
         if (usernameInput) {
             usernameInput.value = '';
         }
+        ebSetFieldError('eb-err-existing-pw', '');
 
         if (choice === 'e3backup') {
             title.textContent = 'Pick your e3 Cloud Backup agent username';
-            subtitle.textContent = 'Choose the username your e3 Cloud Backup agent will use to sign in. Your portal password (set earlier) is also the password for this backup agent.';
+            if (isExistingClientMs365OrE3) {
+                subtitle.textContent = 'Choose the username your e3 Cloud Backup agent will use to sign in. Confirm your portal password below to provision the service.';
+            } else {
+                subtitle.textContent = 'Choose the username your e3 Cloud Backup agent will use to sign in. Your portal password (set earlier) is also the password for this backup agent.';
+            }
             if (usernameLabel) { usernameLabel.textContent = 'Backup agent username'; }
         } else if (choice === 'backup') {
             title.textContent = 'Pick your Cloud Backup agent username';
@@ -1107,7 +1136,11 @@ if (window.csrfToken && !window.EB_CSRF_TOKEN) {
             if (usernameLabel) { usernameLabel.textContent = 'Backup agent username'; }
         } else if (choice === 'ms365') {
             title.textContent = 'Pick your Microsoft 365 Backup username';
-            subtitle.textContent = 'Choose the username for your Microsoft 365 Backup service. After provisioning, you will connect your tenant and create your first backup job.';
+            if (isExistingClientMs365OrE3) {
+                subtitle.textContent = 'Choose the username for your Microsoft 365 Backup service. Confirm your portal password below to provision the service.';
+            } else {
+                subtitle.textContent = 'Choose the username for your Microsoft 365 Backup service. After provisioning, you will connect your tenant and create your first backup job.';
+            }
             if (usernameLabel) { usernameLabel.textContent = 'Backup account username'; }
         } else {
             title.textContent = 'Ready to provision';
@@ -1409,6 +1442,7 @@ if (window.csrfToken && !window.EB_CSRF_TOKEN) {
         ev.preventDefault();
         ebSetGeneralAlert('eb-pw-general-error', 'eb-pw-general-error-body', '');
         ebSetFieldError('eb-err-username', '');
+        ebSetFieldError('eb-err-existing-pw', '');
         ebDisableSubmit(true);
 
         try {
@@ -1417,6 +1451,7 @@ if (window.csrfToken && !window.EB_CSRF_TOKEN) {
             var storageTierEl = document.getElementById('eb-storage-tier');
             var storageTier = storageTierEl ? storageTierEl.value : '';
             var needsUser = (choice === 'backup' || choice === 'ms365' || choice === 'e3backup');
+            var isExistingClientProvision = window.EB_WELCOME_EXISTING_CLIENT && (choice === 'ms365' || choice === 'e3backup');
 
             if (needsUser) {
                 var reUser = /^[A-Za-z0-9_.-]{8,}$/;
@@ -1429,32 +1464,48 @@ if (window.csrfToken && !window.EB_CSRF_TOKEN) {
                 }
             }
 
+            var existingPortalPassword = '';
+            if (isExistingClientProvision) {
+                existingPortalPassword = (document.getElementById('eb-existing-portal-password') || {}).value || '';
+                if (!existingPortalPassword) {
+                    var pwMessage = 'Please enter your portal password to continue.';
+                    ebSetFieldError('eb-err-existing-pw', pwMessage);
+                    ebShowToast(pwMessage, 'error');
+                    ebDisableSubmit(false);
+                    return false;
+                }
+            }
+
+            var loaderText = isExistingClientProvision ? 'Provisioning your service...' : 'Creating your account...';
             try {
                 if (window.ebShowLoader) {
                     // The global loader overlay is z-index:50, which sits behind
                     // the open product drawer (z-60). Lift it above the drawers
                     // (but below the z-120 toast container) so it's visible while
                     // provisioning runs.
-                    var ebLoader = window.ebShowLoader(document.body, 'Creating your account...');
+                    var ebLoader = window.ebShowLoader(document.body, loaderText);
                     if (ebLoader && ebLoader.style) {
                         ebLoader.style.zIndex = '110';
                     }
                 }
             } catch (_) {}
 
-            // Round 2: portal password was collected by ebPortalPwSubmit and
-            // cached in the session by api/set_portal_password.php. Provision
-            // call no longer sends new_password / confirm.
+            var provisionBody = {
+                product_choice: choice,
+                username: username,
+                storage_tier: storageTier
+            };
+            if (isExistingClientProvision) {
+                provisionBody.existing_client = '1';
+                provisionBody.new_password = existingPortalPassword;
+            }
+
             var provisionResponse = await fetch(ebJoinRoot('/modules/addons/cloudstorage/api/setpassword_and_provision.php'), {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/x-www-form-urlencoded'
                 },
-                body: new URLSearchParams({
-                    product_choice: choice,
-                    username: username,
-                    storage_tier: storageTier
-                })
+                body: new URLSearchParams(provisionBody)
             });
             var data = await provisionResponse.json();
 
@@ -1476,10 +1527,13 @@ if (window.csrfToken && !window.EB_CSRF_TOKEN) {
             if (errors.username) {
                 ebSetFieldError('eb-err-username', errors.username);
             }
+            if (errors.new_password) {
+                ebSetFieldError('eb-err-existing-pw', errors.new_password);
+            }
             if (errors.general) {
                 ebSetGeneralAlert('eb-pw-general-error', 'eb-pw-general-error-body', errors.general);
             }
-            if (!errors.general && !errors.username) {
+            if (!errors.general && !errors.username && !errors.new_password) {
                 ebSetGeneralAlert(
                     'eb-pw-general-error',
                     'eb-pw-general-error-body',

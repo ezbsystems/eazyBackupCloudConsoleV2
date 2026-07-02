@@ -5650,6 +5650,15 @@ function cloudstorage_clientarea($vars) {
                 $viewVars['ebMustSetPortalPassword'] = false;
                 $viewVars['ebPortalPasswordCached']  = false;
             }
+            try {
+                $welcomeClientId = isset($welcomeClientId) ? (int) $welcomeClientId : (int) $clientArea->getUserID();
+                require_once __DIR__ . '/lib/Client/WelcomeClientState.php';
+                $viewVars['ebHideLegacyCloudBackupCard'] = \WHMCS\Module\Addon\CloudStorage\Client\WelcomeClientState::clientHasLegacyCometBackup($welcomeClientId);
+                $viewVars['ebWelcomeExistingClient']     = \WHMCS\Module\Addon\CloudStorage\Client\WelcomeClientState::isWelcomeExistingClient($welcomeClientId);
+            } catch (\Throwable $e) {
+                $viewVars['ebHideLegacyCloudBackupCard'] = false;
+                $viewVars['ebWelcomeExistingClient']     = false;
+            }
             break;
 
         case 'test':
