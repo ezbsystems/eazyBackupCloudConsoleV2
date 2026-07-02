@@ -8,9 +8,8 @@ if (!defined("WHMCS")) {
 
 use Symfony\Component\HttpFoundation\JsonResponse;
 use WHMCS\ClientArea;
-use WHMCS\Module\Addon\CloudStorage\Admin\ProductConfig;
-use WHMCS\Module\Addon\CloudStorage\Client\DBController;
 use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupController;
+use WHMCS\Module\Addon\CloudStorage\Client\E3BackupAccess;
 use WHMCS\Module\Addon\CloudStorage\Client\Ms365BatchLiveService;
 use WHMCS\Module\Addon\CloudStorage\Client\SanitizedLogFormatter;
 use WHMCS\Module\Addon\CloudStorage\Client\TimezoneHelper;
@@ -22,11 +21,11 @@ if (!$ca->isLoggedIn()) {
     exit();
 }
 
-$packageId = ProductConfig::e3CloudBackupPid();
-$loggedInUserId = $ca->getUserID();
+require_once __DIR__ . '/../lib/Client/E3BackupAccess.php';
 
-$product = DBController::getProduct($loggedInUserId, $packageId);
-if (is_null($product) || empty($product->username)) {
+$loggedInUserId = (int) $ca->getUserID();
+
+if (!E3BackupAccess::clientHasE3BackupAccess($loggedInUserId)) {
     $response = new JsonResponse(['status' => 'fail', 'message' => 'Product not found.'], 200);
     $response->send();
     exit();

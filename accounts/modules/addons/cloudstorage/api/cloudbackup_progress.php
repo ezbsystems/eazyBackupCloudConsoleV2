@@ -13,6 +13,7 @@ use WHMCS\ClientArea;
 use WHMCS\Module\Addon\CloudStorage\Admin\ProductConfig;
 use WHMCS\Module\Addon\CloudStorage\Client\DBController;
 use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupController;
+use WHMCS\Module\Addon\CloudStorage\Client\E3BackupAccess;
 use WHMCS\Module\Addon\CloudStorage\Client\Ms365BatchLiveService;
 use WHMCS\Module\Addon\CloudStorage\Client\SanitizedLogFormatter;
 use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupEmailService;
@@ -20,10 +21,11 @@ use WHMCS\Module\Addon\CloudStorage\Client\TimezoneHelper;
 use WHMCS\Module\Addon\CloudStorage\Client\UuidBinary;
 use WHMCS\Database\Capsule;
 
-$debugLogPath = '/var/www/eazybackup.ca/.cursor/debug.log';
+$debugLogPath = '/var/www/eazybackup.ca/.cursor/debug-91dc3e.log';
 function progressDebugLog(string $message, array $data, string $hypothesisId, string $logPath): void
 {
     $entry = [
+        'sessionId' => '91dc3e',
         'id' => uniqid('log_', true),
         'timestamp' => (int) round(microtime(true) * 1000),
         'location' => 'cloudbackup_progress.php:debug',
@@ -46,11 +48,30 @@ if (!$ca->isLoggedIn()) {
     exit();
 }
 
-$packageId = ProductConfig::e3CloudBackupPid();
-$loggedInUserId = $ca->getUserID();
+require_once __DIR__ . '/../lib/Client/E3BackupAccess.php';
 
-$product = DBController::getProduct($loggedInUserId, $packageId);
-if (is_null($product) || empty($product->username)) {
+$loggedInUserId = (int) $ca->getUserID();
+// #region agent log
+$e3Pid = (int) ProductConfig::e3CloudBackupPid();
+$e3Product = $e3Pid > 0 ? DBController::getProduct($loggedInUserId, $e3Pid) : null;
+$ms365Pid = (int) ProductConfig::ms365BackupPid();
+$ms365Product = $ms365Pid > 0 ? DBController::getProduct($loggedInUserId, $ms365Pid) : null;
+$hasE3BackupAccess = E3BackupAccess::clientHasE3BackupAccess($loggedInUserId);
+progressDebugLog('progress_access_check', [
+    'client_id' => $loggedInUserId,
+    'has_e3_product' => $e3Product && !empty($e3Product->username),
+    'has_ms365_product' => $ms365Product && !empty($ms365Product->username),
+    'has_e3_backup_access' => $hasE3BackupAccess,
+    'run_uuid' => (string) ($_GET['run_uuid'] ?? $_GET['run_id'] ?? ''),
+], 'H-A', $debugLogPath);
+// #endregion
+if (!$hasE3BackupAccess) {
+    // #region agent log
+    progressDebugLog('progress_rejected_no_access', [
+        'client_id' => $loggedInUserId,
+        'message' => 'Product not found.',
+    ], 'H-A', $debugLogPath);
+    // #endregion
     $jsonData = [
         'status' => 'fail',
         'message' => 'Product not found.'
@@ -83,9 +104,24 @@ if (!$run) {
 }
 
 if (Ms365BatchLiveService::isMs365BatchRun($run)) {
+    // #region agent log
+    progressDebugLog('progress_ms365_batch', [
+        'client_id' => (int) $loggedInUserId,
+        'run_uuid' => (string) ($run['run_id'] ?? $runIdentifier),
+        'run_status' => (string) ($run['status'] ?? ''),
+    ], 'H-B', $debugLogPath);
+    // #endregion
     try {
         $batchRunId = (string) ($run['run_id'] ?? $runIdentifier);
         $progressRun = Ms365BatchLiveService::aggregateProgress($batchRunId, (int) $loggedInUserId, $run);
+        // #region agent log
+        progressDebugLog('progress_ms365_success', [
+            'client_id' => (int) $loggedInUserId,
+            'run_uuid' => $batchRunId,
+            'run_status' => (string) ($progressRun['status'] ?? ''),
+            'progress_pct' => $progressRun['progress_pct'] ?? null,
+        ], 'H-A-fix', $debugLogPath);
+        // #endregion
         if (ob_get_level() > 0) {
             ob_end_clean();
         }

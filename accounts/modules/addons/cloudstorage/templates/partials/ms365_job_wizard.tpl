@@ -350,8 +350,13 @@
                         <template x-for="opt in retentionOptions" :key="opt.id">
                             <button type="button"
                                     class="ms365-option-card w-full text-left"
-                                    :class="retentionTier === opt.id ? 'is-selected' : ''"
-                                    @click="retentionTier = opt.id">
+                                    :class="{
+                                        'is-selected': retentionTier === opt.id,
+                                        'is-disabled': !isRetentionTierEnabled(opt.id)
+                                    }"
+                                    :disabled="!isRetentionTierEnabled(opt.id)"
+                                    :aria-disabled="!isRetentionTierEnabled(opt.id)"
+                                    @click="selectRetentionTier(opt.id)">
                                 <span class="block font-medium text-[var(--eb-text-primary)]" x-text="opt.title"></span>
                                 <span class="block text-sm text-[var(--eb-text-muted)] mt-1" x-text="opt.description"></span>
                             </button>

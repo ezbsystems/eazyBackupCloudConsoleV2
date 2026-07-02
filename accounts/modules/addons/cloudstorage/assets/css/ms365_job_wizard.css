@@ -50,6 +50,19 @@
     box-shadow: 0 0 0 1px var(--eb-primary);
 }
 
+.ms365-option-card.is-disabled,
+.ms365-option-card:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+    background: var(--eb-surface-muted);
+}
+
+.ms365-option-card.is-disabled:hover,
+.ms365-option-card:disabled:hover {
+    border-color: var(--eb-border-default);
+    box-shadow: none;
+}
+
 .ms365-inventory-pane,
 .ms365-selection-pane {
     min-height: 22rem;

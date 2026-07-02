@@ -1082,6 +1082,9 @@ function updateProgress() {
     const ts = Date.now();
     fetchE3Json('cloudbackup_progress.php?run_uuid={$run.run_id}&ts=' + ts)
         .then(data => {
+            // #region agent log
+            fetch('http://127.0.0.1:7675/ingest/9183d0cd-775c-444c-9a41-6e97e9e7d4d0',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'91dc3e'},body:JSON.stringify({sessionId:'91dc3e',location:'e3backup_live.tpl:updateProgress',message:'poll_result',data:{apiStatus:data&&data.status,apiMessage:data&&data.message,runStatus:data&&data.run&&data.run.status,progressPct:data&&data.run&&data.run.progress_pct,liveIsMs365:LIVE_IS_MS365},timestamp:Date.now(),hypothesisId:'H-A'})}).catch(()=>{});
+            // #endregion
             if (data.status === 'success' && data.run) {
                 const run = data.run;
                 refreshErrorSummary(run);
@@ -1441,6 +1444,9 @@ function updateProgress() {
             }
         })
         .catch(error => {
+            // #region agent log
+            fetch('http://127.0.0.1:7675/ingest/9183d0cd-775c-444c-9a41-6e97e9e7d4d0',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'91dc3e'},body:JSON.stringify({sessionId:'91dc3e',location:'e3backup_live.tpl:updateProgress',message:'poll_error',data:{error:String(error&&error.message||error),liveIsMs365:LIVE_IS_MS365,e3ApiRoot:E3_API_ROOT},timestamp:Date.now(),hypothesisId:'H-C'})}).catch(()=>{});
+            // #endregion
             console.error('Error updating progress:', error);
         });
 }
@@ -2234,6 +2240,9 @@ function updateStatusDisplay(statusConfig) {
     updateEventLogs();
     progressInterval = setInterval(updateProgress, 2000);
     eventsInterval = setInterval(updateEventLogs, 2000);
+    // #region agent log
+    fetch('http://127.0.0.1:7675/ingest/9183d0cd-775c-444c-9a41-6e97e9e7d4d0',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'91dc3e'},body:JSON.stringify({sessionId:'91dc3e',location:'e3backup_live.tpl:init',message:'polling_started',data:{initialStatus:'{$run.status|escape:'javascript'}',pollingStarted:true,liveIsMs365:LIVE_IS_MS365,e3ApiRoot:E3_API_ROOT},timestamp:Date.now(),hypothesisId:'H-B'})}).catch(()=>{});
+    // #endregion
 {else}
     clearLogs();
     syncLogPanelChrome(false);
@@ -2243,5 +2252,8 @@ function updateStatusDisplay(statusConfig) {
     }
     updateProgress();
     updateFormattedLogs();
+    // #region agent log
+    fetch('http://127.0.0.1:7675/ingest/9183d0cd-775c-444c-9a41-6e97e9e7d4d0',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'91dc3e'},body:JSON.stringify({sessionId:'91dc3e',location:'e3backup_live.tpl:init',message:'polling_not_started',data:{initialStatus:'{$run.status|escape:'javascript'}',pollingStarted:false,liveIsMs365:LIVE_IS_MS365,e3ApiRoot:E3_API_ROOT},timestamp:Date.now(),hypothesisId:'H-B'})}).catch(()=>{});
+    // #endregion
 {/if}
 </script>

@@ -5,6 +5,8 @@
         (window.ms365JobSelection && window.ms365JobSelection.SECTIONS) || []
     );
 
+    const DEFAULT_RETENTION_TIER = '1y';
+
     const RETENTION_OPTIONS = [
         { id: '1y', title: 'Default — 1 year', description: 'All backups for the last 30 days plus 1 backup per week for 52 weeks.' },
         { id: '2y', title: '2 years', description: 'All backups for the last 30 days plus 1 backup per week for 2 years.' },
@@ -306,8 +308,9 @@
             savedSelectionIds: [],
             searchQuery: '',
             scheduleFrequency: 'once_daily',
-            retentionTier: '1y',
+            retentionTier: DEFAULT_RETENTION_TIER,
             retentionOptions: RETENTION_OPTIONS,
+            defaultRetentionTier: DEFAULT_RETENTION_TIER,
             jobName: DEFAULT_JOB_NAME_SUFFIX,
             _consentPollTimer: null,
             _consentTimeoutTimer: null,
@@ -370,7 +373,7 @@
                 this.selectionSummaryGroups = [];
                 this.savedSelectionIds = [];
                 this.scheduleFrequency = 'once_daily';
-                this.retentionTier = '1y';
+                this.retentionTier = DEFAULT_RETENTION_TIER;
                 this.jobName = this.defaultJobName();
                 this.inventory = { resources: [] };
 
@@ -787,6 +790,17 @@
                 if (this.step === 4) return !!this.retentionTier;
                 if (this.step === 5) return String(this.jobName || '').trim().length > 0;
                 return true;
+            },
+
+            isRetentionTierEnabled(tierId) {
+                return tierId === DEFAULT_RETENTION_TIER;
+            },
+
+            selectRetentionTier(tierId) {
+                if (!this.isRetentionTierEnabled(tierId)) {
+                    return;
+                }
+                this.retentionTier = tierId;
             },
 
             async loadStatus() {
@@ -1206,7 +1220,10 @@
                         this.savedSelectionIds = Array.isArray(j.selected_resource_ids) ? [...j.selected_resource_ids] : [];
                         this.scopeOverrides = j.scope_overrides || {};
                         this.scheduleFrequency = j.schedule_frequency || 'once_daily';
-                        this.retentionTier = j.retention_tier || '1y';
+                        const loadedTier = j.retention_tier || DEFAULT_RETENTION_TIER;
+                        this.retentionTier = this.isRetentionTierEnabled(loadedTier)
+                            ? loadedTier
+                            : DEFAULT_RETENTION_TIER;
                         if (this.inventory.resources && this.inventory.resources.length > 0) {
                             this.applySavedSelection();
                         }
@@ -1420,13 +1437,17 @@
                     return;
                 }
                 this.jobName = trimmedName;
+                const retentionTier = this.isRetentionTierEnabled(this.retentionTier)
+                    ? this.retentionTier
+                    : DEFAULT_RETENTION_TIER;
+                this.retentionTier = retentionTier;
                 this.saving = true;
                 try {
                     const body = new URLSearchParams({
                         user_id: this.backupUserId,
                         name: this.jobName,
                         schedule_frequency: this.scheduleFrequency,
-                        retention_tier: this.retentionTier,
+                        retention_tier: retentionTier,
                         selected_resource_ids: JSON.stringify(this.savedSelectionIds),
                         scope_overrides: JSON.stringify(this.scopeOverrides || {}),
                     });
