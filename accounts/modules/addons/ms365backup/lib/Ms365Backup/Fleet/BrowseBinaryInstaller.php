@@ -15,10 +15,10 @@ final class BrowseBinaryInstaller
             return false;
         }
         $source = trim((string) ($latest['artifact_path'] ?? ''));
-        if ($source === '' || !is_file($source) || !is_readable($source)) {
-            return false;
-        }
         $dest = rtrim(FleetSettings::repoPath(), '/') . '/ms365-backup-worker';
+        if ($source === '' || !is_file($source) || !is_readable($source)) {
+            return is_executable($dest);
+        }
         $dir = dirname($dest);
         if (!is_dir($dir) && !@mkdir($dir, 0755, true) && !is_dir($dir)) {
             return false;

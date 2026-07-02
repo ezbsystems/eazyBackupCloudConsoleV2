@@ -427,9 +427,22 @@ function ms365backup_run_sql_file(string $path): void
         return;
     }
     foreach (array_filter(array_map('trim', explode(';', $sql))) as $stmt) {
-        if ($stmt !== '') {
-            Capsule::connection()->statement($stmt);
+        $lines = [];
+        foreach (preg_split('/\R/', $stmt) ?: [] as $line) {
+            $line = trim($line);
+            if ($line === '' || str_starts_with($line, '--')) {
+                continue;
+            }
+            $lines[] = $line;
         }
+        $stmt = trim(implode("\n", $lines));
+        if ($stmt === '') {
+            continue;
+        }
+        if (!preg_match('/^\s*(CREATE|ALTER|INSERT|UPDATE|DELETE|DROP|SELECT)\b/i', $stmt)) {
+            continue;
+        }
+        Capsule::connection()->statement($stmt);
     }
 }
 
