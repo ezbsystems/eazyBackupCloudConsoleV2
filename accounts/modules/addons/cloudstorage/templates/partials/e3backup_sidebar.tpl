@@ -14,6 +14,8 @@
 {assign var=ebMs365OnboardingCompleted value=$ebMs365OnboardingCompleted|default:0}
 {assign var=ebMs365OnboardingTotal value=$ebMs365OnboardingTotal|default:3}
 {assign var=ebMs365OnboardingHidden value=$ebMs365OnboardingHidden|default:true}
+{assign var=ebHasE3AgentProduct value=$ebHasE3AgentProduct|default:false}
+{assign var=ebEnableAgentUrl value='index.php?m=cloudstorage&page=e3backup&view=enable_agent_backup'}
 
 <aside
     :class="sidebarCollapsed ? 'w-20' : 'w-56'"
@@ -32,27 +34,28 @@
         </div>
 
         <nav class="flex-1 space-y-1 overflow-y-auto px-3 py-3">
-            {if $ebMs365ShowGettingStarted and not $ebMs365OnboardingHidden}
+            {if not $ebMs365OnboardingHidden}
             <a href="index.php?m=cloudstorage&page=e3backup&view=ms365_getting_started"
                class="eb-sidebar-link {if $activeNav eq 'ms365_getting_started'}is-active{/if}"
                :class="sidebarCollapsed && 'justify-center px-4'"
-               :title="sidebarCollapsed ? 'Getting Started' : ''">
+               :title="sidebarCollapsed ? 'Getting Started (Microsoft 365)' : ''">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
                 </svg>
-                <span x-show="!sidebarCollapsed" x-transition.opacity>Getting Started</span>
+                <span x-show="!sidebarCollapsed" x-transition.opacity>Getting Started (M365)</span>
                 <span x-show="!sidebarCollapsed" x-transition.opacity class="eb-sidebar-badge">{$ebMs365OnboardingCompleted}/{$ebMs365OnboardingTotal}</span>
             </a>
-            {elseif not $ebE3OnboardingHidden}
+            {/if}
+            {if not $ebE3OnboardingHidden}
             <a href="index.php?m=cloudstorage&page=e3backup&view=getting_started"
                data-tour="sidebar-getting-started"
                class="eb-sidebar-link {if $activeNav eq 'getting_started'}is-active{/if}"
                :class="sidebarCollapsed && 'justify-center px-4'"
-               :title="sidebarCollapsed ? 'Getting Started' : ''">
+               :title="sidebarCollapsed ? 'Getting Started (Agent)' : ''">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
                 </svg>
-                <span x-show="!sidebarCollapsed" x-transition.opacity>Getting Started</span>
+                <span x-show="!sidebarCollapsed" x-transition.opacity>Getting Started (Agent)</span>
                 <span x-show="!sidebarCollapsed" x-transition.opacity class="eb-sidebar-badge">{$ebE3OnboardingCompleted}/{$ebE3OnboardingTotal}</span>
             </a>
             {/if}
@@ -91,9 +94,9 @@
                 </a>
             {/if}
 
-            <a href="{if $ebMs365Only}#{else}index.php?m=cloudstorage&page=e3backup&view=agents{/if}"
-               class="eb-sidebar-link {if $ebMs365Only}is-disabled{elseif not $ebE3HasAgents}is-disabled{elseif $activeNav eq 'agents'}is-active{/if}"
-               {if $ebMs365Only}aria-disabled="true" onclick="return false;" tabindex="-1" title="Not required for Microsoft 365 Backup"
+            <a href="{if not $ebHasE3AgentProduct}{$ebEnableAgentUrl}{elseif $ebE3HasAgents}index.php?m=cloudstorage&page=e3backup&view=agents{else}#{/if}"
+               class="eb-sidebar-link {if not $ebHasE3AgentProduct}{elseif not $ebE3HasAgents}is-disabled{elseif $activeNav eq 'agents'}is-active{/if}"
+               {if not $ebHasE3AgentProduct}title="Enable workstation & server backup to use this"
                {elseif not $ebE3HasAgents}aria-disabled="true" onclick="return false;" tabindex="-1" title="Available after you enroll an agent"{/if}
                :class="sidebarCollapsed && 'justify-center px-4'"
                :title="sidebarCollapsed ? 'Agents' : ''">
@@ -110,9 +113,10 @@
                 <span x-show="!sidebarCollapsed" x-transition.opacity>Vaults</span>
             </a>
 
-            <a href="{if $ebE3HasAgents}index.php?m=cloudstorage&page=e3backup&view=job_logs{else}#{/if}"
-               class="eb-sidebar-link {if not $ebE3HasAgents}is-disabled{elseif $activeNav eq 'job_logs'}is-active{/if}"
-               {if not $ebE3HasAgents}aria-disabled="true" onclick="return false;" tabindex="-1" title="Available after you enroll an agent"{/if}
+            <a href="{if not $ebHasE3AgentProduct}{$ebEnableAgentUrl}{elseif $ebE3HasAgents}index.php?m=cloudstorage&page=e3backup&view=job_logs{else}#{/if}"
+               class="eb-sidebar-link {if not $ebHasE3AgentProduct}{elseif not $ebE3HasAgents}is-disabled{elseif $activeNav eq 'job_logs'}is-active{/if}"
+               {if not $ebHasE3AgentProduct}title="Enable workstation & server backup to use this"
+               {elseif not $ebE3HasAgents}aria-disabled="true" onclick="return false;" tabindex="-1" title="Available after you enroll an agent"{/if}
                :class="sidebarCollapsed && 'justify-center px-4'"
                :title="sidebarCollapsed ? 'Job Logs' : ''">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
@@ -130,9 +134,10 @@
             </a>
             {/if}
 
-            <a href="{if $ebE3HasAgents}index.php?m=cloudstorage&page=e3backup&view=cloudnas{else}#{/if}"
-               class="eb-sidebar-link {if not $ebE3HasAgents}is-disabled{elseif $activeNav eq 'cloudnas'}is-active{/if}"
-               {if not $ebE3HasAgents}aria-disabled="true" onclick="return false;" tabindex="-1" title="Available after you enroll an agent"{/if}
+            <a href="{if not $ebHasE3AgentProduct}{$ebEnableAgentUrl}{elseif $ebE3HasAgents}index.php?m=cloudstorage&page=e3backup&view=cloudnas{else}#{/if}"
+               class="eb-sidebar-link {if not $ebHasE3AgentProduct}{elseif not $ebE3HasAgents}is-disabled{elseif $activeNav eq 'cloudnas'}is-active{/if}"
+               {if not $ebHasE3AgentProduct}title="Enable workstation & server backup to use this"
+               {elseif not $ebE3HasAgents}aria-disabled="true" onclick="return false;" tabindex="-1" title="Available after you enroll an agent"{/if}
                :class="sidebarCollapsed && 'justify-center px-4'"
                :title="sidebarCollapsed ? 'Cloud NAS' : ''">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
@@ -149,9 +154,10 @@
             <div x-show="!sidebarCollapsed" x-transition.opacity class="eb-type-eyebrow mb-1 mt-4 px-1">Advanced</div>
             <div x-show="sidebarCollapsed" class="eb-sidebar-divider"></div>
 
-            <a href="{if $ebE3HasAgents}index.php?m=cloudstorage&page=e3backup&view=recovery_media{else}#{/if}"
-               class="eb-sidebar-link {if not $ebE3HasAgents}is-disabled{elseif $activeNav eq 'recovery_media'}is-active{/if}"
-               {if not $ebE3HasAgents}aria-disabled="true" onclick="return false;" tabindex="-1" title="Available after you enroll an agent"{/if}
+            <a href="{if not $ebHasE3AgentProduct}{$ebEnableAgentUrl}{elseif $ebE3HasAgents}index.php?m=cloudstorage&page=e3backup&view=recovery_media{else}#{/if}"
+               class="eb-sidebar-link {if not $ebHasE3AgentProduct}{elseif not $ebE3HasAgents}is-disabled{elseif $activeNav eq 'recovery_media'}is-active{/if}"
+               {if not $ebHasE3AgentProduct}title="Enable workstation & server backup to use this"
+               {elseif not $ebE3HasAgents}aria-disabled="true" onclick="return false;" tabindex="-1" title="Available after you enroll an agent"{/if}
                :class="sidebarCollapsed && 'justify-center px-4'"
                :title="sidebarCollapsed ? 'Media Builder' : ''">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
@@ -163,12 +169,8 @@
         </nav>
 
         <div class="border-t border-[var(--eb-border-subtle)] px-3 py-3">
-            {if not $ebMs365Only}
             <div x-show="!sidebarCollapsed" x-transition.opacity class="eb-type-eyebrow mb-2 px-1">Install agent</div>
-            {* Avoid inline object literals here - Smarty parses bare "{" as a tag.
-               The flyout's own open handler records the download_clicked event,
-               and ebE3OpenDownload() (defined in e3backup_shell.tpl) is a safe
-               brace-free wrapper that we can call from any onclick. *}
+            {if $ebHasE3AgentProduct}
             <button type="button"
                     data-tour="sidebar-download"
                     onclick="ebE3OpenDownload();"
@@ -180,10 +182,19 @@
                 </svg>
                 <span x-show="!sidebarCollapsed" x-transition.opacity>Download Agent</span>
             </button>
-
-            <div class="eb-sidebar-divider"></div>
+            {else}
+            <a href="{$ebEnableAgentUrl|escape:'html'}"
+               title="Enable workstation & server backup to use this"
+               class="eb-btn eb-btn-primary eb-btn-md w-full justify-center gap-2"
+               :class="sidebarCollapsed && '!px-2'">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-4 w-4">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                </svg>
+                <span x-show="!sidebarCollapsed" x-transition.opacity>Enable Agent Backup</span>
+            </a>
             {/if}
 
+            <div class="eb-sidebar-divider"></div>
             <button type="button" @click="toggleCollapse()" class="eb-sidebar-link w-full cursor-pointer text-left" :class="sidebarCollapsed && 'justify-center px-4'" :title="sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="transition-transform duration-300" :class="sidebarCollapsed && 'rotate-180'">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" />

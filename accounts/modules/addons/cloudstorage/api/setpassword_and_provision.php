@@ -141,24 +141,22 @@ try {
     if (in_array($choice, ['cloud2cloud','cloud-to-cloud'], true)) $choice = 'cloud2cloud';
     if (in_array($choice, ['e3backup','e3_backup','e3-backup','cloudbackup_e3'], true)) $choice = 'e3backup';
 
-    // Beta gate for e3backup
-    if ($choice === 'e3backup') {
-        require_once __DIR__ . '/../lib/Beta/BetaGate.php';
-        if (!\WHMCS\Module\Addon\CloudStorage\Beta\BetaGate::isE3BackupVisible($clientId)) {
-            echo json_encode(['status' => 'error', 'errors' => ['general' => 'e3 Cloud Backup is not available for your account yet.']]);
-            exit;
-        }
-    }
-
-    // Existing-customer onboarding (e3 Cloud Backup only): the client already
-    // has a portal account, so we skip the portal-password creation entirely.
-    // They re-enter their CURRENT portal password here purely so we can reuse
-    // it as the backup-agent sign-in password. We verify it below but never
-    // change it.
-    $existingClient = (!empty($_POST['existing_client']) && $choice === 'e3backup');
+    // Existing-customer onboarding: the client already has a portal account,
+    // so we skip portal-password creation. They re-enter their CURRENT portal
+    // password so we can reuse it as the backup-agent sign-in password.
+    $existingClient = (!empty($_POST['existing_client']) && in_array($choice, ['e3backup', 'ms365'], true));
     if ($existingClient) {
         $passwordFromSession = false;
         $confirmPassword = $newPassword;
+    }
+
+    // Beta gate for e3backup (skip for existing-client add-on provisioning).
+    if ($choice === 'e3backup') {
+        require_once __DIR__ . '/../lib/Beta/BetaGate.php';
+        if (!$existingClient && !\WHMCS\Module\Addon\CloudStorage\Beta\BetaGate::isE3BackupVisible($clientId)) {
+            echo json_encode(['status' => 'error', 'errors' => ['general' => 'e3 Cloud Backup is not available for your account yet.']]);
+            exit;
+        }
     }
 
     // Validate and normalize storage tier for Cloud Storage

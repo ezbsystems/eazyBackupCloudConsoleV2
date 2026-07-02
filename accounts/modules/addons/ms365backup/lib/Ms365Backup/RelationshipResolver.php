@@ -128,6 +128,34 @@ final class RelationshipResolver
     }
 
     /**
+     * Map SharePoint site resource ids to workload ids (team, channel, group) that own file content.
+     *
+     * @param list<array{from_id: string, rel: string, to_id: string, physical_key: string}> $relationships
+     * @return array<string, list<string>>
+     */
+    public function filesInSiteLinks(array $relationships): array
+    {
+        $links = [];
+        foreach ($relationships as $rel) {
+            if (!is_array($rel) || ($rel['rel'] ?? '') !== self::REL_FILES_IN_SITE) {
+                continue;
+            }
+            $siteId = (string) ($rel['to_id'] ?? '');
+            $workloadId = (string) ($rel['from_id'] ?? '');
+            if ($siteId === '' || $workloadId === '') {
+                continue;
+            }
+            $links[$siteId][] = $workloadId;
+        }
+
+        foreach ($links as $siteId => $workloadIds) {
+            $links[$siteId] = array_values(array_unique($workloadIds));
+        }
+
+        return $links;
+    }
+
+    /**
      * @param list<array{from_id: string, rel: string, to_id: string, physical_key: string}> $edges
      * @return list<array{from_id: string, rel: string, to_id: string, physical_key: string}>
      */

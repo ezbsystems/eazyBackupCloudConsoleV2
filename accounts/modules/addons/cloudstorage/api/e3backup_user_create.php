@@ -2,11 +2,13 @@
 
 require_once __DIR__ . '/../../../../init.php';
 require_once __DIR__ . '/../lib/Client/MspController.php';
+require_once __DIR__ . '/../lib/Client/E3BackupClientState.php';
 require_once __DIR__ . '/../../eazybackup/pages/partnerhub/TenantStorageLinksController.php';
 
 use Illuminate\Database\Capsule\Manager as Capsule;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use WHMCS\ClientArea;
+use WHMCS\Module\Addon\CloudStorage\Client\E3BackupClientState;
 use WHMCS\Module\Addon\CloudStorage\Client\MspController;
 
 if (!defined("WHMCS")) {
@@ -74,6 +76,17 @@ if (!in_array($backupType, ['cloud_only', 'local', 'both'], true)) {
     $backupType = 'both';
 }
 $isCloudOnly = ($backupType === 'cloud_only');
+
+if (in_array($backupType, ['local', 'both'], true)
+    && !E3BackupClientState::clientHasE3AgentProduct((int) $clientId)) {
+    userCreateFail(
+        'Workstation and server backup requires the e3 Backup Agent product. Enable it first.',
+        400,
+        [
+            'backup_type' => 'Enable workstation & server backup at index.php?m=cloudstorage&page=e3backup&view=enable_agent_backup',
+        ]
+    );
+}
 
 if ($isCloudOnly) {
     $password = bin2hex(random_bytes(32));

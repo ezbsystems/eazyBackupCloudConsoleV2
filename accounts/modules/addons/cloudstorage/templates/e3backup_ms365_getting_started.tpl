@@ -141,6 +141,15 @@
     {/if}
 </div>
 
+{if not $ebHasE3AgentProduct}
+{include file="modules/addons/cloudstorage/templates/partials/e3backup_cross_sell_card.tpl"
+    ebCrossSellTitle="Also protect workstations and servers"
+    ebCrossSellBody="Install the e3 Backup Agent on Windows, macOS, and Linux to back up files, disks, and Hyper-V VMs."
+    ebCrossSellCtaLabel="Enable workstation & server backup →"
+    ebCrossSellCtaHref="index.php?m=cloudstorage&page=e3backup&view=enable_agent_backup"
+}
+{/if}
+
 {literal}
 <script>
 function ebMs365GettingStarted(initialState, wizardUrl, backupUserRouteId) {

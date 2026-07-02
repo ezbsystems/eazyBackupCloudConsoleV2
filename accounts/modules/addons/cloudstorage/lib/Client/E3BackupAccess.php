@@ -65,6 +65,28 @@ class E3BackupAccess
     }
 
     /**
+     * Relaxed shell access for dashboard, enable pages, and getting started.
+     * Includes object-storage customers who have not yet enabled a backup product.
+     */
+    public static function requireE3BackupShellAccess(string $view = ''): int
+    {
+        $ca = new ClientArea();
+        if (!$ca->isLoggedIn()) {
+            header('Location: clientarea.php');
+            exit;
+        }
+
+        $clientId = (int) $ca->getUserID();
+        require_once __DIR__ . '/E3BackupClientState.php';
+        if (!E3BackupClientState::clientCanAccessE3BackupShell($clientId)) {
+            header('Location: index.php?m=cloudstorage&page=welcome');
+            exit;
+        }
+
+        return $clientId;
+    }
+
+    /**
      * Primary WHMCS service username for object-storage lookups (e3 agent product, else MS365).
      */
     public static function resolveServiceUsername(int $clientId): string

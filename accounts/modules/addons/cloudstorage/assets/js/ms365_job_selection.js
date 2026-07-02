@@ -84,10 +84,33 @@
         });
     }
 
-    function parentResources(inventory, types) {
+    function shouldShowInSection(resource, sectionKey) {
+        if (sectionKey !== 'sharepoint' || !resource || resource.resource_type !== TYPE_SITE) {
+            return true;
+        }
+        if (resource.show_in_sharepoint_section === false) {
+            return false;
+        }
+        if (resource.show_in_sharepoint_section === true) {
+            return true;
+        }
+        if (resource.infrastructure_site === true) {
+            return false;
+        }
+        if (resource.workload_group_connected === true || resource.group_connected === true) {
+            return false;
+        }
+        if (resource.channel_connected === true) {
+            return false;
+        }
+        return true;
+    }
+
+    function parentResources(inventory, types, sectionKey) {
         const allowed = new Set(types);
         return ((inventory && inventory.resources) || [])
             .filter((r) => allowed.has(r.resource_type))
+            .filter((r) => shouldShowInSection(r, sectionKey))
             .sort((a, b) => String(a.display_name || '').localeCompare(String(b.display_name || ''), undefined, { sensitivity: 'base' }));
     }
 
@@ -185,7 +208,7 @@
 
     function buildSectionTree(inventory, section) {
         const nodes = [];
-        const parents = parentResources(inventory, section.parentTypes);
+        const parents = parentResources(inventory, section.parentTypes, section.key);
 
         parents.forEach((parent) => {
             if (section.flat) {
@@ -594,6 +617,7 @@
         return resources.filter((r) => {
             return r
                 && r.resource_type === TYPE_SITE
+                && shouldShowInSection(r, 'sharepoint')
                 && r.selectable === false;
         }).length;
     }

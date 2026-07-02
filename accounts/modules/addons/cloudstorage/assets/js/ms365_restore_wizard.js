@@ -357,7 +357,25 @@
                     const res = await fetch(apiBase() + 'ms365_inventory.php?' + params.toString());
                     const data = await res.json();
                     if (data.status !== 'success') throw new Error(data.message || 'Inventory failed');
-                    this.inventoryResources = data.resources || data.inventory?.resources || [];
+                    const resources = data.resources || data.inventory?.resources || [];
+                    this.inventoryResources = resources.filter((res) => {
+                        if (res.resource_type !== 'sharepoint_site') {
+                            return true;
+                        }
+                        if (res.show_in_sharepoint_section === false) {
+                            return false;
+                        }
+                        if (res.infrastructure_site === true) {
+                            return false;
+                        }
+                        if (res.workload_group_connected === true || res.group_connected === true) {
+                            return false;
+                        }
+                        if (res.channel_connected === true) {
+                            return false;
+                        }
+                        return true;
+                    });
                 } catch (e) {
                     toast('error', e.message || 'Failed to load targets');
                 }

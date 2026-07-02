@@ -239,13 +239,20 @@
     });
     html += sectionHtml('onedrive', 'OneDrive', odRows, resourcesByType(TYPE_ONEDRIVE).length);
 
+    var standaloneSites = resourcesByType(TYPE_SITE).filter(function (s) {
+      if (s.show_in_sharepoint_section === false) return false;
+      if (s.infrastructure_site === true) return false;
+      if (s.workload_group_connected === true || s.group_connected === true) return false;
+      if (s.channel_connected === true) return false;
+      return true;
+    });
     var siteRows = '';
-    resourcesByType(TYPE_SITE).sort(function (a, b) {
+    standaloneSites.sort(function (a, b) {
       return String(a.display_name).localeCompare(String(b.display_name), undefined, { sensitivity: 'base' });
     }).forEach(function (s) {
       if (matchesFilter(s, q)) siteRows += rowHtml(s);
     });
-    html += sectionHtml('sites', 'SharePoint Sites', siteRows, resourcesByType(TYPE_SITE).length);
+    html += sectionHtml('sites', 'SharePoint Sites', siteRows, standaloneSites.length);
 
     var teamRows = '';
     resourcesByType(TYPE_TEAM).sort(function (a, b) {

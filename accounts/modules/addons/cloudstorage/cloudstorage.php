@@ -5691,7 +5691,34 @@ function cloudstorage_clientarea($vars) {
             break;
 
         case 'e3backup':
-            $view = $_GET['view'] ?? 'dashboard';
+            $viewParam = isset($_GET['view']) ? trim((string) $_GET['view']) : '';
+            $view = ($viewParam !== '' && $viewParam !== 'home') ? $viewParam : 'dashboard';
+
+            // Smart landing: empty/default/home view resolves to the correct onboarding
+            // entry point (MS365 GS > agent GS > dashboard).
+            if ($viewParam === '' || $viewParam === 'home') {
+                try {
+                    $landingClientId = 0;
+                    $caLanding = new \WHMCS\ClientArea();
+                    if ($caLanding->isLoggedIn()) {
+                        $landingClientId = (int) $caLanding->getUserID();
+                    }
+                    if ($landingClientId > 0) {
+                        $statePath = __DIR__ . '/lib/Client/E3BackupClientState.php';
+                        if (is_file($statePath)) {
+                            require_once $statePath;
+                        }
+                        if (class_exists('\\WHMCS\\Module\\Addon\\CloudStorage\\Client\\E3BackupClientState')) {
+                            $landingView = \WHMCS\Module\Addon\CloudStorage\Client\E3BackupClientState::resolveLandingView($landingClientId);
+                            if ($landingView !== 'dashboard') {
+                                header('Location: index.php?m=cloudstorage&page=e3backup&view=' . rawurlencode($landingView));
+                                exit;
+                            }
+                        }
+                    }
+                } catch (\Throwable $_) {
+                }
+            }
 
             // Legacy e3 tenant views (tenants / tenant_detail / tenant_members /
             // tenant_users) were replaced by Partner Hub (m=eazybackup). The old
@@ -5748,6 +5775,11 @@ function cloudstorage_clientarea($vars) {
                 'ebMs365OnboardingComplete' => false,
                 'ebMs365OnboardingHidden' => true,
                 'ebMs365ShowGettingStarted' => false,
+                'ebHasE3AgentProduct'     => false,
+                'ebHasMs365Product'       => false,
+                'ebHasCloudStorageProduct' => false,
+                'ebShowEnableAgentCard'   => false,
+                'ebShowEnableMs365Card'   => false,
             ];
             try {
                 $obStatePath = __DIR__ . '/lib/Client/OnboardingState.php';
@@ -5782,12 +5814,21 @@ function cloudstorage_clientarea($vars) {
                 if (is_file($e3AccessPath)) {
                     require_once $e3AccessPath;
                 }
+                $e3StatePath = __DIR__ . '/lib/Client/E3BackupClientState.php';
+                if (is_file($e3StatePath)) {
+                    require_once $e3StatePath;
+                }
                 $ms365Autoload = __DIR__ . '/../ms365backup/ms365backup_autoload.php';
                 if (is_file($ms365Autoload)) {
                     require_once $ms365Autoload;
                 }
                 if ($obClientId > 0 && class_exists('\\WHMCS\\Module\\Addon\\CloudStorage\\Client\\E3BackupAccess')) {
                     $ebE3OnboardingShared['ebMs365Only'] = \WHMCS\Module\Addon\CloudStorage\Client\E3BackupAccess::clientIsMs365Only($obClientId);
+                    if (class_exists('\\WHMCS\\Module\\Addon\\CloudStorage\\Client\\E3BackupClientState')) {
+                        $ebE3OnboardingShared['ebHasE3AgentProduct'] = \WHMCS\Module\Addon\CloudStorage\Client\E3BackupClientState::clientHasE3AgentProduct($obClientId);
+                        $ebE3OnboardingShared['ebHasMs365Product'] = \WHMCS\Module\Addon\CloudStorage\Client\E3BackupClientState::clientHasMs365Product($obClientId);
+                        $ebE3OnboardingShared['ebHasCloudStorageProduct'] = \WHMCS\Module\Addon\CloudStorage\Client\E3BackupClientState::clientHasCloudStorageProduct($obClientId);
+                    }
                     $defaultBu = \WHMCS\Module\Addon\CloudStorage\Client\E3BackupAccess::defaultBackupUser($obClientId);
                     if ($defaultBu && class_exists('\\Ms365Backup\\Ms365Onboarding')) {
                         $msOb = \Ms365Backup\Ms365Onboarding::computeForBackupUser($obClientId, (int) $defaultBu['id']);
@@ -5797,7 +5838,17 @@ function cloudstorage_clientarea($vars) {
                         $ebE3OnboardingShared['ebMs365OnboardingComplete'] = (bool) ($msOb['all_complete'] ?? false);
                         $ebE3OnboardingShared['ebMs365OnboardingHidden'] = !empty($msOb['all_complete']);
                         $ebE3OnboardingShared['ebMs365ShowGettingStarted'] = (
-                            $ebE3OnboardingShared['ebMs365Only'] && empty($msOb['all_complete'])
+                            $ebE3OnboardingShared['ebHasMs365Product'] && empty($msOb['all_complete'])
+                        );
+                    }
+                    if (class_exists('\\WHMCS\\Module\\Addon\\CloudStorage\\Client\\E3BackupClientState')) {
+                        $ebE3OnboardingShared['ebShowEnableAgentCard'] = \WHMCS\Module\Addon\CloudStorage\Client\E3BackupClientState::showEnableAgentCard(
+                            $obClientId,
+                            !empty($ebE3OnboardingShared['ebMs365OnboardingComplete'])
+                        );
+                        $ebE3OnboardingShared['ebShowEnableMs365Card'] = \WHMCS\Module\Addon\CloudStorage\Client\E3BackupClientState::showEnableMs365Card(
+                            $obClientId,
+                            !empty($ebE3OnboardingShared['ebE3OnboardingComplete'])
                         );
                     }
                 }
@@ -5896,6 +5947,16 @@ function cloudstorage_clientarea($vars) {
                 case 'ms365_connect_callback':
                     require 'pages/e3backup_ms365_connect_callback.php';
                     exit;
+                case 'enable_agent_backup':
+                    $pagetitle = 'e3 Cloud Backup - Enable Workstation & Server Backup';
+                    $templatefile = 'templates/e3backup_enable_agent_backup';
+                    $viewVars = require 'pages/e3backup_enable_agent_backup.php';
+                    break;
+                case 'enable_ms365_backup':
+                    $pagetitle = 'Microsoft 365 Backup - Enable';
+                    $templatefile = 'templates/e3backup_enable_ms365_backup';
+                    $viewVars = require 'pages/e3backup_enable_ms365_backup.php';
+                    break;
                 case 'dashboard':
                 default:
                     $pagetitle = 'e3 Cloud Backup';

@@ -209,6 +209,145 @@ final class TenantResource
         ];
     }
 
+    /**
+     * SharePoint system / infrastructure sites that should not appear in customer pickers.
+     */
+    public static function isInfrastructureSharePointSite(array $resource): bool
+    {
+        if ((string) ($resource['resource_type'] ?? '') !== self::TYPE_SHAREPOINT_SITE) {
+            return false;
+        }
+        $meta = is_array($resource['meta'] ?? null) ? $resource['meta'] : [];
+        $url = strtolower(trim((string) ($meta['web_url'] ?? $resource['email'] ?? '')));
+        if ($url === '') {
+            return false;
+        }
+
+        $patterns = [
+            '/sites/contenttypehub',
+            '/portals/hub',
+            '/sites/search',
+            '/sites/appcatalog',
+            '/sites/compliancepolicy',
+        ];
+        foreach ($patterns as $pattern) {
+            if (str_contains($url, $pattern)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param list<string> $workloadIds
+     */
+    public static function siteLinkedToWorkloadType(array $workloadIds, string $prefix): bool
+    {
+        $needle = $prefix . ':';
+        foreach ($workloadIds as $workloadId) {
+            if (str_starts_with((string) $workloadId, $needle)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Whether a SharePoint site should appear in the standalone SharePoint Sites wizard section.
+     *
+     * Team-backed sites remain visible (files can be selected at site or team level; planner dedupes).
+     * M365 group-backed and infrastructure sites are hidden (select via Groups or omitted).
+     */
+    public static function showInSharePointSection(array $resource): bool
+    {
+        if ((string) ($resource['resource_type'] ?? '') !== self::TYPE_SHAREPOINT_SITE) {
+            return false;
+        }
+        if (($resource['infrastructure_site'] ?? false) === true) {
+            return false;
+        }
+        if (($resource['workload_group_connected'] ?? false) === true) {
+            return false;
+        }
+        if (($resource['channel_connected'] ?? false) === true) {
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Wizard-facing inventory counts (differs from raw Graph discovery for SharePoint sites).
+     *
+     * @param list<array<string, mixed>> $resources
+     * @return array{users: int, sites: int, teams: int, groups: int}
+     */
+    public static function displayCounts(array $resources): array
+    {
+        $typeCounts = self::countByType($resources);
+        $sharepointVisible = 0;
+        foreach ($resources as $resource) {
+            if (!is_array($resource)) {
+                continue;
+            }
+            if (self::showInSharePointSection($resource)) {
+                ++$sharepointVisible;
+            }
+        }
+
+        return [
+            'users' => (int) ($typeCounts[self::TYPE_USER] ?? 0) + (int) ($typeCounts[self::TYPE_MAILBOX] ?? 0),
+            'sites' => $sharepointVisible,
+            'teams' => (int) ($typeCounts[self::TYPE_TEAM] ?? 0),
+            'groups' => (int) ($typeCounts[self::TYPE_M365_GROUP] ?? 0),
+        ];
+    }
+
+    /**
+     * Enrich SharePoint site resources with workload linkage and wizard visibility metadata.
+     *
+     * @param list<array<string, mixed>> $resources
+     * @param list<array{from_id: string, rel: string, to_id: string, physical_key: string}> $relationships
+     * @return list<array<string, mixed>>
+     */
+    public static function enrichSharePointDisplayMetadata(array $resources, array $relationships): array
+    {
+        $links = (new RelationshipResolver())->filesInSiteLinks($relationships);
+
+        $out = [];
+        foreach ($resources as $resource) {
+            if (!is_array($resource)) {
+                continue;
+            }
+            if ((string) ($resource['resource_type'] ?? '') === self::TYPE_SHAREPOINT_SITE) {
+                $id = (string) ($resource['id'] ?? '');
+                $workloadIds = $links[$id] ?? [];
+                if ($workloadIds !== []) {
+                    $resource['linked_workload_ids'] = $workloadIds;
+                    $resource['team_connected'] = self::siteLinkedToWorkloadType($workloadIds, 'team');
+                    $resource['workload_group_connected'] = self::siteLinkedToWorkloadType($workloadIds, 'group');
+                    $resource['channel_connected'] = self::siteLinkedToWorkloadType($workloadIds, 'channel');
+                    $resource['group_connected'] = $resource['workload_group_connected'];
+                }
+                if (self::isInfrastructureSharePointSite($resource)) {
+                    $resource['infrastructure_site'] = true;
+                }
+                $resource['show_in_sharepoint_section'] = self::showInSharePointSection($resource);
+            }
+            $out[] = $resource;
+        }
+
+        return $out;
+    }
+
+    /** @deprecated Use enrichSharePointDisplayMetadata() */
+    public static function enrichGroupConnectedSites(array $resources, array $relationships): array
+    {
+        return self::enrichSharePointDisplayMetadata($resources, $relationships);
+    }
+
     /** @return array<string, int> */
     public static function countByType(array $resources): array
     {

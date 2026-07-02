@@ -18,6 +18,8 @@
 
 {capture assign=ebE3Content}
 
+    {include file="modules/addons/cloudstorage/templates/partials/e3backup_product_portfolio.tpl"}
+
     {* ── Row 1: Primary KPI Cards ── *}
     <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
 
@@ -298,8 +300,8 @@
 
     {* ── Row 3: Getting Started / Quick Actions ── *}
     <section class="mt-6 eb-card-raised !p-0 overflow-hidden">
-        {if $agentCount == 0 && $userCount == 0}
-        {* ── Onboarding: Getting Started ── *}
+        {if $agentCount == 0 && $userCount == 0 && not $ebMs365Only && not $ebShowEnableAgentCard}
+        {* ── Onboarding: Getting Started (agent-centric) ── *}
         <div class="eb-card-header eb-card-header--divided !-mx-0 !-mt-0 !mb-0 !px-6 !py-5">
             <div>
                 <h2 class="eb-card-title !text-base">Getting Started</h2>
@@ -332,6 +334,31 @@
                     </div>
                 </a>
             </div>
+        </div>
+
+        {elseif $agentCount == 0 && $userCount == 0 && ($ebMs365Only || $ebShowEnableAgentCard)}
+        <div class="eb-card-header eb-card-header--divided !-mx-0 !-mt-0 !mb-0 !px-6 !py-5">
+            <div>
+                <h2 class="eb-card-title !text-base">Getting Started</h2>
+                <p class="eb-card-subtitle">
+                    {if $ebMs365Only && not $ebMs365OnboardingComplete}
+                        Continue Microsoft 365 setup to run your first backup.
+                    {else}
+                        Use the product cards above to add backup capabilities to your account.
+                    {/if}
+                </p>
+            </div>
+        </div>
+        <div class="p-6">
+            {if $ebMs365Only && not $ebMs365OnboardingComplete}
+            <a href="index.php?m=cloudstorage&page=e3backup&view=ms365_getting_started" class="eb-btn eb-btn-primary eb-btn-md">
+                Continue Microsoft 365 setup
+            </a>
+            {else}
+            <p class="eb-type-body text-[var(--eb-text-muted)]">
+                Choose a product above to provision backup and follow the guided setup wizard.
+            </p>
+            {/if}
         </div>
 
         {else}

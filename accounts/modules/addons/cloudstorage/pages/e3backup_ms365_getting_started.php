@@ -49,6 +49,11 @@ if ($backupUserId > 0 && class_exists('\\Ms365Backup\\Ms365Onboarding')) {
     }
 }
 
+if (!empty($onboarding['all_complete'])) {
+    header('Location: index.php?m=cloudstorage&page=e3backup&view=dashboard');
+    exit;
+}
+
 $wizardUrl = $backupUserRouteId !== ''
     ? 'index.php?m=cloudstorage&page=e3backup&view=user_detail&user_id=' . rawurlencode($backupUserRouteId) . '&ms365_wizard=1#jobs'
     : 'index.php?m=cloudstorage&page=e3backup&view=users';

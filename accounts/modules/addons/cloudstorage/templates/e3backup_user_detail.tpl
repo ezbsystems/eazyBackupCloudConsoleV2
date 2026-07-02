@@ -221,9 +221,15 @@
                                   }"
                                   x-text="(user.backup_type || 'both') === 'cloud_only' ? 'Cloud Only' : ((user.backup_type || 'both') === 'local' ? 'Local Agent' : 'Both (Cloud + Local)')"></span>
                             <template x-if="(user.backup_type || 'both') === 'cloud_only'">
+                                {if $ebHasE3AgentProduct|default:true}
                                 <button type="button" class="eb-btn eb-btn-secondary eb-btn-xs" @click="upgradeBackupType('both')">
                                     Enable Local Agent
                                 </button>
+                                {else}
+                                <a href="index.php?m=cloudstorage&page=e3backup&view=enable_agent_backup" class="eb-btn eb-btn-secondary eb-btn-xs">
+                                    Enable Local Agent
+                                </a>
+                                {/if}
                             </template>
                             <template x-if="(user.backup_type || 'both') === 'local'">
                                 <button type="button" class="eb-btn eb-btn-secondary eb-btn-xs" @click="upgradeBackupType('both')">

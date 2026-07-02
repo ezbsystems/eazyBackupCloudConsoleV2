@@ -342,13 +342,27 @@ final class InventoryService
             $warnings[] = 'SharePoint sites were not included because this Microsoft 365 tenant does not have a SharePoint Online license. User mail, calendars, OneDrive, and Teams can still be backed up.';
         }
 
-        $this->writeRefreshProgress('assembling', 'Finalizing inventory…', $discoveryCounts);
+        $enrichedResources = TenantResource::enrichSharePointDisplayMetadata($resourceList, $relationships);
+        $displayCounts = TenantResource::displayCounts($enrichedResources);
+        $discoveryCounts['sites'] = $displayCounts['sites'];
+
+        $this->writeRefreshProgress(
+            'assembling',
+            'Finalizing inventory…',
+            $discoveryCounts,
+            null,
+            $resourceList,
+            $relationships,
+        );
 
         $inventory = [
             'fetched_at' => gmdate('c'),
             'resources' => $resourceList,
             'relationships' => $relationships,
             'counts' => TenantResource::countByType($resourceList),
+            'display_counts' => TenantResource::displayCounts(
+                TenantResource::enrichSharePointDisplayMetadata($resourceList, $relationships),
+            ),
             'warnings' => $warnings,
         ];
         if ($accessCheckedAt !== null) {
@@ -384,14 +398,24 @@ final class InventoryService
             'E',
         );
         // #endregion
-        $this->writeRefreshProgress('complete', 'Inventory ready', $discoveryCounts);
+        $this->writeRefreshProgress('complete', 'Inventory ready', $discoveryCounts, null, $resourceList, $relationships);
 
         return $inventory;
     }
 
-    /** @param array<string, int> $counts */
-    private function writeRefreshProgress(string $phase, string $message, array $counts, ?string $detail = null): void
-    {
+    /**
+     * @param list<array<string, mixed>> $resources
+     * @param list<array{from_id: string, rel: string, to_id: string, physical_key: string}> $relationships
+     * @param array<string, int> $counts
+     */
+    private function writeRefreshProgress(
+        string $phase,
+        string $message,
+        array $counts,
+        ?string $detail = null,
+        array $resources = [],
+        array $relationships = [],
+    ): void {
         $payload = [
             'phase' => $phase,
             'message' => $message,
@@ -400,6 +424,11 @@ final class InventoryService
         ];
         if ($detail !== null && $detail !== '') {
             $payload['detail'] = $detail;
+        }
+        if ($phase === 'complete' && $resources !== []) {
+            $enriched = TenantResource::enrichSharePointDisplayMetadata($resources, $relationships);
+            $payload['display_counts'] = TenantResource::displayCounts($enriched);
+            $payload['counts']['sites'] = $payload['display_counts']['sites'];
         }
         $this->storage->writeJson($this->storage->discoveryDir() . '/progress.json', $payload);
     }

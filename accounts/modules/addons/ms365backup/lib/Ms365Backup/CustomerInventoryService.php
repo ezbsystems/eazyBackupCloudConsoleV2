@@ -244,6 +244,9 @@ final class CustomerInventoryService
             'message' => $message,
             'detail' => $detail,
             'counts' => $counts,
+            'display_counts' => is_array($progress['display_counts'] ?? null)
+                ? array_map(static fn ($v) => (int) $v, $progress['display_counts'])
+                : [],
             'refresh_in_progress' => $inProgress,
         ];
     }
@@ -275,6 +278,45 @@ final class CustomerInventoryService
             }
 
             $resources = is_array($data['resources'] ?? null) ? array_values($data['resources']) : [];
+            $relationships = is_array($data['relationships'] ?? null) ? $data['relationships'] : [];
+            $resources = TenantResource::enrichSharePointDisplayMetadata($resources, $relationships);
+            // #region agent log
+            $siteCount = 0;
+            $visibleSiteCount = 0;
+            $groupBackedCount = 0;
+            $infraCount = 0;
+            $visibleNames = [];
+            foreach ($resources as $resource) {
+                if (!is_array($resource) || ($resource['resource_type'] ?? '') !== TenantResource::TYPE_SHAREPOINT_SITE) {
+                    continue;
+                }
+                ++$siteCount;
+                if (($resource['workload_group_connected'] ?? false) === true) {
+                    ++$groupBackedCount;
+                }
+                if (($resource['infrastructure_site'] ?? false) === true) {
+                    ++$infraCount;
+                }
+                if (($resource['show_in_sharepoint_section'] ?? false) === true) {
+                    ++$visibleSiteCount;
+                    $visibleNames[] = (string) ($resource['display_name'] ?? $resource['id'] ?? '');
+                }
+            }
+            Ms365AgentDebugLog::write(
+                'CustomerInventoryService::loadForBackupUser',
+                'inventory display enrichment',
+                [
+                    'backup_user_id' => $backupUserId,
+                    'sharepoint_site_count' => $siteCount,
+                    'visible_sharepoint_site_count' => $visibleSiteCount,
+                    'group_backed_site_count' => $groupBackedCount,
+                    'infrastructure_site_count' => $infraCount,
+                    'visible_site_names' => array_slice($visibleNames, 0, 20),
+                    'relationship_count' => count($relationships),
+                ],
+                'H1',
+            );
+            // #endregion
             foreach ($resources as $i => $resource) {
                 if (!is_array($resource)) {
                     continue;
@@ -293,6 +335,9 @@ final class CustomerInventoryService
             return [
                 'fetched_at' => (string) ($data['fetched_at'] ?? ''),
                 'counts' => array_map(static fn ($v) => (int) $v, $counts),
+                'display_counts' => is_array($data['display_counts'] ?? null)
+                    ? array_map(static fn ($v) => (int) $v, $data['display_counts'])
+                    : TenantResource::displayCounts($resources),
                 'resources' => $resources,
                 'warnings' => array_values(array_map('strval', $warnings)),
             ];

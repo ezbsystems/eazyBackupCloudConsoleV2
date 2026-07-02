@@ -50,6 +50,7 @@
                                 <span class="mt-0.5 block eb-type-caption">S3, AWS, SFTP, Google Drive, Dropbox.</span>
                             </span>
                         </label>
+                        {if $ebHasE3AgentProduct|default:true}
                         <label class="eb-inline-choice cursor-pointer">
                             <input type="radio" x-model="form.backup_type" value="local" class="eb-radio-input" name="e3_create_backup_type">
                             <span>
@@ -64,6 +65,12 @@
                                 <span class="mt-0.5 block eb-type-caption">Full access to all backup types.</span>
                             </span>
                         </label>
+                        {else}
+                        <p class="eb-type-caption text-[var(--eb-text-muted)]">
+                            Local agent backup requires the workstation &amp; server product.
+                            <a href="index.php?m=cloudstorage&page=e3backup&view=enable_agent_backup" class="text-[var(--eb-info-text)] underline">Enable workstation &amp; server backup</a>
+                        </p>
+                        {/if}
                     </div>
                 </div>
 

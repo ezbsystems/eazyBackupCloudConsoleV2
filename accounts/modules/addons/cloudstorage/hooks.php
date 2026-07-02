@@ -24,6 +24,34 @@ add_hook('ClientAreaHeadOutput', 1, function($vars) {
 
 });
 
+/**
+ * Smart e3 Cloud Backup nav URL for theme header (resolves onboarding landing).
+ */
+add_hook('ClientAreaPage', 1, function ($vars) {
+    try {
+        $clientId = (int) ($_SESSION['uid'] ?? 0);
+        if ($clientId <= 0) {
+            return [];
+        }
+        $statePath = __DIR__ . '/lib/Client/E3BackupClientState.php';
+        if (is_file($statePath)) {
+            require_once $statePath;
+        }
+        if (!class_exists('\\WHMCS\\Module\\Addon\\CloudStorage\\Client\\E3BackupClientState')) {
+            return [];
+        }
+        if (!\WHMCS\Module\Addon\CloudStorage\Client\E3BackupClientState::clientCanAccessE3BackupShell($clientId)) {
+            return [];
+        }
+
+        return [
+            'ebE3BackupNavUrl' => \WHMCS\Module\Addon\CloudStorage\Client\E3BackupClientState::resolveLandingUrl($clientId),
+        ];
+    } catch (\Throwable $_) {
+        return [];
+    }
+});
+
 add_hook('AdminServicesTabFields', 1, function($vars) {
     $clientId = (int)($vars['userid'] ?? 0);
     $packageId = (int)($vars['packageid'] ?? 0);

@@ -628,13 +628,11 @@ if (window.csrfToken && !window.EB_CSRF_TOKEN) {
         panel.classList.remove('translate-x-0');
         setTimeout(function () {
             overlay.classList.add('hidden');
-            var beta = document.getElementById('eb-beta-overlay');
             var portalPw = document.getElementById('eb-portalpw-overlay');
             if (
                 document.getElementById('eb-setpw-overlay').classList.contains('hidden') &&
                 document.getElementById('eb-storage-plan-overlay').classList.contains('hidden') &&
                 document.getElementById('eb-card-overlay').classList.contains('hidden') &&
-                (!beta || beta.classList.contains('hidden')) &&
                 (!portalPw || portalPw.classList.contains('hidden'))
             ) {
                 document.body.classList.remove('overflow-hidden');
@@ -658,65 +656,23 @@ if (window.csrfToken && !window.EB_CSRF_TOKEN) {
         ebDrawerState('eb-storage-plan-overlay', 'eb-storage-plan-panel', false);
     }
 
-    function ebBetaOpen() {
-        ebDrawerState('eb-beta-overlay', 'eb-beta-panel', true);
-    }
-
-    function ebBetaClose() {
-        ebDrawerState('eb-beta-overlay', 'eb-beta-panel', false);
-    }
-
     function ebChooseE3Backup(btn) {
-        // Stage the product choice but show the beta confirmation drawer
-        // before any provisioning/password collection.
         document.getElementById('eb-product-choice').value = 'e3backup';
-        var ack = document.getElementById('eb-beta-ack');
-        if (ack) {
-            ack.checked = false;
-        }
-        ebBetaOpen();
-    }
-
-    function ebBetaContinue() {
-        var ack = document.getElementById('eb-beta-ack');
-        if (!ack || !ack.checked) {
-            ebShowToast('Please acknowledge the beta notice to continue.', 'warning');
-            return;
-        }
-        var btn = document.getElementById('eb-beta-continue');
-        // Guard against double-submits: bail if a request is already in flight.
-        if (btn && btn.disabled) {
-            return;
-        }
-        if (btn) {
-            btn.disabled = true;
-        }
-        function ebBetaContinueReset() {
-            if (btn) {
-                btn.disabled = false;
-            }
-        }
-        // Persist selection server-side, then transition to the password drawer.
         fetch(ebJoinRoot('/modules/addons/cloudstorage/api/selectproduct.php'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
             body: new URLSearchParams({ product_choice: 'e3backup' })
         }).then(function(r){ return r.json(); }).then(function(data){
             if (data && data.status === 'success') {
-                ebBetaClose();
                 ebPreparePasswordUi('e3backup');
                 setTimeout(ebPwOpen, 250);
-                ebBetaContinueReset();
             } else if (data && data.message === 'beta_unavailable') {
                 ebShowToast('e3 Cloud Backup is not currently available for your account.', 'error');
-                ebBetaContinueReset();
             } else {
                 ebShowToast('Unable to save selection. Please try again.', 'error');
-                ebBetaContinueReset();
             }
         }).catch(function(){
             ebShowToast('Unable to save selection. Please try again.', 'error');
-            ebBetaContinueReset();
         });
     }
 
@@ -1569,12 +1525,10 @@ if (window.csrfToken && !window.EB_CSRF_TOKEN) {
         overlay.classList.remove('flex');
         overlay.setAttribute('hidden', '');
         // Only release body scroll if no other overlay is open.
-        var beta = document.getElementById('eb-beta-overlay');
         if (
             document.getElementById('eb-setpw-overlay').classList.contains('hidden') &&
             document.getElementById('eb-storage-plan-overlay').classList.contains('hidden') &&
-            document.getElementById('eb-card-overlay').classList.contains('hidden') &&
-            (!beta || beta.classList.contains('hidden'))
+            document.getElementById('eb-card-overlay').classList.contains('hidden')
         ) {
             document.body.classList.remove('overflow-hidden');
         }
@@ -1698,11 +1652,6 @@ if (window.csrfToken && !window.EB_CSRF_TOKEN) {
             }
             if (!document.getElementById('eb-storage-plan-overlay').classList.contains('hidden')) {
                 ebStoragePlanClose();
-                return;
-            }
-            var betaOverlay = document.getElementById('eb-beta-overlay');
-            if (betaOverlay && !betaOverlay.classList.contains('hidden')) {
-                ebBetaClose();
                 return;
             }
             if (!document.getElementById('eb-setpw-overlay').classList.contains('hidden')) {

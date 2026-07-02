@@ -1013,13 +1013,25 @@
             },
 
             inventoryProgressChips() {
+                const displayCounts = this.inventoryProgress.display_counts || {};
                 const counts = this.inventoryProgress.counts || {};
+                const phase = this.inventoryProgress.phase || '';
+                const merged = { ...counts };
+                if (displayCounts.sites !== undefined && displayCounts.sites !== null) {
+                    merged.sites = displayCounts.sites;
+                }
+                const siteCountReady = ['assembling', 'complete'].includes(phase);
                 return Object.keys(INVENTORY_PROGRESS_LABELS)
-                    .filter((key) => Number(counts[key]) > 0)
+                    .filter((key) => {
+                        if (key === 'sites' && !siteCountReady) {
+                            return false;
+                        }
+                        return Number(merged[key]) > 0;
+                    })
                     .map((key) => ({
                         key,
                         label: INVENTORY_PROGRESS_LABELS[key],
-                        count: Number(counts[key]),
+                        count: Number(merged[key]),
                     }));
             },
 
@@ -1240,6 +1252,29 @@
             rebuildTrees() {
                 if (!window.ms365JobSelection) return;
                 this.treesBySection = window.ms365JobSelection.buildAllTrees(this.inventory);
+                // #region agent log
+                const resources = (this.inventory && this.inventory.resources) || [];
+                const spSites = resources.filter((r) => r && r.resource_type === 'sharepoint_site');
+                const groupBacked = spSites.filter((r) => r.workload_group_connected === true || r.group_connected === true);
+                const sharepointParents = (this.treesBySection.sharepoint || []).filter((n) => n.depth === 0);
+                fetch('http://127.0.0.1:7675/ingest/9183d0cd-775c-444c-9a41-6e97e9e7d4d0', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '7861d7' },
+                    body: JSON.stringify({
+                        sessionId: '7861d7',
+                        location: 'ms365_job_wizard.js:rebuildTrees',
+                        message: 'wizard section tree counts',
+                        data: {
+                            sharepoint_site_total: spSites.length,
+                            visible_sharepoint_site_count: sharepointParents.length,
+                            group_backed_site_count: groupBacked.length,
+                            teams_section_parents: (this.treesBySection.teams || []).filter((n) => n.depth === 0).length,
+                        },
+                        timestamp: Date.now(),
+                        hypothesisId: 'H2',
+                    }),
+                }).catch(() => {});
+                // #endregion
             },
 
             applySavedSelection() {

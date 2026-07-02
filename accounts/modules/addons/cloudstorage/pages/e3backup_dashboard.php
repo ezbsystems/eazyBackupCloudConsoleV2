@@ -8,7 +8,7 @@ use WHMCS\Module\Addon\CloudStorage\Client\MspController;
 
 require_once __DIR__ . '/../lib/Client/E3BackupAccess.php';
 
-$loggedInUserId = E3BackupAccess::requireE3BackupClientAreaAccess('dashboard');
+$loggedInUserId = E3BackupAccess::requireE3BackupShellAccess('dashboard');
 
 $isMspClient = MspController::isMspClient($loggedInUserId);
 $tenantTable = MspController::getTenantTableName();

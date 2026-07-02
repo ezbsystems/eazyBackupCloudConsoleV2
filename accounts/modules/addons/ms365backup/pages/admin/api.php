@@ -177,6 +177,11 @@ try {
             );
             $data = $inventory->load();
             $sections = trim((string) ($_GET['sections'] ?? ''));
+            if ($data !== null) {
+                $resources = is_array($data['resources'] ?? null) ? array_values($data['resources']) : [];
+                $relationships = is_array($data['relationships'] ?? null) ? $data['relationships'] : [];
+                $data['resources'] = TenantResource::enrichSharePointDisplayMetadata($resources, $relationships);
+            }
             if ($data !== null && $sections !== '') {
                 $allowed = array_map('trim', explode(',', $sections));
                 $data['resources'] = array_values(array_filter(
