@@ -12,6 +12,7 @@ if (!is_file($init)) {
     exit(1);
 }
 require_once $init;
+require_once dirname(__DIR__) . '/ms365backup.php';
 require_once dirname(__DIR__) . '/ms365backup_autoload.php';
 
 use Ms365Backup\Fleet\ReleaseSyncService;
