@@ -21,5 +21,8 @@ use Ms365Backup\Fleet\BrowseBinaryInstaller;
 ms365backup_apply_migrations();
 
 $ok = BrowseBinaryInstaller::syncFromLatestRelease();
+if (!$ok) {
+    fwrite(STDERR, "Browse binary sync failed. Run: php " . __DIR__ . "/ms365_browse_binary_diag.php\n");
+}
 echo json_encode(['status' => $ok ? 'ok' : 'failed'], JSON_UNESCAPED_SLASHES) . PHP_EOL;
 exit($ok ? 0 : 1);
