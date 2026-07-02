@@ -1,8 +1,24 @@
 #!/bin/bash
-# Production deploy: sync WHMCS custom code from repo clone to live accounts/.
-# Run on prod as root:
+#
+# Safe production deploy: sync tracked WHMCS custom code from git clone → live accounts/.
+#
+# Usage (on prod as root):
 #   bash /var/www/eazybackup.ca/accounts/modules/addons/ms365backup/bin/deploy-production.sh
+#   bash .../deploy-production.sh --dry-run
+#
+# Safety rules:
+#   1. Never rsync --delete unless a sentinel file exists in the repo source.
+#   2. If repo source is incomplete, keep the existing prod copy (do not delete).
+#   3. Exclude prod-only runtime data (ms365 fleet release binaries, build logs).
+#   4. Materialize git-tracked vendor/ trees in the repo clone before rsync.
+#
 set -euo pipefail
+
+DRY_RUN=0
+if [[ "${1:-}" == "--dry-run" ]]; then
+  DRY_RUN=1
+  echo "[DRY-RUN] No files will be changed."
+fi
 
 REPO_ROOT="${REPO_ROOT:-/var/www/eazybackup.ca/repo/eazyBackupCloudConsoleV2}"
 REPO_ACCOUNTS="$REPO_ROOT/accounts"
@@ -10,81 +26,176 @@ PROD_ROOT="${PROD_ROOT:-/var/www/eazybackup.ca/accounts}"
 WEB_USER="${WEB_USER:-www-data}"
 WEB_GROUP="${WEB_GROUP:-www-data}"
 
-cd "$REPO_ROOT"
-git fetch origin
-git pull origin main
-
-if [[ ! -f "$REPO_ACCOUNTS/modules/addons/ms365backup/vendor/autoload.php" ]]; then
-  echo "[INFO] Restoring ms365backup/vendor from git into repo clone..."
-  git checkout HEAD -- accounts/modules/addons/ms365backup/vendor/
+RSYNC_OPTS=(-av --delete)
+if [[ "$DRY_RUN" -eq 1 ]]; then
+  RSYNC_OPTS=(-av --delete --dry-run)
 fi
 
-rsync_safe() {
+log() { echo "[deploy] $*"; }
+fail() { echo "[deploy] ERROR: $*" >&2; exit 1; }
+
+# Require sentinel file in source before rsync --delete (prevents wiping prod from empty clone).
+rsync_guarded() {
   local label="$1"
-  local src="$2"
-  local dst="$3"
-  shift 3
+  local sentinel="$2"
+  local src="$3"
+  local dst="$4"
+  shift 4
+
   if [[ ! -d "$src" ]]; then
-    echo "[SKIP] $label — source missing: $src"
+    log "SKIP $label — source directory missing: $src"
     return 0
   fi
-  echo "[SYNC] $label"
-  rsync -av --delete "$@" "$src" "$dst"
+  if [[ ! -f "$src/$sentinel" ]]; then
+    log "SKIP $label — source incomplete (missing $sentinel): $src"
+    if [[ -f "$dst/$sentinel" ]]; then
+      log "       Keeping existing prod copy at $dst"
+      return 0
+    fi
+    fail "$label — source incomplete and prod copy missing ($dst/$sentinel)"
+  fi
+
+  log "SYNC $label"
+  rsync "${RSYNC_OPTS[@]}" "$@" "$src" "$dst"
 }
 
 rsync_addon() {
   local name="$1"
-  shift
-  local src="$REPO_ACCOUNTS/modules/addons/$name/"
-  local dst="$PROD_ROOT/modules/addons/$name/"
-  if [[ ! -d "$src" ]]; then
-    echo "[SKIP] addon $name — not in repo clone ($src)"
-    return 0
-  fi
-  echo "[SYNC] addon $name"
-  rsync -av --delete "$@" "$src" "$dst"
+  local sentinel="$2"
+  shift 2
+  rsync_guarded "addon/$name" "$sentinel" \
+    "$REPO_ACCOUNTS/modules/addons/$name/" \
+    "$PROD_ROOT/modules/addons/$name/" \
+    "$@"
 }
 
-rsync_safe hooks "$REPO_ACCOUNTS/includes/hooks/" "$PROD_ROOT/includes/hooks/"
-rsync_safe crons "$REPO_ACCOUNTS/crons/" "$PROD_ROOT/crons/"
+materialize_from_git() {
+  local rel="$1"
+  local sentinel="$2"
+  if [[ -f "$REPO_ACCOUNTS/$rel/$sentinel" ]]; then
+    return 0
+  fi
+  log "Materializing $rel from git (missing $sentinel in repo clone)..."
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    log "  would run: git checkout HEAD -- $rel"
+    return 0
+  fi
+  git checkout HEAD -- "$rel"
+}
 
-rsync_addon cloudstorage
-rsync_addon cometbilling
-rsync_addon eazybackup
-rsync_addon hidepermissions
-rsync_addon mspconnect
-rsync_addon ms365backup \
+preflight() {
+  [[ -d "$REPO_ROOT/.git" ]] || fail "Repo not found: $REPO_ROOT"
+  [[ -d "$PROD_ROOT" ]] || fail "Prod accounts not found: $PROD_ROOT"
+  command -v rsync >/dev/null || fail "rsync not installed"
+  command -v git >/dev/null || fail "git not installed"
+  command -v php >/dev/null || fail "php not installed"
+
+  # Hard stop if prod comet module is missing (client area depends on it).
+  [[ -f "$PROD_ROOT/modules/servers/comet/functions.php" ]] || \
+    fail "Prod comet module missing. Restore from dev before deploying."
+}
+
+chown_paths() {
+  local paths=()
+  for p in "$@"; do
+    [[ -e "$p" ]] && paths+=("$p")
+  done
+  [[ "${#paths[@]}" -eq 0 ]] && return 0
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    log "would chown -R $WEB_USER:$WEB_GROUP ${paths[*]}"
+    return 0
+  fi
+  chown -R "$WEB_USER:$WEB_GROUP" "${paths[@]}"
+}
+
+post_deploy_checks() {
+  [[ "$DRY_RUN" -eq 1 ]] && return 0
+
+  log "Post-deploy: browse binary sync"
+  php "$PROD_ROOT/modules/addons/ms365backup/bin/ms365_install_browse_binary.php"
+
+  log "Post-deploy: health check"
+  php "$PROD_ROOT/modules/addons/ms365backup/bin/ms365_prod_health_check.php"
+
+  log "Post-deploy: fleet smoke (non-fatal)"
+  php "$PROD_ROOT/modules/addons/ms365backup/bin/ms365_fleet_smoke.php" || true
+
+  if command -v systemctl >/dev/null; then
+    if systemctl is-active --quiet php8.2-fpm 2>/dev/null; then
+      log "Reloading php8.2-fpm"
+      systemctl reload php8.2-fpm
+    elif systemctl is-active --quiet php-fpm 2>/dev/null; then
+      log "Reloading php-fpm"
+      systemctl reload php-fpm
+    fi
+  fi
+}
+
+# --- main ---
+
+preflight
+
+cd "$REPO_ROOT"
+log "Fetching origin/main..."
+if [[ "$DRY_RUN" -eq 0 ]]; then
+  git fetch origin
+  git pull origin main
+fi
+
+materialize_from_git "modules/addons/ms365backup/vendor" "autoload.php"
+
+# Optional: COMET_SUBMODULE_INIT=1 to attempt submodule checkout (requires .gitmodules).
+if [[ "${COMET_SUBMODULE_INIT:-0}" == "1" ]] && [[ ! -f "$REPO_ACCOUNTS/modules/servers/comet/functions.php" ]]; then
+  log "Attempting git submodule update for comet..."
+  git submodule update --init --recursive accounts/modules/servers/comet 2>/dev/null || true
+fi
+
+# --- rsync (paths must match .gitignore tracked set) ---
+
+rsync_guarded hooks index.php \
+  "$REPO_ACCOUNTS/includes/hooks/" \
+  "$PROD_ROOT/includes/hooks/"
+
+rsync_guarded crons s3Billing.php \
+  "$REPO_ACCOUNTS/crons/" \
+  "$PROD_ROOT/crons/"
+
+rsync_addon cloudstorage cloudstorage.php
+rsync_addon cometbilling cometbilling.php
+rsync_addon eazybackup eazybackup.php
+rsync_addon hidepermissions hidepermissions.php
+rsync_addon mspconnect mspconnect.php
+
+rsync_addon ms365backup ms365backup.php \
   --exclude 'storage/worker-releases/*/' \
   --exclude 'storage/worker-builds/'
 
-if [[ -f "$REPO_ACCOUNTS/modules/servers/comet/functions.php" ]]; then
-  rsync_safe comet "$REPO_ACCOUNTS/modules/servers/comet/" "$PROD_ROOT/modules/servers/comet/"
-else
-  echo "[SKIP] comet server — repo clone has no functions.php (submodule not checked out)."
-  if [[ ! -f "$PROD_ROOT/modules/servers/comet/functions.php" ]]; then
-    echo "[FAIL] Prod comet module missing. Copy from dev, e.g.:"
-    echo "  scp -r DEV_HOST:$PROD_ROOT/modules/servers/comet/ $PROD_ROOT/modules/servers/comet/"
-    exit 1
-  fi
-fi
+# Comet: repo clone is often empty (submodule gitlink). Never delete prod when source empty.
+rsync_guarded servers/comet functions.php \
+  "$REPO_ACCOUNTS/modules/servers/comet/" \
+  "$PROD_ROOT/modules/servers/comet/"
 
-rsync_safe stripe_gateway "$REPO_ACCOUNTS/modules/gateways/stripe/" "$PROD_ROOT/modules/gateways/stripe/"
-rsync_safe eazyBackup_template "$REPO_ACCOUNTS/templates/eazyBackup/" "$PROD_ROOT/templates/eazyBackup/"
+rsync_guarded gateways/stripe hooks.php \
+  "$REPO_ACCOUNTS/modules/gateways/stripe/" \
+  "$PROD_ROOT/modules/gateways/stripe/"
 
-chown -R "$WEB_USER:$WEB_GROUP" \
+rsync_guarded templates/eazyBackup header.tpl \
+  "$REPO_ACCOUNTS/templates/eazyBackup/" \
+  "$PROD_ROOT/templates/eazyBackup/"
+
+chown_paths \
   "$PROD_ROOT/modules/addons/cloudstorage" \
   "$PROD_ROOT/modules/addons/cometbilling" \
   "$PROD_ROOT/modules/addons/eazybackup" \
   "$PROD_ROOT/modules/addons/ms365backup" \
   "$PROD_ROOT/modules/addons/hidepermissions" \
+  "$PROD_ROOT/modules/addons/mspconnect" \
+  "$PROD_ROOT/modules/servers/comet" \
+  "$PROD_ROOT/modules/gateways/stripe" \
   "$PROD_ROOT/includes/hooks" \
   "$PROD_ROOT/crons" \
   "$PROD_ROOT/templates/eazyBackup"
-[[ -d "$PROD_ROOT/modules/servers/comet" ]] && chown -R "$WEB_USER:$WEB_GROUP" "$PROD_ROOT/modules/servers/comet"
-[[ -d "$PROD_ROOT/modules/gateways/stripe" ]] && chown -R "$WEB_USER:$WEB_GROUP" "$PROD_ROOT/modules/gateways/stripe"
-[[ -d "$PROD_ROOT/modules/addons/mspconnect" ]] && chown -R "$WEB_USER:$WEB_GROUP" "$PROD_ROOT/modules/addons/mspconnect"
 
-php "$PROD_ROOT/modules/addons/ms365backup/bin/ms365_install_browse_binary.php"
-php "$PROD_ROOT/modules/addons/ms365backup/bin/ms365_prod_health_check.php" || true
+post_deploy_checks
 
-echo "Deploy complete."
+log "Deploy complete."
