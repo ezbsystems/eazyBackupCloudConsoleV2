@@ -109,13 +109,32 @@ final class KopiaSnapshotBrowseService
         if ($fromSetting !== '' && is_executable($fromSetting)) {
             return $fromSetting;
         }
-        $candidates = [
+
+        $candidates = [];
+        $repoPath = Fleet\FleetSettings::repoPath();
+        if ($repoPath !== '') {
+            $candidates[] = rtrim($repoPath, '/') . '/ms365-backup-worker';
+        }
+        $artifactRoot = Fleet\FleetSettings::artifactRoot();
+        if ($artifactRoot !== '') {
+            $latest = Fleet\ReleaseRepository::latest();
+            $artifactPath = trim((string) ($latest['artifact_path'] ?? ''));
+            if ($artifactPath !== '') {
+                $candidates[] = $artifactPath;
+            }
+            $version = trim((string) ($latest['version'] ?? ''));
+            if ($version !== '') {
+                $candidates[] = rtrim($artifactRoot, '/') . '/' . $version . '/ms365-backup-worker';
+            }
+        }
+        $candidates = array_merge($candidates, [
             '/var/www/eazybackup.ca/ms365-backup-worker/ms365-backup-worker',
             '/usr/local/bin/ms365-backup-worker',
             '/tmp/ms365-backup-worker',
-        ];
-        foreach ($candidates as $path) {
-            if (is_executable($path)) {
+        ]);
+
+        foreach (array_values(array_unique($candidates)) as $path) {
+            if ($path !== '' && is_executable($path)) {
                 return $path;
             }
         }

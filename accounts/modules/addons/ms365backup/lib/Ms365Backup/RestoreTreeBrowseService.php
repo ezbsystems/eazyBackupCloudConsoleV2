@@ -552,7 +552,7 @@ final class RestoreTreeBrowseService
             }
         }
 
-        if ($lastError !== null && count($candidates) === 1) {
+        if ($lastError !== null) {
             throw $lastError;
         }
 

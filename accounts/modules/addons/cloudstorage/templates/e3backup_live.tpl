@@ -563,23 +563,6 @@ async function fetchE3Json(path, options) {
     }
 }
 
-function ebClientDebugLog(location, message, data, hypothesisId) {
-    // #region agent log
-    fetch(E3_API_ROOT.replace(/\/$/, '') + '/cloudbackup_client_debug_log.php', {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            location: location,
-            message: message,
-            data: data || {},
-            hypothesisId: hypothesisId || '',
-            runId: 'run_' + RUN_UUID
-        })
-    }).catch(() => {});
-    // #endregion
-}
-
 function updateMs365ArchiveDownloadPanel(run) {
     if (!MS365_ARCHIVE_RESTORE) return;
     const panel = document.getElementById('ms365ArchiveDownloadPanel');
@@ -1099,17 +1082,6 @@ function updateProgress() {
     const ts = Date.now();
     fetchE3Json('cloudbackup_progress.php?run_uuid={$run.run_id}&ts=' + ts)
         .then(data => {
-            // #region agent log
-            ebClientDebugLog('e3backup_live.tpl:updateProgress', 'poll_result', {
-                apiStatus: data && data.status,
-                apiMessage: data && data.message,
-                runStatus: data && data.run && data.run.status,
-                progressPct: data && data.run && data.run.progress_pct,
-                completedWorkloads: data && data.run && data.run.completed_workloads,
-                totalWorkloads: data && data.run && data.run.total_workloads,
-                liveIsMs365: LIVE_IS_MS365
-            }, 'H-A');
-            // #endregion
             if (data.status === 'success' && data.run) {
                 const run = data.run;
                 refreshErrorSummary(run);
@@ -1164,15 +1136,6 @@ function updateProgress() {
                 }
 
                 const isFinished = ['success', 'failed', 'cancelled', 'warning', 'partial_success'].includes(run.status);
-                // #region agent log
-                ebClientDebugLog('e3backup_live.tpl:updateProgress', 'dom_applied', {
-                    progressPct: progressPct,
-                    runStatus: run.status,
-                    stage: run.stage || null,
-                    logEntryCount: logEntries.length,
-                    isFinished: isFinished
-                }, 'H-D');
-                // #endregion
 
                 if (!isFinished) {
                     if (progressPct > 0.01) {
@@ -1486,13 +1449,6 @@ function updateProgress() {
             }
         })
         .catch(error => {
-            // #region agent log
-            ebClientDebugLog('e3backup_live.tpl:updateProgress', 'poll_error', {
-                error: String(error && error.message || error),
-                liveIsMs365: LIVE_IS_MS365,
-                e3ApiRoot: E3_API_ROOT
-            }, 'H-C');
-            // #endregion
             console.error('Error updating progress:', error);
         });
 }
@@ -2052,16 +2008,6 @@ function updateEventLogs() {
     }
     fetchE3Json(url)
         .then(d => {
-            // #region agent log
-            ebClientDebugLog('e3backup_live.tpl:updateEventLogs', 'poll_result', {
-                apiStatus: d && d.status,
-                eventCount: Array.isArray(d && d.events) ? d.events.length : -1,
-                lastEventId: lastEventId,
-                terminalEventSeen: terminalEventSeen,
-                isPaused: isPaused,
-                logPage: logPage
-            }, 'H-E');
-            // #endregion
             if (d.status !== 'success' || !Array.isArray(d.events)) return;
             if (d.events.length === 0) return;
 
@@ -2085,39 +2031,16 @@ function updateEventLogs() {
                 return ida - idb;
             });
 
-            let appended = 0;
-            let skipped = 0;
             newEvents.forEach(ev => {
-                const before = logEntries.length;
                 appendLogEntry({
                     id: ev.id || null,
                     level: ev.level || 'info',
                     ts: ev.ts || '',
                     message: ev.message || ''
                 });
-                if (logEntries.length > before) {
-                    appended++;
-                } else {
-                    skipped++;
-                }
             });
-            // #region agent log
-            ebClientDebugLog('e3backup_live.tpl:updateEventLogs', 'events_applied', {
-                newEvents: newEvents.length,
-                appended: appended,
-                skipped: skipped,
-                logEntryCount: logEntries.length,
-                lastEventId: lastEventId
-            }, 'H-E');
-            // #endregion
         })
-        .catch((error) => {
-            // #region agent log
-            ebClientDebugLog('e3backup_live.tpl:updateEventLogs', 'poll_error', {
-                error: String(error && error.message || error)
-            }, 'H-C');
-            // #endregion
-        });
+        .catch(() => {});
 }
 
 function clearLogs() {
@@ -2320,14 +2243,6 @@ function updateStatusDisplay(statusConfig) {
     updateEventLogs();
     progressInterval = setInterval(updateProgress, 2000);
     eventsInterval = setInterval(updateEventLogs, 2000);
-    // #region agent log
-    ebClientDebugLog('e3backup_live.tpl:init', 'polling_started', {
-        initialStatus: '{$run.status|escape:'javascript'}',
-        pollingStarted: true,
-        liveIsMs365: LIVE_IS_MS365,
-        e3ApiRoot: E3_API_ROOT
-    }, 'H-B');
-    // #endregion
 {else}
     clearLogs();
     syncLogPanelChrome(false);
@@ -2337,13 +2252,5 @@ function updateStatusDisplay(statusConfig) {
     }
     updateProgress();
     updateFormattedLogs();
-    // #region agent log
-    ebClientDebugLog('e3backup_live.tpl:init', 'polling_not_started', {
-        initialStatus: '{$run.status|escape:'javascript'}',
-        pollingStarted: false,
-        liveIsMs365: LIVE_IS_MS365,
-        e3ApiRoot: E3_API_ROOT
-    }, 'H-B');
-    // #endregion
 {/if}
 </script>

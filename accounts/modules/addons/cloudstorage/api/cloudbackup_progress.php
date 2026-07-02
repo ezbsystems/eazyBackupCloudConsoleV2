@@ -10,10 +10,8 @@ if (!defined("WHMCS")) {
 
 use Symfony\Component\HttpFoundation\JsonResponse;
 use WHMCS\ClientArea;
-use WHMCS\Module\Addon\CloudStorage\Admin\ProductConfig;
 use WHMCS\Module\Addon\CloudStorage\Client\DBController;
 use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupController;
-use WHMCS\Module\Addon\CloudStorage\Client\E3BackupAccess;
 use WHMCS\Module\Addon\CloudStorage\Client\Ms365BatchLiveService;
 use WHMCS\Module\Addon\CloudStorage\Client\SanitizedLogFormatter;
 use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupEmailService;
@@ -21,28 +19,8 @@ use WHMCS\Module\Addon\CloudStorage\Client\TimezoneHelper;
 use WHMCS\Module\Addon\CloudStorage\Client\UuidBinary;
 use WHMCS\Database\Capsule;
 
-const CLOUDBACKUP_PROGRESS_API_REV = '20260702-run-ownership-v2';
-
-$debugLogPath = '/var/www/eazybackup.ca/.cursor/debug-91dc3e.log';
-function progressDebugLog(string $message, array $data, string $hypothesisId, string $logPath): void
-{
-    $entry = [
-        'sessionId' => '91dc3e',
-        'id' => uniqid('log_', true),
-        'timestamp' => (int) round(microtime(true) * 1000),
-        'location' => 'cloudbackup_progress.php:debug',
-        'message' => $message,
-        'data' => $data,
-        'runId' => isset($data['run_id']) ? ('run_' . $data['run_id']) : 'run_unknown',
-        'hypothesisId' => $hypothesisId,
-    ];
-    @file_put_contents($logPath, json_encode($entry) . PHP_EOL, FILE_APPEND);
-}
-
 function progressSendJson(array $payload, int $status = 200): void
 {
-    $payload['api_rev'] = CLOUDBACKUP_PROGRESS_API_REV;
-    $payload['_host'] = gethostname() ?: 'unknown';
     if (ob_get_level() > 0) {
         ob_end_clean();
     }
@@ -50,19 +28,9 @@ function progressSendJson(array $payload, int $status = 200): void
     $response->headers->set('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
     $response->headers->set('Pragma', 'no-cache');
     $response->headers->set('Expires', '0');
-    $response->headers->set('X-CloudBackup-Progress-Rev', CLOUDBACKUP_PROGRESS_API_REV);
     $response->send();
     exit();
 }
-
-// #region agent log
-progressDebugLog('progress_request_start', [
-    'api_rev' => CLOUDBACKUP_PROGRESS_API_REV,
-    'host' => gethostname() ?: 'unknown',
-    'run_uuid' => (string) ($_GET['run_uuid'] ?? $_GET['run_id'] ?? ''),
-    'file' => __FILE__,
-], 'H-G', $debugLogPath);
-// #endregion
 
 $ca = new ClientArea();
 if (!$ca->isLoggedIn()) {
@@ -71,8 +39,6 @@ if (!$ca->isLoggedIn()) {
         'message' => 'Session timeout.',
     ]);
 }
-
-require_once __DIR__ . '/../lib/Client/E3BackupAccess.php';
 
 $loggedInUserId = (int) $ca->getUserID();
 
@@ -85,15 +51,6 @@ if (!$runIdentifier) {
 }
 
 $run = CloudBackupController::getRun($runIdentifier, $loggedInUserId);
-// #region agent log
-$hasE3BackupAccess = E3BackupAccess::clientHasE3BackupAccess($loggedInUserId);
-progressDebugLog('progress_run_ownership', [
-    'client_id' => $loggedInUserId,
-    'run_uuid' => (string) $runIdentifier,
-    'run_found' => $run !== null,
-    'has_e3_backup_access' => $hasE3BackupAccess,
-], 'H-F', $debugLogPath);
-// #endregion
 if (!$run) {
     progressSendJson([
         'status' => 'fail',
@@ -102,24 +59,9 @@ if (!$run) {
 }
 
 if (Ms365BatchLiveService::isMs365BatchRun($run)) {
-    // #region agent log
-    progressDebugLog('progress_ms365_batch', [
-        'client_id' => (int) $loggedInUserId,
-        'run_uuid' => (string) ($run['run_id'] ?? $runIdentifier),
-        'run_status' => (string) ($run['status'] ?? ''),
-    ], 'H-B', $debugLogPath);
-    // #endregion
     try {
         $batchRunId = (string) ($run['run_id'] ?? $runIdentifier);
         $progressRun = Ms365BatchLiveService::aggregateProgress($batchRunId, (int) $loggedInUserId, $run);
-        // #region agent log
-        progressDebugLog('progress_ms365_success', [
-            'client_id' => (int) $loggedInUserId,
-            'run_uuid' => $batchRunId,
-            'run_status' => (string) ($progressRun['status'] ?? ''),
-            'progress_pct' => $progressRun['progress_pct'] ?? null,
-        ], 'H-A-fix', $debugLogPath);
-        // #endregion
         progressSendJson([
             'status' => 'success',
             'run' => $progressRun,
@@ -213,13 +155,6 @@ $runStatus = (string)($run['status'] ?? '');
 $isTerminalState = in_array($runStatus, ['success','warning','failed','cancelled'], true);
 if ($isTerminalState) {
     $structuredEntries = [];
-    progressDebugLog('progress_terminal', [
-        'run_id' => (int)($run['id'] ?? 0),
-        'status' => $runStatus,
-        'progress_pct' => $run['progress_pct'] ?? null,
-        'bytes_processed' => $run['bytes_processed'] ?? null,
-        'bytes_transferred' => $run['bytes_transferred'] ?? null,
-    ], 'H5', $debugLogPath);
 }
 
 $serverTimezone = date_default_timezone_get() ?: 'UTC';

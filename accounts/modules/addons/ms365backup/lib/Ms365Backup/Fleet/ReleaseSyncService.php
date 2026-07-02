@@ -201,20 +201,22 @@ final class ReleaseSyncService
                 'artifact_path' => $dest,
                 'artifact_size' => (int) filesize($dest),
             ]);
-
-            return (int) $existing['id'];
+            $id = (int) $existing['id'];
+        } else {
+            $id = ReleaseRepository::create([
+                'version' => $version,
+                'git_ref' => (string) ($manifest['git_ref'] ?? ''),
+                'sha256' => $sha256,
+                'artifact_path' => $dest,
+                'artifact_size' => (int) filesize($dest),
+                'build_job_id' => null,
+                'created_by_admin_id' => null,
+                'notes' => 'Pulled from development release #' . $sourceId,
+            ]);
         }
+        BrowseBinaryInstaller::syncFromLatestRelease();
 
-        return ReleaseRepository::create([
-            'version' => $version,
-            'git_ref' => (string) ($manifest['git_ref'] ?? ''),
-            'sha256' => $sha256,
-            'artifact_path' => $dest,
-            'artifact_size' => (int) filesize($dest),
-            'build_job_id' => null,
-            'created_by_admin_id' => null,
-            'notes' => 'Pulled from development release #' . $sourceId,
-        ]);
+        return $id;
     }
 
     private static function recordSyncOutcome(?int $releaseId, string $status, string $detail): void

@@ -111,6 +111,8 @@ if ($latest) {
     $verified = ArtifactService::verifyNonce($nonce);
     $check('artifact_nonce', $verified !== null && $verified['release_id'] === (int) $latest['id']);
     $check('artifact_file', is_file((string) $latest['artifact_path']), (string) ($latest['version'] ?? ''));
+    $browseDest = rtrim(FleetSettings::repoPath(), '/') . '/ms365-backup-worker';
+    $check('browse_binary', is_executable($browseDest), $browseDest);
 } else {
     echo "[SKIP] artifact_nonce — no releases yet\n";
 }
