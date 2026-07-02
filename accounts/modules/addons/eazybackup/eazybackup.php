@@ -4640,12 +4640,7 @@ function eazybackup_clientarea(array $vars)
         $tabParam = isset($_GET['tab']) ? strtolower(trim($_GET['tab'])) : '';
         $allowedTabs = ['dashboard', 'users'];
         $initialTab = in_array($tabParam, $allowedTabs, true) ? $tabParam : 'dashboard';
-        $excludeProductgroupIds = [2, 11];
-        $productIds = Capsule::table('tblproducts')
-            ->select('id')
-            ->whereNotIn('gid', $excludeProductgroupIds)
-            ->pluck('id')
-            ->toArray();
+        $productIds = eazybackup_comet_product_ids();
 
         $totalAccounts = Capsule::table('tblhosting')
             ->where('domainstatus', 'Active')
@@ -5068,12 +5063,7 @@ function eazybackup_clientarea(array $vars)
     } else if ($_REQUEST["a"] == "vaults") {
         // Load the dashboard backend logic.
         $clientId = isset($_SESSION['uid']) ? (int) $_SESSION['uid'] : 0;
-        $excludeProductgroupIds = [2, 11];
-        $productIds = Capsule::table('tblproducts')
-            ->select('id')
-            ->whereNotIn('gid', $excludeProductgroupIds)
-            ->pluck('id')
-            ->toArray();
+        $productIds = eazybackup_comet_product_ids();
 
         $services = Capsule::table('tblhosting')
             ->select('username', 'id', 'packageid')

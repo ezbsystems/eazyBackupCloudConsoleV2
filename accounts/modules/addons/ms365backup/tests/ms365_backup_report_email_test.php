@@ -80,6 +80,28 @@ assert_contains($reports['html'], 'Skipped: tasks=mailbox_not_enabled', 'html sk
 assert_contains($reports['text'], 'user: Adele Vance', 'plain text workload row');
 assert_contains($reports['text'], 'sharepoint_site: Team Site', 'plain text second row');
 
+$rendered = Ms365BackupReportEmailService::renderTemplateContent(
+    '[{$run_status}] {$job_name} for {$backup_username}',
+    '<p>Hi {$client_first_name}</p>{$workload_report_html}',
+    [
+        'run_status' => 'Success',
+        'job_name' => 'Microsoft 365 Backup',
+        'backup_username' => 'AcmeCorp',
+        'client_first_name' => 'Brian',
+        'workload_report_html' => '<table></table>',
+    ],
+);
+assert_true($rendered['subject'] === '[Success] Microsoft 365 Backup for AcmeCorp', 'template subject merge');
+assert_contains($rendered['message'], 'Hi Brian', 'template body merge');
+
+$normalized = Ms365BackupReportEmailService::normalizeRecipients([
+    'Support@EazyBackup.ca',
+    'support@eazybackup.ca',
+    'brian@eazybackup.ca',
+    'not-an-email',
+]);
+assert_true($normalized === ['support@eazybackup.ca', 'brian@eazybackup.ca'], 'recipient list deduped and validated');
+
 if ($failures > 0) {
     echo "\n{$failures} test(s) failed.\n";
     exit(1);

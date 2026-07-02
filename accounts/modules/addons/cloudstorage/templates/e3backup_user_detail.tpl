@@ -233,6 +233,8 @@
                         </div>
                     </div>
 
+                    {include file="modules/addons/cloudstorage/templates/partials/e3backup_user_notification_settings.tpl"}
+
                     <div class="eb-subpanel eb-subpanel--overflow-visible">
                         <h2 class="eb-section-title" style="margin-bottom: 12px;">Update user</h2>
                         <div x-show="updateMessage" x-cloak class="eb-alert eb-alert--success" style="margin-bottom: 12px;" role="status">
@@ -1509,6 +1511,18 @@ function backupUserDetailApp() {
         updateErrors: {},
         updateMessage: '',
         updateError: '',
+        notificationForm: {
+            enabled: true,
+            emails: [],
+            notify_on_success: false,
+            notify_on_warning: true,
+            notify_on_failure: true,
+        },
+        newNotifyEmail: '',
+        notificationErrors: {},
+        notificationMessage: '',
+        notificationError: '',
+        savingNotifications: false,
         passwordForm: {
             password: '',
             password_confirm: ''
@@ -2168,6 +2182,90 @@ function backupUserDetailApp() {
             this.updateForm.email = this.user.email || '';
             this.updateForm.tenant_id = this.user.canonical_tenant_id ? String(this.user.canonical_tenant_id) : '';
             this.updateForm.status = this.normalizeUserStatus(this.user.status);
+            this.assignNotificationFormFromUser();
+        },
+
+        assignNotificationFormFromUser() {
+            const settings = this.user.notification_settings || {};
+            this.notificationForm.enabled = settings.notifications_enabled !== false;
+            this.notificationForm.emails = Array.isArray(settings.notify_emails) ? [...settings.notify_emails] : [];
+            this.notificationForm.notify_on_success = !!settings.notify_on_success;
+            this.notificationForm.notify_on_warning = settings.notify_on_warning !== false;
+            this.notificationForm.notify_on_failure = settings.notify_on_failure !== false;
+            this.newNotifyEmail = '';
+            this.notificationErrors = {};
+        },
+
+        addNotificationEmail() {
+            this.notificationErrors = {};
+            const email = String(this.newNotifyEmail || '').trim().toLowerCase();
+            if (!email) {
+                this.notificationErrors.notify_emails = 'Enter an email address.';
+                return;
+            }
+            const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            if (!emailPattern.test(email)) {
+                this.notificationErrors.notify_emails = 'Please enter a valid email address.';
+                return;
+            }
+            if (this.notificationForm.emails.some((existing) => String(existing).toLowerCase() === email)) {
+                this.notificationErrors.notify_emails = 'This email is already in the list.';
+                return;
+            }
+            if (this.notificationForm.emails.length >= 10) {
+                this.notificationErrors.notify_emails = 'You can add at most 10 email addresses.';
+                return;
+            }
+            this.notificationForm.emails.push(email);
+            this.newNotifyEmail = '';
+        },
+
+        removeNotificationEmail(index) {
+            if (index < 0 || index >= this.notificationForm.emails.length) {
+                return;
+            }
+            this.notificationForm.emails.splice(index, 1);
+            this.notificationErrors = {};
+        },
+
+        async saveNotificationSettings() {
+            this.notificationMessage = '';
+            this.notificationError = '';
+            this.notificationErrors = {};
+            this.savingNotifications = true;
+            try {
+                const body = new URLSearchParams({
+                    user_id: String(this.userId),
+                    notifications_enabled: this.notificationForm.enabled ? '1' : '0',
+                    notify_on_success: this.notificationForm.notify_on_success ? '1' : '0',
+                    notify_on_warning: this.notificationForm.notify_on_warning ? '1' : '0',
+                    notify_on_failure: this.notificationForm.notify_on_failure ? '1' : '0',
+                    notify_emails: JSON.stringify(this.notificationForm.emails),
+                });
+                body.set('token', this.csrfToken);
+
+                const response = await fetch('modules/addons/cloudstorage/api/e3backup_user_notification_settings.php', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body,
+                });
+                const data = await response.json();
+                if (data.status === 'success') {
+                    this.notificationMessage = data.message || 'Notification settings saved.';
+                    if (data.notification_settings) {
+                        this.user.notification_settings = data.notification_settings;
+                        this.assignNotificationFormFromUser();
+                    } else {
+                        await this.loadUser();
+                    }
+                } else {
+                    this.notificationError = data.message || 'Failed to save notification settings.';
+                    this.notificationErrors = data.errors || {};
+                }
+            } catch (error) {
+                this.notificationError = 'Failed to save notification settings.';
+            }
+            this.savingNotifications = false;
         },
 
         shouldSendCanonicalTenantOnUpdate() {

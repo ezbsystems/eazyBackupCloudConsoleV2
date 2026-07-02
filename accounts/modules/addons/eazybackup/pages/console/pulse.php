@@ -19,12 +19,7 @@ function eb_assert_client() {
 
 function eb_active_usernames_for_client(int $clientId): array {
     try {
-        $excludeProductgroupIds = [2, 11];
-        $productIds = Capsule::table('tblproducts')
-            ->select('id')
-            ->whereNotIn('gid', $excludeProductgroupIds)
-            ->pluck('id')
-            ->toArray();
+        $productIds = eazybackup_comet_product_ids();
         return Capsule::table('tblhosting')
             ->select('username')
             ->where('domainstatus', 'Active')

@@ -19,12 +19,7 @@ function eb_dashboard_usage_metrics() {
     header('Content-Type: application/json');
 
     try {
-        $excludeProductgroupIds = [2, 11];
-        $productIds = Capsule::table('tblproducts')
-            ->select('id')
-            ->whereNotIn('gid', $excludeProductgroupIds)
-            ->pluck('id')
-            ->toArray();
+        $productIds = eazybackup_comet_product_ids();
 
         if (empty($productIds)) {
             echo json_encode([

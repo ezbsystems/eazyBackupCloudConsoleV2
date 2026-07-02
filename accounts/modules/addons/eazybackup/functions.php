@@ -140,3 +140,32 @@ function eazybackup_clear_must_set_password(int $clientId): void
     }
 }
 
+/**
+ * WHMCS product IDs for legacy Comet-backed eazyBackup services only.
+ * Excludes e3 Cloud Backup, MS365 addon products, and other non-Comet SKUs.
+ *
+ * @return int[]
+ */
+function eazybackup_comet_product_ids(): array
+{
+    static $ids = null;
+    if ($ids !== null) {
+        return $ids;
+    }
+    try {
+        $excludeProductgroupIds = [2, 11];
+        $ids = \WHMCS\Database\Capsule::table('tblproducts')
+            ->select('id')
+            ->where('servertype', 'comet')
+            ->whereNotIn('gid', $excludeProductgroupIds)
+            ->pluck('id')
+            ->map(static function ($id) {
+                return (int) $id;
+            })
+            ->toArray();
+    } catch (\Throwable $e) {
+        $ids = [];
+    }
+    return $ids;
+}
+

@@ -2541,6 +2541,11 @@ function cloudstorage_activate() {
                 $table->string('email', 255);
                 $table->enum('status', ['active', 'disabled'])->default('active');
                 $table->enum('backup_type', ['cloud_only', 'local', 'both'])->default('both');
+                $table->tinyInteger('notifications_enabled')->default(1);
+                $table->text('notify_emails')->nullable();
+                $table->tinyInteger('notify_on_success')->default(0);
+                $table->tinyInteger('notify_on_warning')->default(1);
+                $table->tinyInteger('notify_on_failure')->default(1);
                 $table->timestamp('created_at')->useCurrent();
                 $table->timestamp('updated_at')->useCurrent();
 
@@ -2564,6 +2569,11 @@ function cloudstorage_activate() {
                 'email' => function ($table) { $table->string('email', 255); },
                 'status' => function ($table) { $table->enum('status', ['active', 'disabled'])->default('active'); },
                 'backup_type' => function ($table) { $table->enum('backup_type', ['cloud_only', 'local', 'both'])->default('both'); },
+                'notifications_enabled' => function ($table) { $table->tinyInteger('notifications_enabled')->default(1); },
+                'notify_emails' => function ($table) { $table->text('notify_emails')->nullable(); },
+                'notify_on_success' => function ($table) { $table->tinyInteger('notify_on_success')->default(0); },
+                'notify_on_warning' => function ($table) { $table->tinyInteger('notify_on_warning')->default(1); },
+                'notify_on_failure' => function ($table) { $table->tinyInteger('notify_on_failure')->default(1); },
                 'created_at' => function ($table) { $table->timestamp('created_at')->useCurrent(); },
                 'updated_at' => function ($table) { $table->timestamp('updated_at')->useCurrent(); },
             ];
@@ -5355,6 +5365,11 @@ function cloudstorage_upgrade($vars) {
                     $table->string('email', 255);
                     $table->enum('status', ['active', 'disabled'])->default('active');
                     $table->enum('backup_type', ['cloud_only', 'local', 'both'])->default('both');
+                    $table->tinyInteger('notifications_enabled')->default(1);
+                    $table->text('notify_emails')->nullable();
+                    $table->tinyInteger('notify_on_success')->default(0);
+                    $table->tinyInteger('notify_on_warning')->default(1);
+                    $table->tinyInteger('notify_on_failure')->default(1);
                     $table->timestamp('created_at')->useCurrent();
                     $table->timestamp('updated_at')->useCurrent();
                     $table->unique('public_id');
@@ -5376,6 +5391,11 @@ function cloudstorage_upgrade($vars) {
                 'email' => function ($table) { $table->string('email', 255); },
                 'status' => function ($table) { $table->enum('status', ['active', 'disabled'])->default('active'); },
                 'backup_type' => function ($table) { $table->enum('backup_type', ['cloud_only', 'local', 'both'])->default('both'); },
+                'notifications_enabled' => function ($table) { $table->tinyInteger('notifications_enabled')->default(1); },
+                'notify_emails' => function ($table) { $table->text('notify_emails')->nullable(); },
+                'notify_on_success' => function ($table) { $table->tinyInteger('notify_on_success')->default(0); },
+                'notify_on_warning' => function ($table) { $table->tinyInteger('notify_on_warning')->default(1); },
+                'notify_on_failure' => function ($table) { $table->tinyInteger('notify_on_failure')->default(1); },
                 'created_at' => function ($table) { $table->timestamp('created_at')->useCurrent(); },
                 'updated_at' => function ($table) { $table->timestamp('updated_at')->useCurrent(); },
             ];

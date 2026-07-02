@@ -125,6 +125,34 @@ Per-client notification defaults.
 - `default_timezone` - Timezone string
 - `per_client_max_concurrent_jobs` - Integer (nullable) - Per-client concurrency limit override
 
+#### `s3_backup_users` notification columns
+
+Per-backup-user email notification settings (Profile tab on the user detail page).
+
+**Key Fields**:
+
+- `notifications_enabled` - Master switch (`1` = send report emails, `0` = skip)
+- `notify_emails` - Nullable TEXT JSON array of recipient addresses (max 10 in UI/API)
+- `notify_on_success` - Boolean (`0` by default)
+- `notify_on_warning` - Boolean (`1` by default)
+- `notify_on_failure` - Boolean (`1` by default)
+
+**Resolution order** (implemented in `CloudBackupNotificationPolicy`):
+
+1. WHMCS email template must be configured (Cloud Storage / MS365 Backup addon settings)
+2. Job `notify_override_email` overrides recipients when set
+3. If linked backup user has `notifications_enabled = 0`, no email is sent
+4. Outcome toggles: job (non-null) → backup user → `s3_cloudbackup_settings` → hardcoded defaults (`success=0`, `warning=1`, `failure=1`)
+5. Recipients: job override → backup user `notify_emails` → client `default_notify_emails` → backup user profile email → WHMCS client email
+6. Legacy jobs with all three job toggles explicitly `0` inherit client defaults
+
+**Client UI**: **e3 Backup → Users → {user} → Profile** tab → **Email notifications** section.
+
+**API**:
+
+- `GET/POST modules/addons/cloudstorage/api/e3backup_user_notification_settings.php`
+- `notification_settings` included in `e3backup_user_get.php` user payload
+
 **API boundary**: At all API boundaries, `job_id` and `run_id` are UUIDv7 strings; in MySQL they are stored as `BINARY(16)`.
 
 ## UUIDv7 Cutover
@@ -149,6 +177,8 @@ accounts/modules/addons/cloudstorage/
 │       ├── CloudBackupController.php   # Job/run CRUD operations
 │       ├── CloudBackupEventFormatter.php # Event → user-facing message formatter (sanitized)
 │       ├── CloudBackupEmailService.php # Email notification service
+│       ├── CloudBackupNotificationPolicy.php # Shared notification resolver
+│       ├── BackupUserNotificationSettingsService.php # Per-user notification CRUD
 │       └── CloudBackupLogFormatter.php # Legacy rclone log formatter (fallback/transition)
 ├── pages/
 │   ├── e3backup_jobs.php              # Job list page
@@ -181,7 +211,7 @@ accounts/modules/addons/cloudstorage/
 ```
 accounts/crons/
 ├── s3cloudbackup_notify.php          # Email notification cron
-├── s3cloudbackup_events_prune.php    # Prune s3_cloudbackup_run_events by retention
+├── s3cloudbackup_events_prune.php    # Prune run events/logs, MS365 log lines (30d), comet_jobs (48h); every 6h
 ├── s3cloudbackup_retention.php       # Retention policy cleanup cron (Cloud Backup only)
 └── s3cloudbackup_scheduler.php       # Evaluates schedules and queues runs
 ```

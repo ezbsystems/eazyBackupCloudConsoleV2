@@ -125,85 +125,29 @@ class CloudBackupEmailService {
             }
 
             // Determine if we should send based on run status and settings
-            $notifyEmails = [];
+            $notifyDecision = CloudBackupNotificationPolicy::resolve($job, (string) ($run['status'] ?? ''), $client);
 
-            // Load client-level defaults (for recipients and toggles)
-            $defaultNotifyOnSuccess = 1;
-            $defaultNotifyOnWarning = 1;
-            $defaultNotifyOnFailure = 1;
-
-            $settings = Capsule::table('s3_cloudbackup_settings')
-                ->where('client_id', $job['client_id'])
-                ->first();
-
-            if ($settings) {
-                if (isset($settings->default_notify_emails) && !empty($settings->default_notify_emails)) {
-                    $notifyEmails = self::parseEmailList($settings->default_notify_emails);
-                }
-                if (isset($settings->default_notify_on_success)) {
-                    $defaultNotifyOnSuccess = (int) $settings->default_notify_on_success;
-                }
-                if (isset($settings->default_notify_on_warning)) {
-                    $defaultNotifyOnWarning = (int) $settings->default_notify_on_warning;
-                }
-                if (isset($settings->default_notify_on_failure)) {
-                    $defaultNotifyOnFailure = (int) $settings->default_notify_on_failure;
-                }
-            }
-
-            // Resolve toggles:
-            // - If job-level toggles are explicitly set (non-null), they take precedence
-            // - Otherwise, fall back to client defaults
-            // - Safety: if ALL job-level toggles evaluate to 0 (legacy jobs), prefer client defaults
-            $jobNOS = isset($job['notify_on_success']) && $job['notify_on_success'] !== null ? (int) $job['notify_on_success'] : null;
-            $jobNOW = isset($job['notify_on_warning']) && $job['notify_on_warning'] !== null ? (int) $job['notify_on_warning'] : null;
-            $jobNOF = isset($job['notify_on_failure']) && $job['notify_on_failure'] !== null ? (int) $job['notify_on_failure'] : null;
-
-            // Start with client defaults
-            $notifyOnSuccess = $defaultNotifyOnSuccess;
-            $notifyOnWarning = $defaultNotifyOnWarning;
-            $notifyOnFailure = $defaultNotifyOnFailure;
-
-            // Apply job-level values if present
-            if ($jobNOS !== null) $notifyOnSuccess = $jobNOS;
-            if ($jobNOW !== null) $notifyOnWarning = $jobNOW;
-            if ($jobNOF !== null) $notifyOnFailure = $jobNOF;
-
-            // If all job-level toggles are explicitly zero, assume legacy "unset" and inherit client defaults
-            if ($jobNOS === 0 && $jobNOW === 0 && $jobNOF === 0) {
-                $notifyOnSuccess = $defaultNotifyOnSuccess;
-                $notifyOnWarning = $defaultNotifyOnWarning;
-                $notifyOnFailure = $defaultNotifyOnFailure;
-                logModuleCall(self::$module, 'email_notify_fallback', [
-                    'reason' => 'all_job_toggles_zero_legacy',
-                    'client_defaults' => [
-                        'success' => $defaultNotifyOnSuccess,
-                        'warning' => $defaultNotifyOnWarning,
-                        'failure' => $defaultNotifyOnFailure,
-                    ],
-                ], '');
-            }
-
-            // Resolve recipients: job override > client defaults > client primary email
-            if (!empty($job['notify_override_email'])) {
-                $notifyEmails = self::parseEmailList($job['notify_override_email']);
-            }
-            if (empty($notifyEmails)) {
-                // Fallback to client email
-                $notifyEmails = [$client->email];
-            }
-
-            // Log resolved recipients and toggles
             logModuleCall(self::$module, 'email_notify_recipients', [
                 'run_id' => $run['id'] ?? null,
                 'job_id' => $job['id'] ?? null,
                 'status' => $run['status'] ?? null,
-                'notify_on_success' => (int) $notifyOnSuccess,
-                'notify_on_warning' => (int) $notifyOnWarning,
-                'notify_on_failure' => (int) $notifyOnFailure,
-                'recipients' => $notifyEmails,
+                'notify_on_success' => (int) $notifyDecision['notify_on_success'],
+                'notify_on_warning' => (int) $notifyDecision['notify_on_warning'],
+                'notify_on_failure' => (int) $notifyDecision['notify_on_failure'],
+                'recipients' => $notifyDecision['recipients'],
                 'template' => $templateName,
             ], '');
+
+            if (!$notifyDecision['send']) {
+                logModuleCall(self::$module, 'email_notify_skip', [
+                    'reason' => $notifyDecision['reason'],
+                    'run_id' => $run['id'] ?? null,
+                    'job_id' => $job['id'] ?? null,
+                ], '');
+                return ['status' => 'skipped', 'message' => self::skipMessageForReason($notifyDecision['reason'])];
+            }
+
+            $notifyEmails = $notifyDecision['recipients'];
 
             if (empty($notifyEmails)) {
                 logModuleCall(self::$module, 'email_notify_skip', [
@@ -212,37 +156,6 @@ class CloudBackupEmailService {
                     'job_id' => $job['id'] ?? null,
                 ], '');
                 return ['status' => 'skipped', 'message' => 'No email addresses configured'];
-            }
-
-            // Check if we should send based on status
-            if ($run['status'] === 'success' && !$notifyOnSuccess) {
-                logModuleCall(self::$module, 'email_notify_skip', [
-                    'reason' => 'success_disabled',
-                    'run_id' => $run['id'] ?? null,
-                ], '');
-                return ['status' => 'skipped', 'message' => 'Success notifications disabled'];
-            }
-            if ($run['status'] === 'warning' && !$notifyOnWarning) {
-                logModuleCall(self::$module, 'email_notify_skip', [
-                    'reason' => 'warning_disabled',
-                    'run_id' => $run['id'] ?? null,
-                ], '');
-                return ['status' => 'skipped', 'message' => 'Warning notifications disabled'];
-            }
-            if ($run['status'] === 'failed' && !$notifyOnFailure) {
-                logModuleCall(self::$module, 'email_notify_skip', [
-                    'reason' => 'failure_disabled',
-                    'run_id' => $run['id'] ?? null,
-                ], '');
-                return ['status' => 'skipped', 'message' => 'Failure notifications disabled'];
-            }
-            // Treat cancelled as failure-equivalent for notification toggles by default
-            if ($run['status'] === 'cancelled' && !$notifyOnFailure) {
-                logModuleCall(self::$module, 'email_notify_skip', [
-                    'reason' => 'cancelled_disabled',
-                    'run_id' => $run['id'] ?? null,
-                ], '');
-                return ['status' => 'skipped', 'message' => 'Cancelled notifications disabled'];
             }
 
             // Prepare merge variables
@@ -393,26 +306,20 @@ class CloudBackupEmailService {
     }
 
     /**
-     * Parse comma or semicolon separated email list
-     *
-     * @param string $emailList
-     * @return array
+     * Map policy skip reason to a user-facing message.
      */
-    private static function parseEmailList($emailList)
+    private static function skipMessageForReason(string $reason): string
     {
-        if (empty($emailList)) {
-            return [];
-        }
+        $map = [
+            'notifications_disabled' => 'Backup user notifications disabled',
+            'no_recipients' => 'No email addresses configured',
+            'success_disabled' => 'Success notifications disabled',
+            'warning_disabled' => 'Warning notifications disabled',
+            'failure_disabled' => 'Failure notifications disabled',
+            'cancelled_disabled' => 'Cancelled notifications disabled',
+        ];
 
-        // Try JSON first (if stored as JSON array)
-        $decoded = json_decode($emailList, true);
-        if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
-            return array_filter(array_map('trim', $decoded));
-        }
-
-        // Otherwise parse as comma/semicolon separated
-        $emails = preg_split('/[;,]+/', $emailList);
-        return array_filter(array_map('trim', $emails));
+        return $map[$reason] ?? 'Notification skipped';
     }
 }
 

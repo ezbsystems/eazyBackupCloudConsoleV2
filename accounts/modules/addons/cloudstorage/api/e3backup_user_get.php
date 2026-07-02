@@ -8,6 +8,7 @@ require_once __DIR__ . '/../../eazybackup/pages/partnerhub/TenantStorageLinksCon
 use Illuminate\Database\Capsule\Manager as Capsule;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use WHMCS\ClientArea;
+use WHMCS\Module\Addon\CloudStorage\Client\BackupUserNotificationSettingsService;
 use WHMCS\Module\Addon\CloudStorage\Client\MspController;
 use WHMCS\Module\Addon\CloudStorage\Client\Ms365VaultLifecycleService;
 use WHMCS\Module\Addon\CloudStorage\Client\UuidBinary;
@@ -99,6 +100,9 @@ if (!$ca->isLoggedIn()) {
 }
 
 $clientId = $ca->getUserID();
+if (function_exists('session_write_close')) {
+    session_write_close();
+}
 $isMsp = MspController::isMspClient($clientId);
 $tenantTable = MspController::getTenantTableName();
 $mspId = MspController::getMspIdForClient($clientId);
@@ -620,6 +624,7 @@ if ($cloudJobsOk) {
 
 $ms365VaultData = Ms365VaultLifecycleService::listVaultsForBackupUser($clientId, $userId);
 $ms365VaultGraceDays = Ms365VaultLifecycleService::getGraceDays();
+$notificationSettings = BackupUserNotificationSettingsService::getForBackupUser($clientId, $userId);
 
 (new JsonResponse([
     'status' => 'success',
@@ -655,6 +660,7 @@ $ms365VaultGraceDays = Ms365VaultLifecycleService::getGraceDays();
         'hyperv_jobs' => $hypervJobs,
         'hyperv_vms' => $hypervVms,
         'billing_kpis' => $billingKpis,
+        'notification_settings' => $notificationSettings,
     ],
 ], 200))->send();
 exit;
