@@ -56,6 +56,27 @@ if (Ms365BatchLiveService::isMs365BatchRun($run)) {
     try {
         $batchRunId = (string) ($run['run_id'] ?? $runIdentifier);
         $events = Ms365BatchLiveService::aggregateEvents($batchRunId, (int) $userId, $sinceId, $limit, $userTz);
+        // #region agent log
+        if ($events !== []) {
+            $debugLogPath = '/var/www/eazybackup.ca/.cursor/debug-91dc3e.log';
+            $lastEvent = $events[count($events) - 1];
+            @file_put_contents($debugLogPath, json_encode([
+                'sessionId' => '91dc3e',
+                'id' => uniqid('log_', true),
+                'timestamp' => (int) round(microtime(true) * 1000),
+                'location' => 'cloudbackup_get_run_events.php:ms365',
+                'message' => 'events_returned',
+                'data' => [
+                    'run_uuid' => $batchRunId,
+                    'since_id' => $sinceId,
+                    'event_count' => count($events),
+                    'last_event_id' => $lastEvent['id'] ?? null,
+                ],
+                'runId' => 'run_' . $batchRunId,
+                'hypothesisId' => 'H-E',
+            ]) . PHP_EOL, FILE_APPEND);
+        }
+        // #endregion
         (new JsonResponse([
             'status' => 'success',
             'events' => $events,
