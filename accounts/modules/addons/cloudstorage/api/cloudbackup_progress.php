@@ -51,35 +51,6 @@ if (!$ca->isLoggedIn()) {
 require_once __DIR__ . '/../lib/Client/E3BackupAccess.php';
 
 $loggedInUserId = (int) $ca->getUserID();
-// #region agent log
-$e3Pid = (int) ProductConfig::e3CloudBackupPid();
-$e3Product = $e3Pid > 0 ? DBController::getProduct($loggedInUserId, $e3Pid) : null;
-$ms365Pid = (int) ProductConfig::ms365BackupPid();
-$ms365Product = $ms365Pid > 0 ? DBController::getProduct($loggedInUserId, $ms365Pid) : null;
-$hasE3BackupAccess = E3BackupAccess::clientHasE3BackupAccess($loggedInUserId);
-progressDebugLog('progress_access_check', [
-    'client_id' => $loggedInUserId,
-    'has_e3_product' => $e3Product && !empty($e3Product->username),
-    'has_ms365_product' => $ms365Product && !empty($ms365Product->username),
-    'has_e3_backup_access' => $hasE3BackupAccess,
-    'run_uuid' => (string) ($_GET['run_uuid'] ?? $_GET['run_id'] ?? ''),
-], 'H-A', $debugLogPath);
-// #endregion
-if (!$hasE3BackupAccess) {
-    // #region agent log
-    progressDebugLog('progress_rejected_no_access', [
-        'client_id' => $loggedInUserId,
-        'message' => 'Product not found.',
-    ], 'H-A', $debugLogPath);
-    // #endregion
-    $jsonData = [
-        'status' => 'fail',
-        'message' => 'Product not found.'
-    ];
-    $response = new JsonResponse($jsonData, 200);
-    $response->send();
-    exit();
-}
 
 $runIdentifier = $_GET['run_uuid'] ?? $_GET['run_id'] ?? null;
 if (!$runIdentifier) {
@@ -93,6 +64,15 @@ if (!$runIdentifier) {
 }
 
 $run = CloudBackupController::getRun($runIdentifier, $loggedInUserId);
+// #region agent log
+$hasE3BackupAccess = E3BackupAccess::clientHasE3BackupAccess($loggedInUserId);
+progressDebugLog('progress_run_ownership', [
+    'client_id' => $loggedInUserId,
+    'run_uuid' => (string) $runIdentifier,
+    'run_found' => $run !== null,
+    'has_e3_backup_access' => $hasE3BackupAccess,
+], 'H-F', $debugLogPath);
+// #endregion
 if (!$run) {
     $jsonData = [
         'status' => 'fail',
