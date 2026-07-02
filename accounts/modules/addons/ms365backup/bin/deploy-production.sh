@@ -2,8 +2,11 @@
 #
 # Safe production deploy: sync tracked WHMCS custom code from git clone → live accounts/.
 #
+# Can be run from any working directory (paths are absolute).
+#
 # Usage (on prod as root):
 #   bash /var/www/eazybackup.ca/accounts/modules/addons/ms365backup/bin/deploy-production.sh
+#   bash /root/deploy-production.sh          # if copied or symlinked to ~/
 #   bash .../deploy-production.sh --dry-run
 #
 # Safety rules:
@@ -89,10 +92,6 @@ preflight() {
   command -v rsync >/dev/null || fail "rsync not installed"
   command -v git >/dev/null || fail "git not installed"
   command -v php >/dev/null || fail "php not installed"
-
-  # Hard stop if prod comet module is missing (client area depends on it).
-  [[ -f "$PROD_ROOT/modules/servers/comet/functions.php" ]] || \
-    fail "Prod comet module missing. Restore from dev before deploying."
 }
 
 chown_paths() {
@@ -144,11 +143,8 @@ fi
 
 materialize_from_git "modules/addons/ms365backup/vendor" "autoload.php"
 
-# Optional: COMET_SUBMODULE_INIT=1 to attempt submodule checkout (requires .gitmodules).
-if [[ "${COMET_SUBMODULE_INIT:-0}" == "1" ]] && [[ ! -f "$REPO_ACCOUNTS/modules/servers/comet/functions.php" ]]; then
-  log "Attempting git submodule update for comet..."
-  git submodule update --init --recursive accounts/modules/servers/comet 2>/dev/null || true
-fi
+[[ -f "$REPO_ACCOUNTS/modules/servers/comet/functions.php" ]] || \
+  fail "Repo clone missing modules/servers/comet/functions.php after git pull (comet must be tracked in git)."
 
 # --- rsync (paths must match .gitignore tracked set) ---
 
@@ -164,13 +160,11 @@ rsync_addon cloudstorage cloudstorage.php
 rsync_addon cometbilling cometbilling.php
 rsync_addon eazybackup eazybackup.php
 rsync_addon hidepermissions hidepermissions.php
-rsync_addon mspconnect mspconnect.php
 
 rsync_addon ms365backup ms365backup.php \
   --exclude 'storage/worker-releases/*/' \
   --exclude 'storage/worker-builds/'
 
-# Comet: repo clone is often empty (submodule gitlink). Never delete prod when source empty.
 rsync_guarded servers/comet functions.php \
   "$REPO_ACCOUNTS/modules/servers/comet/" \
   "$PROD_ROOT/modules/servers/comet/"
@@ -189,7 +183,6 @@ chown_paths \
   "$PROD_ROOT/modules/addons/eazybackup" \
   "$PROD_ROOT/modules/addons/ms365backup" \
   "$PROD_ROOT/modules/addons/hidepermissions" \
-  "$PROD_ROOT/modules/addons/mspconnect" \
   "$PROD_ROOT/modules/servers/comet" \
   "$PROD_ROOT/modules/gateways/stripe" \
   "$PROD_ROOT/includes/hooks" \
