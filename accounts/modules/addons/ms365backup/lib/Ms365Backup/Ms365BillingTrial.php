@@ -17,7 +17,7 @@ final class Ms365BillingTrial
         if ($serviceId <= 0 || $clientId <= 0) {
             return;
         }
-        $days = $trialDays !== null ? max(0, (int) $trialDays) : Ms365BillingConfig::trialDays();
+        $days = $trialDays !== null ? max(0, (int) $trialDays) : Ms365BillingConfig::trialDays($serviceId);
         if ($days <= 0) {
             $days = 30;
         }

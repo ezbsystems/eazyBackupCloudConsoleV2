@@ -31,6 +31,18 @@ final class Ms365BillingConfig
         };
     }
 
+    /** @return list<int> */
+    public static function getBillablePids(): array
+    {
+        $pids = self::getPids();
+        $unified = self::unifiedProductPid();
+        if ($unified > 0 && !in_array($unified, $pids, true)) {
+            $pids[] = $unified;
+        }
+
+        return $pids;
+    }
+
     public static function getPid(): int
     {
         $raw = (string) self::setting('pid_ms365_backup', '');
@@ -78,19 +90,37 @@ final class Ms365BillingConfig
 
     public static function onedriveOveragePricePerGibCad(): float
     {
+        $storageRate = self::cloudStorageSetting('storage_overage_per_gib_cad', '');
+        if ($storageRate !== '' && is_numeric($storageRate) && (float) $storageRate > 0) {
+            return (float) $storageRate;
+        }
+
         return max(0.0, (float) self::setting('onedrive_overage_price_per_gib_cad', '0'));
     }
 
-    public static function trialDays(): int
+    public static function trialDays(?int $serviceId = null): int
     {
+        if ($serviceId !== null && $serviceId > 0 && self::isUnifiedService($serviceId)) {
+            $days = (int) self::cloudStorageSetting('e3cb_trial_days', '30');
+
+            return $days > 0 ? $days : 30;
+        }
+
         $days = (int) self::setting('ms365_trial_days', '30');
 
         return $days > 0 ? $days : 30;
     }
 
     /** @return array<string, int> */
-    public static function getConfigOptionMap(): array
+    public static function getConfigOptionMap(?int $serviceId = null): array
     {
+        if ($serviceId !== null && $serviceId > 0 && self::isUnifiedService($serviceId)) {
+            $unified = self::unifiedConfigOptionMap();
+            if ($unified !== []) {
+                return $unified;
+            }
+        }
+
         $raw = (string) self::setting('ms365_config_option_ids', '');
         if ($raw === '') {
             return [];
@@ -138,5 +168,59 @@ final class Ms365BillingConfig
         }
 
         return (string) (self::$cache[$key] ?? $default);
+    }
+
+    private static function cloudStorageSetting(string $key, string $default = ''): string
+    {
+        try {
+            $val = Capsule::table('tbladdonmodules')
+                ->where('module', 'cloudstorage')
+                ->where('setting', $key)
+                ->value('value');
+
+            return ($val !== null && $val !== '') ? (string) $val : $default;
+        } catch (\Throwable $_) {
+            return $default;
+        }
+    }
+
+    private static function isUnifiedService(int $serviceId): bool
+    {
+        $pid = self::unifiedProductPid();
+        if ($pid <= 0 || $serviceId <= 0) {
+            return false;
+        }
+        try {
+            return (int) Capsule::table('tblhosting')->where('id', $serviceId)->value('packageid') === $pid;
+        } catch (\Throwable $_) {
+            return false;
+        }
+    }
+
+    private static function unifiedProductPid(): int
+    {
+        return (int) self::cloudStorageSetting('pid_e3_backup_user', '0');
+    }
+
+    /** @return array<string, int> */
+    private static function unifiedConfigOptionMap(): array
+    {
+        $raw = (string) self::cloudStorageSetting('e3bu_config_option_ids', '');
+        if ($raw === '') {
+            return [];
+        }
+        $decoded = json_decode($raw, true);
+        if (!is_array($decoded)) {
+            return [];
+        }
+        $keys = [self::METRIC_PROTECTED_USERS, self::METRIC_ONEDRIVE_OVERAGE_GIB];
+        $clean = [];
+        foreach ($keys as $metric) {
+            if (isset($decoded[$metric]) && (int) $decoded[$metric] > 0) {
+                $clean[$metric] = (int) $decoded[$metric];
+            }
+        }
+
+        return $clean;
     }
 }

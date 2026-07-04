@@ -24,6 +24,17 @@
 {assign var=ebE3OnboardingHidden value=$ebE3OnboardingHidden|default:false}
 {assign var=ebE3HasAgents value=$ebE3HasAgents|default:false}
 {assign var=ebIsAdminSession value=$ebIsAdminSession|default:false}
+{assign var=ebGsCompleted value=$ebGsCompleted|default:$ebE3OnboardingCompleted|default:0}
+{assign var=ebGsTotal value=$ebGsTotal|default:$ebE3OnboardingTotal|default:4}
+{assign var=ebGsHidden value=$ebGsHidden|default:$ebE3OnboardingHidden|default:false}
+{assign var=ebGsComplete value=$ebGsComplete|default:$ebE3OnboardingComplete|default:false}
+{assign var=ebGsUserId value=$ebGsUserId|default:''}
+{assign var=ebGsIntent value=$ebGsIntent|default:'local'}
+{assign var=ebGsActiveWorkload value=$ebGsActiveWorkload|default:'local'}
+{assign var=ebGsGettingStartedHref value='index.php?m=cloudstorage&page=e3backup&view=getting_started'}
+{if $ebGsUserId neq ''}
+    {capture assign=ebGsGettingStartedHref}index.php?m=cloudstorage&page=e3backup&view=getting_started&user_id={$ebGsUserId|escape:'url'}&intent={$ebGsIntent|escape:'url'}{/capture}
+{/if}
 
 <div class="eb-page">
     <div class="eb-page-inner">
@@ -64,6 +75,11 @@
                     ebE3OnboardingCompleted=$ebE3OnboardingCompleted
                     ebE3OnboardingTotal=$ebE3OnboardingTotal
                     ebE3OnboardingHidden=$ebE3OnboardingHidden
+                    ebGsHidden=$ebGsHidden
+                    ebGsCompleted=$ebGsCompleted
+                    ebGsTotal=$ebGsTotal
+                    ebGsUserId=$ebGsUserId
+                    ebGsIntent=$ebGsIntent
                 }
                 <main class="eb-app-main">
                     {if $ebE3TitleHtml|trim neq '' || $ebE3Title|trim neq '' || $ebE3Icon|trim neq '' || $ebE3Actions|trim neq ''}
@@ -85,28 +101,24 @@
                                 </div>
                             </div>
                             {/if}
-                            {if $ebE3Actions|trim neq '' || not $ebE3OnboardingHidden}
+                            {if $ebE3Actions|trim neq '' || not $ebGsHidden}
                                 <div class="w-full lg:w-auto lg:shrink-0 flex flex-wrap items-center justify-end gap-2">
-                                    {* Round 2 (Tasks 7 & 8): reactive Setup pill.
-                                       Reads initial counts from the shared payload,
-                                       listens for live state updates from Getting
-                                       Started + the job wizard, and polls the status
-                                       API on a slow cadence on non-Getting-Started
-                                       pages so the badge stays current as agents
-                                       enroll, jobs are submitted, and runs complete. *}
                                     <div
-                                        x-data="ebE3SetupPill({
-                                            completed: {$ebE3OnboardingCompleted|default:0|intval},
-                                            total: {$ebE3OnboardingTotal|default:4|intval},
-                                            allComplete: {if $ebE3OnboardingComplete}true{else}false{/if},
-                                            hidden: {if $ebE3OnboardingHidden}true{else}false{/if}
+                                        x-data="ebGsSetupPill({
+                                            completed: {$ebGsCompleted|default:0|intval},
+                                            total: {$ebGsTotal|default:4|intval},
+                                            allComplete: {if $ebGsComplete|default:$ebE3OnboardingComplete|default:false}true{else}false{/if},
+                                            hidden: {if $ebGsHidden|default:$ebE3OnboardingHidden|default:false}true{else}false{/if},
+                                            workload: '{$ebGsActiveWorkload|default:'local'|escape:'javascript'}',
+                                            backupUserRouteId: '{$ebGsUserId|default:''|escape:'javascript'}',
+                                            gettingStartedHref: '{$ebGsGettingStartedHref|escape:'javascript'}'
                                         })"
                                         x-init="init()"
                                         class="flex items-center"
                                     >
-                                        <a x-show="!hidden && !allComplete"
+                                        <a x-show="!hidden && !allComplete && total > 0"
                                            x-cloak
-                                           href="index.php?m=cloudstorage&page=e3backup&view=getting_started"
+                                           :href="gettingStartedHref"
                                            data-tour="setup-progress-pill"
                                            class="eb-btn eb-btn-orange eb-btn-sm gap-2"
                                            title="Open Getting Started">
@@ -115,7 +127,7 @@
                                         </a>
                                         <a x-show="!hidden && allComplete"
                                            x-cloak
-                                           href="index.php?m=cloudstorage&page=e3backup&view=getting_started"
+                                           :href="gettingStartedHref"
                                            class="eb-btn eb-btn-success eb-btn-sm gap-2">
                                             <span class="eb-status-dot eb-status-dot--active"></span>
                                             Setup complete
@@ -264,38 +276,91 @@
                     completed_count: Number(state.completed_count || 0),
                     total_count: Number(state.total_count || 4),
                     all_complete: !!state.all_complete,
-                    hidden: hidden
+                    hidden: hidden,
+                    active_workload: 'local'
+                }
+            }));
+            window.ebGsBroadcastOnboardingState({
+                completed_count: Number(state.completed_count || 0),
+                total_count: Number(state.total_count || 4),
+                all_complete: !!state.all_complete,
+                hidden: hidden,
+                active_workload: 'local'
+            });
+        } catch (e) {}
+    };
+
+    window.ebGsBroadcastOnboardingState = function(state) {
+        if (!state) return;
+        try {
+            window.dispatchEvent(new CustomEvent('eb-gs-onboarding-state', {
+                detail: {
+                    completed_count: Number(state.completed_count || 0),
+                    total_count: Number(state.total_count || 0),
+                    all_complete: !!state.all_complete,
+                    hidden: !!state.hidden,
+                    active_workload: state.active_workload || 'local'
                 }
             }));
         } catch (e) {}
     };
 
-    window.ebE3SetupPill = function(initial) {
+    window.ebGsFetchOnboardingStatus = function(workload, backupUserRouteId) {
+        if (workload === 'ms365' && backupUserRouteId) {
+            return fetch('modules/addons/cloudstorage/api/ms365_onboarding_status.php?user_id='
+                + encodeURIComponent(backupUserRouteId), { credentials: 'same-origin' })
+                .then(function(r) { return r.json(); })
+                .then(function(json) {
+                    if (!json || json.status !== 'success' || !json.onboarding) return null;
+                    var ob = json.onboarding;
+                    return {
+                        status: 'success',
+                        completed_count: ob.completed_count,
+                        total_count: ob.total_count,
+                        all_complete: ob.all_complete,
+                        hidden: !!ob.all_complete,
+                        active_workload: 'ms365'
+                    };
+                })
+                .catch(function() { return null; });
+        }
+        return window.ebE3FetchOnboardingStatus().then(function(json) {
+            if (!json || json.status !== 'success') return null;
+            json.hidden = !!(json.all_complete && (json.tour_completed || json.tour_dismissed));
+            json.active_workload = 'local';
+            return json;
+        });
+    };
+
+    window.ebGsSetupPill = function(initial) {
         initial = initial || {};
         return {
             completed: Number(initial.completed || 0),
             total: Number(initial.total || 4),
             allComplete: !!initial.allComplete,
             hidden: !!initial.hidden,
+            workload: initial.workload || 'local',
+            backupUserRouteId: initial.backupUserRouteId || '',
+            gettingStartedHref: initial.gettingStartedHref || 'index.php?m=cloudstorage&page=e3backup&view=getting_started',
             _pollHandle: null,
             init: function() {
                 var self = this;
-                window.addEventListener('eb-e3-onboarding-state', function(ev) {
+                window.addEventListener('eb-gs-onboarding-state', function(ev) {
                     if (!ev || !ev.detail) return;
                     self.apply(ev.detail);
                 });
+                window.addEventListener('eb-e3-onboarding-state', function(ev) {
+                    if (!ev || !ev.detail) return;
+                    if (self.workload === 'local' || !ev.detail.active_workload || ev.detail.active_workload === 'local') {
+                        self.apply(ev.detail);
+                    }
+                });
                 window.addEventListener('eb-e3-onboarding-event', function() {
-                    // Tour / download / explicit event recorder fired —
-                    // fetch fresh status to reflect any derived changes.
                     self.refresh();
                 });
-                // Slow background poll on pages that don't already host the
-                // 5s Getting Started poller. Skip the poll on Getting Started
-                // itself to avoid stacking calls.
                 var onGettingStarted = !!document.querySelector('[data-page="getting-started"]');
-                if (!onGettingStarted) {
+                if (!onGettingStarted && self.workload !== 'saas') {
                     self._pollHandle = setInterval(function() { self.refresh(); }, 30000);
-                    // Also refetch when the tab regains focus.
                     window.addEventListener('focus', function() { self.refresh(); });
                 }
             },
@@ -304,14 +369,13 @@
                 if (typeof detail.total_count === 'number') this.total = detail.total_count;
                 if (typeof detail.all_complete === 'boolean') this.allComplete = detail.all_complete;
                 if (typeof detail.hidden === 'boolean') this.hidden = detail.hidden;
+                if (detail.active_workload) this.workload = detail.active_workload;
             },
             refresh: function() {
                 var self = this;
-                window.ebE3FetchOnboardingStatus().then(function(json) {
+                window.ebGsFetchOnboardingStatus(self.workload, self.backupUserRouteId).then(function(json) {
                     if (!json || json.status !== 'success') return;
-                    window.ebE3BroadcastOnboardingState(json);
-                    // Stop polling once everything is complete to keep network
-                    // chatter low for power users.
+                    window.ebGsBroadcastOnboardingState(json);
                     if (json.all_complete && self._pollHandle) {
                         clearInterval(self._pollHandle);
                         self._pollHandle = null;
@@ -320,6 +384,9 @@
             }
         };
     };
+
+    // Back-compat alias for legacy callers.
+    window.ebE3SetupPill = window.ebGsSetupPill;
 })();
 document.addEventListener('DOMContentLoaded', function() {
     var flyout = document.getElementById('e3-download-flyout');

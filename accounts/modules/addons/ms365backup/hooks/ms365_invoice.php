@@ -36,13 +36,13 @@ add_hook('DailyCronJob', 2, function ($vars) {
 
 function ms365_apply_all_services(): void
 {
-    $pid = Ms365BillingConfig::getPid();
-    if ($pid <= 0) {
+    $pids = Ms365BillingConfig::getBillablePids();
+    if ($pids === []) {
         return;
     }
     try {
         $svcIds = Capsule::table('tblhosting')
-            ->where('packageid', $pid)
+            ->whereIn('packageid', $pids)
             ->whereIn('domainstatus', ['Active', 'Suspended'])
             ->pluck('id');
         foreach ($svcIds as $sid) {
@@ -65,44 +65,26 @@ add_hook('InvoiceCreationPreEmail', 2, function ($vars) {
     if (!class_exists('\\Ms365Backup\\Ms365BillingService')) {
         return;
     }
-    $pid = Ms365BillingConfig::getPid();
-    if ($pid <= 0) {
+    $legacyPid = Ms365BillingConfig::getPid();
+    $pids = Ms365BillingConfig::getBillablePids();
+    if ($pids === []) {
         return;
     }
     try {
-        ms365_apply_invoice_overrides($invoiceId, $pid);
+        ms365_apply_invoice_overrides($invoiceId, $legacyPid, $pids);
     } catch (\Throwable $e) {
         logModuleCall('ms365backup', 'ms365_invoice_hook_fail', ['invoice_id' => $invoiceId], $e->getMessage(), [], []);
     }
 });
 
-function ms365_apply_invoice_overrides(int $invoiceId, int $pid): void
+function ms365_apply_invoice_overrides(int $invoiceId, int $legacyPid, array $billablePids = []): void
 {
     $items = Capsule::table('tblinvoiceitems')->where('invoiceid', $invoiceId)->get();
     if (count($items) === 0) {
         return;
     }
-    $configMap = Ms365BillingConfig::getConfigOptionMap();
-    if ($configMap === []) {
-        return;
-    }
-
-    $reverse = [];
-    foreach ($configMap as $metric => $configId) {
-        $configId = (int) $configId;
-        if ($configId <= 0) {
-            continue;
-        }
-        $reverse['cfg_' . $configId] = $metric;
-        try {
-            $subIds = Capsule::table('tblproductconfigoptionssub')
-                ->where('configid', $configId)
-                ->pluck('id');
-            foreach ($subIds as $sid) {
-                $reverse['sub_' . (int) $sid] = $metric;
-            }
-        } catch (\Throwable $_) {
-        }
+    if ($billablePids === []) {
+        $billablePids = Ms365BillingConfig::getBillablePids();
     }
 
     $writtenAny = false;
@@ -127,11 +109,34 @@ function ms365_apply_invoice_overrides(int $invoiceId, int $pid): void
 
         try {
             $svc = Capsule::table('tblhosting')->where('id', $serviceId)->first();
-            if (!$svc || (int) $svc->packageid !== $pid) {
+            if (!$svc || !in_array((int) ($svc->packageid ?? 0), $billablePids, true)) {
                 continue;
             }
         } catch (\Throwable $_) {
             continue;
+        }
+
+        $configMap = Ms365BillingConfig::getConfigOptionMap($serviceId);
+        if ($configMap === []) {
+            continue;
+        }
+
+        $reverse = [];
+        foreach ($configMap as $metric => $mapConfigId) {
+            $mapConfigId = (int) $mapConfigId;
+            if ($mapConfigId <= 0) {
+                continue;
+            }
+            $reverse['cfg_' . $mapConfigId] = $metric;
+            try {
+                $subIds = Capsule::table('tblproductconfigoptionssub')
+                    ->where('configid', $mapConfigId)
+                    ->pluck('id');
+                foreach ($subIds as $sid) {
+                    $reverse['sub_' . (int) $sid] = $metric;
+                }
+            } catch (\Throwable $_) {
+            }
         }
 
         $metric = $reverse['sub_' . $optionId] ?? $reverse['cfg_' . $configId] ?? null;

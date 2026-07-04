@@ -712,16 +712,22 @@ function backupUsersApp() {
         fieldErrors: {},
         form: {
             username: '',
-            backup_type: 'both',
             password: '',
             password_confirm: '',
-            email: '',
             tenant_id: '',
             encryption_mode: 'managed',
             managed_acknowledged: false,
             strict_acknowledged: false,
             recovery_key_downloaded: false
         },
+        notificationForm: {
+            enabled: true,
+            emails: [],
+            notify_on_success: true,
+            notify_on_warning: true,
+            notify_on_failure: true,
+        },
+        newNotifyEmail: '',
         availableColumns: [
             { key: 'tenant', label: 'Tenant' },
             { key: 'vaults_count', label: '# Vaults' },
@@ -746,6 +752,12 @@ function backupUsersApp() {
                 this.loadCanonicalTenants();
             }
             this.loadUsers();
+            try {
+                const params = new URLSearchParams(window.location.search);
+                if (params.get('create') === '1') {
+                    this.$nextTick(() => this.openCreateModal());
+                }
+            } catch (e) {}
         },
 
         userKey(user) {
@@ -992,7 +1004,7 @@ function backupUsersApp() {
                 'eazyBackup Recovery Key',
                 '',
                 'User: ' + (this.form.username || ''),
-                'Email: ' + (this.form.email || ''),
+                'Email: ' + (this.notificationForm.emails[0] || ''),
                 'Generated At: ' + new Date().toISOString(),
                 '',
                 'Recovery Key:',
@@ -1146,16 +1158,22 @@ function backupUsersApp() {
         openCreateModal() {
             this.form = {
                 username: '',
-                backup_type: 'both',
                 password: '',
                 password_confirm: '',
-                email: '',
                 tenant_id: '',
                 encryption_mode: 'managed',
                 managed_acknowledged: false,
                 strict_acknowledged: false,
                 recovery_key_downloaded: false
             };
+            this.notificationForm = {
+                enabled: true,
+                emails: [],
+                notify_on_success: true,
+                notify_on_warning: true,
+                notify_on_failure: true,
+            };
+            this.newNotifyEmail = '';
             this.formErrorMessage = '';
             this.fieldErrors = {};
             this.tenantAssignSearch = '';
@@ -1164,7 +1182,7 @@ function backupUsersApp() {
         },
 
         closeCreateModal(force = false) {
-            if (!force && this.form.backup_type !== 'cloud_only' && this.form.encryption_mode === 'strict' && !this.form.recovery_key_downloaded) {
+            if (!force && this.form.encryption_mode === 'strict' && !this.form.recovery_key_downloaded) {
                 this.showRecoveryKeyCloseWarning = true;
                 return;
             }
@@ -1181,6 +1199,38 @@ function backupUsersApp() {
             this.closeCreateModal(true);
         },
 
+        addNotificationEmail() {
+            const email = String(this.newNotifyEmail || '').trim().toLowerCase();
+            if (!email) {
+                this.fieldErrors.notify_emails = 'Enter an email address.';
+                return;
+            }
+            const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            if (!emailPattern.test(email)) {
+                this.fieldErrors.notify_emails = 'Please enter a valid email address.';
+                return;
+            }
+            if (this.notificationForm.emails.some((existing) => String(existing).toLowerCase() === email)) {
+                this.fieldErrors.notify_emails = 'This email is already in the list.';
+                return;
+            }
+            if (this.notificationForm.emails.length >= 10) {
+                this.fieldErrors.notify_emails = 'You can add at most 10 email addresses.';
+                return;
+            }
+            this.notificationForm.emails.push(email);
+            this.newNotifyEmail = '';
+            delete this.fieldErrors.notify_emails;
+        },
+
+        removeNotificationEmail(index) {
+            if (index < 0 || index >= this.notificationForm.emails.length) {
+                return;
+            }
+            this.notificationForm.emails.splice(index, 1);
+            delete this.fieldErrors.notify_emails;
+        },
+
         validateCreateForm() {
             this.fieldErrors = {};
 
@@ -1190,39 +1240,28 @@ function backupUsersApp() {
                 this.fieldErrors.username = 'Use 3-64 characters with letters, numbers, dots, underscores, or hyphens.';
             }
 
-            const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-            if (!this.form.email) {
-                this.fieldErrors.email = 'Email is required.';
-            } else if (!emailPattern.test(this.form.email)) {
-                this.fieldErrors.email = 'Please enter a valid email address.';
+            if (!this.form.password) {
+                this.fieldErrors.password = 'Password is required.';
+            } else if (this.form.password.length < 8) {
+                this.fieldErrors.password = 'Password must be at least 8 characters.';
             }
 
-            if (this.form.backup_type !== 'cloud_only') {
-                if (this.form.encryption_mode === 'managed') {
-                    if (!this.form.password) {
-                        this.fieldErrors.password = 'Password is required.';
-                    } else if (this.form.password.length < 8) {
-                        this.fieldErrors.password = 'Password must be at least 8 characters.';
-                    }
+            if (!this.form.password_confirm) {
+                this.fieldErrors.password_confirm = 'Please confirm your password.';
+            } else if (this.form.password !== this.form.password_confirm) {
+                this.fieldErrors.password_confirm = 'Password confirmation does not match.';
+            }
 
-                    if (!this.form.password_confirm) {
-                        this.fieldErrors.password_confirm = 'Please confirm your password.';
-                    } else if (this.form.password !== this.form.password_confirm) {
-                        this.fieldErrors.password_confirm = 'Password confirmation does not match.';
-                    }
+            if (this.form.encryption_mode === 'managed') {
+                if (!this.form.managed_acknowledged) {
+                    this.fieldErrors.managed_acknowledged = 'Please acknowledge managed recovery.';
                 }
-
-                if (this.form.encryption_mode === 'managed') {
-                    if (!this.form.managed_acknowledged) {
-                        this.fieldErrors.managed_acknowledged = 'Please acknowledge managed recovery.';
-                    }
-                } else if (this.form.encryption_mode === 'strict') {
-                    if (!this.form.recovery_key_downloaded) {
-                        this.fieldErrors.recovery_key_downloaded = 'Download the recovery key before creating this user.';
-                    }
-                    if (!this.form.strict_acknowledged) {
-                        this.fieldErrors.strict_acknowledged = 'Please acknowledge strict mode requirements.';
-                    }
+            } else if (this.form.encryption_mode === 'strict') {
+                if (!this.form.recovery_key_downloaded) {
+                    this.fieldErrors.recovery_key_downloaded = 'Download the recovery key before creating this user.';
+                }
+                if (!this.form.strict_acknowledged) {
+                    this.fieldErrors.strict_acknowledged = 'Please acknowledge strict mode requirements.';
                 }
             }
 
@@ -1293,29 +1332,27 @@ function backupUsersApp() {
 
             this.saving = true;
             try {
+                const profileEmail = this.notificationForm.emails.length
+                    ? String(this.notificationForm.emails[0])
+                    : '';
+
                 const body = new URLSearchParams({
                     username: this.form.username,
-                    email: this.form.email,
+                    email: profileEmail,
                     status: 'active',
-                    backup_type: this.form.backup_type
+                    password: this.form.password,
+                    password_confirm: this.form.password_confirm,
+                    encryption_mode: this.form.encryption_mode,
+                    managed_acknowledged: this.form.managed_acknowledged ? '1' : '0',
+                    strict_acknowledged: this.form.strict_acknowledged ? '1' : '0',
+                    recovery_key_downloaded: this.form.recovery_key_downloaded ? '1' : '0',
+                    notifications_enabled: this.notificationForm.enabled ? '1' : '0',
+                    notify_on_success: this.notificationForm.notify_on_success ? '1' : '0',
+                    notify_on_warning: this.notificationForm.notify_on_warning ? '1' : '0',
+                    notify_on_failure: this.notificationForm.notify_on_failure ? '1' : '0',
+                    notify_emails: JSON.stringify(this.notificationForm.emails),
                 });
                 body.set('token', this.csrfToken);
-
-                if (this.form.backup_type !== 'cloud_only') {
-                    let passwordToSend = this.form.password;
-                    let passwordConfirmToSend = this.form.password_confirm;
-                    if (this.form.encryption_mode === 'strict') {
-                        const generated = this.generateRecoveryKey().slice(0, 24);
-                        passwordToSend = generated;
-                        passwordConfirmToSend = generated;
-                    }
-                    body.set('password', passwordToSend);
-                    body.set('password_confirm', passwordConfirmToSend);
-                    body.set('encryption_mode', this.form.encryption_mode);
-                    body.set('managed_acknowledged', this.form.managed_acknowledged ? '1' : '0');
-                    body.set('strict_acknowledged', this.form.strict_acknowledged ? '1' : '0');
-                    body.set('recovery_key_downloaded', this.form.recovery_key_downloaded ? '1' : '0');
-                }
 
                 if (this.isMspClient) {
                     body.set('canonical_tenant_id', this.form.tenant_id ? this.form.tenant_id : 'direct');

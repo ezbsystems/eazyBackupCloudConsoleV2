@@ -3,13 +3,19 @@
 require_once __DIR__ . '/../../../../init.php';
 require_once __DIR__ . '/../lib/Client/MspController.php';
 require_once __DIR__ . '/../lib/Client/E3BackupClientState.php';
+require_once __DIR__ . '/../lib/Client/BackupUserNotificationSettingsService.php';
+require_once __DIR__ . '/../lib/Provision/E3BackupUserProductBootstrap.php';
+require_once __DIR__ . '/../lib/Provision/Provisioner.php';
 require_once __DIR__ . '/../../eazybackup/pages/partnerhub/TenantStorageLinksController.php';
 
 use Illuminate\Database\Capsule\Manager as Capsule;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use WHMCS\ClientArea;
+use WHMCS\Module\Addon\CloudStorage\Client\BackupUserNotificationSettingsService;
 use WHMCS\Module\Addon\CloudStorage\Client\E3BackupClientState;
 use WHMCS\Module\Addon\CloudStorage\Client\MspController;
+use WHMCS\Module\Addon\CloudStorage\Provision\E3BackupUserProductBootstrap;
+use WHMCS\Module\Addon\CloudStorage\Provision\Provisioner;
 
 if (!defined("WHMCS")) {
     die("This file cannot be accessed directly");
@@ -68,6 +74,7 @@ try {
 
 $clientId = $ca->getUserID();
 $isMsp = MspController::isMspClient($clientId);
+$unifiedEnabled = E3BackupUserProductBootstrap::isUnifiedEnabled();
 
 $username = normalizeUsername((string) ($_POST['username'] ?? ''));
 $email = strtolower(trim((string) ($_POST['email'] ?? '')));
@@ -75,9 +82,30 @@ $backupType = strtolower(trim((string) ($_POST['backup_type'] ?? 'both')));
 if (!in_array($backupType, ['cloud_only', 'local', 'both'], true)) {
     $backupType = 'both';
 }
-$isCloudOnly = ($backupType === 'cloud_only');
 
-if (in_array($backupType, ['local', 'both'], true)
+$encryptionMode = strtolower(trim((string) ($_POST['encryption_mode'] ?? '')));
+if ($encryptionMode === '' && $unifiedEnabled) {
+    $encryptionMode = 'managed';
+}
+if ($encryptionMode !== '' && !in_array($encryptionMode, ['managed', 'strict'], true)) {
+    $encryptionMode = 'managed';
+}
+
+if ($unifiedEnabled) {
+    if ($encryptionMode === 'strict') {
+        $backupType = 'local';
+    } else {
+        $backupType = 'both';
+        if ($encryptionMode === '') {
+            $encryptionMode = 'managed';
+        }
+    }
+}
+
+$isCloudOnly = (!$unifiedEnabled && $backupType === 'cloud_only');
+
+if (!$unifiedEnabled
+    && in_array($backupType, ['local', 'both'], true)
     && !E3BackupClientState::clientHasE3AgentProduct((int) $clientId)) {
     userCreateFail(
         'Workstation and server backup requires the e3 Backup Agent product. Enable it first.',
@@ -88,13 +116,13 @@ if (in_array($backupType, ['local', 'both'], true)
     );
 }
 
-if ($isCloudOnly) {
+$password = (string) ($_POST['password'] ?? '');
+$passwordConfirm = (string) ($_POST['password_confirm'] ?? '');
+if ($isCloudOnly && !$unifiedEnabled) {
     $password = bin2hex(random_bytes(32));
     $passwordConfirm = $password;
-} else {
-    $password = (string) ($_POST['password'] ?? '');
-    $passwordConfirm = (string) ($_POST['password_confirm'] ?? '');
 }
+
 $status = strtolower(trim((string) ($_POST['status'] ?? 'active')));
 $tenantIdRaw = trim((string) ($_POST['tenant_id'] ?? ''));
 $tenantId = null;
@@ -140,7 +168,7 @@ if ($email === '') {
     $errors['email'] = 'Please enter a valid email address.';
 }
 
-if (!$isCloudOnly) {
+if ($unifiedEnabled || !$isCloudOnly) {
     if ($password === '') {
         $errors['password'] = 'Password is required.';
     } elseif (strlen($password) < 8) {
@@ -188,6 +216,18 @@ if ($isMsp && $canonicalTenantId !== null) {
     }
 }
 
+$notifyPayload = [
+    'notifications_enabled' => $_POST['notifications_enabled'] ?? true,
+    'notify_emails' => $_POST['notify_emails'] ?? [],
+    'notify_on_success' => $_POST['notify_on_success'] ?? true,
+    'notify_on_warning' => $_POST['notify_on_warning'] ?? true,
+    'notify_on_failure' => $_POST['notify_on_failure'] ?? true,
+];
+$notifyValidation = BackupUserNotificationSettingsService::validatePayload($notifyPayload);
+if (!empty($notifyValidation['errors'])) {
+    $errors = array_merge($errors, $notifyValidation['errors']);
+}
+
 if (!empty($errors)) {
     userCreateFail('Please correct the highlighted fields.', 400, $errors);
 }
@@ -202,18 +242,75 @@ if ($tenantId === null) {
     $existingQuery->where('tenant_id', $tenantId);
 }
 
-$existing = $existingQuery->first();
-if ($existing) {
+if ($existingQuery->exists()) {
     userCreateFail('A user with this username already exists in this scope.', 400, [
         'username' => 'Username already exists for this account scope.',
     ]);
 }
 
+if ($unifiedEnabled) {
+    try {
+        $notifyDto = $notifyValidation['dto'];
+        $result = Provisioner::provisionE3BackupUser((int) $clientId, [
+            'username' => $username,
+            'password' => $password,
+            'encryption_mode' => $encryptionMode,
+            'email' => $email,
+            'tenant_id' => $tenantId,
+            'status' => $status,
+            'notify_emails' => $notifyDto['notify_emails'],
+            'notifications_enabled' => $notifyDto['notifications_enabled'],
+            'notify_on_success' => $notifyDto['notify_on_success'],
+            'notify_on_warning' => $notifyDto['notify_on_warning'],
+            'notify_on_failure' => $notifyDto['notify_on_failure'],
+            'existing' => Capsule::schema()->hasTable('s3_backup_users')
+                && Capsule::table('s3_backup_users')->where('client_id', (int) $clientId)->exists(),
+        ]);
+
+        if ($isMsp) {
+            $storageIdentifier = eb_tenant_storage_identifier_for_user((int) $result['user_id']);
+            $linkResult = eb_tenant_storage_links_upsert_for_client((int) $clientId, $storageIdentifier, $canonicalTenantId);
+            if (empty($linkResult['ok'])) {
+                userCreateFail((string) ($linkResult['message'] ?? 'Failed to link tenant storage.'), 500);
+            }
+        }
+
+        $response = [
+            'status' => 'success',
+            'user_id' => (int) $result['user_id'],
+            'service_id' => (int) $result['service_id'],
+            'message' => 'User created successfully.',
+        ];
+        if (!empty($result['public_id'])) {
+            $response['public_id'] = (string) $result['public_id'];
+        }
+        (new JsonResponse($response, 200))->send();
+        exit;
+    } catch (\Throwable $e) {
+        userCreateFail($e->getMessage() ?: 'Failed to create user.', 500);
+    }
+}
+
 $hasPublicId = Capsule::schema()->hasColumn('s3_backup_users', 'public_id');
 $publicId = $hasPublicId ? generateBackupUserPublicId() : null;
+$notifyDto = $notifyValidation['dto'];
 
 try {
-    $userId = Capsule::connection()->transaction(function () use ($clientId, $tenantId, $username, $password, $email, $status, $backupType, $isMsp, $canonicalTenantId, $hasPublicId, $publicId) {
+    $userId = Capsule::connection()->transaction(function () use (
+        $clientId,
+        $tenantId,
+        $username,
+        $password,
+        $email,
+        $status,
+        $backupType,
+        $encryptionMode,
+        $isMsp,
+        $canonicalTenantId,
+        $hasPublicId,
+        $publicId,
+        $notifyDto
+    ) {
         $insertData = [
             'client_id' => $clientId,
             'tenant_id' => $tenantId,
@@ -221,6 +318,11 @@ try {
             'password_hash' => password_hash($password, PASSWORD_DEFAULT),
             'email' => $email,
             'status' => $status,
+            'notifications_enabled' => $notifyDto['notifications_enabled'] ? 1 : 0,
+            'notify_emails' => $notifyDto['notify_emails'] === [] ? null : json_encode(array_values($notifyDto['notify_emails'])),
+            'notify_on_success' => $notifyDto['notify_on_success'] ? 1 : 0,
+            'notify_on_warning' => $notifyDto['notify_on_warning'] ? 1 : 0,
+            'notify_on_failure' => $notifyDto['notify_on_failure'] ? 1 : 0,
             'created_at' => Capsule::raw('NOW()'),
             'updated_at' => Capsule::raw('NOW()'),
         ];
@@ -229,6 +331,9 @@ try {
         }
         if (Capsule::schema()->hasColumn('s3_backup_users', 'backup_type')) {
             $insertData['backup_type'] = $backupType;
+        }
+        if (Capsule::schema()->hasColumn('s3_backup_users', 'encryption_mode') && $encryptionMode !== '') {
+            $insertData['encryption_mode'] = $encryptionMode;
         }
         $userId = (int) Capsule::table('s3_backup_users')->insertGetId($insertData);
 
@@ -256,4 +361,3 @@ if ($publicId !== null) {
 }
 (new JsonResponse($response, 200))->send();
 exit;
-

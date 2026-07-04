@@ -45,6 +45,7 @@ $selectCols = array_merge([
     Capsule::raw($tenantOwnerSelect),
     't.status as tenant_status',
 ], Capsule::schema()->hasColumn('s3_backup_users', 'backup_type') ? ['u.backup_type'] : [],
+   Capsule::schema()->hasColumn('s3_backup_users', 'encryption_mode') ? ['u.encryption_mode'] : [],
    $hasPublicIdCol ? ['u.public_id'] : []);
 
 $userLookup = Capsule::table('s3_backup_users as u')

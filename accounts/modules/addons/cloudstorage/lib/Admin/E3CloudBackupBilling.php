@@ -4,6 +4,7 @@ namespace WHMCS\Module\Addon\CloudStorage\Admin;
 
 use WHMCS\Database\Capsule;
 use WHMCS\Module\Addon\CloudStorage\Provision\E3CloudBackupProductBootstrap;
+use WHMCS\Module\Addon\CloudStorage\Provision\E3BackupUserProductBootstrap;
 
 /**
  * Meter + Rater for the e3 Cloud Backup product.
@@ -26,20 +27,25 @@ class E3CloudBackupBilling
     /** Module logging tag (lines up with all other cloudstorage module calls). */
     private const MODULE = 'cloudstorage';
 
+    /** Cloud-to-cloud job source types counted as saas_connector. */
+    private const SAAS_SOURCE_TYPES = [
+        's3_compatible', 'aws', 'sftp', 'google_drive', 'dropbox', 'smb', 'nas',
+    ];
+
     /**
-     * Walk every active e3 Cloud Backup service and capture a snapshot.
+     * Walk every active e3 Cloud Backup / unified e3 Backup User service.
      *
      * @return array{services:int, snapshots:int, errors:int}
      */
     public static function meterAll(): array
     {
-        $pid = E3CloudBackupProductBootstrap::getPid();
-        if ($pid <= 0) {
+        $pids = self::billableProductIds();
+        if ($pids === []) {
             return ['services' => 0, 'snapshots' => 0, 'errors' => 0];
         }
         $services = Capsule::table('tblhosting')
             ->select(['id', 'userid', 'packageid', 'domainstatus', 'nextduedate'])
-            ->where('packageid', $pid)
+            ->whereIn('packageid', $pids)
             ->whereIn('domainstatus', ['Active', 'Suspended'])
             ->get();
 
@@ -72,18 +78,29 @@ class E3CloudBackupBilling
             return 0;
         }
 
-        $counts = self::measureForClient($clientId);
+        $backupUserId = self::isUnifiedService($serviceId)
+            ? self::backupUserIdForService($serviceId)
+            : 0;
+        $counts = $backupUserId > 0
+            ? self::measureForBackupUser($clientId, $backupUserId)
+            : self::measureForClient($clientId);
+
         $now = date('Y-m-d H:i:s');
         $written = 0;
+        $hasBackupUserCol = Capsule::schema()->hasColumn('s3_cloudbackup_usage_snapshots', 'backup_user_id');
         foreach ($counts as $metric => $qty) {
             try {
-                Capsule::table('s3_cloudbackup_usage_snapshots')->insert([
+                $row = [
                     'service_id' => $serviceId,
                     'client_id'  => $clientId,
                     'metric'     => $metric,
                     'qty'        => max(0, (int) $qty),
                     'taken_at'   => $now,
-                ]);
+                ];
+                if ($hasBackupUserCol) {
+                    $row['backup_user_id'] = $backupUserId;
+                }
+                Capsule::table('s3_cloudbackup_usage_snapshots')->insert($row);
                 $written++;
             } catch (\Throwable $e) {
                 self::log('meter_insert_fail', [
@@ -93,6 +110,72 @@ class E3CloudBackupBilling
             }
         }
         return $written;
+    }
+
+    /**
+     * Per-backup-user metering for unified services.
+     *
+     * @return array<string,int>
+     */
+    public static function measureForBackupUser(int $clientId, int $backupUserId): array
+    {
+        $counts = array_fill_keys(E3CloudBackupPricing::METRICS, 0);
+        if ($clientId <= 0 || $backupUserId <= 0) {
+            return $counts;
+        }
+
+        try {
+            if (Capsule::schema()->hasTable('s3_cloudbackup_agents')
+                && Capsule::schema()->hasColumn('s3_cloudbackup_agents', 'backup_user_id')) {
+                $counts['endpoint'] = (int) Capsule::table('s3_cloudbackup_agents')
+                    ->where('client_id', $clientId)
+                    ->where('backup_user_id', $backupUserId)
+                    ->where('status', 'active')
+                    ->count();
+            }
+        } catch (\Throwable $e) {
+            self::log('meter_endpoint_user_fail', ['client_id' => $clientId, 'backup_user_id' => $backupUserId], $e->getMessage());
+        }
+
+        try {
+            if (Capsule::schema()->hasTable('s3_cloudbackup_jobs')
+                && Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'backup_user_id')) {
+                if (Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'engine')) {
+                    $counts['disk_image'] = (int) Capsule::table('s3_cloudbackup_jobs')
+                        ->where('client_id', $clientId)
+                        ->where('backup_user_id', $backupUserId)
+                        ->where('engine', 'disk_image')
+                        ->where('status', 'active')
+                        ->count();
+                }
+                $counts['saas_connector'] = (int) Capsule::table('s3_cloudbackup_jobs')
+                    ->where('client_id', $clientId)
+                    ->where('backup_user_id', $backupUserId)
+                    ->where('status', 'active')
+                    ->whereIn('source_type', self::SAAS_SOURCE_TYPES)
+                    ->count();
+            }
+        } catch (\Throwable $e) {
+            self::log('meter_jobs_user_fail', ['client_id' => $clientId, 'backup_user_id' => $backupUserId], $e->getMessage());
+        }
+
+        try {
+            if (Capsule::schema()->hasTable('s3_hyperv_vms')
+                && Capsule::schema()->hasTable('s3_cloudbackup_jobs')
+                && Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'backup_user_id')) {
+                $counts['hyperv_vm'] = (int) Capsule::table('s3_hyperv_vms as v')
+                    ->join('s3_cloudbackup_jobs as j', 'j.job_id', '=', 'v.job_id')
+                    ->where('j.client_id', $clientId)
+                    ->where('j.backup_user_id', $backupUserId)
+                    ->where('j.status', 'active')
+                    ->where('v.backup_enabled', 1)
+                    ->count();
+            }
+        } catch (\Throwable $e) {
+            self::log('meter_hyperv_user_fail', ['client_id' => $clientId, 'backup_user_id' => $backupUserId], $e->getMessage());
+        }
+
+        return $counts;
     }
 
     /**
@@ -144,6 +227,19 @@ class E3CloudBackupBilling
             self::log('meter_hyperv_fail', ['client_id' => $clientId], $e->getMessage());
         }
 
+        try {
+            if (Capsule::schema()->hasTable('s3_cloudbackup_jobs')
+                && Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'source_type')) {
+                $counts['saas_connector'] = (int) Capsule::table('s3_cloudbackup_jobs')
+                    ->where('client_id', $clientId)
+                    ->where('status', 'active')
+                    ->whereIn('source_type', self::SAAS_SOURCE_TYPES)
+                    ->count();
+            }
+        } catch (\Throwable $e) {
+            self::log('meter_saas_fail', ['client_id' => $clientId], $e->getMessage());
+        }
+
         // proxmox_vm and vmware_vm are stubbed at 0 - agent doesn't surface them yet.
         return $counts;
     }
@@ -156,13 +252,13 @@ class E3CloudBackupBilling
      */
     public static function rateAll(): array
     {
-        $pid = E3CloudBackupProductBootstrap::getPid();
-        if ($pid <= 0) {
+        $pids = self::billableProductIds();
+        if ($pids === []) {
             return ['services' => 0, 'rated' => 0, 'errors' => 0];
         }
         $services = Capsule::table('tblhosting')
             ->select(['id', 'userid', 'packageid', 'domainstatus', 'nextduedate', 'regdate'])
-            ->where('packageid', $pid)
+            ->whereIn('packageid', $pids)
             ->whereIn('domainstatus', ['Active', 'Suspended'])
             ->get();
 
@@ -198,18 +294,22 @@ class E3CloudBackupBilling
         $currencyId = self::clientCurrencyId($clientId);
         $window = self::resolveBillingWindow($svc);
 
-        // Pull MAX(qty) in window per metric.
-        $maxByMetric = self::maxQtyInWindow($serviceId, $window['start'], $window['end']);
+        $backupUserId = self::isUnifiedService($serviceId)
+            ? self::backupUserIdForService($serviceId)
+            : 0;
 
-        // If no snapshot exists in the window yet, fall back to a synchronous
-        // measurement so the dry-run / preview never returns "no data".
+        $maxByMetric = self::maxQtyInWindow($serviceId, $window['start'], $window['end'], $backupUserId);
+
         if (empty(array_filter($maxByMetric))) {
-            $maxByMetric = self::measureForClient($clientId);
+            $maxByMetric = $backupUserId > 0
+                ? self::measureForBackupUser($clientId, $backupUserId)
+                : self::measureForClient($clientId);
         }
 
         $includedEndpoints = (int) self::getSetting('e3cb_included_endpoints', 0);
         $trialStatus = self::trialStatus($serviceId);
         $betaFreeBilling = self::isBetaFreeBillingEnabled();
+        $hasBackupUserCol = Capsule::schema()->hasColumn('s3_cloudbackup_rated_lines', 'backup_user_id');
 
         $written = 0;
         foreach (E3CloudBackupPricing::METRICS as $metric) {
@@ -219,29 +319,36 @@ class E3CloudBackupBilling
                 $billableQty = max(0, $qty - $includedEndpoints);
             }
 
-            $resolved = E3CloudBackupPricing::resolve($clientId, $metric, $currencyId, $billableQty, $window['end']);
+            $resolved = E3CloudBackupPricing::resolve(
+                $clientId,
+                $metric,
+                $currencyId,
+                $billableQty,
+                $window['end'],
+                $serviceId
+            );
             $unitPrice = (float) $resolved['unit_price'];
             $lineAmount = (float) $resolved['line_amount'];
             $tierLabel = $resolved['tier_label'];
             $source = (string) $resolved['source'];
 
             if ($trialStatus === 'trialing') {
-                // Zero the bill but keep the computed unit price visible.
                 $lineAmount = 0.0;
                 $source = 'trial_zeroed';
             } elseif ($betaFreeBilling) {
-                // Global beta: zero the bill for all clients (existing +
-                // converted) while keeping the computed unit price visible.
                 $lineAmount = 0.0;
                 $source = 'beta_zeroed';
             }
 
             try {
-                $existing = Capsule::table('s3_cloudbackup_rated_lines')
+                $existingQuery = Capsule::table('s3_cloudbackup_rated_lines')
                     ->where('service_id', $serviceId)
                     ->where('metric', $metric)
-                    ->where('billing_window_start', $window['start'])
-                    ->first();
+                    ->where('billing_window_start', $window['start']);
+                if ($hasBackupUserCol) {
+                    $existingQuery->where('backup_user_id', $backupUserId);
+                }
+                $existing = $existingQuery->first();
 
                 $row = [
                     'service_id'          => $serviceId,
@@ -260,6 +367,9 @@ class E3CloudBackupBilling
                         : null,
                     'updated_at'          => date('Y-m-d H:i:s'),
                 ];
+                if ($hasBackupUserCol) {
+                    $row['backup_user_id'] = $backupUserId;
+                }
 
                 if ($existing) {
                     Capsule::table('s3_cloudbackup_rated_lines')
@@ -378,7 +488,7 @@ class E3CloudBackupBilling
      */
     public static function applyDefaultConfigOptions(int $serviceId): void
     {
-        $map = E3CloudBackupProductBootstrap::getConfigOptionMap();
+        $map = E3BackupUserProductBootstrap::resolveE3cbConfigOptionMap($serviceId);
         if (empty($map)) {
             return;
         }
@@ -430,7 +540,7 @@ class E3CloudBackupBilling
      */
     public static function applyToWhmcs(int $serviceId): int
     {
-        $map = E3CloudBackupProductBootstrap::getConfigOptionMap();
+        $map = E3BackupUserProductBootstrap::resolveE3cbConfigOptionMap($serviceId);
         if (empty($map)) {
             return 0;
         }
@@ -439,11 +549,17 @@ class E3CloudBackupBilling
             return 0;
         }
         $window = self::resolveBillingWindow($svc);
+        $backupUserId = self::isUnifiedService($serviceId)
+            ? self::backupUserIdForService($serviceId)
+            : 0;
 
-        $rated = Capsule::table('s3_cloudbackup_rated_lines')
+        $ratedQuery = Capsule::table('s3_cloudbackup_rated_lines')
             ->where('service_id', $serviceId)
-            ->where('billing_window_start', $window['start'])
-            ->get();
+            ->where('billing_window_start', $window['start']);
+        if (Capsule::schema()->hasColumn('s3_cloudbackup_rated_lines', 'backup_user_id')) {
+            $ratedQuery->where('backup_user_id', $backupUserId);
+        }
+        $rated = $ratedQuery->get();
         if (count($rated) === 0) {
             return 0;
         }
@@ -540,17 +656,19 @@ class E3CloudBackupBilling
      *
      * @return array<string,int>
      */
-    public static function maxQtyInWindow(int $serviceId, string $startDate, string $endDate): array
+    public static function maxQtyInWindow(int $serviceId, string $startDate, string $endDate, int $backupUserId = 0): array
     {
         $out = array_fill_keys(E3CloudBackupPricing::METRICS, 0);
         try {
-            $rows = Capsule::table('s3_cloudbackup_usage_snapshots')
+            $query = Capsule::table('s3_cloudbackup_usage_snapshots')
                 ->select(['metric', Capsule::raw('MAX(qty) as max_qty')])
                 ->where('service_id', $serviceId)
                 ->where('taken_at', '>=', $startDate . ' 00:00:00')
-                ->where('taken_at', '<=', $endDate . ' 23:59:59')
-                ->groupBy('metric')
-                ->get();
+                ->where('taken_at', '<=', $endDate . ' 23:59:59');
+            if (Capsule::schema()->hasColumn('s3_cloudbackup_usage_snapshots', 'backup_user_id')) {
+                $query->where('backup_user_id', $backupUserId);
+            }
+            $rows = $query->groupBy('metric')->get();
             foreach ($rows as $r) {
                 $out[(string) $r->metric] = (int) ($r->max_qty ?? 0);
             }
@@ -559,6 +677,7 @@ class E3CloudBackupBilling
                 'service_id' => $serviceId,
                 'start'      => $startDate,
                 'end'        => $endDate,
+                'backup_user_id' => $backupUserId,
             ], $e->getMessage());
         }
         return $out;
@@ -623,6 +742,42 @@ class E3CloudBackupBilling
         try {
             logModuleCall(self::MODULE, $event, $context, $payload, [], []);
         } catch (\Throwable $_) {
+        }
+    }
+
+    /** @return list<int> */
+    private static function billableProductIds(): array
+    {
+        $pids = [];
+        $legacy = E3CloudBackupProductBootstrap::getPid();
+        if ($legacy > 0) {
+            $pids[] = $legacy;
+        }
+        $unified = E3BackupUserProductBootstrap::getPid();
+        if ($unified > 0 && !in_array($unified, $pids, true)) {
+            $pids[] = $unified;
+        }
+        return $pids;
+    }
+
+    private static function isUnifiedService(int $serviceId): bool
+    {
+        return E3BackupUserProductBootstrap::isUnifiedService($serviceId);
+    }
+
+    private static function backupUserIdForService(int $serviceId): int
+    {
+        if ($serviceId <= 0 || !Capsule::schema()->hasTable('s3_backup_users')
+            || !Capsule::schema()->hasColumn('s3_backup_users', 'whmcs_service_id')) {
+            return 0;
+        }
+        try {
+            return (int) Capsule::table('s3_backup_users')
+                ->where('whmcs_service_id', $serviceId)
+                ->orderBy('id', 'asc')
+                ->value('id');
+        } catch (\Throwable $_) {
+            return 0;
         }
     }
 }

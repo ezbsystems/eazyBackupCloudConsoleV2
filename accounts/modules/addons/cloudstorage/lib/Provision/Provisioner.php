@@ -1268,6 +1268,281 @@ class Provisioner
     }
 
     /**
+     * Provision a unified e3 Backup User (one WHMCS service per backup user row).
+     *
+     * @param array{
+     *   username:string,
+     *   password:string,
+     *   encryption_mode?:string,
+     *   intent?:string,
+     *   email?:string,
+     *   tenant_id?:int|null,
+     *   status?:string,
+     *   notify_emails?:array,
+     *   notifications_enabled?:bool,
+     *   notify_on_success?:bool,
+     *   notify_on_warning?:bool,
+     *   notify_on_failure?:bool,
+     *   existing?:bool
+     * } $spec
+     * @return array{user_id:int, public_id:?string, service_id:int, redirect:string, intent:string}
+     */
+    public static function provisionE3BackupUser(int $clientId, array $spec): array
+    {
+        $bootstrapPath = __DIR__ . '/E3BackupUserProductBootstrap.php';
+        if (is_file($bootstrapPath)) {
+            require_once $bootstrapPath;
+        }
+        foreach ([
+            dirname(__DIR__) . '/Admin/E3CloudBackupBilling.php',
+            dirname(__DIR__) . '/Admin/E3CloudBackupTrial.php',
+        ] as $p) {
+            if (is_file($p)) {
+                require_once $p;
+            }
+        }
+        $ms365Autoload = dirname(__DIR__, 3) . '/ms365backup/ms365backup_autoload.php';
+        if (is_file($ms365Autoload)) {
+            require_once $ms365Autoload;
+        }
+
+        if (!\WHMCS\Module\Addon\CloudStorage\Provision\E3BackupUserProductBootstrap::isUnifiedEnabled()) {
+            throw new \Exception('Unified e3 Backup User provisioning is not enabled.');
+        }
+
+        $username = preg_replace('/[^A-Za-z0-9_.-]+/', '', (string) ($spec['username'] ?? ''));
+        if ($username === '' || strlen($username) < 3) {
+            throw new \Exception('Backup username must be at least 3 characters.');
+        }
+        $password = (string) ($spec['password'] ?? '');
+        if ($password === '') {
+            throw new \Exception('Password is required.');
+        }
+
+        $intent = strtolower(trim((string) ($spec['intent'] ?? '')));
+        if (!in_array($intent, ['local', 'ms365', 'saas'], true)) {
+            $intent = '';
+        }
+
+        $encryptionMode = strtolower(trim((string) ($spec['encryption_mode'] ?? 'managed')));
+        if (!in_array($encryptionMode, ['managed', 'strict'], true)) {
+            $encryptionMode = 'managed';
+        }
+        if (in_array($intent, ['ms365', 'saas'], true)) {
+            $encryptionMode = 'managed';
+        }
+        if ($intent === '') {
+            $intent = $encryptionMode === 'strict' ? 'local' : 'local';
+        }
+        if ($encryptionMode === 'strict') {
+            $intent = 'local';
+        }
+        $backupType = $encryptionMode === 'strict' ? 'local' : 'both';
+
+        $isExistingClient = !empty($spec['existing']);
+        $tenantId = array_key_exists('tenant_id', $spec) ? $spec['tenant_id'] : null;
+        $tenantId = $tenantId !== null ? (int) $tenantId : null;
+        if ($tenantId !== null && $tenantId <= 0) {
+            $tenantId = null;
+        }
+
+        $email = strtolower(trim((string) ($spec['email'] ?? '')));
+        if ($email === '') {
+            try {
+                $email = strtolower((string) Capsule::table('tblclients')->where('id', $clientId)->value('email'));
+            } catch (\Throwable $_) {
+                $email = '';
+            }
+        }
+        $status = strtolower(trim((string) ($spec['status'] ?? 'active')));
+        if (!in_array($status, ['active', 'disabled'], true)) {
+            $status = 'active';
+        }
+
+        $notifyEmails = $spec['notify_emails'] ?? [];
+        if (!is_array($notifyEmails)) {
+            $notifyEmails = [];
+        }
+        $notifyEmailsJson = $notifyEmails === [] ? null : json_encode(array_values($notifyEmails));
+        $notificationsEnabled = array_key_exists('notifications_enabled', $spec)
+            ? (bool) $spec['notifications_enabled'] : true;
+        $notifyOnSuccess = array_key_exists('notify_on_success', $spec)
+            ? (bool) $spec['notify_on_success'] : true;
+        $notifyOnWarning = array_key_exists('notify_on_warning', $spec)
+            ? (bool) $spec['notify_on_warning'] : true;
+        $notifyOnFailure = array_key_exists('notify_on_failure', $spec)
+            ? (bool) $spec['notify_on_failure'] : true;
+
+        $storageRes = self::ensureCloudStorageProductActive($clientId, true);
+        if (($storageRes['status'] ?? '') !== 'success') {
+            throw new \Exception((string) ($storageRes['message'] ?? 'Cloud Storage is not available.'));
+        }
+
+        \WHMCS\Module\Addon\CloudStorage\Provision\E3BackupUserProductBootstrap::ensure('provision');
+        $pid = (int) \WHMCS\Module\Addon\CloudStorage\Provision\E3BackupUserProductBootstrap::getPid();
+        if ($pid <= 0) {
+            throw new \Exception('e3 Backup User PID is not configured. Run cloudstorage_upgrade().');
+        }
+
+        $dupQuery = Capsule::table('s3_backup_users')
+            ->where('client_id', $clientId)
+            ->where('username', $username);
+        if ($tenantId === null) {
+            $dupQuery->whereNull('tenant_id');
+        } else {
+            $dupQuery->where('tenant_id', $tenantId);
+        }
+        if ($dupQuery->exists()) {
+            throw new \Exception('The username ' . $username . ' is already taken');
+        }
+
+        $publicId = strtoupper(bin2hex(random_bytes(13)));
+        $insert = [
+            'client_id' => $clientId,
+            'tenant_id' => $tenantId,
+            'username' => $username,
+            'password_hash' => password_hash($password, PASSWORD_DEFAULT) ?: '',
+            'email' => $email,
+            'status' => $status,
+            'backup_type' => $backupType,
+            'notifications_enabled' => $notificationsEnabled ? 1 : 0,
+            'notify_emails' => $notifyEmailsJson,
+            'notify_on_success' => $notifyOnSuccess ? 1 : 0,
+            'notify_on_warning' => $notifyOnWarning ? 1 : 0,
+            'notify_on_failure' => $notifyOnFailure ? 1 : 0,
+            'created_at' => date('Y-m-d H:i:s'),
+            'updated_at' => date('Y-m-d H:i:s'),
+        ];
+        if (Capsule::schema()->hasColumn('s3_backup_users', 'public_id')) {
+            $insert['public_id'] = $publicId;
+        }
+        if (Capsule::schema()->hasColumn('s3_backup_users', 'encryption_mode')) {
+            $insert['encryption_mode'] = $encryptionMode;
+        }
+
+        $backupUserId = (int) Capsule::table('s3_backup_users')->insertGetId($insert);
+        if ($backupUserId <= 0) {
+            throw new \Exception('Failed to create backup user row.');
+        }
+
+        $adminUser = 'API';
+        $order = localAPI('AddOrder', [
+            'clientid' => $clientId,
+            'pid' => [$pid],
+            'billingcycle' => ['monthly'],
+            'paymentmethod' => 'stripe',
+            'noinvoice' => true,
+            'noemail' => true,
+        ], $adminUser);
+        if (($order['result'] ?? '') !== 'success') {
+            throw new \Exception('AddOrder failed: ' . ($order['message'] ?? 'unknown'));
+        }
+        $accept = localAPI('AcceptOrder', [
+            'orderid' => $order['orderid'],
+            'autosetup' => false,
+            'sendemail' => false,
+            'serviceusername' => $username,
+            'servicepassword' => $password,
+        ], $adminUser);
+        if (($accept['result'] ?? '') !== 'success') {
+            throw new \Exception('AcceptOrder failed: ' . ($accept['message'] ?? 'unknown'));
+        }
+
+        $serviceId = (int) ($accept['serviceid'] ?? 0);
+        if ($serviceId <= 0 && !empty($order['orderid'])) {
+            try {
+                $serviceId = (int) Capsule::table('tblhosting')
+                    ->where('orderid', (int) $order['orderid'])
+                    ->orderByDesc('id')
+                    ->value('id');
+            } catch (\Throwable $_) {
+            }
+        }
+        if ($serviceId <= 0) {
+            throw new \Exception('e3 Backup User service could not be resolved after provisioning.');
+        }
+
+        if (Capsule::schema()->hasColumn('s3_backup_users', 'whmcs_service_id')) {
+            Capsule::table('s3_backup_users')->where('id', $backupUserId)->update([
+                'whmcs_service_id' => $serviceId,
+                'updated_at' => date('Y-m-d H:i:s'),
+            ]);
+        }
+
+        try {
+            \WHMCS\Module\Addon\CloudStorage\Admin\E3CloudBackupBilling::applyDefaultConfigOptions($serviceId);
+        } catch (\Throwable $_) {
+        }
+        if (class_exists('\\Ms365Backup\\Ms365BillingService')) {
+            try {
+                \Ms365Backup\Ms365BillingService::applyDefaultConfigOptions($serviceId);
+            } catch (\Throwable $_) {
+            }
+            try {
+                \Ms365Backup\Ms365BillingService::linkServiceToBackupUser($clientId, $backupUserId, $serviceId);
+            } catch (\Throwable $_) {
+            }
+        }
+
+        $trialDays = (int) self::getSetting('e3cb_trial_days', 30);
+        if ($trialDays <= 0) {
+            $trialDays = 30;
+        }
+        if (!$isExistingClient) {
+            try {
+                \WHMCS\Module\Addon\CloudStorage\Admin\E3CloudBackupTrial::startTrial($serviceId, $clientId, $trialDays);
+            } catch (\Throwable $_) {
+            }
+        }
+
+        try {
+            $tz = new \DateTimeZone('America/Toronto');
+            $nextDue = new \DateTime('now', $tz);
+            $nextDue->add(new \DateInterval("P{$trialDays}D"));
+            $formattedDue = $nextDue->format('Y-m-d');
+            Capsule::table('tblhosting')->where('id', $serviceId)->update([
+                'amount' => 0.00,
+                'nextduedate' => $formattedDue,
+                'nextinvoicedate' => $formattedDue,
+                'domainstatus' => 'Active',
+            ]);
+            if (!$isExistingClient) {
+                $storagePid = (int) self::getSetting('pid_cloud_storage', 0);
+                if ($storagePid > 0) {
+                    Capsule::table('tblhosting')
+                        ->where('userid', $clientId)
+                        ->where('packageid', $storagePid)
+                        ->whereIn('domainstatus', ['Active', 'Pending'])
+                        ->update([
+                            'nextduedate' => $formattedDue,
+                            'nextinvoicedate' => $formattedDue,
+                        ]);
+                }
+            }
+        } catch (\Throwable $_) {
+        }
+
+        try {
+            self::ensureEnrollmentToken($clientId, $backupUserId);
+        } catch (\Throwable $_) {
+        }
+
+        $routeUserId = Capsule::schema()->hasColumn('s3_backup_users', 'public_id') && $publicId !== ''
+            ? $publicId
+            : (string) $backupUserId;
+
+        return [
+            'user_id' => $backupUserId,
+            'public_id' => Capsule::schema()->hasColumn('s3_backup_users', 'public_id') ? $publicId : null,
+            'service_id' => $serviceId,
+            'intent' => $intent,
+            'redirect' => 'index.php?m=cloudstorage&page=e3backup&view=getting_started'
+                . '&user_id=' . rawurlencode($routeUserId)
+                . '&intent=' . rawurlencode($intent),
+        ];
+    }
+
+    /**
      * Create or return the id of a default s3_backup_users row for MS365 signup (cloud_only).
      */
     private static function ensureMs365DefaultBackupUser(int $clientId, string $usernameHint, string $password): int

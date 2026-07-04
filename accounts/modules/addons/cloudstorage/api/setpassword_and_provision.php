@@ -2,10 +2,12 @@
 
 require_once __DIR__ . '/../../../../init.php';
 require_once __DIR__ . '/../lib/Provision/Provisioner.php';
+require_once __DIR__ . '/../lib/Provision/E3BackupUserProductBootstrap.php';
 
 use WHMCS\ClientArea;
 use WHMCS\Database\Capsule;
 use WHMCS\Module\Addon\CloudStorage\Provision\Provisioner;
+use WHMCS\Module\Addon\CloudStorage\Provision\E3BackupUserProductBootstrap;
 
 header('Content-Type: application/json');
 
@@ -194,8 +196,11 @@ try {
             $errors['new_password'] = 'Password must be at least 8 characters long.';
         }
     }
-    // Username required for backup/ms365/e3backup
-    if ($choice === 'backup' || $choice === 'ms365' || $choice === 'e3backup') {
+    $unifiedEnabled = E3BackupUserProductBootstrap::isUnifiedEnabled();
+
+    // Username required for backup/ms365/e3backup (and cloud2cloud when unified)
+    if ($choice === 'backup' || $choice === 'ms365' || $choice === 'e3backup'
+        || ($unifiedEnabled && $choice === 'cloud2cloud')) {
         if ($username === '') {
             $errors['username'] = 'Please enter a username.';
         } elseif (!preg_match('/^[A-Za-z0-9_.-]{6,}$/', $username)) {
@@ -444,16 +449,62 @@ try {
                 $redirectUrl = Provisioner::provisionCloudBackup($clientId, $username, $newPassword);
                 break;
             case 'ms365':
-                $redirectUrl = Provisioner::provisionMs365($clientId, $username, $newPassword);
+                if ($unifiedEnabled) {
+                    $prov = Provisioner::provisionE3BackupUser($clientId, [
+                        'username' => $username,
+                        'password' => $newPassword,
+                        'encryption_mode' => 'managed',
+                        'intent' => 'ms365',
+                        'existing' => $existingClient,
+                        'notify_on_success' => true,
+                        'notify_on_warning' => true,
+                        'notify_on_failure' => true,
+                    ]);
+                    $redirectUrl = (string) ($prov['redirect'] ?? 'index.php?m=cloudstorage&page=e3backup&view=getting_started&intent=ms365');
+                } else {
+                    $redirectUrl = Provisioner::provisionMs365($clientId, $username, $newPassword);
+                }
                 break;
             case 'storage':
                 $redirectUrl = Provisioner::provisionCloudStorage($clientId);
                 break;
             case 'cloud2cloud':
-                $redirectUrl = Provisioner::provisionCloudToCloud($clientId);
+                if ($unifiedEnabled) {
+                    $prov = Provisioner::provisionE3BackupUser($clientId, [
+                        'username' => $username,
+                        'password' => $newPassword,
+                        'encryption_mode' => 'managed',
+                        'intent' => 'saas',
+                        'existing' => $existingClient,
+                        'notify_on_success' => true,
+                        'notify_on_warning' => true,
+                        'notify_on_failure' => true,
+                    ]);
+                    $redirectUrl = (string) ($prov['redirect'] ?? 'index.php?m=cloudstorage&page=e3backup&view=getting_started&intent=saas');
+                } else {
+                    $redirectUrl = Provisioner::provisionCloudToCloud($clientId);
+                }
                 break;
             case 'e3backup':
-                $redirectUrl = Provisioner::provisionE3CloudBackup($clientId, $username, $newPassword, ['existing' => $existingClient]);
+                if ($unifiedEnabled) {
+                    $encryptionMode = strtolower(trim((string) ($_POST['encryption_mode'] ?? 'managed')));
+                    if (!in_array($encryptionMode, ['managed', 'strict'], true)) {
+                        $encryptionMode = 'managed';
+                    }
+                    $prov = Provisioner::provisionE3BackupUser($clientId, [
+                        'username' => $username,
+                        'password' => $newPassword,
+                        'encryption_mode' => $encryptionMode,
+                        'intent' => 'local',
+                        'existing' => $existingClient,
+                        'notify_on_success' => true,
+                        'notify_on_warning' => true,
+                        'notify_on_failure' => true,
+                    ]);
+                    $redirectUrl = (string) ($prov['redirect'] ?? 'index.php?m=cloudstorage&page=e3backup&view=getting_started&intent=local');
+                } else {
+                    $redirectUrl = Provisioner::provisionE3CloudBackup($clientId, $username, $newPassword, ['existing' => $existingClient]);
+                }
                 break;
             default:
                 echo json_encode(['status' => 'error', 'errors' => ['general' => 'Unknown product selection.']]);

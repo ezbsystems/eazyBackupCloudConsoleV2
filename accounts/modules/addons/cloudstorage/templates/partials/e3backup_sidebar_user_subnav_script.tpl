@@ -4,6 +4,7 @@ function e3UserDetailSidebarNav() {
     return {
         activeTab: 'overview',
         backupType: 'both',
+        encryptionMode: 'managed',
         agentsCount: 0,
         jobsCount: 0,
         vaultsCount: 0,
@@ -32,6 +33,7 @@ function e3UserDetailSidebarNav() {
             window.addEventListener('eb-e3-user-detail-loaded', function(ev) {
                 if (ev && ev.detail) {
                     if (ev.detail.backup_type) self.backupType = ev.detail.backup_type;
+                    if (ev.detail.encryption_mode) self.encryptionMode = ev.detail.encryption_mode;
                     if (typeof ev.detail.agents_count === 'number') self.agentsCount = ev.detail.agents_count;
                     if (typeof ev.detail.jobs_count === 'number') self.jobsCount = ev.detail.jobs_count;
                     if (typeof ev.detail.vaults_count === 'number') self.vaultsCount = ev.detail.vaults_count;
@@ -58,6 +60,7 @@ function e3UserDetailSidebarNav() {
             if (!app || !app.user) return;
             if (app.activeTab) this.activeTab = app.activeTab;
             this.backupType = app.user.backup_type || 'both';
+            this.encryptionMode = app.user.encryption_mode || 'managed';
             this.agentsCount = Number(app.user.agents_count || 0);
             this.jobsCount = Number(app.user.jobs_count || 0);
             this.vaultsCount = Number(app.user.vaults_count || 0);
@@ -76,6 +79,9 @@ function e3UserDetailSidebarNav() {
             }
         },
         showAgentsTab() {
+            if (this.encryptionMode === 'strict' || this.encryptionMode === 'managed') {
+                return true;
+            }
             return String(this.backupType || 'both') !== 'cloud_only';
         },
         showHypervTab() {

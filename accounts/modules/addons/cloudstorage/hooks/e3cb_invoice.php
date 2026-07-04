@@ -10,12 +10,14 @@
 use WHMCS\Database\Capsule;
 use WHMCS\Module\Addon\CloudStorage\Admin\E3CloudBackupBilling;
 use WHMCS\Module\Addon\CloudStorage\Provision\E3CloudBackupProductBootstrap;
+use WHMCS\Module\Addon\CloudStorage\Provision\E3BackupUserProductBootstrap;
 
 // Lazy-load the classes (autoloader is not registered for the cloudstorage
 // addon - everything is required-on-demand).
 $cs_e3cb_base = __DIR__ . '/..';
 $cs_e3cb_loads = [
     $cs_e3cb_base . '/lib/Provision/E3CloudBackupProductBootstrap.php',
+    $cs_e3cb_base . '/lib/Provision/E3BackupUserProductBootstrap.php',
     $cs_e3cb_base . '/lib/Admin/E3CloudBackupPricing.php',
     $cs_e3cb_base . '/lib/Admin/E3CloudBackupBilling.php',
 ];
@@ -59,13 +61,21 @@ add_hook('DailyCronJob', 1, function ($vars) {
  */
 function cloudstorage_e3cb_apply_all_services(): void
 {
-    $pid = E3CloudBackupProductBootstrap::getPid();
-    if ($pid <= 0) {
+    $pids = [];
+    $legacy = E3CloudBackupProductBootstrap::getPid();
+    if ($legacy > 0) {
+        $pids[] = $legacy;
+    }
+    $unified = E3BackupUserProductBootstrap::getPid();
+    if ($unified > 0 && !in_array($unified, $pids, true)) {
+        $pids[] = $unified;
+    }
+    if ($pids === []) {
         return;
     }
     try {
         $svcIds = Capsule::table('tblhosting')
-            ->where('packageid', $pid)
+            ->whereIn('packageid', $pids)
             ->whereIn('domainstatus', ['Active', 'Suspended'])
             ->pluck('id');
         foreach ($svcIds as $sid) {
@@ -97,12 +107,13 @@ add_hook('InvoiceCreationPreEmail', 1, function ($vars) {
         return;
     }
     $pid = E3CloudBackupProductBootstrap::getPid();
-    if ($pid <= 0) {
+    $unifiedPid = E3BackupUserProductBootstrap::getPid();
+    if ($pid <= 0 && $unifiedPid <= 0) {
         return;
     }
 
     try {
-        cloudstorage_e3cb_apply_invoice_overrides($invoiceId, $pid);
+        cloudstorage_e3cb_apply_invoice_overrides($invoiceId, $pid, $unifiedPid);
     } catch (\Throwable $e) {
         logModuleCall('cloudstorage', 'e3cb_invoice_hook_fail', ['invoice_id' => $invoiceId], $e->getMessage(), [], []);
     }
@@ -117,33 +128,11 @@ add_hook('InvoiceCreationPreEmail', 1, function ($vars) {
  * trial (so the customer can clearly see "Endpoints (12 x $4.50 - trial period)"
  * even though they owe $0 for it).
  */
-function cloudstorage_e3cb_apply_invoice_overrides(int $invoiceId, int $pid): void
+function cloudstorage_e3cb_apply_invoice_overrides(int $invoiceId, int $legacyPid, int $unifiedPid = 0): void
 {
     $items = Capsule::table('tblinvoiceitems')->where('invoiceid', $invoiceId)->get();
     if (count($items) === 0) {
         return;
-    }
-    $configMap = E3CloudBackupProductBootstrap::getConfigOptionMap();
-    if (empty($configMap)) {
-        return;
-    }
-    // Build a reverse map: subId -> metric, configId -> metric.
-    $reverse = [];
-    foreach ($configMap as $metric => $configId) {
-        $configId = (int) $configId;
-        if ($configId <= 0) {
-            continue;
-        }
-        $reverse['cfg_' . $configId] = $metric;
-        try {
-            $subIds = Capsule::table('tblproductconfigoptionssub')
-                ->where('configid', $configId)
-                ->pluck('id');
-            foreach ($subIds as $sid) {
-                $reverse['sub_' . (int) $sid] = $metric;
-            }
-        } catch (\Throwable $_) {
-        }
     }
 
     $serviceIdsTouched = [];
@@ -154,9 +143,6 @@ function cloudstorage_e3cb_apply_invoice_overrides(int $invoiceId, int $pid): vo
         $itemType = (string) ($item->type ?? '');
         $itemRelId = (int) ($item->relid ?? 0);
 
-        // WHMCS line types we care about:
-        //  - 'Hosting' / 'Recurring' for the parent service (skip - product is $0)
-        //  - 'ConfigOptions' for config option lines (relid = tblhostingconfigoptions.id)
         if ($itemType !== 'ConfigOptions' || $itemRelId <= 0) {
             continue;
         }
@@ -173,29 +159,44 @@ function cloudstorage_e3cb_apply_invoice_overrides(int $invoiceId, int $pid): vo
             continue;
         }
 
-        // Service must belong to the e3 Cloud Backup product.
         try {
             $svc = Capsule::table('tblhosting')->where('id', $serviceId)->first();
-            if (!$svc || (int) $svc->packageid !== $pid) {
+            if (!$svc) {
+                continue;
+            }
+            $packageId = (int) ($svc->packageid ?? 0);
+            if ($packageId !== $legacyPid && ($unifiedPid <= 0 || $packageId !== $unifiedPid)) {
                 continue;
             }
         } catch (\Throwable $e) {
             continue;
         }
 
+        $configMap = E3BackupUserProductBootstrap::resolveE3cbConfigOptionMap($serviceId);
+        if (empty($configMap)) {
+            continue;
+        }
+        $reverse = cloudstorage_e3cb_build_reverse_config_map($configMap);
         $metric = $reverse['sub_' . $optionId] ?? $reverse['cfg_' . $configId] ?? null;
         if ($metric === null) {
             continue;
         }
 
-        // Use the most recent rated line for this (service, metric).
         try {
-            $rated = Capsule::table('s3_cloudbackup_rated_lines')
+            $ratedQuery = Capsule::table('s3_cloudbackup_rated_lines')
                 ->where('service_id', $serviceId)
                 ->where('metric', $metric)
                 ->orderBy('billing_window_start', 'desc')
-                ->orderBy('id', 'desc')
-                ->first();
+                ->orderBy('id', 'desc');
+            if (Capsule::schema()->hasColumn('s3_cloudbackup_rated_lines', 'backup_user_id')
+                && E3BackupUserProductBootstrap::isUnifiedService($serviceId)) {
+                $backupUserId = (int) Capsule::table('s3_backup_users')
+                    ->where('whmcs_service_id', $serviceId)
+                    ->orderBy('id', 'asc')
+                    ->value('id');
+                $ratedQuery->where('backup_user_id', $backupUserId);
+            }
+            $rated = $ratedQuery->first();
         } catch (\Throwable $e) {
             continue;
         }
@@ -204,7 +205,6 @@ function cloudstorage_e3cb_apply_invoice_overrides(int $invoiceId, int $pid): vo
         }
         $source = (string) ($rated->pricing_source ?? 'tblpricing');
         if (!in_array($source, ['client_override', 'global_default', 'flat_monthly', 'trial_zeroed', 'beta_zeroed'], true)) {
-            // Pure tblpricing - let WHMCS keep its native amount.
             continue;
         }
 
@@ -244,11 +244,40 @@ function cloudstorage_e3cb_apply_invoice_overrides(int $invoiceId, int $pid): vo
 }
 
 /**
+ * @param array<string,int> $configMap
+ * @return array<string,string>
+ */
+function cloudstorage_e3cb_build_reverse_config_map(array $configMap): array
+{
+    $reverse = [];
+    foreach ($configMap as $metric => $configId) {
+        $configId = (int) $configId;
+        if ($configId <= 0) {
+            continue;
+        }
+        $reverse['cfg_' . $configId] = $metric;
+        try {
+            $subIds = Capsule::table('tblproductconfigoptionssub')
+                ->where('configid', $configId)
+                ->pluck('id');
+            foreach ($subIds as $sid) {
+                $reverse['sub_' . (int) $sid] = $metric;
+            }
+        } catch (\Throwable $_) {
+        }
+    }
+
+    return $reverse;
+}
+
+/**
  * Build a human-readable invoice line description from a rated line.
  */
 function cloudstorage_e3cb_invoice_description(string $metric, object $rated): string
 {
-    $label = E3CloudBackupProductBootstrap::metricFriendlyName($metric);
+    $label = class_exists('\\WHMCS\\Module\\Addon\\CloudStorage\\Provision\\E3BackupUserProductBootstrap')
+        ? E3BackupUserProductBootstrap::metricFriendlyName($metric)
+        : E3CloudBackupProductBootstrap::metricFriendlyName($metric);
     $qty = (int) ($rated->qty ?? 0);
     $unit = (float) ($rated->unit_price ?? 0.0);
     $source = (string) ($rated->pricing_source ?? 'tblpricing');

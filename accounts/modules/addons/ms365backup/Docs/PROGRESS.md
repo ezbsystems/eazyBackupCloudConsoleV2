@@ -2,13 +2,23 @@
 
 **Purpose:** Single handoff document so the next agent knows where work stopped. Update this file at the **end of every session** (or after each meaningful milestone).
 
-**Last updated:** 2026-06-30  
+**Last updated:** 2026-07-03  
 **Module version (ms365backup):** 1.52.1  
 **Worker version (ms365-backup-worker):** 0.3.47 (built; deploy via Fleet)
 
 ---
 
 ## Session log
+
+### 2026-07-03 — e3 Backup User unified provisioning (backend Phases 0–3, 5)
+
+- **Product:** `E3BackupUserProductBootstrap` creates **e3 Backup User** ($0) with config options for all metrics (`endpoint` … `saas_connector`, `protected_users`, `onedrive_overage_gib`). Settings: `pid_e3_backup_user`, `e3bu_config_option_ids`, `e3_backup_user_unified_enabled` (default off).
+- **Schema:** `s3_backup_users.encryption_mode`, `whmcs_service_id`; `backup_user_id` on e3 CB usage/rated tables; `saas_connector` metric enum.
+- **Provisioner:** `Provisioner::provisionE3BackupUser()` — storage ensure, user row, WHMCS order, config seed (e3 CB + MS365), trial, enrollment token.
+- **API:** `e3backup_user_create.php` and `setpassword_and_provision.php` route to unified provisioner when flag on; always require password; persist encryption mode + notify emails.
+- **Billing:** `measureForBackupUser()`, per-user snapshots/rated lines, SaaS connector job count; invoice hooks use `e3bu_config_option_ids` for unified services; OneDrive overage from `storage_overage_per_gib_cad`; MS365 trial falls back to `e3cb_trial_days`.
+- **Migration:** `cloudstorage_backfill_backup_user_encryption_mode()` on upgrade (`local`→strict, `cloud_only`/`both`→managed).
+- **Deferred:** Phase 4 UI (modal, detail, welcome encryption UI).
 
 ### 2026-06-30 — MS365 backup report email (batch finalize)
 

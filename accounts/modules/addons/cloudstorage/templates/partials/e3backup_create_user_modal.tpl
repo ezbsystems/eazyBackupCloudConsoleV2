@@ -41,47 +41,19 @@
                 </div>
 
                 <div>
-                    <div class="eb-field-label">Backup Type</div>
-                    <div class="eb-subpanel !mb-0 space-y-3 !p-4">
-                        <label class="eb-inline-choice cursor-pointer">
-                            <input type="radio" x-model="form.backup_type" value="cloud_only" class="eb-radio-input" name="e3_create_backup_type">
-                            <span>
-                                <span class="font-semibold text-[var(--eb-text-primary)]">Cloud Backup Only</span>
-                                <span class="mt-0.5 block eb-type-caption">S3, AWS, SFTP, Google Drive, Dropbox.</span>
-                            </span>
-                        </label>
-                        {if $ebHasE3AgentProduct|default:true}
-                        <label class="eb-inline-choice cursor-pointer">
-                            <input type="radio" x-model="form.backup_type" value="local" class="eb-radio-input" name="e3_create_backup_type">
-                            <span>
-                                <span class="font-semibold text-[var(--eb-text-primary)]">Local Agent Backup</span>
-                                <span class="mt-0.5 block eb-type-caption">File, Disk Image, Windows Agent.</span>
-                            </span>
-                        </label>
-                        <label class="eb-inline-choice cursor-pointer">
-                            <input type="radio" x-model="form.backup_type" value="both" class="eb-radio-input" name="e3_create_backup_type">
-                            <span>
-                                <span class="font-semibold text-[var(--eb-text-primary)]">Both (Cloud + Local Agent)</span>
-                                <span class="mt-0.5 block eb-type-caption">Full access to all backup types.</span>
-                            </span>
-                        </label>
-                        {else}
-                        <p class="eb-type-caption text-[var(--eb-text-muted)]">
-                            Local agent backup requires the workstation &amp; server product.
-                            <a href="index.php?m=cloudstorage&page=e3backup&view=enable_agent_backup" class="text-[var(--eb-info-text)] underline">Enable workstation &amp; server backup</a>
-                        </p>
-                        {/if}
-                    </div>
-                </div>
-
-                <div x-show="form.backup_type !== 'cloud_only'" x-cloak style="display: none;">
                     <div class="eb-field-label">Encryption Mode</div>
+                    <div x-show="form.encryption_mode === 'strict'" x-cloak class="eb-alert eb-alert--warning !mb-3" style="display: none;">
+                        <svg class="eb-alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+                        </svg>
+                        <div>This User will be restricted to Local Agent backups only. MS365 and SaaS require managed encryption.</div>
+                    </div>
                     <div class="eb-subpanel !mb-0 space-y-3 !p-4">
                         <label class="eb-inline-choice cursor-pointer">
                             <input type="radio" x-model="form.encryption_mode" value="managed" class="eb-radio-input" name="e3_create_encryption_mode">
                             <span>
                                 <span class="font-semibold text-[var(--eb-text-primary)]">Password - Managed Recovery</span>
-                                <span class="mt-0.5 block eb-type-caption">Reset always possible.</span>
+                                <span class="mt-0.5 block eb-type-caption">Reset always possible. Local Agent, MS365, and SaaS backups.</span>
                             </span>
                         </label>
 
@@ -92,7 +64,7 @@
                     </div>
                 </div>
 
-                <div x-show="form.backup_type !== 'cloud_only' && form.encryption_mode === 'managed'" x-cloak class="grid grid-cols-1 gap-4 sm:grid-cols-2" style="display: none;">
+                <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <div>
                         <label class="eb-field-label" for="e3-create-user-password">Password <span style="color: var(--eb-danger-text)">*</span></label>
                         <input id="e3-create-user-password"
@@ -126,19 +98,76 @@
                 </div>
 
                 <div>
-                    <label class="eb-field-label" for="e3-create-user-email">Email (for reports) <span style="color: var(--eb-danger-text)">*</span></label>
-                    <input id="e3-create-user-email"
-                           type="email"
-                           x-model.trim="form.email"
-                           placeholder="alerts@example.com"
-                           class="eb-input"
-                           :class="fieldErrors.email && 'is-error'">
-                    <p class="eb-field-error" x-show="fieldErrors.email" x-cloak style="display: none;">
-                        <svg class="h-3.5 w-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z" />
-                        </svg>
-                        <span x-text="fieldErrors.email"></span>
+                    <label class="eb-field-label" for="e3-create-notify-email-input">Email notifications</label>
+                    <p class="eb-type-caption" style="margin-bottom: 8px;">
+                        Backup job report recipients. If empty, reports go to this user&rsquo;s profile email, then the account owner email.
                     </p>
+                    <div class="flex flex-wrap gap-2" style="margin-bottom: 8px;" x-show="notificationForm.emails.length">
+                        <template x-for="(email, index) in notificationForm.emails" :key="email + '-' + index">
+                            <span class="eb-badge eb-badge--neutral inline-flex items-center gap-1">
+                                <span x-text="email"></span>
+                                <button type="button"
+                                        class="eb-btn eb-btn-ghost eb-btn-xs"
+                                        style="min-width: auto; padding: 0 4px;"
+                                        @click="removeNotificationEmail(index)"
+                                        :aria-label="'Remove ' + email">&times;</button>
+                            </span>
+                        </template>
+                    </div>
+                    <div class="flex flex-wrap items-start gap-2">
+                        <input id="e3-create-notify-email-input"
+                               type="email"
+                               x-model.trim="newNotifyEmail"
+                               class="eb-input"
+                               style="min-width: 220px; flex: 1 1 220px;"
+                               placeholder="name@example.com"
+                               @keydown.enter.prevent="addNotificationEmail()">
+                        <button type="button"
+                                class="eb-btn eb-btn-secondary eb-btn-sm"
+                                @click="addNotificationEmail()">
+                            Add
+                        </button>
+                    </div>
+                    <p class="eb-field-error" x-show="fieldErrors.notify_emails" x-text="fieldErrors.notify_emails"></p>
+                </div>
+
+                <div>
+                    <p class="eb-field-label" style="margin-bottom: 8px;">Notify on</p>
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <div class="flex items-center justify-between gap-3 rounded-lg border border-slate-700/60 bg-slate-900/30 px-3 py-2">
+                            <span class="text-sm">Success</span>
+                            <button type="button"
+                                    class="eb-toggle shrink-0"
+                                    @click="notificationForm.notify_on_success = !notificationForm.notify_on_success"
+                                    :aria-pressed="notificationForm.notify_on_success">
+                                <div class="eb-toggle-track" :class="notificationForm.notify_on_success && 'is-on'">
+                                    <div class="eb-toggle-thumb"></div>
+                                </div>
+                            </button>
+                        </div>
+                        <div class="flex items-center justify-between gap-3 rounded-lg border border-slate-700/60 bg-slate-900/30 px-3 py-2">
+                            <span class="text-sm">Warning</span>
+                            <button type="button"
+                                    class="eb-toggle shrink-0"
+                                    @click="notificationForm.notify_on_warning = !notificationForm.notify_on_warning"
+                                    :aria-pressed="notificationForm.notify_on_warning">
+                                <div class="eb-toggle-track" :class="notificationForm.notify_on_warning && 'is-on'">
+                                    <div class="eb-toggle-thumb"></div>
+                                </div>
+                            </button>
+                        </div>
+                        <div class="flex items-center justify-between gap-3 rounded-lg border border-slate-700/60 bg-slate-900/30 px-3 py-2">
+                            <span class="text-sm">Failure</span>
+                            <button type="button"
+                                    class="eb-toggle shrink-0"
+                                    @click="notificationForm.notify_on_failure = !notificationForm.notify_on_failure"
+                                    :aria-pressed="notificationForm.notify_on_failure">
+                                <div class="eb-toggle-track" :class="notificationForm.notify_on_failure && 'is-on'">
+                                    <div class="eb-toggle-thumb"></div>
+                                </div>
+                            </button>
+                        </div>
+                    </div>
                 </div>
 
                 {if $showTenantSelector|default:true && $isMspClient}
@@ -243,7 +272,7 @@
                 </div>
                 {/if}
 
-                <div x-show="form.backup_type !== 'cloud_only'" x-cloak class="eb-subpanel !mb-0 space-y-3 !p-4" style="display: none;">
+                <div class="eb-subpanel !mb-0 space-y-3 !p-4">
                     <h3 class="eb-type-h4 text-[var(--eb-text-primary)]">Acknowledgement</h3>
 
                     <div x-show="form.encryption_mode === 'managed'" x-cloak style="display: none;">

@@ -84,11 +84,24 @@ adding a payment method (see `api/cloudbackup_reactivate.php`); the admin
 
 1. Extend the metric ENUMs in `cloudstorage_ensure_e3cb_billing_schema()`.
 2. Add the metric to `E3CloudBackupProductBootstrap::METRICS` (label + default
-   price). Run `cloudstorage_upgrade()` so the new config option / pricing
-   row is auto-created.
-3. Add the metric to `E3CloudBackupBilling::measureForClient()` with the
+   price) or `E3BackupUserProductBootstrap::METRICS` for unified-only metrics.
+   Run `cloudstorage_upgrade()` so the new config option / pricing row is
+   auto-created.
+3. Add the metric to `E3CloudBackupBilling::measureForClient()` / `measureForBackupUser()` with the
    query that counts it.
 4. Done. The pricing resolver and invoice hook are metric-agnostic.
+
+## Unified e3 Backup User product (backend)
+
+When `e3_backup_user_unified_enabled` is on in cloudstorage addon settings:
+
+- New backup users get one WHMCS **e3 Backup User** service (`pid_e3_backup_user`, $0 recurring).
+- All metrics (local agent + MS365 + `saas_connector`) bill via `e3bu_config_option_ids`.
+- `s3_backup_users.encryption_mode` + `whmcs_service_id` link each user row to its service.
+- e3 CB metering writes `backup_user_id` on usage snapshots and rated lines; legacy per-client e3 CB services keep `backup_user_id=0`.
+- MS365 `trialDays()` and OneDrive overage price fall back to `e3cb_trial_days` and `storage_overage_per_gib_cad` for unified services.
+
+Grandfathered clients on standalone `pid_e3_cloud_backup` / `pid_ms365_backup` are unchanged until the rollout flag is enabled for new users only.
 
 ## Developer notes
 

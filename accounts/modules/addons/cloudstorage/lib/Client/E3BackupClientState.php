@@ -93,6 +93,10 @@ class E3BackupClientState
             return 'dashboard';
         }
 
+        if (self::isUnifiedEnabled()) {
+            return self::resolveUnifiedLanding($clientId)['view'];
+        }
+
         if (self::clientHasMs365Product($clientId)) {
             $defaultBu = E3BackupAccess::defaultBackupUser($clientId);
             if ($defaultBu) {
@@ -149,9 +153,35 @@ class E3BackupClientState
 
     public static function resolveLandingUrl(int $clientId): string
     {
+        $dashboardUrl = 'index.php?m=cloudstorage&page=e3backup';
+        if ($clientId <= 0) {
+            return $dashboardUrl;
+        }
+
+        if (self::isUnifiedEnabled()) {
+            $landing = self::resolveUnifiedLanding($clientId);
+            if ($landing['view'] === 'dashboard') {
+                return $dashboardUrl;
+            }
+
+            $params = [
+                'm' => 'cloudstorage',
+                'page' => 'e3backup',
+                'view' => 'getting_started',
+            ];
+            if ($landing['user_id'] !== '') {
+                $params['user_id'] = $landing['user_id'];
+            }
+            if ($landing['intent'] !== '') {
+                $params['intent'] = $landing['intent'];
+            }
+
+            return 'index.php?' . http_build_query($params);
+        }
+
         $view = self::resolveLandingView($clientId);
         if ($view === 'dashboard') {
-            return 'index.php?m=cloudstorage&page=e3backup';
+            return $dashboardUrl;
         }
 
         return 'index.php?m=cloudstorage&page=e3backup&view=' . rawurlencode($view);
@@ -187,5 +217,84 @@ class E3BackupClientState
         }
 
         return $hasAgent && $e3OnboardingComplete;
+    }
+
+    /**
+     * @return array{view: string, user_id: string, intent: string}
+     */
+    private static function resolveUnifiedLanding(int $clientId): array
+    {
+        $dashboard = ['view' => 'dashboard', 'user_id' => '', 'intent' => ''];
+
+        if (!self::clientCanAccessE3BackupShell($clientId)) {
+            return $dashboard;
+        }
+
+        $defaultBu = E3BackupAccess::defaultBackupUser($clientId);
+        if (!$defaultBu) {
+            return ['view' => 'getting_started', 'user_id' => '', 'intent' => 'local'];
+        }
+
+        $routeUserId = ($defaultBu['public_id'] ?? '') !== ''
+            ? (string) $defaultBu['public_id']
+            : (string) $defaultBu['id'];
+        $backupUserId = (int) $defaultBu['id'];
+
+        $ms365Incomplete = false;
+        $localIncomplete = false;
+
+        $ms365Autoload = dirname(__DIR__, 3) . '/ms365backup/ms365backup_autoload.php';
+        if (is_file($ms365Autoload)) {
+            require_once $ms365Autoload;
+        }
+        if (class_exists('\\Ms365Backup\\Ms365Onboarding')) {
+            try {
+                $msOb = \Ms365Backup\Ms365Onboarding::computeForBackupUser($clientId, $backupUserId);
+                $ms365Incomplete = empty($msOb['all_complete']);
+            } catch (\Throwable $_) {
+                $ms365Incomplete = true;
+            }
+        }
+
+        if (class_exists('\\WHMCS\\Module\\Addon\\CloudStorage\\Client\\OnboardingState')) {
+            try {
+                $obState = OnboardingState::compute($clientId);
+                $localIncomplete = empty($obState['all_complete']);
+            } catch (\Throwable $_) {
+                $localIncomplete = true;
+            }
+        } else {
+            $obPath = __DIR__ . '/OnboardingState.php';
+            if (is_file($obPath)) {
+                require_once $obPath;
+                try {
+                    $obState = OnboardingState::compute($clientId);
+                    $localIncomplete = empty($obState['all_complete']);
+                } catch (\Throwable $_) {
+                    $localIncomplete = true;
+                }
+            }
+        }
+
+        if (!$ms365Incomplete && !$localIncomplete) {
+            return $dashboard;
+        }
+
+        return [
+            'view' => 'getting_started',
+            'user_id' => $routeUserId,
+            'intent' => $ms365Incomplete ? 'ms365' : 'local',
+        ];
+    }
+
+    private static function isUnifiedEnabled(): bool
+    {
+        $bootstrapPath = dirname(__DIR__) . '/Provision/E3BackupUserProductBootstrap.php';
+        if (is_file($bootstrapPath)) {
+            require_once $bootstrapPath;
+        }
+
+        return class_exists('\\WHMCS\\Module\\Addon\\CloudStorage\\Provision\\E3BackupUserProductBootstrap')
+            && \WHMCS\Module\Addon\CloudStorage\Provision\E3BackupUserProductBootstrap::isUnifiedEnabled();
     }
 }

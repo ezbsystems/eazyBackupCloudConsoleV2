@@ -641,6 +641,7 @@ $notificationSettings = BackupUserNotificationSettingsService::getForBackupUser(
         'email' => (string) $user->email,
         'status' => (string) $user->status,
         'backup_type' => (string) ($user->backup_type ?? 'both'),
+        'encryption_mode' => (string) ($user->encryption_mode ?? (($user->backup_type ?? 'both') === 'local' ? 'strict' : 'managed')),
         'created_at' => $user->created_at,
         'updated_at' => $user->updated_at,
         'tenant_name' => $user->tenant_name ?? null,

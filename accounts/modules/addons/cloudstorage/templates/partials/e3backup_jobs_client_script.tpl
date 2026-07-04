@@ -1404,6 +1404,21 @@ function fmtDateTime(d) {
 document.addEventListener('DOMContentLoaded', function() {
     try {
         const params = new URLSearchParams(window.location.search || '');
+        if (params.get('cloud_wizard') === '1') {
+            setTimeout(function() {
+                if (typeof window.e3backupSelectUserDetailTab === 'function') {
+                    window.e3backupSelectUserDetailTab('jobs');
+                }
+                if (typeof openCloudBackupWizard === 'function') {
+                    openCloudBackupWizard();
+                }
+            }, 300);
+
+            const cloudWizardUrl = new URL(window.location.href);
+            cloudWizardUrl.searchParams.delete('cloud_wizard');
+            window.history.replaceState({}, '', cloudWizardUrl.toString());
+            return;
+        }
         if (params.get('open_create') === '1') {
             const prefillSourceRaw = params.get('prefill_source') || 'google_drive';
             const prefillSource = String(prefillSourceRaw || '').toLowerCase();
@@ -4003,5 +4018,33 @@ function onLocalWizardBucketCreated(bucket) {
         e3backupNotify('success', 'Bucket "' + bucket.name + '" created and selected');
     }
 }
+
+function ebCleanCloudWizardUrlParams() {
+    try {
+        const url = new URL(window.location.href);
+        url.searchParams.delete('cloud_wizard');
+        const next = url.pathname + url.search + url.hash;
+        history.replaceState({}, '', next);
+    } catch (e) {
+        /* ignore */
+    }
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    try {
+        const params = new URLSearchParams(window.location.search);
+        if (params.get('cloud_wizard') !== '1') {
+            return;
+        }
+        setTimeout(function() {
+            if (typeof openCloudBackupWizard === 'function') {
+                openCloudBackupWizard();
+            }
+            ebCleanCloudWizardUrlParams();
+        }, 300);
+    } catch (e) {
+        /* ignore */
+    }
+});
 </script>
 {/literal}

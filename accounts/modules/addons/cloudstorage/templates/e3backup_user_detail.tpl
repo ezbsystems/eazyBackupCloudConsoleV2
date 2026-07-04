@@ -99,7 +99,6 @@
                              style="display: none;">
                             <div class="eb-menu-label">Select backup source</div>
                             <div class="p-1">
-                                <template x-if="(user.backup_type || 'both') !== 'cloud_only'">
                                 <button type="button"
                                         data-tour="user-detail-create-job-local"
                                         @click="isOpen = false; window.openLocalJobWizard()"
@@ -114,7 +113,7 @@
                                         <span class="block text-left text-xs text-[var(--eb-text-muted)]">Files, Folders, Disk Image, Virtual Machines</span>
                                     </span>
                                 </button>
-                                </template>
+                                <template x-if="userEncryptionMode() === 'managed'">
                                 <button type="button"
                                         @click="isOpen = false; window.openMs365JobWizard({ backupUserId: '{$user->public_id|default:$user->id|escape:'javascript'}', backupUsername: '{$user->username|escape:'javascript'}' })"
                                         class="eb-menu-item">
@@ -126,7 +125,8 @@
                                         <span class="block text-left text-xs text-[var(--eb-text-muted)]">Mail, OneDrive, SharePoint, Teams</span>
                                     </span>
                                 </button>
-                                <template x-if="(user.backup_type || 'both') !== 'local'">
+                                </template>
+                                <template x-if="userEncryptionMode() === 'managed'">
                                 <button type="button"
                                         data-tour="user-detail-create-job-cloud"
                                         @click="isOpen = false; window.openCloudBackupWizard()"
@@ -205,37 +205,6 @@
                                 <input id="e3-quota-vms" type="text" class="eb-input eb-quota-input-narrow" placeholder="∞" disabled aria-disabled="true">
                                 <button type="button" class="eb-btn eb-btn-secondary eb-btn-xs" disabled>Save</button>
                             </div>
-                        </div>
-                    </div>
-
-                    <div class="eb-subpanel" style="margin-bottom: 20px;">
-                        <div class="flex items-center justify-between" style="margin-bottom: 8px;">
-                            <h2 class="eb-section-title !mb-0">Backup Type</h2>
-                        </div>
-                        <div class="flex items-center gap-3">
-                            <span class="eb-badge eb-badge--table"
-                                  :class="{
-                                      'eb-badge--info': (user.backup_type || 'both') === 'cloud_only',
-                                      'eb-badge--premium': (user.backup_type || 'both') === 'local',
-                                      'eb-badge--success': (user.backup_type || 'both') === 'both'
-                                  }"
-                                  x-text="(user.backup_type || 'both') === 'cloud_only' ? 'Cloud Only' : ((user.backup_type || 'both') === 'local' ? 'Local Agent' : 'Both (Cloud + Local)')"></span>
-                            <template x-if="(user.backup_type || 'both') === 'cloud_only'">
-                                {if $ebHasE3AgentProduct|default:true}
-                                <button type="button" class="eb-btn eb-btn-secondary eb-btn-xs" @click="upgradeBackupType('both')">
-                                    Enable Local Agent
-                                </button>
-                                {else}
-                                <a href="index.php?m=cloudstorage&page=e3backup&view=enable_agent_backup" class="eb-btn eb-btn-secondary eb-btn-xs">
-                                    Enable Local Agent
-                                </a>
-                                {/if}
-                            </template>
-                            <template x-if="(user.backup_type || 'both') === 'local'">
-                                <button type="button" class="eb-btn eb-btn-secondary eb-btn-xs" @click="upgradeBackupType('both')">
-                                    Enable Cloud Backup
-                                </button>
-                            </template>
                         </div>
                     </div>
 
@@ -1493,6 +1462,7 @@ function backupUserDetailApp() {
             is_canonical_managed: false,
             status: {/literal}{$user->status|@json_encode nofilter}{literal},
             backup_type: {/literal}{if $user->backup_type}{$user->backup_type|@json_encode nofilter}{else}'both'{/if}{literal},
+            encryption_mode: {/literal}{if $user->encryption_mode}{$user->encryption_mode|@json_encode nofilter}{else}'managed'{/if}{literal},
             agents_detail: [],
             vaults_detail: [],
             ms365_vaults_active: [],
@@ -1618,13 +1588,14 @@ function backupUserDetailApp() {
             }
         },
 
+        userEncryptionMode() {
+            return String(this.user.encryption_mode || 'managed');
+        },
+
         resolveInitialTab() {
             const allowed = ['overview', 'agents', 'jobs', 'restore', 'vaults', 'hyperv', 'billing'];
             const hash = String(window.location.hash || '').replace(/^#/, '').toLowerCase();
             if (allowed.includes(hash)) {
-                if (hash === 'agents' && String(this.user.backup_type || 'both') === 'cloud_only') {
-                    return 'overview';
-                }
                 if (hash === 'hyperv' && !this.hasHypervTab()) {
                     return 'overview';
                 }
@@ -2300,6 +2271,7 @@ function backupUserDetailApp() {
                     window.dispatchEvent(new CustomEvent('eb-e3-user-detail-loaded', {
                         detail: {
                             userId: String(this.userId || ''),
+                            encryption_mode: this.userEncryptionMode(),
                             backup_type: this.user.backup_type || 'both',
                             agents_count: this.user.agents_count ?? 0,
                             jobs_count: this.user.jobs_count ?? 0,
@@ -2376,34 +2348,6 @@ function backupUserDetailApp() {
                 }
             } catch (error) {
                 this.updateError = 'Failed to update user.';
-            }
-            this.updating = false;
-        },
-
-        async upgradeBackupType(newType) {
-            this.updateMessage = '';
-            this.updateError = '';
-            this.updating = true;
-            try {
-                const body = new URLSearchParams({
-                    user_id: String(this.userId),
-                    backup_type: newType
-                });
-                body.set('token', this.csrfToken);
-                const response = await fetch('modules/addons/cloudstorage/api/e3backup_user_update.php', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    body
-                });
-                const data = await response.json();
-                if (data.status === 'success') {
-                    this.updateMessage = data.message || 'Backup type updated.';
-                    await this.loadUser();
-                } else {
-                    this.updateError = data.message || 'Failed to update backup type.';
-                }
-            } catch (error) {
-                this.updateError = 'Failed to update backup type.';
             }
             this.updating = false;
         },

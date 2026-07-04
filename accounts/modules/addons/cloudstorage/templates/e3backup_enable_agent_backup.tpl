@@ -1,5 +1,5 @@
 {capture assign=ebE3Description}
-    Add workstation and server backup to your account with the e3 Backup Agent.
+    Workstation and server backup is now provisioned per Backup User.
 {/capture}
 
 {capture assign=ebE3Icon}
@@ -11,11 +11,28 @@
 {/capture}
 
 {capture assign=ebE3Content}
-    {include file="modules/addons/cloudstorage/templates/partials/e3backup_enable_product_form.tpl"
-        ebEnableProductChoice=$ebEnableProductChoice
-        ebEnablePageTitle=$ebEnablePageTitle
-        ebEnablePageDescription=$ebEnablePageDescription
-    }
+    <div class="eb-card-raised max-w-2xl">
+        <div class="eb-card-header">
+            <div>
+                <h2 class="eb-card-title">This page has moved</h2>
+                <p class="eb-card-subtitle">Local agent, Microsoft 365, and SaaS backups are now enabled per Backup User.</p>
+            </div>
+        </div>
+        <div class="p-6 space-y-5">
+            <div class="eb-alert eb-alert--info">
+                <div>
+                    <div class="eb-alert-title">Use the Users page instead</div>
+                    <p class="eb-type-body">
+                        Create a Backup User with your preferred encryption mode. Managed encryption unlocks MS365 and SaaS workloads; strict mode is limited to Local Agent backups.
+                    </p>
+                </div>
+            </div>
+            <div class="flex flex-wrap items-center gap-3">
+                <a href="index.php?m=cloudstorage&page=e3backup&view=users" class="eb-btn eb-btn-primary eb-btn-md">Go to Users</a>
+                <a href="index.php?m=cloudstorage&page=e3backup&view=dashboard" class="eb-btn eb-btn-secondary eb-btn-md">Back to dashboard</a>
+            </div>
+        </div>
+    </div>
 {/capture}
 
 {include file="modules/addons/cloudstorage/templates/partials/e3backup_shell.tpl"

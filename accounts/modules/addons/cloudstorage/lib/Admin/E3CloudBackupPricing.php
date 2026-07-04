@@ -37,7 +37,7 @@ class E3CloudBackupPricing
      * Allowed metric keys. Must stay in sync with the ENUM in
      * cloudstorage_ensure_e3cb_billing_schema().
      */
-    public const METRICS = ['endpoint', 'disk_image', 'hyperv_vm', 'proxmox_vm', 'vmware_vm'];
+    public const METRICS = ['endpoint', 'disk_image', 'hyperv_vm', 'proxmox_vm', 'vmware_vm', 'saas_connector'];
 
     /**
      * Resolve a price for a (clientId, metric, currency, qty, effectiveDate).
@@ -50,7 +50,7 @@ class E3CloudBackupPricing
      *   override_id:?int
      * }
      */
-    public static function resolve(int $clientId, string $metric, int $currencyId, int $qty, ?string $effectiveDate = null): array
+    public static function resolve(int $clientId, string $metric, int $currencyId, int $qty, ?string $effectiveDate = null, ?int $serviceId = null): array
     {
         $effectiveDate = $effectiveDate ?: date('Y-m-d');
         $qty = max(0, $qty);
@@ -68,12 +68,19 @@ class E3CloudBackupPricing
         }
 
         // 3. tblpricing fallback
-        $configMap = \WHMCS\Module\Addon\CloudStorage\Provision\E3CloudBackupProductBootstrap::getConfigOptionMap();
+        $configMap = self::configOptionMapForResolve($metric, $serviceId);
         $configId = (int) ($configMap[$metric] ?? 0);
         $unitPrice = self::tblpricingUnitPrice($configId, $currencyId);
 
         if ($unitPrice <= 0) {
-            $unitPrice = \WHMCS\Module\Addon\CloudStorage\Provision\E3CloudBackupProductBootstrap::metricDefaultPrice($metric);
+            $bootstrapPath = dirname(__DIR__) . '/Provision/E3BackupUserProductBootstrap.php';
+            if ($metric === 'saas_connector' && is_file($bootstrapPath)) {
+                require_once $bootstrapPath;
+                $unitPrice = \WHMCS\Module\Addon\CloudStorage\Provision\E3BackupUserProductBootstrap::metricDefaultPrice($metric);
+            }
+            if ($unitPrice <= 0) {
+                $unitPrice = \WHMCS\Module\Addon\CloudStorage\Provision\E3CloudBackupProductBootstrap::metricDefaultPrice($metric);
+            }
         }
 
         return [
@@ -277,5 +284,19 @@ class E3CloudBackupPricing
     private static function round2(float $v): float
     {
         return round($v, 2);
+    }
+
+    /** @return array<string,int> */
+    private static function configOptionMapForResolve(string $metric, ?int $serviceId = null): array
+    {
+        $bootstrapPath = dirname(__DIR__) . '/Provision/E3BackupUserProductBootstrap.php';
+        if (is_file($bootstrapPath)) {
+            require_once $bootstrapPath;
+        }
+        if ($serviceId !== null && $serviceId > 0
+            && class_exists('\\WHMCS\\Module\\Addon\\CloudStorage\\Provision\\E3BackupUserProductBootstrap')) {
+            return \WHMCS\Module\Addon\CloudStorage\Provision\E3BackupUserProductBootstrap::resolveE3cbConfigOptionMap($serviceId);
+        }
+        return \WHMCS\Module\Addon\CloudStorage\Provision\E3CloudBackupProductBootstrap::getConfigOptionMap();
     }
 }

@@ -14,7 +14,7 @@ function cloudstorage_config()
         'description' => 'This module show the usage of your buckets.',
         'author' => 'eazybackup',
         'language' => 'english',
-        'version' => '2.1.18',
+        'version' => '2.2.0',
         'fields' => [
             's3_region' => [
                 'FriendlyName' => 'S3 Region',
@@ -619,6 +619,24 @@ function cloudstorage_config()
                 'Default' => '1',
                 'Description' => 'tblcurrencies.id used for the e3 Cloud Backup product pricing rows. Default 1 (typically CAD).',
             ],
+            // ==== e3 Backup User (unified per-user product) ====
+            'pid_e3_backup_user' => [
+                'FriendlyName' => 'e3 Backup User Product (PID)',
+                'Type' => 'text',
+                'Size' => '10',
+                'Description' => 'WHMCS Product ID for the unified e3 Backup User product (one service per s3_backup_users row). Auto-filled on activation.',
+            ],
+            'e3bu_config_option_ids' => [
+                'FriendlyName' => 'e3 Backup User Config Option IDs (JSON)',
+                'Type' => 'text',
+                'Size' => '350',
+                'Description' => 'Auto-managed JSON map of metric -> tblproductconfigoptions.id for the unified product. Do not edit unless reconciling.',
+            ],
+            'e3_backup_user_unified_enabled' => [
+                'FriendlyName' => 'e3 Backup User Unified Provisioning',
+                'Type' => 'yesno',
+                'Description' => 'When enabled, new backup users are provisioned on the unified e3 Backup User product. Existing grandfathered services are unchanged.',
+            ],
             'e3backup_beta_hosts' => [
                 'FriendlyName' => 'e3 Cloud Backup - Beta Hosts',
                 'Type' => 'text',
@@ -1194,7 +1212,7 @@ function cloudstorage_ensure_table_index(string $tableName, callable $indexer, s
 function cloudstorage_ensure_e3cb_billing_schema(string $context = 'activate'): void
 {
     $schema = Capsule::schema();
-    $metricEnum = "ENUM('endpoint','disk_image','hyperv_vm','proxmox_vm','vmware_vm')";
+    $metricEnum = "ENUM('endpoint','disk_image','hyperv_vm','proxmox_vm','vmware_vm','saas_connector')";
 
     // --- s3_cloudbackup_usage_snapshots ---
     if (!$schema->hasTable('s3_cloudbackup_usage_snapshots')) {
@@ -1203,15 +1221,37 @@ function cloudstorage_ensure_e3cb_billing_schema(string $context = 'activate'): 
                 $table->bigIncrements('id');
                 $table->unsignedInteger('service_id');
                 $table->unsignedInteger('client_id');
-                $table->enum('metric', ['endpoint', 'disk_image', 'hyperv_vm', 'proxmox_vm', 'vmware_vm']);
+                $table->enum('metric', ['endpoint', 'disk_image', 'hyperv_vm', 'proxmox_vm', 'vmware_vm', 'saas_connector']);
+                $table->unsignedBigInteger('backup_user_id')->default(0);
                 $table->unsignedInteger('qty')->default(0);
                 $table->timestamp('taken_at')->useCurrent();
                 $table->index(['service_id', 'metric', 'taken_at'], 'idx_e3cb_usage_service_metric_time');
                 $table->index(['client_id', 'taken_at'], 'idx_e3cb_usage_client_time');
+                $table->index(['service_id', 'backup_user_id', 'metric'], 'idx_e3cb_usage_service_user_metric');
             });
             logModuleCall('cloudstorage', $context, [], 'Created s3_cloudbackup_usage_snapshots', [], []);
         } catch (\Throwable $e) {
             logModuleCall('cloudstorage', "{$context}_create_s3_cloudbackup_usage_snapshots", [], $e->getMessage(), [], []);
+        }
+    } else {
+        try {
+            if (!$schema->hasColumn('s3_cloudbackup_usage_snapshots', 'backup_user_id')) {
+                $schema->table('s3_cloudbackup_usage_snapshots', function ($table) {
+                    $table->unsignedBigInteger('backup_user_id')->default(0)->after('client_id');
+                    $table->index(['service_id', 'backup_user_id', 'metric'], 'idx_e3cb_usage_service_user_metric');
+                });
+                logModuleCall('cloudstorage', $context, [], 'Added backup_user_id to s3_cloudbackup_usage_snapshots', [], []);
+            }
+            $col = Capsule::selectOne("SHOW COLUMNS FROM `s3_cloudbackup_usage_snapshots` LIKE 'metric'");
+            $type = is_object($col) ? (string) ($col->Type ?? '') : '';
+            if ($type !== '' && strpos($type, "'saas_connector'") === false) {
+                Capsule::statement(
+                    "ALTER TABLE `s3_cloudbackup_usage_snapshots` MODIFY `metric` {$metricEnum} NOT NULL"
+                );
+                logModuleCall('cloudstorage', $context, [], 'Added saas_connector to s3_cloudbackup_usage_snapshots.metric', [], []);
+            }
+        } catch (\Throwable $e) {
+            logModuleCall('cloudstorage', "{$context}_extend_usage_snapshots", [], $e->getMessage(), [], []);
         }
     }
 
@@ -1221,7 +1261,7 @@ function cloudstorage_ensure_e3cb_billing_schema(string $context = 'activate'): 
             $schema->create('s3_cloudbackup_pricing', function ($table) {
                 $table->bigIncrements('id');
                 $table->unsignedInteger('client_id')->nullable();
-                $table->enum('metric', ['endpoint', 'disk_image', 'hyperv_vm', 'proxmox_vm', 'vmware_vm']);
+                $table->enum('metric', ['endpoint', 'disk_image', 'hyperv_vm', 'proxmox_vm', 'vmware_vm', 'saas_connector']);
                 $table->enum('mode', ['flat_unit', 'tiered', 'flat_monthly']);
                 $table->decimal('unit_price', 12, 4)->nullable();
                 $table->json('tiers_json')->nullable();
@@ -1244,6 +1284,19 @@ function cloudstorage_ensure_e3cb_billing_schema(string $context = 'activate'): 
         } catch (\Throwable $e) {
             logModuleCall('cloudstorage', "{$context}_create_s3_cloudbackup_pricing", [], $e->getMessage(), [], []);
         }
+    } else {
+        try {
+            $col = Capsule::selectOne("SHOW COLUMNS FROM `s3_cloudbackup_pricing` LIKE 'metric'");
+            $type = is_object($col) ? (string) ($col->Type ?? '') : '';
+            if ($type !== '' && strpos($type, "'saas_connector'") === false) {
+                Capsule::statement(
+                    "ALTER TABLE `s3_cloudbackup_pricing` MODIFY `metric` {$metricEnum} NOT NULL"
+                );
+                logModuleCall('cloudstorage', $context, [], 'Added saas_connector to s3_cloudbackup_pricing.metric', [], []);
+            }
+        } catch (\Throwable $e) {
+            logModuleCall('cloudstorage', "{$context}_extend_pricing_metric_enum", [], $e->getMessage(), [], []);
+        }
     }
 
     // --- s3_cloudbackup_rated_lines ---
@@ -1253,7 +1306,8 @@ function cloudstorage_ensure_e3cb_billing_schema(string $context = 'activate'): 
                 $table->bigIncrements('id');
                 $table->unsignedInteger('service_id');
                 $table->unsignedInteger('client_id');
-                $table->enum('metric', ['endpoint', 'disk_image', 'hyperv_vm', 'proxmox_vm', 'vmware_vm']);
+                $table->enum('metric', ['endpoint', 'disk_image', 'hyperv_vm', 'proxmox_vm', 'vmware_vm', 'saas_connector']);
+                $table->unsignedBigInteger('backup_user_id')->default(0);
                 $table->unsignedInteger('qty')->default(0);
                 $table->decimal('unit_price', 12, 4)->default(0);
                 $table->string('tier_label', 64)->nullable();
@@ -1274,7 +1328,7 @@ function cloudstorage_ensure_e3cb_billing_schema(string $context = 'activate'): 
                 $table->timestamp('updated_at')->useCurrent();
                 $table->index(['service_id', 'billing_window_start'], 'idx_e3cb_rated_service_window');
                 $table->index(['client_id', 'billing_window_start'], 'idx_e3cb_rated_client_window');
-                $table->unique(['service_id', 'metric', 'billing_window_start'], 'uniq_e3cb_rated_service_metric_window');
+                $table->unique(['service_id', 'metric', 'billing_window_start', 'backup_user_id'], 'uniq_e3cb_rated_service_metric_window');
             });
             logModuleCall('cloudstorage', $context, [], 'Created s3_cloudbackup_rated_lines', [], []);
         } catch (\Throwable $e) {
@@ -1295,6 +1349,39 @@ function cloudstorage_ensure_e3cb_billing_schema(string $context = 'activate'): 
             }
         } catch (\Throwable $e) {
             logModuleCall('cloudstorage', "{$context}_extend_rated_lines_enum", [], $e->getMessage(), [], []);
+        }
+        try {
+            if (!$schema->hasColumn('s3_cloudbackup_rated_lines', 'backup_user_id')) {
+                $schema->table('s3_cloudbackup_rated_lines', function ($table) {
+                    $table->unsignedBigInteger('backup_user_id')->default(0)->after('client_id');
+                });
+                logModuleCall('cloudstorage', $context, [], 'Added backup_user_id to s3_cloudbackup_rated_lines', [], []);
+            }
+            $col = Capsule::selectOne("SHOW COLUMNS FROM `s3_cloudbackup_rated_lines` LIKE 'metric'");
+            $type = is_object($col) ? (string) ($col->Type ?? '') : '';
+            if ($type !== '' && strpos($type, "'saas_connector'") === false) {
+                Capsule::statement(
+                    "ALTER TABLE `s3_cloudbackup_rated_lines` MODIFY `metric` {$metricEnum} NOT NULL"
+                );
+                logModuleCall('cloudstorage', $context, [], 'Added saas_connector to s3_cloudbackup_rated_lines.metric', [], []);
+            }
+            try {
+                $schema->table('s3_cloudbackup_rated_lines', function ($table) {
+                    $table->dropUnique('uniq_e3cb_rated_service_metric_window');
+                });
+            } catch (\Throwable $_) {
+            }
+            try {
+                $schema->table('s3_cloudbackup_rated_lines', function ($table) {
+                    $table->unique(
+                        ['service_id', 'metric', 'billing_window_start', 'backup_user_id'],
+                        'uniq_e3cb_rated_service_metric_window'
+                    );
+                });
+            } catch (\Throwable $_) {
+            }
+        } catch (\Throwable $e) {
+            logModuleCall('cloudstorage', "{$context}_extend_rated_lines_backup_user", [], $e->getMessage(), [], []);
         }
     }
 
@@ -1388,6 +1475,52 @@ function cloudstorage_ensure_e3cb_product(string $context = 'activate'): void
         }
     } catch (\Throwable $e) {
         logModuleCall('cloudstorage', "{$context}_e3cb_product_bootstrap_exception", [], $e->getMessage(), [], []);
+    }
+}
+
+/**
+ * Auto-provision the unified e3 Backup User WHMCS product + all metric config options.
+ */
+function cloudstorage_ensure_e3bu_product(string $context = 'activate'): void
+{
+    try {
+        $cls = '\\WHMCS\\Module\\Addon\\CloudStorage\\Provision\\E3BackupUserProductBootstrap';
+        if (!class_exists($cls)) {
+            $path = __DIR__ . '/lib/Provision/E3BackupUserProductBootstrap.php';
+            if (is_file($path)) {
+                require_once $path;
+            }
+        }
+        if (class_exists($cls)) {
+            $cls::ensure($context);
+        }
+    } catch (\Throwable $e) {
+        logModuleCall('cloudstorage', "{$context}_e3bu_product_bootstrap_exception", [], $e->getMessage(), [], []);
+    }
+}
+
+/**
+ * Backfill encryption_mode on existing s3_backup_users rows (grandfather-safe).
+ * local -> strict; cloud_only / both -> managed.
+ */
+function cloudstorage_backfill_backup_user_encryption_mode(string $context = 'activate'): void
+{
+    if (!Capsule::schema()->hasTable('s3_backup_users')
+        || !Capsule::schema()->hasColumn('s3_backup_users', 'encryption_mode')) {
+        return;
+    }
+    try {
+        if (Capsule::schema()->hasColumn('s3_backup_users', 'backup_type')) {
+            Capsule::table('s3_backup_users')
+                ->where('backup_type', 'local')
+                ->update(['encryption_mode' => 'strict']);
+            Capsule::table('s3_backup_users')
+                ->whereIn('backup_type', ['cloud_only', 'both'])
+                ->update(['encryption_mode' => 'managed']);
+        }
+        logModuleCall('cloudstorage', $context, [], 'Backfilled encryption_mode on s3_backup_users', [], []);
+    } catch (\Throwable $e) {
+        logModuleCall('cloudstorage', "{$context}_backfill_encryption_mode_fail", [], $e->getMessage(), [], []);
     }
 }
 
@@ -2541,6 +2674,8 @@ function cloudstorage_activate() {
                 $table->string('email', 255);
                 $table->enum('status', ['active', 'disabled'])->default('active');
                 $table->enum('backup_type', ['cloud_only', 'local', 'both'])->default('both');
+                $table->enum('encryption_mode', ['managed', 'strict'])->default('managed');
+                $table->unsignedBigInteger('whmcs_service_id')->nullable();
                 $table->tinyInteger('notifications_enabled')->default(1);
                 $table->text('notify_emails')->nullable();
                 $table->tinyInteger('notify_on_success')->default(0);
@@ -2569,6 +2704,8 @@ function cloudstorage_activate() {
                 'email' => function ($table) { $table->string('email', 255); },
                 'status' => function ($table) { $table->enum('status', ['active', 'disabled'])->default('active'); },
                 'backup_type' => function ($table) { $table->enum('backup_type', ['cloud_only', 'local', 'both'])->default('both'); },
+                'encryption_mode' => function ($table) { $table->enum('encryption_mode', ['managed', 'strict'])->default('managed'); },
+                'whmcs_service_id' => function ($table) { $table->unsignedBigInteger('whmcs_service_id')->nullable(); },
                 'notifications_enabled' => function ($table) { $table->tinyInteger('notifications_enabled')->default(1); },
                 'notify_emails' => function ($table) { $table->text('notify_emails')->nullable(); },
                 'notify_on_success' => function ($table) { $table->tinyInteger('notify_on_success')->default(0); },
@@ -2620,6 +2757,7 @@ function cloudstorage_activate() {
                 });
             } catch (\Throwable $e) { /* index exists */ }
             cloudstorage_backfill_backup_user_public_ids('activate');
+            cloudstorage_backfill_backup_user_encryption_mode('activate');
         }
 
         if (!Capsule::schema()->hasTable('s3_agent_enrollment_tokens')) {
@@ -3338,6 +3476,7 @@ function cloudstorage_activate() {
         cloudstorage_ensure_ms365_vault_lifecycle_schema('activate');
         cloudstorage_ensure_e3cb_billing_schema('activate');
         cloudstorage_ensure_e3cb_product('activate');
+        cloudstorage_ensure_e3bu_product('activate');
 
         // Create Tenant Portal Email Templates if they don't exist
         cloudstorage_create_email_templates();
@@ -5365,6 +5504,8 @@ function cloudstorage_upgrade($vars) {
                     $table->string('email', 255);
                     $table->enum('status', ['active', 'disabled'])->default('active');
                     $table->enum('backup_type', ['cloud_only', 'local', 'both'])->default('both');
+                    $table->enum('encryption_mode', ['managed', 'strict'])->default('managed');
+                    $table->unsignedBigInteger('whmcs_service_id')->nullable();
                     $table->tinyInteger('notifications_enabled')->default(1);
                     $table->text('notify_emails')->nullable();
                     $table->tinyInteger('notify_on_success')->default(0);
@@ -5391,6 +5532,8 @@ function cloudstorage_upgrade($vars) {
                 'email' => function ($table) { $table->string('email', 255); },
                 'status' => function ($table) { $table->enum('status', ['active', 'disabled'])->default('active'); },
                 'backup_type' => function ($table) { $table->enum('backup_type', ['cloud_only', 'local', 'both'])->default('both'); },
+                'encryption_mode' => function ($table) { $table->enum('encryption_mode', ['managed', 'strict'])->default('managed'); },
+                'whmcs_service_id' => function ($table) { $table->unsignedBigInteger('whmcs_service_id')->nullable(); },
                 'notifications_enabled' => function ($table) { $table->tinyInteger('notifications_enabled')->default(1); },
                 'notify_emails' => function ($table) { $table->text('notify_emails')->nullable(); },
                 'notify_on_success' => function ($table) { $table->tinyInteger('notify_on_success')->default(0); },
@@ -5443,6 +5586,7 @@ function cloudstorage_upgrade($vars) {
                 });
             } catch (\Throwable $e) {}
             cloudstorage_backfill_backup_user_public_ids('upgrade');
+            cloudstorage_backfill_backup_user_encryption_mode('upgrade');
         } catch (\Throwable $e) {
             logModuleCall('cloudstorage', 'upgrade_s3_backup_users_fail', [], $e->getMessage(), [], []);
         }
@@ -5509,6 +5653,7 @@ function cloudstorage_upgrade($vars) {
         cloudstorage_ensure_ms365_vault_lifecycle_schema('upgrade');
         cloudstorage_ensure_e3cb_billing_schema('upgrade');
         cloudstorage_ensure_e3cb_product('upgrade');
+        cloudstorage_ensure_e3bu_product('upgrade');
         return ['status' => 'success'];
     } catch (\Exception $e) {
         logModuleCall('cloudstorage', 'upgrade', $vars, $e->getMessage());
@@ -5659,6 +5804,12 @@ function cloudstorage_clientarea($vars) {
                 $viewVars['ebHideLegacyCloudBackupCard'] = false;
                 $viewVars['ebWelcomeExistingClient']     = false;
             }
+            try {
+                require_once __DIR__ . '/lib/Provision/E3BackupUserProductBootstrap.php';
+                $viewVars['ebWelcomeUnifiedEnabled'] = \WHMCS\Module\Addon\CloudStorage\Provision\E3BackupUserProductBootstrap::isUnifiedEnabled();
+            } catch (\Throwable $e) {
+                $viewVars['ebWelcomeUnifiedEnabled'] = false;
+            }
             break;
 
         case 'test':
@@ -5718,9 +5869,10 @@ function cloudstorage_clientarea($vars) {
                             require_once $statePath;
                         }
                         if (class_exists('\\WHMCS\\Module\\Addon\\CloudStorage\\Client\\E3BackupClientState')) {
-                            $landingView = \WHMCS\Module\Addon\CloudStorage\Client\E3BackupClientState::resolveLandingView($landingClientId);
-                            if ($landingView !== 'dashboard') {
-                                header('Location: index.php?m=cloudstorage&page=e3backup&view=' . rawurlencode($landingView));
+                            $landingUrl = \WHMCS\Module\Addon\CloudStorage\Client\E3BackupClientState::resolveLandingUrl($landingClientId);
+                            $dashboardUrl = 'index.php?m=cloudstorage&page=e3backup';
+                            if ($landingUrl !== $dashboardUrl) {
+                                header('Location: ' . $landingUrl);
                                 exit;
                             }
                         }
@@ -5789,6 +5941,13 @@ function cloudstorage_clientarea($vars) {
                 'ebHasCloudStorageProduct' => false,
                 'ebShowEnableAgentCard'   => false,
                 'ebShowEnableMs365Card'   => false,
+                'ebGsActiveWorkload'      => 'local',
+                'ebGsIntent'              => 'local',
+                'ebGsUserId'              => '',
+                'ebGsCompleted'             => 0,
+                'ebGsTotal'                 => 4,
+                'ebGsComplete'              => false,
+                'ebGsHidden'                => true,
             ];
             try {
                 $obStatePath = __DIR__ . '/lib/Client/OnboardingState.php';
@@ -5859,6 +6018,62 @@ function cloudstorage_clientarea($vars) {
                             $obClientId,
                             !empty($ebE3OnboardingShared['ebE3OnboardingComplete'])
                         );
+                    }
+
+                    // Unified Getting Started hub descriptor (active workload pill + sidebar).
+                    $gsIntent = 'local';
+                    $gsUserRouteId = '';
+                    $encryptionMode = 'managed';
+                    if ($defaultBu) {
+                        $gsUserRouteId = ($defaultBu['public_id'] ?? '') !== ''
+                            ? (string) $defaultBu['public_id']
+                            : (string) $defaultBu['id'];
+                        $encryptionMode = strtolower(trim((string) ($defaultBu['encryption_mode'] ?? 'managed')));
+                        if ($encryptionMode !== 'strict') {
+                            $encryptionMode = 'managed';
+                        }
+                        try {
+                            if (\WHMCS\Database\Capsule::schema()->hasTable('cloudstorage_trial_selection')) {
+                                $productChoice = strtolower(trim((string) \WHMCS\Database\Capsule::table('cloudstorage_trial_selection')
+                                    ->where('client_id', $obClientId)
+                                    ->value('product_choice')));
+                                if (in_array($productChoice, ['e3backup', 'e3_backup', 'e3-backup', 'cloudbackup_e3', 'backup', 'cloudbackup'], true)) {
+                                    $gsIntent = 'local';
+                                } elseif (in_array($productChoice, ['ms365', 'm365'], true)) {
+                                    $gsIntent = 'ms365';
+                                } elseif (in_array($productChoice, ['cloud2cloud', 'cloud-to-cloud'], true)) {
+                                    $gsIntent = 'saas';
+                                }
+                            }
+                        } catch (\Throwable $_) {
+                            // keep default intent
+                        }
+                        if ($encryptionMode === 'strict') {
+                            $gsIntent = 'local';
+                        } elseif ($gsIntent === 'local'
+                            && !empty($ebE3OnboardingShared['ebHasMs365Product'])
+                            && empty($ebE3OnboardingShared['ebMs365OnboardingComplete'])) {
+                            $gsIntent = 'ms365';
+                        }
+                    }
+                    $ebE3OnboardingShared['ebGsIntent'] = $gsIntent;
+                    $ebE3OnboardingShared['ebGsActiveWorkload'] = $gsIntent;
+                    $ebE3OnboardingShared['ebGsUserId'] = $gsUserRouteId;
+                    if ($gsIntent === 'ms365') {
+                        $ebE3OnboardingShared['ebGsCompleted'] = (int) $ebE3OnboardingShared['ebMs365OnboardingCompleted'];
+                        $ebE3OnboardingShared['ebGsTotal'] = (int) $ebE3OnboardingShared['ebMs365OnboardingTotal'];
+                        $ebE3OnboardingShared['ebGsComplete'] = !empty($ebE3OnboardingShared['ebMs365OnboardingComplete']);
+                        $ebE3OnboardingShared['ebGsHidden'] = !empty($ebE3OnboardingShared['ebMs365OnboardingHidden']);
+                    } elseif ($gsIntent === 'saas') {
+                        $ebE3OnboardingShared['ebGsCompleted'] = 0;
+                        $ebE3OnboardingShared['ebGsTotal'] = 0;
+                        $ebE3OnboardingShared['ebGsComplete'] = false;
+                        $ebE3OnboardingShared['ebGsHidden'] = false;
+                    } else {
+                        $ebE3OnboardingShared['ebGsCompleted'] = (int) $ebE3OnboardingShared['ebE3OnboardingCompleted'];
+                        $ebE3OnboardingShared['ebGsTotal'] = (int) $ebE3OnboardingShared['ebE3OnboardingTotal'];
+                        $ebE3OnboardingShared['ebGsComplete'] = !empty($ebE3OnboardingShared['ebE3OnboardingComplete']);
+                        $ebE3OnboardingShared['ebGsHidden'] = !empty($ebE3OnboardingShared['ebE3OnboardingHidden']);
                     }
                 }
             } catch (\Throwable $e) {
@@ -5949,6 +6164,25 @@ function cloudstorage_clientarea($vars) {
                     $viewVars = require 'pages/e3backup_getting_started.php';
                     break;
                 case 'ms365_getting_started':
+                    $bootstrapPath = __DIR__ . '/lib/Provision/E3BackupUserProductBootstrap.php';
+                    if (is_file($bootstrapPath)) {
+                        require_once $bootstrapPath;
+                    }
+                    if (class_exists('\\WHMCS\\Module\\Addon\\CloudStorage\\Provision\\E3BackupUserProductBootstrap')
+                        && \WHMCS\Module\Addon\CloudStorage\Provision\E3BackupUserProductBootstrap::isUnifiedEnabled()) {
+                        $redirectParams = [
+                            'm' => 'cloudstorage',
+                            'page' => 'e3backup',
+                            'view' => 'getting_started',
+                            'intent' => 'ms365',
+                        ];
+                        $userIdRaw = trim((string) ($_GET['user_id'] ?? ''));
+                        if ($userIdRaw !== '') {
+                            $redirectParams['user_id'] = $userIdRaw;
+                        }
+                        header('Location: index.php?' . http_build_query($redirectParams));
+                        exit;
+                    }
                     $pagetitle = 'Microsoft 365 Backup - Getting Started';
                     $templatefile = 'templates/e3backup_ms365_getting_started';
                     $viewVars = require 'pages/e3backup_ms365_getting_started.php';

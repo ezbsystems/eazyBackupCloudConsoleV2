@@ -615,6 +615,7 @@
 window.EB_WEB_ROOT = '{$WEB_ROOT}';
 window.EB_CSRF_TOKEN = '{$token|default:$csrfToken}';
 window.EB_WELCOME_EXISTING_CLIENT = {if $ebWelcomeExistingClient}true{else}false{/if};
+window.EB_WELCOME_UNIFIED_ENABLED = {if $ebWelcomeUnifiedEnabled|default:false}true{else}false{/if};
 if (window.csrfToken && !window.EB_CSRF_TOKEN) {
     window.EB_CSRF_TOKEN = window.csrfToken;
 }
@@ -1079,8 +1080,51 @@ if (window.csrfToken && !window.EB_CSRF_TOKEN) {
         }
     }
 
+    function ebE3EncryptionModeChanged(mode) {
+        var hidden = document.getElementById('eb-e3-encryption-mode');
+        var strictWarning = document.getElementById('eb-e3-strict-warning');
+        var managedAckRow = document.getElementById('eb-e3-managed-ack-row');
+        var strictAckRow = document.getElementById('eb-e3-strict-ack-row');
+        var managedAck = document.getElementById('eb-e3-managed-ack');
+        var strictAck = document.getElementById('eb-e3-strict-ack');
+        var resolved = (mode === 'strict') ? 'strict' : 'managed';
+        if (hidden) {
+            hidden.value = resolved;
+        }
+        if (strictWarning) {
+            if (resolved === 'strict') {
+                strictWarning.classList.remove('hidden');
+            } else {
+                strictWarning.classList.add('hidden');
+            }
+        }
+        if (managedAckRow) {
+            if (resolved === 'managed') {
+                managedAckRow.classList.remove('hidden');
+            } else {
+                managedAckRow.classList.add('hidden');
+            }
+        }
+        if (strictAckRow) {
+            if (resolved === 'strict') {
+                strictAckRow.classList.remove('hidden');
+            } else {
+                strictAckRow.classList.add('hidden');
+            }
+        }
+        if (managedAck) {
+            managedAck.checked = false;
+        }
+        if (strictAck) {
+            strictAck.checked = false;
+        }
+        ebSetFieldError('eb-err-e3-managed-ack', '');
+        ebSetFieldError('eb-err-e3-strict-ack', '');
+    }
+
     function ebPreparePasswordUi(choice) {
-        var showUser = (choice === 'backup' || choice === 'ms365' || choice === 'e3backup');
+        var unified = window.EB_WELCOME_UNIFIED_ENABLED;
+        var showUser = (choice === 'backup' || choice === 'ms365' || choice === 'e3backup' || (unified && choice === 'cloud2cloud'));
         var usernameRow = document.getElementById('eb-username-row');
         var noUsernameRow = document.getElementById('eb-no-username-row');
         var existingPwRow = document.getElementById('eb-existing-pw-row');
@@ -1091,6 +1135,12 @@ if (window.csrfToken && !window.EB_CSRF_TOKEN) {
         var usernameLabel = document.getElementById('eb-username-label');
         var submitBtn = document.getElementById('eb-pw-submit');
         var isExistingClientMs365OrE3 = window.EB_WELCOME_EXISTING_CLIENT && (choice === 'ms365' || choice === 'e3backup');
+        var needsBackupPassword = (choice === 'e3backup' && !isExistingClientMs365OrE3)
+            || (unified && (choice === 'ms365' || choice === 'cloud2cloud') && !isExistingClientMs365OrE3);
+        var e3EncryptionRow = document.getElementById('eb-e3-encryption-row');
+        var e3NewPasswordRow = document.getElementById('eb-e3-new-password-row');
+        var e3BackupPassword = document.getElementById('eb-e3-backup-password');
+        var e3BackupPasswordConfirm = document.getElementById('eb-e3-backup-password-confirm');
 
         if (usernameRow) {
             if (showUser) {
@@ -1122,14 +1172,46 @@ if (window.csrfToken && !window.EB_CSRF_TOKEN) {
         }
         ebSetFieldError('eb-err-existing-pw', '');
 
-        if (choice === 'e3backup') {
-            title.textContent = 'Pick your e3 Cloud Backup agent username';
-            if (isExistingClientMs365OrE3) {
-                subtitle.textContent = 'Choose the username your e3 Cloud Backup agent will use to sign in. Confirm your portal password below to provision the service.';
+        ebSetFieldError('eb-err-existing-pw', '');
+        ebSetFieldError('eb-err-e3-password', '');
+        ebSetFieldError('eb-err-e3-password-confirm', '');
+        ebSetFieldError('eb-err-e3-managed-ack', '');
+        ebSetFieldError('eb-err-e3-strict-ack', '');
+
+        if (e3EncryptionRow) {
+            if (choice === 'e3backup') {
+                e3EncryptionRow.classList.remove('hidden');
+                ebE3EncryptionModeChanged('managed');
+                var managedRadio = document.querySelector('input[name="eb_e3_encryption_mode"][value="managed"]');
+                if (managedRadio) {
+                    managedRadio.checked = true;
+                }
             } else {
-                subtitle.textContent = 'Choose the username your e3 Cloud Backup agent will use to sign in. Your portal password (set earlier) is also the password for this backup agent.';
+                e3EncryptionRow.classList.add('hidden');
             }
-            if (usernameLabel) { usernameLabel.textContent = 'Backup agent username'; }
+        }
+        if (e3NewPasswordRow) {
+            if (needsBackupPassword) {
+                e3NewPasswordRow.classList.remove('hidden');
+            } else {
+                e3NewPasswordRow.classList.add('hidden');
+            }
+        }
+        if (e3BackupPassword) {
+            e3BackupPassword.value = '';
+        }
+        if (e3BackupPasswordConfirm) {
+            e3BackupPasswordConfirm.value = '';
+        }
+
+        if (choice === 'e3backup') {
+            title.textContent = 'Create your first e3 Backup User';
+            if (isExistingClientMs365OrE3) {
+                subtitle.textContent = 'Choose a username and encryption mode for your first Backup User. Confirm your portal password below to provision the service.';
+            } else {
+                subtitle.textContent = 'Choose a username, encryption mode, and backup user password. Each Backup User is a separate billable unit with its own jobs and encryption.';
+            }
+            if (usernameLabel) { usernameLabel.textContent = 'Backup user username'; }
         } else if (choice === 'backup') {
             title.textContent = 'Pick your Cloud Backup agent username';
             subtitle.textContent = 'Choose the username your Cloud Backup agent will use to sign in. Your portal password (set earlier) is also the password for this backup agent.';
@@ -1138,10 +1220,16 @@ if (window.csrfToken && !window.EB_CSRF_TOKEN) {
             title.textContent = 'Pick your Microsoft 365 Backup username';
             if (isExistingClientMs365OrE3) {
                 subtitle.textContent = 'Choose the username for your Microsoft 365 Backup service. Confirm your portal password below to provision the service.';
+            } else if (unified) {
+                subtitle.textContent = 'Choose a username and backup user password for your Microsoft 365 Backup service. After provisioning, you will connect your tenant and create your first backup job.';
             } else {
                 subtitle.textContent = 'Choose the username for your Microsoft 365 Backup service. After provisioning, you will connect your tenant and create your first backup job.';
             }
-            if (usernameLabel) { usernameLabel.textContent = 'Backup account username'; }
+            if (usernameLabel) { usernameLabel.textContent = unified && !isExistingClientMs365OrE3 ? 'Backup user username' : 'Backup account username'; }
+        } else if (choice === 'cloud2cloud' && unified) {
+            title.textContent = 'Create your backup user for SaaS Backup';
+            subtitle.textContent = 'Choose a username and backup user password. After provisioning, we will guide you through the cloud backup wizard.';
+            if (usernameLabel) { usernameLabel.textContent = 'Backup user username'; }
         } else {
             title.textContent = 'Ready to provision';
             subtitle.textContent = 'We will use the portal password you set earlier. Click Continue to finish provisioning.';
@@ -1443,15 +1531,23 @@ if (window.csrfToken && !window.EB_CSRF_TOKEN) {
         ebSetGeneralAlert('eb-pw-general-error', 'eb-pw-general-error-body', '');
         ebSetFieldError('eb-err-username', '');
         ebSetFieldError('eb-err-existing-pw', '');
+        ebSetFieldError('eb-err-e3-password', '');
+        ebSetFieldError('eb-err-e3-password-confirm', '');
+        ebSetFieldError('eb-err-e3-managed-ack', '');
+        ebSetFieldError('eb-err-e3-strict-ack', '');
         ebDisableSubmit(true);
 
         try {
             var choice = document.getElementById('eb-product-choice').value || '';
+            var unified = window.EB_WELCOME_UNIFIED_ENABLED;
             var username = (document.getElementById('eb-username') || { value: '' }).value || '';
             var storageTierEl = document.getElementById('eb-storage-tier');
             var storageTier = storageTierEl ? storageTierEl.value : '';
-            var needsUser = (choice === 'backup' || choice === 'ms365' || choice === 'e3backup');
+            var needsUser = (choice === 'backup' || choice === 'ms365' || choice === 'e3backup' || (unified && choice === 'cloud2cloud'));
             var isExistingClientProvision = window.EB_WELCOME_EXISTING_CLIENT && (choice === 'ms365' || choice === 'e3backup');
+            var isNewE3Backup = (choice === 'e3backup' && !isExistingClientProvision);
+            var needsBackupPassword = isNewE3Backup
+                || (unified && (choice === 'ms365' || choice === 'cloud2cloud') && !isExistingClientProvision);
 
             if (needsUser) {
                 var reUser = /^[A-Za-z0-9_.-]{8,}$/;
@@ -1459,6 +1555,50 @@ if (window.csrfToken && !window.EB_CSRF_TOKEN) {
                     var usernameMessage = 'Backup username must be at least 8 characters and may contain only a-z, A-Z, 0-9, _, ., -';
                     ebSetFieldError('eb-err-username', usernameMessage);
                     ebShowToast(usernameMessage, 'error');
+                    ebDisableSubmit(false);
+                    return false;
+                }
+            }
+
+            if (choice === 'e3backup') {
+                var encryptionMode = (document.getElementById('eb-e3-encryption-mode') || {}).value || 'managed';
+                if (encryptionMode === 'managed') {
+                    var managedAck = document.getElementById('eb-e3-managed-ack');
+                    if (!managedAck || !managedAck.checked) {
+                        var managedAckMessage = 'Please acknowledge managed recovery.';
+                        ebSetFieldError('eb-err-e3-managed-ack', managedAckMessage);
+                        ebShowToast(managedAckMessage, 'error');
+                        ebDisableSubmit(false);
+                        return false;
+                    }
+                } else if (encryptionMode === 'strict') {
+                    var strictAck = document.getElementById('eb-e3-strict-ack');
+                    if (!strictAck || !strictAck.checked) {
+                        var strictAckMessage = 'Please acknowledge strict mode requirements.';
+                        ebSetFieldError('eb-err-e3-strict-ack', strictAckMessage);
+                        ebShowToast(strictAckMessage, 'error');
+                        ebDisableSubmit(false);
+                        return false;
+                    }
+                }
+            }
+
+            var backupPassword = '';
+            var backupPasswordConfirm = '';
+            if (needsBackupPassword) {
+                backupPassword = (document.getElementById('eb-e3-backup-password') || {}).value || '';
+                backupPasswordConfirm = (document.getElementById('eb-e3-backup-password-confirm') || {}).value || '';
+                if (!backupPassword || backupPassword.length < 8) {
+                    var pwMessage = 'Backup user password must be at least 8 characters.';
+                    ebSetFieldError('eb-err-e3-password', pwMessage);
+                    ebShowToast(pwMessage, 'error');
+                    ebDisableSubmit(false);
+                    return false;
+                }
+                if (backupPassword !== backupPasswordConfirm) {
+                    var confirmMessage = 'Password confirmation does not match.';
+                    ebSetFieldError('eb-err-e3-password-confirm', confirmMessage);
+                    ebShowToast(confirmMessage, 'error');
                     ebDisableSubmit(false);
                     return false;
                 }
@@ -1495,6 +1635,26 @@ if (window.csrfToken && !window.EB_CSRF_TOKEN) {
                 username: username,
                 storage_tier: storageTier
             };
+            if (unified && (choice === 'e3backup' || choice === 'ms365' || choice === 'cloud2cloud')) {
+                if (choice === 'e3backup') {
+                    provisionBody.intent = 'local';
+                } else if (choice === 'ms365') {
+                    provisionBody.intent = 'ms365';
+                } else if (choice === 'cloud2cloud') {
+                    provisionBody.intent = 'saas';
+                }
+            }
+            if (choice === 'e3backup') {
+                provisionBody.encryption_mode = (document.getElementById('eb-e3-encryption-mode') || {}).value || 'managed';
+                provisionBody.managed_acknowledged = document.getElementById('eb-e3-managed-ack') && document.getElementById('eb-e3-managed-ack').checked ? '1' : '0';
+                provisionBody.strict_acknowledged = document.getElementById('eb-e3-strict-ack') && document.getElementById('eb-e3-strict-ack').checked ? '1' : '0';
+            } else if (unified && (choice === 'ms365' || choice === 'cloud2cloud')) {
+                provisionBody.encryption_mode = 'managed';
+            }
+            if (needsBackupPassword) {
+                provisionBody.password = backupPassword;
+                provisionBody.password_confirm = backupPasswordConfirm;
+            }
             if (isExistingClientProvision) {
                 provisionBody.existing_client = '1';
                 provisionBody.new_password = existingPortalPassword;
@@ -1529,6 +1689,18 @@ if (window.csrfToken && !window.EB_CSRF_TOKEN) {
             }
             if (errors.new_password) {
                 ebSetFieldError('eb-err-existing-pw', errors.new_password);
+            }
+            if (errors.password) {
+                ebSetFieldError('eb-err-e3-password', errors.password);
+            }
+            if (errors.password_confirm) {
+                ebSetFieldError('eb-err-e3-password-confirm', errors.password_confirm);
+            }
+            if (errors.managed_acknowledged) {
+                ebSetFieldError('eb-err-e3-managed-ack', errors.managed_acknowledged);
+            }
+            if (errors.strict_acknowledged) {
+                ebSetFieldError('eb-err-e3-strict-ack', errors.strict_acknowledged);
             }
             if (errors.general) {
                 ebSetGeneralAlert('eb-pw-general-error', 'eb-pw-general-error-body', errors.general);

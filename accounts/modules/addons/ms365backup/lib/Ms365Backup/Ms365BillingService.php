@@ -15,14 +15,14 @@ final class Ms365BillingService
     /** @return array{services: int, snapshots: int, errors: int} */
     public static function meterAll(): array
     {
-        $pid = Ms365BillingConfig::getPid();
-        if ($pid <= 0) {
+        $pids = Ms365BillingConfig::getBillablePids();
+        if ($pids === []) {
             return ['services' => 0, 'snapshots' => 0, 'errors' => 0];
         }
 
         $services = Capsule::table('tblhosting')
             ->select(['id', 'userid', 'packageid', 'domainstatus'])
-            ->where('packageid', $pid)
+            ->whereIn('packageid', $pids)
             ->whereIn('domainstatus', ['Active', 'Suspended'])
             ->get();
 
@@ -129,13 +129,13 @@ final class Ms365BillingService
     /** @return array{services: int, rated: int, errors: int} */
     public static function rateAll(): array
     {
-        $pid = Ms365BillingConfig::getPid();
-        if ($pid <= 0) {
+        $pids = Ms365BillingConfig::getBillablePids();
+        if ($pids === []) {
             return ['services' => 0, 'rated' => 0, 'errors' => 0];
         }
 
         $services = Capsule::table('tblhosting')
-            ->where('packageid', $pid)
+            ->whereIn('packageid', $pids)
             ->whereIn('domainstatus', ['Active', 'Suspended'])
             ->get(['id']);
 
@@ -227,7 +227,7 @@ final class Ms365BillingService
 
     public static function applyDefaultConfigOptions(int $serviceId): void
     {
-        $map = Ms365BillingConfig::getConfigOptionMap();
+        $map = Ms365BillingConfig::getConfigOptionMap($serviceId);
         if ($map === []) {
             return;
         }
@@ -264,7 +264,7 @@ final class Ms365BillingService
 
     public static function applyToWhmcs(int $serviceId): int
     {
-        $map = Ms365BillingConfig::getConfigOptionMap();
+        $map = Ms365BillingConfig::getConfigOptionMap($serviceId);
         if ($map === []) {
             return 0;
         }
@@ -612,6 +612,20 @@ final class Ms365BillingService
     {
         if ($clientId <= 0 || $backupUserId <= 0) {
             return 0;
+        }
+        try {
+            if (Capsule::schema()->hasTable('s3_backup_users')
+                && Capsule::schema()->hasColumn('s3_backup_users', 'whmcs_service_id')) {
+                $fromUser = (int) Capsule::table('s3_backup_users')
+                    ->where('id', $backupUserId)
+                    ->where('client_id', $clientId)
+                    ->where('whmcs_service_id', '>', 0)
+                    ->value('whmcs_service_id');
+                if ($fromUser > 0) {
+                    return $fromUser;
+                }
+            }
+        } catch (\Throwable $_) {
         }
         try {
             $fromTenant = (int) Capsule::table('ms365_tenant_records')

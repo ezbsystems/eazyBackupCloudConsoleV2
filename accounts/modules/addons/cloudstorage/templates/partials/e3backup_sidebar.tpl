@@ -13,6 +13,15 @@
 {assign var=ebMs365ShowGettingStarted value=$ebMs365ShowGettingStarted|default:false}
 {assign var=ebMs365OnboardingCompleted value=$ebMs365OnboardingCompleted|default:0}
 {assign var=ebMs365OnboardingTotal value=$ebMs365OnboardingTotal|default:3}
+{assign var=ebGsHidden value=$ebGsHidden|default:true}
+{assign var=ebGsCompleted value=$ebGsCompleted|default:0}
+{assign var=ebGsTotal value=$ebGsTotal|default:4}
+{assign var=ebGsUserId value=$ebGsUserId|default:''}
+{assign var=ebGsIntent value=$ebGsIntent|default:'local'}
+{assign var=ebGsGettingStartedHref value='index.php?m=cloudstorage&page=e3backup&view=getting_started'}
+{if $ebGsUserId neq ''}
+    {capture assign=ebGsGettingStartedHref}index.php?m=cloudstorage&page=e3backup&view=getting_started&user_id={$ebGsUserId|escape:'url'}&intent={$ebGsIntent|escape:'url'}{/capture}
+{/if}
 {assign var=ebMs365OnboardingHidden value=$ebMs365OnboardingHidden|default:true}
 {assign var=ebHasE3AgentProduct value=$ebHasE3AgentProduct|default:false}
 {assign var=ebEnableAgentUrl value='index.php?m=cloudstorage&page=e3backup&view=enable_agent_backup'}
@@ -34,29 +43,17 @@
         </div>
 
         <nav class="flex-1 space-y-1 overflow-y-auto px-3 py-3">
-            {if not $ebMs365OnboardingHidden}
-            <a href="index.php?m=cloudstorage&page=e3backup&view=ms365_getting_started"
-               class="eb-sidebar-link {if $activeNav eq 'ms365_getting_started'}is-active{/if}"
-               :class="sidebarCollapsed && 'justify-center px-4'"
-               :title="sidebarCollapsed ? 'Getting Started (Microsoft 365)' : ''">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
-                </svg>
-                <span x-show="!sidebarCollapsed" x-transition.opacity>Getting Started (M365)</span>
-                <span x-show="!sidebarCollapsed" x-transition.opacity class="eb-sidebar-badge">{$ebMs365OnboardingCompleted}/{$ebMs365OnboardingTotal}</span>
-            </a>
-            {/if}
-            {if not $ebE3OnboardingHidden}
-            <a href="index.php?m=cloudstorage&page=e3backup&view=getting_started"
+            {if not $ebGsHidden}
+            <a href="{$ebGsGettingStartedHref|escape:'html'}"
                data-tour="sidebar-getting-started"
                class="eb-sidebar-link {if $activeNav eq 'getting_started'}is-active{/if}"
                :class="sidebarCollapsed && 'justify-center px-4'"
-               :title="sidebarCollapsed ? 'Getting Started (Agent)' : ''">
+               :title="sidebarCollapsed ? 'Getting Started' : ''">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
                 </svg>
-                <span x-show="!sidebarCollapsed" x-transition.opacity>Getting Started (Agent)</span>
-                <span x-show="!sidebarCollapsed" x-transition.opacity class="eb-sidebar-badge">{$ebE3OnboardingCompleted}/{$ebE3OnboardingTotal}</span>
+                <span x-show="!sidebarCollapsed" x-transition.opacity>Getting Started</span>
+                <span x-show="!sidebarCollapsed && {$ebGsTotal|intval} > 0" x-transition.opacity class="eb-sidebar-badge">{$ebGsCompleted}/{$ebGsTotal}</span>
             </a>
             {/if}
 
