@@ -112,6 +112,8 @@ try {
     $choice = strtolower(trim((string)($_POST['product_choice'] ?? '')));
     $newPassword = (string)($_POST['new_password'] ?? '');
     $confirmPassword = (string)($_POST['new_password_confirm'] ?? '');
+    $backupUserPassword = (string) ($_POST['password'] ?? '');
+    $backupUserPasswordConfirm = (string) ($_POST['password_confirm'] ?? '');
     $username = (string)($_POST['username'] ?? '');
 
     // Round 2: If the welcome flow already collected & cached the portal
@@ -142,6 +144,8 @@ try {
     if (in_array($choice, ['ms365','m365'], true)) $choice = 'ms365';
     if (in_array($choice, ['cloud2cloud','cloud-to-cloud'], true)) $choice = 'cloud2cloud';
     if (in_array($choice, ['e3backup','e3_backup','e3-backup','cloudbackup_e3'], true)) $choice = 'e3backup';
+
+    $unifiedEnabled = E3BackupUserProductBootstrap::isUnifiedEnabled();
 
     // Existing-customer onboarding: the client already has a portal account,
     // so we skip portal-password creation. They re-enter their CURRENT portal
@@ -182,10 +186,35 @@ try {
 
     // Password and username validation
     $errors = [];
+    $unifiedBackupPasswordFlow = $unifiedEnabled
+        && !$existingClient
+        && in_array($choice, ['e3backup', 'ms365', 'cloud2cloud'], true);
+    $skipPortalPasswordWrite = false;
     if ($existingClient) {
         // Existing client confirms their current portal password (not a new one).
         if ($newPassword === '') {
             $errors['new_password'] = 'Please enter your portal password to continue.';
+        }
+    } elseif ($unifiedBackupPasswordFlow) {
+        if ($backupUserPassword === '' || $backupUserPasswordConfirm === '') {
+            $errors['password'] = 'Please enter and confirm your backup user password.';
+        } elseif ($backupUserPassword !== $backupUserPasswordConfirm) {
+            $errors['password_confirm'] = 'Password confirmation does not match.';
+        } elseif (strlen($backupUserPassword) < 8) {
+            $errors['password'] = 'Backup user password must be at least 8 characters.';
+        }
+        // Portal password was set earlier in welcome (session) or at signup — no POST required.
+        if (!$passwordFromSession && $newPassword === '') {
+            $passwordFromSession = true;
+            $skipPortalPasswordWrite = true;
+        } elseif (!$passwordFromSession) {
+            if ($newPassword === '' || $confirmPassword === '') {
+                $errors['new_password'] = 'Please enter and confirm your new password.';
+            } elseif ($newPassword !== $confirmPassword) {
+                $errors['new_password_confirm'] = 'Passwords do not match.';
+            } elseif (strlen($newPassword) < 8) {
+                $errors['new_password'] = 'Password must be at least 8 characters long.';
+            }
         }
     } else {
         if ($newPassword === '' || $confirmPassword === '') {
@@ -196,7 +225,6 @@ try {
             $errors['new_password'] = 'Password must be at least 8 characters long.';
         }
     }
-    $unifiedEnabled = E3BackupUserProductBootstrap::isUnifiedEnabled();
 
     // Username required for backup/ms365/e3backup (and cloud2cloud when unified)
     if ($choice === 'backup' || $choice === 'ms365' || $choice === 'e3backup'
@@ -271,7 +299,7 @@ try {
 
     // set_portal_password.php already did this for the welcome flow; for an
     // existing client there is nothing to change (verified, not modified).
-    $userUpdated = $passwordFromSession || $existingClient;
+    $userUpdated = $passwordFromSession || $existingClient || $skipPortalPasswordWrite;
     if ($userId && !$userUpdated) {
         try {
             $u1 = localAPI('UpdateUser', ['user_id' => $userId, 'password' => $newPassword], $adminUser);
@@ -443,6 +471,9 @@ try {
 
     // 3) Provision based on selection (username is provided for backup/ms365)
     $redirectUrl = '';
+    $provisionBackupPassword = ($unifiedBackupPasswordFlow && $backupUserPassword !== '')
+        ? $backupUserPassword
+        : $newPassword;
     try {
         switch ($choice) {
             case 'backup':
@@ -452,7 +483,7 @@ try {
                 if ($unifiedEnabled) {
                     $prov = Provisioner::provisionE3BackupUser($clientId, [
                         'username' => $username,
-                        'password' => $newPassword,
+                        'password' => $provisionBackupPassword,
                         'encryption_mode' => 'managed',
                         'intent' => 'ms365',
                         'existing' => $existingClient,
@@ -472,7 +503,7 @@ try {
                 if ($unifiedEnabled) {
                     $prov = Provisioner::provisionE3BackupUser($clientId, [
                         'username' => $username,
-                        'password' => $newPassword,
+                        'password' => $provisionBackupPassword,
                         'encryption_mode' => 'managed',
                         'intent' => 'saas',
                         'existing' => $existingClient,
@@ -493,7 +524,7 @@ try {
                     }
                     $prov = Provisioner::provisionE3BackupUser($clientId, [
                         'username' => $username,
-                        'password' => $newPassword,
+                        'password' => $provisionBackupPassword,
                         'encryption_mode' => $encryptionMode,
                         'intent' => 'local',
                         'existing' => $existingClient,

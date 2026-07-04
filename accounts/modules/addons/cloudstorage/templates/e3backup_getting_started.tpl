@@ -1,28 +1,9 @@
 {assign var=activeWorkload value=$activeWorkload|default:'local'}
 {assign var=encryptionMode value=$encryptionMode|default:'managed'}
 {assign var=gsDisplayUser value=$backupUser|default:$defaultBackupUser|default:null}
-{if $encryptionMode neq 'strict' && $gsDisplayUser}
-    {if $gsDisplayUser->encryption_mode|default:'' eq 'strict' || $gsDisplayUser.encryption_mode|default:'' eq 'strict'}
-        {assign var=encryptionMode value='strict'}
-    {/if}
-{/if}
 {assign var=onboardingLocal value=$onboardingLocal|default:$onboarding|default:[]}
 {assign var=onboardingMs365 value=$onboardingMs365|default:[]}
 {assign var=backupUserRouteId value=$backupUserRouteId|default:''}
-{if $backupUserRouteId eq '' && $defaultBackupUser}
-    {if $defaultBackupUser->public_id|default:'' neq ''}
-        {assign var=backupUserRouteId value=$defaultBackupUser->public_id}
-    {else}
-        {assign var=backupUserRouteId value=$defaultBackupUser->id}
-    {/if}
-{/if}
-{if $backupUserRouteId eq '' && $backupUser|default:null}
-    {if $backupUser.public_id|default:'' neq ''}
-        {assign var=backupUserRouteId value=$backupUser.public_id}
-    {elseif $backupUser.id|default:'' neq ''}
-        {assign var=backupUserRouteId value=$backupUser.id}
-    {/if}
-{/if}
 {assign var=gsHubBase value='index.php?m=cloudstorage&page=e3backup&view=getting_started'}
 {if $backupUserRouteId neq ''}
     {capture assign=gsHubBase}index.php?m=cloudstorage&page=e3backup&view=getting_started&user_id={$backupUserRouteId|escape:'url'}{/capture}
@@ -54,7 +35,7 @@
 {/if}
 
 {capture assign=ebE3Description}
-    Choose a workload and follow the guided steps for your backup user{if $gsDisplayUser} <strong>{$gsDisplayUser.username|default:$gsDisplayUser->username|escape}</strong>{/if}.
+    Choose a workload and follow the guided steps for your backup user{if $gsDisplayUser} <strong>{$gsDisplayUser.username|escape}</strong>{/if}.
 {/capture}
 
 {capture assign=ebE3Icon}
@@ -361,7 +342,7 @@
                 {if $gsDisplayUser}
                 <div class="eb-kv-row">
                     <span class="eb-kv-label">Backup user</span>
-                    <span class="eb-kv-value eb-type-mono">{$gsDisplayUser.username|default:$gsDisplayUser->username|escape:'html'}</span>
+                    <span class="eb-kv-value eb-type-mono">{$gsDisplayUser.username|escape:'html'}</span>
                 </div>
                 {/if}
             </div>
@@ -464,7 +445,7 @@
         {if $gsDisplayUser}
         <div class="eb-card mt-4">
             <div class="eb-type-eyebrow mb-2">Your backup user</div>
-            <p class="eb-type-body">Username: <strong>{$gsDisplayUser.username|default:$gsDisplayUser->username|escape}</strong></p>
+            <p class="eb-type-body">Username: <strong>{$gsDisplayUser.username|escape}</strong></p>
             <p class="eb-type-caption mt-2">This username is linked to your Microsoft 365 Backup service and billing.</p>
         </div>
         {/if}

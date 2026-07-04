@@ -228,7 +228,9 @@ $defaultBackupUser = [
         ? (string) $backupUser->public_id
         : '',
     'email' => (string) ($backupUser->email ?? ''),
+    'encryption_mode' => $encryptionMode,
 ];
+$backupUserForView = $defaultBackupUser;
 
 return [
     'unifiedEnabled'     => true,
@@ -240,7 +242,7 @@ return [
     'onboarding'         => $activeWorkload === 'ms365' ? $onboardingMs365 : $onboardingLocal,
     'pill'               => $pill,
     'backupUserRouteId'  => $backupUserRouteId,
-    'backupUser'         => $backupUser,
+    'backupUser'         => $backupUserForView,
     'defaultBackupUser'  => $defaultBackupUser,
     'encryptionMode'     => $encryptionMode,
     'wizardUrl'          => $wizardUrl,

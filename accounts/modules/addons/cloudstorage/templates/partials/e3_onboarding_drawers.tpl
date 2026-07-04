@@ -58,6 +58,33 @@
                     <p id="eb-err-username" class="eb-field-error hidden"></p>
                 </div>
 
+                <div id="eb-e3-new-password-row" class="hidden grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <div>
+                        <label for="eb-e3-backup-password" class="eb-field-label">Backup user password</label>
+                        <input
+                            id="eb-e3-backup-password"
+                            name="backup_password"
+                            type="password"
+                            autocomplete="new-password"
+                            class="eb-input w-full"
+                            placeholder="Minimum 8 characters"
+                        />
+                        <p id="eb-err-e3-password" class="eb-field-error hidden"></p>
+                    </div>
+                    <div>
+                        <label for="eb-e3-backup-password-confirm" class="eb-field-label">Confirm password</label>
+                        <input
+                            id="eb-e3-backup-password-confirm"
+                            name="backup_password_confirm"
+                            type="password"
+                            autocomplete="new-password"
+                            class="eb-input w-full"
+                            placeholder="Repeat password"
+                        />
+                        <p id="eb-err-e3-password-confirm" class="eb-field-error hidden"></p>
+                    </div>
+                </div>
+
                 <div id="eb-e3-encryption-row" class="hidden space-y-4">
                     <div>
                         <div class="eb-field-label">Encryption Mode</div>
@@ -76,33 +103,6 @@
                                 <input type="radio" name="eb_e3_encryption_mode" value="strict" class="eb-radio-input" onchange="ebE3EncryptionModeChanged('strict')">
                                 <span class="font-semibold text-[var(--eb-text-primary)]">Strict Customer-Managed Encryption (Zero-Knowledge)</span>
                             </label>
-                        </div>
-                    </div>
-
-                    <div id="eb-e3-new-password-row" class="hidden grid grid-cols-1 gap-4 sm:grid-cols-2">
-                        <div>
-                            <label for="eb-e3-backup-password" class="eb-field-label">Backup user password</label>
-                            <input
-                                id="eb-e3-backup-password"
-                                name="backup_password"
-                                type="password"
-                                autocomplete="new-password"
-                                class="eb-input w-full"
-                                placeholder="Minimum 8 characters"
-                            />
-                            <p id="eb-err-e3-password" class="eb-field-error hidden"></p>
-                        </div>
-                        <div>
-                            <label for="eb-e3-backup-password-confirm" class="eb-field-label">Confirm password</label>
-                            <input
-                                id="eb-e3-backup-password-confirm"
-                                name="backup_password_confirm"
-                                type="password"
-                                autocomplete="new-password"
-                                class="eb-input w-full"
-                                placeholder="Repeat password"
-                            />
-                            <p id="eb-err-e3-password-confirm" class="eb-field-error hidden"></p>
                         </div>
                     </div>
 
