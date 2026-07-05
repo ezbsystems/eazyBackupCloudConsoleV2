@@ -70,6 +70,9 @@ class Ms365StorageBootstrapService
                     ->where('user_id', (int) $owner->id)
                     ->where('is_active', 1)
                     ->first();
+                if (!$bucket) {
+                    $bucket = self::reactivateOwnerBucketRow((int) $owner->id, $bucketName);
+                }
             }
 
             if (!$bucket) {
@@ -363,6 +366,24 @@ class Ms365StorageBootstrapService
         } catch (\Throwable $e) {
             logModuleCall(self::$module, 'ensureKopiaRepoForTenant', ['client_id' => $clientId], $e->getMessage());
         }
+    }
+
+    private static function reactivateOwnerBucketRow(int $ownerId, string $bucketName): ?object
+    {
+        $row = Capsule::table('s3_buckets')
+            ->where('name', $bucketName)
+            ->where('user_id', $ownerId)
+            ->orderByDesc('id')
+            ->first();
+        if ($row === null) {
+            return null;
+        }
+        if ((int) ($row->is_active ?? 0) !== 1) {
+            Capsule::table('s3_buckets')->where('id', (int) $row->id)->update(['is_active' => 1]);
+            $row = Capsule::table('s3_buckets')->where('id', (int) $row->id)->first();
+        }
+
+        return $row;
     }
 
     private static function sanitizeBucketName(string $bucketName): string

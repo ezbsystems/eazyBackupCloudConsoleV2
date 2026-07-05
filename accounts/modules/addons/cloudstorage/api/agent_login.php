@@ -16,46 +16,8 @@ if (!defined("WHMCS")) {
     die("This file cannot be accessed directly");
 }
 
-// #region agent log
-function debugLog(string $message, array $data, string $hypothesisId): void
-{
-    $entry = [
-        'id' => uniqid('log_', true),
-        'timestamp' => (int) round(microtime(true) * 1000),
-        'location' => 'agent_login.php:debug',
-        'message' => $message,
-        'data' => $data,
-        'runId' => 'enroll',
-        'hypothesisId' => $hypothesisId,
-    ];
-    @file_put_contents('/var/www/eazybackup.ca/.cursor/debug.log', json_encode($entry) . PHP_EOL, FILE_APPEND);
-}
-// #endregion
-
 function respond(array $data, int $httpCode = 200): void
 {
-    $headersFile = '';
-    $headersLine = 0;
-    $headersSent = headers_sent($headersFile, $headersLine);
-    $obLevel = ob_get_level();
-    $obLen = ob_get_length();
-    debugLog('agent_login_output_state', [
-        'headers_sent' => $headersSent,
-        'headers_file' => $headersSent ? $headersFile : '',
-        'headers_line' => $headersSent ? $headersLine : 0,
-        'ob_level' => $obLevel,
-        'ob_len' => $obLen === false ? null : $obLen,
-        'request_uri' => $_SERVER['REQUEST_URI'] ?? '',
-        'method' => $_SERVER['REQUEST_METHOD'] ?? '',
-    ], 'H5');
-    debugLog('agent_login_response', [
-        'http_code' => $httpCode,
-        'status' => $data['status'] ?? null,
-        'mode' => $data['mode'] ?? null,
-        'message' => $data['message'] ?? null,
-        'has_agent_uuid' => !empty($data['agent_uuid']),
-        'has_agent_token' => !empty($data['agent_token']),
-    ], 'H2');
     (new JsonResponse($data, $httpCode))->send();
     exit;
 }
@@ -189,24 +151,12 @@ function ensureClientHasBackupProduct(int $clientId): void
     }
 
     if ($legacyPid <= 0 && $unifiedPid <= 0) {
-        debugLog('agent_login_e3cb_pid_missing', [
-            'client_id' => $clientId,
-            'legacy_pid' => $legacyPid,
-            'unified_pid' => $unifiedPid,
-        ], 'H3');
         logModuleCall('cloudstorage', 'agent_login_config_missing', [
             'client_id' => $clientId,
         ], 'Neither pid_e3_cloud_backup nor pid_e3_backup_user is configured; cannot validate enrollment.');
         respond(['status' => 'fail', 'message' => 'Server is missing the e3 Cloud Backup product configuration. Please contact support.'], 500);
     }
 
-    debugLog('agent_login_no_active_product', [
-        'client_id' => $clientId,
-        'legacy_pid' => $legacyPid,
-        'unified_pid' => $unifiedPid,
-        'legacy_product_found' => $legacyPid > 0 ? !is_null(DBController::getActiveProduct($clientId, $legacyPid)) : false,
-        'unified_product_found' => $unifiedPid > 0 ? !is_null(DBController::getActiveProduct($clientId, $unifiedPid)) : false,
-    ], 'H3');
     respond(['status' => 'fail', 'message' => 'No active e3 Cloud Backup product'], 403);
 }
 
@@ -422,27 +372,6 @@ $agentBuild = trim((string) ($_POST['agent_build'] ?? ''));
 $sessionToken = trim((string) ($_POST['session_token'] ?? ''));
 $backupUserIdRaw = trim((string) ($_POST['backup_user_id'] ?? ''));
 $autoCreateUser = filter_var($_POST['auto_create_user'] ?? false, FILTER_VALIDATE_BOOLEAN);
-
-debugLog('agent_login_request', [
-    'mode' => $mode,
-    'has_email' => $email !== '',
-    'has_password' => $password !== '',
-    'has_hostname' => $hostname !== '',
-    'has_device_id' => $deviceId !== '',
-    'has_install_id' => $installId !== '',
-    'has_device_name' => $deviceName !== '',
-    'has_agent_version' => $agentVersion !== '',
-    'has_agent_os' => $agentOs !== '',
-    'has_agent_arch' => $agentArch !== '',
-    'has_agent_build' => $agentBuild !== '',
-    'has_session_token' => $sessionToken !== '',
-    'has_backup_user_id' => $backupUserIdRaw !== '',
-    'auto_create_user' => $autoCreateUser,
-    'host' => $_SERVER['HTTP_HOST'] ?? '',
-    'forwarded_proto' => $_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '',
-    'https' => $_SERVER['HTTPS'] ?? '',
-    'content_type' => $_SERVER['CONTENT_TYPE'] ?? '',
-], 'H1');
 
 if (!ensureAgentLoginSessionStorage()) {
     respond(['status' => 'fail', 'message' => 'Agent login session storage is not available'], 500);

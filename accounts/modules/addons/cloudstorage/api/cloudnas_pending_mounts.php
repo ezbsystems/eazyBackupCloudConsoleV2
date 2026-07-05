@@ -90,7 +90,10 @@ try {
     $s3Endpoint = trim((string) ($settings['s3_endpoint'] ?? 'https://s3.eazybackup.ca'));
     $agentEndpoint = trim((string) ($settings['cloudbackup_agent_s3_endpoint'] ?? ''));
     if ($agentEndpoint === '') {
-        $agentEndpoint = $s3Endpoint;
+        $agentEndpoint = trim((string) ($settings['s3_endpoint'] ?? ''));
+    }
+    if ($agentEndpoint === '' || preg_match('#^https?://192\.168\.#i', $agentEndpoint)) {
+        $agentEndpoint = 'https://s3.ca-central-1.eazybackup.com';
     }
     $agentRegion = trim((string) ($settings['cloudbackup_agent_s3_region'] ?? ''));
     if ($agentRegion === '') {
@@ -103,7 +106,7 @@ try {
         respondPendingMounts(['status' => 'fail', 'message' => 'Missing admin S3 settings'], 500);
     }
 
-    $packageId = ProductConfig::$E3_PRODUCT_ID;
+    $packageId = (int) ProductConfig::cloudStoragePid();
     $product = DBController::getProduct((int) $agent->client_id, $packageId);
     if (is_null($product) || empty($product->username)) {
         respondPendingMounts(['status' => 'success', 'mounts' => []]);
@@ -141,25 +144,30 @@ try {
 
         $accessKey = '';
         $secretKey = '';
-        if (!isset($activeMountIds[(int) $mount->id])) {
-            if (Capsule::schema()->hasColumn('s3_cloudnas_mounts', 'temp_access_key')) {
-                $prevKey = $mount->temp_access_key ?? null;
-                if ($prevKey && $prevKey !== '') {
-                    try {
-                        AdminOps::removeKey($s3Endpoint, $adminAccessKey, $adminSecretKey, $prevKey, $cephUid, null);
-                    } catch (\Throwable $ignored) {
-                    }
-                }
-            }
+        $mountId = (int) $mount->id;
+        $isActive = isset($activeMountIds[$mountId]);
+        $hasStoredKey = Capsule::schema()->hasColumn('s3_cloudnas_mounts', 'temp_access_key')
+            && trim((string) ($mount->temp_access_key ?? '')) !== '';
 
+        if ($isActive) {
+            // Agent already has a live WebDAV instance; metadata only.
+        } elseif ($hasStoredKey) {
+            // Credentials were already issued (e.g. via cloudnas_mount command queue).
+            // Do not revoke or rotate — the secret is not stored server-side.
+            continue;
+        } else {
             $tmp = AdminOps::createTempKey($s3Endpoint, $adminAccessKey, $adminSecretKey, $cephUid, null);
             $accessKey = is_array($tmp) ? trim((string) ($tmp['access_key'] ?? '')) : '';
             $secretKey = is_array($tmp) ? trim((string) ($tmp['secret_key'] ?? '')) : '';
             if ($accessKey === '' || $secretKey === '') {
-                markPendingMountError((int) $mount->id, 'Unable to provision S3 credentials for mount');
+                markPendingMountError($mountId, 'Unable to provision S3 credentials for mount');
                 continue;
             }
         }
+
+        $dbStatus = strtolower(trim((string) ($mount->status ?? 'pending')));
+        // Agent prepare loop only auto-maps when status is "pending".
+        $agentStatus = $dbStatus === 'mounting' ? 'pending' : $dbStatus;
 
         $updateData = [
             'error' => null,
@@ -171,10 +179,12 @@ try {
         if ($accessKey !== '' && Capsule::schema()->hasColumn('s3_cloudnas_mounts', 'temp_key_ceph_uid')) {
             $updateData['temp_key_ceph_uid'] = $cephUid;
         }
-        Capsule::table('s3_cloudnas_mounts')->where('id', (int) $mount->id)->update($updateData);
+        if (!empty($updateData)) {
+            Capsule::table('s3_cloudnas_mounts')->where('id', $mountId)->update($updateData);
+        }
 
         $payloads[] = [
-            'mount_id' => (int) $mount->id,
+            'mount_id' => $mountId,
             'bucket' => (string) $mount->bucket_name,
             'bucket_name' => (string) $mount->bucket_name,
             'prefix' => (string) ($mount->prefix ?? ''),
@@ -182,7 +192,7 @@ try {
             'read_only' => (bool) $mount->read_only,
             'cache_mode' => (string) ($mount->cache_mode ?? 'writes'),
             'persistent' => (bool) ($mount->persistent ?? true),
-            'status' => (string) ($mount->status ?? 'pending'),
+            'status' => $agentStatus,
             'endpoint' => $agentEndpoint,
             'access_key' => $accessKey,
             'secret_key' => $secretKey,

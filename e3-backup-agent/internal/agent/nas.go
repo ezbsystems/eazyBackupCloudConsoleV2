@@ -204,7 +204,8 @@ func (r *Runner) startPendingNASMounts(ctx context.Context) error {
 		}
 
 		trayStatus := payload.Status
-		if strings.EqualFold(strings.TrimSpace(payload.Status), "pending") {
+		statusNorm := strings.ToLower(strings.TrimSpace(payload.Status))
+		if statusNorm == "pending" || statusNorm == "mounting" {
 			if payload.MountID > 0 {
 				_ = r.client.UpdateNASMountStatus(payload.MountID, "mounting", "")
 			}

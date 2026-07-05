@@ -83,8 +83,11 @@ try {
     $agentUuid = trim((string) $agent->agent_uuid);
 
     // Resolve the storage user that owns the bucket
-    $packageId = ProductConfig::$E3_PRODUCT_ID;
+    $packageId = (int) ProductConfig::cloudStoragePid();
     $product = DBController::getProduct($clientId, $packageId);
+    if (is_null($product) || empty($product->username)) {
+        $product = DBController::getActiveProduct($clientId, $packageId);
+    }
     if (is_null($product) || empty($product->username)) {
         failMount($mountId, 'No storage account');
         (new JsonResponse(['status' => 'error', 'message' => 'No storage account found'], 200))->send();
@@ -130,7 +133,10 @@ try {
     $s3Endpoint     = $settings['s3_endpoint']     ?? 'https://s3.eazybackup.ca';
     $agentEndpoint  = trim($settings['cloudbackup_agent_s3_endpoint'] ?? '');
     if ($agentEndpoint === '') {
-        $agentEndpoint = $s3Endpoint;
+        $agentEndpoint = trim((string) $s3Endpoint);
+    }
+    if ($agentEndpoint === '' || preg_match('#^https?://192\.168\.#i', $agentEndpoint)) {
+        $agentEndpoint = 'https://s3.ca-central-1.eazybackup.com';
     }
     $agentRegion    = trim($settings['cloudbackup_agent_s3_region'] ?? '') ?: 'us-east-1';
     $adminAccessKey = $settings['ceph_access_key'] ?? '';

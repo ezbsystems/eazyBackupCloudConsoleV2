@@ -11,47 +11,8 @@ if (!defined("WHMCS")) {
     die("This file cannot be accessed directly");
 }
 
-// #region agent log
-function debugLog(string $message, array $data, string $hypothesisId): void
-{
-    $entry = [
-        'id' => uniqid('log_', true),
-        'timestamp' => (int) round(microtime(true) * 1000),
-        'location' => 'agent_enroll.php:debug',
-        'message' => $message,
-        'data' => $data,
-        'runId' => 'enroll',
-        'hypothesisId' => $hypothesisId,
-    ];
-    @file_put_contents('/var/www/eazybackup.ca/.cursor/debug.log', json_encode($entry) . PHP_EOL, FILE_APPEND);
-}
-// #endregion
-
 function respond(array $data, int $httpCode = 200): void
 {
-    // #region agent log
-    $headersFile = '';
-    $headersLine = 0;
-    $headersSent = headers_sent($headersFile, $headersLine);
-    $obLevel = ob_get_level();
-    $obLen = ob_get_length();
-    debugLog('agent_enroll_output_state', [
-        'headers_sent' => $headersSent,
-        'headers_file' => $headersSent ? $headersFile : '',
-        'headers_line' => $headersSent ? $headersLine : 0,
-        'ob_level' => $obLevel,
-        'ob_len' => $obLen === false ? null : $obLen,
-        'request_uri' => $_SERVER['REQUEST_URI'] ?? '',
-        'method' => $_SERVER['REQUEST_METHOD'] ?? '',
-    ], 'H5');
-    debugLog('agent_enroll_response', [
-        'http_code' => $httpCode,
-        'status' => $data['status'] ?? null,
-        'message' => $data['message'] ?? null,
-        'has_agent_uuid' => !empty($data['agent_uuid']),
-        'has_agent_token' => !empty($data['agent_token']),
-    ], 'H2');
-    // #endregion
     (new JsonResponse($data, $httpCode))->send();
     exit;
 }
@@ -106,26 +67,6 @@ $agentVersion = trim($_POST['agent_version'] ?? '');
 $agentOs = trim($_POST['agent_os'] ?? '');
 $agentArch = trim($_POST['agent_arch'] ?? '');
 $agentBuild = trim($_POST['agent_build'] ?? '');
-
-// #region agent log
-debugLog('agent_enroll_request', [
-    'has_token' => $token !== '',
-    'token_len' => $token !== '' ? strlen($token) : 0,
-    'has_hostname' => $hostname !== '',
-    'hostname_len' => $hostname !== '' ? strlen($hostname) : 0,
-    'has_device_id' => $deviceId !== '',
-    'has_install_id' => $installId !== '',
-    'has_device_name' => $deviceName !== '',
-    'has_agent_version' => $agentVersion !== '',
-    'has_agent_os' => $agentOs !== '',
-    'has_agent_arch' => $agentArch !== '',
-    'has_agent_build' => $agentBuild !== '',
-    'host' => $_SERVER['HTTP_HOST'] ?? '',
-    'forwarded_proto' => $_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '',
-    'https' => $_SERVER['HTTPS'] ?? '',
-    'content_type' => $_SERVER['CONTENT_TYPE'] ?? '',
-], 'H1');
-// #endregion
 
 if ($token === '' || $hostname === '') {
     respond(['status' => 'fail', 'message' => 'Missing token or hostname'], 400);

@@ -585,50 +585,58 @@ class BucketController {
                 ],
             ]);
 
+            $bucketAlreadyOnRgw = false;
             try {
                 // Ensure bucket doesn't already exist (owner-scoped view on RGW)
                 try {
                     $userS3->headBucket(['Bucket' => $bucketName]);
                     if ($repairForExistingOwnerRecord) {
-                        return ['status' => 'success', 'message' => 'Bucket is already present on object storage.'];
+                        $bucketAlreadyOnRgw = true;
+                        logModuleCall($this->module, __FUNCTION__ . '_REPAIR_RGW_EXISTS', [
+                            'bucket_name' => $bucketName,
+                            'uid' => $cephUid,
+                            'db_record_present' => !is_null($bucket),
+                        ], 'Bucket already on RGW; continuing to verify and persist DB record');
+                    } else {
+                        return ['status' => 'fail', 'message' => 'Bucket name unavailable: Bucket names must be unique globally. Please choose a unique name for your bucket to proceed.'];
                     }
-
-                    return ['status' => 'fail', 'message' => 'Bucket name unavailable: Bucket names must be unique globally. Please choose a unique name for your bucket to proceed.'];
                 } catch (S3Exception $e) {
                     // expected when not found
                 }
 
-                $bucketOptions = ['Bucket' => $bucketName];
-                if ($enableObjectLocking) {
-                    $bucketOptions['ObjectLockEnabledForBucket'] = true;
-                }
-                // LocationConstraint only for AWS endpoints and non-us-east-1
-                $endpointHost = '';
-                try { $endpointHost = parse_url((string)$this->endpoint, PHP_URL_HOST) ?: ''; } catch (\Throwable $e) { $endpointHost = ''; }
-                $isAwsEndpoint = is_string($endpointHost) && stripos($endpointHost, 'amazonaws.com') !== false;
-                if ($isAwsEndpoint && !empty($this->region) && strtolower($this->region) !== 'us-east-1') {
-                    $bucketOptions['CreateBucketConfiguration'] = [
-                        'LocationConstraint' => $this->region,
-                    ];
-                }
+                if (!$bucketAlreadyOnRgw) {
+                    $bucketOptions = ['Bucket' => $bucketName];
+                    if ($enableObjectLocking) {
+                        $bucketOptions['ObjectLockEnabledForBucket'] = true;
+                    }
+                    // LocationConstraint only for AWS endpoints and non-us-east-1
+                    $endpointHost = '';
+                    try { $endpointHost = parse_url((string)$this->endpoint, PHP_URL_HOST) ?: ''; } catch (\Throwable $e) { $endpointHost = ''; }
+                    $isAwsEndpoint = is_string($endpointHost) && stripos($endpointHost, 'amazonaws.com') !== false;
+                    if ($isAwsEndpoint && !empty($this->region) && strtolower($this->region) !== 'us-east-1') {
+                        $bucketOptions['CreateBucketConfiguration'] = [
+                            'LocationConstraint' => $this->region,
+                        ];
+                    }
 
-                $userS3->createBucket($bucketOptions);
-                logModuleCall($this->module, __FUNCTION__ . '_BUCKET_CREATED', [
-                    'bucket_name' => $bucketName,
-                    'object_lock_enabled' => $enableObjectLocking,
-                    'uid' => $cephUid,
-                ], 'Bucket created via temporary user key');
+                    $userS3->createBucket($bucketOptions);
+                    logModuleCall($this->module, __FUNCTION__ . '_BUCKET_CREATED', [
+                        'bucket_name' => $bucketName,
+                        'object_lock_enabled' => $enableObjectLocking,
+                        'uid' => $cephUid,
+                    ], 'Bucket created via temporary user key');
 
-                // Wait until bucket exists
-                $maxHeadTries = 10;
-                $delaySeconds = 0.1;
-                for ($i = 0; $i < $maxHeadTries; $i++) {
-                    try {
-                        $userS3->headBucket(['Bucket' => $bucketName]);
-                        break;
-                    } catch (S3Exception $e) {
-                        usleep((int)($delaySeconds * 1_000_000));
-                        $delaySeconds = min($delaySeconds * 2, 2.0);
+                    // Wait until bucket exists
+                    $maxHeadTries = 10;
+                    $delaySeconds = 0.1;
+                    for ($i = 0; $i < $maxHeadTries; $i++) {
+                        try {
+                            $userS3->headBucket(['Bucket' => $bucketName]);
+                            break;
+                        } catch (S3Exception $e) {
+                            usleep((int)($delaySeconds * 1_000_000));
+                            $delaySeconds = min($delaySeconds * 2, 2.0);
+                        }
                     }
                 }
 
@@ -720,6 +728,23 @@ class BucketController {
                 usleep(min($attempt * 200_000, 2_000_000));
             }
             if (is_null($bucketInfo)) {
+                if ($bucketAlreadyOnRgw && $repairForExistingOwnerRecord && is_null($bucket)) {
+                    logModuleCall($this->module, __FUNCTION__ . '_REPAIR_DB_FALLBACK', [
+                        'bucket_name' => $bucketName,
+                        'user_id' => $user->id ?? null,
+                    ], 'AdminOps bucket info unavailable; persisting repair DB row after confirmed RGW presence');
+                    DBController::saveBucket([
+                        'user_id'             => (int)($user->id ?? 0),
+                        'name'                => $bucketName,
+                        's3_id'               => $bucketName,
+                        'versioning'          => $enableVersioning ? 'enabled' : 'off',
+                        'object_lock_enabled' => $enableObjectLocking ? '1' : '0',
+                        'is_active'           => 1,
+                        'created_at'          => date('Y-m-d H:i:s'),
+                    ]);
+                    return ['status' => 'success', 'message' => 'Bucket repair record persisted.'];
+                }
+
                 return [
                     'status' => 'fail',
                     'message' => 'Bucket creation could not be verified. The bucket may still be propagating through the storage cluster. Please wait a moment and refresh the page.'
@@ -739,6 +764,20 @@ class BucketController {
                     'created_at'          => $creationTime
                 ];
                 DBController::saveBucket($dbData);
+            } elseif ($repairForExistingOwnerRecord) {
+                $repairUpdates = [];
+                if ((int)($bucket->is_active ?? 0) !== 1) {
+                    $repairUpdates['is_active'] = 1;
+                }
+                if ($enableVersioning && ($bucket->versioning ?? '') !== 'enabled') {
+                    $repairUpdates['versioning'] = 'enabled';
+                }
+                if (!empty($bucketInfo['id']) && empty($bucket->s3_id)) {
+                    $repairUpdates['s3_id'] = $bucketInfo['id'];
+                }
+                if (!empty($repairUpdates)) {
+                    Capsule::table('s3_buckets')->where('id', (int) $bucket->id)->update($repairUpdates);
+                }
             }
 
             return ['status' => 'success', 'message' => 'Bucket has been created successfully.'];
