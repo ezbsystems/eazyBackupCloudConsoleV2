@@ -8,6 +8,9 @@ use Symfony\Component\HttpFoundation\JsonResponse;
 use WHMCS\Module\Addon\CloudStorage\Admin\ProductConfig;
 use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupBootstrapService;
 use WHMCS\Module\Addon\CloudStorage\Client\DBController;
+use WHMCS\Module\Addon\CloudStorage\Client\E3BackupClientState;
+
+require_once __DIR__ . '/../lib/Client/E3BackupClientState.php';
 
 if (!defined("WHMCS")) {
     die("This file cannot be accessed directly");
@@ -171,31 +174,40 @@ function resolveClientIdByEmail(string $email): ?int
 
 function ensureClientHasBackupProduct(int $clientId): void
 {
-    // IMPORTANT: ProductConfig::$E3_PRODUCT_ID is the e3 *Cloud Storage*
-    // (object storage) product, NOT e3 Cloud Backup. Agent enrollment must
-    // gate on the Comet-backed e3 Cloud Backup product whose PID is
-    // persisted as the cloudstorage addon setting `pid_e3_cloud_backup`.
-    $pid = ProductConfig::e3CloudBackupPid();
-    if ($pid <= 0) {
+    if (E3BackupClientState::clientHasLocalAgentEntitlement($clientId)) {
+        return;
+    }
+
+    $legacyPid = ProductConfig::e3CloudBackupPid();
+    $unifiedPid = 0;
+    $bootstrapPath = dirname(__DIR__) . '/lib/Provision/E3BackupUserProductBootstrap.php';
+    if (is_file($bootstrapPath)) {
+        require_once $bootstrapPath;
+        if (class_exists('\\WHMCS\\Module\\Addon\\CloudStorage\\Provision\\E3BackupUserProductBootstrap')) {
+            $unifiedPid = (int) \WHMCS\Module\Addon\CloudStorage\Provision\E3BackupUserProductBootstrap::getPid();
+        }
+    }
+
+    if ($legacyPid <= 0 && $unifiedPid <= 0) {
         debugLog('agent_login_e3cb_pid_missing', [
             'client_id' => $clientId,
+            'legacy_pid' => $legacyPid,
+            'unified_pid' => $unifiedPid,
         ], 'H3');
         logModuleCall('cloudstorage', 'agent_login_config_missing', [
             'client_id' => $clientId,
-        ], 'pid_e3_cloud_backup addon setting is unset; cannot validate enrollment.');
+        ], 'Neither pid_e3_cloud_backup nor pid_e3_backup_user is configured; cannot validate enrollment.');
         respond(['status' => 'fail', 'message' => 'Server is missing the e3 Cloud Backup product configuration. Please contact support.'], 500);
     }
 
-    $product = DBController::getActiveProduct($clientId, $pid);
-    if (is_null($product) || empty($product->username)) {
-        debugLog('agent_login_no_active_product', [
-            'client_id' => $clientId,
-            'pid' => $pid,
-            'product_found' => !is_null($product),
-            'has_username' => !is_null($product) ? !empty($product->username) : false,
-        ], 'H3');
-        respond(['status' => 'fail', 'message' => 'No active e3 Cloud Backup product'], 403);
-    }
+    debugLog('agent_login_no_active_product', [
+        'client_id' => $clientId,
+        'legacy_pid' => $legacyPid,
+        'unified_pid' => $unifiedPid,
+        'legacy_product_found' => $legacyPid > 0 ? !is_null(DBController::getActiveProduct($clientId, $legacyPid)) : false,
+        'unified_product_found' => $unifiedPid > 0 ? !is_null(DBController::getActiveProduct($clientId, $unifiedPid)) : false,
+    ], 'H3');
+    respond(['status' => 'fail', 'message' => 'No active e3 Cloud Backup product'], 403);
 }
 
 function ensureAgentLoginSessionStorage(): bool

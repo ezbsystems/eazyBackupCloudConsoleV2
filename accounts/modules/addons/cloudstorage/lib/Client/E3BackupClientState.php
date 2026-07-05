@@ -29,6 +29,60 @@ class E3BackupClientState
         return $product && !empty($product->username);
     }
 
+    /**
+     * Whether the client may enroll a local backup agent (legacy e3 Cloud Backup
+     * product or unified e3 Backup User + active backup user row).
+     */
+    public static function clientHasLocalAgentEntitlement(int $clientId): bool
+    {
+        if ($clientId <= 0) {
+            return false;
+        }
+
+        if (self::clientHasE3AgentProduct($clientId)) {
+            return true;
+        }
+
+        if (!self::isUnifiedEnabled()) {
+            return false;
+        }
+
+        $bootstrapPath = dirname(__DIR__) . '/Provision/E3BackupUserProductBootstrap.php';
+        if (is_file($bootstrapPath)) {
+            require_once $bootstrapPath;
+        }
+        if (!class_exists('\\WHMCS\\Module\\Addon\\CloudStorage\\Provision\\E3BackupUserProductBootstrap')) {
+            return false;
+        }
+
+        $unifiedPid = (int) \WHMCS\Module\Addon\CloudStorage\Provision\E3BackupUserProductBootstrap::getPid();
+        if ($unifiedPid > 0) {
+            $product = DBController::getActiveProduct($clientId, $unifiedPid);
+            if (!$product) {
+                $product = DBController::getProduct($clientId, $unifiedPid);
+            }
+            if ($product && !empty($product->username)) {
+                return true;
+            }
+        }
+
+        try {
+            if (Capsule::schema()->hasTable('s3_backup_users')) {
+                $query = Capsule::table('s3_backup_users')
+                    ->where('client_id', $clientId)
+                    ->where('status', 'active');
+                if (Capsule::schema()->hasColumn('s3_backup_users', 'backup_type')) {
+                    $query->whereIn('backup_type', ['local', 'both']);
+                }
+
+                return $query->exists();
+            }
+        } catch (\Throwable $_) {
+        }
+
+        return false;
+    }
+
     public static function clientHasMs365Product(int $clientId): bool
     {
         if ($clientId <= 0) {
@@ -430,39 +484,6 @@ class E3BackupClientState
         }
 
         $intent = self::resolveGettingStartedIntent($clientId, $localIncomplete, $ms365Incomplete);
-
-        // #region agent log
-        $trialRow = null;
-        $trialMeta = [];
-        try {
-            if (Capsule::schema()->hasTable('cloudstorage_trial_selection')) {
-                $trialRow = Capsule::table('cloudstorage_trial_selection')->where('client_id', $clientId)->first();
-                if ($trialRow && !empty($trialRow->meta)) {
-                    $decoded = json_decode((string) $trialRow->meta, true);
-                    if (is_array($decoded)) {
-                        $trialMeta = $decoded;
-                    }
-                }
-            }
-        } catch (\Throwable $_) {
-        }
-        @file_put_contents('/var/www/eazybackup.ca/.cursor/debug-991471.log', json_encode([
-            'sessionId' => '991471',
-            'timestamp' => (int) round(microtime(true) * 1000),
-            'location' => 'E3BackupClientState::resolveUnifiedLanding',
-            'message' => 'landing_intent_resolved',
-            'data' => [
-                'client_id' => $clientId,
-                'product_choice' => $trialRow ? (string) ($trialRow->product_choice ?? '') : '',
-                'provision_intent_meta' => (string) ($trialMeta['provision_intent'] ?? ''),
-                'preferred' => self::preferredWorkloadIntent($clientId),
-                'local_incomplete' => $localIncomplete,
-                'ms365_incomplete' => $ms365Incomplete,
-                'intent' => $intent,
-            ],
-            'hypothesisId' => 'H1',
-        ], JSON_UNESCAPED_SLASHES) . "\n", FILE_APPEND);
-        // #endregion
 
         return [
             'view' => 'getting_started',

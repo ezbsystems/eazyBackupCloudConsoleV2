@@ -153,41 +153,6 @@ $intent = E3BackupClientState::resolveGettingStartedIntent(
     $urlIntent
 );
 
-// #region agent log
-$trialRow = null;
-$trialMeta = [];
-try {
-    if (Capsule::schema()->hasTable('cloudstorage_trial_selection')) {
-        $trialRow = Capsule::table('cloudstorage_trial_selection')->where('client_id', $loggedInUserId)->first();
-        if ($trialRow && !empty($trialRow->meta)) {
-            $decoded = json_decode((string) $trialRow->meta, true);
-            if (is_array($decoded)) {
-                $trialMeta = $decoded;
-            }
-        }
-    }
-} catch (\Throwable $_) {
-}
-@file_put_contents('/var/www/eazybackup.ca/.cursor/debug-991471.log', json_encode([
-    'sessionId' => '991471',
-    'timestamp' => (int) round(microtime(true) * 1000),
-    'location' => 'e3backup_getting_started.php',
-    'message' => 'getting_started_intent',
-    'data' => [
-        'client_id' => $loggedInUserId,
-        'url_intent' => $urlIntent,
-        'product_choice' => $trialRow ? (string) ($trialRow->product_choice ?? '') : '',
-        'provision_intent_meta' => (string) ($trialMeta['provision_intent'] ?? ''),
-        'preferred' => E3BackupClientState::preferredWorkloadIntent($loggedInUserId),
-        'resolved_intent' => $intent,
-        'local_incomplete' => $localIncomplete,
-        'ms365_incomplete' => $ms365Incomplete,
-        'encryption_mode' => $encryptionMode,
-    ],
-    'hypothesisId' => 'H1',
-], JSON_UNESCAPED_SLASHES) . "\n", FILE_APPEND);
-// #endregion
-
 if ($encryptionMode === 'strict') {
     $intent = 'local';
 }
