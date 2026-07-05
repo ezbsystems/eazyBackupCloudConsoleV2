@@ -32,11 +32,16 @@ if ($clientId <= 0) {
     exit;
 }
 
+$redirectPath = trim((string) ($_GET['redirect_path'] ?? ''));
+if ($redirectPath === '') {
+    $redirectPath = 'index.php?m=cloudstorage&page=welcome&eb_beta=1';
+}
+
 try {
     $sso = localAPI('CreateSsoToken', [
         'client_id'         => $clientId,
         'destination'       => 'sso:custom_redirect',
-        'sso_redirect_path' => 'index.php?m=cloudstorage&page=welcome&eb_beta=1',
+        'sso_redirect_path' => ltrim($redirectPath, '/'),
     ], 'API');
     if (($sso['result'] ?? '') === 'success' && !empty($sso['redirect_url'])) {
         header('Location: ' . $sso['redirect_url']);

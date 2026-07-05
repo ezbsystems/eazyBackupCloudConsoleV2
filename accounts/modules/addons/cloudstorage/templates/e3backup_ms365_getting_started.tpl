@@ -51,9 +51,9 @@
 
     <div class="grid grid-cols-1 gap-4 lg:grid-cols-3">
 
-        <div class="eb-card">
-            <div class="flex items-start gap-3">
-                <span class="eb-icon-box eb-icon-box--sm"
+        <div class="eb-card flex h-full flex-col">
+            <div class="flex flex-1 items-start gap-3">
+                <span class="eb-icon-box eb-icon-box--sm shrink-0"
                       :class="state.steps.connect.complete ? 'eb-icon-box--success' : 'eb-icon-box--default'">
                     <template x-if="state.steps.connect.complete">
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor" class="h-4 w-4">
@@ -61,23 +61,28 @@
                         </svg>
                     </template>
                     <template x-if="!state.steps.connect.complete">
-                        <span class="eb-type-caption font-semibold">1</span>
+                        <span class="text-white font-bold text-[13px]">1</span>
                     </template>
                 </span>
-                <div class="min-w-0 flex-1">
-                    <h3 class="eb-type-h4">Connect Microsoft 365</h3>
-                    <p class="eb-type-caption mt-1">Grant admin consent so we can back up mail, OneDrive, SharePoint, Teams, and more.</p>
-                    <div class="mt-4">
-                        <a :href="wizardUrl" class="eb-btn eb-btn-secondary eb-btn-sm" x-show="!state.steps.connect.complete">Connect tenant</a>
-                        <span class="eb-badge eb-badge--success" x-show="state.steps.connect.complete">Connected</span>
+                <div class="flex min-w-0 flex-1 flex-col self-stretch">
+                    <div class="eb-type-eyebrow">Step 1</div>
+                    <div class="eb-card-title">Connect Microsoft 365</div>
+                    <p class="eb-card-subtitle">Grant admin consent so we can back up mail, OneDrive, SharePoint, Teams, and more.</p>
+                    <div class="mt-auto pt-4">
+                        <a :href="wizardUrl" class="eb-btn eb-btn-primary eb-btn-sm" x-show="!state.steps.connect.complete">Connect tenant</a>
+                        <span class="inline-flex items-center gap-1.5 text-[13px] font-medium text-white"
+                              x-show="state.steps.connect.complete">
+                            <span class="inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--eb-success-icon)]" aria-hidden="true"></span>
+                            Connected
+                        </span>
                     </div>
                 </div>
             </div>
         </div>
 
-        <div class="eb-card">
-            <div class="flex items-start gap-3">
-                <span class="eb-icon-box eb-icon-box--sm"
+        <div class="eb-card flex h-full flex-col">
+            <div class="flex flex-1 items-start gap-3">
+                <span class="eb-icon-box eb-icon-box--sm shrink-0"
                       :class="state.steps.inventory.complete ? 'eb-icon-box--success' : 'eb-icon-box--default'">
                     <template x-if="state.steps.inventory.complete">
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor" class="h-4 w-4">
@@ -85,25 +90,30 @@
                         </svg>
                     </template>
                     <template x-if="!state.steps.inventory.complete">
-                        <span class="eb-type-caption font-semibold">2</span>
+                        <span class="text-white font-bold text-[13px]">2</span>
                     </template>
                 </span>
-                <div class="min-w-0 flex-1">
-                    <h3 class="eb-type-h4">Review tenant inventory</h3>
-                    <p class="eb-type-caption mt-1">We discover users, sites, and groups so you can choose what to protect.</p>
-                    <div class="mt-4">
+                <div class="flex min-w-0 flex-1 flex-col self-stretch">
+                    <div class="eb-type-eyebrow">Step 2</div>
+                    <div class="eb-card-title">Review tenant inventory</div>
+                    <p class="eb-card-subtitle">We discover users, sites, and groups so you can choose what to protect.</p>
+                    <div class="mt-auto pt-4">
                         <a :href="wizardUrl" class="eb-btn eb-btn-secondary eb-btn-sm"
                            x-show="state.steps.connect.complete && !state.steps.inventory.complete">Refresh inventory</a>
-                        <span class="eb-badge eb-badge--success" x-show="state.steps.inventory.complete">Inventory ready</span>
+                        <span class="inline-flex items-center gap-1.5 text-[13px] font-medium text-white"
+                              x-show="state.steps.inventory.complete">
+                            <span class="inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--eb-success-icon)]" aria-hidden="true"></span>
+                            Inventory ready
+                        </span>
                         <span class="eb-type-caption" x-show="!state.steps.connect.complete">Complete step 1 first</span>
                     </div>
                 </div>
             </div>
         </div>
 
-        <div class="eb-card">
-            <div class="flex items-start gap-3">
-                <span class="eb-icon-box eb-icon-box--sm"
+        <div class="eb-card flex h-full flex-col">
+            <div class="flex flex-1 items-start gap-3">
+                <span class="eb-icon-box eb-icon-box--sm shrink-0"
                       :class="state.steps.first_backup.complete ? 'eb-icon-box--success' : 'eb-icon-box--default'">
                     <template x-if="state.steps.first_backup.complete">
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor" class="h-4 w-4">
@@ -111,16 +121,21 @@
                         </svg>
                     </template>
                     <template x-if="!state.steps.first_backup.complete">
-                        <span class="eb-type-caption font-semibold">3</span>
+                        <span class="text-white font-bold text-[13px]">3</span>
                     </template>
                 </span>
-                <div class="min-w-0 flex-1">
-                    <h3 class="eb-type-h4">Run your first backup</h3>
-                    <p class="eb-type-caption mt-1">Save a backup job and run it once to confirm everything is working.</p>
-                    <div class="mt-4">
+                <div class="flex min-w-0 flex-1 flex-col self-stretch">
+                    <div class="eb-type-eyebrow">Step 3</div>
+                    <div class="eb-card-title">Run your first backup</div>
+                    <p class="eb-card-subtitle">Save a backup job and run it once to confirm everything is working.</p>
+                    <div class="mt-auto pt-4">
                         <a :href="wizardUrl" class="eb-btn eb-btn-secondary eb-btn-sm"
                            x-show="state.can_start_backup && !state.steps.first_backup.complete">Create backup job</a>
-                        <span class="eb-badge eb-badge--success" x-show="state.steps.first_backup.complete">First backup complete</span>
+                        <span class="inline-flex items-center gap-1.5 text-[13px] font-medium text-white"
+                              x-show="state.steps.first_backup.complete">
+                            <span class="inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--eb-success-icon)]" aria-hidden="true"></span>
+                            First backup complete
+                        </span>
                         <span class="eb-type-caption" x-show="!state.can_start_backup && !state.steps.first_backup.complete">Complete steps 1 and 2 first</span>
                     </div>
                 </div>
@@ -178,9 +193,19 @@ function ebMs365GettingStarted(initialState, wizardUrl, backupUserRouteId) {
                             clearInterval(this.pollTimer);
                             this.pollTimer = null;
                         }
+                        return;
+                    }
+                    if (this.pollTimer) {
+                        clearInterval(this.pollTimer);
+                        this.pollTimer = null;
                     }
                 })
-                .catch(() => {});
+                .catch(() => {
+                    if (this.pollTimer) {
+                        clearInterval(this.pollTimer);
+                        this.pollTimer = null;
+                    }
+                });
         }
     };
 }

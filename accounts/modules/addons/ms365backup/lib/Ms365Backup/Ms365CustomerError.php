@@ -62,6 +62,13 @@ final class Ms365CustomerError
 
     public static function log(string $context, \Throwable $e): void
     {
+        // Background onboarding polls may send a stale public_id from an open tab;
+        // do not flood WHMCS activity log for this expected client-scoped miss.
+        if ($context === 'ms365_onboarding_status'
+            && $e->getMessage() === 'Backup user not found.') {
+            return;
+        }
+
         $line = 'MS365 [' . $context . ']: ' . $e->getMessage();
         if (function_exists('logActivity')) {
             logActivity($line);

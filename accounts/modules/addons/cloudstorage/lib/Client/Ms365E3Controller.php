@@ -211,9 +211,16 @@ final class Ms365E3Controller
     public static function onboardingStatus(int $clientId, string $userIdRaw = ''): array
     {
         if ($userIdRaw !== '') {
-            $user = self::resolveBackupUser($clientId, $userIdRaw);
+            try {
+                $user = self::resolveBackupUser($clientId, $userIdRaw);
 
-            return Ms365Onboarding::computeForBackupUser($clientId, $user['id']);
+                return Ms365Onboarding::computeForBackupUser($clientId, $user['id']);
+            } catch (\RuntimeException $e) {
+                if ($e->getMessage() !== 'Backup user not found.') {
+                    throw $e;
+                }
+                // Stale or invalid route id (e.g. open ms365_getting_started tab after reprovision).
+            }
         }
 
         return Ms365Onboarding::compute($clientId);

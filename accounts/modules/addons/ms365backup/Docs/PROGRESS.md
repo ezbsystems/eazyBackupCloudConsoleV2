@@ -2,13 +2,27 @@
 
 **Purpose:** Single handoff document so the next agent knows where work stopped. Update this file at the **end of every session** (or after each meaningful milestone).
 
-**Last updated:** 2026-07-03  
+**Last updated:** 2026-07-04  
 **Module version (ms365backup):** 1.52.1  
+**Cloudstorage (e3) version:** 2.2.0  
 **Worker version (ms365-backup-worker):** 0.3.47 (built; deploy via Fleet)
 
 ---
 
 ## Session log
+
+### 2026-07-04 — Unified Getting Started hub + welcome ms365 signup fixes (cloudstorage 2.2.0)
+
+**Commits:** `aaa725db` (hub + unified model UI), `af8bd618` (signup/render fixes).
+
+- **Getting Started hub (Phases A–E, flag `e3_backup_user_unified_enabled`):** Single workload-first page at `view=getting_started&user_id=&intent=` (local / ms365 / saas). Replaces separate Agent + M365 Getting Started sidebar links when unified is on. Active-workload progress pill in shell + sidebar (`ebGs*` vars). `ms365_getting_started` route redirects to unified hub for back-compat.
+- **Welcome routing:** `ms365` and `cloud2cloud` cards provision via `provisionE3BackupUser()` with `intent=ms365|saas`, forced `encryption_mode=managed`, username + **backup user password** in drawer. `e3backup` keeps encryption chooser (`intent=local`). Provisioner redirect lands on Getting Started hub (not `user_detail` Profile).
+- **Phase 4 UI (was deferred 2026-07-03):** Create-user modal (encryption always, multi-email), user detail job menu gated by `encryption_mode`, welcome encryption drawers, sidebar/shell consolidation, `cloud_wizard=1` deep link on user detail.
+- **MS365 billing alignment:** `Ms365BillingConfig` resolves `pid_e3_backup_user` + `e3bu_config_option_ids` for unified services; `Ms365BillingService` rates per `backup_user_id`; trial days fall back to `e3cb_trial_days`; invoice hook handles unified service rows.
+- **MS365 onboarding under unified model:** `Ms365Onboarding::computeForBackupUser()` drives hub M365 steps; polls `ms365_onboarding_status.php?user_id=`. MS365 bucket bootstrap is **not** eager at unified signup — happens at tenant connect / first job (same as legacy standalone path intent).
+- **Bug fixes (`af8bd618`):** (1) Backup password fields were inside hidden `eb-e3-encryption-row` for ms365 — moved to standalone row in `e3_onboarding_drawers.tpl`. (2) `setpassword_and_provision.php` now reads POST `password`/`password_confirm` for unified flows (portal password from session/signup). (3) Getting Started template fatal — pass `backupUser` as PHP array to Smarty (not Eloquent `stdClass`).
+- **Ops to test:** Activate/upgrade cloudstorage → set `e3_backup_user_unified_enabled=yes`. Reuse one QA client via admin **Reset Onboarding** (`DeprovisionHelper::resetOnboarding`) between welcome runs.
+- **Still open:** Phase F QA matrix (flag on/off); extend `resetOnboarding()` to cancel `pid_e3_backup_user` services; update `cloudstorage/docs/E3_CLOUD_BACKUP_ONBOARDING.md` for hub flow.
 
 ### 2026-07-03 — e3 Backup User unified provisioning (backend Phases 0–3, 5)
 
@@ -18,7 +32,7 @@
 - **API:** `e3backup_user_create.php` and `setpassword_and_provision.php` route to unified provisioner when flag on; always require password; persist encryption mode + notify emails.
 - **Billing:** `measureForBackupUser()`, per-user snapshots/rated lines, SaaS connector job count; invoice hooks use `e3bu_config_option_ids` for unified services; OneDrive overage from `storage_overage_per_gib_cad`; MS365 trial falls back to `e3cb_trial_days`.
 - **Migration:** `cloudstorage_backfill_backup_user_encryption_mode()` on upgrade (`local`→strict, `cloud_only`/`both`→managed).
-- **Deferred:** Phase 4 UI (modal, detail, welcome encryption UI).
+- **UI (completed 2026-07-04):** Phase 4 modal/detail/welcome + Getting Started hub — see session entry above.
 
 ### 2026-06-30 — MS365 backup report email (batch finalize)
 
@@ -34,7 +48,7 @@
 
 - **Provisioner:** `provisionMs365()` no longer calls Comet preflight or LXD; uses `autosetup=false`, creates `s3_backup_users` (`cloud_only`), trial via `Ms365BillingTrial`, bucket via `Ms365StorageBootstrapService::ensureForBackupUser()`, redirects to `view=ms365_getting_started`.
 - **Access:** `E3BackupAccess` + `ProductConfig::ms365BackupPid()`; e3backup `users`, `user_detail`, `live` gates accept MS365-only clients.
-- **UI:** `e3backup_ms365_getting_started.tpl` (3-step stepper, polls `ms365_onboarding_status.php`); sidebar MS365 Getting Started link; welcome copy updated.
+- **UI:** `e3backup_ms365_getting_started.tpl` (3-step stepper, polls `ms365_onboarding_status.php`); sidebar MS365 Getting Started link; welcome copy updated. **Superseded when `e3_backup_user_unified_enabled` is on** — unified workload-first hub at `view=getting_started&intent=ms365` (see 2026-07-04 session).
 - **Docs:** `CUSTOMER_ONBOARDING.md`, `CLOUD_STORAGE_README.md`, `cloudstorage/docs/MS365_ONBOARDING.md`.
 - **Ops:** Product PID 107 has empty `servertype` (no Comet). Set `ms365_trial_days` to desired trial length (e.g. 14) in addon settings.
 - **Files:** `Provisioner.php`, `E3BackupAccess.php`, `ProductConfig.php`, `e3backup_ms365_getting_started.php`/`.tpl`, `cloudstorage.php`, `e3backup_sidebar.tpl`, `welcome.tpl`, page guards.
@@ -807,6 +821,7 @@ Four real bugs found and fixed (each confirmed with goroutine dumps / DB evidenc
 | 3 | e3 UI + APIs (connect, backup preset, runs) | **MVP done** | Inventory refresh, onboarding stepper, 3 presets, inline run detail/logs |
 | 4 | Queue hardening, run search, retry, health API | **Baseline done** | Per-client concurrency; `ms365_health`, `ms365_retry_run` |
 | **4b** | **Unified e3 M365 UX (full client area)** | **Baseline done** | Job wizard in user detail + jobs page; per-backup-user OAuth; `MS365_E3_UI_SPEC.md` updated |
+| **4c** | **Unified e3 Backup User + Getting Started hub** | **Done (flag-gated)** | `e3_backup_user_unified_enabled`; workload-first hub; welcome intent routing; MS365 billing via `e3bu_*` settings |
 | 5 | Restore platform (Kopia granular) | **Implemented** | Restore tab + wizard; Go `graphrestore`; skip duplicates; live progress |
 | 6 | Hardening / GA | **Partial** | Kopia worker fleet + Proxmox autoscale scaffold; load test script |
 | **Kopia engine** | Go worker + Graph parallel + Kopia dedup | **Kopia-only (1.18)** | PHP execution removed; file lists/shard/delta in Go |
@@ -815,16 +830,19 @@ Four real bugs found and fixed (each confirmed with goroutine dumps / DB evidenc
 
 ## Known gaps / next work (prioritized)
 
-1. **Archive restore E2E** — Deploy PHP 1.43.0 + worker 0.3.12; run module upgrade (`upgrade_phase20_archive_restore.sql`); verify wizard archive path, `exports/` lifecycle on job bucket, presigned download via `ms365_restore_download.php`, and tenant restore regression.
-2. **Manual fleet scaling E2E** — After 1.34.0 deploy: scale up on each Proxmox node; verify cross-node clone with `proxmox_template_vmid_map` or shared storage; confirm baseline auto-update + claim gate on fresh clones.
-3. **File backup staging E2E** — Execute `Docs/KOPIA_FILE_BACKUP_E2E.md` on dev tenant (OneDrive + SP files/lists + mail attachments); confirm browse shows `content/` bytes.
-4. **Publish worker release** — Build/publish Go worker with `sharepoint_lists` + shard filtering; roll fleet to new artifact.
-5. **Tenant Seeder E2E** — Register seeder Entra app; run Light profile; verify backup picks up seeded files.
-6. ~~**Metering / billing**~~ — MS365 billing per `MS365_BILLING_AND_STORAGE_DESIGN.md` (meter/rate cron, trial, invoice hook, Usage & Billing drawer).
-7. **Admin support view** — Impersonate client tenant, re-run inventory from admin addon.
-8. ~~**Remove Comet LXD path**~~ — Done: `provisionMs365` signup path uses ms365backup product + bucket bootstrap only.
-9. **Async inventory refresh** — Large tenants may need background job instead of synchronous POST.
-10. **Calendar verify on Kopia** — `CalendarVerifier` still reads legacy PHP layout paths; port to snapshot browse or drop.
+1. **Unified model QA (flag on/off)** — Welcome cards (e3backup managed/strict, ms365, cloud2cloud) → hub with correct `intent`; strict hides M365/SaaS; sidebar single Getting Started; `ms365_getting_started` bookmark redirect; additional users from Users page land on `user_detail` not hub. Flag off must preserve legacy `provisionMs365` / dual Getting Started links.
+2. **Reset onboarding + unified product** — `DeprovisionHelper::resetOnboarding()` does not yet cancel `pid_e3_backup_user` WHMCS services; manual cleanup needed when re-testing welcome on same client.
+3. **Onboarding docs** — Update `cloudstorage/docs/E3_CLOUD_BACKUP_ONBOARDING.md` for hub flow (still describes pre-hub Agent-only Getting Started in places).
+4. **Archive restore E2E** — Deploy PHP 1.43.0 + worker 0.3.12; run module upgrade (`upgrade_phase20_archive_restore.sql`); verify wizard archive path, `exports/` lifecycle on job bucket, presigned download via `ms365_restore_download.php`, and tenant restore regression.
+5. **Manual fleet scaling E2E** — After 1.34.0 deploy: scale up on each Proxmox node; verify cross-node clone with `proxmox_template_vmid_map` or shared storage; confirm baseline auto-update + claim gate on fresh clones.
+6. **File backup staging E2E** — Execute `Docs/KOPIA_FILE_BACKUP_E2E.md` on dev tenant (OneDrive + SP files/lists + mail attachments); confirm browse shows `content/` bytes.
+7. **Publish worker release** — Build/publish Go worker with `sharepoint_lists` + shard filtering; roll fleet to new artifact.
+8. **Tenant Seeder E2E** — Register seeder Entra app; run Light profile; verify backup picks up seeded files.
+9. ~~**Metering / billing**~~ — MS365 billing per `MS365_BILLING_AND_STORAGE_DESIGN.md` (meter/rate cron, trial, invoice hook, Usage & Billing drawer). Unified e3 Backup User billing wired 2026-07-04.
+10. **Admin support view** — Impersonate client tenant, re-run inventory from admin addon.
+11. ~~**Remove Comet LXD path**~~ — Done: `provisionMs365` signup path uses ms365backup product + bucket bootstrap only (legacy when unified flag off).
+12. **Async inventory refresh** — Large tenants may need background job instead of synchronous POST.
+13. **Calendar verify on Kopia** — `CalendarVerifier` still reads legacy PHP layout paths; port to snapshot browse or drop.
 
 ---
 

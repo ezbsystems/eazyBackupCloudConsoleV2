@@ -115,7 +115,7 @@
                         <p id="eb-err-e3-managed-ack" class="eb-field-error hidden"></p>
                     </div>
 
-                    <div id="eb-e3-strict-ack-row" class="hidden eb-subpanel !mb-0 space-y-3 !p-4">
+                    <div id="eb-e3-strict-ack-row" class="hidden eb-subpanel !mb-0 flex flex-col gap-4 !p-4">
                         <h3 class="eb-type-h4 text-[var(--eb-text-primary)]">Zero-Knowledge acknowledgement</h3>
                         <div class="eb-alert eb-alert--warning !mb-0">
                             <div>Admin reset is disabled in Strict mode. If the recovery key is lost, encrypted data cannot be recovered.</div>

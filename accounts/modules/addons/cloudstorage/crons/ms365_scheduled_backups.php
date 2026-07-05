@@ -19,7 +19,7 @@ try {
     $result = Ms365JobScheduler::runDueJobs();
     $started = (int) ($result['started'] ?? 0);
     $skipped = (int) ($result['skipped'] ?? 0);
-    if (function_exists('logActivity')) {
+    if (function_exists('logActivity') && ($started > 0 || $skipped > 0)) {
         $message = 'MS365 scheduled backups: started ' . $started . ' job(s)';
         if ($skipped > 0) {
             $message .= ', skipped ' . $skipped . ' overlapping slot(s)';

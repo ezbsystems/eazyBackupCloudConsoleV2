@@ -358,7 +358,7 @@
                 window.addEventListener('eb-e3-onboarding-event', function() {
                     self.refresh();
                 });
-                var onGettingStarted = !!document.querySelector('[data-page="getting-started"]');
+                var onGettingStarted = !!document.querySelector('[data-page="getting-started"], [data-page="ms365-getting-started"]');
                 if (!onGettingStarted && self.workload !== 'saas') {
                     self._pollHandle = setInterval(function() { self.refresh(); }, 30000);
                     window.addEventListener('focus', function() { self.refresh(); });
@@ -374,7 +374,13 @@
             refresh: function() {
                 var self = this;
                 window.ebGsFetchOnboardingStatus(self.workload, self.backupUserRouteId).then(function(json) {
-                    if (!json || json.status !== 'success') return;
+                    if (!json || json.status !== 'success') {
+                        if (self._pollHandle) {
+                            clearInterval(self._pollHandle);
+                            self._pollHandle = null;
+                        }
+                        return;
+                    }
                     window.ebGsBroadcastOnboardingState(json);
                     if (json.all_complete && self._pollHandle) {
                         clearInterval(self._pollHandle);

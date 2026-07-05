@@ -718,6 +718,7 @@ function ms365backup_sidebar(array $vars): string
         . '<a href="' . $base . '&action=fleet" class="list-group-item"><i class="fa fa-server"></i> Worker Fleet</a>'
         . '<a href="' . $base . '&action=jobs" class="list-group-item"><i class="fa fa-list"></i> Jobs</a>'
         . '<a href="' . $base . '&action=trials" class="list-group-item"><i class="fa fa-clock-o"></i> Trials</a>'
+        . '<a href="' . $base . '&action=provision" class="list-group-item"><i class="fa fa-user-plus"></i> Provision Customer</a>'
         . '</div>';
 }
 
@@ -743,12 +744,34 @@ function ms365backup_output(array $vars): void
         exit;
     }
 
+    // Page-local AJAX (ms365_action) must not be wrapped in admin tab chrome.
+    if (isset($_REQUEST['ms365_action']) && in_array($action, ['provision', 'trials'], true)) {
+        while (ob_get_level() > 0) {
+            ob_end_clean();
+        }
+        if (!isset($_SESSION['adminid']) || (int) $_SESSION['adminid'] <= 0) {
+            header('Content-Type: application/json');
+            http_response_code(403);
+            echo json_encode(['status' => 'fail', 'message' => 'Admin login required.']);
+            exit;
+        }
+        if ($action === 'provision') {
+            require __DIR__ . '/pages/admin/provision.php';
+            ms365backup_admin_provision($vars);
+        } else {
+            require __DIR__ . '/pages/admin/trials.php';
+            ms365backup_admin_trials($vars);
+        }
+        exit;
+    }
+
     if (!isset($_SESSION['adminid']) || (int) $_SESSION['adminid'] <= 0) {
         echo '<div class="alert alert-danger">Admin login required.</div>';
         return;
     }
 
-    echo '<div class="tablebg">';
+    $tableBgClass = ($action === 'provision') ? 'tablebg table-bg-overflow-visible' : 'tablebg';
+    echo '<div class="' . $tableBgClass . '">';
     echo '<h2>MS365 Backup <small class="text-muted">(Dev Tool)</small></h2>';
 
     $pages = [
@@ -759,6 +782,7 @@ function ms365backup_output(array $vars): void
         'fleet' => 'Worker Fleet',
         'jobs' => 'Jobs',
         'trials' => 'Trials',
+        'provision' => 'Provision Customer',
     ];
     echo '<p style="margin-bottom:15px">';
     foreach ($pages as $key => $label) {
@@ -793,6 +817,10 @@ function ms365backup_output(array $vars): void
         case 'trials':
             require __DIR__ . '/pages/admin/trials.php';
             ms365backup_admin_trials($vars);
+            break;
+        case 'provision':
+            require __DIR__ . '/pages/admin/provision.php';
+            ms365backup_admin_provision($vars);
             break;
         case 'dashboard':
         default:

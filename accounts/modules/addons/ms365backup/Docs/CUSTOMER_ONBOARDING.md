@@ -60,6 +60,20 @@ Register the app as **multi-tenant** in Azure. Add redirect URI to the app regis
 
 Legacy `ms365backup` client area URL redirects to the e3 view. Admin addon (`addonmodules.php?module=ms365backup`) remains for engineering and support.
 
+## Admin provision (support)
+
+WHMCS admins can provision Microsoft 365 Backup for any client without the portal password:
+
+1. Open **Addons → MS365 Backup → Provision Customer** (`addonmodules.php?module=ms365backup&action=provision`).
+2. Search by client name, company, email, or client ID; select the customer.
+3. Review the preview (Cloud Storage prerequisite, existing backup users, blockers).
+4. Enter **backup username** and **backup password** (admin-chosen; share securely with the client if needed).
+5. Click **Provision MS365 Backup**.
+
+**Requirements:** `e3_backup_user_unified_enabled` must be on in Cloud Storage addon settings. Provisioning uses `Provisioner::provisionE3BackupUser()` with `intent=ms365` only (not legacy `provisionMs365()`).
+
+**After provision:** Entra tenant connect, inventory, and first backup still happen in the client area. Use **Impersonate client (Welcome)** on the success panel to continue onboarding as the customer. MS365 storage bucket is created at Entra connect, not at admin provision time.
+
 ## Storage layout
 
 Objects inside the customer bucket use prefix `{azure_tenant_id}/users/…`, `sites/…`, matching local `StorageLayout` paths under `/var/www/eazybackup/ms365/` for development.

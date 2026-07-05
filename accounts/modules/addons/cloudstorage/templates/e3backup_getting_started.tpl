@@ -215,7 +215,10 @@
                 <div class="mt-4 flex items-center gap-2">
                     <button type="button" class="eb-btn eb-btn-primary eb-btn-sm" @click="openDownload()">Download agent</button>
                     <template x-if="localState.steps.download.complete">
-                        <span class="eb-badge eb-badge--success eb-badge--dot">Done</span>
+                        <span class="inline-flex items-center gap-1.5 text-[13px] font-medium text-white">
+                            <span class="inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--eb-success-icon)]" aria-hidden="true"></span>
+                            Done
+                        </span>
                     </template>
                 </div>
             </div>
@@ -243,7 +246,8 @@
                 </div>
                 <div class="mt-4 flex items-center gap-2">
                     <template x-if="localState.steps.agent_online.complete">
-                        <span class="eb-badge eb-badge--success eb-badge--dot">
+                        <span class="inline-flex items-center gap-1.5 text-[13px] font-medium text-white">
+                            <span class="inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--eb-success-icon)]" aria-hidden="true"></span>
                             <span x-text="localState.steps.agent_online.agent_count"></span> agent<span x-show="localState.steps.agent_online.agent_count != 1">s</span> online
                         </span>
                     </template>
@@ -284,7 +288,8 @@
                     <a href="index.php?m=cloudstorage&page=e3backup&view=users" class="eb-btn eb-btn-secondary eb-btn-sm">Open Users</a>
                     {/if}
                     <template x-if="localState.steps.first_job.complete">
-                        <span class="eb-badge eb-badge--success eb-badge--dot">
+                        <span class="inline-flex items-center gap-1.5 text-[13px] font-medium text-white">
+                            <span class="inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--eb-success-icon)]" aria-hidden="true"></span>
                             <span x-text="localState.steps.first_job.job_count"></span> job<span x-show="localState.steps.first_job.job_count != 1">s</span> configured
                         </span>
                     </template>
@@ -314,7 +319,10 @@
                 </div>
                 <div class="mt-4 flex items-center gap-2">
                     <template x-if="localState.steps.first_run.complete">
-                        <span class="eb-badge eb-badge--success eb-badge--dot">First backup complete</span>
+                        <span class="inline-flex items-center gap-1.5 text-[13px] font-medium text-white">
+                            <span class="inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--eb-success-icon)]" aria-hidden="true"></span>
+                            First backup complete
+                        </span>
                     </template>
                     <template x-if="!localState.steps.first_run.complete">
                         <span class="eb-badge eb-badge--neutral eb-badge--dot">Awaiting first successful run</span>
@@ -365,9 +373,9 @@
     {* -------------------- Microsoft 365: 3-step panel -------------------- *}
     <div x-show="activeWorkload === 'ms365'" x-cloak>
         <div class="grid grid-cols-1 gap-4 lg:grid-cols-3">
-            <div class="eb-card">
-                <div class="flex items-start gap-3">
-                    <span class="eb-icon-box eb-icon-box--sm"
+            <div class="eb-card flex h-full flex-col">
+                <div class="flex flex-1 items-start gap-3">
+                    <span class="eb-icon-box eb-icon-box--sm shrink-0"
                           :class="ms365State.steps.connect.complete ? 'eb-icon-box--success' : 'eb-icon-box--default'">
                         <template x-if="ms365State.steps.connect.complete">
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor" class="h-4 w-4">
@@ -375,23 +383,28 @@
                             </svg>
                         </template>
                         <template x-if="!ms365State.steps.connect.complete">
-                            <span class="eb-type-caption font-semibold">1</span>
+                            <span class="text-white font-bold text-[13px]">1</span>
                         </template>
                     </span>
-                    <div class="min-w-0 flex-1">
-                        <h3 class="eb-type-h4">Connect Microsoft 365</h3>
-                        <p class="eb-type-caption mt-1">Grant admin consent so we can back up mail, OneDrive, SharePoint, Teams, and more.</p>
-                        <div class="mt-4">
-                            <a :href="wizardUrl" class="eb-btn eb-btn-secondary eb-btn-sm" x-show="!ms365State.steps.connect.complete">Connect tenant</a>
-                            <span class="eb-badge eb-badge--success" x-show="ms365State.steps.connect.complete">Connected</span>
+                    <div class="flex min-w-0 flex-1 flex-col self-stretch">
+                        <div class="eb-type-eyebrow">Step 1</div>
+                        <div class="eb-card-title">Connect Microsoft 365</div>
+                        <p class="eb-card-subtitle">Grant admin consent so we can back up mail, OneDrive, SharePoint, Teams, and more.</p>
+                        <div class="mt-auto pt-4">
+                            <a :href="wizardUrl" class="eb-btn eb-btn-primary eb-btn-sm" x-show="!ms365State.steps.connect.complete">Connect tenant</a>
+                            <span class="inline-flex items-center gap-1.5 text-[13px] font-medium text-white"
+                                  x-show="ms365State.steps.connect.complete">
+                                <span class="inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--eb-success-icon)]" aria-hidden="true"></span>
+                                Connected
+                            </span>
                         </div>
                     </div>
                 </div>
             </div>
 
-            <div class="eb-card">
-                <div class="flex items-start gap-3">
-                    <span class="eb-icon-box eb-icon-box--sm"
+            <div class="eb-card flex h-full flex-col">
+                <div class="flex flex-1 items-start gap-3">
+                    <span class="eb-icon-box eb-icon-box--sm shrink-0"
                           :class="ms365State.steps.inventory.complete ? 'eb-icon-box--success' : 'eb-icon-box--default'">
                         <template x-if="ms365State.steps.inventory.complete">
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor" class="h-4 w-4">
@@ -399,25 +412,30 @@
                             </svg>
                         </template>
                         <template x-if="!ms365State.steps.inventory.complete">
-                            <span class="eb-type-caption font-semibold">2</span>
+                            <span class="text-white font-bold text-[13px]">2</span>
                         </template>
                     </span>
-                    <div class="min-w-0 flex-1">
-                        <h3 class="eb-type-h4">Review tenant inventory</h3>
-                        <p class="eb-type-caption mt-1">We discover users, sites, and groups so you can choose what to protect.</p>
-                        <div class="mt-4">
+                    <div class="flex min-w-0 flex-1 flex-col self-stretch">
+                        <div class="eb-type-eyebrow">Step 2</div>
+                        <div class="eb-card-title">Review tenant inventory</div>
+                        <p class="eb-card-subtitle">We discover users, sites, and groups so you can choose what to protect.</p>
+                        <div class="mt-auto pt-4">
                             <a :href="wizardUrl" class="eb-btn eb-btn-secondary eb-btn-sm"
                                x-show="ms365State.steps.connect.complete && !ms365State.steps.inventory.complete">Refresh inventory</a>
-                            <span class="eb-badge eb-badge--success" x-show="ms365State.steps.inventory.complete">Inventory ready</span>
+                            <span class="inline-flex items-center gap-1.5 text-[13px] font-medium text-white"
+                                  x-show="ms365State.steps.inventory.complete">
+                                <span class="inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--eb-success-icon)]" aria-hidden="true"></span>
+                                Inventory ready
+                            </span>
                             <span class="eb-type-caption" x-show="!ms365State.steps.connect.complete">Complete step 1 first</span>
                         </div>
                     </div>
                 </div>
             </div>
 
-            <div class="eb-card">
-                <div class="flex items-start gap-3">
-                    <span class="eb-icon-box eb-icon-box--sm"
+            <div class="eb-card flex h-full flex-col">
+                <div class="flex flex-1 items-start gap-3">
+                    <span class="eb-icon-box eb-icon-box--sm shrink-0"
                           :class="ms365State.steps.first_backup.complete ? 'eb-icon-box--success' : 'eb-icon-box--default'">
                         <template x-if="ms365State.steps.first_backup.complete">
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor" class="h-4 w-4">
@@ -425,16 +443,21 @@
                             </svg>
                         </template>
                         <template x-if="!ms365State.steps.first_backup.complete">
-                            <span class="eb-type-caption font-semibold">3</span>
+                            <span class="text-white font-bold text-[13px]">3</span>
                         </template>
                     </span>
-                    <div class="min-w-0 flex-1">
-                        <h3 class="eb-type-h4">Run your first backup</h3>
-                        <p class="eb-type-caption mt-1">Save a backup job and run it once to confirm everything is working.</p>
-                        <div class="mt-4">
+                    <div class="flex min-w-0 flex-1 flex-col self-stretch">
+                        <div class="eb-type-eyebrow">Step 3</div>
+                        <div class="eb-card-title">Run your first backup</div>
+                        <p class="eb-card-subtitle">Save a backup job and run it once to confirm everything is working.</p>
+                        <div class="mt-auto pt-4">
                             <a :href="wizardUrl" class="eb-btn eb-btn-secondary eb-btn-sm"
                                x-show="ms365State.can_start_backup && !ms365State.steps.first_backup.complete">Create backup job</a>
-                            <span class="eb-badge eb-badge--success" x-show="ms365State.steps.first_backup.complete">First backup complete</span>
+                            <span class="inline-flex items-center gap-1.5 text-[13px] font-medium text-white"
+                                  x-show="ms365State.steps.first_backup.complete">
+                                <span class="inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--eb-success-icon)]" aria-hidden="true"></span>
+                                First backup complete
+                            </span>
                             <span class="eb-type-caption" x-show="!ms365State.can_start_backup && !ms365State.steps.first_backup.complete">Complete steps 1 and 2 first</span>
                         </div>
                     </div>
@@ -471,16 +494,18 @@
             </div>
         </div>
     </div>
-</div>
 
-{if not $ebHasMs365Product|default:false}
-{include file="modules/addons/cloudstorage/templates/partials/e3backup_cross_sell_card.tpl"
-    ebCrossSellTitle="Also protect Microsoft 365"
-    ebCrossSellBody="Back up Exchange, OneDrive, SharePoint, and Teams without installing a local agent."
-    ebCrossSellCtaLabel="Add Microsoft 365 Backup →"
-    ebCrossSellCtaHref="index.php?m=cloudstorage&page=e3backup&view=enable_ms365_backup"
-}
-{/if}
+    {if not $ebHasMs365Product|default:false}
+    <div x-show="activeWorkload !== 'ms365'" x-cloak>
+        {include file="modules/addons/cloudstorage/templates/partials/e3backup_cross_sell_card.tpl"
+            ebCrossSellTitle="Also protect Microsoft 365"
+            ebCrossSellBody="Back up Exchange, OneDrive, SharePoint, and Teams without installing a local agent."
+            ebCrossSellCtaLabel="Add Microsoft 365 Backup →"
+            ebCrossSellCtaHref="index.php?m=cloudstorage&page=e3backup&view=enable_ms365_backup"
+        }
+    </div>
+    {/if}
+</div>
 
 {literal}
 <script>
@@ -631,9 +656,19 @@ function ebGettingStartedHub(config) {
                             this.ms365State = data.onboarding;
                             this.syncPillFromActiveWorkload();
                             this.broadcastPill();
+                            return;
+                        }
+                        if (this.pollTimer) {
+                            clearInterval(this.pollTimer);
+                            this.pollTimer = null;
                         }
                     })
-                    .catch(() => {});
+                    .catch(() => {
+                        if (this.pollTimer) {
+                            clearInterval(this.pollTimer);
+                            this.pollTimer = null;
+                        }
+                    });
                 return;
             }
             if (this.activeWorkload !== 'local') return;
