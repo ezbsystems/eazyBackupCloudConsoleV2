@@ -49,3 +49,9 @@ CREATE TABLE IF NOT EXISTS `ms365_backup_log_lines` (
   KEY `idx_ms365_logs_run` (`run_id`, `id`),
   KEY `idx_ms365_logs_created` (`created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `ms365backup_schema_migrations` (
+  `migration` VARCHAR(191) NOT NULL,
+  `applied_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`migration`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

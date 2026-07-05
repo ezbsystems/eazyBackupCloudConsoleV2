@@ -1269,29 +1269,6 @@
             rebuildTrees() {
                 if (!window.ms365JobSelection) return;
                 this.treesBySection = window.ms365JobSelection.buildAllTrees(this.inventory);
-                // #region agent log
-                const resources = (this.inventory && this.inventory.resources) || [];
-                const spSites = resources.filter((r) => r && r.resource_type === 'sharepoint_site');
-                const groupBacked = spSites.filter((r) => r.workload_group_connected === true || r.group_connected === true);
-                const sharepointParents = (this.treesBySection.sharepoint || []).filter((n) => n.depth === 0);
-                fetch('http://127.0.0.1:7675/ingest/9183d0cd-775c-444c-9a41-6e97e9e7d4d0', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '7861d7' },
-                    body: JSON.stringify({
-                        sessionId: '7861d7',
-                        location: 'ms365_job_wizard.js:rebuildTrees',
-                        message: 'wizard section tree counts',
-                        data: {
-                            sharepoint_site_total: spSites.length,
-                            visible_sharepoint_site_count: sharepointParents.length,
-                            group_backed_site_count: groupBacked.length,
-                            teams_section_parents: (this.treesBySection.teams || []).filter((n) => n.depth === 0).length,
-                        },
-                        timestamp: Date.now(),
-                        hypothesisId: 'H2',
-                    }),
-                }).catch(() => {});
-                // #endregion
             },
 
             applySavedSelection() {

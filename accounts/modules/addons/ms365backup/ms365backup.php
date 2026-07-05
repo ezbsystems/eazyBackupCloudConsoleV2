@@ -28,7 +28,7 @@ function ms365backup_config(): array
     return [
         'name' => 'MS365 Backup',
         'description' => 'Admin-only Microsoft 365 backup development tool (mail, calendar, contacts, To Do, OneDrive).',
-        'version' => '1.52.1',
+        'version' => '1.52.2',
         'author' => 'eazyBackup',
         'language' => 'english',
         'fields' => [
@@ -459,8 +459,73 @@ function ms365backup_apply_schema(): void
 }
 
 /**
+ * Ensure migration tracking table exists. On first create for an existing install,
+ * backfill all current upgrade scripts as applied so we do not re-run ALTERs.
+ */
+function ms365backup_ensure_migrations_table(): void
+{
+    if (Capsule::schema()->hasTable('ms365backup_schema_migrations')) {
+        return;
+    }
+
+    Capsule::schema()->create('ms365backup_schema_migrations', function ($table) {
+        $table->string('migration', 191)->primary();
+        $table->timestamp('applied_at')->useCurrent();
+    });
+
+    if (!Capsule::schema()->hasTable('ms365_backup_runs')) {
+        return;
+    }
+
+    $sqlDir = __DIR__ . '/sql';
+    if (!is_dir($sqlDir)) {
+        return;
+    }
+    $files = glob($sqlDir . '/upgrade_*.sql') ?: [];
+    sort($files, SORT_STRING);
+    $now = date('Y-m-d H:i:s');
+    foreach ($files as $file) {
+        Capsule::table('ms365backup_schema_migrations')->insertOrIgnore([
+            'migration' => basename($file),
+            'applied_at' => $now,
+        ]);
+    }
+}
+
+function ms365backup_migration_applied(string $migration): bool
+{
+    if (!Capsule::schema()->hasTable('ms365backup_schema_migrations')) {
+        return false;
+    }
+
+    return Capsule::table('ms365backup_schema_migrations')
+        ->where('migration', $migration)
+        ->exists();
+}
+
+function ms365backup_mark_migration_applied(string $migration): void
+{
+    ms365backup_ensure_migrations_table();
+    Capsule::table('ms365backup_schema_migrations')->insertOrIgnore([
+        'migration' => $migration,
+        'applied_at' => date('Y-m-d H:i:s'),
+    ]);
+}
+
+function ms365backup_migration_error_is_benign(\Throwable $e): bool
+{
+    $msg = $e->getMessage();
+
+    return str_contains($msg, 'Duplicate column')
+        || str_contains($msg, 'Duplicate key name')
+        || str_contains($msg, 'already exists')
+        || preg_match('/\b1060\b/', $msg) === 1
+        || preg_match('/\b1061\b/', $msg) === 1;
+}
+
+/**
  * Incremental changes for existing databases (enum changes, new columns, etc.).
- * Runs every file in sql/ matching upgrade_*.sql in sorted order.
+ * Each file in sql/upgrade_*.sql runs once and is recorded in ms365backup_schema_migrations.
  */
 function ms365backup_apply_migrations(): void
 {
@@ -468,14 +533,26 @@ function ms365backup_apply_migrations(): void
     if (!is_dir($sqlDir)) {
         return;
     }
+
+    ms365backup_ensure_migrations_table();
+
     $files = glob($sqlDir . '/upgrade_*.sql') ?: [];
     sort($files, SORT_STRING);
     foreach ($files as $file) {
+        $name = basename($file);
+        if (ms365backup_migration_applied($name)) {
+            continue;
+        }
+
         try {
             ms365backup_run_sql_file($file);
+            ms365backup_mark_migration_applied($name);
         } catch (\Throwable $e) {
-            // Idempotent migrations (e.g. enum already includes a value) may fail on re-run.
-            logActivity('MS365 Backup migration skipped or already applied: ' . basename($file) . ' — ' . $e->getMessage());
+            if (ms365backup_migration_error_is_benign($e)) {
+                ms365backup_mark_migration_applied($name);
+                continue;
+            }
+            logActivity('MS365 Backup migration failed: ' . $name . ' — ' . $e->getMessage());
         }
     }
 }
