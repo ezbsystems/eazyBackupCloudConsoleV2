@@ -10,7 +10,7 @@ use WHMCS\Module\Addon\CloudStorage\Admin\ProductConfig;
 use WHMCS\Module\Addon\CloudStorage\Client\DBController;
 
 // Check if user is logged in
-$packageId = ProductConfig::$E3_PRODUCT_ID;
+$packageId = ProductConfig::cloudStoragePid();
 $ca = new ClientArea();
 if (!$ca->isLoggedIn()) {
     header('Location: clientarea.php');

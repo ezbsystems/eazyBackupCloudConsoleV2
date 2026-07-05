@@ -16,12 +16,34 @@ if (!defined("WHMCS")) {
     die("This file cannot be accessed directly");
 }
 
+// #region agent log
+function cloudnasCreateMountDebugLog(string $message, array $data, string $hypothesisId): void
+{
+    @file_put_contents('/var/www/eazybackup.ca/.cursor/debug-991471.log', json_encode([
+        'sessionId' => '991471',
+        'timestamp' => (int) round(microtime(true) * 1000),
+        'location' => 'cloudnas_create_mount.php',
+        'message' => $message,
+        'data' => $data,
+        'hypothesisId' => $hypothesisId,
+    ], JSON_UNESCAPED_SLASHES) . "\n", FILE_APPEND);
+}
+// #endregion
+
+$cloudstorageModule = dirname(__DIR__) . '/cloudstorage.php';
+if (is_file($cloudstorageModule)) {
+    require_once $cloudstorageModule;
+    if (function_exists('cloudstorage_ensure_cloudnas_schema')) {
+        cloudstorage_ensure_cloudnas_schema('api');
+    }
+}
+
 $ca = new ClientArea();
 if (!$ca->isLoggedIn()) {
     (new JsonResponse(['status' => 'fail', 'message' => 'Session timeout'], 200))->send();
     exit;
 }
-$clientId = $ca->getUserID();
+$clientId = (int) $ca->getUserID();
 
 // Get JSON input
 $input = json_decode(file_get_contents('php://input'), true);
@@ -52,6 +74,22 @@ if ($agentUuid === '') {
 }
 
 try {
+    $hasMountsTable = Capsule::schema()->hasTable('s3_cloudnas_mounts');
+    // #region agent log
+    cloudnasCreateMountDebugLog('create_mount_start', [
+        'client_id' => $clientId,
+        'agent_uuid' => $agentUuid,
+        'bucket' => $bucket,
+        'drive_letter' => $driveLetter,
+        'has_mounts_table' => $hasMountsTable,
+    ], 'H1');
+    // #endregion
+
+    if (!$hasMountsTable) {
+        (new JsonResponse(['status' => 'error', 'message' => 'Cloud NAS is not configured on this server. Please contact support.'], 200))->send();
+        exit;
+    }
+
     // Verify agent belongs to client
     $agent = Capsule::table('s3_cloudbackup_agents')
         ->where('agent_uuid', $agentUuid)
@@ -76,22 +114,25 @@ try {
     }
 
     // Get user's S3 user and tenant IDs to verify bucket ownership
-    $packageId = ProductConfig::$E3_PRODUCT_ID;
+    $packageId = (int) ProductConfig::cloudStoragePid();
     $product = DBController::getProduct($clientId, $packageId);
+    if (is_null($product) || empty($product->username)) {
+        $product = DBController::getActiveProduct($clientId, $packageId);
+    }
     if (is_null($product) || empty($product->username)) {
         (new JsonResponse(['status' => 'error', 'message' => 'No storage account found'], 200))->send();
         exit;
     }
-    
+
     $user = DBController::getUser($product->username);
     if (is_null($user)) {
         (new JsonResponse(['status' => 'error', 'message' => 'User not found'], 200))->send();
         exit;
     }
-    
+
     // Get user and tenant IDs
     $tenants = DBController::getResult('s3_users', [
-        ['parent_id', '=', $user->id]
+        ['parent_id', '=', $user->id],
     ], ['id'])->pluck('id')->toArray();
     $userIds = array_merge([$user->id], $tenants);
 
@@ -101,6 +142,16 @@ try {
         ->whereIn('user_id', $userIds)
         ->where('is_active', '1')
         ->exists();
+
+    // #region agent log
+    cloudnasCreateMountDebugLog('bucket_lookup', [
+        'client_id' => $clientId,
+        'package_id' => $packageId,
+        'storage_username' => (string) ($product->username ?? ''),
+        'user_ids' => $userIds,
+        'bucket_exists' => $bucketExists,
+    ], 'H2');
+    // #endregion
 
     if (!$bucketExists) {
         (new JsonResponse(['status' => 'error', 'message' => 'Bucket not found or access denied'], 200))->send();
@@ -126,8 +177,16 @@ try {
         'cache_mode' => $cacheMode,
         'status' => 'unmounted',
         'created_at' => date('Y-m-d H:i:s'),
-        'updated_at' => date('Y-m-d H:i:s')
+        'updated_at' => date('Y-m-d H:i:s'),
     ]);
+
+    // #region agent log
+    cloudnasCreateMountDebugLog('create_mount_success', [
+        'client_id' => $clientId,
+        'mount_id' => $mountId,
+        'agent_id' => (int) $agent->id,
+    ], 'H3');
+    // #endregion
 
     (new JsonResponse([
         'status' => 'success',
@@ -135,10 +194,23 @@ try {
         'mount_id' => $mountId,
         'agent_uuid' => $agentUuid,
     ], 200))->send();
-
-} catch (Exception $e) {
-    error_log("cloudnas_create_mount error: " . $e->getMessage());
+} catch (\Throwable $e) {
+    // #region agent log
+    cloudnasCreateMountDebugLog('create_mount_exception', [
+        'client_id' => $clientId,
+        'error' => $e->getMessage(),
+        'class' => get_class($e),
+    ], 'H1');
+    // #endregion
+    error_log('cloudnas_create_mount error: ' . $e->getMessage());
+    try {
+        logModuleCall('cloudstorage', 'cloudnas_create_mount', [
+            'client_id' => $clientId,
+            'agent_uuid' => $agentUuid ?? '',
+            'bucket' => $bucket ?? '',
+        ], $e->getMessage(), [], []);
+    } catch (\Throwable $_) {
+    }
     (new JsonResponse(['status' => 'error', 'message' => 'Failed to create mount configuration'], 200))->send();
 }
 exit;
-

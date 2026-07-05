@@ -3472,6 +3472,7 @@ function cloudstorage_activate() {
 
         cloudstorage_ensure_hyperv_schema('activate');
         cloudstorage_ensure_agent_build_schema('activate');
+        cloudstorage_ensure_cloudnas_schema('activate');
         cloudstorage_ensure_agent_update_schema('activate');
         cloudstorage_ensure_ms365_vault_lifecycle_schema('activate');
         cloudstorage_ensure_e3cb_billing_schema('activate');
@@ -5649,6 +5650,7 @@ function cloudstorage_upgrade($vars) {
 
         cloudstorage_ensure_hyperv_schema('upgrade');
         cloudstorage_ensure_agent_build_schema('upgrade');
+        cloudstorage_ensure_cloudnas_schema('upgrade');
         cloudstorage_ensure_agent_update_schema('upgrade');
         cloudstorage_ensure_ms365_vault_lifecycle_schema('upgrade');
         cloudstorage_ensure_e3cb_billing_schema('upgrade');
@@ -5993,24 +5995,7 @@ function cloudstorage_clientarea($vars) {
                 if ($obClientId > 0 && class_exists('\\WHMCS\\Module\\Addon\\CloudStorage\\Client\\E3BackupAccess')) {
                     $ebE3OnboardingShared['ebMs365Only'] = \WHMCS\Module\Addon\CloudStorage\Client\E3BackupAccess::clientIsMs365Only($obClientId);
                     if (class_exists('\\WHMCS\\Module\\Addon\\CloudStorage\\Client\\E3BackupClientState')) {
-                        $legacyAgent = \WHMCS\Module\Addon\CloudStorage\Client\E3BackupClientState::clientHasE3AgentProduct($obClientId);
-                        $localEntitled = \WHMCS\Module\Addon\CloudStorage\Client\E3BackupClientState::clientHasLocalAgentEntitlement($obClientId);
-                        $ebE3OnboardingShared['ebHasE3AgentProduct'] = $localEntitled;
-                        // #region agent log
-                        @file_put_contents('/var/www/eazybackup.ca/.cursor/debug-991471.log', json_encode([
-                            'sessionId' => '991471',
-                            'timestamp' => (int) round(microtime(true) * 1000),
-                            'location' => 'cloudstorage.php:ebHasE3AgentProduct',
-                            'message' => 'sidebar_agent_product_flags',
-                            'data' => [
-                                'client_id' => $obClientId,
-                                'legacy_agent_product' => $legacyAgent,
-                                'local_agent_entitled' => $localEntitled,
-                                'eb_has_agents' => $ebE3OnboardingShared['ebE3HasAgents'],
-                            ],
-                            'hypothesisId' => 'H1',
-                        ], JSON_UNESCAPED_SLASHES) . "\n", FILE_APPEND);
-                        // #endregion
+                        $ebE3OnboardingShared['ebHasE3AgentProduct'] = \WHMCS\Module\Addon\CloudStorage\Client\E3BackupClientState::clientHasLocalAgentEntitlement($obClientId);
                         $ebE3OnboardingShared['ebHasMs365Product'] = \WHMCS\Module\Addon\CloudStorage\Client\E3BackupClientState::clientHasMs365Product($obClientId);
                         $ebE3OnboardingShared['ebHasCloudStorageProduct'] = \WHMCS\Module\Addon\CloudStorage\Client\E3BackupClientState::clientHasCloudStorageProduct($obClientId);
                     }
@@ -6696,6 +6681,65 @@ function cloudstorage_ensure_agent_build_schema(string $context = 'activate'): v
         try {
             logModuleCall('cloudstorage', 'ensure_agent_build_schema', [], $e->getMessage(), [], []);
         } catch (\Throwable $_) {}
+    }
+}
+
+/**
+ * Cloud NAS mount configuration tables (idempotent).
+ */
+function cloudstorage_ensure_cloudnas_schema(string $context = 'activate'): void
+{
+    try {
+        $schema = \WHMCS\Database\Capsule::schema();
+
+        if (!$schema->hasTable('s3_cloudnas_mounts')) {
+            $schema->create('s3_cloudnas_mounts', function ($table) {
+                $table->increments('id');
+                $table->unsignedInteger('client_id');
+                $table->unsignedInteger('agent_id');
+                $table->string('bucket_name', 255);
+                $table->string('prefix', 1024)->default('');
+                $table->char('drive_letter', 1);
+                $table->boolean('read_only')->default(false);
+                $table->boolean('persistent')->default(true);
+                $table->string('cache_mode', 20)->default('full');
+                $table->string('status', 20)->default('unmounted');
+                $table->text('error')->nullable();
+                $table->string('temp_access_key', 128)->nullable();
+                $table->string('temp_key_ceph_uid', 255)->nullable();
+                $table->dateTime('last_mounted_at')->nullable();
+                $table->dateTime('created_at');
+                $table->dateTime('updated_at');
+                $table->index('client_id', 'idx_client');
+                $table->index('agent_id', 'idx_agent');
+                $table->index(['client_id', 'agent_id', 'drive_letter'], 'idx_client_agent_letter');
+                $table->index('status', 'idx_status');
+            });
+            logModuleCall('cloudstorage', $context, [], 'Created s3_cloudnas_mounts table', [], []);
+        }
+
+        if ($schema->hasTable('s3_cloudnas_mounts')) {
+            cloudstorage_ensure_table_column('s3_cloudnas_mounts', 'temp_access_key', function ($table) {
+                $table->string('temp_access_key', 128)->nullable();
+            }, $context);
+            cloudstorage_ensure_table_column('s3_cloudnas_mounts', 'temp_key_ceph_uid', function ($table) {
+                $table->string('temp_key_ceph_uid', 255)->nullable();
+            }, $context);
+        }
+
+        if (!$schema->hasTable('s3_cloudnas_settings')) {
+            $schema->create('s3_cloudnas_settings', function ($table) {
+                $table->increments('id');
+                $table->unsignedInteger('client_id');
+                $table->text('settings_json')->nullable();
+                $table->dateTime('created_at');
+                $table->dateTime('updated_at');
+                $table->unique('client_id', 'idx_client');
+            });
+            logModuleCall('cloudstorage', $context, [], 'Created s3_cloudnas_settings table', [], []);
+        }
+    } catch (\Throwable $e) {
+        logModuleCall('cloudstorage', "{$context}_cloudnas_schema", [], $e->getMessage(), [], []);
     }
 }
 
