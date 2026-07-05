@@ -469,6 +469,12 @@ try {
         }
     }
 
+    // Persist product_choice for unified / backup workloads (storage handled above).
+    if (in_array($choice, ['e3backup', 'ms365', 'cloud2cloud', 'backup'], true)) {
+        require_once dirname(__DIR__) . '/lib/Client/E3BackupClientState.php';
+        \WHMCS\Module\Addon\CloudStorage\Client\E3BackupClientState::persistProductChoice($clientId, $choice);
+    }
+
     // 3) Provision based on selection (username is provided for backup/ms365)
     $redirectUrl = '';
     $provisionBackupPassword = ($unifiedBackupPasswordFlow && $backupUserPassword !== '')

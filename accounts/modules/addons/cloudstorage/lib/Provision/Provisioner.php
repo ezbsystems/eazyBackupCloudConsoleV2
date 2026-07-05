@@ -1531,6 +1531,18 @@ class Provisioner
             ? $publicId
             : (string) $backupUserId;
 
+        $clientStatePath = dirname(__DIR__) . '/Client/E3BackupClientState.php';
+        if (is_file($clientStatePath)) {
+            require_once $clientStatePath;
+            if (class_exists('\\WHMCS\\Module\\Addon\\CloudStorage\\Client\\E3BackupClientState')) {
+                \WHMCS\Module\Addon\CloudStorage\Client\E3BackupClientState::persistProductChoice(
+                    $clientId,
+                    \WHMCS\Module\Addon\CloudStorage\Client\E3BackupClientState::productChoiceFromProvisionIntent($intent),
+                    ['provision_intent' => $intent, 'provisioned_at' => date('c')]
+                );
+            }
+        }
+
         return [
             'user_id' => $backupUserId,
             'public_id' => Capsule::schema()->hasColumn('s3_backup_users', 'public_id') ? $publicId : null,

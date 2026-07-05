@@ -187,6 +187,155 @@ class E3BackupClientState
         return 'index.php?m=cloudstorage&page=e3backup&view=' . rawurlencode($view);
     }
 
+    /**
+     * Map welcome/signup product_choice to unified Getting Started workload intent.
+     */
+    public static function preferredWorkloadIntent(int $clientId): string
+    {
+        if ($clientId <= 0) {
+            return '';
+        }
+        try {
+            if (!Capsule::schema()->hasTable('cloudstorage_trial_selection')) {
+                return '';
+            }
+            $row = Capsule::table('cloudstorage_trial_selection')
+                ->where('client_id', $clientId)
+                ->first();
+            if (!$row) {
+                return '';
+            }
+            $meta = [];
+            if (!empty($row->meta)) {
+                $decoded = json_decode((string) $row->meta, true);
+                if (is_array($decoded)) {
+                    $meta = $decoded;
+                }
+            }
+            $provisionIntent = strtolower(trim((string) ($meta['provision_intent'] ?? '')));
+            if (in_array($provisionIntent, ['local', 'ms365', 'saas'], true)) {
+                return $provisionIntent;
+            }
+            $choice = strtolower(trim((string) $row->product_choice));
+            if (in_array($choice, ['e3backup', 'backup', 'e3_backup', 'e3-backup', 'cloudbackup_e3'], true)) {
+                return 'local';
+            }
+            if (in_array($choice, ['ms365', 'm365'], true)) {
+                return 'ms365';
+            }
+            if (in_array($choice, ['cloud2cloud', 'cloud-to-cloud'], true)) {
+                return 'saas';
+            }
+        } catch (\Throwable $_) {
+        }
+
+        return '';
+    }
+
+    /**
+     * Persist welcome/signup product_choice for Getting Started intent resolution.
+     */
+    public static function persistProductChoice(int $clientId, string $choice, array $metaMerge = []): void
+    {
+        if ($clientId <= 0) {
+            return;
+        }
+        $choice = strtolower(trim($choice));
+        if ($choice === '') {
+            return;
+        }
+        try {
+            if (!Capsule::schema()->hasTable('cloudstorage_trial_selection')) {
+                return;
+            }
+            $now = date('Y-m-d H:i:s');
+            $exists = Capsule::table('cloudstorage_trial_selection')->where('client_id', $clientId)->first();
+            $meta = [];
+            if ($exists && !empty($exists->meta)) {
+                $decoded = json_decode((string) $exists->meta, true);
+                if (is_array($decoded)) {
+                    $meta = $decoded;
+                }
+            }
+            foreach ($metaMerge as $key => $value) {
+                $meta[$key] = $value;
+            }
+            $metaJson = json_encode($meta, JSON_UNESCAPED_SLASHES);
+            if ($exists) {
+                Capsule::table('cloudstorage_trial_selection')
+                    ->where('client_id', $clientId)
+                    ->update([
+                        'product_choice' => $choice,
+                        'meta' => $metaJson,
+                        'updated_at' => $now,
+                    ]);
+            } else {
+                Capsule::table('cloudstorage_trial_selection')->insert([
+                    'client_id' => $clientId,
+                    'product_choice' => $choice,
+                    'trial_status' => 'trial',
+                    'meta' => $metaJson,
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ]);
+            }
+        } catch (\Throwable $_) {
+        }
+    }
+
+    /**
+     * Map unified provision intent to cloudstorage_trial_selection.product_choice.
+     */
+    public static function productChoiceFromProvisionIntent(string $intent): string
+    {
+        $intent = strtolower(trim($intent));
+        if ($intent === 'ms365') {
+            return 'ms365';
+        }
+        if ($intent === 'saas') {
+            return 'cloud2cloud';
+        }
+
+        return 'e3backup';
+    }
+
+    /**
+     * Choose the active Getting Started workload tab from signup intent + onboarding state.
+     */
+    public static function resolveGettingStartedIntent(
+        int $clientId,
+        bool $localIncomplete,
+        bool $ms365Incomplete,
+        string $urlIntent = ''
+    ): string {
+        $urlIntent = strtolower(trim($urlIntent));
+        $preferred = self::preferredWorkloadIntent($clientId);
+
+        if ($preferred === 'local' && $localIncomplete) {
+            return 'local';
+        }
+        if ($preferred === 'ms365' && $ms365Incomplete) {
+            return 'ms365';
+        }
+        if ($preferred === 'saas') {
+            return 'saas';
+        }
+        if ($localIncomplete) {
+            return 'local';
+        }
+        if ($ms365Incomplete) {
+            return 'ms365';
+        }
+        if (in_array($urlIntent, ['local', 'ms365', 'saas'], true)) {
+            return $urlIntent;
+        }
+        if ($preferred !== '') {
+            return $preferred;
+        }
+
+        return 'local';
+    }
+
     public static function showEnableAgentCard(int $clientId, bool $ms365OnboardingComplete = false): bool
     {
         if ($clientId <= 0 || self::clientHasE3AgentProduct($clientId)) {
@@ -280,10 +429,45 @@ class E3BackupClientState
             return $dashboard;
         }
 
+        $intent = self::resolveGettingStartedIntent($clientId, $localIncomplete, $ms365Incomplete);
+
+        // #region agent log
+        $trialRow = null;
+        $trialMeta = [];
+        try {
+            if (Capsule::schema()->hasTable('cloudstorage_trial_selection')) {
+                $trialRow = Capsule::table('cloudstorage_trial_selection')->where('client_id', $clientId)->first();
+                if ($trialRow && !empty($trialRow->meta)) {
+                    $decoded = json_decode((string) $trialRow->meta, true);
+                    if (is_array($decoded)) {
+                        $trialMeta = $decoded;
+                    }
+                }
+            }
+        } catch (\Throwable $_) {
+        }
+        @file_put_contents('/var/www/eazybackup.ca/.cursor/debug-991471.log', json_encode([
+            'sessionId' => '991471',
+            'timestamp' => (int) round(microtime(true) * 1000),
+            'location' => 'E3BackupClientState::resolveUnifiedLanding',
+            'message' => 'landing_intent_resolved',
+            'data' => [
+                'client_id' => $clientId,
+                'product_choice' => $trialRow ? (string) ($trialRow->product_choice ?? '') : '',
+                'provision_intent_meta' => (string) ($trialMeta['provision_intent'] ?? ''),
+                'preferred' => self::preferredWorkloadIntent($clientId),
+                'local_incomplete' => $localIncomplete,
+                'ms365_incomplete' => $ms365Incomplete,
+                'intent' => $intent,
+            ],
+            'hypothesisId' => 'H1',
+        ], JSON_UNESCAPED_SLASHES) . "\n", FILE_APPEND);
+        // #endregion
+
         return [
             'view' => 'getting_started',
             'user_id' => $routeUserId,
-            'intent' => $ms365Incomplete ? 'ms365' : 'local',
+            'intent' => $intent,
         ];
     }
 
