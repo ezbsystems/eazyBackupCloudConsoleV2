@@ -5993,7 +5993,24 @@ function cloudstorage_clientarea($vars) {
                 if ($obClientId > 0 && class_exists('\\WHMCS\\Module\\Addon\\CloudStorage\\Client\\E3BackupAccess')) {
                     $ebE3OnboardingShared['ebMs365Only'] = \WHMCS\Module\Addon\CloudStorage\Client\E3BackupAccess::clientIsMs365Only($obClientId);
                     if (class_exists('\\WHMCS\\Module\\Addon\\CloudStorage\\Client\\E3BackupClientState')) {
-                        $ebE3OnboardingShared['ebHasE3AgentProduct'] = \WHMCS\Module\Addon\CloudStorage\Client\E3BackupClientState::clientHasE3AgentProduct($obClientId);
+                        $legacyAgent = \WHMCS\Module\Addon\CloudStorage\Client\E3BackupClientState::clientHasE3AgentProduct($obClientId);
+                        $localEntitled = \WHMCS\Module\Addon\CloudStorage\Client\E3BackupClientState::clientHasLocalAgentEntitlement($obClientId);
+                        $ebE3OnboardingShared['ebHasE3AgentProduct'] = $localEntitled;
+                        // #region agent log
+                        @file_put_contents('/var/www/eazybackup.ca/.cursor/debug-991471.log', json_encode([
+                            'sessionId' => '991471',
+                            'timestamp' => (int) round(microtime(true) * 1000),
+                            'location' => 'cloudstorage.php:ebHasE3AgentProduct',
+                            'message' => 'sidebar_agent_product_flags',
+                            'data' => [
+                                'client_id' => $obClientId,
+                                'legacy_agent_product' => $legacyAgent,
+                                'local_agent_entitled' => $localEntitled,
+                                'eb_has_agents' => $ebE3OnboardingShared['ebE3HasAgents'],
+                            ],
+                            'hypothesisId' => 'H1',
+                        ], JSON_UNESCAPED_SLASHES) . "\n", FILE_APPEND);
+                        // #endregion
                         $ebE3OnboardingShared['ebHasMs365Product'] = \WHMCS\Module\Addon\CloudStorage\Client\E3BackupClientState::clientHasMs365Product($obClientId);
                         $ebE3OnboardingShared['ebHasCloudStorageProduct'] = \WHMCS\Module\Addon\CloudStorage\Client\E3BackupClientState::clientHasCloudStorageProduct($obClientId);
                     }

@@ -392,7 +392,7 @@ class E3BackupClientState
 
     public static function showEnableAgentCard(int $clientId, bool $ms365OnboardingComplete = false): bool
     {
-        if ($clientId <= 0 || self::clientHasE3AgentProduct($clientId)) {
+        if ($clientId <= 0 || self::clientHasLocalAgentEntitlement($clientId)) {
             return false;
         }
 
@@ -412,7 +412,7 @@ class E3BackupClientState
             return false;
         }
 
-        $hasAgent = self::clientHasE3AgentProduct($clientId);
+        $hasAgent = self::clientHasLocalAgentEntitlement($clientId);
         $hasStorage = self::clientHasCloudStorageProduct($clientId);
 
         if ($hasStorage && !$hasAgent) {
