@@ -21,10 +21,17 @@
         <div class="p-6 space-y-5">
             <div class="eb-alert eb-alert--info">
                 <div>
+                    {if $ebHasExistingBackupUser|default:false}
+                    <div class="eb-alert-title">Workstation &amp; server backup is not enabled</div>
+                    <p class="eb-type-body">
+                        Your account already has a Backup User for Microsoft 365. To use Agents, Job Logs, Cloud NAS, and Recovery Media, add workstation &amp; server backup to your account or contact support to upgrade your plan.
+                    </p>
+                    {else}
                     <div class="eb-alert-title">Use the Users page instead</div>
                     <p class="eb-type-body">
                         Create a Backup User with your preferred encryption mode. Managed encryption unlocks MS365 and SaaS workloads; strict mode is limited to Local Agent backups.
                     </p>
+                    {/if}
                 </div>
             </div>
             <div class="flex flex-wrap items-center gap-3">
