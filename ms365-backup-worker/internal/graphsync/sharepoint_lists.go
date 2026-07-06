@@ -172,7 +172,7 @@ func syncListDelta(
 	deltaPath := fmt.Sprintf("/sites/%s/lists/%s/items/delta", opts.SiteID, listID)
 	outcome := &graph.PaginationOutcome{}
 	monitor := paginationMonitorForJob(opts.Job, "sharepoint_lists", "sharepoint_lists:"+listID, graphLog(opts.Log))
-	deltaOpts := &graph.DeltaPaginateOptions{Monitor: monitor, Outcome: outcome}
+	deltaOpts := &graph.DeltaPaginateOptions{Monitor: monitor, Outcome: outcome, Expand: ListItemExpand}
 	synced, newDelta, err := paginateDeltaResilient(ctx, client, deltaPath, priorDelta, ListItemSelect, 200, nil, deltaOpts)
 	if err != nil {
 		return 0, 0, nil, "", err
@@ -225,6 +225,7 @@ func paginateListItemsFiltered(
 		"$orderby": "createdDateTime",
 		"$top":     ListPartitionPageSize,
 		"$select":  ListItemSelect,
+		"$expand":  ListItemExpand,
 	}
 	items, err := client.PaginateOpts(ctx, itemsPath, query, &graph.PaginateOptions{
 		Monitor:     monitor,
@@ -265,6 +266,7 @@ func paginateListItemsClientFilter(
 		"$orderby": "createdDateTime",
 		"$top":     ListPartitionPageSize,
 		"$select":  ListItemSelect,
+		"$expand":  ListItemExpand,
 	}
 	all, err := client.PaginateOpts(ctx, itemsPath, query, &graph.PaginateOptions{
 		Monitor:     monitor,

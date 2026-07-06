@@ -69,6 +69,15 @@ $aliases = $aliasesMethod->invoke(null, $rawListsPath, [
 
 assert_true(in_array($listsPath, $aliases, true), 'sharePointBrowsePathAliases maps raw site id to sanitized lists path');
 
+$drivesPath = $tenantId . '/sites/' . $safeSiteId . '/drives';
+assert_true(
+    preg_match(
+        '#/(mail|calendars?|contacts|tasks|onedrive/content|drives/[^/]+(/content)?|groups/[^/]+/(mail|calendars?)|teams/[^/]+(/channels)?|sites/[^/]+(/drives(/[^/]+(/content)?)?|(/lists(/[^/]+(/items)?)?)?)?)$#',
+        $drivesPath,
+    ) === 1,
+    'sanitized SharePoint drives path matches missing-workload-root pattern'
+);
+
 if ($failures > 0) {
     echo "\n{$failures} test(s) failed.\n";
     exit(1);

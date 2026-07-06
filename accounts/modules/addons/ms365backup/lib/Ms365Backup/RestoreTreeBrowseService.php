@@ -56,7 +56,7 @@ final class RestoreTreeBrowseService
             }
         }
 
-        $cacheKey = hash('sha256', 'v13-sharepoint-files-scope' . "\0" . $manifestId . "\0" . $path);
+        $cacheKey = hash('sha256', 'v14-sharepoint-drive-browse' . "\0" . $manifestId . "\0" . $path);
         $cached = self::readCache($cacheKey);
         if ($cached !== null) {
             return $cached;
@@ -108,6 +108,13 @@ final class RestoreTreeBrowseService
         $out = [];
         foreach ($workloads as $w) {
             $runSource = $runByLabel[$w['label']] ?? $childRun;
+            $entryManifest = (string) ($runSource['manifest_id'] ?? $childRun['manifest_id'] ?? '');
+            if ($w['label'] === 'Files') {
+                $driveManifest = self::resolveDriveManifestForRun($tenantRecord, $runSource);
+                if ($driveManifest !== '') {
+                    $entryManifest = $driveManifest;
+                }
+            }
             $out[] = [
                 'name' => $w['path'],
                 'label' => $w['label'],
@@ -116,7 +123,7 @@ final class RestoreTreeBrowseService
                 'type' => 'folder',
                 'has_children' => true,
                 'size' => 0,
-                'manifest_id' => (string) ($runSource['manifest_id'] ?? $childRun['manifest_id'] ?? ''),
+                'manifest_id' => $entryManifest,
                 'child_run_id' => (string) ($runSource['id'] ?? $childRun['id'] ?? ''),
             ];
         }
@@ -242,6 +249,51 @@ final class RestoreTreeBrowseService
         }
 
         return $run;
+    }
+
+    /**
+     * @param array<string, mixed> $tenantRecord
+     * @param array<string, mixed>|null $childRun
+     */
+    private static function resolveDriveManifestForRun(array $tenantRecord, ?array $childRun): string
+    {
+        if ($childRun === null) {
+            return '';
+        }
+
+        $manifest = trim((string) ($childRun['manifest_id'] ?? ''));
+        if ($manifest !== '') {
+            return $manifest;
+        }
+
+        $statsRaw = (string) ($childRun['stats_json'] ?? '');
+        if ($statsRaw !== '') {
+            $stats = json_decode($statsRaw, true);
+            if (is_array($stats)) {
+                $fromStats = trim((string) ($stats['manifest_id'] ?? ''));
+                if ($fromStats !== '') {
+                    return $fromStats;
+                }
+            }
+        }
+
+        $physicalKey = PhysicalKeyHelper::baseKey((string) ($childRun['physical_key'] ?? ''));
+        if (!str_starts_with($physicalKey, 'drive:')) {
+            return '';
+        }
+
+        $tenantRecordId = (int) ($tenantRecord['id'] ?? 0);
+        if ($tenantRecordId <= 0) {
+            return '';
+        }
+
+        $jobId = trim((string) ($childRun['e3_job_id'] ?? ''));
+
+        return KopiaRepoBootstrapService::latestManifestForSource(
+            $tenantRecordId,
+            (string) ($childRun['physical_key'] ?? $physicalKey),
+            $jobId !== '' ? $jobId : null,
+        );
     }
 
     /**
@@ -673,31 +725,62 @@ final class RestoreTreeBrowseService
         string $path,
         ?array $childRun,
     ): array {
-        $candidates = [$path];
+        $pathCandidates = [$path];
         foreach (self::oneDriveBrowsePathAliases($path, $childRun) as $alias) {
-            if ($alias !== '' && !in_array($alias, $candidates, true)) {
-                $candidates[] = $alias;
+            if ($alias !== '' && !in_array($alias, $pathCandidates, true)) {
+                $pathCandidates[] = $alias;
             }
         }
         foreach (self::sharePointBrowsePathAliases($path, $childRun) as $alias) {
-            if ($alias !== '' && !in_array($alias, $candidates, true)) {
-                $candidates[] = $alias;
+            if ($alias !== '' && !in_array($alias, $pathCandidates, true)) {
+                $pathCandidates[] = $alias;
+            }
+        }
+        foreach (self::sharePointDrivePathAliases($path, $childRun) as $alias) {
+            if ($alias !== '' && !in_array($alias, $pathCandidates, true)) {
+                $pathCandidates[] = $alias;
             }
         }
 
+        $manifestCandidates = [];
+        $primaryManifest = trim($manifestId);
+        if ($primaryManifest !== '') {
+            $manifestCandidates[] = $primaryManifest;
+        }
+        $driveManifest = self::resolveDriveManifestForRun($tenantRecord, $childRun);
+        if ($driveManifest !== '' && !in_array($driveManifest, $manifestCandidates, true)) {
+            $manifestCandidates[] = $driveManifest;
+        }
+        if ($driveManifest !== '' && ($driveManifest !== $primaryManifest || $primaryManifest === '')) {
+            if (!in_array('content', $pathCandidates, true)) {
+                $pathCandidates[] = 'content';
+            }
+        }
+        if ($manifestCandidates === []) {
+            $manifestCandidates[] = '';
+        }
+
         $lastError = null;
-        foreach ($candidates as $candidate) {
-            try {
-                $entries = self::listKopiaDirectory($tenantRecord, $manifestId, $candidate, $childRun);
-                if ($entries !== []) {
-                    return $entries;
+        foreach ($manifestCandidates as $candidateManifest) {
+            if ($candidateManifest === '') {
+                continue;
+            }
+            foreach ($pathCandidates as $candidate) {
+                try {
+                    $entries = self::listKopiaDirectory($tenantRecord, $candidateManifest, $candidate, $childRun);
+                    if ($entries !== []) {
+                        return self::rebaseSharePointDriveBrowsePaths($entries, $path, $candidate, $childRun);
+                    }
+                } catch (\RuntimeException $e) {
+                    $lastError = $e;
                 }
-            } catch (\RuntimeException $e) {
-                $lastError = $e;
             }
         }
 
         if ($lastError !== null) {
+            if (self::isMissingWorkloadRoot($path, $lastError)) {
+                return [];
+            }
             throw $lastError;
         }
 
@@ -765,6 +848,103 @@ final class RestoreTreeBrowseService
     }
 
     /**
+     * SharePoint document libraries live under per-drive snapshot roots or site/drives/{id}/content.
+     *
+     * @return list<string>
+     */
+    private static function sharePointDrivePathAliases(string $path, ?array $childRun): array
+    {
+        $aliases = [];
+        $scopeRaw = self::scopeArrayFromChildRun($childRun ?? []);
+        $driveId = self::driveIdFromChildRun($childRun ?? [], $scopeRaw);
+
+        if (preg_match('#^([^/]+)/sites/([^/]+)/drives/([^/]+)$#', $path) === 1) {
+            $aliases[] = $path . '/content';
+        }
+
+        if (preg_match('#^([^/]+)/sites/([^/]+)/drives$#', $path, $m) !== 1) {
+            return $aliases;
+        }
+
+        $tenant = $m[1];
+        $site = $m[2];
+        if ($driveId === '') {
+            return $aliases;
+        }
+
+        $safeDrive = PhysicalKeyHelper::storageSafeId($driveId);
+        $aliases[] = $tenant . '/sites/' . $site . '/drives/' . $safeDrive;
+        $aliases[] = $tenant . '/sites/' . $site . '/drives/' . $safeDrive . '/content';
+        $aliases[] = $tenant . '/drives/' . $safeDrive . '/content';
+
+        return $aliases;
+    }
+
+    /**
+     * Drive-scoped snapshots expose content/ at the manifest root; rebase to full tenant paths.
+     *
+     * @param list<array<string, mixed>> $entries
+     * @return list<array<string, mixed>>
+     */
+    private static function rebaseSharePointDriveBrowsePaths(
+        array $entries,
+        string $requestedPath,
+        string $resolvedPath,
+        ?array $childRun,
+    ): array {
+        if ($resolvedPath === $requestedPath) {
+            return $entries;
+        }
+
+        $basePath = self::sharePointDriveContentBasePath($requestedPath, $childRun);
+        if ($basePath === '') {
+            return $entries;
+        }
+
+        $resolvedNorm = trim($resolvedPath, '/');
+        if ($resolvedNorm !== '' && $resolvedNorm !== 'content' && str_contains($resolvedNorm, '/sites/')) {
+            return $entries;
+        }
+
+        $out = [];
+        foreach ($entries as $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+            $entryPath = trim((string) ($entry['path'] ?? ''), '/');
+            $name = (string) ($entry['name'] ?? '');
+            if ($entryPath === '' && $name !== '') {
+                $entry['path'] = $basePath . '/' . $name;
+            } elseif ($entryPath !== '' && !str_starts_with($entryPath, $basePath)) {
+                if ($resolvedNorm === 'content' || $resolvedNorm === '') {
+                    $entry['path'] = $basePath . '/' . ltrim($entryPath, '/');
+                }
+            }
+            $out[] = $entry;
+        }
+
+        return $out !== [] ? $out : $entries;
+    }
+
+    private static function sharePointDriveContentBasePath(string $requestedPath, ?array $childRun): string
+    {
+        if (preg_match('#^([^/]+)/sites/([^/]+)/drives(?:/([^/]+))?(?:/content)?$#', $requestedPath, $m) !== 1) {
+            return '';
+        }
+
+        $driveSeg = (string) ($m[3] ?? '');
+        if ($driveSeg === '') {
+            $driveId = self::driveIdFromChildRun($childRun ?? [], self::scopeArrayFromChildRun($childRun ?? []));
+            if ($driveId === '') {
+                return '';
+            }
+            $driveSeg = PhysicalKeyHelper::storageSafeId($driveId);
+        }
+
+        return $m[1] . '/sites/' . $m[2] . '/drives/' . $driveSeg . '/content';
+    }
+
+    /**
      * @return list<array<string, mixed>>
      */
     private static function listKopiaDirectory(array $tenantRecord, string $manifestId, string $path, ?array $childRun = null): array
@@ -824,7 +1004,7 @@ final class RestoreTreeBrowseService
         }
 
         return preg_match(
-            '#/(mail|calendars?|contacts|tasks|onedrive/content|drives/[^/]+(/content)?|groups/[^/]+/(mail|calendars?)|teams/[^/]+(/channels)?|sites/[^/]+(/lists(/[^/]+(/items)?)?)?)$#',
+            '#/(mail|calendars?|contacts|tasks|onedrive/content|drives/[^/]+(/content)?|groups/[^/]+/(mail|calendars?)|teams/[^/]+(/channels)?|sites/[^/]+(/drives(/[^/]+(/content)?)?|(/lists(/[^/]+(/items)?)?)?)?)$#',
             $path,
         ) === 1;
     }

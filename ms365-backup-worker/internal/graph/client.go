@@ -737,6 +737,8 @@ type DeltaPaginateOptions struct {
 	// request. Required for Graph resources like contactFolder/contacts/delta that reject
 	// query parameters with change tracking.
 	OmitDeltaQueryParams bool
+	// Expand is sent as $expand on the initial delta request (e.g. fields($select=Title)).
+	Expand string
 }
 
 // PaginateDelta streams delta pages. When selectFields is non-empty it is sent as $select on the initial request.
@@ -799,6 +801,9 @@ func (c *Client) PaginateDeltaOpts(ctx context.Context, initialPath, deltaLink, 
 				query = map[string]string{"$top": strconv.Itoa(top)}
 				if selectFields != "" {
 					query["$select"] = selectFields
+				}
+				if opts != nil && opts.Expand != "" {
+					query["$expand"] = opts.Expand
 				}
 			}
 			data, err = c.GetJSONWithHeaders(ctx, path, query, headers)

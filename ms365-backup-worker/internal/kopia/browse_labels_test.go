@@ -308,3 +308,38 @@ func TestIsMailMessageAttachmentFolder(t *testing.T) {
 }
 
 var _ io.Closer = (*memReader)(nil)
+
+func TestParseSharePointListItemTitleFromFields(t *testing.T) {
+	raw := []byte(`{"id":"10","fields":{"Title":"Quarterly report","LinkTitle":"Quarterly report"}}`)
+	if got := parseSharePointListItemTitle(raw); got != "Quarterly report" {
+		t.Fatalf("title: got %q", got)
+	}
+}
+
+func TestParseSharePointListItemTitleFileLeafRef(t *testing.T) {
+	raw := []byte(`{"id":"100","fields":{"FileLeafRef":"Budget.xlsx","LinkTitle":"Budget.xlsx"}}`)
+	if got := parseSharePointListItemTitle(raw); got != "Budget.xlsx" {
+		t.Fatalf("title: got %q", got)
+	}
+}
+
+func TestParseSharePointListItemTitleEmptyFieldsUsesRegex(t *testing.T) {
+	raw := []byte(`{"id":"10","fields":{},"lastModifiedDateTime":"2025-06-11T15:39:00Z"}`)
+	if got := parseSharePointListItemTitle(raw); got != "" {
+		t.Fatalf("expected empty title, got %q", got)
+	}
+}
+
+func TestParseSharePointListItemTitleRegexFallback(t *testing.T) {
+	raw := []byte(`{"fields":{"@odata.type":"#Microsoft.Graph.fieldValueSet","Title":"Access request #3"}}`)
+	if got := parseSharePointListItemTitle(raw); got != "Access request #3" {
+		t.Fatalf("title: got %q", got)
+	}
+}
+
+func TestSharePointListItemFallbackLabel(t *testing.T) {
+	got := sharePointListItemFallbackLabel("tenant/sites/site1/lists/list1/items/42.json")
+	if got != "List item 42" {
+		t.Fatalf("fallback: got %q", got)
+	}
+}

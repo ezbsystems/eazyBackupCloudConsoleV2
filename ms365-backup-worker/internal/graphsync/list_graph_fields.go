@@ -6,6 +6,7 @@ package graphsync
 // to $orderby=createdDateTime and client-side range checks.
 const (
 	ListItemSelect           = "id,fields,createdDateTime,lastModifiedDateTime,contentType"
+	ListItemExpand           = "fields($select=Title,FileLeafRef,LinkTitle,Name,LinkFilename,Description,Subject)"
 	ListPartitionPageSize    = "200"
 	ListInventoryStart       = "2010-01-01T00:00:00Z"
 	ListPartitionConsistency = "eventual"

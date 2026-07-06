@@ -3,6 +3,7 @@ package kopia
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"regexp"
 	"strings"
@@ -28,6 +29,7 @@ var (
 	reCalendarIsAllDay = regexp.MustCompile(`"isAllDay"\s*:\s*(true|false)`)
 	reCalendarType     = regexp.MustCompile(`"type"\s*:\s*"([^"]+)"`)
 	reCalendarCancelled = regexp.MustCompile(`"isCancelled"\s*:\s*(true|false)`)
+	reSPListFieldTitle  = regexp.MustCompile(`"(?:Title|FileLeafRef|LinkTitle|Name|LinkFilename|Description|Subject)"\s*:\s*"((?:\\.|[^"\\])*)"`)
 )
 
 func shouldHideBrowseName(name string) bool {
@@ -576,24 +578,88 @@ func sharePointDriveFolderDisplayName(ctx context.Context, root kopiafs.Director
 func sharePointListItemLabels(ctx context.Context, root kopiafs.Directory, filePath string) browseLabelResult {
 	buf, err := readFilePrefix(ctx, root, filePath, browseMetaReadLimit)
 	if err != nil || len(buf) == 0 {
-		return browseLabelResult{Label: "List item"}
+		return browseLabelResult{Label: sharePointListItemFallbackLabel(filePath)}
 	}
 	title := parseSharePointListItemTitle(buf)
+	subtitle := parseSharePointListItemSubtitle(buf)
 	if title == "" {
-		return browseLabelResult{Label: "List item"}
+		title = sharePointListItemFallbackLabel(filePath)
 	}
-	return browseLabelResult{Label: truncateLabel(title, 120)}
+	return browseLabelResult{Label: truncateLabel(title, 120), Subtitle: subtitle}
+}
+
+func sharePointListItemFallbackLabel(filePath string) string {
+	name := strings.TrimSuffix(filePath, ".json")
+	if idx := strings.LastIndex(name, "/"); idx >= 0 {
+		name = name[idx+1:]
+	}
+	name = strings.TrimSpace(name)
+	if name != "" {
+		return "List item " + name
+	}
+	return "List item"
+}
+
+func parseSharePointListItemSubtitle(buf []byte) string {
+	var parsed map[string]any
+	if err := json.Unmarshal(buf, &parsed); err != nil {
+		return ""
+	}
+	for _, key := range []string{"lastModifiedDateTime", "createdDateTime"} {
+		if v := sharePointFieldString(parsed[key]); v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 func parseSharePointListItemTitle(buf []byte) string {
 	var parsed map[string]any
 	if err := json.Unmarshal(buf, &parsed); err == nil {
 		if fields, ok := parsed["fields"].(map[string]any); ok {
-			for _, key := range []string{"Title", "LinkTitle", "FileLeafRef", "Name"} {
-				if v, ok := fields[key].(string); ok && strings.TrimSpace(v) != "" {
-					return strings.TrimSpace(v)
+			for _, key := range []string{"Title", "LinkTitle", "FileLeafRef", "Name", "LinkFilename", "Description", "Subject"} {
+				if v := sharePointFieldString(fields[key]); v != "" {
+					return v
 				}
 			}
+			for k, v := range fields {
+				if strings.HasPrefix(k, "@") || strings.HasPrefix(k, "_") {
+					continue
+				}
+				if s := sharePointFieldString(v); s != "" {
+					return s
+				}
+			}
+		}
+		for _, key := range []string{"Title", "name", "displayName"} {
+			if v := sharePointFieldString(parsed[key]); v != "" {
+				return v
+			}
+		}
+	}
+	if m := reSPListFieldTitle.FindSubmatch(buf); len(m) > 1 {
+		return strings.TrimSpace(unescapeJSONString(string(m[1])))
+	}
+	return ""
+}
+
+func sharePointFieldString(v any) string {
+	switch t := v.(type) {
+	case string:
+		return strings.TrimSpace(t)
+	case float64:
+		if t == float64(int64(t)) {
+			return fmt.Sprintf("%d", int64(t))
+		}
+		return strings.TrimSpace(fmt.Sprintf("%v", t))
+	case bool:
+		if t {
+			return "true"
+		}
+		return "false"
+	case map[string]any:
+		if s, ok := t["value"].(string); ok {
+			return strings.TrimSpace(s)
 		}
 	}
 	return ""
