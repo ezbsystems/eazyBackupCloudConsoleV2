@@ -483,6 +483,20 @@ class E3BackupClientState
             return $dashboard;
         }
 
+        // MS365-only / legacy MS365 clients are not blocked by incomplete local-agent
+        // onboarding (download, agent, local job) when their M365 setup is complete.
+        if (!$ms365Incomplete) {
+            if (E3BackupAccess::clientIsMs365Only($clientId)) {
+                return $dashboard;
+            }
+            if (!self::clientHasLocalAgentEntitlement($clientId) && self::clientHasMs365Product($clientId)) {
+                return $dashboard;
+            }
+            if (self::preferredWorkloadIntent($clientId) === 'ms365') {
+                return $dashboard;
+            }
+        }
+
         $intent = self::resolveGettingStartedIntent($clientId, $localIncomplete, $ms365Incomplete);
 
         return [

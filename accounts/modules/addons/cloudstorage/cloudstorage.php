@@ -6052,6 +6052,8 @@ function cloudstorage_clientarea($vars) {
                         }
                         if ($encryptionMode === 'strict') {
                             $gsIntent = 'local';
+                        } elseif (!empty($ebE3OnboardingShared['ebMs365Only'])) {
+                            $gsIntent = 'ms365';
                         } elseif ($gsIntent === 'local'
                             && !empty($ebE3OnboardingShared['ebHasMs365Product'])
                             && empty($ebE3OnboardingShared['ebMs365OnboardingComplete'])) {
