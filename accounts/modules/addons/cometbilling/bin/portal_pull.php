@@ -6,9 +6,10 @@ if (!defined('WHMCS')) {
 }
 
 $autoload = __DIR__ . '/../vendor/autoload.php';
-if (file_exists($autoload)) require_once $autoload;
+if (file_exists($autoload)) {
+    require_once $autoload;
+}
 
-// Fallback autoloader when composer isn't available
 spl_autoload_register(function ($class) {
     $prefix = 'CometBilling\\';
     $len = strlen($prefix);
@@ -26,52 +27,106 @@ use WHMCS\Database\Capsule;
 use CometBilling\PortalClient;
 use CometBilling\UsageNormalizer;
 use CometBilling\ActiveServicesNormalizer;
+use CometBilling\Settings;
+use CometBilling\CreditLedger;
 
-if (!class_exists(PortalClient::class)) {
-    echo "[cometbilling] Missing dependencies. Please run composer install in modules/addons/cometbilling.\n";
-    if (defined('COMETBILLING_INLINE')) { return; }
-    exit(3);
+$logLines = [];
+$exitCode = 0;
+$phaseTimings = [];
+
+function cbPhaseStart(string $name): void
+{
+    global $phaseTimings;
+    $phaseTimings[$name] = ['start' => microtime(true)];
 }
 
-// Load addon config
-$settings = Capsule::table('tbladdonmodules')
-    ->where('module', 'cometbilling')->pluck('value', 'setting');
+function cbPhaseEnd(string $name, array $extra = []): void
+{
+    global $phaseTimings;
+    $start = $phaseTimings[$name]['start'] ?? microtime(true);
+    $phaseTimings[$name]['ms'] = (int) round((microtime(true) - $start) * 1000);
+}
 
-$base = $settings['PortalBaseUrl'] ?? 'https://account.cometbackup.com';
-$auth = $settings['PortalAuthType'] ?? 'token';
-$tok  = $settings['PortalToken'] ?? '';
+function cbLog(string $msg): void
+{
+    global $logLines;
+    $line = '[cometbilling] ' . $msg;
+    $logLines[] = $line;
+    echo $line . "\n";
+}
 
-if (!$tok) {
-    echo "[cometbilling] No PortalToken configured; aborting.\n";
+function cbFinish(int $code = 0): void
+{
+    global $logLines, $exitCode;
+    $exitCode = $code;
+
+    Settings::markJobFinished(
+        'portal_pull',
+        $code === 0 ? 'ok' : 'error',
+        implode("\n", array_slice($logLines, -20))
+    );
+
     if (defined('COMETBILLING_INLINE')) {
         return;
     }
-    exit(2);
+    exit($code);
 }
 
-$timeout = (int)($settings['HttpTimeoutSeconds'] ?? 180);
-if ($timeout < 60) { $timeout = 60; }
-$client = new PortalClient($base, $auth, $tok, $timeout);
+if (!class_exists(PortalClient::class)) {
+    cbLog('Missing dependencies. Please run composer install in modules/addons/cometbilling.');
+    cbFinish(3);
+}
 
-/** 1) Billing History → cb_credit_usage */
-// allow script to run sufficiently long
-if (function_exists('set_time_limit')) { @set_time_limit($timeout + 60); }
-ini_set('default_socket_timeout', (string)$timeout);
+Settings::markJobRunning('portal_pull');
 
-$usage = $client->reportBillingHistory();
-$insU  = 0; $skU = 0;
+$config = Settings::getPortalConfig();
+if (empty($config['token'])) {
+    cbLog('No PortalToken configured; aborting.');
+    cbFinish(2);
+}
+
+$timeout = $config['timeout'];
+if (function_exists('set_time_limit')) {
+    @set_time_limit($timeout + 120);
+}
+ini_set('default_socket_timeout', (string) $timeout);
+
+try {
+    $client = new PortalClient($config['baseUrl'], $config['authType'], $config['token'], $timeout);
+} catch (\Throwable $e) {
+    cbLog('Failed to initialize portal client: ' . $e->getMessage());
+    cbFinish(1);
+}
+
+/** 1) Billing History → cb_credit_usage (bulk INSERT IGNORE) */
+cbPhaseStart('billing_history_api');
+try {
+    $usage = $client->reportBillingHistory();
+} catch (\Throwable $e) {
+    cbLog('Billing history pull failed: ' . $e->getMessage());
+    if (function_exists('logActivity')) {
+        logActivity('[CometBilling] Portal billing history pull failed: ' . $e->getMessage());
+    }
+    cbFinish(1);
+}
+cbPhaseEnd('billing_history_api', ['rows' => is_countable($usage) ? count($usage) : 0]);
+
+cbPhaseStart('billing_history_insert');
+$insU = 0;
+$batch = [];
+$batchSize = 500;
+$now = date('Y-m-d H:i:s');
 
 foreach ($usage as $row) {
-    if (!is_array($row)) { continue; }
+    if (!is_array($row)) {
+        continue;
+    }
     $n = UsageNormalizer::normalizeRow($row);
-    if (!$n['usage_date']) continue;
+    if (!$n['usage_date']) {
+        continue;
+    }
 
-    $exists = Capsule::table('cb_credit_usage')
-        ->where('row_fingerprint', $n['row_fingerprint'])->exists();
-
-    if ($exists) { $skU++; continue; }
-
-    Capsule::table('cb_credit_usage')->insert([
+    $batch[] = [
         'usage_date'      => $n['usage_date'],
         'posted_at'       => $n['posted_at'],
         'tenant_id'       => $n['tenant_id'],
@@ -84,29 +139,48 @@ foreach ($usage as $row) {
         'packs_used'      => $n['packs_used'],
         'raw_row'         => json_encode($n['raw_row']),
         'row_fingerprint' => $n['row_fingerprint'],
-        'created_at'      => date('Y-m-d H:i:s'),
-    ]);
-    $insU++;
+        'created_at'      => $now,
+    ];
+
+    if (count($batch) >= $batchSize) {
+        $insU += cbBulkInsertIgnore('cb_credit_usage', $batch);
+        $batch = [];
+    }
 }
 
-echo "[cometbilling] Usage rows: inserted=$insU skipped=$skU\n";
+if (!empty($batch)) {
+    $insU += cbBulkInsertIgnore('cb_credit_usage', $batch);
+}
 
-/** 2) Active Services → cb_active_services (snapshot) */
-$services = $client->reportActiveServices();
+cbLog("Usage rows: inserted={$insU}");
+cbPhaseEnd('billing_history_insert', ['inserted' => $insU]);
+Settings::setKv('last_billing_history_pull', gmdate('Y-m-d H:i:s'));
+
+/** 2) Active Services → cb_active_services (bulk INSERT IGNORE) */
+cbPhaseStart('active_services_api');
+try {
+    $services = $client->reportActiveServices();
+} catch (\Throwable $e) {
+    cbLog('Active services pull failed: ' . $e->getMessage());
+    if (function_exists('logActivity')) {
+        logActivity('[CometBilling] Portal active services pull failed: ' . $e->getMessage());
+    }
+    cbFinish(1);
+}
+cbPhaseEnd('active_services_api', ['rows' => is_countable($services) ? count($services) : 0]);
+
+cbPhaseStart('active_services_insert');
 $pulledAt = gmdate('Y-m-d H:i:s');
-$insS = 0; $skS = 0;
+$insS = 0;
+$svcBatch = [];
 
 foreach ($services as $row) {
-    if (!is_array($row)) { continue; }
+    if (!is_array($row)) {
+        continue;
+    }
     $n = ActiveServicesNormalizer::normalizeRow($row, $pulledAt);
-    $exists = Capsule::table('cb_active_services')
-        ->where('pulled_at', $pulledAt)
-        ->where('row_fingerprint', $n['row_fingerprint'])
-        ->exists();
 
-    if ($exists) { $skS++; continue; }
-
-    Capsule::table('cb_active_services')->insert([
+    $svcBatch[] = [
         'pulled_at'          => $n['pulled_at'],
         'service_name'       => $n['service_name'],
         'billing_cycle_days' => $n['billing_cycle_days'],
@@ -118,48 +192,127 @@ foreach ($services as $row) {
         'device_id'          => $n['device_id'],
         'extra'              => json_encode($n['extra']),
         'row_fingerprint'    => $n['row_fingerprint'],
-    ]);
-    $insS++;
+    ];
+
+    if (count($svcBatch) >= $batchSize) {
+        $insS += cbBulkInsertIgnore('cb_active_services', $svcBatch);
+        $svcBatch = [];
+    }
 }
 
-echo "[cometbilling] Active services snapshot: inserted=$insS skipped=$skS\n";
+if (!empty($svcBatch)) {
+    $insS += cbBulkInsertIgnore('cb_active_services', $svcBatch);
+}
 
-/** 3) Recompute daily balance roll-forward (simple recompute of last 120 days) */
-$start = date('Y-m-d', strtotime('-120 days'));
-$end   = date('Y-m-d');
+cbLog("Active services snapshot: inserted={$insS} pulled_at={$pulledAt}");
+cbPhaseEnd('active_services_insert', ['inserted' => $insS]);
+Settings::setKv('last_active_services_pull', $pulledAt);
 
-$dates = new DatePeriod(
-    new DateTime($start),
-    new DateInterval('P1D'),
-    (new DateTime($end))->modify('+1 day')
-);
+/** 3) Incremental daily balance roll-forward */
+cbPhaseStart('balance_recompute');
+$end = date('Y-m-d');
+$lastBalanceDate = Settings::getKv('last_balance_recompute_date');
+$lastBalRow = Capsule::table('cb_daily_balance')->orderBy('balance_date', 'desc')->first();
 
-$running = 0.0;
-foreach ($dates as $d) {
-    $day = $d->format('Y-m-d');
-    $purchases = (float) (Capsule::table('cb_credit_purchases')
-        ->whereDate('purchased_at', $day)
-        ->sum(Capsule::raw('credit_amount + bonus_credit')));
-    $usageAmt = (float) (Capsule::table('cb_credit_usage')
-        ->whereDate('usage_date', $day)
-        ->sum('amount'));
+if ($lastBalanceDate && $lastBalRow) {
+    $start = date('Y-m-d', strtotime($lastBalanceDate . ' +1 day'));
+    $running = (float) $lastBalRow->closing_credit;
+} elseif ($lastBalRow) {
+    $start = date('Y-m-d', strtotime($lastBalRow->balance_date . ' +1 day'));
+    $running = (float) $lastBalRow->closing_credit;
+} else {
+    // First run: seed from day before window or compute opening from history
+    $start = date('Y-m-d', strtotime('-120 days'));
+    $priorRow = Capsule::table('cb_daily_balance')
+        ->where('balance_date', '<', $start)
+        ->orderBy('balance_date', 'desc')
+        ->first();
 
-    $opening = $running;
-    $closing = $opening + $purchases - $usageAmt;
-    $running = $closing;
+    if ($priorRow) {
+        $running = (float) $priorRow->closing_credit;
+    } else {
+        $running = cbComputeOpeningBalance($start);
+    }
+}
 
-    Capsule::table('cb_daily_balance')->updateOrInsert(
-        ['balance_date' => $day],
-        [
-            'opening_credit'   => number_format($opening, 4, '.', ''),
-            'purchases_credit' => number_format($purchases, 4, '.', ''),
-            'usage_amount'     => number_format($usageAmt, 4, '.', ''),
-            'closing_credit'   => number_format($closing, 4, '.', ''),
-            'recomputed_at'    => date('Y-m-d H:i:s')
-        ]
+if (strtotime($start) > strtotime($end)) {
+    cbLog("Balance already up to date through {$end}");
+} else {
+    $dates = new DatePeriod(
+        new DateTime($start),
+        new DateInterval('P1D'),
+        (new DateTime($end))->modify('+1 day')
     );
+
+    foreach ($dates as $d) {
+        $day = $d->format('Y-m-d');
+        $purchases = (float) Capsule::table('cb_credit_purchases')
+            ->whereDate('purchased_at', $day)
+            ->sum(Capsule::raw('credit_amount + bonus_credit'));
+        $usageAmt = (float) Capsule::table('cb_credit_usage')
+            ->whereDate('usage_date', $day)
+            ->sum('amount');
+
+        $opening = $running;
+        $closing = $opening + $purchases - $usageAmt;
+        $running = $closing;
+
+        Capsule::table('cb_daily_balance')->updateOrInsert(
+            ['balance_date' => $day],
+            [
+                'opening_credit'   => number_format($opening, 4, '.', ''),
+                'purchases_credit' => number_format($purchases, 4, '.', ''),
+                'usage_amount'     => number_format($usageAmt, 4, '.', ''),
+                'closing_credit'   => number_format($closing, 4, '.', ''),
+                'recomputed_at'    => date('Y-m-d H:i:s'),
+            ]
+        );
+
+        // FIFO allocation for this day's usage
+        if ($usageAmt > 0) {
+            $alloc = CreditLedger::allocateUsage($usageAmt, $day, 'Portal billing usage');
+            if (!empty($alloc['allocated']) && empty($alloc['skipped'])) {
+                cbLog("FIFO allocated \${$alloc['allocated']} for {$day}");
+            }
+        }
+    }
+
+    Settings::setKv('last_balance_recompute_date', $end);
+    cbLog("Balance recompute complete through {$end}");
+}
+cbPhaseEnd('balance_recompute');
+
+cbFinish(0);
+
+/**
+ * Bulk INSERT IGNORE helper (no full-table COUNT scans).
+ */
+function cbBulkInsertIgnore(string $table, array $rows): int
+{
+    if (empty($rows)) {
+        return 0;
+    }
+
+    $inserted = 0;
+    foreach (array_chunk($rows, 500) as $chunk) {
+        // insertOrIgnore returns affected-row count via affectingStatement
+        $inserted += (int) Capsule::table($table)->insertOrIgnore($chunk);
+    }
+
+    return $inserted;
 }
 
-echo "[cometbilling] Balance recompute complete through $end\n";
+/**
+ * Compute opening balance before a date from full purchase/usage history.
+ */
+function cbComputeOpeningBalance(string $beforeDate): float
+{
+    $purchases = (float) Capsule::table('cb_credit_purchases')
+        ->where('purchased_at', '<', $beforeDate . ' 00:00:00')
+        ->sum(Capsule::raw('credit_amount + bonus_credit'));
+    $usage = (float) Capsule::table('cb_credit_usage')
+        ->where('usage_date', '<', $beforeDate)
+        ->sum('amount');
 
-
+    return $purchases - $usage;
+}

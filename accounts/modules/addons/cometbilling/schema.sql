@@ -113,6 +113,7 @@ CREATE TABLE IF NOT EXISTS cb_credit_allocations (
   description VARCHAR(255) NULL,
   allocations JSON NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_usage_date (usage_date),
   KEY idx_usage_date (usage_date)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 

@@ -35,6 +35,44 @@ class CreditLedger
             throw new \RuntimeException("Purchase not found: {$purchaseId}");
         }
 
+        // Idempotency: skip if any lots already exist for this purchase
+        $existing = Capsule::table('cb_credit_lots')
+            ->where('purchase_id', $purchaseId)
+            ->pluck('lot_type')
+            ->toArray();
+
+        if (!empty($existing)) {
+            $lotIds = Capsule::table('cb_credit_lots')
+                ->where('purchase_id', $purchaseId)
+                ->pluck('id')
+                ->toArray();
+
+            // Fill in any missing lot types (partial sync recovery)
+            $createdAt = $purchase->purchased_at;
+            if ((float) $purchase->credit_amount > 0 && !in_array(self::TYPE_PURCHASED, $existing, true)) {
+                $lotIds[] = Capsule::table('cb_credit_lots')->insertGetId([
+                    'purchase_id' => $purchaseId,
+                    'lot_type' => self::TYPE_PURCHASED,
+                    'original_amount' => $purchase->credit_amount,
+                    'remaining_amount' => $purchase->credit_amount,
+                    'created_at' => $createdAt,
+                    'depleted_at' => null,
+                ]);
+            }
+            if ((float) $purchase->bonus_credit > 0 && !in_array(self::TYPE_BONUS, $existing, true)) {
+                $lotIds[] = Capsule::table('cb_credit_lots')->insertGetId([
+                    'purchase_id' => $purchaseId,
+                    'lot_type' => self::TYPE_BONUS,
+                    'original_amount' => $purchase->bonus_credit,
+                    'remaining_amount' => $purchase->bonus_credit,
+                    'created_at' => $createdAt,
+                    'depleted_at' => null,
+                ]);
+            }
+
+            return array_map('intval', $lotIds);
+        }
+
         $lotIds = [];
         $createdAt = $purchase->purchased_at;
 
@@ -119,16 +157,23 @@ class CreditLedger
         self::ensureTables();
 
         if ($amount <= 0) {
-            return [];
+            return ['requested' => $amount, 'allocated' => 0, 'shortfall' => 0, 'allocations' => [], 'skipped' => true];
+        }
+
+        $usageDate = $usageDate ?? date('Y-m-d');
+
+        // Idempotency: one allocation per usage_date
+        if (Capsule::table('cb_credit_allocations')->where('usage_date', $usageDate)->exists()) {
+            return ['requested' => $amount, 'allocated' => 0, 'shortfall' => $amount, 'allocations' => [], 'skipped' => true];
         }
 
         $remaining = $amount;
         $allocations = [];
-        $usageDate = $usageDate ?? date('Y-m-d');
 
-        // Get available lots in FIFO order (oldest first)
+        // FIFO: purchased lots before bonus, then oldest first
         $lots = Capsule::table('cb_credit_lots')
             ->where('remaining_amount', '>', 0)
+            ->orderByRaw("FIELD(lot_type, 'purchased', 'adjustment', 'bonus')")
             ->orderBy('created_at', 'asc')
             ->orderBy('id', 'asc')
             ->get();
@@ -175,7 +220,23 @@ class CreditLedger
             'allocated' => $amount - $remaining,
             'shortfall' => $remaining,
             'allocations' => $allocations,
+            'skipped' => false,
         ];
+    }
+
+    /**
+     * Get allocation history records.
+     */
+    public static function getAllocations(int $limit = 100): array
+    {
+        self::ensureTables();
+
+        return Capsule::table('cb_credit_allocations')
+            ->orderBy('usage_date', 'desc')
+            ->orderBy('id', 'desc')
+            ->limit($limit)
+            ->get()
+            ->toArray();
     }
 
     /**
@@ -364,8 +425,28 @@ class CreditLedger
                 $table->string('description', 255)->nullable();
                 $table->json('allocations')->nullable();
                 $table->dateTime('created_at');
+                $table->unique('usage_date');
                 $table->index('usage_date');
             });
+        } else {
+            self::ensureAllocationUniqueIndex();
+        }
+    }
+
+    /**
+     * Add unique index on usage_date for idempotent allocations.
+     */
+    private static function ensureAllocationUniqueIndex(): void
+    {
+        $indexes = Capsule::select("SHOW INDEX FROM cb_credit_allocations WHERE Key_name = 'uq_usage_date'");
+        if (empty($indexes)) {
+            try {
+                Capsule::connection()->statement(
+                    'ALTER TABLE cb_credit_allocations ADD UNIQUE KEY uq_usage_date (usage_date)'
+                );
+            } catch (\Throwable $e) {
+                // Index may already exist under a different name
+            }
         }
     }
 
@@ -379,17 +460,24 @@ class CreditLedger
     {
         self::ensureTables();
 
-        // Find purchases without associated lots
         $purchases = Capsule::table('cb_credit_purchases')
-            ->leftJoin('cb_credit_lots', 'cb_credit_purchases.id', '=', 'cb_credit_lots.purchase_id')
-            ->whereNull('cb_credit_lots.id')
-            ->select('cb_credit_purchases.id')
+            ->select('cb_credit_purchases.id', 'cb_credit_purchases.credit_amount', 'cb_credit_purchases.bonus_credit')
             ->get();
 
         $count = 0;
         foreach ($purchases as $p) {
-            self::createLotsFromPurchase($p->id);
-            $count++;
+            $existingTypes = Capsule::table('cb_credit_lots')
+                ->where('purchase_id', $p->id)
+                ->pluck('lot_type')
+                ->toArray();
+
+            $needsPurchased = (float) $p->credit_amount > 0 && !in_array(self::TYPE_PURCHASED, $existingTypes, true);
+            $needsBonus = (float) $p->bonus_credit > 0 && !in_array(self::TYPE_BONUS, $existingTypes, true);
+
+            if ($needsPurchased || $needsBonus || empty($existingTypes)) {
+                self::createLotsFromPurchase((int) $p->id);
+                $count++;
+            }
         }
 
         return $count;

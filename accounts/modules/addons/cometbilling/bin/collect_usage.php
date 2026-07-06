@@ -23,6 +23,19 @@ if (file_exists($autoload)) {
     require_once $autoload;
 }
 
+spl_autoload_register(function ($class) {
+    $prefix = 'CometBilling\\';
+    $len = strlen($prefix);
+    if (strncmp($prefix, $class, $len) !== 0) {
+        return;
+    }
+    $relative = substr($class, $len);
+    $file = __DIR__ . '/../lib/' . str_replace('\\', '/', $relative) . '.php';
+    if (file_exists($file)) {
+        require_once $file;
+    }
+});
+
 // Also require the comet server module for the Comet SDK
 $cometAutoload = $root . '/modules/servers/comet/vendor/autoload.php';
 if (file_exists($cometAutoload)) {
@@ -31,6 +44,7 @@ if (file_exists($cometAutoload)) {
 
 use WHMCS\Database\Capsule;
 use CometBilling\ServerUsageCollector;
+use CometBilling\Settings;
 
 // Parse CLI arguments
 $verbose = false;
@@ -52,6 +66,8 @@ function logMsg(string $msg, bool $verbose): void {
 }
 
 logMsg("Starting usage collection...", $verbose);
+
+Settings::markJobRunning('collect_usage');
 
 try {
     // Collect from specified server or all servers
@@ -136,10 +152,17 @@ try {
     );
     logMsg("Saved combined snapshot for {$today}", $verbose);
 
+    Settings::markJobFinished(
+        'collect_usage',
+        'ok',
+        "Collected {$today}: " . count($allData['servers'] ?? []) . ' server(s)'
+    );
+
     logMsg("Usage collection complete.", $verbose);
     exit(0);
 
 } catch (\Exception $e) {
     logMsg("FATAL ERROR: " . $e->getMessage(), true);
+    Settings::markJobFinished('collect_usage', 'error', $e->getMessage());
     exit(1);
 }

@@ -213,6 +213,34 @@ class S3Billing {
         ]);
 
         try {
+            $billingController = new BillingController();
+            $displayPeriod = $billingController->calculateDisplayPeriod((int)$product->userid, (int)$product->packageid);
+            $rangeStart = $displayPeriod['start'] ?? date('Y-m-d', strtotime('-1 month'));
+            $rangeEnd = $displayPeriod['end_for_queries'] ?? date('Y-m-d');
+
+            // Live zero usage: no base fee; bypass MAX-over-window so stale $9 snapshots cannot resurrect.
+            if ((int) $totalBucketSize <= 0) {
+                DBController::savePrices([
+                    'user_id' => $userId,
+                    'amount' => 0.00,
+                    'usage_bytes' => 0,
+                ]);
+                $zeroed = $this->zeroInWindowPrices((int) $userId, $rangeStart, $rangeEnd);
+                Capsule::table('tblhosting')->where('id', $product->id)->update(['amount' => 0.00]);
+                $result['update_status'] = true;
+                logModuleCall(self::$module, 'updateProductPrice_zero_usage', [
+                    'user_id' => $userId,
+                    'service_id' => $product->id ?? null,
+                    'package_id' => $product->packageid ?? null,
+                    'window_start' => $rangeStart,
+                    'window_end' => $rangeEnd,
+                ], [
+                    'in_window_rows_zeroed' => $zeroed['updated'] ?? 0,
+                    'final_amount_written' => 0.00,
+                ]);
+                return $result;
+            }
+
             // Record the computed amount snapshot for this run
             DBController::savePrices([
                 'user_id' => $userId,
@@ -220,12 +248,6 @@ class S3Billing {
                 // Persist instantaneous usage bytes if the column exists (DBController will strip if absent)
                 'usage_bytes' => (int)$totalBucketSize
             ]);
-
-            // Use a rolling display period decoupled from nextduedate, so overdue cycles do not freeze updates
-            $billingController = new BillingController();
-            $displayPeriod = $billingController->calculateDisplayPeriod((int)$product->userid, (int)$product->packageid);
-            $rangeStart = $displayPeriod['start'] ?? date('Y-m-d', strtotime('-1 month'));
-            $rangeEnd = $displayPeriod['end_for_queries'] ?? date('Y-m-d'); // today
 
             // Capture the in-window MAX before the self-healing recompute, for audit visibility.
             $priorMax = DBController::getHighestAmount($userId, $rangeStart, $rangeEnd);
@@ -280,8 +302,9 @@ class S3Billing {
      * Compute the billable monthly amount (CAD) for a given usage in bytes,
      * using the configured base fee and per-GiB overage rate.
      *
-     * Pricing model:
-     *   - <= 1 TiB: flat $baseFee (covers the first 1 TiB)
+     * Pricing model (usage-gated):
+     *   - 0 bytes: $0 (no base fee until billable usage exists)
+     *   - > 0 and <= 1 TiB: flat $baseFee (covers the first 1 TiB)
      *   - > 1 TiB:  $baseFee + (excess GiB * $overageRatePerGiB)
      *
      * Result is rounded UP to the next cent to match prior behavior. The math
@@ -296,6 +319,9 @@ class S3Billing {
     private function computeAmountForBytes($bytes, $baseFee, $overageRatePerGiB)
     {
         $bytes = (int)$bytes;
+        if ($bytes <= 0) {
+            return 0.00;
+        }
         $tib = $bytes / (1024 * 1024 * 1024 * 1024);
         $gib = $bytes / (1024 * 1024 * 1024);
 
@@ -318,6 +344,7 @@ class S3Billing {
      *   - rows whose created_at falls within the rolling display window.
      *
      * The CASE expression mirrors computeAmountForBytes() exactly:
+     *   - usage_bytes = 0 -> $0
      *   - usage_bytes <= 1 TiB (1024^4 = 1099511627776) -> flat base fee
      *   - otherwise           -> base + (gib - 1024) * rate
      * CEIL(... * 100) / 100 mirrors PHP's ceil($amount * 100) / 100.
@@ -343,6 +370,8 @@ class S3Billing {
             UPDATE s3_prices
             SET amount = CEIL(
                 CASE
+                    WHEN usage_bytes = 0
+                        THEN 0
                     WHEN usage_bytes <= 1099511627776
                         THEN ?
                     ELSE ? + ((usage_bytes / 1073741824.0) - 1024) * ?
@@ -371,6 +400,31 @@ class S3Billing {
                 'window_end' => $rangeEnd,
                 'base_fee_cad' => $baseFee,
                 'overage_rate_per_gib_cad' => $overageRatePerGiB,
+            ], $e->getMessage());
+            return ['updated' => 0, 'skipped_reason' => 'sql_error'];
+        }
+    }
+
+    /**
+     * Zero in-window s3_prices snapshots for a user with live zero billable usage.
+     * Clears stale base-fee rows from the prior pricing model within the display window.
+     *
+     * @return array{updated:int, skipped_reason?:string}
+     */
+    private function zeroInWindowPrices($userId, $rangeStart, $rangeEnd)
+    {
+        try {
+            $updated = Capsule::table('s3_prices')
+                ->where('user_id', (int) $userId)
+                ->where('created_at', '>=', $rangeStart . ' 00:00:00')
+                ->where('created_at', '<=', $rangeEnd . ' 23:59:59')
+                ->update(['amount' => 0.00]);
+            return ['updated' => (int) $updated];
+        } catch (\Throwable $e) {
+            logModuleCall(self::$module, 'zeroInWindowPrices_fail', [
+                'user_id' => $userId,
+                'window_start' => $rangeStart,
+                'window_end' => $rangeEnd,
             ], $e->getMessage());
             return ['updated' => 0, 'skipped_reason' => 'sql_error'];
         }

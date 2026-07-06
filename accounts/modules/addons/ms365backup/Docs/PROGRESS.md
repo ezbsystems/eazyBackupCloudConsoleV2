@@ -2,7 +2,7 @@
 
 **Purpose:** Single handoff document so the next agent knows where work stopped. Update this file at the **end of every session** (or after each meaningful milestone).
 
-**Last updated:** 2026-07-04  
+**Last updated:** 2026-07-06  
 **Module version (ms365backup):** 1.52.1  
 **Cloudstorage (e3) version:** 2.2.0  
 **Worker version (ms365-backup-worker):** 0.3.47 (built; deploy via Fleet)
@@ -10,6 +10,24 @@
 ---
 
 ## Session log
+
+### 2026-07-06 — Usage-gated object storage base fee (Option B)
+
+- **Problem:** Unified MS365 signup still provisions `pid_cloud_storage` ($9/mo); MS365 data lives in platform `e3ms365-*` buckets excluded from billable usage, but `computeAmountForBytes(0)` charged the flat $9 base anyway.
+- **Fix:** `S3Billing::computeAmountForBytes()` returns `$0` when `bytes <= 0`. Live-zero branch in `updateProductPrice()` bypasses MAX-over-window, zeros in-window `s3_prices`, sets `tblhosting.amount = 0`. SQL CASE parity in `recomputeInWindowPrices()`.
+- **Reconcile:** `accounts/crons/s3billing_reconcile_zero_usage.php` — one-time full billing pass (safe to re-run).
+- **Catalog:** `cloudstorage_upgrade()` zeros `tblpricing.monthly` for `pid_cloud_storage` so WHMCS does not bill a static $9 outside `S3Billing`.
+- **Tests:** `tests/s3billing_usage_gated_test.php` (0 B / 1 B / 1 TiB / 2 TiB + SQL parity).
+- **Docs:** `E3_CLOUD_BACKUP_BILLING.md` usage-gated section; `storage_base_fee_cad` config description updated.
+
+### 2026-07-06 — Unified global Job Logs (MS365 + agent + cloud-to-cloud)
+
+- **Diagnosis:** MS365 parent runs already live in `s3_cloudbackup_runs` and were returned by `e3backup_run_list.php`; global page felt agent-only due to copy, empty Agent column, 24h default window, and e3-agent product gate on log modal APIs.
+- **Backend:** New `E3BackupRunListService` — workload categorization (`ms365` / `local_agent` / `cloud_to_cloud`), enriched rows (`workload_label`, `source_type`, `job_id`), `workload[]` filter, extended search (job name, agent hostname, backup user, source display name), `COALESCE(started_at, created_at)` time cutoff.
+- **API:** `e3backup_run_list.php` delegates to service; `cloudbackup_get_run_logs.php` + `cloudbackup_cancel_run.php` use `E3BackupAccess::clientHasE3BackupAccess()` (MS365-only customers can open logs / cancel).
+- **UI:** `e3backup_job_logs.tpl` — workload filter chips, Source column (`workload_label`), Microsoft 365 engine label, global 72h default, updated page copy; sidebar Job Logs enabled for `ebMs365Only` without agent enrollment.
+- **Tests:** `tests/e3backup_run_list_service_test.php` (categorization + labels).
+- **Verify:** Staging client 2574 — 18 MS365 + 216 local-agent runs in 72h window; workload filters return correct totals; MS365 run ownership + log path OK.
 
 ### 2026-07-04 — Unified Getting Started hub + welcome ms365 signup fixes (cloudstorage 2.2.0)
 

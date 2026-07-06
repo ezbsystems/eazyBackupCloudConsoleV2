@@ -6,7 +6,7 @@
     {assign var=ebE3JobLogsPageDescription value='All backup runs for this user. Filter by time range and status, then open any run to view its log.'}
 {else}
     {assign var=ebE3JobLogsPageTitle value='Job Logs'}
-    {assign var=ebE3JobLogsPageDescription value='All backup runs across your agents. Filter by time range and status, then open any run to view its log.'}
+    {assign var=ebE3JobLogsPageDescription value='All backup runs across Microsoft 365, cloud sources, and local agents. Filter by workload, time range, and status, then open any run to view its log.'}
 {/if}
 
 {capture assign=ebE3Content}
@@ -28,7 +28,20 @@
                 <span class="eb-chip-count" x-text="statusCounts[chip.key] || 0"></span>
             </button>
         </template>
-        <button type="button" class="eb-link text-sm" x-show="activeStatuses.length" @click="activeStatuses=[]; reload()">Clear</button>
+        <button type="button" class="eb-link text-sm" x-show="activeStatuses.length" @click="activeStatuses=[]; reload()">Clear status</button>
+    </div>
+
+    {* Workload filter chips *}
+    <div class="flex flex-wrap items-center gap-2">
+        <template x-for="chip in workloadChips" :key="chip.key">
+            <button type="button"
+                    class="eb-chip"
+                    :class="activeWorkloads.includes(chip.key) ? 'is-active' : ''"
+                    @click="toggleWorkload(chip.key)">
+                <span x-text="chip.label"></span>
+            </button>
+        </template>
+        <button type="button" class="eb-link text-sm" x-show="activeWorkloads.length" @click="activeWorkloads=[]; reload()">Clear workload</button>
     </div>
 
     <div class="eb-subpanel">
@@ -46,7 +59,7 @@
                         <div class="eb-menu-checklist two-col">
                             <label class="eb-menu-checklist-item"><span>Started</span><input type="checkbox" class="eb-checkbox" x-model="cols.started"></label>
                             <label class="eb-menu-checklist-item" x-show="showJobCol"><span>Job</span><input type="checkbox" class="eb-checkbox" x-model="cols.job"></label>
-                            <label class="eb-menu-checklist-item"><span>Agent</span><input type="checkbox" class="eb-checkbox" x-model="cols.agent"></label>
+                            <label class="eb-menu-checklist-item"><span>Source</span><input type="checkbox" class="eb-checkbox" x-model="cols.agent"></label>
                             <label class="eb-menu-checklist-item" x-show="showUserCol"><span>User</span><input type="checkbox" class="eb-checkbox" x-model="cols.user"></label>
                             <label class="eb-menu-checklist-item"><span>Engine</span><input type="checkbox" class="eb-checkbox" x-model="cols.engine"></label>
                             <label class="eb-menu-checklist-item"><span>Type</span><input type="checkbox" class="eb-checkbox" x-model="cols.type"></label>
@@ -118,7 +131,7 @@
             <div class="flex items-center gap-3 min-w-0 w-full sm:w-auto">
                 <input type="search"
                        class="eb-input w-full xl:w-80"
-                       placeholder="Search jobs..."
+                       placeholder="Search jobs, users, or sources..."
                        x-model.debounce.400ms="search"
                        @input="page=1; reload()">
             </div>
@@ -130,7 +143,7 @@
                     <tr>
                         <th x-show="cols.started" class="cursor-pointer" @click="setSort('started')">Started</th>
                         <th x-show="cols.job && showJobCol" class="cursor-pointer" @click="setSort('job')">Job</th>
-                        <th x-show="cols.agent" class="cursor-pointer" @click="setSort('agent')">Agent</th>
+                        <th x-show="cols.agent" class="cursor-pointer" @click="setSort('source')">Source</th>
                         <th x-show="cols.user && showUserCol">User</th>
                         <th x-show="cols.engine" class="whitespace-nowrap">Engine</th>
                         <th x-show="cols.type" class="whitespace-nowrap">Type</th>
@@ -158,7 +171,7 @@
                         <tr class="cursor-pointer" @click="openRunRow(row)" :title="isLiveRunRow(row) ? 'View live progress' : 'Click to view log'">
                             <td x-show="cols.started" class="eb-table-primary" x-text="fmtDate(row.started_at)"></td>
                             <td x-show="cols.job && showJobCol" x-text="row.job_name || '-'"></td>
-                            <td x-show="cols.agent" x-text="row.agent_hostname || '-'"></td>
+                            <td x-show="cols.agent" x-text="sourceLabel(row)"></td>
                             <td x-show="cols.user && showUserCol" x-text="row.username || '-'"></td>
                             <td x-show="cols.engine" class="whitespace-nowrap">
                                 <span class="eb-badge eb-badge--neutral whitespace-nowrap" x-text="engineLabel(row.engine)"></span>
@@ -249,9 +262,10 @@ function e3JobLogsApp() {
         page: 1,
         pageSize: 25,
         pageSizeOptions: [10, 25, 50, 100],
-        rangeHours: 24,
+        rangeHours: 72,
         rangeOptions: [24, 48, 60, 72],
         activeStatuses: [],
+        activeWorkloads: [],
         statusCounts: {},
         search: '',
         sortBy: 'started',
@@ -284,6 +298,11 @@ function e3JobLogsApp() {
             { key: 'running', label: 'Running', dot: 'eb-status-dot--pending' },
             { key: 'success', label: 'Success', dot: 'eb-status-dot--active' }
         ],
+        workloadChips: [
+            { key: 'ms365', label: 'Microsoft 365' },
+            { key: 'local_agent', label: 'Local agent' },
+            { key: 'cloud_to_cloud', label: 'Cloud-to-cloud' }
+        ],
         init() {
             var scope = window.__ebE3JobLogsScope || {};
             this.scopeUserId = scope.userRouteId ? String(scope.userRouteId) : '';
@@ -295,6 +314,10 @@ function e3JobLogsApp() {
             if (this.scopeJobId) {
                 this.showJobCol = false;
                 this.cols.job = false;
+                this.rangeHours = 72;
+            } else if (this.scopeUserId) {
+                this.rangeHours = 24;
+            } else {
                 this.rangeHours = 72;
             }
             try {
@@ -344,8 +367,14 @@ function e3JobLogsApp() {
                 case 'sync': return 'File/Folder';
                 case 'disk_image': return 'Disk Image';
                 case 'hyperv': return 'Hyper-V';
+                case 'ms365': return 'Microsoft 365';
                 default: return e ? (e.charAt(0).toUpperCase() + e.slice(1)) : 'File/Folder';
             }
+        },
+        sourceLabel(row) {
+            if (row && row.workload_label) return row.workload_label;
+            if (row && row.agent_hostname) return row.agent_hostname;
+            return '-';
         },
         statusBadge(row) {
             const meta = row && typeof row === 'object' ? row : { status: row };
@@ -362,6 +391,12 @@ function e3JobLogsApp() {
         toggleStatus(key) {
             var i = this.activeStatuses.indexOf(key);
             if (i === -1) { this.activeStatuses.push(key); } else { this.activeStatuses.splice(i, 1); }
+            this.page = 1;
+            this.reload();
+        },
+        toggleWorkload(key) {
+            var i = this.activeWorkloads.indexOf(key);
+            if (i === -1) { this.activeWorkloads.push(key); } else { this.activeWorkloads.splice(i, 1); }
             this.page = 1;
             this.reload();
         },
@@ -408,9 +443,10 @@ function e3JobLogsApp() {
             if (!window.ebE3RunModal) return;
             window.ebE3RunModal.open(row.run_id, {
                 jobName: row.job_name,
-                agent: row.agent_hostname,
+                agent: this.sourceLabel(row),
                 user: row.username,
                 engine: this.engineLabel(row.engine),
+                workload_label: this.sourceLabel(row),
                 status: row.status,
                 schedule_skipped: !!row.schedule_skipped,
                 error_summary: row.error_summary || '',
@@ -433,6 +469,7 @@ function e3JobLogsApp() {
             if (this.scopeUserId) params.set('user_id', this.scopeUserId);
             if (this.scopeJobId) params.set('job_id', this.scopeJobId);
             this.activeStatuses.forEach(function (s) { params.append('statuses[]', s); });
+            this.activeWorkloads.forEach(function (w) { params.append('workload[]', w); });
             fetch('modules/addons/cloudstorage/api/e3backup_run_list.php?' + params.toString(), { credentials: 'same-origin' })
                 .then(function (r) { return r.json(); })
                 .then((data) => {

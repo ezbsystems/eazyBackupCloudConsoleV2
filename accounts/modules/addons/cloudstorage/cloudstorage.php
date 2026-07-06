@@ -226,7 +226,7 @@ function cloudstorage_config()
                 'Type' => 'text',
                 'Size' => '10',
                 'Default' => '9.00',
-                'Description' => 'Flat monthly base fee covering the first 1 TiB of object storage usage. Default: 9.00.',
+                'Description' => 'Monthly base fee for the first 1 TiB when billable usage is greater than zero. Zero-usage accounts are not charged. Default: 9.00.',
             ],
             'storage_overage_per_gib_cad' => [
                 'FriendlyName' => 'Storage Overage Rate (CAD / GiB / month)',
@@ -1496,6 +1496,33 @@ function cloudstorage_ensure_e3bu_product(string $context = 'activate'): void
         }
     } catch (\Throwable $e) {
         logModuleCall('cloudstorage', "{$context}_e3bu_product_bootstrap_exception", [], $e->getMessage(), [], []);
+    }
+}
+
+/**
+ * Zero tblpricing.monthly for pid_cloud_storage so WHMCS does not bill a static
+ * catalog base fee; S3Billing sets tblhosting.amount from live usage each cron.
+ */
+function cloudstorage_zero_storage_tblpricing_base(string $context = 'activate'): void
+{
+    try {
+        $pid = (int) Capsule::table('tbladdonmodules')
+            ->where('module', 'cloudstorage')
+            ->where('setting', 'pid_cloud_storage')
+            ->value('value');
+        if ($pid <= 0) {
+            $pid = 48;
+        }
+        $updated = Capsule::table('tblpricing')
+            ->where('type', 'product')
+            ->where('relid', $pid)
+            ->where('monthly', '>', 0)
+            ->update(['monthly' => '0.00']);
+        if ($updated > 0) {
+            logModuleCall('cloudstorage', $context, [], "Zeroed tblpricing.monthly for pid_cloud_storage ({$pid})", [], []);
+        }
+    } catch (\Throwable $e) {
+        logModuleCall('cloudstorage', "{$context}_zero_storage_tblpricing_fail", [], $e->getMessage(), [], []);
     }
 }
 
@@ -5656,6 +5683,7 @@ function cloudstorage_upgrade($vars) {
         cloudstorage_ensure_e3cb_billing_schema('upgrade');
         cloudstorage_ensure_e3cb_product('upgrade');
         cloudstorage_ensure_e3bu_product('upgrade');
+        cloudstorage_zero_storage_tblpricing_base('upgrade');
         return ['status' => 'success'];
     } catch (\Exception $e) {
         logModuleCall('cloudstorage', 'upgrade', $vars, $e->getMessage());

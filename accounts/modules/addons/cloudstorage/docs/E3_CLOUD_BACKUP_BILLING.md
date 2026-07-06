@@ -8,6 +8,9 @@ alongside the dedicated `e3 Cloud Backup` WHMCS product.
 - Two WHMCS products serve a single customer: **e3 Object Storage**
   (existing, bills storage usage) and **e3 Cloud Backup** (new, bills compute
   via config options).
+- **e3 Object Storage** is usage-gated: `$0` when billable usage is zero;
+  `$9` base fee (first 1 TiB included) applies only once real, non-MS365
+  usage exists; overage above 1 TiB is unchanged.
 - The new product is auto-provisioned by `cloudstorage_activate()` /
   `cloudstorage_upgrade()` with five config options:
   `endpoint`, `disk_image`, `hyperv_vm`, `proxmox_vm`, `vmware_vm`.
@@ -102,6 +105,35 @@ When `e3_backup_user_unified_enabled` is on in cloudstorage addon settings:
 - MS365 `trialDays()` and OneDrive overage price fall back to `e3cb_trial_days` and `storage_overage_per_gib_cad` for unified services.
 
 Grandfathered clients on standalone `pid_e3_cloud_backup` / `pid_ms365_backup` are unchanged until the rollout flag is enabled for new users only.
+
+## e3 Object Storage (usage-gated base fee)
+
+Metered by `S3Billing` (`lib/Admin/S3Billing.php`), invoked hourly from
+`accounts/crons/s3Billing.php`:
+
+| Billable usage (non-MS365 buckets) | Monthly amount |
+| ---------------------------------- | -------------- |
+| `0` bytes | `$0.00` |
+| `> 0` and `<= 1 TiB` | `$9.00` base (`storage_base_fee_cad`) |
+| `> 1 TiB` | `$9.00` + overage (`storage_overage_per_gib_cad`) |
+
+- MS365 platform buckets (`e3ms365-*`) are excluded from billable usage, so
+  MS365-only unified-signup clients bill `$0` for object storage.
+- `tblhosting.amount` on the cloud storage service is the invoiced recurring
+  value; `S3Billing` writes it each cron run from live usage (MAX-over-window
+  for customers with usage; direct `$0` for live-zero to avoid stale snapshots).
+- `tblpricing.monthly` for `pid_cloud_storage` is `$0` so WHMCS does not apply
+  an independent catalog base fee; the dynamic amount from `S3Billing` governs.
+
+**One-time reconcile after deploy** (safe to re-run):
+
+```bash
+php /var/www/eazybackup.ca/accounts/crons/s3billing_reconcile_zero_usage.php
+```
+
+This runs a full billing pass so existing zero-usage services (empty buckets,
+MS365-only clients) drop from `$9` to `$0` immediately. Past `$9` charges are
+not credited automatically.
 
 ## Developer notes
 

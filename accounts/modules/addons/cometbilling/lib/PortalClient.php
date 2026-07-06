@@ -2,6 +2,7 @@
 namespace CometBilling;
 
 use GuzzleHttp\Client;
+use GuzzleHttp\Exception\GuzzleException;
 
 class PortalClient
 {
@@ -18,6 +19,7 @@ class PortalClient
             'base_uri'        => rtrim($this->baseUrl, '/'),
             'timeout'         => $this->timeoutSeconds,
             'connect_timeout' => 15,
+            'http_errors'     => false,
         ]);
     }
 
@@ -30,18 +32,46 @@ class PortalClient
         return $h;
     }
 
+  /**
+     * @throws \RuntimeException on HTTP or transport errors
+     */
     private function post(string $path, array $form = []): array
     {
-        $resp = $this->client()->post($path, [
-            'headers'     => $this->headers(),
-            'form_params' => array_merge(['format' => 'json', 'auth_type' => 'token'], $form),
-            'read_timeout'=> $this->timeoutSeconds,
-        ]);
-        $json = (string) $resp->getBody();
-        $data = json_decode($json, true);
-        if (!is_array($data)) {
-            return [];
+        try {
+            $resp = $this->client()->post($path, [
+                'headers'      => $this->headers(),
+                'form_params'  => array_merge(['format' => 'json', 'auth_type' => 'token'], $form),
+                'read_timeout' => $this->timeoutSeconds,
+            ]);
+        } catch (GuzzleException $e) {
+            throw new \RuntimeException(
+                "Portal API request failed ({$path}): " . $e->getMessage(),
+                0,
+                $e
+            );
         }
+
+        $status = $resp->getStatusCode();
+        $body = (string) $resp->getBody();
+
+        if ($status < 200 || $status >= 300) {
+            $snippet = mb_substr(trim($body), 0, 200);
+            throw new \RuntimeException(
+                "Portal API returned HTTP {$status} for {$path}" . ($snippet !== '' ? ": {$snippet}" : '')
+            );
+        }
+
+        if ($body === '') {
+            throw new \RuntimeException("Portal API returned empty response for {$path}");
+        }
+
+        $data = json_decode($body, true);
+        if (!is_array($data)) {
+            throw new \RuntimeException(
+                "Portal API returned non-JSON response for {$path}: " . mb_substr($body, 0, 200)
+            );
+        }
+
         return $data;
     }
 
@@ -55,5 +85,3 @@ class PortalClient
         return $this->post('/api/v1/report/active_services', $params);
     }
 }
-
-

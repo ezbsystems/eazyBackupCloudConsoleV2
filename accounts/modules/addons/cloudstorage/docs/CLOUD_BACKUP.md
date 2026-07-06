@@ -179,7 +179,8 @@ accounts/modules/addons/cloudstorage/
 │       ├── CloudBackupEmailService.php # Email notification service
 │       ├── CloudBackupNotificationPolicy.php # Shared notification resolver
 │       ├── BackupUserNotificationSettingsService.php # Per-user notification CRUD
-│       └── CloudBackupLogFormatter.php # Legacy rclone log formatter (fallback/transition)
+│       ├── CloudBackupLogFormatter.php # Legacy rclone log formatter (fallback/transition)
+│       └── E3BackupRunListService.php  # Unified Job Logs list query + workload categorization
 ├── pages/
 │   ├── e3backup_jobs.php              # Job list page
 │   ├── e3backup_job_logs.php          # Global / scoped job logs page
@@ -200,7 +201,8 @@ accounts/modules/addons/cloudstorage/
 │   ├── cloudbackup_cancel_run.php     # Cancel run endpoint
 │   ├── cloudbackup_progress.php       # Progress polling endpoint
 │   ├── cloudbackup_get_run_events.php # Get sanitized event stream for a run (primary)
-│   └── cloudbackup_get_run_logs.php   # Legacy: formatted rclone logs (fallback/admin)
+│   ├── cloudbackup_get_run_logs.php   # Legacy: formatted rclone logs (fallback/admin)
+│   └── e3backup_run_list.php          # Paginated run list for Job Logs (all workload types)
 └── docs/
     ├── CLOUD_BACKUP.md                # This file
     └── CLOUD_BACKUP_TASKS.md          # Phase task list
@@ -243,7 +245,7 @@ Access via: `index.php?m=cloudstorage&page=e3backup&view=<view>`
 **Views**:
 
 - `jobs` - Job list and creation wizard
-- `job_logs` - Run history across all jobs (optionally filtered by user or job)
+- `job_logs` - Run history across **all** backup workloads: Microsoft 365, cloud-to-cloud (rclone worker), and e3 local agent. One row per parent run in `s3_cloudbackup_runs`. Optional scope: `user_id`, `job_id`. UI workload chips filter `ms365`, `local_agent`, `cloud_to_cloud`. Data API: `api/e3backup_run_list.php` (`workload[]`, `statuses[]`, `range_hours`, `q`, pagination). Log modal uses `cloudbackup_get_run_logs.php` (MS365 batches aggregate child logs via `Ms365BatchLiveService`).
 - `live` - Live progress view for a running job
 
 ### Job Cards – Button Actions

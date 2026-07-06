@@ -191,7 +191,7 @@
     function renderSummary() {
         var m = state.meta || {};
         setText('ebE3RunSummaryJob', m.jobName || 'Backup run');
-        setText('ebE3RunSummaryAgent', m.agent || '-');
+        setText('ebE3RunSummaryAgent', m.workload_label || m.agent || '-');
         setText('ebE3RunSummaryUser', m.user || '-');
         setText('ebE3RunSummaryEngine', engineDisplayLabel(m.engine));
         setText('ebE3RunSummaryStarted', m.started || '-');

@@ -22,6 +22,19 @@ if (file_exists($autoload)) {
     require_once $autoload;
 }
 
+spl_autoload_register(function ($class) {
+    $prefix = 'CometBilling\\';
+    $len = strlen($prefix);
+    if (strncmp($prefix, $class, $len) !== 0) {
+        return;
+    }
+    $relative = substr($class, $len);
+    $file = __DIR__ . '/../lib/' . str_replace('\\', '/', $relative) . '.php';
+    if (file_exists($file)) {
+        require_once $file;
+    }
+});
+
 // Also require the comet server module for the Comet SDK
 $cometAutoload = $root . '/modules/servers/comet/vendor/autoload.php';
 if (file_exists($cometAutoload)) {
@@ -34,6 +47,7 @@ use CometBilling\Reconciler;
 $verbose = false;
 $save = false;
 $jsonOutput = false;
+$live = false;
 
 foreach ($argv as $arg) {
     if ($arg === '--verbose' || $arg === '-v') {
@@ -44,6 +58,9 @@ foreach ($argv as $arg) {
     }
     if ($arg === '--json' || $arg === '-j') {
         $jsonOutput = true;
+    }
+    if ($arg === '--live') {
+        $live = true;
     }
 }
 
@@ -59,7 +76,7 @@ if (!$jsonOutput) {
 
 try {
     // Run comparison
-    $report = Reconciler::compare();
+    $report = $live ? Reconciler::compareLive() : Reconciler::compare();
 
     // JSON output mode
     if ($jsonOutput) {
@@ -85,6 +102,7 @@ try {
         $variance = $item['variance'] >= 0 ? "+{$item['variance']}" : "{$item['variance']}";
         $statusIcon = match($item['status']) {
             'ok' => '✓',
+            'warning' => '~',
             'over_billed' => '⚠️ OVER',
             'under_billed' => '⚠️ UNDER',
             default => '?',

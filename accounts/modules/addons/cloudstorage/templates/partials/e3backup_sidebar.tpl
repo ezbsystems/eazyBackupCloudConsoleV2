@@ -112,10 +112,10 @@
                 <span x-show="!sidebarCollapsed" x-transition.opacity>Vaults</span>
             </a>
 
-            <a href="{if not $ebCanBrowseAgentFeatures}{$ebEnableAgentUrl}{elseif $ebHasE3AgentProduct and not $ebE3HasAgents}#{else}index.php?m=cloudstorage&page=e3backup&view=job_logs{/if}"
-               class="eb-sidebar-link {if not $ebCanBrowseAgentFeatures}{elseif $ebHasE3AgentProduct and not $ebE3HasAgents}is-disabled{elseif $activeNav eq 'job_logs'}is-active{/if}"
+            <a href="{if not $ebCanBrowseAgentFeatures}{$ebEnableAgentUrl}{elseif $ebHasE3AgentProduct and not $ebE3HasAgents and not $ebMs365Only}#{else}index.php?m=cloudstorage&page=e3backup&view=job_logs{/if}"
+               class="eb-sidebar-link {if not $ebCanBrowseAgentFeatures}{elseif $ebHasE3AgentProduct and not $ebE3HasAgents and not $ebMs365Only}is-disabled{elseif $activeNav eq 'job_logs'}is-active{/if}"
                {if not $ebCanBrowseAgentFeatures}title="Enable workstation & server backup to use this"
-               {elseif $ebHasE3AgentProduct and not $ebE3HasAgents}aria-disabled="true" onclick="return false;" tabindex="-1" title="Available after you enroll an agent"{/if}
+               {elseif $ebHasE3AgentProduct and not $ebE3HasAgents and not $ebMs365Only}aria-disabled="true" onclick="return false;" tabindex="-1" title="Available after you enroll an agent"{/if}
                :class="sidebarCollapsed && 'justify-center px-4'"
                :title="sidebarCollapsed ? 'Job Logs' : ''">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">

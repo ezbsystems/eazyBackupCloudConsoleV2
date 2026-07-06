@@ -88,9 +88,12 @@ class PortalUsageExtractor
 
             switch ($type) {
                 case 'device':
-                    $totals['devices']['count']++;
+                    $deviceQty = $qty > 0 ? $qty : 1;
+                    $totals['devices']['count'] += $deviceQty;
                     $totals['devices']['amount'] += $amount;
-                    $totals['devices']['items'][] = self::extractDeviceInfo($serviceName, $row);
+                    $info = self::extractDeviceInfo($serviceName, $row);
+                    $info['quantity'] = $deviceQty;
+                    $totals['devices']['items'][] = $info;
                     break;
 
                 case 'booster':
@@ -280,16 +283,54 @@ class PortalUsageExtractor
      */
     public static function getSummary(): array
     {
-        $full = self::getLatestSnapshot();
-        
-        // Remove detailed items for summary view
-        $summary = $full;
-        foreach (['devices', 'hyperv_vms', 'vmware_vms', 'proxmox_vms', 'disk_image', 'mssql', 'm365_accounts', 'other_boosters'] as $key) {
-            if (isset($summary[$key]['items'])) {
-                unset($summary[$key]['items']);
+        return self::stripItems(self::getLatestSnapshot());
+    }
+
+    /**
+     * Find a portal snapshot pulled_at closest to a target datetime.
+     */
+    public static function findSnapshotNear(string $targetDatetime, int $toleranceHours = 48): ?string
+    {
+        $snapshots = Capsule::table('cb_active_services')
+            ->select('pulled_at')
+            ->groupBy('pulled_at')
+            ->orderBy('pulled_at', 'desc')
+            ->pluck('pulled_at')
+            ->toArray();
+
+        if (empty($snapshots)) {
+            return null;
+        }
+
+        $targetTs = strtotime($targetDatetime);
+        $best = null;
+        $bestDiff = PHP_INT_MAX;
+
+        foreach ($snapshots as $pulledAt) {
+            $diff = abs(strtotime($pulledAt) - $targetTs);
+            if ($diff < $bestDiff) {
+                $bestDiff = $diff;
+                $best = $pulledAt;
             }
         }
-        
-        return $summary;
+
+        if ($best === null || $bestDiff > $toleranceHours * 3600) {
+            return null;
+        }
+
+        return $best;
+    }
+
+    /**
+     * Remove detailed line items from aggregated totals.
+     */
+    public static function stripItems(array $data): array
+    {
+        foreach (['devices', 'hyperv_vms', 'vmware_vms', 'proxmox_vms', 'disk_image', 'mssql', 'm365_accounts', 'other_boosters'] as $key) {
+            if (isset($data[$key]['items'])) {
+                unset($data[$key]['items']);
+            }
+        }
+        return $data;
     }
 }
