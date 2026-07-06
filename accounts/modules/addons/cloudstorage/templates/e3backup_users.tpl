@@ -745,16 +745,16 @@ function backupUsersApp() {
             online_devices: true
         },
 
-        init() {
+        async init() {
             if (!this.isMspClient) {
                 this.columnState.tenant = false;
             } else {
                 this.loadCanonicalTenants();
             }
-            this.loadUsers();
+            await this.loadUsers();
             try {
                 const params = new URLSearchParams(window.location.search);
-                if (params.get('create') === '1') {
+                if (params.get('create') === '1' && this.users.length === 0) {
                     this.$nextTick(() => this.openCreateModal());
                 }
             } catch (e) {}
