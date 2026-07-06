@@ -55,7 +55,7 @@ final class RestoreTreeBrowseService
             }
         }
 
-        $cacheKey = hash('sha256', 'v9-onedrive-root-heal' . "\0" . $manifestId . "\0" . $path);
+        $cacheKey = hash('sha256', 'v11-sharepoint-lists-paths' . "\0" . $manifestId . "\0" . $path);
         $cached = self::readCache($cacheKey);
         if ($cached !== null) {
             return $cached;
@@ -158,7 +158,8 @@ final class RestoreTreeBrowseService
             ];
         }
         if (str_starts_with($physicalKey, 'site:')) {
-            $siteRoot = $base . '/sites/' . $graphId;
+            $siteSegment = PhysicalKeyHelper::storageSafeId($graphId);
+            $siteRoot = $base . '/sites/' . $siteSegment;
             $out = [];
             if (self::scopeShowsWorkload($scope, BackupScope::FILES)) {
                 $out[] = ['label' => 'Files', 'path' => $siteRoot];
@@ -539,6 +540,11 @@ final class RestoreTreeBrowseService
                 $candidates[] = $alias;
             }
         }
+        foreach (self::sharePointBrowsePathAliases($path, $childRun) as $alias) {
+            if ($alias !== '' && !in_array($alias, $candidates, true)) {
+                $candidates[] = $alias;
+            }
+        }
 
         $lastError = null;
         foreach ($candidates as $candidate) {
@@ -575,6 +581,44 @@ final class RestoreTreeBrowseService
             $graphId = (string) ($childRun['graph_id'] ?? $childRun['user_id'] ?? '');
             if ($graphId !== '' && preg_match('#^([^/]+)/drives/#', $path, $tenantMatch) === 1) {
                 $aliases[] = $tenantMatch[1] . '/users/' . $graphId . '/onedrive/content';
+            }
+        }
+
+        return $aliases;
+    }
+
+    /**
+     * SharePoint site IDs in Graph use commas (hostname,guid,guid); Kopia stores sanitized segments.
+     *
+     * @return list<string>
+     */
+    private static function sharePointBrowsePathAliases(string $path, ?array $childRun): array
+    {
+        if (!preg_match('#^([^/]+)/sites/([^/]+)(/.*)?$#', $path, $m)) {
+            return [];
+        }
+
+        $tenant = $m[1];
+        $siteSeg = $m[2];
+        $rest = $m[3] ?? '';
+        $aliases = [];
+
+        $sanitized = PhysicalKeyHelper::storageSafeId($siteSeg);
+        if ($sanitized !== $siteSeg) {
+            $aliases[] = $tenant . '/sites/' . $sanitized . $rest;
+        }
+
+        if ($childRun !== null) {
+            $graphId = trim((string) ($childRun['graph_id'] ?? $childRun['user_id'] ?? ''));
+            if ($graphId !== '' && $graphId !== $siteSeg) {
+                $aliases[] = $tenant . '/sites/' . $graphId . $rest;
+            }
+            if ($graphId !== '') {
+                $safeFromRun = PhysicalKeyHelper::storageSafeId($graphId);
+                $safePath = $tenant . '/sites/' . $safeFromRun . $rest;
+                if ($safePath !== $path) {
+                    $aliases[] = $safePath;
+                }
             }
         }
 
@@ -640,7 +684,10 @@ final class RestoreTreeBrowseService
             return false;
         }
 
-        return preg_match('#/(mail|calendars?|contacts|tasks|onedrive/content|drives/[^/]+(/content)?|groups/[^/]+/(mail|calendars?)|teams/[^/]+(/channels)?)$#', $path) === 1;
+        return preg_match(
+            '#/(mail|calendars?|contacts|tasks|onedrive/content|drives/[^/]+(/content)?|groups/[^/]+/(mail|calendars?)|teams/[^/]+(/channels)?|sites/[^/]+(/lists(/[^/]+(/items)?)?)?)$#',
+            $path,
+        ) === 1;
     }
 
     private static function driveContentPathAlias(string $path): ?string

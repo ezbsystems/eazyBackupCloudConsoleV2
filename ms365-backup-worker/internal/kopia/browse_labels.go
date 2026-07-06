@@ -60,9 +60,18 @@ func browseLabel(
 	if label := segmentLabel(lower); label != "" {
 		return browseLabelResult{Label: label}
 	}
+	if entryType == "folder" && strings.Contains(childPath, "/contacts/") {
+		if label := contactFolderDisplayName(ctx, root, childPath); label != "" {
+			return browseLabelResult{Label: label}
+		}
+		return browseLabelResult{Label: opaqueContactFolderFallback(name)}
+	}
 	if entryType == "folder" && strings.Contains(childPath, "/mail/") {
 		if folderLabel := folderDisplayName(ctx, root, childPath); folderLabel != "" {
 			return browseLabelResult{Label: folderLabel}
+		}
+		if msgLabel := mailAttachmentFolderLabels(ctx, root, childPath, name); msgLabel.Label != "" {
+			return msgLabel
 		}
 		return browseLabelResult{Label: "Folder"}
 	}
@@ -83,6 +92,9 @@ func browseLabel(
 			if folderLabel := folderDisplayName(ctx, root, childPath); folderLabel != "" {
 				return browseLabelResult{Label: folderLabel}
 			}
+			if msgLabel := mailAttachmentFolderLabels(ctx, root, childPath, name); msgLabel.Label != "" {
+				return msgLabel
+			}
 			return browseLabelResult{Label: "Folder"}
 		}
 		return browseLabelResult{}
@@ -95,7 +107,7 @@ func browseLabel(
 			return calendarEventLabels(ctx, root, childPath)
 		}
 		if strings.Contains(childPath, "/contacts/") {
-			return browseLabelResult{Label: "Contact"}
+			return contactMessageLabels(ctx, root, childPath)
 		}
 		if strings.Contains(childPath, "/tasks/") {
 			return browseLabelResult{Label: "Task"}
@@ -205,6 +217,105 @@ func mailMessageLabels(ctx context.Context, root kopiafs.Directory, filePath str
 	}
 }
 
+func contactMessageLabels(ctx context.Context, root kopiafs.Directory, filePath string) browseLabelResult {
+	buf, err := readFilePrefix(ctx, root, filePath, browseMetaReadLimit)
+	if err != nil || len(buf) == 0 {
+		return browseLabelResult{Label: "Contact"}
+	}
+
+	meta := parseContactMetadata(buf)
+	label := strings.TrimSpace(meta.DisplayName)
+	if label == "" {
+		label = strings.TrimSpace(strings.TrimSpace(meta.GivenName) + " " + strings.TrimSpace(meta.Surname))
+	}
+	if label == "" {
+		label = strings.TrimSpace(meta.Email)
+	}
+	if label == "" {
+		label = "Contact"
+	}
+
+	subtitle := strings.TrimSpace(meta.Email)
+	if subtitle == "" {
+		subtitle = strings.TrimSpace(strings.TrimSpace(meta.GivenName) + " " + strings.TrimSpace(meta.Surname))
+	}
+
+	return browseLabelResult{
+		Label:    truncateLabel(label, 120),
+		Subtitle: subtitle,
+	}
+}
+
+type contactMetadata struct {
+	DisplayName string
+	GivenName   string
+	Surname     string
+	Email       string
+}
+
+func parseContactMetadata(buf []byte) contactMetadata {
+	var meta contactMetadata
+
+	var parsed map[string]any
+	if err := json.Unmarshal(buf, &parsed); err == nil {
+		meta.DisplayName, _ = parsed["displayName"].(string)
+		meta.GivenName, _ = parsed["givenName"].(string)
+		meta.Surname, _ = parsed["surname"].(string)
+		if addrs, ok := parsed["emailAddresses"].([]any); ok {
+			for _, a := range addrs {
+				m, _ := a.(map[string]any)
+				if m == nil {
+					continue
+				}
+				if addr, _ := m["address"].(string); strings.TrimSpace(addr) != "" {
+					meta.Email = addr
+					break
+				}
+			}
+		}
+		if meta.DisplayName != "" || meta.GivenName != "" || meta.Email != "" {
+			return meta
+		}
+	}
+
+	return meta
+}
+
+func mailAttachmentFolderLabels(ctx context.Context, root kopiafs.Directory, folderPath, name string) browseLabelResult {
+	if !isMailMessageAttachmentFolder(folderPath, name) {
+		return browseLabelResult{}
+	}
+	msgJSONPath := strings.Trim(folderPath, "/") + ".json"
+	labels := mailMessageLabels(ctx, root, msgJSONPath)
+	if labels.Label == "" || labels.Label == "Email message" {
+		return browseLabelResult{}
+	}
+	subtitle := "Attachments"
+	if labels.Subtitle != "" {
+		subtitle = labels.Subtitle + " · Attachments"
+	}
+	return browseLabelResult{
+		Label:    labels.Label,
+		Subtitle: subtitle,
+		SortKey:  labels.SortKey,
+	}
+}
+
+func isMailMessageAttachmentFolder(folderPath, name string) bool {
+	trimmed := strings.Trim(folderPath, "/")
+	parts := strings.Split(trimmed, "/")
+	for i, part := range parts {
+		if part != "mail" {
+			continue
+		}
+		if i+2 >= len(parts) {
+			return false
+		}
+		return parts[i+2] == name && i+3 == len(parts)
+	}
+	return false
+}
+
 type mailMetadata struct {
 	Subject      string
 	FromName     string
@@ -263,19 +374,55 @@ func parseMailMetadata(buf []byte) mailMetadata {
 }
 
 func folderDisplayName(ctx context.Context, root kopiafs.Directory, folderPath string) string {
-	metaPath := strings.Trim(folderPath, "/") + "/_folder.json"
-	buf, err := readFilePrefix(ctx, root, metaPath, browseMetaReadLimit)
-	if err != nil || len(buf) == 0 {
-		return ""
-	}
-	var meta map[string]any
-	if err := json.Unmarshal(buf, &meta); err != nil {
-		return ""
-	}
-	if dn, ok := meta["displayName"].(string); ok && strings.TrimSpace(dn) != "" {
-		return dn
+	for _, variant := range folderPathVariants(folderPath) {
+		metaPath := strings.Trim(variant, "/") + "/_folder.json"
+		buf, err := readFilePrefix(ctx, root, metaPath, browseMetaReadLimit)
+		if err != nil || len(buf) == 0 {
+			continue
+		}
+		var meta map[string]any
+		if err := json.Unmarshal(buf, &meta); err != nil {
+			continue
+		}
+		if dn, ok := meta["displayName"].(string); ok && strings.TrimSpace(dn) != "" {
+			return dn
+		}
 	}
 	return ""
+}
+
+func folderPathVariants(folderPath string) []string {
+	trimmed := strings.Trim(folderPath, "/")
+	if trimmed == "" {
+		return []string{""}
+	}
+	parts := strings.Split(trimmed, "/")
+	last := parts[len(parts)-1]
+	safe := safeSnapshotID(last)
+	if safe == last {
+		return []string{trimmed}
+	}
+	safeParts := append(append([]string{}, parts[:len(parts)-1]...), safe)
+	return []string{trimmed, strings.Join(safeParts, "/")}
+}
+
+func safeSnapshotID(id string) string {
+	return strings.NewReplacer("/", "_", "\\", "_", ":", "_").Replace(id)
+}
+
+func contactFolderDisplayName(ctx context.Context, root kopiafs.Directory, folderPath string) string {
+	return folderDisplayName(ctx, root, folderPath)
+}
+
+func opaqueContactFolderFallback(name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "Contacts"
+	}
+	if len(name) > 16 {
+		return "Contacts …" + name[len(name)-8:]
+	}
+	return "Contacts"
 }
 
 func isCalendarItemPath(path string) bool {

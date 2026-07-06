@@ -104,11 +104,12 @@ final class InventoryBackgroundRefresh
     private static function markError(int $clientId, int $backupUserId, string $message): void
     {
         try {
+            Ms365CustomerError::log('inventory_refresh', new \RuntimeException($message));
             $layout = self::storageLayout($clientId, $backupUserId);
             $layout->writeJson($layout->discoveryDir() . '/progress.json', [
                 'phase' => 'error',
                 'message' => 'Inventory refresh failed',
-                'detail' => $message,
+                'detail' => Ms365CustomerError::sanitizeRaw($message),
                 'counts' => [],
                 'updated_at' => gmdate('c'),
             ]);

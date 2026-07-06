@@ -216,6 +216,30 @@
                     return;
                 }
                 if (node.loaded) {
+                    const entries = await this.fetchBrowseEntries(node);
+                    const children = entries.map((e, i) => mapEntryToNode(e, node, i, node.depth + 1));
+                    if (children.length === 0 && node.label === 'OneDrive') {
+                        children.push({
+                            key: node.key + '-empty',
+                            name: '',
+                            label: 'No files in this snapshot',
+                            subtitle: 'OneDrive was not cataloged in this backup. Run a new backup with worker 0.1.25 or later.',
+                            path: '',
+                            type: 'info',
+                            has_children: false,
+                            size: 0,
+                            manifest_id: node.manifest_id,
+                            child_run_id: node.child_run_id,
+                            parentKey: node.key,
+                            section_key: node.section_key,
+                            depth: node.depth + 1,
+                            expanded: false,
+                            loaded: true,
+                            loading: false,
+                        });
+                    }
+                    const idx = this.treeNodes.findIndex((n) => n.key === node.key);
+                    this.treeNodes.splice(idx + 1, 0, ...children);
                     node.expanded = true;
                     return;
                 }

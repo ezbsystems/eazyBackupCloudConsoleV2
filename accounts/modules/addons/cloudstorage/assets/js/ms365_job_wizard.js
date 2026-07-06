@@ -1171,7 +1171,7 @@
                             const completed = await this.waitForInventoryRefreshComplete();
                             if (!completed) {
                                 if (!silent) {
-                                    toast('error', this.inventoryProgress.detail || this.inventoryProgress.message || 'Inventory refresh failed.');
+                                    toast('error', this.inventoryProgress.message || this.inventoryProgress.detail || 'Inventory refresh failed.');
                                 }
                                 return false;
                             }

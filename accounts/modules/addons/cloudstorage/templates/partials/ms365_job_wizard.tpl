@@ -45,7 +45,7 @@
                         </template>
                     </div>
                     <p class="eb-type-caption text-[var(--eb-text-muted)] mt-2 max-w-md mx-auto"
-                       x-show="refreshingInventory && inventoryProgress.detail"
+                       x-show="refreshingInventory && inventoryProgress.detail && inventoryProgress.phase !== 'error'"
                        x-text="inventoryProgress.detail"></p>
                 </div>
 
@@ -208,7 +208,7 @@
                                 </template>
                             </div>
                             <p class="eb-type-caption text-[var(--eb-text-muted)] mt-2 max-w-md"
-                               x-show="inventoryProgress.detail"
+                               x-show="inventoryProgress.detail && inventoryProgress.phase !== 'error'"
                                x-text="inventoryProgress.detail"></p>
                         </div>
                         <div class="flex flex-wrap items-center gap-2 justify-end">

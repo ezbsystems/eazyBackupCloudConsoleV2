@@ -205,6 +205,10 @@ final class CustomerInventoryService
             $message = 'Discovering SharePoint sites…';
         }
 
+        if ($detail !== '') {
+            $detail = Ms365CustomerError::sanitizeRaw($detail);
+        }
+
         if ($message === '') {
             $message = match ($phase) {
                 'idle' => 'No inventory refresh in progress.',

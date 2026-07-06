@@ -92,7 +92,9 @@ final class KopiaSnapshotBrowseService
         $exit = proc_close($proc);
 
         if ($exit !== 0) {
-            throw new \RuntimeException('Browse failed: ' . trim($stderr !== '' ? $stderr : (string) $stdout));
+            $e = new \RuntimeException('Browse failed: ' . trim($stderr !== '' ? $stderr : (string) $stdout));
+            Ms365CustomerError::log('kopia_browse_cli', $e);
+            throw $e;
         }
 
         $decoded = json_decode((string) $stdout, true);

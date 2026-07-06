@@ -32,6 +32,11 @@ final class Ms365CustomerError
             return 'Microsoft 365 connection could not be verified. Ask your administrator to reconnect, or contact support.';
         }
 
+        $browseMessage = self::browseCustomerMessage($raw);
+        if ($browseMessage !== null) {
+            return $browseMessage;
+        }
+
         if (stripos($raw, 'Connect Microsoft 365') !== false
             || stripos($raw, 'Refresh inventory') !== false
             || stripos($raw, 'No inventory') !== false
@@ -49,6 +54,11 @@ final class Ms365CustomerError
         }
 
         return self::generic();
+    }
+
+    public static function sanitizeRaw(string $raw): string
+    {
+        return self::message(new \RuntimeException($raw));
     }
 
     public static function sanitizeStored(?string $stored): string
@@ -69,15 +79,48 @@ final class Ms365CustomerError
             return;
         }
 
-        $line = 'MS365 [' . $context . ']: ' . $e->getMessage();
+        $rawMessage = $e->getMessage();
+        $line = 'MS365 [' . $context . ']: ' . $rawMessage;
         if (function_exists('logActivity')) {
             logActivity($line);
+        }
+        if (function_exists('logModuleCall')) {
+            logModuleCall('ms365backup', $context, [], $rawMessage, [], []);
         }
     }
 
     private static function generic(): string
     {
         return 'Something went wrong. Please try again or contact support.';
+    }
+
+    private static function browseCustomerMessage(string $raw): ?string
+    {
+        $lower = strtolower($raw);
+
+        if (stripos($raw, 'path not found') !== false
+            || (stripos($raw, 'browse:') !== false && stripos($lower, 'path') !== false && stripos($lower, 'not found') !== false)) {
+            return 'That folder isn\'t available in this snapshot.';
+        }
+
+        if (stripos($lower, 'permission denied') !== false
+            || stripos($lower, 'mkdir') !== false
+            || str_contains($raw, '/tmp/')
+            || stripos($raw, 'ms365-browse') !== false
+            || stripos($lower, 'cache dir') !== false) {
+            return 'Unable to browse backup contents. Please contact support if this continues.';
+        }
+
+        if (stripos($raw, 'Browse failed:') !== false
+            || stripos($raw, 'browse:') !== false
+            || stripos($raw, 'ms365-backup-worker') !== false
+            || stripos($raw, 'Invalid browse worker response') !== false
+            || stripos($raw, 'backup worker binary is not available') !== false
+            || stripos($raw, 'Failed to start browse worker') !== false) {
+            return 'Unable to browse backup contents. Please contact support if this continues.';
+        }
+
+        return null;
     }
 
     private static function isStorageBucketMissing(string $raw): bool
@@ -103,6 +146,15 @@ final class Ms365CustomerError
             return true;
         }
 
+        if (preg_match('/\d{4}\/\d{2}\/\d{2}\s+\d{2}:\d{2}:\d{2}/', $raw)) {
+            return true;
+        }
+
+        if (preg_match('/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i', $raw)
+            && (stripos($raw, '/users/') !== false || stripos($raw, '/drives/') !== false)) {
+            return true;
+        }
+
         $needles = [
             'PutObject',
             'GetObject',
@@ -116,6 +168,17 @@ final class Ms365CustomerError
             'GuzzleHttp',
             'stack trace',
             '/var/www/',
+            '/tmp/',
+            '/var/',
+            'mkdir',
+            'chmod',
+            'permission denied',
+            'no such file',
+            'browse:',
+            'Browse failed:',
+            'ms365-browse',
+            'ms365-backup-worker',
+            'proc_open',
             'discovery/users.json',
             'ceph_',
             's3_endpoint',

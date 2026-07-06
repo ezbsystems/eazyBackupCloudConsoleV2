@@ -223,7 +223,8 @@ final class PhysicalKeyHelper
         return self::baseKey($physicalKey);
     }
 
-    private static function storageSafeId(string $id): string
+    /** Snapshot/Kopia path segment — matches Go graphsync.storageSafeID and StorageLayout::sanitize. */
+    public static function storageSafeId(string $id): string
     {
         $out = preg_replace('/[^a-zA-Z0-9._-]/', '_', $id) ?: 'unknown';
 

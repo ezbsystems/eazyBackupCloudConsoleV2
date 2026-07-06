@@ -11,6 +11,32 @@
 
 ## Session log
 
+### 2026-07-06 — SharePoint Lists restore browse path fix
+
+- **Problem:** Expanding synthetic "Lists" under a SharePoint site returned HTTP 500 (`path not found`) because `RestoreTreeBrowseService` built browse paths with raw Graph site IDs (`hostname,guid,guid`) while Kopia stores `storageSafeID` segments (commas → underscores).
+- **Fix:** `workloadsForResource()` uses `PhysicalKeyHelper::storageSafeId()` for site paths; new `sharePointBrowsePathAliases()` (raw ↔ sanitized) in `listKopiaDirectoryWithAliases()`; `isMissingWorkloadRoot()` extended for `/sites/…/lists` so absent lists dirs return empty state instead of 500. `PhysicalKeyHelper::storageSafeId()` made public.
+- **Cache:** Browse cache key bumped `v10-browse-labels` → `v11-sharepoint-lists-paths`.
+- **Tests:** `tests/ms365_restore_tree_browse_test.php`; `graphsync/ids_test.go` (`TestStorageSafeIDCommaSiteID`, `TestSiteStoragePathCommaSiteID`).
+- **Verify:** Restore wizard → SharePoint site → expand Lists — should show list folders (or empty), not 500.
+
+### 2026-07-06 — Restore wizard browse UX fixes
+
+- **Contacts:** Go `browseLabel()` now resolves contact folder `displayName` from `_folder.json` (dual raw + `safeSnapshotID` path) with opaque ID fallback; contact `.json` items show `displayName`, given/surname, or primary email instead of generic "Contact".
+- **Mail attachments:** Message attachment directories under Inbox (`mail/{folder}/{msgId}/`) now inherit subject/sender from sibling `{msgId}.json` with subtitle "Attachments" instead of generic "Folder".
+- **OneDrive re-expand:** `ms365_restore_wizard.js` re-hydrates children from `browseCache` when `node.loaded` on re-expand (collapse pruned nodes but left `loaded=true`).
+- **Cache:** Browse cache key bumped `v9-onedrive-root-heal` → `v10-browse-labels` in `RestoreTreeBrowseService.php`.
+- **Tests:** `browse_labels_test.go` — contact folder/message labels, mail attachment labels, `folderDisplayName` dual-path lookup.
+- **Deploy:** JS via cloudstorage assets; label fixes require worker rebuild/deploy.
+
+### 2026-07-06 — Customer error sanitization (browse + inventory)
+
+- **Problem:** Restore wizard step 3 and inventory refresh could leak worker stderr, `/tmp/ms365-browse/cache` paths, and Graph/S3 internals to the client area when errors were short enough to bypass `looksInternal()`.
+- **Sanitizer:** `Ms365CustomerError` — browse/worker classification (path-not-found vs browse contact-support), hardened `looksInternal()` (`/tmp/`, Go timestamps, GUID paths, worker markers), `sanitizeRaw()`, `logModuleCall()` alongside `logActivity`.
+- **Inventory:** `InventoryBackgroundRefresh::markError()` logs raw + stores sanitized `detail`; `CustomerInventoryService::discoveryProgressForBackupUser()` sanitizes on read; job wizard JS/template prefer `message` over `detail` on error phase.
+- **Browse CLI:** `KopiaSnapshotBrowseService::invokeBrowseCli()` logs via `Ms365CustomerError::log` before throw (raw exception preserved for retry/classification).
+- **Tests:** `tests/ms365_customer_error_test.php` (production permission-denied reproduction, path-not-found, pass-through, generic fallback, `sanitizeRaw()`).
+- **Ops (separate):** Production `/tmp/ms365-browse/cache` permission denied requires filesystem fix — ensure PHP-FPM/web user can write the worker browse cache directory.
+
 ### 2026-07-06 — Member-based Protected User billing + wizard preview
 
 - **Problem:** `Ms365UsageMeter` counted only personally selected users; Teams/M365 Groups added 0 Protected Users. Job wizard step 2 had no billing preview.
