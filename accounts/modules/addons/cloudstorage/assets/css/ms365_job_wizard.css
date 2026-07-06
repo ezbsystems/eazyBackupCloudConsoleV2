@@ -7,6 +7,78 @@
     max-height: 90vh;
 }
 
+.ms365-job-wizard-modal-host .eb-modal-body {
+    min-height: 0;
+}
+
+.ms365-wizard-billing-dock {
+    flex-shrink: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+}
+
+.ms365-wizard-step2__grid {
+    min-height: 12rem;
+}
+
+.ms365-wizard-step2__grid > * {
+    min-height: 0;
+}
+
+.ms365-wizard-step2 .ms365-inventory-pane,
+.ms365-wizard-step2 .ms365-selection-pane {
+    min-height: 0;
+    max-height: none;
+    height: 100%;
+}
+
+.ms365-wizard-billing-dock__panel {
+    border: 1px solid var(--eb-border-default);
+    border-radius: 0.5rem;
+    background: var(--eb-surface-base);
+    padding: 0.75rem;
+    overflow: hidden;
+}
+
+.ms365-wizard-billing-dock__metrics {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem 1.5rem;
+}
+
+.ms365-wizard-billing-dock__metric {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+}
+
+.ms365-wizard-billing-dock__metric-label {
+    font-size: 0.875rem;
+    color: var(--eb-text-secondary);
+}
+
+.ms365-wizard-billing-dock__metric-value {
+    font-size: 1.5rem;
+    font-weight: 600;
+    line-height: 1.2;
+    color: var(--eb-text-primary);
+}
+
+.ms365-wizard-billing-dock__breakdown {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.125rem 1rem;
+    max-height: 4.5rem;
+    overflow: hidden;
+    padding: 0;
+    list-style: none;
+}
+
+.ms365-wizard-billing-dock__breakdown li {
+    flex: 0 1 auto;
+    white-space: nowrap;
+}
+
 /* Stack title row and breadcrumb vertically; inner row keeps close (X) on the far right. */
 .ms365-job-wizard-modal-host .eb-modal-header {
     display: block;

@@ -1859,6 +1859,14 @@ if (window.csrfToken && !window.EB_CSRF_TOKEN) {
             var grid = document.getElementById('eb-product-select');
             if (grid && grid.getAttribute('data-must-set-password') === '1') {
                 setTimeout(ebPortalPwOpen, 50);
+            } else {
+                var choose = new URLSearchParams(window.location.search).get('choose');
+                if (choose === 'ms365') {
+                    var ms365Btn = document.querySelector('[data-choice="ms365"]');
+                    if (ms365Btn) {
+                        setTimeout(function() { ebChooseProduct(ms365Btn); }, 50);
+                    }
+                }
             }
         } catch (_) {}
 
