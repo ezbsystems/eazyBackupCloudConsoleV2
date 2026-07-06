@@ -354,7 +354,7 @@ final class Ms365E3Controller
             $childRun = \Ms365Backup\BackupRunRepository::get($childRunId);
         }
 
-        return \Ms365Backup\RestoreTreeBrowseService::list($record, $manifestId, $path, $childRun);
+        return \Ms365Backup\RestoreTreeBrowseService::list($record, $manifestId, $path, $childRun, $batchRunId);
     }
 
     /**

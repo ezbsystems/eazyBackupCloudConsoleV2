@@ -35,6 +35,9 @@ func shouldHideBrowseName(name string) bool {
 	if lower == "" || lower == "folders.json" || lower == "delta_state.json" {
 		return true
 	}
+	if lower == "lists.json" || lower == "drives.json" {
+		return true
+	}
 	if lower == "_folder.json" || lower == "_calendar.json" || strings.HasSuffix(lower, ".removed.json") {
 		return true
 	}
@@ -81,6 +84,17 @@ func browseLabel(
 		}
 		return browseLabelResult{Label: opaqueCalendarFolderFallback(name)}
 	}
+	if entryType == "folder" && isSharePointListFolder(childPath) {
+		if label := sharePointListFolderDisplayName(ctx, root, childPath, name); label != "" {
+			return browseLabelResult{Label: label}
+		}
+		return browseLabelResult{Label: opaqueSharePointListFallback(name)}
+	}
+	if entryType == "folder" && isDriveContentBrowsePath(childPath) && strings.Contains(childPath, "/sites/") {
+		if label := sharePointDriveFolderDisplayName(ctx, root, childPath); label != "" {
+			return browseLabelResult{Label: label}
+		}
+	}
 	if isGuidLike(name) {
 		if isDriveContentBrowsePath(childPath) {
 			if entryType == "folder" {
@@ -111,6 +125,9 @@ func browseLabel(
 		}
 		if strings.Contains(childPath, "/tasks/") {
 			return browseLabelResult{Label: "Task"}
+		}
+		if isSharePointListItemPath(childPath) {
+			return sharePointListItemLabels(ctx, root, childPath)
 		}
 		return browseLabelResult{Label: "Item"}
 	}
@@ -493,6 +510,219 @@ func opaqueDriveFolderFallback(name string) string {
 		return "Folder …" + name[len(name)-8:]
 	}
 	return name
+}
+
+func isSharePointListFolder(path string) bool {
+	lower := strings.ToLower(strings.Trim(path, "/"))
+	if !strings.Contains(lower, "/sites/") || !strings.Contains(lower, "/lists/") {
+		return false
+	}
+	parts := strings.Split(lower, "/")
+	for i, part := range parts {
+		if part != "lists" || i+1 >= len(parts) {
+			continue
+		}
+		segment := parts[i+1]
+		return segment != "" && segment != "items"
+	}
+	return false
+}
+
+func isSharePointListItemPath(path string) bool {
+	lower := strings.ToLower(path)
+	return strings.Contains(lower, "/sites/") && strings.Contains(lower, "/lists/") &&
+		strings.Contains(lower, "/items/") && strings.HasSuffix(lower, ".json") &&
+		!strings.HasSuffix(lower, ".removed.json")
+}
+
+func sharePointListFolderDisplayName(ctx context.Context, root kopiafs.Directory, folderPath, name string) string {
+	siteID, listID := sharePointSiteAndListIDs(folderPath, name)
+	if siteID == "" || listID == "" {
+		return ""
+	}
+	for _, catalogPath := range sharePointListsCatalogPaths(folderPath, siteID) {
+		buf, err := readFilePrefix(ctx, root, catalogPath, browseMetaReadLimit)
+		if err != nil || len(buf) == 0 {
+			continue
+		}
+		if label := listDisplayNameFromCatalog(buf, listID); label != "" {
+			return label
+		}
+	}
+	return ""
+}
+
+func sharePointDriveFolderDisplayName(ctx context.Context, root kopiafs.Directory, folderPath string) string {
+	driveID := sharePointDriveIDFromContentPath(folderPath)
+	if driveID == "" {
+		return ""
+	}
+	siteID := sharePointSiteIDFromPath(folderPath)
+	if siteID == "" {
+		return ""
+	}
+	for _, catalogPath := range sharePointDrivesCatalogPaths(folderPath, siteID) {
+		buf, err := readFilePrefix(ctx, root, catalogPath, browseMetaReadLimit)
+		if err != nil || len(buf) == 0 {
+			continue
+		}
+		if label := driveDisplayNameFromCatalog(buf, driveID); label != "" {
+			return label
+		}
+	}
+	return ""
+}
+
+func sharePointListItemLabels(ctx context.Context, root kopiafs.Directory, filePath string) browseLabelResult {
+	buf, err := readFilePrefix(ctx, root, filePath, browseMetaReadLimit)
+	if err != nil || len(buf) == 0 {
+		return browseLabelResult{Label: "List item"}
+	}
+	title := parseSharePointListItemTitle(buf)
+	if title == "" {
+		return browseLabelResult{Label: "List item"}
+	}
+	return browseLabelResult{Label: truncateLabel(title, 120)}
+}
+
+func parseSharePointListItemTitle(buf []byte) string {
+	var parsed map[string]any
+	if err := json.Unmarshal(buf, &parsed); err == nil {
+		if fields, ok := parsed["fields"].(map[string]any); ok {
+			for _, key := range []string{"Title", "LinkTitle", "FileLeafRef", "Name"} {
+				if v, ok := fields[key].(string); ok && strings.TrimSpace(v) != "" {
+					return strings.TrimSpace(v)
+				}
+			}
+		}
+	}
+	return ""
+}
+
+func listDisplayNameFromCatalog(data []byte, listID string) string {
+	if len(data) == 0 {
+		return ""
+	}
+	var catalog map[string]any
+	if err := json.Unmarshal(data, &catalog); err != nil {
+		return ""
+	}
+	values, _ := catalog["value"].([]any)
+	for _, v := range values {
+		item, _ := v.(map[string]any)
+		if item == nil {
+			continue
+		}
+		id, _ := item["id"].(string)
+		if id != listID && safeSnapshotID(id) != listID && safeSnapshotID(listID) != id {
+			continue
+		}
+		if name, _ := item["displayName"].(string); strings.TrimSpace(name) != "" {
+			return strings.TrimSpace(name)
+		}
+	}
+	return ""
+}
+
+func driveDisplayNameFromCatalog(data []byte, driveID string) string {
+	if len(data) == 0 {
+		return ""
+	}
+	var catalog map[string]any
+	if err := json.Unmarshal(data, &catalog); err != nil {
+		return ""
+	}
+	values, _ := catalog["value"].([]any)
+	for _, v := range values {
+		item, _ := v.(map[string]any)
+		if item == nil {
+			continue
+		}
+		id, _ := item["id"].(string)
+		if id != driveID && safeSnapshotID(id) != driveID && safeSnapshotID(driveID) != id {
+			continue
+		}
+		if name, _ := item["name"].(string); strings.TrimSpace(name) != "" {
+			return strings.TrimSpace(name)
+		}
+	}
+	return ""
+}
+
+func sharePointSiteIDFromPath(path string) string {
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	for i, part := range parts {
+		if part == "sites" && i+1 < len(parts) {
+			return parts[i+1]
+		}
+	}
+	return ""
+}
+
+func sharePointSiteAndListIDs(folderPath, name string) (string, string) {
+	parts := strings.Split(strings.Trim(folderPath, "/"), "/")
+	for i, part := range parts {
+		if part == "sites" && i+2 < len(parts) && parts[i+2] == "lists" {
+			return parts[i+1], name
+		}
+	}
+	return "", name
+}
+
+func sharePointDriveIDFromContentPath(path string) string {
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	for i, part := range parts {
+		if part == "drives" && i+1 < len(parts) {
+			return parts[i+1]
+		}
+	}
+	return ""
+}
+
+func sharePointListsCatalogPaths(folderPath, siteID string) []string {
+	prefix := sharePointSitePathPrefix(folderPath, siteID)
+	if prefix == "" {
+		return nil
+	}
+	return []string{prefix + "/lists/lists.json"}
+}
+
+func sharePointDrivesCatalogPaths(folderPath, siteID string) []string {
+	prefix := sharePointSitePathPrefix(folderPath, siteID)
+	if prefix == "" {
+		return nil
+	}
+	return []string{prefix + "/drives.json"}
+}
+
+func sharePointSitePathPrefix(folderPath, siteID string) string {
+	parts := strings.Split(strings.Trim(folderPath, "/"), "/")
+	for i, part := range parts {
+		if part == "sites" && i+1 < len(parts) {
+			return strings.Join(parts[:i+2], "/")
+		}
+	}
+	if siteID != "" {
+		if idx := strings.Index(folderPath, "/sites/"); idx >= 0 {
+			rest := folderPath[idx+len("/sites/"):]
+			if slash := strings.Index(rest, "/"); slash >= 0 {
+				return folderPath[:idx+len("/sites/")+slash]
+			}
+			return strings.Trim(folderPath, "/")
+		}
+	}
+	return ""
+}
+
+func opaqueSharePointListFallback(name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "List"
+	}
+	if len(name) > 16 {
+		return "List …" + name[len(name)-8:]
+	}
+	return "List"
 }
 
 func calendarEventLabels(ctx context.Context, root kopiafs.Directory, filePath string) browseLabelResult {

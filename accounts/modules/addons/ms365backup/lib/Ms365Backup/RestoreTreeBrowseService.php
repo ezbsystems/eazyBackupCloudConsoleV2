@@ -40,6 +40,7 @@ final class RestoreTreeBrowseService
         string $manifestId,
         string $path,
         ?array $childRun = null,
+        string $batchRunId = '',
     ): array {
         $manifestId = trim($manifestId);
         if ($manifestId === '') {
@@ -49,13 +50,13 @@ final class RestoreTreeBrowseService
         $path = trim($path, '/');
 
         if ($path === '' && $childRun !== null) {
-            $synthetic = self::syntheticWorkloadEntries($tenantRecord, $childRun);
+            $synthetic = self::syntheticWorkloadEntries($tenantRecord, $childRun, $batchRunId);
             if ($synthetic !== []) {
                 return $synthetic;
             }
         }
 
-        $cacheKey = hash('sha256', 'v11-sharepoint-lists-paths' . "\0" . $manifestId . "\0" . $path);
+        $cacheKey = hash('sha256', 'v13-sharepoint-files-scope' . "\0" . $manifestId . "\0" . $path);
         $cached = self::readCache($cacheKey);
         if ($cached !== null) {
             return $cached;
@@ -74,7 +75,7 @@ final class RestoreTreeBrowseService
      * @param array<string, mixed> $childRun
      * @return list<array<string, mixed>>
      */
-    private static function syntheticWorkloadEntries(array $tenantRecord, array $childRun): array
+    private static function syntheticWorkloadEntries(array $tenantRecord, array $childRun, string $batchRunId = ''): array
     {
         $tenantId = trim((string) (TenantRecordRepository::platformCredentials($tenantRecord)['tenant_id'] ?? ''));
         $physicalKey = PhysicalKeyHelper::baseKey((string) ($childRun['physical_key'] ?? ''));
@@ -83,9 +84,19 @@ final class RestoreTreeBrowseService
             return [];
         }
 
+        $siteBrowse = self::resolveSharePointBrowseContext($childRun, $batchRunId);
+        $runByLabel = [];
+        if ($siteBrowse !== null) {
+            $physicalKey = $siteBrowse['parent_key'];
+            $graphId = $siteBrowse['site_graph_id'];
+            $runByLabel = $siteBrowse['run_by_label'];
+        }
+
         $parsed = StorageLayout::parsePhysicalKey($physicalKey);
         $resourceGraphId = (string) ($parsed['graph_id'] ?? $graphId);
-        $scope = BackupScope::fromLegacyRun($childRun);
+        $scope = $siteBrowse !== null && $siteBrowse['merged_scope']->hasAnyEnabled()
+            ? $siteBrowse['merged_scope']
+            : BackupScope::fromLegacyRun($childRun);
         $scopeRaw = self::scopeArrayFromChildRun($childRun);
         $driveId = self::driveIdFromChildRun($childRun, $scopeRaw);
 
@@ -96,6 +107,7 @@ final class RestoreTreeBrowseService
 
         $out = [];
         foreach ($workloads as $w) {
+            $runSource = $runByLabel[$w['label']] ?? $childRun;
             $out[] = [
                 'name' => $w['path'],
                 'label' => $w['label'],
@@ -104,12 +116,132 @@ final class RestoreTreeBrowseService
                 'type' => 'folder',
                 'has_children' => true,
                 'size' => 0,
-                'manifest_id' => (string) ($childRun['manifest_id'] ?? ''),
-                'child_run_id' => (string) ($childRun['id'] ?? ''),
+                'manifest_id' => (string) ($runSource['manifest_id'] ?? $childRun['manifest_id'] ?? ''),
+                'child_run_id' => (string) ($runSource['id'] ?? $childRun['id'] ?? ''),
             ];
         }
 
         return $out;
+    }
+
+    /**
+     * SharePoint sites are split into drive (files) and site/list child runs; merge scopes and manifests.
+     *
+     * @param array<string, mixed> $childRun
+     * @return array{
+     *   parent_key: string,
+     *   site_graph_id: string,
+     *   merged_scope: BackupScope,
+     *   run_by_label: array<string, array<string, mixed>>
+     * }|null
+     */
+    private static function resolveSharePointBrowseContext(array $childRun, string $batchRunId): ?array
+    {
+        $batchRunId = trim($batchRunId);
+        if ($batchRunId === '') {
+            return null;
+        }
+
+        $physicalKey = (string) ($childRun['physical_key'] ?? '');
+        $parentKey = PhysicalKeyHelper::aggregateParentKey($physicalKey, $childRun);
+        if (!str_starts_with($parentKey, 'site:')) {
+            return null;
+        }
+
+        $siteGraphId = substr($parentKey, 5);
+        $mergedScope = BackupScope::empty();
+        $filesRun = null;
+        $listsRun = null;
+
+        foreach (Ms365BatchRunRepository::getChildrenForBatch($batchRunId) as $sibling) {
+            if (($sibling['status'] ?? '') !== 'success') {
+                continue;
+            }
+
+            $sibKey = (string) ($sibling['physical_key'] ?? '');
+            $sibBase = PhysicalKeyHelper::baseKey($sibKey);
+            $sibParent = PhysicalKeyHelper::aggregateParentKey($sibKey, $sibling);
+            if ($sibParent !== $parentKey) {
+                continue;
+            }
+
+            $sibScope = BackupScope::fromLegacyRun($sibling);
+            $mergedScope = $mergedScope->merge($sibScope);
+
+            if (str_starts_with($sibBase, 'drive:')) {
+                $mergedScope = $mergedScope->merge(new BackupScope([BackupScope::FILES => true]));
+                $filesRun ??= $sibling;
+            }
+            if (str_starts_with($sibBase, 'site:') && $sibScope->isEnabled(BackupScope::LISTS)) {
+                $listsRun ??= $sibling;
+            }
+            if (str_starts_with($sibBase, 'list:')) {
+                $mergedScope = $mergedScope->merge(new BackupScope([BackupScope::LISTS => true]));
+                $listsRun ??= $sibling;
+            }
+        }
+
+        if (!$mergedScope->hasAnyEnabled()) {
+            $mergedScope = BackupScope::fromLegacyRun($childRun);
+        }
+        if ($filesRun === null && $mergedScope->isEnabled(BackupScope::FILES)) {
+            $filesRun = $childRun;
+        }
+        if ($listsRun === null && $mergedScope->isEnabled(BackupScope::LISTS)) {
+            $listsRun = $childRun;
+        }
+
+        $runByLabel = [];
+        if ($filesRun !== null) {
+            $runByLabel['Files'] = self::sharePointRunWithManifestFallback($filesRun, $listsRun);
+        }
+        if ($listsRun !== null) {
+            $runByLabel['Lists'] = $listsRun;
+        }
+
+        return [
+            'parent_key' => $parentKey,
+            'site_graph_id' => $siteGraphId,
+            'merged_scope' => $mergedScope,
+            'run_by_label' => $runByLabel,
+        ];
+    }
+
+    /**
+     * SharePoint drive child runs often complete as no_changes with an empty manifest_id while
+     * document libraries remain in the site snapshot tree.
+     *
+     * @param array<string, mixed> $run
+     * @param array<string, mixed>|null $siteRun
+     * @return array<string, mixed>
+     */
+    private static function sharePointRunWithManifestFallback(array $run, ?array $siteRun): array
+    {
+        if (trim((string) ($run['manifest_id'] ?? '')) !== '') {
+            return $run;
+        }
+
+        $statsRaw = (string) ($run['stats_json'] ?? '');
+        if ($statsRaw !== '') {
+            $stats = json_decode($statsRaw, true);
+            if (is_array($stats)) {
+                $fromStats = trim((string) ($stats['manifest_id'] ?? ''));
+                if ($fromStats !== '') {
+                    $run['manifest_id'] = $fromStats;
+
+                    return $run;
+                }
+            }
+        }
+
+        if ($siteRun !== null) {
+            $siteManifest = trim((string) ($siteRun['manifest_id'] ?? ''));
+            if ($siteManifest !== '') {
+                $run['manifest_id'] = $siteManifest;
+            }
+        }
+
+        return $run;
     }
 
     /**
@@ -162,7 +294,11 @@ final class RestoreTreeBrowseService
             $siteRoot = $base . '/sites/' . $siteSegment;
             $out = [];
             if (self::scopeShowsWorkload($scope, BackupScope::FILES)) {
-                $out[] = ['label' => 'Files', 'path' => $siteRoot];
+                $out[] = [
+                    'label' => 'Files',
+                    'path' => $siteRoot . '/drives',
+                    'subtitle' => 'Document libraries',
+                ];
             }
             if (self::scopeShowsWorkload($scope, BackupScope::LISTS)) {
                 $out[] = ['label' => 'Lists', 'path' => $siteRoot . '/lists'];
@@ -410,6 +546,9 @@ final class RestoreTreeBrowseService
     private static function shouldHideEntry(string $name): bool
     {
         if ($name === '' || $name === 'folders.json' || $name === 'delta_state.json') {
+            return true;
+        }
+        if ($name === 'lists.json' || $name === 'drives.json') {
             return true;
         }
         if ($name === '_folder.json' || $name === '_calendar.json' || str_ends_with($name, '.removed.json')) {
