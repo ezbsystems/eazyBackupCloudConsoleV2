@@ -5939,6 +5939,7 @@ function cloudstorage_clientarea($vars) {
                 'ebMs365OnboardingHidden' => true,
                 'ebMs365ShowGettingStarted' => false,
                 'ebHasE3AgentProduct'     => false,
+                'ebHasBackupUser'         => false,
                 'ebHasMs365Product'       => false,
                 'ebHasCloudStorageProduct' => false,
                 'ebShowEnableAgentCard'   => false,
@@ -6000,6 +6001,24 @@ function cloudstorage_clientarea($vars) {
                         $ebE3OnboardingShared['ebHasCloudStorageProduct'] = \WHMCS\Module\Addon\CloudStorage\Client\E3BackupClientState::clientHasCloudStorageProduct($obClientId);
                     }
                     $defaultBu = \WHMCS\Module\Addon\CloudStorage\Client\E3BackupAccess::defaultBackupUser($obClientId);
+                    $ebE3OnboardingShared['ebHasBackupUser'] = $defaultBu !== null;
+                    // #region agent log
+                    @file_put_contents('/var/www/eazybackup.ca/.cursor/debug-991471.log', json_encode([
+                        'sessionId' => '991471',
+                        'hypothesisId' => 'C',
+                        'location' => 'cloudstorage.php:ebE3OnboardingShared',
+                        'message' => 'sidebar agent feature flags',
+                        'data' => [
+                            'clientId' => $obClientId,
+                            'ebHasE3AgentProduct' => $ebE3OnboardingShared['ebHasE3AgentProduct'],
+                            'ebMs365Only' => $ebE3OnboardingShared['ebMs365Only'],
+                            'ebHasBackupUser' => $ebE3OnboardingShared['ebHasBackupUser'],
+                            'ebE3HasAgents' => $ebE3OnboardingShared['ebE3HasAgents'],
+                        ],
+                        'timestamp' => (int) round(microtime(true) * 1000),
+                        'runId' => 'sidebar-fix',
+                    ]) . "\n", FILE_APPEND);
+                    // #endregion
                     if ($defaultBu && class_exists('\\Ms365Backup\\Ms365Onboarding')) {
                         $msOb = \Ms365Backup\Ms365Onboarding::computeForBackupUser($obClientId, (int) $defaultBu['id']);
                         $ebE3OnboardingShared['ebMs365OnboardingState'] = $msOb;
