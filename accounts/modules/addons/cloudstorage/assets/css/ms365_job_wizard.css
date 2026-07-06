@@ -70,6 +70,46 @@
     background: var(--eb-surface-base);
 }
 
+.ms365-inventory-search-row {
+    flex-shrink: 0;
+}
+
+.ms365-inventory-search-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.ms365-inventory-search-input {
+    width: 100%;
+    padding-right: 2rem;
+}
+
+.ms365-inventory-search-clear {
+    position: absolute;
+    right: 0.35rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.5rem;
+    height: 1.5rem;
+    padding: 0;
+    border: none;
+    border-radius: 9999px;
+    background: transparent;
+    color: var(--eb-text-muted);
+    font-size: 1.1rem;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.ms365-inventory-search-clear:hover,
+.ms365-inventory-search-clear:focus-visible {
+    color: var(--eb-text-primary);
+    background: var(--eb-surface-base);
+    outline: none;
+}
+
 .ms365-inventory-row:has(input:checked) {
     background: color-mix(in srgb, var(--eb-primary) 12%, transparent);
 }

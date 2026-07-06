@@ -664,33 +664,91 @@
         return selectAll(treesBySection);
     }
 
-    function visibleNodes(sectionNodes, selection, searchQuery, expandedKeys) {
+    function normalizeSearchTokens(searchQuery) {
         const q = (searchQuery || '').toLowerCase().trim();
-        const visible = [];
+        if (!q) {
+            return [];
+        }
+        return q.split(/\s+/).filter(Boolean);
+    }
+
+    function nodeSearchableText(node) {
+        const parts = [node.label, node.subtitle];
+        if (node.resourceType) {
+            parts.push(node.resourceType);
+        }
+        return parts.filter(Boolean).join(' ').toLowerCase();
+    }
+
+    function textMatchesTokens(text, tokens) {
+        if (tokens.length === 0) {
+            return true;
+        }
+        return tokens.every((token) => text.includes(token));
+    }
+
+    function branchSearchableText(node, descendants) {
+        return [nodeSearchableText(node), ...descendants.map((child) => nodeSearchableText(child))]
+            .join(' ');
+    }
+
+    function nodeMatchesQuery(node, descendants, tokens) {
+        return textMatchesTokens(branchSearchableText(node, descendants), tokens);
+    }
+
+    function isFlatSection(sectionNodes) {
+        return sectionNodes.length > 0
+            && sectionNodes.every((node) => node.depth === 0 && !node.hasChildren);
+    }
+
+    function visibleNodes(sectionNodes, selection, searchQuery, expandedKeys) {
+        const tokens = normalizeSearchTokens(searchQuery);
         const expanded = expandedKeys || {};
 
-        sectionNodes.forEach((node) => {
-            if (node.depth === 0) {
-                const children = getDescendants(sectionNodes, node.key);
-                const hay = [node.label, node.subtitle, ...children.map((c) => c.label)].join(' ').toLowerCase();
-                if (q && !hay.includes(q)) return;
-                visible.push(node);
-                const showChildren = expanded[node.key] || (q !== '');
-                if (showChildren && node.hasChildren) {
-                    children.forEach((c) => visible.push(c));
-                }
-            }
-        });
-
-        if (!q) {
+        if (tokens.length === 0) {
             return sectionNodes.filter((node) => {
-                if (node.depth === 0) return true;
+                if (node.depth === 0) {
+                    return true;
+                }
                 const parent = sectionNodes.find((p) => p.key === node.parentKey);
                 return parent && (expanded[parent.key] || false);
             });
         }
 
+        if (isFlatSection(sectionNodes)) {
+            return sectionNodes.filter((node) => textMatchesTokens(nodeSearchableText(node), tokens));
+        }
+
+        const visible = [];
+        sectionNodes.forEach((node) => {
+            if (node.depth !== 0) {
+                return;
+            }
+            const children = getDescendants(sectionNodes, node.key);
+            if (!nodeMatchesQuery(node, children, tokens)) {
+                return;
+            }
+            visible.push(node);
+            if (!node.hasChildren) {
+                return;
+            }
+            const parentMatches = textMatchesTokens(nodeSearchableText(node), tokens);
+            const branchMatches = textMatchesTokens(branchSearchableText(node, children), tokens);
+            children.forEach((child) => {
+                const childText = nodeSearchableText(child);
+                const childMatchesAll = textMatchesTokens(childText, tokens);
+                const childMatchesAny = tokens.some((token) => childText.includes(token));
+                if (parentMatches || childMatchesAll || (branchMatches && childMatchesAny)) {
+                    visible.push(child);
+                }
+            });
+        });
+
         return visible;
+    }
+
+    function sectionHasVisibleNodes(sectionNodes, searchQuery, expandedKeys) {
+        return visibleNodes(sectionNodes, {}, searchQuery, expandedKeys).length > 0;
     }
 
     window.ms365JobSelection = {
@@ -707,6 +765,11 @@
         selectionSummary,
         summaryRowCount,
         visibleNodes,
+        sectionHasVisibleNodes,
+        normalizeSearchTokens,
+        nodeSearchableText,
+        textMatchesTokens,
+        nodeMatchesQuery,
         getDescendants,
         countInaccessibleSites,
     };

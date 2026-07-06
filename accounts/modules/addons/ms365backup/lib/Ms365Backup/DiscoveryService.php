@@ -99,6 +99,97 @@ final class DiscoveryService
         return $teams;
     }
 
+    /**
+     * @return list<array<string, mixed>>
+     */
+    public function listTeamMembers(string $groupId): array
+    {
+        $groupId = trim($groupId);
+        if ($groupId === '') {
+            return [];
+        }
+
+        $members = [];
+        $query = [
+            '$select' => 'id,displayName,userPrincipalName,mail,userType',
+        ];
+        foreach ($this->graph->paginate('teams/' . rawurlencode($groupId) . '/members', $query) as $member) {
+            if (!is_array($member) || !self::isGraphUserMember($member)) {
+                continue;
+            }
+            $members[] = $member;
+        }
+
+        $this->storage->writeJson($this->teamMembersDiscoveryPath($groupId), [
+            'fetched_at' => gmdate('c'),
+            'group_id' => $groupId,
+            'source' => 'team',
+            'count' => count($members),
+            'value' => $members,
+        ]);
+
+        return $members;
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    public function listGroupMembers(string $groupId): array
+    {
+        $groupId = trim($groupId);
+        if ($groupId === '') {
+            return [];
+        }
+
+        $members = [];
+        $query = [
+            '$select' => 'id,displayName,userPrincipalName,mail,userType',
+        ];
+        foreach ($this->graph->paginate('groups/' . rawurlencode($groupId) . '/members', $query) as $member) {
+            if (!is_array($member) || !self::isGraphUserMember($member)) {
+                continue;
+            }
+            $members[] = $member;
+        }
+
+        $this->storage->writeJson($this->teamMembersDiscoveryPath($groupId), [
+            'fetched_at' => gmdate('c'),
+            'group_id' => $groupId,
+            'source' => 'group',
+            'count' => count($members),
+            'value' => $members,
+        ]);
+
+        return $members;
+    }
+
+    /** @param array<string, mixed> $member */
+    public static function isGraphUserMember(array $member): bool
+    {
+        $id = trim((string) ($member['id'] ?? ''));
+        if ($id === '') {
+            return false;
+        }
+        $odataType = strtolower((string) ($member['@odata.type'] ?? ''));
+        if ($odataType !== '' && !str_contains($odataType, 'user')) {
+            return false;
+        }
+
+        return true;
+    }
+
+    private function teamMembersDiscoveryPath(string $groupId): string
+    {
+        $dir = $this->storage->discoveryDir() . '/team_members';
+        if (!is_dir($dir)) {
+            mkdir($dir, 0755, true);
+        }
+
+        $safe = preg_replace('/[^a-zA-Z0-9._-]/', '_', $groupId) ?? 'unknown';
+
+        return $dir . '/' . $safe . '.json';
+    }
+
     public function loadCached(string $type): ?array
     {
         $path = $this->storage->discoveryDir() . '/' . $type . '.json';

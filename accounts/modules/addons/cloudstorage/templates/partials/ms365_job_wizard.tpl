@@ -1,4 +1,4 @@
-<link rel="stylesheet" href="modules/addons/cloudstorage/assets/css/ms365_job_wizard.css?v=7">
+<link rel="stylesheet" href="modules/addons/cloudstorage/assets/css/ms365_job_wizard.css?v=8">
 <link rel="stylesheet" href="modules/addons/cloudstorage/assets/css/ms365_restore_wizard.css?v=4">
 
 <div id="ms365JobWizardModal" class="ms365-job-wizard-modal-host fixed inset-0 z-[2200] hidden" x-data="ms365WizardApp()" x-cloak>
@@ -210,8 +210,7 @@
                                x-show="inventoryProgress.detail"
                                x-text="inventoryProgress.detail"></p>
                         </div>
-                        <div class="flex flex-wrap items-center gap-2 justify-between">
-                            <input type="search" class="eb-input flex-1 min-w-[12rem]" placeholder="Search resources…" x-model="searchQuery">
+                        <div class="flex flex-wrap items-center gap-2 justify-end">
                             <button type="button" class="eb-btn eb-btn-secondary eb-btn-sm" @click="refreshInventory()" :disabled="refreshingInventory">
                                 <span x-text="refreshingInventory ? 'Refreshing…' : 'Refresh inventory'"></span>
                             </button>
@@ -219,6 +218,22 @@
                         <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 min-h-[22rem]">
                             <div class="ms365-inventory-pane border border-[var(--eb-border-default)] rounded-lg overflow-hidden flex flex-col">
                                 <div class="eb-menu-label px-3 py-2 border-b border-[var(--eb-border-default)]">Tenant inventory</div>
+                                <div class="ms365-inventory-search-row px-3 py-2 border-b border-[var(--eb-border-default)] bg-[var(--eb-surface-muted)]"
+                                     x-show="inventory.resources && inventory.resources.length > 0">
+                                    <div class="ms365-inventory-search-wrap">
+                                        <input type="search"
+                                               class="eb-input ms365-inventory-search-input"
+                                               placeholder="Search users, sites, teams…"
+                                               aria-label="Filter tenant inventory"
+                                               x-model.debounce.200ms="searchQuery">
+                                        <button type="button"
+                                                class="ms365-inventory-search-clear"
+                                                x-show="inventoryFilterActive()"
+                                                @click="searchQuery = ''"
+                                                aria-label="Clear search"
+                                                title="Clear search">&times;</button>
+                                    </div>
+                                </div>
                                 <div class="flex items-center gap-2 px-3 py-2 border-b border-[var(--eb-border-default)] bg-[var(--eb-surface-muted)]"
                                      x-show="inventory.resources && inventory.resources.length > 0">
                                     <input type="checkbox"
@@ -284,6 +299,8 @@
                                         </div>
                                     </template>
                                     <p x-show="!inventory.resources || inventory.resources.length === 0" class="eb-type-caption p-4 text-center">No inventory loaded. Click Refresh inventory.</p>
+                                    <p x-show="inventoryFilterActive() && inventory.resources && inventory.resources.length > 0 && inventoryVisibleNodeCount() === 0"
+                                       class="eb-type-caption p-4 text-center text-[var(--eb-text-muted)]">No resources match your search.</p>
                                 </div>
                             </div>
                             <div class="ms365-selection-pane border border-[var(--eb-border-default)] rounded-lg overflow-hidden flex flex-col">
@@ -312,6 +329,45 @@
                                             </template>
                                         </div>
                                     </template>
+                                    <div x-show="billingPreview && selectionCount() > 0" class="eb-card !p-3 mt-2 space-y-2">
+                                        <div class="text-xs font-semibold uppercase tracking-wide text-[var(--eb-text-muted)]">Billing estimate</div>
+                                        <template x-if="billingPreview && billingPreview.trial_status === 'trialing'">
+                                            <div class="eb-alert eb-alert--info !mb-0 !py-2">
+                                                <span class="eb-type-caption">Trial — quantities shown; charges are $0 until conversion.</span>
+                                            </div>
+                                        </template>
+                                        <template x-if="billingPreview && (billingPreview.inventory_stale || billingPreview.member_resolution_pending)">
+                                            <div class="eb-alert eb-alert--warning !mb-0 !py-2">
+                                                <span class="eb-type-caption" x-text="billingPreview.member_resolution_pending ? 'Member counts may be incomplete — refresh inventory or try again.' : 'Inventory may be stale; figures reflect the last successful discovery.'"></span>
+                                            </div>
+                                        </template>
+                                        <div class="flex items-baseline justify-between gap-3">
+                                            <span class="text-sm text-[var(--eb-text-secondary)]">Protected Users</span>
+                                            <span class="text-2xl font-semibold text-[var(--eb-text-primary)]" x-text="billingPreview ? (billingPreview.protected_users ?? 0) : 0"></span>
+                                        </div>
+                                        <div class="flex items-baseline justify-between gap-3">
+                                            <span class="text-sm text-[var(--eb-text-secondary)]">Est. monthly</span>
+                                            <span class="text-lg font-semibold text-[var(--eb-text-primary)]">
+                                                $<span x-text="billingPreview ? Number(billingPreview.pricing?.estimated_monthly_cad || 0).toFixed(2) : '0.00'"></span>
+                                            </span>
+                                        </div>
+                                        <p class="eb-type-caption text-[var(--eb-text-muted)]">
+                                            Protected Users @ $<span x-text="billingPreview ? Number(billingPreview.pricing?.protected_user_price_cad || 0).toFixed(2) : '0.00'"></span>/user
+                                            <template x-if="billingPreview && (billingPreview.onedrive_overage_gib || 0) > 0">
+                                                <span> · OneDrive overage included</span>
+                                            </template>
+                                        </p>
+                                        <template x-if="billingPreview && billingPreview.breakdown && billingPreview.breakdown.length > 0">
+                                            <ul class="eb-type-caption text-[var(--eb-text-muted)] space-y-0.5 border-t border-[var(--eb-border-subtle)] pt-2">
+                                                <template x-for="(row, bidx) in billingPreview.breakdown" :key="'bill-' + bidx">
+                                                    <li x-text="row.label + ' — ' + row.member_count + ' members'"></li>
+                                                </template>
+                                            </ul>
+                                        </template>
+                                        <p class="eb-type-caption text-[var(--eb-text-muted)]" x-show="editMode">
+                                            Counts reflect this job&apos;s selection. Your account total may include other active MS365 jobs.
+                                        </p>
+                                    </div>
                                     <div x-show="planWarnings.length > 0" class="eb-alert eb-alert--warning mt-2">
                                         <div class="eb-alert-title">Duplicate coverage</div>
                                         <ul class="eb-type-caption list-disc pl-4 mt-1 space-y-1">
@@ -462,5 +518,5 @@
     </div>
 </div>
 
-<script src="modules/addons/cloudstorage/assets/js/ms365_job_selection.js?v=3"></script>
-<script src="modules/addons/cloudstorage/assets/js/ms365_job_wizard.js?v=17"></script>
+<script src="modules/addons/cloudstorage/assets/js/ms365_job_selection.js?v=4"></script>
+<script src="modules/addons/cloudstorage/assets/js/ms365_job_wizard.js?v=18"></script>

@@ -37,6 +37,36 @@ final class CustomerSelectionCodec
      * @param list<string> $selectedIds
      * @param array<string, array<string, bool>>|null $scopeOverrides
      * @param array<string, mixed> $inventory
+     * @return array{
+     *   selected_resource_ids: list<string>,
+     *   scope_overrides: array<string, array<string, bool>>,
+     *   plan: array<string, mixed>,
+     *   billing: array<string, mixed>
+     * }
+     */
+    public static function planSelectionWithBilling(
+        int $clientId,
+        int $backupUserId,
+        array $selectedIds,
+        ?array $scopeOverrides,
+        array $inventory,
+    ): array {
+        $result = self::planSelection($selectedIds, $scopeOverrides, $inventory);
+        $result['billing'] = Ms365UsageMeter::previewBillingForSelection(
+            $clientId,
+            $backupUserId,
+            $inventory,
+            $result['selected_resource_ids'],
+            $result['scope_overrides'],
+        );
+
+        return $result;
+    }
+
+    /**
+     * @param list<string> $selectedIds
+     * @param array<string, array<string, bool>>|null $scopeOverrides
+     * @param array<string, mixed> $inventory
      */
     public static function validate(array $selectedIds, ?array $scopeOverrides, array $inventory): void
     {

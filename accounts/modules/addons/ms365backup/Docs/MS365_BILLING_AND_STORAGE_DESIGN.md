@@ -1,7 +1,7 @@
 # MS365 Backup — Billing & Storage Design
 
-**Status:** Implemented (v1.20.0)
-**Last updated:** 2026-06-17
+**Status:** Implemented (v1.20.0+)
+**Last updated:** 2026-07-06
 **Owners:** ms365backup (engines + metering services) + cloudstorage (customer UI, buckets, APIs)
 
 This document specifies how to make the **Microsoft 365 Backup** product billing-ready: a free WHMCS product driven by **config options** for Protected Users and OneDrive overage, **per-backup-user daily metering** sourced from Microsoft Graph, **peak-of-period** billing, admin-configurable pricing, a trial, and **platform-owned, isolated object storage** that never touches the existing object-storage bill.
@@ -26,14 +26,18 @@ Read alongside: [PRODUCT_ROADMAP.md](PRODUCT_ROADMAP.md) (product intent/phases)
 
 ### 2.1 Protected User
 
-A **Protected User** is a distinct Microsoft 365 identity (by Azure user id / UPN) that has **at least one personal workload protected**:
+A **Protected User** is a distinct Microsoft 365 **user** identity (by Azure user id), counted when either:
 
-- mailbox, OneDrive, calendar, contacts, or tasks.
+1. **Personal protection** — the user is directly selected with at least one enabled personal workload (mailbox, OneDrive, calendar, contacts, or tasks), or
+2. **Team / group membership** — the user is a billable member of a **selected Team or M365 Group** with at least one enabled backup scope.
 
 Rules:
 
-- A user selected via multiple personal workloads is counted **once** (deduplicated by Azure user id).
-- **Shared** workloads — SharePoint sites, Teams, M365 Groups, Planner, OneNote — are **included under unlimited storage** and do **not** themselves add billable users.
+- The same Azure user id is counted **once** across personal selections, team memberships, and group memberships (deduplicated).
+- **Shared workload data** (Teams, M365 Groups, SharePoint files, Planner, OneNote) remains **unlimited storage**; billing is per **member identity**, not per workload byte.
+- **Exclusions** (not billable): guest users (`userType === Guest` or `#EXT#` UPN), shared mailboxes, and non-user directory objects (devices, service principals).
+- **Deferred (phase 2):** SharePoint site permissions / standalone site members — selecting only a SharePoint site does **not** add Protected Users until site-member resolution ships.
+- **Wizard:** job step 2 shows a live billing preview (`protected_users` + estimated monthly) for the **current selection**, not only saved jobs.
 
 ### 2.2 Tenancy model (how clients, backup users, and WHMCS services relate)
 
@@ -141,11 +145,27 @@ A new daily cron `accounts/crons/ms365_billing.php` (mirroring `accounts/crons/e
 
 For each active MS365 service (resolved via `pid_ms365_backup`), meter the **single backup user** bound via `ms365_tenant_records.whmcs_service_id` (fallback: match `tblhosting.username` to `s3_backup_users.username`):
 
-1. Load the backup user's `inventory.json` and **selected backup scope**.
-2. Compute distinct Azure user ids with ≥1 personal workload protected.
+1. Load the backup user's `inventory.json` and **selected backup scope** (union of all active MS365 jobs).
+2. Compute distinct billable Azure user ids via `ProtectedUserResolver` (personal workloads + team/group members).
 3. Record counts for that backup user only.
 
 **Billing value = MAX(qty) over the current billing window** (anchored to `nextduedate`). Write peak qty to `tblhostingconfigoptions` and update `tblhosting.amount` from rated lines so recurring amount tracks usage during the month.
+
+### 6.1 Member resolution (Teams & M365 Groups)
+
+Member lists are sourced from Microsoft Graph and cached during inventory refresh:
+
+| Resource | Graph endpoint | Permission |
+|----------|----------------|------------|
+| Team | `GET /teams/{groupId}/members` | `TeamMember.Read.All` |
+| M365 Group | `GET /groups/{groupId}/members` | `GroupMember.Read.All` |
+
+- Cached on each team/group resource in `inventory.json` as `meta.member_azure_ids`, `meta.member_count`, `meta.members_fetched_at`.
+- Discovery snapshots: `discovery/team_members/{groupId}.json` (ops/debug).
+- `ProtectedUserResolver` uses cache first; on-demand Graph fetch when cache is empty (e.g. tenant refreshed before deploy).
+- Team channels inherit parent team membership (no per-channel member fetch).
+- Selecting a team with **any** enabled scope (metadata, messages, files) bills all billable members.
+- OneDrive overage is still computed only for users with **personally selected** OneDrive scope.
 
 ---
 

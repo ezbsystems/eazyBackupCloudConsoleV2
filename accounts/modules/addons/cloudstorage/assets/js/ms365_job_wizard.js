@@ -304,6 +304,7 @@
             scopeOverrides: {},
             planWarnings: [],
             planSummary: { runnable: 0, deferred: 0 },
+            billingPreview: null,
             selectionSummaryGroups: [],
             savedSelectionIds: [],
             searchQuery: '',
@@ -370,8 +371,10 @@
                 this.scopeOverrides = {};
                 this.planWarnings = [];
                 this.planSummary = { runnable: 0, deferred: 0 };
+                this.billingPreview = null;
                 this.selectionSummaryGroups = [];
                 this.savedSelectionIds = [];
+                this.searchQuery = '';
                 this.scheduleFrequency = 'once_daily';
                 this.retentionTier = DEFAULT_RETENTION_TIER;
                 this.jobName = this.defaultJobName();
@@ -1302,6 +1305,7 @@
                 if (!this.backupUserId || this.savedSelectionIds.length === 0) {
                     this.planWarnings = [];
                     this.planSummary = { runnable: 0, deferred: 0 };
+                    this.billingPreview = null;
                     return;
                 }
                 try {
@@ -1320,6 +1324,7 @@
                     if (data.status === 'success' && data.plan) {
                         this.planWarnings = data.plan.warnings || [];
                         this.planSummary = data.plan.summary || { runnable: 0, deferred: 0 };
+                        this.billingPreview = data.billing || null;
                     }
                 } catch (e) {
                     /* keep last plan */
@@ -1328,7 +1333,28 @@
 
             sectionHasNodes(sectionKey) {
                 const nodes = this.treesBySection[sectionKey] || [];
+                const sel = window.ms365JobSelection;
+                if (this.inventoryFilterActive() && sel) {
+                    return sel.sectionHasVisibleNodes(nodes, this.searchQuery, this.expandedKeys);
+                }
                 return nodes.some((n) => n.depth === 0);
+            },
+
+            inventoryFilterActive() {
+                return (this.searchQuery || '').trim() !== '';
+            },
+
+            inventoryVisibleNodeCount() {
+                const sel = window.ms365JobSelection;
+                if (!sel) {
+                    return 0;
+                }
+                let count = 0;
+                this.inventorySections().forEach((section) => {
+                    const nodes = this.treesBySection[section.key] || [];
+                    count += sel.visibleNodes(nodes, this.selection, this.searchQuery, this.expandedKeys).length;
+                });
+                return count;
             },
 
             inaccessibleSiteCount() {

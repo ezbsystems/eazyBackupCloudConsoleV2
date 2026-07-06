@@ -88,6 +88,19 @@ if ($selectedIds === []) {
             'warnings' => [],
             'summary' => ['runnable' => 0, 'deferred' => 0],
         ],
+        'billing' => [
+            'protected_users' => 0,
+            'onedrive_overage_gib' => 0,
+            'pricing' => [
+                'protected_user_price_cad' => 0.0,
+                'onedrive_overage_per_gib_cad' => 0.0,
+                'estimated_monthly_cad' => 0.0,
+            ],
+            'trial_status' => null,
+            'inventory_stale' => false,
+            'member_resolution_pending' => false,
+            'breakdown' => [],
+        ],
     ]))->send();
     exit;
 }
@@ -97,6 +110,7 @@ try {
     (new JsonResponse([
         'status' => 'success',
         'plan' => $result['plan'],
+        'billing' => $result['billing'] ?? [],
     ]))->send();
 } catch (\Throwable $e) {
     Ms365E3Controller::apiErrorResponse($e, 'ms365_job_plan')->send();

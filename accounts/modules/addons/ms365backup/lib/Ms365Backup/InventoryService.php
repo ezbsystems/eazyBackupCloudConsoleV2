@@ -333,6 +333,8 @@ final class InventoryService
             ['id' => $dirId, 'meta' => []],
         );
 
+        $this->enrichTeamAndGroupMembers($resources, $discoveryCounts);
+
         $resourceList = array_values($resources);
         $resolver = new RelationshipResolver();
         $relationships = $resolver->build($resourceList);
@@ -431,6 +433,62 @@ final class InventoryService
             $payload['counts']['sites'] = $payload['display_counts']['sites'];
         }
         $this->storage->writeJson($this->storage->discoveryDir() . '/progress.json', $payload);
+    }
+
+    /**
+     * @param array<string, array<string, mixed>> $resources
+     * @param array<string, int> $discoveryCounts
+     */
+    private function enrichTeamAndGroupMembers(array &$resources, array &$discoveryCounts): void
+    {
+        $memberTargets = [];
+        foreach ($resources as $resource) {
+            $type = (string) ($resource['resource_type'] ?? '');
+            if (!in_array($type, [TenantResource::TYPE_TEAM, TenantResource::TYPE_M365_GROUP], true)) {
+                continue;
+            }
+            $id = (string) ($resource['id'] ?? '');
+            $groupId = (string) ($resource['graph_id'] ?? '');
+            if ($id === '' || $groupId === '') {
+                continue;
+            }
+            $memberTargets[] = ['id' => $id, 'group_id' => $groupId, 'type' => $type];
+        }
+
+        if ($memberTargets === []) {
+            return;
+        }
+
+        $total = count($memberTargets);
+        $inventoryStub = ['resources' => array_values($resources)];
+        foreach ($memberTargets as $index => $target) {
+            if ($index === 0 || ($index + 1) % 5 === 0 || $index === $total - 1) {
+                $this->writeRefreshProgress(
+                    'group_members',
+                    'Loading team and group members…',
+                    $discoveryCounts,
+                    sprintf('Members: %d of %d', $index + 1, $total),
+                );
+            }
+
+            $groupId = $target['group_id'];
+            $resourceId = $target['id'];
+            try {
+                $rows = $target['type'] === TenantResource::TYPE_M365_GROUP
+                    ? $this->discovery->listGroupMembers($groupId)
+                    : $this->discovery->listTeamMembers($groupId);
+                $billable = ProtectedUserResolver::billableIdsFromMemberRows($rows, $inventoryStub);
+            } catch (\Throwable $_) {
+                $billable = [];
+            }
+
+            if (!isset($resources[$resourceId]['meta']) || !is_array($resources[$resourceId]['meta'])) {
+                $resources[$resourceId]['meta'] = [];
+            }
+            $resources[$resourceId]['meta']['member_azure_ids'] = $billable;
+            $resources[$resourceId]['meta']['member_count'] = count($billable);
+            $resources[$resourceId]['meta']['members_fetched_at'] = gmdate('c');
+        }
     }
 
     /** @return list<array<string, mixed>> */

@@ -275,7 +275,13 @@ final class Ms365E3Controller
             throw new \RuntimeException('Refresh tenant inventory before planning the job.');
         }
 
-        return CustomerSelectionCodec::planSelection($selectedIds, $scopeOverrides, $inventory);
+        return CustomerSelectionCodec::planSelectionWithBilling(
+            $clientId,
+            (int) $user['id'],
+            $selectedIds,
+            $scopeOverrides,
+            $inventory,
+        );
     }
 
     /** @return array{run_ids: list<string>, batch_run_id: string, count: int} */

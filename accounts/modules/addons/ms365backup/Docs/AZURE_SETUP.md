@@ -29,7 +29,8 @@ Under **API permissions** → **Add a permission** → **Microsoft Graph** → *
 | `Group.Read.All` | List Microsoft Teams and M365 groups |
 | `Files.Read.All` | OneDrive drive metadata (`/users/{id}/drive`) for resource inventory |
 | `ChannelMessage.Read.All` | Teams channel messages and replies (Phase 2E) |
-| `TeamMember.Read.All` | Team members (`/teams/{id}/members`) |
+| `TeamMember.Read.All` | Team members (`/teams/{id}/members`) — Protected User metering |
+| `GroupMember.Read.All` | M365 group members (`/groups/{id}/members`) — Protected User metering |
 | `Channel.ReadBasic.All` | Channel tabs (`/teams/{id}/channels/{id}/tabs`) — optional; tabs skipped if denied |
 | `Notes.Read.All` | OneNote notebooks, sections, pages (Phase 2F) |
 

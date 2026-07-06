@@ -11,6 +11,17 @@
 
 ## Session log
 
+### 2026-07-06 — Member-based Protected User billing + wizard preview
+
+- **Problem:** `Ms365UsageMeter` counted only personally selected users; Teams/M365 Groups added 0 Protected Users. Job wizard step 2 had no billing preview.
+- **Metering:** New `ProtectedUserResolver` — personal workloads + billable members of selected Teams/M365 Groups (deduped by Azure user id). Excludes guests, shared mailboxes, non-user objects. SharePoint site members **deferred**.
+- **Discovery:** `DiscoveryService::listTeamMembers()` / `listGroupMembers()`; inventory refresh caches `meta.member_azure_ids` on team/group resources (`enrichTeamAndGroupMembers`).
+- **API:** `ms365_job_plan.php` returns `billing` block (`protected_users`, `estimated_monthly_cad`, breakdown, trial/pending flags).
+- **UI:** Wizard step 2 right pane — Billing estimate card in `ms365_job_wizard.tpl` / `ms365_job_wizard.js`.
+- **Docs:** `MS365_BILLING_AND_STORAGE_DESIGN.md` §2.1 + §6.1; `AZURE_SETUP.md` adds `GroupMember.Read.All`.
+- **Tests:** `tests/ms365_protected_user_resolver_test.php` (29-member team, dedup, guests, channel inherit, SP deferred).
+- **Next:** SharePoint site member resolution (phase 2); refresh inventory on tenants upgraded before deploy to populate member cache.
+
 ### 2026-07-06 — Usage-gated object storage base fee (Option B)
 
 - **Problem:** Unified MS365 signup still provisions `pid_cloud_storage` ($9/mo); MS365 data lives in platform `e3ms365-*` buckets excluded from billable usage, but `computeAmountForBytes(0)` charged the flat $9 base anyway.
@@ -856,7 +867,7 @@ Four real bugs found and fixed (each confirmed with goroutine dumps / DB evidenc
 6. **File backup staging E2E** — Execute `Docs/KOPIA_FILE_BACKUP_E2E.md` on dev tenant (OneDrive + SP files/lists + mail attachments); confirm browse shows `content/` bytes.
 7. **Publish worker release** — Build/publish Go worker with `sharepoint_lists` + shard filtering; roll fleet to new artifact.
 8. **Tenant Seeder E2E** — Register seeder Entra app; run Light profile; verify backup picks up seeded files.
-9. ~~**Metering / billing**~~ — MS365 billing per `MS365_BILLING_AND_STORAGE_DESIGN.md` (meter/rate cron, trial, invoice hook, Usage & Billing drawer). Unified e3 Backup User billing wired 2026-07-04.
+9. ~~**Metering / billing**~~ — MS365 billing per `MS365_BILLING_AND_STORAGE_DESIGN.md` (meter/rate cron, trial, invoice hook, Usage & Billing drawer). **Member-based Protected Users** for Teams/M365 Groups + wizard billing preview (2026-07-06). SharePoint site members still deferred.
 10. **Admin support view** — Impersonate client tenant, re-run inventory from admin addon.
 11. ~~**Remove Comet LXD path**~~ — Done: `provisionMs365` signup path uses ms365backup product + bucket bootstrap only (legacy when unified flag off).
 12. **Async inventory refresh** — Large tenants may need background job instead of synchronous POST.

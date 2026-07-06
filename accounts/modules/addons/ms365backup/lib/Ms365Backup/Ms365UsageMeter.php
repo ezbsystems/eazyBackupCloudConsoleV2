@@ -6,7 +6,7 @@ namespace Ms365Backup;
 use WHMCS\Database\Capsule;
 
 /**
- * Computes Protected Users and OneDrive overage from inventory + active MS365 job selections.
+ * Computes Protected Users and OneDrive overage from inventory + MS365 job selections.
  */
 final class Ms365UsageMeter
 {
@@ -17,15 +17,141 @@ final class Ms365UsageMeter
         TenantResource::TYPE_USER_ONEDRIVE,
     ];
 
-    /** @var list<string> */
-    private const PERSONAL_SCOPE_KEYS = [
-        BackupScope::MAIL,
-        BackupScope::CALENDAR,
-        BackupScope::CONTACTS,
-        BackupScope::TASKS,
-        BackupScope::ONEDRIVE,
-        BackupScope::FILES,
-    ];
+    /**
+     * @param array<string, mixed> $inventory
+     * @param list<string> $selectedIds
+     * @param array<string, array<string, bool>> $scopeOverrides
+     * @return array{
+     *   protected_users: int,
+     *   onedrive_overage_gib: int,
+     *   onedrive_users: list<array<string, mixed>>,
+     *   inventory_stale: bool,
+     *   member_resolution_pending: bool,
+     *   breakdown: list<array{resource_id: string, label: string, member_count: int}>
+     * }
+     */
+    public static function measureSelection(
+        array $inventory,
+        array $selectedIds,
+        array $scopeOverrides,
+        ?DiscoveryService $discovery = null,
+    ): array {
+        $empty = [
+            'protected_users' => 0,
+            'onedrive_overage_gib' => 0,
+            'onedrive_users' => [],
+            'inventory_stale' => false,
+            'member_resolution_pending' => false,
+            'breakdown' => [],
+        ];
+        if ($selectedIds === []) {
+            return $empty;
+        }
+
+        $resolution = ProtectedUserResolver::resolve($inventory, $selectedIds, $scopeOverrides, $discovery);
+        $protectedAzureIds = array_fill_keys($resolution['protected_azure_ids'], true);
+        $byId = self::resourcesById($inventory);
+        $selection = [
+            'selected_ids' => CustomerSelectionCodec::normalizeIds($selectedIds),
+            'scope_overrides' => $scopeOverrides,
+        ];
+        $includedBytes = Ms365BillingConfig::onedriveIncludedBytes();
+        $onedriveUsers = [];
+
+        foreach ($selection['selected_ids'] as $resourceId) {
+            $resource = $byId[$resourceId] ?? null;
+            if ($resource === null) {
+                continue;
+            }
+            $type = (string) ($resource['resource_type'] ?? '');
+            if (!in_array($type, self::PERSONAL_TYPES, true)) {
+                continue;
+            }
+            if (!self::hasEnabledPersonalScope($type, $resourceId, $scopeOverrides, $inventory)) {
+                continue;
+            }
+
+            $azureUserId = self::azureUserIdForResource($resource, $type);
+            if ($azureUserId === '' || !isset($protectedAzureIds[$azureUserId])) {
+                continue;
+            }
+
+            if (self::onedriveProtectedForUser($azureUserId, $resource, $type, $selection, $byId, $inventory)) {
+                $drive = self::findOneDriveResource($azureUserId, $byId);
+                $usedBytes = (int) ($drive['meta']['size_bytes'] ?? 0);
+                $overageBytes = max(0, $usedBytes - $includedBytes);
+                $onedriveUsers[$azureUserId] = [
+                    'azure_user_id' => $azureUserId,
+                    'upn' => (string) ($drive['email'] ?? $resource['email'] ?? ''),
+                    'display_name' => (string) ($drive['display_name'] ?? $resource['display_name'] ?? ''),
+                    'drive_id' => (string) ($drive['meta']['drive_id'] ?? $drive['graph_id'] ?? ''),
+                    'used_bytes' => $usedBytes,
+                    'included_bytes' => $includedBytes,
+                    'overage_bytes' => $overageBytes,
+                ];
+            }
+        }
+
+        $totalOverageGiB = 0;
+        foreach ($onedriveUsers as $row) {
+            $totalOverageGiB += (int) ceil(((int) $row['overage_bytes']) / (1024 * 1024 * 1024));
+        }
+
+        return [
+            'protected_users' => count($protectedAzureIds),
+            'onedrive_overage_gib' => $totalOverageGiB,
+            'onedrive_users' => array_values($onedriveUsers),
+            'inventory_stale' => false,
+            'member_resolution_pending' => (bool) ($resolution['member_resolution_pending'] ?? false),
+            'breakdown' => $resolution['breakdown'] ?? [],
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $inventory
+     * @param list<string> $selectedIds
+     * @param array<string, array<string, bool>> $scopeOverrides
+     * @return array<string, mixed>
+     */
+    public static function previewBillingForSelection(
+        int $clientId,
+        int $backupUserId,
+        array $inventory,
+        array $selectedIds,
+        array $scopeOverrides,
+        ?DiscoveryService $discovery = null,
+    ): array {
+        $zeroed = self::emptyBillingPreview();
+        if ($selectedIds === []) {
+            return $zeroed;
+        }
+
+        $discovery ??= self::discoveryForBackupUser($clientId, $backupUserId);
+        $measure = self::measureSelection($inventory, $selectedIds, $scopeOverrides, $discovery);
+        $serviceId = Ms365BillingService::resolveServiceIdForBackupUser($clientId, $backupUserId);
+        $trialStatus = $serviceId > 0 ? Ms365BillingTrial::status($serviceId) : null;
+        $protectedPrice = Ms365BillingConfig::protectedUserPriceCad();
+        $overagePrice = Ms365BillingConfig::onedriveOveragePricePerGibCad();
+        $wouldBill = ((int) $measure['protected_users'] * $protectedPrice)
+            + ((int) $measure['onedrive_overage_gib'] * $overagePrice);
+        if ($trialStatus === 'trialing') {
+            $wouldBill = 0.0;
+        }
+
+        return [
+            'protected_users' => (int) $measure['protected_users'],
+            'onedrive_overage_gib' => (int) $measure['onedrive_overage_gib'],
+            'pricing' => [
+                'protected_user_price_cad' => $protectedPrice,
+                'onedrive_overage_per_gib_cad' => $overagePrice,
+                'estimated_monthly_cad' => round($wouldBill, 2),
+            ],
+            'trial_status' => $trialStatus,
+            'inventory_stale' => (bool) ($measure['inventory_stale'] ?? false),
+            'member_resolution_pending' => (bool) ($measure['member_resolution_pending'] ?? false),
+            'breakdown' => $measure['breakdown'] ?? [],
+        ];
+    }
 
     /**
      * @return array{
@@ -65,55 +191,18 @@ final class Ms365UsageMeter
             return $empty;
         }
 
-        $byId = self::resourcesById($inventory);
-        $protectedAzureIds = [];
-        $onedriveUsers = [];
-        $includedBytes = Ms365BillingConfig::onedriveIncludedBytes();
-
-        foreach ($selection['selected_ids'] as $resourceId) {
-            $resource = $byId[$resourceId] ?? null;
-            if ($resource === null) {
-                continue;
-            }
-            $type = (string) ($resource['resource_type'] ?? '');
-            if (!in_array($type, self::PERSONAL_TYPES, true)) {
-                continue;
-            }
-            if (!self::hasEnabledPersonalScope($type, $resourceId, $selection['scope_overrides'], $inventory)) {
-                continue;
-            }
-
-            $azureUserId = self::azureUserIdForResource($resource, $type);
-            if ($azureUserId === '') {
-                continue;
-            }
-            $protectedAzureIds[$azureUserId] = true;
-
-            if (self::onedriveProtectedForUser($azureUserId, $resource, $type, $selection, $byId)) {
-                $drive = self::findOneDriveResource($azureUserId, $byId);
-                $usedBytes = (int) ($drive['meta']['size_bytes'] ?? 0);
-                $overageBytes = max(0, $usedBytes - $includedBytes);
-                $onedriveUsers[$azureUserId] = [
-                    'azure_user_id' => $azureUserId,
-                    'upn' => (string) ($drive['email'] ?? $resource['email'] ?? ''),
-                    'display_name' => (string) ($drive['display_name'] ?? $resource['display_name'] ?? ''),
-                    'drive_id' => (string) ($drive['meta']['drive_id'] ?? $drive['graph_id'] ?? ''),
-                    'used_bytes' => $usedBytes,
-                    'included_bytes' => $includedBytes,
-                    'overage_bytes' => $overageBytes,
-                ];
-            }
-        }
-
-        $totalOverageGiB = 0;
-        foreach ($onedriveUsers as $row) {
-            $totalOverageGiB += (int) ceil(((int) $row['overage_bytes']) / (1024 * 1024 * 1024));
-        }
+        $discovery = self::discoveryForBackupUser($clientId, $backupUserId);
+        $measure = self::measureSelection(
+            $inventory,
+            $selection['selected_ids'],
+            $selection['scope_overrides'],
+            $discovery,
+        );
 
         return [
-            'protected_users' => count($protectedAzureIds),
-            'onedrive_overage_gib' => $totalOverageGiB,
-            'onedrive_users' => array_values($onedriveUsers),
+            'protected_users' => (int) $measure['protected_users'],
+            'onedrive_overage_gib' => (int) $measure['onedrive_overage_gib'],
+            'onedrive_users' => $measure['onedrive_users'],
             'inventory_stale' => false,
         ];
     }
@@ -147,6 +236,42 @@ final class Ms365UsageMeter
             'protected_users' => $protected,
             'onedrive_overage_gib' => $overageGiB,
         ];
+    }
+
+    /** @return array<string, mixed> */
+    private static function emptyBillingPreview(): array
+    {
+        return [
+            'protected_users' => 0,
+            'onedrive_overage_gib' => 0,
+            'pricing' => [
+                'protected_user_price_cad' => Ms365BillingConfig::protectedUserPriceCad(),
+                'onedrive_overage_per_gib_cad' => Ms365BillingConfig::onedriveOveragePricePerGibCad(),
+                'estimated_monthly_cad' => 0.0,
+            ],
+            'trial_status' => null,
+            'inventory_stale' => false,
+            'member_resolution_pending' => false,
+            'breakdown' => [],
+        ];
+    }
+
+    private static function discoveryForBackupUser(int $clientId, int $backupUserId): ?DiscoveryService
+    {
+        if ($clientId <= 0 || $backupUserId <= 0) {
+            return null;
+        }
+        $record = TenantRecordRepository::getForBackupUser($clientId, $backupUserId);
+        if ($record === null) {
+            return null;
+        }
+        try {
+            $ctx = RunTenantContext::forClientRecord($record);
+
+            return new DiscoveryService($ctx->graph, $ctx->storageLayout);
+        } catch (\Throwable $_) {
+            return null;
+        }
     }
 
     /** @return array{selected_ids: list<string>, scope_overrides: array<string, array<string, bool>>} */
@@ -249,9 +374,16 @@ final class Ms365UsageMeter
         );
         $flags = $resolved['scope_overrides'][$resourceId] ?? [];
         if ($flags === []) {
-            return in_array($type, [TenantResource::TYPE_USER, TenantResource::TYPE_MAILBOX, TenantResource::TYPE_USER_ONEDRIVE], true);
+            return in_array($type, self::PERSONAL_TYPES, true);
         }
-        foreach (self::PERSONAL_SCOPE_KEYS as $key) {
+        foreach ([
+            BackupScope::MAIL,
+            BackupScope::CALENDAR,
+            BackupScope::CONTACTS,
+            BackupScope::TASKS,
+            BackupScope::ONEDRIVE,
+            BackupScope::FILES,
+        ] as $key) {
             if (!empty($flags[$key])) {
                 return true;
             }
@@ -278,6 +410,7 @@ final class Ms365UsageMeter
     /**
      * @param array<string, array<string, mixed>> $byId
      * @param array<string, mixed> $resource
+     * @param array{selected_ids: list<string>, scope_overrides: array<string, array<string, bool>>} $selection
      */
     private static function onedriveProtectedForUser(
         string $azureUserId,
@@ -285,9 +418,10 @@ final class Ms365UsageMeter
         string $type,
         array $selection,
         array $byId,
+        array $inventory,
     ): bool {
         if ($type === TenantResource::TYPE_USER_ONEDRIVE) {
-            return self::hasEnabledPersonalScope($type, (string) $resource['id'], $selection['scope_overrides'], ['resources' => array_values($byId)]);
+            return self::hasEnabledPersonalScope($type, (string) $resource['id'], $selection['scope_overrides'], $inventory);
         }
         $userResourceId = 'user:' . $azureUserId;
         if (isset($byId[$userResourceId])) {

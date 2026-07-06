@@ -68,7 +68,7 @@ Use this section for wireframes, user stories, copy, and interaction notes. Agen
 - **Resource types shown:** Users & mailboxes (with nested Mail, Calendar, Contacts, Tasks, OneDrive), SharePoint sites (Files, Lists), Teams (Metadata, Messages, Files + channels), Groups (Mail, Calendar, Files + planner plans), Planner, OneNote, tenant metadata.
 - **Selection:** Parent checkbox selects all sub-components; partial selection shows indeterminate parent; OneDrive is nested under each user (no standalone OneDrive section).
 - **Scope:** Job save sends `selected_resource_ids` + `scope_overrides` (per-resource authoritative scope). Plan API validates runnable workloads.
-- **Actions:** Search, refresh inventory, expand/collapse rows.
+- **Actions:** Search (filter field in the left Tenant inventory pane; client-side tree filter; does not scope “Select all”), refresh inventory, expand/collapse rows.
 - **Wizard open:** Always `POST ms365_inventory_refresh.php` (Graph discovery) before showing step 2. Cached `GET ms365_inventory.php` load runs only after a successful refresh to populate the full `resources[]` list. On refresh auth failure, wizard returns to step 1 with reconnect CTA.
 - **API:** `GET ms365_inventory.php`, `POST ms365_inventory_refresh.php`, `POST ms365_job_plan.php` (plan preview / dedup warnings).
 
