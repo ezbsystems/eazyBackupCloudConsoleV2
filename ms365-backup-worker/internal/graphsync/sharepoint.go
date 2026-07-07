@@ -75,7 +75,21 @@ func SyncSharePoint(ctx context.Context, client *graph.Client, opts SharePointSy
 
 	var drives []map[string]any
 	if opts.DriveID != "" {
-		drives = []map[string]any{{"id": opts.DriveID}}
+		driveEntry := map[string]any{"id": opts.DriveID}
+		if driveInfo, err := client.GetJSON(ctx, fmt.Sprintf("/drives/%s", opts.DriveID), map[string]string{
+			"$select": "id,name,driveType",
+		}); err == nil {
+			if id := stringFromAny(driveInfo["id"]); id != "" {
+				driveEntry["id"] = id
+			}
+			if name := stringFromAny(driveInfo["name"]); name != "" {
+				driveEntry["name"] = name
+			}
+			if driveType := stringFromAny(driveInfo["driveType"]); driveType != "" {
+				driveEntry["driveType"] = driveType
+			}
+		}
+		drives = []map[string]any{driveEntry}
 	} else {
 		var err error
 		drives, err = client.Paginate(ctx, fmt.Sprintf("/sites/%s/drives", opts.SiteID), map[string]string{"$top": "50"})
@@ -84,7 +98,7 @@ func SyncSharePoint(ctx context.Context, client *graph.Client, opts SharePointSy
 		}
 	}
 
-	if opts.DriveID == "" {
+	if len(drives) > 0 {
 		catalog, _ := json.Marshal(map[string]any{
 			"fetched_at": time.Now().UTC().Format(time.RFC3339),
 			"value":      drives,

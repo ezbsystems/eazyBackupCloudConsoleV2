@@ -156,3 +156,55 @@ func TestSyncSharePointDriveParallelOneMatchesSequential(t *testing.T) {
 		t.Fatalf("unexpected stats: %+v", res.Stats)
 	}
 }
+
+func TestSyncSharePointSingleDriveWritesCatalog(t *testing.T) {
+	driveID := "b!drive-only"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path
+		switch {
+		case path == "/drives/"+driveID:
+			payload, _ := json.Marshal(map[string]any{
+				"id":        driveID,
+				"name":      "Shared Documents",
+				"driveType": "documentLibrary",
+			})
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write(payload)
+		case strings.Contains(path, "/drives/") && strings.HasSuffix(path, "/root/delta"):
+			payload, _ := json.Marshal(map[string]any{
+				"value": []map[string]any{
+					{
+						"id":   "item-1",
+						"name": "doc.pdf",
+						"size": float64(42),
+						"file": map[string]any{},
+					},
+				},
+			})
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write(payload)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	client := graph.NewTestClient(srv.URL, graph.ClientOptions{MaxRetries: 2, MaxConcurrency: 8})
+	staging := graphfs.NewOverlayBuilder()
+	_, err := SyncSharePoint(context.Background(), client, SharePointSyncOptions{
+		AzureTenantID: "tenant-1",
+		SiteID:        "site1",
+		DriveID:       driveID,
+		Parallel:      8,
+		Shard:         ShardFilter{},
+		Staging:       staging,
+	})
+	if err != nil {
+		t.Fatalf("SyncSharePoint: %v", err)
+	}
+
+	catalogPath := siteStoragePath("tenant-1", "site1") + "/drives.json"
+	if !staging.HasPath(catalogPath) {
+		t.Fatalf("expected drives.json at %s, paths=%v", catalogPath, staging.Paths())
+	}
+}

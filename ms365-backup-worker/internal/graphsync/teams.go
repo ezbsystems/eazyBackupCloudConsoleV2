@@ -17,6 +17,7 @@ type TeamsSyncOptions struct {
 	Staging       *graphfs.OverlayBuilder
 	DeltaStates   map[string]string
 	Log           RunLogger
+	OnProgress    func(channelsDone, channelsTotal int)
 }
 
 type TeamsSyncResult struct {
@@ -35,7 +36,7 @@ func SyncTeams(ctx context.Context, client *graph.Client, opts TeamsSyncOptions)
 	stats := map[string]int{"channels": 0, "messages": 0}
 	deltaOut := map[string]string{}
 
-	channels, err := client.Paginate(ctx, fmt.Sprintf("/teams/%s/channels", opts.TeamID), map[string]string{"$top": "50"})
+	channels, err := client.Paginate(ctx, fmt.Sprintf("/teams/%s/channels", opts.TeamID), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -54,6 +55,7 @@ func SyncTeams(ctx context.Context, client *graph.Client, opts TeamsSyncOptions)
 		}
 		channelMeta = append(channelMeta, map[string]string{"id": chID, "displayName": chName})
 	}
+	channelsTotal := len(channelMeta)
 	meta, _ := json.Marshal(map[string]any{
 		"team_id":     opts.TeamID,
 		"displayName": teamDisplayName,
@@ -73,7 +75,10 @@ func SyncTeams(ctx context.Context, client *graph.Client, opts TeamsSyncOptions)
 		}
 		deltaPath := fmt.Sprintf("/teams/%s/channels/%s/messages/delta", opts.TeamID, chID)
 		monitor := graph.ForBackupPagination("teams:"+chID, graphLog(opts.Log))
-		items, deltaLink, err := paginateDeltaResilient(ctx, client, deltaPath, priorDelta, "", 50, nil, &graph.DeltaPaginateOptions{Monitor: monitor})
+		items, deltaLink, err := paginateDeltaResilient(ctx, client, deltaPath, priorDelta, "", 50, nil, &graph.DeltaPaginateOptions{
+			Monitor:              monitor,
+			OmitDeltaQueryParams: true,
+		})
 		if err != nil {
 			return nil, err
 		}
@@ -95,6 +100,9 @@ func SyncTeams(ctx context.Context, client *graph.Client, opts TeamsSyncOptions)
 			path := fmt.Sprintf("%s/teams/%s/channels/%s/messages/%s.json", opts.AzureTenantID, safeID(opts.TeamID), safeID(chID), safeID(id))
 			opts.Staging.PutJSON(path, body, graphfsModTime(item["lastModifiedDateTime"]))
 			stats["messages"]++
+		}
+		if opts.OnProgress != nil {
+			opts.OnProgress(stats["channels"], channelsTotal)
 		}
 	}
 	return &TeamsSyncResult{Stats: stats, FileCount: opts.Staging.EntryCount(), DeltaStates: deltaOut}, nil

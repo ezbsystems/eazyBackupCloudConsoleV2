@@ -378,6 +378,43 @@ func TestSharePointListFolderDisplayNameFromCatalog(t *testing.T) {
 	}
 }
 
+func TestSharePointDriveRootFolderDisplayNameFromCatalog(t *testing.T) {
+	ctx := context.Background()
+	driveID := "b!4QhyKa8-tEWynEClEl1o_5NqbjTYb1VGsOSs-ZXNBet47NJxJZINR4Q_sTH8rPRj"
+	catalog := []byte(`{"value":[{"id":"` + driveID + `","name":"Documents"}]}`)
+	root := newMemDir("", map[string]kopiafs.Entry{
+		"4728969e-5eff-4981-b0c6-46eadac79cfe": newMemDir("4728969e-5eff-4981-b0c6-46eadac79cfe", map[string]kopiafs.Entry{
+			"sites": newMemDir("sites", map[string]kopiafs.Entry{
+				"stchf_sharepoint_com_guid_guid": newMemDir("stchf_sharepoint_com_guid_guid", map[string]kopiafs.Entry{
+					"drives.json": newMemFile("drives.json", catalog),
+					"drives": newMemDir("drives", map[string]kopiafs.Entry{
+						driveID: newMemDir(driveID, map[string]kopiafs.Entry{}),
+					}),
+				}),
+			}),
+		}),
+	})
+
+	folderPath := "4728969e-5eff-4981-b0c6-46eadac79cfe/sites/stchf_sharepoint_com_guid_guid/drives/" + driveID
+	got := sharePointDriveFolderDisplayName(ctx, root, folderPath)
+	if got != "Documents" {
+		t.Fatalf("drive folder label: got %q", got)
+	}
+}
+
+func TestIsSharePointDriveRootFolder(t *testing.T) {
+	driveID := "b!4QhyKa8-tEWynEClEl1o_5NqbjTYb1VGsOSs-ZXNBet47NJxJZINR4Q_sTH8rPRj"
+	if !isSharePointDriveRootFolder("tenant/sites/site1/drives/" + driveID) {
+		t.Fatal("expected drive root folder path")
+	}
+	if isSharePointDriveRootFolder("tenant/sites/site1/drives/" + driveID + "/content") {
+		t.Fatal("content path is not drive root")
+	}
+	if !isSharePointDriveID(driveID) {
+		t.Fatal("expected SharePoint drive id")
+	}
+}
+
 func TestSharePointListItemLabels(t *testing.T) {
 	ctx := context.Background()
 	itemPath := "sites/site1/lists/list1/items/10.json"

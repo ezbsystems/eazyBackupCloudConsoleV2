@@ -1,6 +1,9 @@
 package graph
 
-import "testing"
+import (
+	"net/url"
+	"testing"
+)
 
 func TestPaginationSessionCapWarnContinue(t *testing.T) {
 	monitor := ForBackupPagination("test", nil)
@@ -31,6 +34,22 @@ func TestExtractSkipToken(t *testing.T) {
 	got := extractSkipToken(link)
 	if got != "abc123" {
 		t.Fatalf("skip token = %q", got)
+	}
+}
+
+func TestStripDisallowedGraphQueryParams(t *testing.T) {
+	in := "https://graph.microsoft.com/v1.0/teams/t1/channels/c1/messages/delta?$skiptoken=abc&$top=50&$skip=10"
+	got := stripDisallowedGraphQueryParams(in)
+	u, err := url.Parse(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := u.Query()
+	if q.Get("$top") != "" || q.Get("$skip") != "" {
+		t.Fatalf("expected top/skip stripped, got %q", got)
+	}
+	if q.Get("$skiptoken") != "abc" {
+		t.Fatalf("expected skiptoken preserved, got %q", q.Get("$skiptoken"))
 	}
 }
 

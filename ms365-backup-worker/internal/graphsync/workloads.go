@@ -245,6 +245,7 @@ func (w *WorkloadRunner) Run(ctx context.Context) (*WorkloadResult, error) {
 			Staging:       w.Overlay,
 			DeltaStates:   w.deltaForWorkload("teams"),
 			Log:           w.RunLog,
+			OnProgress:    func(d, t int) { progress("teams", d, t, 0) },
 		})
 		if err != nil {
 			return nil, fmt.Errorf("teams: %w", err)
@@ -435,12 +436,19 @@ func (w *WorkloadRunner) allowsWorkload(name string) bool {
 		if kind != "drive" && kind != "onedrive" {
 			return false
 		}
-		return w.scopeFlag("onedrive", true) || w.scopeFlag("files", true)
-	case "sharepoint":
-		if kind != "site" {
+		// SharePoint document-library drive shards carry site_id and use sharepoint workload.
+		if strings.TrimSpace(w.Job.SiteID) != "" {
 			return false
 		}
-		return w.scopeFlag("files", true)
+		return w.scopeFlag("onedrive", true) || w.scopeFlag("files", true)
+	case "sharepoint":
+		if kind == "site" {
+			return w.scopeFlag("files", true)
+		}
+		if kind == "drive" && strings.TrimSpace(w.Job.SiteID) != "" {
+			return w.scopeFlag("files", true)
+		}
+		return false
 	case "sharepoint_lists":
 		if kind != "site" && kind != "list" {
 			return false

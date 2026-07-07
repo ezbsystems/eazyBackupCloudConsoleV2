@@ -92,6 +92,12 @@ func browseLabel(
 		}
 		return browseLabelResult{Label: opaqueSharePointListFallback(name)}
 	}
+	if entryType == "folder" && isSharePointDriveRootFolder(childPath) {
+		if label := sharePointDriveFolderDisplayName(ctx, root, childPath); label != "" {
+			return browseLabelResult{Label: label}
+		}
+		return browseLabelResult{Label: opaqueDriveFolderFallback(name)}
+	}
 	if entryType == "folder" && isDriveContentBrowsePath(childPath) && strings.Contains(childPath, "/sites/") {
 		if label := sharePointDriveFolderDisplayName(ctx, root, childPath); label != "" {
 			return browseLabelResult{Label: label}
@@ -148,6 +154,9 @@ func fastBrowseLabel(childPath, name, entryType string) browseLabelResult {
 		return browseLabelResult{Label: label}
 	}
 	if entryType == "folder" {
+		if isSharePointDriveRootFolder(childPath) {
+			return browseLabelResult{Label: opaqueDriveFolderFallback(name)}
+		}
 		if isSharePointListFolder(childPath) {
 			return browseLabelResult{Label: opaqueSharePointListFallback(name)}
 		}
@@ -536,6 +545,44 @@ func isDriveContentBrowsePath(path string) bool {
 	lower := strings.ToLower(path)
 	return strings.Contains(lower, "/content") &&
 		(strings.Contains(lower, "/drives/") || strings.Contains(lower, "/sites/") || strings.Contains(lower, "/onedrive/"))
+}
+
+func isSharePointDriveRootFolder(childPath string) bool {
+	lower := strings.ToLower(strings.Trim(childPath, "/"))
+	if !strings.Contains(lower, "/sites/") || !strings.Contains(lower, "/drives/") {
+		return false
+	}
+	parts := strings.Split(lower, "/")
+	for i, part := range parts {
+		if part != "drives" || i+1 >= len(parts) {
+			continue
+		}
+		if parts[i+1] == "content" {
+			return false
+		}
+		return i+2 >= len(parts)
+	}
+	return false
+}
+
+func isSharePointDriveID(value string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return false
+	}
+	if strings.HasPrefix(value, "b!") {
+		return true
+	}
+	if len(value) < 20 || strings.Contains(value, " ") {
+		return false
+	}
+	for _, c := range value {
+		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '-' || c == '!' {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func opaqueDriveFolderFallback(name string) string {

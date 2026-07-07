@@ -115,6 +115,26 @@ func extractSkipToken(nextLink string) string {
 	return u.Query().Get("$skiptoken")
 }
 
+// stripDisallowedGraphQueryParams removes $top/$skip from Graph pagination URLs.
+// Teams channel message delta rejects these on nextLink/deltaLink even when omitted
+// from the initial request.
+func stripDisallowedGraphQueryParams(rawURL string) string {
+	rawURL = strings.TrimSpace(rawURL)
+	if rawURL == "" || !strings.HasPrefix(rawURL, "http") {
+		return rawURL
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return rawURL
+	}
+	q := u.Query()
+	for _, key := range []string{"$top", "$skip", "top", "skip"} {
+		q.Del(key)
+	}
+	u.RawQuery = q.Encode()
+	return u.String()
+}
+
 func linkHash(raw string) string {
 	sum := sha256.Sum256([]byte(raw))
 	return hex.EncodeToString(sum[:])

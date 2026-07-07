@@ -297,6 +297,48 @@ try {
         'partial onBatchComplete preserves live batch lease'
     );
 
+    Capsule::table('ms365_batch_claims')
+        ->where('batch_run_id', $batchPartial)
+        ->update(['status' => 'done', 'worker_node_id' => null, 'running_tenant_key' => null, 'lease_expires_at' => null]);
+
+    $batchFailGraph = test_uuid('batch-fail-graph');
+    $runFailGraph = test_uuid('child-fail-graph');
+    $batchRunIds[] = $batchFailGraph;
+    $runIds[] = $runFailGraph;
+    Ms365BatchClaimRepository::enqueueBatch($batchFailGraph, $tenantRecordId, 50);
+    insertTestRun($runFailGraph, [
+        'e3_batch_run_id' => $batchFailGraph,
+        'status' => 'running',
+        'phase' => 'graph_sync',
+        'resource_type' => 'team',
+        'physical_key' => 'team:fail-graph-test',
+    ]);
+    insertTestQueue($runFailGraph, [
+        'status' => 'running',
+        'worker_node_id' => $nodeA,
+        'attempts' => 3,
+        'max_attempts' => 3,
+    ]);
+    Capsule::table('ms365_batch_claims')->where('batch_run_id', $batchFailGraph)->update([
+        'status' => 'running',
+        'worker_node_id' => $nodeA,
+        'running_tenant_key' => $tenantRecordId,
+        'claimed_at' => $now,
+        'lease_expires_at' => $now + 3600,
+        'last_heartbeat_at' => $now,
+        'attempts' => 1,
+    ]);
+    Ms365RestoreWorkerHooks::onBatchComplete($batchFailGraph, $nodeA, [[
+        'run_id' => $runFailGraph,
+        'status' => 'failed',
+        'message' => 'teams: graph 400 Bad Request: Query option \'Top\' is not allowed.',
+    ]]);
+    $failedRun = BackupRunRepository::get($runFailGraph) ?? [];
+    assert_true(
+        in_array((string) ($failedRun['status'] ?? ''), ['error', 'failed'], true),
+        'onBatchComplete failed child during graph_sync marks run terminal'
+    );
+
     Capsule::table('ms365_job_queue')
         ->where('run_id', $run1)
         ->update(['status' => 'failed']);

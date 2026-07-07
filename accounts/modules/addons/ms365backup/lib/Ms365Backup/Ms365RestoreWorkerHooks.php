@@ -94,6 +94,12 @@ final class Ms365RestoreWorkerHooks
             if ($runId === '') {
                 continue;
             }
+            $childStatus = strtolower(trim((string) ($childBody['status'] ?? 'success')));
+            if (in_array($childStatus, ['failed', 'error'], true)) {
+                $failMessage = trim((string) ($childBody['message'] ?? 'Backup failed'));
+                self::backupFail($runId, $failMessage !== '' ? $failMessage : 'Backup failed');
+                continue;
+            }
             self::backupComplete($runId, $childBody);
         }
         if ($batchRunId === '' || $nodeId === '') {
@@ -204,6 +210,33 @@ final class Ms365RestoreWorkerHooks
                     WorkerLeaseService::renewForRun($runId);
                 }
                 WorkerClaimService::clearQueueOperationalMessage($runId);
+            } elseif (Ms365BatchRunRepository::isGraphBoundPhase($effectivePhase)) {
+                // Teams channel delta and other graph enumeration can run for minutes without
+                // item/byte deltas; keep liveness fresh on batch no_progress heartbeats.
+                $graphFields = ['updated_at' => time()];
+                if (\WHMCS\Database\Capsule::schema()->hasColumn('ms365_backup_runs', 'last_progress_at')) {
+                    $graphFields['last_progress_at'] = time();
+                }
+                if ($incoming429 > 0 || $incomingAdaptive > 0 || $incomingRequests > 0) {
+                    $statsPatch = [];
+                    if ($incoming429 > 0) {
+                        $statsPatch['graph_429_hits'] = max(
+                            $incoming429,
+                            (int) self::decodeChildStatsJson($existing)['graph_429_hits'] ?? 0
+                        );
+                    }
+                    if ($incomingAdaptive > 0) {
+                        $statsPatch['graph_adaptive_limit'] = $incomingAdaptive;
+                    }
+                    if ($incomingRequests > 0) {
+                        $statsPatch['graph_requests'] = max($incomingRequests, $existingChildRequests);
+                    }
+                    $encoded = self::encodeMergedChildStatsJson($existing, $statsPatch);
+                    if ($encoded !== null) {
+                        $graphFields['stats_json'] = $encoded;
+                    }
+                }
+                BackupRunRepository::update($runId, $graphFields);
             }
 
             return $azureTenantId !== ''
@@ -287,6 +320,13 @@ final class Ms365RestoreWorkerHooks
         }
 
         if ($graphSyncRequestLiveness
+            && \WHMCS\Database\Capsule::schema()->hasColumn('ms365_backup_runs', 'last_progress_at')) {
+            $fields['last_progress_at'] = time();
+        }
+
+        // Batch mode replays hub snapshots (percent=1, message "Graph sync: …") which are
+        // not classified as heartbeats; still refresh liveness while graph enumeration runs.
+        if (Ms365BatchRunRepository::isGraphBoundPhase($effectivePhase)
             && \WHMCS\Database\Capsule::schema()->hasColumn('ms365_backup_runs', 'last_progress_at')) {
             $fields['last_progress_at'] = time();
         }

@@ -69,6 +69,22 @@ $aliases = $aliasesMethod->invoke(null, $rawListsPath, [
 
 assert_true(in_array($listsPath, $aliases, true), 'sharePointBrowsePathAliases maps raw site id to sanitized lists path');
 
+$resolveLabel = $ref->getMethod('resolveSharePointDriveLabel');
+$resolveLabel->setAccessible(true);
+$driveId = 'b!4QhyKa8-tEWynEClEl1o_5NqbjTYb1VGsOSs-ZXNBet47NJxJZINR4Q_sTH8rPRj';
+$drivePath = $tenantId . '/sites/' . $safeSiteId . '/drives/' . $driveId;
+$childRun = [
+    'scope_json' => json_encode([
+        '_drive_id' => $driveId,
+        '_drive_display_name' => 'Shared Documents',
+    ], JSON_THROW_ON_ERROR),
+];
+assert_eq(
+    'Shared Documents',
+    $resolveLabel->invoke(null, $driveId, $driveId, $drivePath, $childRun),
+    'resolveSharePointDriveLabel uses scope _drive_display_name'
+);
+
 $drivesPath = $tenantId . '/sites/' . $safeSiteId . '/drives';
 assert_true(
     preg_match(

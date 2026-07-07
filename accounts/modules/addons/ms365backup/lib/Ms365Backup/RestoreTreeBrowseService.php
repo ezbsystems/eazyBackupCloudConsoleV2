@@ -60,7 +60,7 @@ final class RestoreTreeBrowseService
             }
         }
 
-        $cacheKey = hash('sha256', 'v16-browse' . "\0" . $manifestId . "\0" . $path . "\0" . $limit . "\0" . $offset);
+        $cacheKey = hash('sha256', 'v17-browse' . "\0" . $manifestId . "\0" . $path . "\0" . $limit . "\0" . $offset);
         $cached = self::readCache($cacheKey);
         if ($cached !== null) {
             return $cached;
@@ -624,6 +624,7 @@ final class RestoreTreeBrowseService
                     (bool) ($entry['has_children'] ?? false),
                 );
             }
+            $label = self::resolveSharePointDriveLabel($label, $name, $entryPath, $childRun);
             if ($label === '') {
                 continue;
             }
@@ -703,6 +704,49 @@ final class RestoreTreeBrowseService
         }
 
         return $name;
+    }
+
+    /**
+     * @param array<string, mixed>|null $childRun
+     */
+    private static function resolveSharePointDriveLabel(string $label, string $name, string $path, ?array $childRun): string
+    {
+        if (!self::isSharePointDriveRootEntry($path, $name)) {
+            return $label;
+        }
+        if ($label !== '' && $label !== $name && !self::isSharePointDriveId($name)) {
+            return $label;
+        }
+
+        $scope = self::scopeArrayFromChildRun($childRun ?? []);
+        $display = trim((string) ($scope['_drive_display_name'] ?? ''));
+        if ($display !== '') {
+            return $display;
+        }
+
+        if ($label !== '' && $label !== $name) {
+            return $label;
+        }
+
+        return self::isSharePointDriveId($name) ? 'Documents' : $label;
+    }
+
+    private static function isSharePointDriveRootEntry(string $path, string $name): bool
+    {
+        if (preg_match('#/sites/[^/]+/drives/[^/]+$#', $path) === 1) {
+            return true;
+        }
+
+        return preg_match('#/sites/[^/]+/drives$#', $path) === 1 && self::isSharePointDriveId($name);
+    }
+
+    private static function isSharePointDriveId(string $name): bool
+    {
+        if (str_starts_with($name, 'b!')) {
+            return true;
+        }
+
+        return preg_match('/^[A-Za-z0-9_-!]{20,}$/', $name) === 1 && !str_contains($name, ' ');
     }
 
     private static function isDriveContentPath(string $path): bool

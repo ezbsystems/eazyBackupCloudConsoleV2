@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -152,6 +153,48 @@ func TestPaginateDeltaOptsCapWarnContinue(t *testing.T) {
 	}
 	if len(items) != 2 || delta != "" {
 		t.Fatalf("items=%d delta=%q", len(items), delta)
+	}
+}
+
+func TestPaginateDeltaOptsStripsTopFromNextLink(t *testing.T) {
+	var serverURL string
+	var requests []string
+	c, serverURL := testGraphClient(t, func(w http.ResponseWriter, r *http.Request) {
+		requests = append(requests, r.URL.String())
+		w.Header().Set("Content-Type", "application/json")
+		if len(requests) == 1 {
+			_, _ = w.Write(deltaResponse(
+				[]map[string]any{{"id": "m1"}},
+				serverURL+"/teams/t1/channels/c1/messages/delta?$skiptoken=abc&$top=50",
+				"",
+			))
+			return
+		}
+		_, _ = w.Write(deltaResponse(
+			[]map[string]any{{"id": "m2"}},
+			"",
+			serverURL+"/teams/t1/channels/c1/messages/delta?$deltatoken=done",
+		))
+	})
+
+	items, delta, err := c.PaginateDeltaOpts(context.Background(), "/teams/t1/channels/c1/messages/delta", "", "id", 50, nil, &DeltaPaginateOptions{
+		Monitor:              ForBackupPagination("teams-next", nil),
+		OmitDeltaQueryParams: true,
+	})
+	if err != nil {
+		t.Fatalf("PaginateDeltaOpts: %v", err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("items=%d want 2", len(items))
+	}
+	if delta == "" {
+		t.Fatal("expected delta link")
+	}
+	if len(requests) < 2 {
+		t.Fatalf("expected 2 requests, got %d", len(requests))
+	}
+	if strings.Contains(strings.ToLower(requests[1]), "top=") {
+		t.Fatalf("nextLink request must not include top, got %q", requests[1])
 	}
 }
 

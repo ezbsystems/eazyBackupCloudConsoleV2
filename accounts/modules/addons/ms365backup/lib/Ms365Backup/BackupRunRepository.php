@@ -167,6 +167,9 @@ final class BackupRunRepository
         if (!empty($primaryMeta['drive_id'])) {
             $scopePayload['_drive_id'] = (string) $primaryMeta['drive_id'];
         }
+        if (!empty($primaryMeta['display_name']) && !empty($primaryMeta['drive_id'])) {
+            $scopePayload['_drive_display_name'] = (string) $primaryMeta['display_name'];
+        }
         if (!empty($primaryMeta['site_id'])) {
             $scopePayload['_site_id'] = (string) $primaryMeta['site_id'];
         } elseif (!$job->isShard() && $job->parentPhysicalKey() !== PhysicalKeyHelper::baseKey($job->physicalKey)) {

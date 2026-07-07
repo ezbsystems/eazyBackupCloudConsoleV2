@@ -30,6 +30,9 @@ final class JobQueueRepository
         if (str_contains($message, 'graph 400') && str_contains($message, 'invalid property')) {
             return true;
         }
+        if (str_contains($message, 'graph 400') && str_contains($message, 'query option \'top\' is not allowed')) {
+            return true;
+        }
         $patterns = [
             'graph 403',
             'mailboxnotenabledforrestapi',

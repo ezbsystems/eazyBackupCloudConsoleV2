@@ -643,7 +643,7 @@ func (c *Client) PaginateOpts(ctx context.Context, path string, query map[string
 		var data map[string]any
 		var err error
 		if strings.HasPrefix(p, "http") {
-			data, err = c.getURLWithHeaders(ctx, p, useHeaders)
+			data, err = c.getURLWithHeaders(ctx, stripDisallowedGraphQueryParams(p), useHeaders)
 		} else {
 			data, err = c.GetJSONWithHeaders(ctx, p, q, useHeaders)
 		}
@@ -772,7 +772,7 @@ func (c *Client) PaginateDeltaOpts(ctx context.Context, initialPath, deltaLink, 
 	path := initialPath
 	resume := strings.TrimSpace(deltaLink) != ""
 	if resume {
-		path = deltaLink
+		path = stripDisallowedGraphQueryParams(deltaLink)
 	}
 	monitor.logf("info", "Graph delta sync started path=%s resume=%v", initialPath, resume)
 
@@ -792,7 +792,7 @@ func (c *Client) PaginateDeltaOpts(ctx context.Context, initialPath, deltaLink, 
 		var data map[string]any
 		var err error
 		if strings.HasPrefix(path, "http") {
-			data, err = c.getURLWithHeaders(ctx, path, headers)
+			data, err = c.getURLWithHeaders(ctx, stripDisallowedGraphQueryParams(path), headers)
 			headers = nil
 		} else {
 			var query map[string]string
@@ -846,7 +846,7 @@ func (c *Client) PaginateDeltaOpts(ctx context.Context, initialPath, deltaLink, 
 		}
 
 		if nextLink != "" {
-			path = nextLink
+			path = stripDisallowedGraphQueryParams(nextLink)
 			continue
 		}
 		if deltaOut != "" {

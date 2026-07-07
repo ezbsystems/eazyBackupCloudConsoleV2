@@ -109,6 +109,63 @@ try {
         && (!Capsule::schema()->hasColumn('ms365_backup_runs', 'last_progress_at') || $lastProgress >= $now - 5),
         'no_progress kopia_upload refreshes liveness without fatal',
     );
+
+    $teamsRunId = test_uuid('teams-liveness');
+    $runIds[] = $teamsRunId;
+    insertTestRun($teamsRunId, [
+        'phase' => 'graph_sync',
+        'resource_type' => 'team',
+        'physical_key' => 'team:teams-liveness-test',
+        'percent' => 1.0,
+        'items_done' => 0,
+        'items_total' => 0,
+        'updated_at' => $now - 900,
+    ]);
+
+    Ms365RestoreWorkerHooks::onProgress($teamsRunId, [
+        'phase' => 'graph_sync',
+        'no_progress' => true,
+        'message' => 'heartbeat',
+        'graph_requests' => 42,
+    ]);
+
+    $teamsAfter = BackupRunRepository::get($teamsRunId) ?? [];
+    $teamsLastProgress = (int) ($teamsAfter['last_progress_at'] ?? 0);
+    assert_true(
+        (int) ($teamsAfter['updated_at'] ?? 0) >= $now - 5
+        && (!Capsule::schema()->hasColumn('ms365_backup_runs', 'last_progress_at') || $teamsLastProgress >= $now - 5),
+        'no_progress graph_sync refreshes liveness for long Teams enumeration',
+    );
+    $teamsStats = json_decode((string) ($teamsAfter['stats_json'] ?? ''), true) ?: [];
+    assert_true((int) ($teamsStats['graph_requests'] ?? 0) === 42, 'no_progress graph_sync preserves graph_requests stats');
+
+    $batchStyleRunId = test_uuid('teams-batch-snapshot');
+    $runIds[] = $batchStyleRunId;
+    insertTestRun($batchStyleRunId, [
+        'phase' => 'graph_sync',
+        'resource_type' => 'team',
+        'physical_key' => 'team:batch-style-test',
+        'percent' => 1.0,
+        'items_done' => 0,
+        'items_total' => 0,
+        'updated_at' => $now - 900,
+    ]);
+
+    Ms365RestoreWorkerHooks::onProgress($batchStyleRunId, [
+        'phase' => 'graph_sync',
+        'percent' => 1.0,
+        'items_done' => 0,
+        'items_total' => 0,
+        'message' => 'Graph sync: teams',
+    ]);
+
+    $batchAfter = BackupRunRepository::get($batchStyleRunId) ?? [];
+    $batchLastProgress = (int) ($batchAfter['last_progress_at'] ?? 0);
+    assert_true(
+        (int) ($batchAfter['updated_at'] ?? 0) >= $now - 5
+        && (!Capsule::schema()->hasColumn('ms365_backup_runs', 'last_progress_at') || $batchLastProgress >= $now - 5),
+        'batch hub snapshot style graph_sync refreshes last_progress_at',
+    );
 } finally {
     cleanupTestRows($runIds);
 }

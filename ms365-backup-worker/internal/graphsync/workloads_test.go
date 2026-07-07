@@ -142,3 +142,75 @@ func TestWorkloadRunnerSkipsSharePointWhenAccessDenied(t *testing.T) {
 		t.Fatalf("expected empty overlay, got %d entries", res.FileCount)
 	}
 }
+
+// TestAllowsSharePointForDriveShard reproduces STCHF Admin drive child runs:
+// PHP maps drive: shards with _site_id to sharepoint workload, but allowsWorkload
+// previously rejected kind "drive" and the run completed no_changes with no manifest.
+func TestAllowsSharePointForDriveShard(t *testing.T) {
+	siteID := "stchf.sharepoint.com,297208e1-3eaf-45b4-b29c-40a5125d68ff,346e6a93-6fd8-4655-b0e4-acf995cd05eb"
+	driveID := "b!4QhyKa8-tEWynEClEl1o_5NqbjTYb1VGsOSs-ZXNBet47NJxJZINR4Q_sTH8rPRj"
+	runner := &WorkloadRunner{
+		Job: &api.RunJob{
+			PhysicalKey: "drive:" + driveID,
+			SiteID:      siteID,
+			DriveID:     driveID,
+			GraphID:     siteID,
+			Workloads:   map[string]bool{"sharepoint": true},
+			Scope:       api.ScopeFlags{"files": true},
+		},
+	}
+	if !runner.allowsWorkload("sharepoint") {
+		t.Fatal("expected sharepoint workload for SharePoint drive shard")
+	}
+	if runner.allowsWorkload("onedrive") {
+		t.Fatal("onedrive must not run for SharePoint drive shard")
+	}
+}
+
+func TestSyncSharePointDriveShard(t *testing.T) {
+	siteID := "stchf.sharepoint.com,297208e1-3eaf-45b4-b29c-40a5125d68ff,346e6a93-6fd8-4655-b0e4-acf995cd05eb"
+	driveID := "b!4QhyKa8-tEWynEClEl1o_5NqbjTYb1VGsOSs-ZXNBet47NJxJZINR4Q_sTH8rPRj"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.Contains(r.URL.Path, "/sites/"):
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"id":"` + siteID + `","displayName":"STCHF Admin","webUrl":"https://stchf.sharepoint.com"}`))
+		case strings.Contains(r.URL.Path, "/root/delta"):
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"value":[{"id":"item-1","name":"Budget.xlsx","size":1024,"file":{},"parentReference":{"path":"/drives/` + driveID + `/root:"}}]}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	client := graph.NewTestClient(srv.URL, graph.ClientOptions{MaxRetries: 0, MaxConcurrency: 4})
+	runner := &WorkloadRunner{
+		Client:  client,
+		Overlay: graphfs.NewOverlayBuilder(),
+		Job: &api.RunJob{
+			PhysicalKey:   "drive:" + driveID,
+			SiteID:        siteID,
+			DriveID:       driveID,
+			GraphID:       siteID,
+			AzureTenantID: "4728969e-5eff-4981-b0c6-46eadac79cfe",
+			Workloads:     map[string]bool{"sharepoint": true},
+			Scope:         api.ScopeFlags{"files": true},
+		},
+	}
+
+	res, err := runner.Run(context.Background())
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	spStats, ok := res.Stats["sharepoint"].(map[string]int)
+	if !ok {
+		t.Fatalf("sharepoint stats missing or wrong type: %#v", res.Stats["sharepoint"])
+	}
+	if spStats["items"] != 1 {
+		t.Fatalf("sharepoint items = %d, want 1", spStats["items"])
+	}
+	if res.FileCount < 1 {
+		t.Fatalf("expected overlay entries, got %d", res.FileCount)
+	}
+}

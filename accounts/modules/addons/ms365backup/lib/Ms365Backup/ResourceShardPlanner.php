@@ -91,6 +91,7 @@ final class ResourceShardPlanner
                 $meta['item_count'] = max(0, (int) ($drive['item_count'] ?? 0));
                 $meta['display_name'] = (string) ($drive['name'] ?? $driveId);
                 $driveResource['meta'] = $meta;
+                $driveResource['display_name'] = (string) ($drive['name'] ?? $driveId);
 
                 $driveScope = $this->sharePointFilesOnlyScope($job->scope);
                 $expanded[$driveKey] = new PhysicalBackupJob(
