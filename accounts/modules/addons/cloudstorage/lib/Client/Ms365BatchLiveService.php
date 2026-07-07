@@ -7,7 +7,7 @@ namespace WHMCS\Module\Addon\CloudStorage\Client;
 use Ms365Backup\BackupRunRepository;
 use Ms365Backup\Ms365BatchRunRepository;
 use Ms365Backup\Ms365LiveSpeedMetrics;
-use Ms365Backup\PhysicalKeyHelper;
+use Ms365Backup\Ms365WorkloadGrouping;
 use Ms365Backup\ProgressLogger;
 use Ms365Backup\TenantResource;
 use Ms365Backup\WorkerProcess;
@@ -413,14 +413,8 @@ final class Ms365BatchLiveService
             }
         }
 
-        $groups = [];
-        foreach ($children as $child) {
-            $groupKey = self::workloadGroupKey($child);
-            $groups[$groupKey][] = $child;
-        }
-
         $rows = [];
-        foreach ($groups as $groupChildren) {
+        foreach (Ms365WorkloadGrouping::groupChildren($children) as $groupChildren) {
             $rows[] = self::formatCustomerWorkloadGroupRow($groupChildren, $queueByRun);
         }
 
@@ -442,10 +436,10 @@ final class Ms365BatchLiveService
             $queueByRun[(string) ($primary['id'] ?? '')] ?? []
         );
 
-        $mergedStatus = self::mergeGroupStatus($groupChildren);
+        $mergedStatus = Ms365WorkloadGrouping::mergeGroupStatus($groupChildren);
         $row['status'] = $mergedStatus;
 
-        [$itemsDone, $itemsTotal, $percent] = self::mergeGroupProgress($groupChildren, $mergedStatus);
+        [$itemsDone, $itemsTotal, $percent] = Ms365WorkloadGrouping::mergeGroupProgress($groupChildren, $mergedStatus);
         $row['items_done'] = $itemsDone;
         $row['items_total'] = $itemsTotal;
         $row['percent'] = round($percent, 2);
@@ -467,53 +461,6 @@ final class Ms365BatchLiveService
         return $row;
     }
 
-    /** @param array<string, mixed> $child */
-    private static function workloadGroupKey(array $child): string
-    {
-        $resourceType = strtolower((string) ($child['resource_type'] ?? 'workload'));
-        $logicalKey = self::workloadLogicalKey($child);
-
-        return $resourceType . "\0" . $logicalKey;
-    }
-
-    /** @param array<string, mixed> $child */
-    private static function workloadLogicalKey(array $child): string
-    {
-        $scope = self::decodeChildScopeJson($child);
-        $siteId = trim((string) ($scope['_site_id'] ?? ''));
-        if ($siteId !== '') {
-            return 'site:' . strtolower($siteId);
-        }
-
-        $physicalKey = (string) ($child['physical_key'] ?? '');
-        $parentKey = PhysicalKeyHelper::aggregateParentKey($physicalKey, $child);
-        if ($parentKey !== '') {
-            return strtolower($parentKey);
-        }
-
-        $graphId = trim((string) ($child['target_graph_id'] ?? $child['graph_id'] ?? ''));
-        if ($graphId !== '') {
-            return strtolower($graphId);
-        }
-
-        return strtolower(trim((string) ($child['user_display_name'] ?? '')));
-    }
-
-    /** @param array<string, mixed> $child */
-    private static function decodeChildScopeJson(array $child): array
-    {
-        $raw = $child['scope_json'] ?? null;
-        if (is_array($raw)) {
-            return $raw;
-        }
-        if (!is_string($raw) || $raw === '') {
-            return [];
-        }
-        $decoded = json_decode($raw, true);
-
-        return is_array($decoded) ? $decoded : [];
-    }
-
     /**
      * @param list<array<string, mixed>> $children
      * @return array<string, mixed>
@@ -522,8 +469,8 @@ final class Ms365BatchLiveService
     {
         $sorted = $children;
         usort($sorted, static function (array $a, array $b): int {
-            $rankCmp = self::childStatusRank((string) ($a['status'] ?? ''))
-                <=> self::childStatusRank((string) ($b['status'] ?? ''));
+            $rankCmp = Ms365WorkloadGrouping::childStatusRank((string) ($a['status'] ?? ''))
+                <=> Ms365WorkloadGrouping::childStatusRank((string) ($b['status'] ?? ''));
             if ($rankCmp !== 0) {
                 return $rankCmp;
             }
@@ -549,63 +496,6 @@ final class Ms365BatchLiveService
         }
 
         return self::pickPrimaryChild($children);
-    }
-
-    /**
-     * @param list<array<string, mixed>> $children
-     */
-    private static function mergeGroupStatus(array $children): string
-    {
-        $bestRank = PHP_INT_MAX;
-        $bestStatus = '';
-        foreach ($children as $child) {
-            $status = strtolower((string) ($child['status'] ?? ''));
-            $rank = self::childStatusRank($status);
-            if ($rank < $bestRank) {
-                $bestRank = $rank;
-                $bestStatus = $status;
-            }
-        }
-
-        return $bestStatus !== '' ? $bestStatus : 'unknown';
-    }
-
-    /**
-     * @param list<array<string, mixed>> $children
-     * @return array{0: int, 1: int, 2: float}
-     */
-    private static function mergeGroupProgress(array $children, string $mergedStatus): array
-    {
-        $itemsDone = 0;
-        $itemsTotal = 0;
-        foreach ($children as $child) {
-            $itemsDone += max(0, (int) ($child['items_done'] ?? 0));
-            $itemsTotal += max(0, (int) ($child['items_total'] ?? 0));
-        }
-
-        $percent = 0.0;
-        if ($itemsTotal > 0) {
-            $percent = min(100.0, ($itemsDone / $itemsTotal) * 100);
-        } elseif (count($children) === 1) {
-            $only = $children[0];
-            $percent = isset($only['percent']) ? (float) $only['percent'] : 0.0;
-        } else {
-            $parts = [];
-            foreach ($children as $child) {
-                if (isset($child['percent'])) {
-                    $parts[] = (float) $child['percent'];
-                }
-            }
-            if ($parts !== []) {
-                $percent = array_sum($parts) / count($parts);
-            }
-        }
-
-        if ($mergedStatus === 'success') {
-            $percent = 100.0;
-        }
-
-        return [$itemsDone, $itemsTotal, $percent];
     }
 
     /**
@@ -643,20 +533,6 @@ final class Ms365BatchLiveService
         }
 
         return $events;
-    }
-
-    private static function childStatusRank(string $status): int
-    {
-        return match (strtolower($status)) {
-            'running' => 0,
-            'starting' => 1,
-            'queued' => 2,
-            'warning', 'partial_success' => 3,
-            'failed', 'error' => 4,
-            'success' => 5,
-            'cancelled' => 6,
-            default => 7,
-        };
     }
 
     /** @param array<string, mixed> $child */

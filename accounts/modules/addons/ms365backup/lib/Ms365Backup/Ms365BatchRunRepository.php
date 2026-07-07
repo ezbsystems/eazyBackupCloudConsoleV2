@@ -733,11 +733,6 @@ final class Ms365BatchRunRepository
         $itemsTotal = 0;
         $progressWeighted = 0.0;
         $progressWeight = 0;
-        $completedWorkloads = 0;
-        $terminalWorkloads = 0;
-        $queuedWorkloads = 0;
-        $activeRunning = 0;
-        $totalWorkloads = count($children);
         $graph429Total = 0;
         $graphRequestsTotal = 0;
         $byteStatsComparable = true;
@@ -758,19 +753,6 @@ final class Ms365BatchRunRepository
             $itemsDone += $childItemsDone;
             $itemsSkipped += $childItemsSkipped;
             $itemsTotal += $childItemsTotal;
-
-            if (in_array($status, ['success', 'skipped', 'cancelled'], true)) {
-                ++$completedWorkloads;
-            }
-            if (in_array($status, ['success', 'skipped', 'cancelled', 'error', 'failed'], true)) {
-                ++$terminalWorkloads;
-            }
-            if ($status === 'queued') {
-                ++$queuedWorkloads;
-            }
-            if ($status === 'running') {
-                ++$activeRunning;
-            }
 
             $childStats = self::decodeChildStatsJson($child);
             $hits429 = (int) ($childStats['graph_429_hits'] ?? 0);
@@ -806,11 +788,18 @@ final class Ms365BatchRunRepository
             }
         }
 
+        $groups = Ms365WorkloadGrouping::groupChildren($children);
+        $groupedCounts = Ms365WorkloadGrouping::aggregateGroupedCounts($groups);
+        $totalWorkloads = $groupedCounts['total_workloads'];
+        $completedWorkloads = $groupedCounts['completed_workloads'];
+        $queuedWorkloads = $groupedCounts['queued_workloads'];
+        $activeRunning = $groupedCounts['active_running_workloads'];
+
         $progressPct = 0.0;
         if ($totalWorkloads > 1) {
             $workloadContributionSum = 0.0;
-            foreach ($children as $child) {
-                $workloadContributionSum += self::workloadProgressUnit($child);
+            foreach ($groups as $group) {
+                $workloadContributionSum += Ms365WorkloadGrouping::groupedProgressUnit($group);
             }
             $progressPct = round(($workloadContributionSum / $totalWorkloads) * 100, 2);
         } elseif ($progressWeight > 0) {
@@ -919,39 +908,6 @@ final class Ms365BatchRunRepository
         $decoded = json_decode($raw, true);
 
         return is_array($decoded) ? $decoded : [];
-    }
-
-    /**
-     * @param array<string, mixed> $child
-     */
-    private static function workloadProgressUnit(array $child): float
-    {
-        $status = (string) ($child['status'] ?? '');
-        if (in_array($status, ['success', 'skipped', 'cancelled', 'error', 'failed'], true)) {
-            return 1.0;
-        }
-        if ($status !== 'running') {
-            return 0.0;
-        }
-
-        $phase = strtolower(trim((string) ($child['phase'] ?? '')));
-        $childPercent = (float) ($child['percent'] ?? 0);
-        $childItemsTotal = max(0, (int) ($child['items_total'] ?? 0));
-        $childItemsDone = max(0, (int) ($child['items_done'] ?? 0));
-        if ($childItemsTotal > 0) {
-            return min(1.0, $childItemsDone / $childItemsTotal);
-        }
-        if ($childPercent > 1.0) {
-            return min(1.0, $childPercent / 100.0);
-        }
-        if ($phase === 'kopia_upload' || $phase === 'upload') {
-            return 0.5;
-        }
-        if ($phase === 'graph_sync' || $phase === 'prior_snapshot') {
-            return 0.15;
-        }
-
-        return 0.05;
     }
 
     /**
