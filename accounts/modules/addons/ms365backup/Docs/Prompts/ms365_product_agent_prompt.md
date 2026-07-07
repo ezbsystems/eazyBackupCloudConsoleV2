@@ -12,6 +12,7 @@ You are working on the **Microsoft 365 Backup** product for eazyBackup (WHMCS). 
 5. If touching engines, Graph, or admin UI: **`modules/addons/ms365backup/Docs/ARCHITECTURE.md`** and **`AZURE_SETUP.md`**.
 6. If touching e3 client UI or cloudstorage integration: skim **`modules/addons/cloudstorage/docs/CLOUD_STORAGE_README.md`** and any topic-specific doc under that folder (see Documentation map below).
 7. If adding or changing **client area UI**: read and follow **`modules/addons/eazybackup/Docs/StyleGuides/SEMANTIC-THEME-REFERENCE.md`** (required).
+8. If debugging **production WHMCS** from dev (browse binary, deploy, prod-only logs): **`modules/addons/ms365backup/Docs/PRODUCTION_SSH_ACCESS.md`** — SSH key `/root/.ssh/whmcs_prod_root` → `root@192.168.92.75`.
 
 Do not start implementation until you have read **PRODUCT_ROADMAP.md** and **PROGRESS.md**.
 
@@ -26,7 +27,10 @@ Do not start implementation until you have read **PRODUCT_ROADMAP.md** and **PRO
 | Dev backup path (local disk) | `/var/www/eazybackup/ms365/` (not under `eazybackup.ca/`) |
 | Customer MS365 UI | `index.php?m=cloudstorage&page=e3backup&view=ms365` |
 | Admin / dev engine UI | `addonmodules.php?module=ms365backup` |
+| Admin tenant export (dev) | `addonmodules.php?module=ms365backup&action=tenant_export` |
 | Legacy client URL | `index.php?m=ms365backup` → redirects to e3 MS365 view |
+| Production WHMCS | `http://192.168.92.75/accounts` — SSH from dev: `ssh -i /root/.ssh/whmcs_prod_root root@192.168.92.75` (see `PRODUCTION_SSH_ACCESS.md`) |
+| Dev server role | `ms365_server_environment=development` — sole build/deploy console; prod fleet via remote API or SSH |
 
 ---
 
@@ -62,6 +66,7 @@ Work should align with these phases. Detailed task lists may live in the project
 | PRD summary (legacy) | `modules/addons/ms365backup/Docs/PHASE3_PRD.md` |
 | Customer onboarding | `modules/addons/ms365backup/Docs/CUSTOMER_ONBOARDING.md` |
 | Azure app permissions | `modules/addons/ms365backup/Docs/AZURE_SETUP.md` |
+| **Production SSH (dev → prod debugging)** | `modules/addons/ms365backup/Docs/PRODUCTION_SSH_ACCESS.md` |
 | DB schema | `modules/addons/ms365backup/schema.sql`, `sql/upgrade_*.sql` |
 
 ### cloudstorage / e3 Cloud Backup (customer UI + storage)
@@ -125,6 +130,7 @@ Customer → cloudstorage (e3backup view=ms365, APIs ms365_*)
 | Restore | `RestoreOrchestrator.php`, `MailRestoreService.php`, `RestoreRunRepository.php` |
 | Ops | `FailedEngineRetryService.php`, `AccessHealthService.php` |
 | Admin UI / API | `pages/admin/`, `pages/admin/api.php` |
+| Admin tenant export (dev reconnect) | `pages/admin/tenant_export.php`, `Ms365AdminTenantExportService.php` — `action=tenant_export` |
 | Migrations | `sql/upgrade_phase4_entra_oauth.sql`, `upgrade_phase5_restore.sql`, … |
 
 ### cloudstorage (e3 MS365 product surface)

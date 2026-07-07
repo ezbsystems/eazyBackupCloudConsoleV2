@@ -11,6 +11,19 @@
 
 ## Session log
 
+### 2026-07-07 — Tenant Connection Export (admin dev tool)
+
+- **Feature:** New **Tenant Export** tab (`action=tenant_export`) — search e3 backup users, preview tenant connection, export manual-connect credentials (JSON + labeled fields) for dev reconnect via job wizard.
+- **Backend:** `Ms365AdminBackupUserSearch.php`, `Ms365AdminTenantExportService.php` — search/detail/export; `resolvedCredentialsForRecord()` for both `platform_consent` and `customer_app`; CSRF + confirm on export; audit via `logModuleCall` / `logActivity` (no secret in logs).
+- **UI:** `pages/admin/tenant_export.php` — typeahead, detail panel, export output with copy/download JSON.
+- **Tests:** `tests/ms365_admin_tenant_export_test.php`.
+- **Docs:** `CUSTOMER_ONBOARDING.md` (dev reconnect subsection), `ms365_product_agent_prompt.md`.
+
+### 2026-07-07 — Production SSH access documentation
+
+- **Doc:** `Docs/PRODUCTION_SSH_ACCESS.md` — dev root key `/root/.ssh/whmcs_prod_root` → `root@192.168.92.75` for prod WHMCS shell debugging (browse binary, deploy, health/diag).
+- **Cross-refs:** `ms365_product_agent_prompt.md`, `DEBUG_PROMPT.md`, `MS365_WORKER_FLEET.md`, `ARCHITECTURE_BOUNDARIES.md`, `ms365backup_agent_prompt.md`.
+
 ### 2026-07-07 — Browse binary auto-sync (release pipeline + fleet UI)
 
 - **Problem:** WHMCS restore browse binary could drift from fleet worker version; prod `fleet_release_upsert` push path and deploy start did not install browse binary; failures were silent.

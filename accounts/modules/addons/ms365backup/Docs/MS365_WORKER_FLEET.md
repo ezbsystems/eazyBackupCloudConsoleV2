@@ -242,3 +242,5 @@ Ops: `ms365_worker_repo_path` parent must be writable by PHP-FPM (`www-data`). D
 **Remote API:** `addonmodules.php?module=ms365backup&action=fleet_remote&op=…` (shared secret; no admin session).
 
 **Smoke:** `php bin/ms365_fleet_smoke.php` reports `fleet_context` and production URL normalization.
+
+**Production SSH (dev host):** For issues that require a shell on prod WHMCS (browse binary `chown`, `deploy-production.sh`, prod-only paths), see **`PRODUCTION_SSH_ACCESS.md`**. Key: `/root/.ssh/whmcs_prod_root` → `root@192.168.92.75`. Fleet remote API covers most fleet DB/UI ops without SSH.

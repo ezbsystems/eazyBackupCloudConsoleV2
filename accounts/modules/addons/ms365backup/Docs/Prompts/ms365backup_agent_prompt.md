@@ -13,6 +13,8 @@ Copy the block below into a new chat. Fill in the **Task** section at the end.
 
 **Backup storage path (dev):** `/var/www/eazybackup/ms365/` — production uses cloudstorage buckets.
 
+**Production debugging from dev:** SSH `root@192.168.92.75` with `/root/.ssh/whmcs_prod_root` — see `Docs/PRODUCTION_SSH_ACCESS.md`.
+
 **My focus:** MS365 engines and APIs consumed by cloudstorage; extend e3 UI in cloudstorage when building customer features.
 
 ---

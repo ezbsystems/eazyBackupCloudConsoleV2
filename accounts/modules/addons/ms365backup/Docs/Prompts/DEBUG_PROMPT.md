@@ -19,7 +19,27 @@ All development process tracked in:
 
 
 To help with diagnostics: 
-There are Proxmox SSH keys  available that can be used for the WHMCS server SSH into the Proxmox hypervisor host as root. 
+
+### Production WHMCS (dev → prod)
+
+SSH from the **development server** as root to production WHMCS for browse binary, deploy, and prod CLI scripts. Full reference: **`Docs/PRODUCTION_SSH_ACCESS.md`**.
+
+```bash
+ssh -i /root/.ssh/whmcs_prod_root -o IdentitiesOnly=yes root@192.168.92.75 \
+  'php /var/www/eazybackup.ca/accounts/modules/addons/ms365backup/bin/ms365_browse_binary_diag.php'
+```
+
+| Item | Value |
+|------|--------|
+| Private key | `/root/.ssh/whmcs_prod_root` (dev root only; not in git) |
+| Target | `root@192.168.92.75` (`whmcs-production-75`) |
+| Prod accounts | `/var/www/eazybackup.ca/accounts` |
+
+Fleet UI / `FleetRemoteClient` still preferred for nodes, deploy, and audit when the shared secret is configured.
+
+### Proxmox / worker LXC
+
+There are Proxmox SSH keys available that can be used for the WHMCS server SSH into the Proxmox hypervisor host as root. 
 
 There are two ways WHMCS talks to containers:
 

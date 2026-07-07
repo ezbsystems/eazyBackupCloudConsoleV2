@@ -68,6 +68,8 @@ Backup and restore are separate: PHP **control plane** (`BackupPlanner`, `Worker
 
 Dev admin UI can **view and operate** the production fleet remotely (`FleetFacade` → `fleet_remote.php`) using `ms365_fleet_deploy_shared_secret`. Proxmox scale-up for production workers still runs on the dev host (shared cluster) but registers nodes against prod.
 
+For **shell access on the production WHMCS host** (browse binary, deploy script, prod CLI diag), use SSH from the dev server: **`Docs/PRODUCTION_SSH_ACCESS.md`** — key `/root/.ssh/whmcs_prod_root`, target `root@192.168.92.75`.
+
 ---
 
 ## Key entry points

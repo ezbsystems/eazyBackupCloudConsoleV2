@@ -74,6 +74,18 @@ WHMCS admins can provision Microsoft 365 Backup for any client without the porta
 
 **After provision:** Entra tenant connect, inventory, and first backup still happen in the client area. Use **Impersonate client (Welcome)** on the success panel to continue onboarding as the customer. MS365 storage bucket is created at Entra connect, not at admin provision time.
 
+## Dev reconnect via tenant export (engineering)
+
+When testing disconnect/reconnect cycles, connect once via OAuth in the job wizard, then export credentials for faster manual reconnect:
+
+1. Open **Addons → MS365 Backup → Tenant Export** (`addonmodules.php?module=ms365backup&action=tenant_export`).
+2. Search by backup username, client email/name, or IDs; select the backup user.
+3. Review connection status and credential preview (no secret in preview).
+4. Confirm the plaintext-secret warning and click **Export credentials**.
+5. Paste `REGION`, `CLIENT_ID`, `TENANT_ID`, and `APP_SECRET` into the job wizard **Manual connect** form → **Test connection** → **Save credentials**.
+
+**Notes:** Works for both `platform_consent` (exports platform Entra app credentials for the tenant) and `customer_app` connections. Export is blocked unless `connection_status` is `connected`. Dev/testing only — rotate secrets if leaked.
+
 ## Storage layout
 
 Objects inside the customer bucket use prefix `{azure_tenant_id}/users/…`, `sites/…`, matching local `StorageLayout` paths under `/var/www/eazybackup/ms365/` for development.

@@ -796,6 +796,7 @@ function ms365backup_sidebar(array $vars): string
         . '<a href="' . $base . '&action=jobs" class="list-group-item"><i class="fa fa-list"></i> Jobs</a>'
         . '<a href="' . $base . '&action=trials" class="list-group-item"><i class="fa fa-clock-o"></i> Trials</a>'
         . '<a href="' . $base . '&action=provision" class="list-group-item"><i class="fa fa-user-plus"></i> Provision Customer</a>'
+        . '<a href="' . $base . '&action=tenant_export" class="list-group-item"><i class="fa fa-key"></i> Tenant Export</a>'
         . '</div>';
 }
 
@@ -822,7 +823,7 @@ function ms365backup_output(array $vars): void
     }
 
     // Page-local AJAX (ms365_action) must not be wrapped in admin tab chrome.
-    if (isset($_REQUEST['ms365_action']) && in_array($action, ['provision', 'trials'], true)) {
+    if (isset($_REQUEST['ms365_action']) && in_array($action, ['provision', 'trials', 'tenant_export'], true)) {
         while (ob_get_level() > 0) {
             ob_end_clean();
         }
@@ -835,6 +836,9 @@ function ms365backup_output(array $vars): void
         if ($action === 'provision') {
             require __DIR__ . '/pages/admin/provision.php';
             ms365backup_admin_provision($vars);
+        } elseif ($action === 'tenant_export') {
+            require __DIR__ . '/pages/admin/tenant_export.php';
+            ms365backup_admin_tenant_export($vars);
         } else {
             require __DIR__ . '/pages/admin/trials.php';
             ms365backup_admin_trials($vars);
@@ -847,7 +851,7 @@ function ms365backup_output(array $vars): void
         return;
     }
 
-    $tableBgClass = ($action === 'provision') ? 'tablebg table-bg-overflow-visible' : 'tablebg';
+    $tableBgClass = in_array($action, ['provision', 'tenant_export'], true) ? 'tablebg table-bg-overflow-visible' : 'tablebg';
     echo '<div class="' . $tableBgClass . '">';
     echo '<h2>MS365 Backup <small class="text-muted">(Dev Tool)</small></h2>';
 
@@ -860,6 +864,7 @@ function ms365backup_output(array $vars): void
         'jobs' => 'Jobs',
         'trials' => 'Trials',
         'provision' => 'Provision Customer',
+        'tenant_export' => 'Tenant Export',
     ];
     echo '<p style="margin-bottom:15px">';
     foreach ($pages as $key => $label) {
@@ -898,6 +903,10 @@ function ms365backup_output(array $vars): void
         case 'provision':
             require __DIR__ . '/pages/admin/provision.php';
             ms365backup_admin_provision($vars);
+            break;
+        case 'tenant_export':
+            require __DIR__ . '/pages/admin/tenant_export.php';
+            ms365backup_admin_tenant_export($vars);
             break;
         case 'dashboard':
         default:
