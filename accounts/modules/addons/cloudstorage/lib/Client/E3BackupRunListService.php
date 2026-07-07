@@ -40,6 +40,7 @@ final class E3BackupRunListService
     $hasJobSourceType = $schema->hasColumn('s3_cloudbackup_jobs', 'source_type');
     $hasJobSourceDisplay = $schema->hasColumn('s3_cloudbackup_jobs', 'source_display_name');
     $hasJobAgentUuid = $schema->hasColumn('s3_cloudbackup_jobs', 'agent_uuid');
+    $hasJobTimezone = $schema->hasColumn('s3_cloudbackup_jobs', 'timezone');
     $hasAgentBackupUser = $schema->hasTable('s3_cloudbackup_agents')
       && $schema->hasColumn('s3_cloudbackup_agents', 'backup_user_id');
 
@@ -246,6 +247,7 @@ final class E3BackupRunListService
         $hasJobSourceType ? 'j.source_type' : null,
         $hasJobSourceDisplay ? 'j.source_display_name' : null,
         $hasJobAgentUuid ? 'j.agent_uuid as job_agent_uuid' : null,
+        $hasJobTimezone ? 'j.timezone as job_timezone' : null,
         'a.hostname as agent_hostname',
         'a.agent_uuid',
         Capsule::raw($userExpr),
@@ -264,6 +266,7 @@ final class E3BackupRunListService
       }
     }
 
+    $fallbackDisplayTz = TimezoneHelper::resolveUserTimezone($clientId, null);
     $out = [];
     foreach ($rows as $r) {
       $sourceType = $hasJobSourceType ? (string) ($r->source_type ?? '') : '';
@@ -312,14 +315,30 @@ final class E3BackupRunListService
         }
       }
 
+      $displayTz = $fallbackDisplayTz;
+      if ($hasJobTimezone) {
+        $jobTzName = trim((string) ($r->job_timezone ?? ''));
+        if ($jobTzName !== '') {
+          try {
+            $displayTz = new \DateTimeZone($jobTzName);
+          } catch (\Throwable $e) {
+            // Keep client-level fallback timezone.
+          }
+        }
+      }
+
+      $startedAtDisplay = $startedAt !== '' ? TimezoneHelper::formatTimestamp($startedAt, $displayTz) : '';
+      $finishedAtRaw = (string) ($r->finished_at ?? '');
+      $finishedAtDisplay = $finishedAtRaw !== '' ? TimezoneHelper::formatTimestamp($finishedAtRaw, $displayTz) : '';
+
       $out[] = [
         'run_id' => (string) ($r->run_id ?? ''),
         'job_id' => (string) ($r->job_id ?? ''),
         'status' => (string) $r->status,
         'schedule_skipped' => $scheduleSkipped,
         'error_summary' => $hasErrorSummaryCol ? (string) ($r->error_summary ?? '') : '',
-        'started_at' => $startedAt,
-        'finished_at' => (string) ($r->finished_at ?? ''),
+        'started_at' => $startedAtDisplay,
+        'finished_at' => $finishedAtDisplay,
         'trigger_type' => (string) ($r->trigger_type ?? ''),
         'engine' => $engine,
         'operation_type' => $operationType,
