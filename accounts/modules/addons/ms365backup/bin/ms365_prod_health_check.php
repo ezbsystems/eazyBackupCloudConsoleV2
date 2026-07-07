@@ -40,13 +40,28 @@ require_once dirname(__DIR__) . '/ms365backup_autoload.php';
 $record('kopia_browse_class', class_exists(\Ms365Backup\KopiaSnapshotBrowseService::class));
 
 $browseStatus = \Ms365Backup\Fleet\BrowseBinaryInstaller::status();
+$browseSynced = $browseStatus['status'] === 'synced' && $browseStatus['executable'];
+$browseDetail = ($browseStatus['dest'] ?? '') . ' status=' . ($browseStatus['status'] ?? 'unknown')
+    . ' installed=' . ($browseStatus['installed_version'] ?? 'none')
+    . ' target=' . ($browseStatus['target_version'] ?? 'none');
+if (!$browseSynced && !empty($browseStatus['hint'])) {
+    $browseDetail .= ' hint=' . $browseStatus['hint'];
+}
+$record('browse_binary', $browseSynced, $browseDetail);
+
+$diagnostics = $browseStatus['diagnostics'] ?? \Ms365Backup\Fleet\BrowseBinaryInstaller::pathDiagnostics((string) ($browseStatus['dest'] ?? ''));
 $record(
-    'browse_binary',
-    $browseStatus['status'] === 'synced' && $browseStatus['executable'],
-    ($browseStatus['dest'] ?? '') . ' status=' . ($browseStatus['status'] ?? 'unknown')
-        . ' installed=' . ($browseStatus['installed_version'] ?? 'none')
-        . ' target=' . ($browseStatus['target_version'] ?? 'none')
+    'browse_binary_writable',
+    (bool) ($diagnostics['can_install'] ?? false),
+    'php_user=' . ($diagnostics['php_user'] ?? '?')
+        . ' dest_owner=' . ($diagnostics['dest_owner'] ?? 'n/a')
+        . ' dest_writable=' . ((isset($diagnostics['dest_writable']) && $diagnostics['dest_writable']) ? 'yes' : 'no')
 );
 
-echo json_encode(['status' => $ok ? 'ok' : 'failed', 'checks' => $checks, 'browse_binary' => $browseStatus], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . PHP_EOL;
+echo json_encode([
+    'status' => $ok ? 'ok' : 'failed',
+    'checks' => $checks,
+    'browse_binary' => $browseStatus,
+    'browse_diagnostics' => $diagnostics,
+], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . PHP_EOL;
 exit($ok ? 0 : 1);

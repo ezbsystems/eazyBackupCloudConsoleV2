@@ -78,6 +78,7 @@
     if (status !== 'synced') {
       html += ' &nbsp; <strong>Target:</strong> ' + target;
       if (sha) html += ' (' + sha + ')';
+      if (bb.hint) html += '<br><small class="text-muted">' + esc(bb.hint) + '</small>';
       html += ' <button type="button" class="btn btn-xs btn-default" id="fleet-browse-sync-btn">Sync browse binary</button>';
     }
     html += '</p>';

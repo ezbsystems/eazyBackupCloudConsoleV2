@@ -28,6 +28,7 @@ REPO_ACCOUNTS="$REPO_ROOT/accounts"
 PROD_ROOT="${PROD_ROOT:-/var/www/eazybackup.ca/accounts}"
 WEB_USER="${WEB_USER:-www-data}"
 WEB_GROUP="${WEB_GROUP:-www-data}"
+WORKER_REPO_PATH="${WORKER_REPO_PATH:-/var/www/eazybackup.ca/ms365-backup-worker}"
 
 RSYNC_OPTS=(-av --delete)
 if [[ "$DRY_RUN" -eq 1 ]]; then
@@ -110,11 +111,18 @@ chown_paths() {
 post_deploy_checks() {
   [[ "$DRY_RUN" -eq 1 ]] && return 0
 
-  log "Post-deploy: browse binary sync"
-  php "$PROD_ROOT/modules/addons/ms365backup/bin/ms365_install_browse_binary.php"
+  log "Post-deploy: ensure worker repo path writable by $WEB_USER"
+  chown_paths "$WORKER_REPO_PATH"
 
-  log "Post-deploy: health check"
-  php "$PROD_ROOT/modules/addons/ms365backup/bin/ms365_prod_health_check.php"
+  log "Post-deploy: browse binary sync"
+  if ! php "$PROD_ROOT/modules/addons/ms365backup/bin/ms365_install_browse_binary.php"; then
+    fail "Browse binary sync failed — run: php $PROD_ROOT/modules/addons/ms365backup/bin/ms365_browse_binary_diag.php"
+  fi
+
+  log "Post-deploy: health check (includes browse binary version)"
+  if ! php "$PROD_ROOT/modules/addons/ms365backup/bin/ms365_prod_health_check.php"; then
+    fail "Production health check failed — inspect browse_binary diagnostics in output"
+  fi
 
   log "Post-deploy: fleet smoke (non-fatal)"
   php "$PROD_ROOT/modules/addons/ms365backup/bin/ms365_fleet_smoke.php" || true
@@ -178,6 +186,7 @@ rsync_guarded templates/eazyBackup header.tpl \
   "$PROD_ROOT/templates/eazyBackup/"
 
 chown_paths \
+  "$WORKER_REPO_PATH" \
   "$PROD_ROOT/modules/addons/cloudstorage" \
   "$PROD_ROOT/modules/addons/cometbilling" \
   "$PROD_ROOT/modules/addons/eazybackup" \

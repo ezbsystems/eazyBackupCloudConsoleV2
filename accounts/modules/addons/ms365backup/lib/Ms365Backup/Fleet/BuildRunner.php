@@ -150,9 +150,10 @@ final class BuildRunner
                         ]);
                         ReleaseSyncService::autoPublishAfterBuild($releaseId);
                         $browseSync = BrowseBinaryInstaller::syncFromRelease($releaseId);
-                        if (!$browseSync['ok']) {
-                            logActivity('MS365 browse binary sync failed after build publish: ' . ($browseSync['error'] ?: 'unknown'));
-                        }
+        if (!$browseSync['ok']) {
+            logActivity('MS365 browse binary sync failed after build publish: ' . ($browseSync['error'] ?: 'unknown')
+                . (($browseSync['hint'] ?? '') !== '' ? ' — ' . $browseSync['hint'] : ''));
+        }
                         $rc = 0;
                         $summary = 'release #' . $releaseId;
                         if ($browseSync['ok']) {

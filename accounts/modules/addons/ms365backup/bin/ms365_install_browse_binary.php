@@ -34,7 +34,11 @@ $result = $releaseId > 0
     : BrowseBinaryInstaller::syncFromFleetTarget();
 
 if (!$result['ok']) {
-    fwrite(STDERR, "Browse binary sync failed: " . ($result['error'] ?: 'unknown') . "\n");
+    $msg = "Browse binary sync failed: " . ($result['error'] ?: 'unknown');
+    if (($result['hint'] ?? '') !== '') {
+        $msg .= "\nHint: " . $result['hint'];
+    }
+    fwrite(STDERR, $msg . "\n");
     fwrite(STDERR, "Run: php " . __DIR__ . "/ms365_browse_binary_diag.php\n");
 }
 echo json_encode(['status' => $result['ok'] ? 'ok' : 'failed', 'browse_sync' => $result], JSON_UNESCAPED_SLASHES) . PHP_EOL;

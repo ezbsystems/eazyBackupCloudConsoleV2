@@ -27,12 +27,14 @@ $repo = FleetSettings::repoPath();
 $artifactRoot = FleetSettings::artifactRoot();
 $dest = rtrim($repo, '/') . '/ms365-backup-worker';
 $status = BrowseBinaryInstaller::status();
+$pathDiag = BrowseBinaryInstaller::pathDiagnostics($dest);
 
 $lines = [
     'repo_path' => $repo,
     'artifact_root' => $artifactRoot,
     'dest' => $dest,
     'browse_status' => $status,
+    'path_diagnostics' => $pathDiag,
 ];
 
 if ($latest === null) {
@@ -77,7 +79,12 @@ if ($src === '' || !is_file($src)) {
     $failure = 'repo_path_mkdir_failed';
 } elseif ($status['status'] !== 'synced') {
     $failure = 'browse_' . $status['status'];
-    $lines['hint'] = 'Run: php ' . dirname(__FILE__) . '/ms365_install_browse_binary.php';
+    $lines['hint'] = (string) ($status['hint'] ?? ('Run: php ' . dirname(__FILE__) . '/ms365_install_browse_binary.php'));
+    if (!($pathDiag['can_install'] ?? false)) {
+        $lines['hint'] = BrowseBinaryInstaller::repoPath() !== ''
+            ? ('Fix permissions: chown -R www-data:www-data ' . BrowseBinaryInstaller::repoPath())
+            : $lines['hint'];
+    }
 } else {
     $lines['can_install'] = true;
 }

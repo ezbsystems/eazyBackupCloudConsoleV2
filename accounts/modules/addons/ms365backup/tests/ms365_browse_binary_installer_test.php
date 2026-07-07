@@ -68,6 +68,12 @@ assert_true(
     'syncFromRelease returns error for unknown release id'
 );
 
+$diag = BrowseBinaryInstaller::pathDiagnostics($dest);
+assert_true(
+    isset($diag['php_user'], $diag['can_install'], $diag['dest']),
+    'pathDiagnostics returns filesystem fields'
+);
+
 $status = BrowseBinaryInstaller::status();
 assert_true(
     in_array($status['status'], ['synced', 'out_of_date', 'missing'], true),
