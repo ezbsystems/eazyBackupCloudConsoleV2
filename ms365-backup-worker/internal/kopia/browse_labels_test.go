@@ -343,3 +343,63 @@ func TestSharePointListItemFallbackLabel(t *testing.T) {
 		t.Fatalf("fallback: got %q", got)
 	}
 }
+
+func TestShouldHideListsJson(t *testing.T) {
+	if !shouldHideBrowseName("lists.json") {
+		t.Fatal("lists.json should be hidden from browse")
+	}
+	if !shouldHideBrowseName("drives.json") {
+		t.Fatal("drives.json should be hidden from browse")
+	}
+	if shouldHideBrowseName("Budget.xlsx") {
+		t.Fatal("regular files should not be hidden")
+	}
+}
+
+func TestSharePointListFolderDisplayNameFromCatalog(t *testing.T) {
+	ctx := context.Background()
+	listID := "list-guid-abc"
+	catalog := []byte(`{"value":[{"id":"` + listID + `","displayName":"Project Tasks"}]}`)
+	root := newMemDir("", map[string]kopiafs.Entry{
+		"sites": newMemDir("sites", map[string]kopiafs.Entry{
+			"contoso_com_guid_guid": newMemDir("contoso_com_guid_guid", map[string]kopiafs.Entry{
+				"lists": newMemDir("lists", map[string]kopiafs.Entry{
+					"lists.json": newMemFile("lists.json", catalog),
+					listID:     newMemDir(listID, map[string]kopiafs.Entry{}),
+				}),
+			}),
+		}),
+	})
+
+	folderPath := "sites/contoso_com_guid_guid/lists/" + listID
+	got := sharePointListFolderDisplayName(ctx, root, folderPath, listID)
+	if got != "Project Tasks" {
+		t.Fatalf("list folder label: got %q", got)
+	}
+}
+
+func TestSharePointListItemLabels(t *testing.T) {
+	ctx := context.Background()
+	itemPath := "sites/site1/lists/list1/items/10.json"
+	root := newMemDir("", map[string]kopiafs.Entry{
+		"sites": newMemDir("sites", map[string]kopiafs.Entry{
+			"site1": newMemDir("site1", map[string]kopiafs.Entry{
+				"lists": newMemDir("lists", map[string]kopiafs.Entry{
+					"list1": newMemDir("list1", map[string]kopiafs.Entry{
+						"items": newMemDir("items", map[string]kopiafs.Entry{
+							"10.json": newMemFile("10.json", []byte(`{"id":"10","fields":{"Title":"Access request #3"},"lastModifiedDateTime":"2025-06-11T15:39:00Z"}`)),
+						}),
+					}),
+				}),
+			}),
+		}),
+	})
+
+	got := sharePointListItemLabels(ctx, root, itemPath)
+	if got.Label != "Access request #3" {
+		t.Fatalf("label: got %q", got.Label)
+	}
+	if got.Subtitle != "2025-06-11T15:39:00Z" {
+		t.Fatalf("subtitle: got %q", got.Subtitle)
+	}
+}

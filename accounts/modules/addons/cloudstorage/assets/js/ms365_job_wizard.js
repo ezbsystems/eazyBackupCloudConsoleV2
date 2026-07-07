@@ -1446,6 +1446,9 @@
                 this.retentionTier = retentionTier;
                 this.saving = true;
                 try {
+                    const browserTz = (typeof Intl !== 'undefined' && Intl.DateTimeFormat)
+                        ? Intl.DateTimeFormat().resolvedOptions().timeZone
+                        : '';
                     const body = new URLSearchParams({
                         user_id: this.backupUserId,
                         name: this.jobName,
@@ -1454,6 +1457,9 @@
                         selected_resource_ids: JSON.stringify(this.savedSelectionIds),
                         scope_overrides: JSON.stringify(this.scopeOverrides || {}),
                     });
+                    if (browserTz) {
+                        body.set('timezone', browserTz);
+                    }
                     if (this.editMode && this.jobId) {
                         body.set('job_id', this.jobId);
                     }

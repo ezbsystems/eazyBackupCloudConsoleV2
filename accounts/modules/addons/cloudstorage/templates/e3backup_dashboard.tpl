@@ -553,7 +553,7 @@
                                         —
                                     {/if}
                                 </td>
-                                <td>{$run.started_at|default:'—'}</td>
+                                <td><span class="js-eb-run-started" data-epoch="{$run.started_at_epoch_ms|default:''|escape:'html'}">{$run.started_at|default:'—'|escape:'html'}</span></td>
                                 <td>
                                     <a href="index.php?m=cloudstorage&page=e3backup&view=live&run_id={$run.run_id}{if $run.backup_user_route_id|default:'' neq ''}&user_id={$run.backup_user_route_id|escape:'url'}{/if}" class="eb-btn eb-btn-primary eb-btn-xs">
                                         View Live
@@ -706,6 +706,21 @@
     ebE3Content=$ebE3Content
 }
 
+<script src="modules/addons/eazybackup/assets/js/eazybackup-ui-helpers.js" defer></script>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    if (!window.EB || typeof window.EB.formatInstant !== 'function') return;
+    document.querySelectorAll('.js-eb-run-started').forEach(function (el) {
+        var epoch = el.getAttribute('data-epoch');
+        if (!epoch) return;
+        var formatted = window.EB.formatInstant(epoch);
+        if (formatted && formatted !== '—') {
+            el.textContent = formatted;
+        }
+    });
+});
+</script>
+
 {* ── Billboard.js Donut Chart (24h Status) ── *}
 {if $status24hTotal > 0}
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/billboard.js/dist/billboard.min.css" />
@@ -844,7 +859,9 @@ function e3BackupHistory() {
                 jobName: run.job_name,
                 agent: agent.hostname,
                 status: run.status,
-                started: run.started_at || run.time,
+                started: (run.started_at_epoch_ms && window.EB && window.EB.formatInstant)
+                    ? window.EB.formatInstant(run.started_at_epoch_ms)
+                    : (run.started_at || run.time),
                 sizeText: run.size
             });
         },

@@ -1205,6 +1205,16 @@ function jobsApp(opts) {
             if (!type || type === 'manual') {
                 return '—';
             }
+            const sourceType = (job.source_type || '').toLowerCase();
+            const engine = (job.engine || '').toLowerCase();
+            if ((sourceType === 'ms365' || engine === 'ms365') && job.next_run_at_epoch_ms) {
+                if (window.EB && typeof window.EB.formatInstantWithScheduleNote === 'function') {
+                    return window.EB.formatInstantWithScheduleNote(job.next_run_at_epoch_ms, job.timezone);
+                }
+                if (window.EB && typeof window.EB.formatInstant === 'function') {
+                    return window.EB.formatInstant(job.next_run_at_epoch_ms);
+                }
+            }
             const txt = this.nextRunText(job);
             if (txt === '-' || !txt) {
                 return '—';
@@ -1218,8 +1228,11 @@ function jobsApp(opts) {
             return type === 'manual' || st === 'paused';
         },
         formatLastRunTime(job) {
-            if (!job.last_run || !job.last_run.started_at) return '—';
+            if (!job.last_run || (!job.last_run.started_at && !job.last_run.started_at_epoch_ms)) return '—';
             try {
+                if (job.last_run.started_at_epoch_ms && window.EB && typeof window.EB.formatInstant === 'function') {
+                    return window.EB.formatInstant(job.last_run.started_at_epoch_ms);
+                }
                 return fmtDateTime(new Date(job.last_run.started_at));
             } catch (e) {
                 return job.last_run.started_at;

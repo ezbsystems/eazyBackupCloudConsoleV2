@@ -20,6 +20,7 @@ final class Ms365CustomerJobService
      *   scope_overrides?: array<string, array<string, bool>>,
      *   schedule_frequency: string,
      *   retention_tier?: string,
+     *   timezone?: string,
      * } $payload
      * @return array{job_id: string}
      */
@@ -33,8 +34,13 @@ final class Ms365CustomerJobService
         $scopeOverrides = CustomerSelectionCodec::normalizeScopeOverrides($payload['scope_overrides'] ?? []);
         CustomerSelectionCodec::validate($payload['selected_resource_ids'], $scopeOverrides, $inventory);
 
+        $timezone = Ms365JobTimezoneResolver::resolveForClient(
+            $clientId,
+            isset($payload['timezone']) ? (string) $payload['timezone'] : null,
+        );
         $schedulePayload = Ms365ScheduleAssigner::buildSchedulePayload(
             (string) $payload['schedule_frequency'],
+            $timezone,
         );
 
         $jobId = self::newJobUuid();
@@ -148,8 +154,14 @@ final class Ms365CustomerJobService
         $scopeOverrides = CustomerSelectionCodec::normalizeScopeOverrides($payload['scope_overrides'] ?? []);
         CustomerSelectionCodec::validate($payload['selected_resource_ids'], $scopeOverrides, $inventory);
 
+        $timezone = Ms365JobTimezoneResolver::resolveForUpdate(
+            $clientId,
+            $job,
+            isset($payload['timezone']) ? (string) $payload['timezone'] : null,
+        );
         $schedulePayload = Ms365ScheduleAssigner::buildSchedulePayload(
             (string) $payload['schedule_frequency'],
+            $timezone,
         );
         $ms365Json = self::buildMs365ScheduleJson($record, $payload, $schedulePayload);
         $newTier = (string) ($payload['retention_tier'] ?? Ms365RetentionTierPolicyService::DEFAULT_TIER);
@@ -223,6 +235,7 @@ final class Ms365CustomerJobService
             'scope_overrides' => $scopeOverrides,
             'schedule_frequency' => (string) ($ms365['schedule_frequency'] ?? Ms365ScheduleAssigner::FREQUENCY_ONCE_DAILY),
             'schedule_slots' => $ms365['schedule_slots'] ?? [],
+            'timezone' => (string) ($job->timezone ?? ($ms365['timezone'] ?? Ms365JobTimezoneResolver::PLATFORM_DEFAULT)),
             'retention_tier' => (string) ($ms365['retention_tier'] ?? '1y'),
             'tenant_record_id' => (int) ($ms365['tenant_record_id'] ?? 0),
             'connected' => true,

@@ -539,4 +539,4 @@
 </div>
 
 <script src="modules/addons/cloudstorage/assets/js/ms365_job_selection.js?v=4"></script>
-<script src="modules/addons/cloudstorage/assets/js/ms365_job_wizard.js?v=18"></script>
+<script src="modules/addons/cloudstorage/assets/js/ms365_job_wizard.js?v=19"></script>

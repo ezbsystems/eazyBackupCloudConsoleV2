@@ -2,11 +2,14 @@
 
 require_once __DIR__ . '/../../../../init.php';
 require_once __DIR__ . '/../lib/Client/MspController.php';
+require_once __DIR__ . '/../lib/Client/TimezoneHelper.php';
+require_once __DIR__ . '/../lib/Ms365BackupBootstrap.php';
 
 use Illuminate\Database\Capsule\Manager as Capsule;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use WHMCS\ClientArea;
 use WHMCS\Module\Addon\CloudStorage\Client\MspController;
+use WHMCS\Module\Addon\CloudStorage\Client\TimezoneHelper;
 use WHMCS\Module\Addon\CloudStorage\Client\UuidBinary;
 
 function normalizeHypervJobSignatureValue($value): string
@@ -135,6 +138,7 @@ try {
     $hasJobIdPk = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'job_id');
     $hasRunStatsJson = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'stats_json');
     $hasRunErrorSummary = Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'error_summary');
+    $hasJobTimezone = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'timezone');
     $jobIdSelect = $hasJobIdPk
         ? Capsule::raw('BIN_TO_UUID(j.job_id) as id')
         : 'j.id';
@@ -159,6 +163,7 @@ try {
             'j.schedule_weekday',
             'j.schedule_cron',
             'j.schedule_json',
+            $hasJobTimezone ? 'j.timezone' : Capsule::raw('NULL as timezone'),
             'j.status',
             'j.created_at',
             'j.updated_at',
@@ -344,11 +349,17 @@ try {
             foreach ($runs as $r) {
                 $jid = $r->job_id_str;
                 if (!isset($lastRunByJob[$jid])) {
+                    $startedAt = (string) ($r->started_at ?? '');
+                    $finishedAt = (string) ($r->finished_at ?? '');
                     $lastRunByJob[$jid] = [
                         'run_id' => (string) ($r->run_id ?? ''),
                         'status' => $r->status,
-                        'started_at' => $r->started_at,
-                        'finished_at' => $r->finished_at,
+                        'started_at' => $startedAt,
+                        'finished_at' => $finishedAt,
+                        'started_at_utc' => TimezoneHelper::instantToUtcIso($startedAt),
+                        'finished_at_utc' => TimezoneHelper::instantToUtcIso($finishedAt),
+                        'started_at_epoch_ms' => TimezoneHelper::instantToEpochMs($startedAt),
+                        'finished_at_epoch_ms' => TimezoneHelper::instantToEpochMs($finishedAt),
                         'bytes_transferred' => $r->bytes_transferred ?? 0,
                         'schedule_skipped' => $hasRunStatsJson
                             ? e3backup_is_ms365_schedule_skip(isset($r->stats_json) ? (string) $r->stats_json : null)
@@ -372,11 +383,17 @@ try {
             foreach ($runs as $r) {
                 $jid = (int) $r->job_id;
                 if (!isset($lastRunByJob[$jid])) {
+                    $startedAt = (string) ($r->started_at ?? '');
+                    $finishedAt = (string) ($r->finished_at ?? '');
                     $lastRunByJob[$jid] = [
                         'run_id' => (string) ($r->run_id ?? ''),
                         'status' => $r->status,
-                        'started_at' => $r->started_at,
-                        'finished_at' => $r->finished_at,
+                        'started_at' => $startedAt,
+                        'finished_at' => $finishedAt,
+                        'started_at_utc' => TimezoneHelper::instantToUtcIso($startedAt),
+                        'finished_at_utc' => TimezoneHelper::instantToUtcIso($finishedAt),
+                        'started_at_epoch_ms' => TimezoneHelper::instantToEpochMs($startedAt),
+                        'finished_at_epoch_ms' => TimezoneHelper::instantToEpochMs($finishedAt),
                         'bytes_transferred' => $r->bytes_transferred ?? 0,
                     ];
                 }
@@ -402,6 +419,22 @@ try {
         $job->backup_user_route_id = $effectiveBackupUserId > 0
             ? ($backupUserRouteById[$effectiveBackupUserId] ?? null)
             : null;
+
+        $job->next_run_at_epoch_ms = null;
+        $sourceType = strtolower(trim((string) ($job->source_type ?? '')));
+        $engine = strtolower(trim((string) ($job->engine ?? '')));
+        if (($sourceType === 'ms365' || $engine === 'ms365') && strtolower((string) ($job->status ?? '')) === 'active') {
+            cloudstorage_load_ms365backup();
+            $scheduleJson = json_decode((string) ($job->schedule_json ?? ''), true);
+            if (is_array($scheduleJson)) {
+                $job->next_run_at_epoch_ms = \Ms365Backup\Ms365ScheduleAssigner::nextRunEpochMs(
+                    $scheduleJson,
+                    null,
+                    trim((string) ($job->timezone ?? '')) ?: null,
+                );
+            }
+        }
+
         unset($job->storage_tenant_id, $job->agent_tenant_id, $job->job_backup_user_id, $job->agent_backup_user_id, $job->source_paths_json, $job->hyperv_enabled, $job->hyperv_config);
     }
 

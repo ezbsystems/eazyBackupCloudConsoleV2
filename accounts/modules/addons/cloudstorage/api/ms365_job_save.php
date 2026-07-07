@@ -92,6 +92,7 @@ $payload = [
     'scope_overrides' => ms365DecodeJsonObject($_POST['scope_overrides'] ?? '{}'),
     'schedule_frequency' => trim((string) ($_POST['schedule_frequency'] ?? 'once_daily')),
     'retention_tier' => trim((string) ($_POST['retention_tier'] ?? '1y')),
+    'timezone' => trim((string) ($_POST['timezone'] ?? '')),
 ];
 
 if (!class_exists(\Ms365Backup\Ms365RetentionTierPolicyService::class)) {

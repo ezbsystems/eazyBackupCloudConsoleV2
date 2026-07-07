@@ -23,6 +23,36 @@
     } catch(_) { return '—'; }
   }
 
+  function formatInstant(epochMs, opts) {
+    try {
+      var ms = toMs(epochMs);
+      if (!ms) return '—';
+      var d = new Date(ms);
+      if (opts && opts.timeOnly) {
+        return (typeof Intl !== 'undefined' && Intl.DateTimeFormat)
+          ? new Intl.DateTimeFormat(undefined, { timeStyle: 'short' }).format(d)
+          : d.toLocaleTimeString();
+      }
+      return (typeof Intl !== 'undefined' && Intl.DateTimeFormat)
+        ? new Intl.DateTimeFormat(undefined, {
+          dateStyle: (opts && opts.dateStyle) || 'medium',
+          timeStyle: (opts && opts.timeStyle) || 'short',
+        }).format(d)
+        : d.toLocaleString();
+    } catch (_) {
+      return '—';
+    }
+  }
+
+  function formatInstantWithScheduleNote(epochMs, jobTimezone) {
+    var main = formatInstant(epochMs);
+    var tz = String(jobTimezone || '').trim();
+    if (!tz || main === '—') {
+      return main;
+    }
+    return main + ' · Scheduled in ' + tz.replace(/_/g, ' ');
+  }
+
   function fmtBytes(n){
     try {
       var num = Number(n)||0;
@@ -191,6 +221,8 @@
   var EB = {
     toMs: toMs,
     fmtTs: fmtTs,
+    formatInstant: formatInstant,
+    formatInstantWithScheduleNote: formatInstantWithScheduleNote,
     fmtBytes: fmtBytes,
     fmtDur: fmtDur,
     STATUS: STATUS,

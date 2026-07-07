@@ -56,7 +56,7 @@ final class RestoreTreeBrowseService
             }
         }
 
-        $cacheKey = hash('sha256', 'v14-sharepoint-drive-browse' . "\0" . $manifestId . "\0" . $path);
+        $cacheKey = hash('sha256', 'v15-browse-display-labels' . "\0" . $manifestId . "\0" . $path);
         $cached = self::readCache($cacheKey);
         if ($cached !== null) {
             return $cached;

@@ -19,8 +19,7 @@ final class Ms365JobScheduler
             return ['started' => 0, 'skipped' => 0];
         }
 
-        $now = new \DateTimeImmutable('now');
-        $minuteKey = $now->format('Y-m-d-H-i');
+        $now = new \DateTimeImmutable('now', new \DateTimeZone('UTC'));
 
         $jobs = Capsule::table('s3_cloudbackup_jobs')
             ->where('source_type', 'ms365')
@@ -35,12 +34,15 @@ final class Ms365JobScheduler
                 continue;
             }
 
+            $jobTimezone = trim((string) ($job->timezone ?? ''));
+            $minuteKey = Ms365ScheduleAssigner::localMinuteKey($scheduleJson, $now, $jobTimezone !== '' ? $jobTimezone : null);
+
             $lastKey = (string) ($scheduleJson['last_scheduled_key'] ?? '');
             if ($lastKey === $minuteKey) {
                 continue;
             }
 
-            if (!Ms365ScheduleAssigner::isDueNow($scheduleJson, $now)) {
+            if (!Ms365ScheduleAssigner::isDueNow($scheduleJson, $now, $jobTimezone !== '' ? $jobTimezone : null)) {
                 continue;
             }
 

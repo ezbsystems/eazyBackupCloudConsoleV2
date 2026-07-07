@@ -169,7 +169,7 @@
                     </template>
                     <template x-for="row in rows" :key="row.run_id">
                         <tr class="cursor-pointer" @click="openRunRow(row)" :title="isLiveRunRow(row) ? 'View live progress' : 'Click to view log'">
-                            <td x-show="cols.started" class="eb-table-primary" x-text="fmtDate(row.started_at)"></td>
+                            <td x-show="cols.started" class="eb-table-primary" x-text="fmtRunInstant(row, 'started_at', 'started_at_epoch_ms')"></td>
                             <td x-show="cols.job && showJobCol" x-text="row.job_name || '-'"></td>
                             <td x-show="cols.agent" x-text="sourceLabel(row)"></td>
                             <td x-show="cols.user && showUserCol" x-text="row.username || '-'"></td>
@@ -382,11 +382,23 @@ function e3JobLogsApp() {
         },
         fmtDate(s) {
             if (!s) return 'Queued';
+            if (window.EB && typeof window.EB.formatInstant === 'function') {
+                return window.EB.formatInstant(s);
+            }
             try {
                 var d = new Date(s.replace(' ', 'T'));
                 if (isNaN(d.getTime())) return s;
                 return d.toLocaleString();
             } catch (e) { return s; }
+        },
+        fmtRunInstant(row, field, epochField) {
+            if (!row) return 'Queued';
+            if (epochField && row[epochField] !== undefined && row[epochField] !== null) {
+                if (window.EB && typeof window.EB.formatInstant === 'function') {
+                    return window.EB.formatInstant(row[epochField]);
+                }
+            }
+            return this.fmtDate(row[field]);
         },
         toggleStatus(key) {
             var i = this.activeStatuses.indexOf(key);
@@ -450,8 +462,8 @@ function e3JobLogsApp() {
                 status: row.status,
                 schedule_skipped: !!row.schedule_skipped,
                 error_summary: row.error_summary || '',
-                started: this.fmtDate(row.started_at),
-                finished: row.finished_at ? this.fmtDate(row.finished_at) : '-',
+                started: this.fmtRunInstant(row, 'started_at', 'started_at_epoch_ms'),
+                finished: row.finished_at ? this.fmtRunInstant(row, 'finished_at', 'finished_at_epoch_ms') : '-',
                 durationText: row.duration,
                 sizeText: row.size_formatted
             });

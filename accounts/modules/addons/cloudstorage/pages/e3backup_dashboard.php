@@ -5,6 +5,7 @@ use WHMCS\Module\Addon\CloudStorage\Client\DBController;
 use WHMCS\Module\Addon\CloudStorage\Client\E3BackupAccess;
 use WHMCS\Module\Addon\CloudStorage\Client\HelperController;
 use WHMCS\Module\Addon\CloudStorage\Client\MspController;
+use WHMCS\Module\Addon\CloudStorage\Client\TimezoneHelper;
 
 require_once __DIR__ . '/../lib/Client/E3BackupAccess.php';
 
@@ -331,6 +332,7 @@ if (is_object($recentRuns) && method_exists($recentRuns, 'map')) {
         }
         $bytes = max((int)($r['bytes_processed'] ?? 0), (int)($r['bytes_transferred'] ?? 0));
         $r['size_formatted'] = $bytes > 0 ? HelperController::formatSizeUnitsPlain($bytes) : '-';
+        $r['started_at_epoch_ms'] = TimezoneHelper::instantToEpochMs($r['started_at'] ?? null);
         return $r;
     })->toArray();
 }

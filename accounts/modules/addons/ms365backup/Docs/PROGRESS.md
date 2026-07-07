@@ -2,14 +2,41 @@
 
 **Purpose:** Single handoff document so the next agent knows where work stopped. Update this file at the **end of every session** (or after each meaningful milestone).
 
-**Last updated:** 2026-07-06  
+**Last updated:** 2026-07-07  
 **Module version (ms365backup):** 1.52.1  
 **Cloudstorage (e3) version:** 2.2.0  
-**Worker version (ms365-backup-worker):** 0.3.47 (built; deploy via Fleet)
+**Worker version (ms365-backup-worker):** 0.3.51 (built; browse binary on WHMCS host; fleet deploy via Releases)
 
 ---
 
 ## Session log
+
+### 2026-07-07 — Browse binary auto-sync (release pipeline + fleet UI)
+
+- **Problem:** WHMCS restore browse binary could drift from fleet worker version; prod `fleet_release_upsert` push path and deploy start did not install browse binary; failures were silent.
+- **BrowseBinaryInstaller:** `syncFromRelease()`, `syncFromFleetTarget()`, `status()`, `reconcileIfNeeded()`; SHA256 compare skip; `FleetAuditLog` on success/failure.
+- **Hooks:** `fleet_release_upsert`, `BuildRunner` publish, `ReleaseSyncService` pull + reconcile on skip, `DeployService::startDeploy`.
+- **UI:** Fleet dashboard `browse_binary` badge + manual **Sync browse binary**; Builds tab shows prod browse status when fleet target is production.
+- **Ops:** `ms365_install_browse_binary.php` JSON output + `--release-id=`; diag/health/smoke version-aware checks.
+- **Tests:** `tests/ms365_browse_binary_installer_test.php`.
+
+### 2026-07-07 — MS365 timezone rollout (scheduler, job TZ, epoch API, browser display)
+
+- **Scheduler fix:** `Ms365ScheduleAssigner::isDueNow()` and `localMinuteKey()` evaluate `schedule_slots` in `schedule_json.timezone` (fallback job `timezone`, then `America/Toronto`). `Ms365JobScheduler` uses per-job local minute dedup keys.
+- **Job timezone:** New `Ms365JobTimezoneResolver` — browser/client timezone at MS365 job create (`ms365_job_wizard.js` posts `Intl` TZ); preserve existing timezone on edit unless client posts a new one. Stops reset-to-Toronto on every wizard save.
+- **Run instant API:** `TimezoneHelper::instantToEpochMs()` / `instantToUtcIso()`; `E3BackupRunListService` returns `started_at`/`finished_at` as UTC storage strings plus `*_utc` and `*_epoch_ms` + `job_timezone`. Job list `last_run` and MS365 `next_run_at_epoch_ms` added.
+- **UI:** `EB.formatInstant()` / `formatInstantWithScheduleNote()` in `eazybackup-ui-helpers.js`; Job Logs, dashboard, jobs table last-run and MS365 next-run use browser-local formatting.
+- **Migration:** Existing jobs **left on `America/Toronto`**; report via `bin/ms365_job_timezone_report.php`.
+- **Tests:** `ms365_schedule_assigner_test.php`, `ms365_job_timezone_resolver_test.php`.
+
+### 2026-07-07 — Restore browse display names (contacts, mail, SharePoint Lists)
+
+- **Problem:** Restore wizard step 3 showed raw Graph IDs for contact folders, generic "Folder" for mail attachment dirs, and generic "Item" for SharePoint list catalog/items. Label logic existed in worker but browse host was on an older binary; SharePoint list folder/item naming was incomplete.
+- **Worker 0.3.51:** `browse_labels.go` — contact folder `displayName` from `_folder.json`; mail attachment dirs inherit email subject + "Attachments" subtitle; SharePoint list folders resolved from `lists.json` catalog; list items from `fields.Title` / `FileLeafRef` with `List item {id}` fallback; hide `lists.json` and `drives.json` from browse.
+- **Tests:** `browse_labels_test.go` — SP list folder catalog, list item labels, `lists.json` hidden, contact/mail cases; `go test ./internal/kopia/...` pass.
+- **Deploy:** Built `ms365-backup-worker` 0.3.51; release id 94; browse binary at `/var/www/eazybackup.ca/ms365-backup-worker/ms365-backup-worker` (`ms365_install_browse_binary.php` / `BrowseBinaryInstaller`).
+- **Cache:** Browse cache key bumped `v14-sharepoint-drive-browse` → `v15-browse-display-labels` in `RestoreTreeBrowseService.php`.
+- **Verify:** Restore wizard — Contacts (folder names not `AAMk…`), Mail → Inbox (attachment dirs show subject), SharePoint → Lists (named list folders, item titles not "Item"). Fleet backup workers need separate 0.3.51 rollout for backup-side changes only; browse labels are WHMCS browse binary only.
 
 ### 2026-07-06 — SharePoint Lists restore browse path fix
 

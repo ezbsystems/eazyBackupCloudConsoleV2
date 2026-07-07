@@ -54,7 +54,7 @@ assert_true(count($slots) === 2, 'Twice daily assigns two slots');
 
 echo "\nManual verification checklist:\n";
 echo "  1. Start a long MS365 manual backup for an active scheduled job.\n";
-echo "  2. Temporarily set schedule_json.schedule_slots to the current hour:minute.\n";
+echo "  2. Set schedule_json.schedule_slots to the current hour:minute in the job timezone (e.g. America/Toronto).\n";
 echo "  3. Run: php modules/addons/cloudstorage/crons/ms365_scheduled_backups.php\n";
 echo "  4. Expect activity log: skipped 1 overlapping slot(s); no new ms365_backup_runs children.\n";
 echo "  5. Run history shows Skipped row with overlap error_summary.\n";

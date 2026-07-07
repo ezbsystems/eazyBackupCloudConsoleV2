@@ -266,7 +266,6 @@ final class E3BackupRunListService
       }
     }
 
-    $fallbackDisplayTz = TimezoneHelper::resolveUserTimezone($clientId, null);
     $out = [];
     foreach ($rows as $r) {
       $sourceType = $hasJobSourceType ? (string) ($r->source_type ?? '') : '';
@@ -315,21 +314,10 @@ final class E3BackupRunListService
         }
       }
 
-      $displayTz = $fallbackDisplayTz;
-      if ($hasJobTimezone) {
-        $jobTzName = trim((string) ($r->job_timezone ?? ''));
-        if ($jobTzName !== '') {
-          try {
-            $displayTz = new \DateTimeZone($jobTzName);
-          } catch (\Throwable $e) {
-            // Keep client-level fallback timezone.
-          }
-        }
-      }
-
-      $startedAtDisplay = $startedAt !== '' ? TimezoneHelper::formatTimestamp($startedAt, $displayTz) : '';
+      $jobTimezone = $hasJobTimezone ? trim((string) ($r->job_timezone ?? '')) : '';
       $finishedAtRaw = (string) ($r->finished_at ?? '');
-      $finishedAtDisplay = $finishedAtRaw !== '' ? TimezoneHelper::formatTimestamp($finishedAtRaw, $displayTz) : '';
+      $startedAtEpochMs = TimezoneHelper::instantToEpochMs($startedAt);
+      $finishedAtEpochMs = TimezoneHelper::instantToEpochMs($finishedAtRaw);
 
       $out[] = [
         'run_id' => (string) ($r->run_id ?? ''),
@@ -337,8 +325,13 @@ final class E3BackupRunListService
         'status' => (string) $r->status,
         'schedule_skipped' => $scheduleSkipped,
         'error_summary' => $hasErrorSummaryCol ? (string) ($r->error_summary ?? '') : '',
-        'started_at' => $startedAtDisplay,
-        'finished_at' => $finishedAtDisplay,
+        'started_at' => $startedAt,
+        'finished_at' => $finishedAtRaw,
+        'started_at_utc' => TimezoneHelper::instantToUtcIso($startedAt),
+        'finished_at_utc' => TimezoneHelper::instantToUtcIso($finishedAtRaw),
+        'started_at_epoch_ms' => $startedAtEpochMs,
+        'finished_at_epoch_ms' => $finishedAtEpochMs,
+        'job_timezone' => $jobTimezone,
         'trigger_type' => (string) ($r->trigger_type ?? ''),
         'engine' => $engine,
         'operation_type' => $operationType,

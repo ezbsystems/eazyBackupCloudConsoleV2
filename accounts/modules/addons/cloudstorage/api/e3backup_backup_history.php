@@ -20,6 +20,7 @@
 
 require_once __DIR__ . '/../../../../init.php';
 require_once __DIR__ . '/../lib/Client/MspController.php';
+require_once __DIR__ . '/../lib/Client/TimezoneHelper.php';
 
 if (!defined("WHMCS")) {
     die("This file cannot be accessed directly");
@@ -30,6 +31,7 @@ use WHMCS\ClientArea;
 use WHMCS\Database\Capsule;
 use WHMCS\Module\Addon\CloudStorage\Client\HelperController;
 use WHMCS\Module\Addon\CloudStorage\Client\MspController;
+use WHMCS\Module\Addon\CloudStorage\Client\TimezoneHelper;
 
 $ca = new ClientArea();
 if (!$ca->isLoggedIn()) {
@@ -190,6 +192,7 @@ try {
                 'status' => $status,
                 'time' => $startedTs ? date('H:i', $startedTs) : '',
                 'started_at' => (string) ($r->started_at ?? ''),
+                'started_at_epoch_ms' => TimezoneHelper::instantToEpochMs($r->started_at ?? null),
                 'size' => $bytes > 0 ? HelperController::formatSizeUnitsPlain($bytes) : '-',
             ];
         }
