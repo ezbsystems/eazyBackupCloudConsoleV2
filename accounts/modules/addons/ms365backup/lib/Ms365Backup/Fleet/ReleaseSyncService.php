@@ -90,9 +90,14 @@ final class ReleaseSyncService
 
         $existing = ReleaseRepository::getByVersion($version);
         if ($existing !== null && (string) ($existing['sha256'] ?? '') === (string) ($manifest['sha256'] ?? '')) {
+            $reconcile = BrowseBinaryInstaller::reconcileIfNeeded();
             self::recordSyncOutcome((int) $existing['id'], 'skipped', 'Already have release ' . $version);
 
-            return ['status' => 'skipped', 'message' => 'Already synced release ' . $version];
+            return [
+                'status' => 'skipped',
+                'message' => 'Already synced release ' . $version,
+                'browse_reconcile' => $reconcile,
+            ];
         }
 
         try {
@@ -214,7 +219,7 @@ final class ReleaseSyncService
                 'notes' => 'Pulled from development release #' . $sourceId,
             ]);
         }
-        BrowseBinaryInstaller::syncFromLatestRelease();
+        BrowseBinaryInstaller::syncFromRelease($id);
 
         return $id;
     }

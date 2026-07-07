@@ -66,6 +66,24 @@
     return '<small>CPU ' + cpu + '<br>RAM ' + mem + '<br>Disk ' + disk + '</small>';
   }
 
+  function browseBinaryStatusHtml(bb) {
+    if (!bb) return '';
+    var status = String(bb.status || 'missing');
+    var labelClass = status === 'synced' ? 'success' : (status === 'out_of_date' ? 'warning' : 'danger');
+    var installed = bb.installed_version ? ('v' + esc(bb.installed_version)) : 'missing';
+    var target = bb.target_version ? ('v' + esc(bb.target_version)) : '—';
+    var sha = bb.target_sha256 ? esc(String(bb.target_sha256).substring(0, 12) + '…') : '';
+    var html = '<p><strong>Browse binary:</strong> ' + installed +
+      ' <span class="label label-' + labelClass + '">' + esc(status) + '</span>';
+    if (status !== 'synced') {
+      html += ' &nbsp; <strong>Target:</strong> ' + target;
+      if (sha) html += ' (' + sha + ')';
+      html += ' <button type="button" class="btn btn-xs btn-default" id="fleet-browse-sync-btn">Sync browse binary</button>';
+    }
+    html += '</p>';
+    return html;
+  }
+
   function renderDashboard() {
     var el = document.getElementById('fleet-dashboard');
     if (!el) return;
@@ -99,6 +117,7 @@
         '<div class="col-md-12"><div class="well text-center"><h4>' + esc(s.engine_mode) + '</h4><small>Engine mode</small></div></div>' +
         '</div>' +
         '<p><strong>Latest release:</strong> ' + esc(latest) + ' &nbsp; <strong>Deploy target:</strong> ' + esc(target) + '</p>' +
+        browseBinaryStatusHtml(s.browse_binary) +
         '<p><strong>Node versions:</strong> ' + versions + '</p>' +
         '<p><strong>Concurrency limits:</strong> platform ' + esc(s.platform_max_concurrent) +
         ', per-tenant ' + esc(s.per_tenant_max_concurrent) + ', per-client ' + esc(s.per_client_max_concurrent) + '</p>' +
@@ -108,6 +127,21 @@
       if (buildVersionInput && s.suggest_next_version) {
         buildVersionInput.placeholder = s.suggest_next_version;
       }
+      var browseSyncBtn = document.getElementById('fleet-browse-sync-btn');
+      if (browseSyncBtn) {
+        browseSyncBtn.addEventListener('click', function () {
+          browseSyncBtn.disabled = true;
+          post('fleet_browse_binary_sync', {}).then(function (syncRes) {
+            browseSyncBtn.disabled = false;
+            if (!syncRes.ok) {
+              alert(syncRes.error || 'Browse binary sync failed');
+              return;
+            }
+            renderDashboard();
+          });
+        });
+      }
+      renderBuildsBrowseNote(s.browse_binary);
     });
     var auditEl = document.getElementById('fleet-audit');
     if (auditEl) {
@@ -293,6 +327,32 @@
       }).join('');
       if (current) sel.value = current;
     });
+  }
+
+  function renderBuildsBrowseNote(bb) {
+    var notice = document.getElementById('fleet-build-browse-status');
+    if (!notice || !fleetMeta.can_select_fleet || fleetTarget !== 'production') return;
+    if (!bb) {
+      notice.innerHTML = '<p class="text-muted">Production browse binary status unavailable.</p>';
+      return;
+    }
+    notice.innerHTML = browseBinaryStatusHtml(bb);
+    var browseSyncBtn = notice.querySelector('#fleet-browse-sync-btn');
+    if (browseSyncBtn) {
+      browseSyncBtn.addEventListener('click', function () {
+        browseSyncBtn.disabled = true;
+        post('fleet_browse_binary_sync', {}).then(function (syncRes) {
+          browseSyncBtn.disabled = false;
+          if (!syncRes.ok) {
+            alert(syncRes.error || 'Browse binary sync failed');
+            return;
+          }
+          get('fleet_summary', { fleet: 'production' }).then(function (res) {
+            if (res.ok) renderBuildsBrowseNote((res.summary || {}).browse_binary);
+          });
+        });
+      });
+    }
   }
 
   function renderBuilds() {
@@ -582,6 +642,11 @@
     renderDashboard();
     renderNodes();
     renderBuilds();
+    if (document.getElementById('fleet-build-browse-status') && fleetMeta.can_select_fleet) {
+      get('fleet_summary', { fleet: 'production' }).then(function (res) {
+        if (res.ok) renderBuildsBrowseNote((res.summary || {}).browse_binary);
+      });
+    }
     renderDeployments();
     renderSettings();
     bindConfigEditor();

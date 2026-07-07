@@ -858,6 +858,14 @@ try {
             echo json_encode(['ok' => true, 'jobs' => \Ms365Backup\Fleet\FleetFacade::deployList(ms365backup_fleet_target())]);
             break;
 
+        case 'fleet_browse_binary_sync':
+            $releaseId = (int) ($_POST['release_id'] ?? 0);
+            echo json_encode(\Ms365Backup\Fleet\FleetFacade::browseBinarySync(
+                $releaseId > 0 ? $releaseId : null,
+                ms365backup_fleet_target()
+            ));
+            break;
+
         case 'worker_build_and_deploy':
             $version = trim((string) ($_POST['version_label'] ?? ''));
             if ($version === '') {

@@ -88,6 +88,7 @@ final class FleetSummaryService
             'suggest_next_version' => ReleaseRepository::suggestNextVersion(),
             'version_counts' => $versionCounts,
             'engine_mode' => Ms365EngineConfig::engineMode(),
+            'browse_binary' => BrowseBinaryInstaller::status(),
         ];
     }
 }

@@ -16,6 +16,7 @@ require_once dirname(__DIR__) . '/ms365backup.php';
 require_once dirname(__DIR__) . '/ms365backup_autoload.php';
 
 use Ms365Backup\Fleet\ArtifactService;
+use Ms365Backup\Fleet\BrowseBinaryInstaller;
 use Ms365Backup\Fleet\FleetContext;
 use Ms365Backup\Fleet\FleetRemoteAuth;
 use Ms365Backup\Fleet\FleetSettings;
@@ -111,8 +112,16 @@ if ($latest) {
     $verified = ArtifactService::verifyNonce($nonce);
     $check('artifact_nonce', $verified !== null && $verified['release_id'] === (int) $latest['id']);
     $check('artifact_file', is_file((string) $latest['artifact_path']), (string) ($latest['version'] ?? ''));
-    $browseDest = rtrim(FleetSettings::repoPath(), '/') . '/ms365-backup-worker';
-    $check('browse_binary', is_executable($browseDest), $browseDest);
+    $browseStatus = BrowseBinaryInstaller::status();
+    if ($browseStatus['status'] === 'synced') {
+        $check('browse_binary', true, (string) ($browseStatus['dest'] ?? '') . ' v' . ($browseStatus['installed_version'] ?? '?'));
+    } elseif ($browseStatus['status'] === 'out_of_date') {
+        echo '[WARN] browse_binary — out of date (installed '
+            . ($browseStatus['installed_version'] ?? 'unknown')
+            . ', target ' . ($browseStatus['target_version'] ?? 'unknown') . ")\n";
+    } else {
+        $check('browse_binary', false, (string) ($browseStatus['dest'] ?? '') . ' missing');
+    }
 } else {
     echo "[SKIP] artifact_nonce — no releases yet\n";
 }

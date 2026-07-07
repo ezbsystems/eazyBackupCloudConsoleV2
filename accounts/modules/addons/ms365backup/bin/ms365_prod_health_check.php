@@ -39,8 +39,14 @@ foreach ($paths as $name => $path) {
 require_once dirname(__DIR__) . '/ms365backup_autoload.php';
 $record('kopia_browse_class', class_exists(\Ms365Backup\KopiaSnapshotBrowseService::class));
 
-$browseDest = rtrim(\Ms365Backup\Fleet\FleetSettings::repoPath(), '/') . '/ms365-backup-worker';
-$record('browse_binary', is_executable($browseDest), $browseDest);
+$browseStatus = \Ms365Backup\Fleet\BrowseBinaryInstaller::status();
+$record(
+    'browse_binary',
+    $browseStatus['status'] === 'synced' && $browseStatus['executable'],
+    ($browseStatus['dest'] ?? '') . ' status=' . ($browseStatus['status'] ?? 'unknown')
+        . ' installed=' . ($browseStatus['installed_version'] ?? 'none')
+        . ' target=' . ($browseStatus['target_version'] ?? 'none')
+);
 
-echo json_encode(['status' => $ok ? 'ok' : 'failed', 'checks' => $checks], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . PHP_EOL;
+echo json_encode(['status' => $ok ? 'ok' : 'failed', 'checks' => $checks, 'browse_binary' => $browseStatus], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . PHP_EOL;
 exit($ok ? 0 : 1);

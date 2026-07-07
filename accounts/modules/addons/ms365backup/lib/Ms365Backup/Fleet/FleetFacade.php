@@ -359,6 +359,30 @@ final class FleetFacade
         return ReleaseSyncService::publishToProduction($releaseId);
     }
 
+    /** @return array<string, mixed> */
+    public static function browseBinarySync(?int $releaseId = null, ?string $fleet = null): array
+    {
+        $fleet = FleetContext::normalizeFleet($fleet ?? FleetContext::activeFleet());
+        if (FleetContext::isRemoteFleet($fleet)) {
+            $params = [];
+            if ($releaseId !== null && $releaseId > 0) {
+                $params['release_id'] = $releaseId;
+            }
+
+            return FleetRemoteClient::post('fleet_browse_binary_sync', $params);
+        }
+
+        $sync = ($releaseId !== null && $releaseId > 0)
+            ? BrowseBinaryInstaller::syncFromRelease($releaseId)
+            : BrowseBinaryInstaller::syncFromFleetTarget();
+
+        return [
+            'ok' => true,
+            'browse_sync' => $sync,
+            'status' => BrowseBinaryInstaller::status(),
+        ];
+    }
+
     /** @param array<string, scalar|null> $extra */
     private static function mutateNode(string $remoteOp, string $nodeId, ?string $fleet, callable $local, array $extra = []): void
     {

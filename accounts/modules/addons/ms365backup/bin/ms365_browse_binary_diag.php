@@ -16,6 +16,7 @@ require_once $init;
 require_once dirname(__DIR__) . '/ms365backup.php';
 require_once dirname(__DIR__) . '/ms365backup_autoload.php';
 
+use Ms365Backup\Fleet\BrowseBinaryInstaller;
 use Ms365Backup\Fleet\FleetSettings;
 use Ms365Backup\Fleet\ReleaseRepository;
 
@@ -25,11 +26,13 @@ $latest = ReleaseRepository::latest();
 $repo = FleetSettings::repoPath();
 $artifactRoot = FleetSettings::artifactRoot();
 $dest = rtrim($repo, '/') . '/ms365-backup-worker';
+$status = BrowseBinaryInstaller::status();
 
 $lines = [
     'repo_path' => $repo,
     'artifact_root' => $artifactRoot,
     'dest' => $dest,
+    'browse_status' => $status,
 ];
 
 if ($latest === null) {
@@ -72,6 +75,9 @@ if ($src === '' || !is_file($src)) {
     $lines['hint'] = 'mkdir/chown ' . dirname($repo) . ' for www-data';
 } elseif (!is_dir($repo) && !@mkdir($repo, 0755, true) && !is_dir($repo)) {
     $failure = 'repo_path_mkdir_failed';
+} elseif ($status['status'] !== 'synced') {
+    $failure = 'browse_' . $status['status'];
+    $lines['hint'] = 'Run: php ' . dirname(__FILE__) . '/ms365_install_browse_binary.php';
 } else {
     $lines['can_install'] = true;
 }

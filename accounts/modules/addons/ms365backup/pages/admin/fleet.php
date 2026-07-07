@@ -105,6 +105,7 @@ foreach ($tabs as $key => $label):
             <button type="submit" class="btn btn-primary btn-sm" style="margin-left:10px">Queue build</button>
         </form>
         <div id="fleet-build-notice" style="margin-top:10px"></div>
+        <div id="fleet-build-browse-status" style="margin-top:10px"></div>
     </div>
 </div>
 <div class="panel panel-default">

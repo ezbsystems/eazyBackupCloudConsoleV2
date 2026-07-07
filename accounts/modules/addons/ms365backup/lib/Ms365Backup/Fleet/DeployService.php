@@ -68,6 +68,7 @@ final class DeployService
         ]);
 
         FleetStateRepository::setTargetRelease($releaseId, $strategy, $force, $canaryNodeId, $deployId);
+        $browseSync = BrowseBinaryInstaller::syncFromRelease($releaseId);
 
         foreach ($eligible as $node) {
             $nodeVersion = (string) ($node['version'] ?? '');
@@ -100,6 +101,7 @@ final class DeployService
             'nodes_needing_update' => $needingUpdate,
             'already_current' => $alreadyCurrent,
             'target_version' => $targetVersion,
+            'browse_sync' => $browseSync,
         ];
     }
 

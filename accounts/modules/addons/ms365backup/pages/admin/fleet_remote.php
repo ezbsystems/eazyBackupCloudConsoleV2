@@ -9,6 +9,7 @@ header('Content-Type: application/json; charset=utf-8');
 
 require_once dirname(__DIR__, 2) . '/ms365backup_autoload.php';
 
+use Ms365Backup\Fleet\BrowseBinaryInstaller;
 use Ms365Backup\Fleet\DeployService;
 use Ms365Backup\Fleet\FleetAuditLog;
 use Ms365Backup\Fleet\FleetContext;
@@ -308,7 +309,21 @@ try {
                 ]);
             }
             FleetAuditLog::write('release_sync_upsert', 'Upserted release ' . $version, 'release', (string) $releaseId);
-            echo json_encode(['ok' => true, 'release_id' => $releaseId, 'version' => $version]);
+            $browseSync = BrowseBinaryInstaller::syncFromRelease($releaseId);
+            echo json_encode([
+                'ok' => true,
+                'release_id' => $releaseId,
+                'version' => $version,
+                'browse_sync' => $browseSync,
+            ]);
+            break;
+
+        case 'fleet_browse_binary_sync':
+            $releaseId = (int) ($_POST['release_id'] ?? 0);
+            $browseSync = $releaseId > 0
+                ? BrowseBinaryInstaller::syncFromRelease($releaseId)
+                : BrowseBinaryInstaller::syncFromFleetTarget();
+            echo json_encode(['ok' => true, 'browse_sync' => $browseSync, 'status' => BrowseBinaryInstaller::status()]);
             break;
 
         case 'fleet_deploy_create':

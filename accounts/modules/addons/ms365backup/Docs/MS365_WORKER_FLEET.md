@@ -224,6 +224,21 @@ Development WHMCS remains the **sole build/deploy console**. Production workers 
 
 **Release sync:** Dev `ReleaseSyncService::publishToProduction()` POSTs `fleet_release_upsert` (multipart artifact). Prod optional cron `crons/ms365_worker_release_sync.php` pulls from dev manifest when push fails.
 
+**Browse binary auto-sync:** Restore browse on the WHMCS host runs `ms365-backup-worker browse` from `ms365_worker_repo_path/ms365-backup-worker`. `BrowseBinaryInstaller` keeps that copy aligned with fleet release artifacts (same binary as LXC workers, different install path).
+
+| Trigger | When browse sync runs |
+|---------|----------------------|
+| Build publish (dev) | `BuildRunner` after `ReleaseRepository::create()` |
+| Prod release push | `fleet_release_upsert` after artifact stored |
+| Prod release pull | `ReleaseSyncService::downloadAndInstall` |
+| Pull skip (already have release) | `BrowseBinaryInstaller::reconcileIfNeeded()` |
+| Fleet deploy start | `DeployService::startDeploy` after `setTargetRelease` |
+| Manual / post-deploy | `bin/ms365_install_browse_binary.php`, `deploy-production.sh` |
+
+Audit log actions: `browse_binary_synced`, `browse_binary_sync_failed`. Fleet dashboard shows `browse_binary` status (`synced` / `out_of_date` / `missing`). Manual recovery: API op `fleet_browse_binary_sync` or dashboard **Sync browse binary** button.
+
+Ops: `ms365_worker_repo_path` parent must be writable by PHP-FPM (`www-data`). Diagnose with `bin/ms365_browse_binary_diag.php`; health check `bin/ms365_prod_health_check.php` requires `status=synced`.
+
 **Remote API:** `addonmodules.php?module=ms365backup&action=fleet_remote&op=…` (shared secret; no admin session).
 
 **Smoke:** `php bin/ms365_fleet_smoke.php` reports `fleet_context` and production URL normalization.

@@ -149,9 +149,17 @@ final class BuildRunner
                             'created_by_admin_id' => $job['created_by_admin_id'] ?? null,
                         ]);
                         ReleaseSyncService::autoPublishAfterBuild($releaseId);
-                        BrowseBinaryInstaller::syncFromLatestRelease();
+                        $browseSync = BrowseBinaryInstaller::syncFromRelease($releaseId);
+                        if (!$browseSync['ok']) {
+                            logActivity('MS365 browse binary sync failed after build publish: ' . ($browseSync['error'] ?: 'unknown'));
+                        }
                         $rc = 0;
                         $summary = 'release #' . $releaseId;
+                        if ($browseSync['ok']) {
+                            $summary .= $browseSync['skipped'] ? '; browse unchanged' : '; browse synced';
+                        } else {
+                            $summary .= '; browse sync failed';
+                        }
                         break;
                     default:
                         throw new \RuntimeException('Unknown step: ' . $key);
