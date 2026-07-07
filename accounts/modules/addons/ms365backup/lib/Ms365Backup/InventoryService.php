@@ -30,10 +30,6 @@ final class InventoryService
      */
     public function refresh(bool $lightweight = false): array
     {
-        // #region agent log
-        $__refreshStart = microtime(true);
-        Ms365AgentDebugLog::write('InventoryService::refresh', 'refresh started', [], 'D');
-        // #endregion
         $discoveryCounts = [];
         $this->writeRefreshProgress('users', 'Discovering users and mailboxes…', $discoveryCounts);
 
@@ -51,22 +47,6 @@ final class InventoryService
 
         $rawGroups = $this->listM365Groups();
         $discoveryCounts['groups'] = count($rawGroups);
-
-        // #region agent log
-        Ms365AgentDebugLog::write(
-            'InventoryService::refresh',
-            'discovery phase complete',
-            [
-                'duration_ms' => (int) round((microtime(true) - $__refreshStart) * 1000),
-                'users' => $discoveryCounts['users'] ?? 0,
-                'sites' => $discoveryCounts['sites'] ?? 0,
-                'teams' => $discoveryCounts['teams'] ?? 0,
-                'groups' => $discoveryCounts['groups'] ?? 0,
-                'memory_mb' => (int) round(memory_get_usage(true) / 1048576),
-            ],
-            'G',
-        );
-        // #endregion
 
         $previous = $this->load();
         $accessByGraphUserId = $this->extractUserAccessFromPrevious($previous, $rawUsers);
@@ -371,35 +351,10 @@ final class InventoryService
             $inventory['access_checked_at'] = $accessCheckedAt;
         }
 
-        // #region agent log
-        $__writeStart = microtime(true);
         $inventoryPath = $this->storage->inventoryPath();
-        Ms365AgentDebugLog::write(
-            'InventoryService::refresh',
-            'writing inventory.json',
-            [
-                'resource_count' => count($resourceList),
-                'memory_mb' => (int) round(memory_get_usage(true) / 1048576),
-                'peak_memory_mb' => (int) round(memory_get_peak_usage(true) / 1048576),
-                'inventory_path_suffix' => basename(dirname($inventoryPath)) . '/' . basename($inventoryPath),
-            ],
-            'E',
-        );
-        // #endregion
 
         $this->storage->writeJson($inventoryPath, $inventory);
 
-        // #region agent log
-        Ms365AgentDebugLog::write(
-            'InventoryService::refresh',
-            'inventory.json write complete',
-            [
-                'write_duration_ms' => (int) round((microtime(true) - $__writeStart) * 1000),
-                'total_duration_ms' => (int) round((microtime(true) - $__refreshStart) * 1000),
-            ],
-            'E',
-        );
-        // #endregion
         $this->writeRefreshProgress('complete', 'Inventory ready', $discoveryCounts, null, $resourceList, $relationships);
 
         return $inventory;
@@ -1093,7 +1048,7 @@ final class InventoryService
      * @param array<string, mixed> $inventory
      * @param list<string> $selectedIds
      */
-    public function enrichResourcesForPlanning(array &$inventory, array $selectedIds): void
+    public function enrichResourcesForPlanning(array &$inventory, array $selectedIds, bool $lightweight = false): void
     {
         if ($selectedIds === [] || !is_array($inventory['resources'] ?? null)) {
             return;
@@ -1127,7 +1082,7 @@ final class InventoryService
             $graphId = TenantResource::graphIdFromResourceId($resourceId);
 
             if ($type === TenantResource::TYPE_SHAREPOINT_SITE && $graphId !== '') {
-                $resources[$idx] = $this->enrichSharePointSiteResource($resource, $graphId);
+                $resources[$idx] = $this->enrichSharePointSiteResource($resource, $graphId, $lightweight);
                 continue;
             }
 
@@ -1157,7 +1112,7 @@ final class InventoryService
      * @param array<string, mixed> $resource
      * @return array<string, mixed>
      */
-    private function enrichSharePointSiteResource(array $resource, string $siteId): array
+    private function enrichSharePointSiteResource(array $resource, string $siteId, bool $lightweight = false): array
     {
         $meta = is_array($resource['meta'] ?? null) ? $resource['meta'] : [];
         $drives = $meta['drives'] ?? null;
@@ -1166,7 +1121,7 @@ final class InventoryService
         }
         $lists = $meta['lists'] ?? null;
         if (!is_array($lists) || $lists === []) {
-            $meta['lists'] = $this->listSiteLists($siteId, true);
+            $meta['lists'] = $this->listSiteLists($siteId, !$lightweight);
         }
 
         $sizeBytes = 0;

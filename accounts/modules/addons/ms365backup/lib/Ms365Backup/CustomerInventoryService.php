@@ -37,23 +37,7 @@ final class CustomerInventoryService
         $tenantRecordId = Ms365ConnectionGuard::tenantRecordIdForBackupUser($clientId, $backupUserId);
 
         try {
-            // #region agent log
-            $__bucketStart = microtime(true);
-            // #endregion
             TenantRecordRepository::ensureCloudStorageBucketForBackupUser($clientId, $backupUserId);
-            // #region agent log
-            Ms365AgentDebugLog::write(
-                'CustomerInventoryService::refreshForBackupUser',
-                'bucket bootstrap finished',
-                [
-                    'client_id' => $clientId,
-                    'backup_user_id' => $backupUserId,
-                    'duration_ms' => (int) round((microtime(true) - $__bucketStart) * 1000),
-                ],
-                'C',
-            );
-            $__refreshStart = microtime(true);
-            // #endregion
             $ctx = self::clientContext($clientId, $backupUserId);
             $inventory = new InventoryService(
                 $ctx->graph,
@@ -61,20 +45,6 @@ final class CustomerInventoryService
                 new DiscoveryService($ctx->graph, $ctx->storageLayout),
             );
             $data = $inventory->refresh(lightweight: true);
-            // #region agent log
-            Ms365AgentDebugLog::write(
-                'CustomerInventoryService::refreshForBackupUser',
-                'inventory refresh finished',
-                [
-                    'client_id' => $clientId,
-                    'backup_user_id' => $backupUserId,
-                    'duration_ms' => (int) round((microtime(true) - $__refreshStart) * 1000),
-                    'resource_count' => count(is_array($data['resources'] ?? null) ? $data['resources'] : []),
-                    'peak_memory_mb' => (int) round(memory_get_peak_usage(true) / 1048576),
-                ],
-                'D',
-            );
-            // #endregion
             $counts = is_array($data['counts'] ?? null) ? $data['counts'] : [];
             $resources = is_array($data['resources'] ?? null) ? $data['resources'] : [];
 
@@ -87,20 +57,6 @@ final class CustomerInventoryService
                 'warnings' => array_values(array_map('strval', $warnings)),
             ];
         } catch (\Throwable $e) {
-            // #region agent log
-            Ms365AgentDebugLog::write(
-                'CustomerInventoryService::refreshForBackupUser',
-                'inventory refresh exception',
-                [
-                    'client_id' => $clientId,
-                    'backup_user_id' => $backupUserId,
-                    'error_class' => $e::class,
-                    'error_message' => $e->getMessage(),
-                    'peak_memory_mb' => (int) round(memory_get_peak_usage(true) / 1048576),
-                ],
-                'D',
-            );
-            // #endregion
             Ms365ConnectionGuard::throwIfReconnectRequired($tenantRecordId, $e);
         }
     }
@@ -284,43 +240,6 @@ final class CustomerInventoryService
             $resources = is_array($data['resources'] ?? null) ? array_values($data['resources']) : [];
             $relationships = is_array($data['relationships'] ?? null) ? $data['relationships'] : [];
             $resources = TenantResource::enrichSharePointDisplayMetadata($resources, $relationships);
-            // #region agent log
-            $siteCount = 0;
-            $visibleSiteCount = 0;
-            $groupBackedCount = 0;
-            $infraCount = 0;
-            $visibleNames = [];
-            foreach ($resources as $resource) {
-                if (!is_array($resource) || ($resource['resource_type'] ?? '') !== TenantResource::TYPE_SHAREPOINT_SITE) {
-                    continue;
-                }
-                ++$siteCount;
-                if (($resource['workload_group_connected'] ?? false) === true) {
-                    ++$groupBackedCount;
-                }
-                if (($resource['infrastructure_site'] ?? false) === true) {
-                    ++$infraCount;
-                }
-                if (($resource['show_in_sharepoint_section'] ?? false) === true) {
-                    ++$visibleSiteCount;
-                    $visibleNames[] = (string) ($resource['display_name'] ?? $resource['id'] ?? '');
-                }
-            }
-            Ms365AgentDebugLog::write(
-                'CustomerInventoryService::loadForBackupUser',
-                'inventory display enrichment',
-                [
-                    'backup_user_id' => $backupUserId,
-                    'sharepoint_site_count' => $siteCount,
-                    'visible_sharepoint_site_count' => $visibleSiteCount,
-                    'group_backed_site_count' => $groupBackedCount,
-                    'infrastructure_site_count' => $infraCount,
-                    'visible_site_names' => array_slice($visibleNames, 0, 20),
-                    'relationship_count' => count($relationships),
-                ],
-                'H1',
-            );
-            // #endregion
             foreach ($resources as $i => $resource) {
                 if (!is_array($resource)) {
                     continue;

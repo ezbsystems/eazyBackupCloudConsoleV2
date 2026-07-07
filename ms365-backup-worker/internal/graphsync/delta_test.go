@@ -7,6 +7,10 @@ func TestIsDeltaNotSupported(t *testing.T) {
 	if !isDeltaNotSupported(err) {
 		t.Fatal("expected delta-not-supported detection")
 	}
+	skipToken := errorString(`graph 400 Bad Request: {"error":{"code":"BadRequest","message":"Skip token is not provided."}}`)
+	if !isDeltaNotSupported(skipToken) {
+		t.Fatal("expected skip-token delta fallback detection")
+	}
 	if isDeltaNotSupported(errorString("graph 500")) {
 		t.Fatal("unexpected match for unrelated error")
 	}

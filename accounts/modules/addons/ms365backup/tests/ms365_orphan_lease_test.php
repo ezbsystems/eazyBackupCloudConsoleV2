@@ -154,6 +154,30 @@ try {
         && (int) ($clamped['items_total'] ?? 0) === 100,
         'backupProgress clamps items_done to items_total',
     );
+
+    $emptyShardRunId = test_uuid('empty-shard');
+    $runIds[] = $emptyShardRunId;
+    insertTestRun($emptyShardRunId, [
+        'status' => 'running',
+        'phase' => 'graph_sync',
+        'physical_key' => 'drive:b!empty-shard-test',
+        'items_done' => 0,
+        'items_total' => 0,
+        'percent' => 1.0,
+        'updated_at' => $now - 300,
+    ]);
+    insertTestQueue($emptyShardRunId, $nodeId, ['lease_expires_at' => $now + 3600]);
+    Ms365RestoreWorkerHooks::onComplete($emptyShardRunId, [
+        'manifest_id' => '',
+        'stats_json' => '{"status":"no_changes"}',
+    ]);
+    $emptyShard = BackupRunRepository::get($emptyShardRunId) ?? [];
+    assert_true(
+        ($emptyShard['status'] ?? '') === 'success'
+        && ($emptyShard['phase'] ?? '') === 'complete'
+        && trim((string) ($emptyShard['manifest_id'] ?? '')) === '',
+        'backupComplete accepts no_changes graph_sync shard without manifest',
+    );
 } finally {
     cleanupTestRows($runIds);
 }

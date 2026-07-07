@@ -212,7 +212,15 @@ final class CustomerBackupService
                 throw new \RuntimeException('No inventory found. Refresh inventory first.');
             }
 
-            $inventoryService->enrichResourcesForPlanning($inventory, $selectedIds);
+            $resolved = CustomerSelectionCodec::resolveForExecution(
+                $selectedIds,
+                CustomerSelectionCodec::normalizeScopeOverrides($scopeOverridesByResourceId),
+                $inventory,
+            );
+            $selectedIds = $resolved['selected_resource_ids'];
+            $scopeOverridesByResourceId = $resolved['scope_overrides'];
+
+            $inventoryService->enrichResourcesForPlanning($inventory, $selectedIds, true);
 
             $planner = new BackupPlanner();
             $queue = $planner->buildPhysicalQueue(

@@ -36,15 +36,6 @@ if (!is_file($init)) {
 require_once $init;
 require_once dirname(__DIR__) . '/ms365backup_autoload.php';
 
-// #region agent log
-Ms365Backup\Ms365AgentDebugLog::write(
-    'ms365_customer_inventory_refresh.php:entry',
-    'background worker started',
-    ['client_id' => $clientId, 'backup_user_id' => $backupUserId],
-    'F',
-);
-// #endregion
-
 try {
     $result = InventoryBackgroundRefresh::run($clientId, $backupUserId);
     ms365_log_line(sprintf(

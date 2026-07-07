@@ -223,8 +223,18 @@ final class Ms365RestoreWorkerHooks
         $fields = [
             'updated_at' => time(),
         ];
+        $existingStatus = strtolower(trim((string) ($existing['status'] ?? '')));
+        $existingManifest = trim((string) ($existing['manifest_id'] ?? ''));
+        $existingPhase = strtolower(trim((string) ($existing['phase'] ?? '')));
+        if ($existingStatus === 'success' && $existingManifest === '' && !$isHeartbeat) {
+            $fields['status'] = 'running';
+            $fields['finished_at'] = null;
+        }
         if ($rawPhase !== '') {
-            $fields['phase'] = CustomerFacingTextSanitizer::scrub($rawPhase);
+            $incomingPhase = strtolower(trim($rawPhase));
+            if (!($existingPhase === 'complete' && $existingManifest !== '' && in_array($incomingPhase, ['graph_sync', 'prior_snapshot', 'kopia_upload', 'kopia_snapshot'], true))) {
+                $fields['phase'] = CustomerFacingTextSanitizer::scrub($rawPhase);
+            }
         }
 
         if (!$isHeartbeat) {
@@ -526,10 +536,36 @@ final class Ms365RestoreWorkerHooks
     {
         $now = time();
         $existing = BackupRunRepository::get($runId) ?? [];
-        $manifestId = trim((string) ($body['manifest_id'] ?? ''));
+        $statsRaw = (string) ($body['stats_json'] ?? '');
+        $stats = [];
+        if ($statsRaw !== '') {
+            $decoded = json_decode($statsRaw, true);
+            if (is_array($decoded)) {
+                $stats = $decoded;
+            }
+        }
+        $manifestId = self::resolveBackupManifestId($existing, $body, $stats);
         $existingManifest = trim((string) ($existing['manifest_id'] ?? ''));
+        $isNoChanges = ($stats['status'] ?? '') === 'no_changes';
         $isSuccessReplay = strtolower((string) ($existing['status'] ?? '')) === 'success'
             && ($manifestId === $existingManifest || ($manifestId === '' && $existingManifest === ''));
+        if ($manifestId === '') {
+            $bodyPhase = strtolower(trim((string) ($body['phase'] ?? '')));
+            $existingPhase = strtolower(trim((string) ($existing['phase'] ?? '')));
+            $effectivePhase = $bodyPhase !== '' ? $bodyPhase : $existingPhase;
+            if (Ms365BatchRunRepository::isGraphBoundPhase($effectivePhase)) {
+                if (!$isNoChanges) {
+                    // Batch workers can emit child-complete while graph sync is still running.
+                    // Ignore until upload/snapshot phases finish and a manifest is available.
+                    return;
+                }
+                // Empty shard: graph sync finished with zero files and no Kopia snapshot.
+            } elseif (!$isNoChanges) {
+                self::backupFail($runId, 'Backup completed without a Kopia snapshot (missing manifest).');
+
+                return;
+            }
+        }
         $update = [
             'status' => 'success',
             'phase' => 'complete',
@@ -540,14 +576,6 @@ final class Ms365RestoreWorkerHooks
         ];
         if ($manifestId !== '') {
             $update['manifest_id'] = $manifestId;
-        }
-        $statsRaw = (string) ($body['stats_json'] ?? '');
-        $stats = [];
-        if ($statsRaw !== '') {
-            $decoded = json_decode($statsRaw, true);
-            if (is_array($decoded)) {
-                $stats = $decoded;
-            }
         }
         $filesFromStats = (int) ($stats['files'] ?? 0);
         $finalItemCount = max(
@@ -603,6 +631,42 @@ final class Ms365RestoreWorkerHooks
 
         $logger = new ProgressLogger($runId);
         $logger->info('Backup completed', ['manifest_id' => $manifestId]);
+    }
+
+    /**
+     * @param array<string, mixed> $existing
+     * @param array<string, mixed> $body
+     * @param array<string, mixed> $stats
+     */
+    private static function resolveBackupManifestId(array $existing, array $body, array $stats): string
+    {
+        foreach ([
+            trim((string) ($body['manifest_id'] ?? '')),
+            trim((string) ($existing['manifest_id'] ?? '')),
+            trim((string) ($stats['manifest_id'] ?? '')),
+            trim((string) ($stats['previous_manifest_id'] ?? '')),
+        ] as $candidate) {
+            if ($candidate !== '') {
+                return $candidate;
+            }
+        }
+
+        if (($stats['status'] ?? '') !== 'no_changes') {
+            return '';
+        }
+
+        $tenantRecordId = (int) ($existing['tenant_record_id'] ?? 0);
+        $physicalKey = (string) ($existing['physical_key'] ?? '');
+        if ($tenantRecordId <= 0 || $physicalKey === '') {
+            return '';
+        }
+        $e3JobId = trim((string) ($existing['e3_job_id'] ?? ''));
+
+        return KopiaRepoBootstrapService::latestManifestForSource(
+            $tenantRecordId,
+            $physicalKey,
+            $e3JobId !== '' ? $e3JobId : null,
+        );
     }
 
     /** @param array<string, mixed> $body */

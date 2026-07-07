@@ -282,20 +282,13 @@ final class Ms365CustomerJobService
             $config['scope_overrides'] ?? ($ms365['scope_overrides'] ?? []),
         );
 
-        $inventory = CustomerInventoryService::loadForBackupUser($clientId, $backupUserId);
-        $resolved = CustomerSelectionCodec::resolveForExecution(
-            is_array($selectedIds) ? $selectedIds : [],
-            $scopeOverrides,
-            $inventory,
-        );
-
         return CustomerBackupService::startCustomBackup(
             $clientId,
             $backupUserId,
-            $resolved['selected_resource_ids'],
+            is_array($selectedIds) ? array_values($selectedIds) : [],
             $jobId,
             'manual',
-            $resolved['scope_overrides'],
+            $scopeOverrides,
         );
     }
 

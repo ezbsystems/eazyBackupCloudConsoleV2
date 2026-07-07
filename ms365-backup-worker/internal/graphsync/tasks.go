@@ -49,7 +49,10 @@ func SyncTasks(ctx context.Context, client *graph.Client, opts TasksSyncOptions)
 		}
 		deltaPath := fmt.Sprintf("/users/%s/todo/lists/%s/tasks/delta", opts.UserID, listID)
 		monitor := graph.ForBackupPagination("tasks:"+listID, graphLog(opts.Log))
-		items, deltaLink, err := paginateDeltaResilient(ctx, client, deltaPath, priorDelta, "", 100, nil, &graph.DeltaPaginateOptions{Monitor: monitor})
+		items, deltaLink, err := paginateDeltaResilient(ctx, client, deltaPath, priorDelta, "", 100, nil, &graph.DeltaPaginateOptions{
+			Monitor:              monitor,
+			OmitDeltaQueryParams: true,
+		})
 		if err != nil {
 			if !isDeltaNotSupported(err) {
 				return nil, err

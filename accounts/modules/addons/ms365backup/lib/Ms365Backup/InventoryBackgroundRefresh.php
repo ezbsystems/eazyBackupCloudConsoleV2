@@ -168,22 +168,6 @@ final class InventoryBackgroundRefresh
         $exitCode = 0;
         exec($cmd, $output, $exitCode);
 
-        // #region agent log
-        Ms365AgentDebugLog::write(
-            'InventoryBackgroundRefresh::spawnWorker',
-            'spawn worker exec',
-            [
-                'client_id' => $clientId,
-                'backup_user_id' => $backupUserId,
-                'exit_code' => $exitCode,
-                'php_binary' => $php,
-                'log_path' => $log,
-                'log_writable' => is_writable(dirname($log)),
-            ],
-            'F',
-        );
-        // #endregion
-
         if ($exitCode !== 0) {
             throw new \RuntimeException('Failed to start inventory refresh worker (exit ' . $exitCode . ').');
         }

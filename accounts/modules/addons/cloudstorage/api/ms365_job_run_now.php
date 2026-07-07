@@ -29,6 +29,10 @@ if ($userId === '' || $jobId === '') {
     exit;
 }
 
+if (session_status() === PHP_SESSION_ACTIVE) {
+    session_write_close();
+}
+
 try {
     $result = Ms365E3Controller::runJobNow($clientId, $userId, $jobId);
     (new JsonResponse([

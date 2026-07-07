@@ -128,51 +128,56 @@ final class Ms365AdminJobsRepository
             ->limit($perPage)
             ->get();
 
-        $out = [];
-        $billingCache = [];
+        $parsedRows = [];
+        $backupRunIds = [];
+        $restoreRunIds = [];
+        $billingPairs = [];
         foreach ($rows as $row) {
             $arr = (array) $row;
             $runId = (string) ($arr['run_id'] ?? '');
-            $clientName = self::formatClientName($arr);
             $clientId = (int) ($arr['client_id'] ?? 0);
             $backupUserId = (int) ($arr['backup_user_id'] ?? 0);
             $runType = strtolower((string) ($arr['run_type'] ?? ''));
             $type = $runType === 'restore' ? 'restore' : 'backup';
-            $status = strtolower((string) ($arr['status'] ?? ''));
-            if (in_array($status, ['running', 'starting', 'queued'], true)) {
-                if ($type === 'backup') {
-                    Ms365BatchRunRepository::reconcileBatchChildren($runId);
-                    Ms365BatchRunRepository::syncFromChildren($runId);
+            if ($runId !== '') {
+                if ($type === 'restore') {
+                    $restoreRunIds[] = $runId;
                 } else {
-                    Ms365BatchRunRepository::syncFromRestoreChildren($runId);
-                }
-                $freshColumns = ['r.status', 'r.progress_pct', 'r.error_summary', 'r.finished_at'];
-                if ($hasCancelRequested) {
-                    $freshColumns[] = 'r.cancel_requested';
-                }
-                $fresh = Capsule::table('s3_cloudbackup_runs as r')
-                    ->whereRaw('r.run_id = UUID_TO_BIN(?)', [strtolower($runId)])
-                    ->first($freshColumns);
-                if ($fresh) {
-                    $freshArr = (array) $fresh;
-                    $arr['status'] = $freshArr['status'] ?? $arr['status'];
-                    $arr['progress_pct'] = $freshArr['progress_pct'] ?? $arr['progress_pct'];
-                    $arr['error_summary'] = $freshArr['error_summary'] ?? $arr['error_summary'];
-                    $arr['finished_at'] = $freshArr['finished_at'] ?? $arr['finished_at'];
+                    $backupRunIds[] = $runId;
                 }
             }
-            $counts = self::childCounts($runId, $type);
+            if ($clientId > 0) {
+                $billingPairs[$clientId . ':' . $backupUserId] = [$clientId, $backupUserId];
+            }
+            $parsedRows[] = [
+                'arr' => $arr,
+                'run_id' => $runId,
+                'client_id' => $clientId,
+                'backup_user_id' => $backupUserId,
+                'type' => $type,
+                'client_name' => self::formatClientName($arr),
+            ];
+        }
+
+        $billingCache = self::billingSummariesForKeys(array_values($billingPairs));
+        $childCountCache = self::childCountsForRuns($backupRunIds, $restoreRunIds);
+
+        $out = [];
+        foreach ($parsedRows as $parsed) {
+            $arr = $parsed['arr'];
+            $runId = $parsed['run_id'];
+            $clientId = $parsed['client_id'];
+            $backupUserId = $parsed['backup_user_id'];
+            $type = $parsed['type'];
             $billingKey = $clientId . ':' . $backupUserId;
-            if (!isset($billingCache[$billingKey])) {
-                $billingCache[$billingKey] = self::billingSummaryForRow($clientId, $backupUserId);
-            }
+            $counts = $childCountCache[$runId] ?? ['total' => 0, 'failed' => 0];
             $out[] = [
                 'run_id' => $runId,
                 'job_name' => (string) ($arr['job_name'] ?? ''),
                 'client_id' => $clientId,
-                'client_name' => $clientName,
+                'client_name' => $parsed['client_name'],
                 'backup_user_id' => $backupUserId,
-                'billing' => $billingCache[$billingKey],
+                'billing' => $billingCache[$billingKey] ?? ['protected_users' => 0, 'onedrive_overage_gib' => 0, 'trial_status' => null],
                 'status' => (string) ($arr['status'] ?? ''),
                 'started_at' => $arr['started_at'] ?? null,
                 'finished_at' => $arr['finished_at'] ?? null,
@@ -313,34 +318,139 @@ final class Ms365AdminJobsRepository
         return ['total' => $total, 'failed' => $failed];
     }
 
+    /**
+     * @param list<array{0: int, 1: int}> $pairs
+     * @return array<string, array{protected_users: int, onedrive_overage_gib: int, trial_status: string|null}>
+     */
+    private static function billingSummariesForKeys(array $pairs): array
+    {
+        $empty = ['protected_users' => 0, 'onedrive_overage_gib' => 0, 'trial_status' => null];
+        $out = [];
+        foreach ($pairs as $pair) {
+            $out[(int) $pair[0] . ':' . (int) $pair[1]] = $empty;
+        }
+        if ($pairs === [] || !Capsule::schema()->hasTable('ms365_billing_usage_snapshots')) {
+            return $out;
+        }
+
+        $clientIds = array_values(array_unique(array_map(static fn (array $pair): int => (int) $pair[0], $pairs)));
+        $rows = Capsule::table('ms365_billing_usage_snapshots')
+            ->whereIn('client_id', $clientIds)
+            ->where('taken_at', '>=', date('Y-m-d', strtotime('-14 days')))
+            ->orderByDesc('taken_at')
+            ->get(['client_id', 'backup_user_id', 'metric', 'qty', 'service_id']);
+
+        $seen = [];
+        $serviceIds = [];
+        foreach ($rows as $row) {
+            $key = (int) ($row->client_id ?? 0) . ':' . (int) ($row->backup_user_id ?? 0);
+            if (!isset($out[$key])) {
+                continue;
+            }
+            $metric = (string) ($row->metric ?? '');
+            $metricKey = $key . ':' . $metric;
+            if (isset($seen[$metricKey])) {
+                continue;
+            }
+            $seen[$metricKey] = true;
+            if ($metric === Ms365BillingConfig::METRIC_PROTECTED_USERS) {
+                $out[$key]['protected_users'] = (int) ($row->qty ?? 0);
+            } elseif ($metric === Ms365BillingConfig::METRIC_ONEDRIVE_OVERAGE_GIB) {
+                $out[$key]['onedrive_overage_gib'] = (int) ($row->qty ?? 0);
+            }
+            $serviceId = (int) ($row->service_id ?? 0);
+            if ($serviceId > 0) {
+                $serviceIds[$key] = $serviceId;
+            }
+        }
+
+        if ($serviceIds !== [] && Capsule::schema()->hasTable('ms365_billing_trial_state')) {
+            $trialRows = Capsule::table('ms365_billing_trial_state')
+                ->whereIn('service_id', array_values(array_unique($serviceIds)))
+                ->get(['service_id', 'status']);
+            $trialByService = [];
+            foreach ($trialRows as $trialRow) {
+                $trialByService[(int) ($trialRow->service_id ?? 0)] = (string) ($trialRow->status ?? '');
+            }
+            foreach ($serviceIds as $key => $serviceId) {
+                if (isset($trialByService[$serviceId]) && $trialByService[$serviceId] !== '') {
+                    $out[$key]['trial_status'] = $trialByService[$serviceId];
+                }
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * @param list<string> $backupRunIds
+     * @param list<string> $restoreRunIds
+     * @return array<string, array{total: int, failed: int}>
+     */
+    private static function childCountsForRuns(array $backupRunIds, array $restoreRunIds): array
+    {
+        $out = [];
+        foreach (array_merge($backupRunIds, $restoreRunIds) as $runId) {
+            $out[$runId] = ['total' => 0, 'failed' => 0];
+        }
+
+        $backupRunIds = array_values(array_unique(array_filter($backupRunIds, static fn (string $id): bool => self::isUuid($id))));
+        $restoreRunIds = array_values(array_unique(array_filter($restoreRunIds, static fn (string $id): bool => self::isUuid($id))));
+
+        if ($backupRunIds !== [] && Capsule::schema()->hasTable('ms365_backup_runs')) {
+            $rows = Capsule::table('ms365_backup_runs')
+                ->select([
+                    'e3_batch_run_id',
+                    Capsule::raw('COUNT(*) as total'),
+                    Capsule::raw("SUM(CASE WHEN status IN ('error', 'failed') THEN 1 ELSE 0 END) as failed"),
+                ])
+                ->whereIn('e3_batch_run_id', $backupRunIds)
+                ->groupBy('e3_batch_run_id')
+                ->get();
+            foreach ($rows as $row) {
+                $runId = (string) ($row->e3_batch_run_id ?? '');
+                if ($runId === '') {
+                    continue;
+                }
+                $out[$runId] = [
+                    'total' => (int) ($row->total ?? 0),
+                    'failed' => (int) ($row->failed ?? 0),
+                ];
+            }
+        }
+
+        if ($restoreRunIds !== [] && Capsule::schema()->hasTable('ms365_restore_runs')) {
+            $rows = Capsule::table('ms365_restore_runs')
+                ->select([
+                    'e3_batch_run_id',
+                    Capsule::raw('COUNT(*) as total'),
+                    Capsule::raw("SUM(CASE WHEN status IN ('error', 'failed') THEN 1 ELSE 0 END) as failed"),
+                ])
+                ->whereIn('e3_batch_run_id', $restoreRunIds)
+                ->groupBy('e3_batch_run_id')
+                ->get();
+            foreach ($rows as $row) {
+                $runId = (string) ($row->e3_batch_run_id ?? '');
+                if ($runId === '') {
+                    continue;
+                }
+                $out[$runId] = [
+                    'total' => (int) ($row->total ?? 0),
+                    'failed' => (int) ($row->failed ?? 0),
+                ];
+            }
+        }
+
+        return $out;
+    }
+
     /** @return array{protected_users: int, onedrive_overage_gib: int, trial_status: string|null} */
     private static function billingSummaryForRow(int $clientId, int $backupUserId): array
     {
-        $empty = ['protected_users' => 0, 'onedrive_overage_gib' => 0, 'trial_status' => null];
-        if ($clientId <= 0) {
-            return $empty;
-        }
-        try {
-            cloudstorage_load_ms365backup();
-            if ($backupUserId > 0) {
-                $summary = Ms365BillingService::usageSummaryForBackupUser($clientId, $backupUserId);
+        $key = $clientId . ':' . $backupUserId;
+        $summaries = self::billingSummariesForKeys([[$clientId, $backupUserId]]);
 
-                return [
-                    'protected_users' => (int) ($summary['protected_users']['current'] ?? 0),
-                    'onedrive_overage_gib' => (int) ($summary['onedrive_overage_gib']['current'] ?? 0),
-                    'trial_status' => isset($summary['trial_status']) ? (string) $summary['trial_status'] : null,
-                ];
-            }
-            $live = Ms365UsageMeter::measureClient($clientId);
-
-            return [
-                'protected_users' => (int) ($live['protected_users'] ?? 0),
-                'onedrive_overage_gib' => (int) ($live['onedrive_overage_gib'] ?? 0),
-                'trial_status' => null,
-            ];
-        } catch (\Throwable $_) {
-            return $empty;
-        }
+        return $summaries[$key] ?? ['protected_users' => 0, 'onedrive_overage_gib' => 0, 'trial_status' => null];
     }
 
     /** @param array<string, mixed> $row */
