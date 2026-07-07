@@ -20,7 +20,12 @@ type BrowseRequest struct {
 	Host       string
 	Username   string
 	SourcePath string
+	Limit      int
+	Offset     int
 }
+
+const browseFastLabelChildThreshold = 200
+const browseDefaultPageLimit = 500
 
 type BrowseEntry struct {
 	Name        string `json:"name"`
@@ -33,7 +38,11 @@ type BrowseEntry struct {
 }
 
 type BrowseResult struct {
-	Entries []BrowseEntry `json:"entries"`
+	Entries    []BrowseEntry `json:"entries"`
+	TotalCount int           `json:"total_count,omitempty"`
+	HasMore    bool          `json:"has_more,omitempty"`
+	Offset     int           `json:"offset,omitempty"`
+	Limit      int           `json:"limit,omitempty"`
 }
 
 type ExtractRequest struct {
@@ -106,6 +115,8 @@ func browseWithRepo(ctx context.Context, req BrowseRequest, acquire repoAcquirer
 		return nil, fmt.Errorf("readdir: %w", err)
 	}
 
+	useFastLabels := len(children) > browseFastLabelChildThreshold
+
 	type entrySort struct {
 		entry   BrowseEntry
 		sortKey string
@@ -126,7 +137,12 @@ func browseWithRepo(ctx context.Context, req BrowseRequest, acquire repoAcquirer
 		} else if f, ok := child.(kopiafs.File); ok {
 			size = f.Size()
 		}
-		labelInfo := browseLabel(ctx, rep, man, root, childPath, name, entryType)
+		var labelInfo browseLabelResult
+		if useFastLabels {
+			labelInfo = fastBrowseLabel(childPath, name, entryType)
+		} else {
+			labelInfo = browseLabel(ctx, rep, man, root, childPath, name, entryType)
+		}
 		if labelInfo.Label == "" {
 			continue
 		}
@@ -153,12 +169,45 @@ func browseWithRepo(ctx context.Context, req BrowseRequest, acquire repoAcquirer
 		}
 		return strings.ToLower(a.entry.Label) < strings.ToLower(b.entry.Label)
 	})
-	entries := make([]BrowseEntry, len(sorted))
-	for i, item := range sorted {
+	totalCount := len(sorted)
+	offset := req.Offset
+	if offset < 0 {
+		offset = 0
+	}
+	limit := req.Limit
+	if limit <= 0 {
+		limit = 0
+	}
+	end := totalCount
+	hasMore := false
+	if limit > 0 {
+		if offset > totalCount {
+			offset = totalCount
+		}
+		end = offset + limit
+		if end > totalCount {
+			end = totalCount
+		}
+		hasMore = end < totalCount
+	} else if offset > 0 {
+		if offset > totalCount {
+			offset = totalCount
+		}
+		end = totalCount
+	}
+	page := sorted[offset:end]
+	entries := make([]BrowseEntry, len(page))
+	for i, item := range page {
 		entries[i] = item.entry
 	}
 
-	return &BrowseResult{Entries: entries}, nil
+	return &BrowseResult{
+		Entries:    entries,
+		TotalCount: totalCount,
+		HasMore:    hasMore,
+		Offset:     offset,
+		Limit:      limit,
+	}, nil
 }
 
 func listDirectoryWithRepo(ctx context.Context, req BrowseRequest, acquire repoAcquirer) (*BrowseResult, error) {

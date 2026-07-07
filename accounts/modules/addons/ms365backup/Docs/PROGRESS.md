@@ -11,6 +11,14 @@
 
 ## Session log
 
+### 2026-07-07 — MS365 live speed metrics (phase-aware EMA)
+
+- **Problem:** Live page `speed_bytes_per_sec` stuck at hash spikes (e.g. 11 GiB/s) when `bytes_hashed` plateaued during Kopia upload; stale values never cleared.
+- **Backend:** `Ms365LiveSpeedMetrics.php` — phase-aware metric selection (items, graph requests, upload, hash), EMA smoothing (`alpha=0.3`), explicit stale clear; `dominant_phase` on `computeAggregates()`.
+- **API:** `Ms365BatchLiveService::aggregateProgress()` exposes `speed_metric_kind`, `speed_metric_label`, `speed_updated_at`, `graph_requests_per_sec`, `dominant_phase`.
+- **UI:** `e3backup_live.tpl` MS365 branch — labels/hints per kind, 30s staleness gate, no client-side speed fallback.
+- **Tests:** `ms365_live_speed_metrics_test.php`; `ms365_batch_aggregate_test.php` dominant_phase cases.
+
 ### 2026-07-07 — Tenant Connection Export (admin dev tool)
 
 - **Feature:** New **Tenant Export** tab (`action=tenant_export`) — search e3 backup users, preview tenant connection, export manual-connect credentials (JSON + labeled fields) for dev reconnect via job wizard.

@@ -136,6 +136,15 @@ $uploadChildren = [
 ];
 $uploadAgg = Ms365BatchRunRepository::computeAggregates($uploadChildren);
 assert_true(!empty($uploadAgg['byte_stats_comparable']), 'Kopia upload workloads allow comparable byte stats');
+assert_true(($uploadAgg['dominant_phase'] ?? '') === 'kopia_upload', 'Single kopia_upload child sets dominant_phase');
+
+$mixedPhaseChildren = [
+    child('running', 50.0, 100, 50, 'graph_sync'),
+    child('running', 50.0, 100, 50, 'kopia_upload'),
+    child('running', 50.0, 100, 50, 'kopia_upload'),
+];
+$mixedPhaseAgg = Ms365BatchRunRepository::computeAggregates($mixedPhaseChildren);
+assert_true(($mixedPhaseAgg['dominant_phase'] ?? '') === 'kopia_upload', 'Dominant phase is majority running phase');
 
 $itemsSpeed = Ms365BatchRunRepository::computeItemsSpeed(100, 100, 250, 110);
 assert_true($itemsSpeed === 15, 'Items speed uses objects_transferred delta');

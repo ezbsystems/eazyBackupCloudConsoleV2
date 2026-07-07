@@ -299,7 +299,7 @@ final class Ms365E3Controller
     }
 
     /**
-     * @return list<array{name: string, path: string, type: string, has_children: bool, size: int}>
+     * @return array{entries: list<array<string, mixed>>, total_count: int, has_more: bool, offset: int, limit: int}
      */
     public static function browseRestoreSnapshot(
         int $clientId,
@@ -308,6 +308,8 @@ final class Ms365E3Controller
         string $manifestId,
         string $path,
         string $childRunId = '',
+        int $limit = 500,
+        int $offset = 0,
     ): array {
         $record = TenantRecordRepository::getForBackupUser($clientId, $backupUserId)
             ?? TenantRecordRepository::getPrimaryForClient($clientId);
@@ -346,7 +348,13 @@ final class Ms365E3Controller
                 ];
             }
 
-            return $roots;
+            return [
+                'entries' => $roots,
+                'total_count' => count($roots),
+                'has_more' => false,
+                'offset' => 0,
+                'limit' => 0,
+            ];
         }
 
         $childRun = null;
@@ -354,7 +362,7 @@ final class Ms365E3Controller
             $childRun = \Ms365Backup\BackupRunRepository::get($childRunId);
         }
 
-        return \Ms365Backup\RestoreTreeBrowseService::list($record, $manifestId, $path, $childRun, $batchRunId);
+        return \Ms365Backup\RestoreTreeBrowseService::list($record, $manifestId, $path, $childRun, $batchRunId, $limit, $offset);
     }
 
     /**

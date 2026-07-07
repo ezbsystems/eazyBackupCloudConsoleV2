@@ -139,6 +139,41 @@ func browseLabel(
 	return browseLabelResult{Label: name}
 }
 
+// fastBrowseLabel returns display labels without reading snapshot file metadata.
+// Used when a directory has many children (e.g. SharePoint list items) so restore
+// browse stays responsive and does not block other requests for minutes.
+func fastBrowseLabel(childPath, name, entryType string) browseLabelResult {
+	lower := strings.ToLower(name)
+	if label := segmentLabel(lower); label != "" {
+		return browseLabelResult{Label: label}
+	}
+	if entryType == "folder" {
+		if isSharePointListFolder(childPath) {
+			return browseLabelResult{Label: opaqueSharePointListFallback(name)}
+		}
+		return browseLabelResult{Label: name}
+	}
+	if entryType == "file" && strings.HasSuffix(lower, ".json") {
+		if isSharePointListItemPath(childPath) {
+			return browseLabelResult{Label: sharePointListItemFallbackLabel(childPath)}
+		}
+		if strings.Contains(childPath, "/mail/") {
+			return browseLabelResult{Label: strings.TrimSuffix(name, ".json")}
+		}
+		if isCalendarItemPath(childPath) {
+			return browseLabelResult{Label: strings.TrimSuffix(name, ".json")}
+		}
+		if strings.Contains(childPath, "/contacts/") {
+			return browseLabelResult{Label: strings.TrimSuffix(name, ".json")}
+		}
+		if strings.Contains(childPath, "/tasks/") {
+			return browseLabelResult{Label: "Task"}
+		}
+		return browseLabelResult{Label: "Item"}
+	}
+	return browseLabelResult{Label: name}
+}
+
 func segmentLabel(segment string) string {
 	switch segment {
 	case "users":

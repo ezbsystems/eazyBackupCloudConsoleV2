@@ -9,13 +9,15 @@ namespace Ms365Backup;
 final class KopiaSnapshotBrowseService
 {
     /**
-     * @return list<array{name: string, path: string, type: string, has_children: bool, size: int}>
+     * @return array{entries: list<array<string, mixed>>, total_count: int, has_more: bool, offset: int, limit: int}
      */
     public static function listDirectory(
         array $tenantRecord,
         string $manifestId,
         string $path = '',
         ?string $e3JobId = null,
+        int $limit = 0,
+        int $offset = 0,
     ): array {
         $manifestId = trim($manifestId);
         if ($manifestId === '') {
@@ -26,6 +28,8 @@ final class KopiaSnapshotBrowseService
         $payload = [
             'manifest_id' => $manifestId,
             'path' => $path,
+            'limit' => $limit,
+            'offset' => $offset,
             'dest_endpoint' => $dest['endpoint'],
             'dest_region' => $dest['region'],
             'dest_bucket' => $dest['bucket'],
@@ -39,7 +43,7 @@ final class KopiaSnapshotBrowseService
         $result = self::invokeBrowseCli($payload);
         $entries = $result['entries'] ?? [];
         if (!is_array($entries)) {
-            return [];
+            $entries = [];
         }
 
         $out = [];
@@ -58,7 +62,13 @@ final class KopiaSnapshotBrowseService
             ];
         }
 
-        return $out;
+        return [
+            'entries' => $out,
+            'total_count' => (int) ($result['total_count'] ?? count($out)),
+            'has_more' => (bool) ($result['has_more'] ?? false),
+            'offset' => (int) ($result['offset'] ?? $offset),
+            'limit' => (int) ($result['limit'] ?? $limit),
+        ];
     }
 
     /**

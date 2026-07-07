@@ -27,13 +27,16 @@ func collectSelectionFiles(
 	var files []fileEntry
 
 	for _, item := range items {
-		root := itemRoot(item)
+		root := normalizeCollectRoot(itemRoot(item))
 		if root == "" && !isWholeManifestSelection(item) {
 			continue
 		}
 		manifestID := resolveManifestID(item, root, sourceManifestID, manifestByPath)
 		collected, err := collectFiles(ctx, pool, storage, manifestID, root)
 		if err != nil {
+			if isCollectPathMissing(err) {
+				continue
+			}
 			label := root
 			if label == "" {
 				label = "manifest:" + manifestID
@@ -58,6 +61,28 @@ func itemRoot(item api.RestoreItem) string {
 		return strings.Trim(strings.TrimSuffix(item.Path, "/"), "/")
 	}
 	return strings.Trim(strings.TrimSuffix(item.PathPrefix, "/"), "/")
+}
+
+// normalizeCollectRoot maps browse UI paths to on-disk snapshot layout.
+func normalizeCollectRoot(root string) string {
+	root = strings.Trim(strings.TrimSuffix(root, "/"), "/")
+	if root == "" {
+		return ""
+	}
+	if strings.Contains(root, "/calendars") {
+		root = strings.ReplaceAll(root, "/calendars/", "/calendar/")
+		if strings.HasSuffix(root, "/calendars") {
+			root = strings.TrimSuffix(root, "/calendars") + "/calendar"
+		}
+	}
+	return root
+}
+
+func isCollectPathMissing(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(err.Error(), "path not found")
 }
 
 // isWholeManifestSelection is true when the UI selected a top-level workload

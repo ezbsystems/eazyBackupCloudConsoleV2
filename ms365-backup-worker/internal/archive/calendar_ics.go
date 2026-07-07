@@ -83,15 +83,15 @@ func buildCalendarICS(ev map[string]any) ([]byte, error) {
 	}
 
 	if subject, _ := ev["subject"].(string); subject != "" {
-		event.Props.SetText(ical.PropSummary, subject)
+		event.Props.SetText(ical.PropSummary, sanitizeICSText(subject))
 	}
 
 	if desc := calendarDescription(ev); desc != "" {
-		event.Props.SetText(ical.PropDescription, desc)
+		event.Props.SetText(ical.PropDescription, sanitizeICSText(desc))
 	}
 
 	if loc := calendarLocation(ev); loc != "" {
-		event.Props.SetText(ical.PropLocation, loc)
+		event.Props.SetText(ical.PropLocation, sanitizeICSText(loc))
 	}
 
 	if cancelled, _ := ev["isCancelled"].(bool); cancelled {
@@ -190,6 +190,8 @@ func formatCalendarOrganizer(v any) string {
 	}
 	addr, _ := email["address"].(string)
 	name, _ := email["name"].(string)
+	name = sanitizeICSText(name)
+	addr = sanitizeICSText(addr)
 	if addr == "" {
 		return ""
 	}
@@ -212,10 +214,12 @@ func calendarAttendees(v any) []string {
 			continue
 		}
 		addr, _ := email["address"].(string)
+		name, _ := email["name"].(string)
+		name = sanitizeICSText(name)
+		addr = sanitizeICSText(addr)
 		if addr == "" {
 			continue
 		}
-		name, _ := email["name"].(string)
 		partstat := "NEEDS-ACTION"
 		if status, _ := m["status"].(map[string]any); status != nil {
 			if resp, _ := status["response"].(string); resp != "" {
@@ -299,6 +303,14 @@ func minInt(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// sanitizeICSText removes line breaks that cause go-ical encoding to fail.
+func sanitizeICSText(s string) string {
+	s = strings.ReplaceAll(s, "\r\n", " ")
+	s = strings.ReplaceAll(s, "\r", " ")
+	s = strings.ReplaceAll(s, "\n", " ")
+	return strings.TrimSpace(s)
 }
 
 func parseCalendarEventJSON(data []byte) (map[string]any, error) {

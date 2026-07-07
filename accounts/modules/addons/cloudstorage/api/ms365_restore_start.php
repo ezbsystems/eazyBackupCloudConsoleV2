@@ -74,6 +74,10 @@ if ($userIdRaw === '' || $jobId === '' || $selection === null) {
     exit;
 }
 
+if (session_status() === PHP_SESSION_ACTIVE) {
+    session_write_close();
+}
+
 try {
     $clientId = (int) $ca->getUserID();
     $user = Ms365E3Controller::resolveBackupUser($clientId, $userIdRaw);

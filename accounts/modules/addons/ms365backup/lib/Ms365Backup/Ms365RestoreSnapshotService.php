@@ -11,6 +11,61 @@ use WHMCS\Database\Capsule;
 final class Ms365RestoreSnapshotService
 {
     /**
+     * Lists restore points for a backup user, optionally scoped to one job.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public static function listForBackupUser(
+        int $clientId,
+        int $backupUserId,
+        ?string $jobId = null,
+        int $limit = 50,
+        int $offset = 0,
+    ): array {
+        $jobFilter = $jobId !== null ? trim($jobId) : '';
+        if ($jobFilter !== '') {
+            return self::listForJob($clientId, $backupUserId, $jobFilter, $limit, $offset);
+        }
+
+        if (!Capsule::schema()->hasTable('s3_cloudbackup_jobs')) {
+            return [];
+        }
+
+        $q = Capsule::table('s3_cloudbackup_jobs')
+            ->where('client_id', $clientId)
+            ->where('status', '!=', 'deleted');
+        if ($backupUserId > 0 && Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'backup_user_id')) {
+            $q->where('backup_user_id', $backupUserId);
+        }
+        if (Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'engine')) {
+            $q->where('engine', 'ms365');
+        } elseif (Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'source_type')) {
+            $q->where('source_type', 'ms365');
+        }
+
+        $merged = [];
+        foreach ($q->get(['job_id']) as $row) {
+            $resolvedJobId = self::normalizeJobId($row->job_id ?? '');
+            if ($resolvedJobId === '') {
+                continue;
+            }
+            foreach (self::listForJob($clientId, $backupUserId, $resolvedJobId, 100, 0) as $snapshot) {
+                $merged[] = $snapshot;
+            }
+        }
+
+        usort(
+            $merged,
+            static fn (array $a, array $b): int => strcmp(
+                (string) ($b['finished_at'] ?? ''),
+                (string) ($a['finished_at'] ?? ''),
+            ),
+        );
+
+        return array_slice($merged, max(0, $offset), max(1, min(100, $limit)));
+    }
+
+    /**
      * @return list<array<string, mixed>>
      */
     public static function listForJob(int $clientId, int $backupUserId, string $jobId, int $limit = 50, int $offset = 0): array
@@ -112,6 +167,35 @@ final class Ms365RestoreSnapshotService
         }
 
         return $runId;
+    }
+
+    private static function normalizeJobId(mixed $jobId): string
+    {
+        if (!is_string($jobId) || $jobId === '') {
+            return '';
+        }
+        if (strlen($jobId) === 16) {
+            return self::binaryToUuid($jobId);
+        }
+
+        return trim($jobId);
+    }
+
+    private static function binaryToUuid(string $binary): string
+    {
+        $hex = bin2hex($binary);
+        if (strlen($hex) !== 32) {
+            return $hex;
+        }
+
+        return sprintf(
+            '%s-%s-%s-%s-%s',
+            substr($hex, 0, 8),
+            substr($hex, 8, 4),
+            substr($hex, 12, 4),
+            substr($hex, 16, 4),
+            substr($hex, 20, 12),
+        );
     }
 
     private static function isUuid(string $id): bool

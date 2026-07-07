@@ -33,7 +33,7 @@ final class RestoreTreeBrowseService
     ];
 
     /**
-     * @return list<array<string, mixed>>
+     * @return array{entries: list<array<string, mixed>>, total_count: int, has_more: bool, offset: int, limit: int}
      */
     public static function list(
         array $tenantRecord,
@@ -41,6 +41,8 @@ final class RestoreTreeBrowseService
         string $path,
         ?array $childRun = null,
         string $batchRunId = '',
+        int $limit = 500,
+        int $offset = 0,
     ): array {
         $manifestId = trim($manifestId);
         if ($manifestId === '') {
@@ -48,27 +50,63 @@ final class RestoreTreeBrowseService
         }
 
         $path = trim($path, '/');
+        $limit = max(0, $limit);
+        $offset = max(0, $offset);
 
         if ($path === '' && $childRun !== null) {
             $synthetic = self::syntheticWorkloadEntries($tenantRecord, $childRun, $batchRunId);
             if ($synthetic !== []) {
-                return $synthetic;
+                return self::paginateEntries($synthetic, $limit, $offset);
             }
         }
 
-        $cacheKey = hash('sha256', 'v15-browse-display-labels' . "\0" . $manifestId . "\0" . $path);
+        $cacheKey = hash('sha256', 'v16-browse' . "\0" . $manifestId . "\0" . $path . "\0" . $limit . "\0" . $offset);
         $cached = self::readCache($cacheKey);
         if ($cached !== null) {
             return $cached;
         }
 
-        $raw = self::listKopiaDirectoryWithAliases($tenantRecord, $manifestId, $path, $childRun);
-        $entries = self::autoDescendIfNeeded($tenantRecord, $manifestId, $path, $raw, $childRun);
-        $entries = self::enrichEntries($entries, $path, $childRun);
+        $raw = self::listKopiaDirectoryWithAliases($tenantRecord, $manifestId, $path, $childRun, $limit, $offset);
+        $entries = self::autoDescendIfNeeded($tenantRecord, $manifestId, $path, $raw['entries'], $childRun);
+        $result = [
+            'entries' => self::enrichEntries($entries, $path, $childRun),
+            'total_count' => (int) ($raw['total_count'] ?? count($entries)),
+            'has_more' => (bool) ($raw['has_more'] ?? false),
+            'offset' => (int) ($raw['offset'] ?? $offset),
+            'limit' => (int) ($raw['limit'] ?? $limit),
+        ];
 
-        self::writeCache($cacheKey, $entries);
+        self::writeCache($cacheKey, $result);
 
-        return $entries;
+        return $result;
+    }
+
+    /**
+     * @param list<array<string, mixed>> $entries
+     * @return array{entries: list<array<string, mixed>>, total_count: int, has_more: bool, offset: int, limit: int}
+     */
+    private static function paginateEntries(array $entries, int $limit, int $offset): array
+    {
+        $total = count($entries);
+        if ($limit <= 0) {
+            return [
+                'entries' => $entries,
+                'total_count' => $total,
+                'has_more' => false,
+                'offset' => 0,
+                'limit' => 0,
+            ];
+        }
+        $offset = min($offset, $total);
+        $page = array_slice($entries, $offset, $limit);
+
+        return [
+            'entries' => $page,
+            'total_count' => $total,
+            'has_more' => ($offset + count($page)) < $total,
+            'offset' => $offset,
+            'limit' => $limit,
+        ];
     }
 
     /**
@@ -318,7 +356,7 @@ final class RestoreTreeBrowseService
                 $out[] = ['label' => 'Mail', 'path' => $userRoot . '/mail'];
             }
             if (self::scopeShowsWorkload($scope, BackupScope::CALENDAR)) {
-                $out[] = ['label' => 'Calendar', 'path' => $userRoot . '/calendars'];
+                $out[] = ['label' => 'Calendar', 'path' => $userRoot . '/calendar'];
             }
             if (self::scopeShowsWorkload($scope, BackupScope::CONTACTS)) {
                 $out[] = ['label' => 'Contacts', 'path' => $userRoot . '/contacts'];
@@ -391,7 +429,7 @@ final class RestoreTreeBrowseService
                 $out[] = ['label' => 'Mail', 'path' => $groupRoot . '/mail'];
             }
             if (self::scopeShowsWorkload($scope, BackupScope::CALENDAR)) {
-                $out[] = ['label' => 'Calendar', 'path' => $groupRoot . '/calendars'];
+                $out[] = ['label' => 'Calendar', 'path' => $groupRoot . '/calendar'];
             }
 
             return $out;
@@ -525,13 +563,17 @@ final class RestoreTreeBrowseService
                 break;
             }
             $nextPath = $currentPath === '' ? $name : $currentPath . '/' . $name;
-            $current = self::listKopiaDirectory($tenantRecord, $manifestId, $nextPath, $childRun);
+            $page = self::listKopiaDirectory($tenantRecord, $manifestId, $nextPath, $childRun);
+            $current = $page['entries'];
             $currentPath = $nextPath;
             $guard++;
         }
 
         if ($currentPath !== $path && $current !== $entries) {
-            self::writeCache(hash('sha256', $manifestId . "\0" . $path), self::enrichEntries($current, $currentPath, null));
+            self::writeCache(
+                hash('sha256', $manifestId . "\0" . $path),
+                ['entries' => self::enrichEntries($current, $currentPath, null), 'total_count' => count($current), 'has_more' => false, 'offset' => 0, 'limit' => 0],
+            );
         }
 
         return $current;
@@ -701,14 +743,14 @@ final class RestoreTreeBrowseService
         return is_array($decoded) ? $decoded : null;
     }
 
-    /** @param list<array<string, mixed>> $entries */
-    private static function writeCache(string $cacheKey, array $entries): void
+    /** @param array{entries?: list<array<string, mixed>>, total_count?: int, has_more?: bool, offset?: int, limit?: int} $result */
+    private static function writeCache(string $cacheKey, array $result): void
     {
         $dir = self::cacheDir();
         if (!is_dir($dir) && !@mkdir($dir, 0770, true) && !is_dir($dir)) {
             return;
         }
-        @file_put_contents($dir . '/' . $cacheKey . '.json', json_encode($entries) ?: '[]');
+        @file_put_contents($dir . '/' . $cacheKey . '.json', json_encode($result) ?: '{}');
     }
 
     private static function cacheDir(): string
@@ -717,13 +759,15 @@ final class RestoreTreeBrowseService
     }
 
     /**
-     * @return list<array<string, mixed>>
+     * @return array{entries: list<array<string, mixed>>, total_count: int, has_more: bool, offset: int, limit: int}
      */
     private static function listKopiaDirectoryWithAliases(
         array $tenantRecord,
         string $manifestId,
         string $path,
         ?array $childRun,
+        int $limit = 500,
+        int $offset = 0,
     ): array {
         $pathCandidates = [$path];
         foreach (self::oneDriveBrowsePathAliases($path, $childRun) as $alias) {
@@ -767,9 +811,11 @@ final class RestoreTreeBrowseService
             }
             foreach ($pathCandidates as $candidate) {
                 try {
-                    $entries = self::listKopiaDirectory($tenantRecord, $candidateManifest, $candidate, $childRun);
-                    if ($entries !== []) {
-                        return self::rebaseSharePointDriveBrowsePaths($entries, $path, $candidate, $childRun);
+                    $result = self::listKopiaDirectory($tenantRecord, $candidateManifest, $candidate, $childRun, $limit, $offset);
+                    if ($result['entries'] !== []) {
+                        $result['entries'] = self::rebaseSharePointDriveBrowsePaths($result['entries'], $path, $candidate, $childRun);
+
+                        return $result;
                     }
                 } catch (\RuntimeException $e) {
                     $lastError = $e;
@@ -779,12 +825,24 @@ final class RestoreTreeBrowseService
 
         if ($lastError !== null) {
             if (self::isMissingWorkloadRoot($path, $lastError)) {
-                return [];
+                return self::emptyBrowsePage($limit, $offset);
             }
             throw $lastError;
         }
 
-        return [];
+        return self::emptyBrowsePage($limit, $offset);
+    }
+
+    /** @return array{entries: list<array<string, mixed>>, total_count: int, has_more: bool, offset: int, limit: int} */
+    private static function emptyBrowsePage(int $limit, int $offset): array
+    {
+        return [
+            'entries' => [],
+            'total_count' => 0,
+            'has_more' => false,
+            'offset' => $offset,
+            'limit' => $limit,
+        ];
     }
 
     /**
@@ -945,14 +1003,20 @@ final class RestoreTreeBrowseService
     }
 
     /**
-     * @return list<array<string, mixed>>
+     * @return array{entries: list<array<string, mixed>>, total_count: int, has_more: bool, offset: int, limit: int}
      */
-    private static function listKopiaDirectory(array $tenantRecord, string $manifestId, string $path, ?array $childRun = null): array
-    {
+    private static function listKopiaDirectory(
+        array $tenantRecord,
+        string $manifestId,
+        string $path,
+        ?array $childRun = null,
+        int $limit = 0,
+        int $offset = 0,
+    ): array {
         $e3JobId = is_array($childRun) ? trim((string) ($childRun['e3_job_id'] ?? '')) : '';
         $jobArg = $e3JobId !== '' ? $e3JobId : null;
         try {
-            return KopiaSnapshotBrowseService::listDirectory($tenantRecord, $manifestId, $path, $jobArg);
+            return KopiaSnapshotBrowseService::listDirectory($tenantRecord, $manifestId, $path, $jobArg, $limit, $offset);
         } catch (\RuntimeException $e) {
             if (!self::isBrowsePathNotFound($e)) {
                 throw $e;
@@ -961,10 +1025,10 @@ final class RestoreTreeBrowseService
             $alt = self::calendarPathAlias($path);
             if ($alt !== null && $alt !== $path) {
                 try {
-                    return KopiaSnapshotBrowseService::listDirectory($tenantRecord, $manifestId, $alt, $jobArg);
+                    return KopiaSnapshotBrowseService::listDirectory($tenantRecord, $manifestId, $alt, $jobArg, $limit, $offset);
                 } catch (\RuntimeException $altError) {
                     if (self::isMissingWorkloadRoot($path, $altError)) {
-                        return [];
+                        return self::emptyBrowsePage($limit, $offset);
                     }
 
                     throw $altError;
@@ -974,10 +1038,10 @@ final class RestoreTreeBrowseService
             $driveAlt = self::driveContentPathAlias($path);
             if ($driveAlt !== null && $driveAlt !== $path) {
                 try {
-                    return KopiaSnapshotBrowseService::listDirectory($tenantRecord, $manifestId, $driveAlt, $jobArg);
+                    return KopiaSnapshotBrowseService::listDirectory($tenantRecord, $manifestId, $driveAlt, $jobArg, $limit, $offset);
                 } catch (\RuntimeException $driveAltError) {
                     if (self::isMissingWorkloadRoot($path, $driveAltError)) {
-                        return [];
+                        return self::emptyBrowsePage($limit, $offset);
                     }
 
                     throw $driveAltError;
@@ -985,7 +1049,7 @@ final class RestoreTreeBrowseService
             }
 
             if (self::isMissingWorkloadRoot($path, $e)) {
-                return [];
+                return self::emptyBrowsePage($limit, $offset);
             }
 
             throw $e;

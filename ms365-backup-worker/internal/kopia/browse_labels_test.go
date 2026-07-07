@@ -403,3 +403,19 @@ func TestSharePointListItemLabels(t *testing.T) {
 		t.Fatalf("subtitle: got %q", got.Subtitle)
 	}
 }
+
+func TestFastBrowseLabelSharePointListItem(t *testing.T) {
+	path := "tenant/sites/site1/lists/list1/items/item42.json"
+	got := fastBrowseLabel(path, "item42.json", "file")
+	if got.Label != "List item item42" {
+		t.Fatalf("label: got %q", got.Label)
+	}
+}
+
+func TestFastBrowseLabelMailMessage(t *testing.T) {
+	path := "tenant/users/u1/mail/inbox/msg1.json"
+	got := fastBrowseLabel(path, "msg1.json", "file")
+	if got.Label != "msg1" {
+		t.Fatalf("label: got %q", got.Label)
+	}
+}

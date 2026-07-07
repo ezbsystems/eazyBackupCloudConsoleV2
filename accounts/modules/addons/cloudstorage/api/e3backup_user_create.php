@@ -229,7 +229,11 @@ if (!empty($notifyValidation['errors'])) {
 }
 
 if (!empty($errors)) {
-    userCreateFail('Please correct the highlighted fields.', 400, $errors);
+    $message = 'Please correct the highlighted fields.';
+    if (count($errors) === 1) {
+        $message = (string) reset($errors);
+    }
+    userCreateFail($message, 400, $errors);
 }
 
 $existingQuery = Capsule::table('s3_backup_users')

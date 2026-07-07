@@ -56,9 +56,11 @@ func main() {
 }
 
 type browseCLIRequest struct {
-	ManifestID   string `json:"manifest_id"`
-	Path         string `json:"path"`
-	DestEndpoint string `json:"dest_endpoint"`
+	ManifestID    string `json:"manifest_id"`
+	Path          string `json:"path"`
+	Limit         int    `json:"limit"`
+	Offset        int    `json:"offset"`
+	DestEndpoint  string `json:"dest_endpoint"`
 	DestRegion   string `json:"dest_region"`
 	DestBucket   string `json:"dest_bucket"`
 	DestPrefix   string `json:"dest_prefix"`
@@ -89,6 +91,8 @@ func runBrowseCLI(args []string) error {
 		Storage:    storage,
 		ManifestID: req.ManifestID,
 		Path:       req.Path,
+		Limit:      req.Limit,
+		Offset:     req.Offset,
 	})
 	if err != nil {
 		return err

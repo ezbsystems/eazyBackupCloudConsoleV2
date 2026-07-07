@@ -6,6 +6,7 @@ namespace WHMCS\Module\Addon\CloudStorage\Client;
 
 use Ms365Backup\BackupRunRepository;
 use Ms365Backup\Ms365BatchRunRepository;
+use Ms365Backup\Ms365LiveSpeedMetrics;
 use Ms365Backup\PhysicalKeyHelper;
 use Ms365Backup\ProgressLogger;
 use Ms365Backup\TenantResource;
@@ -81,8 +82,23 @@ final class Ms365BatchLiveService
             'files_skipped' => $isRestore ? (int) ($agg['items_skipped'] ?? 0) : 0,
             'files_total' => (int) $agg['items_total'],
             'folders_done' => null,
-            'speed_bytes_per_sec' => $parentRun['speed_bytes_per_sec'] ?? null,
-            'items_per_sec' => isset($parentStats['ms365_items_per_sec']) ? (int) $parentStats['ms365_items_per_sec'] : null,
+            'speed_bytes_per_sec' => $parentRun['speed_bytes_per_sec'] !== null
+                ? (int) $parentRun['speed_bytes_per_sec']
+                : null,
+            'speed_metric_kind' => (string) ($parentStats['ms365_speed_metric_kind'] ?? Ms365LiveSpeedMetrics::KIND_NONE),
+            'speed_metric_label' => Ms365LiveSpeedMetrics::labelForKind(
+                (string) ($parentStats['ms365_speed_metric_kind'] ?? Ms365LiveSpeedMetrics::KIND_NONE)
+            ),
+            'speed_updated_at' => isset($parentStats['ms365_speed_updated_at'])
+                ? (int) $parentStats['ms365_speed_updated_at']
+                : null,
+            'items_per_sec' => isset($parentStats['ms365_items_per_sec'])
+                ? (int) $parentStats['ms365_items_per_sec']
+                : null,
+            'graph_requests_per_sec' => isset($parentStats['ms365_graph_requests_per_sec'])
+                ? (int) $parentStats['ms365_graph_requests_per_sec']
+                : null,
+            'dominant_phase' => (string) ($agg['dominant_phase'] ?? ''),
             'eta_seconds' => $parentRun['eta_seconds'] ?? null,
             'current_item' => CustomerFacingTextSanitizer::scrubLogMessage(
                 (string) ($parentRun['current_item'] ?? $agg['current_item'] ?? '')
@@ -1002,7 +1018,7 @@ final class Ms365BatchLiveService
 
         try {
             $progress = self::aggregateProgress($batchRunId, $clientId, $run);
-            foreach (['progress_pct', 'bytes_processed', 'bytes_transferred', 'bytes_total', 'objects_total', 'objects_transferred', 'speed_bytes_per_sec', 'eta_seconds', 'current_item', 'stage', 'status', 'total_workloads', 'completed_workloads', 'active_running_workloads', 'queued_workloads', 'graph_requests_total', 'byte_stats_comparable'] as $key) {
+            foreach (['progress_pct', 'bytes_processed', 'bytes_transferred', 'bytes_total', 'objects_total', 'objects_transferred', 'speed_bytes_per_sec', 'speed_metric_kind', 'speed_metric_label', 'speed_updated_at', 'items_per_sec', 'graph_requests_per_sec', 'dominant_phase', 'eta_seconds', 'current_item', 'stage', 'status', 'total_workloads', 'completed_workloads', 'active_running_workloads', 'queued_workloads', 'graph_requests_total', 'byte_stats_comparable'] as $key) {
                 if (array_key_exists($key, $progress) && $progress[$key] !== null) {
                     $run[$key] = $progress[$key];
                 }

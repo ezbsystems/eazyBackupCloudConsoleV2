@@ -27,6 +27,18 @@
         ebPageActions=$ebE3UsersHeaderActions
     }
 
+    <div id="e3-create-page-error"
+         x-show="createPageError"
+         x-cloak
+         class="eb-alert eb-alert--danger"
+         role="alert"
+         style="display: none;">
+        <svg class="eb-alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z" />
+        </svg>
+        <div x-text="createPageError"></div>
+    </div>
+
     <div class="eb-subpanel eb-subpanel--overflow-visible">
         <div class="eb-table-toolbar">
             {if $isMspClient}
@@ -708,10 +720,12 @@ function backupUsersApp() {
         showCreateModal: false,
         showRecoveryKeyCloseWarning: false,
         formErrorMessage: '',
+        createPageError: '',
         canonicalTenantLoadError: '',
         fieldErrors: {},
         form: {
             username: '',
+            email: '',
             password: '',
             password_confirm: '',
             tenant_id: '',
@@ -1004,7 +1018,7 @@ function backupUsersApp() {
                 'eazyBackup Recovery Key',
                 '',
                 'User: ' + (this.form.username || ''),
-                'Email: ' + (this.notificationForm.emails[0] || ''),
+                'Email: ' + (this.form.email || ''),
                 'Generated At: ' + new Date().toISOString(),
                 '',
                 'Recovery Key:',
@@ -1158,6 +1172,7 @@ function backupUsersApp() {
         openCreateModal() {
             this.form = {
                 username: '',
+                email: '',
                 password: '',
                 password_confirm: '',
                 tenant_id: '',
@@ -1175,10 +1190,85 @@ function backupUsersApp() {
             };
             this.newNotifyEmail = '';
             this.formErrorMessage = '';
+            this.createPageError = '';
             this.fieldErrors = {};
             this.tenantAssignSearch = '';
             this.showRecoveryKeyCloseWarning = false;
             this.showCreateModal = true;
+        },
+
+        clearCreatePageError() {
+            if (this.createPageError) {
+                this.createPageError = '';
+            }
+        },
+
+        summarizeFieldErrors(errors) {
+            return Object.values(errors || {}).filter(Boolean);
+        },
+
+        buildCreateErrorMessage(data) {
+            const errors = data && data.errors ? data.errors : {};
+            const summaries = this.summarizeFieldErrors(errors);
+            const genericMessage = 'Please correct the highlighted fields.';
+            if (summaries.length === 1) {
+                return summaries[0];
+            }
+            if (summaries.length > 1) {
+                return summaries.join(' ');
+            }
+            if (data && data.message && data.message !== genericMessage) {
+                return data.message;
+            }
+            return data && data.message ? data.message : 'Failed to create user.';
+        },
+
+        showCreatePageError(message) {
+            this.createPageError = String(message || '').trim();
+            if (!this.createPageError) {
+                return;
+            }
+            this.$nextTick(() => {
+                const el = document.getElementById('e3-create-page-error');
+                if (el && typeof el.scrollIntoView === 'function') {
+                    el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+                }
+            });
+        },
+
+        focusFirstCreateFieldError() {
+            const fieldOrder = [
+                'username',
+                'email',
+                'password',
+                'password_confirm',
+                'notify_emails',
+                'tenant_id',
+                'managed_acknowledged',
+                'recovery_key_downloaded',
+                'strict_acknowledged'
+            ];
+            const fieldIds = {
+                username: 'e3-create-user-username',
+                email: 'e3-create-user-email',
+                password: 'e3-create-user-password',
+                password_confirm: 'e3-create-user-password-confirm',
+                notify_emails: 'e3-create-notify-email-input'
+            };
+            for (const key of fieldOrder) {
+                if (!this.fieldErrors[key]) {
+                    continue;
+                }
+                const id = fieldIds[key];
+                if (!id) {
+                    break;
+                }
+                const el = document.getElementById(id);
+                if (el && typeof el.focus === 'function') {
+                    el.focus();
+                }
+                break;
+            }
         },
 
         closeCreateModal(force = false) {
@@ -1233,11 +1323,18 @@ function backupUsersApp() {
 
         validateCreateForm() {
             this.fieldErrors = {};
+            const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
             if (!this.form.username) {
                 this.fieldErrors.username = 'Username is required.';
             } else if (!/^[A-Za-z0-9._-]{3,64}$/.test(this.form.username)) {
                 this.fieldErrors.username = 'Use 3-64 characters with letters, numbers, dots, underscores, or hyphens.';
+            }
+
+            if (!this.form.email) {
+                this.fieldErrors.email = 'Email is required.';
+            } else if (!emailPattern.test(this.form.email)) {
+                this.fieldErrors.email = 'Please enter a valid email address.';
             }
 
             if (!this.form.password) {
@@ -1326,19 +1423,18 @@ function backupUsersApp() {
 
         async createUser() {
             this.formErrorMessage = '';
+            this.createPageError = '';
             if (!this.validateCreateForm()) {
+                this.showCreatePageError(this.buildCreateErrorMessage({ errors: this.fieldErrors }));
+                this.focusFirstCreateFieldError();
                 return;
             }
 
             this.saving = true;
             try {
-                const profileEmail = this.notificationForm.emails.length
-                    ? String(this.notificationForm.emails[0])
-                    : '';
-
                 const body = new URLSearchParams({
                     username: this.form.username,
-                    email: profileEmail,
+                    email: this.form.email,
                     status: 'active',
                     password: this.form.password,
                     password_confirm: this.form.password_confirm,
@@ -1366,17 +1462,19 @@ function backupUsersApp() {
                 const data = await response.json();
 
                 if (data.status === 'success') {
+                    this.createPageError = '';
                     this.closeCreateModal(true);
                     await this.loadUsers();
                 } else {
-                    this.formErrorMessage = data.message || 'Failed to create user.';
                     this.fieldErrors = data.errors || {};
                     if (this.fieldErrors.canonical_tenant_id && !this.fieldErrors.tenant_id) {
                         this.fieldErrors.tenant_id = this.fieldErrors.canonical_tenant_id;
                     }
+                    this.showCreatePageError(this.buildCreateErrorMessage(data));
+                    this.focusFirstCreateFieldError();
                 }
             } catch (error) {
-                this.formErrorMessage = 'Failed to create user.';
+                this.showCreatePageError('Failed to create user.');
             }
             this.saving = false;
         }

@@ -894,7 +894,7 @@ final class Ms365RestoreWorkerHooks
             'error_message' => $customerMessage,
             'finished_at' => $now,
         ]);
-        JobQueueRepository::markTerminalFailed($runId, $customerMessage);
+        JobQueueRepository::markTerminalFailed($runId, $message);
         Ms365BatchRunRepository::syncForRestoreChildRun($runId);
 
         $logger = new RestoreProgressLogger($runId);

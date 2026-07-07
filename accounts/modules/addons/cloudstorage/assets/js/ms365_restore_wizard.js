@@ -32,9 +32,10 @@
 
     window.ms365RestoreWizardApp = function () {
         const browseCache = new Map();
+        const BROWSE_PAGE_SIZE = 500;
 
-        function browseCacheKey(batchRunId, manifestId, childRunId, path) {
-            return [batchRunId, manifestId, childRunId, path || ''].join('|');
+        function browseCacheKey(batchRunId, manifestId, childRunId, path, offset) {
+            return [batchRunId, manifestId, childRunId, path || '', String(offset)].join('|');
         }
 
         function formatFileSize(bytes) {
@@ -72,6 +73,34 @@
                 loaded: false,
                 loading: false,
             };
+        }
+
+        function mapLoadMoreNode(parent, page) {
+            const loaded = page.offset + page.entries.length;
+            const remaining = Math.max(0, page.total_count - loaded);
+            return {
+                key: parent.key + '-load-more-' + loaded,
+                type: 'load_more',
+                parentKey: parent.key,
+                section_key: parent.section_key || 'users',
+                label: 'Load more (' + remaining.toLocaleString() + ' remaining)',
+                browseOffset: loaded,
+                depth: parent.depth + 1,
+                loading: false,
+                has_children: false,
+            };
+        }
+
+        function appendBrowseChildren(node, page, startIndex) {
+            const children = page.entries.map((e, i) => mapEntryToNode(e, node, startIndex + i, node.depth + 1));
+            const emptyFiles = emptyFilesPlaceholder(node);
+            if (children.length === 0 && emptyFiles) {
+                children.push(emptyFiles);
+            }
+            if (page.has_more) {
+                children.push(mapLoadMoreNode(node, page));
+            }
+            return children;
         }
 
         function emptyFilesPlaceholder(node) {
@@ -199,18 +228,20 @@
                 return true;
             },
 
-            async fetchBrowseEntries(node) {
+            async fetchBrowseEntries(node, offset = 0) {
                 const batchRunId = this.snapshot.batch_run_id || this.snapshot.id;
                 const manifestId = node ? (node.manifest_id || '') : '';
                 const childRunId = node ? (node.child_run_id || '') : '';
                 const path = node ? (node.path || '') : '';
-                const cacheKey = browseCacheKey(batchRunId, manifestId, childRunId, path);
+                const cacheKey = browseCacheKey(batchRunId, manifestId, childRunId, path, offset);
                 if (browseCache.has(cacheKey)) {
                     return browseCache.get(cacheKey);
                 }
                 const params = new URLSearchParams({
                     user_id: this.backupUserId,
                     batch_run_id: batchRunId,
+                    limit: String(BROWSE_PAGE_SIZE),
+                    offset: String(offset),
                 });
                 if (manifestId) params.set('manifest_id', manifestId);
                 if (childRunId) params.set('child_run_id', childRunId);
@@ -218,17 +249,42 @@
                 const res = await fetch(apiBase() + 'ms365_restore_browse.php?' + params.toString());
                 const data = await res.json();
                 if (data.status !== 'success') throw new Error(data.message || 'Browse failed');
-                const entries = data.entries || [];
-                browseCache.set(cacheKey, entries);
-                return entries;
+                const page = {
+                    entries: data.entries || [],
+                    total_count: Number(data.total_count) || 0,
+                    has_more: !!data.has_more,
+                    offset: Number(data.offset) || offset,
+                    limit: Number(data.limit) || BROWSE_PAGE_SIZE,
+                };
+                browseCache.set(cacheKey, page);
+                return page;
+            },
+
+            async loadMoreBrowse(loadMoreNode) {
+                if (loadMoreNode.loading) return;
+                const parent = this.treeNodes.find((n) => n.key === loadMoreNode.parentKey);
+                if (!parent) return;
+                loadMoreNode.loading = true;
+                try {
+                    const page = await this.fetchBrowseEntries(parent, loadMoreNode.browseOffset);
+                    const lmIdx = this.treeNodes.findIndex((n) => n.key === loadMoreNode.key);
+                    if (lmIdx < 0) return;
+                    this.treeNodes.splice(lmIdx, 1);
+                    const childCount = this.treeNodes.filter((n) => n.parentKey === parent.key).length;
+                    const newChildren = appendBrowseChildren(parent, page, childCount);
+                    this.treeNodes.splice(lmIdx, 0, ...newChildren);
+                } catch (e) {
+                    toast('error', e.message || 'Failed to load more items');
+                }
+                loadMoreNode.loading = false;
             },
 
             async loadTreeRoots() {
                 if (!this.snapshot || !this.backupUserId) return;
                 this.loading = true;
                 try {
-                    const entries = await this.fetchBrowseEntries(null);
-                    this.treeNodes = entries.map((e, i) => mapEntryToNode(e, null, i, 0));
+                    const page = await this.fetchBrowseEntries(null);
+                    this.treeNodes = page.entries.map((e, i) => mapEntryToNode(e, null, i, 0));
                 } catch (e) {
                     toast('error', e.message || 'Failed to load snapshot tree');
                 }
@@ -243,12 +299,8 @@
                     return;
                 }
                 if (node.loaded) {
-                    const entries = await this.fetchBrowseEntries(node);
-                    const children = entries.map((e, i) => mapEntryToNode(e, node, i, node.depth + 1));
-                    const emptyFiles = emptyFilesPlaceholder(node);
-                    if (children.length === 0 && emptyFiles) {
-                        children.push(emptyFiles);
-                    }
+                    const page = await this.fetchBrowseEntries(node);
+                    const children = appendBrowseChildren(node, page, 0);
                     const idx = this.treeNodes.findIndex((n) => n.key === node.key);
                     this.treeNodes.splice(idx + 1, 0, ...children);
                     node.expanded = true;
@@ -256,12 +308,8 @@
                 }
                 node.loading = true;
                 try {
-                    const entries = await this.fetchBrowseEntries(node);
-                    const children = entries.map((e, i) => mapEntryToNode(e, node, i, node.depth + 1));
-                    const emptyFiles = emptyFilesPlaceholder(node);
-                    if (children.length === 0 && emptyFiles) {
-                        children.push(emptyFiles);
-                    }
+                    const page = await this.fetchBrowseEntries(node);
+                    const children = appendBrowseChildren(node, page, 0);
                     const idx = this.treeNodes.findIndex((n) => n.key === node.key);
                     this.treeNodes.splice(idx + 1, 0, ...children);
                     node.loaded = true;
@@ -273,7 +321,7 @@
             },
 
             pruneChildren(node) {
-                const toRemove = this.treeNodes.filter((n) => n.key.startsWith(node.key + '-c-'));
+                const toRemove = this.treeNodes.filter((n) => n.key.startsWith(node.key + '-c-') || n.parentKey === node.key || (n.type === 'load_more' && n.parentKey === node.key));
                 toRemove.forEach((n) => {
                     const i = this.treeNodes.findIndex((x) => x.key === n.key);
                     if (i >= 0) this.treeNodes.splice(i, 1);

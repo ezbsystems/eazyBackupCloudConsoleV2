@@ -87,7 +87,14 @@ Workers call `ms365_worker_graph_token.php` on Graph **401** and proactively eve
 | `kopia.stall_check_interval_seconds` | `60` | Stall watchdog poll interval |
 | `kopia.stall_grace_seconds` | `300` | Ignore stall checks during initial repo open |
 
-**Live UI:** Parent batch speed/ETA uses `bytes_processed` (sum of child `bytes_hashed`), not `bytes_transferred`, so dedup-heavy whale uploads show non-zero throughput.
+**Live UI:** Parent batch throughput is phase-aware via `Ms365LiveSpeedMetrics` (EMA-smoothed, 30s staleness):
+
+| Dominant phase | Speed metric | Counter |
+|----------------|--------------|---------|
+| `graph_sync` / `prior_snapshot` | Items/s or Graph requests/s | `objects_transferred` / `graph_requests_total` |
+| `kopia_upload` | Upload speed (preferred) or Hash speed | `bytes_transferred` / `bytes_hashed` sum |
+
+Progress API exposes `speed_metric_kind`, `speed_metric_label`, `speed_updated_at`, `dominant_phase`. Stale rates clear when counters stop moving (fixes frozen hash spikes during upload-only phases).
 
 **Child stats:** `ms365_backup_runs.stats_json` stores `graph_sync_ms` and `kopia_snapshot_ms` (live during run, final on complete). Admin Jobs batch detail shows per-workload phase timings.
 

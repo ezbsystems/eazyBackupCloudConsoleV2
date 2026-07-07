@@ -101,7 +101,7 @@
                                             <div class="text-xs font-semibold uppercase tracking-wide text-[var(--eb-text-muted)] mb-2 px-1" x-text="section.label"></div>
                                             <div class="flex flex-col gap-0.5">
                                                 <template x-for="node in visibleSectionNodes(section.key)" :key="node.key">
-                                                    <div class="ms365-tree-node" :style="'padding-left:' + (node.depth * 12) + 'px'">
+                                                    <div class="ms365-tree-node" :style="'padding-left:' + (node.depth * 12) + 'px'" x-show="node.type !== 'load_more'">
                                                         <span class="ms365-tree-toggle-slot">
                                                             <span x-show="node.loading" class="ms365-tree-spinner eb-loading-spinner--compact"></span>
                                                             <button type="button"
@@ -118,6 +118,13 @@
                                                             <span class="ms365-tree-label-primary" x-text="node.label || node.name"></span>
                                                             <span class="ms365-tree-label-secondary" x-show="node.subtitle" x-text="node.subtitle"></span>
                                                         </button>
+                                                    </div>
+                                                    <div class="ms365-tree-node ms365-tree-load-more" :style="'padding-left:' + (node.depth * 12 + 20) + 'px'" x-show="node.type === 'load_more'">
+                                                        <button type="button"
+                                                                class="eb-btn eb-btn--ghost eb-btn--sm"
+                                                                :disabled="node.loading"
+                                                                @click="loadMoreBrowse(node)"
+                                                                x-text="node.loading ? 'Loading…' : (node.label || 'Load more')"></button>
                                                     </div>
                                                 </template>
                                             </div>

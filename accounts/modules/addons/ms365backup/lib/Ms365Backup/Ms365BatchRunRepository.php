@@ -893,6 +893,7 @@ final class Ms365BatchRunRepository
             'graph_429_hits_total' => $graph429Total,
             'graph_requests_total' => $graphRequestsTotal,
             'byte_stats_comparable' => $byteStatsComparable,
+            'dominant_phase' => $dominantPhase,
         ];
     }
 
@@ -1091,18 +1092,12 @@ final class Ms365BatchRunRepository
             }
         }
 
-        $lastTs = (int) ($statsJson['ms365_last_ts'] ?? 0);
         $bytesTransferred = (int) $agg['bytes_transferred'];
-        $bytesProcessed = (int) $agg['bytes_processed'];
-        $bytesTotal = (int) $agg['bytes_total'];
-        $lastProcessed = (int) ($statsJson['ms365_last_bytes_processed'] ?? $statsJson['ms365_last_bytes'] ?? 0);
-        $speedEta = self::computeSpeedAndEta($lastProcessed, $lastTs, $bytesProcessed, $bytesTotal, $now);
-        $speed = $speedEta['speed'];
-        $etaSeconds = $speedEta['eta_seconds'];
 
-        $objectsTransferred = (int) ($agg['objects_transferred'] ?? 0);
-        $lastItems = (int) ($statsJson['ms365_last_items'] ?? 0);
-        $itemsPerSec = self::computeItemsSpeed($lastItems, $lastTs, $objectsTransferred, $now);
+        $speedMetrics = Ms365LiveSpeedMetrics::update($statsJson, $agg, $now);
+        $statsJson = $speedMetrics['stats_json'];
+        $speed = $speedMetrics['speed_bytes_per_sec'];
+        $etaSeconds = $speedMetrics['eta_seconds'];
 
         $throttleWindow = self::computeWindowedGraphThrottled(
             $statsJson,
@@ -1110,10 +1105,6 @@ final class Ms365BatchRunRepository
             $now
         );
 
-        $statsJson['ms365_last_bytes'] = $bytesTransferred;
-        $statsJson['ms365_last_bytes_processed'] = $bytesProcessed;
-        $statsJson['ms365_last_items'] = $objectsTransferred;
-        $statsJson['ms365_last_ts'] = $now;
         $statsJson['ms365_total_workloads'] = (int) $agg['total_workloads'];
         $statsJson['ms365_active_running_workloads'] = (int) ($agg['active_running_workloads'] ?? 0);
         $statsJson['ms365_queued_workloads'] = (int) ($agg['queued_workloads'] ?? 0);
@@ -1128,7 +1119,6 @@ final class Ms365BatchRunRepository
         }
         $statsJson['ms365_graph_throttled'] = $throttleWindow['throttled'];
         $statsJson['ms365_graph_throttle_at'] = $throttleWindow['throttle_at'];
-        $statsJson['ms365_items_per_sec'] = $itemsPerSec;
         $statsJson['ms365_byte_stats_comparable'] = !empty($agg['byte_stats_comparable']);
 
         $progressPct = (float) ($agg['progress_pct'] ?? 0);
@@ -1158,10 +1148,10 @@ final class Ms365BatchRunRepository
         if (Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'stage')) {
             $update['stage'] = $agg['stage'];
         }
-        if (Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'speed_bytes_per_sec') && $speed !== null) {
+        if (Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'speed_bytes_per_sec')) {
             $update['speed_bytes_per_sec'] = $speed;
         }
-        if (Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'eta_seconds') && $etaSeconds !== null) {
+        if (Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'eta_seconds')) {
             $update['eta_seconds'] = $etaSeconds;
         }
         if (Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'updated_at')) {

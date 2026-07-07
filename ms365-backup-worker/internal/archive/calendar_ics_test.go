@@ -97,3 +97,30 @@ func TestCalendarICSFilename(t *testing.T) {
 		t.Fatalf("unexpected filename %q", name)
 	}
 }
+
+func TestBuildCalendarICSSanitizesLineBreaks(t *testing.T) {
+	ev := map[string]any{
+		"id":      "evt-lf",
+		"subject": "Line\r\nBreak\rSubject",
+		"body": map[string]any{
+			"contentType": "text",
+			"content":     "Desc line one\nDesc line two",
+		},
+		"start": map[string]any{"dateTime": "2026-06-26T10:00:00Z"},
+		"end":   map[string]any{"dateTime": "2026-06-26T11:00:00Z"},
+		"organizer": map[string]any{
+			"emailAddress": map[string]any{"name": "Org\nName", "address": "org@contoso.com"},
+		},
+	}
+	ics, err := buildCalendarICS(ev)
+	if err != nil {
+		t.Fatalf("buildCalendarICS: %v", err)
+	}
+	s := string(ics)
+	if strings.Contains(s, "\nBreak") || strings.Contains(s, "line one\nDesc") {
+		t.Fatalf("expected line breaks sanitized in ICS:\n%s", s)
+	}
+	if !strings.Contains(s, "SUMMARY:Line Break Subject") {
+		t.Fatalf("expected sanitized summary, got:\n%s", s)
+	}
+}

@@ -81,7 +81,7 @@
                         <div class="eb-live-stat-value highlight" id="ms365RunningWorkloadsValue">—</div>
                     </div>
                     <div class="eb-live-stat">
-                        <div class="eb-live-stat-label" id="speedStatLabel">Processing</div>
+                        <div class="eb-live-stat-label" id="speedStatLabel">Speed</div>
                         <div class="eb-live-stat-value highlight" id="speedValue">
                             {if $run.speed_bytes_per_sec}
                                 {\WHMCS\Module\Addon\CloudStorage\Client\HelperController::formatSizeUnits($run.speed_bytes_per_sec)}/s
@@ -244,12 +244,6 @@
             <div class="eb-live-detail">
                 <div class="eb-live-detail-label">Finished</div>
                 <div class="eb-live-detail-value" id="detailsFinishedAt">{$run.finished_at|default:'-'|escape:'html'}</div>
-            </div>
-        </div>
-        <div class="eb-live-details eb-live-details-row2">
-            <div class="eb-live-detail">
-                <div class="eb-live-detail-label">Run ID</div>
-                <div class="eb-live-detail-value eb-live-detail-value--mono" id="detailsRunId" title="{$run.run_id|escape:'html'}">{$run.run_id|escape:'html'}</div>
             </div>
         </div>
         {else}
@@ -538,6 +532,49 @@ let eventsInterval;
 let isRunning = {if $isRunningStatus}true{else}false{/if};
 const RUN_UUID = '{$run.run_id}';
 const LIVE_IS_MS365 = {if isset($is_ms365_batch) && $is_ms365_batch}true{else}false{/if};
+const SPEED_STALE_SECONDS = 30;
+const MS365_SPEED_HINTS = {
+    items: 'Items enumerated from Microsoft 365',
+    graph_requests: 'Microsoft Graph API activity',
+    upload: 'Data sent to cloud storage',
+    hash: 'Data hashed before deduplication'
+};
+
+function isMs365SpeedStale(run) {
+    const updatedAt = parseInt(run.speed_updated_at, 10) || 0;
+    if (!updatedAt) return true;
+    return ((Date.now() / 1000) - updatedAt) > SPEED_STALE_SECONDS;
+}
+
+function formatMs365SpeedDisplay(run) {
+    if (isMs365SpeedStale(run)) return '—';
+    const kind = run.speed_metric_kind || 'none';
+    if (kind === 'upload' || kind === 'hash') {
+        const bps = parseInt(run.speed_bytes_per_sec, 10) || 0;
+        return bps ? (formatBytes(bps) + '/s') : '—';
+    }
+    if (kind === 'items') {
+        const ips = parseInt(run.items_per_sec, 10) || 0;
+        return ips ? (formatCount(ips) + '/s') : '—';
+    }
+    if (kind === 'graph_requests') {
+        const grs = parseInt(run.graph_requests_per_sec, 10) || 0;
+        return grs ? (formatCount(grs) + '/s') : '—';
+    }
+    return '—';
+}
+
+function ms365SpeedLabel(run) {
+    if (run.speed_metric_label) return run.speed_metric_label;
+    const kind = run.speed_metric_kind || 'none';
+    const labels = { items: 'Items/s', graph_requests: 'Graph requests/s', upload: 'Upload speed', hash: 'Hash speed' };
+    return labels[kind] || 'Speed';
+}
+
+function ms365SpeedHint(run) {
+    const kind = run.speed_metric_kind || 'none';
+    return MS365_SPEED_HINTS[kind] || '';
+}
 const LIVE_IS_RESTORE = {if $is_restore}true{else}false{/if};
 const MS365_ARCHIVE_RESTORE = {if isset($ms365_archive_restore) && $ms365_archive_restore}true{else}false{/if};
 const MS365_ARCHIVE_USER_ID = {if isset($ms365_backup_user_scope_id) && $ms365_backup_user_scope_id}{$ms365_backup_user_scope_id|@json_encode nofilter}{else}''{/if};
@@ -1194,13 +1231,15 @@ function updateProgress() {
                 const speedStatLabel = document.getElementById('speedStatLabel');
                 const byteStatsComparable = run.byte_stats_comparable !== false;
                 const graphPhase = LIVE_IS_MS365 && !byteStatsComparable && !isFinished;
-                if (speedStatLabel && LIVE_IS_MS365) {
-                    speedStatLabel.textContent = graphPhase ? 'Processing' : 'Speed';
-                }
                 if (speedValueEl) {
                     if (isFinished) {
                         speedValueEl.textContent = '—';
                         speedValueEl.classList.remove('highlight');
+                    } else if (LIVE_IS_MS365) {
+                        const speedText = formatMs365SpeedDisplay(run);
+                        speedValueEl.textContent = speedText;
+                        if (speedText !== '—') speedValueEl.classList.add('highlight');
+                        else speedValueEl.classList.remove('highlight');
                     } else {
                         let speedBps = run.speed_bytes_per_sec || 0;
                         const processedNow = run.bytes_processed || run.bytes_transferred || 0;
@@ -1221,9 +1260,18 @@ function updateProgress() {
                         else speedValueEl.classList.remove('highlight');
                     }
                 }
+                if (speedStatLabel && LIVE_IS_MS365) {
+                    speedStatLabel.textContent = isFinished ? 'Speed' : ms365SpeedLabel(run);
+                }
                 const speedHintEl = document.getElementById('speedHint');
                 if (speedHintEl) {
-                    if (graphPhase) {
+                    if (LIVE_IS_MS365) {
+                        if (isFinished || isMs365SpeedStale(run)) {
+                            speedHintEl.textContent = '';
+                        } else {
+                            speedHintEl.textContent = ms365SpeedHint(run);
+                        }
+                    } else if (graphPhase) {
                         speedHintEl.textContent = 'Reading from Microsoft 365';
                     } else if (isFinished || !(run.speed_bytes_per_sec || run.bytes_processed)) {
                         speedHintEl.textContent = '';
@@ -1240,7 +1288,11 @@ function updateProgress() {
                 const graphRequestsValue = document.getElementById('graphRequestsValue');
                 if (graphActivityStat && graphRequestsValue) {
                     const graphRequests = parseInt(run.graph_requests_total, 10) || 0;
-                    if (graphPhase && graphRequests > 0) {
+                    const showGraphStat = LIVE_IS_MS365
+                        ? ((run.speed_metric_kind === 'graph_requests' && !isMs365SpeedStale(run))
+                            || (graphPhase && graphRequests > 0))
+                        : (graphPhase && graphRequests > 0);
+                    if (showGraphStat) {
                         graphActivityStat.classList.remove('hidden');
                         graphRequestsValue.textContent = formatCount(graphRequests);
                     } else {
@@ -1257,6 +1309,21 @@ function updateProgress() {
                         itemsSpeedValueEl.classList.remove('highlight');
                         if (itemsSpeedHintEl) {
                             itemsSpeedHintEl.textContent = '';
+                        }
+                    } else if (LIVE_IS_MS365) {
+                        const speedKind = run.speed_metric_kind || 'none';
+                        if (speedKind === 'items' && !isMs365SpeedStale(run)) {
+                            itemsSpeedValueEl.textContent = '—';
+                            itemsSpeedValueEl.classList.remove('highlight');
+                            if (itemsSpeedHintEl) itemsSpeedHintEl.textContent = '';
+                        } else {
+                            const itemsPerSec = (!isMs365SpeedStale(run) && run.items_per_sec) ? (parseInt(run.items_per_sec, 10) || 0) : 0;
+                            itemsSpeedValueEl.textContent = itemsPerSec ? (formatCount(itemsPerSec) + '/s') : '—';
+                            if (itemsPerSec) itemsSpeedValueEl.classList.add('highlight');
+                            else itemsSpeedValueEl.classList.remove('highlight');
+                            if (itemsSpeedHintEl) {
+                                itemsSpeedHintEl.textContent = itemsPerSec ? 'Enumeration rate' : '';
+                            }
                         }
                     } else {
                         let itemsPerSec = run.items_per_sec || 0;
