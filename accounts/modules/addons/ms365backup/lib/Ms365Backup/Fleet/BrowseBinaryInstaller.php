@@ -278,27 +278,58 @@ final class BrowseBinaryInstaller
             ];
         }
 
-        if (@copy($source, $dest)) {
-            return ['ok' => true, 'error' => '', 'hint' => '', 'diagnostics' => $diagnostics];
+        // Stage beside the destination, then rename into place. In-place copy() fails with
+        // ETXTBSY when restore browse is running the current binary.
+        $staging = self::stagingPath($dest);
+        @unlink($staging);
+
+        if (!@copy($source, $staging)) {
+            $last = error_get_last();
+            $copyDetail = is_array($last) ? (string) ($last['message'] ?? '') : '';
+            @unlink($staging);
+
+            return [
+                'ok' => false,
+                'error' => 'Failed to stage browse binary' . ($copyDetail !== '' ? ': ' . $copyDetail : ''),
+                'hint' => self::installFailureHint($copyDetail, dirname($dest)),
+                'diagnostics' => $diagnostics,
+            ];
         }
 
-        if (self::identicalExisting($source, $dest)) {
-            return ['ok' => true, 'error' => '', 'hint' => '', 'diagnostics' => $diagnostics];
+        @chmod($staging, 0755);
+
+        if (!@rename($staging, $dest)) {
+            $last = error_get_last();
+            $renameDetail = is_array($last) ? (string) ($last['message'] ?? '') : '';
+            @unlink($staging);
+
+            return [
+                'ok' => false,
+                'error' => 'Failed to activate browse binary' . ($renameDetail !== '' ? ': ' . $renameDetail : ''),
+                'hint' => self::installFailureHint($renameDetail, dirname($dest)),
+                'diagnostics' => $diagnostics,
+            ];
         }
 
-        $last = error_get_last();
-        $copyDetail = is_array($last) ? (string) ($last['message'] ?? '') : '';
-        $error = 'Failed to copy browse binary';
-        if ($copyDetail !== '') {
-            $error .= ': ' . $copyDetail;
+        return ['ok' => true, 'error' => '', 'hint' => '', 'diagnostics' => $diagnostics];
+    }
+
+    private static function stagingPath(string $dest): string
+    {
+        return $dest . '.new';
+    }
+
+    private static function installFailureHint(string $detail, string $dir): string
+    {
+        $lower = strtolower($detail);
+        if (str_contains($lower, 'text file busy') || str_contains($lower, 'device or resource busy')) {
+            return 'A browse worker may still be running — check: pgrep -af ms365-backup-worker';
+        }
+        if (str_contains($lower, 'permission denied') || str_contains($lower, 'not writable')) {
+            return self::chownHint($dir);
         }
 
-        return [
-            'ok' => false,
-            'error' => $error,
-            'hint' => self::chownHint(dirname($dest)),
-            'diagnostics' => $diagnostics,
-        ];
+        return self::chownHint($dir);
     }
 
     private static function canInstallTo(string $dest): bool

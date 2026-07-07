@@ -114,6 +114,11 @@ post_deploy_checks() {
   log "Post-deploy: ensure worker repo path writable by $WEB_USER"
   chown_paths "$WORKER_REPO_PATH"
 
+  log "Post-deploy: browse binary installer test"
+  if ! php "$PROD_ROOT/modules/addons/ms365backup/tests/ms365_browse_binary_installer_test.php"; then
+    fail "Browse binary installer test failed"
+  fi
+
   log "Post-deploy: browse binary sync"
   if ! php "$PROD_ROOT/modules/addons/ms365backup/bin/ms365_install_browse_binary.php"; then
     fail "Browse binary sync failed — run: php $PROD_ROOT/modules/addons/ms365backup/bin/ms365_browse_binary_diag.php"

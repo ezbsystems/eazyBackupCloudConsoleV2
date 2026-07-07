@@ -84,6 +84,30 @@ assert_true(
     'status includes destination path'
 );
 
+$ref = new ReflectionClass(BrowseBinaryInstaller::class);
+$install = $ref->getMethod('installArtifact');
+$install->setAccessible(true);
+
+$sourceV2 = $tmpdir . '/source-worker-v2';
+file_put_contents($sourceV2, "#!/bin/sh\necho worker-v2\n");
+@chmod($sourceV2, 0755);
+
+$atomic = $install->invoke(null, $sourceV2, $dest);
+assert_true(
+    ($atomic['ok'] ?? false) === true,
+    'installArtifact replaces destination via atomic .new + rename'
+);
+assert_true(
+    strpos((string) file_get_contents($dest), 'worker-v2') !== false,
+    'destination content updated after atomic install'
+);
+assert_true(
+    !is_file($dest . '.new'),
+    'staging .new file removed after successful install'
+);
+
+@unlink($sourceV2);
+
 @unlink($source);
 @unlink($dest);
 @rmdir($tmpdir);
