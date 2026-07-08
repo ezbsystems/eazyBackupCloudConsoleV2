@@ -119,10 +119,11 @@ post_deploy_checks() {
     fail "Browse binary installer test failed"
   fi
 
-  log "Post-deploy: browse binary sync"
-  if ! php "$PROD_ROOT/modules/addons/ms365backup/bin/ms365_install_browse_binary.php"; then
+  log "Post-deploy: browse binary sync (as $WEB_USER so WHMCS can update in place)"
+  if ! sudo -u "$WEB_USER" php "$PROD_ROOT/modules/addons/ms365backup/bin/ms365_install_browse_binary.php"; then
     fail "Browse binary sync failed — run: php $PROD_ROOT/modules/addons/ms365backup/bin/ms365_browse_binary_diag.php"
   fi
+  chown_paths "$WORKER_REPO_PATH/ms365-backup-worker"
 
   log "Post-deploy: health check (includes browse binary version)"
   if ! php "$PROD_ROOT/modules/addons/ms365backup/bin/ms365_prod_health_check.php"; then

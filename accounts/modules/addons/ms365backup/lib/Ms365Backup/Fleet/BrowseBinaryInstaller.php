@@ -68,6 +68,7 @@ final class BrowseBinaryInstaller
 
         if (self::identicalExisting($source, $dest)) {
             @chmod($dest, 0755);
+            self::ensureWebOwnership($dest);
             $installedSha = is_file($dest) ? (hash_file('sha256', $dest) ?: '') : $expectedSha;
 
             return self::finish($releaseId, self::result(
@@ -98,6 +99,7 @@ final class BrowseBinaryInstaller
         }
 
         @chmod($dest, 0755);
+        self::ensureWebOwnership($dest);
         $installedSha = hash_file('sha256', $dest) ?: $expectedSha;
 
         return self::finish($releaseId, self::result(
@@ -297,6 +299,7 @@ final class BrowseBinaryInstaller
         }
 
         @chmod($staging, 0755);
+        self::ensureWebOwnership($staging);
 
         if (!@rename($staging, $dest)) {
             $last = error_get_last();
@@ -440,10 +443,40 @@ final class BrowseBinaryInstaller
 
     private static function chownHint(string $dir): string
     {
-        $webUser = 'www-data';
+        $webUser = self::webUser();
 
         return 'chown -R ' . $webUser . ':' . $webUser . ' ' . $dir
             . ' (PHP runs as ' . self::phpUser() . ')';
+    }
+
+    private static function webUser(): string
+    {
+        return 'www-data';
+    }
+
+    /** Root-owned browse binaries block WHMCS (www-data) from future fleet syncs. */
+    private static function ensureWebOwnership(string $path): void
+    {
+        if (!is_file($path) || !function_exists('posix_getpwnam') || !function_exists('posix_getgrnam')) {
+            return;
+        }
+        $webUser = self::webUser();
+        $pw = posix_getpwnam($webUser);
+        $gr = posix_getgrnam($webUser);
+        if (!is_array($pw) || !is_array($gr)) {
+            return;
+        }
+        $uid = (int) ($pw['uid'] ?? -1);
+        $gid = (int) ($gr['gid'] ?? -1);
+        if ($uid < 0 || $gid < 0) {
+            return;
+        }
+        $owner = @fileowner($path);
+        if ($owner === false || (int) $owner === $uid) {
+            return;
+        }
+        @chown($path, $uid);
+        @chgrp($path, $gid);
     }
 
     /**
