@@ -24,8 +24,9 @@ type calendarScanner struct {
 	seenEventIDs  map[string]bool
 	priorState    CalendarInventoryState
 	inventoryPath string
-	enrichQueue   []calendarEventMeta
-	totalStored   int
+	enrichQueue            []calendarEventMeta
+	totalStored            int
+	skippedWedgePartitions int
 }
 
 type calendarEventMeta struct {
@@ -145,9 +146,16 @@ func (s *calendarScanner) run(ctx context.Context) (*calendarScanResult, error) 
 		return nil, err
 	}
 	res.events = s.totalStored
-	res.state.Complete = true
-	res.state.ScanMode = "partition"
 	res.state.LastSuccessfulTier = 3
+	if s.skippedWedgePartitions > 0 {
+		res.state.Complete = false
+		res.state.ScanMode = "partition_partial"
+		s.logf("warning", "Calendar tier 3 finished with %d wedged partition(s) skipped (Graph duplicate-page defect) calendar=%s",
+			s.skippedWedgePartitions, truncateID(s.calendarID))
+	} else {
+		res.state.Complete = true
+		res.state.ScanMode = "partition"
+	}
 	for _, m := range s.enrichQueue {
 		res.state.LastModifiedWatermark = maxLastModified(res.state.LastModifiedWatermark, []map[string]any{
 			{"lastModifiedDateTime": m.LastModified},
@@ -163,7 +171,10 @@ func (s *calendarScanner) scanPartitions(ctx context.Context, ranges []timeRange
 			if _, ok := err.(*graph.GraphPaginationError); ok {
 				sub := s.subdivide(r)
 				if len(sub) == 0 {
-					return &CalendarInventoryIncompleteError{CalendarID: s.calendarID, Reason: "hour partition still wedged"}
+					s.skippedWedgePartitions++
+					s.logf("warning", "Calendar partition wedge skipped (Graph duplicate-page defect) range=%s..%s calendar=%s",
+						formatGraphDateTime(r.Start), formatGraphDateTime(r.End), truncateID(s.calendarID))
+					continue
 				}
 				if err := s.scanPartitions(ctx, sub); err != nil {
 					return err
