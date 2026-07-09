@@ -78,7 +78,33 @@ final class RestoreTreeBrowseService
 
         self::writeCache($cacheKey, $result);
 
+        if (($result['entries'] ?? []) === [] && str_contains($path, '/sites/') && str_contains($path, '/drives')) {
+            self::debugLog('H-empty-sp-drives', 'SharePoint drives browse returned no entries', [
+                'manifest_id' => $manifestId,
+                'path' => $path,
+                'child_run_id' => is_array($childRun) ? (string) ($childRun['id'] ?? '') : '',
+                'physical_key' => is_array($childRun) ? (string) ($childRun['physical_key'] ?? '') : '',
+                'batch_run_id' => $batchRunId,
+            ]);
+        }
+
         return $result;
+    }
+
+    /** @param array<string, mixed> $data */
+    private static function debugLog(string $hypothesisId, string $message, array $data = []): void
+    {
+        // #region agent log
+        $payload = [
+            'sessionId' => '294b65',
+            'hypothesisId' => $hypothesisId,
+            'location' => 'RestoreTreeBrowseService.php',
+            'message' => $message,
+            'data' => $data,
+            'timestamp' => (int) round(microtime(true) * 1000),
+        ];
+        @file_put_contents('/var/www/eazybackup.ca/.cursor/debug-294b65.log', json_encode($payload) ?: '{}', FILE_APPEND);
+        // #endregion
     }
 
     /**
