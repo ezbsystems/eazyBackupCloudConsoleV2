@@ -60,7 +60,7 @@ final class RestoreTreeBrowseService
             }
         }
 
-        $cacheKey = hash('sha256', 'v17-browse' . "\0" . $manifestId . "\0" . $path . "\0" . $limit . "\0" . $offset);
+        $cacheKey = hash('sha256', 'v18-sharepoint-folder-labels' . "\0" . $manifestId . "\0" . $path . "\0" . $limit . "\0" . $offset);
         $cached = self::readCache($cacheKey);
         if ($cached !== null) {
             return $cached;
@@ -625,6 +625,13 @@ final class RestoreTreeBrowseService
                 );
             }
             $label = self::resolveSharePointDriveLabel($label, $name, $entryPath, $childRun);
+            if ($label !== $name
+                && self::isDriveContentPath($entryPath)
+                && str_contains($entryPath, '/sites/')
+                && !self::isSharePointDriveRootEntry($entryPath, $name)
+            ) {
+                $label = $name;
+            }
             if ($label === '') {
                 continue;
             }

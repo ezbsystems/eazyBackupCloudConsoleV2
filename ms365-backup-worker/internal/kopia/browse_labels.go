@@ -98,11 +98,6 @@ func browseLabel(
 		}
 		return browseLabelResult{Label: opaqueDriveFolderFallback(name)}
 	}
-	if entryType == "folder" && isDriveContentBrowsePath(childPath) && strings.Contains(childPath, "/sites/") {
-		if label := sharePointDriveFolderDisplayName(ctx, root, childPath); label != "" {
-			return browseLabelResult{Label: label}
-		}
-	}
 	if isGuidLike(name) {
 		if isDriveContentBrowsePath(childPath) {
 			if entryType == "folder" {

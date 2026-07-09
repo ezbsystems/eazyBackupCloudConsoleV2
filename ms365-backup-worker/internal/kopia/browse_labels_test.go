@@ -456,3 +456,78 @@ func TestFastBrowseLabelMailMessage(t *testing.T) {
 		t.Fatalf("label: got %q", got.Label)
 	}
 }
+
+func sharePointDriveBrowseTestRoot(t *testing.T) (context.Context, kopiafs.Directory, string, string) {
+	t.Helper()
+	ctx := context.Background()
+	driveID := "b!4QhyKa8-tEWynEClEl1o_5NqbjTYb1VGsOSs-ZXNBet47NJxJZINR4Q_sTH8rPRj"
+	tenant := "4728969e-5eff-4981-b0c6-46eadac79cfe"
+	site := "stchf_sharepoint_com_guid_guid"
+	catalog := []byte(`{"value":[{"id":"` + driveID + `","name":"Documents"}]}`)
+	root := newMemDir("", map[string]kopiafs.Entry{
+		tenant: newMemDir(tenant, map[string]kopiafs.Entry{
+			"sites": newMemDir("sites", map[string]kopiafs.Entry{
+				site: newMemDir(site, map[string]kopiafs.Entry{
+					"drives.json": newMemFile("drives.json", catalog),
+					"drives": newMemDir("drives", map[string]kopiafs.Entry{
+						driveID: newMemDir(driveID, map[string]kopiafs.Entry{
+							"content": newMemDir("content", map[string]kopiafs.Entry{
+								"Marketing": newMemDir("Marketing", map[string]kopiafs.Entry{}),
+								"Documents": newMemDir("Documents", map[string]kopiafs.Entry{
+									"Q1_Reports": newMemDir("Q1_Reports", map[string]kopiafs.Entry{}),
+								}),
+							}),
+						}),
+					}),
+				}),
+			}),
+		}),
+	})
+	base := tenant + "/sites/" + site
+	return ctx, root, base, driveID
+}
+
+func TestBrowseLabelSharePointContentFolders(t *testing.T) {
+	ctx, root, base, driveID := sharePointDriveBrowseTestRoot(t)
+
+	cases := []struct {
+		name    string
+		path    string
+		segName string
+		want    string
+	}{
+		{
+			name:    "drive root",
+			path:    base + "/drives/" + driveID,
+			segName: driveID,
+			want:    "Documents",
+		},
+		{
+			name:    "nested Marketing",
+			path:    base + "/drives/" + driveID + "/content/Marketing",
+			segName: "Marketing",
+			want:    "Marketing",
+		},
+		{
+			name:    "deep Q1_Reports",
+			path:    base + "/drives/" + driveID + "/content/Documents/Q1_Reports",
+			segName: "Q1_Reports",
+			want:    "Q1_Reports",
+		},
+		{
+			name:    "legitimate Documents segment",
+			path:    base + "/drives/" + driveID + "/content/Documents",
+			segName: "Documents",
+			want:    "Documents",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := browseLabel(ctx, nil, nil, root, tc.path, tc.segName, "folder")
+			if got.Label != tc.want {
+				t.Fatalf("label: got %q want %q", got.Label, tc.want)
+			}
+		})
+	}
+}

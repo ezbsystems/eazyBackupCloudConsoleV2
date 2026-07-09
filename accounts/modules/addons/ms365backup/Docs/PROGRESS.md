@@ -2,14 +2,24 @@
 
 **Purpose:** Single handoff document so the next agent knows where work stopped. Update this file at the **end of every session** (or after each meaningful milestone).
 
-**Last updated:** 2026-07-07  
+**Last updated:** 2026-07-09  
 **Module version (ms365backup):** 1.52.1  
 **Cloudstorage (e3) version:** 2.2.0  
-**Worker version (ms365-backup-worker):** 0.3.51 (built; browse binary on WHMCS host; fleet deploy via Releases)
+**Worker version (ms365-backup-worker):** 0.3.65 (built; browse binary on WHMCS host; fleet deploy via Releases)
 
 ---
 
 ## Session log
+
+### 2026-07-09 — SharePoint restore browse nested folder labels
+
+- **Problem:** Nested folders under SharePoint **Files** in the restore wizard all displayed **"Documents"** (the document library name) instead of their real folder names (e.g. Marketing, Q1_Reports). Files displayed correctly; only browse folder labels were wrong.
+- **Root cause:** `browse_labels.go` called `sharePointDriveFolderDisplayName()` for every folder under `/sites/.../drives/.../content/`, not just the drive root. `sharePointDriveIDFromContentPath()` always extracted the drive ID regardless of depth, so every nested folder got the library name from `drives.json`.
+- **Fix (worker 0.3.65):** Removed the erroneous nested-content block in `browseLabel()`; nested SharePoint content folders now fall through to the default `name` path segment. Drive root labeling via `isSharePointDriveRootFolder` + `drives.json` unchanged.
+- **Tests:** `browse_labels_test.go` — `TestBrowseLabelSharePointContentFolders` (drive root → Documents, nested Marketing, deep Q1_Reports, legitimate Documents segment). `go test ./internal/kopia/...` pass.
+- **PHP:** Browse cache key bumped `v17-browse` → `v18-sharepoint-folder-labels` in `RestoreTreeBrowseService.php`. Optional hardening in `enrichEntries()`: nested content folders under `/sites/.../content/` prefer `name` over catalog label when they differ.
+- **Deploy:** Built `ms365-backup-worker` 0.3.65 at `/var/www/eazybackup.ca/ms365-backup-worker/ms365-backup-worker` (local build; fleet release still 0.3.64).
+- **Verify:** Restore wizard → SharePoint site → Files → expand document library — nested folders should show real names, not repeated Documents. Drive root still shows Documents/Shared Documents. Spot-check OneDrive and SharePoint Lists browse. **No backup re-run required**; fix applies to existing snapshots.
 
 ### 2026-07-07 — MS365 live speed metrics (phase-aware EMA)
 
