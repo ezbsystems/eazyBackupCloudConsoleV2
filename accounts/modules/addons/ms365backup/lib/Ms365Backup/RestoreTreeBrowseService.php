@@ -29,6 +29,7 @@ final class RestoreTreeBrowseService
         'onedrive' => 'OneDrive',
         'content' => 'Files',
         'lists' => 'Lists',
+        'items' => 'Items',
         'messages' => 'Messages',
     ];
 
@@ -60,7 +61,7 @@ final class RestoreTreeBrowseService
             }
         }
 
-        $cacheKey = hash('sha256', 'v18-sharepoint-folder-labels' . "\0" . $manifestId . "\0" . $path . "\0" . $limit . "\0" . $offset);
+        $cacheKey = hash('sha256', 'v19-sharepoint-list-labels' . "\0" . $manifestId . "\0" . $path . "\0" . $limit . "\0" . $offset);
         $cached = self::readCache($cacheKey);
         if ($cached !== null) {
             return $cached;

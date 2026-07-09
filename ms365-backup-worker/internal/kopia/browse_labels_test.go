@@ -378,6 +378,58 @@ func TestSharePointListFolderDisplayNameFromCatalog(t *testing.T) {
 	}
 }
 
+func TestIsSharePointListFolderExcludesItemsContainer(t *testing.T) {
+	listID := "list-guid-abc"
+	if !isSharePointListFolder("tenant/sites/site1/lists/" + listID) {
+		t.Fatal("expected list folder path")
+	}
+	if isSharePointListFolder("tenant/sites/site1/lists/"+listID+"/items") {
+		t.Fatal("items container should not be treated as a list folder")
+	}
+}
+
+func TestBrowseLabelSharePointItemsFolder(t *testing.T) {
+	itemsPath := "sites/site1/lists/list1/items"
+	got := browseLabel(context.Background(), nil, nil, nil, itemsPath, "items", "folder")
+	if got.Label != "Items" {
+		t.Fatalf("browseLabel items folder: got %q", got.Label)
+	}
+	gotFast := fastBrowseLabel(itemsPath, "items", "folder")
+	if gotFast.Label != "Items" {
+		t.Fatalf("fastBrowseLabel items folder: got %q", gotFast.Label)
+	}
+}
+
+func TestSharePointListIDFromPath(t *testing.T) {
+	path := "tenant/sites/site1/lists/list-guid-abc/items"
+	if got := sharePointListIDFromPath(path); got != "list-guid-abc" {
+		t.Fatalf("list id: got %q", got)
+	}
+	siteID, listID := sharePointSiteAndListIDs(path, "items")
+	if siteID != "site1" || listID != "list-guid-abc" {
+		t.Fatalf("site/list ids: got %q %q", siteID, listID)
+	}
+}
+
+func TestNeedsFullSharePointListLabel(t *testing.T) {
+	listItemPath := "tenant/sites/site1/lists/list1/items/10.json"
+	if !needsFullSharePointListLabel(listItemPath, "file") {
+		t.Fatal("list item json should require full labeling")
+	}
+	listFolderPath := "tenant/sites/site1/lists/list1"
+	if !needsFullSharePointListLabel(listFolderPath, "folder") {
+		t.Fatal("list folder should require full labeling")
+	}
+	itemsPath := "tenant/sites/site1/lists/list1/items"
+	if needsFullSharePointListLabel(itemsPath, "folder") {
+		t.Fatal("items container should not require full list-folder labeling")
+	}
+	mailPath := "tenant/users/u1/mail/inbox/msg1.json"
+	if needsFullSharePointListLabel(mailPath, "file") {
+		t.Fatal("mail message should not require SharePoint list labeling")
+	}
+}
+
 func TestSharePointDriveRootFolderDisplayNameFromCatalog(t *testing.T) {
 	ctx := context.Background()
 	driveID := "b!4QhyKa8-tEWynEClEl1o_5NqbjTYb1VGsOSs-ZXNBet47NJxJZINR4Q_sTH8rPRj"
@@ -441,11 +493,14 @@ func TestSharePointListItemLabels(t *testing.T) {
 	}
 }
 
-func TestFastBrowseLabelSharePointListItem(t *testing.T) {
+func TestFastBrowseLabelSharePointListItemStillUsesFallback(t *testing.T) {
 	path := "tenant/sites/site1/lists/list1/items/item42.json"
 	got := fastBrowseLabel(path, "item42.json", "file")
 	if got.Label != "List item item42" {
-		t.Fatalf("label: got %q", got.Label)
+		t.Fatalf("fastBrowseLabel alone: got %q", got.Label)
+	}
+	if !needsFullSharePointListLabel(path, "file") {
+		t.Fatal("browse.go should route list items through full labeling")
 	}
 }
 

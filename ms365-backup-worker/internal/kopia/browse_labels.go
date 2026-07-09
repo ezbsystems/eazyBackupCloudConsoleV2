@@ -208,6 +208,8 @@ func segmentLabel(segment string) string {
 		return "Files"
 	case "lists":
 		return "Lists"
+	case "items":
+		return "Items"
 	case "messages":
 		return "Messages"
 	default:
@@ -597,12 +599,15 @@ func isSharePointListFolder(path string) bool {
 		return false
 	}
 	parts := strings.Split(lower, "/")
+	if len(parts) > 0 && parts[len(parts)-1] == "items" {
+		return false
+	}
 	for i, part := range parts {
 		if part != "lists" || i+1 >= len(parts) {
 			continue
 		}
 		segment := parts[i+1]
-		return segment != "" && segment != "items"
+		return segment != "" && segment != "items" && segment != "lists.json"
 	}
 	return false
 }
@@ -612,6 +617,13 @@ func isSharePointListItemPath(path string) bool {
 	return strings.Contains(lower, "/sites/") && strings.Contains(lower, "/lists/") &&
 		strings.Contains(lower, "/items/") && strings.HasSuffix(lower, ".json") &&
 		!strings.HasSuffix(lower, ".removed.json")
+}
+
+func needsFullSharePointListLabel(childPath, entryType string) bool {
+	if isSharePointListItemPath(childPath) {
+		return true
+	}
+	return entryType == "folder" && isSharePointListFolder(childPath)
 }
 
 func sharePointListFolderDisplayName(ctx context.Context, root kopiafs.Directory, folderPath, name string) string {
@@ -802,14 +814,27 @@ func sharePointSiteIDFromPath(path string) string {
 	return ""
 }
 
-func sharePointSiteAndListIDs(folderPath, name string) (string, string) {
-	parts := strings.Split(strings.Trim(folderPath, "/"), "/")
+func sharePointListIDFromPath(path string) string {
+	parts := strings.Split(strings.Trim(path, "/"), "/")
 	for i, part := range parts {
-		if part == "sites" && i+2 < len(parts) && parts[i+2] == "lists" {
-			return parts[i+1], name
+		if part != "lists" || i+1 >= len(parts) {
+			continue
+		}
+		segment := parts[i+1]
+		if segment != "" && segment != "items" && segment != "lists.json" {
+			return segment
 		}
 	}
-	return "", name
+	return ""
+}
+
+func sharePointSiteAndListIDs(folderPath, name string) (string, string) {
+	siteID := sharePointSiteIDFromPath(folderPath)
+	listID := sharePointListIDFromPath(folderPath)
+	if listID == "" {
+		listID = name
+	}
+	return siteID, listID
 }
 
 func sharePointDriveIDFromContentPath(path string) string {

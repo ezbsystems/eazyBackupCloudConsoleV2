@@ -138,7 +138,7 @@ func browseWithRepo(ctx context.Context, req BrowseRequest, acquire repoAcquirer
 			size = f.Size()
 		}
 		var labelInfo browseLabelResult
-		if useFastLabels {
+		if useFastLabels && !needsFullSharePointListLabel(childPath, entryType) {
 			labelInfo = fastBrowseLabel(childPath, name, entryType)
 		} else {
 			labelInfo = browseLabel(ctx, rep, man, root, childPath, name, entryType)
