@@ -59,6 +59,7 @@ func SyncSharePointLists(ctx context.Context, client *graph.Client, opts SharePo
 	stats := map[string]int{"lists": 0, "items": 0, "removed": 0, "skipped_list_jobs": 0}
 	deltaOut := map[string]string{}
 	var warnings []string
+	runningItems := 0
 
 	lists, err := client.Paginate(ctx, fmt.Sprintf("/sites/%s/lists", opts.SiteID), map[string]string{
 		"$select": "id,displayName,list,webUrl",
@@ -87,18 +88,19 @@ func SyncSharePointLists(ctx context.Context, client *graph.Client, opts SharePo
 		if opts.DeltaStates != nil {
 			priorDelta = opts.DeltaStates[listID]
 		}
-		n, rm, warn, deltaLink, err := syncListDelta(ctx, client, opts, siteBase, listID, priorDelta)
+		n, rm, warn, deltaLink, err := syncListDelta(ctx, client, opts, siteBase, listID, priorDelta, runningItems)
 		if err != nil {
 			return nil, fmt.Errorf("list %s: %w", listID, err)
 		}
-		stats["items"] += n
+		runningItems += n
+		stats["items"] = runningItems
 		stats["removed"] += rm
 		warnings = append(warnings, warn...)
 		if deltaLink != "" {
 			deltaOut[listID] = deltaLink
 		}
 		if opts.OnProgress != nil {
-			opts.OnProgress(stats["items"], stats["items"])
+			opts.OnProgress(runningItems, runningItems)
 		}
 	}
 
@@ -106,7 +108,7 @@ func SyncSharePointLists(ctx context.Context, client *graph.Client, opts SharePo
 		Stats:       stats,
 		DeltaStates: deltaOut,
 		FileCount:   opts.Staging.EntryCount(),
-		ItemsDone:   stats["items"],
+		ItemsDone:   runningItems,
 		Warnings:    warnings,
 	}, nil
 }
@@ -138,7 +140,7 @@ func syncSingleListJob(ctx context.Context, client *graph.Client, opts SharePoin
 		if opts.DeltaStates != nil {
 			priorDelta = opts.DeltaStates[listID]
 		}
-		n, rm, warn, deltaLink, err := syncListDelta(ctx, client, opts, siteBase, listID, priorDelta)
+		n, rm, warn, deltaLink, err := syncListDelta(ctx, client, opts, siteBase, listID, priorDelta, 0)
 		if err != nil {
 			return nil, fmt.Errorf("list %s: %w", listID, err)
 		}
@@ -168,12 +170,16 @@ func syncListDelta(
 	client *graph.Client,
 	opts SharePointListsSyncOptions,
 	siteBase, listID, priorDelta string,
+	runningItems int,
 ) (items, removed int, warnings []string, deltaLink string, err error) {
 	deltaPath := fmt.Sprintf("/sites/%s/lists/%s/items/delta", opts.SiteID, listID)
 	outcome := &graph.PaginationOutcome{}
 	monitor := paginationMonitorForJob(opts.Job, "sharepoint_lists", "sharepoint_lists:"+listID, graphLog(opts.Log))
 	deltaOpts := &graph.DeltaPaginateOptions{Monitor: monitor, Outcome: outcome, Expand: ListItemExpand}
-	synced, newDelta, err := paginateDeltaResilient(ctx, client, deltaPath, priorDelta, ListItemSelect, 200, nil, deltaOpts)
+	onPage := func(pageItems int) {
+		reportSharePointListProgress(opts, runningItems+pageItems)
+	}
+	synced, newDelta, err := paginateDeltaResilient(ctx, client, deltaPath, priorDelta, ListItemSelect, 200, onPage, deltaOpts)
 	if err != nil {
 		return 0, 0, nil, "", err
 	}
@@ -316,6 +322,15 @@ func storeListItems(opts SharePointListsSyncOptions, siteBase, listID string, it
 		stored++
 	}
 	return stored, removed
+}
+
+func reportSharePointListProgress(opts SharePointListsSyncOptions, itemsDone int) {
+	if opts.OnProgress == nil || itemsDone < 0 {
+		return
+	}
+	// items_total is unknown until each list finishes; use done so the graph_sync
+	// stall watchdog sees per-page movement during long delta pagination.
+	opts.OnProgress(itemsDone, itemsDone)
 }
 
 func excludedListSet(ids []string) map[string]bool {
