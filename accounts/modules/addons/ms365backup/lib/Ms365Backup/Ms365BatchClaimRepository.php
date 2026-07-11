@@ -381,6 +381,7 @@ final class Ms365BatchClaimRepository
         // running claims, so finished-but-not-completed batches stop churning
         // through the claim pool ("Tenant record not found" requeue loop).
         self::completeFinishedClaims();
+        $reaped = self::reapStalledBatchChildren();
         $now = time();
         $heartbeatGap = Ms365EngineConfig::batchHeartbeatGapSeconds();
         $heartbeatCutoff = $now - $heartbeatGap;
@@ -468,6 +469,84 @@ final class Ms365BatchClaimRepository
         $reaped += self::recoverStrandedFailedBatches();
 
         return $reaped;
+    }
+
+    /**
+     * Re-queue individual batch children with stale throughput or expired leases even when
+     * sibling children keep the batch claim's last_progress_at fresh.
+     *
+     * @return int children re-queued
+     */
+    public static function reapStalledBatchChildren(): int
+    {
+        if (!Capsule::schema()->hasTable('ms365_backup_runs')) {
+            return 0;
+        }
+        $now = time();
+        $progressCutoff = $now - Ms365BatchRunRepository::STALE_SILENCE_SECONDS;
+        $rows = Capsule::table('ms365_backup_runs')
+            ->where('status', 'running')
+            ->whereNotNull('e3_batch_run_id')
+            ->where('e3_batch_run_id', '!=', '')
+            ->get([
+                'id',
+                'e3_batch_run_id',
+                'last_progress_at',
+                'updated_at',
+                'items_done',
+                'items_total',
+                'bytes_hashed',
+                'bytes_uploaded',
+            ]);
+
+        $toRequeue = [];
+        foreach ($rows as $row) {
+            $runId = (string) ($row->id ?? '');
+            if ($runId === '') {
+                continue;
+            }
+            $child = (array) $row;
+            $freshness = Ms365BatchRunRepository::progressFreshnessAt($child);
+            $staleProgress = $freshness > 0 && $freshness < $progressCutoff;
+
+            $queue = Capsule::table('ms365_job_queue')->where('run_id', $runId)->first();
+            $staleLease = $queue !== null
+                && (string) ($queue->status ?? '') === 'running'
+                && (int) ($queue->lease_expires_at ?? 0) > 0
+                && (int) $queue->lease_expires_at < $now;
+
+            if ($staleProgress || $staleLease) {
+                $toRequeue[] = $runId;
+            }
+        }
+
+        $toRequeue = array_values(array_unique($toRequeue));
+        if ($toRequeue === []) {
+            return 0;
+        }
+
+        WorkerClaimService::requeueBackupRuns(
+            $toRequeue,
+            'Child progress stale (batch sibling heartbeats)'
+        );
+
+        // #region agent log
+        @file_put_contents(
+            '/var/www/eazybackup.ca/.cursor/debug-ffd102.log',
+            json_encode([
+                'sessionId' => 'ffd102',
+                'runId' => 'post-fix',
+                'hypothesisId' => 'H3',
+                'location' => 'Ms365BatchClaimRepository.php:reapStalledBatchChildren',
+                'message' => 'reaped stalled batch children',
+                'data' => ['count' => count($toRequeue), 'run_ids' => $toRequeue],
+                'timestamp' => (int) round(microtime(true) * 1000),
+            ], JSON_UNESCAPED_SLASHES) . "\n",
+            FILE_APPEND
+        );
+        // #endregion
+
+        return count($toRequeue);
     }
 
     /**

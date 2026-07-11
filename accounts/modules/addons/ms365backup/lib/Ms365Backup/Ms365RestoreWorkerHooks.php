@@ -343,8 +343,20 @@ final class Ms365RestoreWorkerHooks
         // Batch mode replays hub snapshots (percent=1, message "Graph sync: …") which are
         // not classified as heartbeats; still refresh liveness while graph enumeration runs.
         // Use persisted phase so stale graph_sync snapshots cannot mask Kopia upload stalls.
+        // Do not treat delta checkpoints as throughput when items/bytes did not advance.
+        $isCheckpointOnly = strtolower(trim($message)) === 'graph_sync checkpoint';
+        $storedItemsForDelta = (int) ($existing['items_done'] ?? 0);
+        $storedBytesHashedForDelta = (int) ($existing['bytes_hashed'] ?? 0);
+        $storedBytesUploadedForDelta = (int) ($existing['bytes_uploaded'] ?? 0);
+        $nextItemsDone = (int) ($fields['items_done'] ?? $storedItemsForDelta);
+        $nextBytesHashed = (int) ($fields['bytes_hashed'] ?? $storedBytesHashedForDelta);
+        $nextBytesUploaded = (int) ($fields['bytes_uploaded'] ?? $storedBytesUploadedForDelta);
+        $hasThroughputDelta = $nextItemsDone > $storedItemsForDelta
+            || $nextBytesHashed > $storedBytesHashedForDelta
+            || $nextBytesUploaded > $storedBytesUploadedForDelta;
         if (Ms365BatchRunRepository::isGraphBoundPhase($persistedPhase)
             && !self::hasKopiaActivity($existing)
+            && (!$isCheckpointOnly || $hasThroughputDelta)
             && \WHMCS\Database\Capsule::schema()->hasColumn('ms365_backup_runs', 'last_progress_at')) {
             $fields['last_progress_at'] = time();
         }

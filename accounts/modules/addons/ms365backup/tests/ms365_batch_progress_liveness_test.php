@@ -191,6 +191,31 @@ try {
         && (float) ($uploadGuard['percent'] ?? 0) >= 67.0,
         'backupProgress ignores stale graph_sync after Kopia upload started',
     );
+
+    $checkpointRunId = test_uuid('checkpoint-liveness');
+    $runIds[] = $checkpointRunId;
+    insertTestRun($checkpointRunId, [
+        'phase' => 'graph_sync',
+        'items_done' => 100,
+        'items_total' => 100,
+        'percent' => 35.0,
+        'updated_at' => $now - 900,
+        'last_progress_at' => $now - 900,
+    ]);
+    Ms365RestoreWorkerHooks::onProgress($checkpointRunId, [
+        'phase' => 'graph_sync',
+        'message' => 'graph_sync checkpoint',
+        'items_done' => 100,
+        'items_total' => 100,
+        'percent' => 35.0,
+        'checkpoint_delta_states' => ['mail' => ['folder1' => 'https://delta']],
+    ]);
+    $checkpointAfter = BackupRunRepository::get($checkpointRunId) ?? [];
+    $checkpointLastProgress = (int) ($checkpointAfter['last_progress_at'] ?? 0);
+    assert_true(
+        $checkpointLastProgress > 0 && $checkpointLastProgress < $now - 60,
+        'graph_sync checkpoint without throughput does not refresh last_progress_at',
+    );
 } finally {
     cleanupTestRows($runIds);
 }

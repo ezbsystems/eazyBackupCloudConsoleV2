@@ -421,6 +421,13 @@ func (w *WorkloadRunner) allowsWorkload(name string) bool {
 	if !w.enabled(name) {
 		return false
 	}
+	_, shardKey := ParsePhysicalKey(w.Job.PhysicalKey)
+	if strings.HasPrefix(shardKey, "mail:") {
+		// Mail folder shards (user:{id}#mail:{folderId}) must only sync that folder.
+		// Running contacts/tasks/onedrive on a mail shard wedges graph_sync for hours
+		// after the folder enumerates (observed: whale mailbox shards at 41174/41174).
+		return name == "mail" && w.scopeFlag("mail", true)
+	}
 	baseKey, _ := ParsePhysicalKey(w.Job.PhysicalKey)
 	kind, _, _ := strings.Cut(baseKey, ":")
 	switch name {

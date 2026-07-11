@@ -17,6 +17,7 @@ use Ms365Backup\DeltaStateRepository;
 use Ms365Backup\KopiaRepoBootstrapService;
 use Ms365Backup\Ms365BatchClaimRepository;
 use Ms365Backup\Ms365EngineConfig;
+use Ms365Backup\Ms365BatchRunRepository;
 use Ms365Backup\Ms365RestoreWorkerHooks;
 use Ms365Backup\TenantRecordRepository;
 use Ms365Backup\WorkerClaimService;
@@ -234,6 +235,46 @@ try {
         ->where('batch_run_id', $batch1)
         ->value('status');
     assert_true($terminalStatus === 'failed', 'batch reaper terminal-fails exhausted attempts');
+
+    $siblingBatch = test_uuid('sibling-batch');
+    $activeChild = test_uuid('active-child');
+    $staleChild = test_uuid('stale-child');
+    $runIds[] = $activeChild;
+    $runIds[] = $staleChild;
+    Ms365BatchClaimRepository::enqueueBatch($siblingBatch, $tenantRecordId, 55);
+    insertTestRun($activeChild, [
+        'e3_batch_run_id' => $siblingBatch,
+        'status' => 'running',
+        'phase' => 'graph_sync',
+        'last_progress_at' => $now,
+        'updated_at' => $now,
+    ]);
+    insertTestQueue($activeChild, ['status' => 'running', 'lease_expires_at' => $now + 600]);
+    insertTestRun($staleChild, [
+        'e3_batch_run_id' => $siblingBatch,
+        'status' => 'running',
+        'phase' => 'graph_sync',
+        'last_progress_at' => $now - Ms365BatchRunRepository::STALE_SILENCE_SECONDS - 60,
+        'updated_at' => $now - Ms365BatchRunRepository::STALE_SILENCE_SECONDS - 60,
+    ]);
+    insertTestQueue($staleChild, ['status' => 'running', 'lease_expires_at' => $now + 600]);
+    Capsule::table('ms365_batch_claims')
+        ->where('batch_run_id', $siblingBatch)
+        ->update([
+            'status' => 'running',
+            'worker_node_id' => $nodeA,
+            'running_tenant_key' => $tenantRecordId,
+            'claimed_at' => $now,
+            'lease_expires_at' => $now + 600,
+            'last_heartbeat_at' => $now,
+        ]);
+    $childReaped = Ms365BatchClaimRepository::reapStalledBatchChildren();
+    assert_true($childReaped >= 1, 'reapStalledBatchChildren requeues silent child');
+    $staleStatus = (string) Capsule::table('ms365_backup_runs')->where('id', $staleChild)->value('status');
+    $activeStatus = (string) Capsule::table('ms365_backup_runs')->where('id', $activeChild)->value('status');
+    assert_true($staleStatus === 'queued', 'stale child returns to queued');
+    assert_true($activeStatus === 'running', 'active sibling child stays running');
+    Capsule::table('ms365_batch_claims')->where('batch_run_id', $siblingBatch)->delete();
 
     Capsule::table('ms365_batch_claims')->where('batch_run_id', $batch1)->delete();
     Ms365BatchClaimRepository::enqueueBatch($batch1, $tenantRecordId, 50);

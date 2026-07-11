@@ -167,6 +167,25 @@ func TestAllowsSharePointForDriveShard(t *testing.T) {
 	}
 }
 
+func TestAllowsMailOnlyForMailFolderShard(t *testing.T) {
+	runner := &WorkloadRunner{
+		Job: &api.RunJob{
+			PhysicalKey: "user:ac77197d-3cc5-4302-b8c2-5ab33e44faec#mail:AAMkAGI2TG93AAA=",
+			GraphID:     "ac77197d-3cc5-4302-b8c2-5ab33e44faec",
+			Workloads:   map[string]bool{"mail": true, "onedrive": true, "contacts": true, "tasks": true},
+			Scope:       api.ScopeFlags{"mail": true, "onedrive": true, "contacts": true, "tasks": true},
+		},
+	}
+	if !runner.allowsWorkload("mail") {
+		t.Fatal("expected mail workload for mail folder shard")
+	}
+	for _, blocked := range []string{"onedrive", "contacts", "tasks", "calendar"} {
+		if runner.allowsWorkload(blocked) {
+			t.Fatalf("%s must not run on mail folder shard", blocked)
+		}
+	}
+}
+
 func TestSyncSharePointDriveShard(t *testing.T) {
 	siteID := "stchf.sharepoint.com,297208e1-3eaf-45b4-b29c-40a5125d68ff,346e6a93-6fd8-4655-b0e4-acf995cd05eb"
 	driveID := "b!4QhyKa8-tEWynEClEl1o_5NqbjTYb1VGsOSs-ZXNBet47NJxJZINR4Q_sTH8rPRj"
