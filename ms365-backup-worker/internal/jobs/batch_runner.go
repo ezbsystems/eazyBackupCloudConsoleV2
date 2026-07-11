@@ -50,11 +50,35 @@ func newBatchProgressHub(client *api.Client, batchRunID, tenantID string, minInt
 	}
 }
 
+func isGraphBoundPhase(phase string) bool {
+	switch strings.ToLower(strings.TrimSpace(phase)) {
+	case "", "graph_sync", "prior_snapshot":
+		return true
+	default:
+		return false
+	}
+}
+
+func isUploadLikePhase(phase string) bool {
+	switch strings.ToLower(strings.TrimSpace(phase)) {
+	case "kopia_upload", "upload":
+		return true
+	default:
+		return false
+	}
+}
+
 func (h *batchProgressHub) record(upd api.ProgressUpdate) {
 	if upd.RunID == "" {
 		return
 	}
 	h.mu.Lock()
+	if existing, ok := h.children[upd.RunID]; ok {
+		if isUploadLikePhase(existing.Phase) && isGraphBoundPhase(upd.Phase) {
+			h.mu.Unlock()
+			return
+		}
+	}
 	h.children[upd.RunID] = upd
 	h.mu.Unlock()
 }

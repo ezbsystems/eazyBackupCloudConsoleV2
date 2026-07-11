@@ -166,6 +166,31 @@ try {
         && (!Capsule::schema()->hasColumn('ms365_backup_runs', 'last_progress_at') || $batchLastProgress >= $now - 5),
         'batch hub snapshot style graph_sync refreshes last_progress_at',
     );
+
+    $uploadPhaseRunId = test_uuid('upload-phase-guard');
+    $runIds[] = $uploadPhaseRunId;
+    insertTestRun($uploadPhaseRunId, [
+        'phase' => 'upload',
+        'percent' => 67.0,
+        'items_done' => 5249,
+        'items_total' => 5251,
+        'bytes_uploaded' => 2199947564,
+        'stats_json' => '{"kopia_upload_started_at":' . ($now - 3600) . ',"kopia_snapshot_ms":758000}',
+        'updated_at' => $now - 120,
+    ]);
+    Ms365RestoreWorkerHooks::onProgress($uploadPhaseRunId, [
+        'phase' => 'graph_sync',
+        'percent' => 35.0,
+        'items_done' => 5249,
+        'items_total' => 5251,
+        'message' => 'Graph sync: sharepoint',
+    ]);
+    $uploadGuard = BackupRunRepository::get($uploadPhaseRunId) ?? [];
+    assert_true(
+        ($uploadGuard['phase'] ?? '') === 'upload'
+        && (float) ($uploadGuard['percent'] ?? 0) >= 67.0,
+        'backupProgress ignores stale graph_sync after Kopia upload started',
+    );
 } finally {
     cleanupTestRows($runIds);
 }

@@ -278,10 +278,13 @@ final class Ms365RestoreWorkerHooks
         }
         if ($rawPhase !== '') {
             $incomingPhase = strtolower(trim($rawPhase));
-            if (!($existingPhase === 'complete' && $existingManifest !== '' && in_array($incomingPhase, ['graph_sync', 'prior_snapshot', 'kopia_upload', 'kopia_snapshot'], true))) {
+            $blockCompleteReplay = $existingPhase === 'complete' && $existingManifest !== ''
+                && in_array($incomingPhase, ['graph_sync', 'prior_snapshot', 'kopia_upload', 'kopia_snapshot'], true);
+            if (!$blockCompleteReplay && !self::shouldBlockPhaseRegression($existingPhase, $existing, $incomingPhase)) {
                 $fields['phase'] = CustomerFacingTextSanitizer::scrub($rawPhase);
             }
         }
+        $persistedPhase = strtolower(trim((string) ($fields['phase'] ?? $existingPhase)));
 
         if (!$isHeartbeat) {
             $storedPercent = (float) ($existing['percent'] ?? 0);
@@ -339,7 +342,9 @@ final class Ms365RestoreWorkerHooks
 
         // Batch mode replays hub snapshots (percent=1, message "Graph sync: …") which are
         // not classified as heartbeats; still refresh liveness while graph enumeration runs.
-        if (Ms365BatchRunRepository::isGraphBoundPhase($effectivePhase)
+        // Use persisted phase so stale graph_sync snapshots cannot mask Kopia upload stalls.
+        if (Ms365BatchRunRepository::isGraphBoundPhase($persistedPhase)
+            && !self::hasKopiaActivity($existing)
             && \WHMCS\Database\Capsule::schema()->hasColumn('ms365_backup_runs', 'last_progress_at')) {
             $fields['last_progress_at'] = time();
         }
@@ -360,7 +365,15 @@ final class Ms365RestoreWorkerHooks
                 $statsPatch['graph_requests'] = max($incomingRequests, $existingChildRequests);
             }
         }
-        $phasePatch = self::buildPhaseTimingStatsPatch($existing, $rawPhase, time(), $isHeartbeat);
+        $phaseForStats = $rawPhase;
+        if ($rawPhase !== '' && self::shouldBlockPhaseRegression(
+            $existingPhase,
+            $existing,
+            strtolower(trim($rawPhase))
+        )) {
+            $phaseForStats = (string) ($existing['phase'] ?? '');
+        }
+        $phasePatch = self::buildPhaseTimingStatsPatch($existing, $phaseForStats, time(), $isHeartbeat);
         if ($phasePatch !== null) {
             $statsPatch = array_merge($statsPatch, $phasePatch);
         }
@@ -873,6 +886,30 @@ final class Ms365RestoreWorkerHooks
         $encoded = json_encode($merged, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
 
         return is_string($encoded) ? $encoded : null;
+    }
+
+  /** @param array<string, mixed> $existing */
+    private static function shouldBlockPhaseRegression(string $existingPhase, array $existing, string $incomingPhase): bool
+    {
+        if ($incomingPhase === '') {
+            return false;
+        }
+        $storedUploadLike = Ms365BatchRunRepository::isUploadLikePhase($existingPhase)
+            || self::hasKopiaActivity($existing);
+
+        return $storedUploadLike && Ms365BatchRunRepository::isGraphBoundPhase($incomingPhase);
+    }
+
+    /** @param array<string, mixed> $existing */
+    private static function hasKopiaActivity(array $existing): bool
+    {
+        if ((int) ($existing['bytes_uploaded'] ?? 0) > 0) {
+            return true;
+        }
+        $stats = self::decodeChildStatsJson($existing);
+
+        return ((int) ($stats['kopia_upload_started_at'] ?? 0)) > 0
+            || ((int) ($stats['kopia_snapshot_ms'] ?? 0)) > 0;
     }
 
     /**

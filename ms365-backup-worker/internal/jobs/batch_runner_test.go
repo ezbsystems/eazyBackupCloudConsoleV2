@@ -93,6 +93,16 @@ func TestBatchProgressHubRemove(t *testing.T) {
 	}
 }
 
+func TestBatchProgressHubRejectsGraphAfterUpload(t *testing.T) {
+	hub := newBatchProgressHub(nil, "batch-1", "tenant-a", time.Second)
+	hub.record(api.ProgressUpdate{RunID: "c1", Phase: "kopia_upload", Percent: 55, ItemsDone: 10, ItemsTotal: 100})
+	hub.record(api.ProgressUpdate{RunID: "c1", Phase: "graph_sync", Percent: 35, ItemsDone: 10, ItemsTotal: 100})
+	snap := hub.snapshot()
+	if len(snap) != 1 || snap[0].Phase != "kopia_upload" || snap[0].Percent != 55 {
+		t.Fatalf("expected upload phase preserved, got %+v", snap)
+	}
+}
+
 func TestBatchRunnerSkipsSuccessChildren(t *testing.T) {
 	var completed []string
 	var mu sync.Mutex
