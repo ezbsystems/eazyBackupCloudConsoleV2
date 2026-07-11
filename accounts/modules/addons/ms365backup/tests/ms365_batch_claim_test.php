@@ -276,6 +276,46 @@ try {
     assert_true($activeStatus === 'running', 'active sibling child stays running');
     Capsule::table('ms365_batch_claims')->where('batch_run_id', $siblingBatch)->delete();
 
+    $handoffBatch = test_uuid('handoff-batch');
+    $strandedChild = test_uuid('stranded-child');
+    $activeChild = test_uuid('handoff-active');
+    $batchRunIds[] = $handoffBatch;
+    $runIds[] = $strandedChild;
+    $runIds[] = $activeChild;
+    Ms365BatchClaimRepository::enqueueBatch($handoffBatch, $tenantRecordId, 50);
+    insertTestRun($strandedChild, [
+        'e3_batch_run_id' => $handoffBatch,
+        'status' => 'queued',
+        'phase' => 'upload',
+        'bytes_uploaded' => 1000,
+        'updated_at' => $now - 600,
+    ]);
+    insertTestQueue($strandedChild, ['status' => 'queued', 'scheduled_at' => $now - 600]);
+    insertTestRun($activeChild, [
+        'e3_batch_run_id' => $handoffBatch,
+        'status' => 'running',
+        'phase' => 'upload',
+        'updated_at' => $now,
+        'last_progress_at' => $now,
+    ]);
+    insertTestQueue($activeChild, ['status' => 'running', 'lease_expires_at' => $now + 600]);
+    Capsule::table('ms365_batch_claims')->where('batch_run_id', $handoffBatch)->update([
+        'status' => 'running',
+        'worker_node_id' => $nodeA,
+        'running_tenant_key' => $tenantRecordId,
+        'claimed_at' => $now,
+        'lease_expires_at' => $now + 600,
+        'last_heartbeat_at' => $now,
+    ]);
+    $handed = Ms365BatchClaimRepository::reconcileStrandedBatchQueuedChildren();
+    assert_true($handed >= 1, 'stranded queued children trigger batch hand-off');
+    $handoffStatus = (string) Capsule::table('ms365_batch_claims')
+        ->where('batch_run_id', $handoffBatch)
+        ->value('status');
+    assert_true($handoffStatus === 'queued', 'running batch claim handed off without mass child reset');
+    $activeAfter = (string) Capsule::table('ms365_backup_runs')->where('id', $activeChild)->value('status');
+    assert_true($activeAfter === 'running', 'active child remains running after hand-off');
+
     Capsule::table('ms365_batch_claims')->where('batch_run_id', $batch1)->delete();
     Ms365BatchClaimRepository::enqueueBatch($batch1, $tenantRecordId, 50);
     Capsule::table('ms365_batch_claims')

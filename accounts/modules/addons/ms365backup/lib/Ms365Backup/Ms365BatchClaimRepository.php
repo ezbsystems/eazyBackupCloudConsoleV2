@@ -342,6 +342,118 @@ final class Ms365BatchClaimRepository
     }
 
     /**
+     * Release a running batch claim so the worker drains and re-claims with a fresh
+     * payload, without resetting every child row to queued (preserves upload progress).
+     */
+    public static function handOffRunningBatchClaim(string $batchRunId, string $nodeId, string $message): bool
+    {
+        if (!self::tableReady() || $batchRunId === '' || $nodeId === '') {
+            return false;
+        }
+        $now = time();
+
+        return Capsule::table('ms365_batch_claims')
+            ->where('batch_run_id', $batchRunId)
+            ->where('worker_node_id', $nodeId)
+            ->where('status', 'running')
+            ->update([
+                'status' => 'queued',
+                'worker_node_id' => null,
+                'running_tenant_key' => null,
+                'claimed_at' => null,
+                'lease_expires_at' => null,
+                'error_message' => mb_substr($message, 0, 500),
+                'updated_at' => $now,
+            ]) > 0;
+    }
+
+    /**
+     * Running batch workers only launch children present at claim time. Queued children
+     * left behind after reaper/release need a claim hand-off to be picked up again.
+     *
+     * @param list<string> $batchRunIds
+     */
+    public static function handOffRunningBatchClaims(array $batchRunIds, string $message): int
+    {
+        $handed = 0;
+        foreach (array_values(array_unique(array_filter(array_map('strval', $batchRunIds)))) as $batchRunId) {
+            if ($batchRunId === '') {
+                continue;
+            }
+            $claim = Capsule::table('ms365_batch_claims')
+                ->where('batch_run_id', $batchRunId)
+                ->where('status', 'running')
+                ->first();
+            if ($claim === null) {
+                continue;
+            }
+            $nodeId = (string) ($claim->worker_node_id ?? '');
+            if ($nodeId === '' || !self::handOffRunningBatchClaim($batchRunId, $nodeId, $message)) {
+                continue;
+            }
+            ++$handed;
+        }
+
+        return $handed;
+    }
+
+    /**
+     * Reconcile run/queue rows that diverged during batch drain or child reaper events.
+     *
+     * @return int rows healed
+     */
+    public static function reconcileRunQueueStatusMismatch(): int
+    {
+        if (!Capsule::schema()->hasTable('ms365_backup_runs') || !Capsule::schema()->hasTable('ms365_job_queue')) {
+            return 0;
+        }
+        $now = time();
+        $healed = 0;
+        $runQueuedQueueRunning = Capsule::table('ms365_backup_runs as r')
+            ->join('ms365_job_queue as q', 'q.run_id', '=', 'r.id')
+            ->where('r.status', 'queued')
+            ->where('q.status', 'running')
+            ->pluck('r.id');
+        foreach ($runQueuedQueueRunning as $runId) {
+            BackupRunRepository::update((string) $runId, [
+                'status' => 'running',
+                'updated_at' => $now,
+            ]);
+            ++$healed;
+        }
+
+        return $healed;
+    }
+
+    /**
+     * Hand off active batch claims that still own queued children waiting for a worker slot.
+     *
+     * @return int batches handed off
+     */
+    public static function reconcileStrandedBatchQueuedChildren(): int
+    {
+        if (!self::tableReady() || !Capsule::schema()->hasTable('ms365_backup_runs')) {
+            return 0;
+        }
+        $now = time();
+        $cutoff = $now - 300;
+        $batchRunIds = Capsule::table('ms365_backup_runs as r')
+            ->join('ms365_job_queue as q', 'q.run_id', '=', 'r.id')
+            ->join('ms365_batch_claims as b', 'b.batch_run_id', '=', 'r.e3_batch_run_id')
+            ->where('b.status', 'running')
+            ->where('r.status', 'queued')
+            ->where('q.status', 'queued')
+            ->where('q.scheduled_at', '<', $cutoff)
+            ->whereNotNull('r.e3_batch_run_id')
+            ->where('r.e3_batch_run_id', '!=', '')
+            ->distinct()
+            ->pluck('r.e3_batch_run_id')
+            ->all();
+
+        return self::handOffRunningBatchClaims($batchRunIds, 'Stranded queued batch children');
+    }
+
+    /**
      * Release a running batch back to queued (drain hand-off preserves child checkpoints).
      */
     public static function release(string $batchRunId, string $nodeId, string $message = 'Worker released batch'): bool
@@ -382,6 +494,8 @@ final class Ms365BatchClaimRepository
         // through the claim pool ("Tenant record not found" requeue loop).
         self::completeFinishedClaims();
         $reaped = self::reapStalledBatchChildren();
+        $reaped += self::reconcileRunQueueStatusMismatch();
+        $reaped += self::reconcileStrandedBatchQueuedChildren();
         $now = time();
         $heartbeatGap = Ms365EngineConfig::batchHeartbeatGapSeconds();
         $heartbeatCutoff = $now - $heartbeatGap;
@@ -529,6 +643,18 @@ final class Ms365BatchClaimRepository
             $toRequeue,
             'Child progress stale (batch sibling heartbeats)'
         );
+
+        $batchRunIds = [];
+        foreach ($rows as $row) {
+            $runId = (string) ($row->id ?? '');
+            if ($runId !== '' && in_array($runId, $toRequeue, true)) {
+                $batchId = trim((string) ($row->e3_batch_run_id ?? ''));
+                if ($batchId !== '') {
+                    $batchRunIds[] = $batchId;
+                }
+            }
+        }
+        self::handOffRunningBatchClaims($batchRunIds, 'Child reaped; batch hand-off');
 
         // #region agent log
         @file_put_contents(
