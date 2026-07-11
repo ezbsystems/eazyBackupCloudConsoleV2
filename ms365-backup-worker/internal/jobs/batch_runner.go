@@ -59,6 +59,15 @@ func (h *batchProgressHub) record(upd api.ProgressUpdate) {
 	h.mu.Unlock()
 }
 
+func (h *batchProgressHub) remove(runID string) {
+	if runID == "" {
+		return
+	}
+	h.mu.Lock()
+	delete(h.children, runID)
+	h.mu.Unlock()
+}
+
 func (h *batchProgressHub) snapshot() []api.ProgressUpdate {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -268,13 +277,15 @@ func (br *BatchRunner) Run(ctx context.Context, batch *api.BatchJob, onAbort con
 				if br.completionOutbox != nil {
 					br.completionOutbox.Enqueue(batchRunID, upd)
 				}
+			} else {
+				hub.remove(upd.RunID)
 			}
 			return nil
 		},
 		failSink: func(runID, message string) {
 			tctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
 			defer cancel()
-			_ = br.client.BatchComplete(tctx, api.BatchCompleteUpdate{
+			err := br.client.BatchComplete(tctx, api.BatchCompleteUpdate{
 				BatchRunID: batchRunID,
 				Children: []api.BatchChildResult{{
 					RunID:   runID,
@@ -282,6 +293,9 @@ func (br *BatchRunner) Run(ctx context.Context, batch *api.BatchJob, onAbort con
 					Message: message,
 				}},
 			})
+			if err == nil {
+				hub.remove(runID)
+			}
 		},
 	}
 	batchCtx := withBatchRunContext(ctx, brc)

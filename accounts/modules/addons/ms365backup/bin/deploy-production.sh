@@ -133,6 +133,10 @@ post_deploy_checks() {
   log "Post-deploy: fleet smoke (non-fatal)"
   php "$PROD_ROOT/modules/addons/ms365backup/bin/ms365_fleet_smoke.php" || true
 
+  log "Ensure MS365 scheduler cron log directory exists"
+  mkdir -p /var/log/ms365backup
+  chmod 755 /var/log/ms365backup
+
   if command -v systemctl >/dev/null; then
     if systemctl is-active --quiet php8.2-fpm 2>/dev/null; then
       log "Reloading php8.2-fpm"

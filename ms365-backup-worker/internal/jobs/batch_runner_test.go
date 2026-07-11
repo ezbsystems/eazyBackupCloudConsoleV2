@@ -82,6 +82,17 @@ func TestBatchProgressHubCoalesces(t *testing.T) {
 	}
 }
 
+func TestBatchProgressHubRemove(t *testing.T) {
+	hub := newBatchProgressHub(nil, "batch-1", "tenant-a", time.Second)
+	hub.record(api.ProgressUpdate{RunID: "c1", Phase: "graph_sync", Percent: 50})
+	hub.record(api.ProgressUpdate{RunID: "c2", Phase: "graph_sync", Percent: 75})
+	hub.remove("c1")
+	snap := hub.snapshot()
+	if len(snap) != 1 || snap[0].RunID != "c2" {
+		t.Fatalf("expected only c2 in snapshot after remove, got %+v", snap)
+	}
+}
+
 func TestBatchRunnerSkipsSuccessChildren(t *testing.T) {
 	var completed []string
 	var mu sync.Mutex

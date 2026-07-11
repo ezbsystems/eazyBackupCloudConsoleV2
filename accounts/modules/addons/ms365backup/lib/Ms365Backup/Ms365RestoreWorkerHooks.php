@@ -158,11 +158,23 @@ final class Ms365RestoreWorkerHooks
         $deltaRequests = max(0, $incomingRequests - $existingChildRequests);
         $effectivePhase = strtolower(trim($rawPhase !== '' ? $rawPhase : (string) ($existing['phase'] ?? '')));
         $graphSyncRequestLiveness = $effectivePhase === 'graph_sync' && $deltaRequests > 0;
+        $tenantRecordId = (int) ($existing['tenant_record_id'] ?? 0);
+        $azureTenantId = self::azureTenantIdForTenantRecord($tenantRecordId);
+        $existingStatus = strtolower(trim((string) ($existing['status'] ?? '')));
+        $existingStats = self::decodeChildStatsJson($existing);
+        $isTerminalNoChanges = ($existingStats['status'] ?? '') === 'no_changes';
+        $isTerminalSuccess = $existingStatus === 'success'
+            && (strtolower(trim((string) ($existing['phase'] ?? ''))) === 'complete' || $isTerminalNoChanges);
+        if ($isTerminalSuccess) {
+            // Batch hub snapshots replay graph_sync progress for children that already
+            // completed (e.g. empty shard / no_changes). Ignore stale hub updates.
+            return $azureTenantId !== ''
+                ? GraphTenantBudgetService::workerShare($tenantRecordId, $azureTenantId)
+                : 0;
+        }
 
         $noProgress = !empty($body['no_progress']);
         $throttleWaiting = !empty($body['throttle_waiting']);
-        $tenantRecordId = (int) ($existing['tenant_record_id'] ?? 0);
-        $azureTenantId = self::azureTenantIdForTenantRecord($tenantRecordId);
         if ($noProgress) {
             if ($throttleWaiting || $delta429 > 0 || $graphSyncRequestLiveness) {
                 $fields = ['updated_at' => time()];
@@ -256,10 +268,11 @@ final class Ms365RestoreWorkerHooks
         $fields = [
             'updated_at' => time(),
         ];
-        $existingStatus = strtolower(trim((string) ($existing['status'] ?? '')));
         $existingManifest = trim((string) ($existing['manifest_id'] ?? ''));
         $existingPhase = strtolower(trim((string) ($existing['phase'] ?? '')));
-        if ($existingStatus === 'success' && $existingManifest === '' && !$isHeartbeat) {
+        $existingFinishedAt = (int) ($existing['finished_at'] ?? 0);
+        if ($existingStatus === 'success' && $existingManifest === '' && !$isHeartbeat
+            && !$isTerminalNoChanges && $existingPhase !== 'complete' && $existingFinishedAt <= 0) {
             $fields['status'] = 'running';
             $fields['finished_at'] = null;
         }

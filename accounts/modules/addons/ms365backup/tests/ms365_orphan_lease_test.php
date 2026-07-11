@@ -178,6 +178,32 @@ try {
         && trim((string) ($emptyShard['manifest_id'] ?? '')) === '',
         'backupComplete accepts no_changes graph_sync shard without manifest',
     );
+
+    $revertGuardRunId = test_uuid('revert-guard');
+    $runIds[] = $revertGuardRunId;
+    insertTestRun($revertGuardRunId, [
+        'status' => 'success',
+        'phase' => 'complete',
+        'percent' => 100.0,
+        'finished_at' => $now - 60,
+        'stats_json' => '{"status":"no_changes"}',
+        'updated_at' => $now - 60,
+    ]);
+    insertTestQueue($revertGuardRunId, $nodeId, ['lease_expires_at' => $now + 3600]);
+    Ms365RestoreWorkerHooks::onProgress($revertGuardRunId, [
+        'phase' => 'graph_sync',
+        'message' => 'Graph sync: done',
+        'percent' => 100.0,
+        'items_done' => 0,
+        'items_total' => 0,
+    ]);
+    $revertGuard = BackupRunRepository::get($revertGuardRunId) ?? [];
+    assert_true(
+        ($revertGuard['status'] ?? '') === 'success'
+        && ($revertGuard['phase'] ?? '') === 'complete'
+        && (int) ($revertGuard['finished_at'] ?? 0) > 0,
+        'backupProgress ignores stale batch hub graph_sync after no_changes complete',
+    );
 } finally {
     cleanupTestRows($runIds);
 }
