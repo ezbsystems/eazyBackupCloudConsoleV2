@@ -197,11 +197,14 @@ func syncSharePointDrive(
 	outcome := &graph.PaginationOutcome{}
 	monitor := paginationMonitorForJob(opts.Job, "sharepoint", "sharepoint:"+driveID, graphLog(opts.Log))
 	deltaOpts := &graph.DeltaPaginateOptions{Monitor: monitor, Outcome: outcome}
+	onPage := func(pageItems int) {
+		reportSharePointDriveProgress(opts, pageItems)
+	}
 	items, deltaLink, err := paginateDeltaResilient(ctx, client,
 		fmt.Sprintf("/drives/%s/root/delta", driveID),
 		priorDelta,
 		"id,name,size,file,folder,parentReference,lastModifiedDateTime",
-		200, nil, deltaOpts)
+		200, onPage, deltaOpts)
 	if err != nil {
 		return nil, err
 	}
@@ -243,6 +246,15 @@ func syncSharePointDrive(
 		res.deltaLink = deltaLink
 	}
 	return res, nil
+}
+
+func reportSharePointDriveProgress(opts SharePointSyncOptions, itemsDone int) {
+	if opts.OnProgress == nil || itemsDone < 0 {
+		return
+	}
+	// items_total is unknown until the drive delta finishes; use done so the
+	// graph_sync stall watchdog sees per-page movement during long pagination.
+	opts.OnProgress(itemsDone, itemsDone, 0)
 }
 
 func siteDriveContentPath(tenantID, siteID, driveID string, item map[string]any) string {

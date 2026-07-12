@@ -283,6 +283,8 @@ try {
     $runIds[] = $strandedChild;
     $runIds[] = $activeChild;
     Ms365BatchClaimRepository::enqueueBatch($handoffBatch, $tenantRecordId, 50);
+    // Claimed first; child requeued afterward (scheduled_at > claimed_at) and aged past grace.
+    $claimedAt = $now - 900;
     insertTestRun($strandedChild, [
         'e3_batch_run_id' => $handoffBatch,
         'status' => 'queued',
@@ -303,7 +305,7 @@ try {
         'status' => 'running',
         'worker_node_id' => $nodeA,
         'running_tenant_key' => $tenantRecordId,
-        'claimed_at' => $now,
+        'claimed_at' => $claimedAt,
         'lease_expires_at' => $now + 600,
         'last_heartbeat_at' => $now,
     ]);
@@ -315,6 +317,41 @@ try {
     assert_true($handoffStatus === 'queued', 'running batch claim handed off without mass child reset');
     $activeAfter = (string) Capsule::table('ms365_backup_runs')->where('id', $activeChild)->value('status');
     assert_true($activeAfter === 'running', 'active child remains running after hand-off');
+
+    // Claim-time semaphore waiters (scheduled_at <= claimed_at) must not thrash the claim.
+    $semBatch = test_uuid('sem-wait-batch');
+    $semQueued = test_uuid('sem-wait-child');
+    $semRunning = test_uuid('sem-run-child');
+    $batchRunIds[] = $semBatch;
+    $runIds[] = $semQueued;
+    $runIds[] = $semRunning;
+    Ms365BatchClaimRepository::enqueueBatch($semBatch, $tenantRecordId, 50);
+    insertTestRun($semQueued, [
+        'e3_batch_run_id' => $semBatch,
+        'status' => 'queued',
+        'updated_at' => $now - 600,
+    ]);
+    insertTestQueue($semQueued, ['status' => 'queued', 'scheduled_at' => $now - 600]);
+    insertTestRun($semRunning, [
+        'e3_batch_run_id' => $semBatch,
+        'status' => 'running',
+        'updated_at' => $now,
+        'last_progress_at' => $now,
+    ]);
+    insertTestQueue($semRunning, ['status' => 'running', 'lease_expires_at' => $now + 600]);
+    Capsule::table('ms365_batch_claims')->where('batch_run_id', $semBatch)->update([
+        'status' => 'running',
+        'worker_node_id' => $nodeA,
+        'running_tenant_key' => $tenantRecordId,
+        'claimed_at' => $now - 120,
+        'lease_expires_at' => $now + 600,
+        'last_heartbeat_at' => $now,
+    ]);
+    $semHanded = Ms365BatchClaimRepository::reconcileStrandedBatchQueuedChildren();
+    assert_true($semHanded === 0, 'claim-time queued semaphore waiters do not hand off');
+    $semStatus = (string) Capsule::table('ms365_batch_claims')->where('batch_run_id', $semBatch)->value('status');
+    assert_true($semStatus === 'running', 'batch claim stays running for claim-time queue');
+    Capsule::table('ms365_batch_claims')->where('batch_run_id', $semBatch)->delete();
 
     Capsule::table('ms365_batch_claims')->where('batch_run_id', $batch1)->delete();
     Ms365BatchClaimRepository::enqueueBatch($batch1, $tenantRecordId, 50);

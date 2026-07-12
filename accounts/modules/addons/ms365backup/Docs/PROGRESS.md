@@ -2,14 +2,22 @@
 
 **Purpose:** Single handoff document so the next agent knows where work stopped. Update this file at the **end of every session** (or after each meaningful milestone).
 
-**Last updated:** 2026-07-09  
-**Module version (ms365backup):** 1.52.1  
+**Last updated:** 2026-07-12  
+**Module version (ms365backup):** 1.52.3  
 **Cloudstorage (e3) version:** 2.2.0  
-**Worker version (ms365-backup-worker):** 0.3.65 (built; browse binary on WHMCS host; fleet deploy via Releases)
+**Worker version (ms365-backup-worker):** 0.3.72 (SharePoint delta per-page progress)
 
 ---
 
 ## Session log
+
+### 2026-07-12 — Production batch claim thrash (stranded-queue handoff)
+
+- **Symptom:** Prod batches `140cb27a-…7235` (Deetken, ~80%) and `8bd12156-…4b2b` (Evoke Documents) appeared stalled. Worker journals showed `starting batch` → `reconciling ghost batch (no active batch claim)` every ~15–30s, mass `prior merge warning: … context canceled`, and `completeSink … 409 Batch lease is not active`. Batch `attempts` had climbed to **~1830 / ~1405**.
+- **Root cause:** Prod was running an uncommitted WIP that (1) cut stranded-queue handoff grace **300s → 60s** and (2) treated any child with `Child progress stale%` as immediately stranded. Combined with claim-time children left `queued` while waiting on the in-process concurrency semaphore, `reconcileStrandedBatchQueuedChildren` handed off the whole batch every reaper cycle. Immediate handoff from `reapStalledBatchChildren` compounded the cancel storm.
+- **Fix (PHP 1.52.3):** Handoff only when `q.scheduled_at > b.claimed_at` (requeued after this claim) and aged past **300s**. Remove immediate batch handoff after child reap (stranded reconcile covers it after grace). Keep SharePoint per-page progress (worker **0.3.72**) so long drive deltas refresh liveness.
+- **Tests:** `ms365_batch_claim_test.php` — post-claim stranded still hands off; claim-time semaphore waiters do not.
+- **Ops:** Deploy PHP via `deploy-production.sh`; fleet worker 0.3.72; monitor claim `attempts` stable and child success counts rising; requeue only if individual children remain wedged after thrash stops.
 
 ### 2026-07-09 — SharePoint restore browse nested folder labels
 

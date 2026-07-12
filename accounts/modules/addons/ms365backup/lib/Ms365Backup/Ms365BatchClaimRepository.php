@@ -428,6 +428,12 @@ final class Ms365BatchClaimRepository
     /**
      * Hand off active batch claims that still own queued children waiting for a worker slot.
      *
+     * Only children requeued *after* the current claim (`q.scheduled_at > b.claimed_at`)
+     * can strand work: the batch owner only launches the claim-time child set. Claim-time
+     * children that remain `queued` while waiting on the in-process concurrency semaphore
+     * are expected and must NOT trigger a hand-off (that caused 15s claim thrash with
+     * attempts climbing into the thousands on production whale batches).
+     *
      * @return int batches handed off
      */
     public static function reconcileStrandedBatchQueuedChildren(): int
@@ -436,6 +442,8 @@ final class Ms365BatchClaimRepository
             return 0;
         }
         $now = time();
+        // Reaped children land queued with a fresh scheduled_at after claimed_at; give the
+        // owner a few minutes before tearing down in-flight siblings for a hand-off.
         $cutoff = $now - 300;
         $batchRunIds = Capsule::table('ms365_backup_runs as r')
             ->join('ms365_job_queue as q', 'q.run_id', '=', 'r.id')
@@ -443,12 +451,34 @@ final class Ms365BatchClaimRepository
             ->where('b.status', 'running')
             ->where('r.status', 'queued')
             ->where('q.status', 'queued')
+            ->whereNotNull('b.claimed_at')
+            ->whereColumn('q.scheduled_at', '>', 'b.claimed_at')
             ->where('q.scheduled_at', '<', $cutoff)
             ->whereNotNull('r.e3_batch_run_id')
             ->where('r.e3_batch_run_id', '!=', '')
             ->distinct()
             ->pluck('r.e3_batch_run_id')
             ->all();
+
+        // #region agent log
+        @file_put_contents(
+            '/var/www/eazybackup.ca/.cursor/debug-dd01da.log',
+            json_encode([
+                'sessionId' => 'dd01da',
+                'runId' => 'post-fix',
+                'hypothesisId' => 'A',
+                'location' => 'Ms365BatchClaimRepository.php:reconcileStrandedBatchQueuedChildren',
+                'message' => 'stranded post-claim queued handoff candidates',
+                'data' => [
+                    'count' => count($batchRunIds),
+                    'batch_run_ids' => array_values(array_map('strval', $batchRunIds)),
+                    'cutoff' => $cutoff,
+                ],
+                'timestamp' => (int) round(microtime(true) * 1000),
+            ], JSON_UNESCAPED_SLASHES) . "\n",
+            FILE_APPEND
+        );
+        // #endregion
 
         return self::handOffRunningBatchClaims($batchRunIds, 'Stranded queued batch children');
     }
@@ -597,7 +627,6 @@ final class Ms365BatchClaimRepository
             return 0;
         }
         $now = time();
-        $progressCutoff = $now - Ms365BatchRunRepository::STALE_SILENCE_SECONDS;
         $rows = Capsule::table('ms365_backup_runs')
             ->where('status', 'running')
             ->whereNotNull('e3_batch_run_id')
@@ -605,6 +634,7 @@ final class Ms365BatchClaimRepository
             ->get([
                 'id',
                 'e3_batch_run_id',
+                'phase',
                 'last_progress_at',
                 'updated_at',
                 'items_done',
@@ -620,8 +650,35 @@ final class Ms365BatchClaimRepository
                 continue;
             }
             $child = (array) $row;
+            $phase = strtolower(trim((string) ($child['phase'] ?? '')));
+            $itemsDone = (int) ($child['items_done'] ?? 0);
+            $itemsTotal = (int) ($child['items_total'] ?? 0);
+            $bytesHashed = (int) ($child['bytes_hashed'] ?? 0);
+            $bytesUploaded = (int) ($child['bytes_uploaded'] ?? 0);
             $freshness = Ms365BatchRunRepository::progressFreshnessAt($child);
-            $staleProgress = $freshness > 0 && $freshness < $progressCutoff;
+            $silenceSeconds = Ms365BatchRunRepository::STALE_SILENCE_SECONDS;
+            if (Ms365BatchRunRepository::isUploadLikePhase($phase)
+                && $itemsDone > 0
+                && ($itemsTotal <= 0 || $itemsDone < $itemsTotal)) {
+                // Tail upload shards can heartbeat without byte deltas; reap sooner so
+                // scheduler slots free for stranded queued siblings.
+                $silenceSeconds = min($silenceSeconds, 600);
+            }
+            if (Ms365BatchRunRepository::isGraphBoundPhase($phase)
+                && $bytesHashed === 0
+                && $bytesUploaded === 0
+                && $itemsDone > 0) {
+                // Per-page graph progress can show items_done==items_total while staging
+                // is still running or wedged; reap at 10m instead of 30m.
+                $silenceSeconds = min($silenceSeconds, 600);
+            }
+            if ((Ms365BatchRunRepository::isUploadLikePhase($phase) || $bytesHashed > 0)
+                && $itemsTotal > 0
+                && $itemsDone >= $itemsTotal) {
+                // Kopia tail can freeze at 100% items with no byte movement.
+                $silenceSeconds = min($silenceSeconds, 600);
+            }
+            $staleProgress = $freshness > 0 && $freshness < ($now - $silenceSeconds);
 
             $queue = Capsule::table('ms365_job_queue')->where('run_id', $runId)->first();
             $staleLease = $queue !== null
@@ -644,33 +701,26 @@ final class Ms365BatchClaimRepository
             'Child progress stale (batch sibling heartbeats)'
         );
 
-        $batchRunIds = [];
-        foreach ($rows as $row) {
-            $runId = (string) ($row->id ?? '');
-            if ($runId !== '' && in_array($runId, $toRequeue, true)) {
-                $batchId = trim((string) ($row->e3_batch_run_id ?? ''));
-                if ($batchId !== '') {
-                    $batchRunIds[] = $batchId;
-                }
-            }
-        }
-        self::handOffRunningBatchClaims($batchRunIds, 'Child reaped; batch hand-off');
-
         // #region agent log
         @file_put_contents(
-            '/var/www/eazybackup.ca/.cursor/debug-ffd102.log',
+            '/var/www/eazybackup.ca/.cursor/debug-dd01da.log',
             json_encode([
-                'sessionId' => 'ffd102',
+                'sessionId' => 'dd01da',
                 'runId' => 'post-fix',
-                'hypothesisId' => 'H3',
+                'hypothesisId' => 'B',
                 'location' => 'Ms365BatchClaimRepository.php:reapStalledBatchChildren',
-                'message' => 'reaped stalled batch children',
+                'message' => 'reaped stalled children without immediate batch handoff',
                 'data' => ['count' => count($toRequeue), 'run_ids' => $toRequeue],
                 'timestamp' => (int) round(microtime(true) * 1000),
             ], JSON_UNESCAPED_SLASHES) . "\n",
             FILE_APPEND
         );
         // #endregion
+
+        // Do not hand off the whole batch here. Immediate hand-off cancels every in-flight
+        // sibling (prior_snapshot / graph_sync) and was the other half of the claim-thrash
+        // loop. Reaped children get scheduled_at > claimed_at and are picked up by
+        // reconcileStrandedBatchQueuedChildren after the grace window.
 
         return count($toRequeue);
     }

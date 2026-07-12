@@ -178,7 +178,7 @@ final class Ms365RestoreWorkerHooks
         if ($noProgress) {
             if ($throttleWaiting || $delta429 > 0 || $graphSyncRequestLiveness) {
                 $fields = ['updated_at' => time()];
-                if ($graphSyncRequestLiveness
+                if (($throttleWaiting || $delta429 > 0)
                     && \WHMCS\Database\Capsule::schema()->hasColumn('ms365_backup_runs', 'last_progress_at')) {
                     $fields['last_progress_at'] = time();
                 }
@@ -335,16 +335,10 @@ final class Ms365RestoreWorkerHooks
             }
         }
 
-        if ($graphSyncRequestLiveness
-            && \WHMCS\Database\Capsule::schema()->hasColumn('ms365_backup_runs', 'last_progress_at')) {
-            $fields['last_progress_at'] = time();
-        }
-
         // Batch mode replays hub snapshots (percent=1, message "Graph sync: …") which are
-        // not classified as heartbeats; still refresh liveness while graph enumeration runs.
+        // not classified as heartbeats. Only count real throughput as progress so graph
+        // enumeration without item/byte movement can be reaped and release batch slots.
         // Use persisted phase so stale graph_sync snapshots cannot mask Kopia upload stalls.
-        // Do not treat delta checkpoints as throughput when items/bytes did not advance.
-        $isCheckpointOnly = strtolower(trim($message)) === 'graph_sync checkpoint';
         $storedItemsForDelta = (int) ($existing['items_done'] ?? 0);
         $storedBytesHashedForDelta = (int) ($existing['bytes_hashed'] ?? 0);
         $storedBytesUploadedForDelta = (int) ($existing['bytes_uploaded'] ?? 0);
@@ -356,7 +350,7 @@ final class Ms365RestoreWorkerHooks
             || $nextBytesUploaded > $storedBytesUploadedForDelta;
         if (Ms365BatchRunRepository::isGraphBoundPhase($persistedPhase)
             && !self::hasKopiaActivity($existing)
-            && (!$isCheckpointOnly || $hasThroughputDelta)
+            && $hasThroughputDelta
             && \WHMCS\Database\Capsule::schema()->hasColumn('ms365_backup_runs', 'last_progress_at')) {
             $fields['last_progress_at'] = time();
         }
