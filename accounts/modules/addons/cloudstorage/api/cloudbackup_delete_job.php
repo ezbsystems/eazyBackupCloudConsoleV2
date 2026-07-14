@@ -13,9 +13,8 @@ if (!defined("WHMCS")) {
 
 use Symfony\Component\HttpFoundation\JsonResponse;
 use WHMCS\ClientArea;
-use WHMCS\Module\Addon\CloudStorage\Admin\ProductConfig;
-use WHMCS\Module\Addon\CloudStorage\Client\DBController;
 use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupController;
+use WHMCS\Module\Addon\CloudStorage\Client\E3BackupAccess;
 use WHMCS\Module\Addon\CloudStorage\Client\MspController;
 use WHMCS\Module\Addon\CloudStorage\Client\UuidBinary;
 
@@ -30,11 +29,9 @@ if (!$ca->isLoggedIn()) {
     exit();
 }
 
-$packageId = ProductConfig::e3CloudBackupPid();
-$loggedInUserId = $ca->getUserID();
+$loggedInUserId = (int) $ca->getUserID();
 
-$product = DBController::getProduct($loggedInUserId, $packageId);
-if (is_null($product) || empty($product->username)) {
+if (!E3BackupAccess::clientHasE3BackupAccess($loggedInUserId)) {
     $jsonData = [
         'status' => 'fail',
         'message' => 'Product not found.'
