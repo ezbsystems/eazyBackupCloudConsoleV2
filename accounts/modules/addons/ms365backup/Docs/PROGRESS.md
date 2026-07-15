@@ -11,6 +11,14 @@
 
 ## Session log
 
+### 2026-07-15 — Vault stored size display (e3 Vaults table)
+
+- **Problem:** Vaults table **Stored** column always showed `—` for MS365 and legacy/agent vaults.
+- **Root cause:** Legacy rows hardcoded em dash; MS365 buckets (`e3ms365-*` under `ms365_platform_owner`) are billing-exempt so `S3Billing` never wrote `s3_bucket_stats_summary` rows for them.
+- **Fix:** `Ms365VaultLifecycleService::usageMapForBucketIds()` + `storageUsageFields()` shared by MS365 rows, `legacyVaultsForBackupUser()`, and `e3backup_user_get.php` `vaults_detail`. New `S3Billing::collectMs365VaultStatsForDisplay()` records platform-owner bucket sizes for UI only (not added to customer billing); invoked from `gatherBillingData()`.
+- **Tests:** `cloudstorage/tests/ms365_vault_storage_usage_test.php` (helper formatting, legacy usage wiring, MS365 collector backfill).
+- **Verify (dev):** Run test script or `accounts/crons/s3Billing.php`; Vaults page + user detail Vaults tab should show formatted sizes for MS365 and legacy destination buckets.
+
 ### 2026-07-15 — Cascade gap fixes (deleted_at, rename, dry-run)
 
 - **Schema:** cloudstorage `2.2.1`; `s3_backup_users.deleted_at` applied via upgrade + `E3BackupUserScope::ensureDeletedAtColumn()` self-heal; verify script `bin/ensure_backup_user_deleted_at.php`.

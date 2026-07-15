@@ -509,6 +509,8 @@ if ($cloudJobsOk) {
         }
     }
 
+    $vaultUsageByBucket = Ms365VaultLifecycleService::usageMapForBucketIds(array_keys($bucketIds));
+
     foreach (array_keys($bucketIds) as $bid) {
         $meta = $bucketNameById[$bid] ?? ['name' => 'Vault ' . $bid, 'created_at' => null];
         $path = '';
@@ -530,12 +532,14 @@ if ($cloudJobsOk) {
                 $createdOut = null;
             }
         }
+        $usageFields = Ms365VaultLifecycleService::storageUsageFields($vaultUsageByBucket[$bid] ?? null);
         $vaultsDetail[] = [
             'id' => $bid,
             'name' => $meta['name'],
             'provider_label' => 'eazyBackup Cloud',
             'bucket_path' => $path !== '' ? $path : '—',
-            'storage_used_display' => '—',
+            'storage_used_bytes' => $usageFields['storage_used_bytes'],
+            'storage_used_display' => $usageFields['storage_used_display'],
             'created' => $createdOut,
             'jobs_using' => (int) ($jobsUsingBucket[$bid] ?? 0),
             'is_ms365' => false,

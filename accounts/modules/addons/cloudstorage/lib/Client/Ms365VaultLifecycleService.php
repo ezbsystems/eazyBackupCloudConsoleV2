@@ -493,6 +493,28 @@ final class Ms365VaultLifecycleService
     }
 
     /**
+     * Latest stored bytes per bucket from s3_bucket_stats_summary.
+     *
+     * @param list<int> $bucketIds
+     * @return array<int, int>
+     */
+    public static function usageMapForBucketIds(array $bucketIds): array
+    {
+        return self::bucketUsageMap($bucketIds);
+    }
+
+    /**
+     * @return array{storage_used_bytes: int|null, storage_used_display: string}
+     */
+    public static function storageUsageFields(?int $usageBytes): array
+    {
+        return [
+            'storage_used_bytes' => $usageBytes,
+            'storage_used_display' => $usageBytes !== null ? self::formatBytes($usageBytes) : '—',
+        ];
+    }
+
+    /**
      * @param list<int> $bucketIds
      * @return array<int, int>
      */
@@ -662,8 +684,11 @@ final class Ms365VaultLifecycleService
             return $vaults;
         }
 
+        $bucketIdList = array_keys($bucketIds);
+        $usageByBucket = self::bucketUsageMap($bucketIdList);
+
         $bucketRows = Capsule::table('s3_buckets')
-            ->whereIn('id', array_keys($bucketIds))
+            ->whereIn('id', $bucketIdList)
             ->get(['id', 'name', 'created_at']);
 
         foreach ($bucketRows as $b) {
@@ -694,12 +719,15 @@ final class Ms365VaultLifecycleService
                 }
             }
 
+            $usageFields = self::storageUsageFields($usageByBucket[$bid] ?? null);
+
             $vaults[] = [
                 'id' => $bid,
                 'name' => $name,
                 'provider_label' => 'eazyBackup Cloud',
                 'bucket_path' => $path !== '' ? $path : '—',
-                'storage_used_display' => '—',
+                'storage_used_bytes' => $usageFields['storage_used_bytes'],
+                'storage_used_display' => $usageFields['storage_used_display'],
                 'created' => $createdOut,
                 'jobs_using' => (int) ($jobsUsingBucket[$bid] ?? 0),
                 'is_ms365' => false,
@@ -739,15 +767,13 @@ final class Ms365VaultLifecycleService
             }
         }
 
-        return [
+        return array_merge([
             'id' => $bid,
             'name' => $name,
             'provider_label' => 'Microsoft 365 Backup',
             'protection_label' => 'Versioning enabled',
             'immutability_label' => 'None',
             'retention_tier' => $retentionTier !== '' ? $retentionTier : '—',
-            'storage_used_bytes' => $usageBytes,
-            'storage_used_display' => $usageBytes !== null ? self::formatBytes($usageBytes) : '—',
             'created' => $bucket->created_at ?? null,
             'job_name' => $job !== null ? (string) ($job->name ?? '—') : '—',
             'job_id' => $job !== null ? (string) ($job->job_id ?? '') : '',
@@ -758,7 +784,7 @@ final class Ms365VaultLifecycleService
             'early_delete_request_status' => $earlyDeleteStatus ?? null,
             'is_ms365' => true,
             'jobs_using' => $job !== null ? 1 : 0,
-        ];
+        ], self::storageUsageFields($usageBytes));
     }
 
     private static function formatBytes(int $bytes): string

@@ -1,8 +1,8 @@
 <?php
 
-require_once __DIR__ . '/E3BackupUserScope.php';
-
 namespace WHMCS\Module\Addon\CloudStorage\Client;
+
+require_once __DIR__ . '/E3BackupUserScope.php';
 
 use WHMCS\Database\Capsule;
 use WHMCS\Module\Addon\CloudStorage\Admin\ProductConfig;

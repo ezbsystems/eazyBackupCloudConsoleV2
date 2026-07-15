@@ -169,6 +169,8 @@ class S3Billing {
             $billingData[$username] = ['bucket_size' => $totalBucketSize];
         }
 
+        $this->collectMs365VaultStatsForDisplay($moduleSettings, $currentTime);
+
         $this->exportBucketUsage($s3Endpoint, $cephAdminAccessKey, $cephAdminSecretKey, $currentTime);
 
         return ['billingData' => $billingData, 'updateResults' => $updateResults];
@@ -781,6 +783,155 @@ class S3Billing {
         }
 
         return $totalBucketSize;
+    }
+
+    /**
+     * Record RGW usage for e3ms365-* platform buckets in s3_bucket_stats_summary for vault UI display.
+     * Does not affect customer billing totals.
+     */
+    protected function collectMs365VaultStatsForDisplay(array $moduleSettings, string $currentTime): void
+    {
+        try {
+            if (!Capsule::schema()->hasColumn('s3_users', 'system_key')) {
+                return;
+            }
+
+            $platformUser = Capsule::table('s3_users')
+                ->where('system_key', 'ms365_platform_owner')
+                ->first();
+
+            if (!$platformUser) {
+                return;
+            }
+
+            $baseUid = \WHMCS\Module\Addon\CloudStorage\Client\HelperController::resolveCephBaseUid($platformUser);
+            if (empty($baseUid)) {
+                $baseUid = (string) ($platformUser->username ?? '');
+            }
+            if ($baseUid === '') {
+                return;
+            }
+
+            $params = [
+                'uid' => !empty($platformUser->tenant_id)
+                    ? ($platformUser->tenant_id . '$' . $baseUid)
+                    : $baseUid,
+                'stats' => true,
+            ];
+
+            $bucketStatsData = AdminOps::getBucketInfo(
+                $moduleSettings['s3Endpoint'],
+                $moduleSettings['cephAdminAccessKey'],
+                $moduleSettings['cephAdminSecretKey'],
+                $params
+            );
+
+            if (($bucketStatsData['status'] ?? '') === 'fail' || empty($bucketStatsData['data'])) {
+                if (($bucketStatsData['status'] ?? '') === 'fail') {
+                    logModuleCall(
+                        self::$module,
+                        __FUNCTION__,
+                        'ms365_platform_owner',
+                        $bucketStatsData['message'] ?? 'Failed to list MS365 platform buckets'
+                    );
+                }
+                return;
+            }
+
+            $currentDate = (new DateTime())->format('Y-m-d');
+            $userId = (int) $platformUser->id;
+
+            foreach ($bucketStatsData['data'] as $bucket) {
+                $bucketName = (string) ($bucket['bucket'] ?? '');
+                try {
+                    if (!self::isMs365BillingExemptBucket($bucketName)) {
+                        continue;
+                    }
+
+                    $currentBucketSize = (int) ($bucket['usage']['rgw.main']['size'] ?? 0);
+                    $creationDateTime = new DateTime($bucket['creation_time']);
+                    $creationTime = $creationDateTime->format('Y-m-d H:i:s');
+                    $bucketId = $this->resolveMs365VaultBucketId($userId, $bucket, $moduleSettings, $creationTime);
+                    if ($bucketId === 'fail' || (int) $bucketId <= 0) {
+                        continue;
+                    }
+                    $bucketId = (int) $bucketId;
+
+                    $bucketStatsValues = [
+                        'bucket_id' => $bucketId,
+                        'user_id' => $userId,
+                        'num_objects' => $bucket['usage']['rgw.main']['num_objects'] ?? 0,
+                        'size' => $currentBucketSize,
+                        'size_actual' => $bucket['usage']['rgw.main']['size_actual'] ?? $currentBucketSize,
+                        'size_utilized' => $bucket['usage']['rgw.main']['size_utilized'] ?? $currentBucketSize,
+                        'size_kb' => $bucket['usage']['rgw.main']['size_kb'] ?? 0,
+                        'size_kb_actual' => $bucket['usage']['rgw.main']['size_kb_actual'] ?? 0,
+                        'size_kb_utilized' => $bucket['usage']['rgw.main']['size_kb_utilized'] ?? 0,
+                        'created_at' => $currentTime,
+                    ];
+
+                    DBController::saveBucketStats($bucketStatsValues);
+
+                    $bucketStatsSummary = Capsule::table('s3_bucket_stats_summary')->where([
+                        ['user_id', '=', $userId],
+                        ['bucket_id', '=', $bucketId],
+                    ])
+                        ->whereDate('created_at', $currentDate)
+                        ->first();
+
+                    if (is_null($bucketStatsSummary)) {
+                        DBController::saveBucketStatsSummary([
+                            'user_id' => $userId,
+                            'bucket_id' => $bucketId,
+                            'total_usage' => $currentBucketSize,
+                            'created_at' => $currentTime,
+                        ]);
+                    } else {
+                        Capsule::table('s3_bucket_stats_summary')->where([
+                            ['user_id', '=', $userId],
+                            ['bucket_id', '=', $bucketId],
+                        ])
+                            ->whereDate('created_at', $currentDate)
+                            ->update([
+                                'total_usage' => $currentBucketSize,
+                            ]);
+                    }
+                } catch (\Exception $e) {
+                    logModuleCall(self::$module, __FUNCTION__, $bucketName, $e->getMessage());
+                }
+            }
+        } catch (\Throwable $e) {
+            logModuleCall(self::$module, __FUNCTION__, 'ms365_platform_owner', $e->getMessage());
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $bucket
+     * @return int|string
+     */
+    protected function resolveMs365VaultBucketId(int $userId, array $bucket, array $moduleSettings, string $creationTime)
+    {
+        $bucketStringId = (string) ($bucket['id'] ?? '');
+        $bucketName = (string) ($bucket['bucket'] ?? '');
+
+        if ($bucketStringId !== '') {
+            $existing = DBController::getBucket($bucketStringId);
+            if ($existing !== null) {
+                return (int) $existing->id;
+            }
+        }
+
+        if ($bucketName !== '') {
+            $byName = Capsule::table('s3_buckets')
+                ->where('user_id', $userId)
+                ->where('name', $bucketName)
+                ->value('id');
+            if ($byName !== null) {
+                return (int) $byName;
+            }
+        }
+
+        return $this->handleBucketData($userId, $bucket, $moduleSettings, $creationTime);
     }
 
     private static function isMs365BillingExemptBucket(string $bucketName): bool
