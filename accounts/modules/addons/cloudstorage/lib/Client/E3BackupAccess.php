@@ -1,5 +1,7 @@
 <?php
 
+require_once __DIR__ . '/E3BackupUserScope.php';
+
 namespace WHMCS\Module\Addon\CloudStorage\Client;
 
 use WHMCS\ClientArea;
@@ -35,7 +37,12 @@ class E3BackupAccess
 
         try {
             if (Capsule::schema()->hasTable('s3_backup_users')) {
-                return Capsule::table('s3_backup_users')->where('client_id', $clientId)->exists();
+                $query = Capsule::table('s3_backup_users')->where('client_id', $clientId);
+                if (class_exists(E3BackupUserScope::class)) {
+                    E3BackupUserScope::applyNotDeletedScope($query, '');
+                }
+
+                return $query->exists();
             }
         } catch (\Throwable $_) {
         }
@@ -173,10 +180,12 @@ class E3BackupAccess
             }
             $hasPublicId = Capsule::schema()->hasColumn('s3_backup_users', 'public_id');
             $cols = $hasPublicId ? ['id', 'username', 'public_id'] : ['id', 'username'];
-            $row = Capsule::table('s3_backup_users')
-                ->where('client_id', $clientId)
-                ->orderBy('id', 'asc')
-                ->first($cols);
+            $rowQuery = Capsule::table('s3_backup_users')
+                ->where('client_id', $clientId);
+            if (class_exists(E3BackupUserScope::class)) {
+                E3BackupUserScope::applyNotDeletedScope($rowQuery, '');
+            }
+            $row = $rowQuery->orderBy('id', 'asc')->first($cols);
             if (!$row) {
                 return null;
             }

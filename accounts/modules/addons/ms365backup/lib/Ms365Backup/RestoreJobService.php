@@ -43,10 +43,11 @@ final class RestoreJobService
             $restoreMode = 'tenant';
         }
 
+        $destinationMode = Ms365RestoreDestinationResolver::normalizeDestinationMode(
+            (string) ($selection['destination_mode'] ?? Ms365RestoreDestinationResolver::MODE_ORIGINAL)
+        );
+
         $targets = $selection['targets'] ?? [];
-        if ($restoreMode === 'tenant' && (!is_array($targets) || $targets === [])) {
-            throw new \RuntimeException('Restore target is required.');
-        }
         if (!is_array($targets)) {
             $targets = [];
         }
@@ -65,6 +66,18 @@ final class RestoreJobService
                 $items,
                 $conflictPolicy,
             );
+        }
+
+        $inventoryResources = self::loadInventoryResourcesSafe($clientId, $backupUserId);
+
+        if ($destinationMode === Ms365RestoreDestinationResolver::MODE_ORIGINAL) {
+            $targets = Ms365RestoreDestinationResolver::deriveOriginalTargets($items, $inventoryResources);
+            Ms365RestoreDestinationResolver::assertSelectionCompatible($items, $targets, $destinationMode, $inventoryResources);
+        } else {
+            if ($targets === []) {
+                throw new \RuntimeException('Restore target is required.');
+            }
+            Ms365RestoreDestinationResolver::assertSelectionCompatible($items, $targets, $destinationMode, $inventoryResources);
         }
 
         $grouped = self::groupItemsByWorkload($items);
@@ -104,6 +117,7 @@ final class RestoreJobService
                 'selection_json' => [
                     'items' => $groupItems,
                     'targets' => $targets,
+                    'destination_mode' => $destinationMode,
                     'conflict_policy' => $conflictPolicy,
                     'snapshot_batch_run_id' => $sourceBatchRunId,
                 ],
@@ -244,5 +258,20 @@ final class RestoreJobService
         }
 
         return $primary;
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private static function loadInventoryResourcesSafe(int $clientId, int $backupUserId): array
+    {
+        try {
+            $data = CustomerInventoryService::loadForBackupUser($clientId, $backupUserId);
+            $resources = $data['resources'] ?? [];
+
+            return is_array($resources) ? $resources : [];
+        } catch (\Throwable $_) {
+            return [];
+        }
     }
 }

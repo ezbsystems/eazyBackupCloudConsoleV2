@@ -26,6 +26,7 @@
 require_once __DIR__ . '/../../../../init.php';
 require_once __DIR__ . '/../lib/Client/MspController.php';
 require_once __DIR__ . '/../lib/Client/E3BackupRunListService.php';
+require_once __DIR__ . '/../lib/Client/E3BackupUserScope.php';
 
 if (!defined("WHMCS")) {
     die("This file cannot be accessed directly");
@@ -35,6 +36,7 @@ use Symfony\Component\HttpFoundation\JsonResponse;
 use WHMCS\ClientArea;
 use WHMCS\Database\Capsule;
 use WHMCS\Module\Addon\CloudStorage\Client\E3BackupRunListService;
+use WHMCS\Module\Addon\CloudStorage\Client\E3BackupUserScope;
 use WHMCS\Module\Addon\CloudStorage\Client\MspController;
 
 $ca = new ClientArea();
@@ -91,6 +93,7 @@ if ($userScopeIdRaw !== '' && $userScopeIdRaw !== '0') {
     $scopeUserQuery = Capsule::table('s3_backup_users as u')
         ->leftJoin($tenantTable . ' as t', 'u.tenant_id', '=', 't.id')
         ->where('u.client_id', $clientId);
+    E3BackupUserScope::applyNotDeletedScope($scopeUserQuery, 'u');
     if ($hasPublicIdCol && !ctype_digit($userScopeIdRaw)) {
         $scopeUserQuery->where('u.public_id', $userScopeIdRaw);
     } else {

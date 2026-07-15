@@ -1,5 +1,7 @@
 <?php
 
+require_once __DIR__ . '/E3BackupUserScope.php';
+
 namespace WHMCS\Module\Addon\CloudStorage\Client;
 
 use WHMCS\Database\Capsule;
@@ -71,6 +73,9 @@ class E3BackupClientState
                 $query = Capsule::table('s3_backup_users')
                     ->where('client_id', $clientId)
                     ->where('status', 'active');
+                if (class_exists(E3BackupUserScope::class)) {
+                    E3BackupUserScope::applyNotDeletedScope($query, '');
+                }
                 if (Capsule::schema()->hasColumn('s3_backup_users', 'backup_type')) {
                     $query->whereIn('backup_type', ['local', 'both']);
                 }
@@ -130,7 +135,12 @@ class E3BackupClientState
 
         try {
             if (Capsule::schema()->hasTable('s3_backup_users')) {
-                return Capsule::table('s3_backup_users')->where('client_id', $clientId)->exists();
+                $existsQuery = Capsule::table('s3_backup_users')->where('client_id', $clientId);
+                if (class_exists(E3BackupUserScope::class)) {
+                    E3BackupUserScope::applyNotDeletedScope($existsQuery, '');
+                }
+
+                return $existsQuery->exists();
             }
         } catch (\Throwable $_) {
         }

@@ -505,9 +505,12 @@ class CloudBackupController {
      * @param array<string, mixed> $auditContext
      * @return array
      */
-    public static function deleteJob($jobId, $clientId, $confirmPhrase = '', array $auditContext = [])
+    public static function deleteJob($jobId, $clientId, $confirmPhrase = '', array $auditContext = [], array $options = [])
     {
         try {
+            $skipConfirm = (bool) ($options['skip_confirm'] ?? false);
+            $skipNotification = (bool) ($options['skip_notification'] ?? false);
+
             // Verify ownership
             $job = self::getJob($jobId, $clientId);
             if (!$job) {
@@ -515,7 +518,7 @@ class CloudBackupController {
             }
 
             $isMs365 = self::isMs365CloudBackupJob($job);
-            if ($isMs365) {
+            if ($isMs365 && !$skipConfirm) {
                 $jobName = trim((string) ($job['name'] ?? ''));
                 if ($jobName === '') {
                     $jobName = 'Unnamed job';
@@ -573,7 +576,7 @@ class CloudBackupController {
                 );
 
                 $vaultResult = Ms365VaultLifecycleService::softDeleteVaultForJob($job, $clientId, $auditContext);
-                if (($vaultResult['status'] ?? '') === 'success') {
+                if (!$skipNotification && ($vaultResult['status'] ?? '') === 'success') {
                     Ms365VaultNotificationService::sendJobDeletedNotification(
                         $clientId,
                         (string) ($job['name'] ?? 'Unnamed job'),

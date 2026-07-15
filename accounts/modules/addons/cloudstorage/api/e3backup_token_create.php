@@ -2,6 +2,7 @@
 
 require_once __DIR__ . '/../../../../init.php';
 require_once __DIR__ . '/../lib/Client/MspController.php';
+require_once __DIR__ . '/../lib/Client/E3BackupUserScope.php';
 require_once __DIR__ . '/../lib/Provision/Provisioner.php';
 require_once __DIR__ . '/../lib/Client/CloudBackupBootstrapService.php';
 
@@ -10,6 +11,7 @@ use Symfony\Component\HttpFoundation\JsonResponse;
 use WHMCS\ClientArea;
 use WHMCS\Module\Addon\CloudStorage\Provision\Provisioner;
 use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupBootstrapService;
+use WHMCS\Module\Addon\CloudStorage\Client\E3BackupUserScope;
 use WHMCS\Module\Addon\CloudStorage\Client\MspController;
 
 if (!defined("WHMCS")) {
@@ -92,6 +94,14 @@ if ($backupUserPublicIdRaw !== '' && Capsule::schema()->hasColumn('s3_backup_use
         ->first();
 }
 if ($backupUser) {
+    if (E3BackupUserScope::isDeletedUser($backupUser)) {
+        (new JsonResponse(['status' => 'fail', 'message' => 'Backup user not found'], 404))->send();
+        exit;
+    }
+    if (strtolower((string) ($backupUser->status ?? '')) !== 'active') {
+        (new JsonResponse(['status' => 'fail', 'message' => 'Backup user is not active'], 400))->send();
+        exit;
+    }
     $backupUserId = (int) $backupUser->id;
 } elseif ($backupUserPublicIdRaw !== '' || ($backupUserIdRaw !== '' && $backupUserIdRaw !== '0')) {
     (new JsonResponse(['status' => 'fail', 'message' => 'Backup user not found'], 404))->send();

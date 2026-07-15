@@ -63,6 +63,49 @@ func TestItemMatchesDriveItemForSkip(t *testing.T) {
 	}
 }
 
+func TestDrivePathFromSnapshot(t *testing.T) {
+	target := Target{}
+	tests := []struct {
+		name     string
+		path     string
+		wantID   string
+		wantPath string
+	}{
+		{
+			name:     "sharepoint content segment",
+			path:     "tenant/sites/site/drives/b!drive/content/IT Testing/doc.docx",
+			wantID:   "b!drive",
+			wantPath: "/IT Testing/doc.docx",
+		},
+		{
+			name:     "drive root file with content segment",
+			path:     "tenant/sites/site/drives/b!drive/content/file.docx",
+			wantID:   "b!drive",
+			wantPath: "/file.docx",
+		},
+		{
+			name:     "drive path without content segment",
+			path:     "tenant/sites/site/drives/b!drive/foo.docx",
+			wantID:   "b!drive",
+			wantPath: "/foo.docx",
+		},
+		{
+			name:     "onedrive content unchanged",
+			path:     "tenant/users/user/onedrive/content/Documents/file.docx",
+			wantID:   "",
+			wantPath: "/Documents/file.docx",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			gotID, gotPath := drivePathFromSnapshot(tc.path, target)
+			if gotID != tc.wantID || gotPath != tc.wantPath {
+				t.Fatalf("drivePathFromSnapshot(%q) = (%q, %q), want (%q, %q)", tc.path, gotID, gotPath, tc.wantID, tc.wantPath)
+			}
+		})
+	}
+}
+
 func TestGraphDriveItemPathUploadURL(t *testing.T) {
 	driveID := "b!drive"
 	graphPath := graphDriveItemPath("/cometd_26.4.2_amd64.deb")
@@ -70,5 +113,18 @@ func TestGraphDriveItemPathUploadURL(t *testing.T) {
 	want := "/drives/b!drive/root:/cometd_26.4.2_amd64.deb:/content"
 	if got != want {
 		t.Fatalf("upload path = %q, want %q", got, want)
+	}
+}
+
+func TestUseAlternateSharePointDrive(t *testing.T) {
+	path := "tenant/sites/site-a/drives/b!source/content/SeederUploads/file.txt"
+	if !useAlternateSharePointDrive(Target{DestinationMode: "alternate"}, path) {
+		t.Fatal("expected alternate sharepoint path to use target drive resolution")
+	}
+	if useAlternateSharePointDrive(Target{DestinationMode: "original"}, path) {
+		t.Fatal("original mode should keep source drive from path")
+	}
+	if useAlternateSharePointDrive(Target{DestinationMode: "alternate"}, "tenant/users/u1/mail/inbox/msg.json") {
+		t.Fatal("mailbox paths should not trigger alternate sharepoint drive resolution")
 	}
 }

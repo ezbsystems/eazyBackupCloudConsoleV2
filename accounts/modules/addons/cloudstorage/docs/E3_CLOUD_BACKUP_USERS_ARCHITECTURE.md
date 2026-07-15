@@ -57,7 +57,9 @@ Implemented in `cloudstorage_clientarea()`:
 - `api/e3backup_user_reset_password.php`
   - reset password hash for scoped user
 - `api/e3backup_user_delete.php`
-  - delete scoped user record
+  - full cascade delete via `E3BackupUserLifecycleService`: soft-delete all jobs (MS365 vault recycle + agent Kopia retention), disconnect MS365 tenant, disable/unassign agents, revoke enrollment tokens, immediate WHMCS `AddCancelRequest` on linked `pid_e3_backup_user` service, then soft-disable user (`status=disabled`, `deleted_at`, username renamed to `{username}__deleted_{id}`)
+  - requires confirm phrase `DELETE {username}` (bulk UI types `DELETE`; API receives per-user phrase)
+  - supports `dry_run=1` preview counts
 
 ## Authorization rules
 
@@ -103,6 +105,13 @@ Per-username metrics use a **hybrid** approach: direct FK when available, tenant
 - `# Vaults`: distinct destination buckets from jobs in scope (same hybrid logic)
 - `Last Backup`: latest successful/warning run from `s3_cloudbackup_runs` in scope (same hybrid logic on jobs)
 - `Online Devices`: agents with `last_seen_at` inside online threshold setting (same hybrid agent scope)
+
+## Delete cascade and orphans
+
+- Customer delete is implemented in `lib/Client/E3BackupUserLifecycleService.php` (not a hard row delete). Confirm phrase: `DELETE {username}` (bulk UI types `DELETE` but each API call sends per-user phrase).
+- Deleted users are hidden via `deleted_at` and excluded from create/update uniqueness checks; username is freed on delete.
+- Schedulers (`Ms365JobScheduler`, `s3cloudbackup_scheduler.php`) skip jobs whose `backup_user_id` is missing, disabled, or soft-deleted.
+- Admin orphan scan/remediation: `addonmodules.php?module=cloudstorage&action=orphan_remediation` and CLI `modules/addons/cloudstorage/bin/e3backup_orphan_remediate.php`.
 
 ## UI notes
 

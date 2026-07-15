@@ -4,6 +4,7 @@ require_once __DIR__ . '/../../../../init.php';
 require_once __DIR__ . '/../lib/Client/MspController.php';
 require_once __DIR__ . '/../lib/Client/E3BackupClientState.php';
 require_once __DIR__ . '/../lib/Client/BackupUserNotificationSettingsService.php';
+require_once __DIR__ . '/../lib/Client/E3BackupUserScope.php';
 require_once __DIR__ . '/../lib/Provision/E3BackupUserProductBootstrap.php';
 require_once __DIR__ . '/../lib/Provision/Provisioner.php';
 require_once __DIR__ . '/../../eazybackup/pages/partnerhub/TenantStorageLinksController.php';
@@ -13,6 +14,7 @@ use Symfony\Component\HttpFoundation\JsonResponse;
 use WHMCS\ClientArea;
 use WHMCS\Module\Addon\CloudStorage\Client\BackupUserNotificationSettingsService;
 use WHMCS\Module\Addon\CloudStorage\Client\E3BackupClientState;
+use WHMCS\Module\Addon\CloudStorage\Client\E3BackupUserScope;
 use WHMCS\Module\Addon\CloudStorage\Client\MspController;
 use WHMCS\Module\Addon\CloudStorage\Provision\E3BackupUserProductBootstrap;
 use WHMCS\Module\Addon\CloudStorage\Provision\Provisioner;
@@ -239,6 +241,7 @@ if (!empty($errors)) {
 $existingQuery = Capsule::table('s3_backup_users')
     ->where('client_id', $clientId)
     ->where('username', $username);
+E3BackupUserScope::applyNotDeletedScope($existingQuery, '');
 
 if ($tenantId === null) {
     $existingQuery->whereNull('tenant_id');

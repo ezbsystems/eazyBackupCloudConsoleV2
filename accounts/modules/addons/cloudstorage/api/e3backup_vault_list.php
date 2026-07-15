@@ -3,6 +3,7 @@
 require_once __DIR__ . '/../../../../init.php';
 require_once __DIR__ . '/../lib/Client/MspController.php';
 require_once __DIR__ . '/../lib/Client/Ms365VaultLifecycleService.php';
+require_once __DIR__ . '/../lib/Client/E3BackupUserScope.php';
 
 if (!defined('WHMCS')) {
     die('This file cannot be accessed directly');

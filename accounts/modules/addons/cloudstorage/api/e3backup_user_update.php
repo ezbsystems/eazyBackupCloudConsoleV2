@@ -2,11 +2,13 @@
 
 require_once __DIR__ . '/../../../../init.php';
 require_once __DIR__ . '/../lib/Client/MspController.php';
+require_once __DIR__ . '/../lib/Client/E3BackupUserScope.php';
 require_once __DIR__ . '/../../eazybackup/pages/partnerhub/TenantStorageLinksController.php';
 
 use Illuminate\Database\Capsule\Manager as Capsule;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use WHMCS\ClientArea;
+use WHMCS\Module\Addon\CloudStorage\Client\E3BackupUserScope;
 use WHMCS\Module\Addon\CloudStorage\Client\MspController;
 
 if (!defined("WHMCS")) {
@@ -61,6 +63,7 @@ if ($userIdRaw === '') {
 $updateLookup = Capsule::table('s3_backup_users as u')
     ->leftJoin($tenantTable . ' as t', 'u.tenant_id', '=', 't.id')
     ->where('u.client_id', $clientId);
+E3BackupUserScope::applyNotDeletedScope($updateLookup, 'u');
 if ($hasPublicIdCol && !ctype_digit($userIdRaw)) {
     $updateLookup->where('u.public_id', $userIdRaw);
 } else {
@@ -215,6 +218,7 @@ $existingQuery = Capsule::table('s3_backup_users')
     ->where('client_id', $clientId)
     ->where('username', $username)
     ->where('id', '!=', $userId);
+E3BackupUserScope::applyNotDeletedScope($existingQuery, '');
 
 if ($tenantId === null) {
     $existingQuery->whereNull('tenant_id');

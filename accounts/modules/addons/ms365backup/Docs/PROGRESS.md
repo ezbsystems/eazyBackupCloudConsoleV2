@@ -2,14 +2,52 @@
 
 **Purpose:** Single handoff document so the next agent knows where work stopped. Update this file at the **end of every session** (or after each meaningful milestone).
 
-**Last updated:** 2026-07-12  
+**Last updated:** 2026-07-15  
 **Module version (ms365backup):** 1.52.3  
 **Cloudstorage (e3) version:** 2.2.0  
-**Worker version (ms365-backup-worker):** 0.3.72 (SharePoint delta per-page progress)
+**Worker version (ms365-backup-worker):** 0.3.73 (SharePoint restore content path fix)
 
 ---
 
 ## Session log
+
+### 2026-07-15 — Cascade gap fixes (deleted_at, rename, dry-run)
+
+- **Schema:** cloudstorage `2.2.1`; `s3_backup_users.deleted_at` applied via upgrade + `E3BackupUserScope::ensureDeletedAtColumn()` self-heal; verify script `bin/ensure_backup_user_deleted_at.php`.
+- **Rename on delete:** `deletedUsername()` frees original name (`{username}__deleted_{id}`); create/update uniqueness ignores soft-deleted rows.
+- **Tokens:** `e3backup_token_create.php` / `quickstart` reject deleted or inactive backup users.
+- **Confirm:** API requires `DELETE {username}` only (no bare `DELETE` on apply); bulk UI posts per-user phrase.
+- **UI:** Delete modal fetches `dry_run=1` impact preview from API with list-metrics fallback.
+- **Tests:** `e3backup_user_deleted_at_schema_test.php`; extended scope + contract tests.
+
+### 2026-07-15 — Backup User delete cascade
+
+- **Problem:** `e3backup_user_delete.php` hard-deleted only `s3_backup_users`, leaving active jobs, agents, MS365 tenant connections, vaults, and billing/schedulers running with dangling `backup_user_id`.
+- **Fix:** New `E3BackupUserLifecycleService` — soft-delete all user jobs (reuses `CloudBackupController::deleteJob` with `skip_confirm` + MS365 vault recycle), `Ms365DisconnectService`, disable agents + clear ownership + revoke tokens, WHMCS `AddCancelRequest` Immediate on linked `pid_e3_backup_user` service, then `status=disabled` + `deleted_at` (no hard delete).
+- **Schema:** `s3_backup_users.deleted_at` via cloudstorage schema-ensure; customer listings exclude deleted users (`E3BackupUserScope`).
+- **Schedulers:** `Ms365JobScheduler` + `s3cloudbackup_scheduler.php` skip jobs when backup user is not schedulable.
+- **Orphans:** `E3BackupOrphanRemediation` + admin page `action=orphan_remediation` + CLI `bin/e3backup_orphan_remediate.php`.
+- **UI/API:** Delete modal confirm `DELETE {username}`; API `confirm_phrase`, `dry_run=1`, summary response.
+- **Tests:** `tests/e3backup_user_delete_cascade_contract_test.php`, `tests/e3backup_user_scope_test.php`.
+- **Verify (dev):** Delete user with MS365 + agent jobs → jobs deleted, vault recycle, agents disabled, tenant disconnected, WHMCS service Cancelled, user hidden from Users list; run orphan CLI dry-run on any pre-existing dangling jobs.
+
+### 2026-07-14 — Restore to original location (MS365 wizard)
+
+- **Problem:** Tenant restore wizard always required manually picking a destination from full inventory; no “restore to original location” option.
+- **Fix:** New `Ms365RestoreDestinationResolver` classifies catalog paths (`mailbox`, `onedrive`, `sharepoint`, etc.), derives per-source targets for **original** mode, and validates **alternate** mode (single homogeneous workload class only; blocks mail→site and SharePoint→user mismatches).
+- **Backend:** `RestoreJobService::start()` reads `destination_mode` (default `original` for tenant restores), re-derives targets server-side, loads inventory for site ID resolution, stores `destination_mode` in `selection_json`.
+- **UI:** Restore wizard step 4 — choice cards for original (default) vs alternate destination; original shows inferred destination summary; alternate filters inventory to compatible resource types; mixed selections disable alternate. Review step shows destination mode + targets. JS `?v=10`.
+- **Tests:** `ms365_restore_destination_resolver_test.php` — path classification, derive original targets, alternate rejection, mixed selection.
+- **Verify:** SharePoint-only selection defaults to original STCHF site; alternate lists only SharePoint sites; mailbox selection alternate lists only users; mixed mail+SharePoint forces original with per-path targets; tampered API payload rejected by PHP.
+
+### 2026-07-14 — SharePoint restore content path fix
+
+- **Symptom:** SharePoint file restores landed under `Documents > content > IT Testing > …` instead of `Documents > IT Testing > …` (e.g. STCHF-M365 `Test Document.docx`).
+- **Root cause:** Kopia vault paths include a synthetic `content` segment (`…/drives/{id}/content/…`). `drivePathFromSnapshot()` stripped `content` for OneDrive (`onedrive/content/…`) but not for SharePoint/drive paths (`drives/{id}/content/…`), so Graph uploads targeted `root:/content/…`.
+- **Fix (worker 0.3.73):** In `graphrestore/mail.go`, `drivePathFromSnapshot()` now skips the `content` segment after `drives/{id}` (mirrors OneDrive handling).
+- **Tests:** `mail_test.go` — `TestDrivePathFromSnapshot` (SharePoint nested file, drive root file, path without content segment, OneDrive unchanged). `go test ./internal/graphrestore/...` pass.
+- **Deploy:** Built `ms365-backup-worker` 0.3.73 at `ms365-backup-worker/bin/ms365-backup-worker` (local build; fleet rollout pending).
+- **Verify:** Restore `IT Testing/Test Document.docx` on STCHF (or equivalent) → appears under **Documents > IT Testing**, not under a `content` folder. Spot-check OneDrive user restore still correct.
 
 ### 2026-07-12 — Production batch claim thrash (stranded-queue handoff)
 

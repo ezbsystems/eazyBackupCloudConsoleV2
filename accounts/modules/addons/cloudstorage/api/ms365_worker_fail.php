@@ -28,9 +28,29 @@ if ($runId === '') {
 }
 
 try {
+    // #region agent log
+    @file_put_contents('/var/www/eazybackup.ca/.cursor/debug-95d465.log', json_encode([
+        'sessionId' => '95d465',
+        'hypothesisId' => 'B',
+        'location' => 'ms365_worker_fail.php',
+        'message' => 'worker fail received',
+        'data' => ['run_id' => $runId, 'message_len' => strlen($message)],
+        'timestamp' => (int) round(microtime(true) * 1000),
+    ], JSON_UNESCAPED_SLASHES) . "\n", FILE_APPEND);
+    // #endregion
     WorkerClaimService::requireRestoreRunId($runId);
     Ms365RestoreWorkerHooks::onFail($runId, $message);
     (new JsonResponse(['status' => 'success']))->send();
 } catch (\Throwable $e) {
+    // #region agent log
+    @file_put_contents('/var/www/eazybackup.ca/.cursor/debug-95d465.log', json_encode([
+        'sessionId' => '95d465',
+        'hypothesisId' => 'B',
+        'location' => 'ms365_worker_fail.php',
+        'message' => 'worker fail exception',
+        'data' => ['run_id' => $runId, 'error' => $e->getMessage()],
+        'timestamp' => (int) round(microtime(true) * 1000),
+    ], JSON_UNESCAPED_SLASHES) . "\n", FILE_APPEND);
+    // #endregion
     (new JsonResponse(['status' => 'error', 'message' => $e->getMessage()], 500))->send();
 }

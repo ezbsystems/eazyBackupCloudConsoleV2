@@ -152,11 +152,12 @@ type ArchiveExport struct {
 }
 
 type RestoreSelection struct {
-	Items          []RestoreItem   `json:"items"`
-	Targets        []RestoreTarget `json:"targets"`
-	ConflictPolicy string          `json:"conflict_policy"`
-	RestoreMode    string          `json:"restore_mode"`
-	ArchiveExport  ArchiveExport   `json:"archive_export"`
+	Items           []RestoreItem   `json:"items"`
+	Targets         []RestoreTarget `json:"targets"`
+	ConflictPolicy  string          `json:"conflict_policy"`
+	RestoreMode     string          `json:"restore_mode"`
+	DestinationMode string          `json:"destination_mode"`
+	ArchiveExport   ArchiveExport   `json:"archive_export"`
 }
 
 type RestoreItem struct {

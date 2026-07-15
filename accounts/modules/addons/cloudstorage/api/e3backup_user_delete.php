@@ -7,6 +7,8 @@ use Illuminate\Database\Capsule\Manager as Capsule;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use WHMCS\ClientArea;
 use WHMCS\Module\Addon\CloudStorage\Client\MspController;
+use WHMCS\Module\Addon\CloudStorage\Client\E3BackupUserLifecycleService;
+use WHMCS\Module\Addon\CloudStorage\Client\E3BackupUserScope;
 
 if (!defined("WHMCS")) {
     die("This file cannot be accessed directly");
@@ -62,6 +64,7 @@ if ($hasPublicIdCol && !ctype_digit($userIdRaw)) {
 }
 $user = $deleteLookup->select([
     'u.id',
+    'u.username',
     'u.tenant_id',
     Capsule::raw($tenantOwnerSelect),
     't.status as tenant_status',
@@ -84,18 +87,48 @@ if ($isMsp && !empty($user->tenant_id)) {
     }
 }
 
-try {
-    Capsule::table('s3_backup_users')
-        ->where('id', $userId)
-        ->where('client_id', $clientId)
-        ->delete();
-} catch (\Throwable $e) {
-    userDeleteFail('Failed to delete user.', 500);
+$dryRun = isset($_POST['dry_run']) && (string) $_POST['dry_run'] === '1';
+$confirmPhrase = trim((string) ($_POST['confirm_phrase'] ?? ''));
+
+require_once __DIR__ . '/../lib/Client/E3BackupUserLifecycleService.php';
+require_once __DIR__ . '/../lib/Client/E3BackupUserScope.php';
+require_once __DIR__ . '/../lib/Client/CloudBackupController.php';
+require_once __DIR__ . '/../lib/Client/Ms365VaultLifecycleService.php';
+require_once __DIR__ . '/../lib/Client/UuidBinary.php';
+require_once __DIR__ . '/../lib/Provision/E3BackupUserProductBootstrap.php';
+$ms365Autoload = __DIR__ . '/../../ms365backup/ms365backup_autoload.php';
+if (is_file($ms365Autoload)) {
+    require_once $ms365Autoload;
 }
 
-(new JsonResponse([
-    'status' => 'success',
-    'message' => 'User deleted successfully.',
-], 200))->send();
-exit;
+$result = E3BackupUserLifecycleService::deleteUser(
+    (int) $clientId,
+    $userId,
+    $confirmPhrase,
+    $dryRun,
+    [
+        'actor' => 'client',
+        'client_id' => (int) $clientId,
+    ]
+);
 
+if (($result['status'] ?? '') !== 'success') {
+    $code = 400;
+    if (($result['code'] ?? '') === 'confirm_phrase_mismatch') {
+        $code = 400;
+    }
+    userDeleteFail((string) ($result['message'] ?? 'Failed to delete user.'), $code);
+}
+
+$response = [
+    'status' => 'success',
+    'message' => (string) ($result['message'] ?? 'User deleted successfully.'),
+];
+if ($dryRun) {
+    $response = array_merge($response, $result);
+} else {
+    $response['summary'] = $result['summary'] ?? [];
+}
+
+(new JsonResponse($response, 200))->send();
+exit;

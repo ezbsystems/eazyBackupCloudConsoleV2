@@ -17,9 +17,11 @@
  */
 
 require_once __DIR__ . '/../../../../init.php';
+require_once __DIR__ . '/../lib/Client/E3BackupUserScope.php';
 
 use WHMCS\ClientArea;
 use WHMCS\Database\Capsule;
+use WHMCS\Module\Addon\CloudStorage\Client\E3BackupUserScope;
 
 header('Content-Type: application/json');
 
@@ -45,9 +47,14 @@ try {
     }
 
     $row = Capsule::table('s3_backup_users')->where('id', $backupUserId)->first();
-    if (!$row) {
+    if (!$row || E3BackupUserScope::isDeletedUser($row)) {
         http_response_code(404);
         echo json_encode(['status' => 'fail', 'message' => 'backup_user_not_found']);
+        exit;
+    }
+    if (strtolower((string) ($row->status ?? '')) !== 'active') {
+        http_response_code(400);
+        echo json_encode(['status' => 'fail', 'message' => 'backup_user_not_active']);
         exit;
     }
     // Customers may only request tokens for their own users.

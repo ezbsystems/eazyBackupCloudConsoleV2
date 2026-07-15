@@ -505,6 +505,10 @@ final class Ms365RestoreWorkerHooks
             return 0;
         }
         $existing = RestoreRunRepository::get($runId) ?? [];
+        $existingStatus = strtolower(trim((string) ($existing['status'] ?? '')));
+        if (in_array($existingStatus, ['error', 'success', 'cancelled'], true)) {
+            return 0;
+        }
         $incoming429 = (int) ($body['graph_429_hits'] ?? 0);
         $existing429 = (int) ($existing['graph_429_hits'] ?? 0);
         $delta429 = max(0, $incoming429 - $existing429);

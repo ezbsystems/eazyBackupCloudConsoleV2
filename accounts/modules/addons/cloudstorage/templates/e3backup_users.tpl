@@ -567,10 +567,11 @@
                             <line x1="15" y1="9" x2="9" y2="15"></line>
                             <line x1="9" y1="9" x2="15" y2="15"></line>
                         </svg>
-                        <div>This action is permanent and cannot be undone. All associated data for the selected users will be destroyed.</div>
+                        <div>This will soft-delete the user, cancel the linked WHMCS service, stop all jobs and agents, disconnect Microsoft 365, and move MS365 vaults into the recycle bin.</div>
                     </div>
 
                     <div class="mt-4 text-[10.5px] font-bold uppercase tracking-[0.12em] text-[var(--eb-text-muted)]">Impact Summary</div>
+                    <div class="eb-type-body text-[var(--eb-text-muted)] mb-2" x-show="deleteModal.impactWarning" x-text="deleteModal.impactWarning"></div>
                     <div class="eb-impact-list">
                         <div class="eb-impact-item">
                             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true">
@@ -616,10 +617,10 @@
                     </div>
                 </div>
                 <div class="eb-modal-footer">
-                    <button type="button" class="eb-btn eb-btn-secondary eb-btn-sm" @click="closeDeleteModal()">Cancel</button>
+                    <button type="button" class="eb-btn eb-btn-secondary eb-btn-sm" @click="closeDeleteModal()" :disabled="deleting">Cancel</button>
                     <button type="button"
                             class="eb-btn eb-btn-danger-solid eb-btn-sm"
-                            :disabled="!canConfirmDelete()"
+                            :disabled="deleting || !canConfirmDelete()"
                             @click="confirmDeleteUsers()"
                             x-text="deleteActionLabel()"></button>
                 </div>
@@ -715,8 +716,12 @@ function backupUsersApp() {
         deleteModal: {
             open: false,
             users: [],
-            confirmText: ''
+            confirmText: '',
+            impact: null,
+            impactLoading: false,
+            impactWarning: ''
         },
+        deleting: false,
         showCreateModal: false,
         showRecoveryKeyCloseWarning: false,
         formErrorMessage: '',
@@ -896,7 +901,7 @@ function backupUsersApp() {
             user.status = 'active';
         },
 
-        openDeleteModal(users) {
+        async openDeleteModal(users) {
             const modalUsers = Array.isArray(users) ? users.filter(Boolean) : [];
             if (!modalUsers.length) {
                 return;
@@ -904,15 +909,75 @@ function backupUsersApp() {
             this.deleteModal = {
                 open: true,
                 users: modalUsers,
-                confirmText: ''
+                confirmText: '',
+                impact: null,
+                impactLoading: true,
+                impactWarning: ''
             };
+            await this.loadDeleteImpactPreview(modalUsers);
+        },
+
+        async loadDeleteImpactPreview(users) {
+            const aggregate = {
+                agents: 0,
+                jobs: 0,
+                vaults: 0,
+                tokens: 0,
+                ms365_connected: false
+            };
+            let hadFailure = false;
+
+            for (const user of users) {
+                try {
+                    const body = new URLSearchParams({
+                        user_id: String(user.public_id || user.id),
+                        dry_run: '1'
+                    });
+                    body.set('token', this.csrfToken);
+                    const response = await fetch('modules/addons/cloudstorage/api/e3backup_user_delete.php', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                        body
+                    });
+                    const data = await response.json();
+                    if (data.status !== 'success' || !data.impact) {
+                        hadFailure = true;
+                        continue;
+                    }
+                    const impact = data.impact;
+                    aggregate.agents += Number(impact.agents || 0);
+                    aggregate.jobs += Number(impact.jobs || 0);
+                    aggregate.vaults += Number(impact.vaults || 0);
+                    aggregate.tokens += Number(impact.tokens || 0);
+                    if (impact.ms365_connected) {
+                        aggregate.ms365_connected = true;
+                    }
+                } catch (error) {
+                    hadFailure = true;
+                }
+            }
+
+            if (this.deleteModal.open) {
+                this.deleteModal.impactLoading = false;
+                if (!hadFailure) {
+                    this.deleteModal.impact = aggregate;
+                } else {
+                    this.deleteModal.impactWarning = 'Could not load live impact preview; showing list estimates.';
+                }
+            }
         },
 
         closeDeleteModal() {
+            if (this.deleting) {
+                return;
+            }
             this.deleteModal = {
                 open: false,
                 users: [],
-                confirmText: ''
+                confirmText: '',
+                impact: null,
+                impactLoading: false,
+                impactWarning: ''
             };
         },
 
@@ -926,13 +991,22 @@ function backupUsersApp() {
         },
 
         deleteImpactMetrics() {
+            if (this.deleteModal.impact) {
+                return {
+                    agents: Number(this.deleteModal.impact.agents || 0),
+                    jobs: Number(this.deleteModal.impact.jobs || 0),
+                    vaults: Number(this.deleteModal.impact.vaults || 0),
+                    storageCount: this.deleteModal.impact.ms365_connected ? 'Yes' : 'No',
+                    storageLabel: 'MS365 connected'
+                };
+            }
             const users = this.deleteModal.users;
             return {
                 agents: users.reduce((sum, user) => sum + Number(user.agents_count || 0), 0),
                 jobs: users.reduce((sum, user) => sum + Number(user.jobs_count || 0), 0),
                 vaults: users.reduce((sum, user) => sum + Number(user.vaults_count || 0), 0),
-                storageCount: 'Pending',
-                storageLabel: 'backup data calculation'
+                storageCount: this.deleteModal.impactLoading ? '…' : '—',
+                storageLabel: this.deleteModal.impactLoading ? 'loading impact' : 'backup data estimate'
             };
         },
 
@@ -940,21 +1014,23 @@ function backupUsersApp() {
             if (this.deleteModal.users.length > 1) {
                 return 'DELETE';
             }
-            return (this.deleteModal.users[0] && this.deleteModal.users[0].username) || '';
+            const username = (this.deleteModal.users[0] && this.deleteModal.users[0].username) || '';
+            return username ? ('DELETE ' + username) : '';
         },
 
         deleteConfirmInstruction() {
             if (this.deleteModal.users.length > 1) {
                 return 'Type DELETE to confirm this bulk deletion:';
             }
-            return `Type ${this.deleteConfirmTarget()} to confirm deletion:`;
+            const target = this.deleteConfirmTarget();
+            return target ? ('Type ' + target + ' to confirm deletion:') : 'Type the confirmation phrase to confirm deletion:';
         },
 
         deleteConfirmPlaceholder() {
             if (this.deleteModal.users.length > 1) {
                 return 'Type DELETE to confirm...';
             }
-            return 'Type username to confirm...';
+            return 'Type DELETE {username} to confirm...';
         },
 
         canConfirmDelete() {
@@ -962,16 +1038,55 @@ function backupUsersApp() {
         },
 
         deleteActionLabel() {
+            if (this.deleting) {
+                return 'Deleting...';
+            }
             const count = this.deleteModal.users.length;
             return count > 1 ? `Delete ${count} Users` : 'Delete User';
         },
 
-        confirmDeleteUsers() {
-            if (!this.canConfirmDelete()) {
+        async confirmDeleteUsers() {
+            if (!this.canConfirmDelete() || this.deleting) {
                 return;
             }
-            this.closeDeleteModal();
-            this.clearSelectedUsers();
+
+            const usersToDelete = this.deleteModal.users.slice();
+            this.deleting = true;
+            this.createPageError = '';
+
+            try {
+                const failures = [];
+                for (const user of usersToDelete) {
+                    const body = new URLSearchParams({
+                        user_id: String(user.public_id || user.id),
+                        confirm_phrase: 'DELETE ' + (user.username || ''),
+                    });
+                    body.set('token', this.csrfToken);
+
+                    const response = await fetch('modules/addons/cloudstorage/api/e3backup_user_delete.php', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                        body
+                    });
+                    const data = await response.json();
+                    if (data.status !== 'success') {
+                        failures.push((user.username || 'User') + ': ' + (data.message || 'Failed to delete'));
+                    }
+                }
+
+                this.closeDeleteModal();
+                this.clearSelectedUsers();
+
+                if (failures.length) {
+                    this.showCreatePageError(failures.join(' '));
+                }
+
+                await this.loadUsers();
+            } catch (error) {
+                this.showCreatePageError('Failed to delete user.');
+            }
+
+            this.deleting = false;
         },
 
         get filteredTenants() {

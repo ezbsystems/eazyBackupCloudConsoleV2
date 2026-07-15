@@ -18,10 +18,11 @@ type ContentFetcher struct {
 }
 
 type Target struct {
-	ResourceID   string `json:"resource_id"`
-	GraphID      string `json:"graph_id"`
-	ResourceType string `json:"resource_type"`
-	DriveID      string `json:"drive_id,omitempty"`
+	ResourceID      string `json:"resource_id"`
+	GraphID         string `json:"graph_id"`
+	ResourceType    string `json:"resource_type"`
+	DriveID         string `json:"drive_id,omitempty"`
+	DestinationMode string `json:"destination_mode,omitempty"`
 }
 
 type SelectionItem struct {

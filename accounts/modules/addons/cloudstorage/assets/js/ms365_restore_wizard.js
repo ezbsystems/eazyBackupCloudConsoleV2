@@ -143,6 +143,8 @@
             inventoryResources: [],
             targetResource: null,
             restoreMode: 'tenant',
+            destinationMode: 'original',
+            destinationError: '',
             backupUserId: '',
             jobId: '',
 
@@ -160,6 +162,8 @@
                 this.treeNodes = [];
                 this.targetResource = null;
                 this.restoreMode = 'tenant';
+                this.destinationMode = 'original';
+                this.destinationError = '';
                 this.treeSearch = '';
                 document.getElementById('ms365RestoreWizardModal').classList.remove('hidden');
                 this.loadTreeRoots();
@@ -196,6 +200,10 @@
                 if (n === 4 && this.restoreMode === 'tenant' && this.inventoryResources.length === 0) {
                     this.loadInventory();
                 }
+                if (n === 4 && this.restoreMode === 'tenant') {
+                    this.syncDestinationModeOnSelectionChange();
+                    this.validateOriginalDestinations();
+                }
             },
 
             prevStep() {
@@ -224,7 +232,13 @@
                 if (this.step === 1) return !!this.snapshot;
                 if (this.step === 2) return this.restoreMode === 'tenant' || this.restoreMode === 'archive';
                 if (this.step === 3) return this.selectedItems.length > 0;
-                if (this.step === 4) return this.restoreMode === 'archive' || !!this.targetResource;
+                if (this.step === 4) {
+                    if (this.restoreMode === 'archive') return true;
+                    if (this.destinationMode === 'original') {
+                        return this.validateOriginalDestinations();
+                    }
+                    return this.canUseAlternateDestination() && !!this.targetResource;
+                }
                 return true;
             },
 
@@ -407,10 +421,12 @@
                     item.path_prefix = node.path;
                 }
                 this.selectedItems.push(item);
+                this.syncDestinationModeOnSelectionChange();
             },
 
             removeSelected(idx) {
                 this.selectedItems.splice(idx, 1);
+                this.syncDestinationModeOnSelectionChange();
             },
 
             sectionLabelForNode(node) {
@@ -448,13 +464,267 @@
                 }
             },
 
+            effectivePath(item) {
+                const path = String(item.path || '').trim();
+                if (path) return path;
+                return String(item.path_prefix || '').trim();
+            },
+
+            storageSafeId(id) {
+                const out = String(id || '').replace(/[^a-zA-Z0-9._-]/g, '_');
+                return out || 'unknown';
+            },
+
+            classifyItemPath(path) {
+                const normalized = String(path || '').trim().replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+                if (!normalized) return '';
+                const lower = normalized.toLowerCase();
+
+                if (/\/users\/[^/]+\/onedrive\/content(?:\/|$)/.test(lower)) return 'onedrive';
+                if (/\/users\/[^/]+\/(?:mail|calendar|calendars|contacts|tasks)(?:\/|$)/.test(lower)) return 'mailbox';
+                if (/\/groups\/[^/]+\/(?:mail|calendar|calendars)(?:\/|$)/.test(lower)) return 'groups';
+                if (/\/sites\/[^/]+\/(?:drives|lists)(?:\/|$)/.test(lower)) return 'sharepoint';
+                if (/\/teams\/[^/]+(?:\/|$)/.test(lower)) return 'teams';
+                if (/\/planner(?:\/|$)/.test(lower)) return 'planner';
+                if (/\/onenote(?:\/|$)/.test(lower)) return 'onenote';
+                if (/\/drives\/[^/]+\/content(?:\/|$)/.test(lower)) return 'onedrive';
+                return '';
+            },
+
+            classifyItem(item) {
+                return this.classifyItemPath(this.effectivePath(item));
+            },
+
+            selectionClasses() {
+                const classes = new Set();
+                this.selectedItems.forEach((item) => {
+                    const className = this.classifyItem(item);
+                    if (className) classes.add(className);
+                });
+                return Array.from(classes);
+            },
+
+            canUseAlternateDestination() {
+                return this.selectionClasses().length === 1;
+            },
+
+            compatibleResourceTypes(selectionClass) {
+                const map = {
+                    mailbox: ['user', 'mailbox'],
+                    onedrive: ['user', 'user_onedrive'],
+                    sharepoint: ['sharepoint_site'],
+                    teams: ['team'],
+                    groups: ['m365_group'],
+                    planner: ['planner_plan'],
+                    onenote: ['onenote_notebook'],
+                };
+                return map[selectionClass] || [];
+            },
+
+            resourceTypeForClass(className) {
+                const map = {
+                    mailbox: 'user',
+                    onedrive: 'user',
+                    sharepoint: 'sharepoint_site',
+                    teams: 'team',
+                    groups: 'm365_group',
+                    planner: 'planner_plan',
+                    onenote: 'onenote_notebook',
+                };
+                return map[className] || 'user';
+            },
+
+            makeResourceId(resourceType, graphId) {
+                return String(resourceType || 'user') + ':' + String(graphId || '');
+            },
+
+            parsePathIdentity(path, className) {
+                const normalized = String(path || '').trim().replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+
+                let match;
+                if (className === 'mailbox' && (match = normalized.match(/\/users\/([^/]+)\/(?:mail|calendar|calendars|contacts|tasks)(?:\/|$)/i))) {
+                    return { identity_key: 'user:' + match[1], graph_id: match[1] };
+                }
+                if (className === 'onedrive') {
+                    if ((match = normalized.match(/\/users\/([^/]+)\/onedrive\/content(?:\/|$)/i))) {
+                        return { identity_key: 'user:' + match[1], graph_id: match[1] };
+                    }
+                    if ((match = normalized.match(/\/drives\/([^/]+)\/content(?:\/|$)/i))) {
+                        return { identity_key: 'drive:' + match[1], graph_id: match[1], drive_id: match[1] };
+                    }
+                }
+                if (className === 'sharepoint' && (match = normalized.match(/\/sites\/([^/]+)\//i))) {
+                    const identity = { identity_key: 'site:' + match[1], graph_id: match[1] };
+                    const driveMatch = normalized.match(/\/drives\/([^/]+)\//i);
+                    if (driveMatch) identity.drive_id = driveMatch[1];
+                    return identity;
+                }
+                if (className === 'teams' && (match = normalized.match(/\/teams\/([^/]+)(?:\/|$)/i))) {
+                    return { identity_key: 'team:' + match[1], graph_id: match[1] };
+                }
+                if (className === 'groups' && (match = normalized.match(/\/groups\/([^/]+)\/(?:mail|calendar|calendars)(?:\/|$)/i))) {
+                    return { identity_key: 'group:' + match[1], graph_id: match[1] };
+                }
+                if (className === 'planner' && (match = normalized.match(/\/planner\/([^/]+)(?:\/|$)/i))) {
+                    return { identity_key: 'planner:' + match[1], graph_id: match[1] };
+                }
+                if (className === 'onenote' && (match = normalized.match(/\/onenote\/([^/]+)(?:\/|$)/i))) {
+                    return { identity_key: 'onenote:' + match[1], graph_id: match[1] };
+                }
+                throw new Error('Could not determine the original restore location for one or more selected items.');
+            },
+
+            resolveGraphId(segment, className) {
+                const trimmed = String(segment || '').trim();
+                if (!trimmed) {
+                    throw new Error('Could not determine the original restore location for one or more selected items.');
+                }
+                if (className === 'mailbox' || className === 'onedrive') {
+                    return trimmed;
+                }
+                const allowed = this.compatibleResourceTypes(className);
+                for (const resource of this.inventoryResources) {
+                    const resourceType = String(resource.resource_type || '').toLowerCase();
+                    if (!allowed.includes(resourceType)) continue;
+                    const graphId = String(resource.graph_id || '');
+                    if (graphId === trimmed) return graphId;
+                    if (this.storageSafeId(graphId) === trimmed) return graphId;
+                    const resourceId = String(resource.id || '');
+                    const graphFromId = resourceId.includes(':') ? resourceId.split(':').slice(1).join(':') : '';
+                    if (graphFromId === trimmed) return graphId || graphFromId;
+                    if (this.storageSafeId(graphFromId) === trimmed) return graphId || graphFromId;
+                }
+                return trimmed;
+            },
+
+            buildTargetFromParsed(parsed, className) {
+                const graphId = this.resolveGraphId(parsed.graph_id, className);
+                const resourceType = this.resourceTypeForClass(className);
+                const target = {
+                    resource_id: this.makeResourceId(resourceType, graphId),
+                    graph_id: graphId,
+                    resource_type: resourceType,
+                };
+                if (parsed.drive_id) {
+                    target.drive_id = String(parsed.drive_id);
+                }
+                return target;
+            },
+
+            derivedOriginalTargets() {
+                const targetsByKey = {};
+                this.selectedItems.forEach((item) => {
+                    const path = this.effectivePath(item);
+                    const className = this.classifyItemPath(path);
+                    if (!className) {
+                        throw new Error('Could not determine the original restore location for one or more selected items.');
+                    }
+                    const parsed = this.parsePathIdentity(path, className);
+                    const childRunId = String(item.child_run_id || '').trim();
+                    const targetKey = childRunId ? childRunId + '|' + parsed.identity_key : parsed.identity_key;
+                    if (targetsByKey[targetKey]) return;
+                    const target = this.buildTargetFromParsed(parsed, className);
+                    if (childRunId) target.child_run_id = childRunId;
+                    targetsByKey[targetKey] = target;
+                });
+                const targets = Object.values(targetsByKey);
+                if (!targets.length) {
+                    throw new Error('Could not determine restore destinations for the selected items.');
+                }
+                return targets;
+            },
+
+            derivedOriginalTargetsSafe() {
+                try {
+                    return this.derivedOriginalTargets();
+                } catch (_e) {
+                    return [];
+                }
+            },
+
+            validateOriginalDestinations() {
+                try {
+                    this.derivedOriginalTargets();
+                    this.destinationError = '';
+                    return true;
+                } catch (e) {
+                    this.destinationError = e.message || 'Could not determine original restore locations.';
+                    return false;
+                }
+            },
+
+            syncDestinationModeOnSelectionChange() {
+                if (!this.canUseAlternateDestination()) {
+                    if (this.destinationMode === 'alternate') {
+                        this.destinationMode = 'original';
+                        this.targetResource = null;
+                    }
+                }
+                if (this.destinationMode === 'original') {
+                    this.validateOriginalDestinations();
+                } else {
+                    this.destinationError = '';
+                }
+            },
+
+            alternateTargetsFiltered() {
+                const classes = this.selectionClasses();
+                if (classes.length !== 1) return [];
+                const allowed = this.compatibleResourceTypes(classes[0]);
+                return this.inventoryResources.filter((resource) => allowed.includes(String(resource.resource_type || '').toLowerCase()));
+            },
+
+            targetDisplayName(target) {
+                const graphId = String(target.graph_id || '');
+                const resourceId = String(target.resource_id || '');
+                const match = this.inventoryResources.find((resource) => {
+                    const invGraphId = String(resource.graph_id || '');
+                    const invId = String(resource.id || '');
+                    if (graphId && (invGraphId === graphId || this.storageSafeId(invGraphId) === graphId)) return true;
+                    if (resourceId && invId === resourceId) return true;
+                    return false;
+                });
+                if (match) return match.display_name || match.id;
+                return graphId || resourceId || 'Unknown destination';
+            },
+
+            destinationReviewSummary() {
+                if (this.destinationMode === 'alternate') {
+                    return this.targetResource ? (this.targetResource.display_name || this.targetResource.id) : '—';
+                }
+                try {
+                    return this.derivedOriginalTargets().map((target) => this.targetDisplayName(target)).join(', ');
+                } catch (_e) {
+                    return '—';
+                }
+            },
+
             buildSelectionPayload() {
                 const snapshot = this.snapshot || {};
-                const target = this.targetResource;
                 const isArchive = this.restoreMode === 'archive';
+                let targets = [];
+                if (!isArchive) {
+                    if (this.destinationMode === 'alternate') {
+                        const target = this.targetResource;
+                        targets = target ? [{
+                            resource_id: String(target.id || ''),
+                            graph_id: String(target.graph_id || (target.id || '').replace(/^[^:]+:/, '')),
+                            resource_type: String(target.resource_type || 'user'),
+                        }] : [];
+                    } else {
+                        targets = this.derivedOriginalTargets().map((target) => ({
+                            resource_id: String(target.resource_id || ''),
+                            graph_id: String(target.graph_id || ''),
+                            resource_type: String(target.resource_type || 'user'),
+                            ...(target.drive_id ? { drive_id: String(target.drive_id) } : {}),
+                            ...(target.child_run_id ? { child_run_id: String(target.child_run_id) } : {}),
+                        }));
+                    }
+                }
                 return {
                     snapshot_batch_run_id: String(snapshot.batch_run_id || snapshot.id || ''),
                     restore_mode: this.restoreMode,
+                    destination_mode: this.destinationMode,
                     conflict_policy: 'skip_duplicates',
                     items: this.selectedItems.map((s) => ({
                         child_run_id: String(s.child_run_id || ''),
@@ -463,11 +733,7 @@
                         path_prefix: String(s.path_prefix || ''),
                         type: String(s.type || ''),
                     })),
-                    targets: isArchive ? [] : (target ? [{
-                        resource_id: String(target.id || ''),
-                        graph_id: String(target.graph_id || (target.id || '').replace(/^[^:]+:/, '')),
-                        resource_type: String(target.resource_type || 'user'),
-                    }] : []),
+                    targets,
                 };
             },
 
@@ -482,8 +748,13 @@
                     if (!selection.items.length) {
                         throw new Error('Select at least one item to restore.');
                     }
-                    if (this.restoreMode === 'tenant' && !selection.targets.length) {
-                        throw new Error('Select a restore destination.');
+                    if (this.restoreMode === 'tenant') {
+                        if (this.destinationMode === 'original' && !this.validateOriginalDestinations()) {
+                            throw new Error(this.destinationError || 'Could not determine original restore locations.');
+                        }
+                        if (this.destinationMode === 'alternate' && !selection.targets.length) {
+                            throw new Error('Select a restore destination.');
+                        }
                     }
                     const res = await fetch(apiBase() + 'ms365_restore_start.php', {
                         method: 'POST',

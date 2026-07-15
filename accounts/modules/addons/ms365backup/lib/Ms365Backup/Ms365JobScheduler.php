@@ -52,6 +52,11 @@ final class Ms365JobScheduler
                 continue;
             }
 
+            if (!self::isBackupUserSchedulable($clientId, $backupUserId)) {
+                $skipped++;
+                continue;
+            }
+
             $jobId = self::binaryJobIdToString($job->job_id ?? '');
             if ($jobId === '') {
                 continue;
@@ -137,5 +142,31 @@ final class Ms365JobScheduler
             substr($hex, 16, 4),
             substr($hex, 20, 12),
         );
+    }
+
+    private static function isBackupUserSchedulable(int $clientId, int $backupUserId): bool
+    {
+        $scopeFile = dirname(__DIR__, 3) . '/cloudstorage/lib/Client/E3BackupUserScope.php';
+        if (is_file($scopeFile)) {
+            require_once $scopeFile;
+        }
+        if (class_exists('\\WHMCS\\Module\\Addon\\CloudStorage\\Client\\E3BackupUserScope')) {
+            return \WHMCS\Module\Addon\CloudStorage\Client\E3BackupUserScope::isSchedulable($clientId, $backupUserId);
+        }
+
+        try {
+            return Capsule::table('s3_backup_users')
+                ->where('id', $backupUserId)
+                ->where('client_id', $clientId)
+                ->where('status', 'active')
+                ->whereNull('deleted_at')
+                ->exists();
+        } catch (\Throwable $e) {
+            return Capsule::table('s3_backup_users')
+                ->where('id', $backupUserId)
+                ->where('client_id', $clientId)
+                ->where('status', 'active')
+                ->exists();
+        }
     }
 }

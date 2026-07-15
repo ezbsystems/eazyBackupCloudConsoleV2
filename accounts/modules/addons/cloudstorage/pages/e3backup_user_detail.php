@@ -12,6 +12,9 @@ use WHMCS\Module\Addon\CloudStorage\Client\Ms365VaultLifecycleService;
 use WHMCS\Module\Addon\CloudStorage\Client\MspController;
 
 require_once __DIR__ . '/../lib/Client/E3BackupAccess.php';
+require_once __DIR__ . '/../lib/Client/E3BackupUserScope.php';
+
+use WHMCS\Module\Addon\CloudStorage\Client\E3BackupUserScope;
 
 $loggedInUserId = E3BackupAccess::requireE3BackupClientAreaAccess('user_detail');
 
@@ -51,6 +54,7 @@ $selectCols = array_merge([
 $userLookup = Capsule::table('s3_backup_users as u')
     ->leftJoin($tenantTable . ' as t', 'u.tenant_id', '=', 't.id')
     ->where('u.client_id', $loggedInUserId);
+E3BackupUserScope::applyNotDeletedScope($userLookup, 'u');
 if ($hasPublicIdCol && !ctype_digit($userIdRaw)) {
     $userLookup->where('u.public_id', $userIdRaw);
 } else {

@@ -160,10 +160,71 @@
                         </div>
                     </div>
 
-                    <div x-show="step === 4" class="space-y-3">
+                    <div x-show="step === 4" class="space-y-4">
                         <p class="eb-card-subtitle">Choose where to restore data in your Microsoft 365 tenant.</p>
-                        <div class="max-h-64 overflow-y-auto space-y-2 pr-1">
-                            <template x-for="res in inventoryResources" :key="res.id">
+
+                        <div class="space-y-2">
+                            <button type="button"
+                                    class="eb-choice-card w-full text-left cursor-pointer"
+                                    :class="destinationMode === 'original' ? 'is-selected' : ''"
+                                    @click="destinationMode = 'original'; targetResource = null; destinationError = ''">
+                                <span class="eb-choice-card-control">
+                                    <input type="radio"
+                                           name="ms365-restore-destination-mode"
+                                           class="eb-radio-input"
+                                           value="original"
+                                           :checked="destinationMode === 'original'"
+                                           @change="destinationMode = 'original'; targetResource = null; destinationError = ''"
+                                           @click.stop>
+                                </span>
+                                <span class="min-w-0 flex-1">
+                                    <span class="eb-choice-card-title block">Restore to original location</span>
+                                    <span class="eb-choice-card-description block">Items return to the same user, site, or drive as in the backup.</span>
+                                </span>
+                            </button>
+                            <button type="button"
+                                    class="eb-choice-card w-full text-left"
+                                    :class="[
+                                        destinationMode === 'alternate' ? 'is-selected' : '',
+                                        canUseAlternateDestination() ? 'cursor-pointer' : 'opacity-60 cursor-not-allowed',
+                                    ]"
+                                    :disabled="!canUseAlternateDestination()"
+                                    @click="canUseAlternateDestination() && (destinationMode = 'alternate')">
+                                <span class="eb-choice-card-control">
+                                    <input type="radio"
+                                           name="ms365-restore-destination-mode"
+                                           class="eb-radio-input"
+                                           value="alternate"
+                                           :checked="destinationMode === 'alternate'"
+                                           :disabled="!canUseAlternateDestination()"
+                                           @change="canUseAlternateDestination() && (destinationMode = 'alternate')"
+                                           @click.stop>
+                                </span>
+                                <span class="min-w-0 flex-1">
+                                    <span class="eb-choice-card-title block">Restore to a different destination</span>
+                                    <span class="eb-choice-card-description block" x-show="canUseAlternateDestination()">Pick one compatible target in your tenant.</span>
+                                    <span class="eb-choice-card-description block" x-show="!canUseAlternateDestination()">Only available when all selected items are the same workload type (for example, all SharePoint files or all mailbox items).</span>
+                                </span>
+                            </button>
+                        </div>
+
+                        <div x-show="destinationMode === 'original'" class="space-y-2">
+                            <div class="eb-alert eb-alert--error" x-show="destinationError">
+                                <p class="eb-type-caption !mt-0" x-text="destinationError"></p>
+                            </div>
+                            <div class="eb-card p-4 space-y-2" x-show="!destinationError">
+                                <div class="eb-menu-label">Inferred destinations</div>
+                                <template x-for="(target, idx) in derivedOriginalTargetsSafe()" :key="'orig-target-' + idx">
+                                    <div class="text-sm text-[var(--eb-text-secondary)]">
+                                        <span class="font-medium text-[var(--eb-text-primary)]" x-text="targetDisplayName(target)"></span>
+                                        <span class="eb-type-caption ml-2" x-text="target.resource_type"></span>
+                                    </div>
+                                </template>
+                            </div>
+                        </div>
+
+                        <div x-show="destinationMode === 'alternate'" class="max-h-64 overflow-y-auto space-y-2 pr-1">
+                            <template x-for="res in alternateTargetsFiltered()" :key="res.id">
                                 <button type="button"
                                         class="eb-choice-card w-full text-left cursor-pointer"
                                         :class="targetResource && targetResource.id === res.id ? 'is-selected' : ''"
@@ -182,7 +243,7 @@
                                     </span>
                                 </button>
                             </template>
-                            <p x-show="inventoryResources.length === 0" class="eb-type-caption text-center py-8">No restore targets found for this tenant.</p>
+                            <p x-show="alternateTargetsFiltered().length === 0" class="eb-type-caption text-center py-8">No compatible restore targets found for this selection.</p>
                         </div>
                     </div>
 
@@ -198,7 +259,10 @@
                         <ul class="text-sm space-y-1 text-[var(--eb-text-secondary)]">
                             <li><strong>Snapshot:</strong> <span x-text="snapshotTitle()"></span></li>
                             <li><strong>Items:</strong> <span x-text="selectedItems.length"></span></li>
-                            <li x-show="restoreMode === 'tenant'"><strong>Target:</strong> <span x-text="targetResource ? (targetResource.display_name || targetResource.id) : '—'"></span></li>
+                            <li x-show="restoreMode === 'tenant'"><strong>Destination:</strong>
+                                <span x-show="destinationMode === 'original'">Original location — <span x-text="destinationReviewSummary()"></span></span>
+                                <span x-show="destinationMode === 'alternate'" x-text="targetResource ? (targetResource.display_name || targetResource.id) : '—'"></span>
+                            </li>
                             <li x-show="restoreMode === 'archive'"><strong>Delivery:</strong> Download as archive (.zip)</li>
                         </ul>
                     </div>
@@ -216,4 +280,4 @@
     </div>
 </div>
 
-<script src="modules/addons/cloudstorage/assets/js/ms365_restore_wizard.js?v=9"></script>
+<script src="modules/addons/cloudstorage/assets/js/ms365_restore_wizard.js?v=10"></script>

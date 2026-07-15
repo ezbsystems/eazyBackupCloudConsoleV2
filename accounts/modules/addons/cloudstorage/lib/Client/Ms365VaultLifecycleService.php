@@ -568,8 +568,10 @@ final class Ms365VaultLifecycleService
                     $join->where('t.client_id', '=', (int) $clientId);
                 }
             })
-            ->where('u.client_id', $clientId)
-            ->select(array_merge([
+            ->where('u.client_id', $clientId);
+        E3BackupUserScope::applyNotDeletedScope($userQuery, 'u');
+
+        $userQuery->select(array_merge([
                 'u.id',
                 'u.username',
                 'u.tenant_id as storage_tenant_id',

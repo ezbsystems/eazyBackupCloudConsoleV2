@@ -16,7 +16,10 @@ if (!defined("WHMCS")) {
 
 use WHMCS\Database\Capsule;
 use WHMCS\Module\Addon\CloudStorage\Client\CloudBackupController;
+use WHMCS\Module\Addon\CloudStorage\Client\E3BackupUserScope;
 use WHMCS\Module\Addon\CloudStorage\Client\UuidBinary;
+
+require_once __DIR__ . '/../modules/addons/cloudstorage/lib/Client/E3BackupUserScope.php';
 
 function parseScheduleJson($raw): array
 {
@@ -321,9 +324,10 @@ $jobIdSelect = $hasJobIdPk
     ? Capsule::raw('BIN_TO_UUID(job_id) as job_id')
     : 'id';
 
+$hasBackupUserIdCol = Capsule::schema()->hasColumn('s3_cloudbackup_jobs', 'backup_user_id');
 $jobs = Capsule::table('s3_cloudbackup_jobs')
     ->where('status', 'active')
-    ->select([
+    ->select(array_merge([
         $jobIdSelect,
         'client_id',
         'schedule_type',
@@ -332,7 +336,7 @@ $jobs = Capsule::table('s3_cloudbackup_jobs')
         'schedule_cron',
         'schedule_json',
         'timezone',
-    ])
+    ], $hasBackupUserIdCol ? ['backup_user_id'] : []))
     ->get();
 
 $queued = 0;
@@ -340,6 +344,14 @@ $skipped = 0;
 
 foreach ($jobs as $job) {
     $jobIdentifier = $hasJobIdPk ? $job->job_id : $job->id;
+
+    if ($hasBackupUserIdCol) {
+        $backupUserId = (int) ($job->backup_user_id ?? 0);
+        if ($backupUserId > 0 && !E3BackupUserScope::isSchedulable((int) $job->client_id, $backupUserId)) {
+            $skipped++;
+            continue;
+        }
+    }
 
     $schedule = resolveScheduleType($job);
     if (empty($schedule['type']) || $schedule['type'] === 'manual') {

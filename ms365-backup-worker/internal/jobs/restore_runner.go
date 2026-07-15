@@ -66,10 +66,11 @@ func (r *RestoreRunner) Run(ctx context.Context, job *api.RunJob, onAbort contex
 	})
 
 	primaryTarget := graphrestore.Target{
-		ResourceID:   selection.Targets[0].ResourceID,
-		GraphID:      selection.Targets[0].GraphID,
-		ResourceType: selection.Targets[0].ResourceType,
-		DriveID:      strings.TrimSpace(job.DriveID),
+		ResourceID:      selection.Targets[0].ResourceID,
+		GraphID:         selection.Targets[0].GraphID,
+		ResourceType:    selection.Targets[0].ResourceType,
+		DriveID:         strings.TrimSpace(job.DriveID),
+		DestinationMode: strings.TrimSpace(selection.DestinationMode),
 	}
 
 	gc := graph.NewClient(job.GraphToken, job.GraphRegion, graph.ClientOptions{
@@ -198,7 +199,10 @@ func (r *RestoreRunner) Run(ctx context.Context, job *api.RunJob, onAbort contex
 	progressStop := r.client.StartProgressHeartbeat(ctx, job.RunID, 45*time.Second, func() api.ProgressUpdate {
 		return lastProgress
 	}, onAbort, onTenantBudget)
-	defer progressStop()
+	failAndReturn := func(msg string) error {
+		progressStop()
+		return r.failTerminal(ctx, job.RunID, msg)
+	}
 
 	runner := graphrestore.NewRunner(gc, selection.ConflictPolicy, func(done, skipped, total int, message string) {
 		pct := 10.0
@@ -225,7 +229,7 @@ func (r *RestoreRunner) Run(ctx context.Context, job *api.RunJob, onAbort contex
 			return err
 		}
 		r.client.RunLogf(r.logCtx(ctx), job.RunID, "error", "restore failed: %s", err.Error())
-		return r.failTerminal(ctx, job.RunID, err.Error())
+		return failAndReturn(err.Error())
 	}
 	doneCount := stats.Restored + stats.Skipped
 	if doneCount == 0 && len(items) > 0 {
@@ -244,9 +248,10 @@ func (r *RestoreRunner) Run(ctx context.Context, job *api.RunJob, onAbort contex
 			ItemsTotal: len(items),
 			Message:    msg,
 		})
-		return r.failTerminal(ctx, job.RunID, msg)
+		return failAndReturn(msg)
 	}
 
+	progressStop()
 	reportProgress(api.ProgressUpdate{
 		Phase:      "restore_graph",
 		Percent:    99,
@@ -385,6 +390,7 @@ func (r *RestoreRunner) failTerminal(ctx context.Context, runID, message string)
 	}
 	if err := r.client.Fail(tctx, api.FailUpdate{RunID: runID, Message: message}); err != nil {
 		log.Printf("restore %s fail callback failed: %v (message: %s)", runID, err, message)
+		r.client.RunLogf(r.logCtx(ctx), runID, "error", "fail callback failed: %v", err)
 	}
 	return fmt.Errorf("%s", message)
 }

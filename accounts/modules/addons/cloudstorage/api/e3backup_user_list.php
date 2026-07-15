@@ -2,11 +2,13 @@
 
 require_once __DIR__ . '/../../../../init.php';
 require_once __DIR__ . '/../lib/Client/MspController.php';
+require_once __DIR__ . '/../lib/Client/E3BackupUserScope.php';
 
 use Illuminate\Database\Capsule\Manager as Capsule;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use WHMCS\ClientArea;
 use WHMCS\Module\Addon\CloudStorage\Client\MspController;
+use WHMCS\Module\Addon\CloudStorage\Client\E3BackupUserScope;
 
 if (!defined("WHMCS")) {
     die("This file cannot be accessed directly");
@@ -247,8 +249,9 @@ $userQuery = Capsule::table('s3_backup_users as u')
             $join->where('t.client_id', '=', (int)$clientId);
         }
     })
-    ->where('u.client_id', $clientId)
-    ->select(array_merge([
+    ->where('u.client_id', $clientId);
+E3BackupUserScope::applyNotDeletedScope($userQuery, 'u');
+$userQuery->select(array_merge([
         'u.id',
         'u.client_id',
         'u.tenant_id as storage_tenant_id',

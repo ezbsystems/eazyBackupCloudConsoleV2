@@ -170,7 +170,13 @@ func restoreDriveFile(ctx context.Context, client *graph.Client, target Target, 
 
 func restoreDriveFileStream(ctx context.Context, client *graph.Client, target Target, snapshotPath string, size int64, body io.Reader, policy string) (bool, error) {
 	driveID, itemPath := drivePathFromSnapshot(snapshotPath, target)
-	if driveID == "" {
+	if useAlternateSharePointDrive(target, snapshotPath) {
+		resolved, err := resolveSharePointDriveForTarget(ctx, client, target)
+		if err != nil {
+			return false, err
+		}
+		driveID = resolved
+	} else if driveID == "" {
 		driveID = strings.TrimSpace(target.DriveID)
 	}
 	if driveID == "" {
@@ -308,13 +314,41 @@ func drivePathFromSnapshot(path string, target Target) (driveID, itemPath string
 		}
 		if p == "drives" && i+1 < len(parts) {
 			driveID = parts[i+1]
-			if i+2 < len(parts) {
-				itemPath = "/" + strings.Join(parts[i+2:], "/")
+			startIdx := i + 2
+			if i+2 < len(parts) && parts[i+2] == "content" {
+				startIdx = i + 3
+			}
+			if startIdx < len(parts) {
+				itemPath = "/" + strings.Join(parts[startIdx:], "/")
 			}
 			return driveID, itemPath
 		}
 	}
 	return "", ""
+}
+
+func useAlternateSharePointDrive(target Target, snapshotPath string) bool {
+	if !strings.EqualFold(strings.TrimSpace(target.DestinationMode), "alternate") {
+		return false
+	}
+	lower := strings.ToLower(snapshotPath)
+	return strings.Contains(lower, "/sites/") && strings.Contains(lower, "/drives/")
+}
+
+func resolveSharePointDriveForTarget(ctx context.Context, client *graph.Client, target Target) (string, error) {
+	siteID := strings.TrimSpace(target.GraphID)
+	if siteID == "" {
+		return "", fmt.Errorf("target SharePoint site id missing")
+	}
+	item, err := client.Get(ctx, "/sites/"+siteID+"/drive", map[string]string{"$select": "id"})
+	if err != nil {
+		return "", fmt.Errorf("resolve target site drive: %w", err)
+	}
+	id, _ := item["id"].(string)
+	if strings.TrimSpace(id) == "" {
+		return "", fmt.Errorf("target site has no default document library drive")
+	}
+	return id, nil
 }
 
 func restoreTeamsMessage(ctx context.Context, client *graph.Client, target Target, path string, data []byte, policy string) (bool, error) {

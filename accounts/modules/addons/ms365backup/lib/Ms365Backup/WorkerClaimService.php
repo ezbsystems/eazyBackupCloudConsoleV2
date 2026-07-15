@@ -1167,7 +1167,7 @@ final class WorkerClaimService
             ];
         }
 
-        $driveId = self::driveIdForRestoreRun($run, $restoreItems);
+        $driveId = self::driveIdForRestoreRun($run, $restoreItems, $selection);
 
         $restoreMode = 'tenant';
         if (Capsule::schema()->hasColumn('ms365_restore_runs', 'restore_mode')) {
@@ -1179,6 +1179,10 @@ final class WorkerClaimService
         if ($restoreMode !== 'archive') {
             $restoreMode = 'tenant';
         }
+
+        $destinationMode = Ms365RestoreDestinationResolver::normalizeDestinationMode(
+            (string) ($selection['destination_mode'] ?? Ms365RestoreDestinationResolver::MODE_ORIGINAL)
+        );
 
         $payload = [
             'run_id' => $restoreRunId,
@@ -1207,6 +1211,7 @@ final class WorkerClaimService
                 'targets' => $restoreTargets,
                 'conflict_policy' => (string) ($run['conflict_policy'] ?? 'skip_duplicates'),
                 'restore_mode' => $restoreMode,
+                'destination_mode' => $destinationMode,
             ],
             'lease_expires_at' => WorkerLeaseService::leaseExpiresAt($restoreRunId),
             'graph_tenant_budget' => GraphTenantBudgetService::workerShare(
@@ -1394,9 +1399,17 @@ final class WorkerClaimService
 
     /**
      * @param list<array<string, mixed>> $restoreItems
+     * @param array<string, mixed> $selection
      */
-    private static function driveIdForRestoreRun(array $run, array $restoreItems): string
+    private static function driveIdForRestoreRun(array $run, array $restoreItems, array $selection = []): string
     {
+        $destinationMode = Ms365RestoreDestinationResolver::normalizeDestinationMode(
+            (string) ($selection['destination_mode'] ?? Ms365RestoreDestinationResolver::MODE_ORIGINAL)
+        );
+        if ($destinationMode === Ms365RestoreDestinationResolver::MODE_ALTERNATE) {
+            return '';
+        }
+
         $backupRunId = trim((string) ($run['backup_run_id'] ?? ''));
         if ($backupRunId !== '') {
             $backupRun = BackupRunRepository::get($backupRunId);

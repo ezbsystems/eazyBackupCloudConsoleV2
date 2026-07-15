@@ -8,6 +8,9 @@ use WHMCS\Module\Addon\CloudStorage\Client\MspController;
 use WHMCS\Module\Addon\CloudStorage\Client\TimezoneHelper;
 
 require_once __DIR__ . '/../lib/Client/E3BackupAccess.php';
+require_once __DIR__ . '/../lib/Client/E3BackupUserScope.php';
+
+use WHMCS\Module\Addon\CloudStorage\Client\E3BackupUserScope;
 
 $loggedInUserId = E3BackupAccess::requireE3BackupShellAccess('dashboard');
 
@@ -114,9 +117,10 @@ try {
 // ── Backup user count ──
 $userCount = 0;
 try {
-    $userCount = Capsule::table('s3_backup_users')
-        ->where('client_id', $loggedInUserId)
-        ->count();
+    $userCountQuery = Capsule::table('s3_backup_users')
+        ->where('client_id', $loggedInUserId);
+    E3BackupUserScope::applyNotDeletedScope($userCountQuery, '');
+    $userCount = $userCountQuery->count();
 } catch (\Exception $e) {
     $userCount = 0;
 }

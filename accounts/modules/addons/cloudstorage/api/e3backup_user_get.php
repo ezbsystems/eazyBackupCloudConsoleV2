@@ -3,6 +3,7 @@
 require_once __DIR__ . '/../../../../init.php';
 require_once __DIR__ . '/../lib/Client/MspController.php';
 require_once __DIR__ . '/../lib/Client/Ms365VaultLifecycleService.php';
+require_once __DIR__ . '/../lib/Client/E3BackupUserScope.php';
 require_once __DIR__ . '/../../eazybackup/pages/partnerhub/TenantStorageLinksController.php';
 
 use Illuminate\Database\Capsule\Manager as Capsule;
@@ -11,6 +12,7 @@ use WHMCS\ClientArea;
 use WHMCS\Module\Addon\CloudStorage\Client\BackupUserNotificationSettingsService;
 use WHMCS\Module\Addon\CloudStorage\Client\MspController;
 use WHMCS\Module\Addon\CloudStorage\Client\Ms365VaultLifecycleService;
+use WHMCS\Module\Addon\CloudStorage\Client\E3BackupUserScope;
 use WHMCS\Module\Addon\CloudStorage\Client\UuidBinary;
 
 if (!defined("WHMCS")) {
@@ -142,6 +144,7 @@ if ($hasPublicIdCol) {
 $userLookup = Capsule::table('s3_backup_users as u')
     ->leftJoin($tenantTable . ' as t', 'u.tenant_id', '=', 't.id')
     ->where('u.client_id', $clientId);
+E3BackupUserScope::applyNotDeletedScope($userLookup, 'u');
 if ($hasPublicIdCol && !ctype_digit($userIdRaw)) {
     $userLookup->where('u.public_id', $userIdRaw);
 } else {

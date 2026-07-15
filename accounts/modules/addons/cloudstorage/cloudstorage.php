@@ -14,7 +14,7 @@ function cloudstorage_config()
         'description' => 'This module show the usage of your buckets.',
         'author' => 'eazybackup',
         'language' => 'english',
-        'version' => '2.2.0',
+        'version' => '2.2.1',
         'fields' => [
             's3_region' => [
                 'FriendlyName' => 'S3 Region',
@@ -2740,6 +2740,7 @@ function cloudstorage_activate() {
                 'notify_on_failure' => function ($table) { $table->tinyInteger('notify_on_failure')->default(1); },
                 'created_at' => function ($table) { $table->timestamp('created_at')->useCurrent(); },
                 'updated_at' => function ($table) { $table->timestamp('updated_at')->useCurrent(); },
+                'deleted_at' => function ($table) { $table->timestamp('deleted_at')->nullable(); },
             ];
             foreach ($backupUserColDefs as $col => $adder) {
                 if (!Capsule::schema()->hasColumn('s3_backup_users', $col)) {
@@ -5569,6 +5570,7 @@ function cloudstorage_upgrade($vars) {
                 'notify_on_failure' => function ($table) { $table->tinyInteger('notify_on_failure')->default(1); },
                 'created_at' => function ($table) { $table->timestamp('created_at')->useCurrent(); },
                 'updated_at' => function ($table) { $table->timestamp('updated_at')->useCurrent(); },
+                'deleted_at' => function ($table) { $table->timestamp('deleted_at')->nullable(); },
             ];
             foreach ($backupUserColDefs as $col => $adder) {
                 if (!$schema->hasColumn('s3_backup_users', $col)) {
@@ -6365,6 +6367,10 @@ function cloudstorage_output($vars)
             require_once __DIR__ . '/pages/admin/reconcile.php';
             cloudstorage_admin_reconcile($vars);
             break;
+        case 'orphan_remediation':
+            require_once __DIR__ . '/pages/admin/orphan_remediation.php';
+            cloudstorage_admin_orphan_remediation($vars);
+            break;
         case 'bucket_monitor':
             require_once __DIR__ . '/pages/admin/bucket_monitor.php';
             cloudstorage_admin_bucket_monitor($vars);
@@ -6393,6 +6399,7 @@ function cloudstorage_output($vars)
             echo '  <li><a href="' . htmlspecialchars($baseUrl . '&action=cloudbackup_admin') . '">Cloud Backup Admin</a></li>';
             echo '  <li><a href="' . htmlspecialchars($baseUrl . '&action=deprovision') . '">Deprovision Cloud Storage Customer</a></li>';
             echo '  <li><a href="' . htmlspecialchars($baseUrl . '&action=reconcile') . '">Reconciliation</a></li>';
+            echo '  <li><a href="' . htmlspecialchars($baseUrl . '&action=orphan_remediation') . '">Orphan Remediation</a></li>';
             echo '  <li><a href="' . htmlspecialchars($baseUrl . '&action=agent_builds') . '">Agent Builds</a></li>';
             echo '  <li><a href="' . htmlspecialchars($baseUrl . '&action=cloudbackup_trials') . '">Cloud Backup Trials</a></li>';
             echo '  <li><a href="' . htmlspecialchars($baseUrl . '&action=cloudbackup_pricing') . '">Cloud Backup Pricing</a></li>';
