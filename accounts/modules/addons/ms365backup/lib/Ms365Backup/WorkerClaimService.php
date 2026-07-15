@@ -822,8 +822,8 @@ final class WorkerClaimService
             'repo_password' => $dest['repo_password'],
             'kopia_repo_id' => $dest['kopia_repo_id'],
             'previous_manifest_id' => $previousManifest,
-            'incremental_enabled' => $previousManifest !== '' && $deltaStates !== [],
-            'delta_states' => $deltaStates !== [] ? $deltaStates : new \stdClass(),
+            'incremental_enabled' => $previousManifest !== '' && DeltaStateRepository::normalizeStatesForWorker($deltaStates) !== [],
+            'delta_states' => DeltaStateRepository::encodeForWorkerPayload($deltaStates),
             'engine_mode' => Ms365EngineConfig::engineMode(),
             'workloads' => $workloads,
             'graph_pagination' => $paginationAll !== null
@@ -1022,8 +1022,9 @@ final class WorkerClaimService
                 continue;
             }
             $decoded = json_decode($raw, true);
-            if (is_array($decoded) && $decoded !== []) {
-                $out[$physicalKey] = $decoded;
+            $normalized = DeltaStateRepository::normalizeStatesForWorker($decoded);
+            if ($normalized !== []) {
+                $out[$physicalKey] = $normalized;
             }
         }
 
@@ -1085,11 +1086,12 @@ final class WorkerClaimService
             return $empty;
         }
         $decoded = json_decode($raw, true);
-        if (!is_array($decoded) || $decoded === []) {
+        $normalized = DeltaStateRepository::normalizeStatesForWorker($decoded);
+        if ($normalized === []) {
             return $empty;
         }
 
-        return $decoded;
+        return $normalized;
     }
 
     public static function buildRestoreRunPayload(string $restoreRunId): ?array

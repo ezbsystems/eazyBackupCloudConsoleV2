@@ -3,13 +3,22 @@
 **Purpose:** Single handoff document so the next agent knows where work stopped. Update this file at the **end of every session** (or after each meaningful milestone).
 
 **Last updated:** 2026-07-15  
-**Module version (ms365backup):** 1.52.3  
+**Module version (ms365backup):** 1.52.4  
 **Cloudstorage (e3) version:** 2.2.0  
-**Worker version (ms365-backup-worker):** 0.3.73 (SharePoint restore content path fix)
+**Worker version (ms365-backup-worker):** 0.3.75 (legacy delta_states claim-decode tolerance)
 
 ---
 
 ## Session log
+
+### 2026-07-15 — Prod Deetken batch terminal-fail (delta_states `[]` / `{"mail":[]}`)
+
+- **Runs:** `352789d3-…9ade` (Deetken / tenant 6) — claim `failed` attempts=5/5, **1073/1073** children `error` with `Batch progress stale (owner heartbeating without progress)`, **0% progress**. `e704d575-…4b92` (tenant 7) — **not stalled**; 6 running / ~14 queued waiting on max_concurrent=6; success count rising.
+- **Root cause:** Legacy `ms365_backup_runs.delta_states_json` values `[]` and `{"mail":[]}` were emitted into the batch claim payload. Go `ClaimBatch` failed with `cannot unmarshal array into … delta_states of type map[string]string`. PHP had already marked the claim `running`; the worker never released → node heartbeat kept the lease alive with **no** `last_progress_at` → reaper burned 5 attempts → `failBatchChildren` stranded all work. `recoverStrandedFailedBatches` could not revive because children were terminal.
+- **Fix (PHP 1.52.4):** `DeltaStateRepository::normalizeStatesForWorker()` / `encodeForWorkerPayload()`; applied on claim load, save, and complete write path. `recoverStrandedFailedBatches` requeues infra-failed children (300s cool-down) so progress-stale terminals become runnable again.
+- **Fix (worker 0.3.75):** `DeltaStatesMap` tolerant `UnmarshalJSON` skips list-shaped workloads so a single bad child cannot abort claim decode.
+- **Tests:** `ms365_delta_states_normalize_test.php`; Go `TestDeltaStatesMapUnmarshalToleratesLegacyArrays`, `TestClaimBatchToleratesLegacyDeltaArrays`; `ms365_batch_claim_test.php` green.
+- **Ops:** Deploy PHP via `deploy-production.sh`; fleet worker 0.3.75; requeue/recover `352789d3`; monitor claim decode errors gone and Deetken children leaving `queued`→`running`.
 
 ### 2026-07-15 — Vault stored size display (e3 Vaults table)
 

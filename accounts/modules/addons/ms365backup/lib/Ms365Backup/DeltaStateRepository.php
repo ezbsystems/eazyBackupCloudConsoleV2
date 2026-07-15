@@ -10,6 +10,72 @@ use WHMCS\Database\Capsule;
  */
 final class DeltaStateRepository
 {
+    /**
+     * Coerce legacy/corrupt delta_states into the shape Go expects:
+     * map[workload]map[state_key]delta_link (JSON object of objects).
+     *
+     * Historical rows may store [] or {"mail":[]} which break ClaimBatch decode
+     * (cannot unmarshal array into map[string]string) and orphan the batch lease.
+     *
+     * @param mixed $decoded
+     * @return array<string, array<string, string>>
+     */
+    public static function normalizeStatesForWorker($decoded): array
+    {
+        if (!is_array($decoded) || $decoded === []) {
+            return [];
+        }
+        // PHP json_decode('[]') is a list; reject list-shaped outer payloads.
+        if (array_is_list($decoded)) {
+            return [];
+        }
+
+        $out = [];
+        foreach ($decoded as $workload => $states) {
+            if (!is_string($workload) || $workload === '' || !is_array($states)) {
+                continue;
+            }
+            if ($states === [] || array_is_list($states)) {
+                continue;
+            }
+            $inner = [];
+            foreach ($states as $stateKey => $deltaLink) {
+                if (!is_string($stateKey) || $stateKey === '') {
+                    continue;
+                }
+                if (is_int($deltaLink) || is_float($deltaLink)) {
+                    $deltaLink = (string) $deltaLink;
+                }
+                if (!is_string($deltaLink)) {
+                    continue;
+                }
+                $deltaLink = trim($deltaLink);
+                if ($deltaLink === '') {
+                    continue;
+                }
+                $inner[$stateKey] = $deltaLink;
+            }
+            if ($inner !== []) {
+                $out[$workload] = $inner;
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * Claim/run payload field: empty maps must encode as {} not [] for the Go decoder.
+     *
+     * @param mixed $decoded
+     * @return \stdClass|array<string, array<string, string>>
+     */
+    public static function encodeForWorkerPayload($decoded)
+    {
+        $normalized = self::normalizeStatesForWorker($decoded);
+
+        return $normalized === [] ? new \stdClass() : $normalized;
+    }
+
     /** @return array<string, array<string, string>> workload => state_key => delta_link */
     public static function getStatesForSource(int $tenantRecordId, string $physicalKey, ?string $e3JobId = null): array
     {
@@ -109,6 +175,7 @@ final class DeltaStateRepository
     /** @param array<string, mixed> $deltaStates */
     public static function saveStates(int $tenantRecordId, string $physicalKey, array $deltaStates, ?string $e3JobId = null): void
     {
+        $deltaStates = self::normalizeStatesForWorker($deltaStates);
         if ($tenantRecordId <= 0 || $physicalKey === '' || $deltaStates === [] || !self::tableReady()) {
             return;
         }

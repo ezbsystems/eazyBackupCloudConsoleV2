@@ -673,7 +673,9 @@ final class Ms365RestoreWorkerHooks
                 $update['bytes_uploaded'] = (int) $stats['bytes_uploaded'];
             }
             if (array_key_exists('delta_states', $stats)) {
-                $deltaStates = is_array($stats['delta_states']) ? $stats['delta_states'] : [];
+                $deltaStates = DeltaStateRepository::normalizeStatesForWorker(
+                    is_array($stats['delta_states']) ? $stats['delta_states'] : []
+                );
                 if ($deltaStates !== [] && !$isSuccessReplay) {
                     $run = BackupRunRepository::get($runId);
                     if ($run !== null) {
@@ -686,7 +688,10 @@ final class Ms365RestoreWorkerHooks
                     }
                 }
                 if (\WHMCS\Database\Capsule::schema()->hasColumn('ms365_backup_runs', 'delta_states_json')) {
-                    $encoded = json_encode($deltaStates, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+                    $encoded = json_encode(
+                        $deltaStates === [] ? new \stdClass() : $deltaStates,
+                        JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE
+                    );
                     $update['delta_states_json'] = is_string($encoded) ? $encoded : '{}';
                 }
             }

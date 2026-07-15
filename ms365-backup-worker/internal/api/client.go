@@ -87,7 +87,7 @@ type RunJob struct {
 	PreviousManifest string            `json:"previous_manifest_id"`
 	SourceManifestID string            `json:"source_manifest_id"`
 	IncrementalEnabled bool            `json:"incremental_enabled"`
-	DeltaStates      map[string]map[string]string `json:"delta_states"`
+	DeltaStates      DeltaStatesMap    `json:"delta_states"`
 	EngineMode       string            `json:"engine_mode"`
 	Workloads        map[string]bool   `json:"workloads"`
 	GraphPagination  map[string]PaginationLimit `json:"graph_pagination"`
@@ -97,6 +97,47 @@ type RunJob struct {
 	RestoreSelection RestoreSelection  `json:"restore_selection"`
 	// Status is set on batch child payloads so a resumed owner can skip finished children.
 	Status string `json:"status,omitempty"`
+}
+
+// DeltaStatesMap is workload => state_key => delta_link. Legacy PHP rows sometimes
+// store [] or {"mail":[]} which must not fail ClaimBatch JSON decode.
+type DeltaStatesMap map[string]map[string]string
+
+func (d *DeltaStatesMap) UnmarshalJSON(b []byte) error {
+	if len(b) == 0 || string(b) == "null" {
+		*d = nil
+		return nil
+	}
+	trimmed := bytes.TrimSpace(b)
+	if len(trimmed) == 0 || string(trimmed) == "[]" {
+		*d = map[string]map[string]string{}
+		return nil
+	}
+	if trimmed[0] == '[' {
+		*d = map[string]map[string]string{}
+		return nil
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(b, &raw); err != nil {
+		return err
+	}
+	out := make(map[string]map[string]string, len(raw))
+	for workload, payload := range raw {
+		innerTrim := bytes.TrimSpace(payload)
+		if len(innerTrim) == 0 || string(innerTrim) == "null" || string(innerTrim) == "[]" || (len(innerTrim) > 0 && innerTrim[0] == '[') {
+			continue
+		}
+		var inner map[string]string
+		if err := json.Unmarshal(payload, &inner); err != nil {
+			continue
+		}
+		if len(inner) == 0 {
+			continue
+		}
+		out[workload] = inner
+	}
+	*d = out
+	return nil
 }
 
 // BatchJob is a tenant-scoped backup claim: shared tenant/repo context plus child workloads.

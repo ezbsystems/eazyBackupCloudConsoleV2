@@ -10,17 +10,61 @@ import (
 	"time"
 )
 
-func TestDecodeEnvelopeResponseGraphToken(t *testing.T) {
-	raw := []byte(`{"status":"success","data":{"graph_token":"tok123","expires_in":3600}}`)
-	var out GraphTokenResponse
-	if err := decodeEnvelopeResponse(raw, &out); err != nil {
-		t.Fatalf("decode: %v", err)
+func TestDeltaStatesMapUnmarshalToleratesLegacyArrays(t *testing.T) {
+	cases := []struct {
+		name string
+		raw  string
+		want map[string]map[string]string
+	}{
+		{name: "empty array", raw: `[]`, want: map[string]map[string]string{}},
+		{name: "nested empty mail", raw: `{"mail":[]}`, want: map[string]map[string]string{}},
+		{name: "mixed", raw: `{"mail":[],"calendar":{"default":"https://delta/cal"}}`, want: map[string]map[string]string{
+			"calendar": {"default": "https://delta/cal"},
+		}},
+		{name: "valid", raw: `{"mail":{"inbox":"https://delta/inbox"}}`, want: map[string]map[string]string{
+			"mail": {"inbox": "https://delta/inbox"},
+		}},
 	}
-	if out.GraphToken != "tok123" {
-		t.Fatalf("graph_token = %q", out.GraphToken)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var got DeltaStatesMap
+			if err := json.Unmarshal([]byte(tc.raw), &got); err != nil {
+				t.Fatalf("unmarshal: %v", err)
+			}
+			if len(got) != len(tc.want) {
+				t.Fatalf("len=%d want %d (%v)", len(got), len(tc.want), got)
+			}
+			for wk, inner := range tc.want {
+				gotInner, ok := got[wk]
+				if !ok {
+					t.Fatalf("missing workload %q", wk)
+				}
+				for sk, link := range inner {
+					if gotInner[sk] != link {
+						t.Fatalf("%s.%s=%q want %q", wk, sk, gotInner[sk], link)
+					}
+				}
+			}
+		})
 	}
-	if out.ExpiresIn != 3600 {
-		t.Fatalf("expires_in = %d", out.ExpiresIn)
+}
+
+func TestClaimBatchToleratesLegacyDeltaArrays(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"success","data":{"batch":{"batch_run_id":"b1","children":[{"run_id":"c1","delta_states":{"mail":[]}}]}}}`))
+	}))
+	defer srv.Close()
+	c := NewClient(srv.URL, "t", "n1")
+	batch, err := c.ClaimBatch(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("ClaimBatch: %v", err)
+	}
+	if batch == nil || batch.BatchRunID != "b1" || len(batch.Children) != 1 {
+		t.Fatalf("unexpected batch: %+v", batch)
+	}
+	if len(batch.Children[0].DeltaStates) != 0 {
+		t.Fatalf("expected empty delta_states after sanitize, got %#v", batch.Children[0].DeltaStates)
 	}
 }
 

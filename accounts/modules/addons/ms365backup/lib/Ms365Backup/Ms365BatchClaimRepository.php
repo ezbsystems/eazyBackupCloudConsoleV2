@@ -749,19 +749,28 @@ final class Ms365BatchClaimRepository
         }
         $rows = Capsule::table('ms365_batch_claims')
             ->where('status', 'failed')
-            ->get(['batch_run_id', 'error_message']);
+            ->get(['batch_run_id', 'error_message', 'updated_at']);
 
         $now = time();
+        // Cool-down so a batch just terminal-failed in this reaper cycle is not
+        // immediately revived (would thrash attempts forever).
+        $reviveAfter = $now - 300;
         $recovered = 0;
         foreach ($rows as $row) {
             $batchRunId = (string) ($row->batch_run_id ?? '');
             if ($batchRunId === '') {
                 continue;
             }
+            if ((int) ($row->updated_at ?? 0) > $reviveAfter) {
+                continue;
+            }
             if (!self::isTransientFailureReason((string) ($row->error_message ?? ''))) {
                 continue;
             }
-            // Only revive when there is still pending (non-terminal) work to run.
+            // Revive claim and any children terminal-failed by the same infra reaper so
+            // progress-stale / heartbeat-stale batches do not strand permanently after
+            // attempts are exhausted (observed: 1073 children all "Batch progress stale").
+            self::requeueInfraFailedChildren($batchRunId, (string) ($row->error_message ?? ''));
             if (!self::batchHasActiveChildren($batchRunId)) {
                 continue;
             }
@@ -784,6 +793,61 @@ final class Ms365BatchClaimRepository
         }
 
         return $recovered;
+    }
+
+    /**
+     * Reset children that were terminal-failed for a transient infra reason so the
+     * revived batch claim has runnable work again.
+     */
+    private static function requeueInfraFailedChildren(string $batchRunId, string $message): void
+    {
+        if ($batchRunId === '' || !Capsule::schema()->hasTable('ms365_backup_runs')) {
+            return;
+        }
+        $now = time();
+        $children = Capsule::table('ms365_backup_runs')
+            ->where('e3_batch_run_id', $batchRunId)
+            ->whereIn('status', ['error', 'failed', 'queued', 'running'])
+            ->get(['id', 'status', 'error_message']);
+
+        foreach ($children as $child) {
+            $runId = (string) ($child->id ?? '');
+            if ($runId === '') {
+                continue;
+            }
+            $status = (string) ($child->status ?? '');
+            $childErr = (string) ($child->error_message ?? '');
+            $infraChild = self::isTransientFailureReason($childErr)
+                || self::isTransientFailureReason($message)
+                || in_array($status, ['queued', 'running'], true);
+            if (!$infraChild) {
+                continue;
+            }
+            if (in_array($status, ['error', 'failed', 'queued', 'running'], true)) {
+                Capsule::table('ms365_backup_runs')->where('id', $runId)->update([
+                    'status' => 'queued',
+                    'error_message' => null,
+                    'finished_at' => null,
+                    'phase' => '',
+                    'percent' => 0,
+                    'updated_at' => $now,
+                ]);
+            }
+            Capsule::table('ms365_job_queue')->where('run_id', $runId)->update([
+                'status' => 'queued',
+                'worker_node_id' => null,
+                'claimed_at' => null,
+                'lease_expires_at' => null,
+                'finished_at' => null,
+                'scheduled_at' => $now,
+                'attempts' => 0,
+                'error_message' => mb_substr(
+                    $message !== '' ? $message : 'Re-queued after transient batch failure',
+                    0,
+                    500
+                ),
+            ]);
+        }
     }
 
     private static function isTransientFailureReason(string $message): bool
