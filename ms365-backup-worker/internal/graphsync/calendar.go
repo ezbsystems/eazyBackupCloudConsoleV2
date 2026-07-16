@@ -4,7 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
+	"os"
 	"sync"
+	"time"
 
 	"github.com/eazybackup/ms365-backup-worker/internal/graph"
 	"github.com/eazybackup/ms365-backup-worker/internal/graphfs"
@@ -13,6 +16,30 @@ import (
 
 // RunLogger posts worker diagnostic lines (level, message).
 type RunLogger func(level, message string)
+
+// concurrentBoolSet is a mutex-guarded string→bool map used for cross-calendar
+// event dedup while SyncCalendar runs calendars in parallel.
+type concurrentBoolSet struct {
+	mu sync.Mutex
+	m  map[string]bool
+}
+
+// MarkIfNew returns true when id was not present and is now marked.
+func (s *concurrentBoolSet) MarkIfNew(id string) bool {
+	if s == nil || id == "" {
+		return true
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.m == nil {
+		s.m = map[string]bool{}
+	}
+	if s.m[id] {
+		return false
+	}
+	s.m[id] = true
+	return true
+}
 
 type CalendarSyncOptions struct {
 	AzureTenantID string
@@ -44,6 +71,34 @@ func SyncCalendar(ctx context.Context, client *graph.Client, opts CalendarSyncOp
 	if opts.GlobalSeen != nil {
 		globalSeen = opts.GlobalSeen
 	}
+	// Shared across parallel calendar workers — must be mutex-guarded. Assigning
+	// the bare map to each scanner (prior bug) caused fatal concurrent map writes
+	// under Parallel>1 and crash-looped production batch owners.
+	seen := &concurrentBoolSet{m: globalSeen}
+
+	// #region agent log
+	log.Printf("debug-d95c8c SyncCalendar start parallel=%d prior_seen=%d hypothesisId=C", opts.Parallel, len(globalSeen))
+	func() {
+		f, err := os.OpenFile("/var/www/eazybackup.ca/.cursor/debug-d95c8c.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if err != nil {
+			return
+		}
+		defer f.Close()
+		_ = json.NewEncoder(f).Encode(map[string]any{
+			"sessionId":    "d95c8c",
+			"runId":        "post-fix",
+			"hypothesisId": "C",
+			"location":     "calendar.go:SyncCalendar",
+			"message":      "SyncCalendar start with mutexed seen set",
+			"data": map[string]any{
+				"parallel":    opts.Parallel,
+				"user_id_len": len(opts.UserID),
+				"prior_seen":  len(globalSeen),
+			},
+			"timestamp": time.Now().UnixMilli(),
+		})
+	}()
+	// #endregion
 
 	cals, err := client.Paginate(ctx, fmt.Sprintf("/users/%s/calendars", opts.UserID), map[string]string{"$top": "50"})
 	if err != nil {
@@ -72,7 +127,7 @@ func SyncCalendar(ctx context.Context, client *graph.Client, opts CalendarSyncOp
 
 			prior := calendarInventoryStateFromMap(opts.DeltaStates, calID)
 			scanner := newCalendarScanner(client, opts, calID, prior)
-			scanner.seenEventIDs = globalSeen
+			scanner.tryMarkSeen = seen.MarkIfNew
 			result, err := scanner.run(gctx)
 			if err != nil {
 				return err
@@ -84,9 +139,6 @@ func SyncCalendar(ctx context.Context, client *graph.Client, opts CalendarSyncOp
 			mu.Lock()
 			stats["events"] += result.events
 			mergeCalendarStates(deltaOut, calID, result.state)
-			for id := range scanner.seenEventIDs {
-				globalSeen[id] = true
-			}
 			mu.Unlock()
 			return nil
 		})

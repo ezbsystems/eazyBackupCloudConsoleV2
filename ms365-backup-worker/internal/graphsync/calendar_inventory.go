@@ -22,8 +22,11 @@ type calendarScanner struct {
 	staging       *graphfs.OverlayBuilder
 	log           RunLogger
 	seenEventIDs  map[string]bool
-	priorState    CalendarInventoryState
-	inventoryPath string
+	// tryMarkSeen, when set (batch SyncCalendar), is the thread-safe cross-calendar
+	// dedup. Prefer it over mutating seenEventIDs from parallel workers.
+	tryMarkSeen            func(id string) bool
+	priorState             CalendarInventoryState
+	inventoryPath          string
 	enrichQueue            []calendarEventMeta
 	totalStored            int
 	skippedWedgePartitions int
@@ -248,10 +251,16 @@ func (s *calendarScanner) storeEvents(events []map[string]any) (stored, removed 
 		if id == "" {
 			continue
 		}
-		if s.seenEventIDs[id] {
-			continue
+		if s.tryMarkSeen != nil {
+			if !s.tryMarkSeen(id) {
+				continue
+			}
+		} else {
+			if s.seenEventIDs[id] {
+				continue
+			}
+			s.seenEventIDs[id] = true
 		}
-		s.seenEventIDs[id] = true
 		body, _ := json.Marshal(ev)
 		path := s.eventPath(id)
 		s.staging.PutJSON(path, body, graphfsModTime(ev["lastModifiedDateTime"]))

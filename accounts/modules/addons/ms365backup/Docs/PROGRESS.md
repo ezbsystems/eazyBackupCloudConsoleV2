@@ -2,14 +2,23 @@
 
 **Purpose:** Single handoff document so the next agent knows where work stopped. Update this file at the **end of every session** (or after each meaningful milestone).
 
-**Last updated:** 2026-07-15  
+**Last updated:** 2026-07-16  
 **Module version (ms365backup):** 1.52.4  
 **Cloudstorage (e3) version:** 2.2.0  
-**Worker version (ms365-backup-worker):** 0.3.75 (legacy delta_states claim-decode tolerance)
+**Worker version (ms365-backup-worker):** 0.3.76 (calendar SyncCalendar concurrent-map crash fix)
 
 ---
 
 ## Session log
+
+### 2026-07-16 — Deetken endgame thrash (calendar race + cancel storms)
+
+- **Symptom:** Last ~9–12 user workloads thrashing; admin UI flip-flops to `failed` / `Batch progress stale (owner heartbeating without progress)` while claim often still `running` with attempts ≫ max (e.g. 115/5).
+- **Not primary:** Graph 429s — Deetken controller ~3% ratio; greq flat because workers **crash**, not because Graph alone starved them.
+- **Root cause:** `SyncCalendar` aliased every parallel calendar scanner's `seenEventIDs` to the same `globalSeen` map → `fatal error: concurrent map writes` in `storeEvents` (fleet-wide, dozens of crashes/day). Worker death → ghost reconcile / handoff → `context canceled` cancel storms → reclaim loop → UI terminal-fail then `recoverStrandedFailedBatches` revive.
+- **Contributing:** worker-9001 had empty `/etc/resolv.conf` (DNS to `[::1]:53` connection refused) — fixed in place to `192.168.92.1`.
+- **Fix (worker 0.3.76):** mutexed `concurrentBoolSet` for cross-calendar dedup; stop sharing bare maps across errgroup workers. Race regression test `TestSyncCalendarParallelCalendarsNoSharedSeenRace`.
+- **Ops:** Build/publish/deploy 0.3.76; confirm no new `concurrent map writes`; let `352789d3` finish remaining children so `5c9ed0ec` can claim.
 
 ### 2026-07-15 — Prod Deetken batch terminal-fail (delta_states `[]` / `{"mail":[]}`)
 
