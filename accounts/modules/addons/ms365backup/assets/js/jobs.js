@@ -252,7 +252,9 @@
       '</tr></thead><tbody>' +
       rows.map(function (row) {
         var rid = row.run_id || '';
-        var pct = row.progress_pct != null ? Math.round(parseFloat(row.progress_pct)) + '%' : '—';
+        var pct = row.progress_pct != null && row.progress_pct !== ''
+          ? Math.round(parseFloat(row.progress_pct)) + '%'
+          : (row.wait_reason ? 'Waiting' : '—');
         var billing = row.billing || {};
         var protectedUsers = billing.protected_users != null ? billing.protected_users : '—';
         var odOverage = billing.onedrive_overage_gib != null ? billing.onedrive_overage_gib : '—';
@@ -265,6 +267,9 @@
         if (row.cancel_requested && isCancellableStatus(row.status)) {
           statusHtml += ' <small class="text-muted">(cancelling)</small>';
         }
+        var statusNote = row.wait_reason
+          ? '<br><small class="text-muted">' + esc(row.wait_reason).slice(0, 100) + '</small>'
+          : (row.error_summary ? '<br><small class="text-danger">' + esc(row.error_summary).slice(0, 80) + '</small>' : '');
         return '<tr data-run-id="' + esc(rid) + '">' +
           '<td><input type="checkbox" class="ms365-jobs-select" value="' + esc(rid) + '"></td>' +
           '<td>' + esc(row.client_name) + trialHint + '</td>' +
@@ -274,9 +279,7 @@
           '<td>' + esc(row.type || 'backup') + '</td>' +
           '<td><code style="font-size:11px">' + esc(rid) + '</code> ' +
           '<button type="button" class="btn btn-xs btn-default ms365-copy-run" data-run-id="' + esc(rid) + '" title="Copy run ID">Copy</button></td>' +
-          '<td>' + statusHtml +
-          (row.error_summary ? '<br><small class="text-danger">' + esc(row.error_summary).slice(0, 80) + '</small>' : '') +
-          '</td>' +
+          '<td>' + statusHtml + statusNote + '</td>' +
           '<td>' + esc(formatTs(row.started_at)) + '</td>' +
           '<td>' + esc(formatDuration(row.duration_seconds)) + '</td>' +
           '<td>' + esc(pct) + '</td>' +

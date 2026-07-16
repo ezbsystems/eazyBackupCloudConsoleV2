@@ -161,6 +161,7 @@ final class Ms365AdminJobsRepository
 
         $billingCache = self::billingSummariesForKeys(array_values($billingPairs));
         $childCountCache = self::childCountsForRuns($backupRunIds, $restoreRunIds);
+        $claimMeta = self::claimMetaForRuns(array_merge($backupRunIds, $restoreRunIds));
 
         $out = [];
         foreach ($parsedRows as $parsed) {
@@ -171,6 +172,9 @@ final class Ms365AdminJobsRepository
             $type = $parsed['type'];
             $billingKey = $clientId . ':' . $backupUserId;
             $counts = $childCountCache[$runId] ?? ['total' => 0, 'failed' => 0];
+            $claim = $claimMeta[$runId] ?? null;
+            $parentStatus = (string) ($arr['status'] ?? '');
+            $display = self::displayStatusForClaim($parentStatus, $claim);
             $out[] = [
                 'run_id' => $runId,
                 'job_name' => (string) ($arr['job_name'] ?? ''),
@@ -178,16 +182,22 @@ final class Ms365AdminJobsRepository
                 'client_name' => $parsed['client_name'],
                 'backup_user_id' => $backupUserId,
                 'billing' => $billingCache[$billingKey] ?? ['protected_users' => 0, 'onedrive_overage_gib' => 0, 'trial_status' => null],
-                'status' => (string) ($arr['status'] ?? ''),
+                'status' => $display['status'],
                 'started_at' => $arr['started_at'] ?? null,
                 'finished_at' => $arr['finished_at'] ?? null,
-                'progress_pct' => $arr['progress_pct'] ?? null,
-                'error_summary' => (string) ($arr['error_summary'] ?? ''),
+                'progress_pct' => $display['wait_reason'] !== null
+                    ? null
+                    : ($arr['progress_pct'] ?? null),
+                'error_summary' => $display['error_summary'] !== ''
+                    ? $display['error_summary']
+                    : (string) ($arr['error_summary'] ?? ''),
                 'type' => $type,
                 'child_count' => $counts['total'],
                 'failed_child_count' => $counts['failed'],
                 'duration_seconds' => self::durationSeconds($arr['started_at'] ?? null, $arr['finished_at'] ?? null),
                 'cancel_requested' => !empty($arr['cancel_requested']),
+                'claim_status' => $claim['status'] ?? null,
+                'wait_reason' => $display['wait_reason'],
             ];
         }
 
@@ -442,6 +452,86 @@ final class Ms365AdminJobsRepository
         }
 
         return $out;
+    }
+
+    /**
+     * @param list<string> $runIds
+     * @return array<string, array{status: string, attempts: int, tenant_record_id: int}>
+     */
+    private static function claimMetaForRuns(array $runIds): array
+    {
+        $runIds = array_values(array_unique(array_filter(array_map('strval', $runIds))));
+        if ($runIds === [] || !Capsule::schema()->hasTable('ms365_batch_claims')) {
+            return [];
+        }
+        $out = [];
+        foreach (Capsule::table('ms365_batch_claims')->whereIn('batch_run_id', $runIds)->get([
+            'batch_run_id',
+            'status',
+            'attempts',
+            'tenant_record_id',
+        ]) as $row) {
+            $id = (string) ($row->batch_run_id ?? '');
+            if ($id === '') {
+                continue;
+            }
+            $out[$id] = [
+                'status' => (string) ($row->status ?? ''),
+                'attempts' => (int) ($row->attempts ?? 0),
+                'tenant_record_id' => (int) ($row->tenant_record_id ?? 0),
+            ];
+        }
+
+        return $out;
+    }
+
+    /**
+     * Parent rows are created as "running" at schedule time, but the claim may still
+     * be queued behind the per-tenant single-owner guard. Surface that as queued/
+     * waiting so Jobs progress is not a misleading "—".
+     *
+     * @param array{status: string, attempts: int, tenant_record_id: int}|null $claim
+     * @return array{status: string, wait_reason: string|null, error_summary: string, progress_pct_override: null|float}
+     */
+    public static function displayStatusForClaim(string $parentStatus, ?array $claim): array
+    {
+        $parentStatus = strtolower(trim($parentStatus));
+        $base = [
+            'status' => $parentStatus,
+            'wait_reason' => null,
+            'error_summary' => '',
+            'progress_pct_override' => null,
+        ];
+        if ($claim === null) {
+            return $base;
+        }
+        $claimStatus = strtolower(trim((string) ($claim['status'] ?? '')));
+        if ($claimStatus !== 'queued') {
+            return $base;
+        }
+        if (!in_array($parentStatus, ['running', 'starting', 'queued', ''], true)) {
+            return $base;
+        }
+
+        $tenantId = (int) ($claim['tenant_record_id'] ?? 0);
+        $waitReason = 'Waiting for worker';
+        if ($tenantId > 0 && Capsule::schema()->hasTable('ms365_batch_claims')) {
+            $blocker = Capsule::table('ms365_batch_claims')
+                ->where('tenant_record_id', $tenantId)
+                ->where('status', 'running')
+                ->orderByDesc('updated_at')
+                ->value('batch_run_id');
+            if (is_string($blocker) && $blocker !== '') {
+                $waitReason = 'Waiting for prior tenant run ' . substr($blocker, 0, 8) . '… to finish';
+            }
+        }
+
+        return [
+            'status' => 'queued',
+            'wait_reason' => $waitReason,
+            'error_summary' => $waitReason,
+            'progress_pct_override' => null,
+        ];
     }
 
     /** @return array{protected_users: int, onedrive_overage_gib: int, trial_status: string|null} */

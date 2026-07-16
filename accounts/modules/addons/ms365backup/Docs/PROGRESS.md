@@ -3,13 +3,19 @@
 **Purpose:** Single handoff document so the next agent knows where work stopped. Update this file at the **end of every session** (or after each meaningful milestone).
 
 **Last updated:** 2026-07-16  
-**Module version (ms365backup):** 1.52.5  
+**Module version (ms365backup):** 1.52.6  
 **Cloudstorage (e3) version:** 2.2.0  
 **Worker version (ms365-backup-worker):** 0.3.76 (calendar SyncCalendar concurrent-map crash fix)
 
 ---
 
 ## Session log
+
+### 2026-07-16 — 5c9ed0ec shows "—" progress (waiting, not stuck)
+
+- **Not broken:** claim `queued` attempts=0; all 1073 children queued. Blocked by per-tenant single-owner while `352789d3` still `running` (~98%).
+- **UI:** Parent was created `running` with empty `progress_pct` → Jobs showed running + "—".
+- **Fix (PHP 1.52.6):** Jobs list uses claim status; queued-behind-owner shows `queued` + "Waiting for prior tenant run…"; progress column "Waiting".
 
 ### 2026-07-16 — Jobs UI stuck on failed while claim running
 
