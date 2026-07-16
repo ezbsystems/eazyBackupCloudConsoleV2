@@ -763,27 +763,6 @@ final class Ms365BatchRunRepository
             ->whereIn('status', ['failed', 'error'])
             ->update($update);
 
-        // #region agent log
-        @file_put_contents(
-            '/var/www/eazybackup.ca/.cursor/debug-d95c8c.log',
-            json_encode([
-                'sessionId' => 'd95c8c',
-                'runId' => 'post-fix',
-                'hypothesisId' => 'F',
-                'location' => 'Ms365BatchRunRepository.php:reopenAfterTransientInfraFailure',
-                'message' => 'reopened parent after transient infra failure',
-                'data' => [
-                    'batch_run_id' => $batchRunId,
-                    'updated' => (int) $updated,
-                    'prior_status' => $status,
-                    'prior_err' => mb_substr($err, 0, 120),
-                ],
-                'timestamp' => (int) round(microtime(true) * 1000),
-            ], JSON_UNESCAPED_SLASHES) . "\n",
-            FILE_APPEND
-        );
-        // #endregion
-
         return $updated > 0;
     }
 

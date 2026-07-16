@@ -3,13 +3,18 @@
 **Purpose:** Single handoff document so the next agent knows where work stopped. Update this file at the **end of every session** (or after each meaningful milestone).
 
 **Last updated:** 2026-07-16  
-**Module version (ms365backup):** 1.52.6  
+**Module version (ms365backup):** 1.52.7  
 **Cloudstorage (e3) version:** 2.2.0  
-**Worker version (ms365-backup-worker):** 0.3.76 (calendar SyncCalendar concurrent-map crash fix)
+**Worker version (ms365-backup-worker):** 0.3.77 (instrumentation cleanup; calendar race fix retained)
 
 ---
 
 ## Session log
+
+### 2026-07-16 — Debug instrumentation cleanup
+
+- Removed session `d95c8c` / leftover `dd01da` agent logs from batch claim/reopen paths and worker `SyncCalendar`.
+- PHP **1.52.7**, worker **0.3.77** (behavior unchanged aside from log removal).
 
 ### 2026-07-16 — 5c9ed0ec shows "—" progress (waiting, not stuck)
 

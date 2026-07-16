@@ -460,26 +460,6 @@ final class Ms365BatchClaimRepository
             ->pluck('r.e3_batch_run_id')
             ->all();
 
-        // #region agent log
-        @file_put_contents(
-            '/var/www/eazybackup.ca/.cursor/debug-dd01da.log',
-            json_encode([
-                'sessionId' => 'dd01da',
-                'runId' => 'post-fix',
-                'hypothesisId' => 'A',
-                'location' => 'Ms365BatchClaimRepository.php:reconcileStrandedBatchQueuedChildren',
-                'message' => 'stranded post-claim queued handoff candidates',
-                'data' => [
-                    'count' => count($batchRunIds),
-                    'batch_run_ids' => array_values(array_map('strval', $batchRunIds)),
-                    'cutoff' => $cutoff,
-                ],
-                'timestamp' => (int) round(microtime(true) * 1000),
-            ], JSON_UNESCAPED_SLASHES) . "\n",
-            FILE_APPEND
-        );
-        // #endregion
-
         return self::handOffRunningBatchClaims($batchRunIds, 'Stranded queued batch children');
     }
 
@@ -700,22 +680,6 @@ final class Ms365BatchClaimRepository
             $toRequeue,
             'Child progress stale (batch sibling heartbeats)'
         );
-
-        // #region agent log
-        @file_put_contents(
-            '/var/www/eazybackup.ca/.cursor/debug-dd01da.log',
-            json_encode([
-                'sessionId' => 'dd01da',
-                'runId' => 'post-fix',
-                'hypothesisId' => 'B',
-                'location' => 'Ms365BatchClaimRepository.php:reapStalledBatchChildren',
-                'message' => 'reaped stalled children without immediate batch handoff',
-                'data' => ['count' => count($toRequeue), 'run_ids' => $toRequeue],
-                'timestamp' => (int) round(microtime(true) * 1000),
-            ], JSON_UNESCAPED_SLASHES) . "\n",
-            FILE_APPEND
-        );
-        // #endregion
 
         // Do not hand off the whole batch here. Immediate hand-off cancels every in-flight
         // sibling (prior_snapshot / graph_sync) and was the other half of the claim-thrash

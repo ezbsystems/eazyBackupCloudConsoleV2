@@ -4,10 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
-	"os"
 	"sync"
-	"time"
 
 	"github.com/eazybackup/ms365-backup-worker/internal/graph"
 	"github.com/eazybackup/ms365-backup-worker/internal/graphfs"
@@ -75,30 +72,6 @@ func SyncCalendar(ctx context.Context, client *graph.Client, opts CalendarSyncOp
 	// the bare map to each scanner (prior bug) caused fatal concurrent map writes
 	// under Parallel>1 and crash-looped production batch owners.
 	seen := &concurrentBoolSet{m: globalSeen}
-
-	// #region agent log
-	log.Printf("debug-d95c8c SyncCalendar start parallel=%d prior_seen=%d hypothesisId=C", opts.Parallel, len(globalSeen))
-	func() {
-		f, err := os.OpenFile("/var/www/eazybackup.ca/.cursor/debug-d95c8c.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-		if err != nil {
-			return
-		}
-		defer f.Close()
-		_ = json.NewEncoder(f).Encode(map[string]any{
-			"sessionId":    "d95c8c",
-			"runId":        "post-fix",
-			"hypothesisId": "C",
-			"location":     "calendar.go:SyncCalendar",
-			"message":      "SyncCalendar start with mutexed seen set",
-			"data": map[string]any{
-				"parallel":    opts.Parallel,
-				"user_id_len": len(opts.UserID),
-				"prior_seen":  len(globalSeen),
-			},
-			"timestamp": time.Now().UnixMilli(),
-		})
-	}()
-	// #endregion
 
 	cals, err := client.Paginate(ctx, fmt.Sprintf("/users/%s/calendars", opts.UserID), map[string]string{"$top": "50"})
 	if err != nil {
