@@ -657,4 +657,46 @@ try {
         ->delete();
 }
 
+// Parent Jobs UI must reopen when claim recovers from transient infra failure.
+$reopenBatch = test_uuid('reopen-parent-batch');
+$reopenChild = test_uuid('reopen-parent-child');
+try {
+    $existingJob = Capsule::table('s3_cloudbackup_runs')
+        ->where('engine', 'ms365')
+        ->orderByDesc('started_at')
+        ->first(['job_id']);
+    assert_true($existingJob !== null, 'existing ms365 job available for reopen parent test');
+    $runBin = hex2bin(str_replace('-', '', $reopenBatch));
+    Capsule::table('s3_cloudbackup_runs')->insert([
+        'run_id' => $runBin,
+        'job_id' => $existingJob->job_id,
+        'trigger_type' => 'manual',
+        'status' => 'failed',
+        'created_at' => date('Y-m-d H:i:s', $now - 3600),
+        'started_at' => date('Y-m-d H:i:s', $now - 3600),
+        'finished_at' => date('Y-m-d H:i:s', $now - 600),
+        'progress_pct' => 90,
+        'error_summary' => 'Batch progress stale (owner heartbeating without progress)',
+        'engine' => 'ms365',
+    ]);
+    insertTestRun($reopenChild, [
+        'e3_batch_run_id' => $reopenBatch,
+        'status' => 'running',
+        'phase' => 'graph_sync',
+        'last_progress_at' => $now,
+        'updated_at' => $now,
+    ]);
+    $reopened = Ms365BatchRunRepository::reopenAfterTransientInfraFailure($reopenBatch);
+    assert_true($reopened, 'reopenAfterTransientInfraFailure updates locked failed parent');
+    $parentAfter = Capsule::table('s3_cloudbackup_runs')
+        ->whereRaw('run_id = UUID_TO_BIN(?)', [strtolower($reopenBatch)])
+        ->first();
+    assert_true(($parentAfter->status ?? '') === 'running', 'parent status reopened to running');
+    assert_true(empty($parentAfter->finished_at), 'parent finished_at cleared on reopen');
+    assert_true(trim((string) ($parentAfter->error_summary ?? '')) === '', 'parent error_summary cleared on reopen');
+} finally {
+    Capsule::table('s3_cloudbackup_runs')->whereRaw('run_id = UUID_TO_BIN(?)', [strtolower($reopenBatch)])->delete();
+    cleanupBatchTestRows([$reopenBatch], [$reopenChild]);
+}
+
 exit($failures > 0 ? 1 : 0);

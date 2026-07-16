@@ -3,13 +3,20 @@
 **Purpose:** Single handoff document so the next agent knows where work stopped. Update this file at the **end of every session** (or after each meaningful milestone).
 
 **Last updated:** 2026-07-16  
-**Module version (ms365backup):** 1.52.4  
+**Module version (ms365backup):** 1.52.5  
 **Cloudstorage (e3) version:** 2.2.0  
 **Worker version (ms365-backup-worker):** 0.3.76 (calendar SyncCalendar concurrent-map crash fix)
 
 ---
 
 ## Session log
+
+### 2026-07-16 — Jobs UI stuck on failed while claim running
+
+- **Symptom:** Admin Jobs page showed `failed` / `Batch progress stale…` for `352789d3` while claim+children were actively running.
+- **Root cause:** `recoverStrandedFailedBatches` revived the claim but left `s3_cloudbackup_runs` terminal-failed; `isParentStatusLocked` blocked `updateLiveSnapshot` from flipping status back to running (progress fields still updated).
+- **Fix (PHP 1.52.5):** `Ms365BatchRunRepository::reopenAfterTransientInfraFailure()`; called from recover + live snapshot. Cleared prod parent immediately.
+- **Verify:** Jobs page shows running ~97%+ for `352789d3`.
 
 ### 2026-07-16 — Deetken endgame thrash (calendar race + cancel storms)
 

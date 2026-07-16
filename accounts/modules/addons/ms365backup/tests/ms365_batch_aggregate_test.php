@@ -96,6 +96,14 @@ assert_true(
     Ms365BatchRunRepository::isParentStatusLocked(['status' => 'cancelled', 'cancel_requested' => 1, 'finished_at' => '2026-06-18 22:16:07']),
     'Force-cancelled terminal status is locked',
 );
+assert_true(
+    Ms365BatchRunRepository::isTransientInfraFailureSummary('Batch progress stale (owner heartbeating without progress)'),
+    'progress-stale summary is transient infra',
+);
+assert_true(
+    !Ms365BatchRunRepository::isTransientInfraFailureSummary('Graph permission denied'),
+    'application errors are not transient infra',
+);
 
 $speedEta = Ms365BatchRunRepository::computeSpeedAndEta(0, 100, 1_000_000_000, 10_000_000_000, 110);
 assert_true(($speedEta['speed'] ?? 0) === 100_000_000, 'Speed uses bytes_processed delta');

@@ -788,6 +788,7 @@ final class Ms365BatchClaimRepository
                     'updated_at' => $now,
                 ]);
             if ($updated > 0) {
+                Ms365BatchRunRepository::reopenAfterTransientInfraFailure($batchRunId);
                 ++$recovered;
             }
         }

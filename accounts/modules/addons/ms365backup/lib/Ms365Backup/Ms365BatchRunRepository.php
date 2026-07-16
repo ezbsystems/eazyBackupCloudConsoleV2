@@ -721,6 +721,85 @@ final class Ms365BatchRunRepository
     }
 
     /**
+     * Re-open a parent row that was terminal-failed for a transient infra reason
+     * (progress/heartbeat/lease stale) so the Jobs UI tracks the revived claim.
+     *
+     * Without this, recoverStrandedFailedBatches / worker heartbeats keep updating
+     * progress on a locked failed parent and the admin Jobs page stays stuck on
+     * "failed / Batch progress stale…" while children are still running.
+     */
+    public static function reopenAfterTransientInfraFailure(string $batchRunId): bool
+    {
+        if (!self::isUuid($batchRunId) || !Capsule::schema()->hasTable('s3_cloudbackup_runs')) {
+            return false;
+        }
+
+        $parent = self::getParentForBatch($batchRunId);
+        if ($parent === null) {
+            return false;
+        }
+        $status = strtolower((string) ($parent['status'] ?? ''));
+        if ($status !== 'failed' && $status !== 'error') {
+            return false;
+        }
+        $err = (string) ($parent['error_summary'] ?? '');
+        if ($err !== '' && !self::isTransientInfraFailureSummary($err)) {
+            return false;
+        }
+
+        $update = [
+            'status' => 'running',
+            'finished_at' => null,
+        ];
+        if (Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'error_summary')) {
+            $update['error_summary'] = '';
+        }
+        if (Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'updated_at')) {
+            $update['updated_at'] = date('Y-m-d H:i:s');
+        }
+
+        $updated = Capsule::table('s3_cloudbackup_runs')
+            ->whereRaw('run_id = ' . self::uuidToDbExpr($batchRunId))
+            ->whereIn('status', ['failed', 'error'])
+            ->update($update);
+
+        // #region agent log
+        @file_put_contents(
+            '/var/www/eazybackup.ca/.cursor/debug-d95c8c.log',
+            json_encode([
+                'sessionId' => 'd95c8c',
+                'runId' => 'post-fix',
+                'hypothesisId' => 'F',
+                'location' => 'Ms365BatchRunRepository.php:reopenAfterTransientInfraFailure',
+                'message' => 'reopened parent after transient infra failure',
+                'data' => [
+                    'batch_run_id' => $batchRunId,
+                    'updated' => (int) $updated,
+                    'prior_status' => $status,
+                    'prior_err' => mb_substr($err, 0, 120),
+                ],
+                'timestamp' => (int) round(microtime(true) * 1000),
+            ], JSON_UNESCAPED_SLASHES) . "\n",
+            FILE_APPEND
+        );
+        // #endregion
+
+        return $updated > 0;
+    }
+
+    public static function isTransientInfraFailureSummary(string $message): bool
+    {
+        $m = strtolower(trim($message));
+        if ($m === '') {
+            return false;
+        }
+
+        return strpos($m, 'heartbeat stale') !== false
+            || strpos($m, 'lease expired') !== false
+            || strpos($m, 'progress stale') !== false;
+    }
+
+    /**
      * @param list<array<string, mixed>> $children
      * @return array<string, mixed>
      */
@@ -1087,6 +1166,14 @@ final class Ms365BatchRunRepository
         }
 
         $statusLocked = self::isParentStatusLocked($parentArr);
+        if ($statusLocked
+            && in_array($displayStatus, ['running', 'queued'], true)
+            && self::reopenAfterTransientInfraFailure($batchRunId)) {
+            $statusLocked = false;
+            $parentArr['status'] = 'running';
+            $parentArr['finished_at'] = null;
+            $parentArr['error_summary'] = '';
+        }
 
         $update = [
             'progress_pct' => $progressPct,
