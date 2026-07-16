@@ -363,6 +363,17 @@ function bumpAttempt(PDO $pdo, string $serverId, string $jobId): void {
     $stmt->execute([':s'=>$serverId, ':j'=>$jobId]);
 }
 
+/** Record the bootstrap inspection as the first stale-job strike. */
+function markBootstrapStrike(PDO $pdo, string $serverId, string $jobId): void {
+    $stmt = $pdo->prepare("
+        UPDATE eb_jobs_live
+           SET cancel_attempts = GREATEST(cancel_attempts, 1),
+               last_checked_ts = UNIX_TIMESTAMP()
+         WHERE server_id=:s AND job_id=:j
+    ");
+    $stmt->execute([':s'=>$serverId, ':j'=>$jobId]);
+}
+
 /** Update only last_checked_ts without incrementing attempts (rate-limited). */
 function markChecked(PDO $pdo, string $serverId, string $jobId, int $recheckSecs = 300): void {
     $stmt = $pdo->prepare("
@@ -414,12 +425,13 @@ function processProfile(
         ensureLiveExtensions($pdo);
     }
 
-    // Bootstrap pass: initialize progress markers for rows missing timestamps
+    // Bootstrap pass: initialize rows that have never been checked. Do not keep
+    // reprocessing zero-byte rows only because last_bytes_ts remains zero.
     $bootSql = "
       SELECT server_id, job_id, username
         FROM eb_jobs_live
        WHERE server_id = :server
-         AND (COALESCE(last_bytes_ts,0)=0 OR COALESCE(last_checked_ts,0)=0)
+         AND COALESCE(last_checked_ts,0)=0
        ORDER BY started_at ASC
        LIMIT :lim
     ";
@@ -469,10 +481,11 @@ function processProfile(
                         'profile'=>$profileName,
                         'job_id'=>$bJob,
                         'username'=>$bUser,
-                        'would_action'=>'bootstrap_mark_checked'
+                        'would_action'=>'bootstrap_strike',
+                        'strike'=>1
                     ], JSON_UNESCAPED_SLASHES) . PHP_EOL;
                 } else {
-                    markChecked($pdo, $profileName, $bJob);
+                    markBootstrapStrike($pdo, $profileName, $bJob);
                 }
             }
         } catch (Throwable $e) {
