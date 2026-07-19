@@ -107,6 +107,17 @@ assert_true(
     'non-directory pagination loop maps to generic sync message'
 );
 
+$sharepointDupPage = 'sharepoint: Graph pagination loop detected: page contained only previously seen items [sharepoint:b!Lo81U-FbgEaT7FbLkW0SvS9d295rdrxKrGY9L2qWF25oTPF0fcbOT5NSyo-X6E33]';
+assert_true(
+    JobQueueRepository::isNonRetryableError($sharepointDupPage),
+    'SharePoint duplicate-only pagination loop is non-retryable (stops batch thrash)'
+);
+
+assert_true(
+    JobQueueRepository::isNonRetryableError($directoryPagination),
+    'directory pagination loop is non-retryable'
+);
+
 if ($failures > 0) {
     echo "\n{$failures} test(s) failed.\n";
     exit(1);

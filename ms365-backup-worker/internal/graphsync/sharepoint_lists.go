@@ -175,7 +175,13 @@ func syncListDelta(
 	deltaPath := fmt.Sprintf("/sites/%s/lists/%s/items/delta", opts.SiteID, listID)
 	outcome := &graph.PaginationOutcome{}
 	monitor := paginationMonitorForJob(opts.Job, "sharepoint_lists", "sharepoint_lists:"+listID, graphLog(opts.Log))
-	deltaOpts := &graph.DeltaPaginateOptions{Monitor: monitor, Outcome: outcome, Expand: ListItemExpand}
+	monitor.DuplicatePageMode = graph.DuplicatePageDetectOnly
+	deltaOpts := &graph.DeltaPaginateOptions{
+		Monitor:           monitor,
+		Outcome:           outcome,
+		Expand:            ListItemExpand,
+		DuplicatePageMode: graph.DuplicatePageDetectOnly,
+	}
 	onPage := func(pageItems int) {
 		reportSharePointListProgress(opts, runningItems+pageItems)
 	}
@@ -185,6 +191,9 @@ func syncListDelta(
 	}
 	if outcome.CapReached {
 		warnings = append(warnings, fmt.Sprintf("list %s: delta pagination cap reached (%d pages, %d items)", listID, outcome.Pages, outcome.TotalItems))
+	}
+	if outcome.StoppedOnDuplicatePage {
+		warnings = append(warnings, fmt.Sprintf("list %s: Graph duplicate-only page (known defect); partial delta kept, token not advanced", listID))
 	}
 	items, removed = storeListItems(opts, siteBase, listID, synced)
 	return items, removed, warnings, newDelta, nil

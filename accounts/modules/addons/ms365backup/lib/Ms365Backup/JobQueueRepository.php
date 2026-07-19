@@ -60,8 +60,51 @@ final class JobQueueRepository
         if (str_contains($message, 'kopia upload stalled')) {
             return true;
         }
+        // Graph duplicate-only / identical-nextLink / empty-page wedges will not
+        // heal on retry; requeueing strands the parent batch (claim hand-off thrash,
+        // attempts ≫ max). Terminal-fail the child so the batch can finish.
+        if (str_contains($message, 'graph pagination loop')
+            || str_contains($message, 'page contained only previously seen items')
+            || str_contains($message, 'identical @odata.nextlink')
+            || str_contains($message, 'consecutive empty page')) {
+            // #region agent log
+            self::agentDebugLog('H2', 'JobQueueRepository.php:isNonRetryableError', 'pagination loop classified non-retryable', [
+                'message_prefix' => mb_substr($message, 0, 160),
+            ]);
+            // #endregion
+
+            return true;
+        }
 
         return false;
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     */
+    private static function agentDebugLog(string $hypothesisId, string $location, string $message, array $data = []): void
+    {
+        $payload = [
+            'sessionId' => '0bdc57',
+            'hypothesisId' => $hypothesisId,
+            'location' => $location,
+            'message' => $message,
+            'data' => $data,
+            'timestamp' => (int) round(microtime(true) * 1000),
+        ];
+        $line = json_encode($payload, JSON_UNESCAPED_SLASHES) . "\n";
+        $paths = [
+            '/var/www/eazybackup.ca/.cursor/debug-0bdc57.log',
+            dirname(__DIR__, 5) . '/.cursor/debug-0bdc57.log',
+        ];
+        foreach ($paths as $path) {
+            $dir = dirname($path);
+            if (!is_dir($dir)) {
+                continue;
+            }
+            @file_put_contents($path, $line, FILE_APPEND | LOCK_EX);
+            break;
+        }
     }
 
     public static function countStaleRunning(): int

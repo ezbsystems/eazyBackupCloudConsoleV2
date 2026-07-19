@@ -196,7 +196,16 @@ func syncSharePointDrive(
 	res := &sharePointDriveResult{}
 	outcome := &graph.PaginationOutcome{}
 	monitor := paginationMonitorForJob(opts.Job, "sharepoint", "sharepoint:"+driveID, graphLog(opts.Log))
-	deltaOpts := &graph.DeltaPaginateOptions{Monitor: monitor, Outcome: outcome}
+	// Known Graph defect: a page can return only previously-seen item IDs while still
+	// advertising @odata.nextLink. Strict mode hard-fails the whole batch and thrash-
+	// reclaims forever (prod 352789d3: shard stuck ~109h / attempts≫max). Mirror calendar
+	// normal-scan DetectOnly: stop pagination, keep items collected, leave delta unadvanced.
+	monitor.DuplicatePageMode = graph.DuplicatePageDetectOnly
+	deltaOpts := &graph.DeltaPaginateOptions{
+		Monitor:           monitor,
+		Outcome:           outcome,
+		DuplicatePageMode: graph.DuplicatePageDetectOnly,
+	}
 	onPage := func(pageItems int) {
 		reportSharePointDriveProgress(opts, pageItems)
 	}
@@ -210,6 +219,14 @@ func syncSharePointDrive(
 	}
 	if outcome.CapReached {
 		res.warnings = append(res.warnings, fmt.Sprintf("drive %s: delta pagination cap reached (%d pages, %d items)", driveID, outcome.Pages, outcome.TotalItems))
+	}
+	if outcome.StoppedOnDuplicatePage {
+		// #region agent log
+		if opts.Log != nil {
+			opts.Log("warning", fmt.Sprintf("sharepoint drive %s: Graph duplicate-only page (DetectOnly soft-stop) pages=%d items=%d delta_advanced=%v", driveID, outcome.Pages, outcome.TotalItems, deltaLink != ""))
+		}
+		// #endregion
+		res.warnings = append(res.warnings, fmt.Sprintf("drive %s: Graph duplicate-only page (known defect); partial delta kept, token not advanced", driveID))
 	}
 	for _, item := range items {
 		if removed, _ := item["@removed"].(map[string]any); removed != nil {

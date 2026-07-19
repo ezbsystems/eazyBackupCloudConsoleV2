@@ -85,6 +85,42 @@ func TestPaginateDeltaOptsDuplicatePageStrict(t *testing.T) {
 	}
 }
 
+func TestPaginateDeltaOptsDuplicatePageDetectOnly(t *testing.T) {
+	var serverURL string
+	var calls int
+	c, serverURL := testGraphClient(t, func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Header().Set("Content-Type", "application/json")
+		if calls == 1 {
+			_, _ = w.Write(deltaResponse([]map[string]any{{"id": "a"}, {"id": "b"}}, serverURL+"/page2", ""))
+			return
+		}
+		_, _ = w.Write(deltaResponse([]map[string]any{{"id": "a"}, {"id": "b"}}, serverURL+"/page3", ""))
+	})
+
+	outcome := &PaginationOutcome{}
+	items, delta, err := c.PaginateDeltaOpts(context.Background(), "/items/delta", "", "id", 100, nil, &DeltaPaginateOptions{
+		Monitor:           ForCalendarNormalScan("dup-detect", nil),
+		Outcome:           outcome,
+		DuplicatePageMode: DuplicatePageDetectOnly,
+	})
+	if err != nil {
+		t.Fatalf("DetectOnly should soft-stop, got %v", err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("items=%d want 2", len(items))
+	}
+	if delta != "" {
+		t.Fatalf("delta should not advance on duplicate soft-stop, got %q", delta)
+	}
+	if !outcome.StoppedOnDuplicatePage {
+		t.Fatalf("outcome=%+v", outcome)
+	}
+	if calls != 2 {
+		t.Fatalf("calls=%d want 2", calls)
+	}
+}
+
 func TestPaginateDeltaOptsEmptyPagesLoop(t *testing.T) {
 	var serverURL string
 	var calls int

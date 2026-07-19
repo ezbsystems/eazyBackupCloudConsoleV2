@@ -157,6 +157,70 @@ func TestSyncSharePointDriveParallelOneMatchesSequential(t *testing.T) {
 	}
 }
 
+func TestSyncSharePointDriveSoftStopsOnDuplicatePage(t *testing.T) {
+	driveID := "b!dup-drive"
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path
+		switch {
+		case path == "/drives/"+driveID:
+			payload, _ := json.Marshal(map[string]any{
+				"id":        driveID,
+				"name":      "Documents",
+				"driveType": "documentLibrary",
+			})
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write(payload)
+		case strings.Contains(path, "/drives/") && strings.HasSuffix(path, "/root/delta"):
+			calls++
+			w.Header().Set("Content-Type", "application/json")
+			if calls == 1 {
+				payload, _ := json.Marshal(map[string]any{
+					"value": []map[string]any{
+						{"id": "file-1", "name": "a.docx", "size": float64(10), "file": map[string]any{}},
+					},
+					"@odata.nextLink": "http://" + r.Host + "/drives/" + driveID + "/root/delta?page=2",
+				})
+				_, _ = w.Write(payload)
+				return
+			}
+			payload, _ := json.Marshal(map[string]any{
+				"value": []map[string]any{
+					{"id": "file-1", "name": "a.docx", "size": float64(10), "file": map[string]any{}},
+				},
+				"@odata.nextLink": "http://" + r.Host + "/drives/" + driveID + "/root/delta?page=3",
+			})
+			_, _ = w.Write(payload)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	client := graph.NewTestClient(srv.URL, graph.ClientOptions{MaxRetries: 2, MaxConcurrency: 8})
+	staging := graphfs.NewOverlayBuilder()
+	res, err := SyncSharePoint(context.Background(), client, SharePointSyncOptions{
+		AzureTenantID: "tenant-1",
+		SiteID:        "site1",
+		DriveID:       driveID,
+		Parallel:      8,
+		Shard:         ShardFilter{},
+		Staging:       staging,
+	})
+	if err != nil {
+		t.Fatalf("SyncSharePoint should soft-stop on duplicate page, got %v", err)
+	}
+	if res.Stats["items"] != 1 {
+		t.Fatalf("items=%d want 1", res.Stats["items"])
+	}
+	if len(res.Warnings) == 0 {
+		t.Fatal("expected duplicate-page warning")
+	}
+	if _, ok := res.DeltaStates[driveID]; ok {
+		t.Fatal("delta token must not advance after duplicate soft-stop")
+	}
+}
+
 func TestSyncSharePointSingleDriveWritesCatalog(t *testing.T) {
 	driveID := "b!drive-only"
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

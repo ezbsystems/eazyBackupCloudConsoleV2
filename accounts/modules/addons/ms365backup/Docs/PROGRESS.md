@@ -2,14 +2,24 @@
 
 **Purpose:** Single handoff document so the next agent knows where work stopped. Update this file at the **end of every session** (or after each meaningful milestone).
 
-**Last updated:** 2026-07-16  
-**Module version (ms365backup):** 1.52.7  
+**Last updated:** 2026-07-19  
+**Module version (ms365backup):** 1.52.8  
 **Cloudstorage (e3) version:** 2.2.0  
-**Worker version (ms365-backup-worker):** 0.3.77 (instrumentation cleanup; calendar race fix retained)
+**Worker version (ms365-backup-worker):** 0.3.78 (SharePoint Graph duplicate-page DetectOnly)
 
 ---
 
 ## Session log
+
+### 2026-07-19 — Prod batch 352789d3 stalled ~109h (SharePoint pagination loop thrash)
+
+- **Symptom:** Run `352789d3-…9ade` (Deetken) stuck `running` ~109h; last children: 2 users `running` + 1 SharePoint shard `queued`. Claim `attempts=640` / max 5.
+- **Runtime evidence:** Worker journals (9010/9012/9013) every ~7m: `batch failed: sharepoint: Graph pagination loop detected: page contained only previously seen items [sharepoint:b!Lo81U…]`. Ghost reconcile + stranded-queue hand-off reclaims forever; child queue error is retryable so hand-off keeps firing.
+- **Root cause:** SharePoint drive delta used `DuplicatePageStrict`. Known Graph defect (duplicate-only page with `@odata.nextLink`) hard-failed the child → batch fail → claim thrash. Calendar already used DetectOnly for the same defect.
+- **Fix (worker 0.3.78):** SharePoint drive + lists delta use `DuplicatePageDetectOnly`; soft-stop with warning; do not advance delta token.
+- **Fix (PHP 1.52.8):** `JobQueueRepository::isNonRetryableError` treats Graph pagination-loop signatures as terminal so old workers cannot requeue/hand-off thrash the parent.
+- **Tests:** Go `TestPaginateDeltaOptsDuplicatePageDetectOnly`, `TestSyncSharePointDriveSoftStopsOnDuplicatePage`; PHP non-retryable pagination cases.
+- **Ops:** Deploy PHP via `deploy-production.sh`; publish/deploy worker 0.3.78; reset claim attempts + requeue remaining children for `352789d3`; confirm journals show DetectOnly soft-stop (no pagination-loop fail) and children leave queued→success.
 
 ### 2026-07-16 — Debug instrumentation cleanup
 
