@@ -221,11 +221,6 @@ func syncSharePointDrive(
 		res.warnings = append(res.warnings, fmt.Sprintf("drive %s: delta pagination cap reached (%d pages, %d items)", driveID, outcome.Pages, outcome.TotalItems))
 	}
 	if outcome.StoppedOnDuplicatePage {
-		// #region agent log
-		if opts.Log != nil {
-			opts.Log("warning", fmt.Sprintf("sharepoint drive %s: Graph duplicate-only page (DetectOnly soft-stop) pages=%d items=%d delta_advanced=%v", driveID, outcome.Pages, outcome.TotalItems, deltaLink != ""))
-		}
-		// #endregion
 		res.warnings = append(res.warnings, fmt.Sprintf("drive %s: Graph duplicate-only page (known defect); partial delta kept, token not advanced", driveID))
 	}
 	for _, item := range items {

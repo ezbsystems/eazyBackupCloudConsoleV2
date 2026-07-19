@@ -3,13 +3,19 @@
 **Purpose:** Single handoff document so the next agent knows where work stopped. Update this file at the **end of every session** (or after each meaningful milestone).
 
 **Last updated:** 2026-07-19  
-**Module version (ms365backup):** 1.52.8  
+**Module version (ms365backup):** 1.52.9  
 **Cloudstorage (e3) version:** 2.2.0  
-**Worker version (ms365-backup-worker):** 0.3.78 (SharePoint Graph duplicate-page DetectOnly)
+**Worker version (ms365-backup-worker):** 0.3.79 (debug instrumentation cleanup; DetectOnly retained)
 
 ---
 
 ## Session log
+
+### 2026-07-19 — Debug instrumentation cleanup
+
+- Removed session `0bdc57` agent logs from `JobQueueRepository` and SharePoint DetectOnly path.
+- PHP **1.52.9**, worker **0.3.79** (behavior unchanged aside from log removal).
+- Batch `352789d3` completed 1073/1073 success after 0.3.78 fix; claim attempts stayed at 1.
 
 ### 2026-07-19 — Prod batch 352789d3 stalled ~109h (SharePoint pagination loop thrash)
 
