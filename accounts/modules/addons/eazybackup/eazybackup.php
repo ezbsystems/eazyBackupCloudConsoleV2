@@ -2706,6 +2706,7 @@ require_once __DIR__ . "/lib/Helper.php";
 require_once __DIR__ . "/../../servers/comet/functions.php";
 // Shared constants (e.g., ANNOUNCEMENT_KEY)
 require_once __DIR__ . '/lib/constants.php';
+require_once __DIR__ . '/lib/BrokerClientRestrict.php';
 
 
 
@@ -2775,6 +2776,17 @@ function eazybackup_config()
                     'partnerhub_groups',
                     'Partner Hub groups',
                     'Clients in any of these groups can see the Partner Hub navigation link and access Partner Hub pages. Leave empty to disable Partner Hub for all clients.'
+                ),
+            ],
+            'brokergroups' => [
+                'FriendlyName' => 'Broker Client Groups',
+                'Type'         => 'textarea',
+                'Rows'         => '3',
+                'Cols'         => '60',
+                'Description'  => eazybackup_AdminGroupsDescription(
+                    'brokergroups',
+                    'Broker groups',
+                    'Clients in any of these groups cannot access My Services, Billing, Order New Services, or e3 Billing/Historical Stats (links hidden; direct URLs redirect to the dashboard).'
                 ),
             ],
             'liteobcgroups' => [
@@ -8309,6 +8321,11 @@ function eazybackup_createorder($vars)
 {
     // Debug: confirm function invocation
     logActivity("eazybackup: ENTER eazybackup_createorder function.");
+
+    $clientId = isset($_SESSION['uid']) ? (int)$_SESSION['uid'] : 0;
+    if (eazybackup_client_is_broker($clientId)) {
+        eazybackup_broker_redirect_dashboard();
+    }
 
     // -----------------------------
     // 1) Handle Form Submission

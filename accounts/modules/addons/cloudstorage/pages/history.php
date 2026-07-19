@@ -42,9 +42,14 @@ function debugLog($context, $data, $message = '')
 
 $bucketController = new BucketController(null, null, null, null, $vars['s3_region'] ?? 'ca-central-1');
 
+require_once __DIR__ . '/../../eazybackup/lib/BrokerClientRestrict.php';
+
 $packageId = ProductConfig::$E3_PRODUCT_ID;
 $ca = new ClientArea();
 $loggedInUserId = $ca->getUserID();
+if (eazybackup_client_is_broker((int)$loggedInUserId)) {
+    eazybackup_broker_redirect_dashboard();
+}
 $product = DBController::getProduct($loggedInUserId, $packageId);
 
 if (is_null($product) || empty($product->username)) {

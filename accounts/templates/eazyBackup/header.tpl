@@ -163,6 +163,7 @@
                         <div class="eb-sidebar-divider"></div>
                         <div class="eb-sidebar-section-label">Workspace</div>
 
+                        {if !isset($isBrokerClient) || !$isBrokerClient}
                         <a href="/clientarea.php?action=services" class="eb-sidebar-link {if $smarty.server.REQUEST_URI == '/clientarea.php?action=services'}is-active{/if}">
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 1 1-3 0m3 0a1.5 1.5 0 1 0-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-9.75 0h9.75" />
@@ -185,6 +186,7 @@
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
                             </svg>
                         </button>
+                        {/if}
 
                         <button
                             id="download-backup-client-button"
@@ -209,12 +211,14 @@
                             Support
                         </a>
 
+                        {if !isset($isBrokerClient) || !$isBrokerClient}
                         <a href="{$WEB_ROOT}/clientarea.php?action=invoices" class="eb-sidebar-link {if $smarty.server.REQUEST_URI == '/clientarea.php?action=invoices'}is-active{/if}">
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
                             </svg>
                             Billing
                         </a>
+                        {/if}
 
                         <div class="eb-sidebar-divider"></div>
                         <div class="eb-sidebar-section-label">Tools</div>
@@ -266,8 +270,10 @@
                                 <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=buckets" class="eb-sidebar-sublink {if ($smarty.server.REQUEST_URI|strstr:'page=buckets') || ($smarty.server.REQUEST_URI|strstr:'page=browse')}is-active{/if}">Buckets</a>
                                 <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=access_keys" class="eb-sidebar-sublink {if $smarty.server.REQUEST_URI|strstr:'page=access_keys'}is-active{/if}">Access Keys</a>
                                 <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=users" class="eb-sidebar-sublink {if $smarty.server.REQUEST_URI|strstr:'page=users'}is-active{/if}">Users</a>
+                                {if !isset($isBrokerClient) || !$isBrokerClient}
                                 <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=billing" class="eb-sidebar-sublink {if $smarty.server.REQUEST_URI|strstr:'page=billing'}is-active{/if}">Billing</a>
                                 <a href="{$WEB_ROOT}/index.php?m=cloudstorage&page=history" class="eb-sidebar-sublink {if $smarty.server.REQUEST_URI|strstr:'page=history'}is-active{/if}">Historical Stats</a>
+                                {/if}
                             </div>
                         </div>
                         
@@ -332,6 +338,7 @@
         </aside>
         <!-- End Sidebar -->
         {* sidebar-flyout    *}
+        {if !isset($isBrokerClient) || !$isBrokerClient}
         <div 
             id="sidebar-flyout" 
             class="eb-sidebar-flyout"
@@ -534,6 +541,7 @@
             </nav>
         </div>        
     </div>
+    {/if}
 
  <!-- Download Backup Client Flyout -->
 <div 

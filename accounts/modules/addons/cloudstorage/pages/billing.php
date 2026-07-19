@@ -10,10 +10,14 @@
     require_once __DIR__ . '/../lib/Provision/E3CloudBackupProductBootstrap.php';
     require_once __DIR__ . '/../lib/Admin/E3CloudBackupPricing.php';
     require_once __DIR__ . '/../lib/Admin/E3CloudBackupBilling.php';
+    require_once __DIR__ . '/../../eazybackup/lib/BrokerClientRestrict.php';
 
     $packageId = ProductConfig::$E3_PRODUCT_ID;
     $ca = new ClientArea();
     $loggedInUserId = $ca->getUserID();
+    if (eazybackup_client_is_broker((int)$loggedInUserId)) {
+        eazybackup_broker_redirect_dashboard();
+    }
     $product = DBController::getProduct($loggedInUserId, $packageId);
     if (is_null($product) || empty($product->username)) {
         header('Location: index.php?m=cloudstorage&page=s3storage');

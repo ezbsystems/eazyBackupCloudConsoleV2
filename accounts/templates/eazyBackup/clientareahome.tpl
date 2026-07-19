@@ -7,11 +7,13 @@
     }
 
     <div class="eb-home-grid mb-6">
+        {if !isset($isBrokerClient) || !$isBrokerClient}
         <a href="clientarea.php?action=services" class="eb-home-tile">
             <span class="eb-home-tile-icon"><i class="fas fa-cube"></i></span>
             <div class="eb-home-tile-stat">{$clientsstats.productsnumactive}</div>
             <div class="eb-home-tile-title">{lang key='navservices'}</div>
         </a>
+        {/if}
 
         {if $clientsstats.numdomains || $registerdomainenabled || $transferdomainenabled}
             <a href="clientarea.php?action=domains" class="eb-home-tile">
@@ -39,11 +41,13 @@
             <div class="eb-home-tile-title">{lang key='navtickets'}</div>
         </a>
 
+        {if !isset($isBrokerClient) || !$isBrokerClient}
         <a href="clientarea.php?action=invoices" class="eb-home-tile">
             <span class="eb-home-tile-icon"><i class="fas fa-credit-card"></i></span>
             <div class="eb-home-tile-stat">{$clientsstats.numunpaidinvoices}</div>
             <div class="eb-home-tile-title">{lang key='navinvoices'}</div>
         </a>
+        {/if}
     </div>
 
     {foreach $addons_html as $addon_html}
