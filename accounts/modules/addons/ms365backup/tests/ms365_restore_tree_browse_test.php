@@ -94,6 +94,73 @@ assert_true(
     'sanitized SharePoint drives path matches missing-workload-root pattern'
 );
 
+$resolveMailLabel = $ref->getMethod('resolveMailOpaqueLabel');
+$resolveMailLabel->setAccessible(true);
+$shouldHide = $ref->getMethod('shouldHideEntry');
+$shouldHide->setAccessible(true);
+$enrichEntries = $ref->getMethod('enrichEntries');
+$enrichEntries->setAccessible(true);
+
+$opaqueMsgId = 'AAMkAGVjZGNkNjgyLWI0ZWUtNDRjMy1iNzc3LWM2MmUzYzZlOGJmYwBGAAAAAAB3V4t7mfolRqmlVW5Vax4UBwCZGheBG4SjR6g15N32C-o8AAAAAAEGAACZGheBG4SjR6g15N32C-o8AAJBSNl-AAA=';
+$mailInboxPath = $tenantId . '/users/user-1/mail/inbox';
+$mailMsgPath = $mailInboxPath . '/' . $opaqueMsgId;
+
+assert_eq(
+    '(No subject)',
+    $resolveMailLabel->invoke(null, $opaqueMsgId, $opaqueMsgId . '.json', $mailInboxPath, false),
+    'opaque mail JSON label is replaced with (No subject)'
+);
+
+assert_eq(
+    'Quarterly review',
+    $resolveMailLabel->invoke(null, 'Quarterly review', $opaqueMsgId . '.json', $mailInboxPath, false),
+    'valid mail subject label passes through unchanged'
+);
+
+assert_eq(
+    'Mail folder',
+    $resolveMailLabel->invoke(null, $opaqueMsgId, $opaqueMsgId, $tenantId . '/users/user-1/mail/' . $opaqueMsgId, true),
+    'opaque mailbox folder label becomes Mail folder'
+);
+
+assert_eq(
+    'Email message',
+    $resolveMailLabel->invoke(null, $opaqueMsgId, $opaqueMsgId, $mailMsgPath, true),
+    'opaque attachment-bearing message folder falls back to Email message'
+);
+
+assert_eq(
+    'Project kickoff',
+    $resolveMailLabel->invoke(null, 'Project kickoff', $opaqueMsgId, $mailInboxPath, true),
+    'attachment message folder keeps worker-provided subject'
+);
+
+assert_eq(
+    'Attachments',
+    $resolveMailLabel->invoke(null, 'Folder', 'attachments', $mailMsgPath, true),
+    'attachments container is labeled Attachments'
+);
+
+assert_true($shouldHide->invoke(null, 'folders.json'), 'folders.json is hidden from browse results');
+assert_true($shouldHide->invoke(null, '_browse.json'), '_browse.json is hidden from browse results');
+
+$enriched = $enrichEntries->invoke(null, [
+    [
+        'name' => $opaqueMsgId . '.json',
+        'label' => $opaqueMsgId,
+        'path' => $mailInboxPath . '/' . $opaqueMsgId . '.json',
+        'has_children' => false,
+    ],
+    [
+        'name' => 'folders.json',
+        'label' => 'folders.json',
+        'path' => $mailInboxPath . '/folders.json',
+        'has_children' => false,
+    ],
+], $mailInboxPath, null);
+assert_eq(1, count($enriched), 'enrichEntries drops hidden catalog files');
+assert_eq('(No subject)', $enriched[0]['label'] ?? '', 'enrichEntries applies mail opaque-label guard');
+
 if ($failures > 0) {
     echo "\n{$failures} test(s) failed.\n";
     exit(1);

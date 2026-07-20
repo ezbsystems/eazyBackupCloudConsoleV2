@@ -7,11 +7,30 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/eazybackup/ms365-backup-worker/internal/graph"
 	"github.com/eazybackup/ms365-backup-worker/internal/graphfs"
 	"golang.org/x/sync/errgroup"
 )
+
+const mailBrowseIndexVersion = 1
+
+type mailBrowseIndex struct {
+	Version  int                            `json:"version"`
+	Messages map[string]mailBrowseIndexEntry `json:"messages"`
+}
+
+type mailBrowseIndexEntry struct {
+	ID               string `json:"id,omitempty"`
+	Subject          string `json:"subject,omitempty"`
+	FromName         string `json:"fromName,omitempty"`
+	FromAddress      string `json:"fromAddress,omitempty"`
+	ReceivedDateTime string `json:"receivedDateTime,omitempty"`
+	SentDateTime     string `json:"sentDateTime,omitempty"`
+	IsDraft          bool   `json:"isDraft,omitempty"`
+	HasAttachments   bool   `json:"hasAttachments,omitempty"`
+}
 
 type MailSyncOptions struct {
 	AzureTenantID    string
@@ -64,6 +83,12 @@ func SyncMail(ctx context.Context, client *graph.Client, opts MailSyncOptions) (
 	if err != nil {
 		return nil, err
 	}
+
+	foldersCatalog, _ := json.Marshal(map[string]any{
+		"fetched_at": time.Now().UTC().Format(time.RFC3339),
+		"value":      folders,
+	})
+	opts.Staging.PutJSON(fmt.Sprintf("%s/users/%s/mail/folders.json", opts.AzureTenantID, opts.UserID), foldersCatalog, time.Now().UTC())
 
 	incremental := len(opts.DeltaStates) > 0
 	if opts.Log != nil {
@@ -126,6 +151,33 @@ func SyncMail(ctx context.Context, client *graph.Client, opts MailSyncOptions) (
 			}
 			messagesEnumerated.Add(int32(len(items)))
 
+			browsePath := mailBrowseIndexPath(opts.AzureTenantID, opts.UserID, folderID)
+			browseIndex := loadMailBrowseIndex(opts.Staging, browsePath)
+			updateBrowseIndex := func(item map[string]any) {
+				msgID, _ := item["id"].(string)
+				if msgID == "" {
+					return
+				}
+				if browseIndex.Messages == nil {
+					browseIndex.Messages = map[string]mailBrowseIndexEntry{}
+				}
+				browseIndex.Messages[safeID(msgID)] = mailBrowseEntryFromGraph(item)
+			}
+			removeBrowseIndex := func(msgID string) {
+				if msgID == "" || browseIndex.Messages == nil {
+					return
+				}
+				delete(browseIndex.Messages, safeID(msgID))
+			}
+			writeBrowseIndex := func() {
+				if browseIndex.Messages == nil {
+					browseIndex.Messages = map[string]mailBrowseIndexEntry{}
+				}
+				browseIndex.Version = mailBrowseIndexVersion
+				body, _ := json.Marshal(browseIndex)
+				opts.Staging.PutJSON(browsePath, body, time.Now().UTC())
+			}
+
 			mu.Lock()
 			if deltaLink != "" {
 				newDelta[folderID] = deltaLink
@@ -147,6 +199,7 @@ func SyncMail(ctx context.Context, client *graph.Client, opts MailSyncOptions) (
 					opts.Staging.PutJSON(tombPath, body, graphfsModTime(item["lastModifiedDateTime"]))
 					livePath := fmt.Sprintf("%s/users/%s/mail/%s/%s.json", opts.AzureTenantID, opts.UserID, safeID(folderID), safeID(msgID))
 					opts.Staging.Remove(livePath)
+					removeBrowseIndex(msgID)
 					mu.Lock()
 					stats.Removed++
 					mu.Unlock()
@@ -169,6 +222,7 @@ func SyncMail(ctx context.Context, client *graph.Client, opts MailSyncOptions) (
 					if err := syncMailAttachments(gctx, client, opts, folderID, msgID, item, &mu, &stats, &bytesTotal, emitProgress); err != nil {
 						return err
 					}
+					updateBrowseIndex(item)
 					continue
 				}
 				needBatch = append(needBatch, msgID)
@@ -183,10 +237,12 @@ func SyncMail(ctx context.Context, client *graph.Client, opts MailSyncOptions) (
 				bytesTotal += int64(len(body))
 				mu.Unlock()
 				emitProgress()
+				updateBrowseIndex(item)
 				return syncMailAttachments(gctx, client, opts, folderID, msgID, item, &mu, &stats, &bytesTotal, emitProgress)
 			}
 
 			if len(needBatch) == 0 {
+				writeBrowseIndex()
 				return nil
 			}
 
@@ -212,6 +268,7 @@ func SyncMail(ctx context.Context, client *graph.Client, opts MailSyncOptions) (
 					stats.BatchFallback++
 					mu.Unlock()
 				}
+				writeBrowseIndex()
 				return nil
 			}
 
@@ -229,7 +286,11 @@ func SyncMail(ctx context.Context, client *graph.Client, opts MailSyncOptions) (
 					return writeMessage(msgID, body, item)
 				})
 			}
-			return itemG.Wait()
+			if err := itemG.Wait(); err != nil {
+				return err
+			}
+			writeBrowseIndex()
+			return nil
 		})
 	}
 
@@ -304,4 +365,40 @@ func minInt(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func mailBrowseIndexPath(tenantID, userID, folderID string) string {
+	return fmt.Sprintf("%s/users/%s/mail/%s/_browse.json", tenantID, userID, safeID(folderID))
+}
+
+func loadMailBrowseIndex(staging *graphfs.OverlayBuilder, path string) mailBrowseIndex {
+	var idx mailBrowseIndex
+	if staging.ReadJSON(path, &idx) && idx.Version == mailBrowseIndexVersion && idx.Messages != nil {
+		return idx
+	}
+	return mailBrowseIndex{
+		Version:  mailBrowseIndexVersion,
+		Messages: map[string]mailBrowseIndexEntry{},
+	}
+}
+
+func mailBrowseEntryFromGraph(item map[string]any) mailBrowseIndexEntry {
+	msgID, _ := item["id"].(string)
+	entry := mailBrowseIndexEntry{ID: msgID}
+	entry.Subject, _ = item["subject"].(string)
+	entry.ReceivedDateTime, _ = item["receivedDateTime"].(string)
+	entry.SentDateTime, _ = item["sentDateTime"].(string)
+	if draft, ok := item["isDraft"].(bool); ok {
+		entry.IsDraft = draft
+	}
+	if hasAtt, ok := item["hasAttachments"].(bool); ok {
+		entry.HasAttachments = hasAtt
+	}
+	if from, ok := item["from"].(map[string]any); ok {
+		if ea, ok := from["emailAddress"].(map[string]any); ok {
+			entry.FromName, _ = ea["name"].(string)
+			entry.FromAddress, _ = ea["address"].(string)
+		}
+	}
+	return entry
 }

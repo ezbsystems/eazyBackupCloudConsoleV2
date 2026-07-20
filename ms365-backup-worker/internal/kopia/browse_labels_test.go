@@ -3,6 +3,8 @@ package kopia
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"strings"
@@ -528,6 +530,243 @@ func TestFastBrowseLabelMailMessage(t *testing.T) {
 	got := fastBrowseLabel(path, "msg1.json", "file")
 	if got.Label != "msg1" {
 		t.Fatalf("label: got %q", got.Label)
+	}
+}
+
+func TestNeedsFullMailLabel(t *testing.T) {
+	msgPath := "tenant/users/u1/mail/inbox/AQMkAGExample123.json"
+	if !needsFullMailLabel(msgPath, "file") {
+		t.Fatal("mail message json should require full labeling without index")
+	}
+	folderPath := "tenant/users/u1/mail/inbox/AQMkAGExample123"
+	if !needsFullMailLabel(folderPath, "folder") {
+		t.Fatal("mail message folder should require full labeling without index")
+	}
+	if needsFullMailLabel("tenant/users/u1/mail", "folder") {
+		t.Fatal("mail segment folder should not require full labeling")
+	}
+}
+
+func TestBrowseMailRoutingLargeInboxUsesMetadataNotIDs(t *testing.T) {
+	ctx := context.Background()
+	inboxPath := "users/u1/mail/inbox"
+	msgID := "AQMkAGExampleMessageId1234567890"
+	root := buildLargeMailInboxFixture(t, inboxPath, msgID, 210)
+
+	resolver := loadMailBrowseResolver(ctx, root, inboxPath)
+	if resolver.hasIndex() {
+		t.Fatal("legacy fixture should not have browse index")
+	}
+
+	childPath := inboxPath + "/" + msgID + ".json"
+	got := labelBrowseChild(ctx, root, childPath, msgID+".json", "file", true, resolver)
+	if got.Label == msgID || strings.HasPrefix(got.Label, "AQMk") {
+		t.Fatalf("large inbox message label must not be opaque ID, got %q", got.Label)
+	}
+	if got.Label != "Budget review Q3" {
+		t.Fatalf("label: got %q", got.Label)
+	}
+	if !strings.Contains(got.Subtitle, "Finance") {
+		t.Fatalf("subtitle: got %q", got.Subtitle)
+	}
+	if got.SortKey != "2025-06-11T15:39:00Z" {
+		t.Fatalf("sort key: got %q", got.SortKey)
+	}
+
+	attachFolderPath := inboxPath + "/" + msgID
+	attachGot := labelBrowseChild(ctx, root, attachFolderPath, msgID, "folder", true, resolver)
+	if attachGot.Label != "Budget review Q3" {
+		t.Fatalf("attachment folder label: got %q", attachGot.Label)
+	}
+	if !strings.Contains(attachGot.Subtitle, "Attachments") {
+		t.Fatalf("attachment folder subtitle: got %q", attachGot.Subtitle)
+	}
+}
+
+func TestBrowseMailRoutingWithIndexAvoidsMetadataReads(t *testing.T) {
+	ctx := context.Background()
+	inboxPath := "users/u1/mail/inbox"
+	msgID := "AQMkAGIndexedMessage"
+	index := mailBrowseIndex{
+		Version: mailBrowseIndexVersion,
+		Messages: map[string]mailBrowseIndexEntry{
+			safeSnapshotID(msgID): {
+				ID:               msgID,
+				Subject:          "Indexed subject",
+				FromAddress:      "indexed@contoso.com",
+				ReceivedDateTime: "2025-07-01T10:00:00Z",
+			},
+		},
+	}
+	raw, _ := json.Marshal(index)
+	children := map[string]kopiafs.Entry{
+		"_browse.json":      newMemFile("_browse.json", raw),
+		msgID + ".json":     newMemFile(msgID+".json", []byte(`{"subject":"Should not read"}`)),
+	}
+	root := buildMemPath(strings.Split(inboxPath, "/"), children)
+
+	resolver := loadMailBrowseResolver(ctx, root, inboxPath)
+	if !resolver.hasIndex() {
+		t.Fatal("expected browse index")
+	}
+	childPath := inboxPath + "/" + msgID + ".json"
+	got := labelBrowseChild(ctx, root, childPath, msgID+".json", "file", true, resolver)
+	if got.Label != "Indexed subject" {
+		t.Fatalf("indexed label: got %q", got.Label)
+	}
+	if got.SortKey != "2025-07-01T10:00:00Z" {
+		t.Fatalf("indexed sort key: got %q", got.SortKey)
+	}
+}
+
+func TestAttachmentsFolderLabel(t *testing.T) {
+	ctx := context.Background()
+	msgID := "AAMkAGMsgId123"
+	root := newMemDir("", map[string]kopiafs.Entry{
+		"users": newMemDir("users", map[string]kopiafs.Entry{
+			"u1": newMemDir("u1", map[string]kopiafs.Entry{
+				"mail": newMemDir("mail", map[string]kopiafs.Entry{
+					"inbox": newMemDir("inbox", map[string]kopiafs.Entry{
+						msgID: newMemDir(msgID, map[string]kopiafs.Entry{
+							"attachments": newMemDir("attachments", map[string]kopiafs.Entry{}),
+						}),
+					}),
+				}),
+			}),
+		}),
+	})
+	path := "users/u1/mail/inbox/" + msgID + "/attachments"
+	got := browseLabel(ctx, nil, nil, root, path, "attachments", "folder")
+	if got.Label != "Attachments" {
+		t.Fatalf("label: got %q", got.Label)
+	}
+}
+
+func TestMailFolderDisplayNamePrefersFolderJSONOverCatalog(t *testing.T) {
+	ctx := context.Background()
+	folderID := "AAMkAGInboxFolderId"
+	catalog := []byte(`{"value":[{"id":"` + folderID + `","displayName":"Catalog Inbox"}]}`)
+	root := newMemDir("", map[string]kopiafs.Entry{
+		"users": newMemDir("users", map[string]kopiafs.Entry{
+			"u1": newMemDir("u1", map[string]kopiafs.Entry{
+				"mail": newMemDir("mail", map[string]kopiafs.Entry{
+					"folders.json": newMemFile("folders.json", catalog),
+					folderID: newMemDir(folderID, map[string]kopiafs.Entry{
+						"_folder.json": newMemFile("_folder.json", []byte(`{"displayName":"Inbox"}`)),
+					}),
+				}),
+			}),
+		}),
+	})
+	got := folderDisplayName(ctx, root, "users/u1/mail/"+folderID)
+	if got != "Inbox" {
+		t.Fatalf("expected _folder.json to win, got %q", got)
+	}
+}
+
+func TestMailFolderDisplayNameFromFoldersCatalog(t *testing.T) {
+	ctx := context.Background()
+	folderID := "AAMkAGInboxFolderId"
+	catalog := []byte(`{"value":[{"id":"` + folderID + `","displayName":"Inbox"}]}`)
+	root := newMemDir("", map[string]kopiafs.Entry{
+		"users": newMemDir("users", map[string]kopiafs.Entry{
+			"u1": newMemDir("u1", map[string]kopiafs.Entry{
+				"mail": newMemDir("mail", map[string]kopiafs.Entry{
+					"folders.json": newMemFile("folders.json", catalog),
+					folderID:       newMemDir(folderID, map[string]kopiafs.Entry{}),
+				}),
+			}),
+		}),
+	})
+	got := folderDisplayName(ctx, root, "users/u1/mail/"+folderID)
+	if got != "Inbox" {
+		t.Fatalf("folder label from catalog: got %q", got)
+	}
+}
+
+func TestMailMessageSemanticFallbacks(t *testing.T) {
+	ctx := context.Background()
+	msgID := "AQMkMissingMeta"
+	root := newMemDir("", map[string]kopiafs.Entry{
+		"users": newMemDir("users", map[string]kopiafs.Entry{
+			"u1": newMemDir("u1", map[string]kopiafs.Entry{
+				"mail": newMemDir("mail", map[string]kopiafs.Entry{
+					"inbox": newMemDir("inbox", map[string]kopiafs.Entry{
+						msgID + ".json": newMemFile(msgID+".json", []byte{}),
+						"corrupt.json":  newMemFile("corrupt.json", []byte(`{`)),
+					}),
+				}),
+			}),
+		}),
+	})
+	got := mailMessageLabels(ctx, root, "users/u1/mail/inbox/"+msgID+".json")
+	if got.Label != "Email message" {
+		t.Fatalf("empty metadata label: got %q", got.Label)
+	}
+
+	corrupt := mailMessageLabels(ctx, root, "users/u1/mail/inbox/corrupt.json")
+	if corrupt.Label != "(No subject)" {
+		t.Fatalf("corrupt metadata label: got %q", corrupt.Label)
+	}
+
+	noSubject := mailMessageLabelsFromMeta(mailMetadata{FromName: "Sender", ReceivedAt: "2025-06-11T15:39:00Z"})
+	if noSubject.Label != "(No subject)" {
+		t.Fatalf("no-subject label: got %q", noSubject.Label)
+	}
+}
+
+func TestShouldHideBrowseMailCatalogs(t *testing.T) {
+	if !shouldHideBrowseName("folders.json") {
+		t.Fatal("folders.json should be hidden")
+	}
+	if !shouldHideBrowseName("_browse.json") {
+		t.Fatal("_browse.json should be hidden")
+	}
+}
+
+func buildLargeMailInboxFixture(t *testing.T, inboxPath, featuredMsgID string, count int) kopiafs.Directory {
+	t.Helper()
+	children := map[string]kopiafs.Entry{
+		featuredMsgID + ".json": newMemFile(featuredMsgID+".json", []byte(`{
+			"subject":"Budget review Q3",
+			"receivedDateTime":"2025-06-11T15:39:00Z",
+			"from":{"emailAddress":{"name":"Finance","address":"finance@contoso.com"}}
+		}`)),
+		featuredMsgID: newMemDir(featuredMsgID, map[string]kopiafs.Entry{
+			"attachments": newMemDir("attachments", map[string]kopiafs.Entry{}),
+		}),
+	}
+	for i := 0; i < count-1; i++ {
+		id := fmt.Sprintf("AQMkBulkMsg%04d", i)
+		children[id+".json"] = newMemFile(id+".json", []byte(`{"subject":"Bulk `+id+`"}`))
+	}
+	parts := strings.Split(inboxPath, "/")
+	return buildMemPath(parts, children)
+}
+
+func buildMemPath(parts []string, leafChildren map[string]kopiafs.Entry) kopiafs.Directory {
+	if len(parts) == 0 {
+		return newMemDir("", leafChildren)
+	}
+	cur := newMemDir(parts[len(parts)-1], leafChildren)
+	for i := len(parts) - 2; i >= 0; i-- {
+		cur = newMemDir(parts[i], map[string]kopiafs.Entry{parts[i+1]: cur})
+	}
+	return newMemDir("", map[string]kopiafs.Entry{parts[0]: cur})
+}
+
+func TestFormatMailMessageLabelsDraftAndSortKey(t *testing.T) {
+	got := formatMailMessageLabels(mailMetadata{
+		Subject:    "Budget approval request",
+		IsDraft:    true,
+		FromName:   "Contoso Admin",
+		SentAt:     "2025-06-11T14:00:00Z",
+	})
+	if got.Label != "(Draft) Budget approval request" {
+		t.Fatalf("label: got %q", got.Label)
+	}
+	if got.SortKey != "2025-06-11T14:00:00Z" {
+		t.Fatalf("sort key: got %q", got.SortKey)
 	}
 }
 

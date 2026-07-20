@@ -116,6 +116,7 @@ func browseWithRepo(ctx context.Context, req BrowseRequest, acquire repoAcquirer
 	}
 
 	useFastLabels := len(children) > browseFastLabelChildThreshold
+	mailResolver := loadMailBrowseResolver(ctx, root, targetPath)
 
 	type entrySort struct {
 		entry   BrowseEntry
@@ -138,11 +139,11 @@ func browseWithRepo(ctx context.Context, req BrowseRequest, acquire repoAcquirer
 			size = f.Size()
 		}
 		var labelInfo browseLabelResult
-		if useFastLabels && !needsFullSharePointListLabel(childPath, entryType) {
-			labelInfo = fastBrowseLabel(childPath, name, entryType)
-		} else {
-			labelInfo = browseLabel(ctx, rep, man, root, childPath, name, entryType)
+		useFast := useFastLabels && !needsFullSharePointListLabel(childPath, entryType)
+		if useFast && needsFullMailLabel(childPath, entryType) && (mailResolver == nil || !mailResolver.hasIndex()) {
+			useFast = false
 		}
+		labelInfo = labelBrowseChild(ctx, root, childPath, name, entryType, useFast, mailResolver)
 		if labelInfo.Label == "" {
 			continue
 		}

@@ -61,7 +61,7 @@ final class RestoreTreeBrowseService
             }
         }
 
-        $cacheKey = hash('sha256', 'v19-sharepoint-list-labels' . "\0" . $manifestId . "\0" . $path . "\0" . $limit . "\0" . $offset);
+        $cacheKey = hash('sha256', 'v20-mail-human-labels' . "\0" . $manifestId . "\0" . $path . "\0" . $limit . "\0" . $offset);
         $cached = self::readCache($cacheKey);
         if ($cached !== null) {
             return $cached;
@@ -652,6 +652,12 @@ final class RestoreTreeBrowseService
                 );
             }
             $label = self::resolveSharePointDriveLabel($label, $name, $entryPath, $childRun);
+            $label = self::resolveMailOpaqueLabel(
+                $label,
+                $name,
+                $entryPath,
+                (bool) ($entry['has_children'] ?? false),
+            );
             if ($label !== $name
                 && self::isDriveContentPath($entryPath)
                 && str_contains($entryPath, '/sites/')
@@ -674,7 +680,7 @@ final class RestoreTreeBrowseService
 
     private static function shouldHideEntry(string $name): bool
     {
-        if ($name === '' || $name === 'folders.json' || $name === 'delta_state.json') {
+        if ($name === '' || $name === 'folders.json' || $name === '_browse.json' || $name === 'delta_state.json') {
             return true;
         }
         if ($name === 'lists.json' || $name === 'drives.json') {
@@ -690,11 +696,105 @@ final class RestoreTreeBrowseService
         return false;
     }
 
+    private static function resolveMailOpaqueLabel(string $label, string $name, string $path, bool $hasChildren): string
+    {
+        if (!str_contains($path, '/mail/')) {
+            return $label;
+        }
+
+        $lower = strtolower($name);
+        if ($lower === 'attachments') {
+            return 'Attachments';
+        }
+
+        if ($label !== '' && !self::labelMatchesOpaqueMailName($label, $name)) {
+            return $label;
+        }
+
+        $opaqueCandidate = self::opaqueMailIdentifier($name, $label);
+        if ($opaqueCandidate === '' || !self::isOpaqueGraphId($opaqueCandidate)) {
+            return $label;
+        }
+
+        if (str_ends_with($lower, '.json')) {
+            return '(No subject)';
+        }
+
+        if (self::isMailMessageAttachmentFolderPath($path, $name)) {
+            return 'Email message';
+        }
+
+        if ($hasChildren) {
+            return 'Mail folder';
+        }
+
+        return self::formatLabel($name, $path, $hasChildren);
+    }
+
+    private static function labelMatchesOpaqueMailName(string $label, string $name): bool
+    {
+        if ($label === $name) {
+            return true;
+        }
+        if (str_ends_with(strtolower($name), '.json')) {
+            return $label === substr($name, 0, -5);
+        }
+
+        return false;
+    }
+
+    private static function opaqueMailIdentifier(string $name, string $label): string
+    {
+        if ($label !== '') {
+            return $label;
+        }
+        if (str_ends_with(strtolower($name), '.json')) {
+            return substr($name, 0, -5);
+        }
+
+        return $name;
+    }
+
+    private static function isMailMessageAttachmentFolderPath(string $path, string $name): bool
+    {
+        $parts = explode('/', trim($path, '/'));
+        foreach ($parts as $i => $part) {
+            if ($part !== 'mail') {
+                continue;
+            }
+            if ($i + 2 >= count($parts)) {
+                return false;
+            }
+
+            return $parts[$i + 2] === $name && $i + 3 === count($parts);
+        }
+
+        return false;
+    }
+
+    private static function isOpaqueGraphId(string $value): bool
+    {
+        if ($value === '') {
+            return false;
+        }
+        if (self::isGuidLike($value)) {
+            return true;
+        }
+        if (strlen($value) < 20 || str_contains($value, ' ')) {
+            return false;
+        }
+
+        return preg_match('/^[A-Za-z0-9_+=-]+$/', $value) === 1;
+    }
+
     private static function formatLabel(string $name, string $path, bool $hasChildren = false): string
     {
         $lower = strtolower($name);
         if (isset(self::SEGMENT_LABELS[$lower])) {
             return self::SEGMENT_LABELS[$lower];
+        }
+        if ($lower === 'attachments' && str_contains($path, '/mail/')) {
+            return 'Attachments';
         }
         if (self::isDriveContentPath($path)) {
             if ($hasChildren && (self::isGuidLike($name) || self::isOpaqueDriveSegment($name))) {
@@ -705,7 +805,7 @@ final class RestoreTreeBrowseService
         }
         if (self::isGuidLike($name)) {
             if (str_contains($path, '/mail/') && $hasChildren) {
-                return 'Folder';
+                return 'Mail folder';
             }
 
             return '';
@@ -726,9 +826,9 @@ final class RestoreTreeBrowseService
 
             return 'Item';
         }
-        if (preg_match('/^[A-Za-z0-9_-]{20,}$/', $name) === 1 && !str_contains($name, ' ')) {
+        if (self::isOpaqueGraphId($name)) {
             if (str_contains($path, '/mail/')) {
-                return 'Folder';
+                return $hasChildren ? 'Mail folder' : 'Email message';
             }
             if (self::isDriveContentPath($path) && $hasChildren) {
                 return 'Folder';

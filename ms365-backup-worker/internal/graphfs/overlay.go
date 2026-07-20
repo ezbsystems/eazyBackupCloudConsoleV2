@@ -2,6 +2,8 @@ package graphfs
 
 import (
 	"context"
+	"encoding/json"
+	"io"
 	"path"
 	"strings"
 	"sync"
@@ -202,6 +204,57 @@ func (b *OverlayBuilder) HasChanges() bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.changes > 0
+}
+
+// ReadFile returns overlay entry content when path exists and is a readable file.
+// Safe for concurrent use with Put/Remove/MergePrior.
+func (b *OverlayBuilder) ReadFile(path string) ([]byte, bool) {
+	b.mu.Lock()
+	entry, ok := b.liveEntryLocked(path)
+	b.mu.Unlock()
+	if !ok {
+		return nil, false
+	}
+	if sf, ok := entry.(*staticFile); ok {
+		out := make([]byte, len(sf.content))
+		copy(out, sf.content)
+		return out, true
+	}
+	file, ok := entry.(kopiafs.File)
+	if !ok {
+		return nil, false
+	}
+	reader, err := file.Open(context.Background())
+	if err != nil {
+		return nil, false
+	}
+	defer reader.Close()
+	data, err := io.ReadAll(reader)
+	if err != nil {
+		return nil, false
+	}
+	return data, true
+}
+
+// ReadJSON unmarshals overlay JSON at path into dest.
+func (b *OverlayBuilder) ReadJSON(path string, dest any) bool {
+	data, ok := b.ReadFile(path)
+	if !ok || len(data) == 0 {
+		return false
+	}
+	return json.Unmarshal(data, dest) == nil
+}
+
+func (b *OverlayBuilder) liveEntryLocked(path string) (kopiafs.Entry, bool) {
+	p := normalizeVirtualPath(path)
+	if p == "" {
+		return nil, false
+	}
+	if _, skip := b.removed[p]; skip {
+		return nil, false
+	}
+	entry, ok := b.entries[p]
+	return entry, ok
 }
 
 // Paths returns live overlay entry paths (for verification/debug).

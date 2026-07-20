@@ -40,7 +40,7 @@ func shouldHideBrowseName(name string) bool {
 	if lower == "lists.json" || lower == "drives.json" {
 		return true
 	}
-	if lower == "_folder.json" || lower == "_calendar.json" || strings.HasSuffix(lower, ".removed.json") {
+	if lower == "_folder.json" || lower == "_calendar.json" || lower == "_browse.json" || strings.HasSuffix(lower, ".removed.json") {
 		return true
 	}
 	return false
@@ -72,13 +72,16 @@ func browseLabel(
 		return browseLabelResult{Label: opaqueContactFolderFallback(name)}
 	}
 	if entryType == "folder" && strings.Contains(childPath, "/mail/") {
+		if strings.ToLower(name) == "attachments" {
+			return browseLabelResult{Label: "Attachments"}
+		}
 		if folderLabel := folderDisplayName(ctx, root, childPath); folderLabel != "" {
 			return browseLabelResult{Label: folderLabel}
 		}
 		if msgLabel := mailAttachmentFolderLabels(ctx, root, childPath, name); msgLabel.Label != "" {
 			return msgLabel
 		}
-		return browseLabelResult{Label: "Folder"}
+		return browseLabelResult{Label: opaqueMailFolderFallback(name)}
 	}
 	if entryType == "folder" && isCalendarItemFolder(childPath) {
 		if calLabel := calendarFolderDisplayName(ctx, root, childPath); calLabel != "" {
@@ -106,13 +109,16 @@ func browseLabel(
 			return browseLabelResult{Label: name}
 		}
 		if entryType == "folder" && strings.Contains(childPath, "/mail/") {
+			if strings.ToLower(name) == "attachments" {
+				return browseLabelResult{Label: "Attachments"}
+			}
 			if folderLabel := folderDisplayName(ctx, root, childPath); folderLabel != "" {
 				return browseLabelResult{Label: folderLabel}
 			}
 			if msgLabel := mailAttachmentFolderLabels(ctx, root, childPath, name); msgLabel.Label != "" {
 				return msgLabel
 			}
-			return browseLabelResult{Label: "Folder"}
+			return browseLabelResult{Label: opaqueMailFolderFallback(name)}
 		}
 		return browseLabelResult{}
 	}
@@ -237,44 +243,7 @@ func mailMessageLabels(ctx context.Context, root kopiafs.Directory, filePath str
 	if err != nil || len(buf) == 0 {
 		return browseLabelResult{Label: "Email message"}
 	}
-
-	meta := parseMailMetadata(buf)
-	subject := strings.TrimSpace(meta.Subject)
-	if subject == "" {
-		subject = "(No subject)"
-	}
-	if meta.IsDraft {
-		subject = "(Draft) " + subject
-	}
-
-	sender := strings.TrimSpace(meta.FromName)
-	if sender == "" {
-		sender = strings.TrimSpace(meta.FromAddress)
-	}
-	if sender == "" {
-		sender = "Unknown sender"
-	}
-
-	when := formatMailDate(meta.ReceivedAt)
-	if when == "" {
-		when = formatMailDate(meta.SentAt)
-	}
-
-	subtitle := sender
-	if when != "" {
-		subtitle = sender + " · " + when
-	}
-
-	sortKey := meta.ReceivedAt
-	if sortKey == "" {
-		sortKey = meta.SentAt
-	}
-
-	return browseLabelResult{
-		Label:    truncateLabel(subject, 120),
-		Subtitle: subtitle,
-		SortKey:  sortKey,
-	}
+	return formatMailMessageLabels(parseMailMetadata(buf))
 }
 
 func contactMessageLabels(ctx context.Context, root kopiafs.Directory, filePath string) browseLabelResult {
@@ -446,6 +415,11 @@ func folderDisplayName(ctx context.Context, root kopiafs.Directory, folderPath s
 		}
 		if dn, ok := meta["displayName"].(string); ok && strings.TrimSpace(dn) != "" {
 			return dn
+		}
+	}
+	if strings.Contains(folderPath, "/mail/") {
+		if label := mailFolderDisplayNameFromCatalog(ctx, root, folderPath, browsePathBaseName(folderPath)); label != "" {
+			return label
 		}
 	}
 	return ""

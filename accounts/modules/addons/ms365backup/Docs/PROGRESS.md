@@ -11,6 +11,16 @@
 
 ## Session log
 
+### 2026-07-20 — Restore browse: human-readable mail labels (worker + PHP)
+
+- **Problem:** Restore wizard step 3 showed Graph message IDs (`AQMk…`) for mail items in large folders (>200 children) and generic `Folder` for attachment containers. Root cause: `fastBrowseLabel()` returned raw IDs for mail `.json` files; `attachments` folder fell through to generic mail-folder fallback.
+- **Worker (browse binary):** New `browse_mail.go` — directory-scoped `_browse.json` resolver, `needsFullMailLabel()` routes mail through full labeling when no index; unified `formatMailMessageLabels()`; `attachments` → `Attachments`; `folders.json` catalog fallback; hides `_browse.json`. `browse.go` loads resolver once per directory.
+- **Worker (backup):** `mail.go` writes `mail/folders.json` and per-folder versioned `_browse.json` (subject, sender, dates, draft, attachment flags) with incremental merge via `OverlayBuilder.ReadJSON`.
+- **PHP:** Browse cache key bumped `v19-sharepoint-list-labels` → `v20-mail-human-labels`; `resolveMailOpaqueLabel()` guard in `enrichEntries()` for stale binaries; hide `_browse.json` in `shouldHideEntry()`.
+- **Tests:** `browse_labels_test.go` (large inbox, attachments, catalogs, routing); `mail_test.go` (index merge/deletion/malformed prior); `overlay_test.go` (ReadJSON); `ms365_restore_tree_browse_test.php` (16 cases).
+- **Deploy:** Rebuild worker + sync WHMCS browse binary (`bin/ms365_install_browse_binary.php` / `BrowseBinaryInstaller::syncFromRelease()`). No backup re-run required for existing snapshots (legacy `_folder.json` + message JSON path); new backups gain `_browse.json` for fast large-inbox browse.
+- **Verify:** Restore wizard → user → Mail → Inbox (>200 messages): subjects not IDs; attachment dirs show subject + Attachments subtitle; nested `attachments` container labeled `Attachments`; mailbox folders show Graph display names.
+
 ### 2026-07-20 — Kopia v0.23.1 worker upgrade (0.4.0)
 
 - **Dependency:** `github.com/kopia/kopia` v0.9.8 → v0.23.1; Go 1.25.8+ required on build host.
