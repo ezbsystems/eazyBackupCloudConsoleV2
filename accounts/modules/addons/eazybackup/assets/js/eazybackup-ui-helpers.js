@@ -89,7 +89,8 @@
     7003: 'Error',
     7004: 'Missed',
     7006: 'Skipped',
-    7005: 'Cancelled'
+    7005: 'Cancelled',
+    7007: 'Error'
   };
 
   // Allow PHP to override exact labels at runtime for parity
@@ -103,6 +104,7 @@
   var STATUS_DOT = {
     Success: 'bg-green-500',
     Running: 'bg-sky-500',
+    Interrupted: 'bg-amber-500',
     Timeout: 'bg-amber-500',
     Warning: 'bg-amber-500',
     Error: 'bg-red-500',
@@ -125,6 +127,7 @@
     var u = s.toUpperCase();
     if (u === 'SUCCESS') return 'Success';
     if (u === 'RUNNING' || u === 'ACTIVE' || u === 'REVIVED' || u === 'ALREADY_RUNNING') return 'Running';
+    if (u === 'INTERRUPTED') return 'Interrupted';
     if (u === 'TIMEOUT') return 'Timeout';
     if (u === 'WARNING') return 'Warning';
     if (u === 'ERROR' || u === 'QUOTA_EXCEEDED' || u === 'ABANDONED') return 'Error';
@@ -149,6 +152,7 @@
     switch (label) {
       case 'Success':  return 'text-green-500';
       case 'Running':  return 'text-sky-500';
+      case 'Interrupted': return 'text-amber-500';
       case 'Timeout':  return 'text-amber-500';
       case 'Warning':  return 'text-amber-500';
       case 'Error':    return 'text-red-500';

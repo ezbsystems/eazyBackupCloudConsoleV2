@@ -89,6 +89,7 @@ function eazybackup_activate()
             $table->timestamp('created_at')->nullable();
             $table->timestamp('updated_at')->useCurrent()->useCurrentOnUpdate();
             $table->timestamp('revoked_at')->nullable();
+            $table->timestamp('offline_since')->nullable();
             $table->primary('hash'); // match SQL definition
             $table->unique(['hash', 'client_id']); // keep this if required
         });
@@ -689,6 +690,7 @@ function eazybackup_migrate_schema(): void {
             $t->timestamp('created_at')->nullable();
             $t->timestamp('updated_at')->useCurrent()->useCurrentOnUpdate();
             $t->timestamp('revoked_at')->nullable();
+            $t->timestamp('offline_since')->nullable();
             $t->primary('hash');
             $t->unique(['hash','client_id']);
         });
@@ -697,9 +699,15 @@ function eazybackup_migrate_schema(): void {
         eb_add_column_if_missing('comet_devices','platform_arch',fn(Blueprint $t)=>$t->string('platform_arch',32)->default(''));
         eb_add_column_if_missing('comet_devices','is_active',   fn(Blueprint $t)=>$t->boolean('is_active')->default(0));
         eb_add_column_if_missing('comet_devices','revoked_at',  fn(Blueprint $t)=>$t->timestamp('revoked_at')->nullable());
+        eb_add_column_if_missing('comet_devices','offline_since', fn(Blueprint $t)=>$t->timestamp('offline_since')->nullable());
         eb_add_column_if_missing('comet_devices','content',     fn(Blueprint $t)=>$t->json('content')->nullable());
         eb_add_index_if_missing('comet_devices', "CREATE INDEX IF NOT EXISTS idx_devices_client ON comet_devices (client_id)");
         eb_add_index_if_missing('comet_devices', "CREATE INDEX IF NOT EXISTS idx_devices_user   ON comet_devices (username)");
+        try {
+            Capsule::statement(
+                "UPDATE comet_devices SET offline_since = updated_at WHERE is_active = 0 AND offline_since IS NULL AND revoked_at IS NULL"
+            );
+        } catch (\Throwable $e) { /* ignore */ }
     }
 
     // --- comet_items ---
@@ -837,6 +845,7 @@ function eazybackup_migrate_schema(): void {
             $t->tinyInteger('cancel_attempts')->default(0);
             $t->integer('last_checked_ts')->default(0);
             $t->primary(['server_id','job_id']);
+            $t->index('username','idx_username');
             $t->index('last_update','idx_last_update');
         });
     } else {
@@ -845,6 +854,7 @@ function eazybackup_migrate_schema(): void {
         eb_add_column_if_missing('eb_jobs_live','cancel_attempts',  fn(Blueprint $t)=>$t->tinyInteger('cancel_attempts')->default(0));
         eb_add_column_if_missing('eb_jobs_live','last_checked_ts',  fn(Blueprint $t)=>$t->integer('last_checked_ts')->default(0));
         eb_add_index_if_missing('eb_jobs_live', "CREATE INDEX IF NOT EXISTS idx_started_at ON eb_jobs_live (started_at)");
+        eb_add_index_if_missing('eb_jobs_live', "CREATE INDEX IF NOT EXISTS idx_username ON eb_jobs_live (username)");
         eb_add_index_if_missing('eb_jobs_live', "CREATE INDEX IF NOT EXISTS idx_jobs_live_monitor ON eb_jobs_live (server_id, job_type, last_checked_ts)");
     }
 
@@ -2706,6 +2716,7 @@ require_once __DIR__ . "/lib/Helper.php";
 require_once __DIR__ . "/../../servers/comet/functions.php";
 // Shared constants (e.g., ANNOUNCEMENT_KEY)
 require_once __DIR__ . '/lib/constants.php';
+require_once __DIR__ . '/lib/LiveJobState.php';
 require_once __DIR__ . '/lib/BrokerClientRestrict.php';
 
 
@@ -4390,20 +4401,10 @@ function eazybackup_clientarea(array $vars)
         // Isolated Device Actions AJAX endpoint
         require_once __DIR__ . "/pages/console/device-actions.php";
         exit; // script handles output
-    } else if ($_REQUEST["a"] == "pulse-events") {
-        // SSE: Protection Pulse live stream
-        require_once __DIR__ . "/pages/console/pulse.php";
-        eb_pulse_events();
-        exit;
     } else if ($_REQUEST["a"] == "pulse-snapshot") {
-        // JSON snapshot for reconnects / initial load
+        // JSON snapshot of running jobs (polled by dashboard timeline)
         require_once __DIR__ . "/pages/console/pulse.php";
         eb_pulse_snapshot();
-        exit;
-    } else if ($_REQUEST["a"] == "pulse-snooze") {
-        // Snooze incidents
-        require_once __DIR__ . "/pages/console/pulse.php";
-        eb_pulse_snooze();
         exit;
     } else if ($_REQUEST["a"] == "notification-dismiss") {
         header('Content-Type: application/json');

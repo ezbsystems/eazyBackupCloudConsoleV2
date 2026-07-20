@@ -213,6 +213,7 @@
                                             <div class="eb-legend-item"><span class="eb-legend-dot" style="background: rgb(254, 154, 0);"></span><span>Warning <span data-status-count="warning">0</span></span></div>
                                             <div class="eb-legend-item"><span class="eb-legend-dot eb-legend-dot-missed"></span><span>Missed <span data-status-count="missed">0</span></span></div>
                                             <div class="eb-legend-item"><span class="eb-legend-dot" style="background: rgb(0, 166, 244);"></span><span>Running <span data-status-count="running">0</span></span></div>
+                                            <div class="eb-legend-item"><span class="eb-legend-dot" style="background: rgb(245, 158, 11);"></span><span>Interrupted <span data-status-count="interrupted">0</span></span></div>
                                         </div>
                                     </div>
                                 </div>
@@ -527,7 +528,7 @@
 
                                         <!-- Middle: status chips -->
                                         <div class="flex flex-wrap gap-2">
-                                            <template x-for="label in ['Error','Missed','Warning','Timeout','Cancelled','Running','Skipped','Success']" :key="label">
+                                            <template x-for="label in ['Error','Missed','Warning','Timeout','Cancelled','Interrupted','Running','Skipped','Success']" :key="label">
                                                 <button type="button"
                                                         class="inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition select-none active:scale-[0.99] cursor-pointer disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
                                                         :class="chipBtnClass(label)"
@@ -864,41 +865,18 @@
                                                     if (this.closeTimer) { clearTimeout(this.closeTimer); } 
                                                     this.closeTimer = setTimeout(()=>{ if(!this.hovering){ this.open=false; } }, 200); 
                                                 },
-                                        
-                                                // True last-24h jobs, includes completed + live running
-                                                jobs24h(){
-                                                    const now = Date.now();
-                                                    const dayAgo = now - (24*60*60*1000);
-                                                    const raw = Array.isArray(device.jobs) ? device.jobs : [];
-                                                    // Completed jobs in the last 24h
-                                                    const completed = raw.filter(j=>{
-                                                        const ms = (window.EB && EB.toMs) ? EB.toMs(j.ended_at || j.started_at || j.EndTime || j.StartTime) : 0;
-                                                        return ms && ms >= dayAgo && ms <= now;
-                                                    });
-                                                    // Live running jobs for this username+device
-                                                    let running = [];
-                                                    try {
-                                                        if (window.__EB_TIMELINE) {
-                                                            running = __EB_TIMELINE.getFor(String(device.username||''), String(device.name||'')) || [];
-                                                            running = running.filter(rj => {
-                                                                const ms = (window.EB && EB.toMs) ? EB.toMs(rj.started_at || rj.StartTime) : 0;
-                                                                return ms && ms >= dayAgo && ms <= now;
-                                                            });
-                                                        }
-                                                    } catch(_){ running = []; }
-                                                    const list = completed.concat(running).sort((a,b)=>{
-                                                        const as = (window.EB && EB.toMs) ? EB.toMs(a.started_at || a.StartTime) : 0;
-                                                        const bs = (window.EB && EB.toMs) ? EB.toMs(b.started_at || b.StartTime) : 0;
-                                                        return as - bs;
-                                                    });
-                                                    return list;
+
+                                                timelineJobs(){
+                                                    if (typeof this.jobsInLast24h !== 'function') return [];
+                                                    void this.timelineVer;
+                                                    return this.jobsInLast24h(device) || [];
                                                 },
                                         
                                                 svc(){ return (device.serviceid||device.service_id||device.ServiceID||''); }
                                                 }"
                                                 @mouseenter="openMenu()" @mouseleave="scheduleClose()">
                                                 <!-- slivers along the bar for quick visual positions (running pulses in blue) -->
-                                                <template x-for="(raw, i) in jobs24h()" :key="(raw.GUID || raw.JobID || raw.id || raw.started_at || raw.ended_at || i)">
+                                                <template x-for="(raw, i) in timelineJobs()" :key="(raw.GUID || raw.JobID || raw.id || raw.started_at || raw.ended_at || i)">
                                                     <div x-data="{ j: EB.normalizeJob(raw) }"
                                                         class="absolute top-0 h-full w-1.5"
                                                         :class="(EB.humanStatus(j.status)==='Running' ? 'bg-blue-500 animate-pulse' : EB.statusDot(j.status))"
@@ -912,7 +890,7 @@
                                                 
                                                     <div class="eb-menu-label">Jobs (last 24h)</div>
                                                 
-                                                    <template x-for="(raw, idx) in jobs24h()" :key="(raw.GUID || raw.JobID || raw.id || raw.started_at || raw.ended_at || idx)">
+                                                    <template x-for="(raw, idx) in timelineJobs()" :key="(raw.GUID || raw.JobID || raw.id || raw.started_at || raw.ended_at || idx)">
                                                     <button type="button" class="eb-menu-item w-full cursor-pointer"
                                                             x-data="{ j: EB.normalizeJob(raw) }"
                                                             @click.stop="window.EB_JOBREPORTS && EB_JOBREPORTS.openJobModal(String((window.serviceIdForUsername && serviceIdForUsername(device.username)) || svc()), String(device.username||''), j.id)">
@@ -924,7 +902,7 @@
                                                     </button>
                                                     </template>
                                                 
-                                                    <template x-if="jobs24h().length===0">
+                                                    <template x-if="timelineJobs().length===0">
                                                     <div class="text-xs px-2 py-1" style="color: var(--eb-text-muted)">No jobs.</div>
                                                     </template>
                                                 </div>
@@ -1471,7 +1449,7 @@
     function dropdown() {
         return {
             open: false, selected: '',
-            options: ['All Statuses', 'Running', 'Success', 'Warning', 'Error', 'Missed', 'Skipped', 'Cancelled', 'Timeout', 'Unknown'],
+            options: ['All Statuses', 'Running', 'Interrupted', 'Success', 'Warning', 'Error', 'Missed', 'Skipped', 'Cancelled', 'Timeout', 'Unknown'],
             init() {
                 // Allow external controls (chips/clear) to keep dropdown label truthful.
                 try {
@@ -1749,7 +1727,7 @@
 
             issueSet() {
                 // Skipped is NOT treated as an issue per product semantics (user decision).
-                return ['Error', 'Missed', 'Warning', 'Timeout', 'Cancelled'];
+                return ['Error', 'Missed', 'Warning', 'Timeout', 'Cancelled', 'Interrupted'];
             },
 
             isVisibleDevice(device) {
@@ -1788,7 +1766,8 @@
                 let running = [];
                 try {
                     if (window.__EB_TIMELINE) {
-                        running = __EB_TIMELINE.getFor(String(device.username || ''), String(device.name || '')) || [];
+                        const deviceKey = String((device && device.hash) || (device && device.id) || '');
+                        running = __EB_TIMELINE.getFor(String(device.username || ''), deviceKey) || [];
                         running = running.filter(rj => {
                             const ms = (window.EB && EB.toMs) ? EB.toMs((rj && (rj.started_at || rj.StartTime))) : 0;
                             return ms && ms >= dayAgo && ms <= now;
@@ -1796,7 +1775,28 @@
                     }
                 } catch(_) { running = []; }
 
-                return completed.concat(running);
+                const keyFor = (j) => {
+                    const sid = String((j && j.server_id) || (j && j.ServerID) || '');
+                    const jid = String((j && j.job_id) || (j && j.JobID) || (j && j.GUID) || (j && j.id) || '');
+                    if (sid && jid) return sid + ':' + jid;
+                    return jid;
+                };
+                const seen = new Map();
+                for (const j of running.concat(completed)) {
+                    const k = keyFor(j);
+                    if (!k) continue;
+                    const existing = seen.get(k);
+                    const label = (window.EB && EB.humanStatus) ? EB.humanStatus(j.status) : '';
+                    const isLive = label === 'Running' || label === 'Interrupted';
+                    if (!existing || isLive) seen.set(k, j);
+                }
+                const list = Array.from(seen.values());
+                list.sort((a, b) => {
+                    const as = (window.EB && EB.toMs) ? EB.toMs(a.started_at || a.StartTime) : 0;
+                    const bs = (window.EB && EB.toMs) ? EB.toMs(b.started_at || b.StartTime) : 0;
+                    return as - bs;
+                });
+                return list;
             },
 
             latestStatus24h(device) {
@@ -1829,7 +1829,7 @@
             },
 
             statusPriority(label) {
-                const p = { 'Error': 1, 'Timeout': 2, 'Missed': 3, 'Warning': 4, 'Cancelled': 5, 'Running': 6, 'Skipped': 7, 'Success': 8, 'Unknown': 9 };
+                const p = { 'Error': 1, 'Timeout': 2, 'Missed': 3, 'Warning': 4, 'Interrupted': 5, 'Cancelled': 6, 'Running': 7, 'Skipped': 8, 'Success': 9, 'Unknown': 10 };
                 return p[label] || 9;
             },
 
@@ -1888,7 +1888,7 @@
             },
 
             computeCounts() {
-                const labels = ['Error','Missed','Warning','Timeout','Cancelled','Running','Skipped','Success'];
+                const labels = ['Error','Missed','Warning','Timeout','Cancelled','Interrupted','Running','Skipped','Success'];
                 const out = {};
                 labels.forEach(l => out[l] = 0);
 
@@ -1919,7 +1919,7 @@
             },
 
             computeJobsByStatus24h() {
-                const labels = ['Error','Missed','Warning','Timeout','Cancelled','Running','Skipped','Success','Unknown'];
+                const labels = ['Error','Missed','Warning','Timeout','Cancelled','Interrupted','Running','Skipped','Success','Unknown'];
                 const out = {};
                 labels.forEach(l => out[l] = []);
                 const list = Array.isArray(this.devices) ? this.devices : [];
@@ -2224,7 +2224,7 @@
                 };
             },
             getWorstStatus(jobs) {
-                const statusPriority = { 'Error': 1, 'Timeout': 2, 'Missed': 3, 'Warning': 4, 'Cancelled': 5, 'Skipped': 6, 'Running': 7, 'Success': 8, 'Unknown': 9 };
+                const statusPriority = { 'Error': 1, 'Timeout': 2, 'Missed': 3, 'Warning': 4, 'Interrupted': 5, 'Cancelled': 6, 'Skipped': 7, 'Running': 8, 'Success': 9, 'Unknown': 10 };
                 let worstStatus = 'Unknown';
                 let minPriority = 9;
                 for (const job of jobs) {
@@ -2237,13 +2237,12 @@
                 return worstStatus;
             },
             calculateJobPosition(startTime) {
+                const now = Date.now();
+                const dayAgo = now - (24 * 60 * 60 * 1000);
                 const ms = (window.EB && EB.toMs) ? EB.toMs(startTime) : (Number(startTime) || 0);
-                const jobTime = new Date(ms);
-                const hours = jobTime.getHours();
-                const minutes = jobTime.getMinutes();
-                const totalMinutesInDay = 24 * 60;
-                const jobTotalMinutes = (hours * 60) + minutes;
-                return (jobTotalMinutes / totalMinutesInDay) * 100;
+                if (!ms || ms < dayAgo || ms > now) return 0;
+                const pct = ((ms - dayAgo) / (now - dayAgo)) * 100;
+                return Math.max(0, Math.min(100, pct));
             },
             formatSingleJobTooltip(job) {
                 const statusText = (window.EB && EB.humanStatus ? EB.humanStatus(job.status) : '');
@@ -2285,8 +2284,7 @@
     <script>
       window.EB_MODULE_LINK = '{$modulelink}';
       window.EB_JOBREPORTS_ENDPOINT = '{$modulelink}&a=job-reports';
-      // Pulse endpoints for live updates
-      window.EB_PULSE_ENDPOINT = '{$modulelink}&a=pulse-events';
+      // Pulse snapshot endpoint for live running-job updates
       window.EB_PULSE_SNAPSHOT = '{$modulelink}&a=pulse-snapshot';
     </script>
 
@@ -2313,7 +2311,7 @@
       })();
     </script>
 
-    <!-- Live pulse stream and timeline store -->
+    <!-- Live pulse polling and timeline store -->
     <script src="modules/addons/eazybackup/assets/js/pulse-events.js" defer></script>
     <script src="modules/addons/eazybackup/assets/js/dashboard-timeline.js" defer></script>
 

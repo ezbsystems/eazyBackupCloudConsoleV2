@@ -273,6 +273,36 @@ $stmt->execute([$serverGroupPattern]);
 
 **Environment variable:**
 
+- `EB_WS_HEARTBEAT_SECS` (default `60`) controls how often `refreshDeviceOnlineStatus()` runs.
+
+#### Interrupted backup detection (`offline_since`)
+
+When a device goes offline mid-backup, Comet may keep the job in status `6001` (Active) indefinitely. eazyBackup tracks sustained offline state in `comet_devices.offline_since` (set on online→offline transitions, cleared on reconnect) and derives a non-terminal dashboard status:
+
+| Derived status | Condition |
+|---|---|
+| `Running` | Device online, or offline for less than 5 minutes |
+| `Interrupted` | Device offline for at least 5 minutes while Comet still reports the job live |
+
+Environment defaults:
+
+- `EB_INTERRUPTED_GRACE_SECS=300` — show `Interrupted` after 5 minutes offline
+- `EB_OFFLINE_CLEANUP_SECS=3600` — `monitor_stalled_jobs.php` may cancel/abandon offline live jobs after ~60 minutes with stale Comet progress heartbeat (two-strike confirmation, same as normal stalled-job cleanup)
+
+Writers that maintain `offline_since`:
+
+- `lib/Comet.php` (`upsertDevices`)
+- `bin/comet_ws_worker.php` (`upsertCometDevice`, `refreshDeviceOnlineStatus`, `revokeCometDevice`)
+
+Readers / presenters:
+
+- `pages/console/pulse.php` (`LiveJobState::deriveStatus`)
+- Dashboard timeline, status chips, and Last 24 Hours donut (amber `Interrupted`, non-pulsing)
+
+`Interrupted` is **not** written to `eb_jobs_recent_24h`; it is a live derived label only until Comet terminates the job or the monitor finalizes it.
+
+**Environment variable:**
+
 - `EB_HEARTBEAT_INTERVAL` — Heartbeat interval in seconds (default: 60).
 
 **Logging:**
@@ -577,24 +607,25 @@ Parses TypeString + Data and writes:
 - SEVT_DEVICE_UPDATED/SEVT_DEVICE_RENAMED → refresh friendly_name
 - On every job completion, bump device last_seen in the registry.
 - Ignores SEVT_ACCOUNT_* and SEVT_META_* chatter.
-- Deltas: Worker updates eb_event_cursor so the SSE layer can compute “what changed since T”.
+- Deltas: Worker updates eb_event_cursor for historical event tracking.
 
-# Server-Sent Events (SSE) Endpoints
+# Dashboard Pulse Snapshot (running jobs)
 
-Exposed via the module routing (example query parameters shown):
+Exposed via the module routing:
 
-GET ?m=eazybackup&a=pulse-events
-Streams for ~25–30 seconds, flushing every 1–2 seconds.
-Emits:
-{"kind":"snapshot", ...} on connect and periodically
-{"kind":"job:start", ...}, {"kind":"job:end", ...}
-{"kind":"device:new", ...}, {"kind":"device:removed", ...}
 GET ?m=eazybackup&a=pulse-snapshot
-One-shot snapshot JSON (used for reconnects and polling fallback).
-POST ?m=eazybackup&a=pulse-snooze
-Body: job_id, minutes → inserts/refreshes eb_incident_ack for the current client.
+Returns authoritative running jobs for the logged-in client as JSON (`jobsRunning` only).
 
-Scoping: All queries must be constrained to the current WHMCS client context using the existing Comet-to-client mapping.
+The dashboard polls this endpoint immediately on load, then every 10 seconds while the browser tab is visible. Polling pauses when the tab is hidden and resumes with an immediate refresh when visible again.
+
+Scoping: queries are constrained to the logged-in WHMCS client via active services and matching `comet_devices` rows (not username alone). Device display names come from `comet_devices.name`.
+
+Job identity: each running job uses composite id `server_id:job_id`, raw Comet device hash in `device`, and `device_name` for display.
+
+Limitations:
+- Running-job updates appear within ~10 seconds (accepted latency target).
+- Completed jobs on the timeline still come from the server-rendered `device.jobs` payload; the snapshot does not return `jobsRecent24h`.
+- Jobs manually cancelled in Comet without a websocket event may remain `Running` in `eb_jobs_live` until the stalled-job monitor clears them (up to ~1 hour without upload progress).
 
 **Nightly Rollups**
 
@@ -1183,60 +1214,57 @@ Notes:
 
 Overview
 
-- Show running jobs in near real-time on the Dashboard → Last 24 hours timeline as pulsing blue slivers; remove on completion; no reload required.
+- Show running jobs on the Dashboard → Last 24 hours timeline as pulsing blue slivers; remove on completion; no reload required.
 
 Files involved
 
 - UI (client):
   - `templates/clientarea/dashboard.tpl`
-    - Injects pulse endpoints via `{$modulelink}`.
+    - Injects `EB_PULSE_SNAPSHOT` via `{$modulelink}`.
     - Includes: `assets/js/pulse-events.js`, `assets/js/dashboard-timeline.js`.
-    - Timeline Alpine component subscribes to live updates and recomputes.
+    - Timeline Alpine component subscribes to live updates via `timelineVer` and recomputes.
 - Frontend scripts:
   - `assets/js/pulse-events.js`
-    - Connects to `?m=eazybackup&a=pulse-events` (SSE) and seeds from `?m=eazybackup&a=pulse-snapshot` (JSON).
-    - Emits `eb:pulse-snapshot` and `eb:pulse` browser events.
-    - Quick reconnect (1s) and 10s JSON polling fallback if SSE drops.
+    - Polls `?m=eazybackup&a=pulse-snapshot` immediately, then every 10s while the document is visible.
+    - Pauses when hidden; refreshes immediately on visible. Uses non-overlapping fetches and exponential backoff on errors without clearing good state.
+    - Emits `eb:pulse-snapshot` browser events.
   - `assets/js/dashboard-timeline.js`
-    - Keeps a running-jobs store keyed by `username + device_name`.
-    - On updates, dispatches `eb:timeline-changed` and bumps `Alpine.store('ebTimeline').ver`.
+    - Keeps a running-jobs store keyed by `username + device` (raw Comet hash).
+    - On snapshot updates, dispatches `eb:timeline-changed` so Alpine bumps `timelineVer`.
 
 Backend endpoints
 
-- Router (`eazybackup.php`): actions added:
-  - `a=pulse-events` → SSE stream (live running job deltas)
-  - `a=pulse-snapshot` → JSON one-shot
-  - `a=pulse-snooze` → optional incident snooze
+- Router (`eazybackup.php`):
+  - `a=pulse-snapshot` → JSON running-job snapshot
 - Controller (`pages/console/pulse.php`):
-  - `eb_pulse_events()`
-    - Scopes to the logged-in client’s active Comet usernames.
-    - Sends a `snapshot` then diffs `eb_jobs_live` every ~1s for ~30s, emitting `job:start` for new rows and `job:end` for disappeared rows (enriched from `eb_jobs_recent_24h` when possible).
-    - SSE headers: no cache, keep-alive, buffering disabled.
   - `eb_pulse_snapshot()`
-    - Returns `jobsRunning` from `eb_jobs_live` and `jobsRecent24h` from `eb_jobs_recent_24h`.
+    - Scopes `eb_jobs_live` through the logged-in client's active `comet_devices`/services.
+    - Returns `jobsRunning` with composite `server_id:job_id`, raw `device` hash, and `device_name` from `comet_devices`.
+    - Derives `Interrupted` when the matched device has been offline for at least `EB_INTERRUPTED_GRACE_SECS` (default 300s). Includes `status_reason=device_offline` and `offline_since` for debugging.
 
 Data sources
 
 - `eb_jobs_live` → running jobs (written by `bin/comet_ws_worker.php`, cleaned by `bin/monitor_stalled_jobs.php`).
-- `eb_jobs_recent_24h` → recent completed jobs.
-- `eb_devices_registry` → enrich device `friendly_name`.
+- `comet_devices` → device friendly names and client scoping.
+- `device.jobs` (server-rendered) → completed jobs for the rolling 24h timeline.
 
 Template behavior
 
-- `jobs24h()` merges completed jobs (`device.jobs`) with live running jobs from `__EB_TIMELINE.getFor(device.username, device.name)` and sorts by start time.
+- `jobsInLast24h(device)` merges completed jobs (`device.jobs`) with live running jobs from `__EB_TIMELINE.getFor(device.username, device.hash)`, dedupes by job id, and sorts by start time.
+- Sliver positions use a rolling 24-hour window (not time-of-day).
 - Running slivers: Tailwind `bg-blue-500 animate-pulse`.
-- Re-render triggers: `eb:timeline-changed` event and `Alpine.store('ebTimeline').ver`.
+- Interrupted slivers: amber (`EB.statusDot('Interrupted')`), non-pulsing.
+- Re-render triggers: `eb:timeline-changed` event bumps `timelineVer`.
 
 Expected latency
 
-- ~1–2 seconds from job start/end to timeline update when SSE is connected.
-- Fallback polling: ~10 seconds if SSE is unavailable.
+- ~10 seconds from job start/end to timeline update while the dashboard tab is visible.
 
 Troubleshooting
 
-- Ensure SSE isn’t buffered by reverse proxies (we send `X-Accel-Buffering: no`; disable compression for the route).
-- Verify the dashboard is visible so Alpine refreshes in view.
-- Network tab should show periodic `data:` SSE events every second.
+- Verify the dashboard tab is visible (polling pauses when hidden).
+- Network tab should show `pulse-snapshot` JSON requests about every 10 seconds.
+- If running slivers never appear, confirm `eb_jobs_live` rows match `comet_devices.hash` for the device and client.
 
 ## Developer Notes – Issues Summary Strip (Dashboard → Backup Status)
 
@@ -1247,9 +1275,9 @@ Overview
 
 UI + Interaction
 
-- Chips for: `Error`, `Missed`, `Warning`, `Timeout`, `Cancelled`, `Running`, `Skipped`, `Success`.
+- Chips for: `Error`, `Missed`, `Warning`, `Timeout`, `Cancelled`, `Interrupted`, `Running`, `Skipped`, `Success`.
 - Chips are multi-select (OR semantics). Clicking an active chip toggles it off.
-- “Issues only” toggle filters to: `Error`, `Missed`, `Warning`, `Timeout`, `Cancelled` (Skipped is excluded from issues-only semantics).
+- “Issues only” toggle filters to: `Error`, `Missed`, `Warning`, `Timeout`, `Cancelled`, `Interrupted` (Skipped is excluded from issues-only semantics).
 - “Clear” resets chip selections and issues-only mode.
 - Zero-count chips are muted/disabled and show a tooltip (“No devices currently in this state”).
 
@@ -1257,7 +1285,7 @@ Status semantics (Last 24 hours)
 
 - Each device is assigned a **single** status for counting/filtering: the **most recent** job event in the last 24 hours.
   - “Most recent” is chosen by `ended_at` when present, otherwise `started_at`.
-  - Running jobs are included live via the dashboard timeline store (`__EB_TIMELINE`) and count as `Running`.
+  - Running jobs are included live via the dashboard timeline store (`__EB_TIMELINE`) and count as `Running` or `Interrupted` when the device has been offline past the grace window.
 
 Counts behavior
 

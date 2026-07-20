@@ -48,6 +48,13 @@ class Comet {
             // Get a list of ALL device hashes that exist for this user on the Comet Server.
             $allUpstreamDeviceHashes = array_keys((array) $userProfile->Devices);
 
+            // Get existing rows so we can preserve offline_since across syncs.
+            $existingDevices = Capsule::table('comet_devices')
+                ->where('client_id', $clientId)
+                ->where('username', $canonicalUsername)
+                ->get()
+                ->keyBy('id');
+
             foreach ($userProfile->Devices as $deviceId => $device) {
                 // Determine the live Online/Offline status.
                 $isActive = in_array($deviceId, $activeDeviceIds);
@@ -65,14 +72,28 @@ class Comet {
                     $createdAt = date('Y-m-d H:i:s');
                 }
 
+                $deviceDbId = hash('sha256', $clientId . $deviceId);
+                $existing = $existingDevices[$deviceDbId] ?? null;
+                $wasActive = $existing ? (bool)$existing->is_active : false;
+                if ($isActive) {
+                    $offlineSince = null;
+                } elseif ($wasActive) {
+                    $offlineSince = date('Y-m-d H:i:s');
+                } elseif ($existing && !empty($existing->offline_since)) {
+                    $offlineSince = $existing->offline_since;
+                } else {
+                    $offlineSince = date('Y-m-d H:i:s');
+                }
+
                 $cometDevice = [
-                    'id' => hash('sha256', $clientId . $deviceId),
+                    'id' => $deviceDbId,
                     'client_id' => $clientId,
                     'username' => $canonicalUsername,
                     'hash' => $deviceId,
                     'content' => json_encode($device),
                     'name' => $device->FriendlyName,
                     'is_active' => $isActive ? 1 : 0,
+                    'offline_since' => $offlineSince,
                     'created_at' => $createdAt,
                     'revoked_at' => null // NEW: Ensure we are not un-revoking devices by re-syncing.
                 ];
@@ -93,7 +114,8 @@ class Comet {
                     ->whereNull('revoked_at')
                     ->update([
                         'is_active' => 0,
-                        'revoked_at' => date('Y-m-d H:i:s')
+                        'revoked_at' => date('Y-m-d H:i:s'),
+                        'offline_since' => Capsule::raw('COALESCE(offline_since, NOW())'),
                     ]);
             }
 
@@ -114,6 +136,7 @@ class Comet {
                 ->update([
                     'is_active' => 0,
                     'revoked_at' => date('Y-m-d H:i:s'),
+                    'offline_since' => Capsule::raw('COALESCE(offline_since, NOW())'),
                 ]);
 
         } catch (\Exception $e) {

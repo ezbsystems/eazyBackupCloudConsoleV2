@@ -67,7 +67,7 @@
 
   function setLegendCounts(status24h) {
     try {
-      var keys = ['success', 'error', 'warning', 'missed', 'running'];
+      var keys = ['success', 'error', 'warning', 'missed', 'running', 'interrupted'];
       keys.forEach(function (k) {
         var el = document.querySelector('[data-status-count="' + k + '"]');
         if (el) el.textContent = String(Number((status24h && status24h[k]) || 0));
@@ -82,7 +82,8 @@
       error: Number(c.Error || 0),
       warning: Number(c.Warning || 0),
       missed: Number(c.Missed || 0),
-      running: Number(c.Running || 0)
+      running: Number(c.Running || 0),
+      interrupted: Number(c.Interrupted || 0)
     };
   }
 
@@ -225,6 +226,7 @@
     var warning = Number((status24h && status24h.warning) || 0);
     var missed = Number((status24h && status24h.missed) || 0);
     var running = Number((status24h && status24h.running) || 0);
+    var interrupted = Number((status24h && status24h.interrupted) || 0);
 
     var columns = [];
     if (success > 0) columns.push(['Success', success]);
@@ -232,6 +234,7 @@
     if (warning > 0) columns.push(['Warning', warning]);
     if (missed > 0) columns.push(['Missed', missed]);
     if (running > 0) columns.push(['Running', running]);
+    if (interrupted > 0) columns.push(['Interrupted', interrupted]);
 
     if (columns.length === 0) {
       showMessage(el, 'No status data');
@@ -254,7 +257,8 @@
           Error: 'rgb(251, 44, 54)',
           Warning: 'rgb(254, 154, 0)',
           Missed: 'rgb(203, 213, 225)',
-          Running: 'rgb(0, 166, 244)'
+          Running: 'rgb(0, 166, 244)',
+          Interrupted: 'rgb(245, 158, 11)'
         },
         order: null
       },

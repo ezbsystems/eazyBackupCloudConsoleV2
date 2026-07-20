@@ -16,6 +16,7 @@ declare(strict_types=1);
  *   EB_MON_RECHECK_SECS=300          // do not recheck the same row too often
  *   EB_MON_MAX_ATTEMPTS=3            // max cancel/abandon attempts per job
  *   EB_MON_BATCH_LIMIT=200           // per profile per run
+ *   EB_OFFLINE_CLEANUP_SECS=3600     // offline device + stale Comet heartbeat => cleanup
  *
  * Comet Admin API creds (per profile):
  *   COMET_<profile>_API_BASE="https://csw.example.com/api/v1"
@@ -28,11 +29,15 @@ declare(strict_types=1);
  */
 
 require __DIR__ . '/bootstrap.php';
+require_once __DIR__ . '/../lib/LiveJobState.php';
+
+use WHMCS\Module\Addon\Eazybackup\LiveJobState;
 
 $STALE_SECS    = (int)(getenv('EB_MON_STALE_SECS')    ?: 3600);
 $RECHECK_SECS  = (int)(getenv('EB_MON_RECHECK_SECS')  ?: 300);
 $MAX_ATTEMPTS  = (int)(getenv('EB_MON_MAX_ATTEMPTS')  ?: 3);
 $BATCH_LIMIT   = (int)(getenv('EB_MON_BATCH_LIMIT')   ?: 200);
+$OFFLINE_CLEANUP_SECS = (int)(getenv('EB_OFFLINE_CLEANUP_SECS') ?: LiveJobState::offlineCleanupSecs());
 
 $pdo = db();
 
@@ -44,6 +49,7 @@ $cli = getopt('', [
     'recheck-secs::',    // override EB_MON_RECHECK_SECS
     'max-attempts::',    // override EB_MON_MAX_ATTEMPTS
     'limit::',           // override EB_MON_BATCH_LIMIT
+    'offline-cleanup-secs::', // override EB_OFFLINE_CLEANUP_SECS
     'verbose::',         // verbose: 0/1
 ]);
 
@@ -53,6 +59,7 @@ if (isset($cli['stale-secs']))   $STALE_SECS   = (int)$cli['stale-secs'];
 if (isset($cli['recheck-secs'])) $RECHECK_SECS = (int)$cli['recheck-secs'];
 if (isset($cli['max-attempts'])) $MAX_ATTEMPTS = (int)$cli['max-attempts'];
 if (isset($cli['limit']))        $BATCH_LIMIT  = (int)$cli['limit'];
+if (isset($cli['offline-cleanup-secs'])) $OFFLINE_CLEANUP_SECS = (int)$cli['offline-cleanup-secs'];
 $VERBOSE = isset($cli['verbose']) ? (int)$cli['verbose'] : (int)(getenv('EB_MON_VERBOSE') ?: 0);
 
 function isDryRun(): bool {
@@ -299,9 +306,26 @@ function mapStatusLabel(?int $code): string {
     };
 }
 
-/** Finalize a job into recent_24h and remove from live */
+/** Resolve a terminal Comet status code when the API did not provide one. */
+function terminalCometStatusCode(array $row): int {
+    $explicit = isset($row['comet_status']) ? (int)$row['comet_status'] : 0;
+    if ($explicit > 0 && !in_array($explicit, [6000, 6001, 6002], true)) {
+        return $explicit;
+    }
+
+    return match (strtolower((string)($row['status'] ?? 'error'))) {
+        'success' => 5000,
+        'warning' => 7001,
+        'missed'  => 7004,
+        'skipped' => 7006,
+        default   => 7002,
+    };
+}
+
+/** Finalize a job into recent_24h, synchronize comet_jobs, and remove from live. */
 function finalizeJob(PDO $pdo, array $row): void {
-    // $row keys: server_id, job_id, username, device, job_type, status, bytes, duration_sec, ended_at
+    // $row keys: server_id, job_id, username, device, job_type, status, bytes,
+    // duration_sec, ended_at, optional comet_status
     $pdo->beginTransaction();
     try {
         $del = $pdo->prepare("DELETE FROM eb_jobs_live WHERE server_id=? AND job_id=?");
@@ -333,6 +357,35 @@ function finalizeJob(PDO $pdo, array $row): void {
             ':ended_at'     => (int)($row['ended_at'] ?? time()),
         ]);
 
+        $endedAt = (int)($row['ended_at'] ?? time());
+        $bytes = (int)($row['bytes'] ?? 0);
+        $cometStatus = terminalCometStatusCode($row);
+        $mirror = $pdo->prepare("
+            UPDATE comet_jobs
+               SET status = :status_column,
+                   ended_at = :ended_column,
+                   last_status_at = :status_time,
+                   upload_bytes = GREATEST(COALESCE(upload_bytes, 0), :upload_column),
+                   content = JSON_SET(
+                       COALESCE(content, JSON_OBJECT()),
+                       '$.Status', CAST(:status_json AS UNSIGNED),
+                       '$.EndTime', CAST(:ended_json AS UNSIGNED),
+                       '$.UploadSize', CAST(:upload_json AS UNSIGNED)
+                   )
+             WHERE id = :job_id
+        ");
+        $endedSql = gmdate('Y-m-d H:i:s', $endedAt);
+        $mirror->execute([
+            ':status_column' => $cometStatus,
+            ':ended_column'  => $endedSql,
+            ':status_time'   => $endedSql,
+            ':upload_column' => $bytes,
+            ':status_json'   => $cometStatus,
+            ':ended_json'    => $endedAt,
+            ':upload_json'   => $bytes,
+            ':job_id'        => $row['job_id'],
+        ]);
+
         $pdo->commit();
     } catch (Throwable $e) {
         $pdo->rollBack();
@@ -340,8 +393,25 @@ function finalizeJob(PDO $pdo, array $row): void {
     }
 }
 
+/** Extract the newest Comet progress heartbeat timestamp from job properties */
+function progressHeartbeatTs(array $props): int {
+    return LiveJobState::progressHeartbeatTs($props);
+}
+
 /** Update progress markers in eb_jobs_live */
-function touchProgress(PDO $pdo, string $serverId, string $jobId, int $bytes): void {
+function touchProgress(PDO $pdo, string $serverId, string $jobId, int $bytes, ?int $activityTs = null): void {
+    if ($activityTs !== null && $activityTs > 0) {
+        $stmt = $pdo->prepare("
+            UPDATE eb_jobs_live
+               SET last_bytes = :b,
+                   last_bytes_ts = :ts,
+                   last_checked_ts = UNIX_TIMESTAMP()
+             WHERE server_id=:s AND job_id=:j
+        ");
+        $stmt->execute([':b'=>$bytes, ':ts'=>$activityTs, ':s'=>$serverId, ':j'=>$jobId]);
+        return;
+    }
+
     $stmt = $pdo->prepare("
         UPDATE eb_jobs_live
            SET last_bytes = :b,
@@ -399,6 +469,231 @@ function resetAttempts(PDO $pdo, string $serverId, string $jobId, int $recheckSe
 
 /** ---------- core logic ---------- */
 
+function processOfflineLiveJobs(
+    PDO $pdo,
+    string $profileName,
+    string $base,
+    array $auth,
+    int $OFFLINE_CLEANUP_SECS,
+    int $STALE_SECS,
+    int $RECHECK_SECS,
+    int $MAX_ATTEMPTS,
+    int $BATCH_LIMIT,
+    bool $DRY_RUN = false
+): int {
+    $sql = "
+      SELECT j.server_id, j.job_id, j.username, j.device, j.job_type, j.started_at,
+             COALESCE(j.last_bytes, 0) AS last_bytes,
+             COALESCE(j.last_bytes_ts, 0) AS last_bytes_ts,
+             j.last_update,
+             COALESCE(j.last_checked_ts, 0) AS last_checked_ts,
+             COALESCE(j.cancel_attempts, 0) AS cancel_attempts,
+             d.offline_since
+        FROM eb_jobs_live j
+        INNER JOIN comet_devices d
+          ON d.revoked_at IS NULL
+         AND BINARY d.username = BINARY j.username
+         AND (
+           BINARY d.hash = BINARY j.device
+           OR BINARY d.id = BINARY j.device
+           OR BINARY d.name = BINARY j.device
+         )
+       WHERE j.server_id = :server
+         AND j.job_type = 4001
+         AND d.is_active = 0
+         AND d.offline_since IS NOT NULL
+         AND (UNIX_TIMESTAMP() - UNIX_TIMESTAMP(d.offline_since)) >= :offline_secs
+         AND (UNIX_TIMESTAMP() - COALESCE(j.last_checked_ts, 0)) >= :recheck
+         AND COALESCE(j.cancel_attempts, 0) < :maxAttempts
+       ORDER BY j.last_checked_ts ASC
+       LIMIT :lim
+    ";
+    $sel = $pdo->prepare($sql);
+    $sel->bindValue(':server', $profileName, PDO::PARAM_STR);
+    $sel->bindValue(':offline_secs', $OFFLINE_CLEANUP_SECS, PDO::PARAM_INT);
+    $sel->bindValue(':recheck', $RECHECK_SECS, PDO::PARAM_INT);
+    $sel->bindValue(':maxAttempts', $MAX_ATTEMPTS, PDO::PARAM_INT);
+    $sel->bindValue(':lim', $BATCH_LIMIT, PDO::PARAM_INT);
+    $sel->execute();
+
+    $count = 0;
+    while ($r = $sel->fetch(PDO::FETCH_ASSOC)) {
+        $count++;
+        $jobId   = (string)$r['job_id'];
+        $user    = (string)$r['username'];
+        $device  = (string)$r['device'];
+        $started = (int)$r['started_at'];
+        $server  = (string)$r['server_id'];
+
+        try {
+            $props = api($base, '/admin/get-job-properties', $auth, [
+                'TargetUser' => $user,
+                'JobID'      => $jobId,
+            ]);
+
+            $endTime = (int)($props['EndTime'] ?? 0);
+            $statusN = isset($props['Status']) ? (int)$props['Status'] : null;
+            $label   = mapStatusLabel($statusN);
+            if ($endTime > 0 && $label === 'running') {
+                $label = 'finished';
+            }
+
+            if ($endTime > 0 || $label !== 'running') {
+                $bytes   = (int)($props['UploadSize'] ?? 0);
+                if ($bytes <= 0) { $bytes = getJobLogBytes($base, $auth, $user, $jobId); }
+                $endedAt = $endTime > 0 ? $endTime : time();
+                $dur     = max(0, $endedAt - $started);
+                $labelDb = normalizeStatusForDb($label);
+
+                if ($DRY_RUN) {
+                    echo json_encode([
+                        'profile' => $profileName,
+                        'job_id' => $jobId,
+                        'would_action' => 'offline_finalize',
+                        'status' => $labelDb,
+                    ], JSON_UNESCAPED_SLASHES) . PHP_EOL;
+                } else {
+                    finalizeJob($pdo, [
+                        'server_id'    => $server,
+                        'job_id'       => $jobId,
+                        'username'     => $user,
+                        'device'       => $device,
+                        'job_type'     => (string)$r['job_type'],
+                        'status'       => $labelDb,
+                        'bytes'        => $bytes,
+                        'duration_sec' => $dur,
+                        'ended_at'     => $endedAt,
+                        'comet_status' => $statusN,
+                    ]);
+                    logLine("[{$profileName}] offline finalize job={$jobId} status={$labelDb}");
+                }
+                continue;
+            }
+
+            if (hasFreshHeartbeat($props, $STALE_SECS)) {
+                if ($DRY_RUN) {
+                    echo json_encode([
+                        'profile' => $profileName,
+                        'job_id' => $jobId,
+                        'would_action' => 'offline_skip_fresh_heartbeat',
+                    ], JSON_UNESCAPED_SLASHES) . PHP_EOL;
+                } else {
+                    markChecked($pdo, $server, $jobId, $RECHECK_SECS);
+                }
+                continue;
+            }
+
+            $attempts = (int)($r['cancel_attempts'] ?? 0);
+            if ($attempts + 1 < 2) {
+                if ($DRY_RUN) {
+                    echo json_encode([
+                        'profile' => $profileName,
+                        'job_id' => $jobId,
+                        'would_action' => 'offline_strike',
+                        'strike' => $attempts + 1,
+                    ], JSON_UNESCAPED_SLASHES) . PHP_EOL;
+                } else {
+                    bumpAttempt($pdo, $server, $jobId);
+                }
+                continue;
+            }
+
+            $canId = (string)($props['CancellationID'] ?? '');
+            $didCancel = false;
+            if ($canId !== '') {
+                if (!$DRY_RUN) {
+                    try {
+                        api($base, '/admin/job/cancel', $auth, [
+                            'TargetUser' => $user,
+                            'JobID'      => $jobId,
+                        ]);
+                        $didCancel = true;
+                        logLine("[{$profileName}] offline cancel sent job={$jobId}");
+                    } catch (Throwable $e) {
+                        logLine("[{$profileName}] offline cancel failed job={$jobId} err=" . $e->getMessage());
+                    }
+                } else {
+                    echo json_encode([
+                        'profile' => $profileName,
+                        'job_id' => $jobId,
+                        'would_action' => 'offline_cancel',
+                    ], JSON_UNESCAPED_SLASHES) . PHP_EOL;
+                    continue;
+                }
+            }
+
+            if (!$didCancel) {
+                if ($DRY_RUN) {
+                    echo json_encode([
+                        'profile' => $profileName,
+                        'job_id' => $jobId,
+                        'would_action' => 'offline_abandon',
+                    ], JSON_UNESCAPED_SLASHES) . PHP_EOL;
+                    continue;
+                }
+                try {
+                    api($base, '/admin/job/abandon', $auth, [
+                        'TargetUser' => $user,
+                        'JobID'      => $jobId,
+                    ]);
+                    logLine("[{$profileName}] offline abandon sent job={$jobId}");
+                } catch (Throwable $e) {
+                    bumpAttempt($pdo, $server, $jobId);
+                    logLine("[{$profileName}] offline abandon failed job={$jobId} err=" . $e->getMessage());
+                    continue;
+                }
+            }
+
+            if (!$DRY_RUN) {
+                $props2 = api($base, '/admin/get-job-properties', $auth, [
+                    'TargetUser' => $user,
+                    'JobID'      => $jobId,
+                ]);
+                $endTime2 = (int)($props2['EndTime'] ?? 0);
+                $statusN2 = isset($props2['Status']) ? (int)$props2['Status'] : null;
+                $label2   = mapStatusLabel($statusN2);
+                if ($endTime2 > 0) {
+                    $label2 = ($label2 === 'running') ? 'finished' : $label2;
+                }
+                if ($endTime2 > 0 || $label2 !== 'running') {
+                    $bytes2 = (int)($props2['UploadSize'] ?? 0);
+                    if ($bytes2 <= 0) { $bytes2 = getJobLogBytes($base, $auth, $user, $jobId); }
+                    $ended  = $endTime2 > 0 ? $endTime2 : time();
+                    $dur2   = max(0, $ended - $started);
+                    if ($label2 === 'running') { $label2 = $didCancel ? 'cancelled' : 'abandoned'; }
+                    $label2Db = normalizeStatusForDb($label2);
+                    finalizeJob($pdo, [
+                        'server_id'    => $server,
+                        'job_id'       => $jobId,
+                        'username'     => $user,
+                        'device'       => $device,
+                        'job_type'     => (string)$r['job_type'],
+                        'status'       => $label2Db,
+                        'bytes'        => $bytes2,
+                        'duration_sec' => $dur2,
+                        'ended_at'     => $ended,
+                        'comet_status' => $statusN2,
+                    ]);
+                    logLine("[{$profileName}] offline finalize job={$jobId} status={$label2Db}");
+                } else {
+                    bumpAttempt($pdo, $server, $jobId);
+                    logLine("[{$profileName}] offline still-running post-cancel/abandon job={$jobId}, attempts+1");
+                }
+            }
+        } catch (Throwable $e) {
+            if (!$DRY_RUN) {
+                bumpAttempt($pdo, $server, $jobId);
+            }
+            logLine("[{$profileName}] offline error job={$jobId} " . $e->getMessage());
+        }
+    }
+
+    if ($count > 0) {
+        logLine("[{$profileName}] offline_cleanup scanned={$count}");
+    }
+    return $count;
+}
+
 function processProfile(
     PDO $pdo,
     string $profile,
@@ -406,7 +701,8 @@ function processProfile(
     int $RECHECK_SECS,
     int $MAX_ATTEMPTS,
     int $BATCH_LIMIT,
-    bool $DRY_RUN = false
+    bool $DRY_RUN = false,
+    int $OFFLINE_CLEANUP_SECS = 3600
 ): void {
     $profileName = $profile;
     $base = cometApiBase($profile);
@@ -451,17 +747,23 @@ function processProfile(
                 $bytes = getJobLogBytes($base, $auth, $bUser, $bJob);
             }
             if ($bytes > 0) {
+                $hbTs = progressHeartbeatTs($propsB);
+                $alive = hasFreshHeartbeat($propsB, $STALE_SECS);
                 if ($DRY_RUN) {
                     echo json_encode([
                         'profile'=>$profileName,
                         'job_id'=>$bJob,
                         'username'=>$bUser,
                         'would_action'=>'bootstrap_touch_progress',
-                        'upload_bytes'=>$bytes
+                        'upload_bytes'=>$bytes,
+                        'heartbeat_ts'=>$hbTs,
+                        'heartbeat_fresh'=>$alive,
                     ], JSON_UNESCAPED_SLASHES) . PHP_EOL;
                 } else {
-                    touchProgress($pdo, $profileName, $bJob, $bytes);
-                    resetAttempts($pdo, $profileName, $bJob);
+                    touchProgress($pdo, $profileName, $bJob, $bytes, $hbTs > 0 ? $hbTs : null);
+                    if ($alive) {
+                        resetAttempts($pdo, $profileName, $bJob);
+                    }
                 }
             } else if ($alive) {
                 if ($DRY_RUN) {
@@ -512,7 +814,7 @@ function processProfile(
         FROM eb_jobs_live
        WHERE server_id = :server
          AND job_type = 4001
-         AND (UNIX_TIMESTAMP() - GREATEST(NULLIF(last_bytes_ts,0), started_at, last_update)) >= :idle
+         AND (UNIX_TIMESTAMP() - GREATEST(COALESCE(NULLIF(last_bytes_ts,0),0), started_at, last_update)) >= :idle
          AND (UNIX_TIMESTAMP() - COALESCE(last_checked_ts,0)) >= :recheck
          AND COALESCE(cancel_attempts,0) < :maxAttempts
        ORDER BY last_checked_ts ASC
@@ -602,6 +904,7 @@ function processProfile(
                         'bytes'        => $bytes,
                         'duration_sec' => $dur,
                         'ended_at'     => $endedAt,
+                        'comet_status' => $statusN,
                     ]);
                     logLine("[{$profileName}] finalize by REST job={$jobId} status={$labelDb}");
                 }
@@ -616,15 +919,23 @@ function processProfile(
             }
             $alive = hasFreshHeartbeat($props, $RECHECK_SECS);
             if ($upload > (int)$r['last_bytes']) {
+                $hbTs = progressHeartbeatTs($props);
+                $fresh = hasFreshHeartbeat($props, $STALE_SECS);
                 if ($DRY_RUN) {
                     $printDry([
                         'would_action'   => 'touch_progress',
                         'upload_bytes'   => $upload,
+                        'heartbeat_ts'   => $hbTs,
+                        'heartbeat_fresh'=> $fresh,
                     ]);
                 } else {
-                    touchProgress($pdo, $server, $jobId, $upload);
-                    resetAttempts($pdo, $server, $jobId);
-                    logLine("[{$profileName}] progress job={$jobId} bytes={$upload}");
+                    touchProgress($pdo, $server, $jobId, $upload, $hbTs > 0 ? $hbTs : null);
+                    if ($fresh) {
+                        resetAttempts($pdo, $server, $jobId);
+                        logLine("[{$profileName}] progress job={$jobId} bytes={$upload}");
+                    } else {
+                        logLine("[{$profileName}] stale cumulative bytes job={$jobId} bytes={$upload} hb={$hbTs}");
+                    }
                 }
                 continue;
             }
@@ -739,6 +1050,7 @@ function processProfile(
                         'bytes'        => $bytes2,
                         'duration_sec' => $dur2,
                         'ended_at'     => $ended,
+                        'comet_status' => $statusN2,
                     ]);
                     logLine("[{$profileName}] finalize job={$jobId} status={$label2Db}");
                 } else {
@@ -775,6 +1087,7 @@ function processProfile(
                                     'bytes'        => $bytes3,
                                     'duration_sec' => $dur3,
                                     'ended_at'     => $ended3,
+                                    'comet_status' => $statusN3,
                                 ]);
                                 logLine("[{$profileName}] finalize after abandon job={$jobId} status={$label3Db}");
                                 return; // proceed next job
@@ -811,7 +1124,19 @@ function processProfile(
             'limit'           => $BATCH_LIMIT
         ], JSON_UNESCAPED_SLASHES) . PHP_EOL;
     }
-    
+
+    processOfflineLiveJobs(
+        $pdo,
+        $profileName,
+        $base,
+        $auth,
+        $OFFLINE_CLEANUP_SECS,
+        $STALE_SECS,
+        $RECHECK_SECS,
+        $MAX_ATTEMPTS,
+        $BATCH_LIMIT,
+        $DRY_RUN
+    );
 
     logLine("[{$profileName}] scanned={$count} done");
 }
@@ -866,7 +1191,8 @@ foreach ($profiles as $p) {
         $RECHECK_SECS,
         $MAX_ATTEMPTS,
         $BATCH_LIMIT,
-        isDryRun()
+        isDryRun(),
+        $OFFLINE_CLEANUP_SECS
     );
 }
 

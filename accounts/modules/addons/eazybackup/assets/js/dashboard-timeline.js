@@ -1,22 +1,34 @@
 (() => {
   'use strict';
 
-  // A lightweight global store for running jobs keyed by username + device friendly name
   const SEP = '||';
   const state = {
-    // key -> { jobs: Map<jobId, Job>, updatedAt: number }
     byKey: new Map(),
-    jobIndex: new Map() // jobId -> key
+    jobIndex: new Map()
   };
 
-  function keyOf(username, deviceName) {
-    return String(username||'') + SEP + String(deviceName||'');
+  function keyOf(username, deviceHash) {
+    return String(username || '') + SEP + String(deviceHash || '');
+  }
+
+  function compositeId(job) {
+    const serverId = String(job.server_id || '');
+    const jobId = String(job.job_id || job.id || '');
+    if (serverId && jobId && jobId.indexOf(':') === -1) {
+      return serverId + ':' + jobId;
+    }
+    return String(job.id || jobId || '');
   }
 
   function normalize(job) {
     job = job || {};
+    const server_id = String(job.server_id || '');
+    const job_id = String(job.job_id || job.JobID || '');
+    const id = compositeId({ server_id, job_id, id: job.id });
     return {
-      id: String(job.id || job.job_id || job.JobID || ''),
+      id,
+      job_id: job_id || id,
+      server_id,
       username: String(job.username || ''),
       device: String(job.device || ''),
       device_name: String(job.device_name || job.DeviceFriendlyName || job.deviceFriendlyName || job.Device || ''),
@@ -29,66 +41,42 @@
 
   function upsert(jobRaw) {
     const job = normalize(jobRaw);
-    const k = keyOf(job.username, job.device_name);
+    const k = keyOf(job.username, job.device);
     if (!state.byKey.has(k)) state.byKey.set(k, { jobs: new Map(), updatedAt: Date.now() });
     state.byKey.get(k).jobs.set(job.id, job);
     state.byKey.get(k).updatedAt = Date.now();
     state.jobIndex.set(job.id, k);
   }
 
-  function remove(jobRaw) {
-    const job = normalize(jobRaw);
-    const id = job.id;
-    const k = state.jobIndex.get(id);
-    if (!k) return;
-    const bucket = state.byKey.get(k);
-    if (!bucket) return;
-    bucket.jobs.delete(id);
-    bucket.updatedAt = Date.now();
-    state.jobIndex.delete(id);
-  }
-
   function resetFromSnapshot(jobsRunning) {
     state.byKey.clear();
     state.jobIndex.clear();
-    (jobsRunning||[]).forEach(upsert);
+    (jobsRunning || []).forEach(upsert);
   }
 
-  function listFor(username, deviceName) {
-    const k = keyOf(username, deviceName);
+  function listFor(username, deviceHash) {
+    const k = keyOf(username, deviceHash);
     const bucket = state.byKey.get(k);
-    if (!bucket) return [];
-    return Array.from(bucket.jobs.values());
+    const jobs = bucket ? Array.from(bucket.jobs.values()) : [];
+    return jobs;
   }
 
-  // Re-emit a UI event whenever our store changes
   function changed() {
     try {
-      const ev = new CustomEvent('eb:timeline-changed');
-      window.dispatchEvent(ev);
+      window.dispatchEvent(new CustomEvent('eb:timeline-changed'));
     } catch (_) {}
   }
-
-  // Wire to pulse events emitted by pulse-events.js
-  window.addEventListener('eb:pulse', (ev) => {
-    try {
-      const d = ev.detail || {}; const job = d.job || {};
-      if (d.kind === 'job:start') { upsert(job); changed(); }
-      else if (d.kind === 'job:end') { remove(job); changed(); }
-    } catch (_) {}
-  });
 
   window.addEventListener('eb:pulse-snapshot', (ev) => {
     try {
-      const d = ev.detail || {}; const running = d.jobsRunning || [];
-      resetFromSnapshot(running); changed();
+      const d = ev.detail || {};
+      resetFromSnapshot(d.jobsRunning || []);
+      changed();
     } catch (_) {}
   });
 
-  // Expose a tiny API
   window.__EB_TIMELINE = {
     getFor: listFor
   };
 })();
-
 

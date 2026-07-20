@@ -61,7 +61,7 @@ if ($liveStats['total'] > $JOBS_LIVE_MAX) {
     $issues[] = [
         'kind' => 'jobs-live-fleet',
         'profile' => 'fleet',
-        'fingerprint' => sha1('jobs-live-fleet|' . $liveStats['total'] . '|' . $JOBS_LIVE_MAX),
+        'fingerprint' => sha1('jobs-live-fleet|' . $JOBS_LIVE_MAX),
         'summary' => "eb_jobs_live fleet total {$liveStats['total']} exceeds threshold {$JOBS_LIVE_MAX}",
         'detail' => formatJobsLiveDetail($liveStats, $staleSecs),
     ];
@@ -75,7 +75,7 @@ foreach ($liveStats['by_server'] as $serverId => $row) {
     $issues[] = [
         'kind' => 'jobs-live-profile',
         'profile' => (string)$serverId,
-        'fingerprint' => sha1("jobs-live-profile|{$serverId}|{$cnt}|{$JOBS_LIVE_PROFILE_MAX}"),
+        'fingerprint' => sha1("jobs-live-profile|{$serverId}|{$JOBS_LIVE_PROFILE_MAX}"),
         'summary' => "eb_jobs_live for '{$serverId}' has {$cnt} rows (threshold {$JOBS_LIVE_PROFILE_MAX})",
         'detail' => formatJobsLiveDetail($liveStats, $staleSecs, (string)$serverId),
     ];
@@ -246,8 +246,8 @@ function formatJobsLiveDetail(array $stats, int $staleSecs, ?string $onlyServer 
     }
 
     $lines[] = '';
-    $lines[] = 'Stale rows usually mean the Comet websocket worker stopped removing completed jobs.';
-    $lines[] = 'Check: systemctl status eazybackup-comet-ws@<profile>.service';
+    $lines[] = 'Stale rows usually mean job completion events or stalled-job cleanup are not removing old live rows.';
+    $lines[] = 'Check websocket worker status and stalled-job monitor logs for the affected profile.';
 
     return implode("\n", $lines);
 }

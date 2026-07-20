@@ -1,6 +1,7 @@
 <?php
 
 use WHMCS\Database\Capsule;
+use WHMCS\Module\Addon\Eazybackup\LiveJobState;
 
 if (!defined('WHMCS')) { require_once __DIR__ . '/../../../../../init.php'; }
 
@@ -26,7 +27,7 @@ function eb_dashboard_usage_metrics() {
                 'status' => 'success',
                 'devices30d' => [],
                 'storage30d' => [],
-                'status24h' => ['success' => 0, 'error' => 0, 'warning' => 0, 'missed' => 0, 'running' => 0],
+                'status24h' => ['success' => 0, 'error' => 0, 'warning' => 0, 'missed' => 0, 'running' => 0, 'interrupted' => 0],
             ]);
             exit;
         }
@@ -44,7 +45,7 @@ function eb_dashboard_usage_metrics() {
                 'status' => 'success',
                 'devices30d' => [],
                 'storage30d' => [],
-                'status24h' => ['success' => 0, 'error' => 0, 'warning' => 0, 'missed' => 0, 'running' => 0],
+                'status24h' => ['success' => 0, 'error' => 0, 'warning' => 0, 'missed' => 0, 'running' => 0, 'interrupted' => 0],
             ]);
             exit;
         }
@@ -91,6 +92,7 @@ function eb_dashboard_usage_metrics() {
             'warning' => 0,
             'missed' => 0,
             'running' => 0,
+            'interrupted' => 0,
         ];
 
         $completedRows = Capsule::table('eb_jobs_recent_24h as j')
@@ -119,14 +121,10 @@ function eb_dashboard_usage_metrics() {
             }
         }
 
-        $status24h['running'] = (int) Capsule::table('eb_jobs_live as j')
-            ->where('j.started_at', '>=', $sinceTs)
-            ->whereExists(function ($q) use ($clientId, $activeUsernames) {
-                $q->select(Capsule::raw('1'))
-                    ->from('comet_devices as d')
-                    ->where('d.client_id', $clientId)
+        $liveRows = Capsule::table('eb_jobs_live as j')
+            ->leftJoin('comet_devices as d', function ($join) use ($clientId) {
+                $join->where('d.client_id', $clientId)
                     ->whereNull('d.revoked_at')
-                    ->whereIn('d.username', $activeUsernames)
                     ->whereRaw('BINARY d.username = BINARY j.username')
                     ->where(function ($match) {
                         $match->whereRaw('BINARY d.id = BINARY j.device')
@@ -134,7 +132,33 @@ function eb_dashboard_usage_metrics() {
                             ->orWhereRaw('BINARY d.name = BINARY j.device');
                     });
             })
-            ->count();
+            ->where('j.started_at', '>=', $sinceTs)
+            ->whereExists(function ($q) use ($clientId, $activeUsernames) {
+                $q->select(Capsule::raw('1'))
+                    ->from('comet_devices as d_scoped')
+                    ->where('d_scoped.client_id', $clientId)
+                    ->whereNull('d_scoped.revoked_at')
+                    ->whereIn('d_scoped.username', $activeUsernames)
+                    ->whereRaw('BINARY d_scoped.username = BINARY j.username')
+                    ->where(function ($match) {
+                        $match->whereRaw('BINARY d_scoped.id = BINARY j.device')
+                            ->orWhereRaw('BINARY d_scoped.hash = BINARY j.device')
+                            ->orWhereRaw('BINARY d_scoped.name = BINARY j.device');
+                    });
+            })
+            ->select('d.is_active', 'd.offline_since')
+            ->get();
+
+        $now = time();
+        foreach ($liveRows as $row) {
+            $deviceIsActive = ($row->is_active === null) ? null : ((int)$row->is_active === 1);
+            $derived = LiveJobState::deriveStatus($deviceIsActive, $row->offline_since ?? null, $now);
+            if ($derived['status'] === 'Interrupted') {
+                $status24h['interrupted']++;
+            } else {
+                $status24h['running']++;
+            }
+        }
 
         echo json_encode([
             'status' => 'success',

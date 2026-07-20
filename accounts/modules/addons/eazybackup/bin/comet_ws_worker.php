@@ -611,8 +611,10 @@ function upsertCometDevice(PDO $pdo, string $profile, string $username, string $
 
     $activeFlag = $isActive ? 1 : 0;
     try {
-        $sql = "INSERT INTO comet_devices (id, client_id, username, hash, content, name, platform_os, platform_arch, is_active, created_at, updated_at, revoked_at)
-                VALUES (:id, :client_id, :username, :hash, :content, :name, :os, :arch, :is_active, NOW(), NOW(), NULL)
+        $sql = "INSERT INTO comet_devices (id, client_id, username, hash, content, name, platform_os, platform_arch, is_active, offline_since, created_at, updated_at, revoked_at)
+                VALUES (:id, :client_id, :username, :hash, :content, :name, :os, :arch, :is_active,
+                        CASE WHEN :is_active = 1 THEN NULL ELSE NOW() END,
+                        NOW(), NOW(), NULL)
                 ON DUPLICATE KEY UPDATE
                   client_id=VALUES(client_id),
                   username=VALUES(username),
@@ -621,6 +623,12 @@ function upsertCometDevice(PDO $pdo, string $profile, string $username, string $
                   platform_os=VALUES(platform_os),
                   platform_arch=VALUES(platform_arch),
                   is_active=VALUES(is_active),
+                  offline_since = CASE
+                    WHEN VALUES(is_active) = 1 THEN NULL
+                    WHEN is_active = 1 AND VALUES(is_active) = 0 THEN NOW()
+                    WHEN offline_since IS NULL AND VALUES(is_active) = 0 THEN NOW()
+                    ELSE offline_since
+                  END,
                   updated_at=NOW(),
                   revoked_at=NULL";
         $stmt = $pdo->prepare($sql);
@@ -650,12 +658,12 @@ function revokeCometDevice(PDO $pdo, string $profile, string $username, string $
         if ($clientId !== null && $clientId > 0) {
             // Use computed ID matching lib/Comet.php: sha256(client_id + deviceHash)
             $deviceId = hash('sha256', (string)$clientId . $hash);
-            $stmt = $pdo->prepare("UPDATE comet_devices SET is_active=0, updated_at=NOW(), revoked_at=NOW(), username=COALESCE(username, :username) WHERE id=:id");
+            $stmt = $pdo->prepare("UPDATE comet_devices SET is_active=0, updated_at=NOW(), revoked_at=NOW(), offline_since=COALESCE(offline_since, NOW()), username=COALESCE(username, :username) WHERE id=:id");
             $stmt->execute([':id' => $deviceId, ':username' => $usernameCanonical]);
             if (EB_DB_DEBUG) logLine($profile, "DB revoke DEVICE ok id={$deviceId} hash={$hash} client_id={$clientId} rc=" . $stmt->rowCount());
         } else {
             // Fallback: revoke by hash (may affect multiple rows if same device used across clients)
-            $stmt = $pdo->prepare("UPDATE comet_devices SET is_active=0, updated_at=NOW(), revoked_at=NOW(), username=COALESCE(username, :username) WHERE hash=:hash");
+            $stmt = $pdo->prepare("UPDATE comet_devices SET is_active=0, updated_at=NOW(), revoked_at=NOW(), offline_since=COALESCE(offline_since, NOW()), username=COALESCE(username, :username) WHERE hash=:hash");
             $stmt->execute([':hash' => $hash, ':username' => $usernameCanonical]);
             if (EB_DB_DEBUG) logLine($profile, "DB revoke DEVICE (fallback by hash) hash={$hash} rc=" . $stmt->rowCount());
         }
@@ -1241,8 +1249,17 @@ function refreshDeviceOnlineStatus(PDO $pdo, string $profile): void {
             $shouldBeActive = isset($activeByUser[$deviceUsername][$deviceHash]) ? 1 : 0;
 
             if ($currentStatus !== $shouldBeActive) {
-                $updateStmt = $pdo->prepare("UPDATE comet_devices SET is_active = ?, updated_at = NOW() WHERE id = ?");
-                $updateStmt->execute([$shouldBeActive, $device['id']]);
+                $updateStmt = $pdo->prepare("UPDATE comet_devices
+                    SET is_active = :active,
+                        offline_since = CASE
+                            WHEN :active = 1 THEN NULL
+                            WHEN is_active = 1 AND :active = 0 THEN NOW()
+                            WHEN offline_since IS NULL AND :active = 0 THEN NOW()
+                            ELSE offline_since
+                        END,
+                        updated_at = NOW()
+                    WHERE id = :id");
+                $updateStmt->execute([':active' => $shouldBeActive, ':id' => $device['id']]);
                 $changedCount++;
             }
 
