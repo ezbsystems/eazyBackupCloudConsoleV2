@@ -2,6 +2,7 @@ package jobs
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -468,6 +469,9 @@ func (s *Scheduler) diskMonitor() {
 			if !s.diskCritical.Load() {
 				log.Printf("disk pressure: %d MiB free below flush mark %d MiB; flushing caches and pausing new child reservations",
 					free, flushMarkMiB)
+				// #region agent log
+				s.logDiskPressureDebug(free, flushMarkMiB)
+				// #endregion
 			}
 			s.diskCritical.Store(true)
 			s.gcOrphanedRuns()
@@ -480,6 +484,51 @@ func (s *Scheduler) diskMonitor() {
 		}
 	}
 }
+
+// #region agent log
+func (s *Scheduler) logDiskPressureDebug(freeMiB, flushMarkMiB int64) {
+	s.reserved.mu.Lock()
+	reservedDiskMiB := s.reserved.diskMiB
+	s.reserved.mu.Unlock()
+	s.batchMu.Lock()
+	activeBatchID := s.activeBatchID
+	s.batchMu.Unlock()
+	payload := map[string]any{
+		"sessionId":    "b853c7",
+		"runId":        "pre-fix",
+		"hypothesisId": "H1",
+		"location":     "internal/jobs/scheduler.go:diskMonitor",
+		"message":      "disk pressure threshold entered",
+		"data": map[string]any{
+			"free_mib":                  freeMiB,
+			"flush_mark_mib":            flushMarkMiB,
+			"disk_watermark_mib":        s.cfg.Worker.DiskWatermarkMiB,
+			"reserved_disk_mib":         reservedDiskMiB,
+			"disk_budget_mib":           s.cfg.Worker.DiskBudgetMiB,
+			"job_disk_budget_mib":       s.cfg.Worker.JobDiskBudgetMiB,
+			"heavy_job_disk_budget_mib": s.cfg.Worker.HeavyJobDiskBudgetMiB,
+			"max_concurrent_runs":       s.cfg.Worker.MaxConcurrentRuns,
+			"active_batch":              activeBatchID != "",
+		},
+		"timestamp": time.Now().UnixMilli(),
+	}
+	line, err := json.Marshal(payload)
+	if err != nil {
+		return
+	}
+	const path = "/var/www/eazybackup.ca/.cursor/debug-b853c7.log"
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return
+	}
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	_, _ = f.Write(append(line, '\n'))
+}
+
+// #endregion
 
 func (s *Scheduler) gcOrphanedRuns() {
 	entries, err := os.ReadDir(s.cfg.Worker.RunDir)

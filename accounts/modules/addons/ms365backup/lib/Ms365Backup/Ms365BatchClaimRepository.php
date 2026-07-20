@@ -460,6 +460,43 @@ final class Ms365BatchClaimRepository
             ->pluck('r.e3_batch_run_id')
             ->all();
 
+        // #region agent log
+        if ($batchRunIds !== []) {
+            $diagRows = Capsule::table('ms365_backup_runs as r')
+                ->join('ms365_job_queue as q', 'q.run_id', '=', 'r.id')
+                ->join('ms365_batch_claims as b', 'b.batch_run_id', '=', 'r.e3_batch_run_id')
+                ->whereIn('r.e3_batch_run_id', $batchRunIds)
+                ->where('r.status', 'queued')
+                ->where('q.status', 'queued')
+                ->groupBy('r.e3_batch_run_id', 'b.claimed_at', 'b.attempts', 'b.worker_node_id')
+                ->get([
+                    'r.e3_batch_run_id',
+                    'b.claimed_at',
+                    'b.attempts',
+                    'b.worker_node_id',
+                    Capsule::raw('COUNT(*) AS stranded_children'),
+                    Capsule::raw('MIN(q.scheduled_at) AS oldest_scheduled_at'),
+                    Capsule::raw('MAX(q.scheduled_at) AS newest_scheduled_at'),
+                ])
+                ->map(static fn ($row): array => (array) $row)
+                ->all();
+            $payload = [
+                'sessionId' => 'b853c7',
+                'runId' => 'pre-fix',
+                'hypothesisId' => 'H2',
+                'location' => 'Ms365BatchClaimRepository.php:reconcileStrandedBatchQueuedChildren',
+                'message' => 'stranded queued children triggered batch handoff',
+                'data' => ['now' => $now, 'cutoff' => $cutoff, 'batches' => $diagRows],
+                'timestamp' => (int) floor(microtime(true) * 1000),
+            ];
+            @file_put_contents(
+                '/var/www/eazybackup.ca/.cursor/debug-b853c7.log',
+                json_encode($payload, JSON_UNESCAPED_SLASHES) . PHP_EOL,
+                FILE_APPEND | LOCK_EX
+            );
+        }
+        // #endregion
+
         return self::handOffRunningBatchClaims($batchRunIds, 'Stranded queued batch children');
     }
 
