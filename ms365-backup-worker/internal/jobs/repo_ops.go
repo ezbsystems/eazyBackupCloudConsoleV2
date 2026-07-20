@@ -12,7 +12,7 @@ import (
 )
 
 func (s *Scheduler) tryRepoOperation(ctx context.Context) {
-	if s.draining {
+	if s.draining || !s.hasDiskSpace() || s.diskCritical.Load() {
 		return
 	}
 	op, err := s.client.ClaimRepoOperation(ctx)
@@ -100,6 +100,12 @@ func (s *Scheduler) executeRepoOperation(ctx context.Context, op *api.RepoOperat
 		}
 		return map[string]any{"mode": "quick"}, nil
 	case "maintenance_full":
+		indexCount := s.repoPool.IndexBlobCount(storage)
+		if indexCount < s.cfg.Kopia.IndexMaintenanceThreshold {
+			log.Printf("maintenance_full op=%d skipped: index_blobs=%d below threshold %d",
+				op.OperationID, indexCount, s.cfg.Kopia.IndexMaintenanceThreshold)
+			return map[string]any{"mode": "full", "skipped": true, "index_blobs": indexCount}, nil
+		}
 		if err := kopia.RunMaintenance(ctx, s.repoPool, storage, s.cfg.Kopia.MaxPackSizeMiB, false); err != nil {
 			return nil, err
 		}

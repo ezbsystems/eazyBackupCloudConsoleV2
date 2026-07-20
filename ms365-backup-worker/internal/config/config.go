@@ -60,6 +60,11 @@ type WorkerConfig struct {
 	// DiskFlushWatermarkMiB triggers mid-batch flush (GC run dirs + evict idle caches) when
 	// real free space drops below this threshold. Defaults to 2× disk_watermark_mib.
 	DiskFlushWatermarkMiB int `yaml:"disk_flush_watermark_mib"`
+	// UpdateReserveMiB is headroom reserved for binary update staging so cache-heavy
+	// backups cannot consume the space needed to deploy recovery code.
+	UpdateReserveMiB int `yaml:"update_reserve_mib"`
+	// DiskHysteresisMiB is extra free space required before resuming admissions after pressure.
+	DiskHysteresisMiB int `yaml:"disk_hysteresis_mib"`
 	// RunDirGCTTLSeconds is the grace period before an orphaned run directory (not in s.running)
 	// may be deleted by gcOrphanedRuns. Active runs are always protected.
 	RunDirGCTTLSeconds    int     `yaml:"run_dir_gc_ttl_seconds"`
@@ -86,8 +91,11 @@ type KopiaConfig struct {
 	ParallelUploads           int    `yaml:"parallel_uploads"`
 	Compressor                string `yaml:"compressor"`
 	MaxPackSizeMiB            int    `yaml:"max_pack_size_mib"`
-	ContentCacheSizeMiB       int    `yaml:"content_cache_size_mib"`
-	CheckpointIntervalMinutes int    `yaml:"checkpoint_interval_minutes"`
+	ContentCacheSizeMiB       int `yaml:"content_cache_size_mib"`
+	MetadataCacheSizeMiB      int `yaml:"metadata_cache_size_mib"`
+	MinIndexSweepAgeSeconds   int `yaml:"min_index_sweep_age_seconds"`
+	IndexMaintenanceThreshold int `yaml:"index_maintenance_threshold"`
+	CheckpointIntervalMinutes int `yaml:"checkpoint_interval_minutes"`
 	StallSeconds              int    `yaml:"stall_seconds"`
 	StallCheckIntervalSeconds int    `yaml:"stall_check_interval_seconds"`
 	StallGraceSeconds         int    `yaml:"stall_grace_seconds"`
@@ -174,6 +182,12 @@ func (c *Config) applyDefaults() {
 	if c.Worker.DiskFlushWatermarkMiB <= 0 {
 		c.Worker.DiskFlushWatermarkMiB = c.Worker.DiskWatermarkMiB * 2
 	}
+	if c.Worker.UpdateReserveMiB <= 0 {
+		c.Worker.UpdateReserveMiB = 256
+	}
+	if c.Worker.DiskHysteresisMiB <= 0 {
+		c.Worker.DiskHysteresisMiB = 512
+	}
 	if c.Worker.RunDirGCTTLSeconds <= 0 {
 		c.Worker.RunDirGCTTLSeconds = 3600
 	}
@@ -221,6 +235,18 @@ func (c *Config) applyDefaults() {
 	}
 	if c.Kopia.ContentCacheSizeMiB <= 0 {
 		c.Kopia.ContentCacheSizeMiB = 512
+	}
+	if c.Kopia.MetadataCacheSizeMiB <= 0 {
+		c.Kopia.MetadataCacheSizeMiB = c.Kopia.ContentCacheSizeMiB / 4
+		if c.Kopia.MetadataCacheSizeMiB < 64 {
+			c.Kopia.MetadataCacheSizeMiB = 64
+		}
+	}
+	if c.Kopia.MinIndexSweepAgeSeconds <= 0 {
+		c.Kopia.MinIndexSweepAgeSeconds = 3600
+	}
+	if c.Kopia.IndexMaintenanceThreshold <= 0 {
+		c.Kopia.IndexMaintenanceThreshold = 5000
 	}
 	if c.Kopia.CheckpointIntervalMinutes <= 0 {
 		c.Kopia.CheckpointIntervalMinutes = 15

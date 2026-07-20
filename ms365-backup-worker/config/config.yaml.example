@@ -26,6 +26,7 @@ worker:
   max_cpu_cores: 3
   disk_watermark_mib: 4096
   disk_flush_watermark_mib: 8192
+  update_reserve_mib: 256
   run_dir_gc_ttl_seconds: 3600
   job_ram_budget_mib: 512
   job_disk_budget_mib: 2048

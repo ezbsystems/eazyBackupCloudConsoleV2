@@ -113,6 +113,22 @@ func (p *Pool) cacheDir(storage StorageOptions) string {
 	return filepath.Join(p.cache.RepoConfigDir, "cache", storage.repoHash())
 }
 
+// IndexBlobCount returns the number of files in a repository's index cache directory.
+func (p *Pool) IndexBlobCount(storage StorageOptions) int {
+	indexDir := filepath.Join(p.cacheDir(storage), "indexes")
+	entries, err := os.ReadDir(indexDir)
+	if err != nil {
+		return 0
+	}
+	count := 0
+	for _, e := range entries {
+		if !e.IsDir() {
+			count++
+		}
+	}
+	return count
+}
+
 // EvictRepo closes and removes a pooled repository when it has no active references,
 // then deletes its on-disk content cache directory. Tiny repos/{hash}.config files are kept.
 func (p *Pool) EvictRepo(ctx context.Context, storage StorageOptions) {
@@ -161,10 +177,20 @@ func (p *Pool) EvictIdle(ctx context.Context) {
 	}
 }
 
-// Drain closes all pooled repositories (e.g. before worker update).
+// Drain closes all pooled repositories and deletes their on-disk cache directories.
 func (p *Pool) Drain(ctx context.Context) {
+	p.DrainAndPurgeCaches(ctx)
+}
+
+// DrainAndPurgeCaches closes all pooled repositories and removes cache directories.
+func (p *Pool) DrainAndPurgeCaches(ctx context.Context) {
 	p.mu.Lock()
-	entries := p.repos
+	entries := make([]*poolEntry, 0, len(p.repos))
+	for _, entry := range p.repos {
+		if entry != nil {
+			entries = append(entries, entry)
+		}
+	}
 	p.repos = make(map[string]*poolEntry)
 	p.mu.Unlock()
 
@@ -172,7 +198,45 @@ func (p *Pool) Drain(ctx context.Context) {
 		if entry != nil && entry.rep != nil {
 			_ = entry.rep.Close(ctx)
 		}
+		if entry != nil && entry.cacheDir != "" {
+			_ = os.RemoveAll(entry.cacheDir)
+		}
 	}
+}
+
+// ActiveRefs returns the total number of active repository references.
+func (p *Pool) ActiveRefs() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	total := 0
+	for _, entry := range p.repos {
+		if entry != nil {
+			total += entry.refs
+		}
+	}
+	return total
+}
+
+// CacheBreakdownMiB scans cache subdirectories and returns per-category usage.
+func (p *Pool) CacheBreakdownMiB() (CacheBreakdown, int64) {
+	cacheRoot := filepath.Join(p.cache.RepoConfigDir, "cache")
+	var breakdown CacheBreakdown
+	entries, err := os.ReadDir(cacheRoot)
+	if err != nil {
+		return breakdown, 0
+	}
+	for _, repoDir := range entries {
+		if !repoDir.IsDir() {
+			continue
+		}
+		base := filepath.Join(cacheRoot, repoDir.Name())
+		breakdown.ContentsMiB += DirSizeMiB(filepath.Join(base, "contents"))
+		breakdown.MetadataMiB += DirSizeMiB(filepath.Join(base, "metadata"))
+		breakdown.IndexesMiB += DirSizeMiB(filepath.Join(base, "indexes"))
+		breakdown.OwnWritesMiB += DirSizeMiB(filepath.Join(base, "own-writes"))
+	}
+	total := breakdown.ContentsMiB + breakdown.MetadataMiB + breakdown.IndexesMiB + breakdown.OwnWritesMiB
+	return breakdown, total
 }
 
 // PriorSnapshotRoot loads a snapshot root via the warm pool.

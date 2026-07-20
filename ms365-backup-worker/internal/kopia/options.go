@@ -27,8 +27,18 @@ type StorageOptions struct {
 
 // RepoCacheSettings configures persistent per-repo Kopia config and on-disk caches.
 type RepoCacheSettings struct {
-	RepoConfigDir       string
-	ContentCacheSizeMiB int
+	RepoConfigDir           string
+	ContentCacheSizeMiB     int
+	MetadataCacheSizeMiB    int
+	MinIndexSweepAgeSeconds int
+}
+
+// CacheBreakdown reports on-disk cache usage by subdirectory.
+type CacheBreakdown struct {
+	ContentsMiB  int64
+	MetadataMiB  int64
+	IndexesMiB   int64
+	OwnWritesMiB int64
 }
 
 // RepoIdentity returns a stable key for a tenant Kopia repository (bucket + prefix).
@@ -56,14 +66,24 @@ func (s RepoCacheSettings) cachingOptions(storage StorageOptions) *content.Cachi
 	if contentBytes <= 0 {
 		contentBytes = 512 << 20
 	}
-	metadataBytes := contentBytes / 4
-	if metadataBytes < 64<<20 {
-		metadataBytes = 64 << 20
+	metadataBytes := int64(s.MetadataCacheSizeMiB) << 20
+	if metadataBytes <= 0 {
+		metadataBytes = contentBytes / 4
+		if metadataBytes < 64<<20 {
+			metadataBytes = 64 << 20
+		}
+	}
+	minIndexSweep := content.DurationSeconds(s.MinIndexSweepAgeSeconds)
+	if minIndexSweep <= 0 {
+		minIndexSweep = content.DurationSeconds(3600)
 	}
 	return &content.CachingOptions{
 		CacheDirectory:            cacheDir,
 		MaxCacheSizeBytes:         contentBytes,
 		MaxMetadataCacheSizeBytes: metadataBytes,
+		MinIndexSweepAge:          minIndexSweep,
+		MinContentSweepAge:        content.DurationSeconds(3600),
+		MinMetadataSweepAge:       content.DurationSeconds(3600),
 	}
 }
 
@@ -101,4 +121,17 @@ func (o StorageOptions) Storage(ctx context.Context) (blob.Storage, error) {
 
 func EnsureRunDir(runDir string) error {
 	return os.MkdirAll(filepath.Join(runDir, "kopia"), 0o755)
+}
+
+// DirSizeMiB returns the total size of a directory tree in MiB.
+func DirSizeMiB(path string) int64 {
+	var total int64
+	_ = filepath.Walk(path, func(_ string, info os.FileInfo, err error) error {
+		if err != nil || info == nil || info.IsDir() {
+			return nil
+		}
+		total += info.Size()
+		return nil
+	})
+	return total >> 20
 }

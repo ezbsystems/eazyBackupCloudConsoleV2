@@ -2,14 +2,22 @@
 
 **Purpose:** Single handoff document so the next agent knows where work stopped. Update this file at the **end of every session** (or after each meaningful milestone).
 
-**Last updated:** 2026-07-19  
+**Last updated:** 2026-07-20  
 **Module version (ms365backup):** 1.52.9  
 **Cloudstorage (e3) version:** 2.2.0  
-**Worker version (ms365-backup-worker):** 0.3.79 (debug instrumentation cleanup; DetectOnly retained)
+**Worker version (ms365-backup-worker):** 0.3.81 (disk/cache safety; Kopia upgrade deferred)
 
 ---
 
 ## Session log
+
+### 2026-07-20 — Worker disk pressure and Kopia cache safety (0.3.81)
+
+- **Problem:** Production ENOSPC traced to `kopia/cache/.../indexes` growth (~49 GiB), not the 512 MiB contents cache. Prior disk flush resumed admissions when free space briefly crossed flush mark while reservations remained; deploy drain released claims before runners finished (409/lease-loss ordering).
+- **Go 0.3.81:** Unified headroom = `disk_watermark + active_reserved + update_reserve + candidate`; soft pressure pauses admissions with hysteresis; ordered cooperative drain (checkpoint → cancel → wait → evict → release); `activeJobs` protected in pressure GC; update staging headroom (`update_reserve_mib`, `artifact_size_bytes`); cache telemetry (contents/metadata/indexes/own-writes); `Pool.Drain` purges cache dirs; index maintenance gated by `index_maintenance_threshold`; reconciled Kopia cache settings on repo open.
+- **PHP:** Deploy offer includes `artifact_size_bytes`; removed session `b853c7` diagnostics from `Ms365BatchClaimRepository`.
+- **Deferred:** Kopia v0.9.8 → v0.23.1 upgrade is a separate canary release after safeguards are production-proven.
+- **Tests:** `scheduler_disk_test.go`, `updater_test.go`, `deploy_artifact_size_test.php`; full `go test ./...`.
 
 ### 2026-07-19 — Debug instrumentation cleanup
 

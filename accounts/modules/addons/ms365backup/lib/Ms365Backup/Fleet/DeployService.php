@@ -154,6 +154,7 @@ final class DeployService
             'sha256' => (string) $release['sha256'],
             'download_url' => ArtifactService::downloadUrl($releaseId, $nodeId),
             'release_id' => $releaseId,
+            'artifact_size_bytes' => (int) ($release['artifact_size'] ?? 0),
         ];
         // Rolling deploys hand off active jobs one node at a time. Force deploys
         // (checkbox or strategy=force) must not drain — workers apply in place.

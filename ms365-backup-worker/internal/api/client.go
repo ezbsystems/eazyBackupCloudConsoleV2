@@ -251,11 +251,13 @@ type FailUpdate struct {
 }
 
 type UpdateOffer struct {
-	Version     string `json:"version"`
-	Sha256      string `json:"sha256"`
-	DownloadURL string `json:"download_url"`
-	ReleaseID   int    `json:"release_id"`
-	Drain       bool   `json:"drain"`
+	Version            string `json:"version"`
+	Sha256             string `json:"sha256"`
+	DownloadURL        string `json:"download_url"`
+	ReleaseID          int    `json:"release_id"`
+	Drain              bool   `json:"drain"`
+	ArtifactSizeBytes  int64  `json:"artifact_size_bytes"`
+	UpdateReserveMiB   int64  `json:"update_reserve_mib,omitempty"`
 }
 
 type ConfigOffer struct {

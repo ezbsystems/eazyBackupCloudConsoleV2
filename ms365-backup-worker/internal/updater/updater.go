@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/eazybackup/ms365-backup-worker/internal/api"
@@ -19,12 +20,15 @@ const (
 	defaultInstallPath    = "/var/lib/ms365-backup-worker/bin/ms365-backup-worker"
 	installPathEnv        = "MS365_WORKER_INSTALL_PATH"
 	stagingFileName       = "ms365-backup-worker.new"
+	defaultUpdateReserveMiB = 256
 )
 
 type Offer struct {
-	Version     string
-	Sha256      string
-	DownloadURL string
+	Version            string
+	Sha256             string
+	DownloadURL        string
+	ArtifactSizeBytes  int64
+	UpdateReserveMiB   int64
 }
 
 // ResolveInstallPath returns the canonical binary path (does not require it to be writable).
@@ -99,6 +103,34 @@ func stagingPathForInstall(canonicalPath string) (string, error) {
 	return "", fmt.Errorf("no writable staging directory for update (tried %v)", stagingDirs(canonicalPath))
 }
 
+func stagingFreeBytes(stagingPath string) (int64, error) {
+	var st syscall.Statfs_t
+	if err := syscall.Statfs(filepath.Dir(stagingPath), &st); err != nil {
+		return 0, err
+	}
+	return int64(st.Bavail) * int64(st.Bsize), nil
+}
+
+func requiredStagingBytes(offer Offer) int64 {
+	reserve := offer.UpdateReserveMiB
+	if reserve <= 0 {
+		reserve = defaultUpdateReserveMiB
+	}
+	return offer.ArtifactSizeBytes + (reserve << 20)
+}
+
+func checkStagingHeadroom(stagingPath string, offer Offer) error {
+	free, err := stagingFreeBytes(stagingPath)
+	if err != nil {
+		return fmt.Errorf("stat staging filesystem: %w", err)
+	}
+	required := requiredStagingBytes(offer)
+	if free < required {
+		return fmt.Errorf("insufficient staging headroom: need %d bytes, have %d free", required, free)
+	}
+	return nil
+}
+
 func Apply(token string, offer Offer, installPath string) error {
 	if offer.DownloadURL == "" || offer.Sha256 == "" {
 		return fmt.Errorf("incomplete update offer")
@@ -106,6 +138,10 @@ func Apply(token string, offer Offer, installPath string) error {
 	canonical := ResolveInstallPath(installPath)
 	stagingPath, err := stagingPathForInstall(canonical)
 	if err != nil {
+		return err
+	}
+	if err := checkStagingHeadroom(stagingPath, offer); err != nil {
+		_ = os.Remove(stagingPath)
 		return err
 	}
 
@@ -118,16 +154,19 @@ func Apply(token string, offer Offer, installPath string) error {
 	client := &http.Client{Timeout: 10 * time.Minute}
 	resp, err := client.Do(req)
 	if err != nil {
+		_ = os.Remove(stagingPath)
 		return err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 400 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		_ = os.Remove(stagingPath)
 		return fmt.Errorf("artifact download http %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 
 	sum, err := writeStagingArtifact(stagingPath, resp.Body)
 	if err != nil {
+		_ = os.Remove(stagingPath)
 		return err
 	}
 	if !strings.EqualFold(sum, offer.Sha256) {
@@ -201,14 +240,20 @@ func RestartSelf(installPath string) error {
 	return syscallExec(exe, args, env)
 }
 
-func OfferFromAPI(u *api.UpdateOffer) Offer {
+func OfferFromAPI(u *api.UpdateOffer, updateReserveMiB int) Offer {
 	if u == nil {
 		return Offer{}
 	}
+	reserve := u.UpdateReserveMiB
+	if reserve <= 0 {
+		reserve = int64(updateReserveMiB)
+	}
 	return Offer{
-		Version:     u.Version,
-		Sha256:      u.Sha256,
-		DownloadURL: u.DownloadURL,
+		Version:           u.Version,
+		Sha256:            u.Sha256,
+		DownloadURL:       u.DownloadURL,
+		ArtifactSizeBytes: u.ArtifactSizeBytes,
+		UpdateReserveMiB:  reserve,
 	}
 }
 

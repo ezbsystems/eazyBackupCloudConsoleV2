@@ -78,7 +78,24 @@ func openRepository(ctx context.Context, opts openRepoOptions) (repo.Repository,
 			return nil, fmt.Errorf("open repo: %w", err)
 		}
 	}
+	if err := reconcileCacheSettings(ctx, rep, caching); err != nil {
+		_ = rep.Close(ctx)
+		return nil, err
+	}
 	return rep, nil
+}
+
+func reconcileCacheSettings(ctx context.Context, rep repo.Repository, caching *content.CachingOptions) error {
+	if rep == nil || caching == nil {
+		return nil
+	}
+	bm, ok := rep.(interface {
+		SetCachingOptions(ctx context.Context, opts *content.CachingOptions) error
+	})
+	if !ok {
+		return nil
+	}
+	return bm.SetCachingOptions(ctx, caching)
 }
 
 func connectOptions(caching *content.CachingOptions) *repo.ConnectOptions {

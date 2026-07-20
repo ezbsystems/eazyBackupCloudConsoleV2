@@ -2,7 +2,6 @@ package jobs
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -56,6 +55,15 @@ type Scheduler struct {
 	batchRunner          *BatchRunner
 	completionOutbox     *CompletionOutbox
 	diskCritical         atomic.Bool
+	freeMiBFn            func() int64
+	cachePressureMiB     atomic.Int64
+	lastCacheTelemetry   time.Time
+	testHooks            *schedulerTestHooks
+	lastDrainSteps       []drainStep
+}
+
+type schedulerTestHooks struct {
+	onReleaseClaims func()
 }
 
 type resourceBudget struct {
@@ -67,8 +75,10 @@ type resourceBudget struct {
 
 func NewScheduler(cfg *config.Config, client *api.Client, configPath string) *Scheduler {
 	repoPool := kopia.NewPool(kopia.RepoCacheSettings{
-		RepoConfigDir:       cfg.Kopia.RepoConfigDir,
-		ContentCacheSizeMiB: cfg.Kopia.ContentCacheSizeMiB,
+		RepoConfigDir:           cfg.Kopia.RepoConfigDir,
+		ContentCacheSizeMiB:     cfg.Kopia.ContentCacheSizeMiB,
+		MetadataCacheSizeMiB:    cfg.Kopia.MetadataCacheSizeMiB,
+		MinIndexSweepAgeSeconds: cfg.Kopia.MinIndexSweepAgeSeconds,
 	})
 	graph.SetGlobalConcurrency(cfg.Graph.GlobalMaxConcurrency)
 	s := &Scheduler{
@@ -162,8 +172,7 @@ func (s *Scheduler) heartbeat(ctx context.Context) {
 	if standaloneDrain && !awaitingDeploy && !awaitingConfig {
 		s.draining = true
 		if load > 0 {
-			s.repoPool.Drain(ctx)
-			s.releaseAllActiveClaims(ctx, "drain")
+			s.cooperativeDrain(ctx, "drain", nil)
 		}
 		return
 	}
@@ -235,8 +244,7 @@ func (s *Scheduler) applyBinaryUpdate(ctx context.Context, load int) {
 	if load > 0 {
 		if s.pendingUpdate != nil && s.pendingUpdate.Drain {
 			log.Printf("update %s available; hand-off %d run(s) before apply", s.pendingUpdateVersion(), load)
-			s.repoPool.Drain(ctx)
-			s.releaseAllActiveClaims(ctx, "drain")
+			s.cooperativeDrain(ctx, "drain", nil)
 			return
 		}
 		if !forceApply {
@@ -248,14 +256,13 @@ func (s *Scheduler) applyBinaryUpdate(ctx context.Context, load int) {
 	if s.pendingUpdate == nil {
 		return
 	}
-	s.repoPool.Drain(ctx)
-	s.releaseAllActiveClaims(ctx, "")
+	s.cooperativeDrain(ctx, "", nil)
 	load = s.currentLoad()
 	if load > 0 && !forceApply {
 		return
 	}
 	log.Printf("applying update to version %s", s.pendingUpdate.Version)
-	if err := updater.Apply(s.client.Token(), updater.OfferFromAPI(s.pendingUpdate), s.cfg.Worker.InstallPath); err != nil {
+	if err := updater.Apply(s.client.Token(), updater.OfferFromAPI(s.pendingUpdate, s.cfg.Worker.UpdateReserveMiB), s.cfg.Worker.InstallPath); err != nil {
 		log.Printf("update failed: %v", err)
 		s.deployError = err.Error()
 		_, _ = s.client.Heartbeat(ctx, s.heartbeatParams(0, 0))
@@ -273,12 +280,10 @@ func (s *Scheduler) applyConfigUpdate(ctx context.Context, load int) {
 	s.draining = true
 	if load > 0 {
 		log.Printf("config v%d available; hand-off %d run(s) before apply", offer.Version, load)
-		s.repoPool.Drain(ctx)
-		s.releaseAllActiveClaims(ctx, "drain")
+		s.cooperativeDrain(ctx, "drain", nil)
 		return
 	}
-	s.repoPool.Drain(ctx)
-	s.releaseAllActiveClaims(ctx, "")
+	s.cooperativeDrain(ctx, "", nil)
 	load = s.currentLoad()
 	if load > 0 {
 		return
@@ -322,6 +327,7 @@ func (s *Scheduler) pendingUpdateVersion() string {
 }
 
 func (s *Scheduler) poll(ctx context.Context) {
+	s.evaluateDiskPressure(ctx)
 	if !s.hasDiskSpace() {
 		log.Printf("skipping claim: RunDir free space below watermark")
 		return
@@ -431,6 +437,32 @@ func (s *Scheduler) hasDiskSpace() bool {
 	return s.hasRealHeadroom(0)
 }
 
+func (s *Scheduler) measureFreeMiB() int64 {
+	if s.freeMiBFn != nil {
+		return s.freeMiBFn()
+	}
+	return s.realFreeMiB()
+}
+
+func (s *Scheduler) activeReservedDiskMiB() int64 {
+	s.reserved.mu.Lock()
+	defer s.reserved.mu.Unlock()
+	return int64(s.reserved.diskMiB)
+}
+
+func (s *Scheduler) headroomInput(candidateDiskMiB int) diskHeadroomInput {
+	return diskHeadroomInput{
+		freeMiB:            s.measureFreeMiB(),
+		watermarkMiB:       int64(s.cfg.Worker.DiskWatermarkMiB),
+		flushMarkMiB:       int64(s.cfg.Worker.DiskFlushWatermarkMiB),
+		reservedDiskMiB:    s.activeReservedDiskMiB(),
+		updateReserveMiB:   int64(s.cfg.Worker.UpdateReserveMiB),
+		candidateDiskMiB:   int64(candidateDiskMiB),
+		hysteresisMiB:      int64(s.cfg.Worker.DiskHysteresisMiB),
+		cachePressureMiB:   s.cachePressureMiB.Load(),
+	}
+}
+
 func (s *Scheduler) realFreeMiB() int64 {
 	var st syscall.Statfs_t
 	if err := syscall.Statfs(s.cfg.Worker.RunDir, &st); err != nil {
@@ -440,12 +472,10 @@ func (s *Scheduler) realFreeMiB() int64 {
 }
 
 func (s *Scheduler) hasRealHeadroom(jobDiskMiB int) bool {
-	free := s.realFreeMiB()
-	if free >= 1<<29 {
-		return true
+	if s.diskCritical.Load() {
+		return false
 	}
-	watermark := int64(s.cfg.Worker.DiskWatermarkMiB)
-	return free >= watermark+int64(jobDiskMiB)
+	return s.headroomInput(jobDiskMiB).hasHeadroom()
 }
 
 func (s *Scheduler) periodicGC() {
@@ -459,76 +489,61 @@ func (s *Scheduler) periodicGC() {
 func (s *Scheduler) diskMonitor() {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
-	flushMarkMiB := int64(s.cfg.Worker.DiskFlushWatermarkMiB)
 	for range ticker.C {
-		free := s.realFreeMiB()
-		if free >= 1<<29 {
-			continue
-		}
-		if free < flushMarkMiB {
-			if !s.diskCritical.Load() {
-				log.Printf("disk pressure: %d MiB free below flush mark %d MiB; flushing caches and pausing new child reservations",
-					free, flushMarkMiB)
-				// #region agent log
-				s.logDiskPressureDebug(free, flushMarkMiB)
-				// #endregion
-			}
-			s.diskCritical.Store(true)
-			s.gcOrphanedRuns()
-			evictCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-			s.repoPool.EvictIdle(evictCtx)
-			cancel()
-		} else if s.diskCritical.Load() {
-			log.Printf("disk recovered: %d MiB free above flush mark %d MiB; resuming child reservations", free, flushMarkMiB)
-			s.diskCritical.Store(false)
-		}
+		s.evaluateDiskPressure(context.Background())
 	}
 }
 
-// #region agent log
-func (s *Scheduler) logDiskPressureDebug(freeMiB, flushMarkMiB int64) {
-	s.reserved.mu.Lock()
-	reservedDiskMiB := s.reserved.diskMiB
-	s.reserved.mu.Unlock()
-	s.batchMu.Lock()
-	activeBatchID := s.activeBatchID
-	s.batchMu.Unlock()
-	payload := map[string]any{
-		"sessionId":    "b853c7",
-		"runId":        "pre-fix",
-		"hypothesisId": "H1",
-		"location":     "internal/jobs/scheduler.go:diskMonitor",
-		"message":      "disk pressure threshold entered",
-		"data": map[string]any{
-			"free_mib":                  freeMiB,
-			"flush_mark_mib":            flushMarkMiB,
-			"disk_watermark_mib":        s.cfg.Worker.DiskWatermarkMiB,
-			"reserved_disk_mib":         reservedDiskMiB,
-			"disk_budget_mib":           s.cfg.Worker.DiskBudgetMiB,
-			"job_disk_budget_mib":       s.cfg.Worker.JobDiskBudgetMiB,
-			"heavy_job_disk_budget_mib": s.cfg.Worker.HeavyJobDiskBudgetMiB,
-			"max_concurrent_runs":       s.cfg.Worker.MaxConcurrentRuns,
-			"active_batch":              activeBatchID != "",
-		},
-		"timestamp": time.Now().UnixMilli(),
-	}
-	line, err := json.Marshal(payload)
-	if err != nil {
+func (s *Scheduler) evaluateDiskPressure(ctx context.Context) {
+	in := s.headroomInput(0)
+	s.maybeLogCacheTelemetry(in)
+
+	if in.hardPressure() {
+		if !s.diskCritical.Load() {
+			log.Printf("disk hard pressure: %d MiB free below watermark %d MiB; cooperative drain",
+				in.freeMiB, in.watermarkMiB)
+		}
+		s.diskCritical.Store(true)
+		s.cooperativeDrain(ctx, "", nil)
+		s.gcOrphanedRuns()
+		evictCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+		s.repoPool.EvictIdle(evictCtx)
+		cancel()
 		return
 	}
-	const path = "/var/www/eazybackup.ca/.cursor/debug-b853c7.log"
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+
+	if in.softPressure() {
+		if !s.diskCritical.Load() {
+			log.Printf("disk soft pressure: %d MiB free below threshold %d MiB; pausing admissions and evicting idle caches",
+				in.freeMiB, in.softThresholdMiB())
+		}
+		s.diskCritical.Store(true)
+		s.gcOrphanedRuns()
+		evictCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+		s.repoPool.EvictIdle(evictCtx)
+		cancel()
 		return
 	}
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-	if err != nil {
-		return
+
+	if s.diskCritical.Load() && in.canResumeFromPressure() {
+		log.Printf("disk recovered: %d MiB free above resume threshold; resuming admissions", in.freeMiB)
+		s.diskCritical.Store(false)
 	}
-	defer f.Close()
-	_, _ = f.Write(append(line, '\n'))
 }
 
-// #endregion
+func (s *Scheduler) maybeLogCacheTelemetry(in diskHeadroomInput) {
+	if !in.softPressure() && time.Since(s.lastCacheTelemetry) < 5*time.Minute {
+		return
+	}
+	s.lastCacheTelemetry = time.Now()
+	breakdown, total := s.repoPool.CacheBreakdownMiB()
+	if total > 0 {
+		s.cachePressureMiB.Store(total)
+	}
+	log.Printf("cache telemetry: contents=%d metadata=%d indexes=%d own_writes=%d total=%d free_mib=%d reserved_disk_mib=%d pressure=%v",
+		breakdown.ContentsMiB, breakdown.MetadataMiB, breakdown.IndexesMiB, breakdown.OwnWritesMiB, total,
+		in.freeMiB, in.reservedDiskMiB, s.diskCritical.Load())
+}
 
 func (s *Scheduler) gcOrphanedRuns() {
 	entries, err := os.ReadDir(s.cfg.Worker.RunDir)
@@ -554,6 +569,9 @@ func (s *Scheduler) gcOrphanedRuns() {
 			continue
 		}
 		if _, ok := running[name]; ok {
+			continue
+		}
+		if _, ok := activeJobs.Load(name); ok {
 			continue
 		}
 		info, err := e.Info()
@@ -910,19 +928,31 @@ func (s *Scheduler) flushProgressCheckpoint(ctx context.Context, runID string) {
 }
 
 func (s *Scheduler) releaseAllActiveClaims(ctx context.Context, reason string) {
-	s.batchMu.Lock()
-	batchID := s.activeBatchID
-	s.batchMu.Unlock()
-	if batchID != "" {
-		s.cancelBatch(batchID)
-		if reason == "drain" {
-			s.flushBatchProgressCheckpoint(ctx, batchID)
-		}
-		if err := s.client.BatchRelease(ctx, batchID, reason); err != nil {
-			log.Printf("batch release %s before update: %v", batchID, err)
+	s.cooperativeDrain(ctx, reason, nil)
+}
+
+func (s *Scheduler) cooperativeDrain(ctx context.Context, reason string, record func(drainStep)) {
+	var steps []drainStep
+	add := func(step drainStep) {
+		steps = append(steps, step)
+		if record != nil {
+			record(step)
 		}
 	}
 
+	s.batchMu.Lock()
+	batchID := s.activeBatchID
+	s.batchMu.Unlock()
+
+	if batchID != "" && reason == "drain" {
+		add(drainStepCheckpoint)
+		s.flushBatchProgressCheckpoint(ctx, batchID)
+	}
+
+	add(drainStepCancel)
+	if batchID != "" {
+		s.cancelBatch(batchID)
+	}
 	s.runningMu.Lock()
 	runIDs := make([]string, 0, len(s.running))
 	for id := range s.running {
@@ -934,11 +964,56 @@ func (s *Scheduler) releaseAllActiveClaims(ctx context.Context, reason string) {
 		if reason == "drain" {
 			s.flushProgressCheckpoint(ctx, runID)
 		}
-		if err := s.client.Release(ctx, runID, reason); err != nil {
-			log.Printf("release %s before update: %v", runID, err)
-		}
-		s.runProgress.Delete(runID)
 	}
+
+	add(drainStepWaitRunners)
+	s.waitForActiveWork(ctx, 5*time.Minute)
+
+	add(drainStepEvictCaches)
+	evictCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	s.repoPool.EvictIdle(evictCtx)
+	s.repoPool.DrainAndPurgeCaches(evictCtx)
+	cancel()
+
+	if reason != "" {
+		add(drainStepReleaseClaims)
+		if s.testHooks != nil && s.testHooks.onReleaseClaims != nil {
+			s.testHooks.onReleaseClaims()
+		}
+		if batchID != "" {
+			if err := s.client.BatchRelease(ctx, batchID, reason); err != nil {
+				log.Printf("batch release %s before drain: %v", batchID, err)
+			}
+		}
+		for _, runID := range runIDs {
+			if err := s.client.Release(ctx, runID, reason); err != nil {
+				log.Printf("release %s before drain: %v", runID, err)
+			}
+			s.runProgress.Delete(runID)
+		}
+	}
+
+	s.lastDrainSteps = steps
+}
+
+func (s *Scheduler) waitForActiveWork(ctx context.Context, timeout time.Duration) {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if s.activeRunnerCount() == 0 && s.repoPool.ActiveRefs() == 0 {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+}
+
+func (s *Scheduler) activeRunnerCount() int {
+	s.runningMu.Lock()
+	defer s.runningMu.Unlock()
+	return len(s.running)
 }
 
 func (s *Scheduler) registerRunCancel(runID string, cancel context.CancelFunc) {
