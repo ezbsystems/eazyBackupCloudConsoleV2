@@ -20,6 +20,10 @@ Whale-scale workers stream Microsoft Graph content into Kopia via a virtual over
 
 Run on the WHMCS host before building the template.
 
+### 1.0 Go toolchain (worker 0.4.0+)
+
+Kopia **v0.23.1** requires **Go 1.25.8+** on the build host (`go version`). Fleet `BuildRunner` uses `GOTOOLCHAIN=local`, so upgrade `/usr/local/go` before queuing 0.4.0+ builds. Optionally set `ms365_worker_build_go` in addon settings to a 1.25+ binary path.
+
 ### 1.1 Confirm whale-scale code and binary
 
 ```bash
