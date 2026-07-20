@@ -35,6 +35,8 @@ func (f *staticFile) Owner() kopiafs.OwnerInfo   { return kopiafs.OwnerInfo{} }
 func (f *staticFile) Device() kopiafs.DeviceInfo { return kopiafs.DeviceInfo{} }
 func (f *staticFile) LocalFilesystemPath() string { return "" }
 
+func (f *staticFile) Close() {}
+
 func (f *staticFile) Open(ctx context.Context) (kopiafs.Reader, error) {
 	return &bytesReader{Reader: bytes.NewReader(f.content), size: int64(len(f.content)), entry: f}, nil
 }

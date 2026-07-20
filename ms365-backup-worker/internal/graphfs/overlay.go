@@ -119,7 +119,7 @@ func (b *OverlayBuilder) MergePrior(ctx context.Context, dir kopiafs.Directory, 
 }
 
 func walkPrior(ctx context.Context, dir kopiafs.Directory, relPrefix string, b *OverlayBuilder) error {
-	children, err := dir.Readdir(ctx)
+	children, err := kopiafs.GetAllEntries(ctx, dir)
 	if err != nil {
 		return err
 	}

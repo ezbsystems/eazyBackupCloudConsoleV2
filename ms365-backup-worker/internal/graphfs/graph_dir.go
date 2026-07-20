@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"sort"
 	"sync"
 	"time"
 
@@ -70,6 +69,8 @@ func (d *LazyDir) Owner() kopiafs.OwnerInfo   { return kopiafs.OwnerInfo{} }
 func (d *LazyDir) Device() kopiafs.DeviceInfo { return kopiafs.DeviceInfo{} }
 func (d *LazyDir) LocalFilesystemPath() string { return "" }
 
+func (d *LazyDir) Close() {}
+
 func (d *LazyDir) Child(ctx context.Context, name string) (kopiafs.Entry, error) {
 	if err := d.ensureLoaded(ctx); err != nil {
 		return nil, err
@@ -82,20 +83,13 @@ func (d *LazyDir) Child(ctx context.Context, name string) (kopiafs.Entry, error)
 	return nil, fmt.Errorf("child not found: %s", name)
 }
 
-func (d *LazyDir) Readdir(ctx context.Context) (kopiafs.Entries, error) {
+func (d *LazyDir) SupportsMultipleIterations() bool { return true }
+
+func (d *LazyDir) Iterate(ctx context.Context) (kopiafs.DirectoryIterator, error) {
 	if err := d.ensureLoaded(ctx); err != nil {
 		return nil, err
 	}
 	d.mu.RLock()
 	defer d.mu.RUnlock()
-	names := make([]string, 0, len(d.children))
-	for n := range d.children {
-		names = append(names, n)
-	}
-	sort.Strings(names)
-	out := make(kopiafs.Entries, 0, len(names))
-	for _, n := range names {
-		out = append(out, d.children[n])
-	}
-	return out, nil
+	return newSliceIterator(sortedEntries(d.children)), nil
 }

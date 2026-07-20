@@ -27,10 +27,12 @@ type StorageOptions struct {
 
 // RepoCacheSettings configures persistent per-repo Kopia config and on-disk caches.
 type RepoCacheSettings struct {
-	RepoConfigDir           string
-	ContentCacheSizeMiB     int
-	MetadataCacheSizeMiB    int
-	MinIndexSweepAgeSeconds int
+	RepoConfigDir            string
+	ContentCacheSizeMiB      int
+	ContentCacheLimitMiB     int
+	MetadataCacheSizeMiB     int
+	MetadataCacheLimitMiB    int
+	MinIndexSweepAgeSeconds  int
 }
 
 // CacheBreakdown reports on-disk cache usage by subdirectory.
@@ -78,12 +80,14 @@ func (s RepoCacheSettings) cachingOptions(storage StorageOptions) *content.Cachi
 		minIndexSweep = content.DurationSeconds(3600)
 	}
 	return &content.CachingOptions{
-		CacheDirectory:            cacheDir,
-		MaxCacheSizeBytes:         contentBytes,
-		MaxMetadataCacheSizeBytes: metadataBytes,
-		MinIndexSweepAge:          minIndexSweep,
-		MinContentSweepAge:        content.DurationSeconds(3600),
-		MinMetadataSweepAge:       content.DurationSeconds(3600),
+		CacheDirectory:               cacheDir,
+		ContentCacheSizeBytes:        contentBytes,
+		ContentCacheSizeLimitBytes:   int64(s.ContentCacheLimitMiB) << 20,
+		MetadataCacheSizeBytes:       metadataBytes,
+		MetadataCacheSizeLimitBytes:  int64(s.MetadataCacheLimitMiB) << 20,
+		MinIndexSweepAge:             minIndexSweep,
+		MinContentSweepAge:           content.DurationSeconds(3600),
+		MinMetadataSweepAge:          content.DurationSeconds(3600),
 	}
 }
 
@@ -116,7 +120,7 @@ func (o StorageOptions) Storage(ctx context.Context) (blob.Storage, error) {
 		Region:          o.Region,
 		DoNotUseTLS:     doNotUseTLS,
 		DoNotVerifyTLS:  true,
-	})
+	}, false)
 }
 
 func EnsureRunDir(runDir string) error {

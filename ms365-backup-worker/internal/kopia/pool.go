@@ -15,7 +15,8 @@ import (
 	"github.com/kopia/kopia/repo/manifest"
 	"github.com/kopia/kopia/snapshot"
 	"github.com/kopia/kopia/snapshot/policy"
-	snapshotfs "github.com/kopia/kopia/snapshot/snapshotfs"
+	"github.com/kopia/kopia/snapshot/snapshotfs"
+	"github.com/kopia/kopia/snapshot/upload"
 )
 
 // Pool keeps warm, cached Kopia repository connections keyed by repo identity.
@@ -325,13 +326,13 @@ func (p *Pool) Snapshot(ctx context.Context, req SnapshotRequest) (*SnapshotResu
 		Purpose:  "snapshot",
 		OnUpload: counter.UploadedBytes,
 	}, func(wctx context.Context, w repo.RepositoryWriter) error {
-		u := snapshotfs.NewUploader(w)
+		u := upload.NewUploader(w)
 		u.Progress = counter
 		u.ParallelUploads = req.Parallel
 		if req.CheckpointInterval > 0 {
 			u.CheckpointInterval = req.CheckpointInterval
 		} else {
-			u.CheckpointInterval = snapshotfs.DefaultCheckpointInterval
+			u.CheckpointInterval = upload.DefaultCheckpointInterval
 		}
 		man, err := u.Upload(wctx, req.Entry, pol, srcInfo, previousManifests...)
 		if err != nil {

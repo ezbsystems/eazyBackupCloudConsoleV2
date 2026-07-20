@@ -110,7 +110,7 @@ func browseWithRepo(ctx context.Context, req BrowseRequest, acquire repoAcquirer
 		}
 	}
 
-	children, err := cur.Readdir(ctx)
+	children, err := kopiafs.GetAllEntries(ctx, cur)
 	if err != nil {
 		return nil, fmt.Errorf("readdir: %w", err)
 	}
@@ -258,7 +258,7 @@ func listDirectoryWithRepo(ctx context.Context, req BrowseRequest, acquire repoA
 		}
 	}
 
-	children, err := cur.Readdir(ctx)
+	children, err := kopiafs.GetAllEntries(ctx, cur)
 	if err != nil {
 		return nil, fmt.Errorf("readdir: %w", err)
 	}

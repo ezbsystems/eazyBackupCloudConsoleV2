@@ -77,7 +77,9 @@ func NewScheduler(cfg *config.Config, client *api.Client, configPath string) *Sc
 	repoPool := kopia.NewPool(kopia.RepoCacheSettings{
 		RepoConfigDir:           cfg.Kopia.RepoConfigDir,
 		ContentCacheSizeMiB:     cfg.Kopia.ContentCacheSizeMiB,
+		ContentCacheLimitMiB:    cfg.Kopia.ContentCacheLimitMiB,
 		MetadataCacheSizeMiB:    cfg.Kopia.MetadataCacheSizeMiB,
+		MetadataCacheLimitMiB:   cfg.Kopia.MetadataCacheLimitMiB,
 		MinIndexSweepAgeSeconds: cfg.Kopia.MinIndexSweepAgeSeconds,
 	})
 	graph.SetGlobalConcurrency(cfg.Graph.GlobalMaxConcurrency)

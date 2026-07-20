@@ -10,6 +10,7 @@ import (
 
 	"github.com/kopia/kopia/repo"
 	"github.com/kopia/kopia/repo/content"
+	"github.com/kopia/kopia/repo/format"
 )
 
 type openRepoOptions struct {
@@ -41,8 +42,8 @@ func openRepository(ctx context.Context, opts openRepoOptions) (repo.Repository,
 			return fmt.Errorf("storage: %w", err)
 		}
 		initOpts := &repo.NewRepositoryOptions{
-			BlockFormat: content.FormattingOptions{
-				MutableParameters: content.MutableParameters{
+			BlockFormat: format.ContentFormat{
+				MutableParameters: format.MutableParameters{
 					MaxPackSize: maxPack << 20,
 				},
 			},

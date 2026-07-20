@@ -22,7 +22,7 @@ func VerifyOneDriveOverlayTree(ctx context.Context, overlay *graphfs.OverlayBuil
 	if err != nil {
 		return fmt.Errorf("onedrive tree: %w", err)
 	}
-	children, err := contentDir.Readdir(ctx)
+	children, err := kopiafs.GetAllEntries(ctx, contentDir)
 	if err != nil {
 		return fmt.Errorf("onedrive tree readdir: %w", err)
 	}

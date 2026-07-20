@@ -64,7 +64,7 @@ func TestSyncOneDriveDeltaAndHealLive(t *testing.T) {
 	if err != nil {
 		t.Fatalf("walk tree: %v", err)
 	}
-	children, err := contentDir.Readdir(context.Background())
+	children, err := kopiafs.GetAllEntries(context.Background(), contentDir)
 	if err != nil {
 		t.Fatalf("readdir: %v", err)
 	}

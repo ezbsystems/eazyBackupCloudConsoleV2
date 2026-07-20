@@ -90,7 +90,7 @@ func main() {
 	if err != nil {
 		fatal(err)
 	}
-	children, err := contentDir.Readdir(ctx)
+	children, err := kopiafs.GetAllEntries(ctx, contentDir)
 	if err != nil {
 		fatal(err)
 	}

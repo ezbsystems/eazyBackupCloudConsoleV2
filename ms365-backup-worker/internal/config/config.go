@@ -92,7 +92,9 @@ type KopiaConfig struct {
 	Compressor                string `yaml:"compressor"`
 	MaxPackSizeMiB            int    `yaml:"max_pack_size_mib"`
 	ContentCacheSizeMiB       int `yaml:"content_cache_size_mib"`
+	ContentCacheLimitMiB      int `yaml:"content_cache_limit_mib"`
 	MetadataCacheSizeMiB      int `yaml:"metadata_cache_size_mib"`
+	MetadataCacheLimitMiB     int `yaml:"metadata_cache_limit_mib"`
 	MinIndexSweepAgeSeconds   int `yaml:"min_index_sweep_age_seconds"`
 	IndexMaintenanceThreshold int `yaml:"index_maintenance_threshold"`
 	CheckpointIntervalMinutes int `yaml:"checkpoint_interval_minutes"`

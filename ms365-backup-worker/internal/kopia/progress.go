@@ -3,6 +3,8 @@ package kopia
 import (
 	"sync/atomic"
 	"time"
+
+	"github.com/kopia/kopia/snapshot/upload"
 )
 
 type ProgressCounter struct {
@@ -81,13 +83,27 @@ func secondsSinceAtomic(ts *atomic.Int64) int64 {
 
 func (p *ProgressCounter) UploadStarted()                          {}
 func (p *ProgressCounter) UploadFinished()                         { p.notify() }
+func (p *ProgressCounter) Enabled() bool                           { return p.callback != nil }
 func (p *ProgressCounter) HashingFile(fname string)                { p.currentFile.Store(fname) }
 func (p *ProgressCounter) ExcludedFile(fname string, size int64)   {}
 func (p *ProgressCounter) ExcludedDir(dirname string)              {}
 func (p *ProgressCounter) StartedDirectory(dirname string)         {}
 func (p *ProgressCounter) FinishedDirectory(dirname string)        {}
-func (p *ProgressCounter) EstimatedDataSize(fileCount int, totalBytes int64) {
-	p.FilesTotal.Store(int64(fileCount))
+func (p *ProgressCounter) EstimatedDataSize(fileCount, totalBytes int64) {
+	p.FilesTotal.Store(fileCount)
+}
+
+func (p *ProgressCounter) EstimationParameters() upload.EstimationParameters {
+	return upload.EstimationParameters{Type: upload.EstimationTypeAdaptive}
+}
+
+func (p *ProgressCounter) FinishedFile(fname string, err error) {
+	if err != nil {
+		return
+	}
+	p.FilesDone.Add(1)
+	p.touchHashProgress()
+	p.notify()
 }
 
 func (p *ProgressCounter) CachedFile(fname string, numBytes int64) {

@@ -118,9 +118,9 @@ func jsonInt(v any) int {
 	}
 }
 
-func intPtr(n int) *int {
-	p := n
-	return &p
+func intPtr(n int) *policy.OptionalInt {
+	v := policy.OptionalInt(n)
+	return &v
 }
 
 func retentionPolicyFromCometTiers(tiers map[string]int) policy.RetentionPolicy {

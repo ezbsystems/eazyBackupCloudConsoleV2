@@ -126,19 +126,37 @@ func (d *memDir) Owner() kopiafs.OwnerInfo          { return kopiafs.OwnerInfo{}
 func (d *memDir) Device() kopiafs.DeviceInfo        { return kopiafs.DeviceInfo{} }
 func (d *memDir) LocalFilesystemPath() string       { return "" }
 func (d *memDir) Sys() any                          { return nil }
+func (d *memDir) Close() {}
 func (d *memDir) Child(_ context.Context, name string) (kopiafs.Entry, error) {
 	if e, ok := d.children[name]; ok {
 		return e, nil
 	}
 	return nil, kopiafs.ErrEntryNotFound
 }
-func (d *memDir) Readdir(_ context.Context) (kopiafs.Entries, error) {
-	out := make(kopiafs.Entries, 0, len(d.children))
+func (d *memDir) SupportsMultipleIterations() bool { return true }
+func (d *memDir) Iterate(_ context.Context) (kopiafs.DirectoryIterator, error) {
+	out := make([]kopiafs.Entry, 0, len(d.children))
 	for _, e := range d.children {
 		out = append(out, e)
 	}
-	return out, nil
+	return &memDirIterator{entries: out}, nil
 }
+
+type memDirIterator struct {
+	entries []kopiafs.Entry
+	i       int
+}
+
+func (it *memDirIterator) Next(context.Context) (kopiafs.Entry, error) {
+	if it.i >= len(it.entries) {
+		return nil, nil
+	}
+	e := it.entries[it.i]
+	it.i++
+	return e, nil
+}
+
+func (it *memDirIterator) Close() {}
 
 type memFile struct {
 	name string
@@ -158,6 +176,7 @@ func (f *memFile) Owner() kopiafs.OwnerInfo    { return kopiafs.OwnerInfo{} }
 func (f *memFile) Device() kopiafs.DeviceInfo  { return kopiafs.DeviceInfo{} }
 func (f *memFile) LocalFilesystemPath() string { return "" }
 func (f *memFile) Sys() any                    { return nil }
+func (f *memFile) Close() {}
 func (f *memFile) Open(_ context.Context) (kopiafs.Reader, error) {
 	return &memReader{file: f, r: bytes.NewReader(f.data)}, nil
 }

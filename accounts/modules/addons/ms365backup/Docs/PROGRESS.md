@@ -5,11 +5,19 @@
 **Last updated:** 2026-07-20  
 **Module version (ms365backup):** 1.52.9  
 **Cloudstorage (e3) version:** 2.2.0  
-**Worker version (ms365-backup-worker):** 0.3.81 (disk/cache safety; Kopia upgrade deferred)
+**Worker version (ms365-backup-worker):** 0.4.0 (Kopia v0.23.1)
 
 ---
 
 ## Session log
+
+### 2026-07-20 — Kopia v0.23.1 worker upgrade (0.4.0)
+
+- **Dependency:** `github.com/kopia/kopia` v0.9.8 → v0.23.1; Go 1.25.8+ required on build host.
+- **API migration:** `CachingOptions` field renames (`ContentCacheSizeBytes`, hard limits); `fs.Directory.Iterate` replaces `Readdir`; `upload.NewUploader` replaces `snapshotfs.NewUploader`; `policy.OptionalInt` retention; `s3.New(..., isCreate)`.
+- **Cache:** Optional `content_cache_limit_mib` / `metadata_cache_limit_mib` wired into Kopia hard limits (defaults 768/256 in templates). Index cache still sweep-only — filesystem safeguards from 0.3.81 remain.
+- **Tests:** `options_test.go`, `repository_compat_test.go` (`//go:build integration`); full `go test ./...`.
+- **Ops:** Build 0.4.0 via fleet runner; canary then rolling deploy. Golden template refresh after canary validation.
 
 ### 2026-07-20 — Worker disk pressure and Kopia cache safety (0.3.81)
 

@@ -63,6 +63,8 @@ func (f *GraphFile) Owner() kopiafs.OwnerInfo   { return kopiafs.OwnerInfo{} }
 func (f *GraphFile) Device() kopiafs.DeviceInfo { return kopiafs.DeviceInfo{} }
 func (f *GraphFile) LocalFilesystemPath() string { return "" }
 
+func (f *GraphFile) Close() {}
+
 func (f *GraphFile) Open(ctx context.Context) (kopiafs.Reader, error) {
 	rc, size, err := f.client.GetStream(ctx, f.contentPath)
 	if err != nil {

@@ -44,6 +44,8 @@ kopia:
   compressor: zstd-default
   max_pack_size_mib: 32
   content_cache_size_mib: 512
+  content_cache_limit_mib: 768
+  metadata_cache_limit_mib: 256
   checkpoint_interval_minutes: 15
   stall_seconds: 2700
   stall_check_interval_seconds: 60

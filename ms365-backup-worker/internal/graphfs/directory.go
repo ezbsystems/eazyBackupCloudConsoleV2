@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"sort"
 	"strings"
 	"time"
 
@@ -44,6 +43,8 @@ func (d *memoryDir) Owner() kopiafs.OwnerInfo   { return kopiafs.OwnerInfo{} }
 func (d *memoryDir) Device() kopiafs.DeviceInfo { return kopiafs.DeviceInfo{} }
 func (d *memoryDir) LocalFilesystemPath() string { return "" }
 
+func (d *memoryDir) Close() {}
+
 func (d *memoryDir) Child(ctx context.Context, name string) (kopiafs.Entry, error) {
 	if e, ok := d.children[name]; ok {
 		return e, nil
@@ -51,17 +52,10 @@ func (d *memoryDir) Child(ctx context.Context, name string) (kopiafs.Entry, erro
 	return nil, fmt.Errorf("child not found: %s", name)
 }
 
-func (d *memoryDir) Readdir(ctx context.Context) (kopiafs.Entries, error) {
-	names := make([]string, 0, len(d.children))
-	for n := range d.children {
-		names = append(names, n)
-	}
-	sort.Strings(names)
-	out := make(kopiafs.Entries, 0, len(names))
-	for _, n := range names {
-		out = append(out, d.children[n])
-	}
-	return out, nil
+func (d *memoryDir) SupportsMultipleIterations() bool { return true }
+
+func (d *memoryDir) Iterate(ctx context.Context) (kopiafs.DirectoryIterator, error) {
+	return newSliceIterator(sortedEntries(d.children)), nil
 }
 
 func SanitizeName(s string) string {
