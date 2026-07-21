@@ -131,6 +131,11 @@
 # Extra safety: never track these log fragments anywhere
 *.log.filepart
 
+# Addon runtime logs (never commit)
+/accounts/modules/addons/cloudstorage/logs/*.log
+/accounts/modules/addons/cometbilling/logs/
+/accounts/modules/addons/cometbilling/logs/**
+
 # ---------------------- test/coverage artifacts ----------------------
 # PHPUnit cache + coverage reports for the eazyBackup addon
 /accounts/modules/addons/eazybackup/.phpunit.cache/
