@@ -9484,7 +9484,7 @@ function eazybackup_validate_order(array $vars)
             $errors["username"] = "Username must be at least 6 characters and may contain only a-z, A-Z, 0-9, _, ., -";
         }
 
-        if (!empty($vars["username"])) {
+        if (!empty($vars["username"]) && empty($errors["product"])) {
             try {
                 comet_Server(["pid" => $vars["product"]])->AdminGetUserProfile($vars["username"]);
                 $errors["username"] = "That username is taken, try another";
