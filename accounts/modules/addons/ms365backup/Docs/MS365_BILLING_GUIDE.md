@@ -1,7 +1,7 @@
 # Microsoft 365 Backup — How Billing Is Calculated
 
 **Audience:** MSPs, partners, support, and KB authors  
-**Last updated:** 2026-07-06  
+**Last updated:** 2026-07-21  
 **Technical design reference:** [MS365_BILLING_AND_STORAGE_DESIGN.md](MS365_BILLING_AND_STORAGE_DESIGN.md)
 
 This document explains **how eazyBackup calculates Microsoft 365 Backup charges** in plain language. Use it as the source for customer-facing KB articles, sales collateral, and support responses.
@@ -14,10 +14,10 @@ Microsoft 365 Backup is a **metered monthly service**. The base WHMCS product is
 
 | Line item | What it measures | Typical unit |
 |-----------|------------------|--------------|
-| **Protected Users** | Distinct Microsoft 365 user identities covered by your backup jobs | Per user / month |
+| **Protected Objects** | Distinct Microsoft 365 identities covered by your backup jobs — people, guests, shared/room/equipment mailboxes | Per object / month |
 | **OneDrive overage** | Total OneDrive storage above the included allowance | Per GiB / month |
 
-**Storage for most M365 workloads is unlimited** (mailbox, Teams, SharePoint, groups, Planner, OneNote, etc.). Only **OneDrive** has a per-user included cap; usage above that cap is billed separately.
+**Storage for most M365 workloads is unlimited** (mailbox, Teams, SharePoint, groups, Planner, OneNote, etc.). Only **OneDrive** has a per-object included cap; usage above that cap is billed separately.
 
 Billing is **per backup user** (one connected M365 tenant per backup user), not lumped across an entire MSP account.
 
@@ -40,17 +40,17 @@ On unified **e3 Backup User** products, MS365 metrics (`protected_users`, `onedr
 
 ---
 
-## Protected Users
+## Protected Objects
 
-A **Protected User** is one distinct Microsoft 365 **person** (by Azure AD user ID). You are charged once per person per backup user per month, regardless of how many workloads you back up for that person.
+A **Protected Object** is one distinct Microsoft 365 directory identity (by Azure object ID) — a person, guest, or mailbox — reached by your backup selections. You are charged once per identity per backup user per month, regardless of how many workloads you back up for it or how many ways it's reached (personal selection, team/group membership, or SharePoint site membership).
 
-### What counts as a Protected User
+### What counts as a Protected Object
 
-Someone becomes a Protected User when **either** of these is true in your **active MS365 backup jobs**:
+An identity becomes a Protected Object when **any** of these is true in your **active MS365 backup jobs**:
 
-#### 1. Personal workload selection
+#### 1. Personal selection
 
-You directly select a user (or their mailbox / OneDrive) with at least one enabled scope:
+You directly select a user or mailbox (including a **shared, room, or equipment mailbox**) with at least one enabled scope:
 
 - Mailbox  
 - Calendar  
@@ -58,56 +58,67 @@ You directly select a user (or their mailbox / OneDrive) with at least one enabl
 - Tasks  
 - OneDrive / personal files  
 
-If the same person is selected multiple times (e.g. mailbox + OneDrive), they count **once**.
+If the same identity is selected multiple times (e.g. mailbox + OneDrive), it counts **once**.
 
 #### 2. Team or Microsoft 365 Group membership
 
-You select a **Team** or **Microsoft 365 Group** with at least one enabled backup scope (e.g. Teams messages, group mail, group files). Every **billable member** of that team or group is added to your Protected User count.
+You select a **Team** or **Microsoft 365 Group** with at least one enabled backup scope (e.g. Teams messages, group mail, group files). Every **billable member** of that team or group is added to your Protected Object count — including guest members.
 
 - Members are resolved from Microsoft Graph during **inventory refresh** and cached on each team/group resource.
-- If you select **multiple teams or groups**, members are combined and **deduplicated** — the same person in two groups is still one Protected User.
+- If you select **multiple teams or groups**, members are combined and **deduplicated** — the same identity in two groups is still one Protected Object.
 - Selecting a **team channel** inherits membership from the parent team (channels do not add a separate member list).
 - Selecting a team with **any** scope enabled (metadata, messages, or files) bills **all** billable members, even if you only care about one workload type.
 
-### Who does **not** count
+#### 3. SharePoint site membership
+
+You select a **SharePoint site** with at least one enabled site scope (files and/or lists). Every **billable member/permission principal** on that site — resolved from Microsoft Graph site permissions — is added to your Protected Object count, the same way team/group members are.
+
+- Site members are resolved during **inventory refresh** and cached on the site resource, just like team/group members.
+- If the site's membership overlaps a selected team or group (e.g. a Team-backed site), the identities are still counted **once** overall.
+
+### Who counts
 
 | Identity | Billed? |
 |----------|---------|
-| Guest users (`#EXT#` in UPN or `userType = Guest`) | No |
-| Shared mailboxes | No |
-| Devices, service principals, other non-user objects | No |
-| SharePoint site-only selection (no users / teams / groups) | No* |
-
-\* *Standalone SharePoint site member resolution is planned for a future release. Today, protecting only SharePoint sites does not add Protected Users from site permissions.*
+| Member (licensed) users | Yes, when personally selected or reached via team/group/site membership |
+| **Guest users** (`#EXT#` in UPN or `userType = Guest`) | **Yes**, when personally selected or reached via team/group/site membership |
+| **Shared mailboxes** | **Yes**, when personally selected or reached via team/group/site membership |
+| **Room / equipment mailboxes** | **Yes**, when personally selected or reached via team/group/site membership |
+| Devices, service principals, other non-identity objects | No — never billed |
 
 ### Deduplication examples
 
-| Selection | Protected Users |
+| Selection | Protected Objects |
 |-----------|-----------------|
 | User Alice (mailbox only) | 1 |
 | Team "Technical" (29 members), no individual users selected | 29 |
 | Team "Technical" (29 members) **and** Alice is also selected individually | 29 (Alice counted once) |
 | Team A (10 members) + Team B (8 members), 3 people in both | 15 |
-| SharePoint site only | 0 (today) |
+| SharePoint site only, 12 billable members resolved | 12 |
+| Shared mailbox "Sales" personally selected + Alice | 2 |
+| Guest user only as a Team member | 1 |
+| Room mailbox personally selected | 1 |
+| Alice selected personally + also on Team + also on Site | 1 (counted once) |
+| SharePoint site only, member list not yet resolved | 0, with **"Member counts incomplete"** shown until you refresh inventory |
 
 ---
 
 ## OneDrive overage
 
-Each Protected User who has **OneDrive personally selected** in a backup job receives a large included OneDrive allowance (default **1 TiB per user**, configurable by eazyBackup).
+Each Protected Object that has **OneDrive personally selected** in a backup job receives a large included OneDrive allowance (default **1 TiB per object**, configurable by eazyBackup).
 
 | Concept | Detail |
 |---------|--------|
-| **Included storage** | Per user, per backup user (default 1,024 GiB) |
+| **Included storage** | Per object, per backup user (default 1,024 GiB) |
 | **Measured usage** | Live size reported by Microsoft Graph during inventory refresh — not backup repository size |
-| **Overage** | `max(0, used − included)` per user |
-| **Billed quantity** | **Sum of all users' overage**, converted to GiB, then peak-of-period (see below) |
+| **Overage** | `max(0, used − included)` per object |
+| **Billed quantity** | **Sum of all objects' overage**, converted to GiB, then peak-of-period (see below) |
 
 Important:
 
-- OneDrive overage applies only when **you explicitly include OneDrive** for that user in a job selection.
-- Team/group membership alone does **not** automatically meter OneDrive for every member — only users with OneDrive in scope contribute to overage.
-- A user with mailbox only (no OneDrive) is a Protected User but adds **0** OneDrive overage.
+- OneDrive overage applies only when **you explicitly include OneDrive** for that identity in a job selection.
+- Team/group/site membership alone does **not** automatically meter OneDrive for every member — only identities with OneDrive in scope contribute to overage.
+- An identity with mailbox only (no OneDrive) is a Protected Object but adds **0** OneDrive overage. This also applies to guests and shared/room/equipment mailboxes — they never have OneDrive to select, so they never contribute overage.
 
 ---
 
@@ -121,7 +132,7 @@ Backup data for these workloads does **not** incur object-storage-style per-GiB 
 - SharePoint sites (files and lists)  
 - Planner, OneNote, directory baseline  
 
-MS365 backup data is stored in **dedicated `e3ms365-*` buckets** that are **excluded from your regular e3 object storage bill**. You pay for **Protected Users** and **OneDrive overage**, not for total backup bytes for these workloads.
+MS365 backup data is stored in **dedicated `e3ms365-*` buckets** that are **excluded from your regular e3 object storage bill**. You pay for **Protected Objects** and **OneDrive overage**, not for total backup bytes for these workloads.
 
 ---
 
@@ -131,13 +142,13 @@ Usage is sampled **once per day**. Your invoice uses the **highest (peak) value 
 
 | Metric | Peak rule |
 |--------|-----------|
-| Protected Users | **Maximum** distinct Protected User count on any day in the period |
-| OneDrive overage | **Maximum** total overage GiB (summed across users) on any day in the period |
+| Protected Objects | **Maximum** distinct Protected Object count on any day in the period |
+| OneDrive overage | **Maximum** total overage GiB (summed across objects) on any day in the period |
 
 ### What this means in practice
 
-- If you add users mid-month, your peak (and invoice) can **increase** for that period.
-- If you remove users or shrink jobs mid-month, the peak **does not drop** until the **next** billing period starts.
+- If you add users, guests, mailboxes, or sites mid-month, your peak (and invoice) can **increase** for that period.
+- If you remove them or shrink jobs mid-month, the peak **does not drop** until the **next** billing period starts.
 - OneDrive usage can fluctuate daily; peak-of-period billing uses the worst day in the window.
 
 The billing period is anchored to each service's **next due date** (typically monthly from provisioning or signup).
@@ -150,7 +161,7 @@ For each backup user's WHMCS service:
 
 ```text
 Monthly MS365 charge =
-    (Peak Protected Users × Protected User unit price)
+    (Peak Protected Objects × Protected Object unit price)
   + (Peak OneDrive overage GiB × OneDrive overage unit price)
 ```
 
@@ -163,10 +174,10 @@ During a **trial**, quantities are still metered and displayed, but line **amoun
 ## How usage is measured (technical overview)
 
 1. **Daily cron** (`ms365_billing.php`) runs metering for each active MS365 / unified e3 Backup User service.
-2. **Inventory** (`inventory.json`) supplies user list, OneDrive sizes, and cached team/group member IDs.
+2. **Inventory** (`inventory.json`) supplies the user/mailbox list, OneDrive sizes, and cached team/group/site member IDs.
 3. **Active jobs** — the union of all `selected_resource_ids` and `scope_overrides` on active MS365 backup jobs for that backup user — defines what is protected.
-4. **ProtectedUserResolver** computes distinct billable Azure user IDs (personal + team/group members, deduplicated).
-5. **OneDrive overage** is computed per user with OneDrive in scope, using Graph-reported `size_bytes`.
+4. **ProtectedUserResolver** (internal class name; resolves Protected Objects) computes distinct billable Azure IDs from personal selection + team/group members + SharePoint site members, deduplicated across all three sources.
+5. **OneDrive overage** is computed per identity with OneDrive in scope, using Graph-reported `size_bytes`.
 6. Daily snapshots are stored; **peak in the billing window** is written to WHMCS config option quantities.
 7. **Invoice hooks** multiply quantities by admin-configured unit prices.
 
@@ -178,9 +189,9 @@ If inventory is stale or member lists could not be loaded, the UI shows a warnin
 
 | Location | What it shows |
 |----------|----------------|
-| **Job wizard — step 2 (Inventory)** | Live **billing estimate** for the current job selection: Protected Users, est. monthly, per-team/group breakdown |
-| **User detail → MS365 → Usage & Billing** | Current counts, **peak this period**, per-user OneDrive table, estimated period total |
-| **Pricing panel** (add user / billing tab) | Published unit rates (Protected Users, OneDrive included, overage per GiB) |
+| **Job wizard — step 2 (Inventory)** | Live **billing estimate** for the current job selection: Protected Objects, est. monthly, per-team/group/site breakdown |
+| **User detail → MS365 → Usage & Billing** | Current counts, **peak this period**, per-object OneDrive table, estimated period total |
+| **Pricing panel** (add user / billing tab) | Published unit rates (Protected Objects, OneDrive included, overage per GiB) |
 | **WHMCS invoice** | Peak quantities × unit prices for the billing period |
 
 The wizard estimate reflects **this job's selection only**. After save, the Usage & Billing drawer reflects **all active MS365 jobs** for that backup user (union of selections).
@@ -191,7 +202,7 @@ The wizard estimate reflects **this job's selection only**. After save, the Usag
 
 New signups may receive a **trial period** (default 30 days, configurable). While trialing:
 
-- Protected Users and OneDrive overage are **tracked and shown**.
+- Protected Objects and OneDrive overage are **tracked and shown**.
 - Invoice line **amounts are zero**.
 - After trial conversion, normal metering and charging apply.
 
@@ -207,9 +218,9 @@ Existing MSP clients who add MS365 at first job creation are typically **not** p
 
 | Metric | Value |
 |--------|-------|
-| Peak Protected Users | 5 |
+| Peak Protected Objects | 5 |
 | OneDrive overage | 0 GiB (all under 1 TiB) |
-| Monthly charge (at $3.50/user) | 5 × $3.50 = **$17.50** |
+| Monthly charge (at $3.50/object) | 5 × $3.50 = **$17.50** |
 
 ### Example B — Team-heavy MSP customer
 
@@ -217,9 +228,9 @@ Existing MSP clients who add MS365 at first job creation are typically **not** p
 
 | Metric | Value |
 |--------|-------|
-| Peak Protected Users | 28 |
+| Peak Protected Objects | 28 |
 | OneDrive overage | 0 GiB |
-| Monthly charge (at $3.50/user) | 28 × $3.50 = **$98.00** |
+| Monthly charge (at $3.50/object) | 28 × $3.50 = **$98.00** |
 
 ### Example C — OneDrive overage
 
@@ -227,23 +238,36 @@ Existing MSP clients who add MS365 at first job creation are typically **not** p
 
 | Metric | Calculation |
 |--------|-------------|
-| Included | 1,024 GiB per user |
+| Included | 1,024 GiB per object |
 | Overage for heavy user | ~205 GiB |
 | Peak total overage | 205 GiB (assuming no other users over) |
-| Protected Users | 10 |
-| Monthly charge (at $3.50/user, $0.01/GiB overage) | (10 × $3.50) + (205 × $0.01) = **$37.05** |
+| Protected Objects | 10 |
+| Monthly charge (at $3.50/object, $0.01/GiB overage) | (10 × $3.50) + (205 × $0.01) = **$37.05** |
 
 *Illustrative prices only — actual rates appear in your portal.*
 
 ### Example D — Mid-month change
 
-| Day | Protected Users | Peak so far |
+| Day | Protected Objects | Peak so far |
 |-----|-----------------|-------------|
 | 1–10 | 20 | 20 |
 | 11–25 | 35 (added team) | **35** |
 | 26–30 | 15 (removed team) | **35** (unchanged) |
 
-Invoice for the period bills **35** Protected Users, not 15.
+Invoice for the period bills **35** Protected Objects, not 15.
+
+### Example E — Guests, shared mailbox & SharePoint site
+
+**Jobs:** 8 individual users; shared mailbox "Support" personally selected; SharePoint site "Marketing" (files) with 6 billable members, 2 of whom overlap with the 8 individual users; a guest user who is only a member of the "Marketing" site.
+
+| Metric | Calculation |
+|--------|-------------|
+| Individual users | 8 |
+| Shared mailbox "Support" | +1 |
+| Marketing site members (6 total, 2 already counted as individual users) | +4 new |
+| Guest on Marketing site (already in the 6) | included in the 4, not additional |
+| Peak Protected Objects | 8 + 1 + 4 = **13** |
+| Monthly charge (at $3.50/object) | 13 × $3.50 = **$45.50** |
 
 ---
 
@@ -251,15 +275,19 @@ Invoice for the period bills **35** Protected Users, not 15.
 
 ### Why does the wizard show "Member counts incomplete"?
 
-Team or group membership could not be fully loaded (missing cache, Graph permissions, or transient API error). The Protected User count may be **lower than actual** until you **Refresh inventory**. Ensure the Entra app has `TeamMember.Read.All` and `GroupMember.Read.All` with admin consent.
+Team, group, or site membership could not be fully loaded (missing cache, Graph permissions, or transient API error). The Protected Object count may be **lower than actual** until you **Refresh inventory**. Ensure the Entra app has `TeamMember.Read.All`, `GroupMember.Read.All`, and `Sites.Read.All` with admin consent.
 
-### Why do some groups show "0 members" in the breakdown?
+### Why do some groups or sites show "0 members" in the breakdown?
 
 Usually the same root cause as above — member list not yet cached. Refresh inventory and reopen the wizard or usage panel.
 
 ### Does backing up SharePoint cost extra storage fees?
 
-No per-GiB MS365 storage fee for SharePoint backup data. SharePoint **does not** currently add Protected Users unless you also select teams/groups/users that imply membership billing (see SharePoint site-only note above).
+No per-GiB MS365 storage fee for SharePoint backup data. Selecting a SharePoint site **does** add Protected Objects for its resolved, billable members (see [SharePoint site membership](#3-sharepoint-site-membership) above) — that's an object count, not a storage fee.
+
+### Do guests and shared/room/equipment mailboxes cost extra?
+
+Yes, if they're reached by a personal selection or by team/group/site membership, they're billed as Protected Objects the same as any other identity. They only ever contribute OneDrive overage if you personally select OneDrive for them (which typically doesn't apply to shared/room/equipment mailboxes).
 
 ### Is MS365 backup data billed on my object storage invoice?
 
@@ -267,11 +295,11 @@ No. MS365 data lives in isolated `e3ms365-*` buckets excluded from standard obje
 
 ### How do I lower next month's bill?
 
-Reduce Protected Users by narrowing job selections (fewer users, teams, or groups) or disabling scopes on teams/groups you no longer need. Remember: lowering mid-month does not reduce the **current** period's peak.
+Reduce Protected Objects by narrowing job selections (fewer users, guests, shared mailboxes, teams, groups, or sites) or disabling scopes you no longer need. Remember: lowering mid-month does not reduce the **current** period's peak.
 
 ### How do MSPs re-bill their customers?
 
-Use **one backup user per end customer**, one WHMCS service per backup user. The Usage & Billing drawer includes a **per-user OneDrive breakdown** for passing through overage to clients.
+Use **one backup user per end customer**, one WHMCS service per backup user. The Usage & Billing drawer includes a **per-object OneDrive breakdown** for passing through overage to clients.
 
 ---
 
@@ -280,10 +308,10 @@ Use **one backup user per end customer**, one WHMCS service per backup user. The
 | Term | Meaning |
 |------|---------|
 | **Backup user** | An e3 Cloud Backup user (`s3_backup_users`) with its own M365 tenant connection and jobs |
-| **Protected User** | A billable Microsoft 365 person identity in your backup scope |
+| **Protected Object** | A billable Microsoft 365 identity (person, guest, or mailbox) in your backup scope, reached via personal selection or team/group/site membership. Internal metric key remains `protected_users` for backward compatibility. |
 | **Peak / peak-in-period** | Highest metered value recorded on any day in the current billing window |
 | **Scope** | Per-resource toggles (mail, OneDrive, Teams messages, etc.) in a backup job |
-| **Inventory refresh** | Discovery pass that updates users, teams, groups, OneDrive sizes, and member lists from Graph |
+| **Inventory refresh** | Discovery pass that updates users, mailboxes, teams, groups, sites, OneDrive sizes, and member lists from Graph |
 
 ---
 
@@ -302,3 +330,4 @@ Use **one backup user per end customer**, one WHMCS service per backup user. The
 | Date | Change |
 |------|--------|
 | 2026-07-06 | Initial guide: member-based Protected Users (teams/groups), peak billing, OneDrive overage, wizard estimate, KB-oriented structure |
+| 2026-07-21 | Renamed **Protected Users → Protected Objects**. Guests and shared/room/equipment mailboxes moved from "does not count" to the **counts** table (billed like any other identity). Added **SharePoint site membership** as a third billable source (site permissions, no longer deferred). Updated deduplication examples, worked examples, FAQ, and glossary. Internal metric key (`protected_users`) and admin setting key (`protected_user_price_cad`) unchanged. |

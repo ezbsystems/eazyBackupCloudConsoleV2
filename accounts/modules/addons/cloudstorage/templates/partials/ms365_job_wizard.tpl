@@ -363,13 +363,13 @@
                                         </template>
                                         <template x-if="billingPreview.inventory_stale || billingPreview.member_resolution_pending">
                                             <span class="eb-badge eb-badge--warning text-xs"
-                                                  :title="billingPreview.member_resolution_pending ? 'Team or group member lists could not be loaded. Refresh inventory to update Protected User counts and pricing.' : 'Inventory may be outdated. Refresh inventory for current figures.'"
+                                                  :title="billingPreview.member_resolution_pending ? 'Team, group, or site member lists could not be loaded. Refresh inventory to update Protected Object counts and pricing.' : 'Inventory may be outdated. Refresh inventory for current figures.'"
                                                   x-text="billingPreview.member_resolution_pending ? 'Member counts incomplete' : 'Inventory may be stale'"></span>
                                         </template>
                                     </div>
                                     <div class="ms365-wizard-billing-dock__metrics">
                                         <div class="ms365-wizard-billing-dock__metric">
-                                            <span class="ms365-wizard-billing-dock__metric-label">Protected Users</span>
+                                            <span class="ms365-wizard-billing-dock__metric-label">Protected Objects</span>
                                             <span class="ms365-wizard-billing-dock__metric-value" x-text="billingPreview.protected_users ?? 0"></span>
                                         </div>
                                         <div class="ms365-wizard-billing-dock__metric">
@@ -380,7 +380,7 @@
                                         </div>
                                     </div>
                                     <p class="eb-type-caption text-[var(--eb-text-muted)] mb-0">
-                                        Protected Users @ $<span x-text="Number(billingPreview.pricing?.protected_user_price_cad || 0).toFixed(2)"></span>/user
+                                        Protected Objects @ $<span x-text="Number(billingPreview.pricing?.protected_user_price_cad || 0).toFixed(2)"></span>/object
                                         <template x-if="(billingPreview.onedrive_overage_gib || 0) > 0">
                                             <span> · OneDrive overage included</span>
                                         </template>

@@ -744,7 +744,7 @@
                                             </template>
                                             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
                                                 <div class="eb-card !p-4">
-                                                    <div class="text-xs uppercase tracking-wide text-[var(--eb-text-muted)]">Protected Users</div>
+                                                    <div class="text-xs uppercase tracking-wide text-[var(--eb-text-muted)]">Protected Objects</div>
                                                     <div class="text-2xl font-semibold mt-1" x-text="(ms365UsageData.protected_users?.current ?? 0)"></div>
                                                     <div class="text-xs text-[var(--eb-text-muted)] mt-1">Peak this period: <span x-text="(ms365UsageData.protected_users?.peak_in_period ?? 0)"></span></div>
                                                 </div>
@@ -789,7 +789,7 @@
                                                 <div class="font-medium mb-2">Estimated period total (CAD)</div>
                                                 <div class="text-2xl font-semibold" x-text="'$' + Number(ms365UsageData.pricing?.estimated_period_total_cad || 0).toFixed(2)"></div>
                                                 <div class="text-xs text-[var(--eb-text-muted)] mt-2">
-                                                    Protected Users @ $<span x-text="Number(ms365UsageData.pricing?.protected_user_price_cad || 0).toFixed(2)"></span>/user ·
+                                                    Protected Objects @ $<span x-text="Number(ms365UsageData.pricing?.protected_user_price_cad || 0).toFixed(2)"></span>/object ·
                                                     OneDrive overage @ $<span x-text="Number(ms365UsageData.pricing?.onedrive_overage_per_gib_cad || 0).toFixed(2)"></span>/GiB
                                                 </div>
                                             </div>

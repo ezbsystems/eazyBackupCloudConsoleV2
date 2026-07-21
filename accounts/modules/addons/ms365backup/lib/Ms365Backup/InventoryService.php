@@ -314,6 +314,7 @@ final class InventoryService
         );
 
         $this->enrichTeamAndGroupMembers($resources, $discoveryCounts);
+        $this->enrichSharePointSiteMembers($resources, $discoveryCounts);
 
         $resourceList = array_values($resources);
         $resolver = new RelationshipResolver();
@@ -436,6 +437,81 @@ final class InventoryService
             } catch (\Throwable $_) {
                 $billable = [];
             }
+
+            if (!isset($resources[$resourceId]['meta']) || !is_array($resources[$resourceId]['meta'])) {
+                $resources[$resourceId]['meta'] = [];
+            }
+            $resources[$resourceId]['meta']['member_azure_ids'] = $billable;
+            $resources[$resourceId]['meta']['member_count'] = count($billable);
+            $resources[$resourceId]['meta']['members_fetched_at'] = gmdate('c');
+        }
+    }
+
+    /**
+     * @param array<string, array<string, mixed>> $resources
+     * @param array<string, int> $discoveryCounts
+     */
+    private function enrichSharePointSiteMembers(array &$resources, array &$discoveryCounts): void
+    {
+        $siteTargets = [];
+        foreach ($resources as $resource) {
+            $type = (string) ($resource['resource_type'] ?? '');
+            if ($type !== TenantResource::TYPE_SHAREPOINT_SITE) {
+                continue;
+            }
+            $id = (string) ($resource['id'] ?? '');
+            $siteGraphId = (string) ($resource['graph_id'] ?? '');
+            if ($id === '' || $siteGraphId === '') {
+                continue;
+            }
+            $siteTargets[] = ['id' => $id, 'site_id' => $siteGraphId];
+        }
+
+        if ($siteTargets === []) {
+            return;
+        }
+
+        $total = count($siteTargets);
+        $inventoryStub = ['resources' => array_values($resources)];
+        foreach ($siteTargets as $index => $target) {
+            if ($index === 0 || ($index + 1) % 5 === 0 || $index === $total - 1) {
+                $this->writeRefreshProgress(
+                    'site_members',
+                    'Loading SharePoint site members…',
+                    $discoveryCounts,
+                    sprintf('Site members: %d of %d', $index + 1, $total),
+                );
+            }
+
+            $siteId = $target['site_id'];
+            $resourceId = $target['id'];
+            try {
+                $rows = $this->discovery->listSiteMembers($siteId);
+                $billable = ProtectedUserResolver::billableIdsFromMemberRows($rows, $inventoryStub);
+            } catch (\Throwable $_) {
+                $billable = [];
+            }
+
+            $merged = array_fill_keys($billable, true);
+            foreach ($resources as $candidate) {
+                $candidateType = (string) ($candidate['resource_type'] ?? '');
+                if (!in_array($candidateType, [TenantResource::TYPE_TEAM, TenantResource::TYPE_M365_GROUP], true)) {
+                    continue;
+                }
+                $candidateMeta = is_array($candidate['meta'] ?? null) ? $candidate['meta'] : [];
+                $linkedSiteId = (string) ($candidateMeta['sharepoint_site_id'] ?? '');
+                if ($linkedSiteId === '' || $linkedSiteId !== $siteId) {
+                    continue;
+                }
+                $linkedMemberIds = is_array($candidateMeta['member_azure_ids'] ?? null)
+                    ? $candidateMeta['member_azure_ids']
+                    : [];
+                foreach ($linkedMemberIds as $memberId) {
+                    $merged[(string) $memberId] = true;
+                }
+            }
+
+            $billable = array_keys($merged);
 
             if (!isset($resources[$resourceId]['meta']) || !is_array($resources[$resourceId]['meta'])) {
                 $resources[$resourceId]['meta'] = [];

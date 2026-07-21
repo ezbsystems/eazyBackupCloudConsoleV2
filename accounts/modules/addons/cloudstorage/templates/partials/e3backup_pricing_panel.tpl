@@ -24,8 +24,8 @@
         <p class="text-xs text-[var(--eb-text-muted)] mt-0.5">{$ebPricingPanel.ms365_backup.note|escape}</p>
         <ul class="mt-2 space-y-1.5 text-sm">
             <li class="flex justify-between gap-4">
-                <span class="text-[var(--eb-text-secondary)]">Protected Users</span>
-                <span class="font-medium text-[var(--eb-text-primary)]">${$ebPricingPanel.ms365_backup.protected_user_price|string_format:"%.2f"} <span class="text-xs font-normal text-[var(--eb-text-muted)]">per user / month</span></span>
+                <span class="text-[var(--eb-text-secondary)]">Protected Objects</span>
+                <span class="font-medium text-[var(--eb-text-primary)]">${$ebPricingPanel.ms365_backup.protected_user_price|string_format:"%.2f"} <span class="text-xs font-normal text-[var(--eb-text-muted)]">per object / month</span></span>
             </li>
             <li class="flex justify-between gap-4">
                 <span class="text-[var(--eb-text-secondary)]">OneDrive included</span>

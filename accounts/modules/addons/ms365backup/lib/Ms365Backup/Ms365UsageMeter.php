@@ -6,7 +6,7 @@ namespace Ms365Backup;
 use WHMCS\Database\Capsule;
 
 /**
- * Computes Protected Users and OneDrive overage from inventory + MS365 job selections.
+ * Computes Protected Objects and OneDrive overage from inventory + MS365 job selections.
  */
 final class Ms365UsageMeter
 {

@@ -4,7 +4,9 @@ declare(strict_types=1);
 namespace Ms365Backup;
 
 /**
- * Resolves billable Protected User Azure IDs from job selection + inventory.
+ * Resolves billable Protected Object Azure IDs from job selection + inventory.
+ *
+ * One Azure object ID counts at most once (personal + team/group + site membership).
  */
 final class ProtectedUserResolver
 {
@@ -30,6 +32,7 @@ final class ProtectedUserResolver
         TenantResource::TYPE_TEAM,
         TenantResource::TYPE_TEAM_CHANNEL,
         TenantResource::TYPE_M365_GROUP,
+        TenantResource::TYPE_SHAREPOINT_SITE,
     ];
 
     /**
@@ -82,6 +85,40 @@ final class ProtectedUserResolver
                 continue;
             }
             if (!self::hasEnabledSharedScope($type, $resourceId, $scopeOverrides, $inventory)) {
+                continue;
+            }
+
+            if ($type === TenantResource::TYPE_SHAREPOINT_SITE) {
+                $siteGraphId = (string) ($resource['graph_id']
+                    ?? TenantResource::graphIdFromResourceId((string) ($resource['id'] ?? '')));
+                $fetchKey = 'site:' . $siteGraphId;
+                if (!isset($resolvedGroupFetches[$fetchKey])) {
+                    $resolvedGroupFetches[$fetchKey] = self::resolveSiteMembers(
+                        $siteGraphId,
+                        $resource,
+                        $byId,
+                        $userIndex,
+                        $discovery,
+                        $memberResolutionPending,
+                    );
+                }
+
+                $memberIds = $resolvedGroupFetches[$fetchKey]['ids'];
+                if ($resolvedGroupFetches[$fetchKey]['pending']) {
+                    $memberResolutionPending = true;
+                }
+
+                $fromThisResource = [];
+                foreach ($memberIds as $memberId) {
+                    $protected[$memberId] = true;
+                    $fromThisResource[] = $memberId;
+                }
+                $sources[$resourceId] = $fromThisResource;
+                $breakdown[] = [
+                    'resource_id' => $resourceId,
+                    'label' => (string) ($resource['display_name'] ?? $resourceId),
+                    'member_count' => count($fromThisResource),
+                ];
                 continue;
             }
 
@@ -199,16 +236,8 @@ final class ProtectedUserResolver
             }
         }
 
-        if ($resourceType === TenantResource::TYPE_MAILBOX) {
-            return false;
-        }
-        if ($userType === 'guest') {
-            return false;
-        }
-        if ($upn !== '' && str_contains($upn, '#ext#')) {
-            return false;
-        }
-
+        // Protected Objects: Member users, guests, shared/room/equipment mailboxes all bill.
+        // Devices / service principals are filtered before rows reach here (Graph member helpers).
         return true;
     }
 
@@ -306,6 +335,48 @@ final class ProtectedUserResolver
                 'ids' => self::billableIdsFromMemberRows($rows, $inventory),
                 'pending' => false,
             ];
+        } catch (\Throwable $_) {
+            $memberResolutionPending = true;
+
+            return ['ids' => [], 'pending' => true];
+        }
+    }
+
+    /**
+     * @param array<string, array<string, mixed>> $byId
+     * @param array<string, array{user_type: string, upn: string, resource_type: string}> $userIndex
+     * @return array{ids: list<string>, pending: bool}
+     */
+    private static function resolveSiteMembers(
+        string $siteGraphId,
+        array $resource,
+        array $byId,
+        array $userIndex,
+        ?DiscoveryService $discovery,
+        bool &$memberResolutionPending,
+    ): array {
+        $meta = is_array($resource['meta'] ?? null) ? $resource['meta'] : [];
+        $cached = $meta['member_azure_ids'] ?? null;
+        if (is_array($cached) && $cached !== []) {
+            return [
+                'ids' => self::filterBillableIds(array_map('strval', $cached), ['resources' => array_values($byId)]),
+                'pending' => false,
+            ];
+        }
+        // Empty array cache with members_fetched_at means "resolved, zero members"
+        if (is_array($cached) && isset($meta['members_fetched_at'])) {
+            return ['ids' => [], 'pending' => false];
+        }
+        if ($discovery === null || $siteGraphId === '') {
+            $memberResolutionPending = true;
+
+            return ['ids' => [], 'pending' => true];
+        }
+        try {
+            $rows = $discovery->listSiteMembers($siteGraphId);
+            $ids = self::billableIdsFromMemberRows($rows, ['resources' => array_values($byId)]);
+
+            return ['ids' => $ids, 'pending' => false];
         } catch (\Throwable $_) {
             $memberResolutionPending = true;
 

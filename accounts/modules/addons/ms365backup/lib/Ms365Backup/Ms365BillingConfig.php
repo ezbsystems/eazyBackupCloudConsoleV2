@@ -25,7 +25,7 @@ final class Ms365BillingConfig
     public static function metricFriendlyName(string $metric): string
     {
         return match ($metric) {
-            self::METRIC_PROTECTED_USERS => 'Protected Users',
+            self::METRIC_PROTECTED_USERS => 'Protected Objects',
             self::METRIC_ONEDRIVE_OVERAGE_GIB => 'OneDrive Overage (GiB)',
             default => ucfirst(str_replace('_', ' ', $metric)),
         };

@@ -25,14 +25,16 @@ Under **API permissions** → **Add a permission** → **Microsoft Graph** → *
 | `Calendars.Read` | Backup calendar events (series masters + exceptions) |
 | `Contacts.Read` | Backup contact folders and contacts (delta per folder) |
 | `Tasks.Read.All` | Backup Microsoft To Do lists and tasks (delta per list) |
-| `Sites.Read.All` | List SharePoint sites |
+| `Sites.Read.All` | List SharePoint sites; also covers **site permission/member metering** (`/sites/{id}/permissions`) — see note below |
 | `Group.Read.All` | List Microsoft Teams and M365 groups |
 | `Files.Read.All` | OneDrive drive metadata (`/users/{id}/drive`) for resource inventory |
 | `ChannelMessage.Read.All` | Teams channel messages and replies (Phase 2E) |
-| `TeamMember.Read.All` | Team members (`/teams/{id}/members`) — Protected User metering |
-| `GroupMember.Read.All` | M365 group members (`/groups/{id}/members`) — Protected User metering |
+| `TeamMember.Read.All` | Team members (`/teams/{id}/members`) — Protected Object metering |
+| `GroupMember.Read.All` | M365 group members (`/groups/{id}/members`) — Protected Object metering |
 | `Channel.ReadBasic.All` | Channel tabs (`/teams/{id}/channels/{id}/tabs`) — optional; tabs skipped if denied |
 | `Notes.Read.All` | OneNote notebooks, sections, pages (Phase 2F) |
+
+**SharePoint site member metering (2026-07-21):** billing resolves SharePoint site members/permission principals for Protected Objects billing via `GET /sites/{id}/permissions`, cached on the site resource the same way Team/Group members are cached. This uses the **existing `Sites.Read.All`** application permission already required for SharePoint site inventory/backup — **no additional Graph permission is required**. If a future tenant is found where `Sites.Read.All` alone does not return `grantedToV2`/`grantedToIdentitiesV2` on the permissions endpoint, document the exact additional permission name here before shipping further changes.
 
 Click **Grant admin consent for {tenant}**.
 

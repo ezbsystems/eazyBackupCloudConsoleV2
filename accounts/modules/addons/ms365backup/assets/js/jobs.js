@@ -247,7 +247,7 @@
     wrap.innerHTML =
       '<table class="table table-striped table-condensed table-hover"><thead><tr>' +
       '<th style="width:28px"><input type="checkbox" id="ms365-jobs-select-all" title="Select all on this page"></th>' +
-      '<th>Client</th><th>Job</th><th>Protected</th><th>OD Overage</th><th>Type</th><th>Run ID</th><th>Status</th>' +
+      '<th>Client</th><th>Job</th><th>Objects</th><th>OD Overage</th><th>Type</th><th>Run ID</th><th>Status</th>' +
       '<th>Started</th><th>Duration</th><th>Progress</th><th>Actions</th>' +
       '</tr></thead><tbody>' +
       rows.map(function (row) {

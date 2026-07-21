@@ -367,11 +367,11 @@ function ms365backup_config(): array
                 'Description' => 'WHMCS product ID for eazyBackup Microsoft 365 Backup (auto-set by product bootstrap).',
             ],
             'protected_user_price_cad' => [
-                'FriendlyName' => 'Protected User price (CAD)',
+                'FriendlyName' => 'Protected Object price (CAD)',
                 'Type' => 'text',
                 'Size' => '12',
                 'Default' => '0.00',
-                'Description' => 'Per Protected User per month; applied via invoice hook (not tblpricing).',
+                'Description' => 'Per Protected Object per month; applied via invoice hook (not tblpricing).',
             ],
             'onedrive_included_gib' => [
                 'FriendlyName' => 'OneDrive included GiB per user',

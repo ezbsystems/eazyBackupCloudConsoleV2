@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 /**
- * Protected User resolver / member-based metering tests.
+ * Protected Objects / member-based metering tests.
  *
  * Run: php accounts/modules/addons/ms365backup/tests/ms365_protected_user_resolver_test.php
  */
@@ -156,8 +156,9 @@ $resultGuests = ProtectedUserResolver::resolve(
     ['team:grp-g', 'mailbox:shared-1'],
     $scopeGuests,
 );
-assert_true(!in_array($guestId, $resultGuests['protected_azure_ids'], true), 'guest user excluded from team members');
-assert_true(!in_array('shared-1', $resultGuests['protected_azure_ids'], true), 'shared mailbox not counted as protected user');
+assert_true(in_array($guestId, $resultGuests['protected_azure_ids'], true), 'guest user counted as protected object via team membership');
+assert_true(in_array('shared-1', $resultGuests['protected_azure_ids'], true), 'shared mailbox counted when personally selected');
+assert_eq(3, count($resultGuests['protected_azure_ids']), 'team member user-1 + guest + shared mailbox = 3');
 
 $channelTeamMembers = makeMemberIds(3);
 $inventoryChannel = [
@@ -186,6 +187,23 @@ $inventorySite = [
     'resources' => [
         TenantResource::build(TenantResource::TYPE_SHAREPOINT_SITE, 'site-1', 'Standalone Site', null, [
             'id' => 'site:site-1',
+            'meta' => [
+                'member_azure_ids' => ['sp-user-1', 'sp-user-2', 'guest-sp'],
+                'member_count' => 3,
+            ],
+        ]),
+        TenantResource::build(TenantResource::TYPE_USER, 'guest-sp', 'SP Guest', null, [
+            'id' => 'user:guest-sp',
+            'email' => 'guest_sp#EXT#@example.com',
+            'meta' => ['user_type' => 'Guest'],
+        ]),
+        TenantResource::build(TenantResource::TYPE_USER, 'sp-user-1', 'SP User 1', null, [
+            'id' => 'user:sp-user-1',
+            'meta' => ['user_type' => 'Member'],
+        ]),
+        TenantResource::build(TenantResource::TYPE_USER, 'sp-user-2', 'SP User 2', null, [
+            'id' => 'user:sp-user-2',
+            'meta' => ['user_type' => 'Member'],
         ]),
     ],
 ];
@@ -193,7 +211,85 @@ $scopeSite = [
     'site:site-1' => [BackupScope::FILES => true],
 ];
 $resultSite = ProtectedUserResolver::resolve($inventorySite, ['site:site-1'], $scopeSite);
-assert_eq(0, count($resultSite['protected_azure_ids']), 'sharepoint site only does not add protected users (deferred)');
+assert_eq(3, count($resultSite['protected_azure_ids']), 'sharepoint site members become protected objects');
+assert_true(in_array('guest-sp', $resultSite['protected_azure_ids'], true), 'sharepoint guest member counted');
+
+// Cross-source dedupe: personal + team + site
+$alice = 'alice-1';
+$inventoryCross = [
+    'resources' => [
+        TenantResource::build(TenantResource::TYPE_USER, $alice, 'Alice', null, [
+            'id' => 'user:' . $alice,
+            'meta' => ['user_type' => 'Member'],
+        ]),
+        TenantResource::build(TenantResource::TYPE_TEAM, 'grp-cross', 'Cross Team', null, [
+            'id' => 'team:grp-cross',
+            'meta' => [
+                'group_id' => 'grp-cross',
+                'member_azure_ids' => [$alice, 'bob-1'],
+            ],
+        ]),
+        TenantResource::build(TenantResource::TYPE_SHAREPOINT_SITE, 'site-cross', 'Cross Site', null, [
+            'id' => 'site:site-cross',
+            'meta' => [
+                'member_azure_ids' => [$alice, 'carol-1'],
+            ],
+        ]),
+        TenantResource::build(TenantResource::TYPE_USER, 'bob-1', 'Bob', null, [
+            'id' => 'user:bob-1',
+            'meta' => ['user_type' => 'Member'],
+        ]),
+        TenantResource::build(TenantResource::TYPE_USER, 'carol-1', 'Carol', null, [
+            'id' => 'user:carol-1',
+            'meta' => ['user_type' => 'Member'],
+        ]),
+    ],
+];
+$scopeCross = [
+    'user:' . $alice => [BackupScope::MAIL => true],
+    'team:grp-cross' => [BackupScope::TEAMS_MESSAGES => true],
+    'site:site-cross' => [BackupScope::FILES => true],
+];
+$resultCross = ProtectedUserResolver::resolve(
+    $inventoryCross,
+    ['user:' . $alice, 'team:grp-cross', 'site:site-cross'],
+    $scopeCross,
+);
+assert_eq(3, count($resultCross['protected_azure_ids']), 'alice+bob+carol deduped across personal/team/site');
+
+// Personally selected guest
+$inventoryGuestPersonal = [
+    'resources' => [
+        TenantResource::build(TenantResource::TYPE_USER, 'guest-solo', 'Solo Guest', null, [
+            'id' => 'user:guest-solo',
+            'email' => 'solo#EXT#@example.com',
+            'meta' => ['user_type' => 'Guest'],
+        ]),
+    ],
+];
+$resultGuestPersonal = ProtectedUserResolver::resolve(
+    $inventoryGuestPersonal,
+    ['user:guest-solo'],
+    ['user:guest-solo' => [BackupScope::MAIL => true]],
+);
+assert_eq(1, count($resultGuestPersonal['protected_azure_ids']), 'personally selected guest is a protected object');
+
+// Room/equipment-style mailbox (TYPE_MAILBOX, no user_type Guest)
+$inventoryRoom = [
+    'resources' => [
+        TenantResource::build(TenantResource::TYPE_MAILBOX, 'room-1', 'Conference Room', null, [
+            'id' => 'mailbox:room-1',
+            'email' => 'room1@example.com',
+            'meta' => ['user_type' => ''],
+        ]),
+    ],
+];
+$resultRoom = ProtectedUserResolver::resolve(
+    $inventoryRoom,
+    ['mailbox:room-1'],
+    ['mailbox:room-1' => [BackupScope::CALENDAR => true]],
+);
+assert_eq(1, count($resultRoom['protected_azure_ids']), 'room mailbox personally selected counts as protected object');
 
 $measure = Ms365UsageMeter::measureSelection($inventoryTeamOnly, ['team:grp-tech'], $scopeTeam);
 assert_eq(29, $measure['protected_users'], 'Ms365UsageMeter::measureSelection matches resolver for team-only');

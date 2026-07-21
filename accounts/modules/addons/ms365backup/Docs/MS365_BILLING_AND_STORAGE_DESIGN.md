@@ -1,43 +1,51 @@
 # MS365 Backup — Billing & Storage Design
 
-**Status:** Implemented (v1.20.0+)
-**Last updated:** 2026-07-06
+**Status:** Implemented (v1.20.0+); Protected Objects expansion implemented 2026-07-21
+**Last updated:** 2026-07-21
 **Owners:** ms365backup (engines + metering services) + cloudstorage (customer UI, buckets, APIs)
 
-This document specifies how to make the **Microsoft 365 Backup** product billing-ready: a free WHMCS product driven by **config options** for Protected Users and OneDrive overage, **per-backup-user daily metering** sourced from Microsoft Graph, **peak-of-period** billing, admin-configurable pricing, a trial, and **platform-owned, isolated object storage** that never touches the existing object-storage bill.
+This document specifies how to make the **Microsoft 365 Backup** product billing-ready: a free WHMCS product driven by **config options** for Protected Objects and OneDrive overage, **per-backup-user daily metering** sourced from Microsoft Graph, **peak-of-period** billing, admin-configurable pricing, a trial, and **platform-owned, isolated object storage** that never touches the existing object-storage bill.
 
 Read alongside: [PRODUCT_ROADMAP.md](PRODUCT_ROADMAP.md) (product intent/phases), [ARCHITECTURE_BOUNDARIES.md](ARCHITECTURE_BOUNDARIES.md) (module split), and `modules/addons/cloudstorage/docs/E3_CLOUD_BACKUP_BILLING.md` (the metered-billing pattern this design mirrors).
+
+**Protected Objects expansion (2026-07-21):** billing now counts **Protected Objects**, not only "Protected Users" — see [specs/2026-07-21-protected-objects-billing-design.md](specs/2026-07-21-protected-objects-billing-design.md) for the approved design this section was updated from. §2.1 below reflects the implemented definition; internal metric/setting keys (`protected_users`, `protected_user_price_cad`) are unchanged.
 
 ---
 
 ## 1. Goals & billing model
 
-- MS365 Backup is sold **per Protected User**, with **unlimited storage** for all workloads **except OneDrive**. Each user includes a configurable amount of OneDrive storage (default **1 TiB**); usage above the included amount is billed **per GiB**.
+- MS365 Backup is sold **per Protected Object**, with **unlimited storage** for all workloads **except OneDrive**. Each identity with OneDrive personally selected includes a configurable amount of OneDrive storage (default **1 TiB**); usage above the included amount is billed **per GiB**.
 - The WHMCS product itself is **free, recurring monthly**; all charges come from **config options**. It has a **trial period**.
 - Billing adjusts automatically with usage:
-  - **Protected Users:** bill the **peak (MAX) count seen during the billing period**. If the count drops mid-period, the reduction does **not** take effect until the next billing period.
+  - **Protected Objects:** bill the **peak (MAX) count seen during the billing period**. If the count drops mid-period, the reduction does **not** take effect until the next billing period.
   - **OneDrive overage:** bill the **peak total overage GiB** across all users during the period.
 - Usage is **tracked daily** and surfaced to the customer with a **per-backup-user, per-user OneDrive breakdown**, so an MSP can see exactly which Microsoft 365 user is over the included limit and by how much (required for re-billing their own end customers).
-- **Admin-configurable** from the ms365backup addon settings: OneDrive included GiB, OneDrive overage price per GiB, and per-Protected-User price.
+- **Admin-configurable** from the ms365backup addon settings: OneDrive included GiB, OneDrive overage price per GiB, and per-Protected-Object price.
 
 ---
 
 ## 2. Definitions & tenancy model
 
-### 2.1 Protected User
+### 2.1 Protected Object
 
-A **Protected User** is a distinct Microsoft 365 **user** identity (by Azure user id), counted when either:
+A **Protected Object** is one distinct Microsoft 365 directory identity, identified by **Azure object ID**, counted at most **once** per backup user for the billing window, when it is reached by any of:
 
-1. **Personal protection** — the user is directly selected with at least one enabled personal workload (mailbox, OneDrive, calendar, contacts, or tasks), or
-2. **Team / group membership** — the user is a billable member of a **selected Team or M365 Group** with at least one enabled backup scope.
+1. **Personal selection** — the identity is directly selected as a `user`, `mailbox` (including shared / room / equipment), or `user_onedrive` with at least one enabled personal scope (mail, calendar, contacts, tasks, OneDrive/files).
+2. **Team / Group membership** — the identity is a billable member of a **selected Team** (channel selections inherit parent-team membership) or **M365 Group** with at least one enabled shared scope.
+3. **SharePoint site membership** — the identity is a billable user/mailbox principal granted on a **selected SharePoint site** (via `sites/{id}/permissions`) with at least one enabled site scope.
+
+**Included** (billable): Member users, **guest users** (`userType = Guest` or `#EXT#` in UPN), **shared mailboxes**, **room mailboxes**, **equipment mailboxes** — whether reached by personal selection, team/group membership, or SharePoint site membership.
+
+**Excluded** (not billable): devices, service principals, and other non-identity directory objects that are not backupable user/mailbox resources.
 
 Rules:
 
-- The same Azure user id is counted **once** across personal selections, team memberships, and group memberships (deduplicated).
-- **Shared workload data** (Teams, M365 Groups, SharePoint files, Planner, OneNote) remains **unlimited storage**; billing is per **member identity**, not per workload byte.
-- **Exclusions** (not billable): guest users (`userType === Guest` or `#EXT#` UPN), shared mailboxes, and non-user directory objects (devices, service principals).
-- **Deferred (phase 2):** SharePoint site permissions / standalone site members — selecting only a SharePoint site does **not** add Protected Users until site-member resolution ships.
+- The same Azure object ID is counted **once** across personal selections, team memberships, group memberships, and SharePoint site memberships — strict dedupe on a single `$protected[$azureId] = true` map (the resolver's dedupe law; see §6).
+- **Shared workload data** (Teams, M365 Groups, SharePoint files, Planner, OneNote) remains **unlimited storage**; billing is per **identity in scope**, not per workload byte.
+- **SharePoint site membership is in scope** (no longer deferred): selecting a SharePoint site resolves its member/permission principals (`sites/{id}/permissions`, cached on the site resource as `meta.member_azure_ids`) into the same billable set as team/group members. If member resolution has not run yet and no live discovery is available, the site contributes **0** and the UI/API surface `member_resolution_pending` rather than inventing a count.
 - **Wizard:** job step 2 shows a live billing preview (`protected_users` + estimated monthly) for the **current selection**, not only saved jobs.
+- **Internal keys unchanged:** the metric key remains `protected_users` and the admin setting remains `protected_user_price_cad` (see §3, Non-goals in the approved spec); only customer-facing/admin **labels** changed to "Protected Objects" / "Protected Object price (CAD)".
+- **Go-live:** the expanded definition applies starting with the **next daily meter run** (`ms365_billing.php`) — no grandfathering of prior, narrower counts.
 
 ### 2.2 Tenancy model (how clients, backup users, and WHMCS services relate)
 
@@ -122,13 +130,13 @@ flowchart TB
 | `pid_ms365_backup` | WHMCS product PID(s) for MS365 Backup (comma-separated supported), read like `pid_cloud_storage` in `s3Billing.php` | — |
 | `onedrive_included_gib` | Included OneDrive storage per user, in GiB | `1024` |
 | `onedrive_overage_price_per_gib_cad` | Price per GiB above the included amount | — |
-| `protected_user_price_cad` | Price per Protected User | — |
+| `protected_user_price_cad` | Price per Protected Object (key name unchanged; FriendlyName "Protected Object price (CAD)") | — |
 | `ms365_trial_days` | Trial length in days | `30` |
 | `ms365_config_option_ids` | Auto-stored mapping of metric → WHMCS config option id (mirrors `e3cb_config_option_ids`) | — |
 
 ### 5.3 Config options (quantity type)
 
-- `protected_users` — Qty = number of Protected Users (service total).
+- `protected_users` — Qty = number of Protected Objects (service total). Internal key/config-option key unchanged; WHMCS `optionname` display renamed to "Protected Objects" (existing installs migrated in place, see §14).
 - `onedrive_overage_gib` — Qty = total overage **GiB** across all users (Qty 1 = 1 GiB).
 
 Prices are taken from the **admin settings** above and applied via the invoice hook (Section 8), so pricing is configurable from module settings rather than baked into WHMCS product pricing.
@@ -139,33 +147,36 @@ Populate `ms365_tenant_records.whmcs_service_id` for the **specific backup user*
 
 ---
 
-## 6. Metering — Protected Users
+## 6. Metering — Protected Objects
 
 A new daily cron `accounts/crons/ms365_billing.php` (mirroring `accounts/crons/e3_cloudbackup_billing.php`) drives a `Ms365BillingService` in **ms365backup** (engines/services own metering; cloudstorage surfaces it).
 
 For each active MS365 service (resolved via `pid_ms365_backup`), meter the **single backup user** bound via `ms365_tenant_records.whmcs_service_id` (fallback: match `tblhosting.username` to `s3_backup_users.username`):
 
 1. Load the backup user's `inventory.json` and **selected backup scope** (union of all active MS365 jobs).
-2. Compute distinct billable Azure user ids via `ProtectedUserResolver` (personal workloads + team/group members).
+2. Compute distinct billable Azure IDs via `ProtectedUserResolver` (personal selection + team/group members + SharePoint site members). The class name `ProtectedUserResolver` is kept internally; it now resolves **Protected Objects**, no longer excluding guests, `#EXT#` UPNs, or `TYPE_MAILBOX`.
 3. Record counts for that backup user only.
 
 **Billing value = MAX(qty) over the current billing window** (anchored to `nextduedate`). Write peak qty to `tblhostingconfigoptions` and update `tblhosting.amount` from rated lines so recurring amount tracks usage during the month.
 
-### 6.1 Member resolution (Teams & M365 Groups)
+### 6.1 Member resolution (Teams, M365 Groups & SharePoint sites)
 
-Member lists are sourced from Microsoft Graph and cached during inventory refresh:
+Member/permission-principal lists are sourced from Microsoft Graph and cached during inventory refresh:
 
 | Resource | Graph endpoint | Permission |
 |----------|----------------|------------|
 | Team | `GET /teams/{groupId}/members` | `TeamMember.Read.All` |
 | M365 Group | `GET /groups/{groupId}/members` | `GroupMember.Read.All` |
+| SharePoint site | `GET /sites/{siteId}/permissions` | `Sites.Read.All` (existing; no additional Graph permission required — see [AZURE_SETUP.md](AZURE_SETUP.md)) |
 
-- Cached on each team/group resource in `inventory.json` as `meta.member_azure_ids`, `meta.member_count`, `meta.members_fetched_at`.
-- Discovery snapshots: `discovery/team_members/{groupId}.json` (ops/debug).
-- `ProtectedUserResolver` uses cache first; on-demand Graph fetch when cache is empty (e.g. tenant refreshed before deploy).
+- Cached on each team/group/site resource in `inventory.json` as `meta.member_azure_ids`, `meta.member_count`, `meta.members_fetched_at`.
+- Discovery snapshots: `discovery/team_members/{groupId}.json` and `discovery/site_members/{siteId}.json` (ops/debug).
+- `ProtectedUserResolver` uses cache first; on-demand Graph fetch when cache is empty (e.g. tenant refreshed before deploy). If neither cache nor live discovery is available, the resource contributes **0** members and the resolver/meter surface `member_resolution_pending` rather than guessing.
 - Team channels inherit parent team membership (no per-channel member fetch).
-- Selecting a team with **any** enabled scope (metadata, messages, files) bills all billable members.
-- OneDrive overage is still computed only for users with **personally selected** OneDrive scope.
+- Selecting a team/group with **any** enabled scope (metadata, messages, files) bills all billable members; selecting a SharePoint site with any enabled site scope bills all billable site principals.
+- A team/group whose `meta.sharepoint_site_id` matches a selected site's members are merged into that site's billable set (`InventoryService::enrichSharePointSiteMembers`), so a site backed by a team roster still resolves correctly even before the site's own permissions are fetched.
+- Site permission principals are filtered through the same billable-identity rules as team/group members: users and mailboxes (including guests) count; devices and service principals are skipped.
+- OneDrive overage is still computed only for identities with **personally selected** OneDrive scope.
 
 ---
 
@@ -185,7 +196,7 @@ A single overage config option keeps invoicing simple, while the per-user daily 
 
 - **Quantity automation:** the daily cron writes peak metered quantities to `tblhostingconfigoptions.qty`.
 - **Pricing:** an `InvoiceCreationPreEmail` hook (plus a `DailyCronJob` pass) mirroring `accounts/modules/addons/cloudstorage/hooks/e3cb_invoice.php` sets each MS365 config-option line amount from the **admin-setting prices**:
-  - `protected_user_price_cad` × Protected Users
+  - `protected_user_price_cad` × Protected Objects
   - `onedrive_overage_price_per_gib_cad` × overage GiB
 - **Trial:** reuse the e3cb pattern — a `ms365_billing_trial_state` lifecycle (`trialing → converted / suspended_no_payment / cancelled`) with a daily trial-check cron. While `trialing`, line amounts are **zeroed** but qty/unit price are still recorded, so the customer/MSP sees what the trial would cost. Trial length comes from `ms365_trial_days`.
 
@@ -210,7 +221,7 @@ A single overage config option keeps invoicing simple, while the per-user daily 
 
 ### 10.2 Admin (support)
 
-Surface the same Protected Users + storage stats on the **ms365backup admin Jobs page** so support can quickly reference them.
+Surface the same Protected Objects + storage stats on the **ms365backup admin Jobs page** so support can quickly reference them.
 
 **Trials admin:** `addonmodules.php?module=ms365backup&action=trials` — mirrors `cloudstorage&action=cloudbackup_trials` (filter by status, preview invoice, convert/cancel/re-evaluate, run evaluation for all).
 
@@ -227,7 +238,8 @@ Surface the same Protected Users + storage stats on the **ms365backup admin Jobs
 
 ## 12. Edge cases & decisions
 
-- A user with only a mailbox (no OneDrive selected) is a Protected User but contributes **0** OneDrive overage.
+- An identity with only a mailbox (no OneDrive selected) is a Protected Object but contributes **0** OneDrive overage.
+- A guest or shared/room/equipment mailbox with no OneDrive selected is a Protected Object but contributes **0** OneDrive overage (same rule as any other identity).
 - OneDrive size reflects **live Graph quota usage**, which can change daily; peak-of-period billing smooths this and matches the "no mid-period reduction" rule.
 - Disconnected / `action_required` tenants: reuse the last good snapshot and flag staleness in the UI; do not bill from missing inventory.
 - A WHMCS client with multiple backup users: **one MS365 WHMCS service per backup user**, each with its own metered config-option quantities (MSP reconciles by service Username).
@@ -242,7 +254,8 @@ Surface the same Protected Users + storage stats on the **ms365backup admin Jobs
 3. **Metering** — tables + `Ms365BillingService` (per backup user, aggregated to service) + daily cron + qty automation.
 4. **Pricing + trial** — invoice override hook driven by settings + trial lifecycle cron.
 5. **Customer UI** — MS365 job-card button → Usage & Billing panel + `api/ms365_usage.php`.
-6. **Admin stats** — Protected Users + storage on the ms365backup admin Jobs page.
+6. **Admin stats** — Protected Objects + storage on the ms365backup admin Jobs page.
+7. **Protected Objects expansion (2026-07-21)** — widen resolver to guests/shared/room/equipment mailboxes, add SharePoint site member resolution, relabel UI to "Protected Objects" (keys unchanged). See [specs/2026-07-21-protected-objects-billing-design.md](specs/2026-07-21-protected-objects-billing-design.md).
 
 ---
 
@@ -254,6 +267,7 @@ Surface the same Protected Users + storage stats on the **ms365backup admin Jobs
 | MS365 bucket bootstrap (to make per-backup-user) | `accounts/modules/addons/cloudstorage/lib/Client/Ms365StorageBootstrapService.php`, `CloudBackupBootstrapService.php` |
 | Tenant linkage | `accounts/modules/addons/ms365backup/lib/Ms365Backup/TenantRecordRepository.php` |
 | OneDrive size source | `accounts/modules/addons/ms365backup/lib/Ms365Backup/InventoryService.php` (`inventory.json` `meta.size_bytes` / `meta.owner_user_id`) |
+| Protected Objects resolver + SharePoint member enrichment | `accounts/modules/addons/ms365backup/lib/Ms365Backup/ProtectedUserResolver.php`, `DiscoveryService::listSiteMembers()`, `InventoryService::enrichSharePointSiteMembers()` |
 | Billing pattern to mirror | `accounts/crons/e3_cloudbackup_billing.php`, `accounts/modules/addons/cloudstorage/lib/Admin/E3CloudBackupBilling.php`, `lib/Admin/E3CloudBackupPricing.php`, `lib/Provision/E3CloudBackupProductBootstrap.php`, `hooks/e3cb_invoice.php` |
 | Addon settings | `accounts/modules/addons/ms365backup/ms365backup.php` |
 | Customer UI | `accounts/modules/addons/cloudstorage/templates/e3backup_user_detail.tpl`, new `api/ms365_usage.php` |

@@ -17,7 +17,7 @@ class E3BackupUserProductBootstrap
         'hyperv_vm'            => ['name' => 'Hyper-V Guest VM',      'default_price' => 4.50],
         'proxmox_vm'           => ['name' => 'Proxmox Guest VM',      'default_price' => 4.50],
         'vmware_vm'            => ['name' => 'VMware Guest VM',       'default_price' => 4.50],
-        'protected_users'      => ['name' => 'Protected Users',       'default_price' => 0.00],
+        'protected_users'      => ['name' => 'Protected Objects',     'default_price' => 0.00],
         'onedrive_overage_gib' => ['name' => 'OneDrive Overage (GiB)', 'default_price' => 0.00],
         'saas_connector'       => ['name' => 'SaaS Connector',        'default_price' => 0.00],
     ];
@@ -41,6 +41,7 @@ class E3BackupUserProductBootstrap
             'product_created' => false,
             'group_id' => 0,
             'options_created' => [],
+            'options_renamed' => [],
             'pricing_rows_created' => [],
             'errors' => [],
         ];
@@ -378,6 +379,29 @@ class E3BackupUserProductBootstrap
             ->orderBy('id', 'asc')
             ->first();
         $configId = $existing && isset($existing->id) ? (int) $existing->id : 0;
+
+        if ($configId <= 0 && $metricKey === 'protected_users') {
+            $legacy = Capsule::table('tblproductconfigoptions')
+                ->where('gid', $configGroupId)
+                ->where('optionname', 'Protected Users')
+                ->orderBy('id', 'asc')
+                ->first();
+            if ($legacy && isset($legacy->id)) {
+                $configId = (int) $legacy->id;
+                try {
+                    Capsule::table('tblproductconfigoptions')
+                        ->where('id', $configId)
+                        ->update(['optionname' => $optionName]);
+                    Capsule::table('tblproductconfigoptionssub')
+                        ->where('configid', $configId)
+                        ->where('optionname', 'Protected Users')
+                        ->update(['optionname' => $optionName]);
+                    $report['options_renamed'][] = $metricKey;
+                } catch (\Throwable $e) {
+                    $report['errors'][] = "config_option_rename_fail({$metricKey}): " . $e->getMessage();
+                }
+            }
+        }
 
         if ($configId <= 0) {
             try {
