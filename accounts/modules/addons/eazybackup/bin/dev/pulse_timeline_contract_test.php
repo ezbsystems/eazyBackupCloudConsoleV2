@@ -33,10 +33,11 @@ $targets = [
         'path' => $root . '/eazybackup.php',
         'markers' => [
             'snapshot route' => 'a"] == "pulse-snapshot"',
+            'retired SSE tombstone route' => 'a"] == "pulse-events"',
+            'retired SSE no-content response' => 'http_response_code(204)',
             'username index' => 'idx_username ON eb_jobs_live (username)',
         ],
         'forbidden' => [
-            'sse route' => 'pulse-events',
             'snooze route' => 'pulse-snooze',
         ],
     ],

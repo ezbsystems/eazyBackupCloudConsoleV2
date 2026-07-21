@@ -4425,6 +4425,11 @@ function eazybackup_clientarea(array $vars)
         // Isolated Device Actions AJAX endpoint
         require_once __DIR__ . "/pages/console/device-actions.php";
         exit; // script handles output
+    } else if ($_REQUEST["a"] == "pulse-events") {
+        // Retired SSE endpoint: 204 tells stale EventSource clients to stop reconnecting.
+        http_response_code(204);
+        header('Cache-Control: no-store');
+        exit;
     } else if ($_REQUEST["a"] == "pulse-snapshot") {
         // JSON snapshot of running jobs (polled by dashboard timeline)
         require_once __DIR__ . "/pages/console/pulse.php";
@@ -8356,7 +8361,7 @@ function eazybackup_createorder($vars)
     // 1) Handle Form Submission
     // -----------------------------
     if (!empty($_POST)) {
-        logActivity("eazybackup: Form POST => " . print_r($_POST, true));
+        logActivity("eazybackup: Form POST received.");
 
         $errors = eazybackup_validate_order($_POST);
         // Capture the original product selection from the form

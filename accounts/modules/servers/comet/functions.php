@@ -115,7 +115,7 @@ function comet_Server(array $params)
 {
     try {
         if (!isset($params["serverhostname"]) && isset($params["pid"])) {
-            $params = comet_ProductParams($params);
+            $params = comet_ProductParams($params["pid"]);
         }
 
         $hostname = preg_replace(["^http://^i", "^https://^i", "^/^"], "", $params["serverhostname"]);

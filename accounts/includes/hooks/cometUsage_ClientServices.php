@@ -27,23 +27,35 @@ add_hook('AdminAreaHeadOutput', 112222, function ($vars) {
             return $return;
         }
 
+        $product = Capsule::table('tblproducts')
+            ->where('id', (int) $service->packageid)
+            ->first(['servertype']);
+
+        if (($product->servertype ?? '') !== 'comet') {
+            return $return;
+        }
+
         $username = $service->username;
         if (!$username) {
             return $return;
         }
 
-        require_once __DIR__ . "/../../modules/servers/comet/functions.php";
-        require_once __DIR__ . "/../../modules/servers/comet/summary_functions.php";
+        try {
+            require_once __DIR__ . "/../../modules/servers/comet/functions.php";
+            require_once __DIR__ . "/../../modules/servers/comet/summary_functions.php";
 
-        $params = comet_ProductParams($service->packageid);
-        $params['username'] = $username;
+            $params = comet_ProductParams($service->packageid);
+            $params['username'] = $username;
 
-        if ($params['serverhostname'] === null || $params['serverusername'] === null) {
-            return $return;
-        }
+            if ($params['serverhostname'] === null || $params['serverusername'] === null) {
+                return $return;
+            }
 
-        $user = comet_User($params);
-        if (is_string($user)) {
+            $user = comet_User($params);
+            if (is_string($user)) {
+                return $return;
+            }
+        } catch (\Throwable $e) {
             return $return;
         }
 
