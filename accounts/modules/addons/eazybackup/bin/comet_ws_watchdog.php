@@ -12,7 +12,9 @@ declare(strict_types=1);
  *   EB_WATCH_JOBS_LIVE_MAX=500          Fleet-wide eb_jobs_live row cap
  *   EB_WATCH_JOBS_LIVE_PROFILE_MAX=300  Per server_id row cap
  *   EB_WATCH_STALE_HOURS=24             Stale = no activity within this many hours
+ *   EB_WATCH_RECONCILE_STALE_MIN=20      Incomplete-job discovery freshness
  *   EB_WATCH_COOLDOWN_MIN=360           Minutes between repeat alerts for same condition
+ *   EB_WATCH_STATE_DIR=/var/lib/eazybackup/watchdog  Persistent alert cooldown state
  *   EB_WATCH_DRY_RUN=1                  Log only; do not send email
  *   COMET_PROFILES=obc,cometbackup      Explicit profile list (else auto-discover)
  */
@@ -31,11 +33,14 @@ if (!defined('WHMCS')) {
 $JOBS_LIVE_MAX = max(50, (int)(getenv('EB_WATCH_JOBS_LIVE_MAX') ?: 500));
 $JOBS_LIVE_PROFILE_MAX = max(50, (int)(getenv('EB_WATCH_JOBS_LIVE_PROFILE_MAX') ?: 300));
 $STALE_HOURS = max(1, (int)(getenv('EB_WATCH_STALE_HOURS') ?: 24));
+$RECONCILE_STALE_MIN = max(5, (int)(getenv('EB_WATCH_RECONCILE_STALE_MIN') ?: 20));
 $COOLDOWN_MIN = max(15, (int)(getenv('EB_WATCH_COOLDOWN_MIN') ?: 360));
 $DRY_RUN = getenv('EB_WATCH_DRY_RUN') === '1' || in_array('--dry-run', $argv ?? [], true);
+$RECONCILE_MODE = strtolower((string)(getenv('EB_RECONCILE_INCOMPLETE_MODE') ?: 'off'));
 
 $pdo = db();
 $profiles = discoverWsProfiles();
+$reconcileProfiles = discoverConfiguredReconciliationProfiles();
 $staleSecs = $STALE_HOURS * 3600;
 $liveStats = fetchJobsLiveStats($pdo, $staleSecs);
 
@@ -54,6 +59,58 @@ foreach ($profiles as $profile) {
                 . "Job completion events are not being processed; eb_jobs_live will grow until the worker is restarted.\n"
                 . "Try: sudo systemctl reset-failed {$unit} && sudo systemctl start {$unit}",
         ];
+    }
+}
+
+if (in_array($RECONCILE_MODE, ['audit', 'enforce'], true)) {
+    foreach ($reconcileProfiles as $profile) {
+        try {
+            $stmt = $pdo->prepare("
+                SELECT last_success_ts, last_error_ts, consecutive_failures,
+                       last_incomplete_count, last_error
+                  FROM eb_monitor_profile_state
+                 WHERE profile = :profile
+                 LIMIT 1
+            ");
+            $stmt->execute([':profile' => $profile]);
+            $reconcileState = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+
+            $lastSuccess = (int)($reconcileState['last_success_ts'] ?? 0);
+            $failures = (int)($reconcileState['consecutive_failures'] ?? 0);
+            $staleAfter = $RECONCILE_STALE_MIN * 60;
+            if ($lastSuccess <= 0 || (time() - $lastSuccess) > $staleAfter) {
+                $age = $lastSuccess > 0 ? time() - $lastSuccess : null;
+                $issues[] = [
+                    'kind' => 'reconcile-stale',
+                    'profile' => $profile,
+                    'fingerprint' => sha1("reconcile-stale|{$profile}|{$RECONCILE_STALE_MIN}"),
+                    'summary' => "Incomplete-job discovery is stale for '{$profile}'",
+                    'detail' => $lastSuccess > 0
+                        ? "Last successful discovery was {$age} seconds ago; threshold is {$staleAfter} seconds."
+                        : 'No successful incomplete-job discovery has been recorded.',
+                ];
+            }
+
+            if ($failures >= 3) {
+                $lastError = trim((string)($reconcileState['last_error'] ?? ''));
+                $issues[] = [
+                    'kind' => 'reconcile-failed',
+                    'profile' => $profile,
+                    'fingerprint' => sha1("reconcile-failed|{$profile}"),
+                    'summary' => "Incomplete-job discovery repeatedly failed for '{$profile}'",
+                    'detail' => "Consecutive failures: {$failures}. Last error: " .
+                        ($lastError !== '' ? $lastError : 'not recorded'),
+                ];
+            }
+        } catch (Throwable $e) {
+            $issues[] = [
+                'kind' => 'reconcile-failed',
+                'profile' => $profile,
+                'fingerprint' => sha1("reconcile-state-unavailable|{$profile}"),
+                'summary' => "Incomplete-job reconciliation state unavailable for '{$profile}'",
+                'detail' => 'Unable to read eb_monitor_profile_state. Run the addon migration and inspect monitor logs.',
+            ];
+        }
     }
 }
 
@@ -104,6 +161,30 @@ logLine(sprintf(
 ));
 
 exit(0);
+
+/** @return list<string> */
+function discoverConfiguredReconciliationProfiles(): array
+{
+    $names = [];
+    $csv = trim(cfg('COMET_PROFILES', ''));
+    if ($csv !== '') {
+        foreach (array_filter(array_map('trim', explode(',', $csv))) as $profile) {
+            if ($profile !== '') {
+                $names[strtolower($profile)] = true;
+            }
+        }
+    }
+
+    foreach ($_ENV as $key => $_value) {
+        if (preg_match('/^COMET_([A-Za-z0-9_]+)_(URL|API_BASE)$/', (string)$key, $matches)) {
+            $names[strtolower($matches[1])] = true;
+        }
+    }
+
+    $profiles = array_keys($names);
+    sort($profiles);
+    return $profiles;
+}
 
 /** @return list<string> */
 function discoverWsProfiles(): array
@@ -299,12 +380,26 @@ function watchdogRecipients(PDO $pdo): array
     return array_keys($valid);
 }
 
+function watchdogStateDir(): string
+{
+    $dir = trim((string)(getenv('EB_WATCH_STATE_DIR') ?: '/var/lib/eazybackup/watchdog'));
+    if ($dir === '') {
+        $dir = '/var/lib/eazybackup/watchdog';
+    }
+
+    if (!is_dir($dir)) {
+        @mkdir($dir, 0750, true);
+    }
+
+    return rtrim($dir, '/');
+}
+
 function watchdogStateFile(string $kind, string $profile): string
 {
     $safeKind = preg_replace('/[^a-zA-Z0-9_.-]+/', '_', $kind) ?: 'unknown';
     $safeProfile = preg_replace('/[^a-zA-Z0-9_.-]+/', '_', $profile) ?: 'unknown';
 
-    return rtrim(sys_get_temp_dir(), '/') . "/eazybackup-ws-watchdog-{$safeKind}-{$safeProfile}.json";
+    return watchdogStateDir() . "/eazybackup-ws-watchdog-{$safeKind}-{$safeProfile}.json";
 }
 
 function shouldSendWatchdogAlert(string $kind, string $profile, string $fingerprint, int $cooldownMin): bool

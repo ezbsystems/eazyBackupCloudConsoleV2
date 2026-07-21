@@ -2,7 +2,7 @@
 
 **Purpose:** Single handoff document so the next agent knows where work stopped. Update this file at the **end of every session** (or after each meaningful milestone).
 
-**Last updated:** 2026-07-20  
+**Last updated:** 2026-07-21  
 **Module version (ms365backup):** 1.52.9  
 **Cloudstorage (e3) version:** 2.2.0  
 **Worker version (ms365-backup-worker):** 0.4.0 (Kopia v0.23.1)
@@ -10,6 +10,14 @@
 ---
 
 ## Session log
+
+### 2026-07-21 — Welcome page admin portal-password bypass (dev)
+
+- **Problem:** Admins impersonating legacy clients on the Welcome page had to enter the customer's portal password to provision MS365 / e3 Backup User from the username drawer.
+- **Fix:** Dev-only master password in Cloud Storage addon setting `e3backup_admin_portal_bypass_password` (honoured only when `HTTP_HOST` is in `e3backup_beta_hosts`). Enter it in **Confirm your portal password**; API accepts bypass, generates a random backup-user password, logs `admin_portal_password_bypass`, and returns `backup_user_password` in JSON (alert on success in `welcome.tpl`).
+- **Files:** `cloudstorage/lib/Client/AdminPortalPasswordBypass.php` (new), `cloudstorage/api/setpassword_and_provision.php`, `cloudstorage/cloudstorage.php` (addon setting), `cloudstorage/templates/welcome.tpl`, `ms365backup/Docs/CUSTOMER_ONBOARDING.md`.
+- **Configure:** Setup → Addon Modules → Cloud Storage → **e3 Welcome - Admin Portal Password Bypass** (password field). Leave empty to disable.
+- **Verify:** Impersonate legacy client → Welcome → MS365 → username + bypass password → provision succeeds; alert shows generated backup password; module log entry present.
 
 ### 2026-07-20 — Restore browse: human-readable mail labels (worker + PHP)
 

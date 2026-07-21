@@ -175,7 +175,9 @@ function eazybackup_activate()
     }
 
     // Create live jobs table for currently running jobs
-    Capsule::statement("CREATE TABLE IF NOT EXISTS eb_jobs_live (\n  server_id        VARCHAR(64)   NOT NULL,\n  job_id           VARCHAR(128)  NOT NULL,\n  username         VARCHAR(255)  NOT NULL DEFAULT '',\n  device           VARCHAR(255)  NOT NULL DEFAULT '',\n  job_type         VARCHAR(80)   NOT NULL DEFAULT '',\n  started_at       INT UNSIGNED  NOT NULL,\n  bytes_done       BIGINT UNSIGNED NOT NULL DEFAULT 0,\n  throughput_bps   BIGINT UNSIGNED NOT NULL DEFAULT 0,\n  last_update      INT UNSIGNED    NOT NULL,\n  last_bytes       BIGINT UNSIGNED NOT NULL DEFAULT 0,\n  last_bytes_ts    INT UNSIGNED    NOT NULL DEFAULT 0,\n  cancel_attempts  TINYINT UNSIGNED NOT NULL DEFAULT 0,\n  last_checked_ts  INT UNSIGNED    NOT NULL DEFAULT 0,\n  PRIMARY KEY (server_id, job_id),\n  KEY idx_started_at (started_at),\n  KEY idx_last_update (last_update)\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+    Capsule::statement("CREATE TABLE IF NOT EXISTS eb_jobs_live (\n  server_id        VARCHAR(64)   NOT NULL,\n  job_id           VARCHAR(128)  NOT NULL,\n  username         VARCHAR(255)  NOT NULL DEFAULT '',\n  device           VARCHAR(255)  NOT NULL DEFAULT '',\n  job_type         VARCHAR(80)   NOT NULL DEFAULT '',\n  started_at       INT UNSIGNED  NOT NULL,\n  bytes_done       BIGINT UNSIGNED NOT NULL DEFAULT 0,\n  throughput_bps   BIGINT UNSIGNED NOT NULL DEFAULT 0,\n  last_update      INT UNSIGNED    NOT NULL,\n  last_bytes       BIGINT UNSIGNED NOT NULL DEFAULT 0,\n  last_bytes_ts    INT UNSIGNED    NOT NULL DEFAULT 0,\n  cancel_attempts  TINYINT UNSIGNED NOT NULL DEFAULT 0,\n  last_checked_ts  INT UNSIGNED    NOT NULL DEFAULT 0,\n  stale_observations TINYINT UNSIGNED NOT NULL DEFAULT 0,\n  action_stage     VARCHAR(24) NOT NULL DEFAULT 'none',\n  next_action_ts   INT UNSIGNED NOT NULL DEFAULT 0,\n  last_action_error VARCHAR(255) NULL,\n  PRIMARY KEY (server_id, job_id),\n  KEY idx_started_at (started_at),\n  KEY idx_last_update (last_update),\n  KEY idx_jobs_live_reconcile (server_id, job_type, next_action_ts, last_checked_ts)\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
+
+    Capsule::statement("CREATE TABLE IF NOT EXISTS eb_monitor_profile_state (\n  profile VARCHAR(64) NOT NULL,\n  last_success_ts INT UNSIGNED NOT NULL DEFAULT 0,\n  last_error_ts INT UNSIGNED NOT NULL DEFAULT 0,\n  consecutive_failures INT UNSIGNED NOT NULL DEFAULT 0,\n  last_incomplete_count INT UNSIGNED NOT NULL DEFAULT 0,\n  last_error VARCHAR(255) NULL,\n  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,\n  PRIMARY KEY (profile)\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
 
     // Create recent finished jobs (24–48h) table
     Capsule::statement("CREATE TABLE IF NOT EXISTS eb_jobs_recent_24h (\n  server_id    VARCHAR(64)   NOT NULL,\n  job_id       VARCHAR(128)  NOT NULL,\n  username     VARCHAR(255)  NOT NULL DEFAULT '',\n  device       VARCHAR(255)  NOT NULL DEFAULT '',\n  job_type     VARCHAR(80)   NOT NULL DEFAULT '',\n  status       ENUM('success','error','warning','missed','skipped') NOT NULL,\n  bytes        BIGINT UNSIGNED NOT NULL DEFAULT 0,\n  duration_sec INT UNSIGNED    NOT NULL DEFAULT 0,\n  ended_at     INT UNSIGNED    NOT NULL,\n  created_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,\n  PRIMARY KEY (server_id, job_id),\n  KEY idx_ended_at (ended_at),\n  KEY idx_status (status)\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;");
@@ -844,18 +846,40 @@ function eazybackup_migrate_schema(): void {
             $t->integer('last_bytes_ts')->default(0);
             $t->tinyInteger('cancel_attempts')->default(0);
             $t->integer('last_checked_ts')->default(0);
+            $t->unsignedTinyInteger('stale_observations')->default(0);
+            $t->string('action_stage',24)->default('none');
+            $t->unsignedInteger('next_action_ts')->default(0);
+            $t->string('last_action_error',255)->nullable();
             $t->primary(['server_id','job_id']);
             $t->index('username','idx_username');
             $t->index('last_update','idx_last_update');
+            $t->index(['server_id','job_type','next_action_ts','last_checked_ts'], 'idx_jobs_live_reconcile');
         });
     } else {
         eb_add_column_if_missing('eb_jobs_live','last_bytes',       fn(Blueprint $t)=>$t->bigInteger('last_bytes')->default(0));
         eb_add_column_if_missing('eb_jobs_live','last_bytes_ts',    fn(Blueprint $t)=>$t->integer('last_bytes_ts')->default(0));
         eb_add_column_if_missing('eb_jobs_live','cancel_attempts',  fn(Blueprint $t)=>$t->tinyInteger('cancel_attempts')->default(0));
         eb_add_column_if_missing('eb_jobs_live','last_checked_ts',  fn(Blueprint $t)=>$t->integer('last_checked_ts')->default(0));
+        eb_add_column_if_missing('eb_jobs_live','stale_observations', fn(Blueprint $t)=>$t->unsignedTinyInteger('stale_observations')->default(0));
+        eb_add_column_if_missing('eb_jobs_live','action_stage', fn(Blueprint $t)=>$t->string('action_stage',24)->default('none'));
+        eb_add_column_if_missing('eb_jobs_live','next_action_ts', fn(Blueprint $t)=>$t->unsignedInteger('next_action_ts')->default(0));
+        eb_add_column_if_missing('eb_jobs_live','last_action_error', fn(Blueprint $t)=>$t->string('last_action_error',255)->nullable());
         eb_add_index_if_missing('eb_jobs_live', "CREATE INDEX IF NOT EXISTS idx_started_at ON eb_jobs_live (started_at)");
         eb_add_index_if_missing('eb_jobs_live', "CREATE INDEX IF NOT EXISTS idx_username ON eb_jobs_live (username)");
         eb_add_index_if_missing('eb_jobs_live', "CREATE INDEX IF NOT EXISTS idx_jobs_live_monitor ON eb_jobs_live (server_id, job_type, last_checked_ts)");
+        eb_add_index_if_missing('eb_jobs_live', "CREATE INDEX IF NOT EXISTS idx_jobs_live_reconcile ON eb_jobs_live (server_id, job_type, next_action_ts, last_checked_ts)");
+    }
+
+    if (!$schema->hasTable('eb_monitor_profile_state')) {
+        $schema->create('eb_monitor_profile_state', function (Blueprint $t) {
+            $t->string('profile',64)->primary();
+            $t->unsignedInteger('last_success_ts')->default(0);
+            $t->unsignedInteger('last_error_ts')->default(0);
+            $t->unsignedInteger('consecutive_failures')->default(0);
+            $t->unsignedInteger('last_incomplete_count')->default(0);
+            $t->string('last_error',255)->nullable();
+            $t->timestamp('updated_at')->useCurrent()->useCurrentOnUpdate();
+        });
     }
 
     // --- eb_jobs_recent_24h ---

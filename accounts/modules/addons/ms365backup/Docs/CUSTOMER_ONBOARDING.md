@@ -74,6 +74,17 @@ WHMCS admins can provision Microsoft 365 Backup for any client without the porta
 
 **After provision:** Entra tenant connect, inventory, and first backup still happen in the client area. Use **Impersonate client (Welcome)** on the success panel to continue onboarding as the customer. MS365 storage bucket is created at Entra connect, not at admin provision time.
 
+### Welcome page bypass (dev impersonation)
+
+When testing the legacy-client Welcome flow (`Impersonate (Welcome page)` on the client profile), staff can skip the customer's portal password:
+
+1. Ensure **Cloud Storage → e3 Welcome - Admin Portal Password Bypass** is set (dev hosts only — honoured when `HTTP_HOST` is in **e3 Cloud Backup - Beta Hosts**).
+2. Impersonate the client and open the Welcome page (`?eb_beta=1` if needed).
+3. Pick **Microsoft 365 Backup** (or e3 Backup User for existing Comet clients), enter a username, and type the configured bypass password in **Confirm your portal password**.
+4. On success, the UI shows an alert with the **generated backup-user password** (random; the bypass password is never stored as the backup credential).
+
+**Alternative:** use **Addons → MS365 Backup → Provision Customer** when you do not need to exercise the Welcome UI.
+
 ## Dev reconnect via tenant export (engineering)
 
 When testing disconnect/reconnect cycles, connect once via OAuth in the job wizard, then export credentials for faster manual reconnect:

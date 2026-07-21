@@ -787,6 +787,84 @@ Note: We identified found a problem where some backup jobs remain in the "runnin
 
 To prevent abondoned backup jobs from getting stuck in eb_jobs_live, we will monitor the job's upload progress and the Heartbeat: For running jobs, Comet exposes BackupJobDetail.Progress with a monotonic Counter and SentTime/RecievedTime timestamps—these tick even when UploadSize is flat. We also use this at our  “is it alive?” signal. If the amount of data uploaded has not changed 1 hour, in most cases we can assume the job is abandoned. If we detect that the job is abandoned, our application should attempt to force cancel that job on the job server. This way that job is automatically cleaned up and marked as abandoned or cancelled. 
 
+### Authoritative incomplete-job reconciliation
+
+The WebSocket worker can miss `SEVT_JOB_NEW` while disconnected. A missed job
+never enters `eb_jobs_live`, so the older monitor could not see or clean it even
+though its systemd timer was healthy.
+
+When reconciliation is enabled, each profile calls
+`AdminGetJobsForDateRange(0, 0)`. Comet documents this argument pair as
+returning every incomplete job regardless of start date. Active/Revived backup
+jobs (`Status` 6001/6002, `Classification` 4001) are normalized into
+`eb_jobs_live`; `comet_jobs` is not used as the authoritative candidate source.
+
+Modes:
+
+- `EB_RECONCILE_INCOMPLETE_MODE=off` — skip fleet discovery and retain the
+  legacy local-table monitor behavior.
+- `EB_RECONCILE_INCOMPLETE_MODE=audit` — fetch and classify all incomplete
+  jobs, emit per-job `would_action` records and a profile summary, but do not
+  write job tables or call cancel/abandon. Only `eb_monitor_profile_state`
+  health metadata is updated.
+- `EB_RECONCILE_INCOMPLETE_MODE=enforce` — seed/update `eb_jobs_live` and run
+  the bounded reconciliation lifecycle.
+
+Reconciliation reuses each profile's existing WebSocket credentials:
+
+```dotenv
+COMET_cometbackup_USERNAME="websocket"
+COMET_cometbackup_AUTHTYPE="Password"
+COMET_cometbackup_PASSWORD="..."
+COMET_cometbackup_SESSIONKEY=""
+COMET_cometbackup_TOTP=""
+```
+
+Optional `COMET_cometbackup_API_*` values override those credentials when
+present. The selected account must have Comet's Admin Auth Role for job
+discovery, properties, cancel, and abandon. Missing or unauthorized credentials
+stop the entire profile instead of consuming an attempt for each job.
+
+Safety lifecycle:
+
+1. A job is never selected only because it is old.
+2. Comet progress/heartbeat must be stale for `EB_MON_STALE_SECS`.
+3. The monitor records two stale observations at least
+   `EB_MON_RECHECK_SECS` apart.
+4. It re-fetches job properties immediately before mutation.
+5. It requests graceful cancel when a CancellationID exists.
+6. If the job is still active on a later timer pass, it requests abandon.
+7. After the action-attempt cap, the job enters a 24-hour cooldown and then
+   becomes eligible for a new two-strike cycle; it is not excluded forever.
+
+Fleet limits:
+
+```dotenv
+EB_RECONCILE_ACTION_LIMIT=25
+EB_RECONCILE_RETRY_COOLDOWN_SECS=86400
+```
+
+The action limit is per profile per timer run and counts only cancel/abandon
+calls. `action_cap_deferred` in the profile summary means eligible jobs were
+left for the next timer run because that cap was reached.
+
+Recommended rollout:
+
+```bash
+sudo -u www-data php monitor_stalled_jobs.php \
+  --profile=cometbackup --reconcile-mode=audit --verbose=1
+```
+
+Review at least two audit cycles. Confirm known abandoned IDs appear as stale
+and that jobs with fresh heartbeat are classified `fresh`. Then set mode to
+`enforce` with the default action limit of 25. Roll back immediately by setting
+mode to `off`; the WebSocket worker and legacy local monitor remain available.
+
+The watchdog reads `eb_monitor_profile_state` whenever mode is `audit` or
+`enforce`. It raises `reconcile-stale` when no successful discovery occurred
+within `EB_WATCH_RECONCILE_STALE_MIN` (default 20 minutes), and
+`reconcile-failed` after three consecutive profile failures.
+
 **I created a new file for this feature at accounts/modules/addons/eazybackup/bin/monitor_stalled_jobs.php.**
 
 - We can manually run the script with or without a dry-run flag 
@@ -798,6 +876,9 @@ php monitor_stalled_jobs.php --dry-run --verbose=1 --profile=cometbackup --stale
   --recheck-secs= (default 300) [also used as heartbeat window]
   --max-attempts= (default 3)
   --limit= (default 200)
+  --reconcile-mode=off|audit|enforce
+  --reconcile-action-limit= (default 25)
+  --retry-cooldown-secs= (default 86400)
 
 - Example: php monitor_stalled_jobs.php --profile=cometbackup --stale-secs=3600 --recheck-secs=300
 
@@ -809,6 +890,9 @@ php monitor_stalled_jobs.php --dry-run --verbose=1 --profile=cometbackup --stale
   EB_MON_RECHECK_SECS=300
   EB_MON_MAX_ATTEMPTS=3
   EB_MON_BATCH_LIMIT=200
+  EB_RECONCILE_INCOMPLETE_MODE=off
+  EB_RECONCILE_ACTION_LIMIT=25
+  EB_RECONCILE_RETRY_COOLDOWN_SECS=86400
 
 # Optional:
 

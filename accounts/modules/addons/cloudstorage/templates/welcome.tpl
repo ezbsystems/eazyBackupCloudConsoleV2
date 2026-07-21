@@ -1671,6 +1671,14 @@ if (window.csrfToken && !window.EB_CSRF_TOKEN) {
 
             if (data && data.status === 'success' && data.redirectUrl) {
                 ebPwClose();
+                if (data.admin_portal_bypass && data.backup_user_password) {
+                    window.alert(
+                        'Admin bypass used.\n\n'
+                        + 'A random backup-user password was generated for this provision:\n\n'
+                        + data.backup_user_password
+                        + '\n\nSave it before continuing — it will not be shown again.'
+                    );
+                }
                 window.location.href = data.redirectUrl;
                 return false;
             }

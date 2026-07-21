@@ -30,7 +30,9 @@ declare(strict_types=1);
 
 require __DIR__ . '/bootstrap.php';
 require_once __DIR__ . '/../lib/LiveJobState.php';
+require_once __DIR__ . '/../lib/IncompleteJobReconciliation.php';
 
+use WHMCS\Module\Addon\Eazybackup\IncompleteJobReconciliation;
 use WHMCS\Module\Addon\Eazybackup\LiveJobState;
 
 $STALE_SECS    = (int)(getenv('EB_MON_STALE_SECS')    ?: 3600);
@@ -38,6 +40,12 @@ $RECHECK_SECS  = (int)(getenv('EB_MON_RECHECK_SECS')  ?: 300);
 $MAX_ATTEMPTS  = (int)(getenv('EB_MON_MAX_ATTEMPTS')  ?: 3);
 $BATCH_LIMIT   = (int)(getenv('EB_MON_BATCH_LIMIT')   ?: 200);
 $OFFLINE_CLEANUP_SECS = (int)(getenv('EB_OFFLINE_CLEANUP_SECS') ?: LiveJobState::offlineCleanupSecs());
+$RECONCILE_MODE = strtolower((string)(getenv('EB_RECONCILE_INCOMPLETE_MODE') ?: 'off'));
+$RECONCILE_ACTION_LIMIT = max(0, (int)(getenv('EB_RECONCILE_ACTION_LIMIT') ?: 25));
+$RECONCILE_RETRY_COOLDOWN_SECS = max(
+    3600,
+    (int)(getenv('EB_RECONCILE_RETRY_COOLDOWN_SECS') ?: 86400)
+);
 
 $pdo = db();
 
@@ -50,6 +58,9 @@ $cli = getopt('', [
     'max-attempts::',    // override EB_MON_MAX_ATTEMPTS
     'limit::',           // override EB_MON_BATCH_LIMIT
     'offline-cleanup-secs::', // override EB_OFFLINE_CLEANUP_SECS
+    'reconcile-mode::',  // off|audit|enforce
+    'reconcile-action-limit::',
+    'retry-cooldown-secs::',
     'verbose::',         // verbose: 0/1
 ]);
 
@@ -60,6 +71,18 @@ if (isset($cli['recheck-secs'])) $RECHECK_SECS = (int)$cli['recheck-secs'];
 if (isset($cli['max-attempts'])) $MAX_ATTEMPTS = (int)$cli['max-attempts'];
 if (isset($cli['limit']))        $BATCH_LIMIT  = (int)$cli['limit'];
 if (isset($cli['offline-cleanup-secs'])) $OFFLINE_CLEANUP_SECS = (int)$cli['offline-cleanup-secs'];
+if (isset($cli['reconcile-mode'])) $RECONCILE_MODE = strtolower((string)$cli['reconcile-mode']);
+if (isset($cli['reconcile-action-limit'])) {
+    $RECONCILE_ACTION_LIMIT = max(0, (int)$cli['reconcile-action-limit']);
+}
+if (isset($cli['retry-cooldown-secs'])) {
+    $RECONCILE_RETRY_COOLDOWN_SECS = max(3600, (int)$cli['retry-cooldown-secs']);
+}
+if (!in_array($RECONCILE_MODE, ['off', 'audit', 'enforce'], true)) {
+    throw new InvalidArgumentException(
+        'EB_RECONCILE_INCOMPLETE_MODE must be off, audit, or enforce'
+    );
+}
 $VERBOSE = isset($cli['verbose']) ? (int)$cli['verbose'] : (int)(getenv('EB_MON_VERBOSE') ?: 0);
 
 function isDryRun(): bool {
@@ -186,14 +209,44 @@ function httpPostForm(string $url, array $params): array {
     }
     curl_close($ch);
     if ($http < 200 || $http >= 300) {
-        throw new RuntimeException("HTTP {$http}: {$raw}");
+        $decodedError = json_decode((string)$raw, true);
+        $message = is_array($decodedError) && isset($decodedError['Message'])
+            ? IncompleteJobReconciliation::sanitizeError((string)$decodedError['Message'])
+            : '';
+        throw new RuntimeException(
+            "HTTP {$http}" . ($message !== '' ? ": {$message}" : ''),
+            $http
+        );
     }
     $j = json_decode($raw, true);
-    return is_array($j) ? $j : ['raw' => $raw];
+    if (!is_array($j)) {
+        throw new RuntimeException('Comet API returned malformed JSON');
+    }
+    IncompleteJobReconciliation::assertNoApiError($j);
+    return $j;
 }
 
 function api(string $base, string $path, array $auth, array $payload): array {
     return httpPostForm($base . $path, array_merge($auth, $payload));
+}
+
+function apiMutation(string $base, string $path, array $auth, array $payload): array {
+    $response = api($base, $path, $auth, $payload);
+    IncompleteJobReconciliation::validateMutationResponse($response);
+    return $response;
+}
+
+function acquireProfileMonitorLock(PDO $pdo, string $profile): ?string {
+    $safeProfile = preg_replace('/[^a-zA-Z0-9_.-]+/', '_', $profile) ?: 'unknown';
+    $lockName = substr("eb-monitor-{$safeProfile}", 0, 64);
+    $stmt = $pdo->prepare('SELECT GET_LOCK(:lock_name, 0)');
+    $stmt->execute([':lock_name' => $lockName]);
+    return (int)$stmt->fetchColumn() === 1 ? $lockName : null;
+}
+
+function releaseProfileMonitorLock(PDO $pdo, string $lockName): void {
+    $stmt = $pdo->prepare('SELECT RELEASE_LOCK(:lock_name)');
+    $stmt->execute([':lock_name' => $lockName]);
 }
 
 /** Extract running progress bytes from GetJobProperties (Progress.BytesDone) */
@@ -386,6 +439,85 @@ function finalizeJob(PDO $pdo, array $row): void {
             ':job_id'        => $row['job_id'],
         ]);
 
+        if ($mirror->rowCount() === 0) {
+            $properties = isset($row['properties']) && is_array($row['properties'])
+                ? $row['properties']
+                : [];
+            $properties['GUID'] = (string)$row['job_id'];
+            $properties['Username'] = (string)($row['username'] ?? '');
+            $properties['DeviceID'] = (string)($properties['DeviceID'] ?? ($row['device'] ?? ''));
+            $properties['Classification'] = (int)($properties['Classification'] ?? ($row['job_type'] ?? 0));
+            $properties['Status'] = $cometStatus;
+            $properties['StartTime'] = (int)($properties['StartTime'] ?? ($row['started_at'] ?? $endedAt));
+            $properties['EndTime'] = $endedAt;
+            $properties['UploadSize'] = max(
+                $bytes,
+                (int)($properties['UploadSize'] ?? 0)
+            );
+
+            $clientId = 0;
+            $clientLookup = $pdo->prepare("
+                SELECT userid
+                  FROM tblhosting
+                 WHERE username = :username
+                   AND domainstatus = 'Active'
+                 LIMIT 1
+            ");
+            $clientLookup->execute([':username' => (string)($row['username'] ?? '')]);
+            $foundClientId = $clientLookup->fetchColumn();
+            if ($foundClientId !== false) {
+                $clientId = (int)$foundClientId;
+            }
+
+            $deviceId = (string)$properties['DeviceID'];
+            $insertMirror = $pdo->prepare("
+                INSERT INTO comet_jobs
+                  (id, content, client_id, username, comet_vault_id,
+                   comet_device_id, comet_item_id, type, status,
+                   comet_snapshot_id, comet_cancellation_id, total_bytes,
+                   total_files, total_directories, upload_bytes, download_bytes,
+                   total_ms_accounts, started_at, ended_at, last_status_at)
+                VALUES
+                  (:id, :content, :client_id, :username, :vault_id,
+                   :device_id, :item_id, :type, :status,
+                   :snapshot_id, :cancellation_id, :total_bytes,
+                   :total_files, :total_directories, :upload_bytes, :download_bytes,
+                   :total_ms_accounts, :started_at, :ended_at, :last_status_at)
+                ON DUPLICATE KEY UPDATE
+                  content = VALUES(content),
+                  status = VALUES(status),
+                  upload_bytes = GREATEST(upload_bytes, VALUES(upload_bytes)),
+                  ended_at = VALUES(ended_at),
+                  last_status_at = VALUES(last_status_at)
+            ");
+            $insertMirror->execute([
+                ':id' => (string)$row['job_id'],
+                ':content' => json_encode($properties, JSON_UNESCAPED_SLASHES),
+                ':client_id' => $clientId,
+                ':username' => (string)($row['username'] ?? ''),
+                ':vault_id' => (string)($properties['DestinationGUID'] ?? ''),
+                ':device_id' => $deviceId !== ''
+                    ? hash('sha256', (string)$clientId . $deviceId)
+                    : '',
+                ':item_id' => (string)($properties['SourceGUID'] ?? ''),
+                ':type' => (int)$properties['Classification'],
+                ':status' => $cometStatus,
+                ':snapshot_id' => isset($properties['SnapshotID'])
+                    ? (string)$properties['SnapshotID']
+                    : null,
+                ':cancellation_id' => (string)($properties['CancellationID'] ?? ''),
+                ':total_bytes' => (int)($properties['TotalSize'] ?? 0),
+                ':total_files' => (int)($properties['TotalFiles'] ?? 0),
+                ':total_directories' => (int)($properties['TotalDirectories'] ?? 0),
+                ':upload_bytes' => (int)$properties['UploadSize'],
+                ':download_bytes' => (int)($properties['DownloadSize'] ?? 0),
+                ':total_ms_accounts' => (int)($properties['TotalAccountsCount'] ?? 0),
+                ':started_at' => gmdate('Y-m-d H:i:s', (int)$properties['StartTime']),
+                ':ended_at' => $endedSql,
+                ':last_status_at' => $endedSql,
+            ]);
+        }
+
         $pdo->commit();
     } catch (Throwable $e) {
         $pdo->rollBack();
@@ -465,6 +597,824 @@ function resetAttempts(PDO $pdo, string $serverId, string $jobId, int $recheckSe
            AND (cancel_attempts > 0 OR last_checked_ts IS NULL OR last_checked_ts = 0 OR last_checked_ts < UNIX_TIMESTAMP() - :recheck)
     ");
     $stmt->execute([':s'=>$serverId, ':j'=>$jobId, ':recheck'=>$recheckSecs]);
+}
+
+function fetchIncompleteJobs(string $base, array $auth): array {
+    $rows = api($base, '/admin/get-jobs-for-date-range', $auth, [
+        'Start' => 0,
+        'End' => 0,
+    ]);
+    if (!array_is_list($rows)) {
+        throw new RuntimeException('malformed incomplete-jobs response');
+    }
+    return $rows;
+}
+
+/** @return array<string,array{is_active:bool,offline_since:?string}> */
+function loadReconciliationDeviceMap(PDO $pdo): array {
+    $rows = $pdo->query("
+        SELECT username, id, hash, name, is_active, offline_since
+          FROM comet_devices
+         WHERE revoked_at IS NULL
+    ")->fetchAll(PDO::FETCH_ASSOC) ?: [];
+
+    $map = [];
+    foreach ($rows as $row) {
+        $username = (string)($row['username'] ?? '');
+        if ($username === '') {
+            continue;
+        }
+        $state = [
+            'is_active' => (int)($row['is_active'] ?? 0) === 1,
+            'offline_since' => isset($row['offline_since'])
+                ? (string)$row['offline_since']
+                : null,
+        ];
+        foreach (['id', 'hash', 'name'] as $field) {
+            $identifier = (string)($row[$field] ?? '');
+            if ($identifier !== '') {
+                $map[$username . "\0" . $identifier] = $state;
+            }
+        }
+    }
+    return $map;
+}
+
+/** @return array<string,array<string,mixed>> */
+function loadExistingReconciliationRows(PDO $pdo, string $profile): array {
+    $stmt = $pdo->prepare("
+        SELECT job_id, last_bytes, last_bytes_ts, last_update, last_checked_ts,
+               cancel_attempts, stale_observations, action_stage, next_action_ts
+          FROM eb_jobs_live
+         WHERE server_id = :profile
+    ");
+    $stmt->execute([':profile' => $profile]);
+
+    $rows = [];
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) ?: [] as $row) {
+        $rows[(string)$row['job_id']] = $row;
+    }
+    return $rows;
+}
+
+function recordProfileDiscoverySuccess(PDO $pdo, string $profile, int $count): void {
+    $stmt = $pdo->prepare("
+        INSERT INTO eb_monitor_profile_state
+          (profile, last_success_ts, last_error_ts, consecutive_failures,
+           last_incomplete_count, last_error)
+        VALUES (:profile, UNIX_TIMESTAMP(), 0, 0, :count, NULL)
+        ON DUPLICATE KEY UPDATE
+          last_success_ts = VALUES(last_success_ts),
+          consecutive_failures = 0,
+          last_incomplete_count = VALUES(last_incomplete_count),
+          last_error = NULL
+    ");
+    $stmt->execute([':profile' => $profile, ':count' => $count]);
+}
+
+function recordProfileDiscoveryFailure(PDO $pdo, string $profile, Throwable $error): void {
+    $stmt = $pdo->prepare("
+        INSERT INTO eb_monitor_profile_state
+          (profile, last_success_ts, last_error_ts, consecutive_failures,
+           last_incomplete_count, last_error)
+        VALUES (:profile, 0, UNIX_TIMESTAMP(), 1, 0, :error)
+        ON DUPLICATE KEY UPDATE
+          last_error_ts = VALUES(last_error_ts),
+          consecutive_failures = consecutive_failures + 1,
+          last_error = VALUES(last_error)
+    ");
+    $stmt->execute([
+        ':profile' => $profile,
+        ':error' => IncompleteJobReconciliation::sanitizeError($error->getMessage()),
+    ]);
+}
+
+function upsertDiscoveredIncompleteJob(PDOStatement $stmt, string $profile, array $job): void {
+    $startedAt = (int)$job['started_at'];
+    $heartbeatTs = (int)$job['heartbeat_ts'];
+    $stmt->execute([
+        ':server' => $profile,
+        ':job' => (string)$job['job_id'],
+        ':username' => (string)$job['username'],
+        ':device' => (string)$job['device'],
+        ':type' => (int)$job['job_type'],
+        ':started' => $startedAt,
+        ':bytes' => (int)$job['bytes'],
+        ':activity' => max($startedAt, $heartbeatTs),
+        ':heartbeat' => max(0, $heartbeatTs),
+    ]);
+}
+
+/**
+ * Discover all authoritative incomplete jobs for one Comet profile.
+ *
+ * Audit mode writes only eb_monitor_profile_state. Enforce mode also
+ * normalizes eligible jobs into eb_jobs_live.
+ *
+ * @return array<string,mixed>
+ */
+function discoverIncompleteJobs(
+    PDO $pdo,
+    string $profile,
+    string $base,
+    array $auth,
+    string $mode,
+    int $staleSecs,
+    int $recheckSecs,
+    int $maxAttempts,
+    bool $recordHealth = true
+): array {
+    try {
+        $classified = IncompleteJobReconciliation::classifyResponse(
+            fetchIncompleteJobs($base, $auth)
+        );
+        $existingRows = loadExistingReconciliationRows($pdo, $profile);
+        $deviceMap = loadReconciliationDeviceMap($pdo);
+        $now = time();
+        $decisionCounts = [];
+        $newCount = 0;
+        $trackedCount = 0;
+
+        $upsert = null;
+        if ($mode === 'enforce') {
+            $upsert = $pdo->prepare("
+                INSERT INTO eb_jobs_live
+                  (server_id, job_id, username, device, job_type, started_at,
+                   bytes_done, throughput_bps, last_update, last_bytes, last_bytes_ts)
+                VALUES
+                  (:server, :job, :username, :device, :type, :started,
+                   :bytes, 0, :activity, :bytes, :heartbeat)
+                ON DUPLICATE KEY UPDATE
+                  username = VALUES(username),
+                  device = VALUES(device),
+                  job_type = VALUES(job_type),
+                  stale_observations = CASE
+                    WHEN VALUES(bytes_done) > last_bytes
+                      OR VALUES(last_bytes_ts) > last_bytes_ts THEN 0
+                    ELSE stale_observations END,
+                  action_stage = CASE
+                    WHEN VALUES(bytes_done) > last_bytes
+                      OR VALUES(last_bytes_ts) > last_bytes_ts THEN 'none'
+                    ELSE action_stage END,
+                  cancel_attempts = CASE
+                    WHEN VALUES(bytes_done) > last_bytes
+                      OR VALUES(last_bytes_ts) > last_bytes_ts THEN 0
+                    ELSE cancel_attempts END,
+                  next_action_ts = CASE
+                    WHEN VALUES(bytes_done) > last_bytes
+                      OR VALUES(last_bytes_ts) > last_bytes_ts THEN 0
+                    ELSE next_action_ts END,
+                  last_action_error = CASE
+                    WHEN VALUES(bytes_done) > last_bytes
+                      OR VALUES(last_bytes_ts) > last_bytes_ts THEN NULL
+                    ELSE last_action_error END,
+                  bytes_done = GREATEST(bytes_done, VALUES(bytes_done)),
+                  last_bytes_ts = CASE
+                    WHEN VALUES(bytes_done) > last_bytes THEN UNIX_TIMESTAMP()
+                    ELSE GREATEST(last_bytes_ts, VALUES(last_bytes_ts)) END,
+                  last_bytes = GREATEST(last_bytes, VALUES(last_bytes)),
+                  last_update = GREATEST(last_update, VALUES(last_update))
+            ");
+        }
+
+        foreach ($classified['jobs'] as $job) {
+            $jobId = (string)$job['job_id'];
+            $existing = $existingRows[$jobId] ?? null;
+            if ($existing === null) {
+                $newCount++;
+            } else {
+                $trackedCount++;
+            }
+
+            $activityTs = max(
+                (int)$job['started_at'],
+                (int)$job['heartbeat_ts'],
+                (int)($existing['last_bytes_ts'] ?? 0),
+                (int)($existing['last_update'] ?? 0)
+            );
+            if ($existing !== null && (int)$job['bytes'] > (int)($existing['last_bytes'] ?? 0)) {
+                $activityTs = $now;
+            }
+
+            $decision = IncompleteJobReconciliation::decide([
+                'now' => $now,
+                'activity_ts' => $activityTs,
+                'stale_secs' => $staleSecs,
+                'last_checked_ts' => (int)($existing['last_checked_ts'] ?? 0),
+                'recheck_secs' => $recheckSecs,
+                'stale_observations' => (int)($existing['stale_observations'] ?? 0),
+                'action_stage' => (string)($existing['action_stage'] ?? 'none'),
+                'next_action_ts' => (int)($existing['next_action_ts'] ?? 0),
+                'action_attempts' => (int)($existing['cancel_attempts'] ?? 0),
+                'max_attempts' => $maxAttempts,
+                'has_cancellation_id' => (string)$job['cancellation_id'] !== '',
+            ]);
+            $action = (string)$decision['action'];
+            $decisionCounts[$action] = ($decisionCounts[$action] ?? 0) + 1;
+
+            $deviceKey = (string)$job['username'] . "\0" . (string)$job['device'];
+            $deviceState = $deviceMap[$deviceKey] ?? null;
+            if ($mode === 'audit') {
+                echo json_encode([
+                    'event' => 'incomplete_job_audit',
+                    'profile' => $profile,
+                    'username' => (string)$job['username'],
+                    'job_id' => $jobId,
+                    'started_at' => (int)$job['started_at'],
+                    'job_age_seconds' => max(0, $now - (int)$job['started_at']),
+                    'heartbeat_age_seconds' => (int)$job['heartbeat_ts'] > 0
+                        ? max(0, $now - (int)$job['heartbeat_ts'])
+                        : null,
+                    'device_state' => $deviceState === null
+                        ? 'unknown'
+                        : ($deviceState['is_active'] ? 'online' : 'offline'),
+                    'offline_since' => $deviceState['offline_since'] ?? null,
+                    'would_action' => $action,
+                    'reason' => (string)$decision['reason'],
+                ], JSON_UNESCAPED_SLASHES) . PHP_EOL;
+            } elseif ($upsert instanceof PDOStatement) {
+                upsertDiscoveredIncompleteJob($upsert, $profile, $job);
+            }
+        }
+
+        if ($recordHealth) {
+            recordProfileDiscoverySuccess($pdo, $profile, (int)$classified['total']);
+        }
+        $summary = [
+            'event' => 'incomplete_job_discovery_summary',
+            'profile' => $profile,
+            'mode' => $mode,
+            'returned' => (int)$classified['total'],
+            'eligible' => (int)($classified['counts']['eligible'] ?? 0),
+            'new' => $newCount,
+            'already_tracked' => $trackedCount,
+            'classification_counts' => $classified['counts'],
+            'decision_counts' => $decisionCounts,
+        ];
+        echo json_encode($summary, JSON_UNESCAPED_SLASHES) . PHP_EOL;
+        return $summary;
+    } catch (Throwable $e) {
+        try {
+            recordProfileDiscoveryFailure($pdo, $profile, $e);
+        } catch (Throwable $stateError) {
+            logLine("[{$profile}] reconciliation state error: " .
+                IncompleteJobReconciliation::sanitizeError($stateError->getMessage()));
+        }
+        throw $e;
+    }
+}
+
+function resetReconciliationState(
+    PDO $pdo,
+    string $serverId,
+    string $jobId,
+    int $bytes,
+    int $activityTs
+): void {
+    $stmt = $pdo->prepare("
+        UPDATE eb_jobs_live
+           SET bytes_done = GREATEST(bytes_done, :bytes_done),
+               last_bytes = GREATEST(last_bytes, :last_bytes),
+               last_bytes_ts = GREATEST(last_bytes_ts, :activity),
+               last_update = GREATEST(last_update, :activity),
+               last_checked_ts = UNIX_TIMESTAMP(),
+               stale_observations = 0,
+               action_stage = 'none',
+               cancel_attempts = 0,
+               next_action_ts = 0,
+               last_action_error = NULL
+         WHERE server_id = :server AND job_id = :job
+    ");
+    $stmt->execute([
+        ':bytes_done' => max(0, $bytes),
+        ':last_bytes' => max(0, $bytes),
+        ':activity' => max(0, $activityTs),
+        ':server' => $serverId,
+        ':job' => $jobId,
+    ]);
+}
+
+function recordStaleObservation(
+    PDO $pdo,
+    string $serverId,
+    string $jobId,
+    int $recheckSecs
+): void {
+    $stmt = $pdo->prepare("
+        UPDATE eb_jobs_live
+           SET stale_observations = stale_observations + 1,
+               last_checked_ts = UNIX_TIMESTAMP(),
+               next_action_ts = UNIX_TIMESTAMP() + :recheck,
+               last_action_error = NULL
+         WHERE server_id = :server AND job_id = :job
+    ");
+    $stmt->execute([
+        ':recheck' => $recheckSecs,
+        ':server' => $serverId,
+        ':job' => $jobId,
+    ]);
+}
+
+function recordActionAttempt(
+    PDO $pdo,
+    string $serverId,
+    string $jobId,
+    string $stage,
+    int $recheckSecs,
+    ?string $error = null
+): void {
+    $stmt = $pdo->prepare("
+        UPDATE eb_jobs_live
+           SET action_stage = :stage,
+               cancel_attempts = cancel_attempts + 1,
+               last_checked_ts = UNIX_TIMESTAMP(),
+               next_action_ts = UNIX_TIMESTAMP() + :recheck,
+               last_action_error = :error
+         WHERE server_id = :server AND job_id = :job
+    ");
+    $stmt->execute([
+        ':stage' => $stage,
+        ':recheck' => $recheckSecs,
+        ':error' => $error,
+        ':server' => $serverId,
+        ':job' => $jobId,
+    ]);
+}
+
+function recordActionFailure(
+    PDO $pdo,
+    string $serverId,
+    string $jobId,
+    int $recheckSecs,
+    string $error
+): void {
+    $stmt = $pdo->prepare("
+        UPDATE eb_jobs_live
+           SET cancel_attempts = cancel_attempts + 1,
+               last_checked_ts = UNIX_TIMESTAMP(),
+               next_action_ts = UNIX_TIMESTAMP() + :recheck,
+               last_action_error = :error
+         WHERE server_id = :server AND job_id = :job
+    ");
+    $stmt->execute([
+        ':recheck' => $recheckSecs,
+        ':error' => $error,
+        ':server' => $serverId,
+        ':job' => $jobId,
+    ]);
+}
+
+function recordReconciliationCheckError(
+    PDO $pdo,
+    string $serverId,
+    string $jobId,
+    int $recheckSecs,
+    string $error
+): void {
+    $stmt = $pdo->prepare("
+        UPDATE eb_jobs_live
+           SET last_checked_ts = UNIX_TIMESTAMP(),
+               next_action_ts = UNIX_TIMESTAMP() + :recheck,
+               last_action_error = :error
+         WHERE server_id = :server AND job_id = :job
+    ");
+    $stmt->execute([
+        ':recheck' => $recheckSecs,
+        ':error' => $error,
+        ':server' => $serverId,
+        ':job' => $jobId,
+    ]);
+}
+
+function markReconciliationExhausted(
+    PDO $pdo,
+    string $serverId,
+    string $jobId,
+    int $cooldownSecs
+): void {
+    $stmt = $pdo->prepare("
+        UPDATE eb_jobs_live
+           SET action_stage = 'exhausted',
+               last_checked_ts = UNIX_TIMESTAMP(),
+               next_action_ts = UNIX_TIMESTAMP() + :cooldown
+         WHERE server_id = :server AND job_id = :job
+    ");
+    $stmt->execute([
+        ':cooldown' => $cooldownSecs,
+        ':server' => $serverId,
+        ':job' => $jobId,
+    ]);
+}
+
+function resetExpiredReconciliationCooldown(
+    PDO $pdo,
+    string $serverId,
+    string $jobId,
+    int $recheckSecs
+): void {
+    $stmt = $pdo->prepare("
+        UPDATE eb_jobs_live
+           SET stale_observations = 1,
+               action_stage = 'none',
+               cancel_attempts = 0,
+               last_checked_ts = UNIX_TIMESTAMP(),
+               next_action_ts = UNIX_TIMESTAMP() + :recheck,
+               last_action_error = NULL
+         WHERE server_id = :server AND job_id = :job
+    ");
+    $stmt->execute([
+        ':recheck' => $recheckSecs,
+        ':server' => $serverId,
+        ':job' => $jobId,
+    ]);
+}
+
+function isCometAuthError(Throwable $e): bool {
+    return in_array((int)$e->getCode(), [401, 403], true)
+        || preg_match('/\b(?:HTTP|Comet API error)\s+(401|403)\b/', $e->getMessage()) === 1;
+}
+
+function isCometNotFoundError(Throwable $e): bool {
+    return (int)$e->getCode() === 404
+        || preg_match('/\b(?:HTTP|Comet API error)\s+404\b/', $e->getMessage()) === 1;
+}
+
+function isCometDeviceUnavailableError(Throwable $e): bool {
+    return (int)$e->getCode() === 400
+        && stripos($e->getMessage(), 'device is unavailable') !== false;
+}
+
+/** @param array<string,mixed> $row */
+function finalizeMissingCometJob(PDO $pdo, array $row): void {
+    $endedAt = time();
+    finalizeJob($pdo, [
+        'server_id' => (string)$row['server_id'],
+        'job_id' => (string)$row['job_id'],
+        'username' => (string)$row['username'],
+        'device' => (string)$row['device'],
+        'job_type' => (string)$row['job_type'],
+        'status' => 'error',
+        'bytes' => (int)$row['last_bytes'],
+        'duration_sec' => max(0, $endedAt - (int)$row['started_at']),
+        'ended_at' => $endedAt,
+        'comet_status' => 7002,
+    ]);
+}
+
+/**
+ * Enforce reconciliation for WebSocket- and Comet-discovered live jobs.
+ *
+ * @return array<string,int>
+ */
+function processReconciledLiveJobs(
+    PDO $pdo,
+    string $profile,
+    string $base,
+    array $auth,
+    int $staleSecs,
+    int $recheckSecs,
+    int $maxAttempts,
+    int $batchLimit,
+    int $offlineCleanupSecs,
+    int $actionLimit,
+    int $retryCooldownSecs
+): array {
+    $stmt = $pdo->prepare("
+        SELECT server_id, job_id, username, device, job_type, started_at,
+               COALESCE(last_bytes, 0) AS last_bytes,
+               COALESCE(last_bytes_ts, 0) AS last_bytes_ts,
+               COALESCE(last_update, 0) AS last_update,
+               COALESCE(last_checked_ts, 0) AS last_checked_ts,
+               COALESCE(cancel_attempts, 0) AS cancel_attempts,
+               COALESCE(stale_observations, 0) AS stale_observations,
+               COALESCE(action_stage, 'none') AS action_stage,
+               COALESCE(next_action_ts, 0) AS next_action_ts
+          FROM eb_jobs_live
+         WHERE server_id = :server
+           AND job_type = 4001
+           AND (UNIX_TIMESTAMP() - GREATEST(
+                 COALESCE(NULLIF(last_bytes_ts, 0), 0),
+                 started_at,
+                 last_update
+               )) >= :stale
+           AND COALESCE(next_action_ts, 0) <= UNIX_TIMESTAMP()
+           AND (UNIX_TIMESTAMP() - COALESCE(last_checked_ts, 0)) >= :recheck
+         ORDER BY last_checked_ts ASC, started_at ASC
+         LIMIT :lim
+    ");
+    $stmt->bindValue(':server', $profile, PDO::PARAM_STR);
+    $stmt->bindValue(':stale', $staleSecs, PDO::PARAM_INT);
+    $stmt->bindValue(':recheck', $recheckSecs, PDO::PARAM_INT);
+    $stmt->bindValue(':lim', $batchLimit, PDO::PARAM_INT);
+    $stmt->execute();
+
+    $deviceMap = loadReconciliationDeviceMap($pdo);
+    $budget = max(0, $actionLimit);
+    $summary = [
+        'scanned' => 0,
+        'fresh' => 0,
+        'strikes' => 0,
+        'cancel_attempts' => 0,
+        'cancel_unavailable' => 0,
+        'abandon_attempts' => 0,
+        'finalized' => 0,
+        'action_cap_deferred' => 0,
+        'exhausted' => 0,
+        'errors' => 0,
+        'profile_failures' => 0,
+        'reconcile_action_limit' => $actionLimit,
+    ];
+
+    while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+        $summary['scanned']++;
+        $jobId = (string)$row['job_id'];
+        $username = (string)$row['username'];
+
+        try {
+            $props = api($base, '/admin/get-job-properties', $auth, [
+                'TargetUser' => $username,
+                'JobID' => $jobId,
+            ]);
+        } catch (Throwable $e) {
+            if (isCometAuthError($e)) {
+                recordProfileDiscoveryFailure($pdo, $profile, $e);
+                $summary['profile_failures']++;
+                logLine("[{$profile}] reconciliation auth failure; profile processing stopped");
+                break;
+            }
+            if (isCometNotFoundError($e)) {
+                finalizeMissingCometJob($pdo, $row);
+                $summary['finalized']++;
+                logLine("[{$profile}] finalize missing job={$jobId} reason=comet_job_not_found");
+                continue;
+            }
+            $summary['errors']++;
+            recordReconciliationCheckError(
+                $pdo,
+                $profile,
+                $jobId,
+                $recheckSecs,
+                IncompleteJobReconciliation::sanitizeError($e->getMessage())
+            );
+            continue;
+        }
+
+        $status = isset($props['Status']) ? (int)$props['Status'] : null;
+        $endTime = (int)($props['EndTime'] ?? 0);
+        if ($status === null) {
+            $summary['errors']++;
+            recordReconciliationCheckError(
+                $pdo,
+                $profile,
+                $jobId,
+                $recheckSecs,
+                'malformed job properties: missing Status'
+            );
+            continue;
+        }
+
+        $classification = isset($props['Classification']) && is_numeric($props['Classification'])
+            ? (int)$props['Classification']
+            : null;
+        if ($classification !== IncompleteJobReconciliation::BACKUP_CLASSIFICATION) {
+            $summary['errors']++;
+            recordReconciliationCheckError(
+                $pdo,
+                $profile,
+                $jobId,
+                $recheckSecs,
+                'job properties classification is missing or not backup'
+            );
+            continue;
+        }
+
+        $label = mapStatusLabel($status);
+        if (
+            IncompleteJobReconciliation::isKnownTerminalStatus($status)
+            || (IncompleteJobReconciliation::isRunningStatus($status) && $endTime > 0)
+        ) {
+            $endedAt = $endTime > 0 ? $endTime : time();
+            $bytes = progressBytesFromProps($props);
+            finalizeJob($pdo, [
+                'server_id' => $profile,
+                'job_id' => $jobId,
+                'username' => $username,
+                'device' => (string)$row['device'],
+                'job_type' => (string)$row['job_type'],
+                'status' => normalizeStatusForDb($label),
+                'bytes' => max((int)$row['last_bytes'], $bytes),
+                'duration_sec' => max(0, $endedAt - (int)$row['started_at']),
+                'ended_at' => $endedAt,
+                'comet_status' => $status,
+                'properties' => $props,
+            ]);
+            $summary['finalized']++;
+            continue;
+        }
+        if (!IncompleteJobReconciliation::isRunningStatus($status)) {
+            $summary['errors']++;
+            recordReconciliationCheckError(
+                $pdo,
+                $profile,
+                $jobId,
+                $recheckSecs,
+                "unrecognized non-terminal Comet status {$status}"
+            );
+            continue;
+        }
+
+        $now = time();
+        $bytes = progressBytesFromProps($props);
+        $heartbeatTs = progressHeartbeatTs($props);
+        $activityTs = max(
+            (int)$row['started_at'],
+            (int)$row['last_update'],
+            (int)$row['last_bytes_ts'],
+            $heartbeatTs
+        );
+        if ($bytes > (int)$row['last_bytes']) {
+            $activityTs = $now;
+        }
+
+        $decision = IncompleteJobReconciliation::decide([
+            'now' => $now,
+            'activity_ts' => $activityTs,
+            'stale_secs' => $staleSecs,
+            'last_checked_ts' => (int)$row['last_checked_ts'],
+            'recheck_secs' => $recheckSecs,
+            'stale_observations' => (int)$row['stale_observations'],
+            'action_stage' => (string)$row['action_stage'],
+            'next_action_ts' => (int)$row['next_action_ts'],
+            'action_attempts' => (int)$row['cancel_attempts'],
+            'max_attempts' => $maxAttempts,
+            'has_cancellation_id' => (string)($props['CancellationID'] ?? '') !== '',
+        ]);
+        $action = (string)$decision['action'];
+
+        if ($action === 'fresh') {
+            resetReconciliationState($pdo, $profile, $jobId, $bytes, $activityTs);
+            $summary['fresh']++;
+            continue;
+        }
+        if ($action === 'defer') {
+            continue;
+        }
+        if ($action === 'cooldown_reset') {
+            resetExpiredReconciliationCooldown($pdo, $profile, $jobId, $recheckSecs);
+            $summary['strikes']++;
+            continue;
+        }
+        if ($action === 'exhaust') {
+            markReconciliationExhausted($pdo, $profile, $jobId, $retryCooldownSecs);
+            $summary['exhausted']++;
+            continue;
+        }
+        if ($action === 'strike') {
+            recordStaleObservation($pdo, $profile, $jobId, $recheckSecs);
+            $summary['strikes']++;
+            continue;
+        }
+
+        if ($budget <= 0) {
+            $summary['action_cap_deferred']++;
+            continue;
+        }
+        $budget--;
+
+        $endpoint = $action === 'cancel'
+            ? '/admin/job/cancel'
+            : '/admin/job/abandon';
+        $stage = $action === 'cancel'
+            ? 'cancel_requested'
+            : 'abandon_requested';
+        $summary[$action === 'cancel' ? 'cancel_attempts' : 'abandon_attempts']++;
+
+        try {
+            apiMutation($base, $endpoint, $auth, [
+                'TargetUser' => $username,
+                'JobID' => $jobId,
+            ]);
+            recordActionAttempt($pdo, $profile, $jobId, $stage, $recheckSecs);
+        } catch (Throwable $e) {
+            if (isCometAuthError($e)) {
+                recordProfileDiscoveryFailure($pdo, $profile, $e);
+                $summary['profile_failures']++;
+                logLine("[{$profile}] reconciliation auth failure; profile processing stopped");
+                break;
+            }
+            if ($action === 'cancel' && isCometDeviceUnavailableError($e)) {
+                $summary['cancel_unavailable']++;
+                recordActionAttempt(
+                    $pdo,
+                    $profile,
+                    $jobId,
+                    'cancel_unavailable',
+                    $recheckSecs,
+                    IncompleteJobReconciliation::sanitizeError($e->getMessage())
+                );
+                continue;
+            }
+            $summary['errors']++;
+            recordActionFailure(
+                $pdo,
+                $profile,
+                $jobId,
+                $recheckSecs,
+                IncompleteJobReconciliation::sanitizeError($e->getMessage())
+            );
+            continue;
+        }
+
+        try {
+            $after = api($base, '/admin/get-job-properties', $auth, [
+                'TargetUser' => $username,
+                'JobID' => $jobId,
+            ]);
+            $afterStatus = isset($after['Status']) ? (int)$after['Status'] : null;
+            $afterEnd = (int)($after['EndTime'] ?? 0);
+            $afterLabel = mapStatusLabel($afterStatus);
+            if (
+                $afterStatus !== null
+                && (
+                    IncompleteJobReconciliation::isKnownTerminalStatus($afterStatus)
+                    || (
+                        IncompleteJobReconciliation::isRunningStatus($afterStatus)
+                        && $afterEnd > 0
+                    )
+                )
+            ) {
+                $endedAt = $afterEnd > 0 ? $afterEnd : time();
+                $afterBytes = progressBytesFromProps($after);
+                finalizeJob($pdo, [
+                    'server_id' => $profile,
+                    'job_id' => $jobId,
+                    'username' => $username,
+                    'device' => (string)$row['device'],
+                    'job_type' => (string)$row['job_type'],
+                    'status' => normalizeStatusForDb($afterLabel),
+                    'bytes' => max((int)$row['last_bytes'], $afterBytes),
+                    'duration_sec' => max(0, $endedAt - (int)$row['started_at']),
+                    'ended_at' => $endedAt,
+                    'comet_status' => $afterStatus,
+                    'properties' => $after,
+                ]);
+                $summary['finalized']++;
+            } elseif (
+                $afterStatus === null
+                || !IncompleteJobReconciliation::isRunningStatus($afterStatus)
+            ) {
+                $summary['errors']++;
+                recordReconciliationCheckError(
+                    $pdo,
+                    $profile,
+                    $jobId,
+                    $recheckSecs,
+                    $afterStatus === null
+                        ? 'malformed post-action properties: missing Status'
+                        : "unrecognized post-action Comet status {$afterStatus}"
+                );
+            }
+        } catch (Throwable $e) {
+            if (isCometAuthError($e)) {
+                recordProfileDiscoveryFailure($pdo, $profile, $e);
+                $summary['profile_failures']++;
+                logLine("[{$profile}] reconciliation auth failure after action");
+                break;
+            }
+            if (isCometNotFoundError($e)) {
+                finalizeMissingCometJob($pdo, $row);
+                $summary['finalized']++;
+                logLine("[{$profile}] finalize missing post-action job={$jobId} reason=comet_job_not_found");
+            } else {
+                $summary['errors']++;
+                recordReconciliationCheckError(
+                    $pdo,
+                    $profile,
+                    $jobId,
+                    $recheckSecs,
+                    IncompleteJobReconciliation::sanitizeError($e->getMessage())
+                );
+            }
+        }
+
+        $deviceKey = $username . "\0" . (string)$row['device'];
+        $device = $deviceMap[$deviceKey] ?? null;
+        $offlineTs = LiveJobState::offlineSinceToUnix($device['offline_since'] ?? null);
+        $reason = $device !== null
+            && !$device['is_active']
+            && $offlineTs > 0
+            && ($now - $offlineTs) >= $offlineCleanupSecs
+                ? 'offline_stale'
+                : 'heartbeat_stale';
+        logLine("[{$profile}] reconciliation {$action} job={$jobId} reason={$reason}");
+    }
+
+    echo json_encode(array_merge([
+        'event' => 'incomplete_job_enforcement_summary',
+        'profile' => $profile,
+    ], $summary), JSON_UNESCAPED_SLASHES) . PHP_EOL;
+
+    return $summary;
 }
 
 /** ---------- core logic ---------- */
@@ -564,6 +1514,8 @@ function processOfflineLiveJobs(
                         'duration_sec' => $dur,
                         'ended_at'     => $endedAt,
                         'comet_status' => $statusN,
+                        'properties'   => $props,
+                        'properties'   => $props,
                     ]);
                     logLine("[{$profileName}] offline finalize job={$jobId} status={$labelDb}");
                 }
@@ -603,7 +1555,7 @@ function processOfflineLiveJobs(
             if ($canId !== '') {
                 if (!$DRY_RUN) {
                     try {
-                        api($base, '/admin/job/cancel', $auth, [
+                        apiMutation($base, '/admin/job/cancel', $auth, [
                             'TargetUser' => $user,
                             'JobID'      => $jobId,
                         ]);
@@ -632,7 +1584,7 @@ function processOfflineLiveJobs(
                     continue;
                 }
                 try {
-                    api($base, '/admin/job/abandon', $auth, [
+                    apiMutation($base, '/admin/job/abandon', $auth, [
                         'TargetUser' => $user,
                         'JobID'      => $jobId,
                     ]);
@@ -673,6 +1625,8 @@ function processOfflineLiveJobs(
                         'duration_sec' => $dur2,
                         'ended_at'     => $ended,
                         'comet_status' => $statusN2,
+                        'properties'   => $props2,
+                        'properties'   => $props2,
                     ]);
                     logLine("[{$profileName}] offline finalize job={$jobId} status={$label2Db}");
                 } else {
@@ -702,7 +1656,10 @@ function processProfile(
     int $MAX_ATTEMPTS,
     int $BATCH_LIMIT,
     bool $DRY_RUN = false,
-    int $OFFLINE_CLEANUP_SECS = 3600
+    int $OFFLINE_CLEANUP_SECS = 3600,
+    string $RECONCILE_MODE = 'off',
+    int $RECONCILE_ACTION_LIMIT = 25,
+    int $RECONCILE_RETRY_COOLDOWN_SECS = 86400
 ): void {
     $profileName = $profile;
     $base = cometApiBase($profile);
@@ -710,15 +1667,73 @@ function processProfile(
         logLine("[{$profileName}] SKIP: API base not configured/derivable");
         return;
     }
-    $auth = cometAdminAuth($profile);
+
+    // Audit writes profile health only; enforce also writes live-job state.
+    if (!$DRY_RUN || $RECONCILE_MODE !== 'off') {
+        ensureReconciliationSchema($pdo);
+    }
+
+    try {
+        $auth = cometAdminAuth($profile);
+        IncompleteJobReconciliation::validateAuth($auth);
+    } catch (Throwable $e) {
+        if ($RECONCILE_MODE !== 'off') {
+            recordProfileDiscoveryFailure($pdo, $profileName, $e);
+        }
+        logLine("[{$profileName}] reconciliation profile failure: " .
+            IncompleteJobReconciliation::sanitizeError($e->getMessage()));
+        return;
+    }
     if (($auth['Username'] ?? '') === '') {
         logLine("[{$profileName}] SKIP: Admin API Username missing");
         return;
     }
 
-    // Ensure live table has our helper columns (safe no-op if already there)
-    if (!$DRY_RUN) {
-        ensureLiveExtensions($pdo);
+    if ($RECONCILE_MODE !== 'off') {
+        try {
+            $discoverySummary = discoverIncompleteJobs(
+                $pdo,
+                $profileName,
+                $base,
+                $auth,
+                $RECONCILE_MODE,
+                $STALE_SECS,
+                $RECHECK_SECS,
+                $MAX_ATTEMPTS,
+                $RECONCILE_MODE === 'audit'
+            );
+        } catch (Throwable $e) {
+            logLine("[{$profileName}] reconciliation discovery failed: " .
+                IncompleteJobReconciliation::sanitizeError($e->getMessage()));
+            return;
+        }
+
+        if ($RECONCILE_MODE === 'audit') {
+            logLine("[{$profileName}] reconciliation audit complete; legacy mutations skipped");
+            return;
+        }
+
+        $enforcementSummary = processReconciledLiveJobs(
+            $pdo,
+            $profileName,
+            $base,
+            $auth,
+            $STALE_SECS,
+            $RECHECK_SECS,
+            $MAX_ATTEMPTS,
+            $BATCH_LIMIT,
+            $OFFLINE_CLEANUP_SECS,
+            $RECONCILE_ACTION_LIMIT,
+            $RECONCILE_RETRY_COOLDOWN_SECS
+        );
+        if ((int)($enforcementSummary['profile_failures'] ?? 0) === 0) {
+            recordProfileDiscoverySuccess(
+                $pdo,
+                $profileName,
+                (int)($discoverySummary['returned'] ?? 0)
+            );
+        }
+        return;
     }
 
     // Bootstrap pass: initialize rows that have never been checked. Do not keep
@@ -981,7 +1996,7 @@ function processProfile(
                     continue;
                 } else {
                     try {
-                        api($base, '/admin/job/cancel', $auth, [
+                        apiMutation($base, '/admin/job/cancel', $auth, [
                             'TargetUser' => $user,
                             'JobID'      => $jobId,
                         ]);
@@ -1003,7 +2018,7 @@ function processProfile(
                     continue;
                 } else {
                     try {
-                        api($base, '/admin/job/abandon', $auth, [
+                        apiMutation($base, '/admin/job/abandon', $auth, [
                             'TargetUser' => $user,
                             'JobID'      => $jobId,
                         ]);
@@ -1058,7 +2073,7 @@ function processProfile(
                     $alive2 = hasFreshHeartbeat($props2, $RECHECK_SECS);
                     if (!$alive2) {
                         try {
-                            api($base, '/admin/job/abandon', $auth, [
+                            apiMutation($base, '/admin/job/abandon', $auth, [
                                 'TargetUser' => $user,
                                 'JobID'      => $jobId,
                             ]);
@@ -1088,6 +2103,7 @@ function processProfile(
                                     'duration_sec' => $dur3,
                                     'ended_at'     => $ended3,
                                     'comet_status' => $statusN3,
+                                    'properties'   => $props3,
                                 ]);
                                 logLine("[{$profileName}] finalize after abandon job={$jobId} status={$label3Db}");
                                 return; // proceed next job
@@ -1142,8 +2158,8 @@ function processProfile(
 }
 
 
-/** Add helper columns to eb_jobs_live if missing (safe to call each run) */
-function ensureLiveExtensions(PDO $pdo): void {
+/** Add reconciliation state storage if missing (safe to call each run). */
+function ensureReconciliationSchema(PDO $pdo): void {
     $cols = [];
     $res = $pdo->query("SHOW COLUMNS FROM eb_jobs_live");
     while ($r = $res->fetch(PDO::FETCH_ASSOC)) {
@@ -1154,10 +2170,40 @@ function ensureLiveExtensions(PDO $pdo): void {
     if (!isset($cols['last_bytes_ts']))   $alters[] = "ADD COLUMN last_bytes_ts INT NOT NULL DEFAULT 0";
     if (!isset($cols['cancel_attempts'])) $alters[] = "ADD COLUMN cancel_attempts TINYINT NOT NULL DEFAULT 0";
     if (!isset($cols['last_checked_ts'])) $alters[] = "ADD COLUMN last_checked_ts INT NOT NULL DEFAULT 0";
+    if (!isset($cols['stale_observations'])) $alters[] = "ADD COLUMN stale_observations TINYINT UNSIGNED NOT NULL DEFAULT 0";
+    if (!isset($cols['action_stage'])) $alters[] = "ADD COLUMN action_stage VARCHAR(24) NOT NULL DEFAULT 'none'";
+    if (!isset($cols['next_action_ts'])) $alters[] = "ADD COLUMN next_action_ts INT UNSIGNED NOT NULL DEFAULT 0";
+    if (!isset($cols['last_action_error'])) $alters[] = "ADD COLUMN last_action_error VARCHAR(255) NULL";
     if ($alters) {
         $sql = "ALTER TABLE eb_jobs_live " . implode(", ", $alters);
         $pdo->exec($sql);
     }
+
+    $indexes = [];
+    $indexRows = $pdo->query("SHOW INDEX FROM eb_jobs_live");
+    while ($r = $indexRows->fetch(PDO::FETCH_ASSOC)) {
+        $indexes[strtolower((string)$r['Key_name'])] = true;
+    }
+    if (!isset($indexes['idx_jobs_live_reconcile'])) {
+        $pdo->exec(
+            "ALTER TABLE eb_jobs_live
+             ADD INDEX idx_jobs_live_reconcile
+               (server_id, job_type, next_action_ts, last_checked_ts)"
+        );
+    }
+
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS eb_monitor_profile_state (
+            profile VARCHAR(64) NOT NULL,
+            last_success_ts INT UNSIGNED NOT NULL DEFAULT 0,
+            last_error_ts INT UNSIGNED NOT NULL DEFAULT 0,
+            consecutive_failures INT UNSIGNED NOT NULL DEFAULT 0,
+            last_incomplete_count INT UNSIGNED NOT NULL DEFAULT 0,
+            last_error VARCHAR(255) NULL,
+            updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            PRIMARY KEY (profile)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
 }
 
 /** ---------- main ---------- */
@@ -1184,16 +2230,28 @@ foreach ($profiles as $p) {
     }
     $anyMatched = true;
 
-    processProfile(
-        $pdo,
-        $profileName,
-        $STALE_SECS,
-        $RECHECK_SECS,
-        $MAX_ATTEMPTS,
-        $BATCH_LIMIT,
-        isDryRun(),
-        $OFFLINE_CLEANUP_SECS
-    );
+    $profileLock = acquireProfileMonitorLock($pdo, $profileName);
+    if ($profileLock === null) {
+        logLine("[{$profileName}] SKIP: another monitor process holds the profile lock");
+        continue;
+    }
+    try {
+        processProfile(
+            $pdo,
+            $profileName,
+            $STALE_SECS,
+            $RECHECK_SECS,
+            $MAX_ATTEMPTS,
+            $BATCH_LIMIT,
+            isDryRun(),
+            $OFFLINE_CLEANUP_SECS,
+            $RECONCILE_MODE,
+            $RECONCILE_ACTION_LIMIT,
+            $RECONCILE_RETRY_COOLDOWN_SECS
+        );
+    } finally {
+        releaseProfileMonitorLock($pdo, $profileLock);
+    }
 }
 
 if (isset($cli['profile']) && !$anyMatched) {

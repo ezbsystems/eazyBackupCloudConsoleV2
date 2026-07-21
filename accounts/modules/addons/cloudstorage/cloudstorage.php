@@ -667,6 +667,12 @@ function cloudstorage_config()
                 'Cols' => '60',
                 'Description' => 'Comma- or newline-separated email addresses whose trial signups bypass the email-verification step. ONLY honoured when HTTP_HOST is in e3backup_beta_hosts (dev only).',
             ],
+            'e3backup_admin_portal_bypass_password' => [
+                'FriendlyName' => 'e3 Welcome - Admin Portal Password Bypass',
+                'Type' => 'password',
+                'Size' => '64',
+                'Description' => 'Dev only (honoured when HTTP_HOST is in e3backup_beta_hosts). When set, staff impersonating a client on the Welcome page can enter this value in "Confirm your portal password" instead of the customer password to provision MS365 / e3 Backup User for legacy clients. A random backup-user password is generated automatically.',
+            ],
         ]
     ];
 }

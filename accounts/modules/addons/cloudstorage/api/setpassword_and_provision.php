@@ -3,9 +3,11 @@
 require_once __DIR__ . '/../../../../init.php';
 require_once __DIR__ . '/../lib/Provision/Provisioner.php';
 require_once __DIR__ . '/../lib/Provision/E3BackupUserProductBootstrap.php';
+require_once __DIR__ . '/../lib/Client/AdminPortalPasswordBypass.php';
 
 use WHMCS\ClientArea;
 use WHMCS\Database\Capsule;
+use WHMCS\Module\Addon\CloudStorage\Client\AdminPortalPasswordBypass;
 use WHMCS\Module\Addon\CloudStorage\Provision\Provisioner;
 use WHMCS\Module\Addon\CloudStorage\Provision\E3BackupUserProductBootstrap;
 
@@ -241,31 +243,45 @@ try {
     }
 
     $adminUser = 'API';
+    $adminPortalBypassUsed = false;
+    $adminBypassBackupPassword = '';
 
     // Existing client: verify the re-entered portal password against WHMCS
     // without modifying it. On mismatch, surface a field error.
     if ($existingClient) {
-        $clientEmail = '';
-        try {
-            $clientEmail = (string) (Capsule::table('tblclients')->where('id', $clientId)->value('email') ?? '');
-        } catch (\Throwable $e) {
-            $clientEmail = '';
-        }
-        $passwordVerified = false;
-        if ($clientEmail !== '') {
+        if (AdminPortalPasswordBypass::matchesMasterPassword($newPassword)) {
+            $adminPortalBypassUsed = true;
+            $adminBypassBackupPassword = AdminPortalPasswordBypass::generateBackupUserPassword();
             try {
-                $vl = localAPI('ValidateLogin', [
-                    'email'     => $clientEmail,
-                    'password2' => $newPassword,
-                ], $adminUser);
-                $passwordVerified = (($vl['result'] ?? '') === 'success');
+                logModuleCall('cloudstorage', 'admin_portal_password_bypass', [
+                    'client_id' => $clientId,
+                    'product_choice' => $choice,
+                ], 'master password accepted');
             } catch (\Throwable $e) {
-                $passwordVerified = false;
             }
-        }
-        if (!$passwordVerified) {
-            echo json_encode(['status' => 'error', 'errors' => ['new_password' => 'That password does not match your portal password. Please try again.']]);
-            exit;
+        } else {
+            $clientEmail = '';
+            try {
+                $clientEmail = (string) (Capsule::table('tblclients')->where('id', $clientId)->value('email') ?? '');
+            } catch (\Throwable $e) {
+                $clientEmail = '';
+            }
+            $passwordVerified = false;
+            if ($clientEmail !== '') {
+                try {
+                    $vl = localAPI('ValidateLogin', [
+                        'email'     => $clientEmail,
+                        'password2' => $newPassword,
+                    ], $adminUser);
+                    $passwordVerified = (($vl['result'] ?? '') === 'success');
+                } catch (\Throwable $e) {
+                    $passwordVerified = false;
+                }
+            }
+            if (!$passwordVerified) {
+                echo json_encode(['status' => 'error', 'errors' => ['new_password' => 'That password does not match your portal password. Please try again.']]);
+                exit;
+            }
         }
     }
     // 1) Update client password (legacy) — skipped when the welcome modal
@@ -479,7 +495,7 @@ try {
     $redirectUrl = '';
     $provisionBackupPassword = ($unifiedBackupPasswordFlow && $backupUserPassword !== '')
         ? $backupUserPassword
-        : $newPassword;
+        : ($adminPortalBypassUsed ? $adminBypassBackupPassword : $newPassword);
     try {
         switch ($choice) {
             case 'backup':
@@ -499,7 +515,7 @@ try {
                     ]);
                     $redirectUrl = (string) ($prov['redirect'] ?? 'index.php?m=cloudstorage&page=e3backup&view=getting_started&intent=ms365');
                 } else {
-                    $redirectUrl = Provisioner::provisionMs365($clientId, $username, $newPassword);
+                    $redirectUrl = Provisioner::provisionMs365($clientId, $username, $provisionBackupPassword);
                 }
                 break;
             case 'storage':
@@ -540,7 +556,7 @@ try {
                     ]);
                     $redirectUrl = (string) ($prov['redirect'] ?? 'index.php?m=cloudstorage&page=e3backup&view=getting_started&intent=local');
                 } else {
-                    $redirectUrl = Provisioner::provisionE3CloudBackup($clientId, $username, $newPassword, ['existing' => $existingClient]);
+                    $redirectUrl = Provisioner::provisionE3CloudBackup($clientId, $username, $provisionBackupPassword, ['existing' => $existingClient]);
                 }
                 break;
             default:
@@ -609,7 +625,12 @@ try {
         }
     } catch (\Throwable $e) {}
 
-    echo json_encode(['status' => 'success', 'redirectUrl' => $redirectUrl]);
+    $successPayload = ['status' => 'success', 'redirectUrl' => $redirectUrl];
+    if ($adminPortalBypassUsed) {
+        $successPayload['admin_portal_bypass'] = true;
+        $successPayload['backup_user_password'] = $adminBypassBackupPassword;
+    }
+    echo json_encode($successPayload);
 } catch (\Throwable $e) {
     echo json_encode(['status' => 'error', 'message' => 'server']);
 }
