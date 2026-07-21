@@ -48,23 +48,61 @@ function comet_ServiceParams($sid)
 
 /**
  * @param  int  $pid
+ * @param  int|null  $assignedServerId
  * @return array
  * @throws Exception
  */
-function comet_ProductParams($pid)
+function comet_ProductParams($pid, $assignedServerId = null)
 {
+    $product = Capsule::table('tblproducts')->find((int) $pid);
+    if (!$product) {
+        throw new \RuntimeException('Backup service configuration is unavailable.');
+    }
 
-    $groupid = Capsule::table("tblproducts")->find($pid)->servergroup;
-    $servergroup = Capsule::table("tblservergroups")->find($groupid);
-    $server = Capsule::table("tblservers")->where(["name" => $servergroup->name])->first();
+    $groupId = (int) ($product->servergroup ?? 0);
+    $serverGroup = $groupId > 0
+        ? Capsule::table('tblservergroups')->find($groupId)
+        : null;
+    if (!$serverGroup) {
+        throw new \RuntimeException('Backup service configuration is unavailable.');
+    }
 
+    $server = null;
+    $assignedServerId = (int) ($assignedServerId ?? 0);
+    if ($assignedServerId > 0) {
+        $isRelated = Capsule::table('tblservergroupsrel')
+            ->where('groupid', $groupId)
+            ->where('serverid', $assignedServerId)
+            ->exists();
+        if (!$isRelated) {
+            throw new \RuntimeException('Backup service configuration is unavailable.');
+        }
+        $server = Capsule::table('tblservers')->find($assignedServerId);
+    } else {
+        $relatedServerId = (int) (Capsule::table('tblservergroupsrel')
+            ->where('groupid', $groupId)
+            ->orderBy('serverid')
+            ->value('serverid') ?? 0);
+        if ($relatedServerId > 0) {
+            $server = Capsule::table('tblservers')->find($relatedServerId);
+        }
+        if (!$server) {
+            $server = Capsule::table('tblservers')
+                ->where('name', (string) $serverGroup->name)
+                ->first();
+        }
+    }
+
+    if (!$server || trim((string) ($server->hostname ?? '')) === '') {
+        throw new \RuntimeException('Backup service configuration is unavailable.');
+    }
 
     return [
-        "serverhttpprefix" => $server->secure ? "https" : "http",
-        "serverhostname" => $server->hostname,
-        "serverport" => empty($server->port) ? "" : ":" . $server->port,
-        "serverusername" => $server->username,
-        "serverpassword" => localAPI("DecryptPassword", ['password2' => $server->password])["password"],
+        'serverhttpprefix' => $server->secure ? 'https' : 'http',
+        'serverhostname' => $server->hostname,
+        'serverport' => empty($server->port) ? '' : ':' . $server->port,
+        'serverusername' => $server->username,
+        'serverpassword' => localAPI('DecryptPassword', ['password2' => $server->password])['password'],
     ];
 }
 
