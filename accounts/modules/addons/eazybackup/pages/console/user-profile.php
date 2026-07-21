@@ -34,22 +34,6 @@ function eazybackup_user_profile(array $vars = []) {
     $packageid = (int) $service->packageid;
     $serverid = (int) ($service->server ?? 0);
 
-    // #region agent log
-    @file_put_contents('/var/www/eazybackup.ca/.cursor/debug-e7e55b.log', json_encode([
-        'sessionId' => 'e7e55b',
-        'runId' => 'pre-fix',
-        'hypothesisId' => 'H3',
-        'location' => 'pages/console/user-profile.php:34',
-        'message' => 'Resolved profile route identifiers',
-        'data' => [
-            'serviceId' => $serviceid,
-            'packageId' => (int) $packageid,
-            'usernamePresent' => is_string($username) && trim($username) !== '',
-        ],
-        'timestamp' => (int) round(microtime(true) * 1000),
-    ], JSON_UNESCAPED_SLASHES) . PHP_EOL, FILE_APPEND | LOCK_EX);
-    // #endregion
-
     $profileFailure = static function (string $classification) use ($serviceid, $packageid, $serverid): array {
         try {
             logModuleCall('eazybackup', 'user_profile_fetch_failed', [
@@ -69,80 +53,7 @@ function eazybackup_user_profile(array $vars = []) {
     try {
         $params = comet_ProductParams($packageid, $serverid);
         $params['username'] = $username;
-
-        // #region agent log
-    try {
-        $debugGroupId = (int) (Capsule::table('tblproducts')->where('id', $packageid)->value('servergroup') ?? 0);
-        $debugGroupName = $debugGroupId > 0
-            ? (string) (Capsule::table('tblservergroups')->where('id', $debugGroupId)->value('name') ?? '')
-            : '';
-        $debugLegacyServer = $debugGroupName !== ''
-            ? Capsule::table('tblservers')->where('name', $debugGroupName)->first(['id', 'hostname'])
-            : null;
-        $debugRelatedServerIds = $debugGroupId > 0
-            ? Capsule::table('tblservergroupsrel')->where('groupid', $debugGroupId)->pluck('serverid')->map(static function ($id) {
-                return (int) $id;
-            })->values()->all()
-            : [];
-        $debugRelatedServers = empty($debugRelatedServerIds)
-            ? []
-            : Capsule::table('tblservers')->whereIn('id', $debugRelatedServerIds)->get(['id', 'hostname'])->map(static function ($server) {
-                return [
-                    'id' => (int) $server->id,
-                    'hostnamePresent' => trim((string) ($server->hostname ?? '')) !== '',
-                ];
-            })->values()->all();
-        @file_put_contents('/var/www/eazybackup.ca/.cursor/debug-e7e55b.log', json_encode([
-            'sessionId' => 'e7e55b',
-            'runId' => 'pre-fix',
-            'hypothesisId' => 'H1,H2',
-            'location' => 'pages/console/user-profile.php:51',
-            'message' => 'Compared legacy and relational server resolution',
-            'data' => [
-                'serverGroupId' => $debugGroupId,
-                'legacyNameMatch' => $debugLegacyServer !== null,
-                'legacyHostnamePresent' => $debugLegacyServer !== null
-                    && trim((string) ($debugLegacyServer->hostname ?? '')) !== '',
-                'relatedServers' => $debugRelatedServers,
-            ],
-            'timestamp' => (int) round(microtime(true) * 1000),
-        ], JSON_UNESCAPED_SLASHES) . PHP_EOL, FILE_APPEND | LOCK_EX);
-    } catch (\Throwable $debugException) {
-        @file_put_contents('/var/www/eazybackup.ca/.cursor/debug-e7e55b.log', json_encode([
-            'sessionId' => 'e7e55b',
-            'runId' => 'pre-fix',
-            'hypothesisId' => 'H1,H2',
-            'location' => 'pages/console/user-profile.php:51',
-            'message' => 'Server resolution diagnostics failed',
-            'data' => ['exceptionClass' => get_class($debugException)],
-            'timestamp' => (int) round(microtime(true) * 1000),
-        ], JSON_UNESCAPED_SLASHES) . PHP_EOL, FILE_APPEND | LOCK_EX);
-    }
-        // #endregion
-
         $user = comet_User($params);
-
-        // #region agent log
-    $debugHostname = trim((string) ($params['serverhostname'] ?? ''));
-    $debugUserError = is_string($user) ? $user : '';
-    @file_put_contents('/var/www/eazybackup.ca/.cursor/debug-e7e55b.log', json_encode([
-        'sessionId' => 'e7e55b',
-        'runId' => 'pre-fix',
-        'hypothesisId' => 'H2,H4',
-        'location' => 'pages/console/user-profile.php:102',
-        'message' => 'Profile API call outcome',
-        'data' => [
-            'scheme' => (string) ($params['serverhttpprefix'] ?? ''),
-            'hostnamePresent' => $debugHostname !== '',
-            'hostnameContainsScheme' => preg_match('~^https?://~i', $debugHostname) === 1,
-            'hostnameContainsPath' => strpos(trim(preg_replace('~^https?://~i', '', $debugHostname), '/'), '/') !== false,
-            'serverUsernamePresent' => trim((string) ($params['serverusername'] ?? '')) !== '',
-            'resultIsError' => is_string($user),
-            'uriParseError' => stripos($debugUserError, 'Unable to parse URI') !== false,
-        ],
-        'timestamp' => (int) round(microtime(true) * 1000),
-        ], JSON_UNESCAPED_SLASHES) . PHP_EOL, FILE_APPEND | LOCK_EX);
-        // #endregion
     } catch (\Throwable $exception) {
         return $profileFailure('configuration_or_runtime_failure');
     }
