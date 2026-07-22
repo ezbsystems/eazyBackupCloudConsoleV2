@@ -1,4 +1,4 @@
-<link rel="stylesheet" href="modules/addons/cloudstorage/assets/css/ms365_job_wizard.css?v=12">
+<link rel="stylesheet" href="modules/addons/cloudstorage/assets/css/ms365_job_wizard.css?v=17">
 <link rel="stylesheet" href="modules/addons/cloudstorage/assets/css/ms365_restore_wizard.css?v=4">
 
 <div id="ms365JobWizardModal" class="ms365-job-wizard-modal-host fixed inset-0 z-[2200] hidden" x-data="ms365WizardApp()" x-cloak>
@@ -41,7 +41,8 @@
                     <p class="eb-type-caption mt-4" x-text="refreshingInventory ? inventoryProgressMessage() : 'Loading…'"></p>
                     <div class="flex flex-wrap gap-2 justify-center mt-3" x-show="refreshingInventory && inventoryProgressChips().length > 0">
                         <template x-for="chip in inventoryProgressChips()" :key="chip.key">
-                            <span class="eb-badge eb-badge--neutral text-xs" x-text="chip.label + ': ' + chip.count"></span>
+                            <span class="eb-badge eb-badge--neutral text-xs"
+                                  x-text="chip.count != null ? (chip.label + ': ' + chip.count) : chip.label"></span>
                         </template>
                     </div>
                     <p class="eb-type-caption text-[var(--eb-text-muted)] mt-2 max-w-md mx-auto"
@@ -197,14 +198,21 @@
 
                     <!-- Step 2: Inventory -->
                     <div x-show="step === 2" class="ms365-wizard-step2 flex flex-col flex-1 min-h-0 gap-3 relative">
-                        <div x-show="refreshingInventory && !loading"
+                        <div x-show="inventoryBackgroundRefreshing"
+                             x-cloak
+                             class="eb-alert eb-alert--info text-sm shrink-0"
+                             role="status">
+                            Inventory is updating in the background. Member counts may change until refresh completes.
+                        </div>
+                        <div x-show="refreshingInventory && !loading && !hasUsableInventory()"
                              x-cloak
                              class="ms365-inventory-progress absolute inset-0 z-10 flex flex-col items-center justify-center rounded-lg bg-[var(--eb-surface-base)]/90 px-6 text-center">
                             <div class="eb-loading-spinner--compact" role="status" aria-label="Refreshing inventory"></div>
                             <p class="eb-type-caption mt-4" x-text="inventoryProgressMessage()"></p>
                             <div class="flex flex-wrap gap-2 justify-center mt-3" x-show="inventoryProgressChips().length > 0">
                                 <template x-for="chip in inventoryProgressChips()" :key="'refresh-' + chip.key">
-                                    <span class="eb-badge eb-badge--neutral text-xs" x-text="chip.label + ': ' + chip.count"></span>
+                                    <span class="eb-badge eb-badge--neutral text-xs"
+                                          x-text="chip.count != null ? (chip.label + ': ' + chip.count) : chip.label"></span>
                                 </template>
                             </div>
                             <p class="eb-type-caption text-[var(--eb-text-muted)] mt-2 max-w-md"
@@ -212,7 +220,7 @@
                                x-text="inventoryProgress.detail"></p>
                         </div>
                         <div class="flex flex-wrap items-center gap-2 justify-end">
-                            <button type="button" class="eb-btn eb-btn-secondary eb-btn-sm" @click="refreshInventory()" :disabled="refreshingInventory">
+                            <button type="button" class="eb-btn eb-btn-secondary eb-btn-sm" @click="refreshInventory()" :disabled="refreshingInventory || inventoryBackgroundRefreshing">
                                 <span x-text="refreshingInventory ? 'Refreshing…' : 'Refresh inventory'"></span>
                             </button>
                         </div>
@@ -344,20 +352,41 @@
 
                         <div class="ms365-wizard-billing-dock shrink-0">
                             <div class="ms365-wizard-billing-dock__panel">
-                            <template x-if="!billingPreview || selectionCount() === 0">
+                            <template x-if="selectionCount() === 0">
                                 <div class="ms365-wizard-billing-dock__placeholder">
                                     <div class="text-xs font-semibold uppercase tracking-wide text-[var(--eb-text-muted)]">Billing estimate</div>
                                     <p class="eb-type-caption text-[var(--eb-text-muted)] mt-1 mb-0">Select resources to see your billing estimate.</p>
                                 </div>
                             </template>
-                            <template x-if="billingPreview && selectionCount() > 0">
-                                <div class="ms365-wizard-billing-dock__content space-y-2">
+                            <template x-if="selectionCount() > 0 && billingPreviewLoading && !billingPreview">
+                                <div class="ms365-wizard-billing-dock__placeholder">
+                                    <div class="text-xs font-semibold uppercase tracking-wide text-[var(--eb-text-muted)]">Billing estimate</div>
+                                    <p class="eb-type-caption text-[var(--eb-text-muted)] mt-1 mb-0">Calculating billing estimate…</p>
+                                </div>
+                            </template>
+                            <template x-if="selectionCount() > 0 && billingPreviewError && !billingPreview">
+                                <div class="ms365-wizard-billing-dock__placeholder">
+                                    <div class="text-xs font-semibold uppercase tracking-wide text-[var(--eb-text-muted)]">Billing estimate</div>
+                                    <p class="eb-type-caption text-[var(--eb-danger-text)] mt-1 mb-0" x-text="billingPreviewError"></p>
+                                </div>
+                            </template>
+                            <template x-if="selectionCount() > 0 && billingPreview">
+                                <div class="ms365-wizard-billing-dock__content space-y-2"
+                                     :class="billingPreviewLoading ? 'ms365-wizard-billing-dock__content--updating' : ''">
                                     <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
                                         <div class="text-xs font-semibold uppercase tracking-wide text-[var(--eb-text-muted)]">
                                             Billing estimate
-                                            <span x-show="billingPreview.breakdown && billingPreview.breakdown.length > 0"
-                                                  x-text="' · ' + billingPreview.breakdown.length + (billingPreview.breakdown.length === 1 ? ' group' : ' groups')"></span>
                                         </div>
+                                        <span class="ms365-wizard-billing-dock__updating flex items-center gap-2 eb-type-caption text-[var(--eb-text-muted)]"
+                                              x-show="billingPreviewLoading"
+                                              x-cloak>
+                                            <span class="eb-loading-spinner--compact" role="status" aria-label="Updating billing estimate"></span>
+                                            <span>Updating…</span>
+                                        </span>
+                                        <span class="eb-type-caption text-[var(--eb-danger-text)]"
+                                              x-show="billingPreviewError && !billingPreviewLoading"
+                                              x-cloak
+                                              x-text="billingPreviewError"></span>
                                         <template x-if="billingPreview.trial_status === 'trialing'">
                                             <span class="eb-badge eb-badge--info text-xs">Trial — $0 until conversion</span>
                                         </template>
@@ -379,19 +408,60 @@
                                             </span>
                                         </div>
                                     </div>
+                                    <div class="ms365-wizard-billing-dock__calc">
+                                        <button type="button"
+                                                class="ms365-wizard-billing-dock__calc-toggle"
+                                                @click="billingCalcOpen = !billingCalcOpen"
+                                                :aria-expanded="billingCalcOpen ? 'true' : 'false'"
+                                                aria-controls="ms365-wizard-billing-calc-panel">
+                                            <span>How this is calculated</span>
+                                            <svg class="ms365-wizard-billing-dock__calc-chevron"
+                                                 :class="billingCalcOpen ? 'is-open' : ''"
+                                                 xmlns="http://www.w3.org/2000/svg"
+                                                 viewBox="0 0 20 20"
+                                                 fill="currentColor"
+                                                 aria-hidden="true">
+                                                <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+                                            </svg>
+                                        </button>
+                                        <div id="ms365-wizard-billing-calc-panel"
+                                             class="eb-subpanel ms365-wizard-billing-dock__calc-panel"
+                                             x-show="billingCalcOpen"
+                                             x-cloak
+                                             role="region"
+                                             aria-label="Billing calculation details">
+                                            <dl class="ms365-wizard-billing-dock__calc-rows">
+                                                <div class="ms365-wizard-billing-dock__calc-row">
+                                                    <dt>Directly selected appearances</dt>
+                                                    <dd x-text="billingPreview.reconciliation?.direct_appearances ?? 0"></dd>
+                                                </div>
+                                                <div class="ms365-wizard-billing-dock__calc-row">
+                                                    <dt>Group/Team/site membership appearances</dt>
+                                                    <dd x-text="billingPreview.reconciliation?.membership_appearances ?? 0"></dd>
+                                                </div>
+                                                <div class="ms365-wizard-billing-dock__calc-row">
+                                                    <dt>Duplicate appearances removed</dt>
+                                                    <dd>
+                                                        −<span x-text="billingPreview.reconciliation?.duplicate_appearances_removed ?? 0"></span>
+                                                    </dd>
+                                                </div>
+                                                <div class="ms365-wizard-billing-dock__calc-row ms365-wizard-billing-dock__calc-row--total">
+                                                    <dt>Unique Protected Objects</dt>
+                                                    <dd x-text="billingPreview.reconciliation?.protected_objects ?? billingPreview.protected_users ?? 0"></dd>
+                                                </div>
+                                            </dl>
+                                            <p class="eb-type-caption text-[var(--eb-warning-text)] mb-0 mt-2"
+                                               x-show="billingPreview.member_resolution_pending">
+                                                Team, group, or site member lists could not be fully loaded. Counts reflect resolved data only; your estimate may increase after inventory refresh.
+                                            </p>
+                                        </div>
+                                    </div>
                                     <p class="eb-type-caption text-[var(--eb-text-muted)] mb-0">
                                         Protected Objects @ $<span x-text="Number(billingPreview.pricing?.protected_user_price_cad || 0).toFixed(2)"></span>/object
                                         <template x-if="(billingPreview.onedrive_overage_gib || 0) > 0">
                                             <span> · OneDrive overage included</span>
                                         </template>
                                     </p>
-                                    <template x-if="billingPreview.breakdown && billingPreview.breakdown.length > 0">
-                                        <ul class="ms365-wizard-billing-dock__breakdown eb-type-caption text-[var(--eb-text-muted)] mb-0">
-                                            <template x-for="(row, bidx) in billingPreview.breakdown" :key="'dock-bill-' + bidx">
-                                                <li x-text="row.label + ' — ' + row.member_count + ' members'"></li>
-                                            </template>
-                                        </ul>
-                                    </template>
                                     <p class="eb-type-caption text-[var(--eb-text-muted)] mb-0" x-show="editMode">
                                         Counts reflect this job&apos;s selection. Your account total may include other active MS365 jobs.
                                     </p>
@@ -538,5 +608,5 @@
     </div>
 </div>
 
-<script src="modules/addons/cloudstorage/assets/js/ms365_job_selection.js?v=4"></script>
-<script src="modules/addons/cloudstorage/assets/js/ms365_job_wizard.js?v=19"></script>
+<script src="modules/addons/cloudstorage/assets/js/ms365_job_selection.js?v=5"></script>
+<script src="modules/addons/cloudstorage/assets/js/ms365_job_wizard.js?v=28"></script>

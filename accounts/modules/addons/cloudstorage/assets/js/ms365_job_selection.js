@@ -658,7 +658,10 @@
     }
 
     function toggleGlobalSelect(treesBySection, selection) {
-        if (globalCheckState(treesBySection, selection) === 'checked') {
+        const state = globalCheckState(treesBySection, selection);
+        // Checked or partial → clear all. Unchecked → select all.
+        // (Indeterminate click must clear; otherwise the checkbox can only re-select all.)
+        if (state === 'checked' || state === 'indeterminate') {
             return {};
         }
         return selectAll(treesBySection);

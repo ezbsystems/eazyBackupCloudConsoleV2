@@ -43,7 +43,13 @@ final class ProtectedUserResolver
      *   protected_azure_ids: list<string>,
      *   sources: array<string, list<string>>,
      *   breakdown: list<array{resource_id: string, label: string, member_count: int}>,
-     *   member_resolution_pending: bool
+     *   member_resolution_pending: bool,
+     *   reconciliation: array{
+     *     direct_appearances: int,
+     *     membership_appearances: int,
+     *     duplicate_appearances_removed: int,
+     *     protected_objects: int
+     *   }
      * }
      */
     public static function resolve(
@@ -158,11 +164,34 @@ final class ProtectedUserResolver
             ];
         }
 
+        $directAppearances = 0;
+        $membershipAppearances = 0;
+        foreach ($sources as $resourceId => $memberIds) {
+            $resource = $byId[$resourceId] ?? null;
+            if ($resource === null) {
+                continue;
+            }
+            $type = (string) ($resource['resource_type'] ?? '');
+            $count = count($memberIds);
+            if (in_array($type, self::PERSONAL_TYPES, true)) {
+                $directAppearances += $count;
+            } elseif (in_array($type, self::MEMBER_SOURCE_TYPES, true)) {
+                $membershipAppearances += $count;
+            }
+        }
+        $protectedCount = count($protected);
+
         return [
             'protected_azure_ids' => array_keys($protected),
             'sources' => $sources,
             'breakdown' => $breakdown,
             'member_resolution_pending' => $memberResolutionPending,
+            'reconciliation' => [
+                'direct_appearances' => $directAppearances,
+                'membership_appearances' => $membershipAppearances,
+                'duplicate_appearances_removed' => $directAppearances + $membershipAppearances - $protectedCount,
+                'protected_objects' => $protectedCount,
+            ],
         ];
     }
 
@@ -316,6 +345,10 @@ final class ProtectedUserResolver
                     'ids' => self::filterBillableIds(array_map('strval', $cached), ['resources' => array_values($byId)]),
                     'pending' => false,
                 ];
+            }
+            // Empty array cache with members_fetched_at means "resolved, zero members"
+            if (is_array($cached) && isset($meta['members_fetched_at'])) {
+                return ['ids' => [], 'pending' => false];
             }
         }
 

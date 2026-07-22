@@ -64,6 +64,172 @@ final class CustomerSelectionCodec
     }
 
     /**
+     * Billing estimate only — no BackupPlanner (wizard selection toggles).
+     *
+     * @param list<string> $selectedIds
+     * @param array<string, array<string, bool>>|null $scopeOverrides
+     * @param array<string, mixed> $inventory
+     * @return array{billing: array<string, mixed>}
+     */
+    public static function previewBillingOnly(
+        int $clientId,
+        int $backupUserId,
+        array $selectedIds,
+        ?array $scopeOverrides,
+        array $inventory,
+    ): array {
+        $selectedIds = self::normalizeIds($selectedIds);
+        $scopeOverrides = self::normalizeScopeOverrides($scopeOverrides ?? []);
+
+        return [
+            'billing' => Ms365UsageMeter::previewBillingForSelection(
+                $clientId,
+                $backupUserId,
+                $inventory,
+                $selectedIds,
+                $scopeOverrides,
+                null,
+            ),
+        ];
+    }
+
+    /**
+     * Strip heavy planner payloads for wizard API responses.
+     *
+     * @param array<string, mixed> $plan
+     * @return array<string, mixed>
+     */
+    public static function slimPlanForWizard(array $plan): array
+    {
+        return [
+            'warnings' => $plan['warnings'] ?? [],
+            'summary' => $plan['summary'] ?? ['runnable' => 0, 'deferred' => 0],
+            'dedup_groups' => $plan['dedup_groups'] ?? [],
+        ];
+    }
+
+    /**
+     * Build wizard "select all resources" payload server-side (avoids huge POST bodies).
+     *
+     * @param array<string, mixed> $inventory
+     * @return array{selected_resource_ids: list<string>, scope_overrides: array<string, array<string, bool>>}
+     */
+    public static function selectAllFromInventory(array $inventory): array
+    {
+        $resources = is_array($inventory['resources'] ?? null) ? array_values($inventory['resources']) : [];
+        $selectedIds = [];
+        $scopeOverrides = [];
+
+        $add = static function (string $id, string $resourceType) use (&$selectedIds, &$scopeOverrides): void {
+            $selectedIds[] = $id;
+            $flags = BackupScope::emptyCapabilityTemplate($resourceType)->toArray();
+            foreach (array_keys($flags) as $key) {
+                $flags[$key] = true;
+            }
+            $scopeOverrides[$id] = $flags;
+        };
+
+        foreach ($resources as $resource) {
+            if (!is_array($resource)) {
+                continue;
+            }
+            $id = (string) ($resource['id'] ?? '');
+            $type = (string) ($resource['resource_type'] ?? '');
+            if ($id === '' || $type === '') {
+                continue;
+            }
+
+            switch ($type) {
+                case TenantResource::TYPE_USER:
+                case TenantResource::TYPE_MAILBOX:
+                    $add($id, $type);
+                    foreach ($resources as $child) {
+                        if (!is_array($child)) {
+                            continue;
+                        }
+                        if ((string) ($child['parent_id'] ?? '') !== $id) {
+                            continue;
+                        }
+                        if ((string) ($child['resource_type'] ?? '') !== TenantResource::TYPE_USER_ONEDRIVE) {
+                            continue;
+                        }
+                        $childId = (string) ($child['id'] ?? '');
+                        if ($childId !== '') {
+                            $add($childId, TenantResource::TYPE_USER_ONEDRIVE);
+                        }
+                    }
+                    break;
+                case TenantResource::TYPE_SHAREPOINT_SITE:
+                    if (!TenantResource::showInSharePointSection($resource)) {
+                        break;
+                    }
+                    $selectability = TenantResource::siteSelectability($resource);
+                    if (($selectability['selectable'] ?? true) === false) {
+                        break;
+                    }
+                    $capAccess = is_array($selectability['capability_access'] ?? null)
+                        ? $selectability['capability_access']
+                        : [];
+                    if (($capAccess['files'] ?? true) || ($capAccess['lists'] ?? true)) {
+                        $add($id, $type);
+                    }
+                    break;
+                case TenantResource::TYPE_TEAM:
+                    $add($id, $type);
+                    foreach ($resources as $child) {
+                        if (!is_array($child)) {
+                            continue;
+                        }
+                        if ((string) ($child['parent_id'] ?? '') !== $id) {
+                            continue;
+                        }
+                        if ((string) ($child['resource_type'] ?? '') !== TenantResource::TYPE_TEAM_CHANNEL) {
+                            continue;
+                        }
+                        $childId = (string) ($child['id'] ?? '');
+                        if ($childId !== '') {
+                            $add($childId, TenantResource::TYPE_TEAM_CHANNEL);
+                        }
+                    }
+                    break;
+                case TenantResource::TYPE_M365_GROUP:
+                    $add($id, $type);
+                    foreach ($resources as $child) {
+                        if (!is_array($child)) {
+                            continue;
+                        }
+                        if ((string) ($child['parent_id'] ?? '') !== $id) {
+                            continue;
+                        }
+                        if ((string) ($child['resource_type'] ?? '') !== TenantResource::TYPE_PLANNER_PLAN) {
+                            continue;
+                        }
+                        $childId = (string) ($child['id'] ?? '');
+                        if ($childId !== '') {
+                            $add($childId, TenantResource::TYPE_PLANNER_PLAN);
+                        }
+                    }
+                    break;
+                case TenantResource::TYPE_PLANNER_PLAN:
+                    if ((string) ($resource['parent_id'] ?? '') !== '') {
+                        break;
+                    }
+                    $add($id, $type);
+                    break;
+                case TenantResource::TYPE_ONENOTE_NOTEBOOK:
+                case TenantResource::TYPE_DIRECTORY_BASELINE:
+                    $add($id, $type);
+                    break;
+            }
+        }
+
+        return [
+            'selected_resource_ids' => self::normalizeIds($selectedIds),
+            'scope_overrides' => self::normalizeScopeOverrides($scopeOverrides),
+        ];
+    }
+
+    /**
      * @param list<string> $selectedIds
      * @param array<string, array<string, bool>>|null $scopeOverrides
      * @param array<string, mixed> $inventory

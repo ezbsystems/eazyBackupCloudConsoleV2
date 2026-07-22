@@ -41,6 +41,19 @@ function assert_true(bool $cond, string $message): void
     echo "OK: {$message}\n";
 }
 
+/** @param array<string, int> $expected */
+function assert_reconciliation(array $expected, array $result, string $label): void
+{
+    $recon = $result['reconciliation'] ?? null;
+    assert_true(is_array($recon), "{$label}: reconciliation key present");
+    if (!is_array($recon)) {
+        return;
+    }
+    foreach ($expected as $key => $value) {
+        assert_eq($value, $recon[$key] ?? null, "{$label}: reconciliation.{$key}");
+    }
+}
+
 /** @return list<string> */
 function makeMemberIds(int $count, string $prefix = 'user-'): array
 {
@@ -104,6 +117,12 @@ $scopeBoth = $scopeTeam + [
 ];
 $resultDedup = ProtectedUserResolver::resolve($inventoryDedup, ['team:grp-tech', 'user:' . $overlapUserId], $scopeBoth);
 assert_eq(29, count($resultDedup['protected_azure_ids']), 'user also on team is not double-billed');
+assert_reconciliation([
+    'direct_appearances' => 1,
+    'membership_appearances' => 29,
+    'duplicate_appearances_removed' => 1,
+    'protected_objects' => 29,
+], $resultDedup, 'direct user overlapping team');
 
 $groupMembers = makeMemberIds(5, 'grp-user-');
 $inventoryTeamAndGroup = [
@@ -133,6 +152,12 @@ $resultShared = ProtectedUserResolver::resolve(
     $scopeShared,
 );
 assert_eq(5, count($resultShared['protected_azure_ids']), 'team + linked group with same members dedupes to 5');
+assert_reconciliation([
+    'direct_appearances' => 0,
+    'membership_appearances' => 10,
+    'duplicate_appearances_removed' => 5,
+    'protected_objects' => 5,
+], $resultShared, 'team + group identical members');
 
 $guestId = 'guest-1';
 $inventoryGuests = buildTeamInventory('team:grp-g', 'grp-g', 'Guests', ['user-1', $guestId], [
@@ -256,6 +281,12 @@ $resultCross = ProtectedUserResolver::resolve(
     $scopeCross,
 );
 assert_eq(3, count($resultCross['protected_azure_ids']), 'alice+bob+carol deduped across personal/team/site');
+assert_reconciliation([
+    'direct_appearances' => 1,
+    'membership_appearances' => 4,
+    'duplicate_appearances_removed' => 2,
+    'protected_objects' => 3,
+], $resultCross, 'direct + team + sharepoint cross-source');
 
 // Personally selected guest
 $inventoryGuestPersonal = [
@@ -291,8 +322,68 @@ $resultRoom = ProtectedUserResolver::resolve(
 );
 assert_eq(1, count($resultRoom['protected_azure_ids']), 'room mailbox personally selected counts as protected object');
 
+$inventoryPending = [
+    'resources' => [
+        TenantResource::build(TenantResource::TYPE_TEAM, 'grp-pending', 'Pending Team', null, [
+            'id' => 'team:grp-pending',
+            'meta' => ['group_id' => 'grp-pending'],
+        ]),
+        TenantResource::build(TenantResource::TYPE_USER, 'solo-1', 'Solo User', null, [
+            'id' => 'user:solo-1',
+            'meta' => ['user_type' => 'Member'],
+        ]),
+    ],
+];
+$scopePending = [
+    'team:grp-pending' => [BackupScope::TEAMS_MESSAGES => true],
+    'user:solo-1' => [BackupScope::MAIL => true],
+];
+$resultPending = ProtectedUserResolver::resolve(
+    $inventoryPending,
+    ['team:grp-pending', 'user:solo-1'],
+    $scopePending,
+    null,
+);
+assert_true($resultPending['member_resolution_pending'], 'unresolved team membership sets pending flag');
+assert_eq(1, count($resultPending['protected_azure_ids']), 'unresolved membership counts resolved data only');
+assert_reconciliation([
+    'direct_appearances' => 1,
+    'membership_appearances' => 0,
+    'duplicate_appearances_removed' => 0,
+    'protected_objects' => 1,
+], $resultPending, 'unresolved membership');
+
+$inventoryEmptyGroupCache = [
+    'resources' => [
+        TenantResource::build(TenantResource::TYPE_M365_GROUP, 'grp-empty', 'Empty Group', null, [
+            'id' => 'group:grp-empty',
+            'meta' => [
+                'member_azure_ids' => [],
+                'members_fetched_at' => '2026-07-22T12:00:00Z',
+            ],
+        ]),
+    ],
+];
+$scopeEmptyGroup = [
+    'group:grp-empty' => [BackupScope::MAIL => true],
+];
+$resultEmptyGroup = ProtectedUserResolver::resolve(
+    $inventoryEmptyGroupCache,
+    ['group:grp-empty'],
+    $scopeEmptyGroup,
+    null,
+);
+assert_eq(0, count($resultEmptyGroup['protected_azure_ids']), 'empty cached group members resolves to zero without Graph');
+assert_true(!$resultEmptyGroup['member_resolution_pending'], 'empty cached group is not pending');
+
 $measure = Ms365UsageMeter::measureSelection($inventoryTeamOnly, ['team:grp-tech'], $scopeTeam);
 assert_eq(29, $measure['protected_users'], 'Ms365UsageMeter::measureSelection matches resolver for team-only');
+assert_reconciliation([
+    'direct_appearances' => 0,
+    'membership_appearances' => 29,
+    'duplicate_appearances_removed' => 0,
+    'protected_objects' => 29,
+], $measure, 'Ms365UsageMeter passes reconciliation');
 
 echo $failures === 0 ? "\nAll tests passed.\n" : "\n{$failures} test(s) failed.\n";
 exit($failures === 0 ? 0 : 1);

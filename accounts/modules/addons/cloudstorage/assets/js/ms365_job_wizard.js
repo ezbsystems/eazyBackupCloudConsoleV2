@@ -24,13 +24,20 @@
     const CONSENT_TIMEOUT_MS = 15 * 60 * 1000;
     const INVENTORY_PROGRESS_POLL_MS = 2000;
     const INVENTORY_WORKER_START_TIMEOUT_MS = 15000;
+    const INVENTORY_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
+    const PLAN_DEBOUNCE_MS = 400;
 
     const INVENTORY_PROGRESS_LABELS = {
         users: 'Users',
         sites: 'SharePoint sites',
         teams: 'Teams',
         groups: 'Groups',
+        onedrive: 'OneDrive',
+        site_access: 'Site access',
+        group_members: 'Group members',
+        site_members: 'Site members',
     };
+    const INVENTORY_PHASE_ONLY_KEYS = new Set(['onedrive', 'site_access', 'group_members', 'site_members']);
     const MANUAL_REGIONS = ['GlobalPublicCloud', 'USGovernment', 'China', 'Germany'];
     const AUTH_MODE_CUSTOMER = 'customer_app';
     const CONSENT_POPUP_FEATURES = 'width=520,height=720,menubar=no,toolbar=no,location=yes,status=no';
@@ -298,6 +305,7 @@
             manualNotice: '',
             manualError: '',
             inventory: { resources: [] },
+            inventoryBackgroundRefreshing: false,
             treesBySection: {},
             selection: {},
             expandedKeys: {},
@@ -305,6 +313,9 @@
             planWarnings: [],
             planSummary: { runnable: 0, deferred: 0 },
             billingPreview: null,
+            billingPreviewLoading: false,
+            billingPreviewError: '',
+            billingCalcOpen: false,
             selectionSummaryGroups: [],
             savedSelectionIds: [],
             searchQuery: '',
@@ -316,6 +327,9 @@
             _consentPollTimer: null,
             _consentTimeoutTimer: null,
             _inventoryProgressTimer: null,
+            _planRequestSeq: 0,
+            _planDebounceTimer: null,
+            _planAbortController: null,
 
             init() {
                 const params = new URLSearchParams(window.location.search);
@@ -372,6 +386,9 @@
                 this.planWarnings = [];
                 this.planSummary = { runnable: 0, deferred: 0 };
                 this.billingPreview = null;
+                this.billingPreviewLoading = false;
+                this.billingPreviewError = '';
+                this.billingCalcOpen = false;
                 this.selectionSummaryGroups = [];
                 this.savedSelectionIds = [];
                 this.searchQuery = '';
@@ -379,6 +396,7 @@
                 this.retentionTier = DEFAULT_RETENTION_TIER;
                 this.jobName = this.defaultJobName();
                 this.inventory = { resources: [] };
+                this.inventoryBackgroundRefreshing = false;
 
                 modal.classList.remove('hidden');
                 await this.loadStatus();
@@ -390,11 +408,11 @@
                 }
 
                 const autoAdvance = this.isM365Connected() && this.step === 1 && !opts.step;
-                const needsFreshInventory = this.isM365Connected() && (this.step >= 2 || autoAdvance);
-                if (needsFreshInventory) {
+                const needsInventory = this.isM365Connected() && (this.step >= 2 || autoAdvance);
+                if (needsInventory) {
                     this.loading = true;
                     try {
-                        const ok = await this.ensureFreshInventory({ silent: true });
+                        const ok = await this.bootstrapInventoryForWizard({ autoAdvance });
                         if (ok && autoAdvance) {
                             this.step = 2;
                         } else if (!ok) {
@@ -403,6 +421,93 @@
                     } finally {
                         this.loading = false;
                     }
+                }
+            },
+
+            inventoryFetchedAtMs() {
+                const at = this.inventory && this.inventory.fetched_at;
+                if (!at) {
+                    return 0;
+                }
+                const ms = Date.parse(at);
+                return Number.isFinite(ms) ? ms : 0;
+            },
+
+            isInventoryCacheFresh() {
+                const at = this.inventoryFetchedAtMs();
+                return at > 0 && (Date.now() - at) < INVENTORY_CACHE_TTL_MS;
+            },
+
+            hasUsableInventory() {
+                return Array.isArray(this.inventory.resources) && this.inventory.resources.length > 0;
+            },
+
+            async bootstrapInventoryForWizard(opts = {}) {
+                const { autoAdvance = false, forceRefresh = false } = opts;
+                if (!forceRefresh) {
+                    const loaded = await this.loadInventory({ silent: true });
+                    if (loaded && this.hasUsableInventory() && this.isInventoryCacheFresh()) {
+                        return true;
+                    }
+                    if (loaded && this.hasUsableInventory()) {
+                        this.startBackgroundInventoryRefresh();
+                        return true;
+                    }
+                }
+
+                return this.ensureFreshInventory({
+                    silent: true,
+                    clearInventory: !this.hasUsableInventory(),
+                });
+            },
+
+            async startBackgroundInventoryRefresh() {
+                if (this.inventoryBackgroundRefreshing || this.refreshingInventory || !this.backupUserId) {
+                    return;
+                }
+                this.inventoryBackgroundRefreshing = true;
+                this.startInventoryProgressPoll();
+                try {
+                    const body = new URLSearchParams({ user_id: this.backupUserId });
+                    const res = await fetch(`${apiBase()}ms365_inventory_refresh.php`, {
+                        method: 'POST',
+                        credentials: 'same-origin',
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                        body: body.toString(),
+                    });
+                    const data = await res.json();
+                    const accepted = data.status === 'accepted' || data.refresh_in_progress;
+                    if (!(data.status === 'success' || accepted)) {
+                        return;
+                    }
+                    let reloadedListable = false;
+                    const deadline = Date.now() + 3600000;
+                    const workerStartDeadline = Date.now() + INVENTORY_WORKER_START_TIMEOUT_MS;
+                    while (Date.now() < deadline) {
+                        await this.pollInventoryProgress();
+                        const phase = this.inventoryProgress.phase || '';
+                        if ((phase === 'listable' || phase === 'complete') && !reloadedListable) {
+                            await this.loadInventory({ silent: true });
+                            reloadedListable = true;
+                        }
+                        if (phase === 'complete') {
+                            await this.loadInventory({ silent: true });
+                            return;
+                        }
+                        if (phase === 'error') {
+                            return;
+                        }
+                        if (phase === 'idle' && Date.now() > workerStartDeadline) {
+                            return;
+                        }
+                        await new Promise((resolve) => setTimeout(resolve, INVENTORY_PROGRESS_POLL_MS));
+                    }
+                } catch (e) {
+                    /* keep cached inventory */
+                } finally {
+                    this.inventoryBackgroundRefreshing = false;
+                    this.stopInventoryProgressPoll();
+                    await this.pollInventoryProgress();
                 }
             },
 
@@ -746,7 +851,7 @@
                         if (this.step === 1) {
                             this.loading = true;
                             try {
-                                const ok = await this.ensureFreshInventory({ silent: true });
+                                const ok = await this.bootstrapInventoryForWizard({ autoAdvance: true });
                                 if (ok || this.isManualConnected()) {
                                     this.step = 2;
                                 }
@@ -767,9 +872,12 @@
                     toast('warning', 'Select at least one resource.');
                     return;
                 }
-                if (this.step === 2 && (this.planSummary.runnable || 0) === 0) {
-                    toast('warning', 'No runnable backup workloads match the current selection.');
-                    return;
+                if (this.step === 2) {
+                    await this.refreshPlanFull();
+                    if ((this.planSummary.runnable || 0) === 0) {
+                        toast('warning', 'No runnable backup workloads match the current selection.');
+                        return;
+                    }
                 }
                 if (this.step === 4) {
                     if (!this.jobName || this.jobName === DEFAULT_JOB_NAME_SUFFIX) {
@@ -788,7 +896,7 @@
                     }
                     return this.isM365Connected();
                 }
-                if (this.step === 2) return this.selectionCount() > 0 && (this.planSummary.runnable || 0) > 0;
+                if (this.step === 2) return this.selectionCount() > 0;
                 if (this.step === 3) return !!this.scheduleFrequency;
                 if (this.step === 4) return !!this.retentionTier;
                 if (this.step === 5) return String(this.jobName || '').trim().length > 0;
@@ -1037,9 +1145,12 @@
                 if (displayCounts.sites !== undefined && displayCounts.sites !== null) {
                     merged.sites = displayCounts.sites;
                 }
-                const siteCountReady = ['assembling', 'complete'].includes(phase);
+                const siteCountReady = ['listable', 'assembling', 'complete'].includes(phase);
                 return Object.keys(INVENTORY_PROGRESS_LABELS)
                     .filter((key) => {
+                        if (INVENTORY_PHASE_ONLY_KEYS.has(key)) {
+                            return phase === key;
+                        }
                         if (key === 'sites' && !siteCountReady) {
                             return false;
                         }
@@ -1048,7 +1159,7 @@
                     .map((key) => ({
                         key,
                         label: INVENTORY_PROGRESS_LABELS[key],
-                        count: Number(merged[key]),
+                        count: INVENTORY_PHASE_ONLY_KEYS.has(key) ? null : Number(merged[key]),
                     }));
             },
 
@@ -1123,14 +1234,22 @@
                 }
             },
 
-            async waitForInventoryRefreshComplete() {
+            async waitForInventoryRefreshComplete(waitUntil = 'complete') {
                 const deadline = Date.now() + 3600000;
                 const workerStartDeadline = Date.now() + INVENTORY_WORKER_START_TIMEOUT_MS;
+                const donePhases = waitUntil === 'listable' ? ['listable', 'complete'] : ['complete'];
+                let reloadedListable = false;
                 while (Date.now() < deadline) {
                     await this.pollInventoryProgress();
                     const phase = this.inventoryProgress.phase || '';
-                    if (phase === 'complete') {
-                        return true;
+                    if (donePhases.includes(phase)) {
+                        if (phase === 'listable' && !reloadedListable) {
+                            await this.loadInventory({ silent: true });
+                            reloadedListable = true;
+                        }
+                        if (phase === 'complete' || waitUntil === 'listable') {
+                            return true;
+                        }
                     }
                     if (phase === 'error') {
                         return false;
@@ -1152,8 +1271,12 @@
             async ensureFreshInventory(opts = {}) {
                 const silent = !!opts.silent;
                 const showSuccessToast = !!opts.showSuccessToast;
+                const clearInventory = opts.clearInventory !== false;
+                const waitUntil = opts.waitUntil || 'complete';
 
-                this.inventory = { resources: [] };
+                if (clearInventory) {
+                    this.inventory = { resources: [] };
+                }
                 this.refreshingInventory = true;
                 this.startInventoryProgressPoll();
                 try {
@@ -1168,7 +1291,7 @@
                     const accepted = data.status === 'accepted' || data.refresh_in_progress;
                     if (data.status === 'success' || accepted) {
                         if (accepted) {
-                            const completed = await this.waitForInventoryRefreshComplete();
+                            const completed = await this.waitForInventoryRefreshComplete(waitUntil);
                             if (!completed) {
                                 if (!silent) {
                                     toast('error', this.inventoryProgress.message || this.inventoryProgress.detail || 'Inventory refresh failed.');
@@ -1209,7 +1332,7 @@
             },
 
             async refreshInventory() {
-                await this.ensureFreshInventory({ showSuccessToast: true });
+                await this.ensureFreshInventory({ showSuccessToast: true, clearInventory: true, waitUntil: 'complete' });
             },
 
             async loadJob() {
@@ -1284,6 +1407,21 @@
                 this.syncSelectionPayload();
             },
 
+            isGlobalSelectAll() {
+                return this.inventoryGlobalCheckState() === 'checked';
+            },
+
+            abortPlanFetch() {
+                if (this._planAbortController) {
+                    try {
+                        this._planAbortController.abort();
+                    } catch (e) {
+                        /* ignore */
+                    }
+                    this._planAbortController = null;
+                }
+            },
+
             syncSelectionPayload() {
                 if (!window.ms365JobSelection) return;
                 const payload = window.ms365JobSelection.buildSavePayload(
@@ -1298,37 +1436,136 @@
                     this.treesBySection,
                     this.selection,
                 );
-                this.refreshPlan();
+                this.scheduleRefreshPlan();
             },
 
-            async refreshPlan() {
+            scheduleRefreshPlan() {
+                if (this._planDebounceTimer) {
+                    clearTimeout(this._planDebounceTimer);
+                    this._planDebounceTimer = null;
+                }
+
+                // Empty selection: clear immediately (do not wait for debounce / in-flight plan).
                 if (!this.backupUserId || this.savedSelectionIds.length === 0) {
+                    this._planRequestSeq += 1;
+                    this.abortPlanFetch();
                     this.planWarnings = [];
                     this.planSummary = { runnable: 0, deferred: 0 };
                     this.billingPreview = null;
+                    this.billingPreviewLoading = false;
+                    this.billingPreviewError = '';
                     return;
                 }
+
+                this.billingPreviewLoading = true;
+                this.billingPreviewError = '';
+                this.abortPlanFetch();
+                this._planDebounceTimer = setTimeout(() => {
+                    this._planDebounceTimer = null;
+                    this.refreshBillingPreview();
+                }, PLAN_DEBOUNCE_MS);
+            },
+
+            buildPlanRequestBody() {
+                const selectAll = this.isGlobalSelectAll();
+                return {
+                    user_id: this.backupUserId,
+                    select_all: selectAll,
+                    selected_resource_ids: selectAll ? [] : this.savedSelectionIds,
+                    scope_overrides: selectAll ? {} : (this.scopeOverrides || {}),
+                };
+            },
+
+            async refreshBillingPreview() {
+                const seq = ++this._planRequestSeq;
+                const selectAll = this.isGlobalSelectAll();
+                if (!this.backupUserId || (!selectAll && this.savedSelectionIds.length === 0)) {
+                    this.billingPreview = null;
+                    this.billingPreviewLoading = false;
+                    this.billingPreviewError = '';
+                    return;
+                }
+
+                this.billingPreviewLoading = true;
+                this.billingPreviewError = '';
+                this.abortPlanFetch();
+                const abortController = typeof AbortController !== 'undefined' ? new AbortController() : null;
+                this._planAbortController = abortController;
+
+                const requestBody = this.buildPlanRequestBody();
+
                 try {
-                    const body = new URLSearchParams({
-                        user_id: this.backupUserId,
-                        selected_resource_ids: JSON.stringify(this.savedSelectionIds),
-                        scope_overrides: JSON.stringify(this.scopeOverrides || {}),
-                    });
+                    const fetchOpts = {
+                        method: 'POST',
+                        credentials: 'same-origin',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(requestBody),
+                    };
+                    if (abortController) {
+                        fetchOpts.signal = abortController.signal;
+                    }
+                    const res = await fetch(`${apiBase()}ms365_job_billing_preview.php`, fetchOpts);
+                    let data;
+                    try {
+                        data = await res.json();
+                    } catch (parseError) {
+                        throw new Error('Invalid billing preview response');
+                    }
+                    if (seq !== this._planRequestSeq) {
+                        return;
+                    }
+                    if (data.status === 'success' && data.billing) {
+                        this.billingPreview = JSON.parse(JSON.stringify(data.billing));
+                        this.billingPreviewError = '';
+                    } else {
+                        this.billingPreviewError = data.message || 'Could not calculate billing estimate.';
+                    }
+                } catch (e) {
+                    if (e && e.name === 'AbortError') {
+                        return;
+                    }
+                    if (seq === this._planRequestSeq) {
+                        this.billingPreviewError = 'Could not calculate billing estimate.';
+                    }
+                } finally {
+                    if (seq === this._planRequestSeq) {
+                        this.billingPreviewLoading = false;
+                        this._planAbortController = null;
+                    }
+                }
+            },
+
+            async refreshPlanFull() {
+                const selectAll = this.isGlobalSelectAll();
+                if (!this.backupUserId || (!selectAll && this.savedSelectionIds.length === 0)) {
+                    this.planWarnings = [];
+                    this.planSummary = { runnable: 0, deferred: 0 };
+                    return;
+                }
+
+                try {
                     const res = await fetch(`${apiBase()}ms365_job_plan.php`, {
                         method: 'POST',
                         credentials: 'same-origin',
-                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                        body: body.toString(),
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            ...this.buildPlanRequestBody(),
+                            summary_only: true,
+                        }),
                     });
                     const data = await res.json();
                     if (data.status === 'success' && data.plan) {
                         this.planWarnings = data.plan.warnings || [];
                         this.planSummary = data.plan.summary || { runnable: 0, deferred: 0 };
-                        this.billingPreview = data.billing || null;
                     }
                 } catch (e) {
-                    /* keep last plan */
+                    /* keep last plan summary */
                 }
+            },
+
+            async refreshPlan() {
+                await this.refreshBillingPreview();
+                await this.refreshPlanFull();
             },
 
             sectionHasNodes(sectionKey) {

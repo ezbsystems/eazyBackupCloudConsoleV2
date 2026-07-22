@@ -159,7 +159,7 @@ final class InventoryService
                         sprintf('Site %d of %d', $siteIndex + 1, $siteTotal),
                     );
                 }
-                $probe = $accessService->probeSite($siteInfo['site_id']);
+                $probe = $accessService->probeSite($siteInfo['site_id'], true, true);
                 $resourceId = $siteInfo['resource_id'];
                 if (isset($resources[$resourceId]) && is_array($resources[$resourceId])) {
                     $resources[$resourceId]['access'] = $probe;
@@ -313,6 +313,14 @@ final class InventoryService
             ['id' => $dirId, 'meta' => []],
         );
 
+        $this->writeInventorySnapshot(
+            $resources,
+            $discoveryCounts,
+            $accessCheckedAt,
+            'listable',
+            'Inventory listable — loading member counts…',
+        );
+
         $this->enrichTeamAndGroupMembers($resources, $discoveryCounts);
         $this->enrichSharePointSiteMembers($resources, $discoveryCounts);
 
@@ -347,6 +355,7 @@ final class InventoryService
                 TenantResource::enrichSharePointDisplayMetadata($resourceList, $relationships),
             ),
             'warnings' => $warnings,
+            'member_enrichment_complete' => true,
         ];
         if ($accessCheckedAt !== null) {
             $inventory['access_checked_at'] = $accessCheckedAt;
@@ -359,6 +368,56 @@ final class InventoryService
         $this->writeRefreshProgress('complete', 'Inventory ready', $discoveryCounts, null, $resourceList, $relationships);
 
         return $inventory;
+    }
+
+    /**
+     * Write an intermediate inventory snapshot so the wizard can list resources before member enrichment finishes.
+     *
+     * @param array<string, array<string, mixed>> $resources
+     * @param array<string, int> $discoveryCounts
+     */
+    private function writeInventorySnapshot(
+        array $resources,
+        array $discoveryCounts,
+        ?string $accessCheckedAt,
+        string $phase,
+        string $message,
+    ): void {
+        $resourceList = array_values($resources);
+        $resolver = new RelationshipResolver();
+        $relationships = $resolver->build($resourceList);
+
+        $warnings = [];
+        if ($this->discovery->isSharePointUnavailableFromCache()) {
+            $warnings[] = 'SharePoint sites were not included because this Microsoft 365 tenant does not have a SharePoint Online license. User mail, calendars, OneDrive, and Teams can still be backed up.';
+        }
+
+        $enrichedResources = TenantResource::enrichSharePointDisplayMetadata($resourceList, $relationships);
+        $displayCounts = TenantResource::displayCounts($enrichedResources);
+        $discoveryCounts['sites'] = $displayCounts['sites'];
+
+        $inventory = [
+            'fetched_at' => gmdate('c'),
+            'resources' => $resourceList,
+            'relationships' => $relationships,
+            'counts' => TenantResource::countByType($resourceList),
+            'display_counts' => $displayCounts,
+            'warnings' => $warnings,
+            'member_enrichment_complete' => false,
+        ];
+        if ($accessCheckedAt !== null) {
+            $inventory['access_checked_at'] = $accessCheckedAt;
+        }
+
+        $this->storage->writeJson($this->storage->inventoryPath(), $inventory);
+        $this->writeRefreshProgress(
+            $phase,
+            $message,
+            $discoveryCounts,
+            null,
+            $resourceList,
+            $relationships,
+        );
     }
 
     /**
@@ -383,7 +442,7 @@ final class InventoryService
         if ($detail !== null && $detail !== '') {
             $payload['detail'] = $detail;
         }
-        if ($phase === 'complete' && $resources !== []) {
+        if (in_array($phase, ['listable', 'complete'], true) && $resources !== []) {
             $enriched = TenantResource::enrichSharePointDisplayMetadata($resources, $relationships);
             $payload['display_counts'] = TenantResource::displayCounts($enriched);
             $payload['counts']['sites'] = $payload['display_counts']['sites'];

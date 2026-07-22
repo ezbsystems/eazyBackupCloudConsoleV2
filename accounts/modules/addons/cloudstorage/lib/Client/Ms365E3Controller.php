@@ -284,6 +284,117 @@ final class Ms365E3Controller
         );
     }
 
+    /**
+     * @param list<string> $selectedIds
+     * @param array<string, array<string, bool>> $scopeOverrides
+     * @return array{billing: array<string, mixed>}
+     */
+    public static function previewJobBilling(
+        int $clientId,
+        string $userIdRaw,
+        array $selectedIds,
+        array $scopeOverrides = [],
+    ): array {
+        $user = self::resolveBackupUser($clientId, $userIdRaw);
+        $inventory = CustomerInventoryService::loadForBackupUser($clientId, $user['id']);
+        if (empty($inventory['resources'])) {
+            throw new \RuntimeException('Refresh tenant inventory before estimating billing.');
+        }
+
+        return CustomerSelectionCodec::previewBillingOnly(
+            $clientId,
+            (int) $user['id'],
+            $selectedIds,
+            $scopeOverrides,
+            $inventory,
+        );
+    }
+
+    /** @return array{billing: array<string, mixed>} */
+    public static function previewJobBillingSelectAll(int $clientId, string $userIdRaw): array
+    {
+        $user = self::resolveBackupUser($clientId, $userIdRaw);
+        $inventory = CustomerInventoryService::loadForBackupUser($clientId, $user['id']);
+        if (empty($inventory['resources'])) {
+            throw new \RuntimeException('Refresh tenant inventory before estimating billing.');
+        }
+
+        $payload = CustomerSelectionCodec::selectAllFromInventory($inventory);
+
+        return CustomerSelectionCodec::previewBillingOnly(
+            $clientId,
+            (int) $user['id'],
+            $payload['selected_resource_ids'],
+            $payload['scope_overrides'],
+            $inventory,
+        );
+    }
+
+    /**
+     * @param list<string> $selectedIds
+     * @param array<string, array<string, bool>> $scopeOverrides
+     * @return array{plan: array<string, mixed>}
+     */
+    public static function planJobSummaryOnly(
+        int $clientId,
+        string $userIdRaw,
+        array $selectedIds,
+        array $scopeOverrides = [],
+    ): array {
+        $user = self::resolveBackupUser($clientId, $userIdRaw);
+        $inventory = CustomerInventoryService::loadForBackupUser($clientId, $user['id']);
+        if (empty($inventory['resources'])) {
+            throw new \RuntimeException('Refresh tenant inventory before planning the job.');
+        }
+
+        $result = CustomerSelectionCodec::planSelection($selectedIds, $scopeOverrides, $inventory);
+
+        return [
+            'plan' => CustomerSelectionCodec::slimPlanForWizard($result['plan']),
+        ];
+    }
+
+    /** @return array{plan: array<string, mixed>} */
+    public static function planJobSummarySelectAll(int $clientId, string $userIdRaw): array
+    {
+        $user = self::resolveBackupUser($clientId, $userIdRaw);
+        $inventory = CustomerInventoryService::loadForBackupUser($clientId, $user['id']);
+        if (empty($inventory['resources'])) {
+            throw new \RuntimeException('Refresh tenant inventory before planning the job.');
+        }
+
+        $payload = CustomerSelectionCodec::selectAllFromInventory($inventory);
+        $result = CustomerSelectionCodec::planSelection(
+            $payload['selected_resource_ids'],
+            $payload['scope_overrides'],
+            $inventory,
+        );
+
+        return [
+            'plan' => CustomerSelectionCodec::slimPlanForWizard($result['plan']),
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    public static function planJobSelectAll(int $clientId, string $userIdRaw): array
+    {
+        $user = self::resolveBackupUser($clientId, $userIdRaw);
+        $inventory = CustomerInventoryService::loadForBackupUser($clientId, $user['id']);
+        if (empty($inventory['resources'])) {
+            throw new \RuntimeException('Refresh tenant inventory before planning the job.');
+        }
+
+        $payload = CustomerSelectionCodec::selectAllFromInventory($inventory);
+
+        return CustomerSelectionCodec::planSelectionWithBilling(
+            $clientId,
+            (int) $user['id'],
+            $payload['selected_resource_ids'],
+            $payload['scope_overrides'],
+            $inventory,
+        );
+    }
+
     /** @return array{run_ids: list<string>, batch_run_id: string, count: int} */
     public static function runJobNow(int $clientId, string $userIdRaw, string $jobId): array
     {

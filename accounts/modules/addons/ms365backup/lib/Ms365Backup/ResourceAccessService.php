@@ -106,7 +106,7 @@ final class ResourceAccessService
      *   checked_at: string
      * }
      */
-    public function probeSite(string $siteId): array
+    public function probeSite(string $siteId, bool $skipDriveListProbe = false, bool $skipListProbe = false): array
     {
         $checkedAt = gmdate('c');
         $sitePath = GraphSitePaths::sitePath($siteId);
@@ -126,8 +126,12 @@ final class ResourceAccessService
             ];
         }
 
-        $files = $this->probeSiteFiles($siteId);
-        $lists = $this->probeSiteLists($siteId);
+        $files = $skipDriveListProbe
+            ? ResourceAccessClassifier::available()
+            : $this->probeSiteFiles($siteId);
+        $lists = $skipListProbe
+            ? ResourceAccessClassifier::available()
+            : $this->probeSiteLists($siteId);
 
         return [
             'status' => $files->status === AccessResult::STATUS_AVAILABLE

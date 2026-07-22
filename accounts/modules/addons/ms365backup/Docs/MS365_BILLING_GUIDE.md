@@ -189,7 +189,7 @@ If inventory is stale or member lists could not be loaded, the UI shows a warnin
 
 | Location | What it shows |
 |----------|----------------|
-| **Job wizard — step 2 (Inventory)** | Live **billing estimate** for the current job selection: Protected Objects, est. monthly, per-team/group/site breakdown |
+| **Job wizard — step 2 (Inventory)** | Live **billing estimate** for the current job selection: Protected Objects, est. monthly, and a collapsed **How this is calculated** panel showing direct vs membership appearances, duplicates removed, and unique Protected Objects |
 | **User detail → MS365 → Usage & Billing** | Current counts, **peak this period**, per-object OneDrive table, estimated period total |
 | **Pricing panel** (add user / billing tab) | Published unit rates (Protected Objects, OneDrive included, overage per GiB) |
 | **WHMCS invoice** | Peak quantities × unit prices for the billing period |
@@ -277,9 +277,13 @@ Invoice for the period bills **35** Protected Objects, not 15.
 
 Team, group, or site membership could not be fully loaded (missing cache, Graph permissions, or transient API error). The Protected Object count may be **lower than actual** until you **Refresh inventory**. Ensure the Entra app has `TeamMember.Read.All`, `GroupMember.Read.All`, and `Sites.Read.All` with admin consent.
 
-### Why do some groups or sites show "0 members" in the breakdown?
+### How does the wizard explain Protected Object counts?
 
-Usually the same root cause as above — member list not yet cached. Refresh inventory and reopen the wizard or usage panel.
+Expand **How this is calculated** under the billing estimate. It shows directly selected appearances, group/Team/site membership appearances, duplicate appearances removed (deduplication across sources), and the resulting unique Protected Objects total. When member lists are incomplete, the panel notes that counts reflect resolved data only and the estimate may increase after inventory refresh.
+
+### Why do some groups or sites show incomplete member counts?
+
+Usually the member list is not yet cached or could not be loaded from Graph. Refresh inventory and reopen the wizard or usage panel.
 
 ### Does backing up SharePoint cost extra storage fees?
 
@@ -329,5 +333,6 @@ Use **one backup user per end customer**, one WHMCS service per backup user. The
 
 | Date | Change |
 |------|--------|
+| 2026-07-22 | Job wizard billing dock: replaced per-group/site breakdown list with collapsed **How this is calculated** reconciliation panel (direct appearances + membership appearances − duplicates = unique Protected Objects). Backend exposes `billing.reconciliation` from `ProtectedUserResolver`. |
 | 2026-07-06 | Initial guide: member-based Protected Users (teams/groups), peak billing, OneDrive overage, wizard estimate, KB-oriented structure |
 | 2026-07-21 | Renamed **Protected Users → Protected Objects**. Guests and shared/room/equipment mailboxes moved from "does not count" to the **counts** table (billed like any other identity). Added **SharePoint site membership** as a third billable source (site permissions, no longer deferred). Updated deduplication examples, worked examples, FAQ, and glossary. Internal metric key (`protected_users`) and admin setting key (`protected_user_price_cad`) unchanged. |

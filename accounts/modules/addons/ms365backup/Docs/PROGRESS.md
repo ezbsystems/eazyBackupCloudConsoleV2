@@ -2,7 +2,7 @@
 
 **Purpose:** Single handoff document so the next agent knows where work stopped. Update this file at the **end of every session** (or after each meaningful milestone).
 
-**Last updated:** 2026-07-21  
+**Last updated:** 2026-07-22  
 **Module version (ms365backup):** 1.52.9  
 **Cloudstorage (e3) version:** 2.2.0  
 **Worker version (ms365-backup-worker):** 0.4.0 (Kopia v0.23.1)
@@ -10,6 +10,26 @@
 ---
 
 ## Session log
+
+### 2026-07-22 — Inventory & billing preview performance (wizard)
+
+- **Problem:** Large tenants (~10 min inventory load on wizard open; slow/unresponsive billing estimate on each selection toggle). Root causes: wizard always force-refreshed full Graph tenant on open; billing preview ran full BackupPlanner + live Graph on empty team/group member caches.
+- **Inventory open (`ms365_job_wizard.js`):** Cache-first open with **6h TTL** — load cached `inventory.json` immediately when fresh; stale cache shows tree and refreshes in background without clearing UI; explicit Refresh button still forces full rebuild.
+- **Two-phase refresh (`InventoryService.php`):** Write **listable** inventory snapshot before member enrichment; wizard can paint picker at `listable` phase while `group_members` / `site_members` finish. Skip redundant drive/list Graph probes during site access when drives/lists already fetched (`ResourceAccessService::probeSite` skip flags).
+- **Billing preview:** New `ms365_job_billing_preview.php` — cache-only `Ms365UsageMeter::previewBillingForSelection` (no `DiscoveryService`, no BackupPlanner). Selection toggles use billing-only endpoint; full plan (`summary_only`) runs on step advance only. Sticky estimate UI keeps prior totals visible with subtle "Updating…" state.
+- **Resolver:** Empty team/group `member_azure_ids` + `members_fetched_at` treated as resolved zero members (mirrors sites) — no live Graph on wizard previews.
+- **API hygiene:** `session_write_close()` on plan/billing endpoints; slim plan JSON omits `physical_jobs` / heavy runnable payloads.
+- **Tests:** Empty cached group members case in `ms365_protected_user_resolver_test.php`.
+- **Cache bust:** wizard CSS `v=16`, JS `v=25`.
+
+### 2026-07-22 — Billing reconciliation disclosure (wizard UI)
+
+- **Goal:** Replace visible per-group billing breakdown in MS365 job wizard with collapsed **How this is calculated** reconciliation panel. Keep Protected Objects + Est. monthly metrics unchanged.
+- **Backend (`ProtectedUserResolver.php`):** After resolve loop, compute `reconciliation` from `sources` map — `direct_appearances` (personal types), `membership_appearances` (team/group/site types), `duplicate_appearances_removed` (= direct + membership − unique count), `protected_objects` (= count of deduped set). Same Azure-ID dedupe path as billing; no change to `protected_users` pricing.
+- **Meter/API (`Ms365UsageMeter.php`, `ms365_job_plan.php`):** Pass `reconciliation` through `measureSelection` and `previewBillingForSelection`; zero defaults in `emptyBillingPreview()` and empty-selection billing stub. `breakdown` retained for compatibility.
+- **Wizard UI:** `ms365_job_wizard.tpl` — removed header "N groups" suffix and visible Breakdown list; added accessible disclosure (`aria-expanded`, `aria-controls`, chevron) with four reconciliation rows + pending-membership warning. `ms365_job_wizard.js` — `billingCalcOpen` state reset on `open()`. `ms365_job_wizard.css` — removed breakdown styles, added minimal disclosure/reconciliation styles. Cache bust: CSS `v=15`, JS `v=24`.
+- **Tests (`ms365_protected_user_resolver_test.php`):** Added reconciliation assertions for direct+team overlap, team+group identical members, cross-source dedupe, unresolved membership (pending=true, resolved-only counts), and meter passthrough. All green.
+- **Docs:** `MS365_BILLING_GUIDE.md` wizard table + FAQ updated; changelog row 2026-07-22.
 
 ### 2026-07-21 — Protected Objects billing (guests, shared/room/equipment mailboxes, SharePoint site members)
 

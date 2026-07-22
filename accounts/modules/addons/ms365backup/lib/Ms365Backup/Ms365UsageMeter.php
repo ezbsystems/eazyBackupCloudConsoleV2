@@ -27,7 +27,13 @@ final class Ms365UsageMeter
      *   onedrive_users: list<array<string, mixed>>,
      *   inventory_stale: bool,
      *   member_resolution_pending: bool,
-     *   breakdown: list<array{resource_id: string, label: string, member_count: int}>
+     *   breakdown: list<array{resource_id: string, label: string, member_count: int}>,
+     *   reconciliation: array{
+     *     direct_appearances: int,
+     *     membership_appearances: int,
+     *     duplicate_appearances_removed: int,
+     *     protected_objects: int
+     *   }
      * }
      */
     public static function measureSelection(
@@ -43,6 +49,7 @@ final class Ms365UsageMeter
             'inventory_stale' => false,
             'member_resolution_pending' => false,
             'breakdown' => [],
+            'reconciliation' => self::emptyReconciliation(),
         ];
         if ($selectedIds === []) {
             return $empty;
@@ -104,7 +111,31 @@ final class Ms365UsageMeter
             'inventory_stale' => false,
             'member_resolution_pending' => (bool) ($resolution['member_resolution_pending'] ?? false),
             'breakdown' => $resolution['breakdown'] ?? [],
+            'personal_selected_count' => self::countPersonalSelected($selection['selected_ids'], $byId),
+            'membership_source_count' => count($resolution['breakdown'] ?? []),
+            'reconciliation' => $resolution['reconciliation'] ?? self::emptyReconciliation(),
         ];
+    }
+
+    /**
+     * @param list<string> $selectedIds
+     * @param array<string, array<string, mixed>> $byId
+     */
+    private static function countPersonalSelected(array $selectedIds, array $byId): int
+    {
+        $n = 0;
+        foreach ($selectedIds as $resourceId) {
+            $resource = $byId[$resourceId] ?? null;
+            if ($resource === null) {
+                continue;
+            }
+            $type = (string) ($resource['resource_type'] ?? '');
+            if (in_array($type, self::PERSONAL_TYPES, true)) {
+                $n++;
+            }
+        }
+
+        return $n;
     }
 
     /**
@@ -126,7 +157,7 @@ final class Ms365UsageMeter
             return $zeroed;
         }
 
-        $discovery ??= self::discoveryForBackupUser($clientId, $backupUserId);
+        // Wizard previews use cache-only member resolution (no live Graph).
         $measure = self::measureSelection($inventory, $selectedIds, $scopeOverrides, $discovery);
         $serviceId = Ms365BillingService::resolveServiceIdForBackupUser($clientId, $backupUserId);
         $trialStatus = $serviceId > 0 ? Ms365BillingTrial::status($serviceId) : null;
@@ -150,6 +181,9 @@ final class Ms365UsageMeter
             'inventory_stale' => (bool) ($measure['inventory_stale'] ?? false),
             'member_resolution_pending' => (bool) ($measure['member_resolution_pending'] ?? false),
             'breakdown' => $measure['breakdown'] ?? [],
+            'personal_selected_count' => (int) ($measure['personal_selected_count'] ?? 0),
+            'membership_source_count' => (int) ($measure['membership_source_count'] ?? 0),
+            'reconciliation' => $measure['reconciliation'] ?? self::emptyReconciliation(),
         ];
     }
 
@@ -253,6 +287,20 @@ final class Ms365UsageMeter
             'inventory_stale' => false,
             'member_resolution_pending' => false,
             'breakdown' => [],
+            'personal_selected_count' => 0,
+            'membership_source_count' => 0,
+            'reconciliation' => self::emptyReconciliation(),
+        ];
+    }
+
+    /** @return array{direct_appearances: int, membership_appearances: int, duplicate_appearances_removed: int, protected_objects: int} */
+    private static function emptyReconciliation(): array
+    {
+        return [
+            'direct_appearances' => 0,
+            'membership_appearances' => 0,
+            'duplicate_appearances_removed' => 0,
+            'protected_objects' => 0,
         ];
     }
 
