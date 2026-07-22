@@ -14,6 +14,112 @@ import (
 	"github.com/eazybackup/ms365-backup-worker/internal/graphfs"
 )
 
+func TestSyncMailRetriesRepeatedFolderNextLinkWithSmallerPage(t *testing.T) {
+	var serverURL string
+	var folderPageSizes []string
+	var currentTop string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.URL.Path == "/users/test-user/mailFolders":
+			currentTop = r.URL.Query().Get("$top")
+			folderPageSizes = append(folderPageSizes, currentTop)
+			top := r.URL.Query().Get("$top")
+			if top == "100" {
+				_, _ = w.Write([]byte(`{"value":[{"id":"folder-1","displayName":"Inbox"}],"@odata.nextLink":"` + serverURL + `/mail-folders-page-2?top=100"}`))
+				return
+			}
+			if top == "50" {
+				_, _ = w.Write([]byte(`{"value":[{"id":"folder-1","displayName":"Inbox"},{"id":"folder-2","displayName":"Archive"}]}`))
+				return
+			}
+			http.NotFound(w, r)
+		case r.URL.Path == "/mail-folders-page-2":
+			folderPageSizes = append(folderPageSizes, currentTop)
+			_, _ = w.Write([]byte(`{"value":[{"id":"folder-2","displayName":"Archive"}],"@odata.nextLink":"` + serverURL + `/mail-folders-page-2?top=100"}`))
+		case strings.Contains(r.URL.Path, "/messages/delta"):
+			payload, _ := json.Marshal(map[string]any{
+				"value":            []map[string]any{},
+				"@odata.deltaLink": "https://graph.test/delta-done",
+			})
+			_, _ = w.Write(payload)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	serverURL = srv.URL
+
+	client := graph.NewTestClient(srv.URL, graph.ClientOptions{MaxRetries: 0, MaxConcurrency: 1})
+	res, err := SyncMail(context.Background(), client, MailSyncOptions{
+		AzureTenantID:  "test-tenant",
+		UserID:         "test-user",
+		Parallel:       1,
+		FolderParallel: 1,
+		Staging:        graphfs.NewOverlayBuilder(),
+	})
+	if err != nil {
+		t.Fatalf("SyncMail: %v", err)
+	}
+	if res.Stats.Folders != 2 {
+		t.Fatalf("folders = %d, want 2", res.Stats.Folders)
+	}
+	if strings.Join(folderPageSizes, ",") != "100,100,50" {
+		t.Fatalf("folder request page sizes = %v", folderPageSizes)
+	}
+}
+
+func TestSyncMailKeepsUniqueFoldersAfterFinalRepeatedNextLink(t *testing.T) {
+	var serverURL string
+	var runLogMu sync.Mutex
+	var runLog []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.URL.Path == "/users/test-user/mailFolders":
+			_, _ = w.Write([]byte(`{"value":[{"id":"folder-1","displayName":"Inbox"}],"@odata.nextLink":"` + serverURL + `/mail-folders-page-2"}`))
+		case r.URL.Path == "/mail-folders-page-2":
+			_, _ = w.Write([]byte(`{"value":[{"id":"folder-2","displayName":"Archive"}],"@odata.nextLink":"` + serverURL + `/mail-folders-page-2"}`))
+		case strings.Contains(r.URL.Path, "/messages/delta"):
+			payload, _ := json.Marshal(map[string]any{
+				"value":            []map[string]any{},
+				"@odata.deltaLink": "https://graph.test/delta-done",
+			})
+			_, _ = w.Write(payload)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	serverURL = srv.URL
+
+	client := graph.NewTestClient(srv.URL, graph.ClientOptions{MaxRetries: 0, MaxConcurrency: 1})
+	res, err := SyncMail(context.Background(), client, MailSyncOptions{
+		AzureTenantID:  "test-tenant",
+		UserID:         "test-user",
+		Parallel:       1,
+		FolderParallel: 1,
+		Staging:        graphfs.NewOverlayBuilder(),
+		Log: func(level, message string) {
+			runLogMu.Lock()
+			runLog = append(runLog, level+": "+message)
+			runLogMu.Unlock()
+		},
+	})
+	if err != nil {
+		t.Fatalf("SyncMail: %v", err)
+	}
+	if res.Stats.Folders != 2 {
+		t.Fatalf("folders = %d, want 2", res.Stats.Folders)
+	}
+	runLogMu.Lock()
+	logText := strings.Join(runLog, "\n")
+	runLogMu.Unlock()
+	if !strings.Contains(logText, "keeping unique folders returned") {
+		t.Fatalf("run log missing final-wedge message: %q", logText)
+	}
+}
+
 func TestSyncMailProgressReportsMessageCounts(t *testing.T) {
 	const userID = "user-mail-progress"
 	folderIDs := []string{"folder-inbox", "folder-sent"}
@@ -52,7 +158,7 @@ func TestSyncMailProgressReportsMessageCounts(t *testing.T) {
 				})
 			}
 			payload, _ := json.Marshal(map[string]any{
-				"value":      value,
+				"value":            value,
 				"@odata.deltaLink": "https://graph.test/delta-done",
 			})
 			_, _ = w.Write(payload)
@@ -68,11 +174,11 @@ func TestSyncMailProgressReportsMessageCounts(t *testing.T) {
 	var progressMu sync.Mutex
 	var progress [][3]int
 	res, err := SyncMail(context.Background(), client, MailSyncOptions{
-		AzureTenantID: "tenant-1",
-		UserID:        userID,
-		Parallel:      2,
+		AzureTenantID:  "tenant-1",
+		UserID:         userID,
+		Parallel:       2,
 		FolderParallel: 2,
-		Staging:       overlay,
+		Staging:        overlay,
 		OnProgress: func(done, total int, _ int64) {
 			progressMu.Lock()
 			progress = append(progress, [3]int{done, total, total - done})
@@ -208,7 +314,7 @@ func TestSyncMailBrowseIndexIncrementalMergeAndDeletion(t *testing.T) {
 						"body":             map[string]any{"contentType": "text", "content": "kept"},
 					},
 					{
-						"id":      removedID,
+						"id":       removedID,
 						"@removed": map[string]any{"reason": "deleted"},
 					},
 					{
@@ -231,8 +337,8 @@ func TestSyncMailBrowseIndexIncrementalMergeAndDeletion(t *testing.T) {
 	prior := mailBrowseIndex{
 		Version: mailBrowseIndexVersion,
 		Messages: map[string]mailBrowseIndexEntry{
-			safeID(keptID):    {ID: keptID, Subject: "Old subject"},
-			safeID(removedID): {ID: removedID, Subject: "Gone"},
+			safeID(keptID):      {ID: keptID, Subject: "Old subject"},
+			safeID(removedID):   {ID: removedID, Subject: "Gone"},
 			safeID("msg-stale"): {ID: "msg-stale", Subject: "Should remain"},
 		},
 	}
