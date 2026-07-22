@@ -35,12 +35,13 @@ type PageLogFunc func(level, message string)
 
 // PaginationMonitor controls logging and safety limits for Graph pagination.
 type PaginationMonitor struct {
-	Context               string
-	MaxPages              int
-	MaxEmptyPagesWithNext int
-	DuplicatePageMode     DuplicatePageMode
-	CapMode               PaginationCapMode
-	Log                   PageLogFunc
+	Context                  string
+	MaxPages                 int
+	MaxEmptyPagesWithNext    int
+	DuplicatePageMode        DuplicatePageMode
+	SoftStopRepeatedNextLink bool
+	CapMode                  PaginationCapMode
+	Log                      PageLogFunc
 }
 
 // PaginationOutcome records how a paginate session ended.
@@ -194,9 +195,9 @@ type paginationSession struct {
 	lastNextLinkSkipToken string
 	page                  int
 	totalItems            int
-	stoppedOnDuplicate       bool
-	stoppedOnRepeatedLink    bool
-	trackDuplicateContent    bool
+	stoppedOnDuplicate    bool
+	stoppedOnRepeatedLink bool
+	trackDuplicateContent bool
 }
 
 func newPaginationSession(monitor *PaginationMonitor, outcome *PaginationOutcome, trackDuplicates bool) *paginationSession {
@@ -316,7 +317,7 @@ func (s *paginationSession) checkNextLink(nextURL string, isFirst bool) error {
 	}
 	key := linkHash(nextURL)
 	if s.seenNextLinks[key] {
-		if s.monitor != nil && s.monitor.DuplicatePageMode == DuplicatePageDetectOnly {
+		if s.monitor != nil && s.monitor.SoftStopRepeatedNextLink {
 			s.stoppedOnRepeatedLink = true
 			s.log("warning", "Graph pagination stopped: identical @odata.nextLink repeated (known Graph defect)")
 			return nil

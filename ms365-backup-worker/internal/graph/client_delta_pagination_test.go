@@ -159,7 +159,7 @@ func TestPaginateDeltaOptsIdenticalLinkRepeated(t *testing.T) {
 	}
 }
 
-func TestPaginateDeltaOptsIdenticalLinkDetectOnly(t *testing.T) {
+func TestPaginateDeltaOptsIdenticalLinkDetectOnlyStrict(t *testing.T) {
 	var serverURL string
 	var calls int
 	c, serverURL := testGraphClient(t, func(w http.ResponseWriter, r *http.Request) {
@@ -170,13 +170,48 @@ func TestPaginateDeltaOptsIdenticalLinkDetectOnly(t *testing.T) {
 	})
 
 	outcome := &PaginationOutcome{}
-	items, delta, err := c.PaginateDeltaOpts(context.Background(), "/items/delta", "", "id", 100, nil, &DeltaPaginateOptions{
+	_, delta, err := c.PaginateDeltaOpts(context.Background(), "/items/delta", "", "id", 100, nil, &DeltaPaginateOptions{
 		Monitor:           ForCalendarNormalScan("link-detect", nil),
 		Outcome:           outcome,
 		DuplicatePageMode: DuplicatePageDetectOnly,
 	})
+	if err == nil {
+		t.Fatal("DetectOnly without SoftStopRepeatedNextLink should still error on repeated link")
+	}
+	if _, ok := err.(*GraphPaginationError); !ok {
+		t.Fatalf("expected GraphPaginationError, got %T: %v", err, err)
+	}
+	if delta != "" {
+		t.Fatalf("delta should not advance on repeated-link error, got %q", delta)
+	}
+	if outcome.StoppedOnRepeatedNextLink {
+		t.Fatalf("outcome=%+v", outcome)
+	}
+	if calls != 2 {
+		t.Fatalf("calls=%d want 2", calls)
+	}
+}
+
+func TestPaginateDeltaOptsIdenticalLinkSoftStopOptIn(t *testing.T) {
+	var serverURL string
+	var calls int
+	c, serverURL := testGraphClient(t, func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Header().Set("Content-Type", "application/json")
+		next := serverURL + "/same"
+		_, _ = w.Write(deltaResponse([]map[string]any{{"id": fmt.Sprintf("id-%d", calls)}}, next, ""))
+	})
+
+	outcome := &PaginationOutcome{}
+	monitor := ForCalendarNormalScan("link-soft-stop", nil)
+	monitor.SoftStopRepeatedNextLink = true
+	items, delta, err := c.PaginateDeltaOpts(context.Background(), "/items/delta", "", "id", 100, nil, &DeltaPaginateOptions{
+		Monitor:           monitor,
+		Outcome:           outcome,
+		DuplicatePageMode: DuplicatePageDetectOnly,
+	})
 	if err != nil {
-		t.Fatalf("DetectOnly should soft-stop, got %v", err)
+		t.Fatalf("SoftStopRepeatedNextLink should soft-stop, got %v", err)
 	}
 	if len(items) != 2 {
 		t.Fatalf("items=%d want 2", len(items))

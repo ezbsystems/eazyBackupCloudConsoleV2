@@ -99,7 +99,8 @@ func paginateMailFolders(ctx context.Context, client *graph.Client, opts MailSyn
 	var last []map[string]any
 	for i, top := range mailFolderPageSizes {
 		outcome := &graph.PaginationOutcome{}
-		monitor := graph.NewPaginationMonitor("mail:folders", graph.DuplicatePageDetectOnly, graphLog(opts.Log))
+		monitor := graph.NewPaginationMonitor("mail:folders", graph.DuplicatePageDetectOnly, nil)
+		monitor.SoftStopRepeatedNextLink = true
 		folders, err := client.PaginateOpts(ctx, fmt.Sprintf("/users/%s/mailFolders", opts.UserID), map[string]string{"$top": top}, &graph.PaginateOptions{
 			Monitor:     monitor,
 			Outcome:     outcome,

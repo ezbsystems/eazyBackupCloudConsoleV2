@@ -25,9 +25,9 @@ Therefore the failure is the initial `/users/{id}/mailFolders` enumeration, not 
 
 ### Pagination primitive
 
-Extend explicit `DuplicatePageDetectOnly` pagination sessions so an identical repeated nextLink can soft-stop, just as duplicate-only pages already do. Record this outcome separately from natural completion. Strict sessions continue returning `GraphPaginationError`.
+Extend pagination sessions with an explicit `SoftStopRepeatedNextLink` monitor flag (default `false`) so an identical repeated nextLink can soft-stop when opted in, just as duplicate-only pages already do under `DuplicatePageDetectOnly`. Record this outcome separately from natural completion. Strict sessions and `DuplicatePageDetectOnly` callers without the flag continue returning `GraphPaginationError` on repeated nextLink (SharePoint, calendar, and other existing DetectOnly workloads unchanged).
 
-The soft-stop is opt-in. Existing workload pagination remains strict unless its caller supplies a DetectOnly monitor.
+The repeated-link soft-stop is mail-folder opt-in via `PaginationMonitor.SoftStopRepeatedNextLink`. Existing SharePoint/calendar `DuplicatePageDetectOnly` callers retain strict repeated-nextLink errors unless they set the flag. Mail-folder enumeration sets the flag and uses a nil per-page logger (no truncated nextLink URLs in run logs); high-level wedge retry/final warnings remain on `opts.Log`.
 
 ### Mail-folder enumeration
 
@@ -54,7 +54,8 @@ If the final page size still soft-stops, return the unique folders collected by 
 ## Tests
 
 1. Graph pagination unit test: Strict mode still errors on an identical repeated nextLink.
-2. Graph pagination unit test: DetectOnly soft-stops on an identical repeated nextLink and reports a non-natural outcome.
+2. Graph pagination unit test: `DuplicatePageDetectOnly` without `SoftStopRepeatedNextLink` still errors on repeated nextLink.
+3. Graph pagination unit test: `SoftStopRepeatedNextLink` opt-in soft-stops on repeated nextLink and reports a non-natural outcome.
 3. Mail integration test: `$top=100` wedges and `$top=50` completes; backup proceeds with the complete retry result.
 4. Mail integration test: all page sizes wedge; backup proceeds with unique folders from the final attempt and emits a warning.
 5. Existing graph, graphsync, and full worker suites remain green.
