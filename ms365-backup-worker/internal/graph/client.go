@@ -634,6 +634,10 @@ func (c *Client) PaginateOpts(ctx context.Context, path string, query map[string
 			if err := session.checkNextLink(next, first); err != nil {
 				return all, err
 			}
+			if session.stopped() {
+				session.finish(false)
+				break
+			}
 			p = next
 			q = nil
 			useHeaders = nil
@@ -786,6 +790,9 @@ func (c *Client) PaginateDeltaOpts(ctx context.Context, initialPath, deltaLink, 
 		if !first {
 			if err := session.checkNextLink(path, false); err != nil {
 				return items, "", err
+			}
+			if session.stopped() {
+				break
 			}
 		}
 

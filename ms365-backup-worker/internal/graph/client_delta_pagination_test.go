@@ -159,6 +159,39 @@ func TestPaginateDeltaOptsIdenticalLinkRepeated(t *testing.T) {
 	}
 }
 
+func TestPaginateDeltaOptsIdenticalLinkDetectOnly(t *testing.T) {
+	var serverURL string
+	var calls int
+	c, serverURL := testGraphClient(t, func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Header().Set("Content-Type", "application/json")
+		next := serverURL + "/same"
+		_, _ = w.Write(deltaResponse([]map[string]any{{"id": fmt.Sprintf("id-%d", calls)}}, next, ""))
+	})
+
+	outcome := &PaginationOutcome{}
+	items, delta, err := c.PaginateDeltaOpts(context.Background(), "/items/delta", "", "id", 100, nil, &DeltaPaginateOptions{
+		Monitor:           ForCalendarNormalScan("link-detect", nil),
+		Outcome:           outcome,
+		DuplicatePageMode: DuplicatePageDetectOnly,
+	})
+	if err != nil {
+		t.Fatalf("DetectOnly should soft-stop, got %v", err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("items=%d want 2", len(items))
+	}
+	if delta != "" {
+		t.Fatalf("delta should not advance on repeated-link soft-stop, got %q", delta)
+	}
+	if !outcome.StoppedOnRepeatedNextLink {
+		t.Fatalf("outcome=%+v", outcome)
+	}
+	if calls != 2 {
+		t.Fatalf("calls=%d want 2", calls)
+	}
+}
+
 func TestPaginateDeltaOptsCapWarnContinue(t *testing.T) {
 	var serverURL string
 	var calls int

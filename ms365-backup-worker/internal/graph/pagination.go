@@ -45,11 +45,12 @@ type PaginationMonitor struct {
 
 // PaginationOutcome records how a paginate session ended.
 type PaginationOutcome struct {
-	CompletedNaturally     bool
-	StoppedOnDuplicatePage bool
-	CapReached             bool
-	Pages                  int
-	TotalItems             int
+	CompletedNaturally        bool
+	StoppedOnDuplicatePage    bool
+	StoppedOnRepeatedNextLink bool
+	CapReached                bool
+	Pages                     int
+	TotalItems                int
 }
 
 func NewPaginationMonitor(context string, mode DuplicatePageMode, log PageLogFunc) *PaginationMonitor {
@@ -193,8 +194,9 @@ type paginationSession struct {
 	lastNextLinkSkipToken string
 	page                  int
 	totalItems            int
-	stoppedOnDuplicate    bool
-	trackDuplicateContent bool
+	stoppedOnDuplicate       bool
+	stoppedOnRepeatedLink    bool
+	trackDuplicateContent    bool
 }
 
 func newPaginationSession(monitor *PaginationMonitor, outcome *PaginationOutcome, trackDuplicates bool) *paginationSession {
@@ -314,6 +316,11 @@ func (s *paginationSession) checkNextLink(nextURL string, isFirst bool) error {
 	}
 	key := linkHash(nextURL)
 	if s.seenNextLinks[key] {
+		if s.monitor != nil && s.monitor.DuplicatePageMode == DuplicatePageDetectOnly {
+			s.stoppedOnRepeatedLink = true
+			s.log("warning", "Graph pagination stopped: identical @odata.nextLink repeated (known Graph defect)")
+			return nil
+		}
 		s.log("error", "Graph pagination loop: identical @odata.nextLink URL repeated")
 		return &GraphPaginationError{
 			Message: "Graph pagination loop detected: identical @odata.nextLink URL repeated; see " + graphDefectURL,
@@ -326,14 +333,15 @@ func (s *paginationSession) checkNextLink(nextURL string, isFirst bool) error {
 
 func (s *paginationSession) finish(naturalEOF bool) {
 	if s.monitor != nil {
-		s.monitor.logf("info", "[%s] Graph pagination completed pages=%d total_items=%d stopped_on_duplicate=%v",
-			s.context(), s.page, s.totalItems, s.stoppedOnDuplicate)
+		s.monitor.logf("info", "[%s] Graph pagination completed pages=%d total_items=%d stopped_on_duplicate=%v stopped_on_repeated_link=%v",
+			s.context(), s.page, s.totalItems, s.stoppedOnDuplicate, s.stoppedOnRepeatedLink)
 	}
 	if s.outcome != nil {
 		s.outcome.Pages = s.page
 		s.outcome.TotalItems = s.totalItems
 		s.outcome.StoppedOnDuplicatePage = s.stoppedOnDuplicate
-		s.outcome.CompletedNaturally = !s.stoppedOnDuplicate && naturalEOF
+		s.outcome.StoppedOnRepeatedNextLink = s.stoppedOnRepeatedLink
+		s.outcome.CompletedNaturally = !s.stopped() && naturalEOF
 	}
 }
 
@@ -351,5 +359,5 @@ func (s *paginationSession) context() string {
 }
 
 func (s *paginationSession) stopped() bool {
-	return s.stoppedOnDuplicate
+	return s.stoppedOnDuplicate || s.stoppedOnRepeatedLink
 }
