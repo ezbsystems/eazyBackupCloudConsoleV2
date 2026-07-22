@@ -4,7 +4,7 @@
 
 **Goal:** Keep MS365 mail backups running when Microsoft Graph repeats a `mailFolders` nextLink, while preserving strict message-delta pagination.
 
-**Architecture:** Add an opt-in repeated-nextLink soft-stop to the shared Go pagination session and expose it through `PaginationOutcome`. A mail-only helper retries folder enumeration at page sizes 100, 50, and 25; it prefers natural completion and accepts deduplicated partial folders only after the final wedge.
+**Architecture:** Add an explicit `PaginationMonitor.SoftStopRepeatedNextLink` opt-in (default `false`) for repeated-nextLink soft-stop, separate from `DuplicatePageDetectOnly` (duplicate-only page behavior). Expose the outcome through `PaginationOutcome.StoppedOnRepeatedNextLink`. SharePoint/calendar DetectOnly callers keep strict repeated-link errors unless they set the flag. A mail-only helper sets the flag, uses a nil per-page logger, and retries folder enumeration at page sizes 100, 50, and 25; it prefers natural completion and accepts deduplicated partial folders only after the final wedge.
 
 **Tech Stack:** Go, `net/http/httptest`, existing graph pagination monitor, existing graphsync run logger.
 
@@ -18,7 +18,7 @@
 
 ---
 
-### Task 1: Repeated-nextLink DetectOnly outcome
+### Task 1: Repeated-nextLink `SoftStopRepeatedNextLink` opt-in
 
 **Files:**
 - Modify: `ms365-backup-worker/internal/graph/pagination.go`
@@ -26,17 +26,32 @@
 - Modify: `ms365-backup-worker/internal/graph/client_delta_pagination_test.go`
 
 **Interfaces:**
-- Consumes: `PaginationMonitor.DuplicatePageMode`
+- Consumes: `PaginationMonitor.SoftStopRepeatedNextLink` (repeated-link soft-stop only; `DuplicatePageMode` unchanged for duplicate-only pages)
 - Produces: `PaginationOutcome.StoppedOnRepeatedNextLink bool`
 
-- [ ] **Step 1: Write failing DetectOnly test**
+- [ ] **Step 1: Write failing strict + opt-in tests**
 
-Add a test that serves two pages whose `@odata.nextLink` is the same and calls:
+Add a strict regression test that serves two pages whose `@odata.nextLink` is the same and calls with `DuplicatePageDetectOnly` but **without** `SoftStopRepeatedNextLink`:
 
 ```go
 outcome := &PaginationOutcome{}
-items, delta, err := c.PaginateDeltaOpts(context.Background(), "/items/delta", "", "id", 100, nil, &DeltaPaginateOptions{
+_, delta, err := c.PaginateDeltaOpts(context.Background(), "/items/delta", "", "id", 100, nil, &DeltaPaginateOptions{
     Monitor:           ForCalendarNormalScan("link-detect", nil),
+    Outcome:           outcome,
+    DuplicatePageMode: DuplicatePageDetectOnly,
+})
+```
+
+Assert `err` is a `GraphPaginationError`, `delta == ""`, `outcome.StoppedOnRepeatedNextLink == false`, and only two HTTP calls occur.
+
+Add an opt-in soft-stop test with the same server fixture:
+
+```go
+outcome := &PaginationOutcome{}
+monitor := ForCalendarNormalScan("link-soft-stop", nil)
+monitor.SoftStopRepeatedNextLink = true
+items, delta, err := c.PaginateDeltaOpts(context.Background(), "/items/delta", "", "id", 100, nil, &DeltaPaginateOptions{
+    Monitor:           monitor,
     Outcome:           outcome,
     DuplicatePageMode: DuplicatePageDetectOnly,
 })
@@ -44,23 +59,23 @@ items, delta, err := c.PaginateDeltaOpts(context.Background(), "/items/delta", "
 
 Assert `err == nil`, two unique items are returned, `delta == ""`, `outcome.StoppedOnRepeatedNextLink == true`, and only two HTTP calls occur.
 
-- [ ] **Step 2: Run test to verify RED**
+- [ ] **Step 2: Run tests to verify RED**
 
 Run:
 
 ```bash
-go test ./internal/graph -run TestPaginateDeltaOptsIdenticalLinkDetectOnly -count=1 -v
+go test ./internal/graph -run 'TestPaginateDeltaOptsIdenticalLink(DetectOnlyStrict|SoftStopOptIn)' -count=1 -v
 ```
 
-Expected: FAIL because repeated nextLinks still return `GraphPaginationError`.
+Expected: FAIL (build error on missing field, or strict test passes while opt-in test fails) because repeated nextLinks still return `GraphPaginationError` unless `SoftStopRepeatedNextLink` is set.
 
 - [ ] **Step 3: Implement minimal opt-in soft-stop**
 
-Add the outcome/session field and make `checkNextLink()` set the stop flag only when the monitor uses `DuplicatePageDetectOnly`:
+Add `SoftStopRepeatedNextLink bool` to `PaginationMonitor` (default `false`) and make `checkNextLink()` set the stop flag only when the monitor has the flag enabled:
 
 ```go
 if s.seenNextLinks[key] {
-    if s.monitor != nil && s.monitor.DuplicatePageMode == DuplicatePageDetectOnly {
+    if s.monitor != nil && s.monitor.SoftStopRepeatedNextLink {
         s.stoppedOnRepeatedLink = true
         s.log("warning", "Graph pagination stopped: identical @odata.nextLink repeated (known Graph defect)")
         return nil
@@ -69,17 +84,17 @@ if s.seenNextLinks[key] {
 }
 ```
 
-After `checkNextLink()`, both regular and delta pagination loops must break before issuing the repeated request. `finish()` copies the stop flag to `PaginationOutcome`, and `stopped()` includes both duplicate-page and repeated-link flags.
+`DuplicatePageDetectOnly` continues to govern duplicate-only **page** soft-stop only; it does not imply repeated-link soft-stop. After `checkNextLink()`, both regular and delta pagination loops must break before issuing the repeated request. `finish()` copies the stop flag to `PaginationOutcome`, and `stopped()` includes both duplicate-page and repeated-link flags.
 
 - [ ] **Step 4: Verify GREEN and strict regression**
 
 Run:
 
 ```bash
-go test ./internal/graph -run 'TestPaginateDeltaOptsIdenticalLink(Repeated|DetectOnly)' -count=1 -v
+go test ./internal/graph -run 'TestPaginateDeltaOptsIdenticalLink(Repeated|DetectOnlyStrict|SoftStopOptIn)' -count=1 -v
 ```
 
-Expected: PASS; Strict still errors and DetectOnly soft-stops.
+Expected: PASS; strict mode and DetectOnly-without-flag still error; explicit `SoftStopRepeatedNextLink` soft-stops.
 
 - [ ] **Step 5: Commit**
 
@@ -137,7 +152,8 @@ func paginateMailFolders(ctx context.Context, client *graph.Client, opts MailSyn
     var last []map[string]any
     for i, top := range mailFolderPageSizes {
         outcome := &graph.PaginationOutcome{}
-        monitor := graph.NewPaginationMonitor("mail:folders", graph.DuplicatePageDetectOnly, graphLog(opts.Log))
+        monitor := graph.NewPaginationMonitor("mail:folders", graph.DuplicatePageDetectOnly, nil)
+        monitor.SoftStopRepeatedNextLink = true
         folders, err := client.PaginateOpts(ctx, fmt.Sprintf("/users/%s/mailFolders", opts.UserID), map[string]string{"$top": top}, &graph.PaginateOptions{
             Monitor:     monitor,
             Outcome:     outcome,
@@ -158,11 +174,13 @@ func paginateMailFolders(ctx context.Context, client *graph.Client, opts MailSyn
 }
 ```
 
+`DuplicatePageDetectOnly` handles duplicate-only page wedges; `SoftStopRepeatedNextLink` handles repeated identical nextLink. The monitor uses `nil` `PageLogFunc` so truncated nextLink URLs are not written to the run logger; high-level wedge retry/final warnings remain on `opts.Log`.
+
 Call the helper from `SyncMail`. Keep all session `6f5f7c` log regions unchanged.
 
 - [ ] **Step 4: Add final-wedge regression**
 
-Add a test where all three sizes repeat their nextLink. Assert `SyncMail` succeeds, unique final-attempt folders are processed, and the captured run logger contains `keeping unique folders returned`.
+Add a test where all three sizes repeat their nextLink. Assert `SyncMail` succeeds, unique final-attempt folders are processed, and the captured run logger contains `keeping unique folders returned` (do not assert on internal per-page nextLink log text).
 
 - [ ] **Step 5: Verify focused and package tests**
 
@@ -245,3 +263,13 @@ Clear only `/var/www/eazybackup.ca/.cursor/debug-6f5f7c.log`, retry the affected
 - After: folder pagination reaches `after-folder-pagination`; worker run logs show smaller-page recovery or final unique-folder warning; Graph sync and Kopia snapshot complete.
 
 Keep instrumentation until the operator confirms no remaining issue. Remove it in a separate cleanup commit only after that confirmation.
+
+---
+
+## Plan self-review
+
+| Check | Result |
+|-------|--------|
+| Spec coverage | `SoftStopRepeatedNextLink` opt-in (Task 1), mail-folder ladder + nil per-page logger (Task 2), docs/release (Task 3) |
+| Placeholder scan | No TBD/TODO/“implement later” markers |
+| Type consistency | `SoftStopRepeatedNextLink` on `PaginationMonitor`; tests `TestPaginateDeltaOptsIdenticalLinkDetectOnlyStrict` and `TestPaginateDeltaOptsIdenticalLinkSoftStopOptIn`; `DuplicatePageDetectOnly` retained for duplicate-only pages only |
