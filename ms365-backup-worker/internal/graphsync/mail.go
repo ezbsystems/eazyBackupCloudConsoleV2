@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -16,33 +15,6 @@ import (
 )
 
 const mailBrowseIndexVersion = 1
-
-// #region agent log
-func agentDebugMail(hypothesisID, location, message string, data map[string]any) {
-	now := time.Now()
-	payload := map[string]any{
-		"sessionId":    "6f5f7c",
-		"id":           fmt.Sprintf("log_%d", now.UnixNano()),
-		"runId":        "mail-pagination-repro",
-		"hypothesisId": hypothesisID,
-		"location":     location,
-		"message":      message,
-		"data":         data,
-		"timestamp":    now.UnixMilli(),
-	}
-	line, err := json.Marshal(payload)
-	if err != nil {
-		return
-	}
-	file, err := os.OpenFile("/var/www/eazybackup.ca/.cursor/debug-6f5f7c.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
-	if err != nil {
-		return
-	}
-	defer file.Close()
-	_, _ = file.Write(append(line, '\n'))
-}
-
-// #endregion
 
 type mailBrowseIndex struct {
 	Version  int                             `json:"version"`
@@ -134,32 +106,10 @@ func SyncMail(ctx context.Context, client *graph.Client, opts MailSyncOptions) (
 		return nil, fmt.Errorf("mail sync requires overlay builder")
 	}
 
-	initialThrottleHits := client.ThrottleHits()
-	// #region agent log
-	agentDebugMail("H1,H2,H3,H4", "internal/graphsync/mail.go:SyncMail:before-folder-pagination", "mail sync entered", map[string]any{
-		"delta_state_count":     len(opts.DeltaStates),
-		"folder_parallel":       opts.FolderParallel,
-		"initial_throttle_hits": initialThrottleHits,
-	})
-	// #endregion
 	folders, err := paginateMailFolders(ctx, client, opts)
 	if err != nil {
-		// #region agent log
-		agentDebugMail("H1,H4", "internal/graphsync/mail.go:SyncMail:folder-pagination-error", "mail folder pagination failed", map[string]any{
-			"error_type":          fmt.Sprintf("%T", err),
-			"is_pagination_error": strings.Contains(strings.ToLower(err.Error()), "pagination loop"),
-			"throttle_hits_delta": client.ThrottleHits() - initialThrottleHits,
-			"context_cancelled":   ctx.Err() != nil,
-		})
-		// #endregion
 		return nil, err
 	}
-	// #region agent log
-	agentDebugMail("H1,H2", "internal/graphsync/mail.go:SyncMail:after-folder-pagination", "mail folder pagination completed", map[string]any{
-		"folder_count":        len(folders),
-		"throttle_hits_delta": client.ThrottleHits() - initialThrottleHits,
-	})
-	// #endregion
 
 	foldersCatalog, _ := json.Marshal(map[string]any{
 		"fetched_at": time.Now().UTC().Format(time.RFC3339),
@@ -224,15 +174,6 @@ func SyncMail(ctx context.Context, client *graph.Client, opts MailSyncOptions) (
 			folderMonitor := graph.ForBackupPagination("mail:"+folderName, graphLog(opts.Log))
 			items, deltaLink, err := paginateDeltaResilient(gctx, client, deltaPath, priorDelta, graph.MailMessageSelect, 100, nil, &graph.DeltaPaginateOptions{Monitor: folderMonitor})
 			if err != nil {
-				// #region agent log
-				agentDebugMail("H2,H3,H4", "internal/graphsync/mail.go:SyncMail:message-delta-error", "mail message delta pagination failed", map[string]any{
-					"error_type":          fmt.Sprintf("%T", err),
-					"is_pagination_error": strings.Contains(strings.ToLower(err.Error()), "pagination loop"),
-					"resumed_delta":       priorDelta != "",
-					"throttle_hits_delta": client.ThrottleHits() - initialThrottleHits,
-					"context_cancelled":   gctx.Err() != nil,
-				})
-				// #endregion
 				return fmt.Errorf("folder %s: %w", folderName, err)
 			}
 			messagesEnumerated.Add(int32(len(items)))
