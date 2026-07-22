@@ -5,11 +5,19 @@
 **Last updated:** 2026-07-22  
 **Module version (ms365backup):** 1.52.9  
 **Cloudstorage (e3) version:** 2.2.0  
-**Worker version (ms365-backup-worker):** 0.4.0 (Kopia v0.23.1)
+**Worker version (ms365-backup-worker):** 0.4.2 (Kopia v0.23.1)
 
 ---
 
 ## Session log
+
+### 2026-07-22 — Mail folder pagination recovery (worker 0.4.2)
+
+- **Production evidence (pre-fix, batch `118b5226-34f2-49bf-a495-2368c6e12dc4`):** 329 children succeeded; four terminal user/mail failures — all `Graph pagination loop detected: identical @odata.nextLink URL repeated` on `mailFolders` enumeration. Batch lease completed on attempt 1 (no claim thrash). Worker node 9011 on **0.4.1**. Graph 429 ratio **1.84%**; no resource exhaustion, network, or lease failures.
+- **Root cause:** Microsoft Graph repeats an identical `@odata.nextLink` on `GET /users/{id}/mailFolders` (known Graph defect). Strict pagination treated this as a hard error; message `messages/delta` pagination was unaffected.
+- **Fix (worker 0.4.2):** Opt-in `DuplicatePageDetectOnly` soft-stop for repeated nextLink (`PaginationOutcome.StoppedOnRepeatedNextLink`). Mail-only `paginateMailFolders` ladder retries at page sizes **100 → 50 → 25**: returns on natural completion; on wedge, logs warning and retries smaller; on final wedge, keeps unique folders returned and continues sync. Message-delta behavior unchanged. Session `6f5f7c` instrumentation preserved for post-deploy verification.
+- **Local verification:** `go test ./...` PASS; `go build ./...` PASS; `php accounts/modules/addons/ms365backup/tests/ms365_non_retryable_error_test.php` PASS (15 cases). Focused graphsync tests `TestSyncMailRetriesRepeatedFolderNextLinkWithSmallerPage` and `TestSyncMailKeepsUniqueFoldersAfterFinalRepeatedNextLink` PASS. Pre-fix local runtime logged `SyncMail:folder-pagination-error`; post-fix focused run logged `after-folder-pagination` with `folder_count=2` and no throttling.
+- **Status:** Worker **0.4.2** tagged locally. Production build/publish, fleet deploy, and post-fix E2E runtime verification **pending** (controller ops). Do not remove session `6f5f7c` instrumentation until operator confirms.
 
 ### 2026-07-22 — Inventory & billing preview performance (wizard)
 
