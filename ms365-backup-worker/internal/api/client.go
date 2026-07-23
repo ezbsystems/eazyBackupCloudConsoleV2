@@ -12,17 +12,44 @@ import (
 	"math/rand"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"time"
 )
 
+// #region agent log
+func agentDebugTokenRefresh(hypothesisID, location, message string, data map[string]any) {
+	now := time.Now()
+	payload := map[string]any{
+		"sessionId":    "6f5f7c",
+		"runId":        "token-refresh-repro",
+		"hypothesisId": hypothesisID,
+		"location":     location,
+		"message":      message,
+		"data":         data,
+		"timestamp":    now.UnixMilli(),
+	}
+	line, err := json.Marshal(payload)
+	if err != nil {
+		return
+	}
+	file, err := os.OpenFile("/var/www/eazybackup.ca/.cursor/debug-6f5f7c.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
+	if err != nil {
+		return
+	}
+	defer file.Close()
+	_, _ = file.Write(append(line, '\n'))
+}
+
+// #endregion
+
 type Client struct {
-	baseURL    string
-	token      string
-	nodeID     string
-	httpClient *http.Client
-	runLogMu   *sync.Mutex
+	baseURL     string
+	token       string
+	nodeID      string
+	httpClient  *http.Client
+	runLogMu    *sync.Mutex
 	runLogState map[string]*runLogState
 }
 
@@ -43,11 +70,11 @@ type RegisterResponse struct {
 }
 
 type ShardInfo struct {
-	Index              int    `json:"index"`
-	Total              int    `json:"total"`
-	Kind               string `json:"kind"`
-	Segment            string `json:"segment"`
-	ParentPhysicalKey  string `json:"parent_physical_key"`
+	Index             int    `json:"index"`
+	Total             int    `json:"total"`
+	Kind              string `json:"kind"`
+	Segment           string `json:"segment"`
+	ParentPhysicalKey string `json:"parent_physical_key"`
 }
 
 type PaginationLimit struct {
@@ -56,45 +83,45 @@ type PaginationLimit struct {
 }
 
 type RunJob struct {
-	RunID              string                       `json:"run_id"`
-	JobType            string                       `json:"job_type"`
-	TenantRecordID     int                          `json:"tenant_record_id"`
-	WhmcsClientID      int                          `json:"whmcs_client_id"`
-	AzureTenantID      string                       `json:"azure_tenant_id"`
-	ResourceID         string                       `json:"resource_id"`
-	ResourceType       string                       `json:"resource_type"`
-	PhysicalKey        string                       `json:"physical_key"`
-	ParentPhysicalKey  string                       `json:"parent_physical_key"`
-	KopiaSourcePath    string                       `json:"kopia_source_path"`
-	Shard              *ShardInfo                   `json:"shard"`
-	GraphID            string                       `json:"graph_id"`
-	DriveID            string                       `json:"drive_id"`
-	SiteID             string                       `json:"site_id"`
-	ListID             string                       `json:"list_id"`
-	ExcludedListIDs    []string                     `json:"excluded_list_ids"`
-	Scope            ScopeFlags                   `json:"scope"`
-	LogicalSources   json.RawMessage   `json:"logical_sources"`
-	GraphToken       string            `json:"graph_token"`
-	GraphRegion      string            `json:"graph_region"`
-	DestEndpoint     string            `json:"dest_endpoint"`
-	DestRegion       string            `json:"dest_region"`
-	DestBucket       string            `json:"dest_bucket"`
-	DestPrefix       string            `json:"dest_prefix"`
-	DestAccessKey    string            `json:"dest_access_key"`
-	DestSecretKey    string            `json:"dest_secret_key"`
-	RepoPassword     string            `json:"repo_password"`
-	KopiaRepoID      string            `json:"kopia_repo_id"`
-	PreviousManifest string            `json:"previous_manifest_id"`
-	SourceManifestID string            `json:"source_manifest_id"`
-	IncrementalEnabled bool            `json:"incremental_enabled"`
-	DeltaStates      DeltaStatesMap    `json:"delta_states"`
-	EngineMode       string            `json:"engine_mode"`
-	Workloads        map[string]bool   `json:"workloads"`
-	GraphPagination  map[string]PaginationLimit `json:"graph_pagination"`
-	LeaseExpiresAt   int64             `json:"lease_expires_at"`
+	RunID              string                     `json:"run_id"`
+	JobType            string                     `json:"job_type"`
+	TenantRecordID     int                        `json:"tenant_record_id"`
+	WhmcsClientID      int                        `json:"whmcs_client_id"`
+	AzureTenantID      string                     `json:"azure_tenant_id"`
+	ResourceID         string                     `json:"resource_id"`
+	ResourceType       string                     `json:"resource_type"`
+	PhysicalKey        string                     `json:"physical_key"`
+	ParentPhysicalKey  string                     `json:"parent_physical_key"`
+	KopiaSourcePath    string                     `json:"kopia_source_path"`
+	Shard              *ShardInfo                 `json:"shard"`
+	GraphID            string                     `json:"graph_id"`
+	DriveID            string                     `json:"drive_id"`
+	SiteID             string                     `json:"site_id"`
+	ListID             string                     `json:"list_id"`
+	ExcludedListIDs    []string                   `json:"excluded_list_ids"`
+	Scope              ScopeFlags                 `json:"scope"`
+	LogicalSources     json.RawMessage            `json:"logical_sources"`
+	GraphToken         string                     `json:"graph_token"`
+	GraphRegion        string                     `json:"graph_region"`
+	DestEndpoint       string                     `json:"dest_endpoint"`
+	DestRegion         string                     `json:"dest_region"`
+	DestBucket         string                     `json:"dest_bucket"`
+	DestPrefix         string                     `json:"dest_prefix"`
+	DestAccessKey      string                     `json:"dest_access_key"`
+	DestSecretKey      string                     `json:"dest_secret_key"`
+	RepoPassword       string                     `json:"repo_password"`
+	KopiaRepoID        string                     `json:"kopia_repo_id"`
+	PreviousManifest   string                     `json:"previous_manifest_id"`
+	SourceManifestID   string                     `json:"source_manifest_id"`
+	IncrementalEnabled bool                       `json:"incremental_enabled"`
+	DeltaStates        DeltaStatesMap             `json:"delta_states"`
+	EngineMode         string                     `json:"engine_mode"`
+	Workloads          map[string]bool            `json:"workloads"`
+	GraphPagination    map[string]PaginationLimit `json:"graph_pagination"`
+	LeaseExpiresAt     int64                      `json:"lease_expires_at"`
 	// GraphTenantBudget is the per-worker share of tenant Graph concurrency (from control plane).
-	GraphTenantBudget int `json:"graph_tenant_budget"`
-	RestoreSelection RestoreSelection  `json:"restore_selection"`
+	GraphTenantBudget int              `json:"graph_tenant_budget"`
+	RestoreSelection  RestoreSelection `json:"restore_selection"`
 	// Status is set on batch child payloads so a resumed owner can skip finished children.
 	Status string `json:"status,omitempty"`
 }
@@ -216,21 +243,21 @@ type RestoreTarget struct {
 }
 
 type ProgressUpdate struct {
-	RunID          string  `json:"run_id"`
-	Phase          string  `json:"phase"`
-	Percent        float64 `json:"percent"`
-	ItemsDone      int     `json:"items_done"`
-	ItemsTotal     int     `json:"items_total"`
-	ItemsSkipped   int     `json:"items_skipped,omitempty"`
-	BytesHashed    int64   `json:"bytes_hashed"`
-	BytesUploaded  int64   `json:"bytes_uploaded"`
-	ManifestID     string  `json:"manifest_id,omitempty"`
-	Message        string  `json:"message,omitempty"`
+	RunID              string  `json:"run_id"`
+	Phase              string  `json:"phase"`
+	Percent            float64 `json:"percent"`
+	ItemsDone          int     `json:"items_done"`
+	ItemsTotal         int     `json:"items_total"`
+	ItemsSkipped       int     `json:"items_skipped,omitempty"`
+	BytesHashed        int64   `json:"bytes_hashed"`
+	BytesUploaded      int64   `json:"bytes_uploaded"`
+	ManifestID         string  `json:"manifest_id,omitempty"`
+	Message            string  `json:"message,omitempty"`
 	Graph429Hits       int64   `json:"graph_429_hits,omitempty"`
 	GraphRequests      int64   `json:"graph_requests,omitempty"`
 	Graph429Ratio      float64 `json:"graph_429_ratio,omitempty"`
 	GraphAdaptiveLimit int     `json:"graph_adaptive_limit,omitempty"`
-	ThrottleWaiting    bool  `json:"throttle_waiting,omitempty"`
+	ThrottleWaiting    bool    `json:"throttle_waiting,omitempty"`
 	// CheckpointDeltaStates persists partial delta links mid-run (resume after requeue).
 	CheckpointDeltaStates map[string]map[string]string `json:"checkpoint_delta_states,omitempty"`
 	// NoProgress tells the control plane to skip lease renewal and last_progress_at bumps.
@@ -251,13 +278,13 @@ type FailUpdate struct {
 }
 
 type UpdateOffer struct {
-	Version            string `json:"version"`
-	Sha256             string `json:"sha256"`
-	DownloadURL        string `json:"download_url"`
-	ReleaseID          int    `json:"release_id"`
-	Drain              bool   `json:"drain"`
-	ArtifactSizeBytes  int64  `json:"artifact_size_bytes"`
-	UpdateReserveMiB   int64  `json:"update_reserve_mib,omitempty"`
+	Version           string `json:"version"`
+	Sha256            string `json:"sha256"`
+	DownloadURL       string `json:"download_url"`
+	ReleaseID         int    `json:"release_id"`
+	Drain             bool   `json:"drain"`
+	ArtifactSizeBytes int64  `json:"artifact_size_bytes"`
+	UpdateReserveMiB  int64  `json:"update_reserve_mib,omitempty"`
 }
 
 type ConfigOffer struct {
@@ -497,9 +524,9 @@ type GraphTokenResponse struct {
 
 func (c *Client) RefreshGraphToken(ctx context.Context, runID string) (string, error) {
 	var out GraphTokenResponse
-	err := c.post(ctx, "ms365_worker_graph_token.php", map[string]any{
+	err := c.postWithRetry(ctx, "ms365_worker_graph_token.php", map[string]any{
 		"run_id": strings.TrimSpace(runID),
-	}, &out)
+	}, &out, 3)
 	if err != nil {
 		return "", err
 	}
@@ -612,6 +639,14 @@ func (c *Client) postWithRetry(ctx context.Context, endpoint string, body any, o
 	}
 	var lastErr error
 	for attempt := 0; attempt < attempts; attempt++ {
+		tokenRefresh := endpoint == "ms365_worker_graph_token.php"
+		if tokenRefresh {
+			// #region agent log
+			agentDebugTokenRefresh("H1,H2,H3", "internal/api/client.go:postWithRetry:before-attempt", "token refresh API attempt starting", map[string]any{
+				"attempt": attempt + 1,
+			})
+			// #endregion
+		}
 		if attempt > 0 {
 			select {
 			case <-ctx.Done():
@@ -621,7 +656,28 @@ func (c *Client) postWithRetry(ctx context.Context, endpoint string, body any, o
 		}
 		lastErr = c.postOnce(ctx, endpoint, body, out)
 		if lastErr == nil {
+			if tokenRefresh {
+				// #region agent log
+				agentDebugTokenRefresh("H1,H2", "internal/api/client.go:postWithRetry:success", "token refresh API attempt succeeded", map[string]any{
+					"attempt": attempt + 1,
+				})
+				// #endregion
+			}
 			return nil
+		}
+		if tokenRefresh {
+			statusCode := 0
+			var httpErr *APIHTTPError
+			if errors.As(lastErr, &httpErr) {
+				statusCode = httpErr.StatusCode
+			}
+			// #region agent log
+			agentDebugTokenRefresh("H1,H2,H3", "internal/api/client.go:postWithRetry:failure", "token refresh API attempt failed", map[string]any{
+				"attempt":     attempt + 1,
+				"error_type":  fmt.Sprintf("%T", lastErr),
+				"status_code": statusCode,
+			})
+			// #endregion
 		}
 	}
 	return lastErr

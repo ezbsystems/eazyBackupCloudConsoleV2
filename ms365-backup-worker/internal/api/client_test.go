@@ -68,6 +68,32 @@ func TestClaimBatchToleratesLegacyDeltaArrays(t *testing.T) {
 	}
 }
 
+func TestRefreshGraphTokenRetriesTransientServerError(t *testing.T) {
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if calls.Add(1) == 1 {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"status":"error","message":"temporary token endpoint failure"}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"status":"success","data":{"graph_token":"fresh-token","expires_in":3600}}`))
+	}))
+	defer srv.Close()
+
+	client := NewClient(srv.URL, "tok", "node-1")
+	token, err := client.RefreshGraphToken(context.Background(), "run-1")
+	if err != nil {
+		t.Fatalf("RefreshGraphToken: %v", err)
+	}
+	if token != "fresh-token" {
+		t.Fatalf("token = %q, want fresh-token", token)
+	}
+	if calls.Load() != 2 {
+		t.Fatalf("calls = %d, want 2", calls.Load())
+	}
+}
+
 func TestDecodeEnvelopeResponseNullRepoOperation(t *testing.T) {
 	raw := []byte(`{"status":"success","data":null}`)
 	var op *RepoOperation
