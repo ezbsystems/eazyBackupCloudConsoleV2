@@ -1,5 +1,7 @@
 # Batch Drain Cancellation Implementation Plan
 
+> **Status:** Deferred and not approved for execution. Production HTTP evidence identified a transient Microsoft OAuth token-endpoint connection failure as the cause of the reported child error.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Prevent cancelled production batches from starting queued children after their lease is released.

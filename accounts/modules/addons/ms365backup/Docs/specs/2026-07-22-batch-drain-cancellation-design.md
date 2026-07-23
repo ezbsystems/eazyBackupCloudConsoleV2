@@ -1,5 +1,7 @@
 # Batch drain cancellation design
 
+> **Status:** Deferred as an independent issue. Later production HTTP evidence proved this was not the cause of child `1780312f-80f8-423e-9154-2f3caa2fe90d`; its failure was a transient Microsoft OAuth token-endpoint connection error.
+
 ## Problem
 
 During production rolling deploys, `BatchRunner.Run` launches one goroutine for every pending child. Goroutines waiting to acquire the child concurrency semaphore do not observe cancellation. `Scheduler.cooperativeDrain` cancels the batch and waits only for registered active children, so it can release the batch lease while pending goroutines remain alive. Those goroutines subsequently acquire the semaphore, start children with an already-cancelled context, and submit detached terminal reports after lease release. The control plane rejects those reports with HTTP 409 and can temporarily show failed workloads.
