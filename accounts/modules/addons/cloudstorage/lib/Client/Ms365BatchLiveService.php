@@ -420,6 +420,56 @@ final class Ms365BatchLiveService
 
         usort($rows, [self::class, 'sortCustomerWorkloadRows']);
 
+        // #region agent log
+        if ($batchRunId === 'bbf034af-ffe9-473d-916a-ad4350ef892b') {
+            $debugSummary = [
+                'status_counts' => [],
+                'recovering_rows' => 0,
+                'recovering_running_rows' => 0,
+                'recovering_queued_rows' => 0,
+                'stalled_rows' => 0,
+                'samples' => [],
+            ];
+            foreach ($rows as $debugRow) {
+                $debugStatus = (string) ($debugRow['status'] ?? '');
+                $debugSummary['status_counts'][$debugStatus] = ($debugSummary['status_counts'][$debugStatus] ?? 0) + 1;
+                $debugRecovering = str_contains((string) ($debugRow['error'] ?? ''), 'Recovering this workload');
+                if ($debugRecovering) {
+                    ++$debugSummary['recovering_rows'];
+                    if ($debugStatus === 'running') {
+                        ++$debugSummary['recovering_running_rows'];
+                    } elseif ($debugStatus === 'queued') {
+                        ++$debugSummary['recovering_queued_rows'];
+                    }
+                }
+                if (!empty($debugRow['stalled'])) {
+                    ++$debugSummary['stalled_rows'];
+                }
+                if (($debugRecovering || !empty($debugRow['stalled'])) && count($debugSummary['samples']) < 8) {
+                    $debugSummary['samples'][] = [
+                        'status' => $debugStatus,
+                        'phase' => (string) ($debugRow['phase'] ?? ''),
+                        'progress_age_s' => $debugRow['last_progress_age_seconds'] ?? null,
+                        'stalled' => !empty($debugRow['stalled']),
+                        'event_statuses' => array_values(array_map(
+                            static fn (array $event): string => (string) ($event['status'] ?? ''),
+                            is_array($debugRow['events'] ?? null) ? $debugRow['events'] : []
+                        )),
+                    ];
+                }
+            }
+            file_put_contents('/var/www/eazybackup.ca/.cursor/debug-062be2.log', json_encode([
+                'sessionId' => '062be2',
+                'runId' => $batchRunId,
+                'hypothesisId' => 'H1,H2',
+                'location' => 'Ms365BatchLiveService.php:listWorkloadsForCustomer',
+                'message' => 'Customer workload recovery and freshness projection',
+                'data' => $debugSummary,
+                'timestamp' => (int) floor(microtime(true) * 1000),
+            ], JSON_UNESCAPED_SLASHES) . "\n", FILE_APPEND | LOCK_EX);
+        }
+        // #endregion
+
         return $rows;
     }
 

@@ -44,6 +44,38 @@ final class Ms365RestoreWorkerHooks
         WorkerLeaseService::renewForBatch($batchRunId, $nodeId);
         Ms365BatchClaimRepository::recordProgress($batchRunId, $nodeId);
 
+        // #region agent log
+        if ($batchRunId === 'bbf034af-ffe9-473d-916a-ad4350ef892b') {
+            $debugChildren = [];
+            foreach ($children as $debugChild) {
+                if (!is_array($debugChild)) {
+                    continue;
+                }
+                $debugChildren[] = [
+                    'run_id' => (string) ($debugChild['run_id'] ?? ''),
+                    'phase' => (string) ($debugChild['phase'] ?? ''),
+                    'no_progress' => !empty($debugChild['no_progress']),
+                    'throttle_waiting' => !empty($debugChild['throttle_waiting']),
+                    'items_done' => (int) ($debugChild['items_done'] ?? 0),
+                    'items_total' => (int) ($debugChild['items_total'] ?? 0),
+                    'bytes_hashed' => (int) ($debugChild['bytes_hashed'] ?? 0),
+                    'bytes_uploaded' => (int) ($debugChild['bytes_uploaded'] ?? 0),
+                    'graph_requests' => (int) ($debugChild['graph_requests'] ?? 0),
+                    'graph_429_hits' => (int) ($debugChild['graph_429_hits'] ?? 0),
+                ];
+            }
+            file_put_contents('/var/www/eazybackup.ca/.cursor/debug-062be2.log', json_encode([
+                'sessionId' => '062be2',
+                'runId' => $batchRunId,
+                'hypothesisId' => 'H2,H3',
+                'location' => 'Ms365RestoreWorkerHooks.php:onBatchProgress',
+                'message' => 'Incoming coalesced child progress snapshots',
+                'data' => ['node_id' => $nodeId, 'children' => $debugChildren],
+                'timestamp' => (int) floor(microtime(true) * 1000),
+            ], JSON_UNESCAPED_SLASHES) . "\n", FILE_APPEND | LOCK_EX);
+        }
+        // #endregion
+
         $graphTenantBudget = 0;
         $tenantRecordId = 0;
         $azureTenantId = '';

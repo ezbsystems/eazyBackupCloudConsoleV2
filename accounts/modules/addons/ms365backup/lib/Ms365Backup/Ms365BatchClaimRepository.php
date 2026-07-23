@@ -468,6 +468,30 @@ final class Ms365BatchClaimRepository
             ->pluck('r.e3_batch_run_id')
             ->all();
 
+        // #region agent log
+        if (in_array('bbf034af-ffe9-473d-916a-ad4350ef892b', $batchRunIds, true)) {
+            $debugBatchId = 'bbf034af-ffe9-473d-916a-ad4350ef892b';
+            file_put_contents('/var/www/eazybackup.ca/.cursor/debug-062be2.log', json_encode([
+                'sessionId' => '062be2',
+                'runId' => $debugBatchId,
+                'hypothesisId' => 'H1,H4',
+                'location' => 'Ms365BatchClaimRepository.php:reconcileStrandedBatchQueuedChildren',
+                'message' => 'Batch selected for queued-retry claim handoff',
+                'data' => [
+                    'running_children' => Capsule::table('ms365_backup_runs')
+                        ->where('e3_batch_run_id', $debugBatchId)
+                        ->where('status', 'running')
+                        ->count(),
+                    'queued_children' => Capsule::table('ms365_backup_runs')
+                        ->where('e3_batch_run_id', $debugBatchId)
+                        ->where('status', 'queued')
+                        ->count(),
+                ],
+                'timestamp' => (int) floor(microtime(true) * 1000),
+            ], JSON_UNESCAPED_SLASHES) . "\n", FILE_APPEND | LOCK_EX);
+        }
+        // #endregion
+
         return self::handOffRunningBatchClaims($batchRunIds, 'Stranded queued batch children');
     }
 
@@ -675,6 +699,30 @@ final class Ms365BatchClaimRepository
                 && (int) $queue->lease_expires_at < $now;
 
             if ($staleProgress || $staleLease) {
+                // #region agent log
+                if ((string) ($row->e3_batch_run_id ?? '') === 'bbf034af-ffe9-473d-916a-ad4350ef892b') {
+                    file_put_contents('/var/www/eazybackup.ca/.cursor/debug-062be2.log', json_encode([
+                        'sessionId' => '062be2',
+                        'runId' => (string) ($row->e3_batch_run_id ?? ''),
+                        'hypothesisId' => 'H3,H4',
+                        'location' => 'Ms365BatchClaimRepository.php:reapStalledBatchChildren',
+                        'message' => 'Active child selected for stale-progress requeue',
+                        'data' => [
+                            'child_run_id' => $runId,
+                            'phase' => $phase,
+                            'freshness_age_s' => $freshness > 0 ? $now - $freshness : null,
+                            'silence_threshold_s' => $silenceSeconds,
+                            'stale_progress' => $staleProgress,
+                            'stale_lease' => $staleLease,
+                            'items_done' => $itemsDone,
+                            'items_total' => $itemsTotal,
+                            'bytes_hashed' => $bytesHashed,
+                            'bytes_uploaded' => $bytesUploaded,
+                        ],
+                        'timestamp' => (int) floor(microtime(true) * 1000),
+                    ], JSON_UNESCAPED_SLASHES) . "\n", FILE_APPEND | LOCK_EX);
+                }
+                // #endregion
                 $toRequeue[] = $runId;
             }
         }
