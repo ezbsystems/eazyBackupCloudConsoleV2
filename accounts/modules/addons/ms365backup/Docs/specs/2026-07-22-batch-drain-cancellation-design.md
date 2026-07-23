@@ -1,6 +1,6 @@
 # Batch drain cancellation design
 
-> **Status:** Deferred as an independent issue. Later production HTTP evidence proved this was not the cause of child `1780312f-80f8-423e-9154-2f3caa2fe90d`; its failure was a transient Microsoft OAuth token-endpoint connection error.
+> **Status:** Approved as an independent follow-up on 2026-07-23 for worker 0.4.5. It was not the cause of child `1780312f-80f8-423e-9154-2f3caa2fe90d`, but production hand-off evidence independently confirmed the defect.
 
 ## Problem
 

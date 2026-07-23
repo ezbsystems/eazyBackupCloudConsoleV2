@@ -2,8 +2,10 @@ package jobs
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -18,6 +20,32 @@ type batchChildRunner interface {
 	RunSafe(context.Context, *api.RunJob, context.CancelFunc) error
 }
 
+// #region agent log
+func agentDebugBatchDrain(hypothesisID, location, message string, data map[string]any) {
+	now := time.Now()
+	payload := map[string]any{
+		"sessionId":    "6f5f7c",
+		"runId":        "batch-drain-repro",
+		"hypothesisId": hypothesisID,
+		"location":     location,
+		"message":      message,
+		"data":         data,
+		"timestamp":    now.UnixMilli(),
+	}
+	line, err := json.Marshal(payload)
+	if err != nil {
+		return
+	}
+	file, err := os.OpenFile("/var/www/eazybackup.ca/.cursor/debug-6f5f7c.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
+	if err != nil {
+		return
+	}
+	defer file.Close()
+	_, _ = file.Write(append(line, '\n'))
+}
+
+// #endregion
+
 type BatchRunner struct {
 	cfg              *config.Config
 	client           *api.Client
@@ -31,13 +59,13 @@ func NewBatchRunner(cfg *config.Config, client *api.Client, runner *Runner, sche
 }
 
 type batchProgressHub struct {
-	mu         sync.Mutex
-	children   map[string]api.ProgressUpdate
-	batchRunID string
-	client     *api.Client
-	tenantID   string
+	mu          sync.Mutex
+	children    map[string]api.ProgressUpdate
+	batchRunID  string
+	client      *api.Client
+	tenantID    string
 	minInterval time.Duration
-	lastNano   atomic.Int64
+	lastNano    atomic.Int64
 }
 
 func newBatchProgressHub(client *api.Client, batchRunID, tenantID string, minInterval time.Duration) *batchProgressHub {
@@ -356,22 +384,77 @@ func (br *BatchRunner) Run(ctx context.Context, batch *api.BatchJob, onAbort con
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			sem <- struct{}{}
+			select {
+			case sem <- struct{}{}:
+			case <-ctx.Done():
+				// #region agent log
+				agentDebugBatchDrain("D1,D2", "internal/jobs/batch_runner.go:dispatch:slot-cancelled", "child dispatch cancelled while waiting for slot", map[string]any{
+					"batch_id": batchRunID,
+					"run_id":   child.RunID,
+				})
+				// #endregion
+				return
+			}
 			defer func() { <-sem }()
+			// #region agent log
+			agentDebugBatchDrain("D1,D2", "internal/jobs/batch_runner.go:dispatch:slot-acquired", "child acquired dispatch slot", map[string]any{
+				"batch_id":          batchRunID,
+				"run_id":            child.RunID,
+				"context_cancelled": ctx.Err() != nil,
+			})
+			// #endregion
+			if ctx.Err() != nil {
+				// #region agent log
+				agentDebugBatchDrain("D1,D2", "internal/jobs/batch_runner.go:dispatch:post-slot-cancelled", "child dispatch cancelled after slot acquisition", map[string]any{
+					"batch_id": batchRunID,
+					"run_id":   child.RunID,
+				})
+				// #endregion
+				return
+			}
 
-			for !br.scheduler.tryReserve(child) {
+			for {
 				if ctx.Err() != nil {
+					// #region agent log
+					agentDebugBatchDrain("D1,D2", "internal/jobs/batch_runner.go:dispatch:reservation-cancelled", "child dispatch cancelled while waiting for reservation", map[string]any{
+						"batch_id": batchRunID,
+						"run_id":   child.RunID,
+					})
+					// #endregion
 					return
 				}
-				time.Sleep(250 * time.Millisecond)
+				if br.scheduler.tryReserve(child) {
+					break
+				}
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(250 * time.Millisecond):
+				}
 			}
 			defer br.scheduler.releaseReserve(child.RunID)
 
 			childCtx, cancel := context.WithCancel(batchCtx)
 			defer cancel()
+			if childCtx.Err() != nil {
+				// #region agent log
+				agentDebugBatchDrain("D1,D2", "internal/jobs/batch_runner.go:dispatch:pre-start-cancelled", "child dispatch cancelled before runner start", map[string]any{
+					"batch_id": batchRunID,
+					"run_id":   child.RunID,
+				})
+				// #endregion
+				return
+			}
 			br.scheduler.registerRunCancel(child.RunID, cancel)
 			defer br.scheduler.unregisterRunCancel(child.RunID)
 
+			// #region agent log
+			agentDebugBatchDrain("D1,D2,D3", "internal/jobs/batch_runner.go:dispatch:before-run", "starting child runner", map[string]any{
+				"batch_id":          batchRunID,
+				"run_id":            child.RunID,
+				"context_cancelled": childCtx.Err() != nil,
+			})
+			// #endregion
 			if err := br.runner.RunSafe(childCtx, child, cancel); err != nil {
 				if isCooperativeCancel(err, childCtx) {
 					return
@@ -381,6 +464,12 @@ func (br *BatchRunner) Run(ctx context.Context, batch *api.BatchJob, onAbort con
 		}()
 	}
 	wg.Wait()
+	// #region agent log
+	agentDebugBatchDrain("D1,D2,D3", "internal/jobs/batch_runner.go:dispatch:wait-complete", "batch child goroutines completed", map[string]any{
+		"batch_id":          batchRunID,
+		"context_cancelled": ctx.Err() != nil,
+	})
+	// #endregion
 
 	return firstErr
 }
