@@ -195,6 +195,76 @@ func TestBatchRunnerSingleTenantController(t *testing.T) {
 	_ = br2.Run(ctx, batch, nil)
 }
 
+func TestBatchRunnerCancelDoesNotStartQueuedChildren(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"success","data":{}}`))
+	}))
+	defer srv.Close()
+
+	cfg := testBatchConfig(t)
+	cfg.Worker.MaxConcurrentRuns = 1
+	client := api.NewClient(srv.URL, "tok", "node-1")
+	scheduler := NewScheduler(cfg, client, t.TempDir()+"/config.yaml")
+	started := make(chan string, 2)
+	var startCount atomic.Int32
+	stub := &stubChildRunner{
+		onRun: func(ctx context.Context, job *api.RunJob) error {
+			started <- job.RunID
+			if startCount.Add(1) == 1 {
+				<-ctx.Done()
+				return ctx.Err()
+			}
+			return nil
+		},
+	}
+	br := &BatchRunner{
+		cfg:              cfg,
+		client:           client,
+		runner:           stub,
+		scheduler:        scheduler,
+		completionOutbox: scheduler.completionOutbox,
+	}
+	batch := &api.BatchJob{
+		BatchRunID:    "batch-cancel",
+		AzureTenantID: "tenant-cancel",
+		GraphToken:    "tok",
+		GraphRegion:   "GlobalPublicCloud",
+		Children: []*api.RunJob{
+			{RunID: "child-1", Status: "queued", PhysicalKey: "mailbox:child-1", JobType: "backup"},
+			{RunID: "child-2", Status: "queued", PhysicalKey: "mailbox:child-2", JobType: "backup"},
+		},
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- br.Run(ctx, batch, nil)
+	}()
+
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("first child did not start")
+	}
+
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Run() err = %v, want cooperative nil", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("batch runner did not stop after cancellation")
+	}
+
+	select {
+	case id := <-started:
+		t.Fatalf("queued child %s started after cancellation", id)
+	default:
+	}
+}
+
 func TestSchedulerCurrentLoadWithBatch(t *testing.T) {
 	cfg := testBatchConfig(t)
 	s := NewScheduler(cfg, api.NewClient("http://example.test", "tok", ""), t.TempDir()+"/config.yaml")
