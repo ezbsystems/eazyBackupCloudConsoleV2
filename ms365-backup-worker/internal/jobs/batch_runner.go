@@ -46,32 +46,6 @@ func agentDebugBatchDrain(hypothesisID, location, message string, data map[strin
 
 // #endregion
 
-// #region agent log
-func agentDebugBatchFailure(hypothesisID, location, message string, data map[string]any) {
-	now := time.Now()
-	payload := map[string]any{
-		"sessionId":    "371d18",
-		"runId":        "pre-fix",
-		"hypothesisId": hypothesisID,
-		"location":     location,
-		"message":      message,
-		"data":         data,
-		"timestamp":    now.UnixMilli(),
-	}
-	line, err := json.Marshal(payload)
-	if err != nil {
-		return
-	}
-	file, err := os.OpenFile("/var/www/eazybackup.ca/.cursor/debug-371d18.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
-	if err != nil {
-		return
-	}
-	defer file.Close()
-	_, _ = file.Write(append(line, '\n'))
-}
-
-// #endregion
-
 type BatchRunner struct {
 	cfg              *config.Config
 	client           *api.Client
@@ -485,33 +459,11 @@ func (br *BatchRunner) Run(ctx context.Context, batch *api.BatchJob, onAbort con
 				if isCooperativeCancel(err, childCtx) {
 					return
 				}
-				errText := strings.ToLower(err.Error())
-				// #region agent log
-				agentDebugBatchFailure("H2,H4", "internal/jobs/batch_runner.go:child-error", "non-cooperative child error will become the batch error", map[string]any{
-					"batch_id":         batchRunID,
-					"run_id":           child.RunID,
-					"context_canceled": childCtx.Err() != nil,
-					"error_type":       fmt.Sprintf("%T", err),
-					"is_graph_504":     strings.Contains(errText, "graph 504") || strings.Contains(errText, "gateway timeout"),
-					"is_graph_auth":    strings.Contains(errText, "graph 401") || strings.Contains(errText, "token refresh"),
-					"is_dns":           strings.Contains(errText, "could not resolve host"),
-					"is_kopia":         strings.Contains(errText, "kopia"),
-					"is_stall":         strings.Contains(errText, "stalled"),
-				})
-				// #endregion
 				firstErrOnce.Do(func() { firstErr = err })
 			}
 		}()
 	}
 	wg.Wait()
-	// #region agent log
-	agentDebugBatchFailure("H1,H3,H4,H5", "internal/jobs/batch_runner.go:batch-return", "batch runner returning after all child goroutines", map[string]any{
-		"batch_id":          batchRunID,
-		"context_cancelled": ctx.Err() != nil,
-		"pending_children":  len(pending),
-		"has_batch_error":   firstErr != nil,
-	})
-	// #endregion
 	// #region agent log
 	agentDebugBatchDrain("D1,D2,D3", "internal/jobs/batch_runner.go:dispatch:wait-complete", "batch child goroutines completed", map[string]any{
 		"batch_id":          batchRunID,

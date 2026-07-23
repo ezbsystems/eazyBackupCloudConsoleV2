@@ -468,19 +468,6 @@ final class Ms365BatchClaimRepository
             ->pluck('r.e3_batch_run_id')
             ->all();
 
-        // #region agent log
-        $debugPayload = [
-            'sessionId' => '371d18',
-            'runId' => 'post-fix',
-            'hypothesisId' => 'H4',
-            'location' => 'Ms365BatchClaimRepository.php:reconcileStrandedBatchQueuedChildren',
-            'message' => 'eligible idle batch handoffs after active-sibling guard',
-            'data' => ['eligible_count' => count($batchRunIds), 'batch_ids' => array_values($batchRunIds)],
-            'timestamp' => (int) floor(microtime(true) * 1000),
-        ];
-        @file_put_contents('/var/www/eazybackup.ca/.cursor/debug-371d18.log', json_encode($debugPayload, JSON_UNESCAPED_SLASHES) . PHP_EOL, FILE_APPEND | LOCK_EX);
-        // #endregion
-
         return self::handOffRunningBatchClaims($batchRunIds, 'Stranded queued batch children');
     }
 

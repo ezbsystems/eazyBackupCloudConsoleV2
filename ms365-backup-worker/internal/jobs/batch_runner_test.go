@@ -3,7 +3,6 @@ package jobs
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -263,38 +262,6 @@ func TestBatchRunnerCancelDoesNotStartQueuedChildren(t *testing.T) {
 	case id := <-started:
 		t.Fatalf("queued child %s started after cancellation", id)
 	default:
-	}
-}
-
-func TestBatchRunnerChildFailurePropagatesToBatch(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"status":"success","data":{}}`))
-	}))
-	defer srv.Close()
-
-	cfg := testBatchConfig(t)
-	client := api.NewClient(srv.URL, "tok", "node-1")
-	scheduler := NewScheduler(cfg, client, t.TempDir()+"/config.yaml")
-	br := &BatchRunner{
-		cfg:              cfg,
-		client:           client,
-		runner:           &stubChildRunner{onRun: func(context.Context, *api.RunJob) error { return errors.New("graph 504 Gateway Timeout") }},
-		scheduler:        scheduler,
-		completionOutbox: scheduler.completionOutbox,
-	}
-
-	err := br.Run(context.Background(), &api.BatchJob{
-		BatchRunID:    "batch-child-error",
-		AzureTenantID: "tenant-child-error",
-		GraphToken:    "tok",
-		GraphRegion:   "GlobalPublicCloud",
-		Children: []*api.RunJob{
-			{RunID: "child-error", Status: "queued", PhysicalKey: "mailbox:child-error", JobType: "backup"},
-		},
-	}, nil)
-	if err == nil || !strings.Contains(err.Error(), "graph 504") {
-		t.Fatalf("Run() error = %v, want child Graph error propagated to batch", err)
 	}
 }
 

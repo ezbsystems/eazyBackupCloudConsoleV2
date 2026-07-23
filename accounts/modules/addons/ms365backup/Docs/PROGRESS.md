@@ -11,6 +11,14 @@
 
 ## Session log
 
+### 2026-07-23 — Retry handoff waits for active siblings
+
+- **Production assessment:** All four reported batches were advancing. `62d52ef5-…` and `a0559e67-…` held stable attempt 1; `0c365259-…` and `bbf034af-…` completed workloads but repeatedly changed owners after transient child failures. Before the fix, attempts increased **7→10** and **84→89** respectively while Graph 504/DNS failures requeued individual children.
+- **Root cause:** `reconcileStrandedBatchQueuedChildren()` handed off an active tenant batch five minutes after any child was requeued, even while healthy sibling workloads were still running. The handoff cancelled those siblings and refreshed the whole claim merely to retry one child, causing avoidable cancellation/restart churn.
+- **Fix (PHP 1.52.9):** Stranded queued retries now wait until the batch has no `running` children before claim handoff. Once active siblings finish, the idle owner is still handed off so the retry enters the next claim payload. Regression coverage verifies both sides of this condition.
+- **Production verification:** Commit `9657f6b3` deployed with `deploy-production.sh`. Over the next ~70 minutes, `62d52ef5-…` stayed attempt 1 and reached 45 successes; `a0559e67-…` stayed attempt 1 and advanced **539→712** successes; `0c365259-…` stayed attempt 10 and advanced **159→170**; `bbf034af-…` performed one instrumented handoff only when no siblings were running (attempt **89→90**) and then resumed with six active workloads. Session `371d18` instrumentation was removed after verification.
+- **Worker:** No new worker build required; the defect and fix were in the PHP fleet reaper. Production worker/browse release remains 0.4.5.
+
 ### 2026-07-23 — Batch drain cancellation ordering (worker 0.4.5)
 
 - **Production evidence:** During worker hand-off for batch `bbf034af-ffe9-473d-916a-ad4350ef892b`, the old owner released its lease while goroutines blocked on the child concurrency semaphore remained alive. After slots opened, those goroutines started queued children with an already-cancelled context and terminal delivery received HTTP 409 `Batch lease is not active for this node`. Batch claim ownership churn reached attempt **79**.
