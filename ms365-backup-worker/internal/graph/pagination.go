@@ -119,7 +119,8 @@ func extractSkipToken(nextLink string) string {
 
 // stripDisallowedGraphQueryParams removes $top/$skip from Graph pagination URLs.
 // Teams channel message delta rejects these on nextLink/deltaLink even when omitted
-// from the initial request.
+// from the initial request. Opaque $skiptoken/$deltatoken values are preserved
+// without url.Values.Encode() rewriting $ to %24.
 func stripDisallowedGraphQueryParams(rawURL string) string {
 	rawURL = strings.TrimSpace(rawURL)
 	if rawURL == "" || !strings.HasPrefix(rawURL, "http") {
@@ -129,11 +130,25 @@ func stripDisallowedGraphQueryParams(rawURL string) string {
 	if err != nil {
 		return rawURL
 	}
-	q := u.Query()
-	for _, key := range []string{"$top", "$skip", "top", "skip"} {
-		q.Del(key)
+	q := strings.TrimSpace(u.RawQuery)
+	if q == "" {
+		return rawURL
 	}
-	u.RawQuery = q.Encode()
+	parts := strings.Split(q, "&")
+	kept := make([]string, 0, len(parts))
+	for _, part := range parts {
+		key := part
+		if i := strings.Index(part, "="); i >= 0 {
+			key = part[:i]
+		}
+		lk := strings.ToLower(key)
+		switch lk {
+		case "$top", "$skip", "top", "skip", "%24top", "%24skip":
+			continue
+		}
+		kept = append(kept, part)
+	}
+	u.RawQuery = strings.Join(kept, "&")
 	return u.String()
 }
 
@@ -178,6 +193,19 @@ func IsDeltaResetError(err error) bool {
 		strings.Contains(msg, "syncstatenotfound") ||
 		strings.Contains(msg, "resyncrequired") ||
 		strings.Contains(msg, "fullsyncrequired")
+}
+
+// IsTeamsDeltaTokenError reports Graph 400 responses rejecting a Teams messages/delta token.
+func IsTeamsDeltaTokenError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	if !strings.Contains(msg, "graph 400") {
+		return false
+	}
+	return strings.Contains(msg, "deltatoken") ||
+		strings.Contains(msg, "parameter 'deltatoken' not supported")
 }
 
 type pageFetchResult struct {

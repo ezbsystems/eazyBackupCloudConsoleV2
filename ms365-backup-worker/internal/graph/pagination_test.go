@@ -2,6 +2,7 @@ package graph
 
 import (
 	"net/url"
+	"strings"
 	"testing"
 )
 
@@ -50,6 +51,31 @@ func TestStripDisallowedGraphQueryParams(t *testing.T) {
 	}
 	if q.Get("$skiptoken") != "abc" {
 		t.Fatalf("expected skiptoken preserved, got %q", q.Get("$skiptoken"))
+	}
+}
+
+func TestStripDisallowedGraphQueryParamsPreservesOpaqueTokens(t *testing.T) {
+	in := "https://graph.microsoft.com/v1.0/teams/t1/channels/c1/messages/delta?$deltatoken=opaque%2Ftoken%2Bvalue&$skiptoken=skip%2Fhere&$top=25"
+	got := stripDisallowedGraphQueryParams(in)
+	if strings.Contains(got, "%24deltatoken") || strings.Contains(got, "%24skiptoken") {
+		t.Fatalf("must not rewrite $ keys to %%24, got %q", got)
+	}
+	if !strings.Contains(got, "$deltatoken=opaque%2Ftoken%2Bvalue") {
+		t.Fatalf("expected literal $deltatoken preserved, got %q", got)
+	}
+	if !strings.Contains(got, "$skiptoken=skip%2Fhere") {
+		t.Fatalf("expected literal $skiptoken preserved, got %q", got)
+	}
+	if strings.Contains(got, "$top=") || strings.Contains(got, "$skip=") {
+		t.Fatalf("expected top/skip stripped, got %q", got)
+	}
+	// Ensure url.Parse+Query round-trip did not mangle opaque values.
+	u, err := url.Parse(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u.Query().Get("$deltatoken") != "opaque/token+value" {
+		t.Fatalf("deltatoken value = %q", u.Query().Get("$deltatoken"))
 	}
 }
 

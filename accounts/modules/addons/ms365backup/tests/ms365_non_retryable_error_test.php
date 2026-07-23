@@ -118,6 +118,18 @@ assert_true(
     'directory pagination loop is non-retryable'
 );
 
+$teamsDeltaToken = 'teams: graph 400 Bad Request: Parameter \'DeltaToken\' not supported for this request.';
+assert_true(
+    JobQueueRepository::isNonRetryableError($teamsDeltaToken),
+    'Teams DeltaToken graph 400 is non-retryable'
+);
+
+$unrelated400 = 'teams: graph 400 Bad Request: {"error":{"code":"BadRequest","message":"Invalid request"}}';
+assert_true(
+    !JobQueueRepository::isNonRetryableError($unrelated400),
+    'unrelated graph 400 remains retryable'
+);
+
 if ($failures > 0) {
     echo "\n{$failures} test(s) failed.\n";
     exit(1);

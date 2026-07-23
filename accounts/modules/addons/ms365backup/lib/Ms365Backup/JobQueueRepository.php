@@ -33,6 +33,12 @@ final class JobQueueRepository
         if (str_contains($message, 'graph 400') && str_contains($message, 'query option \'top\' is not allowed')) {
             return true;
         }
+        if (str_contains($message, 'graph 400') && str_contains($message, 'deltatoken')) {
+            return true;
+        }
+        if (str_contains($message, 'graph 400') && str_contains($message, 'parameter \'deltatoken\' not supported')) {
+            return true;
+        }
         $patterns = [
             'graph 403',
             'mailboxnotenabledforrestapi',

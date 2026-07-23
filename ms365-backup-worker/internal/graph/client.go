@@ -743,6 +743,9 @@ type DeltaPaginateOptions struct {
 	OmitDeltaQueryParams bool
 	// Expand is sent as $expand on the initial delta request (e.g. fields($select=Title)).
 	Expand string
+	// InitialFilter is sent as $filter on the initial delta request only (not on resume links).
+	// Used with OmitDeltaQueryParams for Teams channel messages/delta recovery.
+	InitialFilter string
 }
 
 // PaginateDelta streams delta pages. When selectFields is non-empty it is sent as $select on the initial request.
@@ -812,6 +815,8 @@ func (c *Client) PaginateDeltaOpts(ctx context.Context, initialPath, deltaLink, 
 				if opts != nil && opts.Expand != "" {
 					query["$expand"] = opts.Expand
 				}
+			} else if opts != nil && opts.InitialFilter != "" {
+				query = map[string]string{"$filter": opts.InitialFilter}
 			}
 			data, err = c.GetJSONWithHeaders(ctx, path, query, headers)
 			headers = nil

@@ -33,7 +33,7 @@ func SyncTeams(ctx context.Context, client *graph.Client, opts TeamsSyncOptions)
 	if opts.Log != nil {
 		opts.Log("info", fmt.Sprintf("Starting teams backup team=%s incremental=%v", opts.TeamID, len(opts.DeltaStates) > 0))
 	}
-	stats := map[string]int{"channels": 0, "messages": 0}
+	stats := map[string]int{"channels": 0, "messages": 0, "channels_skipped": 0}
 	deltaOut := map[string]string{}
 
 	channels, err := client.Paginate(ctx, fmt.Sprintf("/teams/%s/channels", opts.TeamID), nil)
@@ -74,13 +74,16 @@ func SyncTeams(ctx context.Context, client *graph.Client, opts TeamsSyncOptions)
 			priorDelta = opts.DeltaStates[chID]
 		}
 		deltaPath := fmt.Sprintf("/teams/%s/channels/%s/messages/delta", opts.TeamID, chID)
-		monitor := graph.ForBackupPagination("teams:"+chID, graphLog(opts.Log))
-		items, deltaLink, err := paginateDeltaResilient(ctx, client, deltaPath, priorDelta, "", 50, nil, &graph.DeltaPaginateOptions{
-			Monitor:              monitor,
-			OmitDeltaQueryParams: true,
-		})
+		items, deltaLink, skipped, err := paginateTeamsChannelDelta(ctx, client, deltaPath, priorDelta, chID, opts.Log)
 		if err != nil {
 			return nil, err
+		}
+		if skipped {
+			stats["channels_skipped"]++
+			if opts.OnProgress != nil {
+				opts.OnProgress(stats["channels"], channelsTotal)
+			}
+			continue
 		}
 		if deltaLink != "" {
 			deltaOut[chID] = deltaLink
@@ -106,4 +109,68 @@ func SyncTeams(ctx context.Context, client *graph.Client, opts TeamsSyncOptions)
 		}
 	}
 	return &TeamsSyncResult{Stats: stats, FileCount: opts.Staging.EntryCount(), DeltaStates: deltaOut}, nil
+}
+
+const teamsMessageFilterMonths = 8
+
+func teamsMessageFilterCutoff() time.Time {
+	return time.Now().UTC().AddDate(0, -teamsMessageFilterMonths, 0)
+}
+
+// paginateTeamsChannelDelta syncs one Teams channel's messages/delta with recovery for
+// Graph 400 DeltaToken errors: rebaseline when resuming, then $filter fallback, then soft-skip.
+func paginateTeamsChannelDelta(
+	ctx context.Context,
+	client *graph.Client,
+	deltaPath, priorDelta, channelID string,
+	log RunLogger,
+) ([]map[string]any, string, bool, error) {
+	monitor := graph.ForBackupPagination("teams:"+channelID, graphLog(log))
+	deltaOpts := &graph.DeltaPaginateOptions{
+		Monitor:              monitor,
+		OmitDeltaQueryParams: true,
+	}
+
+	items, deltaLink, err := paginateDeltaResilient(ctx, client, deltaPath, priorDelta, "", 50, nil, deltaOpts)
+	if err == nil {
+		return items, deltaLink, false, nil
+	}
+	if !graph.IsTeamsDeltaTokenError(err) {
+		return nil, "", false, err
+	}
+
+	if priorDelta != "" {
+		if log != nil {
+			log("warning", fmt.Sprintf("Teams channel %s delta token rejected; re-baselining", channelID))
+		}
+		items, deltaLink, err = client.PaginateDeltaOpts(ctx, deltaPath, "", "", 50, nil, deltaOpts)
+		if err == nil {
+			return items, deltaLink, false, nil
+		}
+		if !graph.IsTeamsDeltaTokenError(err) {
+			return nil, "", false, err
+		}
+	}
+
+	cutoff := teamsMessageFilterCutoff().Format(time.RFC3339)
+	filter := fmt.Sprintf("lastModifiedDateTime gt %s", cutoff)
+	filterOpts := &graph.DeltaPaginateOptions{
+		Monitor:              monitor,
+		OmitDeltaQueryParams: true,
+		InitialFilter:        filter,
+	}
+	if log != nil {
+		log("warning", fmt.Sprintf("Teams channel %s DeltaToken error; retrying with $filter", channelID))
+	}
+	items, deltaLink, err = client.PaginateDeltaOpts(ctx, deltaPath, "", "", 50, nil, filterOpts)
+	if err == nil {
+		return items, deltaLink, false, nil
+	}
+	if graph.IsTeamsDeltaTokenError(err) {
+		if log != nil {
+			log("warning", fmt.Sprintf("Teams channel %s soft-skipped after DeltaToken recovery failed", channelID))
+		}
+		return nil, "", true, nil
+	}
+	return nil, "", false, err
 }
