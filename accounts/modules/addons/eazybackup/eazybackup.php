@@ -8674,8 +8674,6 @@ function eazybackup_createorder($vars)
     // -----------------------------
     // 2) Build Category Arrays
     // -----------------------------
-    logActivity("eazybackup: Checking \$vars['clientsdetails'] => " . print_r($vars['clientsdetails'], true));
-
     // Determine the current client id
     $clientid = $_SESSION['uid'] ?? ($vars['clientsdetails']['id'] ?? null);
 
@@ -8721,7 +8719,6 @@ function eazybackup_createorder($vars)
 
     // Fetch All Products via localAPI
     $apiResponse = localAPI("GetProducts", []);
-    logActivity("eazybackup: localAPI GetProducts => " . json_encode($apiResponse));
     $allProducts = $apiResponse["products"]["product"] ?? [];
     // logActivity("eazybackup: Total products => " . count($allProducts));
 
