@@ -2,14 +2,24 @@
 
 **Purpose:** Single handoff document so the next agent knows where work stopped. Update this file at the **end of every session** (or after each meaningful milestone).
 
-**Last updated:** 2026-07-22  
+**Last updated:** 2026-07-23
 **Module version (ms365backup):** 1.52.9  
 **Cloudstorage (e3) version:** 2.2.0  
-**Worker version (ms365-backup-worker):** 0.4.2 (Kopia v0.23.1)
+**Worker version (ms365-backup-worker):** 0.4.4 (Kopia v0.23.1)
 
 ---
 
 ## Session log
+
+### 2026-07-23 — Transient Graph token refresh recovery (worker 0.4.4)
+
+- **Production evidence (batch `bbf034af-ffe9-473d-916a-ad4350ef892b`):** A mailbox child received Graph 401, then WHMCS `ms365_worker_graph_token.php` returned HTTP 500 because its outbound connection to `login.microsoftonline.com/.../oauth2/v2.0/token` failed with cURL error 7. Four following token requests returned 200; no invalid credential response, worker crash, resource pressure, Kopia failure, or causal Graph throttling. The first child automatically retried and completed in 765 ms.
+- **Root cause:** `api.Client.RefreshGraphToken` used the single-attempt `post` helper. One transient WHMCS-to-Microsoft OAuth transport failure was therefore wrapped as terminal `graph 401 after token refresh` instead of retrying the control-plane request.
+- **Fix:** Worker 0.4.4 calls existing context-aware `postWithRetry(..., 3)` for token refresh only. Permanent failures still surface after three bounded attempts. Regression `TestRefreshGraphTokenRetriesTransientServerError` reproduces HTTP 500 then success.
+- **Runtime proof:** Pre-fix focused run logged attempt 1 HTTP 500 and stopped; post-fix logged attempt 1 HTTP 500 followed by attempt 2 success. Focused test, `go test ./...`, and `go build ./...` PASS.
+- **Recovery:** A second pre-fix child with the same raw OAuth transport error was safely requeued with progress preserved. It completed on 0.4.4 with **5712/5712** items, `status=success`, queue `done`, and no error. The original recovered child remained success/done and was not restarted.
+- **Deploy:** Commit `f5090824`; dev build job **115** published release **126** (`sha256 d2e876f6ad54528b…`), synced to production release **50**. Auto-baseline rollout reached **5/8** nodes on 0.4.4; three busy 0.4.3 nodes remain protected from forced drain and will update when idle. Production health and fleet smoke pass; browse binary is synced at 0.4.4.
+- **Current batch state (07:47 UTC):** running with **1196 success, 6 running, 1492 queued, 0 failed/error** and fresh heartbeat/progress. Session `6f5f7c` token diagnostics remain pending final operator confirmation/cleanup.
 
 ### 2026-07-22 — Mail folder pagination recovery (worker 0.4.2)
 
