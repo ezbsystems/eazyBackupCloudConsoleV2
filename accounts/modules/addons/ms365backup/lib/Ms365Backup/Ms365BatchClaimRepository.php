@@ -433,6 +433,8 @@ final class Ms365BatchClaimRepository
      * children that remain `queued` while waiting on the in-process concurrency semaphore
      * are expected and must NOT trigger a hand-off (that caused 15s claim thrash with
      * attempts climbing into the thousands on production whale batches).
+     * Requeued children also wait while any sibling is still running; cancelling healthy
+     * siblings to refresh one retry payload turns transient Graph failures into batch churn.
      *
      * @return int batches handed off
      */
@@ -456,9 +458,28 @@ final class Ms365BatchClaimRepository
             ->where('q.scheduled_at', '<', $cutoff)
             ->whereNotNull('r.e3_batch_run_id')
             ->where('r.e3_batch_run_id', '!=', '')
+            ->whereNotExists(static function ($query): void {
+                $query->select(Capsule::raw(1))
+                    ->from('ms365_backup_runs as active')
+                    ->whereColumn('active.e3_batch_run_id', 'b.batch_run_id')
+                    ->where('active.status', 'running');
+            })
             ->distinct()
             ->pluck('r.e3_batch_run_id')
             ->all();
+
+        // #region agent log
+        $debugPayload = [
+            'sessionId' => '371d18',
+            'runId' => 'post-fix',
+            'hypothesisId' => 'H4',
+            'location' => 'Ms365BatchClaimRepository.php:reconcileStrandedBatchQueuedChildren',
+            'message' => 'eligible idle batch handoffs after active-sibling guard',
+            'data' => ['eligible_count' => count($batchRunIds), 'batch_ids' => array_values($batchRunIds)],
+            'timestamp' => (int) floor(microtime(true) * 1000),
+        ];
+        @file_put_contents('/var/www/eazybackup.ca/.cursor/debug-371d18.log', json_encode($debugPayload, JSON_UNESCAPED_SLASHES) . PHP_EOL, FILE_APPEND | LOCK_EX);
+        // #endregion
 
         return self::handOffRunningBatchClaims($batchRunIds, 'Stranded queued batch children');
     }

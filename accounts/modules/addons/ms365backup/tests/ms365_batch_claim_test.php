@@ -310,13 +310,30 @@ try {
         'last_heartbeat_at' => $now,
     ]);
     $handed = Ms365BatchClaimRepository::reconcileStrandedBatchQueuedChildren();
-    assert_true($handed >= 1, 'stranded queued children trigger batch hand-off');
+    assert_true($handed === 0, 'stranded queued child waits while active sibling is still progressing');
     $handoffStatus = (string) Capsule::table('ms365_batch_claims')
         ->where('batch_run_id', $handoffBatch)
         ->value('status');
-    assert_true($handoffStatus === 'queued', 'running batch claim handed off without mass child reset');
+    assert_true($handoffStatus === 'running', 'active owner keeps claim while sibling is progressing');
     $activeAfter = (string) Capsule::table('ms365_backup_runs')->where('id', $activeChild)->value('status');
-    assert_true($activeAfter === 'running', 'active child remains running after hand-off');
+    assert_true($activeAfter === 'running', 'active child remains running while retry waits');
+    Capsule::table('ms365_backup_runs')->where('id', $activeChild)->update([
+        'status' => 'success',
+        'phase' => 'complete',
+        'finished_at' => $now,
+        'updated_at' => $now,
+    ]);
+    Capsule::table('ms365_job_queue')->where('run_id', $activeChild)->update([
+        'status' => 'done',
+        'worker_node_id' => null,
+        'lease_expires_at' => null,
+    ]);
+    $handedAfterActive = Ms365BatchClaimRepository::reconcileStrandedBatchQueuedChildren();
+    assert_true($handedAfterActive >= 1, 'stranded queued child triggers hand-off after active siblings finish');
+    $handoffAfterActiveStatus = (string) Capsule::table('ms365_batch_claims')
+        ->where('batch_run_id', $handoffBatch)
+        ->value('status');
+    assert_true($handoffAfterActiveStatus === 'queued', 'idle batch claim hands off for retry payload refresh');
 
     // Claim-time semaphore waiters (scheduled_at <= claimed_at) must not thrash the claim.
     $semBatch = test_uuid('sem-wait-batch');
