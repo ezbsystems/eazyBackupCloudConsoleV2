@@ -5,11 +5,21 @@
 **Last updated:** 2026-07-23
 **Module version (ms365backup):** 1.52.9  
 **Cloudstorage (e3) version:** 2.2.0  
-**Worker version (ms365-backup-worker):** 0.4.5 (Kopia v0.23.1)
+**Worker version (ms365-backup-worker):** 0.4.6 (Kopia v0.23.1)
 
 ---
 
 ## Session log
+
+### 2026-07-23 — Teams channel DeltaToken recovery (worker 0.4.6)
+
+- **Production evidence:** Batch `bec0a14b-…` stranded on child `a028dd6e-…` (`team:9b9b9167-…`, eazyBackup Team) requeueing every ~3s with `teams: graph 400 Bad Request: Parameter 'DeltaToken' not supported for this request.` Queue `attempts` stayed `0/5` (not classified non-retryable); no stored delta for the team (fresh baseline failure).
+- **Root cause:** `SyncTeams` failed the entire team on the first channel delta error. PHP `isNonRetryableError()` did not match the DeltaToken signature. `stripDisallowedGraphQueryParams` used `url.Values.Encode()`, which could rewrite opaque `$skiptoken`/`$deltatoken` query keys.
+- **Fix (worker 0.4.6):** Per-channel recovery ladder in `paginateTeamsChannelDelta`: rebaseline on resume + DeltaToken 400, then one `$filter=lastModifiedDateTime gt <8mo UTC>` retry, then soft-skip with `channels_skipped` stat. Surgical URL param stripping preserves opaque tokens. `DeltaPaginateOptions.InitialFilter` for filter-on-baseline with `OmitDeltaQueryParams`.
+- **Fix (PHP):** `JobQueueRepository::isNonRetryableError()` matches `graph 400` + `deltatoken` / `parameter 'deltatoken' not supported` as terminal safety net.
+- **Tests:** Go integration tests for filter recovery, soft-skip, rebaseline-on-resume, opaque token preservation; PHP unit test for non-retryable classification. `go test ./...` PASS.
+- **Deploy:** Commit `b62fbe56`; dev build job **117** published release **128** (`sha256 78e31ded796e330e…`), synced to production release **52**. Rolling deploy job **23** completed **8/8** nodes on 0.4.6. Production WHMCS deployed via `deploy-production.sh`; browse binary synced at 0.4.6.
+- **Production verification:** Child `a028dd6e-…` reached `success` (2 items, 1 channel, delta stored) without retry storm. Batch `bec0a14b-…` now **43/43 success**; queue row `status=done`, `attempts=0`, empty `error_message`.
 
 ### 2026-07-23 — Retry handoff waits for active siblings
 
