@@ -5,11 +5,21 @@
 **Last updated:** 2026-07-23
 **Module version (ms365backup):** 1.52.9  
 **Cloudstorage (e3) version:** 2.2.0  
-**Worker version (ms365-backup-worker):** 0.4.4 (Kopia v0.23.1)
+**Worker version (ms365-backup-worker):** 0.4.5 (Kopia v0.23.1)
 
 ---
 
 ## Session log
+
+### 2026-07-23 — Batch drain cancellation ordering (worker 0.4.5)
+
+- **Production evidence:** During worker hand-off for batch `bbf034af-ffe9-473d-916a-ad4350ef892b`, the old owner released its lease while goroutines blocked on the child concurrency semaphore remained alive. After slots opened, those goroutines started queued children with an already-cancelled context and terminal delivery received HTTP 409 `Batch lease is not active for this node`. Batch claim ownership churn reached attempt **79**.
+- **Root cause:** `BatchRunner.Run` used unconditional `sem <- struct{}{}`. Pending goroutines did not observe batch cancellation while waiting, and cancellation was not rechecked after slot acquisition, reservation, or immediately before `RunSafe`.
+- **Fix:** Worker 0.4.5 acquires the semaphore with `select { case sem <- ...; case <-ctx.Done() }`, checks cancellation after slot acquisition and during reservation waits, and rejects an already-cancelled child context before registration/start. Active children retain existing checkpoint/cooperative-cancel behavior.
+- **Runtime proof:** Pre-fix regression logged a queued child acquiring a slot with `context_cancelled=true` and then entering `before-run`; post-fix logged `slot-cancelled`, no second `before-run`, and batch goroutine wait completion. `TestBatchRunnerCancelDoesNotStartQueuedChildren`, `go test ./...`, and `go build ./...` PASS.
+- **Deploy:** Commit `5e68a009`; dev build job **116** published release **127** (`sha256 627d2e655d761ba1…`), synced to production release **51**. Auto-baseline rollout reached **6/8** nodes on 0.4.5; two busy 0.4.3 nodes will update when idle. Browse binary is synced at 0.4.5; production health and fleet smoke pass.
+- **Production verification:** Batch moved to worker 9010 on 0.4.5 at attempt **79** and remained on the same owner for more than ten minutes with fresh heartbeat/progress; success count increased **1321 → 1323** with zero failed/error children. Historical completion-outbox 409 replays ended at 11:44:27 UTC; fleet journals contain no lease-conflict entries from 11:45 onward.
+- **Status:** Fix active in production. Session `6f5f7c` batch/token diagnostics remain pending final operator confirmation/cleanup.
 
 ### 2026-07-23 — Transient Graph token refresh recovery (worker 0.4.4)
 
