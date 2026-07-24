@@ -164,7 +164,9 @@ OneDrive workloads use the **heavy job** RAM/disk budget (`heavy_job_ram_budget_
 |-----------|---------|
 | Tenant congestion controller (`graph/tenant_controller.go`) | Single adaptive window per Entra tenant per worker: proportional shrink on 429, additive grow on success streak, slot-held Retry-After backpressure, jittered cooldown, idle decay |
 | PHP fleet budget (`GraphTenantBudgetService`) | Slow loop: multiplicative shrink on 429 deltas; additive +1 ceiling grow per 600s decay when not recently throttled |
-| `graph_sync` stall watchdog | Same `kopia.stall_seconds` as upload watchdog; 429 Retry-After backoff counts as activity |
+| `graph_sync` stall watchdog | Same `kopia.stall_seconds` as coarse backstop; 429 Retry-After backoff counts as activity |
+| `kopia_upload` stall watchdog | `kopia.upload_stall_seconds` (default **900**); both hash and upload bytes must be flat |
+| Graph content idle timeout | `graph.content_read_idle_seconds` (default **120**) aborts wedged `/content` body reads during Kopia upload; per-file Range retry (`content_read_retries`, default **3**) |
 | Per-tenant Graph budget ceiling | Batch payload `graph_tenant_budget` — full ceiling, not divided | Worker `setCeiling` clamps the in-process controller |
 | Adaptive budget floor (1.45.0+) | Under sustained `recent_429_count` (≥10 → floor 2, ≥20 → floor 1) so hammered tenants truly back off |
 | `throttle_waiting` progress flag (worker 0.3.13+) | Control plane refreshes `last_429_at` during parked Retry-After waits even when `no_progress` |

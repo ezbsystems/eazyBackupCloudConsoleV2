@@ -11,6 +11,8 @@ import (
 func NewTestClient(baseURL string, opts ClientOptions) *Client {
 	c := NewClient("test-token", "", opts)
 	c.graphBase = strings.TrimRight(baseURL, "/")
-	c.httpClient = &http.Client{Timeout: 30 * time.Second}
+	transport := c.httpClient.Transport
+	c.httpClient = &http.Client{Timeout: 30 * time.Second, Transport: transport}
+	c.streamClient = &http.Client{Timeout: 0, Transport: transport}
 	return c
 }

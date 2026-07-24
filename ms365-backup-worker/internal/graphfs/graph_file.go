@@ -2,8 +2,10 @@ package graphfs
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"time"
 
@@ -73,16 +75,28 @@ func (f *GraphFile) Open(ctx context.Context) (kopiafs.Reader, error) {
 	if size > 0 && f.size == 0 {
 		f.size = size
 	}
-	return &streamReader{ReadCloser: rc, size: f.size, entry: f, client: f.client, path: f.contentPath}, nil
+	return &streamReader{
+		ctx:        ctx,
+		ReadCloser: rc,
+		size:       f.size,
+		offset:     0,
+		entry:      f,
+		client:     f.client,
+		path:       f.contentPath,
+		maxRetries: f.client.ContentReadRetries(),
+	}, nil
 }
 
 type streamReader struct {
+	ctx        context.Context
 	io.ReadCloser
-	size   int64
-	offset int64
-	entry  kopiafs.Entry
-	client *graph.Client
-	path   string
+	size       int64
+	offset     int64
+	entry      kopiafs.Entry
+	client     *graph.Client
+	path       string
+	maxRetries int
+	attempts   int
 }
 
 func (r *streamReader) Close() error {
@@ -108,25 +122,54 @@ func (r *streamReader) Seek(offset int64, whence int) (int64, error) {
 		return abs, nil
 	}
 	_ = r.ReadCloser.Close()
-	rc, _, err := r.client.GetStreamRange(context.Background(), r.path, abs)
+	rc, _, err := r.client.GetStreamRange(r.ctx, r.path, abs)
 	if err != nil {
 		return 0, err
 	}
 	r.ReadCloser = rc
 	r.offset = abs
+	r.attempts = 0
 	return abs, nil
 }
 
 func (r *streamReader) Read(p []byte) (int, error) {
-	n, err := r.ReadCloser.Read(p)
-	if n > 0 {
-		r.offset += int64(n)
+	for {
+		n, err := r.ReadCloser.Read(p)
+		if n > 0 {
+			r.offset += int64(n)
+		}
+		if err == nil || !isRetriableContentReadError(err) {
+			return n, err
+		}
+		if r.attempts >= r.maxRetries {
+			return n, fmt.Errorf("graph content read failed after %d attempts at offset %d for %s: %w", r.attempts, r.offset, r.path, err)
+		}
+		r.attempts++
+		_ = r.ReadCloser.Close()
+		rc, _, reopenErr := r.client.GetStreamRange(r.ctx, r.path, r.offset)
+		if reopenErr != nil {
+			return n, fmt.Errorf("graph content read retry %d/%d at offset %d for %s: %w", r.attempts, r.maxRetries, r.offset, r.path, reopenErr)
+		}
+		r.ReadCloser = rc
+		if n > 0 {
+			return n, nil
+		}
 	}
-	return n, err
 }
 
 func (r *streamReader) Entry() (kopiafs.Entry, error) {
 	return r.entry, nil
+}
+
+func isRetriableContentReadError(err error) bool {
+	if err == nil || errors.Is(err, io.EOF) {
+		return false
+	}
+	if graph.IsContentReadIdleTimeout(err) {
+		return true
+	}
+	var netErr net.Error
+	return errors.As(err, &netErr) && netErr.Timeout()
 }
 
 func parseGraphTime(v any) time.Time {

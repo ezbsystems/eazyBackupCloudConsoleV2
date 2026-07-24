@@ -145,7 +145,8 @@ func TestClientRetries429PastMaxRetries(t *testing.T) {
 	c := &Client{
 		token:      "test",
 		graphBase:  srv.URL,
-		httpClient: srv.Client(),
+		httpClient:   srv.Client(),
+		streamClient: srv.Client(),
 		maxRetries: 2,
 		retryDelay: 50 * time.Millisecond,
 		sem:        make(chan struct{}, 4),
@@ -174,7 +175,8 @@ func TestClientRequestsTotalIncrements(t *testing.T) {
 	c := &Client{
 		token:      "test",
 		graphBase:  srv.URL,
-		httpClient: srv.Client(),
+		httpClient:   srv.Client(),
+		streamClient: srv.Client(),
 		maxRetries: 1,
 		retryDelay: 50 * time.Millisecond,
 		sem:        make(chan struct{}, 2),
@@ -213,7 +215,8 @@ func TestClientSetsUserAgent(t *testing.T) {
 	c := &Client{
 		token:      "test",
 		graphBase:  srv.URL,
-		httpClient: srv.Client(),
+		httpClient:   srv.Client(),
+		streamClient: srv.Client(),
 		maxRetries: 1,
 		retryDelay: 50 * time.Millisecond,
 		sem:        make(chan struct{}, 2),
@@ -267,7 +270,8 @@ func TestClientRetries429WithRetryAfter(t *testing.T) {
 	c := &Client{
 		token:      "test",
 		graphBase:  srv.URL,
-		httpClient: srv.Client(),
+		httpClient:   srv.Client(),
+		streamClient: srv.Client(),
 		maxRetries: 3,
 		retryDelay: 100 * time.Millisecond,
 		sem:        make(chan struct{}, 4),
@@ -296,7 +300,8 @@ func TestGetStreamReturnsBodyWithoutBuffering(t *testing.T) {
 	c := &Client{
 		token:      "test",
 		graphBase:  srv.URL,
-		httpClient: srv.Client(),
+		httpClient:   srv.Client(),
+		streamClient: srv.Client(),
 		maxRetries: 1,
 		retryDelay: 50 * time.Millisecond,
 		sem:        make(chan struct{}, 2),

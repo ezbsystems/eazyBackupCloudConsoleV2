@@ -83,7 +83,11 @@ Workers call `ms365_worker_graph_token.php` on Graph **401** and proactively eve
 
 | Knob | Default | Purpose |
 |------|---------|---------|
-| `kopia.stall_seconds` | `2700` (45m); `0` = disabled | Worker fails retryably when hashing progress stops during `kopia_upload` |
+| `kopia.stall_seconds` | `2700` (45m); `0` = disabled | Worker fails retryably when hashing **and** upload progress both stop during `graph_sync` (and coarse upload backstop when `upload_stall_seconds` unset/0) |
+| `kopia.upload_stall_seconds` | `900` (15m); `0` = use `stall_seconds` | Tighter upload-phase stall watchdog during `kopia_upload` only |
+| `graph.content_read_idle_seconds` | `120`; `0` = disable | Abort wedged Graph `/content` body reads with no bytes for N seconds |
+| `graph.content_read_retries` | `3` | Per-file Range resume attempts after idle/transient read errors during upload |
+| `graph.stream_response_header_seconds` | `120` | Header timeout for stream client (body has no absolute deadline) |
 | `kopia.stall_check_interval_seconds` | `60` | Stall watchdog poll interval |
 | `kopia.stall_grace_seconds` | `300` | Ignore stall checks during initial repo open |
 

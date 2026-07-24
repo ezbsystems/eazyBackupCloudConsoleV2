@@ -192,12 +192,7 @@ func (r *Runner) Run(ctx context.Context, job *api.RunJob, onAbort context.Cance
 		}
 	}
 
-	gc = graph.NewClient(job.GraphToken, job.GraphRegion, graph.ClientOptions{
-		MaxRetries:       r.cfg.Graph.MaxRetries,
-		RetryBaseDelayMs: r.cfg.Graph.RetryBaseDelayMs,
-		MaxConcurrency:   effectiveGraphParallel(r.cfg, job),
-		AdaptiveLimit:    r.cfg.Graph.AdaptiveEnabled(),
-	})
+	gc = graph.NewClient(job.GraphToken, job.GraphRegion, graphClientOptions(r.cfg, effectiveGraphParallel(r.cfg, job), r.cfg.Graph.AdaptiveEnabled()))
 	if batchMode {
 		gc = brc.sharedGC
 	} else {
@@ -420,7 +415,7 @@ func (r *Runner) Run(ctx context.Context, job *api.RunJob, onAbort context.Cance
 	defer cancelSnap()
 	var stalled atomic.Bool
 	if r.cfg.Kopia.StallSeconds > 0 {
-		stallSeconds := r.cfg.Kopia.StallSeconds
+		stallSeconds := r.cfg.Kopia.ResolvedUploadStallSeconds(r.cfg.Kopia.StallSeconds)
 		runDir := filepath.Join(r.cfg.Worker.RunDir, job.RunID)
 		_ = os.MkdirAll(runDir, 0o755)
 		stopWatch := kopia.StartStallWatch(snapCtx, cancelSnap, progressCounter, kopia.StallWatchConfig{

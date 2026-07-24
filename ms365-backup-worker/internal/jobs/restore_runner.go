@@ -73,12 +73,7 @@ func (r *RestoreRunner) Run(ctx context.Context, job *api.RunJob, onAbort contex
 		DestinationMode: strings.TrimSpace(selection.DestinationMode),
 	}
 
-	gc := graph.NewClient(job.GraphToken, job.GraphRegion, graph.ClientOptions{
-		MaxRetries:       r.cfg.Graph.MaxRetries,
-		RetryBaseDelayMs: r.cfg.Graph.RetryBaseDelayMs,
-		MaxConcurrency:   effectiveGraphParallel(r.cfg, job),
-		AdaptiveLimit:    r.cfg.Graph.AdaptiveEnabled(),
-	})
+	gc := graph.NewClient(job.GraphToken, job.GraphRegion, graphClientOptions(r.cfg, effectiveGraphParallel(r.cfg, job), r.cfg.Graph.AdaptiveEnabled()))
 	stopTokenRefresh := bindGraphTokenRefresh(ctx, r.cfg, r.client, gc, job.RunID)
 	defer stopTokenRefresh()
 	if job.AzureTenantID != "" {

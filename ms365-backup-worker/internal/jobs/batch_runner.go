@@ -248,12 +248,7 @@ func (br *BatchRunner) Run(ctx context.Context, batch *api.BatchJob, onAbort con
 		}
 	}()
 
-	gc := graph.NewClient(batch.GraphToken, batch.GraphRegion, graph.ClientOptions{
-		MaxRetries:       br.cfg.Graph.MaxRetries,
-		RetryBaseDelayMs: br.cfg.Graph.RetryBaseDelayMs,
-		MaxConcurrency:   br.effectiveGraphParallel(batch),
-		AdaptiveLimit:    br.cfg.Graph.AdaptiveEnabled(),
-	})
+	gc := graph.NewClient(batch.GraphToken, batch.GraphRegion, graphClientOptions(br.cfg, br.effectiveGraphParallel(batch), br.cfg.Graph.AdaptiveEnabled()))
 	if batch.AzureTenantID != "" {
 		gc.SetAzureTenantID(batch.AzureTenantID)
 		if batch.GraphTenantBudget > 0 {

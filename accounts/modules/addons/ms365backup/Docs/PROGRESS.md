@@ -5,11 +5,20 @@
 **Last updated:** 2026-07-24
 **Module version (ms365backup):** 1.52.10  
 **Cloudstorage (e3) version:** 2.2.0  
-**Worker version (ms365-backup-worker):** 0.4.8 (Kopia v0.23.1)
+**Worker version (ms365-backup-worker):** 0.4.11 (Kopia v0.23.1)
 
 ---
 
 ## Session log
+
+### 2026-07-24 — Graph content idle timeout + upload stall (worker 0.4.11)
+
+- **Problem:** Kopia upload could wedge for 14+ minutes in `uploadFileData` waiting on Graph `/content` body reads while heartbeats still reported `kopia_upload` with flat `bytes_hashed` / `bytes_uploaded` (production worker 9013, session `062be2`). Global `stall_seconds=2700` had not fired.
+- **Fix (worker 0.4.11):** Dedicated stream `http.Client` (`Timeout: 0`, `ResponseHeaderTimeout: 120s`) plus per-read idle wrapper (default **120s** without bytes). `graphfs.streamReader` retries wedged files via HTTP Range resume (default **3** attempts) then fails the child clearly. Upload phase uses `upload_stall_seconds` default **900** while graph_sync keeps `stall_seconds=2700`. `Seek` now uses the Open context instead of `context.Background()`.
+- **Config:** `graph.content_read_idle_seconds`, `content_read_retries`, `stream_response_header_seconds`; `kopia.upload_stall_seconds`.
+- **Spec:** `Docs/specs/2026-07-24-graph-content-idle-timeout-design.md`.
+- **Verification:** `go test ./...` and `go build ./...` PASS.
+- **Status:** Implemented on dev; pending fleet build/deploy to production.
 
 ### 2026-07-24 — False workload recovery + calendar 504 fallback (PHP 1.52.10, worker 0.4.8)
 

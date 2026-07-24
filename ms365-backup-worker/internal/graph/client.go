@@ -38,30 +38,36 @@ const retryAfterOtherCap = 120 * time.Second
 const MailMessageSelect = "id,subject,receivedDateTime,sentDateTime,from,toRecipients,ccRecipients,bccRecipients,body,bodyPreview,parentFolderId,conversationId,internetMessageId,hasAttachments,importance,isRead,isDraft,flag,categories"
 
 type Client struct {
-	tokenMu         sync.RWMutex
-	token           string
-	refresh         TokenRefreshFunc
-	graphBase       string
-	httpClient      *http.Client
-	maxRetries      int
-	retryDelay      time.Duration
-	sem             chan struct{}
-	throttle429     int64
-	adaptiveEnabled bool
-	maxConcurrency  int
-	azureTenantID   string
-	lastThrottleAt  atomic.Int64
-	requestsTotal   int64
+	tokenMu            sync.RWMutex
+	token              string
+	refresh            TokenRefreshFunc
+	graphBase          string
+	httpClient         *http.Client
+	streamClient       *http.Client
+	maxRetries         int
+	retryDelay         time.Duration
+	sem                chan struct{}
+	throttle429        int64
+	adaptiveEnabled    bool
+	maxConcurrency     int
+	azureTenantID      string
+	lastThrottleAt     atomic.Int64
+	requestsTotal      int64
+	contentReadIdle    time.Duration
+	contentReadRetries int
 }
 
 // TokenRefreshFunc fetches a new Graph bearer token (e.g. from WHMCS mid-run refresh API).
 type TokenRefreshFunc func(ctx context.Context) (string, error)
 
 type ClientOptions struct {
-	MaxRetries       int
-	RetryBaseDelayMs int
-	MaxConcurrency   int
-	AdaptiveLimit    bool
+	MaxRetries                  int
+	RetryBaseDelayMs            int
+	MaxConcurrency              int
+	AdaptiveLimit               bool
+	ContentReadIdleSeconds      int // <0 = default 120; 0 = disable idle wrapper
+	ContentReadRetries          int // per-file Range resume attempts during upload
+	StreamResponseHeaderSeconds int
 }
 
 func NewClient(token, region string, opts ClientOptions) *Client {
@@ -86,23 +92,42 @@ func NewClient(token, region string, opts ClientOptions) *Client {
 	if concurrency <= 0 {
 		concurrency = 16
 	}
+	headerSec := opts.StreamResponseHeaderSeconds
+	if headerSec <= 0 {
+		headerSec = 120
+	}
+	idleSec := opts.ContentReadIdleSeconds
+	switch {
+	case idleSec < 0:
+		idleSec = 120
+	case idleSec == 0:
+		// explicit disable
+	}
+	retries := opts.ContentReadRetries
+	if retries <= 0 {
+		retries = 3
+	}
 
 	transport := &http.Transport{
-		MaxIdleConns:        concurrency * 2,
-		MaxIdleConnsPerHost: concurrency,
-		MaxConnsPerHost:     concurrency,
-		IdleConnTimeout:     90 * time.Second,
-		ForceAttemptHTTP2:   true,
+		MaxIdleConns:          concurrency * 2,
+		MaxIdleConnsPerHost:   concurrency,
+		MaxConnsPerHost:       concurrency,
+		IdleConnTimeout:       90 * time.Second,
+		ResponseHeaderTimeout: time.Duration(headerSec) * time.Second,
+		ForceAttemptHTTP2:     true,
 	}
 
 	c := &Client{
-		token:          token,
-		graphBase:      strings.TrimRight(base, "/") + "/v1.0",
-		httpClient:     &http.Client{Timeout: 120 * time.Second, Transport: transport},
-		maxRetries:     maxRetries,
-		retryDelay:     time.Duration(retryDelayMs) * time.Millisecond,
-		sem:            make(chan struct{}, concurrency),
-		maxConcurrency: concurrency,
+		token:              token,
+		graphBase:          strings.TrimRight(base, "/") + "/v1.0",
+		httpClient:         &http.Client{Timeout: 120 * time.Second, Transport: transport},
+		streamClient:       &http.Client{Timeout: 0, Transport: transport},
+		maxRetries:         maxRetries,
+		retryDelay:         time.Duration(retryDelayMs) * time.Millisecond,
+		sem:                make(chan struct{}, concurrency),
+		maxConcurrency:     concurrency,
+		contentReadIdle:    time.Duration(idleSec) * time.Second,
+		contentReadRetries: retries,
 	}
 	if opts.AdaptiveLimit {
 		c.adaptiveEnabled = true
@@ -116,6 +141,16 @@ func userAgent() string {
 
 func (c *Client) ThrottleHits() int64 {
 	return atomic.LoadInt64(&c.throttle429)
+}
+
+// ContentReadIdle returns the per-read idle timeout for Graph content streams.
+func (c *Client) ContentReadIdle() time.Duration {
+	return c.contentReadIdle
+}
+
+// ContentReadRetries returns per-open file retry attempts after idle/transient errors.
+func (c *Client) ContentReadRetries() int {
+	return c.contentReadRetries
 }
 
 // RequestsTotal returns the number of completed Graph HTTP round-trips.
@@ -1010,7 +1045,7 @@ func (c *Client) getStream(ctx context.Context, path string, offset int64) (io.R
 			reqClone.Header.Set("Range", fmt.Sprintf("bytes=%d-", offset))
 		}
 
-		resp, err := c.httpClient.Do(reqClone)
+		resp, err := c.streamClient.Do(reqClone)
 		if err != nil {
 			lastErr = err
 			if sleepErr := c.sleepRetry(ctx, parseRetryAfter("", attempt, c.retryDelay)); sleepErr != nil {
@@ -1057,7 +1092,7 @@ func (c *Client) getStream(ctx context.Context, path string, offset int64) (io.R
 			if offset > 0 && reqClone.Header.Get("Range") == "" {
 				reqClone.Header.Set("Range", fmt.Sprintf("bytes=%d-", offset))
 			}
-			resp, err = c.httpClient.Do(reqClone)
+			resp, err = c.streamClient.Do(reqClone)
 			if err != nil {
 				// Transport still held here; the shared post-loop error handler
 				// releases it exactly once via sleepRetry. Releasing here too
@@ -1133,8 +1168,12 @@ func (c *Client) getStream(ctx context.Context, path string, offset int64) (io.R
 				workloadHeld = false
 			}
 		}
+		body := io.ReadCloser(resp.Body)
+		if c.contentReadIdle > 0 {
+			body = newIdleTimeoutReader(body, c.contentReadIdle)
+		}
 		return &streamBody{
-			ReadCloser: resp.Body,
+			ReadCloser: body,
 			release:    releaseHeld,
 			onClose:    c.recordSuccess,
 		}, size, nil

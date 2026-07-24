@@ -99,6 +99,7 @@ type KopiaConfig struct {
 	IndexMaintenanceThreshold int `yaml:"index_maintenance_threshold"`
 	CheckpointIntervalMinutes int `yaml:"checkpoint_interval_minutes"`
 	StallSeconds              int    `yaml:"stall_seconds"`
+	UploadStallSeconds        *int   `yaml:"upload_stall_seconds"` // nil/900 default; 0 = use stall_seconds
 	StallCheckIntervalSeconds int    `yaml:"stall_check_interval_seconds"`
 	StallGraceSeconds         int    `yaml:"stall_grace_seconds"`
 }
@@ -112,7 +113,10 @@ type GraphConfig struct {
 	// ThrottleStallCeilingSeconds cancels graph_sync when items/bytes are flat for
 	// this long even if Graph 429 activity continues (perpetual throttle wedge).
 	// 0 = disabled (default); rely on MaxRunSeconds as the ultimate ceiling.
-	ThrottleStallCeilingSeconds int `yaml:"throttle_stall_ceiling_seconds"`
+	ThrottleStallCeilingSeconds int  `yaml:"throttle_stall_ceiling_seconds"`
+	ContentReadIdleSeconds        *int `yaml:"content_read_idle_seconds"` // nil/120 default; 0 = disable idle wrapper
+	ContentReadRetries            int  `yaml:"content_read_retries"`
+	StreamResponseHeaderSeconds   int  `yaml:"stream_response_header_seconds"`
 }
 
 func (g GraphConfig) AdaptiveEnabled() bool {
@@ -268,6 +272,12 @@ func (c *Config) applyDefaults() {
 	if c.Graph.RetryBaseDelayMs <= 0 {
 		c.Graph.RetryBaseDelayMs = 2000
 	}
+	if c.Graph.ContentReadRetries <= 0 {
+		c.Graph.ContentReadRetries = 3
+	}
+	if c.Graph.StreamResponseHeaderSeconds <= 0 {
+		c.Graph.StreamResponseHeaderSeconds = 120
+	}
 	if c.Graph.GlobalMaxConcurrency <= 0 {
 		c.Graph.GlobalMaxConcurrency = 24
 	}
@@ -344,6 +354,41 @@ func (c *Config) MaxRunDuration() time.Duration {
 		return 0
 	}
 	return time.Duration(c.Worker.MaxRunSeconds) * time.Second
+}
+
+// ResolvedContentReadIdleSeconds returns the per-read idle timeout for Graph
+// content streams. nil config uses 120; explicit 0 disables the idle wrapper.
+func (g GraphConfig) ResolvedContentReadIdleSeconds() int {
+	if g.ContentReadIdleSeconds == nil {
+		return 120
+	}
+	return *g.ContentReadIdleSeconds
+}
+
+func (g GraphConfig) ResolvedContentReadRetries() int {
+	if g.ContentReadRetries <= 0 {
+		return 3
+	}
+	return g.ContentReadRetries
+}
+
+func (g GraphConfig) ResolvedStreamResponseHeaderSeconds() int {
+	if g.StreamResponseHeaderSeconds <= 0 {
+		return 120
+	}
+	return g.StreamResponseHeaderSeconds
+}
+
+// ResolvedUploadStallSeconds returns the upload-phase stall watchdog duration.
+// nil config uses 900; explicit 0 falls back to stallSeconds.
+func (k KopiaConfig) ResolvedUploadStallSeconds(stallSeconds int) int {
+	if k.UploadStallSeconds == nil {
+		return 900
+	}
+	if *k.UploadStallSeconds <= 0 {
+		return stallSeconds
+	}
+	return *k.UploadStallSeconds
 }
 
 func (c *KopiaConfig) CheckpointInterval() time.Duration {

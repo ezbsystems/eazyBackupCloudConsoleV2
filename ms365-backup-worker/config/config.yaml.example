@@ -48,6 +48,8 @@ kopia:
   metadata_cache_limit_mib: 256
   checkpoint_interval_minutes: 15
   stall_seconds: 2700
+  # Upload-phase stall watchdog (hash+upload bytes flat). 0 = use stall_seconds.
+  upload_stall_seconds: 900
   stall_check_interval_seconds: 60
   stall_grace_seconds: 300
 
@@ -56,6 +58,10 @@ graph:
   retry_base_delay_ms: 2000
   adaptive_concurrency: true
   use_batch_fallback: true
+  # Per-read idle timeout for Graph /content streams during Kopia upload (0 = disable).
+  content_read_idle_seconds: 120
+  content_read_retries: 3
+  stream_response_header_seconds: 120
   # Cancel graph_sync when items/bytes are flat this long despite ongoing 429 throttling.
   # 0 = disabled (default). Only set when you want to cancel runs stuck in perpetual 429 with no item progress.
   throttle_stall_ceiling_seconds: 0
