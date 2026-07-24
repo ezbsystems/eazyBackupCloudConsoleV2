@@ -4,6 +4,7 @@ require_once __DIR__ . '/../../../../init.php';
 require_once __DIR__ . '/../lib/Client/MspController.php';
 require_once __DIR__ . '/../lib/Client/E3BackupUserScope.php';
 require_once __DIR__ . '/../lib/Client/TimezoneHelper.php';
+require_once __DIR__ . '/../lib/Client/E3BackupJobListHelper.php';
 require_once __DIR__ . '/../lib/Ms365BackupBootstrap.php';
 
 use Illuminate\Database\Capsule\Manager as Capsule;
@@ -343,7 +344,7 @@ try {
                 . ' FROM ('
                 . '   SELECT job_id, run_id, status, started_at, finished_at, bytes_transferred'
                 . $extraCols
-                . ',     ROW_NUMBER() OVER (PARTITION BY job_id ORDER BY started_at DESC, run_id DESC) AS rn'
+                . ',     ROW_NUMBER() OVER (PARTITION BY job_id ORDER BY ' . e3backup_last_run_row_number_order_clause(true) . ') AS rn'
                 . '   FROM s3_cloudbackup_runs'
                 . '   WHERE job_id IN (' . implode(',', $binExprs) . ')'
                 . ' ) ranked'
@@ -377,7 +378,7 @@ try {
             $sql = 'SELECT job_id, id AS run_id, status, started_at, finished_at, bytes_transferred'
                 . ' FROM ('
                 . '   SELECT job_id, id, status, started_at, finished_at, bytes_transferred,'
-                . '     ROW_NUMBER() OVER (PARTITION BY job_id ORDER BY started_at DESC, id DESC) AS rn'
+                . '     ROW_NUMBER() OVER (PARTITION BY job_id ORDER BY ' . e3backup_last_run_row_number_order_clause(false) . ') AS rn'
                 . '   FROM s3_cloudbackup_runs'
                 . '   WHERE job_id IN (' . $placeholders . ')'
                 . ' ) ranked'

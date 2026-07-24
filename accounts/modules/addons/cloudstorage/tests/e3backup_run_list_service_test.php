@@ -56,4 +56,22 @@ assertEq(
     'c2c display name label'
 );
 
+$timeCutoffSql = E3BackupRunListService::buildTimeCutoffWhereClause('COALESCE(r.started_at, r.created_at)');
+assertEq(
+    true,
+    str_contains($timeCutoffSql, "r.finished_at IS NULL AND r.status IN ('queued','starting','running')"),
+    'time cutoff includes unfinished active runs'
+);
+assertEq(
+    true,
+    str_contains($timeCutoffSql, 'COALESCE(r.started_at, r.created_at) >= ?'),
+    'time cutoff still applies window to completed runs'
+);
+$startedOnlySql = E3BackupRunListService::buildTimeCutoffWhereClause('r.started_at');
+assertEq(
+    true,
+    str_contains($startedOnlySql, 'r.started_at >= ?'),
+    'time cutoff uses effectiveStarted expression'
+);
+
 echo "e3backup_run_list_service_test: OK\n";

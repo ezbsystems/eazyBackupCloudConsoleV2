@@ -4,6 +4,7 @@ require_once __DIR__ . '/../../../../init.php';
 require_once __DIR__ . '/../lib/Client/MspController.php';
 require_once __DIR__ . '/../lib/Client/Ms365VaultLifecycleService.php';
 require_once __DIR__ . '/../lib/Client/E3BackupUserScope.php';
+require_once __DIR__ . '/../lib/Client/E3BackupAccess.php';
 
 if (!defined('WHMCS')) {
     die('This file cannot be accessed directly');
@@ -11,8 +12,7 @@ if (!defined('WHMCS')) {
 
 use Symfony\Component\HttpFoundation\JsonResponse;
 use WHMCS\ClientArea;
-use WHMCS\Module\Addon\CloudStorage\Admin\ProductConfig;
-use WHMCS\Module\Addon\CloudStorage\Client\DBController;
+use WHMCS\Module\Addon\CloudStorage\Client\E3BackupAccess;
 use WHMCS\Module\Addon\CloudStorage\Client\MspController;
 use WHMCS\Module\Addon\CloudStorage\Client\Ms365VaultLifecycleService;
 
@@ -22,10 +22,8 @@ if (!$ca->isLoggedIn()) {
     exit;
 }
 
-$packageId = ProductConfig::e3CloudBackupPid();
 $clientId = (int) $ca->getUserID();
-$product = DBController::getProduct($clientId, $packageId);
-if ($product === null || empty($product->username)) {
+if (!E3BackupAccess::clientHasE3BackupAccess($clientId)) {
     (new JsonResponse(['status' => 'fail', 'message' => 'Product not found.'], 200))->send();
     exit;
 }

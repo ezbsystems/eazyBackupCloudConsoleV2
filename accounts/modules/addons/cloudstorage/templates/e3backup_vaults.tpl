@@ -39,7 +39,14 @@
         </div>
     </template>
 
-    <template x-if="!loading">
+    <template x-if="!loading && loadError">
+        <div class="eb-alert eb-alert--danger">
+            <div class="eb-alert-title">Could not load vaults</div>
+            <p x-text="loadError"></p>
+        </div>
+    </template>
+
+    <template x-if="!loading && !loadError">
         <div>
             <div class="eb-segmented mb-4" role="tablist" aria-label="Vault views">
                 <button type="button"
@@ -117,6 +124,7 @@ window.__ebE3VaultsTenants = {$tenants|@json_encode nofilter};
 function e3VaultsApp() {
     return {
         loading: true,
+        loadError: null,
         vaultsActive: [],
         vaultsRecycle: [],
         legacyVaultsList: [],
@@ -175,6 +183,7 @@ function e3VaultsApp() {
 
         reload() {
             this.loading = true;
+            this.loadError = null;
             var params = new URLSearchParams();
             if (this.tenantFilter) params.set('tenant_id', this.tenantFilter);
             fetch('modules/addons/cloudstorage/api/e3backup_vault_list.php?' + params.toString(), { credentials: 'same-origin' })
@@ -185,16 +194,19 @@ function e3VaultsApp() {
                         this.vaultsRecycle = data.vaults_recycle || [];
                         this.legacyVaultsList = data.legacy_vaults || [];
                         this.graceDays = data.grace_days || 30;
+                        this.loadError = null;
                     } else {
                         this.vaultsActive = [];
                         this.vaultsRecycle = [];
                         this.legacyVaultsList = [];
+                        this.loadError = (data && data.message) ? String(data.message) : 'Failed to load vaults.';
                     }
                 })
                 .catch(() => {
                     this.vaultsActive = [];
                     this.vaultsRecycle = [];
                     this.legacyVaultsList = [];
+                    this.loadError = 'Failed to load vaults.';
                 })
                 .finally(() => { this.loading = false; });
         },

@@ -159,7 +159,7 @@ final class E3BackupRunListService
     };
 
     $applyTimeCutoff = function ($query) use ($cutoff, $effectiveStartedExpr) {
-      $query->whereRaw($effectiveStartedExpr . ' >= ?', [$cutoff]);
+      $query->whereRaw(self::buildTimeCutoffWhereClause($effectiveStartedExpr), [$cutoff]);
     };
 
     $buildBase = function () use (
@@ -353,6 +353,15 @@ final class E3BackupRunListService
       'rows' => $out,
       'facets' => ['statusCounts' => $statusCounts],
     ];
+  }
+
+  /**
+   * SQL fragment: unfinished active runs bypass the time window; completed runs use effective start.
+   */
+  public static function buildTimeCutoffWhereClause(string $effectiveStartedExpr): string
+  {
+    return '(r.finished_at IS NULL AND r.status IN (\'queued\',\'starting\',\'running\'))'
+      . ' OR (' . $effectiveStartedExpr . ' >= ?)';
   }
 
   public static function categorizeWorkload(string $sourceType, string $engine, string $agentUuid): string
