@@ -160,8 +160,10 @@ func (s *calendarScanner) run(ctx context.Context) (*calendarScanResult, error) 
 	res.events = s.totalStored
 	res.state.LastSuccessfulTier = 3
 	if s.skippedWedgePartitions > 0 {
-		res.state.Complete = false
-		res.state.ScanMode = "partition_partial"
+		// Terminal-hour Graph duplicate-page defects are skipped after year→month→day→hour
+		// subdivision. Treat as complete-with-gaps so the user workload can finish.
+		res.state.Complete = true
+		res.state.ScanMode = "partition_gaps"
 		s.logf("warning", "Calendar tier 3 finished with %d wedged partition(s) skipped (Graph duplicate-page defect) calendar=%s",
 			s.skippedWedgePartitions, truncateID(s.calendarID))
 	} else {
@@ -243,10 +245,14 @@ func (s *calendarScanner) scanPartitionWindow(ctx context.Context, r timeRange) 
 		Headers:     CalendarImmutableHeaders(),
 		TrackDupIDs: true,
 	})
+	// Strict duplicate-page errors still return prior pages in `events`; salvage them
+	// before propagating so terminal-hour skips do not discard already-fetched items.
+	if len(events) > 0 {
+		s.storeEvents(events)
+	}
 	if err != nil {
 		return err
 	}
-	s.storeEvents(events)
 	if !outcome.CompletedNaturally {
 		return &graph.GraphPaginationError{Message: "partition scan did not complete naturally", Context: monitor.Context}
 	}

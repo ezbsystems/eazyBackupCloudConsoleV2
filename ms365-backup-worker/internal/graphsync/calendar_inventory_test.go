@@ -51,6 +51,68 @@ func TestCalendarPartialPartitionResultIsIncomplete(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("complete partition scan must remain valid: %v", err)
 	}
+	if err := calendarScanCompletenessError(&calendarScanResult{
+		state: CalendarInventoryState{Complete: true, ScanMode: "partition_gaps"},
+	}); err != nil {
+		t.Fatalf("terminal Graph hour gaps after full subdivision must remain valid: %v", err)
+	}
+}
+
+func TestScanPartitionsStoresPartialEventsBeforeTerminalHourSkip(t *testing.T) {
+	eventID := "evt-hour-partial-1"
+	var page int
+	var srv *httptest.Server
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.URL.Path, "/events") {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		page++
+		if page == 1 {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"value":           []map[string]any{{"id": eventID, "type": "singleInstance", "lastModifiedDateTime": "2026-03-13T21:30:00Z"}},
+				"@odata.nextLink": srv.URL + r.URL.Path + "?$skiptoken=page2",
+			})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"value":           []map[string]any{{"id": eventID, "type": "singleInstance"}},
+			"@odata.nextLink": srv.URL + r.URL.Path + "?$skiptoken=page3",
+		})
+	}))
+	defer srv.Close()
+
+	client := graph.NewTestClient(srv.URL, graph.ClientOptions{MaxRetries: 0, MaxConcurrency: 2})
+	staging := graphfs.NewOverlayBuilder()
+	scanner := newCalendarScanner(client, CalendarSyncOptions{
+		UserID:        "user-1",
+		AzureTenantID: "tenant-1",
+		Staging:       staging,
+	}, "cal-1", CalendarInventoryState{})
+
+	start := time.Date(2026, 3, 13, 21, 0, 0, 0, time.UTC)
+	err := scanner.scanPartitions(context.Background(), []timeRange{{Start: start, End: start.Add(time.Hour)}})
+	if err != nil {
+		t.Fatalf("scanPartitions: %v", err)
+	}
+	if scanner.skippedWedgePartitions != 1 {
+		t.Fatalf("skippedWedgePartitions = %d, want 1", scanner.skippedWedgePartitions)
+	}
+	if scanner.totalStored != 1 {
+		t.Fatalf("totalStored = %d, want 1 salvaged event before terminal hour skip", scanner.totalStored)
+	}
+}
+
+func TestTerminalHourGapsMarkPartitionGapsComplete(t *testing.T) {
+	result := &calendarScanResult{
+		state: CalendarInventoryState{},
+	}
+	result.state.Complete = true
+	result.state.ScanMode = "partition_gaps"
+	if err := calendarScanCompletenessError(result); err != nil {
+		t.Fatalf("partition_gaps must pass completeness: %v", err)
+	}
 }
 
 func TestCalendarTier2FallsBackAfter504(t *testing.T) {

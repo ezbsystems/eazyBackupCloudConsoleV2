@@ -54,15 +54,16 @@ type MailSyncResult struct {
 }
 
 type MailStats struct {
-	Folders       int
-	Messages      int
-	Created       int
-	Updated       int
-	Removed       int
-	FoldersDelta  int
-	FoldersFull   int
-	BatchFallback int
-	Graph429Hits  int64
+	Folders             int
+	Messages            int
+	Created             int
+	Updated             int
+	Removed             int
+	FoldersDelta        int
+	FoldersFull         int
+	FoldersQuotaSkipped int
+	BatchFallback       int
+	Graph429Hits        int64
 }
 
 var mailFolderPageSizes = []string{"100", "50", "25"}
@@ -188,6 +189,15 @@ func SyncMail(ctx context.Context, client *graph.Client, opts MailSyncOptions) (
 				<-quotaRetrySlot
 			}
 			if err != nil {
+				if graph.IsQuotaExceeded(err) {
+					if opts.Log != nil {
+						opts.Log("warning", fmt.Sprintf("Mail folder quota persists after page-size 25 retry; skipping folder=%s", folderName))
+					}
+					mu.Lock()
+					stats.FoldersQuotaSkipped++
+					mu.Unlock()
+					return nil
+				}
 				return fmt.Errorf("folder %s: %w", folderName, err)
 			}
 			messagesEnumerated.Add(int32(len(items)))

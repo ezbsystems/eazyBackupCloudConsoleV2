@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Ms365Backup;
 
+use Ms365Backup\Fleet\FleetContext;
 use WHMCS\Database\Capsule;
 
 /**
@@ -15,6 +16,10 @@ final class Ms365JobScheduler
      */
     public static function runDueJobs(): array
     {
+        if (FleetContext::isDevelopmentServer()) {
+            return ['started' => 0, 'skipped' => 0];
+        }
+
         if (!Capsule::schema()->hasTable('s3_cloudbackup_jobs')) {
             return ['started' => 0, 'skipped' => 0];
         }

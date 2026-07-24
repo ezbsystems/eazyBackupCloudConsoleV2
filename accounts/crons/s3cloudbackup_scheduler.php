@@ -21,6 +21,15 @@ use WHMCS\Module\Addon\CloudStorage\Client\UuidBinary;
 
 require_once __DIR__ . '/../modules/addons/cloudstorage/lib/Client/E3BackupUserScope.php';
 
+$serverEnvironment = strtolower(trim((string) Capsule::table('tbladdonmodules')
+    ->where('module', 'ms365backup')
+    ->where('setting', 'ms365_server_environment')
+    ->value('value')));
+if ($serverEnvironment !== 'production') {
+    echo "Scheduler skipped: development server (automatic backup runs disabled)\n";
+    exit(0);
+}
+
 function parseScheduleJson($raw): array
 {
     if ($raw === null || $raw === '') {

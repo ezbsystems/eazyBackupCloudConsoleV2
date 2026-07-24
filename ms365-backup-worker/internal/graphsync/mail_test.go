@@ -187,6 +187,55 @@ func TestSyncMailRetriesQuotaExceededFolderWithSmallerPage(t *testing.T) {
 	}
 }
 
+func TestSyncMailSkipsFolderWhenQuotaRetryAlsoFails(t *testing.T) {
+	var warnings []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/mailFolders") && !strings.Contains(r.URL.Path, "/messages/"):
+			_, _ = w.Write([]byte(`{"value":[
+				{"id":"folder-archive","displayName":"Archive"},
+				{"id":"folder-inbox","displayName":"Inbox"}
+			]}`))
+		case strings.Contains(r.URL.Path, "/mailFolders/folder-archive/messages/delta"):
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = w.Write([]byte(`{"error":{"code":"ErrorQuotaExceeded","message":"The process failed to get the correct properties."}}`))
+		case strings.Contains(r.URL.Path, "/mailFolders/folder-inbox/messages/delta"):
+			_, _ = w.Write([]byte(`{"value":[],"@odata.deltaLink":"https://graph.test/inbox-done"}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	client := graph.NewTestClient(srv.URL, graph.ClientOptions{MaxRetries: 0, MaxConcurrency: 2})
+	result, err := SyncMail(context.Background(), client, MailSyncOptions{
+		AzureTenantID:  "tenant-1",
+		UserID:         "user-1",
+		Parallel:       2,
+		FolderParallel: 2,
+		Staging:        graphfs.NewOverlayBuilder(),
+		Log: func(level, message string) {
+			if level == "warning" {
+				warnings = append(warnings, message)
+			}
+		},
+	})
+	if err != nil {
+		t.Fatalf("persistent quota on one folder must not fail the mailbox: %v", err)
+	}
+	if result.Stats.FoldersQuotaSkipped != 1 {
+		t.Fatalf("FoldersQuotaSkipped = %d, want 1", result.Stats.FoldersQuotaSkipped)
+	}
+	if result.Stats.FoldersDelta != 1 {
+		t.Fatalf("FoldersDelta = %d, want 1 successful inbox", result.Stats.FoldersDelta)
+	}
+	joined := strings.Join(warnings, "\n")
+	if !strings.Contains(joined, "skipping folder") || !strings.Contains(joined, "Archive") {
+		t.Fatalf("expected skip warning for Archive, got %q", joined)
+	}
+}
+
 func TestSyncMailProgressReportsMessageCounts(t *testing.T) {
 	const userID = "user-mail-progress"
 	folderIDs := []string{"folder-inbox", "folder-sent"}
