@@ -22,6 +22,55 @@ func TestSubdivideHourRangeIsTerminal(t *testing.T) {
 	}
 }
 
+func TestCalendarTier2FallsBackAfter504(t *testing.T) {
+	var top1000Calls int
+	var top500Calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.URL.Path, "/events") {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Query().Get("$top") {
+		case "1000":
+			top1000Calls++
+			w.WriteHeader(http.StatusGatewayTimeout)
+			_, _ = w.Write([]byte(`{"error":{"code":"UnknownError","message":""}}`))
+		case "500":
+			top500Calls++
+			_, _ = w.Write([]byte(`{"value":[]}`))
+		default:
+			t.Fatalf("unexpected page size %q", r.URL.Query().Get("$top"))
+		}
+	}))
+	defer srv.Close()
+
+	client := graph.NewTestClient(srv.URL, graph.ClientOptions{
+		MaxRetries:       1,
+		RetryBaseDelayMs: 1,
+		MaxConcurrency:   2,
+	})
+	scanner := newCalendarScanner(client, CalendarSyncOptions{
+		UserID:        "user-1",
+		AzureTenantID: "tenant-1",
+		Staging:       graphfs.NewOverlayBuilder(),
+	}, "cal-1", CalendarInventoryState{})
+
+	result, err := scanner.run(context.Background())
+	if err != nil {
+		t.Fatalf("calendar scan should try smaller page after exhausted 504: %v", err)
+	}
+	if top1000Calls != 2 {
+		t.Fatalf("top=1000 calls = %d, want 2 bounded attempts", top1000Calls)
+	}
+	if top500Calls != 1 {
+		t.Fatalf("top=500 calls = %d, want 1 fallback attempt", top500Calls)
+	}
+	if result.state.WinningPageSize != "500" {
+		t.Fatalf("winning page size = %q, want 500", result.state.WinningPageSize)
+	}
+}
+
 func TestScanPartitionsSkipsWedgedHourPartition(t *testing.T) {
 	eventID := "evt-dup-1"
 	var page int

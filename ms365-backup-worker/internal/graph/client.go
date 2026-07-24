@@ -38,13 +38,13 @@ const retryAfterOtherCap = 120 * time.Second
 const MailMessageSelect = "id,subject,receivedDateTime,sentDateTime,from,toRecipients,ccRecipients,bccRecipients,body,bodyPreview,parentFolderId,conversationId,internetMessageId,hasAttachments,importance,isRead,isDraft,flag,categories"
 
 type Client struct {
-	tokenMu    sync.RWMutex
-	token      string
-	refresh    TokenRefreshFunc
-	graphBase  string
-	httpClient *http.Client
-	maxRetries int
-	retryDelay time.Duration
+	tokenMu         sync.RWMutex
+	token           string
+	refresh         TokenRefreshFunc
+	graphBase       string
+	httpClient      *http.Client
+	maxRetries      int
+	retryDelay      time.Duration
 	sem             chan struct{}
 	throttle429     int64
 	adaptiveEnabled bool
@@ -168,6 +168,16 @@ func IsUnauthorized(err error) bool {
 	}
 	msg := strings.ToLower(err.Error())
 	return strings.Contains(msg, "graph 401")
+}
+
+// IsBoundedServiceUnavailable reports that the Graph client's bounded retries
+// for a transient 503/504 response were exhausted.
+func IsBoundedServiceUnavailable(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "graph 503") || strings.Contains(msg, "graph 504")
 }
 
 // IsMailboxNotEnabled reports whether err indicates the user's mailbox is inactive,
@@ -590,10 +600,10 @@ func (c *Client) GetJSONWithHeaders(ctx context.Context, path string, query map[
 
 // PaginateOptions configures monitored pagination.
 type PaginateOptions struct {
-	Monitor      *PaginationMonitor
-	Outcome      *PaginationOutcome
-	Headers      map[string]string
-	TrackDupIDs  bool // when true, dedupe by item id and detect duplicate-only pages
+	Monitor     *PaginationMonitor
+	Outcome     *PaginationOutcome
+	Headers     map[string]string
+	TrackDupIDs bool // when true, dedupe by item id and detect duplicate-only pages
 }
 
 func (c *Client) Paginate(ctx context.Context, path string, query map[string]string) ([]map[string]any, error) {
@@ -1200,7 +1210,7 @@ func (c *Client) PutBytes(ctx context.Context, path string, data []byte) (map[st
 	return out, json.Unmarshal(resp.body, &out)
 }
 
-const uploadSessionThreshold = 4 << 20 // 4 MiB
+const uploadSessionThreshold = 4 << 20  // 4 MiB
 const uploadSessionChunkSize = 10 << 20 // 10 MiB
 
 func (c *Client) PutStream(ctx context.Context, path string, size int64, r io.Reader) (map[string]any, error) {

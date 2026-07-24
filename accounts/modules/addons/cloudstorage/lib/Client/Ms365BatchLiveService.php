@@ -404,11 +404,24 @@ final class Ms365BatchLiveService
         }
 
         $queueByRun = [];
+        $batchClaim = [];
+        if (Capsule::schema()->hasTable('ms365_batch_claims')) {
+            $claimRow = Capsule::table('ms365_batch_claims')
+                ->where('batch_run_id', $batchRunId)
+                ->first(['status', 'claimed_at']);
+            if ($claimRow !== null) {
+                $batchClaim = (array) $claimRow;
+            }
+        }
         if ($children !== [] && Capsule::schema()->hasTable('ms365_job_queue')) {
             $childIds = array_column($children, 'id');
             if ($childIds !== []) {
                 foreach (Capsule::table('ms365_job_queue')->whereIn('run_id', $childIds)->get() as $q) {
-                    $queueByRun[(string) $q->run_id] = (array) $q;
+                    $queue = (array) $q;
+                    if (self::shouldSuppressClaimTimeRecovery($queue, $batchClaim)) {
+                        $queue['error_message'] = '';
+                    }
+                    $queueByRun[(string) $q->run_id] = $queue;
                 }
             }
         }
@@ -708,7 +721,10 @@ final class Ms365BatchLiveService
         if ($queueError !== '' && $queueError !== $runError) {
             $softened = self::softenInfrastructureQueueMessage($queueError);
             if ($softened !== '') {
-                $parts[] = $softened === 'Recovering this workload'
+                $parts[] = in_array($softened, [
+                    'Recovering this workload',
+                    'Microsoft 365 temporarily timed out. Waiting to retry.',
+                ], true)
                     ? $softened
                     : 'Queue: ' . $softened;
             }
@@ -724,6 +740,11 @@ final class Ms365BatchLiveService
             return '';
         }
 
+        $lower = strtolower($normalized);
+        if (str_contains($lower, 'graph 503') || str_contains($lower, 'graph 504')) {
+            return 'Microsoft 365 temporarily timed out. Waiting to retry.';
+        }
+
         $recoveringNeedles = [
             'stale progress (worker busy)',
             'stale progress reconciled',
@@ -736,7 +757,6 @@ final class Ms365BatchLiveService
             'lease expired',
             'run re-queued',
         ];
-        $lower = strtolower($normalized);
         foreach ($recoveringNeedles as $needle) {
             if ($lower === $needle || str_contains($lower, $needle)) {
                 return 'Recovering this workload';
@@ -744,6 +764,25 @@ final class Ms365BatchLiveService
         }
 
         return CustomerFacingTextSanitizer::scrubLogMessage($normalized);
+    }
+
+    /**
+     * @param array<string, mixed> $queue
+     * @param array<string, mixed> $batchClaim
+     */
+    private static function shouldSuppressClaimTimeRecovery(array $queue, array $batchClaim): bool
+    {
+        if (strtolower((string) ($batchClaim['status'] ?? '')) !== 'running') {
+            return false;
+        }
+        $claimedAt = (int) ($batchClaim['claimed_at'] ?? 0);
+        $scheduledAt = (int) ($queue['scheduled_at'] ?? 0);
+        if ($claimedAt <= 0 || $scheduledAt <= 0 || $scheduledAt > $claimedAt) {
+            return false;
+        }
+
+        return self::softenInfrastructureQueueMessage((string) ($queue['error_message'] ?? ''))
+            === 'Recovering this workload';
     }
 
     /**

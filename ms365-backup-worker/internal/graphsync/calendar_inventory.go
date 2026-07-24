@@ -15,13 +15,13 @@ import (
 var calendarPageSizeLadder = []string{"1000", "500", "250", "100", "50", "25"}
 
 type calendarScanner struct {
-	client        *graph.Client
-	userID        string
-	calendarID    string
-	tenantID      string
-	staging       *graphfs.OverlayBuilder
-	log           RunLogger
-	seenEventIDs  map[string]bool
+	client       *graph.Client
+	userID       string
+	calendarID   string
+	tenantID     string
+	staging      *graphfs.OverlayBuilder
+	log          RunLogger
+	seenEventIDs map[string]bool
 	// tryMarkSeen, when set (batch SyncCalendar), is the thread-safe cross-calendar
 	// dedup. Prefer it over mutating seenEventIDs from parallel workers.
 	tryMarkSeen            func(id string) bool
@@ -87,20 +87,25 @@ func (s *calendarScanner) run(ctx context.Context) (*calendarScanResult, error) 
 			TrackDupIDs: true,
 		})
 		if err != nil {
-			return nil, err
+			if graph.IsBoundedServiceUnavailable(err) {
+				s.logf("warning", "Calendar tier 1 service unavailable; escalating to tier 2 calendar=%s", truncateID(s.calendarID))
+			} else {
+				return nil, err
+			}
+		} else {
+			n, rm := s.storeEvents(events)
+			res.events += n
+			res.removed += rm
+			if outcome.CompletedNaturally {
+				res.state.Complete = true
+				res.state.ScanMode = "incremental"
+				res.state.LastSuccessfulTier = 1
+				res.state.LastModifiedWatermark = maxLastModified(s.priorState.LastModifiedWatermark, events)
+				s.logf("info", "Calendar tier 1 complete events=%d calendar=%s", res.events, truncateID(s.calendarID))
+				return res, nil
+			}
+			s.logf("warning", "Calendar tier 1 wedge; escalating to tier 2 calendar=%s", truncateID(s.calendarID))
 		}
-		n, rm := s.storeEvents(events)
-		res.events += n
-		res.removed += rm
-		if outcome.CompletedNaturally {
-			res.state.Complete = true
-			res.state.ScanMode = "incremental"
-			res.state.LastSuccessfulTier = 1
-			res.state.LastModifiedWatermark = maxLastModified(s.priorState.LastModifiedWatermark, events)
-			s.logf("info", "Calendar tier 1 complete events=%d calendar=%s", res.events, truncateID(s.calendarID))
-			return res, nil
-		}
-		s.logf("warning", "Calendar tier 1 wedge; escalating to tier 2 calendar=%s", truncateID(s.calendarID))
 	}
 
 	// Tier 2: page-size retry ladder on unfiltered list
@@ -119,6 +124,10 @@ func (s *calendarScanner) run(ctx context.Context) (*calendarScanResult, error) 
 			TrackDupIDs: true,
 		})
 		if err != nil {
+			if graph.IsBoundedServiceUnavailable(err) {
+				s.logf("warning", "Calendar tier 2 service unavailable at top=%s; trying smaller page size calendar=%s", pageSize, truncateID(s.calendarID))
+				continue
+			}
 			return nil, err
 		}
 		n, rm := s.storeEvents(events)
@@ -179,6 +188,18 @@ func (s *calendarScanner) scanPartitions(ctx context.Context, ranges []timeRange
 						formatGraphDateTime(r.Start), formatGraphDateTime(r.End), truncateID(s.calendarID))
 					continue
 				}
+				if err := s.scanPartitions(ctx, sub); err != nil {
+					return err
+				}
+				continue
+			}
+			if graph.IsBoundedServiceUnavailable(err) {
+				sub := s.subdivide(r)
+				if len(sub) == 0 {
+					return err
+				}
+				s.logf("warning", "Calendar partition service unavailable; subdividing range=%s..%s calendar=%s",
+					formatGraphDateTime(r.Start), formatGraphDateTime(r.End), truncateID(s.calendarID))
 				if err := s.scanPartitions(ctx, sub); err != nil {
 					return err
 				}

@@ -639,10 +639,26 @@ final class Ms365BatchClaimRepository
             return 0;
         }
         $now = time();
-        $rows = Capsule::table('ms365_backup_runs')
+        $query = Capsule::table('ms365_backup_runs')
             ->where('status', 'running')
             ->whereNotNull('e3_batch_run_id')
-            ->where('e3_batch_run_id', '!=', '')
+            ->where('e3_batch_run_id', '!=', '');
+        if (self::tableReady()) {
+            $heartbeatCutoff = $now - Ms365EngineConfig::batchHeartbeatGapSeconds();
+            $liveBatchIds = Capsule::table('ms365_batch_claims')
+                ->where('status', 'running')
+                ->where('last_heartbeat_at', '>=', $heartbeatCutoff)
+                ->where('lease_expires_at', '>', $now)
+                ->pluck('batch_run_id')
+                ->all();
+            if ($liveBatchIds !== []) {
+                // Tenant-owner workers remain authoritative for their children.
+                // Requeueing a child in MySQL cannot stop its in-process goroutine
+                // and causes running/queued status ping-pong until the worker exits.
+                $query->whereNotIn('e3_batch_run_id', $liveBatchIds);
+            }
+        }
+        $rows = $query
             ->get([
                 'id',
                 'e3_batch_run_id',
@@ -1062,6 +1078,7 @@ final class Ms365BatchClaimRepository
                 'claimed_at' => $now,
                 'lease_expires_at' => $lease,
                 'started_at' => $now,
+                'attempts' => Capsule::raw('LEAST(attempts + 1, max_attempts)'),
                 'error_message' => '',
             ]);
         if ($updated === 0) {

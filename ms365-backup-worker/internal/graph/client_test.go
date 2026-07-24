@@ -3,6 +3,7 @@ package graph
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +14,18 @@ import (
 
 	"github.com/eazybackup/ms365-backup-worker/internal/version"
 )
+
+func TestIsBoundedServiceUnavailable(t *testing.T) {
+	if !IsBoundedServiceUnavailable(errors.New(`graph 504 Gateway Timeout: {"error":{"code":"UnknownError"}}`)) {
+		t.Fatal("504 must be classified as bounded service unavailability")
+	}
+	if !IsBoundedServiceUnavailable(errors.New("graph 503 Service Unavailable")) {
+		t.Fatal("503 must be classified as bounded service unavailability")
+	}
+	if IsBoundedServiceUnavailable(errors.New("graph 403 Forbidden")) {
+		t.Fatal("403 must remain terminal")
+	}
+}
 
 func TestParseRetryAfterNumeric(t *testing.T) {
 	d := parseRetryAfter("30", 0, 2*time.Second)
