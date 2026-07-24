@@ -18,7 +18,8 @@
 - **Config:** `graph.content_read_idle_seconds`, `content_read_retries`, `stream_response_header_seconds`; `kopia.upload_stall_seconds`.
 - **Spec:** `Docs/specs/2026-07-24-graph-content-idle-timeout-design.md`.
 - **Verification:** `go test ./...` and `go build ./...` PASS.
-- **Status:** Implemented on dev; pending fleet build/deploy to production.
+- **Deploy:** Commit `d9847198`; dev build job **122** published release **133** (`sha256 021487bc29e5e03f…`). Production WHMCS docs deployed via `deploy-production.sh`. Rolling deploy job **95** failed on worker nodes with `no space left on device` during binary staging — fleet rollout blocked pending disk cleanup/retry.
+- **Status:** Code on `origin/main`; release **133** / **0.4.11** published on dev; worker fleet deploy needs disk space recovery then redeploy.
 
 ### 2026-07-24 — False workload recovery + calendar 504 fallback (PHP 1.52.10, worker 0.4.8)
 
