@@ -18,7 +18,8 @@
 - **PHP 1.52.11:** `abort_requested_at` column (`upgrade_phase23_child_abort.sql`). Live-batch reaper soft-aborts stale children then requeues after 90s (no batch hand-off). Upload `no_progress`/heartbeat renews lease only (no `last_progress_at` refresh). `ms365_worker_batch_progress.php` returns `abort_run_ids`.
 - **Spec:** `Docs/specs/2026-07-24-kopia-upload-wedge-recovery-gaps-design.md`.
 - **Verification:** `go test ./...` and `go build ./...` PASS. PHP: `ms365_child_abort_reaper_test.php`, `ms365_tenant_owner_recovery_test.php`, `ms365_batch_progress_liveness_test.php` PASS.
-- **Status:** Code ready on dev; commit/push and fleet deploy pending this session.
+- **Deploy:** Commit `8f03efe1`; dev build job **123** → release **134** (`sha256 1cda7b8a…`). Production PHP via `deploy-production.sh`; release **58** pushed; rolling deploy job **96** reached **3/4** nodes on **0.4.12** — worker **9005** failed with `no space left on device` (still **0.3.80**). Removed session `062be2` batch-progress instrumentation.
+- **Status:** PHP **1.52.11** and worker **0.4.12** on dev + most prod nodes; clear disk on **9005** and retry deploy for full fleet.
 
 ### 2026-07-24 — Graph content idle timeout + upload stall (worker 0.4.11)
 
