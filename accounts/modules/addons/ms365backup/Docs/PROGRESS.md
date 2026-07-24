@@ -2,14 +2,25 @@
 
 **Purpose:** Single handoff document so the next agent knows where work stopped. Update this file at the **end of every session** (or after each meaningful milestone).
 
-**Last updated:** 2026-07-23
-**Module version (ms365backup):** 1.52.9  
+**Last updated:** 2026-07-24
+**Module version (ms365backup):** 1.52.10  
 **Cloudstorage (e3) version:** 2.2.0  
-**Worker version (ms365-backup-worker):** 0.4.6 (Kopia v0.23.1)
+**Worker version (ms365-backup-worker):** 0.4.8 (Kopia v0.23.1)
 
 ---
 
 ## Session log
+
+### 2026-07-24 — False workload recovery + calendar 504 fallback (PHP 1.52.10, worker 0.4.8)
+
+- **Production evidence (`bbf034af-…`):** UI instrumentation recorded **327** `Recovering this workload` rows (323 queued + 4 running) although the batch owner/lease was healthy. Eight children were independently requeued at **604–614s** silence; one (`daa7554b-…`) was reaped twice but completed valid Graph work after **3,193s / 14,255 items**, proving the per-child reaper conflicted with tenant-owner execution. Mailbox child `09ee3a8f-…` failed the same calendar twice on tier-2 `$top=1000` with Graph 504 while queue attempts stayed `0/5`.
+- **Root causes:** Claim-time `Worker drain hand-off` text remained attached to semaphore waiters and grouped running rows; `reapStalledBatchChildren()` changed DB state without cancelling the live worker goroutine; batch child promotion never incremented attempts; calendar tier 2 returned immediately after bounded 503/504 retries instead of changing query shape.
+- **PHP fix (`fa6fef57`):** Live/fresh tenant-batch owners now exclude their children from independent stale reaping; `queued → running` promotion increments attempts once; claim-time hand-off history is suppressed in the customer projection; Graph 503/504 renders as `Microsoft 365 temporarily timed out. Waiting to retry.` without raw JSON.
+- **Worker fix (`fa6fef57`, 0.4.7):** Exhausted calendar 503/504 escalates from incremental → page-size ladder (`1000→500→250→100→50→25`) → partition fallback. Target child `09ee3a8f-…` reproduced the 504 on 0.4.7, descended to `$top=500`, completed partition fallback, produced Kopia manifest `4e5fc967…`, and finished **success/done** on attempt 2.
+- **Completeness follow-up (`3007957b`, 0.4.8):** The successful retry exposed an existing partial-coverage defect: tier 3 logged eight skipped wedged partitions but still allowed success. `SyncCalendar` now rejects any `Complete=false` result with a terminal `GraphPaginationError`; a different live child immediately verified this guard by failing instead of publishing an incomplete snapshot.
+- **Verification:** `go test ./...` and `go build ./...` PASS. Focused PHP regressions `ms365_tenant_owner_recovery_test.php` and `ms365_workload_recovery_projection_test.php` PASS. Post-fix session `062be2` logs show **0 recovery rows**, **0 running/queued recovery rows**, and **0 stale-child reaper actions**; raw 504 count is zero and three pending timeouts use friendly copy.
+- **Deploy:** Dev build **118** → release **129** / prod **53** (0.4.7), then build **119** → release **130** / prod **54** (0.4.8, SHA256 `00983d2d0ca6573b…`). Production deploy job **25** completed **8/8** nodes on 0.4.8. PHP deployed with `deploy-production.sh`; browse binary synced to 0.4.8.
+- **Status:** Fix active and runtime-proven. Session `062be2` instrumentation remains intentionally installed pending operator confirmation, then must be removed.
 
 ### 2026-07-23 — Teams channel DeltaToken recovery (worker 0.4.6)
 
