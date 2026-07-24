@@ -6,6 +6,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -136,5 +138,60 @@ func TestStreamTransportUsesHTTP1(t *testing.T) {
 	}
 	if transport.TLSHandshakeTimeout != 15*time.Second {
 		t.Fatalf("TLSHandshakeTimeout=%v want 15s", transport.TLSHandshakeTimeout)
+	}
+}
+
+func TestGetStreamHeaderTimeoutDrainsRacedResponse(t *testing.T) {
+	gate := make(chan struct{})
+	var inFlight int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&inFlight, 1)
+		defer atomic.AddInt32(&inFlight, -1)
+		select {
+		case <-gate:
+			_, _ = io.WriteString(w, "ok")
+		case <-r.Context().Done():
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	c := NewTestClient(srv.URL, ClientOptions{
+		MaxRetries:                  0,
+		MaxConcurrency:              2,
+		StreamResponseHeaderSeconds: 1,
+		RetryBaseDelayMs:            10,
+	})
+
+	before := runtime.NumGoroutine()
+	for i := 0; i < 8; i++ {
+		_, _, err := c.GetStream(context.Background(), "/content")
+		if err == nil {
+			t.Fatalf("iteration %d: expected header timeout error", i)
+		}
+	}
+	close(gate)
+
+	deadline := time.Now().Add(3 * time.Second)
+	for atomic.LoadInt32(&inFlight) > 0 && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if atomic.LoadInt32(&inFlight) > 0 {
+		t.Fatalf("server handlers still in flight after gate release")
+	}
+
+	time.Sleep(100 * time.Millisecond)
+	after := runtime.NumGoroutine()
+	if after > before+4 {
+		t.Fatalf("goroutine leak after raced header timeouts: before=%d after=%d", before, after)
+	}
+
+	gate = make(chan struct{})
+	close(gate)
+	rc, _, err := c.GetStream(context.Background(), "/content")
+	if err != nil {
+		t.Fatalf("GetStream after drain cycles: %v", err)
+	}
+	if err := rc.Close(); err != nil && !errors.Is(err, io.EOF) {
+		t.Fatalf("Close: %v", err)
 	}
 }

@@ -203,3 +203,63 @@ func TestStallWatchDoesNotCancelWhenUploadActive(t *testing.T) {
 		t.Fatal("expected stall watch to stay alive while upload bytes move")
 	}
 }
+
+func TestStallWatchTailPhaseUsesReportedItemsTotal(t *testing.T) {
+	counter := NewProgressCounter(nil)
+	counter.FilesTotal.Store(0)
+	counter.FilesDone.Store(10)
+	counter.lastHashAt.Store(time.Now().UnixNano())
+	stale := time.Now().Add(-10 * time.Second).UnixNano()
+	counter.lastUploadAt.Store(stale)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	stalled := false
+	stop := StartStallWatch(ctx, cancel, counter, StallWatchConfig{
+		StallSeconds:         1,
+		CheckIntervalSeconds: 1,
+		GraceSeconds:         0,
+		ReportedItemsTotal:   10,
+		OnStall: func(snapshot map[string]any) {
+			stalled = true
+		},
+	})
+	defer stop()
+
+	deadline := time.Now().Add(4 * time.Second)
+	for time.Now().Before(deadline) {
+		if ctx.Err() != nil {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if ctx.Err() == nil {
+		t.Fatal("expected tail-phase OR stall when FilesTotal=0 but ReportedItemsTotal reached")
+	}
+	if !stalled {
+		t.Fatal("expected OnStall callback for reported-items tail phase")
+	}
+}
+
+func TestStallWatchMidUploadIgnoresHighReportedItemsTotal(t *testing.T) {
+	counter := NewProgressCounter(nil)
+	counter.FilesTotal.Store(100)
+	counter.FilesDone.Store(50)
+	counter.lastHashAt.Store(time.Now().UnixNano())
+	counter.lastUploadAt.Store(time.Now().Add(-10 * time.Second).UnixNano())
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	stop := StartStallWatch(ctx, cancel, counter, StallWatchConfig{
+		StallSeconds:         5,
+		CheckIntervalSeconds: 1,
+		GraceSeconds:         0,
+		ReportedItemsTotal:   200,
+	})
+	defer stop()
+
+	time.Sleep(3 * time.Second)
+	if ctx.Err() != nil {
+		t.Fatal("mid-upload should require both hash and upload stalls even when ReportedItemsTotal is high")
+	}
+}

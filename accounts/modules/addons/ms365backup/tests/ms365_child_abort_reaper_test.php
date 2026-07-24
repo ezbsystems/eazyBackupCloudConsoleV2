@@ -12,7 +12,9 @@ require_once $root . '/init.php';
 require_once dirname(__DIR__, 2) . '/cloudstorage/lib/Ms365BackupBootstrap.php';
 cloudstorage_load_ms365backup();
 
+use Ms365Backup\BackupRunRepository;
 use Ms365Backup\ChildAbortRepository;
+use Ms365Backup\JobQueueRepository;
 use Ms365Backup\Ms365BatchClaimRepository;
 use Ms365Backup\Ms365BatchRunRepository;
 use WHMCS\Database\Capsule;
@@ -135,6 +137,64 @@ try {
     abort_assert(
         Capsule::table('ms365_backup_runs')->where('id', $freshChildId)->value('status') === 'running',
         'active sibling stays running after stale child requeue',
+    );
+
+    // Regression: fail/requeue and promote must clear abort so the child is not re-aborted.
+    Capsule::table('ms365_backup_runs')->where('id', $staleChildId)->update([
+        'status' => 'running',
+        'abort_requested_at' => $now,
+        'updated_at' => $now,
+    ]);
+    Capsule::table('ms365_job_queue')->where('run_id', $staleChildId)->update([
+        'status' => 'running',
+        'attempts' => 1,
+        'worker_node_id' => $nodeId,
+        'claimed_at' => $now - 60,
+        'lease_expires_at' => $now + 600,
+    ]);
+    abort_assert(
+        ChildAbortRepository::listAbortRequestedRunIds($batchId) === [$staleChildId],
+        'running child with abort flag is listed for batch progress',
+    );
+
+    JobQueueRepository::markFailed($staleChildId, 'simulated worker fail for abort reclaim');
+    abort_assert(
+        Capsule::table('ms365_backup_runs')->where('id', $staleChildId)->value('status') === 'queued',
+        'markFailed requeues child for another attempt',
+    );
+    abort_assert(
+        Capsule::table('ms365_backup_runs')->where('id', $staleChildId)->value('abort_requested_at') === null,
+        'resetForQueueRequeue clears abort_requested_at',
+    );
+
+    Capsule::table('ms365_backup_runs')->where('id', $staleChildId)->update([
+        'abort_requested_at' => $now,
+    ]);
+    Ms365BatchClaimRepository::promoteBatchChildToRunning($staleChildId, $nodeId);
+    abort_assert(
+        Capsule::table('ms365_backup_runs')->where('id', $staleChildId)->value('abort_requested_at') === null,
+        'promoteBatchChildToRunning clears abort_requested_at',
+    );
+    abort_assert(
+        !in_array($staleChildId, ChildAbortRepository::listAbortRequestedRunIds($batchId), true),
+        'promoted child is not in batch abort list',
+    );
+
+    Capsule::table('ms365_backup_runs')->where('id', $staleChildId)->update([
+        'status' => 'running',
+        'abort_requested_at' => $now,
+        'updated_at' => $now,
+    ]);
+    Capsule::table('ms365_job_queue')->where('run_id', $staleChildId)->update([
+        'status' => 'queued',
+        'worker_node_id' => null,
+        'claimed_at' => null,
+        'lease_expires_at' => null,
+    ]);
+    BackupRunRepository::resetForQueueRequeue($staleChildId, $now);
+    abort_assert(
+        Capsule::table('ms365_backup_runs')->where('id', $staleChildId)->value('abort_requested_at') === null,
+        'resetForQueueRequeue clears abort when child was running with abort flag',
     );
 } finally {
     foreach ([$staleChildId, $freshChildId] as $childId) {

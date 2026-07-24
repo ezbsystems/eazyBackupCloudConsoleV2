@@ -966,6 +966,7 @@ final class Ms365RestoreWorkerHooks
         $now = time();
         $customerMessage = Ms365CustomerError::message(new \RuntimeException($message));
         $requeued = JobQueueRepository::markFailed($runId, $message);
+        ChildAbortRepository::clearAbortRequested([$runId]);
         if (!$requeued) {
             BackupRunRepository::update($runId, [
                 'status' => 'error',

@@ -1054,6 +1054,13 @@ func (c *Client) doStreamAttempt(ctx context.Context, req *http.Request, offset 
 	select {
 	case <-attemptCtx.Done():
 		cancel()
+		select {
+		case res := <-ch:
+			if res.err == nil && res.resp != nil {
+				discardStreamResponse(res.resp, nil)
+			}
+		default:
+		}
 		return nil, nil, attemptCtx.Err()
 	case res := <-ch:
 		if res.err != nil {

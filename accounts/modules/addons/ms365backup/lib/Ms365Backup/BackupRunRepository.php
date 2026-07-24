@@ -309,7 +309,7 @@ final class BackupRunRepository
         if ($now <= 0) {
             $now = time();
         }
-        self::update($id, [
+        $fields = [
             'status' => 'queued',
             'phase' => '',
             'percent' => 0,
@@ -318,7 +318,11 @@ final class BackupRunRepository
             'error_message' => null,
             'finished_at' => null,
             'updated_at' => $now,
-        ]);
+        ];
+        if (ChildAbortRepository::columnReady()) {
+            $fields['abort_requested_at'] = null;
+        }
+        self::update($id, $fields);
     }
 
     public static function isCancelled(string $id): bool

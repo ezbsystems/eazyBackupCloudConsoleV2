@@ -3,13 +3,21 @@
 **Purpose:** Single handoff document so the next agent knows where work stopped. Update this file at the **end of every session** (or after each meaningful milestone).
 
 **Last updated:** 2026-07-24
-**Module version (ms365backup):** 1.52.11  
+**Module version (ms365backup):** 1.52.12  
 **Cloudstorage (e3) version:** 2.2.0  
-**Worker version (ms365-backup-worker):** 0.4.12 (Kopia v0.23.1)
+**Worker version (ms365-backup-worker):** 0.4.13 (Kopia v0.23.1)
 
 ---
 
 ## Session log
+
+### 2026-07-24 — Wedge recovery follow-up patches (worker 0.4.13, PHP 1.52.12)
+
+- **Problem:** Post-0.4.12 gaps blocked reliable recovery: requeued children kept `abort_requested_at` and were immediately re-aborted; stream header-timeout cancel left dangling HTTP goroutines; cooperative abort invoked `failSink` (terminal fail instead of requeue); upload-tail OR stall never armed when Kopia `files_total` lagged graph-reported items.
+- **Worker 0.4.13:** (1) stream race drain — discard in-flight response on `attemptCtx` timeout. (2) drop `failSink` on cooperative cancel — clear abort only, let reaper requeue. (4) `ReportedItemsTotal` in stall watch — tail-OR uses max(Kopia `files_total`, graph `items_total`).
+- **PHP 1.52.12:** (3) abort clearing — `resetForQueueRequeue`, `promoteBatchChildToRunning`, and `markFailed` clear `abort_requested_at` so reclaimed children are not re-aborted.
+- **Verification:** `go test ./...` and `go build ./...` PASS. PHP: `ms365_child_abort_reaper_test.php`, `ms365_tenant_owner_recovery_test.php` PASS (15 cases).
+- **Deploy:** Pending commit/push, `deploy-production.sh`, dev build job for **0.4.13**.
 
 ### 2026-07-24 — Kopia upload wedge recovery (worker 0.4.12, PHP 1.52.11)
 

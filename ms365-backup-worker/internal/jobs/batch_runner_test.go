@@ -411,6 +411,81 @@ func TestBatchRunnerDeliveryFailureDoesNotSetFirstErr(t *testing.T) {
 	}
 }
 
+func TestBatchRunnerAbortCoopCancelDoesNotFailSink(t *testing.T) {
+	var failComplete atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if strings.Contains(r.URL.Path, "batch_complete") {
+			var body api.BatchCompleteUpdate
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			for _, child := range body.Children {
+				if child.Status == "failed" {
+					failComplete.Add(1)
+				}
+			}
+		}
+		_, _ = w.Write([]byte(`{"status":"success","data":{}}`))
+	}))
+	defer srv.Close()
+
+	cfg := testBatchConfig(t)
+	cfg.Worker.MaxConcurrentRuns = 1
+	client := api.NewClient(srv.URL, "tok", "node-1")
+	scheduler := NewScheduler(cfg, client, t.TempDir()+"/config.yaml")
+	childStarted := make(chan struct{})
+	stub := &stubChildRunner{
+		onRun: func(ctx context.Context, job *api.RunJob) error {
+			close(childStarted)
+			<-ctx.Done()
+			return ctx.Err()
+		},
+	}
+	br := &BatchRunner{
+		cfg:              cfg,
+		client:           client,
+		runner:           stub,
+		scheduler:        scheduler,
+		completionOutbox: scheduler.completionOutbox,
+	}
+	batch := &api.BatchJob{
+		BatchRunID:    "batch-abort",
+		AzureTenantID: "tenant-abort",
+		GraphToken:    "tok",
+		GraphRegion:   "GlobalPublicCloud",
+		Children: []*api.RunJob{
+			{RunID: "child-1", Status: "queued", PhysicalKey: "mailbox:child-1", JobType: "backup"},
+		},
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- br.Run(context.Background(), batch, nil)
+	}()
+
+	select {
+	case <-childStarted:
+	case <-time.After(time.Second):
+		t.Fatal("child did not start")
+	}
+
+	scheduler.abortRuns([]string{"child-1"})
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Run() err = %v, want cooperative nil", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("batch runner did not finish after abort")
+	}
+	if failComplete.Load() != 0 {
+		t.Fatalf("abort coop-cancel should not invoke failSink, got %d failed batch_complete posts", failComplete.Load())
+	}
+	if scheduler.isAbortRequested("child-1") {
+		t.Fatal("abort bookkeeping should be cleared after cooperative cancel")
+	}
+}
+
 func testBatchConfig(t *testing.T) *config.Config {
 	cfg := &config.Config{}
 	cfg.Worker.MaxConcurrentRuns = 2

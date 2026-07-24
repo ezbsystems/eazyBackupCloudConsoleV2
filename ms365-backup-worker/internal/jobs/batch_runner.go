@@ -386,10 +386,7 @@ func (br *BatchRunner) Run(ctx context.Context, batch *api.BatchJob, onAbort con
 
 			if err := br.runner.RunSafe(childCtx, child, cancel); err != nil {
 				if isCooperativeCancel(err, childCtx) {
-					if br.scheduler.isAbortRequested(child.RunID) {
-						br.scheduler.clearAbortRequested(child.RunID)
-						brc.failSink(child.RunID, "Child progress stale (aborted by control plane)")
-					}
+					br.scheduler.clearAbortRequested(child.RunID)
 					return
 				}
 				firstErrOnce.Do(func() { firstErr = err })

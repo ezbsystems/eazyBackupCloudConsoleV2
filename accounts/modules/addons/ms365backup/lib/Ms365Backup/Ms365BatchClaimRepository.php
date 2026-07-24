@@ -1064,6 +1064,7 @@ final class Ms365BatchClaimRepository
             'engine_mode' => 'kopia',
             'updated_at' => $now,
         ]);
+        ChildAbortRepository::clearAbortRequested([$runId]);
         Ms365WorkerLogRepository::recordAssignment($runId, $nodeId);
     }
 

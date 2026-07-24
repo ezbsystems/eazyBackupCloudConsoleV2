@@ -17,6 +17,7 @@ type StallWatchConfig struct {
 	GraceSeconds           int
 	RunID                  string
 	RunDir                 string
+	ReportedItemsTotal     int64
 	OnStall                func(snapshot map[string]any)
 }
 
@@ -61,9 +62,13 @@ func StartStallWatch(ctx context.Context, cancel context.CancelFunc, counter *Pr
 				if sinceHash < 0 || sinceUpload < 0 {
 					continue
 				}
+				effectiveTotal := filesTotal
+				if cfg.ReportedItemsTotal > effectiveTotal {
+					effectiveTotal = cfg.ReportedItemsTotal
+				}
 				hashStalled := sinceHash >= int64(cfg.StallSeconds)
 				uploadStalled := sinceUpload >= int64(cfg.StallSeconds)
-				tailPhase := filesTotal > 0 && filesDone >= filesTotal
+				tailPhase := effectiveTotal > 0 && filesDone >= effectiveTotal
 				var stalled bool
 				if tailPhase {
 					stalled = hashStalled || uploadStalled
