@@ -27,6 +27,15 @@ func TestIsBoundedServiceUnavailable(t *testing.T) {
 	}
 }
 
+func TestIsQuotaExceeded(t *testing.T) {
+	if !IsQuotaExceeded(errors.New(`graph 403 Forbidden: {"error":{"code":"ErrorQuotaExceeded"}}`)) {
+		t.Fatal("Exchange ErrorQuotaExceeded must be recognized")
+	}
+	if IsQuotaExceeded(errors.New("graph 403 Forbidden: accessDenied")) {
+		t.Fatal("ordinary access denial must not use quota recovery")
+	}
+}
+
 func TestParseRetryAfterNumeric(t *testing.T) {
 	d := parseRetryAfter("30", 0, 2*time.Second)
 	if d != 30*time.Second {

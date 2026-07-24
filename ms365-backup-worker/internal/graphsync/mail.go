@@ -145,6 +145,7 @@ func SyncMail(ctx context.Context, client *graph.Client, opts MailSyncOptions) (
 
 	g, gctx := errgroup.WithContext(ctx)
 	g.SetLimit(opts.FolderParallel)
+	quotaRetrySlot := make(chan struct{}, 1)
 
 	for _, folder := range folders {
 		folder := folder
@@ -173,6 +174,19 @@ func SyncMail(ctx context.Context, client *graph.Client, opts MailSyncOptions) (
 			}
 			folderMonitor := graph.ForBackupPagination("mail:"+folderName, graphLog(opts.Log))
 			items, deltaLink, err := paginateDeltaResilient(gctx, client, deltaPath, priorDelta, graph.MailMessageSelect, 100, nil, &graph.DeltaPaginateOptions{Monitor: folderMonitor})
+			if graph.IsQuotaExceeded(err) {
+				if opts.Log != nil {
+					opts.Log("warning", fmt.Sprintf("Mail folder quota response; retrying serialized with page size 25 folder=%s", folderName))
+				}
+				select {
+				case quotaRetrySlot <- struct{}{}:
+				case <-gctx.Done():
+					return gctx.Err()
+				}
+				quotaMonitor := graph.ForBackupPagination("mail:"+folderName+":quota-retry", graphLog(opts.Log))
+				items, deltaLink, err = paginateDeltaResilient(gctx, client, deltaPath, priorDelta, graph.MailMessageSelect, 25, nil, &graph.DeltaPaginateOptions{Monitor: quotaMonitor})
+				<-quotaRetrySlot
+			}
 			if err != nil {
 				return fmt.Errorf("folder %s: %w", folderName, err)
 			}

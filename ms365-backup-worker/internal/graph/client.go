@@ -180,6 +180,17 @@ func IsBoundedServiceUnavailable(err error) bool {
 	return strings.Contains(msg, "graph 503") || strings.Contains(msg, "graph 504")
 }
 
+// IsQuotaExceeded reports the Exchange Online ErrorQuotaExceeded shape. It is
+// distinct from ordinary Graph 403 authorization failures and can benefit from
+// a lower-cost, serialized mailbox request.
+func IsQuotaExceeded(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "graph 403") && strings.Contains(msg, "errorquotaexceeded")
+}
+
 // IsMailboxNotEnabled reports whether err indicates the user's mailbox is inactive,
 // soft-deleted, on-premise, or otherwise unavailable via the Graph REST API.
 func IsMailboxNotEnabled(err error) bool {

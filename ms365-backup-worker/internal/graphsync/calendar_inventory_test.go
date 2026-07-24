@@ -22,6 +22,20 @@ func TestSubdivideHourRangeIsTerminal(t *testing.T) {
 	}
 }
 
+func TestSubdivideExactDayRangeUsesHours(t *testing.T) {
+	s := &calendarScanner{}
+	start := time.Date(2026, 3, 13, 0, 0, 0, 0, time.UTC)
+	sub := s.subdivide(timeRange{Start: start, End: start.Add(24 * time.Hour)})
+	if len(sub) != 24 {
+		t.Fatalf("expected exact day partition to split into 24 hours, got %d", len(sub))
+	}
+	for i, r := range sub {
+		if r.End.Sub(r.Start) != time.Hour {
+			t.Fatalf("sub-range %d duration = %s, want 1h", i, r.End.Sub(r.Start))
+		}
+	}
+}
+
 func TestCalendarPartialPartitionResultIsIncomplete(t *testing.T) {
 	result := &calendarScanResult{
 		state: CalendarInventoryState{

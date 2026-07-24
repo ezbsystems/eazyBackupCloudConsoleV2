@@ -218,7 +218,7 @@ func (s *calendarScanner) subdivide(r timeRange) []timeRange {
 		return splitByMonth(r.Start, r.End)
 	case span > 31*24*time.Hour:
 		return splitByDay(r.Start, r.End)
-	case span > 24*time.Hour:
+	case span > time.Hour:
 		return splitByHour(r.Start, r.End)
 	default:
 		return nil

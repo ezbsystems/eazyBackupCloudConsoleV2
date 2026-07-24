@@ -143,6 +143,50 @@ func TestSyncMailKeepsUniqueFoldersAfterFinalRepeatedNextLink(t *testing.T) {
 	}
 }
 
+func TestSyncMailRetriesQuotaExceededFolderWithSmallerPage(t *testing.T) {
+	var deltaPageSizes []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/mailFolders") && !strings.Contains(r.URL.Path, "/messages/"):
+			_, _ = w.Write([]byte(`{"value":[{"id":"folder-junk","displayName":"Junk Email"}]}`))
+		case strings.Contains(r.URL.Path, "/mailFolders/folder-junk/messages/delta"):
+			top := r.URL.Query().Get("$top")
+			deltaPageSizes = append(deltaPageSizes, top)
+			if top == "100" {
+				w.WriteHeader(http.StatusForbidden)
+				_, _ = w.Write([]byte(`{"error":{"code":"ErrorQuotaExceeded","message":"The process failed to get the correct properties."}}`))
+				return
+			}
+			if top != "25" {
+				t.Fatalf("unexpected quota fallback page size %q", top)
+			}
+			_, _ = w.Write([]byte(`{"value":[],"@odata.deltaLink":"https://graph.test/delta-done"}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	client := graph.NewTestClient(srv.URL, graph.ClientOptions{MaxRetries: 1, RetryBaseDelayMs: 1, MaxConcurrency: 2})
+	result, err := SyncMail(context.Background(), client, MailSyncOptions{
+		AzureTenantID:  "tenant-1",
+		UserID:         "user-1",
+		Parallel:       2,
+		FolderParallel: 2,
+		Staging:        graphfs.NewOverlayBuilder(),
+	})
+	if err != nil {
+		t.Fatalf("quota fallback should preserve the folder backup: %v", err)
+	}
+	if strings.Join(deltaPageSizes, ",") != "100,25" {
+		t.Fatalf("delta page sizes = %v, want [100 25]", deltaPageSizes)
+	}
+	if result.Stats.FoldersDelta != 1 {
+		t.Fatalf("delta folders = %d, want 1", result.Stats.FoldersDelta)
+	}
+}
+
 func TestSyncMailProgressReportsMessageCounts(t *testing.T) {
 	const userID = "user-mail-progress"
 	folderIDs := []string{"folder-inbox", "folder-sent"}
