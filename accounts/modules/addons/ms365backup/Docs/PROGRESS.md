@@ -17,7 +17,8 @@
 - **Worker 0.4.13:** (1) stream race drain — discard in-flight response on `attemptCtx` timeout. (2) drop `failSink` on cooperative cancel — clear abort only, let reaper requeue. (4) `ReportedItemsTotal` in stall watch — tail-OR uses max(Kopia `files_total`, graph `items_total`).
 - **PHP 1.52.12:** (3) abort clearing — `resetForQueueRequeue`, `promoteBatchChildToRunning`, and `markFailed` clear `abort_requested_at` so reclaimed children are not re-aborted.
 - **Verification:** `go test ./...` and `go build ./...` PASS. PHP: `ms365_child_abort_reaper_test.php`, `ms365_tenant_owner_recovery_test.php` PASS (15 cases).
-- **Deploy:** Pending commit/push, `deploy-production.sh`, dev build job for **0.4.13**.
+- **Deploy:** Commit `c30aa4f0`; production PHP via `deploy-production.sh` (health OK). Dev build job **125** → release **135** (`sha256 b10813dd…`). Rolling deploy job **97** failed on all nodes: `no space left on device` during binary staging (same blocker as 0.4.12 job **96**).
+- **Status:** PHP **1.52.12** on prod; release **135** / **0.4.13** published on dev; fleet rollout blocked pending disk cleanup on worker nodes.
 
 ### 2026-07-24 — Kopia upload wedge recovery (worker 0.4.12, PHP 1.52.11)
 
