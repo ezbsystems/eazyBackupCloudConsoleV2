@@ -22,6 +22,23 @@ func TestSubdivideHourRangeIsTerminal(t *testing.T) {
 	}
 }
 
+func TestCalendarPartialPartitionResultIsIncomplete(t *testing.T) {
+	result := &calendarScanResult{
+		state: CalendarInventoryState{
+			Complete: false,
+			ScanMode: "partition_partial",
+		},
+	}
+	if err := calendarScanCompletenessError(result); err == nil {
+		t.Fatal("partial partition scan must fail the calendar workload")
+	}
+	if err := calendarScanCompletenessError(&calendarScanResult{
+		state: CalendarInventoryState{Complete: true, ScanMode: "partition"},
+	}); err != nil {
+		t.Fatalf("complete partition scan must remain valid: %v", err)
+	}
+}
+
 func TestCalendarTier2FallsBackAfter504(t *testing.T) {
 	var top1000Calls int
 	var top500Calls int

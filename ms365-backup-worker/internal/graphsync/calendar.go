@@ -54,6 +54,20 @@ type CalendarSyncResult struct {
 	DeltaStates map[string]string
 }
 
+func calendarScanCompletenessError(result *calendarScanResult) error {
+	if result == nil {
+		return fmt.Errorf("calendar inventory returned no result")
+	}
+	if result.state.Complete {
+		return nil
+	}
+
+	return &graph.GraphPaginationError{
+		Message: "Graph pagination loop left calendar inventory incomplete",
+		Context: "scan_mode=" + result.state.ScanMode,
+	}
+}
+
 func SyncCalendar(ctx context.Context, client *graph.Client, opts CalendarSyncOptions) (*CalendarSyncResult, error) {
 	if opts.Parallel <= 0 {
 		opts.Parallel = 8
@@ -103,6 +117,12 @@ func SyncCalendar(ctx context.Context, client *graph.Client, opts CalendarSyncOp
 			scanner.tryMarkSeen = seen.MarkIfNew
 			result, err := scanner.run(gctx)
 			if err != nil {
+				return err
+			}
+			if err := calendarScanCompletenessError(result); err != nil {
+				if opts.Log != nil {
+					opts.Log("error", fmt.Sprintf("Calendar backup incomplete calendar=%s: %v", truncateID(calID), err))
+				}
 				return err
 			}
 			if err := enrichCalendarEvents(gctx, client, opts, calID, scanner.enrichQueue); err != nil {
