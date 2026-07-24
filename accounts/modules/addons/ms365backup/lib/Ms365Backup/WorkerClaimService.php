@@ -1687,6 +1687,9 @@ final class WorkerClaimService
                     'status' => 'queued',
                     'updated_at' => $now,
                 ];
+                if (ChildAbortRepository::columnReady()) {
+                    $runUpdate['abort_requested_at'] = null;
+                }
                 if (!$infrastructureRequeue) {
                     $runUpdate['phase'] = '';
                     $runUpdate['percent'] = 0;

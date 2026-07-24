@@ -36,6 +36,8 @@ type Scheduler struct {
 	running              map[string]struct{}
 	runCancelMu          sync.Mutex
 	runCancels           map[string]context.CancelFunc
+	abortRequestedMu     sync.Mutex
+	abortRequested       map[string]struct{}
 	bucketMu             sync.Mutex
 	activeBuckets        map[string]int
 	reserved             resourceBudget
@@ -1045,6 +1047,48 @@ func (s *Scheduler) cancelRun(runID string) {
 	s.runCancelMu.Unlock()
 	if ok && cancel != nil {
 		cancel()
+	}
+}
+
+func (s *Scheduler) markAbortRequested(runID string) {
+	if runID == "" {
+		return
+	}
+	s.abortRequestedMu.Lock()
+	if s.abortRequested == nil {
+		s.abortRequested = make(map[string]struct{})
+	}
+	s.abortRequested[runID] = struct{}{}
+	s.abortRequestedMu.Unlock()
+}
+
+func (s *Scheduler) isAbortRequested(runID string) bool {
+	if runID == "" {
+		return false
+	}
+	s.abortRequestedMu.Lock()
+	_, ok := s.abortRequested[runID]
+	s.abortRequestedMu.Unlock()
+	return ok
+}
+
+func (s *Scheduler) clearAbortRequested(runID string) {
+	if runID == "" {
+		return
+	}
+	s.abortRequestedMu.Lock()
+	delete(s.abortRequested, runID)
+	s.abortRequestedMu.Unlock()
+}
+
+func (s *Scheduler) abortRuns(runIDs []string) {
+	for _, runID := range runIDs {
+		runID = strings.TrimSpace(runID)
+		if runID == "" {
+			continue
+		}
+		s.markAbortRequested(runID)
+		s.cancelRun(runID)
 	}
 }
 

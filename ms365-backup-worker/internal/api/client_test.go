@@ -272,7 +272,7 @@ func TestBatchProgressCancelRequested(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(srv.URL, "tok", "node-1")
-	cancel, budget, err := c.BatchProgress(context.Background(), BatchProgressUpdate{
+	cancel, budget, abortRunIDs, err := c.BatchProgress(context.Background(), BatchProgressUpdate{
 		BatchRunID: "batch-1",
 		Children:   []ProgressUpdate{{RunID: "c1", Phase: "graph_sync"}},
 	})
@@ -281,6 +281,29 @@ func TestBatchProgressCancelRequested(t *testing.T) {
 	}
 	if !cancel || budget != 16 {
 		t.Fatalf("cancel=%v budget=%d", cancel, budget)
+	}
+	if len(abortRunIDs) != 0 {
+		t.Fatalf("abortRunIDs=%v want empty", abortRunIDs)
+	}
+}
+
+func TestBatchProgressAbortRunIDs(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"success","data":{"abort_run_ids":["child-a","child-b"]}}`))
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "tok", "node-1")
+	_, _, abortRunIDs, err := c.BatchProgress(context.Background(), BatchProgressUpdate{
+		BatchRunID: "batch-1",
+		Children:   []ProgressUpdate{{RunID: "c1", Phase: "upload"}},
+	})
+	if err != nil {
+		t.Fatalf("BatchProgress: %v", err)
+	}
+	if len(abortRunIDs) != 2 || abortRunIDs[0] != "child-a" {
+		t.Fatalf("abortRunIDs=%v", abortRunIDs)
 	}
 }
 

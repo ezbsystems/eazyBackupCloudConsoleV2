@@ -44,38 +44,6 @@ final class Ms365RestoreWorkerHooks
         WorkerLeaseService::renewForBatch($batchRunId, $nodeId);
         Ms365BatchClaimRepository::recordProgress($batchRunId, $nodeId);
 
-        // #region agent log
-        if ($batchRunId === 'bbf034af-ffe9-473d-916a-ad4350ef892b') {
-            $debugChildren = [];
-            foreach ($children as $debugChild) {
-                if (!is_array($debugChild)) {
-                    continue;
-                }
-                $debugChildren[] = [
-                    'run_id' => (string) ($debugChild['run_id'] ?? ''),
-                    'phase' => (string) ($debugChild['phase'] ?? ''),
-                    'no_progress' => !empty($debugChild['no_progress']),
-                    'throttle_waiting' => !empty($debugChild['throttle_waiting']),
-                    'items_done' => (int) ($debugChild['items_done'] ?? 0),
-                    'items_total' => (int) ($debugChild['items_total'] ?? 0),
-                    'bytes_hashed' => (int) ($debugChild['bytes_hashed'] ?? 0),
-                    'bytes_uploaded' => (int) ($debugChild['bytes_uploaded'] ?? 0),
-                    'graph_requests' => (int) ($debugChild['graph_requests'] ?? 0),
-                    'graph_429_hits' => (int) ($debugChild['graph_429_hits'] ?? 0),
-                ];
-            }
-            file_put_contents('/var/www/eazybackup.ca/.cursor/debug-062be2.log', json_encode([
-                'sessionId' => '062be2',
-                'runId' => $batchRunId,
-                'hypothesisId' => 'H2,H3',
-                'location' => 'Ms365RestoreWorkerHooks.php:onBatchProgress',
-                'message' => 'Incoming coalesced child progress snapshots',
-                'data' => ['node_id' => $nodeId, 'children' => $debugChildren],
-                'timestamp' => (int) floor(microtime(true) * 1000),
-            ], JSON_UNESCAPED_SLASHES) . "\n", FILE_APPEND | LOCK_EX);
-        }
-        // #endregion
-
         $graphTenantBudget = 0;
         $tenantRecordId = 0;
         $azureTenantId = '';
@@ -210,7 +178,7 @@ final class Ms365RestoreWorkerHooks
         if ($noProgress) {
             if ($throttleWaiting || $delta429 > 0 || $graphSyncRequestLiveness) {
                 $fields = ['updated_at' => time()];
-                if (($throttleWaiting || $delta429 > 0)
+                if (($throttleWaiting || $delta429 > 0 || $graphSyncRequestLiveness)
                     && \WHMCS\Database\Capsule::schema()->hasColumn('ms365_backup_runs', 'last_progress_at')) {
                     $fields['last_progress_at'] = time();
                 }
@@ -243,13 +211,9 @@ final class Ms365RestoreWorkerHooks
                     GraphTenantBudgetService::recordTenant429($tenantRecordId, $azureTenantId, $delta429);
                 }
             } elseif (Ms365BatchRunRepository::isUploadLikePhase($effectivePhase)) {
-                // Kopia upload/hash can run for long stretches without byte deltas; keep
-                // liveness fresh so reapers and the live UI do not treat the run as stalled.
-                $uploadFields = ['updated_at' => time()];
-                if (\WHMCS\Database\Capsule::schema()->hasColumn('ms365_backup_runs', 'last_progress_at')) {
-                    $uploadFields['last_progress_at'] = time();
-                }
-                BackupRunRepository::update($runId, $uploadFields);
+                // Upload no_progress heartbeats renew lease only; byte-flat upload tails
+                // must remain reaper-visible via last_progress_at silence.
+                BackupRunRepository::update($runId, ['updated_at' => time()]);
                 if ($renewLease) {
                     WorkerLeaseService::renewForRun($runId);
                 }
@@ -382,7 +346,7 @@ final class Ms365RestoreWorkerHooks
             || $nextBytesUploaded > $storedBytesUploadedForDelta;
         if (Ms365BatchRunRepository::isGraphBoundPhase($persistedPhase)
             && !self::hasKopiaActivity($existing)
-            && $hasThroughputDelta
+            && ($hasThroughputDelta || ($incomingPercent > 0 && $storedItemsForDelta <= 0 && $storedItemsTotalForDelta <= 0))
             && \WHMCS\Database\Capsule::schema()->hasColumn('ms365_backup_runs', 'last_progress_at')) {
             $fields['last_progress_at'] = time();
         }
@@ -459,12 +423,7 @@ final class Ms365RestoreWorkerHooks
             if ($renewLease) {
                 WorkerLeaseService::renewForRun($runId);
             }
-            if (\WHMCS\Database\Capsule::schema()->hasColumn('ms365_backup_runs', 'last_progress_at')) {
-                BackupRunRepository::update($runId, [
-                    'updated_at' => time(),
-                    'last_progress_at' => time(),
-                ]);
-            }
+            BackupRunRepository::update($runId, ['updated_at' => time()]);
             WorkerClaimService::clearQueueOperationalMessage($runId);
         }
 

@@ -468,30 +468,6 @@ final class Ms365BatchClaimRepository
             ->pluck('r.e3_batch_run_id')
             ->all();
 
-        // #region agent log
-        if (in_array('bbf034af-ffe9-473d-916a-ad4350ef892b', $batchRunIds, true)) {
-            $debugBatchId = 'bbf034af-ffe9-473d-916a-ad4350ef892b';
-            file_put_contents('/var/www/eazybackup.ca/.cursor/debug-062be2.log', json_encode([
-                'sessionId' => '062be2',
-                'runId' => $debugBatchId,
-                'hypothesisId' => 'H1,H4',
-                'location' => 'Ms365BatchClaimRepository.php:reconcileStrandedBatchQueuedChildren',
-                'message' => 'Batch selected for queued-retry claim handoff',
-                'data' => [
-                    'running_children' => Capsule::table('ms365_backup_runs')
-                        ->where('e3_batch_run_id', $debugBatchId)
-                        ->where('status', 'running')
-                        ->count(),
-                    'queued_children' => Capsule::table('ms365_backup_runs')
-                        ->where('e3_batch_run_id', $debugBatchId)
-                        ->where('status', 'queued')
-                        ->count(),
-                ],
-                'timestamp' => (int) floor(microtime(true) * 1000),
-            ], JSON_UNESCAPED_SLASHES) . "\n", FILE_APPEND | LOCK_EX);
-        }
-        // #endregion
-
         return self::handOffRunningBatchClaims($batchRunIds, 'Stranded queued batch children');
     }
 
@@ -639,10 +615,7 @@ final class Ms365BatchClaimRepository
             return 0;
         }
         $now = time();
-        $query = Capsule::table('ms365_backup_runs')
-            ->where('status', 'running')
-            ->whereNotNull('e3_batch_run_id')
-            ->where('e3_batch_run_id', '!=', '');
+        $liveBatchSet = [];
         if (self::tableReady()) {
             $heartbeatCutoff = $now - Ms365EngineConfig::batchHeartbeatGapSeconds();
             $liveBatchIds = Capsule::table('ms365_batch_claims')
@@ -651,27 +624,34 @@ final class Ms365BatchClaimRepository
                 ->where('lease_expires_at', '>', $now)
                 ->pluck('batch_run_id')
                 ->all();
-            if ($liveBatchIds !== []) {
-                // Tenant-owner workers remain authoritative for their children.
-                // Requeueing a child in MySQL cannot stop its in-process goroutine
-                // and causes running/queued status ping-pong until the worker exits.
-                $query->whereNotIn('e3_batch_run_id', $liveBatchIds);
+            foreach ($liveBatchIds as $batchRunId) {
+                $liveBatchSet[(string) $batchRunId] = true;
             }
         }
-        $rows = $query
-            ->get([
-                'id',
-                'e3_batch_run_id',
-                'phase',
-                'last_progress_at',
-                'updated_at',
-                'items_done',
-                'items_total',
-                'bytes_hashed',
-                'bytes_uploaded',
-            ]);
+
+        $select = [
+            'id',
+            'e3_batch_run_id',
+            'phase',
+            'last_progress_at',
+            'updated_at',
+            'items_done',
+            'items_total',
+            'bytes_hashed',
+            'bytes_uploaded',
+        ];
+        if (ChildAbortRepository::columnReady()) {
+            $select[] = 'abort_requested_at';
+        }
+        $rows = Capsule::table('ms365_backup_runs')
+            ->where('status', 'running')
+            ->whereNotNull('e3_batch_run_id')
+            ->where('e3_batch_run_id', '!=', '')
+            ->get($select);
 
         $toRequeue = [];
+        $toRequeueLive = [];
+        $toAbort = [];
         foreach ($rows as $row) {
             $runId = (string) ($row->id ?? '');
             if ($runId === '') {
@@ -688,22 +668,17 @@ final class Ms365BatchClaimRepository
             if (Ms365BatchRunRepository::isUploadLikePhase($phase)
                 && $itemsDone > 0
                 && ($itemsTotal <= 0 || $itemsDone < $itemsTotal)) {
-                // Tail upload shards can heartbeat without byte deltas; reap sooner so
-                // scheduler slots free for stranded queued siblings.
                 $silenceSeconds = min($silenceSeconds, 600);
             }
             if (Ms365BatchRunRepository::isGraphBoundPhase($phase)
                 && $bytesHashed === 0
                 && $bytesUploaded === 0
                 && $itemsDone > 0) {
-                // Per-page graph progress can show items_done==items_total while staging
-                // is still running or wedged; reap at 10m instead of 30m.
                 $silenceSeconds = min($silenceSeconds, 600);
             }
             if ((Ms365BatchRunRepository::isUploadLikePhase($phase) || $bytesHashed > 0)
                 && $itemsTotal > 0
                 && $itemsDone >= $itemsTotal) {
-                // Kopia tail can freeze at 100% items with no byte movement.
                 $silenceSeconds = min($silenceSeconds, 600);
             }
             $staleProgress = $freshness > 0 && $freshness < ($now - $silenceSeconds);
@@ -714,51 +689,50 @@ final class Ms365BatchClaimRepository
                 && (int) ($queue->lease_expires_at ?? 0) > 0
                 && (int) $queue->lease_expires_at < $now;
 
-            if ($staleProgress || $staleLease) {
-                // #region agent log
-                if ((string) ($row->e3_batch_run_id ?? '') === 'bbf034af-ffe9-473d-916a-ad4350ef892b') {
-                    file_put_contents('/var/www/eazybackup.ca/.cursor/debug-062be2.log', json_encode([
-                        'sessionId' => '062be2',
-                        'runId' => (string) ($row->e3_batch_run_id ?? ''),
-                        'hypothesisId' => 'H3,H4',
-                        'location' => 'Ms365BatchClaimRepository.php:reapStalledBatchChildren',
-                        'message' => 'Active child selected for stale-progress requeue',
-                        'data' => [
-                            'child_run_id' => $runId,
-                            'phase' => $phase,
-                            'freshness_age_s' => $freshness > 0 ? $now - $freshness : null,
-                            'silence_threshold_s' => $silenceSeconds,
-                            'stale_progress' => $staleProgress,
-                            'stale_lease' => $staleLease,
-                            'items_done' => $itemsDone,
-                            'items_total' => $itemsTotal,
-                            'bytes_hashed' => $bytesHashed,
-                            'bytes_uploaded' => $bytesUploaded,
-                        ],
-                        'timestamp' => (int) floor(microtime(true) * 1000),
-                    ], JSON_UNESCAPED_SLASHES) . "\n", FILE_APPEND | LOCK_EX);
-                }
-                // #endregion
-                $toRequeue[] = $runId;
+            if (!$staleProgress && !$staleLease) {
+                continue;
             }
+
+            $batchRunId = (string) ($child['e3_batch_run_id'] ?? '');
+            if ($batchRunId !== '' && isset($liveBatchSet[$batchRunId])) {
+                $abortAt = (int) ($child['abort_requested_at'] ?? 0);
+                if ($abortAt <= 0) {
+                    $toAbort[] = $runId;
+                } elseif (($now - $abortAt) >= ChildAbortRepository::REQUEUE_AFTER_SECONDS) {
+                    $toRequeueLive[] = $runId;
+                }
+                continue;
+            }
+
+            $toRequeue[] = $runId;
+        }
+
+        $actions = 0;
+        if ($toAbort !== []) {
+            $actions += ChildAbortRepository::markAbortRequested($toAbort, $now);
         }
 
         $toRequeue = array_values(array_unique($toRequeue));
-        if ($toRequeue === []) {
-            return 0;
+        if ($toRequeue !== []) {
+            WorkerClaimService::requeueBackupRuns(
+                $toRequeue,
+                'Child progress stale (batch sibling heartbeats)'
+            );
+            ChildAbortRepository::clearAbortRequested($toRequeue);
+            $actions += count($toRequeue);
         }
 
-        WorkerClaimService::requeueBackupRuns(
-            $toRequeue,
-            'Child progress stale (batch sibling heartbeats)'
-        );
+        $toRequeueLive = array_values(array_unique($toRequeueLive));
+        if ($toRequeueLive !== []) {
+            WorkerClaimService::requeueBackupRuns(
+                $toRequeueLive,
+                'Child progress stale (live owner abort)'
+            );
+            ChildAbortRepository::clearAbortRequested($toRequeueLive);
+            $actions += count($toRequeueLive);
+        }
 
-        // Do not hand off the whole batch here. Immediate hand-off cancels every in-flight
-        // sibling (prior_snapshot / graph_sync) and was the other half of the claim-thrash
-        // loop. Reaped children get scheduled_at > claimed_at and are picked up by
-        // reconcileStrandedBatchQueuedChildren after the grace window.
-
-        return count($toRequeue);
+        return $actions;
     }
 
     /**

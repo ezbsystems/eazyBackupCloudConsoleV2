@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"math/rand"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -53,8 +54,9 @@ type Client struct {
 	azureTenantID      string
 	lastThrottleAt     atomic.Int64
 	requestsTotal      int64
-	contentReadIdle    time.Duration
-	contentReadRetries int
+	contentReadIdle       time.Duration
+	contentReadRetries    int
+	streamHeaderTimeout   time.Duration
 }
 
 // TokenRefreshFunc fetches a new Graph bearer token (e.g. from WHMCS mid-run refresh API).
@@ -108,26 +110,39 @@ func NewClient(token, region string, opts ClientOptions) *Client {
 		retries = 3
 	}
 
-	transport := &http.Transport{
+	headerTimeout := time.Duration(headerSec) * time.Second
+	jsonTransport := &http.Transport{
 		MaxIdleConns:          concurrency * 2,
 		MaxIdleConnsPerHost:   concurrency,
 		MaxConnsPerHost:       concurrency,
 		IdleConnTimeout:       90 * time.Second,
-		ResponseHeaderTimeout: time.Duration(headerSec) * time.Second,
+		ResponseHeaderTimeout: headerTimeout,
 		ForceAttemptHTTP2:     true,
+	}
+	streamDialer := &net.Dialer{Timeout: 30 * time.Second}
+	streamTransport := &http.Transport{
+		MaxIdleConns:          concurrency * 2,
+		MaxIdleConnsPerHost:   concurrency,
+		MaxConnsPerHost:       concurrency,
+		IdleConnTimeout:       90 * time.Second,
+		ResponseHeaderTimeout: headerTimeout,
+		ForceAttemptHTTP2:     false,
+		DialContext:           streamDialer.DialContext,
+		TLSHandshakeTimeout:   15 * time.Second,
 	}
 
 	c := &Client{
-		token:              token,
-		graphBase:          strings.TrimRight(base, "/") + "/v1.0",
-		httpClient:         &http.Client{Timeout: 120 * time.Second, Transport: transport},
-		streamClient:       &http.Client{Timeout: 0, Transport: transport},
-		maxRetries:         maxRetries,
-		retryDelay:         time.Duration(retryDelayMs) * time.Millisecond,
-		sem:                make(chan struct{}, concurrency),
-		maxConcurrency:     concurrency,
-		contentReadIdle:    time.Duration(idleSec) * time.Second,
-		contentReadRetries: retries,
+		token:               token,
+		graphBase:           strings.TrimRight(base, "/") + "/v1.0",
+		httpClient:          &http.Client{Timeout: 120 * time.Second, Transport: jsonTransport},
+		streamClient:        &http.Client{Timeout: 0, Transport: streamTransport},
+		maxRetries:          maxRetries,
+		retryDelay:          time.Duration(retryDelayMs) * time.Millisecond,
+		sem:                 make(chan struct{}, concurrency),
+		maxConcurrency:      concurrency,
+		contentReadIdle:     time.Duration(idleSec) * time.Second,
+		contentReadRetries:  retries,
+		streamHeaderTimeout: headerTimeout,
 	}
 	if opts.AdaptiveLimit {
 		c.adaptiveEnabled = true
@@ -1008,6 +1023,57 @@ func (c *Client) GetStreamRange(ctx context.Context, path string, offset int64) 
 	return c.getStream(ctx, path, offset)
 }
 
+// doStreamAttempt issues one content-stream GET with a per-attempt header/TCP deadline
+// and Connection: close to avoid poisoned pooled HTTP/2 connections. On success the
+// returned cancel func must run when the response body is fully consumed or closed.
+func (c *Client) doStreamAttempt(ctx context.Context, req *http.Request, offset int64) (*http.Response, context.CancelFunc, error) {
+	timeout := c.streamHeaderTimeout
+	if timeout <= 0 {
+		timeout = 120 * time.Second
+	}
+	attemptCtx, cancel := context.WithTimeout(ctx, timeout)
+
+	reqClone := req.Clone(ctx)
+	c.setRequestHeaders(reqClone)
+	if offset > 0 && reqClone.Header.Get("Range") == "" {
+		reqClone.Header.Set("Range", fmt.Sprintf("bytes=%d-", offset))
+	}
+	reqClone.Close = true
+
+	type doResult struct {
+		resp *http.Response
+		err  error
+	}
+	ch := make(chan doResult, 1)
+	go func() {
+		hdrReq := reqClone.Clone(attemptCtx)
+		resp, err := c.streamClient.Do(hdrReq)
+		ch <- doResult{resp: resp, err: err}
+	}()
+
+	select {
+	case <-attemptCtx.Done():
+		cancel()
+		return nil, nil, attemptCtx.Err()
+	case res := <-ch:
+		if res.err != nil {
+			cancel()
+			return nil, nil, res.err
+		}
+		return res.resp, cancel, nil
+	}
+}
+
+func discardStreamResponse(resp *http.Response, headerCancel context.CancelFunc) {
+	if resp != nil && resp.Body != nil {
+		io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+	}
+	if headerCancel != nil {
+		headerCancel()
+	}
+}
+
 func (c *Client) getStream(ctx context.Context, path string, offset int64) (io.ReadCloser, int64, error) {
 	u := c.graphBase + "/" + strings.TrimPrefix(path, "/")
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
@@ -1039,13 +1105,7 @@ func (c *Client) getStream(ctx context.Context, path string, offset int64) (io.R
 			return nil, 0, err
 		}
 
-		reqClone := req.Clone(ctx)
-		c.setRequestHeaders(reqClone)
-		if offset > 0 && reqClone.Header.Get("Range") == "" {
-			reqClone.Header.Set("Range", fmt.Sprintf("bytes=%d-", offset))
-		}
-
-		resp, err := c.streamClient.Do(reqClone)
+		resp, headerCancel, err := c.doStreamAttempt(ctx, req, offset)
 		if err != nil {
 			lastErr = err
 			if sleepErr := c.sleepRetry(ctx, parseRetryAfter("", attempt, c.retryDelay)); sleepErr != nil {
@@ -1061,8 +1121,8 @@ func (c *Client) getStream(ctx context.Context, path string, offset int64) (io.R
 		retryAfter := resp.Header.Get("Retry-After")
 
 		for statusCode == http.StatusTooManyRequests {
-			io.Copy(io.Discard, resp.Body)
-			resp.Body.Close()
+			discardStreamResponse(resp, headerCancel)
+			headerCancel = nil
 			delay := parseRetryAfter429(retryAfter, throttle429Attempt, c.retryDelay)
 			c.record429(delay)
 			throttle429Attempt++
@@ -1087,12 +1147,7 @@ func (c *Client) getStream(ctx context.Context, path string, offset int64) (io.R
 				}
 				return nil, 0, err
 			}
-			reqClone = req.Clone(ctx)
-			c.setRequestHeaders(reqClone)
-			if offset > 0 && reqClone.Header.Get("Range") == "" {
-				reqClone.Header.Set("Range", fmt.Sprintf("bytes=%d-", offset))
-			}
-			resp, err = c.streamClient.Do(reqClone)
+			resp, headerCancel, err = c.doStreamAttempt(ctx, req, offset)
 			if err != nil {
 				// Transport still held here; the shared post-loop error handler
 				// releases it exactly once via sleepRetry. Releasing here too
@@ -1114,8 +1169,8 @@ func (c *Client) getStream(ctx context.Context, path string, offset int64) (io.R
 		}
 
 		if isBoundedRetryableStatus(statusCode) && attempt < c.maxRetries {
-			io.Copy(io.Discard, resp.Body)
-			resp.Body.Close()
+			discardStreamResponse(resp, headerCancel)
+			headerCancel = nil
 			// sleepRetry releases the transport exactly once; an extra
 			// releaseTransport here double-drained the global semaphore and
 			// deadlocked later requests in releaseGlobal (observed live on
@@ -1131,8 +1186,7 @@ func (c *Client) getStream(ctx context.Context, path string, offset int64) (io.R
 		}
 
 		if statusCode == http.StatusRequestedRangeNotSatisfiable {
-			io.Copy(io.Discard, resp.Body)
-			resp.Body.Close()
+			discardStreamResponse(resp, headerCancel)
 			c.releaseTransport()
 			if workloadHeld {
 				c.releaseWorkload()
@@ -1143,6 +1197,9 @@ func (c *Client) getStream(ctx context.Context, path string, offset int64) (io.R
 		if statusCode >= 400 {
 			body, _ := io.ReadAll(resp.Body)
 			resp.Body.Close()
+			if headerCancel != nil {
+				headerCancel()
+			}
 			c.releaseTransport()
 			if workloadHeld {
 				c.releaseWorkload()
@@ -1173,9 +1230,10 @@ func (c *Client) getStream(ctx context.Context, path string, offset int64) (io.R
 			body = newIdleTimeoutReader(body, c.contentReadIdle)
 		}
 		return &streamBody{
-			ReadCloser: body,
-			release:    releaseHeld,
-			onClose:    c.recordSuccess,
+			ReadCloser:   body,
+			release:      releaseHeld,
+			onClose:      c.recordSuccess,
+			headerCancel: headerCancel,
 		}, size, nil
 	}
 	if workloadHeld {
@@ -1186,14 +1244,18 @@ func (c *Client) getStream(ctx context.Context, path string, offset int64) (io.R
 
 type streamBody struct {
 	io.ReadCloser
-	release func()
-	onClose func()
-	once    sync.Once
+	release      func()
+	onClose      func()
+	headerCancel context.CancelFunc
+	once         sync.Once
 }
 
 func (s *streamBody) Close() error {
 	err := s.ReadCloser.Close()
 	s.once.Do(func() {
+		if s.headerCancel != nil {
+			s.headerCancel()
+		}
 		if s.onClose != nil {
 			s.onClose()
 		}

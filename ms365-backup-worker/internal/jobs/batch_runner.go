@@ -2,10 +2,8 @@ package jobs
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
-	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -19,32 +17,6 @@ import (
 type batchChildRunner interface {
 	RunSafe(context.Context, *api.RunJob, context.CancelFunc) error
 }
-
-// #region agent log
-func agentDebugBatchDrain(hypothesisID, location, message string, data map[string]any) {
-	now := time.Now()
-	payload := map[string]any{
-		"sessionId":    "6f5f7c",
-		"runId":        "batch-drain-repro",
-		"hypothesisId": hypothesisID,
-		"location":     location,
-		"message":      message,
-		"data":         data,
-		"timestamp":    now.UnixMilli(),
-	}
-	line, err := json.Marshal(payload)
-	if err != nil {
-		return
-	}
-	file, err := os.OpenFile("/var/www/eazybackup.ca/.cursor/debug-6f5f7c.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
-	if err != nil {
-		return
-	}
-	defer file.Close()
-	_, _ = file.Write(append(line, '\n'))
-}
-
-// #endregion
 
 type BatchRunner struct {
 	cfg              *config.Config
@@ -143,7 +115,7 @@ func (h *batchProgressHub) sendThrottled(ctx context.Context, onAbort context.Ca
 	if len(children) == 0 {
 		return
 	}
-	if cancel, budget, err := h.client.BatchProgress(ctx, api.BatchProgressUpdate{
+	if cancel, budget, _, err := h.client.BatchProgress(ctx, api.BatchProgressUpdate{
 		BatchRunID: h.batchRunID,
 		Children:   children,
 	}); err == nil {
@@ -170,7 +142,7 @@ func (h *batchProgressHub) flush(ctx context.Context, message string) {
 		return
 	}
 	flushCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
-	_, _, _ = h.client.BatchProgress(flushCtx, api.BatchProgressUpdate{
+	_, _, _, _ = h.client.BatchProgress(flushCtx, api.BatchProgressUpdate{
 		BatchRunID: h.batchRunID,
 		Children:   children,
 	})
@@ -285,7 +257,7 @@ func (br *BatchRunner) Run(ctx context.Context, batch *api.BatchJob, onAbort con
 			BatchRunID: batchRunID,
 			Children:   hub.snapshot(),
 		}
-	}), onAbort, onTenantBudget, func() {
+	}), onAbort, br.scheduler.abortRuns, onTenantBudget, func() {
 		if br.completionOutbox != nil {
 			fctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 			br.completionOutbox.Flush(fctx, br.client)
@@ -382,40 +354,15 @@ func (br *BatchRunner) Run(ctx context.Context, batch *api.BatchJob, onAbort con
 			select {
 			case sem <- struct{}{}:
 			case <-ctx.Done():
-				// #region agent log
-				agentDebugBatchDrain("D1,D2", "internal/jobs/batch_runner.go:dispatch:slot-cancelled", "child dispatch cancelled while waiting for slot", map[string]any{
-					"batch_id": batchRunID,
-					"run_id":   child.RunID,
-				})
-				// #endregion
 				return
 			}
 			defer func() { <-sem }()
-			// #region agent log
-			agentDebugBatchDrain("D1,D2", "internal/jobs/batch_runner.go:dispatch:slot-acquired", "child acquired dispatch slot", map[string]any{
-				"batch_id":          batchRunID,
-				"run_id":            child.RunID,
-				"context_cancelled": ctx.Err() != nil,
-			})
-			// #endregion
 			if ctx.Err() != nil {
-				// #region agent log
-				agentDebugBatchDrain("D1,D2", "internal/jobs/batch_runner.go:dispatch:post-slot-cancelled", "child dispatch cancelled after slot acquisition", map[string]any{
-					"batch_id": batchRunID,
-					"run_id":   child.RunID,
-				})
-				// #endregion
 				return
 			}
 
 			for {
 				if ctx.Err() != nil {
-					// #region agent log
-					agentDebugBatchDrain("D1,D2", "internal/jobs/batch_runner.go:dispatch:reservation-cancelled", "child dispatch cancelled while waiting for reservation", map[string]any{
-						"batch_id": batchRunID,
-						"run_id":   child.RunID,
-					})
-					// #endregion
 					return
 				}
 				if br.scheduler.tryReserve(child) {
@@ -432,26 +379,17 @@ func (br *BatchRunner) Run(ctx context.Context, batch *api.BatchJob, onAbort con
 			childCtx, cancel := context.WithCancel(batchCtx)
 			defer cancel()
 			if childCtx.Err() != nil {
-				// #region agent log
-				agentDebugBatchDrain("D1,D2", "internal/jobs/batch_runner.go:dispatch:pre-start-cancelled", "child dispatch cancelled before runner start", map[string]any{
-					"batch_id": batchRunID,
-					"run_id":   child.RunID,
-				})
-				// #endregion
 				return
 			}
 			br.scheduler.registerRunCancel(child.RunID, cancel)
 			defer br.scheduler.unregisterRunCancel(child.RunID)
 
-			// #region agent log
-			agentDebugBatchDrain("D1,D2,D3", "internal/jobs/batch_runner.go:dispatch:before-run", "starting child runner", map[string]any{
-				"batch_id":          batchRunID,
-				"run_id":            child.RunID,
-				"context_cancelled": childCtx.Err() != nil,
-			})
-			// #endregion
 			if err := br.runner.RunSafe(childCtx, child, cancel); err != nil {
 				if isCooperativeCancel(err, childCtx) {
+					if br.scheduler.isAbortRequested(child.RunID) {
+						br.scheduler.clearAbortRequested(child.RunID)
+						brc.failSink(child.RunID, "Child progress stale (aborted by control plane)")
+					}
 					return
 				}
 				firstErrOnce.Do(func() { firstErr = err })
@@ -459,12 +397,6 @@ func (br *BatchRunner) Run(ctx context.Context, batch *api.BatchJob, onAbort con
 		}()
 	}
 	wg.Wait()
-	// #region agent log
-	agentDebugBatchDrain("D1,D2,D3", "internal/jobs/batch_runner.go:dispatch:wait-complete", "batch child goroutines completed", map[string]any{
-		"batch_id":          batchRunID,
-		"context_cancelled": ctx.Err() != nil,
-	})
-	// #endregion
 
 	return firstErr
 }
@@ -481,7 +413,7 @@ func (br *BatchRunner) FlushProgressCheckpoint(ctx context.Context, batchRunID, 
 		children = append(children, upd)
 	}
 	flushCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
-	_, _, _ = br.client.BatchProgress(flushCtx, api.BatchProgressUpdate{
+	_, _, _, _ = br.client.BatchProgress(flushCtx, api.BatchProgressUpdate{
 		BatchRunID: batchRunID,
 		Children:   children,
 	})
@@ -500,31 +432,47 @@ func stallAwareBatchProgressFn(stallSeconds int, getUpdate func() api.BatchProgr
 	if stallSeconds <= 0 {
 		return getUpdate
 	}
-	// Reuse per-run stall tracking by flattening the first child update for stall detection.
-	var lastItemsDone int
-	var lastBytes int64
-	var flatSince time.Time
+	stall := time.Duration(stallSeconds) * time.Second
+	type childState struct {
+		lastChange  time.Time
+		lastItems   int
+		lastBytesH  int64
+		lastBytesU  int64
+		last429     int64
+		lastReqs    int64
+		initialized bool
+	}
+	states := make(map[string]*childState)
 	return func() api.BatchProgressUpdate {
 		upd := getUpdate()
-		if len(upd.Children) == 0 {
-			return upd
-		}
-		child := upd.Children[0]
-		if child.ItemsDone != lastItemsDone || child.BytesHashed != lastBytes || child.BytesUploaded != lastBytes {
-			lastItemsDone = child.ItemsDone
-			lastBytes = child.BytesHashed
-			if child.BytesUploaded > lastBytes {
-				lastBytes = child.BytesUploaded
+		now := time.Now()
+		for i := range upd.Children {
+			child := upd.Children[i]
+			runID := strings.TrimSpace(child.RunID)
+			if runID == "" {
+				continue
 			}
-			flatSince = time.Time{}
-			return upd
-		}
-		if flatSince.IsZero() {
-			flatSince = time.Now()
-			return upd
-		}
-		if time.Since(flatSince) >= time.Duration(stallSeconds)*time.Second {
-			for i := range upd.Children {
+			st, ok := states[runID]
+			if !ok {
+				st = &childState{}
+				states[runID] = st
+			}
+			changed := child.ItemsDone != st.lastItems ||
+				child.BytesHashed != st.lastBytesH ||
+				child.BytesUploaded != st.lastBytesU
+			throttleActivity := child.Graph429Hits > st.last429
+			requestActivity := child.GraphRequests > st.lastReqs
+			if !st.initialized || changed || throttleActivity || requestActivity {
+				st.lastItems = child.ItemsDone
+				st.lastBytesH = child.BytesHashed
+				st.lastBytesU = child.BytesUploaded
+				st.last429 = child.Graph429Hits
+				st.lastReqs = child.GraphRequests
+				st.lastChange = now
+				st.initialized = true
+				continue
+			}
+			if now.Sub(st.lastChange) >= stall {
 				upd.Children[i].NoProgress = true
 			}
 		}

@@ -12,37 +12,10 @@ import (
 	"math/rand"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 	"sync"
 	"time"
 )
-
-// #region agent log
-func agentDebugTokenRefresh(hypothesisID, location, message string, data map[string]any) {
-	now := time.Now()
-	payload := map[string]any{
-		"sessionId":    "6f5f7c",
-		"runId":        "token-refresh-repro",
-		"hypothesisId": hypothesisID,
-		"location":     location,
-		"message":      message,
-		"data":         data,
-		"timestamp":    now.UnixMilli(),
-	}
-	line, err := json.Marshal(payload)
-	if err != nil {
-		return
-	}
-	file, err := os.OpenFile("/var/www/eazybackup.ca/.cursor/debug-6f5f7c.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
-	if err != nil {
-		return
-	}
-	defer file.Close()
-	_, _ = file.Write(append(line, '\n'))
-}
-
-// #endregion
 
 type Client struct {
 	baseURL     string
@@ -438,19 +411,20 @@ func (c *Client) ClaimBatch(ctx context.Context, hint map[string]any) (*BatchJob
 	return out.Batch, nil
 }
 
-func (c *Client) BatchProgress(ctx context.Context, upd BatchProgressUpdate) (cancelRequested bool, graphTenantBudget int, err error) {
+func (c *Client) BatchProgress(ctx context.Context, upd BatchProgressUpdate) (cancelRequested bool, graphTenantBudget int, abortRunIDs []string, err error) {
 	upd.BatchRunID = strings.TrimSpace(upd.BatchRunID)
 	for i := range upd.Children {
 		upd.Children[i].RunID = strings.TrimSpace(upd.Children[i].RunID)
 	}
 	var data struct {
-		CancelRequested   bool `json:"cancel_requested"`
-		GraphTenantBudget int  `json:"graph_tenant_budget"`
+		CancelRequested   bool     `json:"cancel_requested"`
+		GraphTenantBudget int      `json:"graph_tenant_budget"`
+		AbortRunIDs       []string `json:"abort_run_ids"`
 	}
 	if err := c.post(ctx, "ms365_worker_batch_progress.php", upd, &data); err != nil {
-		return false, 0, err
+		return false, 0, nil, err
 	}
-	return data.CancelRequested, data.GraphTenantBudget, nil
+	return data.CancelRequested, data.GraphTenantBudget, data.AbortRunIDs, nil
 }
 
 func (c *Client) BatchComplete(ctx context.Context, upd BatchCompleteUpdate) error {
@@ -639,14 +613,6 @@ func (c *Client) postWithRetry(ctx context.Context, endpoint string, body any, o
 	}
 	var lastErr error
 	for attempt := 0; attempt < attempts; attempt++ {
-		tokenRefresh := endpoint == "ms365_worker_graph_token.php"
-		if tokenRefresh {
-			// #region agent log
-			agentDebugTokenRefresh("H1,H2,H3", "internal/api/client.go:postWithRetry:before-attempt", "token refresh API attempt starting", map[string]any{
-				"attempt": attempt + 1,
-			})
-			// #endregion
-		}
 		if attempt > 0 {
 			select {
 			case <-ctx.Done():
@@ -656,28 +622,7 @@ func (c *Client) postWithRetry(ctx context.Context, endpoint string, body any, o
 		}
 		lastErr = c.postOnce(ctx, endpoint, body, out)
 		if lastErr == nil {
-			if tokenRefresh {
-				// #region agent log
-				agentDebugTokenRefresh("H1,H2", "internal/api/client.go:postWithRetry:success", "token refresh API attempt succeeded", map[string]any{
-					"attempt": attempt + 1,
-				})
-				// #endregion
-			}
 			return nil
-		}
-		if tokenRefresh {
-			statusCode := 0
-			var httpErr *APIHTTPError
-			if errors.As(lastErr, &httpErr) {
-				statusCode = httpErr.StatusCode
-			}
-			// #region agent log
-			agentDebugTokenRefresh("H1,H2,H3", "internal/api/client.go:postWithRetry:failure", "token refresh API attempt failed", map[string]any{
-				"attempt":     attempt + 1,
-				"error_type":  fmt.Sprintf("%T", lastErr),
-				"status_code": statusCode,
-			})
-			// #endregion
 		}
 	}
 	return lastErr
@@ -804,9 +749,9 @@ func (c *Client) StartProgressHeartbeat(ctx context.Context, runID string, inter
 	return func() { close(stop) }
 }
 
-// StartBatchProgressHeartbeat renews the batch lease and fans out cancel/budget signals.
+// StartBatchProgressHeartbeat renews the batch lease and fans out cancel/budget/abort signals.
 // onTick is invoked after each successful heartbeat tick (optional outbox flush, etc.).
-func (c *Client) StartBatchProgressHeartbeat(ctx context.Context, batchRunID string, interval time.Duration, getUpdate func() BatchProgressUpdate, onCancel func(), onBudget func(int), onTick func()) func() {
+func (c *Client) StartBatchProgressHeartbeat(ctx context.Context, batchRunID string, interval time.Duration, getUpdate func() BatchProgressUpdate, onCancel func(), onAbortRuns func([]string), onBudget func(int), onTick func()) func() {
 	if interval <= 0 {
 		interval = 60 * time.Second
 	}
@@ -831,9 +776,12 @@ func (c *Client) StartBatchProgressHeartbeat(ctx context.Context, batchRunID str
 			case <-ticker.C:
 				upd := getUpdate()
 				upd.BatchRunID = batchRunID
-				if cancel, budget, err := c.BatchProgress(ctx, upd); err == nil {
+				if cancel, budget, abortRunIDs, err := c.BatchProgress(ctx, upd); err == nil {
 					if budget > 0 && onBudget != nil {
 						onBudget(budget)
+					}
+					if len(abortRunIDs) > 0 && onAbortRuns != nil {
+						onAbortRuns(abortRunIDs)
 					}
 					if cancel {
 						fireCancel()

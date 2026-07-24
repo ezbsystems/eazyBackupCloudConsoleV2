@@ -106,8 +106,8 @@ try {
     assert_true(
         ($after['status'] ?? '') === 'running'
         && (int) ($after['updated_at'] ?? 0) >= $now - 5
-        && (!Capsule::schema()->hasColumn('ms365_backup_runs', 'last_progress_at') || $lastProgress >= $now - 5),
-        'no_progress kopia_upload refreshes liveness without fatal',
+        && (!Capsule::schema()->hasColumn('ms365_backup_runs', 'last_progress_at') || $lastProgress < $now - 60),
+        'no_progress kopia_upload renews lease without refreshing last_progress_at',
     );
 
     $teamsRunId = test_uuid('teams-liveness');

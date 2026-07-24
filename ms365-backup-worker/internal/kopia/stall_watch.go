@@ -21,7 +21,8 @@ type StallWatchConfig struct {
 }
 
 // StartStallWatch monitors hashing and upload progress during a Kopia snapshot
-// and cancels the provided context when both are flat for StallSeconds.
+// and cancels the provided context when progress is flat for StallSeconds.
+// Mid-upload uses AND semantics; upload tail (files_done >= files_total) uses OR.
 func StartStallWatch(ctx context.Context, cancel context.CancelFunc, counter *ProgressCounter, cfg StallWatchConfig) func() {
 	if cancel == nil || counter == nil || cfg.StallSeconds <= 0 {
 		return func() {}
@@ -41,8 +42,6 @@ func StartStallWatch(ctx context.Context, cancel context.CancelFunc, counter *Pr
 	go func() {
 		ticker := time.NewTicker(time.Duration(interval) * time.Second)
 		defer ticker.Stop()
-		var lastFilesDone int64 = -1
-		var lastBytesUploaded int64 = -1
 		for {
 			select {
 			case <-ctx.Done():
@@ -58,22 +57,20 @@ func StartStallWatch(ctx context.Context, cancel context.CancelFunc, counter *Pr
 				sinceUpload, _ := snapshot["seconds_since_last_upload"].(int64)
 				filesDone := counter.FilesDone.Load()
 				bytesUploaded := counter.BytesUploaded.Load()
+				filesTotal := counter.FilesTotal.Load()
 				if sinceHash < 0 || sinceUpload < 0 {
-					lastFilesDone = filesDone
-					lastBytesUploaded = bytesUploaded
 					continue
 				}
 				hashStalled := sinceHash >= int64(cfg.StallSeconds)
-				if lastFilesDone >= 0 && filesDone != lastFilesDone {
-					hashStalled = false
-				}
 				uploadStalled := sinceUpload >= int64(cfg.StallSeconds)
-				if lastBytesUploaded >= 0 && bytesUploaded != lastBytesUploaded {
-					uploadStalled = false
+				tailPhase := filesTotal > 0 && filesDone >= filesTotal
+				var stalled bool
+				if tailPhase {
+					stalled = hashStalled || uploadStalled
+				} else {
+					stalled = hashStalled && uploadStalled
 				}
-				if !hashStalled || !uploadStalled {
-					lastFilesDone = filesDone
-					lastBytesUploaded = bytesUploaded
+				if !stalled {
 					continue
 				}
 				if cfg.OnStall != nil {

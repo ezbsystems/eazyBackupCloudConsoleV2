@@ -96,10 +96,18 @@ try {
     ]);
 
     Ms365BatchClaimRepository::reapStalledBatchChildren();
-    owner_assert(
-        Capsule::table('ms365_backup_runs')->where('id', $runId)->value('status') === 'running',
-        'live tenant owner protects silent child from independent requeue',
-    );
+    if (Capsule::schema()->hasColumn('ms365_backup_runs', 'abort_requested_at')) {
+        owner_assert(
+            (int) Capsule::table('ms365_backup_runs')->where('id', $runId)->value('abort_requested_at') > 0
+            && Capsule::table('ms365_backup_runs')->where('id', $runId)->value('status') === 'running',
+            'live tenant owner soft-aborts silent child without immediate requeue',
+        );
+    } else {
+        owner_assert(
+            Capsule::table('ms365_backup_runs')->where('id', $runId)->value('status') === 'running',
+            'live tenant owner protects silent child from independent requeue',
+        );
+    }
 
     Capsule::table('ms365_batch_claims')->where('batch_run_id', $batchId)->update([
         'last_heartbeat_at' => $now - Ms365EngineConfig::batchHeartbeatGapSeconds() - 10,

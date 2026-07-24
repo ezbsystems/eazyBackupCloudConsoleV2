@@ -3,13 +3,22 @@
 **Purpose:** Single handoff document so the next agent knows where work stopped. Update this file at the **end of every session** (or after each meaningful milestone).
 
 **Last updated:** 2026-07-24
-**Module version (ms365backup):** 1.52.10  
+**Module version (ms365backup):** 1.52.11  
 **Cloudstorage (e3) version:** 2.2.0  
-**Worker version (ms365-backup-worker):** 0.4.11 (Kopia v0.23.1)
+**Worker version (ms365-backup-worker):** 0.4.12 (Kopia v0.23.1)
 
 ---
 
 ## Session log
+
+### 2026-07-24 — Kopia upload wedge recovery (worker 0.4.12, PHP 1.52.11)
+
+- **Problem:** SharePoint child `ed83ae1b-…` (batch `bbf034af-…`) wedged 2.5+ h in `kopia_upload` at `streamClient.Do()` with flat byte counters while batch owner heartbeated; stall watchdog AND semantics and live-batch reaper shield prevented automatic recovery.
+- **Worker 0.4.12:** Dedicated HTTP/1.1 stream transport (dial/TLS timeouts, `Connection: close`, per-`Do()` header deadline without canceling body reads). Upload stall watchdog tail-OR when `files_done >= files_total`. Fixed `stallAwareBatchProgressFn` hashed/uploaded tracking per child. Batch heartbeat honors `abort_run_ids` → `cancelRun` + `failSink` for control-plane soft abort.
+- **PHP 1.52.11:** `abort_requested_at` column (`upgrade_phase23_child_abort.sql`). Live-batch reaper soft-aborts stale children then requeues after 90s (no batch hand-off). Upload `no_progress`/heartbeat renews lease only (no `last_progress_at` refresh). `ms365_worker_batch_progress.php` returns `abort_run_ids`.
+- **Spec:** `Docs/specs/2026-07-24-kopia-upload-wedge-recovery-gaps-design.md`.
+- **Verification:** `go test ./...` and `go build ./...` PASS. PHP: `ms365_child_abort_reaper_test.php`, `ms365_tenant_owner_recovery_test.php`, `ms365_batch_progress_liveness_test.php` PASS.
+- **Status:** Code ready on dev; commit/push and fleet deploy pending this session.
 
 ### 2026-07-24 — Graph content idle timeout + upload stall (worker 0.4.11)
 

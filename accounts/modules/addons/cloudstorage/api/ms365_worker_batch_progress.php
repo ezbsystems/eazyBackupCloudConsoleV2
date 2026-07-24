@@ -3,6 +3,7 @@
 require_once __DIR__ . '/../../../../init.php';
 require_once dirname(__DIR__) . '/../ms365backup/ms365backup_autoload.php';
 
+use Ms365Backup\ChildAbortRepository;
 use Ms365Backup\Ms365BatchClaimRepository;
 use Ms365Backup\Ms365RestoreWorkerHooks;
 use Ms365Backup\Ms365WorkerApiAuth;
@@ -41,6 +42,10 @@ try {
 
     $response = ['status' => 'success'];
     $data = [];
+    $abortRunIds = ChildAbortRepository::listAbortRequestedRunIds($batchRunId);
+    if ($abortRunIds !== []) {
+        $data['abort_run_ids'] = $abortRunIds;
+    }
     if ($graphTenantBudget > 0) {
         $data['graph_tenant_budget'] = $graphTenantBudget;
     }
