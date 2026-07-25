@@ -28,7 +28,7 @@ function ms365backup_config(): array
     return [
         'name' => 'MS365 Backup',
         'description' => 'Admin-only Microsoft 365 backup development tool (mail, calendar, contacts, To Do, OneDrive).',
-        'version' => '1.52.13',
+        'version' => '1.52.14',
         'author' => 'eazyBackup',
         'language' => 'english',
         'fields' => [
@@ -895,6 +895,9 @@ function ms365backup_output(array $vars): void
             break;
         case 'jobs':
             require __DIR__ . '/pages/admin/jobs.php';
+            break;
+        case 'live':
+            require __DIR__ . '/pages/admin/live.php';
             break;
         case 'trials':
             require __DIR__ . '/pages/admin/trials.php';

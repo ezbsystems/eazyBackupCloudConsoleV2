@@ -119,10 +119,13 @@
     } else {
       cancelItem = '<li class="disabled"><a href="#" class="text-muted" title="Only queued, starting, or running batches can be cancelled">Cancel</a></li>';
     }
+    var liveUrl = 'addonmodules.php?module=ms365backup&action=live&run_id=' + encodeURIComponent(rid);
     return '<div class="btn-group">' +
       '<button type="button" class="btn btn-xs btn-default dropdown-toggle" data-toggle="dropdown">' +
       'Actions <span class="caret"></span></button>' +
       '<ul class="dropdown-menu dropdown-menu-right">' +
+      '<li><a href="' + esc(liveUrl) + '" target="_blank" rel="noopener">View Live</a></li>' +
+      '<li class="divider"></li>' +
       '<li><a href="#" class="ms365-job-logs" data-run-id="' + esc(rid) + '">Job logs</a></li>' +
       '<li><a href="#" class="ms365-worker-logs" data-run-id="' + esc(rid) + '">Worker logs</a></li>' +
       '<li><a href="#" class="ms365-batch-detail" data-run-id="' + esc(rid) + '">Detail</a></li>' +

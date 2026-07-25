@@ -3,13 +3,20 @@
 **Purpose:** Single handoff document so the next agent knows where work stopped. Update this file at the **end of every session** (or after each meaningful milestone).
 
 **Last updated:** 2026-07-25
-**Module version (ms365backup):** 1.52.13  
+**Module version (ms365backup):** 1.52.14  
 **Cloudstorage (e3) version:** 2.2.0  
 **Worker version (ms365-backup-worker):** 0.4.13 (Kopia v0.23.1)
 
 ---
 
 ## Session log
+
+### 2026-07-25 — Admin Jobs View Live monitoring (PHP 1.52.14)
+
+- **Feature:** MS365 admin Jobs table **View Live** action opens `action=live&run_id=…` in a new tab with progress, workloads, logs, and cancel — mirroring client `e3backup_live.tpl` MS365 sections without client impersonation.
+- **API ops:** `live_progress`, `live_events`, `live_logs`, `live_cancel` in admin `api.php` → `Ms365AdminJobsService` → `Ms365BatchLiveService` (same JSON shapes as client live).
+- **Files:** `pages/admin/live.php`, `assets/js/ms365-admin-live.js`, `assets/js/jobs.js`, `Ms365AdminJobsService.php`, `ms365backup.php`.
+- **Status:** Implemented; PHP syntax + `ms365_admin_jobs_waiting_test.php` PASS.
 
 ### 2026-07-25 — False "Child progress stale (live owner abort)" on active graph_sync (PHP 1.52.13)
 

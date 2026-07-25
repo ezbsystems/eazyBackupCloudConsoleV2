@@ -763,6 +763,42 @@ try {
             echo json_encode(['ok' => true] + $payload);
             break;
 
+        case 'live_progress':
+            $batchRunId = trim((string) ($_GET['run_id'] ?? ''));
+            if ($batchRunId === '') {
+                throw new \RuntimeException('run_id required');
+            }
+            ms365backup_echo_json(\Ms365Backup\Ms365AdminJobsService::liveProgress($batchRunId));
+            break;
+
+        case 'live_events':
+            $batchRunId = trim((string) ($_GET['run_id'] ?? ''));
+            if ($batchRunId === '') {
+                throw new \RuntimeException('run_id required');
+            }
+            $sinceId = (int) ($_GET['since_id'] ?? 0);
+            $limit = (int) ($_GET['limit'] ?? 250);
+            ms365backup_echo_json(\Ms365Backup\Ms365AdminJobsService::liveEvents($batchRunId, $sinceId, $limit));
+            break;
+
+        case 'live_logs':
+            $batchRunId = trim((string) ($_GET['run_id'] ?? ''));
+            if ($batchRunId === '') {
+                throw new \RuntimeException('run_id required');
+            }
+            $hash = isset($_GET['hash']) ? (string) $_GET['hash'] : null;
+            ms365backup_echo_json(\Ms365Backup\Ms365AdminJobsService::liveLogs($batchRunId, $hash));
+            break;
+
+        case 'live_cancel':
+            $batchRunId = trim((string) ($_POST['run_id'] ?? ''));
+            if ($batchRunId === '') {
+                throw new \RuntimeException('run_id required');
+            }
+            $force = filter_var($_POST['force'] ?? '0', FILTER_VALIDATE_BOOLEAN);
+            ms365backup_echo_json(\Ms365Backup\Ms365AdminJobsService::liveCancel($batchRunId, $force));
+            break;
+
         case 'jobs_cancel_batches':
             $raw = (string) ($_POST['batch_run_ids_json'] ?? '[]');
             $decoded = json_decode($raw, true);

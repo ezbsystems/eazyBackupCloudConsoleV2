@@ -348,6 +348,111 @@ final class Ms365AdminJobsService
         return $value;
     }
 
+    /**
+     * @return array<string, mixed>
+     */
+    public static function requireMs365ParentRun(string $batchRunId): array
+    {
+        $parent = self::loadParentRun($batchRunId);
+        if ($parent === null) {
+            throw new \RuntimeException('Batch run not found.');
+        }
+        if (!Ms365BatchLiveService::isMs365BatchRun($parent)) {
+            throw new \RuntimeException('Not an MS365 batch run.');
+        }
+
+        return $parent;
+    }
+
+    /** @param array<string, mixed> $parent */
+    public static function resolveClientIdFromParent(array $parent): int
+    {
+        $clientId = (int) ($parent['client_id'] ?? 0);
+        if ($clientId <= 0) {
+            throw new \RuntimeException('Invalid client for batch run.');
+        }
+
+        return $clientId;
+    }
+
+    /** @return array{status: string, run: array<string, mixed>} */
+    public static function liveProgress(string $batchRunId): array
+    {
+        cloudstorage_load_ms365backup();
+        $parent = self::requireMs365ParentRun($batchRunId);
+        $clientId = self::resolveClientIdFromParent($parent);
+        $progressRun = Ms365BatchLiveService::aggregateProgress($batchRunId, $clientId, $parent);
+
+        return [
+            'status' => 'success',
+            'run' => self::sanitizeForJson($progressRun),
+        ];
+    }
+
+    /**
+     * @return array{status: string, events: list<array<string, mixed>>}
+     */
+    public static function liveEvents(string $batchRunId, int $sinceId, int $limit): array
+    {
+        cloudstorage_load_ms365backup();
+        $parent = self::requireMs365ParentRun($batchRunId);
+        $clientId = self::resolveClientIdFromParent($parent);
+        if ($limit <= 0 || $limit > 1000) {
+            $limit = 250;
+        }
+        $events = Ms365BatchLiveService::aggregateEvents($batchRunId, $clientId, $sinceId, $limit);
+
+        return [
+            'status' => 'success',
+            'events' => self::sanitizeForJson($events),
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public static function liveLogs(string $batchRunId, ?string $clientHash): array
+    {
+        cloudstorage_load_ms365backup();
+        $parent = self::requireMs365ParentRun($batchRunId);
+        $clientId = self::resolveClientIdFromParent($parent);
+        $payload = Ms365BatchLiveService::aggregateStructuredLogs($batchRunId, $clientId);
+        $formattedLog = (string) ($payload['backup_log'] ?? '');
+        $hash = $formattedLog !== '' ? md5($formattedLog) : null;
+        if ($hash !== null && $clientHash !== null && $clientHash !== '' && hash_equals($hash, $clientHash)) {
+            return [
+                'status' => 'success',
+                'unchanged' => true,
+                'hash' => $hash,
+            ];
+        }
+
+        return self::sanitizeForJson([
+            'status' => 'success',
+            'hash' => $hash,
+            'formatted_log' => $formattedLog,
+            'entries' => $payload['structured_logs'] ?? [],
+            'sanitized' => true,
+            'run' => [
+                'status' => $parent['status'] ?? null,
+                'error_summary' => $parent['error_summary'] ?? '',
+                'worker_host' => '',
+                'started_at' => $parent['started_at'] ?? null,
+                'finished_at' => $parent['finished_at'] ?? null,
+            ],
+        ]);
+    }
+
+    /** @return array{status: string, message?: string, run_id?: string, workloads_cancelled?: int} */
+    public static function liveCancel(string $batchRunId, bool $forceCancel = false): array
+    {
+        cloudstorage_load_ms365backup();
+        $parent = self::requireMs365ParentRun($batchRunId);
+        $clientId = self::resolveClientIdFromParent($parent);
+
+        return Ms365BatchLiveService::cancelBatch($batchRunId, $clientId, $forceCancel, 'administrator');
+    }
+
     /** @return array{status: string, message?: string, run_id?: string, workloads_cancelled?: int} */
     public static function cancelBatch(string $batchRunId): array
     {
