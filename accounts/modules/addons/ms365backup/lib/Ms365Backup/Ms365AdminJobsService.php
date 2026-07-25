@@ -382,6 +382,7 @@ final class Ms365AdminJobsService
         $parent = self::requireMs365ParentRun($batchRunId);
         $clientId = self::resolveClientIdFromParent($parent);
         $progressRun = Ms365BatchLiveService::aggregateProgress($batchRunId, $clientId, $parent);
+        $progressRun['health'] = Ms365BatchHealthService::summarizeForBatch($batchRunId);
 
         return [
             'status' => 'success',

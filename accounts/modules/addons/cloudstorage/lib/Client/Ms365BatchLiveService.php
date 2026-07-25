@@ -21,7 +21,7 @@ require_once dirname(__DIR__) . '/Ms365BackupBootstrap.php';
 final class Ms365BatchLiveService
 {
     /** Aligns with Ms365BatchRunRepository heartbeat gap — fresher progress reads as "Active". */
-    private const WORKLOAD_ACTIVE_PROGRESS_SECONDS = 180;
+    public const WORKLOAD_ACTIVE_PROGRESS_SECONDS = 180;
 
     public static function isMs365BatchRun(array $run): bool
     {

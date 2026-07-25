@@ -38,11 +38,12 @@ try {
         exit;
     }
 
+    $abortRunIds = ChildAbortRepository::listAbortRequestedRunIds($batchRunId);
+
     $graphTenantBudget = Ms365RestoreWorkerHooks::onBatchProgress($batchRunId, $nodeId, $children);
 
     $response = ['status' => 'success'];
     $data = [];
-    $abortRunIds = ChildAbortRepository::listAbortRequestedRunIds($batchRunId);
     if ($abortRunIds !== []) {
         $data['abort_run_ids'] = $abortRunIds;
     }

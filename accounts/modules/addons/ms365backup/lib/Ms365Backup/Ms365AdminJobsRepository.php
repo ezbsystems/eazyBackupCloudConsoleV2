@@ -162,6 +162,8 @@ final class Ms365AdminJobsRepository
         $billingCache = self::billingSummariesForKeys(array_values($billingPairs));
         $childCountCache = self::childCountsForRuns($backupRunIds, $restoreRunIds);
         $claimMeta = self::claimMetaForRuns(array_merge($backupRunIds, $restoreRunIds));
+        $allRunIds = array_values(array_unique(array_merge($backupRunIds, $restoreRunIds)));
+        $healthByRun = Ms365BatchHealthService::summarizeForBatches($allRunIds);
 
         $out = [];
         foreach ($parsedRows as $parsed) {
@@ -173,6 +175,11 @@ final class Ms365AdminJobsRepository
             $billingKey = $clientId . ':' . $backupUserId;
             $counts = $childCountCache[$runId] ?? ['total' => 0, 'failed' => 0];
             $claim = $claimMeta[$runId] ?? null;
+            $health = $healthByRun[$runId] ?? [
+                'wedged_worker' => false,
+                'stalled_workload_count' => 0,
+                'health_warning' => null,
+            ];
             $parentStatus = (string) ($arr['status'] ?? '');
             $display = self::displayStatusForClaim($parentStatus, $claim);
             $out[] = [
@@ -198,6 +205,9 @@ final class Ms365AdminJobsRepository
                 'cancel_requested' => !empty($arr['cancel_requested']),
                 'claim_status' => $claim['status'] ?? null,
                 'wait_reason' => $display['wait_reason'],
+                'wedged_worker' => !empty($health['wedged_worker']),
+                'stalled_workload_count' => (int) ($health['stalled_workload_count'] ?? 0),
+                'health_warning' => $health['health_warning'] ?? null,
             ];
         }
 

@@ -113,6 +113,11 @@ $liveJsPath = dirname(__DIR__, 2) . '/assets/js/ms365-admin-live.js';
         </div>
     </div>
 
+    <div id="ms365HealthBanner" class="eb-live-alert eb-live-alert--warning hidden" role="status" aria-live="polite" style="margin-bottom:12px">
+        <p class="eb-live-alert-title">Worker health warning</p>
+        <p id="ms365HealthBannerText" class="eb-live-alert-copy"></p>
+    </div>
+
     <div class="eb-live-page">
         <div id="errorSummaryContainer" class="eb-live-alert eb-live-alert--danger hidden" role="status" aria-live="polite">
             <p class="eb-live-alert-title">Error</p>

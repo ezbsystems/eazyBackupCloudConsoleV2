@@ -231,8 +231,15 @@ final class WorkerNodeRepository
             ->all();
     }
 
-    public static function heartbeat(string $nodeId, int $currentLoad, string $version = '', ?int $proxmoxVmid = null, int $claimAdmitRejects = 0): void
-    {
+    public static function heartbeat(
+        string $nodeId,
+        int $currentLoad,
+        string $version = '',
+        ?int $proxmoxVmid = null,
+        int $claimAdmitRejects = 0,
+        bool $diskCritical = false,
+        ?int $reservedDiskMib = null
+    ): void {
         $now = time();
         $update = [
             'current_load' => max(0, $currentLoad),
@@ -241,6 +248,12 @@ final class WorkerNodeRepository
         ];
         if (Capsule::schema()->hasColumn('ms365_worker_nodes', 'claim_admit_rejects')) {
             $update['claim_admit_rejects'] = max(0, $claimAdmitRejects);
+        }
+        if (Capsule::schema()->hasColumn('ms365_worker_nodes', 'disk_critical')) {
+            $update['disk_critical'] = $diskCritical ? 1 : 0;
+        }
+        if (Capsule::schema()->hasColumn('ms365_worker_nodes', 'reserved_disk_mib')) {
+            $update['reserved_disk_mib'] = $reservedDiskMib !== null ? max(0, $reservedDiskMib) : null;
         }
         $node = self::get($nodeId);
         if ($node && ($node['status'] ?? '') !== 'draining' && ($node['status'] ?? '') !== 'stopped') {

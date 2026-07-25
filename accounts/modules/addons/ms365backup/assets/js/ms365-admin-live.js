@@ -565,12 +565,31 @@
     }
   }
 
+  function updateHealthBanner(run) {
+    var banner = document.getElementById('ms365HealthBanner');
+    var text = document.getElementById('ms365HealthBannerText');
+    if (!banner || !text) return;
+    var health = run.health || {};
+    var wedged = !!health.wedged_worker;
+    var stalled = parseInt(health.stalled_workload_count, 10) || 0;
+    var warning = (health.health_warning || '').trim();
+    var show = wedged || stalled > 0;
+    if (show) {
+      text.textContent = warning || ('Worker health issue detected (' + stalled + ' stalled workload' + (stalled === 1 ? '' : 's') + ')');
+      banner.classList.remove('hidden');
+    } else {
+      banner.classList.add('hidden');
+      text.textContent = '';
+    }
+  }
+
   function updateProgress() {
     if (isPaused) return;
     get('live_progress', { ts: String(Date.now()) }).then(function (data) {
       if (!data || data.status !== 'success' || !data.run) return;
       var run = data.run;
       refreshErrorSummary(run);
+      updateHealthBanner(run);
 
       if (Array.isArray(run.workloads)) renderMs365Workloads(run.workloads);
       updateMs365BatchWorkloadsLine(run);

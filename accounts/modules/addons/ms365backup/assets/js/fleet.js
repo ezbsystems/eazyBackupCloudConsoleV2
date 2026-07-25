@@ -211,6 +211,9 @@
           var hb = n.last_heartbeat_at ? new Date(n.last_heartbeat_at * 1000).toLocaleString() : '—';
           var status = String(n.status || '').toLowerCase();
           var statusLabel = status === 'stopped' ? '<span class="label label-default">stopped</span>' : esc(n.status);
+          if (n.disk_critical) {
+            statusLabel += ' <span class="label label-warning" title="Disk pressure latch active">disk latch</span>';
+          }
           var pveNode = n.proxmox_node ? esc(n.proxmox_node) : '—';
           var vmidCell = n.proxmox_vmid ? esc(n.proxmox_vmid) : '—';
           var configLabel = formatConfigCell(n);

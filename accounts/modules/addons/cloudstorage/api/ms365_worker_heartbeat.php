@@ -27,6 +27,10 @@ $load = (int) ($body['current_load'] ?? 0);
 $version = trim((string) ($body['version'] ?? ''));
 $deployError = trim((string) ($body['deploy_error'] ?? ''));
 $claimAdmitRejects = max(0, (int) ($body['claim_admit_rejects'] ?? 0));
+$diskCritical = !empty($body['disk_critical']);
+$reservedDiskMib = array_key_exists('reserved_disk_mib', $body)
+    ? max(0, (int) $body['reserved_disk_mib'])
+    : null;
 $proxmoxVmid = isset($body['proxmox_vmid']) ? (int) $body['proxmox_vmid'] : null;
 $configVersion = max(0, (int) ($body['config_version'] ?? 0));
 $configError = trim((string) ($body['config_error'] ?? ''));
@@ -39,7 +43,15 @@ if ($nodeId === '') {
 
 try {
     $effectiveLoad = WorkerClaimService::effectiveReportedLoad($nodeId, $load);
-    WorkerNodeRepository::heartbeat($nodeId, $effectiveLoad, $version, $proxmoxVmid > 0 ? $proxmoxVmid : null, $claimAdmitRejects);
+    WorkerNodeRepository::heartbeat(
+        $nodeId,
+        $effectiveLoad,
+        $version,
+        $proxmoxVmid > 0 ? $proxmoxVmid : null,
+        $claimAdmitRejects,
+        $diskCritical,
+        $reservedDiskMib
+    );
     if ($telemetry !== []) {
         WorkerNodeRepository::recordTelemetry($nodeId, $telemetry);
     }

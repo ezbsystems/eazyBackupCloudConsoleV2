@@ -272,7 +272,9 @@
         }
         var statusNote = row.wait_reason
           ? '<br><small class="text-muted">' + esc(row.wait_reason).slice(0, 100) + '</small>'
-          : (row.error_summary ? '<br><small class="text-danger">' + esc(row.error_summary).slice(0, 80) + '</small>' : '');
+          : (row.health_warning
+            ? '<br><small class="text-warning">' + esc(row.health_warning).slice(0, 100) + '</small>'
+            : (row.error_summary ? '<br><small class="text-danger">' + esc(row.error_summary).slice(0, 80) + '</small>' : ''));
         return '<tr data-run-id="' + esc(rid) + '">' +
           '<td><input type="checkbox" class="ms365-jobs-select" value="' + esc(rid) + '"></td>' +
           '<td>' + esc(row.client_name) + trialHint + '</td>' +
