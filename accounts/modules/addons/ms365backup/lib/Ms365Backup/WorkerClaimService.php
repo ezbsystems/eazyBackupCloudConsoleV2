@@ -356,12 +356,16 @@ final class WorkerClaimService
                 continue;
             }
             // A new batch owner (or resume) may start requeued children. Clear the
-            // soft-abort suppress marker so hub progress can promote them again.
+            // soft-abort / hand-off suppress markers so hub progress can promote them.
             if ($status === 'queued') {
                 Capsule::table('ms365_job_queue')
                     ->where('run_id', $runId)
                     ->where('status', 'queued')
-                    ->where('error_message', 'like', '%Child progress stale%')
+                    ->where(function ($q): void {
+                        $q->where('error_message', 'like', '%Child progress stale%')
+                            ->orWhere('error_message', 'like', '%Soft-abort hand-off%')
+                            ->orWhere('error_message', 'like', '%Worker drain hand-off%');
+                    })
                     ->update(['error_message' => '']);
             }
             $payload = self::buildRunPayload($runId, $batchContext, $child);
@@ -1704,6 +1708,12 @@ final class WorkerClaimService
                     $runUpdate['percent'] = 0;
                     $runUpdate['items_done'] = 0;
                     $runUpdate['items_total'] = 0;
+                }
+                // Soft-abort requeues preserve counters but must refresh liveness so the
+                // admin health banner does not keep counting the pre-abort silence.
+                if (str_contains(strtolower($message), 'child progress stale')
+                    && Capsule::schema()->hasColumn('ms365_backup_runs', 'last_progress_at')) {
+                    $runUpdate['last_progress_at'] = $now;
                 }
                 BackupRunRepository::update($runId, $runUpdate);
                 Ms365BatchRunRepository::syncForChildRun($runId);
