@@ -27,7 +27,7 @@ worker:
   job_ram_budget_mib: 384
   job_disk_budget_mib: 2048
   heavy_job_ram_budget_mib: 768
-  heavy_job_disk_budget_mib: 4096
+  heavy_job_disk_budget_mib: 2048
   heavy_job_cpu_cores: 1
   archive_parallel_extracts: 48
 
