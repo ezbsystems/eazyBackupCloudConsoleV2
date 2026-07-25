@@ -28,7 +28,7 @@ function ms365backup_config(): array
     return [
         'name' => 'MS365 Backup',
         'description' => 'Admin-only Microsoft 365 backup development tool (mail, calendar, contacts, To Do, OneDrive).',
-        'version' => '1.52.14',
+        'version' => '1.52.16',
         'author' => 'eazyBackup',
         'language' => 'english',
         'fields' => [
@@ -866,10 +866,10 @@ function ms365backup_output(array $vars): void
         'provision' => 'Provision Customer',
         'tenant_export' => 'Tenant Export',
     ];
-    echo '<p style="margin-bottom:15px">';
+    echo '<p class="ms365-admin-nav" style="margin-bottom:15px">';
     foreach ($pages as $key => $label) {
         $active = ($action === $key || ($action === 'dashboard' && $key === 'dashboard' && !isset($_GET['action']))) ? ' btn-primary' : ' btn-default';
-        if ($action === 'run') {
+        if ($action === 'run' || $action === 'live') {
             $active = ' btn-default';
         }
         $href = $key === 'dashboard' ? $baseUrl : $baseUrl . '&action=' . $key;

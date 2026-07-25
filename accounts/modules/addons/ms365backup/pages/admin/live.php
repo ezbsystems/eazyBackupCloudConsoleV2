@@ -80,6 +80,15 @@ $liveJsPath = dirname(__DIR__, 2) . '/assets/js/ms365-admin-live.js';
 <?php include $tokensPath; ?>
 <?php endif; ?>
 <link rel="stylesheet" href="<?= $e($tailwindCss) ?>?v=<?= (int) @filemtime(dirname(__DIR__, 5) . '/templates/eazyBackup/css/tailwind.css') ?>">
+<style>
+/* tailwind.css defines .btn with w-full; restore WHMCS admin tab row above this page. */
+.ms365-admin-nav a.btn {
+    width: auto;
+    display: inline-block;
+    margin-right: 4px;
+    margin-bottom: 4px;
+}
+</style>
 
 <div class="ms365-admin-live-wrap" style="margin-top:12px">
     <div class="clearfix" style="margin-bottom:12px">

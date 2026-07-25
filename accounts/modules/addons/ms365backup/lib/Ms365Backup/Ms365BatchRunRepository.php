@@ -387,11 +387,70 @@ final class Ms365BatchRunRepository
             'finished_at' => date('Y-m-d H:i:s'),
         ];
 
+        // Finalize used to set status only. Mid-run updateLiveSnapshot() values then
+        // froze on the parent (Jobs showed success at 59%/92% while every child was 100%).
+        $isRestore = self::isRestoreBatch($batchRunId);
+        $children = $isRestore
+            ? self::normalizeRestoreChildrenForAggregate(self::getChildrenForRestoreBatch($batchRunId))
+            : self::getChildrenForBatch($batchRunId);
+        $beforePct = null;
+        if (Capsule::schema()->hasTable('s3_cloudbackup_runs')) {
+            $beforePct = Capsule::table('s3_cloudbackup_runs')
+                ->whereRaw('run_id = ' . self::uuidToDbExpr($batchRunId))
+                ->value('progress_pct');
+        }
+        if ($children !== []) {
+            $agg = self::computeAggregates($children, $isRestore);
+            $progressPct = (float) ($agg['progress_pct'] ?? 0);
+            if ($status === 'success') {
+                $progressPct = 100.0;
+            }
+            $update['progress_pct'] = $progressPct;
+            if (!$isRestore) {
+                $update['bytes_processed'] = (int) ($agg['bytes_processed'] ?? 0);
+                $update['bytes_transferred'] = (int) ($agg['bytes_transferred'] ?? 0);
+                $update['bytes_total'] = (int) ($agg['bytes_total'] ?? 0);
+            }
+            $update['objects_transferred'] = (int) ($agg['objects_transferred'] ?? 0);
+            $update['objects_total'] = (int) ($agg['objects_total'] ?? 0);
+            if (Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'current_item')) {
+                $update['current_item'] = $agg['current_item'] ?? null;
+            }
+            if (Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'stage')) {
+                $update['stage'] = $agg['stage'] ?? null;
+            }
+        }
+
+        // #region agent log
+        $dbgLine = json_encode([
+            'sessionId' => 'd12df9',
+            'runId' => 'post-fix',
+            'hypothesisId' => 'H-finalize-progress',
+            'location' => 'Ms365BatchRunRepository.php:finalize',
+            'message' => 'finalize_writes_terminal_progress',
+            'data' => [
+                'batchRunId' => $batchRunId,
+                'status' => $status,
+                'beforePct' => $beforePct !== null ? (float) $beforePct : null,
+                'afterPct' => isset($update['progress_pct']) ? (float) $update['progress_pct'] : null,
+                'childCount' => count($children),
+                'isRestore' => $isRestore,
+            ],
+            'timestamp' => (int) round(microtime(true) * 1000),
+        ], JSON_UNESCAPED_SLASHES) . "\n";
+        @file_put_contents('/var/www/eazybackup.ca/.cursor/debug-d12df9.log', $dbgLine, FILE_APPEND | LOCK_EX);
+        @file_put_contents('/tmp/debug-d12df9.log', $dbgLine, FILE_APPEND | LOCK_EX);
+        // #endregion
+
         if (Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'error_summary')) {
             $summary = self::collectChildErrorSummary($batchRunId);
             if ($summary !== '') {
                 $update['error_summary'] = $summary;
             }
+        }
+
+        if (Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'updated_at')) {
+            $update['updated_at'] = date('Y-m-d H:i:s');
         }
 
         Capsule::table('s3_cloudbackup_runs')
@@ -419,6 +478,86 @@ final class Ms365BatchRunRepository
         if (!self::isRestoreBatch($batchRunId)) {
             Ms365BackupReportEmailService::maybeSendForBatch($batchRunId, $status);
         }
+    }
+
+    /**
+     * Repair success/partial_success parents whose progress_pct was frozen mid-run.
+     *
+     * @return int parents updated
+     */
+    public static function repairStaleTerminalProgress(int $limit = 200): int
+    {
+        if (!Capsule::schema()->hasTable('s3_cloudbackup_runs')
+            || !Capsule::schema()->hasTable('ms365_backup_runs')) {
+            return 0;
+        }
+
+        $query = Capsule::table('s3_cloudbackup_runs')
+            ->whereIn('status', ['success', 'partial_success', 'warning', 'failed', 'cancelled'])
+            ->whereNotNull('finished_at')
+            ->where('progress_pct', '<', 100)
+            ->orderByDesc('finished_at')
+            ->limit(max(1, $limit));
+        if (Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'engine')) {
+            $query->where('engine', 'ms365');
+        }
+
+        $repaired = 0;
+        foreach ($query->get(['run_id', 'status', 'progress_pct']) as $row) {
+            $batchRunId = self::normalizeRunUuid($row->run_id ?? '');
+            if ($batchRunId === '' || self::isRestoreBatch($batchRunId)) {
+                continue;
+            }
+            $children = self::getChildrenForBatch($batchRunId);
+            if ($children === []) {
+                continue;
+            }
+            $agg = self::computeAggregates($children, false);
+            $status = strtolower((string) ($row->status ?? ''));
+            $progressPct = (float) ($agg['progress_pct'] ?? 0);
+            if ($status === 'success') {
+                $progressPct = 100.0;
+            }
+            $beforePct = (float) ($row->progress_pct ?? 0);
+            if (abs($progressPct - $beforePct) < 0.01) {
+                continue;
+            }
+            $update = [
+                'progress_pct' => $progressPct,
+                'bytes_processed' => (int) ($agg['bytes_processed'] ?? 0),
+                'bytes_transferred' => (int) ($agg['bytes_transferred'] ?? 0),
+                'bytes_total' => (int) ($agg['bytes_total'] ?? 0),
+                'objects_transferred' => (int) ($agg['objects_transferred'] ?? 0),
+                'objects_total' => (int) ($agg['objects_total'] ?? 0),
+            ];
+            if (Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'updated_at')) {
+                $update['updated_at'] = date('Y-m-d H:i:s');
+            }
+            Capsule::table('s3_cloudbackup_runs')
+                ->whereRaw('run_id = ' . self::uuidToDbExpr($batchRunId))
+                ->update($update);
+            // #region agent log
+            $dbgLine = json_encode([
+                'sessionId' => 'd12df9',
+                'runId' => 'post-fix',
+                'hypothesisId' => 'H-finalize-progress',
+                'location' => 'Ms365BatchRunRepository.php:repairStaleTerminalProgress',
+                'message' => 'repaired_stale_terminal_progress',
+                'data' => [
+                    'batchRunId' => $batchRunId,
+                    'status' => $status,
+                    'beforePct' => $beforePct,
+                    'afterPct' => $progressPct,
+                ],
+                'timestamp' => (int) round(microtime(true) * 1000),
+            ], JSON_UNESCAPED_SLASHES) . "\n";
+            @file_put_contents('/var/www/eazybackup.ca/.cursor/debug-d12df9.log', $dbgLine, FILE_APPEND | LOCK_EX);
+            @file_put_contents('/tmp/debug-d12df9.log', $dbgLine, FILE_APPEND | LOCK_EX);
+            // #endregion
+            ++$repaired;
+        }
+
+        return $repaired;
     }
 
     /**

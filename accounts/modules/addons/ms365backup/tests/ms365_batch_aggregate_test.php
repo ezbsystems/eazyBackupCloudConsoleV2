@@ -76,6 +76,11 @@ $terminalAgg = Ms365BatchRunRepository::computeAggregates($allTerminal);
 assert_near((float) $terminalAgg['progress_pct'], 100.0, 0.01, 'All-terminal batch shows 100% progress');
 assert_true($terminalAgg['status'] === 'partial_success', 'All-terminal batch with mixed success+error aggregates to partial_success');
 
+$allSuccess = array_fill(0, 8, child('success', 100.0, 10, 10, 'complete'));
+$allSuccessAgg = Ms365BatchRunRepository::computeAggregates($allSuccess);
+assert_near((float) $allSuccessAgg['progress_pct'], 100.0, 0.01, 'All-success batch aggregate is 100%');
+assert_true($allSuccessAgg['status'] === 'success', 'All-success batch aggregates to success');
+
 $singleSite = [child('running', 87.0, 1000, 870, 'kopia_upload')];
 $singleAgg = Ms365BatchRunRepository::computeAggregates($singleSite);
 assert_near((float) $singleAgg['progress_pct'], 87.0, 0.5, 'Single-workload batch uses item-weighted progress');
