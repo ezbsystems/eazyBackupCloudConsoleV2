@@ -161,7 +161,7 @@ func TestSoftPressureThresholdUsesMaxOfFlushAndReserved(t *testing.T) {
 	}
 }
 
-func TestSoftPressureResumeRequiresZeroReservationsAndHysteresis(t *testing.T) {
+func TestSoftPressureResumeRequiresHysteresis(t *testing.T) {
 	in := diskHeadroomInput{
 		freeMiB:          2500,
 		watermarkMiB:     1024,
@@ -171,15 +171,30 @@ func TestSoftPressureResumeRequiresZeroReservationsAndHysteresis(t *testing.T) {
 		hysteresisMiB:    512,
 	}
 	if in.canResumeFromPressure() {
-		t.Fatal("expected resume blocked while reservations remain")
-	}
-	in.reservedDiskMiB = 0
-	if in.canResumeFromPressure() {
 		t.Fatal("expected resume blocked until free exceeds soft threshold + hysteresis")
 	}
 	in.freeMiB = 2600
 	if !in.canResumeFromPressure() {
-		t.Fatal("expected resume once free > threshold + hysteresis with zero reservations")
+		t.Fatal("expected resume once free > threshold + hysteresis even with active reservations")
+	}
+}
+
+func TestCanResumeFromPressureWithActiveReservations(t *testing.T) {
+	in := diskHeadroomInput{
+		freeMiB:          5600,
+		watermarkMiB:     1024,
+		flushMarkMiB:     2048,
+		reservedDiskMiB:  4096,
+		updateReserveMiB: 256,
+		hysteresisMiB:    512,
+	}
+	// soft threshold = max(1024+4096+256, 2048) = 5376; resume at 5888
+	if in.canResumeFromPressure() {
+		t.Fatal("expected resume blocked below soft threshold + hysteresis")
+	}
+	in.freeMiB = 6000
+	if !in.canResumeFromPressure() {
+		t.Fatal("expected resume with reserved > 0 when free exceeds soft threshold + hysteresis")
 	}
 }
 
@@ -334,19 +349,16 @@ func TestDiskCriticalPersistsAcrossBriefFreeSpaceRecovery(t *testing.T) {
 	s.reserved.mu.Lock()
 	s.reserved.diskMiB = 512
 	s.reserved.mu.Unlock()
-	free.Store(9000)
+	free.Store(2200)
 	s.evaluateDiskPressure(context.Background())
 	if !s.diskCritical.Load() {
-		t.Fatal("expected diskCritical to remain set while reservations drain")
+		t.Fatal("expected diskCritical to remain set when free is below soft threshold + hysteresis")
 	}
 
-	s.reserved.mu.Lock()
-	s.reserved.diskMiB = 0
-	s.reserved.mu.Unlock()
 	free.Store(2600)
 	s.evaluateDiskPressure(context.Background())
 	if s.diskCritical.Load() {
-		t.Fatal("expected diskCritical cleared after reservations zero and hysteresis satisfied")
+		t.Fatal("expected diskCritical cleared when free exceeds soft threshold + hysteresis with reservations still active")
 	}
 }
 

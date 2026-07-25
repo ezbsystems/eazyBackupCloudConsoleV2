@@ -212,6 +212,8 @@ func (s *Scheduler) heartbeatParams(load, admitRejects int) api.HeartbeatParams 
 		ClaimAdmitRejects: admitRejects,
 		ConfigVersion:     s.appliedConfigVersion,
 		ConfigError:       s.configError,
+		DiskCritical:      s.diskCritical.Load(),
+		ReservedDiskMiB:   int(s.activeReservedDiskMiB()),
 		Telemetry: &api.TelemetryReport{
 			CPUPct:        snap.CPUPct,
 			CPUCoresUsed:  snap.CPUCoresUsed,
@@ -333,7 +335,13 @@ func (s *Scheduler) pendingUpdateVersion() string {
 func (s *Scheduler) poll(ctx context.Context) {
 	s.evaluateDiskPressure(ctx)
 	if !s.hasDiskSpace() {
-		log.Printf("skipping claim: RunDir free space below watermark")
+		if s.diskCritical.Load() {
+			in := s.headroomInput(0)
+			log.Printf("skipping claim: disk pressure latch active (free=%d MiB reserved=%d MiB)",
+				in.freeMiB, in.reservedDiskMiB)
+		} else {
+			log.Printf("skipping claim: RunDir free space below watermark")
+		}
 		return
 	}
 

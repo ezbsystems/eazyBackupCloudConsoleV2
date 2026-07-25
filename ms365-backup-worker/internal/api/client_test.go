@@ -183,10 +183,12 @@ func TestHeartbeatPayloadIncludesTelemetryAndConfig(t *testing.T) {
 
 	c := NewClient(srv.URL, "tok", "node-1")
 	_, err := c.Heartbeat(context.Background(), HeartbeatParams{
-		CurrentLoad:   2,
-		Version:       "0.3.4",
-		ConfigVersion: 3,
-		ConfigError:   "nope",
+		CurrentLoad:     2,
+		Version:         "0.3.4",
+		ConfigVersion:   3,
+		ConfigError:     "nope",
+		DiskCritical:    true,
+		ReservedDiskMiB: 8192,
 		Telemetry: &TelemetryReport{
 			CPUPct:       12.5,
 			CPUCoresUsed: 0.5,
@@ -202,6 +204,12 @@ func TestHeartbeatPayloadIncludesTelemetryAndConfig(t *testing.T) {
 	}
 	if got["config_error"] != "nope" {
 		t.Fatalf("config_error = %v", got["config_error"])
+	}
+	if got["disk_critical"] != true {
+		t.Fatalf("disk_critical = %v", got["disk_critical"])
+	}
+	if got["reserved_disk_mib"] != float64(8192) {
+		t.Fatalf("reserved_disk_mib = %v", got["reserved_disk_mib"])
 	}
 	tel, ok := got["telemetry"].(map[string]any)
 	if !ok {

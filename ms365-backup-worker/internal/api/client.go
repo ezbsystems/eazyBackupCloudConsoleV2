@@ -286,6 +286,8 @@ type HeartbeatParams struct {
 	ClaimAdmitRejects int
 	ConfigVersion     int
 	ConfigError       string
+	DiskCritical      bool
+	ReservedDiskMiB   int
 	Telemetry         *TelemetryReport
 }
 
@@ -345,6 +347,8 @@ func (c *Client) Heartbeat(ctx context.Context, p HeartbeatParams) (*HeartbeatRe
 		"claim_admit_rejects": p.ClaimAdmitRejects,
 		"config_version":      p.ConfigVersion,
 		"config_error":        p.ConfigError,
+		"disk_critical":       p.DiskCritical,
+		"reserved_disk_mib":   p.ReservedDiskMiB,
 	}
 	if p.ProxmoxVmid > 0 {
 		payload["proxmox_vmid"] = p.ProxmoxVmid

@@ -51,9 +51,6 @@ func (in diskHeadroomInput) canResumeFromPressure() bool {
 	if in.freeMiB >= 1<<29 {
 		return true
 	}
-	if in.reservedDiskMiB > 0 {
-		return false
-	}
 	h := in.hysteresisMiB
 	if h <= 0 {
 		h = defaultDiskHysteresisMiB
