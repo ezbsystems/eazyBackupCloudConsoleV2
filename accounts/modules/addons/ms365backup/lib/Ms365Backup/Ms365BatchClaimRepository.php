@@ -4,6 +4,9 @@ declare(strict_types=1);
 namespace Ms365Backup;
 
 use WHMCS\Database\Capsule;
+use WHMCS\Module\Addon\CloudStorage\Client\Ms365BatchLiveService;
+
+require_once dirname(__DIR__, 3) . '/cloudstorage/lib/Ms365BackupBootstrap.php';
 
 /**
  * Tenant-batch claim lease bookkeeping (ms365_batch_claims).
@@ -674,7 +677,10 @@ final class Ms365BatchClaimRepository
             if (Ms365BatchRunRepository::isUploadLikePhase($phase)
                 && $itemsTotal > 0
                 && $itemsDone >= $itemsTotal) {
-                $silenceSeconds = min($silenceSeconds, 600);
+                $silenceSeconds = min(
+                    $silenceSeconds,
+                    Ms365BatchLiveService::WORKLOAD_ACTIVE_PROGRESS_SECONDS
+                );
             }
             $staleProgress = $freshness > 0 && $freshness < ($now - $silenceSeconds);
 
@@ -688,6 +694,8 @@ final class Ms365BatchClaimRepository
                 ? (int) ($child['abort_requested_at'] ?? 0)
                 : 0;
 
+            $batchRunId = (string) ($child['e3_batch_run_id'] ?? '');
+
             if (!$staleProgress && !$staleLease) {
                 // Progress resumed after a soft-abort: clear orphaned abort so a later
                 // brief silence does not immediately requeue past the grace window.
@@ -697,7 +705,6 @@ final class Ms365BatchClaimRepository
                 continue;
             }
 
-            $batchRunId = (string) ($child['e3_batch_run_id'] ?? '');
             if ($batchRunId !== '' && isset($liveBatchSet[$batchRunId])) {
                 if ($abortAt <= 0) {
                     $toAbort[] = $runId;
