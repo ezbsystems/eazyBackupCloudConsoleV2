@@ -652,6 +652,7 @@ final class Ms365BatchClaimRepository
         $toRequeue = [];
         $toRequeueLive = [];
         $toAbort = [];
+        $toClearAbort = [];
         foreach ($rows as $row) {
             $runId = (string) ($row->id ?? '');
             if ($runId === '') {
@@ -665,18 +666,16 @@ final class Ms365BatchClaimRepository
             $bytesUploaded = (int) ($child['bytes_uploaded'] ?? 0);
             $freshness = Ms365BatchRunRepository::progressFreshnessAt($child);
             $silenceSeconds = Ms365BatchRunRepository::STALE_SILENCE_SECONDS;
+            // Shortened silence is upload-phase only. Graph-bound children often reach
+            // items_done==items_total with bytes_hashed>0 (content sizes) while mail/
+            // calendar sync is still active; applying the upload-tail 600s rule there
+            // false-aborts live Graph work (prod: Child progress stale live owner abort).
             if (Ms365BatchRunRepository::isUploadLikePhase($phase)
                 && $itemsDone > 0
                 && ($itemsTotal <= 0 || $itemsDone < $itemsTotal)) {
                 $silenceSeconds = min($silenceSeconds, 600);
             }
-            if (Ms365BatchRunRepository::isGraphBoundPhase($phase)
-                && $bytesHashed === 0
-                && $bytesUploaded === 0
-                && $itemsDone > 0) {
-                $silenceSeconds = min($silenceSeconds, 600);
-            }
-            if ((Ms365BatchRunRepository::isUploadLikePhase($phase) || $bytesHashed > 0)
+            if (Ms365BatchRunRepository::isUploadLikePhase($phase)
                 && $itemsTotal > 0
                 && $itemsDone >= $itemsTotal) {
                 $silenceSeconds = min($silenceSeconds, 600);
@@ -689,13 +688,53 @@ final class Ms365BatchClaimRepository
                 && (int) ($queue->lease_expires_at ?? 0) > 0
                 && (int) $queue->lease_expires_at < $now;
 
+            $abortAt = ChildAbortRepository::columnReady()
+                ? (int) ($child['abort_requested_at'] ?? 0)
+                : 0;
+
             if (!$staleProgress && !$staleLease) {
+                // Progress resumed after a soft-abort: clear orphaned abort so a later
+                // brief silence does not immediately requeue past the grace window.
+                if ($abortAt > 0) {
+                    $toClearAbort[] = $runId;
+                }
                 continue;
             }
 
+            // #region agent log
+            $debugPayload = [
+                'sessionId' => 'd12df9',
+                'runId' => 'post-fix',
+                'hypothesisId' => 'A',
+                'location' => 'Ms365BatchClaimRepository.php:reapStalledBatchChildren',
+                'message' => 'stale child evaluated',
+                'data' => [
+                    'child' => $runId,
+                    'phase' => $phase,
+                    'items_done' => $itemsDone,
+                    'items_total' => $itemsTotal,
+                    'bytes_hashed' => $bytesHashed,
+                    'bytes_uploaded' => $bytesUploaded,
+                    'silence_seconds' => $silenceSeconds,
+                    'freshness_age' => $freshness > 0 ? ($now - $freshness) : null,
+                    'stale_progress' => $staleProgress,
+                    'stale_lease' => $staleLease,
+                    'abort_at' => $abortAt,
+                    'live_batch' => isset($liveBatchSet[(string) ($child['e3_batch_run_id'] ?? '')]),
+                    'upload_like' => Ms365BatchRunRepository::isUploadLikePhase($phase),
+                    'graph_bound' => Ms365BatchRunRepository::isGraphBoundPhase($phase),
+                ],
+                'timestamp' => (int) round(microtime(true) * 1000),
+            ];
+            @file_put_contents(
+                '/var/www/eazybackup.ca/.cursor/debug-d12df9.log',
+                json_encode($debugPayload) . "\n",
+                FILE_APPEND | LOCK_EX
+            );
+            // #endregion
+
             $batchRunId = (string) ($child['e3_batch_run_id'] ?? '');
             if ($batchRunId !== '' && isset($liveBatchSet[$batchRunId])) {
-                $abortAt = (int) ($child['abort_requested_at'] ?? 0);
                 if ($abortAt <= 0) {
                     $toAbort[] = $runId;
                 } elseif (($now - $abortAt) >= ChildAbortRepository::REQUEUE_AFTER_SECONDS) {
@@ -708,6 +747,11 @@ final class Ms365BatchClaimRepository
         }
 
         $actions = 0;
+        $toClearAbort = array_values(array_unique($toClearAbort));
+        if ($toClearAbort !== []) {
+            ChildAbortRepository::clearAbortRequested($toClearAbort);
+            $actions += count($toClearAbort);
+        }
         if ($toAbort !== []) {
             $actions += ChildAbortRepository::markAbortRequested($toAbort, $now);
         }

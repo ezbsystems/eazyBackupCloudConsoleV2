@@ -13,6 +13,7 @@ require_once dirname(__DIR__, 2) . '/cloudstorage/lib/Ms365BackupBootstrap.php';
 cloudstorage_load_ms365backup();
 
 use Ms365Backup\BackupRunRepository;
+use Ms365Backup\Ms365BatchClaimRepository;
 use Ms365Backup\Ms365BatchRunRepository;
 use Ms365Backup\Ms365RestoreWorkerHooks;
 use WHMCS\Database\Capsule;
@@ -65,7 +66,8 @@ function insertTestRun(string $runId, array $overrides = []): void
         'updated_at' => $now - 600,
         'started_at' => $now - 600,
     ], $overrides);
-    if (Capsule::schema()->hasColumn('ms365_backup_runs', 'last_progress_at')) {
+    if (Capsule::schema()->hasColumn('ms365_backup_runs', 'last_progress_at')
+        && !array_key_exists('last_progress_at', $overrides)) {
         $row['last_progress_at'] = $now - 600;
     }
     Capsule::table('ms365_backup_runs')->insert($row);
@@ -213,9 +215,65 @@ try {
     $checkpointAfter = BackupRunRepository::get($checkpointRunId) ?? [];
     $checkpointLastProgress = (int) ($checkpointAfter['last_progress_at'] ?? 0);
     assert_true(
-        $checkpointLastProgress > 0 && $checkpointLastProgress < $now - 60,
-        'graph_sync checkpoint without throughput does not refresh last_progress_at',
+        $checkpointLastProgress >= $now - 5,
+        'graph_sync checkpoint refreshes last_progress_at for throttled enumeration liveness',
     );
+
+    // Regression: graph_sync with items complete + bytes_hashed must NOT use the 600s
+    // upload-tail silence (that false-aborted active mail sync on live owners).
+    $graphTailBatch = test_uuid('graph-tail-batch');
+    $graphTailChild = test_uuid('graph-tail-child');
+    $runIds[] = $graphTailChild;
+    Capsule::table('ms365_batch_claims')->insert([
+        'batch_run_id' => $graphTailBatch,
+        'tenant_record_id' => 1,
+        'status' => 'running',
+        'worker_node_id' => 'liveness-test-node',
+        'running_tenant_key' => 1,
+        'priority' => 50,
+        'attempts' => 1,
+        'max_attempts' => 5,
+        'claimed_at' => $now - 900,
+        'lease_expires_at' => $now + 600,
+        'last_heartbeat_at' => $now,
+        'last_progress_at' => $now,
+        'created_at' => $now - 900,
+        'updated_at' => $now,
+    ]);
+    insertTestRun($graphTailChild, [
+        'e3_batch_run_id' => $graphTailBatch,
+        'phase' => 'graph_sync',
+        'items_done' => 847,
+        'items_total' => 847,
+        'bytes_hashed' => 153818964,
+        'bytes_uploaded' => 0,
+        'percent' => 35.0,
+        'updated_at' => $now - 700,
+        'last_progress_at' => $now - 700,
+    ]);
+    Capsule::table('ms365_job_queue')->insert([
+        'run_id' => $graphTailChild,
+        'job_type' => 'backup',
+        'status' => 'running',
+        'priority' => 50,
+        'attempts' => 1,
+        'max_attempts' => 5,
+        'scheduled_at' => $now - 900,
+        'claimed_at' => $now - 900,
+        'lease_expires_at' => $now + 600,
+        'created_at' => $now - 900,
+    ]);
+    Ms365BatchClaimRepository::reapStalledBatchChildren();
+    $graphTailAbort = Capsule::schema()->hasColumn('ms365_backup_runs', 'abort_requested_at')
+        ? Capsule::table('ms365_backup_runs')->where('id', $graphTailChild)->value('abort_requested_at')
+        : null;
+    assert_true(
+        Capsule::table('ms365_backup_runs')->where('id', $graphTailChild)->value('status') === 'running'
+        && ($graphTailAbort === null || (int) $graphTailAbort <= 0),
+        'graph_sync items-complete+bytes does not soft-abort at 700s silence on live owner',
+    );
+    Capsule::table('ms365_job_queue')->where('run_id', $graphTailChild)->delete();
+    Capsule::table('ms365_batch_claims')->where('batch_run_id', $graphTailBatch)->delete();
 } finally {
     cleanupTestRows($runIds);
 }

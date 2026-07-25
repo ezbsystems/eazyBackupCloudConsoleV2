@@ -332,23 +332,18 @@ final class Ms365RestoreWorkerHooks
         }
 
         // Batch mode replays hub snapshots (percent=1, message "Graph sync: …") which are
-        // not classified as heartbeats. Only count real throughput as progress so graph
-        // enumeration without item/byte movement can be reaped and release batch slots.
+        // not classified as heartbeats. Graph-bound phases refresh liveness on any real
+        // progress post (including "Graph sync: mail" with flat item counters) so throttled
+        // enumeration is not false-aborted; upload-like phases still require throughput.
         // Use persisted phase so stale graph_sync snapshots cannot mask Kopia upload stalls.
-        $storedItemsForDelta = (int) ($existing['items_done'] ?? 0);
-        $storedBytesHashedForDelta = (int) ($existing['bytes_hashed'] ?? 0);
-        $storedBytesUploadedForDelta = (int) ($existing['bytes_uploaded'] ?? 0);
-        $nextItemsDone = (int) ($fields['items_done'] ?? $storedItemsForDelta);
-        $nextBytesHashed = (int) ($fields['bytes_hashed'] ?? $storedBytesHashedForDelta);
-        $nextBytesUploaded = (int) ($fields['bytes_uploaded'] ?? $storedBytesUploadedForDelta);
-        $hasThroughputDelta = $nextItemsDone > $storedItemsForDelta
-            || $nextBytesHashed > $storedBytesHashedForDelta
-            || $nextBytesUploaded > $storedBytesUploadedForDelta;
         if (Ms365BatchRunRepository::isGraphBoundPhase($persistedPhase)
             && !self::hasKopiaActivity($existing)
-            && ($hasThroughputDelta || ($incomingPercent > 0 && $storedItemsForDelta <= 0 && $storedItemsTotalForDelta <= 0))
+            && !$isHeartbeat
             && \WHMCS\Database\Capsule::schema()->hasColumn('ms365_backup_runs', 'last_progress_at')) {
             $fields['last_progress_at'] = time();
+        }
+        if (isset($fields['last_progress_at']) && ChildAbortRepository::columnReady()) {
+            $fields['abort_requested_at'] = null;
         }
 
         if (!empty($body['manifest_id'])) {

@@ -2015,6 +2015,7 @@ final class WorkerClaimService
             || str_contains($message, 'stale run')
             || str_contains($message, 'stale workload')
             || str_contains($message, 'stale progress')
+            || str_contains($message, 'progress stale')
             || str_contains($message, 'stale partial backup');
     }
 

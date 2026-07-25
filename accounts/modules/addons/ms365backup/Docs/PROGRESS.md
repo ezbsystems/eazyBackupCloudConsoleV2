@@ -2,14 +2,24 @@
 
 **Purpose:** Single handoff document so the next agent knows where work stopped. Update this file at the **end of every session** (or after each meaningful milestone).
 
-**Last updated:** 2026-07-24
-**Module version (ms365backup):** 1.52.12  
+**Last updated:** 2026-07-25
+**Module version (ms365backup):** 1.52.13  
 **Cloudstorage (e3) version:** 2.2.0  
 **Worker version (ms365-backup-worker):** 0.4.13 (Kopia v0.23.1)
 
 ---
 
 ## Session log
+
+### 2026-07-25 — False "Child progress stale (live owner abort)" on active graph_sync (PHP 1.52.13)
+
+- **Problem:** Batches `1e3bcf2e-…` and `6e25a8cc-…` each lost one child with `Child progress stale (live owner abort) (gave up after max attempts)`. Live batch `ee36b931-…` had two children carrying orphaned `abort_requested_at` for ~2h while still syncing.
+- **Production evidence:** Failed child `5e9ebb2d-…` (Samir Shah) had `phase=graph_sync`, `847/847` items, `bytes_hashed>0`, `bytes_uploaded=0`. `last_progress_at` was flat for **605s** while `ms365_backup_log_lines` showed continuous `Graph sync: mail` / checkpoints through the abort. Same pattern for `8f73f00b-…` (Chris Lindsay). Live children Matt/Jackie were throttled graph_sync with abort flags set; soft-abort never cleared after progress resumed.
+- **Root cause:** `reapStalledBatchChildren()` applied the **600s upload-tail** silence whenever `bytes_hashed>0 && items_done>=items_total`, including during `graph_sync`. Graph progress posts with flat item counters did not refresh `last_progress_at`. Requeue message `Child progress stale…` did not match infra-requeue (`stale progress` only), so attempts burned to max.
+- **Fix (PHP 1.52.13):** Upload-tail 600s only for `isUploadLikePhase`; remove graph-bound 600s shortening. Graph-bound non-heartbeat progress refreshes `last_progress_at` and clears `abort_requested_at`. Reaper clears orphaned abort when child is no longer stale. Infra-requeue matches `progress stale`.
+- **Verification:** `ms365_child_abort_reaper_test.php`, `ms365_tenant_owner_recovery_test.php`, `ms365_batch_progress_liveness_test.php` PASS (incl. new graph_sync 700s non-abort regression).
+- **Ops:** Cleared orphaned abort on live `2de86e58-…` / `3cce5940-…` before deploy.
+- **Status:** Deploying via `deploy-production.sh`; session `d12df9` instrumentation remains for post-fix verification.
 
 ### 2026-07-24 — Wedge recovery follow-up patches (worker 0.4.13, PHP 1.52.12)
 
