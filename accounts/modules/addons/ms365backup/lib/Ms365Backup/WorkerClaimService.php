@@ -355,6 +355,15 @@ final class WorkerClaimService
             if ($runId === '') {
                 continue;
             }
+            // A new batch owner (or resume) may start requeued children. Clear the
+            // soft-abort suppress marker so hub progress can promote them again.
+            if ($status === 'queued') {
+                Capsule::table('ms365_job_queue')
+                    ->where('run_id', $runId)
+                    ->where('status', 'queued')
+                    ->where('error_message', 'like', '%Child progress stale%')
+                    ->update(['error_message' => '']);
+            }
             $payload = self::buildRunPayload($runId, $batchContext, $child);
             if ($payload !== null) {
                 $children[] = $payload;
