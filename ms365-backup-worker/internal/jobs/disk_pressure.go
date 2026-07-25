@@ -15,7 +15,11 @@ type diskHeadroomInput struct {
 }
 
 func (in diskHeadroomInput) softThresholdMiB() int64 {
-	calculated := in.watermarkMiB + in.reservedDiskMiB + in.updateReserveMiB + in.cachePressureMiB
+	// Do NOT include cachePressureMiB. Free space (Bavail) already reflects on-disk
+	// cache usage; adding measured cache size double-counts and permanently latches
+	// soft pressure while Kopia caches are warm (prod: free≈32GiB, cache≈25GiB →
+	// soft≈35GiB → never resumes). Cache size still drives eviction telemetry.
+	calculated := in.watermarkMiB + in.reservedDiskMiB + in.updateReserveMiB
 	if calculated > in.flushMarkMiB {
 		return calculated
 	}

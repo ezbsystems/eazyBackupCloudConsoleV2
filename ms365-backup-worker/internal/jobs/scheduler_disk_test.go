@@ -198,6 +198,28 @@ func TestCanResumeFromPressureWithActiveReservations(t *testing.T) {
 	}
 }
 
+func TestSoftThresholdIgnoresOnDiskCacheSize(t *testing.T) {
+	// Prod 9008 shape: healthy free, large warm Kopia cache, active reservations.
+	in := diskHeadroomInput{
+		freeMiB:          32022,
+		watermarkMiB:     4096,
+		flushMarkMiB:     8192,
+		reservedDiskMiB:  6144,
+		updateReserveMiB: 0,
+		hysteresisMiB:    512,
+		cachePressureMiB: 25614,
+	}
+	if in.softPressure() {
+		t.Fatalf("warm cache must not soft-pressure when free=%d soft=%d", in.freeMiB, in.softThresholdMiB())
+	}
+	if !in.canResumeFromPressure() {
+		t.Fatalf("expected resume with free=%d soft=%d", in.freeMiB, in.softThresholdMiB())
+	}
+	if got := in.softThresholdMiB(); got != 10240 {
+		t.Fatalf("soft threshold = %d, want 10240 (watermark+reserved, not +cache)", got)
+	}
+}
+
 func TestSchedulerUnifiedHeadroomBlocksAdmission(t *testing.T) {
 	s := diskTestScheduler(t)
 	s.freeMiBFn = func() int64 { return 1500 }
