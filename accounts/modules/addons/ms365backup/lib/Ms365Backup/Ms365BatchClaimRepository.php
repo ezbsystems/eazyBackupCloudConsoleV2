@@ -637,8 +637,6 @@ final class Ms365BatchClaimRepository
             'updated_at',
             'items_done',
             'items_total',
-            'bytes_hashed',
-            'bytes_uploaded',
         ];
         if (ChildAbortRepository::columnReady()) {
             $select[] = 'abort_requested_at';
@@ -662,8 +660,6 @@ final class Ms365BatchClaimRepository
             $phase = strtolower(trim((string) ($child['phase'] ?? '')));
             $itemsDone = (int) ($child['items_done'] ?? 0);
             $itemsTotal = (int) ($child['items_total'] ?? 0);
-            $bytesHashed = (int) ($child['bytes_hashed'] ?? 0);
-            $bytesUploaded = (int) ($child['bytes_uploaded'] ?? 0);
             $freshness = Ms365BatchRunRepository::progressFreshnessAt($child);
             $silenceSeconds = Ms365BatchRunRepository::STALE_SILENCE_SECONDS;
             // Shortened silence is upload-phase only. Graph-bound children often reach
@@ -700,38 +696,6 @@ final class Ms365BatchClaimRepository
                 }
                 continue;
             }
-
-            // #region agent log
-            $debugPayload = [
-                'sessionId' => 'd12df9',
-                'runId' => 'post-fix',
-                'hypothesisId' => 'A',
-                'location' => 'Ms365BatchClaimRepository.php:reapStalledBatchChildren',
-                'message' => 'stale child evaluated',
-                'data' => [
-                    'child' => $runId,
-                    'phase' => $phase,
-                    'items_done' => $itemsDone,
-                    'items_total' => $itemsTotal,
-                    'bytes_hashed' => $bytesHashed,
-                    'bytes_uploaded' => $bytesUploaded,
-                    'silence_seconds' => $silenceSeconds,
-                    'freshness_age' => $freshness > 0 ? ($now - $freshness) : null,
-                    'stale_progress' => $staleProgress,
-                    'stale_lease' => $staleLease,
-                    'abort_at' => $abortAt,
-                    'live_batch' => isset($liveBatchSet[(string) ($child['e3_batch_run_id'] ?? '')]),
-                    'upload_like' => Ms365BatchRunRepository::isUploadLikePhase($phase),
-                    'graph_bound' => Ms365BatchRunRepository::isGraphBoundPhase($phase),
-                ],
-                'timestamp' => (int) round(microtime(true) * 1000),
-            ];
-            @file_put_contents(
-                '/var/www/eazybackup.ca/.cursor/debug-d12df9.log',
-                json_encode($debugPayload) . "\n",
-                FILE_APPEND | LOCK_EX
-            );
-            // #endregion
 
             $batchRunId = (string) ($child['e3_batch_run_id'] ?? '');
             if ($batchRunId !== '' && isset($liveBatchSet[$batchRunId])) {

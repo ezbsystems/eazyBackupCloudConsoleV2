@@ -18,8 +18,8 @@
 - **Root cause:** `reapStalledBatchChildren()` applied the **600s upload-tail** silence whenever `bytes_hashed>0 && items_done>=items_total`, including during `graph_sync`. Graph progress posts with flat item counters did not refresh `last_progress_at`. Requeue message `Child progress stale…` did not match infra-requeue (`stale progress` only), so attempts burned to max.
 - **Fix (PHP 1.52.13):** Upload-tail 600s only for `isUploadLikePhase`; remove graph-bound 600s shortening. Graph-bound non-heartbeat progress refreshes `last_progress_at` and clears `abort_requested_at`. Reaper clears orphaned abort when child is no longer stale. Infra-requeue matches `progress stale`.
 - **Verification:** `ms365_child_abort_reaper_test.php`, `ms365_tenant_owner_recovery_test.php`, `ms365_batch_progress_liveness_test.php` PASS (incl. new graph_sync 700s non-abort regression).
-- **Ops:** Cleared orphaned abort on live `2de86e58-…` / `3cce5940-…` before deploy.
-- **Status:** Deploying via `deploy-production.sh`; session `d12df9` instrumentation remains for post-fix verification.
+- **Ops:** Cleared orphaned abort on live `2de86e58-…` / `3cce5940-…` before deploy; requeued failed Samir/Chris children.
+- **Status:** Fix verified on production; session `d12df9` instrumentation removed.
 
 ### 2026-07-24 — Wedge recovery follow-up patches (worker 0.4.13, PHP 1.52.12)
 
