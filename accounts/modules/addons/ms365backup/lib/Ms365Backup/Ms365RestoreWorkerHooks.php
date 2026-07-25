@@ -59,6 +59,27 @@ final class Ms365RestoreWorkerHooks
             if (Ms365RestoreWorkerHooks::isRunCancelled($runId)) {
                 continue;
             }
+            // Soft-aborted / reaper-requeued children must not be flipped back to
+            // running by the still-alive owner's hub snapshot. That undoes live-owner
+            // abort recovery (prod: Marketing upload-tail requeued then immediately
+            // re-promoted with the same stale last_progress_at).
+            if (!Ms365BatchClaimRepository::shouldPromoteFromBatchProgress($runId)) {
+                // #region agent log
+                @file_put_contents(
+                    '/var/www/eazybackup.ca/.cursor/debug-d12df9.log',
+                    json_encode([
+                        'sessionId' => 'd12df9',
+                        'hypothesisId' => 'H6',
+                        'location' => 'Ms365RestoreWorkerHooks::onBatchProgress',
+                        'message' => 'skip_promote_stale_requeue',
+                        'data' => ['run_id' => $runId, 'batch_run_id' => $batchRunId, 'node_id' => $nodeId],
+                        'timestamp' => (int) round(microtime(true) * 1000),
+                    ], JSON_UNESCAPED_SLASHES) . "\n",
+                    FILE_APPEND
+                );
+                // #endregion
+                continue;
+            }
             Ms365BatchClaimRepository::promoteBatchChildToRunning($runId, $nodeId);
             // Batch children share one graph.Client, so each reports the SAME
             // cumulative 429 count. Suppress per-child budget recording here and

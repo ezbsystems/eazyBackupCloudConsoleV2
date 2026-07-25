@@ -138,6 +138,15 @@ try {
         Capsule::table('ms365_backup_runs')->where('id', $freshChildId)->value('status') === 'running',
         'active sibling stays running after stale child requeue',
     );
+    abort_assert(
+        !Ms365BatchClaimRepository::shouldPromoteFromBatchProgress($staleChildId),
+        'hub progress must not re-promote child progress stale requeue',
+    );
+    Ms365BatchClaimRepository::promoteBatchChildToRunning($staleChildId, $nodeId);
+    abort_assert(
+        Capsule::table('ms365_backup_runs')->where('id', $staleChildId)->value('status') === 'queued',
+        'promoteBatchChildToRunning is a no-op after live-owner stale requeue',
+    );
 
     // Regression: fail/requeue and promote must clear abort so the child is not re-aborted.
     Capsule::table('ms365_backup_runs')->where('id', $staleChildId)->update([

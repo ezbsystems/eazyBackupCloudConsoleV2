@@ -1053,7 +1053,7 @@ final class Ms365BatchClaimRepository
 
     public static function promoteBatchChildToRunning(string $runId, string $nodeId): void
     {
-        if ($runId === '' || $nodeId === '') {
+        if ($runId === '' || $nodeId === '' || !self::shouldPromoteFromBatchProgress($runId)) {
             return;
         }
         $now = time();
@@ -1081,6 +1081,30 @@ final class Ms365BatchClaimRepository
         ]);
         ChildAbortRepository::clearAbortRequested([$runId]);
         Ms365WorkerLogRepository::recordAssignment($runId, $nodeId);
+    }
+
+    /**
+     * Hub progress must not undo a live-owner soft-abort requeue while the wedged
+     * in-memory run is still posting snapshots.
+     */
+    public static function shouldPromoteFromBatchProgress(string $runId): bool
+    {
+        if ($runId === '' || !Capsule::schema()->hasTable('ms365_job_queue')) {
+            return true;
+        }
+        $queue = Capsule::table('ms365_job_queue')->where('run_id', $runId)->first(['status', 'error_message']);
+        if ($queue === null) {
+            return true;
+        }
+        if ((string) ($queue->status ?? '') !== 'queued') {
+            return true;
+        }
+        $message = strtolower(trim((string) ($queue->error_message ?? '')));
+        if ($message === '') {
+            return true;
+        }
+
+        return !str_contains($message, 'child progress stale');
     }
 
     private static function requeueBatchChildren(string $batchRunId, string $message, bool $incrementAttempts): void

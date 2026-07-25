@@ -257,7 +257,12 @@ func (br *BatchRunner) Run(ctx context.Context, batch *api.BatchJob, onAbort con
 			BatchRunID: batchRunID,
 			Children:   hub.snapshot(),
 		}
-	}), onAbort, br.scheduler.abortRuns, onTenantBudget, func() {
+	}), onAbort, func(ids []string) {
+		for _, id := range ids {
+			hub.remove(id)
+		}
+		br.scheduler.abortRuns(ids)
+	}, onTenantBudget, func() {
 		if br.completionOutbox != nil {
 			fctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 			br.completionOutbox.Flush(fctx, br.client)
