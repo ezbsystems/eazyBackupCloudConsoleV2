@@ -263,3 +263,41 @@ func TestStallWatchMidUploadIgnoresHighReportedItemsTotal(t *testing.T) {
 		t.Fatal("mid-upload should require both hash and upload stalls even when ReportedItemsTotal is high")
 	}
 }
+
+func TestStallWatchGraphEnumerationCompleteCancelsOnFlatUploadDespiteActiveHash(t *testing.T) {
+	counter := NewProgressCounter(nil)
+	counter.FilesTotal.Store(100)
+	counter.FilesDone.Store(10)
+	counter.lastHashAt.Store(time.Now().UnixNano())
+	stale := time.Now().Add(-10 * time.Second).UnixNano()
+	counter.lastUploadAt.Store(stale)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	stalled := false
+	stop := StartStallWatch(ctx, cancel, counter, StallWatchConfig{
+		StallSeconds:               1,
+		CheckIntervalSeconds:       1,
+		GraceSeconds:               0,
+		ReportedItemsTotal:         34999,
+		GraphEnumerationComplete:   true,
+		OnStall: func(snapshot map[string]any) {
+			stalled = true
+		},
+	})
+	defer stop()
+
+	deadline := time.Now().Add(4 * time.Second)
+	for time.Now().Before(deadline) {
+		if ctx.Err() != nil {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if ctx.Err() == nil {
+		t.Fatal("expected graph-complete tail OR stall when upload flat despite active hash")
+	}
+	if !stalled {
+		t.Fatal("expected OnStall callback for graph-complete upload wedge")
+	}
+}

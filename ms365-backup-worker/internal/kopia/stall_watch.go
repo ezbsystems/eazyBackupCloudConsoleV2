@@ -18,6 +18,10 @@ type StallWatchConfig struct {
 	RunID                  string
 	RunDir                 string
 	ReportedItemsTotal     int64
+	// GraphEnumerationComplete is true when Graph sync finished (items_done >= items_total)
+	// before Kopia upload. Kopia FilesDone can lag graph item counts; without this flag
+	// the watchdog stays in mid-upload AND mode and parallel hash progress masks wedges.
+	GraphEnumerationComplete bool
 	OnStall                func(snapshot map[string]any)
 }
 
@@ -39,6 +43,8 @@ func StartStallWatch(ctx context.Context, cancel context.CancelFunc, counter *Pr
 	started := time.Now()
 	done := make(chan struct{})
 	var dumped int32
+	var lastUploadBytes int64
+	var lastUploadBytesChangeAt int64
 
 	go func() {
 		ticker := time.NewTicker(time.Duration(interval) * time.Second)
@@ -62,16 +68,28 @@ func StartStallWatch(ctx context.Context, cancel context.CancelFunc, counter *Pr
 				if sinceHash < 0 || sinceUpload < 0 {
 					continue
 				}
+				nowNano := time.Now().UnixNano()
+				if bytesUploaded > lastUploadBytes {
+					lastUploadBytes = bytesUploaded
+					lastUploadBytesChangeAt = nowNano
+				} else if lastUploadBytesChangeAt == 0 {
+					lastUploadBytesChangeAt = nowNano
+				}
+				bytesStalled := false
+				if lastUploadBytesChangeAt > 0 {
+					bytesStalled = time.Since(time.Unix(0, lastUploadBytesChangeAt)) >= time.Duration(cfg.StallSeconds)*time.Second
+				}
 				effectiveTotal := filesTotal
 				if cfg.ReportedItemsTotal > effectiveTotal {
 					effectiveTotal = cfg.ReportedItemsTotal
 				}
 				hashStalled := sinceHash >= int64(cfg.StallSeconds)
 				uploadStalled := sinceUpload >= int64(cfg.StallSeconds)
-				tailPhase := effectiveTotal > 0 && filesDone >= effectiveTotal
+				tailPhase := cfg.GraphEnumerationComplete ||
+					(effectiveTotal > 0 && filesDone >= effectiveTotal)
 				var stalled bool
 				if tailPhase {
-					stalled = hashStalled || uploadStalled
+					stalled = hashStalled || uploadStalled || bytesStalled
 				} else {
 					stalled = hashStalled && uploadStalled
 				}

@@ -423,12 +423,13 @@ func (r *Runner) Run(ctx context.Context, job *api.RunJob, onAbort context.Cance
 			reported = int64(graphItemsTotal)
 		}
 		stopWatch := kopia.StartStallWatch(snapCtx, cancelSnap, progressCounter, kopia.StallWatchConfig{
-			StallSeconds:         stallSeconds,
-			CheckIntervalSeconds: r.cfg.Kopia.StallCheckIntervalSeconds,
-			GraceSeconds:         r.cfg.Kopia.StallGraceSeconds,
-			RunID:                job.RunID,
-			RunDir:               runDir,
-			ReportedItemsTotal:   reported,
+			StallSeconds:             stallSeconds,
+			CheckIntervalSeconds:     r.cfg.Kopia.StallCheckIntervalSeconds,
+			GraceSeconds:             r.cfg.Kopia.StallGraceSeconds,
+			RunID:                    job.RunID,
+			RunDir:                   runDir,
+			ReportedItemsTotal:       reported,
+			GraphEnumerationComplete: graphItemsTotal > 0 && graphItemsDone >= graphItemsTotal,
 			OnStall: func(snapshot map[string]any) {
 				stalled.Store(true)
 				r.client.RunLogf(ctx, job.RunID, "error", "kopia upload stalled: %v", snapshot)
