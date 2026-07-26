@@ -2,6 +2,7 @@ package graphsync
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -19,6 +20,7 @@ type OneDriveSyncOptions struct {
 	Overlay       *graphfs.OverlayBuilder
 	ShardKey      string
 	Shard         ShardFilter
+	Log           RunLogger
 	OnProgress    func(itemsDone, itemsTotal int, bytesEstimate int64)
 }
 
@@ -118,6 +120,29 @@ func syncOneDriveDelta(ctx context.Context, client *graph.Client, opts OneDriveS
 		}
 	})
 	if err != nil {
+		var paginationErr *graph.GraphPaginationError
+		if strings.TrimSpace(opts.DeltaLink) != "" && errors.As(err, &paginationErr) {
+			if opts.Log != nil {
+				opts.Log("warning", "OneDrive incremental pagination loop; retrying full delta baseline")
+			}
+			retryOpts := opts
+			retryOpts.DeltaLink = ""
+			recovered, retryErr := syncOneDriveDelta(ctx, client, retryOpts, driveID)
+			if retryErr != nil {
+				if opts.Log != nil {
+					opts.Log("error", "OneDrive full delta rebaseline failed")
+				}
+				return nil, fmt.Errorf("onedrive full delta rebaseline: %w", retryErr)
+			}
+			recovered.Stats["pagination_rebaseline"] = 1
+			if opts.Log != nil {
+				opts.Log("info", fmt.Sprintf(
+					"OneDrive full delta rebaseline completed items=%d",
+					recovered.Stats["items"],
+				))
+			}
+			return recovered, nil
+		}
 		return nil, err
 	}
 

@@ -15,9 +15,9 @@ import (
 type WorkloadRunner struct {
 	Client           *graph.Client
 	Job              *api.RunJob
-	Parallel           int
-	FolderParallel     int
-	DriveParallel      int
+	Parallel         int
+	FolderParallel   int
+	DriveParallel    int
 	Overlay          *graphfs.OverlayBuilder
 	UseBatchFallback bool
 	OnProgress       func(phase string, itemsDone, itemsTotal int, bytesTotal int64)
@@ -153,6 +153,7 @@ func (w *WorkloadRunner) Run(ctx context.Context) (*WorkloadResult, error) {
 			Overlay:       w.Overlay,
 			ShardKey:      shardKey,
 			Shard:         shardFilter,
+			Log:           w.RunLog,
 			OnProgress:    func(d, t int, b int64) { progress("onedrive", d, t, b) },
 		})
 		if err != nil {
