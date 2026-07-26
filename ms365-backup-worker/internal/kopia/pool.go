@@ -19,6 +19,9 @@ import (
 	"github.com/kopia/kopia/snapshot/upload"
 )
 
+// repositoryOpener is the production repo open path; tests may replace it.
+var repositoryOpener = openRepository
+
 // Pool keeps warm, cached Kopia repository connections keyed by repo identity.
 type Pool struct {
 	cache RepoCacheSettings
@@ -73,30 +76,57 @@ func (p *Pool) Acquire(ctx context.Context, storage StorageOptions, maxPackSizeM
 		// We are the designated opener for this key.
 		ch := make(chan struct{})
 		p.opening[key] = ch
+		var closeOpeningOnce sync.Once
+		closeOpening := func() {
+			closeOpeningOnce.Do(func() {
+				p.mu.Lock()
+				delete(p.opening, key)
+				close(ch)
+				p.mu.Unlock()
+			})
+		}
 		p.mu.Unlock()
 
-		rep, err := openRepository(ctx, openRepoOptions{
-			storage:        storage,
-			cache:          p.cache,
-			maxPackSizeMiB: maxPackSizeMiB,
-		})
+		type openResult struct {
+			rep repo.Repository
+			err error
+		}
+		done := make(chan openResult, 1)
+		go func() {
+			rep, err := repositoryOpener(ctx, openRepoOptions{
+				storage:        storage,
+				cache:          p.cache,
+				maxPackSizeMiB: maxPackSizeMiB,
+			})
+			done <- openResult{rep: rep, err: err}
+		}()
 
-		p.mu.Lock()
-		delete(p.opening, key)
-		close(ch)
-		if err != nil {
+		select {
+		case <-ctx.Done():
+			closeOpening()
+			go func() {
+				r := <-done
+				if r.rep != nil {
+					_ = r.rep.Close(context.Background())
+				}
+			}()
+			return nil, nil, ctx.Err()
+		case r := <-done:
+			closeOpening()
+			if r.err != nil {
+				return nil, nil, r.err
+			}
+			p.mu.Lock()
+			if entry, ok := p.repos[key]; ok && entry.rep != nil {
+				_ = r.rep.Close(ctx)
+				entry.refs++
+				p.mu.Unlock()
+				return entry.rep, func() { p.release(key) }, nil
+			}
+			p.repos[key] = &poolEntry{rep: r.rep, refs: 1, opened: time.Now(), cacheDir: p.cacheDir(storage)}
 			p.mu.Unlock()
-			return nil, nil, err
+			return r.rep, func() { p.release(key) }, nil
 		}
-		if entry, ok := p.repos[key]; ok && entry.rep != nil {
-			_ = rep.Close(ctx)
-			entry.refs++
-			p.mu.Unlock()
-			return entry.rep, func() { p.release(key) }, nil
-		}
-		p.repos[key] = &poolEntry{rep: rep, refs: 1, opened: time.Now(), cacheDir: p.cacheDir(storage)}
-		p.mu.Unlock()
-		return rep, func() { p.release(key) }, nil
 	}
 }
 

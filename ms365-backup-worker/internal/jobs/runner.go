@@ -3,6 +3,7 @@ package jobs
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -182,9 +183,16 @@ func (r *Runner) Run(ctx context.Context, job *api.RunJob, onAbort context.Cance
 			Message: "Loading prior snapshot metadata",
 		})
 		graphLastPercent = 5
-		priorRoot, err := kopia.PriorSnapshotRoot(ctx, r.repoPool, storage, job.PreviousManifest)
+		priorTimeout := r.cfg.Kopia.PriorSnapshotTimeout()
+		priorCtx, cancelPrior := context.WithTimeout(ctx, priorTimeout)
+		priorRoot, err := kopia.PriorSnapshotRoot(priorCtx, r.repoPool, storage, job.PreviousManifest)
+		cancelPrior()
 		if err != nil {
-			log.Printf("run %s prior snapshot warning: %v", job.RunID, err)
+			if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+				log.Printf("run %s prior snapshot timed out after %ds (manifest %s): %v", job.RunID, int(priorTimeout.Seconds()), job.PreviousManifest, err)
+			} else {
+				log.Printf("run %s prior snapshot warning: %v", job.RunID, err)
+			}
 		} else if err := overlay.MergePrior(ctx, priorRoot, ""); err != nil {
 			log.Printf("run %s prior merge warning: %v", job.RunID, err)
 		} else {

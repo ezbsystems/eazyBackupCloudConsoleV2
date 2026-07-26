@@ -102,6 +102,9 @@ type KopiaConfig struct {
 	UploadStallSeconds        *int   `yaml:"upload_stall_seconds"` // nil/900 default; 0 = use stall_seconds
 	StallCheckIntervalSeconds int    `yaml:"stall_check_interval_seconds"`
 	StallGraceSeconds         int    `yaml:"stall_grace_seconds"`
+	// PriorSnapshotTimeoutSeconds bounds Kopia prior-snapshot repo acquire/open.
+	// On timeout the run continues without incremental merge. 0 = default 300.
+	PriorSnapshotTimeoutSeconds int `yaml:"prior_snapshot_timeout_seconds"`
 }
 
 type GraphConfig struct {
@@ -266,6 +269,9 @@ func (c *Config) applyDefaults() {
 	if c.Kopia.StallSeconds <= 0 {
 		c.Kopia.StallSeconds = 2700
 	}
+	if c.Kopia.PriorSnapshotTimeoutSeconds <= 0 {
+		c.Kopia.PriorSnapshotTimeoutSeconds = 300
+	}
 	if c.Graph.MaxRetries <= 0 {
 		c.Graph.MaxRetries = 5
 	}
@@ -393,6 +399,14 @@ func (k KopiaConfig) ResolvedUploadStallSeconds(stallSeconds int) int {
 
 func (c *KopiaConfig) CheckpointInterval() time.Duration {
 	return time.Duration(c.CheckpointIntervalMinutes) * time.Minute
+}
+
+func (k KopiaConfig) PriorSnapshotTimeout() time.Duration {
+	sec := k.PriorSnapshotTimeoutSeconds
+	if sec <= 0 {
+		sec = 300
+	}
+	return time.Duration(sec) * time.Second
 }
 
 func (c *WorkerConfig) DiskWatermarkBytes() int64 {
