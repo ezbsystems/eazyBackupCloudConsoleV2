@@ -3,13 +3,19 @@
 **Purpose:** Single handoff document so the next agent knows where work stopped. Update this file at the **end of every session** (or after each meaningful milestone).
 
 **Last updated:** 2026-07-26
-**Module version (ms365backup):** 1.52.27
+**Module version (ms365backup):** 1.52.28
 **Cloudstorage (e3) version:** 2.2.0  
 **Worker version (ms365-backup-worker):** 0.4.19 (Kopia v0.23.1)
 
 ---
 
 ## Session log
+
+### 2026-07-26 — Require post-start progress before hiding recovery warning (PHP 1.52.28)
+
+- **Review finding:** The first 1.52.27 projection used `progressFreshnessAt()`, whose intentional `started_at` floor grants new attempts reaper grace but can look fresh before any worker progress.
+- **Fix:** Group warning suppression now requires raw `last_progress_at` to be newer than the current attempt's `started_at` and within the active-progress window.
+- **Verification:** Added a regression proving a newly started shard with stale progress does not hide queued recovery state.
 
 ### 2026-07-26 — Hide historical shard recovery warning during fresh group progress (PHP 1.52.27)
 

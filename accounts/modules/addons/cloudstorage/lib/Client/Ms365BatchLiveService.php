@@ -526,9 +526,11 @@ final class Ms365BatchLiveService
             if (strtolower((string) ($candidate['status'] ?? '')) !== 'running') {
                 continue;
             }
-            $candidateRunId = (string) ($candidate['id'] ?? '');
-            $freshness = self::computeWorkloadFreshness($candidate, $queueByRun[$candidateRunId] ?? []);
-            if ($freshness['last_progress_age_seconds'] !== null && !$freshness['stalled']) {
+            $lastProgressAt = (int) ($candidate['last_progress_at'] ?? 0);
+            $startedAt = (int) ($candidate['started_at'] ?? 0);
+            $hasAttemptProgress = $lastProgressAt > 0
+                && ($startedAt <= 0 || $lastProgressAt > $startedAt);
+            if ($hasAttemptProgress && max(0, time() - $lastProgressAt) < self::WORKLOAD_ACTIVE_PROGRESS_SECONDS) {
                 $hasFreshRunningChild = true;
                 break;
             }
