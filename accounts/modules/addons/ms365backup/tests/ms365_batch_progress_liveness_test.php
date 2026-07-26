@@ -186,7 +186,7 @@ try {
     Ms365RestoreWorkerHooks::onProgress($uploadPhaseRunId, [
         'phase' => 'graph_sync',
         'percent' => 35.0,
-        'items_done' => 5249,
+        'items_done' => 4000,
         'items_total' => 5251,
         'message' => 'Graph sync: sharepoint',
     ]);
@@ -195,6 +195,21 @@ try {
         ($uploadGuard['phase'] ?? '') === 'upload'
         && (float) ($uploadGuard['percent'] ?? 0) >= 67.0,
         'backupProgress ignores stale graph_sync after Kopia upload started',
+    );
+    Capsule::table('ms365_backup_runs')->where('id', $uploadPhaseRunId)->update([
+        'last_progress_at' => $now - 900,
+    ]);
+    Ms365RestoreWorkerHooks::onProgress($uploadPhaseRunId, [
+        'phase' => 'graph_sync',
+        'percent' => 35.0,
+        'items_done' => 4200,
+        'items_total' => 5251,
+        'message' => 'Graph sync: sharepoint',
+    ]);
+    $uploadGuardAfterReplay = BackupRunRepository::get($uploadPhaseRunId) ?? [];
+    assert_true(
+        (int) ($uploadGuardAfterReplay['last_progress_at'] ?? 0) < $now - 60,
+        'rejected stale graph_sync counters do not refresh upload liveness',
     );
 
     // Soft-abort retry: sticky upload phase + leftover kopia bytes must not block the
