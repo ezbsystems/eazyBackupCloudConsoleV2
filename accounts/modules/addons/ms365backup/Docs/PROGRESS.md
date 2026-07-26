@@ -3,13 +3,20 @@
 **Purpose:** Single handoff document so the next agent knows where work stopped. Update this file at the **end of every session** (or after each meaningful milestone).
 
 **Last updated:** 2026-07-25
-**Module version (ms365backup):** 1.52.14  
+**Module version (ms365backup):** 1.52.20  
 **Cloudstorage (e3) version:** 2.2.0  
-**Worker version (ms365-backup-worker):** 0.4.13 (Kopia v0.23.1)
+**Worker version (ms365-backup-worker):** 0.4.17 (Kopia v0.23.1)
 
 ---
 
 ## Session log
+
+### 2026-07-25 — False stall after promote (PHP 1.52.20)
+
+- **Problem:** Live batch `ee36b931-…` showed “workloads with no progress” and soft-aborted children within seconds of re-promote. Prod: `started_at` fresh, `last_progress_at` from prior attempt (~6500s old), `abort_requested_at ≈ started_at+3s`.
+- **Root cause:** `progressFreshnessAt` / health stall SQL used only `last_progress_at`. Promote did not reset it; counters are max’d so early posts may not bump liveness. Upload-tail silence (180s) then false-aborts → cancels snap context → stall watch exits while Snapshot may ignore cancel.
+- **Fix (PHP 1.52.20):** Floor freshness with `started_at`; reset `last_progress_at` on `promoteBatchChildToRunning`; health SQL uses `GREATEST(last_progress_at, started_at, updated_at)`.
+- **Status:** Tests updated; deploying to production for post-fix verification (session `d12df9`).
 
 ### 2026-07-25 — Admin Jobs View Live monitoring (PHP 1.52.14)
 

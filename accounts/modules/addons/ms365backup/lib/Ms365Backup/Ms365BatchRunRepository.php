@@ -309,11 +309,19 @@ final class Ms365BatchRunRepository
      */
     public static function progressFreshnessAt(array $child): int
     {
+        $freshness = 0;
         if (Capsule::schema()->hasColumn('ms365_backup_runs', 'last_progress_at')) {
-            $lastProgress = (int) ($child['last_progress_at'] ?? 0);
-            if ($lastProgress > 0) {
-                return $lastProgress;
-            }
+            $freshness = (int) ($child['last_progress_at'] ?? 0);
+        }
+        // Floor with this attempt's start so a re-promoted child is not treated as
+        // already silent for hours (prod: abort_requested_at ≈ started_at+3s while
+        // last_progress_at still held the prior attempt's timestamp).
+        $startedAt = (int) ($child['started_at'] ?? 0);
+        if ($startedAt > $freshness) {
+            $freshness = $startedAt;
+        }
+        if ($freshness > 0) {
+            return $freshness;
         }
 
         return (int) ($child['updated_at'] ?? 0);

@@ -134,6 +134,14 @@ assert_true(
     Ms365BatchRunRepository::progressFreshnessAt(['updated_at' => $now - 90]) === $now - 90,
     'progressFreshnessAt falls back to updated_at',
 );
+assert_true(
+    Ms365BatchRunRepository::progressFreshnessAt([
+        'last_progress_at' => $now - 6500,
+        'started_at' => $now - 10,
+        'updated_at' => $now - 5,
+    ]) === $now - 10,
+    'progressFreshnessAt floors stale last_progress_at with started_at',
+);
 
 $throttleChildren = [
     array_merge(child('running', 5.0, 0, 0, 'graph_sync'), ['stats_json' => json_encode(['graph_429_hits' => 12])]),

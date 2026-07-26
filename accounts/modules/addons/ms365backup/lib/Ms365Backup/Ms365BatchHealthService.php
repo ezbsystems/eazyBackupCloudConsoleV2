@@ -246,9 +246,11 @@ final class Ms365BatchHealthService
         $threshold = time() - Ms365BatchLiveService::WORKLOAD_ACTIVE_PROGRESS_SECONDS;
 
         if (Capsule::schema()->hasTable('ms365_backup_runs')) {
+            // Floor with started_at so a fresh attempt is not counted stalled from a
+            // prior attempt's last_progress_at (same rule as progressFreshnessAt).
             $freshnessExpr = Capsule::schema()->hasColumn('ms365_backup_runs', 'last_progress_at')
-                ? 'COALESCE(NULLIF(last_progress_at, 0), updated_at)'
-                : 'updated_at';
+                ? 'GREATEST(COALESCE(NULLIF(last_progress_at, 0), 0), COALESCE(NULLIF(started_at, 0), 0), COALESCE(updated_at, 0))'
+                : 'GREATEST(COALESCE(NULLIF(started_at, 0), 0), COALESCE(updated_at, 0))';
             foreach (Capsule::table('ms365_backup_runs')
                 ->select([
                     'e3_batch_run_id',
