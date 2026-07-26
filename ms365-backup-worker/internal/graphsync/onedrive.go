@@ -126,6 +126,7 @@ func syncOneDriveDelta(ctx context.Context, client *graph.Client, opts OneDriveS
 				opts.Log("warning", "OneDrive incremental pagination loop; retrying full delta baseline")
 			}
 			retryOpts := opts
+			// A blank cursor makes this full baseline ineligible for another fallback.
 			retryOpts.DeltaLink = ""
 			recovered, retryErr := syncOneDriveDelta(ctx, client, retryOpts, driveID)
 			if retryErr != nil {
