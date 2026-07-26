@@ -3,13 +3,18 @@
 **Purpose:** Single handoff document so the next agent knows where work stopped. Update this file at the **end of every session** (or after each meaningful milestone).
 
 **Last updated:** 2026-07-26
-**Module version (ms365backup):** 1.52.28
+**Module version (ms365backup):** 1.52.29
 **Cloudstorage (e3) version:** 2.2.0  
 **Worker version (ms365-backup-worker):** 0.4.19 (Kopia v0.23.1)
 
 ---
 
 ## Session log
+
+### 2026-07-26 — Remove session b86288 diagnostics (PHP 1.52.29)
+
+- **Production verification:** The operator confirmed the stale-child liveness and historical workload-warning issues are fixed. The live projection returned fresh running progress with no current error or events.
+- **Cleanup:** Removed all session `b86288` runtime writers and diagnostic-only reaper byte selects. Attempt-local liveness and grouped warning behavior remain unchanged.
 
 ### 2026-07-26 — Require post-start progress before hiding recovery warning (PHP 1.52.28)
 
@@ -22,14 +27,14 @@
 - **Problem:** A grouped Documents row remained `Running` with fresh upload/hash speed but displayed an old `Queue: Child progress stale (live owner abort)` warning from a queued sibling shard.
 - **Runtime proof:** Batch `4efc3484-…` had active child `5054d193` progressing every few seconds with an empty queue error, while five queued siblings retained the earlier recovery reason; the live projection merged one sibling warning into the running row.
 - **Fix:** Suppress queue-only recovery events from queued shards while a sibling in the same workload group has fresh running progress. Keep the warning visible when no sibling is freshly progressing, and render child-progress-stale recovery text customer-safely.
-- **Status:** Focused projection test passes; production verification pending with session `b86288` instrumentation retained.
+- **Status:** Production verified; session `b86288` instrumentation removed in PHP 1.52.29.
 
 ### 2026-07-26 — Retry-local upload liveness below preserved counters (PHP 1.52.26)
 
 - **Problem:** Retried Documents shards actively rehashed below preserved prior-attempt `items_done` / byte high-water counters, so `last_progress_at` remained stale despite increasing raw worker counters.
 - **Runtime proof:** Session `b86288` child `b43728c3` increased attempt-local hash bytes from ~90.7 GB to ~99.2 GB while persisted hash stayed ~111.8 GB, the lease stayed fresh, and `last_progress_at` remained fixed.
 - **Fix:** Track raw counters per `started_at` + worker phase in `stats_json`; refresh liveness on attempt-local increases while retaining monotonic public counters. Identical samples remain stale-detectable.
-- **Status:** Focused tests pass; pending production verification with session `b86288` instrumentation retained.
+- **Status:** Production verified; session `b86288` instrumentation removed in PHP 1.52.29.
 
 ### 2026-07-26 — Upload-tail 180s abort after graph→kopia (PHP 1.52.25)
 

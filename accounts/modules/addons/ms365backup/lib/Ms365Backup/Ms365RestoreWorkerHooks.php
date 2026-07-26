@@ -318,40 +318,6 @@ final class Ms365RestoreWorkerHooks
                 }
                 // #endregion
             }
-            // #region agent log
-            if ((string) ($existing['e3_batch_run_id'] ?? '') === '4efc3484-ec99-453b-9fa1-41c480a4dcca'
-                && $incomingPhase !== $existingPhase) {
-                @file_put_contents('/var/www/eazybackup.ca/.cursor/debug-b86288.log', json_encode([
-                    'sessionId' => 'b86288',
-                    'runId' => 'investigation-1',
-                    'hypothesisId' => 'H1,H3,H5',
-                    'location' => 'Ms365RestoreWorkerHooks.php:backupProgress',
-                    'message' => 'target child phase transition',
-                    'data' => [
-                        'run_id' => $runId,
-                        'existing_phase' => $existingPhase,
-                        'incoming_phase' => $incomingPhase,
-                        'phase_accepted' => isset($fields['phase']),
-                        'complete_replay_blocked' => $blockCompleteReplay,
-                        'regression_blocked' => self::shouldBlockPhaseRegression(
-                            $existingPhase,
-                            $existing,
-                            $incomingPhase
-                        ),
-                        'has_kopia_activity' => self::hasKopiaActivity($existing),
-                        'is_heartbeat' => $isHeartbeat,
-                        'incoming_graph_requests' => $incomingRequests,
-                        'incoming_graph_429' => $incoming429,
-                        'incoming_items_done' => $incomingItemsDone,
-                        'incoming_items_total' => $incomingItemsTotal,
-                        'incoming_bytes_hashed' => $incomingBytesHashed,
-                        'incoming_bytes_uploaded' => $incomingBytesUploaded,
-                        'last_progress_at' => (int) ($existing['last_progress_at'] ?? 0),
-                    ],
-                    'timestamp' => (int) (microtime(true) * 1000),
-                ], JSON_UNESCAPED_SLASHES) . "\n", FILE_APPEND | LOCK_EX);
-            }
-            // #endregion
         }
         $persistedPhase = strtolower(trim((string) ($fields['phase'] ?? $existingPhase)));
         if (!$isHeartbeat && !$rejectedNonEmptyPhaseUpdate) {

@@ -640,8 +640,6 @@ final class Ms365BatchClaimRepository
             'updated_at',
             'items_done',
             'items_total',
-            'bytes_hashed',
-            'bytes_uploaded',
         ];
         if (ChildAbortRepository::columnReady()) {
             $select[] = 'abort_requested_at';
@@ -723,39 +721,6 @@ final class Ms365BatchClaimRepository
                         'action' => ($batchRunId !== '' && isset($liveBatchSet[$batchRunId]))
                             ? ($abortAt <= 0 ? 'soft_abort' : 'wait_or_requeue')
                             : 'requeue_orphan',
-                    ],
-                    'timestamp' => (int) (microtime(true) * 1000),
-                ], JSON_UNESCAPED_SLASHES) . "\n", FILE_APPEND | LOCK_EX);
-            }
-            // #endregion
-
-            // #region agent log
-            $actualSilence = $freshness > 0 ? ($now - $freshness) : -1;
-            if ($batchRunId === '4efc3484-ec99-453b-9fa1-41c480a4dcca'
-                && Ms365BatchRunRepository::isUploadLikePhase($phase)
-                && (($actualSilence >= 175 && $actualSilence <= 240) || $staleProgress || $abortAt > 0)) {
-                @file_put_contents('/var/www/eazybackup.ca/.cursor/debug-b86288.log', json_encode([
-                    'sessionId' => 'b86288',
-                    'runId' => 'investigation-1',
-                    'hypothesisId' => 'H2,H4',
-                    'location' => 'Ms365BatchClaimRepository.php:reapStalledBatchChildren',
-                    'message' => 'target upload child reaper decision',
-                    'data' => [
-                        'run_id' => $runId,
-                        'phase' => $phase,
-                        'actual_silence' => $actualSilence,
-                        'silence_threshold' => $silenceSeconds,
-                        'stale_progress' => $staleProgress,
-                        'stale_lease' => $staleLease,
-                        'live_owner' => isset($liveBatchSet[$batchRunId]),
-                        'abort_age' => $abortAt > 0 ? ($now - $abortAt) : null,
-                        'items_done' => $itemsDone,
-                        'items_total' => $itemsTotal,
-                        'bytes_hashed' => (int) ($child['bytes_hashed'] ?? 0),
-                        'bytes_uploaded' => (int) ($child['bytes_uploaded'] ?? 0),
-                        'queue_status' => (string) ($queue->status ?? ''),
-                        'queue_lease_remaining' => $queue !== null
-                            ? ((int) ($queue->lease_expires_at ?? 0) - $now) : null,
                     ],
                     'timestamp' => (int) (microtime(true) * 1000),
                 ], JSON_UNESCAPED_SLASHES) . "\n", FILE_APPEND | LOCK_EX);
