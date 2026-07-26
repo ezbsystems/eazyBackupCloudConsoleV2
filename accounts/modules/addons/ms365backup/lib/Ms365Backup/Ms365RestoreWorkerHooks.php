@@ -283,9 +283,38 @@ final class Ms365RestoreWorkerHooks
             $incomingPhase = strtolower(trim($rawPhase));
             $blockCompleteReplay = $existingPhase === 'complete' && $existingManifest !== ''
                 && in_array($incomingPhase, ['graph_sync', 'prior_snapshot', 'kopia_upload', 'kopia_snapshot'], true);
-            if (!$blockCompleteReplay && !self::shouldBlockPhaseRegression($existingPhase, $existing, $incomingPhase)) {
+            $blockRegression = !$blockCompleteReplay && self::shouldBlockPhaseRegression($existingPhase, $existing, $incomingPhase);
+            if (!$blockCompleteReplay && !$blockRegression) {
                 $fields['phase'] = CustomerFacingTextSanitizer::scrub($rawPhase);
             }
+            // #region agent log
+            if ($blockRegression || in_array($incomingPhase, ['graph_sync', 'prior_snapshot', 'kopia_upload'], true)) {
+                $batchId = (string) ($existing['e3_batch_run_id'] ?? '');
+                if ($batchId === '4efc3484-ec99-453b-9fa1-41c480a4dcca' || str_contains((string) ($existing['user_display_name'] ?? ''), 'Documents')) {
+                    @file_put_contents('/var/www/eazybackup.ca/.cursor/debug-045118.log', json_encode([
+                        'sessionId' => '045118',
+                        'hypothesisId' => $blockRegression ? 'A_D' : 'B_C',
+                        'location' => 'Ms365RestoreWorkerHooks.php:onProgress',
+                        'message' => 'progress phase decision',
+                        'data' => [
+                            'run_id' => $runId,
+                            'incoming_phase' => $incomingPhase,
+                            'existing_phase' => $existingPhase,
+                            'block_regression' => $blockRegression,
+                            'has_kopia' => self::hasKopiaActivity($existing),
+                            'items' => [$incomingItemsDone, $incomingItemsTotal, (int) ($existing['items_done'] ?? 0), (int) ($existing['items_total'] ?? 0)],
+                            'bytes' => [$incomingBytesHashed, $incomingBytesUploaded, (int) ($existing['bytes_hashed'] ?? 0), (int) ($existing['bytes_uploaded'] ?? 0)],
+                            'no_progress' => $noProgress,
+                            'is_heartbeat' => $isHeartbeat ?? null,
+                            'message' => mb_substr((string) ($body['message'] ?? ''), 0, 80),
+                            'last_progress_at' => (int) ($existing['last_progress_at'] ?? 0),
+                            'started_at' => (int) ($existing['started_at'] ?? 0),
+                        ],
+                        'timestamp' => (int) (microtime(true) * 1000),
+                    ], JSON_UNESCAPED_SLASHES) . "\n", FILE_APPEND | LOCK_EX);
+                }
+            }
+            // #endregion
         }
         $persistedPhase = strtolower(trim((string) ($fields['phase'] ?? $existingPhase)));
 
@@ -342,13 +371,40 @@ final class Ms365RestoreWorkerHooks
         // not classified as heartbeats. Graph-bound phases refresh liveness on any real
         // progress post (including "Graph sync: mail" with flat item counters) so throttled
         // enumeration is not false-aborted; upload-like phases still require throughput.
-        // Use persisted phase so stale graph_sync snapshots cannot mask Kopia upload stalls.
-        if (Ms365BatchRunRepository::isGraphBoundPhase($persistedPhase)
-            && !self::hasKopiaActivity($existing)
+        // Trust persisted phase only — leftover kopia markers from a prior attempt must not
+        // suppress graph liveness after phase was correctly reset to graph_sync.
+        $graphLivenessRefresh = Ms365BatchRunRepository::isGraphBoundPhase($persistedPhase)
             && !$isHeartbeat
-            && \WHMCS\Database\Capsule::schema()->hasColumn('ms365_backup_runs', 'last_progress_at')) {
+            && \WHMCS\Database\Capsule::schema()->hasColumn('ms365_backup_runs', 'last_progress_at');
+        if ($graphLivenessRefresh) {
             $fields['last_progress_at'] = time();
         }
+        // #region agent log
+        $batchIdForLog = (string) ($existing['e3_batch_run_id'] ?? '');
+        if ($batchIdForLog === '4efc3484-ec99-453b-9fa1-41c480a4dcca'
+            && Ms365BatchRunRepository::isUploadLikePhase($persistedPhase)
+            && !$noProgress) {
+            @file_put_contents('/var/www/eazybackup.ca/.cursor/debug-045118.log', json_encode([
+                'sessionId' => '045118',
+                'hypothesisId' => 'A_D',
+                'location' => 'Ms365RestoreWorkerHooks.php:liveness',
+                'message' => 'upload-like liveness outcome',
+                'data' => [
+                    'run_id' => $runId,
+                    'persisted_phase' => $persistedPhase,
+                    'incoming_phase' => strtolower(trim($rawPhase)),
+                    'graph_liveness_refresh' => $graphLivenessRefresh,
+                    'refreshed_lp' => isset($fields['last_progress_at']),
+                    'has_kopia' => self::hasKopiaActivity($existing),
+                    'is_heartbeat' => $isHeartbeat,
+                    'items_done' => (int) ($fields['items_done'] ?? ($existing['items_done'] ?? 0)),
+                    'items_total' => (int) ($fields['items_total'] ?? ($existing['items_total'] ?? 0)),
+                    'bytes_uploaded' => (int) ($fields['bytes_uploaded'] ?? ($existing['bytes_uploaded'] ?? 0)),
+                ],
+                'timestamp' => (int) (microtime(true) * 1000),
+            ], JSON_UNESCAPED_SLASHES) . "\n", FILE_APPEND | LOCK_EX);
+        }
+        // #endregion
         if (isset($fields['last_progress_at']) && ChildAbortRepository::columnReady()) {
             $fields['abort_requested_at'] = null;
         }
@@ -897,19 +953,22 @@ final class Ms365RestoreWorkerHooks
         return is_string($encoded) ? $encoded : null;
     }
 
-  /** @param array<string, mixed> $existing */
+    /** @param array<string, mixed> $existing */
     private static function shouldBlockPhaseRegression(string $existingPhase, array $existing, string $incomingPhase): bool
     {
         if ($incomingPhase === '') {
             return false;
         }
-        $storedUploadLike = Ms365BatchRunRepository::isUploadLikePhase($existingPhase)
-            || self::hasKopiaActivity($existing);
+        // Only block while the stored phase is already upload-like. Leftover
+        // bytes_uploaded / kopia_upload_started_at from a prior attempt must not pin a
+        // re-promoted child to upload while the worker legitimately restarts at
+        // graph_sync or prior_snapshot (prod: Documents Child progress stale loop).
+        if (!Ms365BatchRunRepository::isUploadLikePhase($existingPhase)) {
+            return false;
+        }
 
-        return $storedUploadLike && (
-            Ms365BatchRunRepository::isGraphBoundPhase($incomingPhase)
-            || $incomingPhase === 'prior_snapshot'
-        );
+        return Ms365BatchRunRepository::isGraphBoundPhase($incomingPhase)
+            || $incomingPhase === 'prior_snapshot';
     }
 
     /** @param array<string, mixed> $existing */

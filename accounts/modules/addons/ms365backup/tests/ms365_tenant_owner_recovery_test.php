@@ -123,11 +123,16 @@ try {
         'status' => 'queued',
         'attempts' => 0,
         'lease_expires_at' => null,
+        'error_message' => '',
     ]);
     Ms365BatchClaimRepository::promoteBatchChildToRunning($runId, $nodeId);
     owner_assert(
         (int) Capsule::table('ms365_job_queue')->where('run_id', $runId)->value('attempts') === 1,
         'queued to running promotion increments attempt exactly once',
+    );
+    owner_assert(
+        (string) Capsule::table('ms365_backup_runs')->where('id', $runId)->value('phase') === '',
+        'promotion clears sticky phase so worker can report graph_sync on retry',
     );
     Ms365BatchClaimRepository::promoteBatchChildToRunning($runId, $nodeId);
     owner_assert(

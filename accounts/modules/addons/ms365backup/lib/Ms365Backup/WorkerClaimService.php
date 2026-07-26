@@ -1711,9 +1711,13 @@ final class WorkerClaimService
                 }
                 // Soft-abort requeues preserve counters but must refresh liveness so the
                 // admin health banner does not keep counting the pre-abort silence.
-                if (str_contains(strtolower($message), 'child progress stale')
-                    && Capsule::schema()->hasColumn('ms365_backup_runs', 'last_progress_at')) {
-                    $runUpdate['last_progress_at'] = $now;
+                // Also clear sticky upload phase so the retry can report graph_sync again
+                // (prod Documents loop: phase=upload + hasKopia blocked regression → 180s abort).
+                if (str_contains(strtolower($message), 'child progress stale')) {
+                    $runUpdate['phase'] = '';
+                    if (Capsule::schema()->hasColumn('ms365_backup_runs', 'last_progress_at')) {
+                        $runUpdate['last_progress_at'] = $now;
+                    }
                 }
                 BackupRunRepository::update($runId, $runUpdate);
                 Ms365BatchRunRepository::syncForChildRun($runId);

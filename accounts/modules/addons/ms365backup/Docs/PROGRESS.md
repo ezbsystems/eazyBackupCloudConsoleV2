@@ -11,6 +11,14 @@
 
 ## Session log
 
+### 2026-07-26 — Sticky upload phase false stale abort (PHP 1.52.23)
+
+- **Problem:** Production batch `4efc3484-…` Documents shards looped on `Child progress stale (live owner abort)` every ~3m. Phase showed Upload with items complete and `bytes_uploaded=4511` while logs continuously said `Graph sync: sharepoint`. Worker 0.4.19 / PHP 1.52.22 already deployed.
+- **Root cause:** Soft-abort infra requeue preserved `phase=upload` + kopia markers. On retry the worker restarted at `graph_sync`, but `shouldBlockPhaseRegression` (via `hasKopiaActivity`) refused the phase change. Upload-tail silence (180s) then soft-aborted live Graph work. Runtime logs: `block_regression=true` for `in=graph_sync existing=upload has_kopia=true`, `graph_liveness_refresh=false`.
+- **Fix (PHP 1.52.23):** Clear phase on progress-stale requeue and on promote; block phase regression only while stored phase is upload-like; graph liveness trusts persisted graph-bound phase (ignore leftover kopia markers).
+- **Verification:** Focused PHP tests PASS; pending production post-fix on batch `4efc3484-…` (session `045118` instrumentation retained).
+- **Status:** On `origin/main` after deploy.
+
 ### 2026-07-26 — prior_snapshot timeout and cancellable pool acquire (worker 0.4.19)
 
 - **Problem:** Cold Kopia repo opens during `prior_snapshot` could wedge indefinitely (single-flight pool wait + unbounded open), blocking batch concurrency slots and leaving children at 0% with no self-heal.

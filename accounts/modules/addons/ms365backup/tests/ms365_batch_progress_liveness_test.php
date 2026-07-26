@@ -197,6 +197,38 @@ try {
         'backupProgress ignores stale graph_sync after Kopia upload started',
     );
 
+    // Soft-abort retry: sticky upload phase + leftover kopia bytes must not block the
+    // worker from re-entering graph_sync and refreshing liveness (prod Documents loop).
+    $stickyRetryRunId = test_uuid('sticky-upload-retry');
+    $runIds[] = $stickyRetryRunId;
+    insertTestRun($stickyRetryRunId, [
+        'phase' => '',
+        'percent' => 67.0,
+        'items_done' => 498433,
+        'items_total' => 498433,
+        'bytes_hashed' => 90075130223,
+        'bytes_uploaded' => 4511,
+        'stats_json' => '{"kopia_upload_started_at":' . ($now - 7200) . ',"kopia_snapshot_ms":419000}',
+        'started_at' => $now - 60,
+        'last_progress_at' => $now - 60,
+        'updated_at' => $now - 60,
+    ]);
+    Ms365RestoreWorkerHooks::onProgress($stickyRetryRunId, [
+        'phase' => 'graph_sync',
+        'percent' => 1.0,
+        'items_done' => 498433,
+        'items_total' => 498433,
+        'message' => 'Graph sync: sharepoint',
+    ]);
+    $stickyAfter = BackupRunRepository::get($stickyRetryRunId) ?? [];
+    $stickyPhase = strtolower(trim((string) ($stickyAfter['phase'] ?? '')));
+    $stickyLp = (int) ($stickyAfter['last_progress_at'] ?? 0);
+    assert_true(
+        ($stickyPhase === 'graph_sync' || $stickyPhase === 'sync')
+        && $stickyLp >= $now - 5,
+        're-promoted sticky-upload child accepts graph_sync and refreshes last_progress_at',
+    );
+
     $checkpointRunId = test_uuid('checkpoint-liveness');
     $runIds[] = $checkpointRunId;
     insertTestRun($checkpointRunId, [
