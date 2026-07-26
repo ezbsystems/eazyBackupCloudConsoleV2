@@ -3,7 +3,7 @@
 **Purpose:** Single handoff document so the next agent knows where work stopped. Update this file at the **end of every session** (or after each meaningful milestone).
 
 **Last updated:** 2026-07-26
-**Module version (ms365backup):** 1.52.30
+**Module version (ms365backup):** 1.52.31
 **Cloudstorage (e3) version:** 2.2.0  
 **Worker version (ms365-backup-worker):** 0.4.20 (Kopia v0.23.1)
 
@@ -11,11 +11,17 @@
 
 ## Session log
 
+### 2026-07-26 — Remove verified OneDrive session diagnostics (PHP 1.52.31, worker 0.4.20 unchanged)
+
+- **Production proof:** The incremental pagination fallback triggered at `1785092041`; the empty-cursor full delta rebaseline completed `items=22` at `1785092042`; `graph_sync` completed `items=472` at `1785092045`; and terminal success, manifest creation, and replacement delta completion were recorded at `1785092081`.
+- **Operator confirmation:** The operator explicitly confirmed the issue is fixed.
+- **Cleanup:** Removed only the temporary session `b86288` NDJSON writer from `ms365_worker_log.php`. The bounded OneDrive fallback, normal worker run-log messages, and regression tests remain unchanged.
+
 ### 2026-07-26 — OneDrive poisoned delta-cursor recovery (PHP 1.52.30, worker 0.4.20)
 
 - **Production evidence:** Child `de6322a3-b679-43a3-81a0-32f68a811e10` failed twice on the same persisted OneDrive delta cursor. Its queue error identified the duplicate-only-page protection branch, not repeated `nextLink` pagination.
 - **Fix:** When incremental OneDrive pagination reaches the duplicate-only-page limit, the worker retries exactly once from an empty cursor for a full delta rebaseline; a second duplicate-only failure remains terminal.
-- **Verification status:** Session `b86288` instrumentation remains in place pending production verification of the rebaseline retry. Do not remove it or requeue the failed child during this release task.
+- **Verification status:** Production verification completed successfully; the temporary session `b86288` instrumentation was removed in PHP 1.52.31. Do not alter or release worker `0.4.20`.
 
 ### 2026-07-26 — Remove session b86288 diagnostics (PHP 1.52.29)
 

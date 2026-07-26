@@ -72,41 +72,6 @@ foreach ($lines as $line) {
     ];
 }
 
-// #region agent log
-if ($runId === 'de6322a3-b679-43a3-81a0-32f68a811e10') {
-    foreach ($normalized as $entry) {
-        if (
-            !str_contains($entry['message'], 'OneDrive incremental pagination')
-            && !str_contains($entry['message'], 'OneDrive full delta rebaseline')
-        ) {
-            continue;
-        }
-        $candidate = strtolower($entry['message']);
-        if (
-            str_contains($candidate, 'skip_token=')
-            || str_contains($candidate, 'next_link=')
-            || str_contains($candidate, 'deltatoken')
-            || str_contains($candidate, 'https://')
-        ) {
-            continue;
-        }
-        $payload = [
-            'sessionId' => 'b86288',
-            'runId' => $runId,
-            'hypothesisId' => 'OD-H3',
-            'location' => 'ms365_worker_log.php:onedrive-rebaseline',
-            'message' => $entry['message'],
-            'data' => ['level' => $entry['level']],
-            'timestamp' => (int) floor(microtime(true) * 1000),
-        ];
-        $encoded = json_encode($payload, JSON_UNESCAPED_SLASHES);
-        if ($encoded !== false) {
-            file_put_contents('/var/www/eazybackup.ca/.cursor/debug-b86288.log', $encoded . PHP_EOL, FILE_APPEND | LOCK_EX);
-        }
-    }
-}
-// #endregion agent log
-
 if ($normalized === []) {
     (new JsonResponse(['status' => 'error', 'message' => 'no valid lines'], 400))->send();
     exit;
