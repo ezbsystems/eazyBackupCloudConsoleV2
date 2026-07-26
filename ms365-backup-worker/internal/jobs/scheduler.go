@@ -25,22 +25,6 @@ import (
 
 const reservedRunDirKopia = "kopia"
 
-// #region agent log
-func agentDebugDiskLatch(msg string, in diskHeadroomInput, critical bool) {
-	payload := fmt.Sprintf(
-		`{"sessionId":"d12df9","hypothesisId":"H5","location":"scheduler.evaluateDiskPressure","message":%q,"data":{"free_mib":%d,"soft_threshold_mib":%d,"watermark_mib":%d,"reserved_mib":%d,"update_mib":%d,"flush_mib":%d,"cache_mib":%d,"disk_critical":%v,"can_resume":%v},"timestamp":%d}`+"\n",
-		msg, in.freeMiB, in.softThresholdMiB(), in.watermarkMiB, in.reservedDiskMiB, in.updateReserveMiB, in.flushMarkMiB, in.cachePressureMiB, critical, in.canResumeFromPressure(), time.Now().UnixMilli(),
-	)
-	f, err := os.OpenFile("/tmp/debug-d12df9.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-	if err != nil {
-		return
-	}
-	_, _ = f.WriteString(payload)
-	_ = f.Close()
-}
-
-// #endregion
-
 type Scheduler struct {
 	cfg                  *config.Config
 	client               *api.Client
@@ -551,9 +535,6 @@ func (s *Scheduler) evaluateDiskPressure(ctx context.Context) {
 		evictCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 		s.repoPool.EvictIdle(evictCtx)
 		cancel()
-		// #region agent log
-		agentDebugDiskLatch("soft_pressure_hold", in, true)
-		// #endregion
 		return
 	}
 
@@ -561,9 +542,6 @@ func (s *Scheduler) evaluateDiskPressure(ctx context.Context) {
 		log.Printf("disk recovered: %d MiB free above resume threshold (soft=%d cache=%d reserved=%d); resuming admissions",
 			in.freeMiB, in.softThresholdMiB(), in.cachePressureMiB, in.reservedDiskMiB)
 		s.diskCritical.Store(false)
-		// #region agent log
-		agentDebugDiskLatch("disk_recovered", in, false)
-		// #endregion
 	}
 }
 

@@ -64,20 +64,6 @@ final class Ms365RestoreWorkerHooks
             // abort recovery (prod: Marketing upload-tail requeued then immediately
             // re-promoted with the same stale last_progress_at).
             if (!Ms365BatchClaimRepository::shouldPromoteFromBatchProgress($runId)) {
-                // #region agent log
-                @file_put_contents(
-                    '/var/www/eazybackup.ca/.cursor/debug-d12df9.log',
-                    json_encode([
-                        'sessionId' => 'd12df9',
-                        'hypothesisId' => 'H6',
-                        'location' => 'Ms365RestoreWorkerHooks::onBatchProgress',
-                        'message' => 'skip_promote_stale_requeue',
-                        'data' => ['run_id' => $runId, 'batch_run_id' => $batchRunId, 'node_id' => $nodeId],
-                        'timestamp' => (int) round(microtime(true) * 1000),
-                    ], JSON_UNESCAPED_SLASHES) . "\n",
-                    FILE_APPEND
-                );
-                // #endregion
                 continue;
             }
             Ms365BatchClaimRepository::promoteBatchChildToRunning($runId, $nodeId);

@@ -664,32 +664,7 @@ final class Ms365BatchClaimRepository
             $phase = strtolower(trim((string) ($child['phase'] ?? '')));
             $itemsDone = (int) ($child['items_done'] ?? 0);
             $itemsTotal = (int) ($child['items_total'] ?? 0);
-            $rawLastProgress = (int) ($child['last_progress_at'] ?? 0);
-            $startedAt = (int) ($child['started_at'] ?? 0);
             $freshness = Ms365BatchRunRepository::progressFreshnessAt($child);
-            // #region agent log
-            if ($startedAt > 0 && $rawLastProgress > 0 && $startedAt > $rawLastProgress) {
-                @file_put_contents(
-                    '/var/www/eazybackup.ca/.cursor/debug-d12df9.log',
-                    json_encode([
-                        'sessionId' => 'd12df9',
-                        'runId' => 'post-fix',
-                        'hypothesisId' => 'H7',
-                        'location' => 'Ms365BatchClaimRepository::reapStalledBatchChildren',
-                        'message' => 'freshness_floored_by_started_at',
-                        'data' => [
-                            'run_id' => $runId,
-                            'started_at' => $startedAt,
-                            'last_progress_at' => $rawLastProgress,
-                            'freshness' => $freshness,
-                            'phase' => $phase,
-                        ],
-                        'timestamp' => (int) round(microtime(true) * 1000),
-                    ], JSON_UNESCAPED_SLASHES) . "\n",
-                    FILE_APPEND
-                );
-            }
-            // #endregion
             $silenceSeconds = Ms365BatchRunRepository::STALE_SILENCE_SECONDS;
             // Shortened silence is upload-phase only. Graph-bound children often reach
             // items_done==items_total with bytes_hashed>0 (content sizes) while mail/
@@ -1111,21 +1086,6 @@ final class Ms365BatchClaimRepository
             $runUpdate['last_progress_at'] = $now;
         }
         BackupRunRepository::update($runId, $runUpdate);
-        // #region agent log
-        @file_put_contents(
-            '/var/www/eazybackup.ca/.cursor/debug-d12df9.log',
-            json_encode([
-                'sessionId' => 'd12df9',
-                'runId' => 'post-fix',
-                'hypothesisId' => 'H7',
-                'location' => 'Ms365BatchClaimRepository::promoteBatchChildToRunning',
-                'message' => 'promote_reset_last_progress',
-                'data' => ['run_id' => $runId, 'node_id' => $nodeId, 'last_progress_at' => $now],
-                'timestamp' => (int) round(microtime(true) * 1000),
-            ], JSON_UNESCAPED_SLASHES) . "\n",
-            FILE_APPEND
-        );
-        // #endregion
         ChildAbortRepository::clearAbortRequested([$runId]);
         Ms365WorkerLogRepository::recordAssignment($runId, $nodeId);
     }
