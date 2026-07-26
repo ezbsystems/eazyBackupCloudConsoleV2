@@ -419,6 +419,54 @@ try {
         !Capsule::schema()->hasColumn('ms365_backup_runs', 'last_progress_at') || $priorCounterLastProgress >= $now - 5,
         'prior_snapshot items increase still refreshes last_progress_at',
     );
+
+    $retryCounterRunId = test_uuid('retry-local-counter-liveness');
+    $runIds[] = $retryCounterRunId;
+    $retryStartedAt = $now - 60;
+    insertTestRun($retryCounterRunId, [
+        'phase' => 'upload',
+        'items_done' => 500000,
+        'items_total' => 500000,
+        'bytes_hashed' => 120000000000,
+        'bytes_uploaded' => 10000000,
+        'started_at' => $retryStartedAt,
+        'last_progress_at' => $now - 900,
+        'updated_at' => $now - 900,
+    ]);
+    $lowerRetrySample = [
+        'phase' => 'kopia_upload',
+        'items_done' => 4000,
+        'items_total' => 14000,
+        'bytes_hashed' => 15000000000,
+        'bytes_uploaded' => 500000,
+        'message' => 'Uploading snapshot',
+    ];
+    Ms365RestoreWorkerHooks::onProgress($retryCounterRunId, $lowerRetrySample);
+    Capsule::table('ms365_backup_runs')->where('id', $retryCounterRunId)->update([
+        'last_progress_at' => $now - 900,
+    ]);
+
+    $growingRetrySample = $lowerRetrySample;
+    $growingRetrySample['items_done'] = 4200;
+    $growingRetrySample['bytes_hashed'] = 16000000000;
+    Ms365RestoreWorkerHooks::onProgress($retryCounterRunId, $growingRetrySample);
+    $retryAfterGrowth = BackupRunRepository::get($retryCounterRunId) ?? [];
+    assert_true(
+        (int) ($retryAfterGrowth['bytes_hashed'] ?? 0) === 120000000000
+        && (int) ($retryAfterGrowth['items_done'] ?? 0) === 500000
+        && (int) ($retryAfterGrowth['last_progress_at'] ?? 0) >= $now - 5,
+        'retry-local upload growth refreshes liveness below preserved high-water counters',
+    );
+
+    Capsule::table('ms365_backup_runs')->where('id', $retryCounterRunId)->update([
+        'last_progress_at' => $now - 900,
+    ]);
+    Ms365RestoreWorkerHooks::onProgress($retryCounterRunId, $growingRetrySample);
+    $retryAfterReplay = BackupRunRepository::get($retryCounterRunId) ?? [];
+    assert_true(
+        (int) ($retryAfterReplay['last_progress_at'] ?? 0) < $now - 60,
+        'identical retry-local upload sample does not hide a wedged upload',
+    );
 } finally {
     cleanupTestRows($runIds);
 }

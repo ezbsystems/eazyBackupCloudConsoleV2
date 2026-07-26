@@ -267,6 +267,32 @@ final class Ms365RestoreWorkerHooks
                 $incomingBytesHashed,
                 $incomingBytesUploaded
             );
+        $attemptProgressPatch = [];
+        $attemptLocalProgress = false;
+        if (!$isHeartbeat) {
+            $attemptStartedAt = (int) ($existing['started_at'] ?? 0);
+            $attemptPhase = strtolower(trim($effectivePhase));
+            $sameAttempt = (int) ($existingStats['attempt_progress_started_at'] ?? 0) === $attemptStartedAt
+                && (string) ($existingStats['attempt_progress_phase'] ?? '') === $attemptPhase;
+
+            if (!$sameAttempt) {
+                $attemptLocalProgress = $incomingItemsDone > 0
+                    || $incomingBytesHashed > 0
+                    || $incomingBytesUploaded > 0;
+            } else {
+                $attemptLocalProgress = $incomingItemsDone > (int) ($existingStats['attempt_items_done'] ?? 0)
+                    || $incomingBytesHashed > (int) ($existingStats['attempt_bytes_hashed'] ?? 0)
+                    || $incomingBytesUploaded > (int) ($existingStats['attempt_bytes_uploaded'] ?? 0);
+            }
+
+            $attemptProgressPatch = [
+                'attempt_progress_started_at' => $attemptStartedAt,
+                'attempt_progress_phase' => $attemptPhase,
+                'attempt_items_done' => $incomingItemsDone,
+                'attempt_bytes_hashed' => $incomingBytesHashed,
+                'attempt_bytes_uploaded' => $incomingBytesUploaded,
+            ];
+        }
 
         $fields = [
             'updated_at' => time(),
@@ -394,7 +420,8 @@ final class Ms365RestoreWorkerHooks
             $effectiveBytesUploaded = (int) ($fields['bytes_uploaded'] ?? $storedBytesUploaded);
             if ($effectiveItemsDone > $storedItemsDone
                 || $effectiveBytesHashed > $storedBytesHashed
-                || $effectiveBytesUploaded > $storedBytesUploaded) {
+                || $effectiveBytesUploaded > $storedBytesUploaded
+                || $attemptLocalProgress) {
                 $fields['last_progress_at'] = time();
             }
         }
@@ -418,7 +445,7 @@ final class Ms365RestoreWorkerHooks
             $fields['manifest_id'] = (string) $body['manifest_id'];
         }
 
-        $statsPatch = [];
+        $statsPatch = $attemptProgressPatch;
         if ($incoming429 > 0 || $incomingAdaptive > 0 || $incomingRequests > 0) {
             if ($incoming429 > 0 || $incomingAdaptive > 0) {
                 $statsPatch['graph_429_hits'] = max($incoming429, (int) self::decodeChildStatsJson($existing)['graph_429_hits'] ?? 0);

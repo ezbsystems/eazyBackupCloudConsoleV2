@@ -11,6 +11,13 @@
 
 ## Session log
 
+### 2026-07-26 — Retry-local upload liveness below preserved counters (PHP 1.52.26)
+
+- **Problem:** Retried Documents shards actively rehashed below preserved prior-attempt `items_done` / byte high-water counters, so `last_progress_at` remained stale despite increasing raw worker counters.
+- **Runtime proof:** Session `b86288` child `b43728c3` increased attempt-local hash bytes from ~90.7 GB to ~99.2 GB while persisted hash stayed ~111.8 GB, the lease stayed fresh, and `last_progress_at` remained fixed.
+- **Fix:** Track raw counters per `started_at` + worker phase in `stats_json`; refresh liveness on attempt-local increases while retaining monotonic public counters. Identical samples remain stale-detectable.
+- **Status:** Focused tests pass; pending production verification with session `b86288` instrumentation retained.
+
 ### 2026-07-26 — Upload-tail 180s abort after graph→kopia (PHP 1.52.25)
 
 - **Problem:** Batch `4efc3484-…` Documents shards still soft-aborted after sticky-phase fix. Worker journal: `graph_sync completed` ~15:06:32 then soft-abort ~180s later as Kopia started; next shards started ~15:10.
