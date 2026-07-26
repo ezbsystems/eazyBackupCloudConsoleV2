@@ -3,13 +3,19 @@
 **Purpose:** Single handoff document so the next agent knows where work stopped. Update this file at the **end of every session** (or after each meaningful milestone).
 
 **Last updated:** 2026-07-26
-**Module version (ms365backup):** 1.52.29
+**Module version (ms365backup):** 1.52.30
 **Cloudstorage (e3) version:** 2.2.0  
-**Worker version (ms365-backup-worker):** 0.4.19 (Kopia v0.23.1)
+**Worker version (ms365-backup-worker):** 0.4.20 (Kopia v0.23.1)
 
 ---
 
 ## Session log
+
+### 2026-07-26 — OneDrive poisoned delta-cursor recovery (PHP 1.52.30, worker 0.4.20)
+
+- **Production evidence:** Child `de6322a3-b679-43a3-81a0-32f68a811e10` failed twice on the same persisted OneDrive delta cursor. Its queue error identified the duplicate-only-page protection branch, not repeated `nextLink` pagination.
+- **Fix:** When incremental OneDrive pagination reaches the duplicate-only-page limit, the worker retries exactly once from an empty cursor for a full delta rebaseline; a second duplicate-only failure remains terminal.
+- **Verification status:** Session `b86288` instrumentation remains in place pending production verification of the rebaseline retry. Do not remove it or requeue the failed child during this release task.
 
 ### 2026-07-26 — Remove session b86288 diagnostics (PHP 1.52.29)
 
