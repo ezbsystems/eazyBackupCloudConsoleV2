@@ -700,33 +700,6 @@ final class Ms365BatchClaimRepository
 
             $batchRunId = (string) ($child['e3_batch_run_id'] ?? '');
 
-            // #region agent log
-            if ($staleProgress && ($batchRunId === '4efc3484-ec99-453b-9fa1-41c480a4dcca' || Ms365BatchRunRepository::isUploadLikePhase($phase))) {
-                @file_put_contents('/var/www/eazybackup.ca/.cursor/debug-045118.log', json_encode([
-                    'sessionId' => '045118',
-                    'hypothesisId' => 'A_C',
-                    'location' => 'Ms365BatchClaimRepository.php:reapStalledBatchChildren',
-                    'message' => 'stale child reaper decision',
-                    'data' => [
-                        'run_id' => $runId,
-                        'batch_run_id' => $batchRunId,
-                        'phase' => $phase,
-                        'items_done' => $itemsDone,
-                        'items_total' => $itemsTotal,
-                        'silence_threshold' => $silenceSeconds,
-                        'actual_silence' => $freshness > 0 ? ($now - $freshness) : -1,
-                        'freshness' => $freshness,
-                        'abort_at' => $abortAt,
-                        'live_owner' => $batchRunId !== '' && isset($liveBatchSet[$batchRunId]),
-                        'action' => ($batchRunId !== '' && isset($liveBatchSet[$batchRunId]))
-                            ? ($abortAt <= 0 ? 'soft_abort' : ((($now - $abortAt) >= ChildAbortRepository::REQUEUE_AFTER_SECONDS) ? 'requeue_live' : 'wait_grace'))
-                            : 'requeue_orphan',
-                    ],
-                    'timestamp' => (int) (microtime(true) * 1000),
-                ], JSON_UNESCAPED_SLASHES) . "\n", FILE_APPEND | LOCK_EX);
-            }
-            // #endregion
-
             if (!$staleProgress && !$staleLease) {
                 // Progress resumed after a soft-abort: clear orphaned abort so a later
                 // brief silence does not immediately requeue past the grace window.

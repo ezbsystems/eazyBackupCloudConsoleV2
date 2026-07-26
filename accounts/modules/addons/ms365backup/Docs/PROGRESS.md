@@ -3,7 +3,7 @@
 **Purpose:** Single handoff document so the next agent knows where work stopped. Update this file at the **end of every session** (or after each meaningful milestone).
 
 **Last updated:** 2026-07-26
-**Module version (ms365backup):** 1.52.23  
+**Module version (ms365backup):** 1.52.24  
 **Cloudstorage (e3) version:** 2.2.0  
 **Worker version (ms365-backup-worker):** 0.4.19 (Kopia v0.23.1)
 
@@ -16,8 +16,8 @@
 - **Problem:** Production batch `4efc3484-…` Documents shards looped on `Child progress stale (live owner abort)` every ~3m. Phase showed Upload with items complete and `bytes_uploaded=4511` while logs continuously said `Graph sync: sharepoint`. Worker 0.4.19 / PHP 1.52.22 already deployed.
 - **Root cause:** Soft-abort infra requeue preserved `phase=upload` + kopia markers. On retry the worker restarted at `graph_sync`, but `shouldBlockPhaseRegression` (via `hasKopiaActivity`) refused the phase change. Upload-tail silence (180s) then soft-aborted live Graph work. Runtime logs: `block_regression=true` for `in=graph_sync existing=upload has_kopia=true`, `graph_liveness_refresh=false`.
 - **Fix (PHP 1.52.23):** Clear phase on progress-stale requeue and on promote; block phase regression only while stored phase is upload-like; graph liveness trusts persisted graph-bound phase (ignore leftover kopia markers).
-- **Verification:** Focused PHP tests PASS; pending production post-fix on batch `4efc3484-…` (session `045118` instrumentation retained).
-- **Status:** On `origin/main` after deploy.
+- **Verification:** Focused PHP tests PASS; production post-fix: `allow_graph≈3080`, graph_sync children with ~2–3s silence and no abort after multi-minute runs; session `045118` instrumentation removed in **1.52.24**.
+- **Status:** Fixed and deployed.
 
 ### 2026-07-26 — prior_snapshot timeout and cancellable pool acquire (worker 0.4.19)
 
