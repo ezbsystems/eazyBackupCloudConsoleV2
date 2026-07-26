@@ -290,7 +290,7 @@ final class Ms365BatchRunRepository
     {
         $phase = strtolower(trim($phase));
 
-        return $phase === '' || $phase === 'graph_sync' || $phase === 'prior_snapshot';
+        return $phase === '' || $phase === 'graph_sync';
     }
 
     /** True when the workload is in object-storage upload/hash (Kopia), not Graph paging. */

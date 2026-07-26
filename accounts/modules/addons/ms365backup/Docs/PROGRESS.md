@@ -2,14 +2,20 @@
 
 **Purpose:** Single handoff document so the next agent knows where work stopped. Update this file at the **end of every session** (or after each meaningful milestone).
 
-**Last updated:** 2026-07-25
-**Module version (ms365backup):** 1.52.21  
+**Last updated:** 2026-07-26
+**Module version (ms365backup):** 1.52.22  
 **Cloudstorage (e3) version:** 2.2.0  
 **Worker version (ms365-backup-worker):** 0.4.18 (Kopia v0.23.1)
 
 ---
 
 ## Session log
+
+### 2026-07-26 — prior_snapshot liveness and reaper timeout (PHP 1.52.22)
+
+- **Problem:** Wedged Kopia `prior_snapshot` repo opens replay hub heartbeats that refreshed `last_progress_at`, so the reaper never saw silence and batches stayed at 0% indefinitely.
+- **Fix (PHP 1.52.22):** `isGraphBoundPhase()` excludes `prior_snapshot` — hub/no_progress posts no longer refresh liveness; only real items/bytes increases do. `reapStalledBatchChildren()` caps `prior_snapshot` silence at **600s** on live owners so wedged opens soft-abort (worker 0.4.19 adds 300s self-heal timeout separately).
+- **Status:** Liveness + reaper tests updated; pending deploy with worker 0.4.19.
 
 ### 2026-07-25 — Remove session d12df9 instrumentation (PHP 1.52.21, worker 0.4.18)
 

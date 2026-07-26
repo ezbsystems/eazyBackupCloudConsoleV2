@@ -85,6 +85,9 @@ assert_true(Ms365BatchRunRepository::isUploadLikePhase('kopia_upload'), 'kopia_u
 assert_true(Ms365BatchRunRepository::isUploadLikePhase('upload'), 'upload is upload-like');
 assert_true(!Ms365BatchRunRepository::isUploadLikePhase('graph_sync'), 'graph_sync is not upload-like');
 assert_true(!Ms365BatchRunRepository::isUploadLikePhase('prior_snapshot'), 'prior_snapshot is not upload-like');
+assert_true(Ms365BatchRunRepository::isGraphBoundPhase('graph_sync'), 'graph_sync is graph-bound');
+assert_true(Ms365BatchRunRepository::isGraphBoundPhase(''), 'empty phase is graph-bound');
+assert_true(!Ms365BatchRunRepository::isGraphBoundPhase('prior_snapshot'), 'prior_snapshot is not graph-bound');
 
 $runIds = [];
 $now = time();
@@ -274,6 +277,81 @@ try {
     );
     Capsule::table('ms365_job_queue')->where('run_id', $graphTailChild)->delete();
     Capsule::table('ms365_batch_claims')->where('batch_run_id', $graphTailBatch)->delete();
+
+    // prior_snapshot hub-style posts must not refresh last_progress_at (wedged Kopia open).
+    $priorHubRunId = test_uuid('prior-hub-liveness');
+    $runIds[] = $priorHubRunId;
+    insertTestRun($priorHubRunId, [
+        'phase' => 'prior_snapshot',
+        'percent' => 1.0,
+        'items_done' => 0,
+        'items_total' => 0,
+        'updated_at' => $now - 900,
+        'last_progress_at' => $now - 900,
+    ]);
+    Ms365RestoreWorkerHooks::onProgress($priorHubRunId, [
+        'phase' => 'prior_snapshot',
+        'no_progress' => true,
+        'message' => 'heartbeat',
+        'percent' => 1.0,
+        'items_done' => 0,
+        'items_total' => 0,
+    ]);
+    $priorHubAfter = BackupRunRepository::get($priorHubRunId) ?? [];
+    $priorHubLastProgress = (int) ($priorHubAfter['last_progress_at'] ?? 0);
+    assert_true(
+        !Capsule::schema()->hasColumn('ms365_backup_runs', 'last_progress_at') || $priorHubLastProgress < $now - 60,
+        'no_progress prior_snapshot hub heartbeat does not refresh last_progress_at',
+    );
+
+    $priorBatchStyleRunId = test_uuid('prior-batch-snapshot');
+    $runIds[] = $priorBatchStyleRunId;
+    insertTestRun($priorBatchStyleRunId, [
+        'phase' => 'prior_snapshot',
+        'percent' => 1.0,
+        'items_done' => 0,
+        'items_total' => 0,
+        'updated_at' => $now - 900,
+        'last_progress_at' => $now - 900,
+    ]);
+    Ms365RestoreWorkerHooks::onProgress($priorBatchStyleRunId, [
+        'phase' => 'prior_snapshot',
+        'percent' => 1.0,
+        'items_done' => 0,
+        'items_total' => 0,
+        'message' => 'Prior snapshot: loading',
+    ]);
+    $priorBatchAfter = BackupRunRepository::get($priorBatchStyleRunId) ?? [];
+    $priorBatchLastProgress = (int) ($priorBatchAfter['last_progress_at'] ?? 0);
+    assert_true(
+        (int) ($priorBatchAfter['updated_at'] ?? 0) >= $now - 5
+        && (!Capsule::schema()->hasColumn('ms365_backup_runs', 'last_progress_at') || $priorBatchLastProgress < $now - 60),
+        'batch hub snapshot style prior_snapshot does not refresh last_progress_at',
+    );
+
+    $priorCounterRunId = test_uuid('prior-counter-liveness');
+    $runIds[] = $priorCounterRunId;
+    insertTestRun($priorCounterRunId, [
+        'phase' => 'prior_snapshot',
+        'items_done' => 0,
+        'items_total' => 100,
+        'percent' => 0.0,
+        'updated_at' => $now - 900,
+        'last_progress_at' => $now - 900,
+    ]);
+    Ms365RestoreWorkerHooks::onProgress($priorCounterRunId, [
+        'phase' => 'prior_snapshot',
+        'items_done' => 5,
+        'items_total' => 100,
+        'percent' => 5.0,
+        'message' => 'Prior snapshot: merging',
+    ]);
+    $priorCounterAfter = BackupRunRepository::get($priorCounterRunId) ?? [];
+    $priorCounterLastProgress = (int) ($priorCounterAfter['last_progress_at'] ?? 0);
+    assert_true(
+        !Capsule::schema()->hasColumn('ms365_backup_runs', 'last_progress_at') || $priorCounterLastProgress >= $now - 5,
+        'prior_snapshot items increase still refreshes last_progress_at',
+    );
 } finally {
     cleanupTestRows($runIds);
 }

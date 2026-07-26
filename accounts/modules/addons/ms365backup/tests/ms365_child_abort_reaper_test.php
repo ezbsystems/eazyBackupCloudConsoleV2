@@ -205,6 +205,65 @@ try {
         Capsule::table('ms365_backup_runs')->where('id', $staleChildId)->value('abort_requested_at') === null,
         'resetForQueueRequeue clears abort when child was running with abort flag',
     );
+
+    // prior_snapshot: 600s silence on live owner requests soft abort (wedged Kopia open).
+    $priorBatchId = abort_uuid('prior-batch');
+    $priorStaleChildId = abort_uuid('prior-stale');
+    $priorTenantRecordId = 999004;
+    Ms365BatchClaimRepository::enqueueBatch($priorBatchId, $priorTenantRecordId, 50);
+    Capsule::table('ms365_batch_claims')->where('batch_run_id', $priorBatchId)->update([
+        'status' => 'running',
+        'worker_node_id' => $nodeId,
+        'running_tenant_key' => $priorTenantRecordId,
+        'claimed_at' => $now - 900,
+        'lease_expires_at' => $now + 600,
+        'last_heartbeat_at' => $now,
+        'last_progress_at' => $now,
+    ]);
+    Capsule::table('ms365_backup_runs')->insert([
+        'id' => $priorStaleChildId,
+        'e3_batch_run_id' => $priorBatchId,
+        'status' => 'running',
+        'phase' => 'prior_snapshot',
+        'items_done' => 0,
+        'items_total' => 0,
+        'bytes_hashed' => 0,
+        'bytes_uploaded' => 0,
+        'last_progress_at' => $now - 700,
+        'physical_key' => 'user:' . $priorStaleChildId,
+        'resource_type' => 'user',
+        'resource_id' => 'user:' . $priorStaleChildId,
+        'graph_id' => $priorStaleChildId,
+        'user_display_name' => 'Prior Snapshot Abort Test',
+        'backup_path' => '/tmp/ms365-prior-abort-' . $priorStaleChildId,
+        'tenant_record_id' => $priorTenantRecordId,
+        'whmcs_client_id' => 1,
+        'created_at' => $now - 900,
+        'updated_at' => $now - 700,
+        'started_at' => $now - 700,
+    ]);
+    Capsule::table('ms365_job_queue')->insert([
+        'run_id' => $priorStaleChildId,
+        'job_type' => 'backup',
+        'status' => 'running',
+        'priority' => 50,
+        'attempts' => 1,
+        'max_attempts' => 5,
+        'scheduled_at' => $now - 900,
+        'claimed_at' => $now - 900,
+        'lease_expires_at' => $now + 600,
+        'created_at' => $now - 900,
+    ]);
+    Ms365BatchClaimRepository::reapStalledBatchChildren();
+    $priorStaleRow = Capsule::table('ms365_backup_runs')->where('id', $priorStaleChildId)->first();
+    abort_assert(
+        ($priorStaleRow->status ?? '') === 'running'
+        && (int) ($priorStaleRow->abort_requested_at ?? 0) >= $now - 5,
+        'live batch prior_snapshot child soft-aborts after 600s silence',
+    );
+    Capsule::table('ms365_job_queue')->where('run_id', $priorStaleChildId)->delete();
+    Capsule::table('ms365_backup_runs')->where('id', $priorStaleChildId)->delete();
+    Capsule::table('ms365_batch_claims')->where('batch_run_id', $priorBatchId)->delete();
 } finally {
     foreach ([$staleChildId, $freshChildId] as $childId) {
         Capsule::table('ms365_job_queue')->where('run_id', $childId)->delete();

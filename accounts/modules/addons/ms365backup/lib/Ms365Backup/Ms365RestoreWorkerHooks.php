@@ -622,7 +622,8 @@ final class Ms365RestoreWorkerHooks
             $bodyPhase = strtolower(trim((string) ($body['phase'] ?? '')));
             $existingPhase = strtolower(trim((string) ($existing['phase'] ?? '')));
             $effectivePhase = $bodyPhase !== '' ? $bodyPhase : $existingPhase;
-            if (Ms365BatchRunRepository::isGraphBoundPhase($effectivePhase)) {
+            if (Ms365BatchRunRepository::isGraphBoundPhase($effectivePhase)
+                || $effectivePhase === 'prior_snapshot') {
                 if (!$isNoChanges) {
                     // Batch workers can emit child-complete while graph sync is still running.
                     // Ignore until upload/snapshot phases finish and a manifest is available.
@@ -905,7 +906,10 @@ final class Ms365RestoreWorkerHooks
         $storedUploadLike = Ms365BatchRunRepository::isUploadLikePhase($existingPhase)
             || self::hasKopiaActivity($existing);
 
-        return $storedUploadLike && Ms365BatchRunRepository::isGraphBoundPhase($incomingPhase);
+        return $storedUploadLike && (
+            Ms365BatchRunRepository::isGraphBoundPhase($incomingPhase)
+            || $incomingPhase === 'prior_snapshot'
+        );
     }
 
     /** @param array<string, mixed> $existing */

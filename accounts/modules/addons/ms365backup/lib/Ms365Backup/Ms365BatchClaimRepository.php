@@ -670,6 +670,9 @@ final class Ms365BatchClaimRepository
             // items_done==items_total with bytes_hashed>0 (content sizes) while mail/
             // calendar sync is still active; applying the upload-tail 600s rule there
             // false-aborts live Graph work (prod: Child progress stale live owner abort).
+            if ($phase === 'prior_snapshot') {
+                $silenceSeconds = min($silenceSeconds, 600);
+            }
             if (Ms365BatchRunRepository::isUploadLikePhase($phase)
                 && $itemsDone > 0
                 && ($itemsTotal <= 0 || $itemsDone < $itemsTotal)) {
