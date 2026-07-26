@@ -285,6 +285,33 @@ final class Ms365RestoreWorkerHooks
                 && in_array($incomingPhase, ['graph_sync', 'prior_snapshot', 'kopia_upload', 'kopia_snapshot'], true);
             if (!$blockCompleteReplay && !self::shouldBlockPhaseRegression($existingPhase, $existing, $incomingPhase)) {
                 $fields['phase'] = CustomerFacingTextSanitizer::scrub($rawPhase);
+                // Entering upload is real progress. Preserved items_done>=items_total from a
+                // prior attempt arms the upload-tail reaper immediately; without this refresh
+                // Kopia open/hash can be soft-aborted before the first byte tick (prod 4efc3484).
+                $advancedToUpload = Ms365BatchRunRepository::isUploadLikePhase($incomingPhase)
+                    && !Ms365BatchRunRepository::isUploadLikePhase($existingPhase);
+                if ($advancedToUpload
+                    && \WHMCS\Database\Capsule::schema()->hasColumn('ms365_backup_runs', 'last_progress_at')) {
+                    $fields['last_progress_at'] = time();
+                }
+                // #region agent log
+                if ($advancedToUpload) {
+                    @file_put_contents('/var/www/eazybackup.ca/.cursor/debug-045118.log', json_encode([
+                        'sessionId' => '045118',
+                        'runId' => 'post-fix',
+                        'hypothesisId' => 'U2',
+                        'location' => 'Ms365RestoreWorkerHooks.php:phase-advance',
+                        'message' => 'upload phase advance refreshes liveness',
+                        'data' => [
+                            'run_id' => $runId,
+                            'from_phase' => $existingPhase,
+                            'to_phase' => $incomingPhase,
+                            'items' => [(int) ($existing['items_done'] ?? 0), (int) ($existing['items_total'] ?? 0)],
+                        ],
+                        'timestamp' => (int) (microtime(true) * 1000),
+                    ], JSON_UNESCAPED_SLASHES) . "\n", FILE_APPEND | LOCK_EX);
+                }
+                // #endregion
             }
         }
         $persistedPhase = strtolower(trim((string) ($fields['phase'] ?? $existingPhase)));

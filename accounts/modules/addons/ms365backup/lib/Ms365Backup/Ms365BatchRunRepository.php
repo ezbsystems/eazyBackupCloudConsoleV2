@@ -303,6 +303,15 @@ final class Ms365BatchRunRepository
     }
 
     /**
+     * Silence before soft-aborting an items-complete upload-like child on a live owner.
+     * Aligns with worker upload_stall_seconds default (900). The UI "Active" window
+     * (WORKLOAD_ACTIVE_PROGRESS_SECONDS=180) must not drive reaper decisions: large
+     * SharePoint shards often spend several minutes in Kopia open/hash after graph_sync
+     * with flat byte counters before the first progress tick (prod batch 4efc3484).
+     */
+    public const UPLOAD_TAIL_STALE_SECONDS = 900;
+
+    /**
      * Timestamp of last real throughput progress (items/bytes), not lease-only heartbeats.
      *
      * @param array<string, mixed> $child

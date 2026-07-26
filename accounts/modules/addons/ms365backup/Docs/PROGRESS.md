@@ -3,13 +3,20 @@
 **Purpose:** Single handoff document so the next agent knows where work stopped. Update this file at the **end of every session** (or after each meaningful milestone).
 
 **Last updated:** 2026-07-26
-**Module version (ms365backup):** 1.52.24  
+**Module version (ms365backup):** 1.52.25  
 **Cloudstorage (e3) version:** 2.2.0  
 **Worker version (ms365-backup-worker):** 0.4.19 (Kopia v0.23.1)
 
 ---
 
 ## Session log
+
+### 2026-07-26 — Upload-tail 180s abort after graph→kopia (PHP 1.52.25)
+
+- **Problem:** Batch `4efc3484-…` Documents shards still soft-aborted after sticky-phase fix. Worker journal: `graph_sync completed` ~15:06:32 then soft-abort ~180s later as Kopia started; next shards started ~15:10.
+- **Root cause:** Preserved `items_done>=items_total` armed the **180s** upload-tail as soon as phase became upload. Entering `kopia_upload` did not refresh `last_progress_at`, so Kopia open/hash before the first byte tick looked stale.
+- **Fix:** `UPLOAD_TAIL_STALE_SECONDS=900` (match worker upload_stall); refresh `last_progress_at` on phase advance into upload-like.
+- **Status:** Deployed with session `045118` verification instrumentation.
 
 ### 2026-07-26 — Sticky upload phase false stale abort (PHP 1.52.23)
 

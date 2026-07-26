@@ -74,7 +74,7 @@ try {
         'last_progress_at' => $now,
     ]);
 
-    foreach ([$staleChildId => $now - 900, $freshChildId => $now - 30] as $childId => $lastProgressAt) {
+    foreach ([$staleChildId => $now - 950, $freshChildId => $now - 30] as $childId => $lastProgressAt) {
         Capsule::table('ms365_backup_runs')->insert([
             'id' => $childId,
             'e3_batch_run_id' => $batchId,

@@ -229,6 +229,41 @@ try {
         're-promoted sticky-upload child accepts graph_sync and refreshes last_progress_at',
     );
 
+    // Graph → upload phase advance must refresh liveness so items-complete upload-tail
+    // does not soft-abort during Kopia open before the first byte tick.
+    $uploadAdvanceRunId = test_uuid('upload-phase-advance-lp');
+    $runIds[] = $uploadAdvanceRunId;
+    insertTestRun($uploadAdvanceRunId, [
+        'phase' => 'graph_sync',
+        'items_done' => 1000,
+        'items_total' => 1000,
+        'bytes_hashed' => 5000,
+        'bytes_uploaded' => 0,
+        'last_progress_at' => $now - 120,
+        'updated_at' => $now - 120,
+    ]);
+    Ms365RestoreWorkerHooks::onProgress($uploadAdvanceRunId, [
+        'phase' => 'kopia_upload',
+        'percent' => 40.0,
+        'items_done' => 1000,
+        'items_total' => 1000,
+        'bytes_hashed' => 5000,
+        'bytes_uploaded' => 0,
+        'message' => 'Uploading snapshot to Kopia repository',
+    ]);
+    $advanceAfter = BackupRunRepository::get($uploadAdvanceRunId) ?? [];
+    assert_true(
+        Ms365BatchRunRepository::isUploadLikePhase((string) ($advanceAfter['phase'] ?? ''))
+        && (int) ($advanceAfter['last_progress_at'] ?? 0) >= $now - 5,
+        'advancing to kopia_upload refreshes last_progress_at',
+    );
+
+    // Upload-tail reaper uses 900s, not the 180s UI Active window.
+    assert_true(
+        Ms365BatchRunRepository::UPLOAD_TAIL_STALE_SECONDS === 900,
+        'upload-tail stale seconds aligned with worker upload_stall default',
+    );
+
     $checkpointRunId = test_uuid('checkpoint-liveness');
     $runIds[] = $checkpointRunId;
     insertTestRun($checkpointRunId, [
