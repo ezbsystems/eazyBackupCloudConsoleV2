@@ -521,11 +521,38 @@ final class Ms365BatchLiveService
         $events = [];
         $seen = [];
         $sorted = $children;
+        $hasFreshRunningChild = false;
+        foreach ($children as $candidate) {
+            if (strtolower((string) ($candidate['status'] ?? '')) !== 'running') {
+                continue;
+            }
+            $candidateRunId = (string) ($candidate['id'] ?? '');
+            $freshness = self::computeWorkloadFreshness($candidate, $queueByRun[$candidateRunId] ?? []);
+            if ($freshness['last_progress_age_seconds'] !== null && !$freshness['stalled']) {
+                $hasFreshRunningChild = true;
+                break;
+            }
+        }
         usort($sorted, static fn (array $a, array $b): int => self::childActivityEpoch($b) <=> self::childActivityEpoch($a));
 
         foreach ($sorted as $child) {
             $runId = (string) ($child['id'] ?? '');
-            $message = self::formatCustomerWorkloadError($child, $queueByRun[$runId] ?? []);
+            $status = strtolower((string) ($child['status'] ?? ''));
+            $queue = $queueByRun[$runId] ?? [];
+            $runError = trim((string) ($child['error_message'] ?? ''));
+            $queueError = trim((string) ($queue['error_message'] ?? $queue['last_error'] ?? ''));
+            if (
+                $hasFreshRunningChild
+                && $status === 'queued'
+                && $runError === ''
+                && self::softenInfrastructureQueueMessage($queueError) === 'Recovering this workload'
+            ) {
+                // #region agent log
+                @file_put_contents('/var/www/eazybackup.ca/.cursor/debug-b86288.log', json_encode(['sessionId' => 'b86288', 'runId' => $runId, 'hypothesisId' => 'UI-A', 'location' => 'Ms365BatchLiveService.php:collectWorkloadEvents', 'message' => 'Suppressed queued recovery warning beside fresh running shard', 'data' => ['childStatus' => $status, 'hasFreshRunningChild' => $hasFreshRunningChild, 'queueErrorKind' => 'recovery'], 'timestamp' => (int) floor(microtime(true) * 1000)], JSON_UNESCAPED_SLASHES) . "\n", FILE_APPEND | LOCK_EX);
+                // #endregion
+                continue;
+            }
+            $message = self::formatCustomerWorkloadError($child, $queue);
             if ($message === '') {
                 continue;
             }
@@ -536,7 +563,6 @@ final class Ms365BatchLiveService
             }
             $seen[$dedupeKey] = true;
 
-            $status = strtolower((string) ($child['status'] ?? ''));
             $events[] = [
                 'ts' => self::formatChildTimestamp($child),
                 'level' => in_array($status, ['failed', 'error'], true) ? 'error' : 'warning',
@@ -696,6 +722,7 @@ final class Ms365BatchLiveService
         }
 
         $recoveringNeedles = [
+            'child progress stale',
             'stale progress (worker busy)',
             'stale progress reconciled',
             'stale workload reconciled during batch sync',

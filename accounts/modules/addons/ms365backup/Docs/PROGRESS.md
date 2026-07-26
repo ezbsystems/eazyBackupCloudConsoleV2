@@ -3,13 +3,20 @@
 **Purpose:** Single handoff document so the next agent knows where work stopped. Update this file at the **end of every session** (or after each meaningful milestone).
 
 **Last updated:** 2026-07-26
-**Module version (ms365backup):** 1.52.26
+**Module version (ms365backup):** 1.52.27
 **Cloudstorage (e3) version:** 2.2.0  
 **Worker version (ms365-backup-worker):** 0.4.19 (Kopia v0.23.1)
 
 ---
 
 ## Session log
+
+### 2026-07-26 — Hide historical shard recovery warning during fresh group progress (PHP 1.52.27)
+
+- **Problem:** A grouped Documents row remained `Running` with fresh upload/hash speed but displayed an old `Queue: Child progress stale (live owner abort)` warning from a queued sibling shard.
+- **Runtime proof:** Batch `4efc3484-…` had active child `5054d193` progressing every few seconds with an empty queue error, while five queued siblings retained the earlier recovery reason; the live projection merged one sibling warning into the running row.
+- **Fix:** Suppress queue-only recovery events from queued shards while a sibling in the same workload group has fresh running progress. Keep the warning visible when no sibling is freshly progressing, and render child-progress-stale recovery text customer-safely.
+- **Status:** Focused projection test passes; production verification pending with session `b86288` instrumentation retained.
 
 ### 2026-07-26 — Retry-local upload liveness below preserved counters (PHP 1.52.26)
 

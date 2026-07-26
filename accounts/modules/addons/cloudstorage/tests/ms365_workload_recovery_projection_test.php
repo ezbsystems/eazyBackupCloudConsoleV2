@@ -62,4 +62,43 @@ if ($hasSuppressHelper) {
     );
 }
 
+$formatGroup = new ReflectionMethod(Ms365BatchLiveService::class, 'formatCustomerWorkloadGroupRow');
+$formatGroup->setAccessible(true);
+$now = time();
+$groupRow = $formatGroup->invoke(null, [
+    [
+        'id' => 'active-shard',
+        'status' => 'running',
+        'phase' => 'upload',
+        'resource_type' => 'sharepoint_site',
+        'user_display_name' => 'Documents',
+        'updated_at' => $now,
+        'last_progress_at' => $now,
+        'items_done' => 10,
+        'items_total' => 10,
+    ],
+    [
+        'id' => 'queued-shard',
+        'status' => 'queued',
+        'phase' => '',
+        'resource_type' => 'sharepoint_site',
+        'user_display_name' => 'Documents',
+        'updated_at' => $now - 600,
+        'last_progress_at' => $now - 600,
+        'items_done' => 5,
+        'items_total' => 10,
+    ],
+], [
+    'active-shard' => ['status' => 'running', 'error_message' => ''],
+    'queued-shard' => [
+        'status' => 'queued',
+        'error_message' => 'Child progress stale (live owner abort)',
+        'scheduled_at' => $now - 600,
+    ],
+]);
+projection_assert(
+    ($groupRow['error'] ?? null) === '' && ($groupRow['events'] ?? null) === [],
+    'historical queued recovery warning is hidden while a sibling shard makes fresh progress',
+);
+
 exit($failures > 0 ? 1 : 0);
