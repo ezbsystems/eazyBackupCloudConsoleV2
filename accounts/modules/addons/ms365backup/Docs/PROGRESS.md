@@ -16,7 +16,8 @@
 - **Production evidence (`6b19cbee-…`):** Worker 9013 repeatedly soft-pressured at ~16.5 GiB free (threshold = watermark+reserved≈16640), content cache grew to ~50 GiB (`content_cache_limit_mib` unset → Kopia hard limit 0/unlimited), then silent hard drain cancelled in-flight Kopia uploads **without BatchRelease**. Same node `resumeOwnedRunningBatch` restarted the claim; mid-upload children were cancelled (`run cancelled during kopia snapshot`), queued siblings looked stale, claim attempts climbed to 4/5.
 - **Fix (worker 0.4.21):** Default content/metadata cache hard limits (2–4 GiB / ≤1 GiB); hard pressure always logs and `cooperativeDrain(..., "drain")` so the claim releases instead of same-node resume churn.
 - **Fix (PHP 1.52.32):** Reclaim after drain/disk hand-off does not increment batch `attempts`.
-- **Ops:** Reset claim attempts to 1; requeued failed SharePoint child `f35df39e` (prior `kopia upload stalled`); batch advancing on 9010 with 5 upload children.
+- **Ops:** Reset claim attempts to 1; requeued failed SharePoint child `f35df39e` (prior `kopia upload stalled`); batch advancing on 9010 with 6 upload children (including requeued shard).
+- **Deploy:** Commit `daf9bfd2`; PHP **1.52.32** via `deploy-production.sh`. Dev build **133** → release **142** / prod **66** (`sha256 13b1e1e4…`). Rolling deploy job **36**: **6/8** nodes on **0.4.21**; busy **9010/9012** remain **0.4.20** until idle.
 - **Verification:** `go test ./...` PASS; `ms365_batch_claim_test.php` PASS (drain attempt-neutral).
 
 ### 2026-07-26 — Remove verified OneDrive session diagnostics (PHP 1.52.31, worker 0.4.20 unchanged)
