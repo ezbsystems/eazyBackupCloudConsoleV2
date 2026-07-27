@@ -716,4 +716,34 @@ try {
     cleanupBatchTestRows([$reopenBatch], [$reopenChild]);
 }
 
+// Drain hand-off reclaim must not burn attempt budget (disk hard-pressure cycles).
+$drainBatch = test_uuid('drain-batch');
+$drainChild = test_uuid('drain-child');
+$drainNode = 'test-node-drain-' . substr(md5((string) microtime(true)), 0, 8);
+$runIds[] = $drainChild;
+try {
+    Ms365BatchClaimRepository::enqueueBatch($drainBatch, $tenantRecordId, 40);
+    insertTestRun($drainChild, [
+        'e3_batch_run_id' => $drainBatch,
+        'status' => 'queued',
+    ]);
+    insertTestQueue($drainChild);
+    Capsule::table('ms365_batch_claims')->where('batch_run_id', $drainBatch)->update([
+        'status' => 'queued',
+        'worker_node_id' => null,
+        'running_tenant_key' => null,
+        'claimed_at' => null,
+        'attempts' => 3,
+        'max_attempts' => 5,
+        'error_message' => 'Worker drain hand-off',
+        'updated_at' => $now,
+    ]);
+    $drainClaimed = Ms365BatchClaimRepository::claimForNode($drainNode);
+    assert_true($drainClaimed !== null && ($drainClaimed['batch_run_id'] ?? '') === $drainBatch, 'drain hand-off batch is reclaimable');
+    $drainAttempts = (int) Capsule::table('ms365_batch_claims')->where('batch_run_id', $drainBatch)->value('attempts');
+    assert_true($drainAttempts === 3, 'drain hand-off reclaim does not increment attempts');
+} finally {
+    cleanupBatchTestRows([$drainBatch], [$drainChild]);
+}
+
 exit($failures > 0 ? 1 : 0);

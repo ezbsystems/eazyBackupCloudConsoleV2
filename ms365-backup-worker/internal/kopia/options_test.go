@@ -27,3 +27,30 @@ func TestCachingOptionsHardLimits(t *testing.T) {
 		t.Fatalf("metadata hard: got %d", opts.MetadataCacheSizeLimitBytes)
 	}
 }
+
+func TestCachingOptionsDefaultHardLimitWhenUnset(t *testing.T) {
+	// Prod: content_cache_size_mib=512 with no content_cache_limit_mib left
+	// ContentCacheSizeLimitBytes=0 (unlimited). Concurrent SharePoint uploads grew
+	// content cache to ~50GiB on 61GiB workers and triggered soft→hard cancel loops.
+	settings := RepoCacheSettings{
+		RepoConfigDir:       t.TempDir(),
+		ContentCacheSizeMiB: 512,
+		// ContentCacheLimitMiB intentionally 0
+		MetadataCacheSizeMiB: 128,
+	}
+	storage := StorageOptions{Bucket: "test-bucket", Endpoint: "http://s3.example"}
+	opts := settings.cachingOptions(storage)
+	if opts.ContentCacheSizeLimitBytes < opts.ContentCacheSizeBytes {
+		t.Fatalf("expected content hard limit >= soft size, soft=%d hard=%d",
+			opts.ContentCacheSizeBytes, opts.ContentCacheSizeLimitBytes)
+	}
+	// Cap must stay well below a 61GiB worker rootfs so soft pressure has headroom.
+	maxAllowed := int64(4096) << 20
+	if opts.ContentCacheSizeLimitBytes > maxAllowed {
+		t.Fatalf("content hard limit too large: %d > %d", opts.ContentCacheSizeLimitBytes, maxAllowed)
+	}
+	if opts.MetadataCacheSizeLimitBytes < opts.MetadataCacheSizeBytes {
+		t.Fatalf("expected metadata hard limit >= soft size, soft=%d hard=%d",
+			opts.MetadataCacheSizeBytes, opts.MetadataCacheSizeLimitBytes)
+	}
+}

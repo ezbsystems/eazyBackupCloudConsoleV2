@@ -2,10 +2,12 @@ package jobs
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -354,6 +356,47 @@ func TestCooperativeDrainWaitsBeforeRelease(t *testing.T) {
 	}
 	if waitIdx < 0 || releaseIdx < 0 || waitIdx >= releaseIdx {
 		t.Fatalf("expected wait before release, got steps=%v", steps)
+	}
+}
+
+func TestHardPressureReleasesOwnedBatchEvenWhenAlreadySoftCritical(t *testing.T) {
+	// Prod death spiral: soft pressure latches diskCritical, then free falls through
+	// watermark. Hard drain used to cancel with reason "" (no BatchRelease), so the
+	// same node resumed the claim and rebuilt a 40GiB cache until the next cancel.
+	var released atomic.Bool
+	var releaseReason atomic.Value
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/accounts/modules/addons/cloudstorage/api/ms365_worker_batch_release.php" ||
+			strings.Contains(r.URL.Path, "ms365_worker_batch_release.php") {
+			released.Store(true)
+			_ = r.ParseForm()
+			body, _ := io.ReadAll(r.Body)
+			releaseReason.Store(string(body))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"success","data":{}}`))
+	}))
+	defer srv.Close()
+
+	s := diskTestScheduler(t)
+	s.client = api.NewClient(srv.URL, "token", "node-1")
+	s.diskCritical.Store(true) // already soft-critical (no hard-pressure log gate)
+	s.batchMu.Lock()
+	s.activeBatchID = "batch-hard-pressure"
+	s.batchMu.Unlock()
+	s.freeMiBFn = func() int64 { return 500 } // below watermark 1024
+
+	s.evaluateDiskPressure(context.Background())
+
+	if !released.Load() {
+		t.Fatal("expected hard pressure to BatchRelease owned batch")
+	}
+	reasonBody, _ := releaseReason.Load().(string)
+	if reasonBody == "" || (!strings.Contains(reasonBody, "drain") && !strings.Contains(reasonBody, "disk_hard")) {
+		t.Fatalf("expected drain/disk_hard release reason, got %q", reasonBody)
+	}
+	if len(s.lastDrainSteps) == 0 || s.lastDrainSteps[len(s.lastDrainSteps)-1] != drainStepReleaseClaims {
+		t.Fatalf("expected drain steps to include release, got %v", s.lastDrainSteps)
 	}
 }
 

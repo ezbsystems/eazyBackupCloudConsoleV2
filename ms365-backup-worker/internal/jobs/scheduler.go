@@ -511,12 +511,15 @@ func (s *Scheduler) evaluateDiskPressure(ctx context.Context) {
 	s.maybeLogCacheTelemetry(in)
 
 	if in.hardPressure() {
-		if !s.diskCritical.Load() {
-			log.Printf("disk hard pressure: %d MiB free below watermark %d MiB; cooperative drain",
-				in.freeMiB, in.watermarkMiB)
-		}
+		// Always log: soft pressure already sets diskCritical, so the old
+		// !diskCritical gate hid the hard-pressure cancel path in production.
+		log.Printf("disk hard pressure: %d MiB free below watermark %d MiB; cooperative drain and release",
+			in.freeMiB, in.watermarkMiB)
 		s.diskCritical.Store(true)
-		s.cooperativeDrain(ctx, "", nil)
+		// Reason "drain" releases the batch claim after cancel. Reason "" used to
+		// cancel in-flight Kopia work without release, so resumeOwnedRunningBatch
+		// restarted the same claim on the same node (prod: 6b19cbee cancel loop).
+		s.cooperativeDrain(ctx, "drain", nil)
 		s.gcOrphanedRuns()
 		evictCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 		s.repoPool.EvictIdle(evictCtx)

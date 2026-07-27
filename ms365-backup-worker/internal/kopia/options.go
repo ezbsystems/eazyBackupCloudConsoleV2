@@ -68,6 +68,22 @@ func (s RepoCacheSettings) cachingOptions(storage StorageOptions) *content.Cachi
 	if contentBytes <= 0 {
 		contentBytes = 512 << 20
 	}
+	contentLimitMiB := s.ContentCacheLimitMiB
+	if contentLimitMiB <= 0 {
+		// Soft size alone is a sweep target; limit 0 is treated as unlimited by Kopia
+		// and let concurrent SharePoint uploads grow content cache to tens of GiB.
+		contentLimitMiB = s.ContentCacheSizeMiB * 4
+		if contentLimitMiB < 2048 {
+			contentLimitMiB = 2048
+		}
+		if contentLimitMiB > 4096 {
+			contentLimitMiB = 4096
+		}
+	}
+	contentLimitBytes := int64(contentLimitMiB) << 20
+	if contentLimitBytes < contentBytes {
+		contentLimitBytes = contentBytes
+	}
 	metadataBytes := int64(s.MetadataCacheSizeMiB) << 20
 	if metadataBytes <= 0 {
 		metadataBytes = contentBytes / 4
@@ -75,19 +91,33 @@ func (s RepoCacheSettings) cachingOptions(storage StorageOptions) *content.Cachi
 			metadataBytes = 64 << 20
 		}
 	}
+	metadataLimitMiB := s.MetadataCacheLimitMiB
+	if metadataLimitMiB <= 0 {
+		metadataLimitMiB = s.MetadataCacheSizeMiB * 4
+		if metadataLimitMiB < 256 {
+			metadataLimitMiB = 256
+		}
+		if metadataLimitMiB > 1024 {
+			metadataLimitMiB = 1024
+		}
+	}
+	metadataLimitBytes := int64(metadataLimitMiB) << 20
+	if metadataLimitBytes < metadataBytes {
+		metadataLimitBytes = metadataBytes
+	}
 	minIndexSweep := content.DurationSeconds(s.MinIndexSweepAgeSeconds)
 	if minIndexSweep <= 0 {
 		minIndexSweep = content.DurationSeconds(3600)
 	}
 	return &content.CachingOptions{
-		CacheDirectory:               cacheDir,
-		ContentCacheSizeBytes:        contentBytes,
-		ContentCacheSizeLimitBytes:   int64(s.ContentCacheLimitMiB) << 20,
-		MetadataCacheSizeBytes:       metadataBytes,
-		MetadataCacheSizeLimitBytes:  int64(s.MetadataCacheLimitMiB) << 20,
-		MinIndexSweepAge:             minIndexSweep,
-		MinContentSweepAge:           content.DurationSeconds(3600),
-		MinMetadataSweepAge:          content.DurationSeconds(3600),
+		CacheDirectory:              cacheDir,
+		ContentCacheSizeBytes:       contentBytes,
+		ContentCacheSizeLimitBytes:  contentLimitBytes,
+		MetadataCacheSizeBytes:      metadataBytes,
+		MetadataCacheSizeLimitBytes: metadataLimitBytes,
+		MinIndexSweepAge:            minIndexSweep,
+		MinContentSweepAge:          content.DurationSeconds(3600),
+		MinMetadataSweepAge:         content.DurationSeconds(3600),
 	}
 }
 

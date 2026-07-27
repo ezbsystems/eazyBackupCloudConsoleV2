@@ -2,14 +2,22 @@
 
 **Purpose:** Single handoff document so the next agent knows where work stopped. Update this file at the **end of every session** (or after each meaningful milestone).
 
-**Last updated:** 2026-07-26
-**Module version (ms365backup):** 1.52.31
+**Last updated:** 2026-07-27
+**Module version (ms365backup):** 1.52.32
 **Cloudstorage (e3) version:** 2.2.0  
-**Worker version (ms365-backup-worker):** 0.4.20 (Kopia v0.23.1)
+**Worker version (ms365-backup-worker):** 0.4.21 (Kopia v0.23.1)
 
 ---
 
 ## Session log
+
+### 2026-07-27 — Disk soft→hard cancel/resume death spiral (PHP 1.52.32, worker 0.4.21)
+
+- **Production evidence (`6b19cbee-…`):** Worker 9013 repeatedly soft-pressured at ~16.5 GiB free (threshold = watermark+reserved≈16640), content cache grew to ~50 GiB (`content_cache_limit_mib` unset → Kopia hard limit 0/unlimited), then silent hard drain cancelled in-flight Kopia uploads **without BatchRelease**. Same node `resumeOwnedRunningBatch` restarted the claim; mid-upload children were cancelled (`run cancelled during kopia snapshot`), queued siblings looked stale, claim attempts climbed to 4/5.
+- **Fix (worker 0.4.21):** Default content/metadata cache hard limits (2–4 GiB / ≤1 GiB); hard pressure always logs and `cooperativeDrain(..., "drain")` so the claim releases instead of same-node resume churn.
+- **Fix (PHP 1.52.32):** Reclaim after drain/disk hand-off does not increment batch `attempts`.
+- **Ops:** Reset claim attempts to 1; requeued failed SharePoint child `f35df39e` (prior `kopia upload stalled`); batch advancing on 9010 with 5 upload children.
+- **Verification:** `go test ./...` PASS; `ms365_batch_claim_test.php` PASS (drain attempt-neutral).
 
 ### 2026-07-26 — Remove verified OneDrive session diagnostics (PHP 1.52.31, worker 0.4.20 unchanged)
 

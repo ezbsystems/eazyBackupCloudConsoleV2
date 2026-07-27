@@ -1055,6 +1055,24 @@ final class Ms365BatchClaimRepository
     ): ?array {
         $now = time();
         $lease = $now + Ms365EngineConfig::leaseSeconds();
+        $prior = Capsule::table('ms365_batch_claims')
+            ->where('batch_run_id', $batchRunId)
+            ->where('status', 'queued')
+            ->first(['error_message', 'attempts']);
+        if ($prior === null) {
+            return null;
+        }
+        // Drain / hard-disk hand-offs must not burn attempt budget; otherwise a
+        // healthy whale batch dies after a few soft→hard pressure cycles on 61GiB
+        // workers (prod: 6b19cbee attempts 4/5 while children were still viable).
+        $priorError = strtolower(trim((string) ($prior->error_message ?? '')));
+        $infraHandOff = $priorError !== ''
+            && (str_contains($priorError, 'drain')
+                || str_contains($priorError, 'disk hard')
+                || str_contains($priorError, 'disk pressure'));
+        $attemptsExpr = $infraHandOff
+            ? 'attempts'
+            : 'attempts + 1';
         $updated = Capsule::table('ms365_batch_claims')
             ->where('batch_run_id', $batchRunId)
             ->where('status', 'queued')
@@ -1066,7 +1084,7 @@ final class Ms365BatchClaimRepository
                 'claimed_at' => $now,
                 'lease_expires_at' => $lease,
                 'last_heartbeat_at' => $now,
-                'attempts' => Capsule::raw('attempts + 1'),
+                'attempts' => Capsule::raw($attemptsExpr),
                 'priority' => $priority,
                 'error_message' => '',
                 'updated_at' => $now,

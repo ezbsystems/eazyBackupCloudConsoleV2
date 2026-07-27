@@ -245,10 +245,28 @@ func (c *Config) applyDefaults() {
 	if c.Kopia.ContentCacheSizeMiB <= 0 {
 		c.Kopia.ContentCacheSizeMiB = 512
 	}
+	if c.Kopia.ContentCacheLimitMiB <= 0 {
+		c.Kopia.ContentCacheLimitMiB = c.Kopia.ContentCacheSizeMiB * 4
+		if c.Kopia.ContentCacheLimitMiB < 2048 {
+			c.Kopia.ContentCacheLimitMiB = 2048
+		}
+		if c.Kopia.ContentCacheLimitMiB > 4096 {
+			c.Kopia.ContentCacheLimitMiB = 4096
+		}
+	}
 	if c.Kopia.MetadataCacheSizeMiB <= 0 {
 		c.Kopia.MetadataCacheSizeMiB = c.Kopia.ContentCacheSizeMiB / 4
 		if c.Kopia.MetadataCacheSizeMiB < 64 {
 			c.Kopia.MetadataCacheSizeMiB = 64
+		}
+	}
+	if c.Kopia.MetadataCacheLimitMiB <= 0 {
+		c.Kopia.MetadataCacheLimitMiB = c.Kopia.MetadataCacheSizeMiB * 4
+		if c.Kopia.MetadataCacheLimitMiB < 256 {
+			c.Kopia.MetadataCacheLimitMiB = 256
+		}
+		if c.Kopia.MetadataCacheLimitMiB > 1024 {
+			c.Kopia.MetadataCacheLimitMiB = 1024
 		}
 	}
 	if c.Kopia.MinIndexSweepAgeSeconds <= 0 {
