@@ -39,6 +39,14 @@ $safeSiteId = 'stchf.sharepoint.com_4258a7df-79cf-40d0-8f64-54b9c55a0af8_e7593a8
 
 assert_eq($safeSiteId, PhysicalKeyHelper::storageSafeId($rawSiteId), 'storageSafeId replaces commas in Graph site id');
 
+$bangDriveId = 'b!Lo81U-FbgEaT7FbLkW0SvS9d295rdrxKrGY9L2qWF24Sz0cFE5BDR7H4es0msZTd';
+assert_eq($bangDriveId, PhysicalKeyHelper::pathSafeId($bangDriveId), 'pathSafeId preserves bang in SharePoint drive id');
+assert_eq(
+    'b_Lo81U-FbgEaT7FbLkW0SvS9d295rdrxKrGY9L2qWF24Sz0cFE5BDR7H4es0msZTd',
+    PhysicalKeyHelper::storageSafeId($bangDriveId),
+    'storageSafeId replaces bang in SharePoint drive id'
+);
+
 $tenantId = '4728969e-5eff-4981-b0c6-46eadac79cfe';
 $listsPath = $tenantId . '/sites/' . $safeSiteId . '/lists';
 $rawListsPath = $tenantId . '/sites/' . $rawSiteId . '/lists';
@@ -62,9 +70,9 @@ assert_true(
 $ref = new ReflectionClass(\Ms365Backup\RestoreTreeBrowseService::class);
 
 assert_eq(
-    'v22-mail-orphan-labels',
+    'v23-sharepoint-drive-safeid',
     $ref->getConstant('BROWSE_CACHE_NAMESPACE'),
-    'browse cache namespace is v22-mail-orphan-labels'
+    'browse cache namespace is v23-sharepoint-drive-safeid'
 );
 
 $aliasesMethod = $ref->getMethod('sharePointBrowsePathAliases');
@@ -75,6 +83,27 @@ $aliases = $aliasesMethod->invoke(null, $rawListsPath, [
 ]);
 
 assert_true(in_array($listsPath, $aliases, true), 'sharePointBrowsePathAliases maps raw site id to sanitized lists path');
+
+$driveAliasesMethod = $ref->getMethod('sharePointDrivePathAliases');
+$driveAliasesMethod->setAccessible(true);
+$bangDriveId = 'b!Lo81U-FbgEaT7FbLkW0SvS9d295rdrxKrGY9L2qWF24Sz0cFE5BDR7H4es0msZTd';
+$safeDriveId = PhysicalKeyHelper::storageSafeId($bangDriveId);
+$drivesRoot = $tenantId . '/sites/' . $safeSiteId . '/drives';
+$driveAliases = $driveAliasesMethod->invoke(null, $drivesRoot, [
+    'physical_key' => 'drive:' . $bangDriveId,
+    'scope_json' => json_encode(['_drive_id' => $bangDriveId], JSON_THROW_ON_ERROR),
+]);
+$wantBangContent = $drivesRoot . '/' . $bangDriveId . '/content';
+$wantSafeContent = $drivesRoot . '/' . $safeDriveId . '/content';
+assert_true(in_array($wantBangContent, $driveAliases, true), 'sharePointDrivePathAliases includes Go-safeID bang drive content path');
+assert_true(in_array($wantSafeContent, $driveAliases, true), 'sharePointDrivePathAliases still includes storageSafeId drive content path');
+
+$wrongSegPath = $drivesRoot . '/' . $safeDriveId . '/content';
+$segAliases = $driveAliasesMethod->invoke(null, $wrongSegPath, [
+    'physical_key' => 'drive:' . $bangDriveId,
+    'scope_json' => json_encode(['_drive_id' => $bangDriveId], JSON_THROW_ON_ERROR),
+]);
+assert_true(in_array($wantBangContent, $segAliases, true), 'sharePointDrivePathAliases remaps b_ drive segment to b!');
 
 $resolveLabel = $ref->getMethod('resolveSharePointDriveLabel');
 $resolveLabel->setAccessible(true);

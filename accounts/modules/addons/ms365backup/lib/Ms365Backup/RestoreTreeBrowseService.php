@@ -9,7 +9,7 @@ namespace Ms365Backup;
 final class RestoreTreeBrowseService
 {
     private const CACHE_TTL_SECONDS = 3600;
-    private const BROWSE_CACHE_NAMESPACE = 'v22-mail-orphan-labels';
+    private const BROWSE_CACHE_NAMESPACE = 'v23-sharepoint-drive-safeid';
 
     /** @var array<string, string> */
     private const SEGMENT_LABELS = [
@@ -58,6 +58,19 @@ final class RestoreTreeBrowseService
         if ($path === '' && $childRun !== null) {
             $synthetic = self::syntheticWorkloadEntries($tenantRecord, $childRun, $batchRunId);
             if ($synthetic !== []) {
+                // #region agent log
+                self::debugLog('B', 'synthetic workload entries', [
+                    'batch_run_id' => $batchRunId,
+                    'manifest_id' => $manifestId,
+                    'physical_key' => (string) ($childRun['physical_key'] ?? ''),
+                    'labels' => array_values(array_map(static fn ($e) => [
+                        'label' => (string) ($e['label'] ?? ''),
+                        'path' => (string) ($e['path'] ?? ''),
+                        'manifest_id' => (string) ($e['manifest_id'] ?? ''),
+                        'child_run_id' => (string) ($e['child_run_id'] ?? ''),
+                    ], $synthetic)),
+                ]);
+                // #endregion
                 return self::paginateEntries($synthetic, $limit, $offset);
             }
         }
@@ -65,6 +78,15 @@ final class RestoreTreeBrowseService
         $cacheKey = hash('sha256', self::BROWSE_CACHE_NAMESPACE . "\0" . $manifestId . "\0" . $path . "\0" . $limit . "\0" . $offset);
         $cached = self::readCache($cacheKey);
         if ($cached !== null) {
+            // #region agent log
+            if (str_contains($path, '/drives') || str_contains($path, '/sites/')) {
+                self::debugLog('C', 'SharePoint browse served from cache', [
+                    'path' => $path,
+                    'manifest_id' => $manifestId,
+                    'entry_count' => count($cached['entries'] ?? []),
+                ]);
+            }
+            // #endregion
             return $cached;
         }
 
@@ -80,16 +102,6 @@ final class RestoreTreeBrowseService
 
         self::writeCache($cacheKey, $result);
 
-        if (($result['entries'] ?? []) === [] && str_contains($path, '/sites/') && str_contains($path, '/drives')) {
-            self::debugLog('H-empty-sp-drives', 'SharePoint drives browse returned no entries', [
-                'manifest_id' => $manifestId,
-                'path' => $path,
-                'child_run_id' => is_array($childRun) ? (string) ($childRun['id'] ?? '') : '',
-                'physical_key' => is_array($childRun) ? (string) ($childRun['physical_key'] ?? '') : '',
-                'batch_run_id' => $batchRunId,
-            ]);
-        }
-
         return $result;
     }
 
@@ -98,14 +110,16 @@ final class RestoreTreeBrowseService
     {
         // #region agent log
         $payload = [
-            'sessionId' => '294b65',
+            'sessionId' => 'ea67ec',
+            'runId' => 'pre-fix',
             'hypothesisId' => $hypothesisId,
             'location' => 'RestoreTreeBrowseService.php',
             'message' => $message,
             'data' => $data,
             'timestamp' => (int) round(microtime(true) * 1000),
         ];
-        @file_put_contents('/var/www/eazybackup.ca/.cursor/debug-294b65.log', json_encode($payload) ?: '{}', FILE_APPEND);
+        $line = json_encode($payload) ?: '{}';
+        @file_put_contents('/var/www/eazybackup.ca/.cursor/debug-ea67ec.log', $line . "\n", FILE_APPEND);
         // #endregion
     }
 
@@ -271,6 +285,20 @@ final class RestoreTreeBrowseService
         if ($listsRun !== null) {
             $runByLabel['Lists'] = $listsRun;
         }
+
+        // #region agent log
+        self::debugLog('B', 'resolveSharePointBrowseContext', [
+            'parent_key' => $parentKey,
+            'site_graph_id' => $siteGraphId,
+            'files_run_id' => is_array($filesRun) ? (string) ($filesRun['id'] ?? '') : '',
+            'files_physical_key' => is_array($filesRun) ? (string) ($filesRun['physical_key'] ?? '') : '',
+            'files_manifest' => is_array($filesRun) ? (string) ($filesRun['manifest_id'] ?? '') : '',
+            'lists_run_id' => is_array($listsRun) ? (string) ($listsRun['id'] ?? '') : '',
+            'merged_files' => $mergedScope->isEnabled(BackupScope::FILES),
+            'merged_lists' => $mergedScope->isEnabled(BackupScope::LISTS),
+            'labels' => array_keys($runByLabel),
+        ]);
+        // #endregion
 
         return [
             'parent_key' => $parentKey,
@@ -1010,6 +1038,7 @@ final class RestoreTreeBrowseService
         }
 
         $lastError = null;
+        $attemptLog = [];
         foreach ($manifestCandidates as $candidateManifest) {
             if ($candidateManifest === '') {
                 continue;
@@ -1017,15 +1046,58 @@ final class RestoreTreeBrowseService
             foreach ($pathCandidates as $candidate) {
                 try {
                     $result = self::listKopiaDirectory($tenantRecord, $candidateManifest, $candidate, $childRun, $limit, $offset);
+                    $count = count($result['entries'] ?? []);
+                    $attemptLog[] = [
+                        'manifest' => substr($candidateManifest, 0, 16),
+                        'path' => $candidate,
+                        'count' => $count,
+                        'err' => null,
+                    ];
                     if ($result['entries'] !== []) {
                         $result['entries'] = self::rebaseSharePointDriveBrowsePaths($result['entries'], $path, $candidate, $childRun);
+                        // #region agent log
+                        if (str_contains($path, '/drives') || str_contains($path, '/sites/')) {
+                            self::debugLog('A', 'SharePoint browse alias hit', [
+                                'requested_path' => $path,
+                                'resolved_path' => $candidate,
+                                'manifest_id' => $candidateManifest,
+                                'entry_count' => count($result['entries']),
+                                'drive_id' => self::driveIdFromChildRun($childRun ?? [], self::scopeArrayFromChildRun($childRun ?? [])),
+                                'aliases' => array_values(array_slice($pathCandidates, 0, 12)),
+                            ]);
+                        }
+                        // #endregion
 
                         return $result;
                     }
                 } catch (\RuntimeException $e) {
                     $lastError = $e;
+                    $attemptLog[] = [
+                        'manifest' => substr($candidateManifest, 0, 16),
+                        'path' => $candidate,
+                        'count' => null,
+                        'err' => substr($e->getMessage(), 0, 180),
+                    ];
                 }
             }
+        }
+
+        if (str_contains($path, '/drives') || str_contains($path, '/sites/')) {
+            // #region agent log
+            $scopeRaw = self::scopeArrayFromChildRun($childRun ?? []);
+            $driveId = self::driveIdFromChildRun($childRun ?? [], $scopeRaw);
+            self::debugLog('C', 'SharePoint browse exhausted aliases with empty result', [
+                'requested_path' => $path,
+                'primary_manifest' => $manifestId,
+                'physical_key' => is_array($childRun) ? (string) ($childRun['physical_key'] ?? '') : '',
+                'drive_id' => $driveId,
+                'drive_id_storage_safe' => $driveId !== '' ? PhysicalKeyHelper::storageSafeId($driveId) : '',
+                'drive_id_safe_bang' => $driveId !== '' ? str_replace(['/', '\\', ':'], '_', $driveId) : '',
+                'path_candidates' => array_values(array_slice($pathCandidates, 0, 12)),
+                'attempts' => array_slice($attemptLog, 0, 20),
+                'missing_workload_root' => $lastError !== null && self::isMissingWorkloadRoot($path, $lastError),
+            ]);
+            // #endregion
         }
 
         if ($lastError !== null) {
@@ -1125,6 +1197,22 @@ final class RestoreTreeBrowseService
             $aliases[] = $path . '/content';
         }
 
+        // Worker stores drive segments with safeID (keeps "!" in b!…); older PHP used storageSafeId (b_).
+        if ($driveId !== '' && preg_match('#^([^/]+)/sites/([^/]+)/drives/([^/]+)(/.*)?$#', $path, $dm) === 1) {
+            $tenant = $dm[1];
+            $site = $dm[2];
+            $seg = $dm[3];
+            $rest = $dm[4] ?? '';
+            $bangDrive = PhysicalKeyHelper::pathSafeId($driveId);
+            $safeDrive = PhysicalKeyHelper::storageSafeId($driveId);
+            foreach ([$bangDrive, $safeDrive, $driveId] as $candidate) {
+                if ($candidate === '' || $candidate === $seg) {
+                    continue;
+                }
+                $aliases[] = $tenant . '/sites/' . $site . '/drives/' . $candidate . $rest;
+            }
+        }
+
         if (preg_match('#^([^/]+)/sites/([^/]+)/drives$#', $path, $m) !== 1) {
             return $aliases;
         }
@@ -1135,10 +1223,13 @@ final class RestoreTreeBrowseService
             return $aliases;
         }
 
+        $bangDrive = PhysicalKeyHelper::pathSafeId($driveId);
         $safeDrive = PhysicalKeyHelper::storageSafeId($driveId);
-        $aliases[] = $tenant . '/sites/' . $site . '/drives/' . $safeDrive;
-        $aliases[] = $tenant . '/sites/' . $site . '/drives/' . $safeDrive . '/content';
-        $aliases[] = $tenant . '/drives/' . $safeDrive . '/content';
+        foreach ([$bangDrive, $safeDrive] as $driveSeg) {
+            $aliases[] = $tenant . '/sites/' . $site . '/drives/' . $driveSeg;
+            $aliases[] = $tenant . '/sites/' . $site . '/drives/' . $driveSeg . '/content';
+            $aliases[] = $tenant . '/drives/' . $driveSeg . '/content';
+        }
 
         return $aliases;
     }
@@ -1201,7 +1292,7 @@ final class RestoreTreeBrowseService
             if ($driveId === '') {
                 return '';
             }
-            $driveSeg = PhysicalKeyHelper::storageSafeId($driveId);
+            $driveSeg = PhysicalKeyHelper::pathSafeId($driveId);
         }
 
         return $m[1] . '/sites/' . $m[2] . '/drives/' . $driveSeg . '/content';

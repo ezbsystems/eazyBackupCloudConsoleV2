@@ -113,7 +113,8 @@ final class PhysicalKeyHelper
         }
         if ($siteId !== '' && str_starts_with($base, 'drive:')) {
             $driveId = substr($base, 6);
-            $root = $azureTenantId . '/sites/' . self::storageSafeId($siteId) . '/drives/' . self::storageSafeId($driveId);
+            // Drive segments use Go safeID (preserves "!" in b!… IDs); site uses storageSafeID.
+            $root = $azureTenantId . '/sites/' . self::storageSafeId($siteId) . '/drives/' . self::pathSafeId($driveId);
             if ($shard === null) {
                 return $root;
             }
@@ -229,5 +230,11 @@ final class PhysicalKeyHelper
         $out = preg_replace('/[^a-zA-Z0-9._-]/', '_', $id) ?: 'unknown';
 
         return $out;
+    }
+
+    /** Path segment — matches Go graphsync.safeID (preserves "!" in SharePoint drive IDs). */
+    public static function pathSafeId(string $id): string
+    {
+        return str_replace(['/', '\\', ':'], '_', $id);
     }
 }

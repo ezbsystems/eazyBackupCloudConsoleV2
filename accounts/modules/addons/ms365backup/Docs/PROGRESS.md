@@ -3,13 +3,19 @@
 **Purpose:** Single handoff document so the next agent knows where work stopped. Update this file at the **end of every session** (or after each meaningful milestone).
 
 **Last updated:** 2026-07-28
-**Module version (ms365backup):** 1.52.37
+**Module version (ms365backup):** 1.52.38
 **Cloudstorage (e3) version:** 2.2.0  
-**Worker version (ms365-backup-worker):** 0.4.23 (Kopia v0.23.1)
+**Worker version (ms365-backup-worker):** 0.4.24 (Kopia v0.23.1)
 
 ---
 
 ## Session log
+
+### 2026-07-28 — SharePoint restore browse drive IDs + browse cache isolation (PHP 1.52.38, worker 0.4.24)
+
+- **Problem:** Expanding SharePoint site Files/Lists returned HTTP 500 or empty libraries. Prod browse failed with Kopia metadata cache `permission denied` under `/tmp/ms365-browse` after root-owned cache shards mixed with www-data. Separately, PHP drive path aliases used `storageSafeId` (`b_…`) while the worker writes drive segments with `safeID` (`b!…`), so content browse missed real trees.
+- **Fix:** `PhysicalKeyHelper::pathSafeId()` + `sharePointDrivePathAliases()` prefer bang-preserving paths; snapshot root paths for drives use `pathSafeId`. Browse/Extract CLI caches under `/tmp/ms365-browse-<uid>` so root debugging cannot poison PHP-FPM. Browse cache namespace `v23-sharepoint-drive-safeid`.
+- **Note:** Some drive child snapshots only contain `_site.json` (no `/drives` tree); those correctly show “No files in this snapshot”.
 
 ### 2026-07-28 — Mail orphan attachment labels (worker 0.4.23, PHP 1.52.37)
 

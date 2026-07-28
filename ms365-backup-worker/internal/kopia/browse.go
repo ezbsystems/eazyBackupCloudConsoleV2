@@ -3,6 +3,8 @@ package kopia
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -12,6 +14,12 @@ import (
 	"github.com/kopia/kopia/snapshot"
 	"github.com/kopia/kopia/snapshot/snapshotfs"
 )
+
+// browseRepoConfigDir isolates Kopia browse caches per OS user so root CLI
+// debugging cannot leave root-owned shards that break PHP-FPM (www-data).
+func browseRepoConfigDir() string {
+	return filepath.Join(os.TempDir(), fmt.Sprintf("ms365-browse-%d", os.Getuid()))
+}
 
 type BrowseRequest struct {
 	Storage    StorageOptions
@@ -58,7 +66,7 @@ type repoAcquirer func(ctx context.Context) (repo.Repository, func(), error)
 
 // Browse lists snapshot entries (standalone; prefer Pool.Browse for warm cache).
 func Browse(ctx context.Context, req BrowseRequest) (*BrowseResult, error) {
-	pool := NewPool(RepoCacheSettings{RepoConfigDir: "/tmp/ms365-browse"})
+	pool := NewPool(RepoCacheSettings{RepoConfigDir: browseRepoConfigDir()})
 	return pool.Browse(ctx, req)
 }
 
@@ -355,7 +363,7 @@ func isSnapshotFileWithRepo(ctx context.Context, req BrowseRequest, path string,
 }
 
 func Extract(ctx context.Context, req ExtractRequest) ([]byte, error) {
-	pool := NewPool(RepoCacheSettings{RepoConfigDir: "/tmp/ms365-browse"})
+	pool := NewPool(RepoCacheSettings{RepoConfigDir: browseRepoConfigDir()})
 	return pool.Extract(ctx, req)
 }
 

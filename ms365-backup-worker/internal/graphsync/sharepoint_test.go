@@ -23,6 +23,15 @@ func TestSiteDriveContentBase(t *testing.T) {
 	}
 }
 
+func TestSiteDriveContentBasePreservesBangDriveID(t *testing.T) {
+	drive := "b!Lo81U-FbgEaT7FbLkW0SvS9d295rdrxKrGY9L2qWF24Sz0cFE5BDR7H4es0msZTd"
+	got := siteDriveContentBase("tenant-1", "host,guid,guid", drive)
+	want := "tenant-1/sites/host_guid_guid/drives/" + drive + "/content"
+	if got != want {
+		t.Fatalf("siteDriveContentBase = %q, want %q", got, want)
+	}
+}
+
 func TestPaginationMonitorForJobSharePoint(t *testing.T) {
 	job := &api.RunJob{
 		GraphPagination: map[string]api.PaginationLimit{
