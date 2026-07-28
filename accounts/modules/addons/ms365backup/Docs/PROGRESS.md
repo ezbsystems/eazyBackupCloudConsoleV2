@@ -13,10 +13,10 @@
 
 ### 2026-07-28 — Mail orphan attachment labels (worker 0.4.23, PHP 1.52.37)
 
-- **Production evidence:** PHP commit `53f8ec0d` / browse cache **v21**; worker **0.4.21** on prod. Affected Inbox showed **211/333** generic labels under 0.4.21; **zero** generic labels under 0.4.22 dev browse binary **only for entries with valid sibling message JSON**. **Five** separate metadata-less orphan attachment trees (no sibling message JSON) still showed generic **Email message** / **Mail folder**.
+- **Production evidence (pre-deploy):** PHP commit `53f8ec0d` / browse cache **v21**; worker **0.4.21** on prod. Affected Inbox showed **211/333** generic labels under 0.4.21; **zero** generic labels under 0.4.22 dev browse binary **only for entries with valid sibling message JSON**. **Five** separate metadata-less orphan attachment trees (no sibling message JSON) still showed generic **Email message** / **Mail folder**.
 - **Fix:** Worker returns **Message attachments (metadata unavailable)** with subtitle **Attachments** when message JSON is missing; PHP rewrites stale generic fallbacks on attachment-folder paths; browse cache bumped to **v22-mail-orphan-labels**.
 - **Verify:** `go test ./...`, `go build ./...`, `ms365_restore_tree_browse_test.php`, `ms365_browse_binary_installer_test.php`.
-- **Deploy:** **Pending** — dev changes only; do not claim production rollout until released.
+- **Deploy:** commit `ce19c758`; dev release **143** / prod release **67**; browse SHA `902f2dcf…`; `deploy-production.sh` PASS; health PASS; fleet smoke PASS (8 nodes, artifact **0.4.23**). Affected user `…796A82` post-deploy via `RestoreTreeBrowseService`: current-layout Inbox **333/333** real subjects (**0** generic); second mailbox Inbox **125** real + **5** orphan attachment folders (all expandable, no sibling JSON, label **Message attachments (metadata unavailable)**). UI not verified (login required); backend service is source of truth.
 
 ### 2026-07-28 — Mail restore browse labels (worker 0.4.22)
 
