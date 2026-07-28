@@ -6,7 +6,7 @@ namespace Ms365Backup;
 use WHMCS\Database\Capsule;
 
 /**
- * Computes Protected Objects and OneDrive overage from inventory + MS365 job selections.
+ * Computes Protected Users and OneDrive overage from inventory + MS365 job selections.
  */
 final class Ms365UsageMeter
 {
@@ -32,7 +32,7 @@ final class Ms365UsageMeter
      *     direct_appearances: int,
      *     membership_appearances: int,
      *     duplicate_appearances_removed: int,
-     *     protected_objects: int
+     *     protected_users: int
      *   }
      * }
      */
@@ -41,6 +41,8 @@ final class Ms365UsageMeter
         array $selectedIds,
         array $scopeOverrides,
         ?DiscoveryService $discovery = null,
+        array $billingExemptIds = [],
+        bool $billingExemptKeyPresent = true,
     ): array {
         $empty = [
             'protected_users' => 0,
@@ -55,7 +57,14 @@ final class Ms365UsageMeter
             return $empty;
         }
 
-        $resolution = ProtectedUserResolver::resolve($inventory, $selectedIds, $scopeOverrides, $discovery);
+        $resolution = ProtectedUserResolver::resolve(
+            $inventory,
+            $selectedIds,
+            $scopeOverrides,
+            $discovery,
+            $billingExemptIds,
+            $billingExemptKeyPresent,
+        );
         $protectedAzureIds = array_fill_keys($resolution['protected_azure_ids'], true);
         $byId = self::resourcesById($inventory);
         $selection = [
@@ -151,6 +160,8 @@ final class Ms365UsageMeter
         array $selectedIds,
         array $scopeOverrides,
         ?DiscoveryService $discovery = null,
+        array $billingExemptIds = [],
+        bool $billingExemptKeyPresent = true,
     ): array {
         $zeroed = self::emptyBillingPreview();
         if ($selectedIds === []) {
@@ -158,7 +169,14 @@ final class Ms365UsageMeter
         }
 
         // Wizard previews use cache-only member resolution (no live Graph).
-        $measure = self::measureSelection($inventory, $selectedIds, $scopeOverrides, $discovery);
+        $measure = self::measureSelection(
+            $inventory,
+            $selectedIds,
+            $scopeOverrides,
+            $discovery,
+            $billingExemptIds,
+            $billingExemptKeyPresent,
+        );
         $serviceId = Ms365BillingService::resolveServiceIdForBackupUser($clientId, $backupUserId);
         $trialStatus = $serviceId > 0 ? Ms365BillingTrial::status($serviceId) : null;
         $protectedPrice = Ms365BillingConfig::protectedUserPriceCad();
@@ -220,7 +238,7 @@ final class Ms365UsageMeter
             return array_merge($empty, ['inventory_stale' => true]);
         }
 
-        $selection = self::mergeJobSelections($clientId, $backupUserId);
+        $selection = self::mergeJobSelections($clientId, $backupUserId, $inventory);
         if ($selection['selected_ids'] === []) {
             return $empty;
         }
@@ -231,6 +249,8 @@ final class Ms365UsageMeter
             $selection['selected_ids'],
             $selection['scope_overrides'],
             $discovery,
+            $selection['billing_exempt_resource_ids'],
+            $selection['billing_exempt_key_present'],
         );
 
         return [
@@ -293,14 +313,14 @@ final class Ms365UsageMeter
         ];
     }
 
-    /** @return array{direct_appearances: int, membership_appearances: int, duplicate_appearances_removed: int, protected_objects: int} */
+    /** @return array{direct_appearances: int, membership_appearances: int, duplicate_appearances_removed: int, protected_users: int} */
     private static function emptyReconciliation(): array
     {
         return [
             'direct_appearances' => 0,
             'membership_appearances' => 0,
             'duplicate_appearances_removed' => 0,
-            'protected_objects' => 0,
+            'protected_users' => 0,
         ];
     }
 
@@ -322,13 +342,22 @@ final class Ms365UsageMeter
         }
     }
 
-    /** @return array{selected_ids: list<string>, scope_overrides: array<string, array<string, bool>>} */
-    private static function mergeJobSelections(int $clientId, int $backupUserId): array
+    /** @return array{
+     *   selected_ids: list<string>,
+     *   scope_overrides: array<string, array<string, bool>>,
+     *   billing_exempt_resource_ids: list<string>,
+     *   billing_exempt_key_present: bool
+     * } */
+    private static function mergeJobSelections(int $clientId, int $backupUserId, ?array $inventory = null): array
     {
-        $selected = [];
-        $scopes = [];
+        $empty = [
+            'selected_ids' => [],
+            'scope_overrides' => [],
+            'billing_exempt_resource_ids' => [],
+            'billing_exempt_key_present' => true,
+        ];
         if (!Capsule::schema()->hasTable('s3_cloudbackup_jobs')) {
-            return ['selected_ids' => [], 'scope_overrides' => []];
+            return $empty;
         }
 
         $jobs = Capsule::table('s3_cloudbackup_jobs')
@@ -343,11 +372,25 @@ final class Ms365UsageMeter
             })
             ->get();
 
+        $selected = [];
+        $scopes = [];
+        $jobContexts = [];
+
         foreach ($jobs as $job) {
             $fromConfig = self::decodeSourceConfig((string) ($job->source_config_enc ?? ''));
+            $sched = self::decodeJson((string) ($job->schedule_json ?? ''));
+            $jobSelected = [];
             foreach ($fromConfig['selected_resource_ids'] ?? [] as $id) {
                 $id = (string) $id;
                 if ($id !== '') {
+                    $jobSelected[$id] = true;
+                    $selected[$id] = true;
+                }
+            }
+            foreach ($sched['selected_resource_ids'] ?? [] as $id) {
+                $id = (string) $id;
+                if ($id !== '') {
+                    $jobSelected[$id] = true;
                     $selected[$id] = true;
                 }
             }
@@ -364,14 +407,6 @@ final class Ms365UsageMeter
                     }
                 }
             }
-
-            $sched = self::decodeJson((string) ($job->schedule_json ?? ''));
-            foreach ($sched['selected_resource_ids'] ?? [] as $id) {
-                $id = (string) $id;
-                if ($id !== '') {
-                    $selected[$id] = true;
-                }
-            }
             foreach ($sched['scope_overrides'] ?? [] as $rid => $flags) {
                 if (!is_string($rid) || !is_array($flags)) {
                     continue;
@@ -385,12 +420,105 @@ final class Ms365UsageMeter
                     }
                 }
             }
+
+            $exemptKeyPresent = array_key_exists('billing_exempt_resource_ids', $fromConfig)
+                || array_key_exists('billing_exempt_resource_ids', $sched);
+            $exemptIds = CustomerSelectionCodec::normalizeIds(
+                $fromConfig['billing_exempt_resource_ids']
+                    ?? $sched['billing_exempt_resource_ids']
+                    ?? [],
+            );
+            $jobContexts[] = [
+                'selected_ids' => array_keys($jobSelected),
+                'scope_overrides' => array_merge(
+                    is_array($fromConfig['scope_overrides'] ?? null) ? $fromConfig['scope_overrides'] : [],
+                    is_array($sched['scope_overrides'] ?? null) ? $sched['scope_overrides'] : [],
+                ),
+                'billing_exempt_key_present' => $exemptKeyPresent,
+                'billing_exempt_resource_ids' => $exemptIds,
+            ];
         }
+
+        $mergedExempt = self::mergeBillingExemptAcrossJobs($jobContexts, $inventory ?? []);
 
         return [
             'selected_ids' => array_keys($selected),
             'scope_overrides' => $scopes,
+            'billing_exempt_resource_ids' => $mergedExempt,
+            'billing_exempt_key_present' => true,
         ];
+    }
+
+    /**
+     * A mailbox bills if any job personally selects it with mailbox scope and it is not exempt on that job.
+     *
+     * @param list<array{
+     *   selected_ids: list<string>,
+     *   scope_overrides: array<string, array<string, bool>>,
+     *   billing_exempt_key_present: bool,
+     *   billing_exempt_resource_ids: list<string>
+     * }> $jobContexts
+     * @return list<string>
+     */
+    private static function mergeBillingExemptAcrossJobs(array $jobContexts, array $inventory = []): array
+    {
+        $byId = self::resourcesById($inventory);
+        $mailboxIds = [];
+        foreach ($jobContexts as $job) {
+            foreach ($job['selected_ids'] as $resourceId) {
+                $type = (string) ($byId[$resourceId]['resource_type'] ?? '');
+                if ($type === TenantResource::TYPE_MAILBOX || str_starts_with($resourceId, 'mailbox:')) {
+                    $mailboxIds[$resourceId] = true;
+                }
+            }
+        }
+
+        $exempt = [];
+        foreach (array_keys($mailboxIds) as $mailboxId) {
+            $billsOnAnyJob = false;
+            foreach ($jobContexts as $job) {
+                if (!in_array($mailboxId, $job['selected_ids'], true)) {
+                    continue;
+                }
+                if (!self::hasEnabledMailboxScope($mailboxId, $job['scope_overrides'])) {
+                    continue;
+                }
+                if (!$job['billing_exempt_key_present']) {
+                    continue;
+                }
+                if (in_array($mailboxId, $job['billing_exempt_resource_ids'], true)) {
+                    continue;
+                }
+                $billsOnAnyJob = true;
+                break;
+            }
+            if (!$billsOnAnyJob) {
+                $exempt[] = $mailboxId;
+            }
+        }
+
+        return CustomerSelectionCodec::normalizeIds($exempt);
+    }
+
+    /** @param array<string, array<string, bool>> $scopeOverrides */
+    private static function hasEnabledMailboxScope(string $resourceId, array $scopeOverrides): bool
+    {
+        $flags = $scopeOverrides[$resourceId] ?? [];
+        if ($flags === []) {
+            return true;
+        }
+        foreach ([
+            BackupScope::MAIL,
+            BackupScope::CALENDAR,
+            BackupScope::CONTACTS,
+            BackupScope::TASKS,
+        ] as $key) {
+            if (!empty($flags[$key])) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /** @return array<string, mixed>|null */

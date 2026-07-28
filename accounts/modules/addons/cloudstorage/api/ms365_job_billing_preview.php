@@ -31,6 +31,15 @@ if ($userId === '') {
 $selectAll = filter_var($params['select_all'] ?? false, FILTER_VALIDATE_BOOLEAN);
 $selectedIds = ms365PlanDecodeJsonStringArray($params['selected_resource_ids'] ?? '[]');
 $scopeOverrides = ms365PlanDecodeJsonObject($params['scope_overrides'] ?? '{}');
+$billingExemptIds = ms365PlanDecodeJsonStringArray($params['billing_exempt_resource_ids'] ?? '[]');
+$billingExemptKeyPresent = filter_var(
+    $params['billing_exempt_key_present'] ?? true,
+    FILTER_VALIDATE_BOOLEAN,
+    FILTER_NULL_ON_FAILURE,
+);
+if ($billingExemptKeyPresent === null) {
+    $billingExemptKeyPresent = true;
+}
 
 if (!$selectAll && $selectedIds === []) {
     (new JsonResponse([
@@ -44,7 +53,14 @@ try {
     if ($selectAll) {
         $result = Ms365E3Controller::previewJobBillingSelectAll($clientId, $userId);
     } else {
-        $result = Ms365E3Controller::previewJobBilling($clientId, $userId, $selectedIds, $scopeOverrides);
+        $result = Ms365E3Controller::previewJobBilling(
+            $clientId,
+            $userId,
+            $selectedIds,
+            $scopeOverrides,
+            $billingExemptIds,
+            $billingExemptKeyPresent,
+        );
     }
     (new JsonResponse([
         'status' => 'success',

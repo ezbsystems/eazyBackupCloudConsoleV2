@@ -1,5 +1,5 @@
-<link rel="stylesheet" href="modules/addons/cloudstorage/assets/css/ms365_job_wizard.css?v=17">
-<link rel="stylesheet" href="modules/addons/cloudstorage/assets/css/ms365_restore_wizard.css?v=4">
+<link rel="stylesheet" href="modules/addons/cloudstorage/assets/css/ms365_job_wizard.css?v=19">
+<link rel="stylesheet" href="modules/addons/cloudstorage/assets/css/ms365_restore_wizard.css?v=6">
 
 <div id="ms365JobWizardModal" class="ms365-job-wizard-modal-host fixed inset-0 z-[2200] hidden" x-data="ms365WizardApp()" x-cloak>
     <div class="eb-modal-backdrop absolute inset-0" @click="close()"></div>
@@ -255,7 +255,7 @@
                                         Select all resources
                                     </label>
                                 </div>
-                                <div class="flex-1 overflow-y-auto p-2 space-y-4">
+                                <div class="flex-1 overflow-x-hidden overflow-y-auto p-2 space-y-4">
                                     <template x-for="section in inventorySections()" :key="section.key">
                                         <div x-show="sectionHasNodes(section.key)">
                                             <div class="text-xs font-semibold uppercase tracking-wide text-[var(--eb-text-muted)] mb-2 px-1" x-text="section.label"></div>
@@ -281,16 +281,21 @@
                                                                :checked="nodeCheckState(section.key, node) === 'checked'"
                                                                x-init="$el.indeterminate = nodeCheckState(section.key, node) === 'indeterminate'"
                                                                @change="toggleTreeNode(section.key, node); $el.indeterminate = nodeCheckState(section.key, node) === 'indeterminate'; $el.checked = nodeCheckState(section.key, node) === 'checked'">
-                                                        <button type="button"
-                                                                class="ms365-tree-label"
-                                                                :class="{ 'ms365-tree-label--disabled': node.selectable === false }"
-                                                                @click="node.hasChildren ? toggleExpandNode(section.key, node) : toggleTreeNode(section.key, node)">
-                                                            <span class="ms365-tree-label-primary" x-text="node.label"></span>
-                                                            <span class="ms365-tree-label-secondary" x-show="node.subtitle" x-text="node.subtitle"></span>
-                                                            <span class="ms365-tree-label-secondary ms365-tree-label-reason"
-                                                                  x-show="node.selectable === false && node.disabledReason"
-                                                                  x-text="node.disabledReason"></span>
-                                                        </button>
+                                                        <div class="ms365-tree-main">
+                                                            <button type="button"
+                                                                    class="ms365-tree-label"
+                                                                    :class="{ 'ms365-tree-label--disabled': node.selectable === false }"
+                                                                    @click="node.hasChildren ? toggleExpandNode(section.key, node) : toggleTreeNode(section.key, node)">
+                                                                <span class="ms365-tree-label-row">
+                                                                    <span class="ms365-tree-icon" x-html="inventoryIconSvg(node.iconKey)" aria-hidden="true"></span>
+                                                                    <span class="ms365-tree-label-primary" x-text="node.label"></span>
+                                                                </span>
+                                                                <span class="ms365-tree-label-secondary" x-show="node.subtitle" x-text="node.subtitle"></span>
+                                                                <span class="ms365-tree-label-secondary ms365-tree-label-reason"
+                                                                      x-show="node.selectable === false && node.disabledReason"
+                                                                      x-text="node.disabledReason"></span>
+                                                            </button>
+                                                        </div>
                                                         <button type="button"
                                                                 class="ms365-tree-info-btn"
                                                                 x-show="isDirectoryBaselineNode(node)"
@@ -392,13 +397,13 @@
                                         </template>
                                         <template x-if="billingPreview.inventory_stale || billingPreview.member_resolution_pending">
                                             <span class="eb-badge eb-badge--warning text-xs"
-                                                  :title="billingPreview.member_resolution_pending ? 'Team, group, or site member lists could not be loaded. Refresh inventory to update Protected Object counts and pricing.' : 'Inventory may be outdated. Refresh inventory for current figures.'"
+                                                  :title="billingPreview.member_resolution_pending ? 'Team, group, or site member lists could not be loaded. Refresh inventory to update Protected User counts and pricing.' : 'Inventory may be outdated. Refresh inventory for current figures.'"
                                                   x-text="billingPreview.member_resolution_pending ? 'Member counts incomplete' : 'Inventory may be stale'"></span>
                                         </template>
                                     </div>
                                     <div class="ms365-wizard-billing-dock__metrics">
                                         <div class="ms365-wizard-billing-dock__metric">
-                                            <span class="ms365-wizard-billing-dock__metric-label">Protected Objects</span>
+                                            <span class="ms365-wizard-billing-dock__metric-label">Protected Users</span>
                                             <span class="ms365-wizard-billing-dock__metric-value" x-text="billingPreview.protected_users ?? 0"></span>
                                         </div>
                                         <div class="ms365-wizard-billing-dock__metric">
@@ -446,18 +451,21 @@
                                                     </dd>
                                                 </div>
                                                 <div class="ms365-wizard-billing-dock__calc-row ms365-wizard-billing-dock__calc-row--total">
-                                                    <dt>Unique Protected Objects</dt>
-                                                    <dd x-text="billingPreview.reconciliation?.protected_objects ?? billingPreview.protected_users ?? 0"></dd>
+                                                    <dt>Unique Protected Users</dt>
+                                                    <dd x-text="billingPreview.reconciliation?.protected_users ?? billingPreview.protected_users ?? 0"></dd>
                                                 </div>
                                             </dl>
                                             <p class="eb-type-caption text-[var(--eb-warning-text)] mb-0 mt-2"
                                                x-show="billingPreview.member_resolution_pending">
                                                 Team, group, or site member lists could not be fully loaded. Counts reflect resolved data only; your estimate may increase after inventory refresh.
                                             </p>
+                                            <p class="eb-type-caption text-[var(--eb-text-muted)] mb-0 mt-2">
+                                                Select All backs up everything. Guests never bill. Shared mailboxes bill when selected. SharePoint/Teams sites are not billable units.
+                                            </p>
                                         </div>
                                     </div>
                                     <p class="eb-type-caption text-[var(--eb-text-muted)] mb-0">
-                                        Protected Objects @ $<span x-text="Number(billingPreview.pricing?.protected_user_price_cad || 0).toFixed(2)"></span>/object
+                                        Protected Users @ $<span x-text="Number(billingPreview.pricing?.protected_user_price_cad || 0).toFixed(2)"></span>/user
                                         <template x-if="(billingPreview.onedrive_overage_gib || 0) > 0">
                                             <span> · OneDrive overage included</span>
                                         </template>
@@ -608,5 +616,6 @@
     </div>
 </div>
 
-<script src="modules/addons/cloudstorage/assets/js/ms365_job_selection.js?v=5"></script>
-<script src="modules/addons/cloudstorage/assets/js/ms365_job_wizard.js?v=28"></script>
+<script src="modules/addons/cloudstorage/assets/js/ms365_inventory_icons.js?v=1"></script>
+<script src="modules/addons/cloudstorage/assets/js/ms365_job_selection.js?v=6"></script>
+<script src="modules/addons/cloudstorage/assets/js/ms365_job_wizard.js?v=30"></script>

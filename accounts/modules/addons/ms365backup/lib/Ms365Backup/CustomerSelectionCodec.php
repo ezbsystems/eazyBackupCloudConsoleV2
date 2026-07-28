@@ -50,6 +50,8 @@ final class CustomerSelectionCodec
         array $selectedIds,
         ?array $scopeOverrides,
         array $inventory,
+        array $billingExemptIds = [],
+        bool $billingExemptKeyPresent = true,
     ): array {
         $result = self::planSelection($selectedIds, $scopeOverrides, $inventory);
         $result['billing'] = Ms365UsageMeter::previewBillingForSelection(
@@ -58,6 +60,9 @@ final class CustomerSelectionCodec
             $inventory,
             $result['selected_resource_ids'],
             $result['scope_overrides'],
+            null,
+            $billingExemptIds,
+            $billingExemptKeyPresent,
         );
 
         return $result;
@@ -77,6 +82,8 @@ final class CustomerSelectionCodec
         array $selectedIds,
         ?array $scopeOverrides,
         array $inventory,
+        array $billingExemptIds = [],
+        bool $billingExemptKeyPresent = true,
     ): array {
         $selectedIds = self::normalizeIds($selectedIds);
         $scopeOverrides = self::normalizeScopeOverrides($scopeOverrides ?? []);
@@ -89,6 +96,8 @@ final class CustomerSelectionCodec
                 $selectedIds,
                 $scopeOverrides,
                 null,
+                $billingExemptIds,
+                $billingExemptKeyPresent,
             ),
         ];
     }
@@ -112,13 +121,18 @@ final class CustomerSelectionCodec
      * Build wizard "select all resources" payload server-side (avoids huge POST bodies).
      *
      * @param array<string, mixed> $inventory
-     * @return array{selected_resource_ids: list<string>, scope_overrides: array<string, array<string, bool>>}
+     * @return array{
+     *   selected_resource_ids: list<string>,
+     *   scope_overrides: array<string, array<string, bool>>,
+     *   billing_exempt_resource_ids: list<string>
+     * }
      */
     public static function selectAllFromInventory(array $inventory): array
     {
         $resources = is_array($inventory['resources'] ?? null) ? array_values($inventory['resources']) : [];
         $selectedIds = [];
         $scopeOverrides = [];
+        $billingExemptIds = [];
 
         $add = static function (string $id, string $resourceType) use (&$selectedIds, &$scopeOverrides): void {
             $selectedIds[] = $id;
@@ -226,6 +240,7 @@ final class CustomerSelectionCodec
         return [
             'selected_resource_ids' => self::normalizeIds($selectedIds),
             'scope_overrides' => self::normalizeScopeOverrides($scopeOverrides),
+            'billing_exempt_resource_ids' => self::normalizeIds($billingExemptIds),
         ];
     }
 

@@ -17,7 +17,7 @@ class E3BackupUserProductBootstrap
         'hyperv_vm'            => ['name' => 'Hyper-V Guest VM',      'default_price' => 4.50],
         'proxmox_vm'           => ['name' => 'Proxmox Guest VM',      'default_price' => 4.50],
         'vmware_vm'            => ['name' => 'VMware Guest VM',       'default_price' => 4.50],
-        'protected_users'      => ['name' => 'Protected Objects',     'default_price' => 0.00],
+        'protected_users'      => ['name' => 'Protected Users',     'default_price' => 0.00],
         'onedrive_overage_gib' => ['name' => 'OneDrive Overage (GiB)', 'default_price' => 0.00],
         'saas_connector'       => ['name' => 'SaaS Connector',        'default_price' => 0.00],
     ];
@@ -383,7 +383,7 @@ class E3BackupUserProductBootstrap
         if ($configId <= 0 && $metricKey === 'protected_users') {
             $legacy = Capsule::table('tblproductconfigoptions')
                 ->where('gid', $configGroupId)
-                ->where('optionname', 'Protected Users')
+                ->where('optionname', 'Protected Objects')
                 ->orderBy('id', 'asc')
                 ->first();
             if ($legacy && isset($legacy->id)) {
@@ -394,7 +394,7 @@ class E3BackupUserProductBootstrap
                         ->update(['optionname' => $optionName]);
                     Capsule::table('tblproductconfigoptionssub')
                         ->where('configid', $configId)
-                        ->where('optionname', 'Protected Users')
+                        ->where('optionname', 'Protected Objects')
                         ->update(['optionname' => $optionName]);
                     $report['options_renamed'][] = $metricKey;
                 } catch (\Throwable $e) {

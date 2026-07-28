@@ -153,6 +153,31 @@ final class TenantResource
         return self::TYPE_USER;
     }
 
+    /**
+     * @param array<string, mixed> $resource
+     */
+    public static function hasAssignedLicense(array $resource): bool
+    {
+        $meta = is_array($resource['meta'] ?? null) ? $resource['meta'] : [];
+
+        return (bool) ($meta['has_assigned_license'] ?? false);
+    }
+
+    /**
+     * @param array<string, mixed> $resource
+     */
+    public static function isGuestResource(array $resource): bool
+    {
+        $meta = is_array($resource['meta'] ?? null) ? $resource['meta'] : [];
+        $userType = strtolower((string) ($meta['user_type'] ?? ''));
+        if ($userType === 'guest') {
+            return true;
+        }
+        $email = strtolower(trim((string) ($resource['email'] ?? $meta['mail'] ?? '')));
+
+        return str_contains($email, '#ext#');
+    }
+
   /**
      * @param array<string, mixed> $access
      */

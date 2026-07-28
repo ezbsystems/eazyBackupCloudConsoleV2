@@ -88,6 +88,15 @@ final class Ms365AdminJobsRepository
                 $query->where('r.run_id', 'LIKE', '%' . $needle . '%');
             }
         }
+        if (!empty($filters['backup_user_id']) && $hasJobBackupUserId) {
+            $query->where('j.backup_user_id', (int) $filters['backup_user_id']);
+        }
+        if (!empty($filters['job_id']) && $hasJobIdPk) {
+            $jobId = strtolower(trim((string) $filters['job_id']));
+            if (self::isUuid($jobId)) {
+                $query->whereRaw('j.job_id = UUID_TO_BIN(?)', [$jobId]);
+            }
+        }
 
         $total = (int) $query->count();
 

@@ -1,14 +1,14 @@
 # MS365 Backup — Billing & Storage Design
 
-**Status:** Implemented (v1.20.0+); Protected Objects expansion implemented 2026-07-21
-**Last updated:** 2026-07-21
+**Status:** Implemented (v1.20.0+); automatic Protected Users rules implemented 2026-07-27 (supersedes EXCEPTION-SM manual override)
+**Last updated:** 2026-07-27
 **Owners:** ms365backup (engines + metering services) + cloudstorage (customer UI, buckets, APIs)
 
 This document specifies how to make the **Microsoft 365 Backup** product billing-ready: a free WHMCS product driven by **config options** for Protected Objects and OneDrive overage, **per-backup-user daily metering** sourced from Microsoft Graph, **peak-of-period** billing, admin-configurable pricing, a trial, and **platform-owned, isolated object storage** that never touches the existing object-storage bill.
 
 Read alongside: [PRODUCT_ROADMAP.md](PRODUCT_ROADMAP.md) (product intent/phases), [ARCHITECTURE_BOUNDARIES.md](ARCHITECTURE_BOUNDARIES.md) (module split), and `modules/addons/cloudstorage/docs/E3_CLOUD_BACKUP_BILLING.md` (the metered-billing pattern this design mirrors).
 
-**Protected Objects expansion (2026-07-21):** billing now counts **Protected Objects**, not only "Protected Users" — see [specs/2026-07-21-protected-objects-billing-design.md](specs/2026-07-21-protected-objects-billing-design.md) for the approved design this section was updated from. §2.1 below reflects the implemented definition; internal metric/setting keys (`protected_users`, `protected_user_price_cad`) are unchanged.
+**Protected Users revision (2026-07-27):** billing counts **Protected Users** (reverted from 2026-07-21 Protected Objects expansion for mailboxes). **Comet parity (2026-07-27):** personally selected non-guest shared mailboxes always bill (individual or Select All); guests never bill; `billing_exempt_resource_ids` unused for billability. Internal keys unchanged.
 
 ---
 
@@ -26,26 +26,26 @@ Read alongside: [PRODUCT_ROADMAP.md](PRODUCT_ROADMAP.md) (product intent/phases)
 
 ## 2. Definitions & tenancy model
 
-### 2.1 Protected Object
+### 2.1 Protected User
 
-A **Protected Object** is one distinct Microsoft 365 directory identity, identified by **Azure object ID**, counted at most **once** per backup user for the billing window, when it is reached by any of:
+A **Protected User** is one distinct Microsoft 365 directory identity, identified by **Azure object ID**, counted at most **once** per backup user for the billing window, when it is reached by any of:
 
-1. **Personal selection** — the identity is directly selected as a `user`, `mailbox` (including shared / room / equipment), or `user_onedrive` with at least one enabled personal scope (mail, calendar, contacts, tasks, OneDrive/files).
-2. **Team / Group membership** — the identity is a billable member of a **selected Team** (channel selections inherit parent-team membership) or **M365 Group** with at least one enabled shared scope.
-3. **SharePoint site membership** — the identity is a billable user/mailbox principal granted on a **selected SharePoint site** (via `sites/{id}/permissions`) with at least one enabled site scope.
+1. **Personal user selection** — `user` or `user_onedrive` with at least one enabled personal scope (member users only; guests excluded).
+2. **Team / Group membership** — billable member of a selected Team, team channel (inherits parent team), or M365 Group with at least one enabled shared scope (guests and mailbox principals excluded).
+3. **SharePoint site membership** — billable member user principal on a selected SharePoint site with at least one enabled site scope (guests excluded).
+4. **Selected shared mailbox** — `TYPE_MAILBOX` personally selected with ≥1 mailbox scope and **not** a guest.
 
-**Included** (billable): Member users, **guest users** (`userType = Guest` or `#EXT#` in UPN), **shared mailboxes**, **room mailboxes**, **equipment mailboxes** — whether reached by personal selection, team/group membership, or SharePoint site membership.
-
-**Excluded** (not billable): devices, service principals, and other non-identity directory objects that are not backupable user/mailbox resources.
+**Guests never bill.** Selected shared mailboxes bill (individual or Select All). Membership-only mailbox principals do not bill.
 
 Rules:
 
 - The same Azure object ID is counted **once** across personal selections, team memberships, group memberships, and SharePoint site memberships — strict dedupe on a single `$protected[$azureId] = true` map (the resolver's dedupe law; see §6).
 - **Shared workload data** (Teams, M365 Groups, SharePoint files, Planner, OneNote) remains **unlimited storage**; billing is per **identity in scope**, not per workload byte.
-- **SharePoint site membership is in scope** (no longer deferred): selecting a SharePoint site resolves its member/permission principals (`sites/{id}/permissions`, cached on the site resource as `meta.member_azure_ids`) into the same billable set as team/group members. If member resolution has not run yet and no live discovery is available, the site contributes **0** and the UI/API surface `member_resolution_pending` rather than inventing a count.
-- **Wizard:** job step 2 shows a live billing preview (`protected_users` + estimated monthly) for the **current selection**, not only saved jobs.
-- **Internal keys unchanged:** the metric key remains `protected_users` and the admin setting remains `protected_user_price_cad` (see §3, Non-goals in the approved spec); only customer-facing/admin **labels** changed to "Protected Objects" / "Protected Object price (CAD)".
-- **Go-live:** the expanded definition applies starting with the **next daily meter run** (`ms365_billing.php`) — no grandfathering of prior, narrower counts.
+- **Select All** includes all resources for backup; `billing_exempt_resource_ids` is always `[]` for new wizard saves (billing is automatic from license/guest metadata).
+- **Legacy jobs** may still store `billing_exempt_resource_ids`; the resolver ignores exempt lists for billability (license + guest rules only).
+- **SharePoint site membership** resolves permission principals via `sites/{id}/permissions`, cached on the site resource. If member resolution is pending, the UI/API surfaces `member_resolution_pending`.
+- **Internal keys unchanged:** `protected_users` / `protected_user_price_cad`; customer-facing label **Protected Users**.
+- **Go-live:** applies on the **next daily meter run** — no grandfathering.
 
 ### 2.2 Tenancy model (how clients, backup users, and WHMCS services relate)
 

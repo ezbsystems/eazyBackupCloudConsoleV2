@@ -28,7 +28,7 @@ function ms365backup_config(): array
     return [
         'name' => 'MS365 Backup',
         'description' => 'Admin-only Microsoft 365 backup development tool (mail, calendar, contacts, To Do, OneDrive).',
-        'version' => '1.52.32',
+        'version' => '1.52.36',
         'author' => 'eazyBackup',
         'language' => 'english',
         'fields' => [
@@ -367,11 +367,11 @@ function ms365backup_config(): array
                 'Description' => 'WHMCS product ID for eazyBackup Microsoft 365 Backup (auto-set by product bootstrap).',
             ],
             'protected_user_price_cad' => [
-                'FriendlyName' => 'Protected Object price (CAD)',
+                'FriendlyName' => 'Protected User price (CAD)',
                 'Type' => 'text',
                 'Size' => '12',
                 'Default' => '0.00',
-                'Description' => 'Per Protected Object per month; applied via invoice hook (not tblpricing).',
+                'Description' => 'Per Protected User per month; applied via invoice hook (not tblpricing).',
             ],
             'onedrive_included_gib' => [
                 'FriendlyName' => 'OneDrive included GiB per user',
@@ -734,6 +734,7 @@ function ms365backup_activate(): array
         ms365backup_restore_settings();
         ms365backup_apply_schema();
         ms365backup_apply_migrations();
+        \Ms365Backup\Ms365AdminUserControlsRepository::ensureTable();
         ms365backup_ensure_storage();
         ms365backup_bootstrap_billing('activate');
         ms365backup_create_email_templates();
@@ -767,6 +768,7 @@ function ms365backup_upgrade(array $vars): void
     try {
         ms365backup_apply_schema();
         ms365backup_apply_migrations();
+        \Ms365Backup\Ms365AdminUserControlsRepository::ensureTable();
         ms365backup_ensure_storage();
         ms365backup_bootstrap_billing('upgrade');
         ms365backup_create_email_templates();
@@ -794,6 +796,7 @@ function ms365backup_sidebar(array $vars): string
         . '<a href="' . $base . '&action=seeder" class="list-group-item"><i class="fa fa-database"></i> Tenant Seeder</a>'
         . '<a href="' . $base . '&action=fleet" class="list-group-item"><i class="fa fa-server"></i> Worker Fleet</a>'
         . '<a href="' . $base . '&action=jobs" class="list-group-item"><i class="fa fa-list"></i> Jobs</a>'
+        . '<a href="' . $base . '&action=users" class="list-group-item"><i class="fa fa-users"></i> Users</a>'
         . '<a href="' . $base . '&action=trials" class="list-group-item"><i class="fa fa-clock-o"></i> Trials</a>'
         . '<a href="' . $base . '&action=provision" class="list-group-item"><i class="fa fa-user-plus"></i> Provision Customer</a>'
         . '<a href="' . $base . '&action=tenant_export" class="list-group-item"><i class="fa fa-key"></i> Tenant Export</a>'
@@ -862,6 +865,7 @@ function ms365backup_output(array $vars): void
         'seeder' => 'Tenant Seeder',
         'fleet' => 'Worker Fleet',
         'jobs' => 'Jobs',
+        'users' => 'Users',
         'trials' => 'Trials',
         'provision' => 'Provision Customer',
         'tenant_export' => 'Tenant Export',
@@ -895,6 +899,12 @@ function ms365backup_output(array $vars): void
             break;
         case 'jobs':
             require __DIR__ . '/pages/admin/jobs.php';
+            break;
+        case 'users':
+            require __DIR__ . '/pages/admin/users.php';
+            break;
+        case 'user_jobs':
+            require __DIR__ . '/pages/admin/user_jobs.php';
             break;
         case 'live':
             require __DIR__ . '/pages/admin/live.php';

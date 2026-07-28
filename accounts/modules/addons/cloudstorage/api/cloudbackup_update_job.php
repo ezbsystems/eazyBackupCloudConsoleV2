@@ -587,6 +587,29 @@ if (isset($_POST['notify_on_failure'])) {
     $updateData['notify_on_failure'] = isset($_POST['notify_on_failure']) ? 1 : 0;
 }
 if (isset($_POST['status'])) {
+    $newStatus = strtolower(trim((string) $_POST['status']));
+    if ($newStatus === 'active' && strtolower((string) ($existingJob['status'] ?? '')) === 'paused') {
+        if (!class_exists(\Ms365Backup\Ms365AdminUserControlsRepository::class)) {
+            $ms365Autoload = dirname(__DIR__) . '/../ms365backup/ms365backup_autoload.php';
+            if (is_file($ms365Autoload)) {
+                require_once $ms365Autoload;
+            }
+        }
+        $backupUserId = (int) ($existingJob['backup_user_id'] ?? 0);
+        $sourceType = strtolower((string) ($existingJob['source_type'] ?? ''));
+        $engine = strtolower((string) ($existingJob['engine'] ?? ''));
+        if ($backupUserId > 0
+            && ($sourceType === 'ms365' || $engine === 'ms365')
+            && class_exists(\Ms365Backup\Ms365AdminUserControlsRepository::class)
+            && \Ms365Backup\Ms365AdminUserControlsRepository::isAdminSuspended($backupUserId)) {
+            $response = new JsonResponse([
+                'status' => 'fail',
+                'message' => \Ms365Backup\Ms365AdminUserControlsRepository::CUSTOMER_BLOCKED_MESSAGE,
+            ], 403);
+            $response->send();
+            exit();
+        }
+    }
     $updateData['status'] = $_POST['status'];
 }
 

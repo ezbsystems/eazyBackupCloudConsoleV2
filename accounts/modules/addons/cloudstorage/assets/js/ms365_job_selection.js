@@ -118,6 +118,53 @@
         return parts.filter(Boolean).join(':');
     }
 
+    function isGuestResource(resource) {
+        if (!resource) {
+            return false;
+        }
+        const meta = resource.meta || {};
+        const userType = String(meta.user_type || '').toLowerCase();
+        if (userType === 'guest') {
+            return true;
+        }
+        const email = String(resource.email || meta.mail || '').toLowerCase();
+        return email.includes('#ext#');
+    }
+
+    function iconKeyForResource(resource) {
+        if (!resource) {
+            return 'user';
+        }
+        const type = resource.resource_type || '';
+        if (type === TYPE_USER || type === TYPE_MAILBOX) {
+            if (isGuestResource(resource)) {
+                return 'guest';
+            }
+            if (type === TYPE_MAILBOX) {
+                return 'mailbox';
+            }
+            return 'user';
+        }
+        const map = {
+            [TYPE_ONEDRIVE]: 'user_onedrive',
+            [TYPE_SITE]: 'sharepoint_site',
+            [TYPE_TEAM]: 'team',
+            [TYPE_CHANNEL]: 'team_channel',
+            [TYPE_GROUP]: 'm365_group',
+            [TYPE_PLANNER]: 'planner_plan',
+            [TYPE_ONENOTE]: 'onenote_notebook',
+            [TYPE_DIRECTORY]: 'directory_baseline',
+        };
+        return map[type] || 'user';
+    }
+
+    function iconKeyForNode(parentResource, scopeKey) {
+        if (scopeKey === 'onedrive') {
+            return 'user_onedrive';
+        }
+        return iconKeyForResource(parentResource);
+    }
+
     function buildVirtualNodes(parent, sectionKey, virtualDefs, depth) {
         const isSite = parent.resource_type === TYPE_SITE;
         return virtualDefs.map((def) => {
@@ -144,6 +191,7 @@
                 hasChildren: false,
                 selectable,
                 disabledReason,
+                iconKey: iconKeyForNode(parent, def.scopeKey),
             };
         });
     }
@@ -163,6 +211,7 @@
             expanded: false,
             hasChildren: false,
             selectable: true,
+            iconKey: iconKeyForResource(child),
         }));
     }
 
@@ -185,6 +234,7 @@
             hasChildren,
             selectable,
             disabledReason,
+            iconKey: iconKeyForResource(resource),
         };
     }
 
@@ -203,6 +253,7 @@
             expanded: false,
             hasChildren: false,
             selectable: true,
+            iconKey: iconKeyForResource(resource),
         };
     }
 
@@ -259,6 +310,7 @@
                             expanded: false,
                             hasChildren: false,
                             selectable: true,
+                            iconKey: 'user_onedrive',
                         });
                     } else {
                         nodes.push({
@@ -275,6 +327,7 @@
                             expanded: false,
                             hasChildren: false,
                             selectable: true,
+                            iconKey: iconKeyForResource(ch),
                         });
                     }
                 });

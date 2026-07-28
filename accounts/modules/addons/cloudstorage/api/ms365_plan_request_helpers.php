@@ -95,7 +95,7 @@ function ms365PlanEmptyBilling(): array
             'direct_appearances' => 0,
             'membership_appearances' => 0,
             'duplicate_appearances_removed' => 0,
-            'protected_objects' => 0,
+            'protected_users' => 0,
         ],
     ];
 }

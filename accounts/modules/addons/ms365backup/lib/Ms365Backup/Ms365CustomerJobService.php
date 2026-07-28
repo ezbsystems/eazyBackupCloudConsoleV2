@@ -18,6 +18,7 @@ final class Ms365CustomerJobService
      *   name?: string,
      *   selected_resource_ids: list<string>,
      *   scope_overrides?: array<string, array<string, bool>>,
+     *   billing_exempt_resource_ids?: list<string>,
      *   schedule_frequency: string,
      *   retention_tier?: string,
      *   timezone?: string,
@@ -27,11 +28,13 @@ final class Ms365CustomerJobService
     public static function create(int $clientId, int $backupUserId, array $payload): array
     {
         self::assertMs365JobSchemaReady();
+        Ms365AdminUserControlsRepository::assertCustomerAllowed($backupUserId);
         self::validatePayload($payload);
         $record = self::requireConnectedTenant($clientId, $backupUserId);
 
         $inventory = self::loadInventory($clientId, $backupUserId);
         $scopeOverrides = CustomerSelectionCodec::normalizeScopeOverrides($payload['scope_overrides'] ?? []);
+        $billingExemptIds = CustomerSelectionCodec::normalizeIds($payload['billing_exempt_resource_ids'] ?? []);
         CustomerSelectionCodec::validate($payload['selected_resource_ids'], $scopeOverrides, $inventory);
 
         $timezone = Ms365JobTimezoneResolver::resolveForClient(
@@ -82,6 +85,7 @@ final class Ms365CustomerJobService
                 'tenant_record_id' => (int) $record['id'],
                 'selected_resource_ids' => $payload['selected_resource_ids'],
                 'scope_overrides' => $scopeOverrides,
+                'billing_exempt_resource_ids' => $billingExemptIds,
             ], JSON_UNESCAPED_SLASHES)),
             'source_path' => '',
             'dest_bucket_id' => $destBucketId,
@@ -152,6 +156,7 @@ final class Ms365CustomerJobService
         $record = self::requireConnectedTenant($clientId, $backupUserId);
         $inventory = self::loadInventory($clientId, $backupUserId);
         $scopeOverrides = CustomerSelectionCodec::normalizeScopeOverrides($payload['scope_overrides'] ?? []);
+        $billingExemptIds = CustomerSelectionCodec::normalizeIds($payload['billing_exempt_resource_ids'] ?? []);
         CustomerSelectionCodec::validate($payload['selected_resource_ids'], $scopeOverrides, $inventory);
 
         $timezone = Ms365JobTimezoneResolver::resolveForUpdate(
@@ -181,6 +186,7 @@ final class Ms365CustomerJobService
                 'tenant_record_id' => (int) $record['id'],
                 'selected_resource_ids' => $payload['selected_resource_ids'],
                 'scope_overrides' => $scopeOverrides,
+                'billing_exempt_resource_ids' => $billingExemptIds,
             ], JSON_UNESCAPED_SLASHES)),
             'schedule_time' => sprintf('%02d:%02d:00', $schedulePayload['schedule_slots'][0]['hour'], $schedulePayload['schedule_slots'][0]['minute']),
             'timezone' => $schedulePayload['timezone'],
@@ -225,6 +231,11 @@ final class Ms365CustomerJobService
         $scopeOverrides = CustomerSelectionCodec::normalizeScopeOverrides(
             $config['scope_overrides'] ?? ($ms365['scope_overrides'] ?? []),
         );
+        $billingExemptIds = CustomerSelectionCodec::normalizeIds(
+            $config['billing_exempt_resource_ids'] ?? ($ms365['billing_exempt_resource_ids'] ?? []),
+        );
+        $billingExemptKeyPresent = array_key_exists('billing_exempt_resource_ids', $config)
+            || array_key_exists('billing_exempt_resource_ids', $ms365);
 
         return [
             'job_id' => $jobId,
@@ -233,6 +244,8 @@ final class Ms365CustomerJobService
             'status' => (string) ($job->status ?? ''),
             'selected_resource_ids' => $config['selected_resource_ids'] ?? ($ms365['selected_resource_ids'] ?? []),
             'scope_overrides' => $scopeOverrides,
+            'billing_exempt_resource_ids' => $billingExemptKeyPresent ? $billingExemptIds : [],
+            'billing_exempt_key_present' => $billingExemptKeyPresent,
             'schedule_frequency' => (string) ($ms365['schedule_frequency'] ?? Ms365ScheduleAssigner::FREQUENCY_ONCE_DAILY),
             'schedule_slots' => $ms365['schedule_slots'] ?? [],
             'timezone' => (string) ($job->timezone ?? ($ms365['timezone'] ?? Ms365JobTimezoneResolver::PLATFORM_DEFAULT)),
@@ -267,6 +280,7 @@ final class Ms365CustomerJobService
      */
     public static function runNow(int $clientId, int $backupUserId, string $jobId): array
     {
+        Ms365AdminUserControlsRepository::assertCustomerAllowed($backupUserId);
         $job = self::getJobRow($clientId, $backupUserId, $jobId);
         if ($job === null) {
             throw new \RuntimeException('Job not found.');
@@ -397,6 +411,7 @@ final class Ms365CustomerJobService
             'tenant_record_id' => (int) $record['id'],
             'selected_resource_ids' => array_values($payload['selected_resource_ids']),
             'scope_overrides' => CustomerSelectionCodec::normalizeScopeOverrides($payload['scope_overrides'] ?? []),
+            'billing_exempt_resource_ids' => CustomerSelectionCodec::normalizeIds($payload['billing_exempt_resource_ids'] ?? []),
             'retention_tier' => (string) ($payload['retention_tier'] ?? '1y'),
             'last_scheduled_key' => '',
         ]);

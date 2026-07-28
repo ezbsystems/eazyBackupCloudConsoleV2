@@ -29,12 +29,14 @@ Under **API permissions** → **Add a permission** → **Microsoft Graph** → *
 | `Group.Read.All` | List Microsoft Teams and M365 groups |
 | `Files.Read.All` | OneDrive drive metadata (`/users/{id}/drive`) for resource inventory |
 | `ChannelMessage.Read.All` | Teams channel messages and replies (Phase 2E) |
-| `TeamMember.Read.All` | Team members (`/teams/{id}/members`) — Protected Object metering |
-| `GroupMember.Read.All` | M365 group members (`/groups/{id}/members`) — Protected Object metering |
+| `TeamMember.Read.All` | Team members (`/teams/{id}/members`) — Protected User metering |
+| `GroupMember.Read.All` | M365 group members (`/groups/{id}/members`) — Protected User metering |
 | `Channel.ReadBasic.All` | Channel tabs (`/teams/{id}/channels/{id}/tabs`) — optional; tabs skipped if denied |
 | `Notes.Read.All` | OneNote notebooks, sections, pages (Phase 2F) |
 
-**SharePoint site member metering (2026-07-21):** billing resolves SharePoint site members/permission principals for Protected Objects billing via `GET /sites/{id}/permissions`, cached on the site resource the same way Team/Group members are cached. This uses the **existing `Sites.Read.All`** application permission already required for SharePoint site inventory/backup — **no additional Graph permission is required**. If a future tenant is found where `Sites.Read.All` alone does not return `grantedToV2`/`grantedToIdentitiesV2` on the permissions endpoint, document the exact additional permission name here before shipping further changes.
+**SharePoint site member metering (2026-07-21):** billing resolves SharePoint site members/permission principals for Protected Users billing via `GET /sites/{id}/permissions`, cached on the site resource the same way Team/Group members are cached. This uses the **existing `Sites.Read.All`** application permission already required for SharePoint site inventory/backup — **no additional Graph permission is required**.
+
+**Room/equipment mailbox classification (deferred):** distinguishing room vs shared mailboxes for billing requires Graph **Places** (`Place.Read.All` or equivalent). Until that ships, all `TYPE_MAILBOX` resources are treated as shared for EXCEPTION-SM; room/equipment manually selected may bill under the shared-mailbox exception. Fast-follow when Places enrichment is added to inventory.
 
 Click **Grant admin consent for {tenant}**.
 

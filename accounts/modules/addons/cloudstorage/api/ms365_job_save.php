@@ -86,10 +86,26 @@ $clientId = (int) $ca->getUserID();
 $userId = trim((string) ($_POST['user_id'] ?? ''));
 $jobId = trim((string) ($_POST['job_id'] ?? ''));
 
+if ($userId !== '') {
+    if (!class_exists(\Ms365Backup\Ms365AdminUserControlsRepository::class)) {
+        require_once dirname(__DIR__) . '/../ms365backup/ms365backup_autoload.php';
+    }
+    try {
+        $resolved = Ms365E3Controller::resolveBackupUser($clientId, $userId);
+        \Ms365Backup\Ms365AdminUserControlsRepository::assertCustomerAllowed((int) ($resolved['id'] ?? 0));
+    } catch (\RuntimeException $e) {
+        if ($e->getMessage() === \Ms365Backup\Ms365AdminUserControlsRepository::CUSTOMER_BLOCKED_MESSAGE) {
+            (new JsonResponse(['status' => 'fail', 'message' => $e->getMessage()], 403))->send();
+            exit;
+        }
+    }
+}
+
 $payload = [
     'name' => trim((string) ($_POST['name'] ?? '')),
     'selected_resource_ids' => ms365DecodeJsonStringArray($_POST['selected_resource_ids'] ?? '[]'),
     'scope_overrides' => ms365DecodeJsonObject($_POST['scope_overrides'] ?? '{}'),
+    'billing_exempt_resource_ids' => ms365DecodeJsonStringArray($_POST['billing_exempt_resource_ids'] ?? '[]'),
     'schedule_frequency' => trim((string) ($_POST['schedule_frequency'] ?? 'once_daily')),
     'retention_tier' => trim((string) ($_POST['retention_tier'] ?? '1y')),
     'timezone' => trim((string) ($_POST['timezone'] ?? '')),

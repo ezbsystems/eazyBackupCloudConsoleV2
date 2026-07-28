@@ -18,7 +18,7 @@ final class Ms365ProductBootstrap
 
     /** @var array<string, array{name: string}> */
     private const METRICS = [
-        Ms365BillingConfig::METRIC_PROTECTED_USERS => ['name' => 'Protected Objects'],
+        Ms365BillingConfig::METRIC_PROTECTED_USERS => ['name' => 'Protected Users'],
         Ms365BillingConfig::METRIC_ONEDRIVE_OVERAGE_GIB => ['name' => 'OneDrive Overage (GiB)'],
     ];
 
@@ -117,7 +117,7 @@ final class Ms365ProductBootstrap
             'type' => 'hostingaccount',
             'gid' => $groupId,
             'name' => self::PRODUCT_NAME,
-            'description' => 'Microsoft 365 Backup — recurring fee is zero; billable usage is line-itemised via config options (Protected Objects, OneDrive overage).',
+            'description' => 'Microsoft 365 Backup — recurring fee is zero; billable usage is line-itemised via config options (Protected Users, OneDrive overage).',
             'hidden' => 0,
             'showdomainoptions' => 0,
             'welcomeemail' => 0,
@@ -245,7 +245,7 @@ final class Ms365ProductBootstrap
         if ($configId <= 0 && $metricKey === Ms365BillingConfig::METRIC_PROTECTED_USERS) {
             $legacy = Capsule::table('tblproductconfigoptions')
                 ->where('gid', $groupId)
-                ->where('optionname', 'Protected Users')
+                ->where('optionname', 'Protected Objects')
                 ->first();
             if ($legacy && isset($legacy->id)) {
                 $configId = (int) $legacy->id;
@@ -255,12 +255,21 @@ final class Ms365ProductBootstrap
                         ->update(['optionname' => $optionName]);
                     Capsule::table('tblproductconfigoptionssub')
                         ->where('configid', $configId)
-                        ->where('optionname', 'Protected Users')
+                        ->where('optionname', 'Protected Objects')
                         ->update(['optionname' => $optionName]);
                     $report['options_renamed'][] = $metricKey;
                 } catch (\Throwable $e) {
                     $report['errors'][] = 'config_option_rename_fail_' . $metricKey . ': ' . $e->getMessage();
                 }
+            }
+        }
+        if ($configId <= 0 && $metricKey === Ms365BillingConfig::METRIC_PROTECTED_USERS) {
+            $legacyUsers = Capsule::table('tblproductconfigoptions')
+                ->where('gid', $groupId)
+                ->where('optionname', 'Protected Users')
+                ->first();
+            if ($legacyUsers && isset($legacyUsers->id)) {
+                $configId = (int) $legacyUsers->id;
             }
         }
         if ($configId <= 0) {

@@ -3,6 +3,7 @@
 
   var api = window.MS365_JOBS_API || '';
   var token = window.MS365_TOKEN || '';
+  var forcedFilters = window.MS365_JOBS_FORCED_FILTERS || {};
   var currentPage = 1;
   var currentFilters = {};
   var logModalText = '';
@@ -250,7 +251,7 @@
     wrap.innerHTML =
       '<table class="table table-striped table-condensed table-hover"><thead><tr>' +
       '<th style="width:28px"><input type="checkbox" id="ms365-jobs-select-all" title="Select all on this page"></th>' +
-      '<th>Client</th><th>Job</th><th>Objects</th><th>OD Overage</th><th>Type</th><th>Run ID</th><th>Status</th>' +
+      '<th>Client</th><th>Job</th><th>Protected Users</th><th>OD Overage</th><th>Type</th><th>Run ID</th><th>Status</th>' +
       '<th>Started</th><th>Duration</th><th>Progress</th><th>Actions</th>' +
       '</tr></thead><tbody>' +
       rows.map(function (row) {
@@ -325,7 +326,7 @@
   function loadJobs() {
     var wrap = document.getElementById('ms365-jobs-table-wrap');
     if (wrap) wrap.innerHTML = '<p class="text-muted">Loading jobs…</p>';
-    var params = Object.assign({}, currentFilters, { page: currentPage, per_page: 50 });
+    var params = Object.assign({}, forcedFilters, currentFilters, { page: currentPage, per_page: 50 });
     get('jobs_list', params).then(renderTable);
   }
 
@@ -469,6 +470,9 @@
   }
 
   document.addEventListener('DOMContentLoaded', function () {
+    if (forcedFilters.backup_user_id || forcedFilters.job_id) {
+      currentFilters = Object.assign({}, forcedFilters);
+    }
     var form = document.getElementById('ms365-jobs-filters');
     if (form) {
       form.addEventListener('submit', function (e) {

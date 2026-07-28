@@ -4,7 +4,7 @@ declare(strict_types=1);
 namespace Ms365Backup;
 
 /**
- * Resolves billable Protected Object Azure IDs from job selection + inventory.
+ * Resolves billable Protected User Azure IDs from job selection + inventory.
  *
  * One Azure object ID counts at most once (personal + team/group + site membership).
  */
@@ -48,7 +48,7 @@ final class ProtectedUserResolver
      *     direct_appearances: int,
      *     membership_appearances: int,
      *     duplicate_appearances_removed: int,
-     *     protected_objects: int
+     *     protected_users: int
      *   }
      * }
      */
@@ -57,7 +57,10 @@ final class ProtectedUserResolver
         array $selectedIds,
         array $scopeOverrides,
         ?DiscoveryService $discovery = null,
+        array $billingExemptIds = [],
+        bool $billingExemptKeyPresent = true,
     ): array {
+        $billingExemptIds = CustomerSelectionCodec::normalizeIds($billingExemptIds);
         $selectedIds = CustomerSelectionCodec::normalizeIds($selectedIds);
         $byId = self::resourcesById($inventory);
         $userIndex = self::buildUserIndex($inventory);
@@ -76,6 +79,18 @@ final class ProtectedUserResolver
 
             if (in_array($type, self::PERSONAL_TYPES, true)) {
                 if (!self::hasEnabledPersonalScope($type, $resourceId, $scopeOverrides, $inventory)) {
+                    continue;
+                }
+                if ($type === TenantResource::TYPE_MAILBOX) {
+                    if (TenantResource::isGuestResource($resource)) {
+                        continue;
+                    }
+                    $azureUserId = self::azureUserIdForResource($resource, $type);
+                    if ($azureUserId === '') {
+                        continue;
+                    }
+                    $protected[$azureUserId] = true;
+                    $sources[$resourceId] = [$azureUserId];
                     continue;
                 }
                 $azureUserId = self::azureUserIdForResource($resource, $type);
@@ -190,9 +205,24 @@ final class ProtectedUserResolver
                 'direct_appearances' => $directAppearances,
                 'membership_appearances' => $membershipAppearances,
                 'duplicate_appearances_removed' => $directAppearances + $membershipAppearances - $protectedCount,
-                'protected_objects' => $protectedCount,
+                'protected_users' => $protectedCount,
             ],
         ];
+    }
+
+    /**
+     * @param list<string> $billingExemptIds
+     */
+    public static function isMailboxBillingExempt(
+        string $resourceId,
+        array $billingExemptIds,
+        bool $billingExemptKeyPresent,
+    ): bool {
+        if (!$billingExemptKeyPresent) {
+            return true;
+        }
+
+        return in_array($resourceId, $billingExemptIds, true);
     }
 
     /**
@@ -265,8 +295,14 @@ final class ProtectedUserResolver
             }
         }
 
-        // Protected Objects: Member users, guests, shared/room/equipment mailboxes all bill.
-        // Devices / service principals are filtered before rows reach here (Graph member helpers).
+        if ($resourceType === TenantResource::TYPE_MAILBOX) {
+            return false;
+        }
+
+        if ($userType === 'guest' || str_contains($upn, '#ext#')) {
+            return false;
+        }
+
         return true;
     }
 

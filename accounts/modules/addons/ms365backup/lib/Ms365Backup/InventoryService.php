@@ -83,6 +83,7 @@ final class InventoryService
                     'meta' => [
                         'mail' => (string) ($user['mail'] ?? ''),
                         'user_type' => (string) ($user['userType'] ?? ''),
+                        'has_assigned_license' => !empty($user['assignedLicenses']),
                     ],
                 ],
             );

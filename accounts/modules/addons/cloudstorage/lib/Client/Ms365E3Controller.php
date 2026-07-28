@@ -267,8 +267,14 @@ final class Ms365E3Controller
      * @param array<string, array<string, bool>> $scopeOverrides
      * @return array<string, mixed>
      */
-    public static function planJob(int $clientId, string $userIdRaw, array $selectedIds, array $scopeOverrides = []): array
-    {
+    public static function planJob(
+        int $clientId,
+        string $userIdRaw,
+        array $selectedIds,
+        array $scopeOverrides = [],
+        array $billingExemptIds = [],
+        bool $billingExemptKeyPresent = true,
+    ): array {
         $user = self::resolveBackupUser($clientId, $userIdRaw);
         $inventory = CustomerInventoryService::loadForBackupUser($clientId, $user['id']);
         if (empty($inventory['resources'])) {
@@ -281,6 +287,8 @@ final class Ms365E3Controller
             $selectedIds,
             $scopeOverrides,
             $inventory,
+            $billingExemptIds,
+            $billingExemptKeyPresent,
         );
     }
 
@@ -294,6 +302,8 @@ final class Ms365E3Controller
         string $userIdRaw,
         array $selectedIds,
         array $scopeOverrides = [],
+        array $billingExemptIds = [],
+        bool $billingExemptKeyPresent = true,
     ): array {
         $user = self::resolveBackupUser($clientId, $userIdRaw);
         $inventory = CustomerInventoryService::loadForBackupUser($clientId, $user['id']);
@@ -307,6 +317,8 @@ final class Ms365E3Controller
             $selectedIds,
             $scopeOverrides,
             $inventory,
+            $billingExemptIds,
+            $billingExemptKeyPresent,
         );
     }
 
@@ -327,6 +339,8 @@ final class Ms365E3Controller
             $payload['selected_resource_ids'],
             $payload['scope_overrides'],
             $inventory,
+            $payload['billing_exempt_resource_ids'],
+            true,
         );
     }
 
@@ -392,6 +406,8 @@ final class Ms365E3Controller
             $payload['selected_resource_ids'],
             $payload['scope_overrides'],
             $inventory,
+            $payload['billing_exempt_resource_ids'],
+            true,
         );
     }
 

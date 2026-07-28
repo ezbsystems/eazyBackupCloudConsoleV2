@@ -3,13 +3,50 @@
 **Purpose:** Single handoff document so the next agent knows where work stopped. Update this file at the **end of every session** (or after each meaningful milestone).
 
 **Last updated:** 2026-07-27
-**Module version (ms365backup):** 1.52.32
+**Module version (ms365backup):** 1.52.36
 **Cloudstorage (e3) version:** 2.2.0  
 **Worker version (ms365-backup-worker):** 0.4.21 (Kopia v0.23.1)
 
 ---
 
 ## Session log
+
+### 2026-07-27 — Bill selected shared mailboxes (Comet parity, PHP 1.52.36)
+
+- **Billing:** Personally selected non-guest `TYPE_MAILBOX` always bills (individual or Select All); guests still never bill; license gate removed from resolver.
+- **Tests/docs:** Resolver tests updated; billing guide/design §2.1 and wizard footnote updated.
+
+### 2026-07-27 — Auto Protected Users + inventory icons (PHP 1.52.35)
+
+- **Billing:** Fully automatic Protected User rules — guests never bill; shared mailboxes bill only when `meta.has_assigned_license` (Graph `assignedLicenses`); resolver ignores `billing_exempt_resource_ids`.
+- **Inventory:** `InventoryService` persists `has_assigned_license`; `TenantResource::hasAssignedLicense()`, `isGuestResource()`; removed select-all email heuristic.
+- **Codec:** `selectAllFromInventory` returns empty `billing_exempt_resource_ids`.
+- **Wizard:** Removed Count as Protected User UX and client exempt state; Fluent-style type icons on inventory tree rows; updated reconciliation footnote.
+- **Tests:** `ms365_protected_user_resolver_test.php` updated for guest exclusion, licensed vs unlicensed mailbox, empty select-all exempt.
+- **Docs:** `MS365_BILLING_GUIDE.md`, `MS365_BILLING_AND_STORAGE_DESIGN.md` §2.1 — EXCEPTION-SM manual override superseded.
+
+### 2026-07-27 — Protected Users billing revision (EXCEPTION-SM, PHP 1.52.34)
+
+- **Goal:** Revert customer-facing billing from Protected Objects to **Protected Users**; bill shared mailboxes only when manually selected (not select-all `billing_exempt`); legacy jobs without `billing_exempt_resource_ids` treat all selected mailboxes as exempt on next meter.
+- **Resolver (`ProtectedUserResolver.php`):** Personal `TYPE_MAILBOX` bills only when not `billing_exempt`; membership excludes mailbox principals; reconciliation key `protected_users`.
+- **Meter/codec:** `Ms365UsageMeter::mergeJobSelections` merges per-job exempt (mailbox bills if any job has it selected with scope and not exempt); `CustomerSelectionCodec::selectAllFromInventory` returns `billing_exempt_resource_ids`.
+- **Persistence:** `billing_exempt_resource_ids` in `schedule_json` + `source_config_enc`; wizard hydrate/save/preview/plan APIs wired.
+- **Wizard:** `billingExemptIds` state; Select All tags mailboxes exempt; **Count as Protected User** clears exempt; billing dock + reconciliation footnote per spec §11.
+- **Copy/bootstrap:** Protected Objects → Protected Users in wizard, usage drawer, pricing panel, admin Jobs column, WHMCS config option rename (Objects → Users in place).
+- **Tests:** `tests/ms365_protected_user_resolver_test.php` — EXCEPTION-SM, legacy-absent, select-all exempt, membership mailbox exclusion.
+- **Docs:** `MS365_BILLING_GUIDE.md`, `MS365_BILLING_AND_STORAGE_DESIGN.md` §2.1/§6, `AZURE_SETUP.md` (Places deferred), spec `2026-07-27-protected-users-billing-revision.md`, plan `Docs/plans/2026-07-27-protected-users-billing-revision.md`.
+- **Dev ops (2026-07-27):** Bootstrap renamed protected_users option Objects→Users (configids 108/115); meter 13 services / 50 snapshots / apply 12 updated; live counts philmgbuild 10, sa_eazybackup 275, indigoblue 17 (DB snapshots match). Resolver tests 55 pass.
+- **Follow-up:** Graph Places API for room/equipment never-bill; optional wizard QA (Select All + Count as Protected User on shared mailboxes).
+
+### 2026-07-27 — Admin Users tab (PHP 1.52.33)
+
+- **Feature:** New admin **Users** tab listing MS365 backup users with Client, Username, Status, Protected Users, OD Overage, Vaults, Jobs (links to filtered batch history), and Actions (Suspend / Unsuspend / Deprovision).
+- **Schema:** `ms365_admin_user_controls` (`backup_user_id` PK, prior job statuses JSON, admin suspend metadata).
+- **API:** `users_list`, `users_suspend`, `users_unsuspend`, `users_deprovision`; `jobs_list` extended with `backup_user_id` + `job_id` filters.
+- **Admin lock:** Suspend pauses MS365 jobs, sets WHMCS `Suspended`, sends suspension email (best-effort); unsuspend restores job statuses from JSON. Customers blocked from run-now, unpause, and new job create while admin-suspended.
+- **Deprovision:** `E3BackupUserLifecycleService::deleteUser(..., skipConfirm: true)` after `DELETE {username}` confirm phrase.
+- **Tests:** `tests/ms365_admin_users_test.php`
+- **Spec:** `Docs/specs/2026-07-27-admin-users-tab-design.md`
 
 ### 2026-07-27 — Disk soft→hard cancel/resume death spiral (PHP 1.52.32, worker 0.4.21)
 

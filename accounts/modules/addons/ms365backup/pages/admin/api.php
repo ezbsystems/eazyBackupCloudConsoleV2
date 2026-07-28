@@ -726,10 +726,58 @@ try {
                 'date_from' => $_GET['date_from'] ?? null,
                 'date_to' => $_GET['date_to'] ?? null,
                 'run_id' => $_GET['run_id'] ?? null,
+                'backup_user_id' => $_GET['backup_user_id'] ?? null,
+                'job_id' => $_GET['job_id'] ?? null,
             ];
             $page = max(1, (int) ($_GET['page'] ?? 1));
             $perPage = min(200, max(1, (int) ($_GET['per_page'] ?? 50)));
             $result = \Ms365Backup\Ms365AdminJobsRepository::listJobs($filters, $page, $perPage);
+            echo json_encode(['ok' => true] + $result);
+            break;
+
+        case 'users_list':
+            $filters = [
+                'search' => $_GET['search'] ?? null,
+                'status' => $_GET['status'] ?? null,
+            ];
+            $page = max(1, (int) ($_GET['page'] ?? 1));
+            $perPage = min(200, max(1, (int) ($_GET['per_page'] ?? 50)));
+            $result = \Ms365Backup\Ms365AdminUsersRepository::listUsers($filters, $page, $perPage);
+            echo json_encode(['ok' => true] + $result);
+            break;
+
+        case 'users_suspend':
+            $backupUserId = (int) ($_POST['backup_user_id'] ?? 0);
+            if ($backupUserId <= 0) {
+                throw new \RuntimeException('backup_user_id required');
+            }
+            $notes = isset($_POST['notes']) ? (string) $_POST['notes'] : null;
+            $adminId = (int) ($_SESSION['adminid'] ?? 0);
+            $result = \Ms365Backup\Ms365AdminUsersService::suspend($backupUserId, $adminId, $notes);
+            echo json_encode(['ok' => true] + $result);
+            break;
+
+        case 'users_unsuspend':
+            $backupUserId = (int) ($_POST['backup_user_id'] ?? 0);
+            if ($backupUserId <= 0) {
+                throw new \RuntimeException('backup_user_id required');
+            }
+            $adminId = (int) ($_SESSION['adminid'] ?? 0);
+            $result = \Ms365Backup\Ms365AdminUsersService::unsuspend($backupUserId, $adminId);
+            echo json_encode(['ok' => true] + $result);
+            break;
+
+        case 'users_deprovision':
+            $backupUserId = (int) ($_POST['backup_user_id'] ?? 0);
+            if ($backupUserId <= 0) {
+                throw new \RuntimeException('backup_user_id required');
+            }
+            $confirmPhrase = trim((string) ($_POST['confirm_phrase'] ?? ''));
+            if ($confirmPhrase === '') {
+                throw new \RuntimeException('confirm_phrase required');
+            }
+            $adminId = (int) ($_SESSION['adminid'] ?? 0);
+            $result = \Ms365Backup\Ms365AdminUsersService::deprovision($backupUserId, $confirmPhrase, $adminId);
             echo json_encode(['ok' => true] + $result);
             break;
 

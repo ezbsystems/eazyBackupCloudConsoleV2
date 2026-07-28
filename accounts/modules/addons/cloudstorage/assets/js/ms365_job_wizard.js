@@ -1387,6 +1387,17 @@
                 this.syncSelectionPayload();
             },
 
+            inventoryIconSvg(iconKey) {
+                if (window.ms365InventoryIcons) {
+                    return window.ms365InventoryIcons.svgFor(iconKey || 'user');
+                }
+                return '';
+            },
+
+            usesServerSelectAll() {
+                return this.isGlobalSelectAll();
+            },
+
             selectionSummaryRowCount() {
                 if (!window.ms365JobSelection) return 0;
                 return window.ms365JobSelection.summaryRowCount(this.selectionSummaryGroups);
@@ -1467,18 +1478,20 @@
             },
 
             buildPlanRequestBody() {
-                const selectAll = this.isGlobalSelectAll();
+                const selectAll = this.usesServerSelectAll();
                 return {
                     user_id: this.backupUserId,
                     select_all: selectAll,
                     selected_resource_ids: selectAll ? [] : this.savedSelectionIds,
                     scope_overrides: selectAll ? {} : (this.scopeOverrides || {}),
+                    billing_exempt_resource_ids: [],
+                    billing_exempt_key_present: true,
                 };
             },
 
             async refreshBillingPreview() {
                 const seq = ++this._planRequestSeq;
-                const selectAll = this.isGlobalSelectAll();
+                const selectAll = this.usesServerSelectAll();
                 if (!this.backupUserId || (!selectAll && this.savedSelectionIds.length === 0)) {
                     this.billingPreview = null;
                     this.billingPreviewLoading = false;
@@ -1536,7 +1549,7 @@
             },
 
             async refreshPlanFull() {
-                const selectAll = this.isGlobalSelectAll();
+                const selectAll = this.usesServerSelectAll();
                 if (!this.backupUserId || (!selectAll && this.savedSelectionIds.length === 0)) {
                     this.planWarnings = [];
                     this.planSummary = { runnable: 0, deferred: 0 };
@@ -1693,6 +1706,7 @@
                         retention_tier: retentionTier,
                         selected_resource_ids: JSON.stringify(this.savedSelectionIds),
                         scope_overrides: JSON.stringify(this.scopeOverrides || {}),
+                        billing_exempt_resource_ids: JSON.stringify([]),
                     });
                     if (browserTz) {
                         body.set('timezone', browserTz);

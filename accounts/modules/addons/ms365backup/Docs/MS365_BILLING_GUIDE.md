@@ -1,7 +1,7 @@
 # Microsoft 365 Backup — How Billing Is Calculated
 
 **Audience:** MSPs, partners, support, and KB authors  
-**Last updated:** 2026-07-21  
+**Last updated:** 2026-07-27  
 **Technical design reference:** [MS365_BILLING_AND_STORAGE_DESIGN.md](MS365_BILLING_AND_STORAGE_DESIGN.md)
 
 This document explains **how eazyBackup calculates Microsoft 365 Backup charges** in plain language. Use it as the source for customer-facing KB articles, sales collateral, and support responses.
@@ -14,7 +14,7 @@ Microsoft 365 Backup is a **metered monthly service**. The base WHMCS product is
 
 | Line item | What it measures | Typical unit |
 |-----------|------------------|--------------|
-| **Protected Objects** | Distinct Microsoft 365 identities covered by your backup jobs — people, guests, shared/room/equipment mailboxes | Per object / month |
+| **Protected Users** | Distinct licensed Microsoft 365 member identities covered by your backup jobs | Per user / month |
 | **OneDrive overage** | Total OneDrive storage above the included allowance | Per GiB / month |
 
 **Storage for most M365 workloads is unlimited** (mailbox, Teams, SharePoint, groups, Planner, OneNote, etc.). Only **OneDrive** has a per-object included cap; usage above that cap is billed separately.
@@ -40,9 +40,13 @@ On unified **e3 Backup User** products, MS365 metrics (`protected_users`, `onedr
 
 ---
 
-## Protected Objects
+## Protected Users
 
-A **Protected Object** is one distinct Microsoft 365 directory identity (by Azure object ID) — a person, guest, or mailbox — reached by your backup selections. You are charged once per identity per backup user per month, regardless of how many workloads you back up for it or how many ways it's reached (personal selection, team/group membership, or SharePoint site membership).
+A **Protected User** is one distinct Microsoft 365 directory identity (by Azure object ID) — a licensed **member** user — reached by your backup selections. You are charged once per identity per backup user per month, regardless of how many workloads you back up for it or how many ways it's reached (personal selection, team/group membership, or SharePoint site membership).
+
+**Guests never bill** (personal or membership). They remain visible and backup-selectable; org data is still protected via Teams/SharePoint membership of licensed members.
+
+**Shared mailboxes** are always backup-selectable. They bill when **personally selected** (individually or via Select All), unless the account is a guest. Membership-only shared mailboxes still do not bill.
 
 ### What counts as a Protected Object
 
@@ -335,4 +339,5 @@ Use **one backup user per end customer**, one WHMCS service per backup user. The
 |------|--------|
 | 2026-07-22 | Job wizard billing dock: replaced per-group/site breakdown list with collapsed **How this is calculated** reconciliation panel (direct appearances + membership appearances − duplicates = unique Protected Objects). Backend exposes `billing.reconciliation` from `ProtectedUserResolver`. |
 | 2026-07-06 | Initial guide: member-based Protected Users (teams/groups), peak billing, OneDrive overage, wizard estimate, KB-oriented structure |
-| 2026-07-21 | Renamed **Protected Users → Protected Objects**. Guests and shared/room/equipment mailboxes moved from "does not count" to the **counts** table (billed like any other identity). Added **SharePoint site membership** as a third billable source (site permissions, no longer deferred). Updated deduplication examples, worked examples, FAQ, and glossary. Internal metric key (`protected_users`) and admin setting key (`protected_user_price_cad`) unchanged. |
+| 2026-07-27 | **Comet parity:** selected shared mailboxes bill (individual or Select All); guests never bill. |
+| 2026-07-27 | **Auto Protected Users:** guests never bill; Select All billing is automatic (no Count as Protected User). Supersedes EXCEPTION-SM manual override. |
