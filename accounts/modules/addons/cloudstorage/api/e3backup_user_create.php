@@ -85,23 +85,9 @@ if (!in_array($backupType, ['cloud_only', 'local', 'both'], true)) {
     $backupType = 'both';
 }
 
-$encryptionMode = strtolower(trim((string) ($_POST['encryption_mode'] ?? '')));
-if ($encryptionMode === '' && $unifiedEnabled) {
-    $encryptionMode = 'managed';
-}
-if ($encryptionMode !== '' && !in_array($encryptionMode, ['managed', 'strict'], true)) {
-    $encryptionMode = 'managed';
-}
-
+$encryptionMode = 'managed';
 if ($unifiedEnabled) {
-    if ($encryptionMode === 'strict') {
-        $backupType = 'local';
-    } else {
-        $backupType = 'both';
-        if ($encryptionMode === '') {
-            $encryptionMode = 'managed';
-        }
-    }
+    $backupType = 'both';
 }
 
 $isCloudOnly = (!$unifiedEnabled && $backupType === 'cloud_only');
@@ -164,9 +150,7 @@ if ($username === '') {
     $errors['username'] = 'Username must be 3-64 characters and use letters, numbers, dots, underscores, or hyphens.';
 }
 
-if ($email === '') {
-    $errors['email'] = 'Email is required.';
-} elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
     $errors['email'] = 'Please enter a valid email address.';
 }
 
@@ -219,7 +203,7 @@ if ($isMsp && $canonicalTenantId !== null) {
 }
 
 $notifyPayload = [
-    'notifications_enabled' => $_POST['notifications_enabled'] ?? true,
+    'notifications_enabled' => $_POST['notifications_enabled'] ?? false,
     'notify_emails' => $_POST['notify_emails'] ?? [],
     'notify_on_success' => $_POST['notify_on_success'] ?? true,
     'notify_on_warning' => $_POST['notify_on_warning'] ?? true,

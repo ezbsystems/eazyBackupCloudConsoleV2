@@ -165,9 +165,8 @@
                 <span x-show="!sidebarCollapsed" x-transition.opacity>Media Builder</span>
             </a>
 
-        </nav>
+            <div class="eb-sidebar-divider"></div>
 
-        <div class="border-t border-[var(--eb-border-subtle)] px-3 py-3">
             <div x-show="!sidebarCollapsed" x-transition.opacity class="eb-type-eyebrow mb-2 px-1">Install agent</div>
             {if $ebHasE3AgentProduct}
             <button type="button"
@@ -193,13 +192,12 @@
             </a>
             {/if}
 
-            <div class="eb-sidebar-divider"></div>
             <button type="button" @click="toggleCollapse()" class="eb-sidebar-link w-full cursor-pointer text-left" :class="sidebarCollapsed && 'justify-center px-4'" :title="sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="transition-transform duration-300" :class="sidebarCollapsed && 'rotate-180'">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" />
                 </svg>
                 <span x-show="!sidebarCollapsed" x-transition.opacity>Collapse</span>
             </button>
-        </div>
+        </nav>
     </div>
 </aside>

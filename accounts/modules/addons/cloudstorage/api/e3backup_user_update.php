@@ -166,9 +166,7 @@ if ($username === '') {
     $errors['username'] = 'Username must be 3-64 characters and use letters, numbers, dots, underscores, or hyphens.';
 }
 
-if ($email === '') {
-    $errors['email'] = 'Email is required.';
-} elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
     $errors['email'] = 'Please enter a valid email address.';
 }
 

@@ -828,3 +828,24 @@ room at 125 % / 150 % Windows text scaling.
 The installer must be recompiled (Inno Setup) and re-signed on the
 Windows build host before the change reaches customers.
 
+---
+
+## 16. Managed-only Backup User creation
+
+New e3 Backup Users created from the Users page or welcome flow use managed
+recovery. The UI presents this as a read-only policy instead of an encryption
+chooser: authorized account owners can reset the password, and the User can run
+Local Agent, Microsoft 365, and SaaS backups. Existing database rows already
+marked `strict` are left unchanged.
+
+Backup report emails are disabled by default for new Users. Enabling the
+master switch reveals recipient and Success/Warning/Failure controls. When
+reports are enabled with no explicit recipients, recipient resolution falls
+back to the account owner.
+
+True zero-knowledge creation remains deferred work. It requires an agent and
+repository protocol that cryptographically binds a customer-held recovery
+secret to the encrypted repository and uses it during recovery. A random key
+generated and downloaded only by the browser does not meet that requirement,
+so onboarding does not advertise or generate one.
+

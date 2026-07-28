@@ -1080,48 +1080,6 @@ if (window.csrfToken && !window.EB_CSRF_TOKEN) {
         }
     }
 
-    function ebE3EncryptionModeChanged(mode) {
-        var hidden = document.getElementById('eb-e3-encryption-mode');
-        var strictWarning = document.getElementById('eb-e3-strict-warning');
-        var managedAckRow = document.getElementById('eb-e3-managed-ack-row');
-        var strictAckRow = document.getElementById('eb-e3-strict-ack-row');
-        var managedAck = document.getElementById('eb-e3-managed-ack');
-        var strictAck = document.getElementById('eb-e3-strict-ack');
-        var resolved = (mode === 'strict') ? 'strict' : 'managed';
-        if (hidden) {
-            hidden.value = resolved;
-        }
-        if (strictWarning) {
-            if (resolved === 'strict') {
-                strictWarning.classList.remove('hidden');
-            } else {
-                strictWarning.classList.add('hidden');
-            }
-        }
-        if (managedAckRow) {
-            if (resolved === 'managed') {
-                managedAckRow.classList.remove('hidden');
-            } else {
-                managedAckRow.classList.add('hidden');
-            }
-        }
-        if (strictAckRow) {
-            if (resolved === 'strict') {
-                strictAckRow.classList.remove('hidden');
-            } else {
-                strictAckRow.classList.add('hidden');
-            }
-        }
-        if (managedAck) {
-            managedAck.checked = false;
-        }
-        if (strictAck) {
-            strictAck.checked = false;
-        }
-        ebSetFieldError('eb-err-e3-managed-ack', '');
-        ebSetFieldError('eb-err-e3-strict-ack', '');
-    }
-
     function ebPreparePasswordUi(choice) {
         var unified = window.EB_WELCOME_UNIFIED_ENABLED;
         var showUser = (choice === 'backup' || choice === 'ms365' || choice === 'e3backup' || (unified && choice === 'cloud2cloud'));
@@ -1137,7 +1095,7 @@ if (window.csrfToken && !window.EB_CSRF_TOKEN) {
         var isExistingClientMs365OrE3 = window.EB_WELCOME_EXISTING_CLIENT && (choice === 'ms365' || choice === 'e3backup');
         var needsBackupPassword = (choice === 'e3backup' && !isExistingClientMs365OrE3)
             || (unified && (choice === 'ms365' || choice === 'cloud2cloud') && !isExistingClientMs365OrE3);
-        var e3EncryptionRow = document.getElementById('eb-e3-encryption-row');
+        var e3ManagedNote = document.getElementById('eb-e3-managed-note');
         var e3NewPasswordRow = document.getElementById('eb-e3-new-password-row');
         var e3BackupPassword = document.getElementById('eb-e3-backup-password');
         var e3BackupPasswordConfirm = document.getElementById('eb-e3-backup-password-confirm');
@@ -1175,19 +1133,12 @@ if (window.csrfToken && !window.EB_CSRF_TOKEN) {
         ebSetFieldError('eb-err-existing-pw', '');
         ebSetFieldError('eb-err-e3-password', '');
         ebSetFieldError('eb-err-e3-password-confirm', '');
-        ebSetFieldError('eb-err-e3-managed-ack', '');
-        ebSetFieldError('eb-err-e3-strict-ack', '');
 
-        if (e3EncryptionRow) {
+        if (e3ManagedNote) {
             if (choice === 'e3backup') {
-                e3EncryptionRow.classList.remove('hidden');
-                ebE3EncryptionModeChanged('managed');
-                var managedRadio = document.querySelector('input[name="eb_e3_encryption_mode"][value="managed"]');
-                if (managedRadio) {
-                    managedRadio.checked = true;
-                }
+                e3ManagedNote.classList.remove('hidden');
             } else {
-                e3EncryptionRow.classList.add('hidden');
+                e3ManagedNote.classList.add('hidden');
             }
         }
         if (e3NewPasswordRow) {
@@ -1207,9 +1158,9 @@ if (window.csrfToken && !window.EB_CSRF_TOKEN) {
         if (choice === 'e3backup') {
             title.textContent = 'Create your first e3 Backup User';
             if (isExistingClientMs365OrE3) {
-                subtitle.textContent = 'Choose a username and encryption mode for your first Backup User. Confirm your portal password below to provision the service.';
+                subtitle.textContent = 'Choose a username for your first Backup User. Confirm your portal password below to provision the service with managed recovery.';
             } else {
-                subtitle.textContent = 'Choose a username, encryption mode, and backup user password. Each Backup User is a separate billable unit with its own jobs and encryption.';
+                subtitle.textContent = 'Choose a username and backup user password. Each Backup User is a separate billable unit with managed recovery.';
             }
             if (usernameLabel) { usernameLabel.textContent = 'Backup user username'; }
         } else if (choice === 'backup') {
@@ -1533,8 +1484,6 @@ if (window.csrfToken && !window.EB_CSRF_TOKEN) {
         ebSetFieldError('eb-err-existing-pw', '');
         ebSetFieldError('eb-err-e3-password', '');
         ebSetFieldError('eb-err-e3-password-confirm', '');
-        ebSetFieldError('eb-err-e3-managed-ack', '');
-        ebSetFieldError('eb-err-e3-strict-ack', '');
         ebDisableSubmit(true);
 
         try {
@@ -1557,29 +1506,6 @@ if (window.csrfToken && !window.EB_CSRF_TOKEN) {
                     ebShowToast(usernameMessage, 'error');
                     ebDisableSubmit(false);
                     return false;
-                }
-            }
-
-            if (choice === 'e3backup') {
-                var encryptionMode = (document.getElementById('eb-e3-encryption-mode') || {}).value || 'managed';
-                if (encryptionMode === 'managed') {
-                    var managedAck = document.getElementById('eb-e3-managed-ack');
-                    if (!managedAck || !managedAck.checked) {
-                        var managedAckMessage = 'Please acknowledge managed recovery.';
-                        ebSetFieldError('eb-err-e3-managed-ack', managedAckMessage);
-                        ebShowToast(managedAckMessage, 'error');
-                        ebDisableSubmit(false);
-                        return false;
-                    }
-                } else if (encryptionMode === 'strict') {
-                    var strictAck = document.getElementById('eb-e3-strict-ack');
-                    if (!strictAck || !strictAck.checked) {
-                        var strictAckMessage = 'Please acknowledge strict mode requirements.';
-                        ebSetFieldError('eb-err-e3-strict-ack', strictAckMessage);
-                        ebShowToast(strictAckMessage, 'error');
-                        ebDisableSubmit(false);
-                        return false;
-                    }
                 }
             }
 
@@ -1644,11 +1570,7 @@ if (window.csrfToken && !window.EB_CSRF_TOKEN) {
                     provisionBody.intent = 'saas';
                 }
             }
-            if (choice === 'e3backup') {
-                provisionBody.encryption_mode = (document.getElementById('eb-e3-encryption-mode') || {}).value || 'managed';
-                provisionBody.managed_acknowledged = document.getElementById('eb-e3-managed-ack') && document.getElementById('eb-e3-managed-ack').checked ? '1' : '0';
-                provisionBody.strict_acknowledged = document.getElementById('eb-e3-strict-ack') && document.getElementById('eb-e3-strict-ack').checked ? '1' : '0';
-            } else if (unified && (choice === 'ms365' || choice === 'cloud2cloud')) {
+            if (unified && (choice === 'e3backup' || choice === 'ms365' || choice === 'cloud2cloud')) {
                 provisionBody.encryption_mode = 'managed';
             }
             if (needsBackupPassword) {
@@ -1703,12 +1625,6 @@ if (window.csrfToken && !window.EB_CSRF_TOKEN) {
             }
             if (errors.password_confirm) {
                 ebSetFieldError('eb-err-e3-password-confirm', errors.password_confirm);
-            }
-            if (errors.managed_acknowledged) {
-                ebSetFieldError('eb-err-e3-managed-ack', errors.managed_acknowledged);
-            }
-            if (errors.strict_acknowledged) {
-                ebSetFieldError('eb-err-e3-strict-ack', errors.strict_acknowledged);
             }
             if (errors.general) {
                 ebSetGeneralAlert('eb-pw-general-error', 'eb-pw-general-error-body', errors.general);

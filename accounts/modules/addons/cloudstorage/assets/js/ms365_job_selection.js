@@ -651,6 +651,114 @@
         return (groups || []).reduce((sum, group) => sum + (group.items ? group.items.length : 0), 0);
     }
 
+    function parentHasSelection(nodes, selection, parent) {
+        const children = getDescendants(nodes, parent.key);
+        const hasLeafChildren = children.some((c) => c.kind === 'capability' || c.kind === 'resource_child');
+        const parentOnly = !hasLeafChildren && isChecked(selection, parent.key);
+        if (parentOnly) {
+            return true;
+        }
+        return children.some((c) => {
+            if (c.kind !== 'capability' && c.kind !== 'resource_child') {
+                return false;
+            }
+            return isChecked(selection, c.key);
+        });
+    }
+
+    function selectionWorkloadCounts(inventory, treesBySection, selection) {
+        const counts = {
+            protected_accounts: 0,
+            mail: 0,
+            calendar: 0,
+            contacts: 0,
+            tasks: 0,
+            onedrive: 0,
+            sharepoint_sites: 0,
+            teams: 0,
+            groups: 0,
+            planner: 0,
+            onenote: 0,
+            directory: 0,
+        };
+
+        SECTIONS.forEach((section) => {
+            const nodes = treesBySection[section.key] || [];
+
+            if (section.flat) {
+                nodes.forEach((node) => {
+                    if (node.kind !== 'leaf' || !isChecked(selection, node.key)) {
+                        return;
+                    }
+                    if (section.key === 'planner') {
+                        counts.planner += 1;
+                    } else if (section.key === 'onenote') {
+                        counts.onenote += 1;
+                    } else if (section.key === 'directory') {
+                        counts.directory += 1;
+                    }
+                });
+                return;
+            }
+
+            if (section.key === 'users') {
+                let protectedAccounts = 0;
+                nodes.filter((n) => n.kind === 'parent').forEach((parent) => {
+                    if (!parentHasSelection(nodes, selection, parent)) {
+                        return;
+                    }
+                    protectedAccounts += 1;
+                    getDescendants(nodes, parent.key).forEach((child) => {
+                        if (child.kind !== 'capability' || !isChecked(selection, child.key)) {
+                            return;
+                        }
+                        if (child.scopeKey === 'mail') {
+                            counts.mail += 1;
+                        } else if (child.scopeKey === 'calendar') {
+                            counts.calendar += 1;
+                        } else if (child.scopeKey === 'contacts') {
+                            counts.contacts += 1;
+                        } else if (child.scopeKey === 'tasks') {
+                            counts.tasks += 1;
+                        } else if (child.scopeKey === 'onedrive') {
+                            counts.onedrive += 1;
+                        }
+                    });
+                });
+                counts.protected_accounts = protectedAccounts;
+                return;
+            }
+
+            if (section.key === 'sharepoint') {
+                nodes.filter((n) => n.kind === 'parent').forEach((parent) => {
+                    if (parentHasSelection(nodes, selection, parent)) {
+                        counts.sharepoint_sites += 1;
+                    }
+                });
+                return;
+            }
+
+            if (section.key === 'teams') {
+                nodes.filter((n) => n.kind === 'parent').forEach((parent) => {
+                    if (parentHasSelection(nodes, selection, parent)) {
+                        counts.teams += 1;
+                    }
+                });
+                return;
+            }
+
+            if (section.key === 'groups') {
+                nodes.filter((n) => n.kind === 'parent').forEach((parent) => {
+                    if (parentHasSelection(nodes, selection, parent)) {
+                        counts.groups += 1;
+                    }
+                });
+            }
+        });
+
+        return counts;
+    }
+
     function selectableLeafKeys(treesBySection) {
         const keys = [];
         SECTIONS.forEach((section) => {
@@ -820,6 +928,7 @@
         hydrateFromSavedJob,
         selectionSummary,
         summaryRowCount,
+        selectionWorkloadCounts,
         visibleNodes,
         sectionHasVisibleNodes,
         normalizeSearchTokens,

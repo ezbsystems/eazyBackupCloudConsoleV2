@@ -509,9 +509,7 @@ try {
                         'encryption_mode' => 'managed',
                         'intent' => 'ms365',
                         'existing' => $existingClient,
-                        'notify_on_success' => true,
-                        'notify_on_warning' => true,
-                        'notify_on_failure' => true,
+                        'notifications_enabled' => false,
                     ]);
                     $redirectUrl = (string) ($prov['redirect'] ?? 'index.php?m=cloudstorage&page=e3backup&view=getting_started&intent=ms365');
                 } else {
@@ -529,9 +527,7 @@ try {
                         'encryption_mode' => 'managed',
                         'intent' => 'saas',
                         'existing' => $existingClient,
-                        'notify_on_success' => true,
-                        'notify_on_warning' => true,
-                        'notify_on_failure' => true,
+                        'notifications_enabled' => false,
                     ]);
                     $redirectUrl = (string) ($prov['redirect'] ?? 'index.php?m=cloudstorage&page=e3backup&view=getting_started&intent=saas');
                 } else {
@@ -540,19 +536,13 @@ try {
                 break;
             case 'e3backup':
                 if ($unifiedEnabled) {
-                    $encryptionMode = strtolower(trim((string) ($_POST['encryption_mode'] ?? 'managed')));
-                    if (!in_array($encryptionMode, ['managed', 'strict'], true)) {
-                        $encryptionMode = 'managed';
-                    }
                     $prov = Provisioner::provisionE3BackupUser($clientId, [
                         'username' => $username,
                         'password' => $provisionBackupPassword,
-                        'encryption_mode' => $encryptionMode,
+                        'encryption_mode' => 'managed',
                         'intent' => 'local',
                         'existing' => $existingClient,
-                        'notify_on_success' => true,
-                        'notify_on_warning' => true,
-                        'notify_on_failure' => true,
+                        'notifications_enabled' => false,
                     ]);
                     $redirectUrl = (string) ($prov['redirect'] ?? 'index.php?m=cloudstorage&page=e3backup&view=getting_started&intent=local');
                 } else {

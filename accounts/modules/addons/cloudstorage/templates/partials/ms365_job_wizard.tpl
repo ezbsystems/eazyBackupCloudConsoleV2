@@ -1,4 +1,4 @@
-<link rel="stylesheet" href="modules/addons/cloudstorage/assets/css/ms365_job_wizard.css?v=19">
+<link rel="stylesheet" href="modules/addons/cloudstorage/assets/css/ms365_job_wizard.css?v=21">
 <link rel="stylesheet" href="modules/addons/cloudstorage/assets/css/ms365_restore_wizard.css?v=6">
 
 <div id="ms365JobWizardModal" class="ms365-job-wizard-modal-host fixed inset-0 z-[2200] hidden" x-data="ms365WizardApp()" x-cloak>
@@ -319,31 +319,67 @@
                             </div>
                             <div class="ms365-selection-pane border border-[var(--eb-border-default)] rounded-lg overflow-hidden flex flex-col">
                                 <div class="eb-menu-label px-3 py-2 border-b border-[var(--eb-border-default)]">
-                                    Selected for backup (<span x-text="selectionSummaryRowCount()"></span>)
+                                    Selection summary
                                 </div>
-                                <div class="flex-1 overflow-y-auto p-2 space-y-3">
+                                <div class="flex-1 overflow-y-auto p-3">
                                     <template x-if="selectionCount() === 0">
-                                        <p class="eb-type-caption text-center py-8">Select resources on the left to include them in this backup job.</p>
+                                        <p class="eb-type-caption text-center py-4">Select resources on the left to include them in this backup job.</p>
                                     </template>
-                                    <template x-for="group in selectionSummaryGroups" :key="'sum-' + group.section">
-                                        <div>
-                                            <div class="text-xs font-semibold text-[var(--eb-text-muted)] mb-1 px-1" x-text="group.section"></div>
-                                            <template x-for="(item, idx) in group.items" :key="group.section + '-' + idx">
-                                                <div class="ms365-job-wizard__summary-item py-1.5 px-2 text-sm rounded bg-[var(--eb-surface-muted)]">
-                                                    <div class="min-w-0">
-                                                        <div class="truncate font-medium" x-text="item.label"></div>
-                                                        <div class="truncate text-xs text-[var(--eb-text-muted)]" x-show="item.subtitle" x-text="item.subtitle"></div>
-                                                        <div class="ms365-job-wizard__summary-badges" x-show="item.badges && item.badges.length > 0">
-                                                            <template x-for="(badge, bidx) in item.badges" :key="group.section + '-' + idx + '-b-' + bidx">
-                                                                <span class="eb-badge eb-badge--neutral text-xs" x-text="badge"></span>
-                                                            </template>
-                                                        </div>
-                                                    </div>
+                                    <template x-if="selectionCount() > 0">
+                                        <div class="ms365-selection-summary">
+                                            <div class="ms365-selection-summary__row" x-show="workloadCount('protected_accounts') > 0">
+                                                <span class="ms365-selection-summary__label">Protected accounts</span>
+                                                <span class="ms365-selection-summary__value" x-text="workloadCount('protected_accounts')"></span>
+                                            </div>
+                                            <div class="ms365-selection-summary__workloads" x-show="hasAnyUserWorkloadCounts()">
+                                                <div class="ms365-selection-summary__chip" x-show="workloadCount('mail') > 0">
+                                                    <span class="ms365-selection-summary__chip-label">Mail</span>
+                                                    <span class="ms365-selection-summary__chip-value" x-text="workloadCount('mail')"></span>
                                                 </div>
-                                            </template>
+                                                <div class="ms365-selection-summary__chip" x-show="workloadCount('calendar') > 0">
+                                                    <span class="ms365-selection-summary__chip-label">Calendar</span>
+                                                    <span class="ms365-selection-summary__chip-value" x-text="workloadCount('calendar')"></span>
+                                                </div>
+                                                <div class="ms365-selection-summary__chip" x-show="workloadCount('contacts') > 0">
+                                                    <span class="ms365-selection-summary__chip-label">Contacts</span>
+                                                    <span class="ms365-selection-summary__chip-value" x-text="workloadCount('contacts')"></span>
+                                                </div>
+                                                <div class="ms365-selection-summary__chip" x-show="workloadCount('tasks') > 0">
+                                                    <span class="ms365-selection-summary__chip-label">Tasks</span>
+                                                    <span class="ms365-selection-summary__chip-value" x-text="workloadCount('tasks')"></span>
+                                                </div>
+                                                <div class="ms365-selection-summary__chip" x-show="workloadCount('onedrive') > 0">
+                                                    <span class="ms365-selection-summary__chip-label">OneDrive</span>
+                                                    <span class="ms365-selection-summary__chip-value" x-text="workloadCount('onedrive')"></span>
+                                                </div>
+                                            </div>
+                                            <div class="ms365-selection-summary__row" x-show="workloadCount('sharepoint_sites') > 0">
+                                                <span class="ms365-selection-summary__label">SharePoint sites</span>
+                                                <span class="ms365-selection-summary__value" x-text="workloadCount('sharepoint_sites')"></span>
+                                            </div>
+                                            <div class="ms365-selection-summary__row" x-show="workloadCount('teams') > 0">
+                                                <span class="ms365-selection-summary__label">Teams</span>
+                                                <span class="ms365-selection-summary__value" x-text="workloadCount('teams')"></span>
+                                            </div>
+                                            <div class="ms365-selection-summary__row" x-show="workloadCount('groups') > 0">
+                                                <span class="ms365-selection-summary__label">Microsoft 365 groups</span>
+                                                <span class="ms365-selection-summary__value" x-text="workloadCount('groups')"></span>
+                                            </div>
+                                            <div class="ms365-selection-summary__row" x-show="workloadCount('planner') > 0">
+                                                <span class="ms365-selection-summary__label">Planner</span>
+                                                <span class="ms365-selection-summary__value" x-text="workloadCount('planner')"></span>
+                                            </div>
+                                            <div class="ms365-selection-summary__row" x-show="workloadCount('onenote') > 0">
+                                                <span class="ms365-selection-summary__label">OneNote</span>
+                                                <span class="ms365-selection-summary__value" x-text="workloadCount('onenote')"></span>
+                                            </div>
+                                            <div class="ms365-selection-summary__row" x-show="workloadCount('directory') > 0">
+                                                <span class="ms365-selection-summary__label">Directory baseline</span>
+                                                <span class="ms365-selection-summary__value" x-text="workloadCount('directory')"></span>
+                                            </div>
                                         </div>
                                     </template>
-                                    <div x-show="planWarnings.length > 0" class="eb-alert eb-alert--warning mt-2">
+                                    <div x-show="planWarnings.length > 0" class="eb-alert eb-alert--warning mt-3">
                                         <div class="eb-alert-title">Duplicate coverage</div>
                                         <ul class="eb-type-caption list-disc pl-4 mt-1 space-y-1">
                                             <template x-for="(warn, widx) in planWarnings" :key="'warn-' + widx">
@@ -401,7 +437,19 @@
                                                   x-text="billingPreview.member_resolution_pending ? 'Member counts incomplete' : 'Inventory may be stale'"></span>
                                         </template>
                                     </div>
-                                    <div class="ms365-wizard-billing-dock__metrics">
+                                    <div class="ms365-wizard-billing-dock__compact-row lg:hidden"
+                                         x-show="billingPreview.protected_users != null || billingPreview.pricing">
+                                        <span class="ms365-wizard-billing-dock__compact-metric">
+                                            Protected Users:
+                                            <strong x-text="billingPreview.protected_users ?? 0"></strong>
+                                        </span>
+                                        <span class="ms365-wizard-billing-dock__compact-sep" aria-hidden="true">·</span>
+                                        <span class="ms365-wizard-billing-dock__compact-metric">
+                                            Est. monthly
+                                            <strong>$<span x-text="Number(billingPreview.pricing?.estimated_monthly_cad || 0).toFixed(2)"></span></strong>
+                                        </span>
+                                    </div>
+                                    <div class="ms365-wizard-billing-dock__metrics hidden lg:grid">
                                         <div class="ms365-wizard-billing-dock__metric">
                                             <span class="ms365-wizard-billing-dock__metric-label">Protected Users</span>
                                             <span class="ms365-wizard-billing-dock__metric-value" x-text="billingPreview.protected_users ?? 0"></span>
@@ -617,5 +665,5 @@
 </div>
 
 <script src="modules/addons/cloudstorage/assets/js/ms365_inventory_icons.js?v=1"></script>
-<script src="modules/addons/cloudstorage/assets/js/ms365_job_selection.js?v=6"></script>
-<script src="modules/addons/cloudstorage/assets/js/ms365_job_wizard.js?v=30"></script>
+<script src="modules/addons/cloudstorage/assets/js/ms365_job_selection.js?v=7"></script>
+<script src="modules/addons/cloudstorage/assets/js/ms365_job_wizard.js?v=32"></script>

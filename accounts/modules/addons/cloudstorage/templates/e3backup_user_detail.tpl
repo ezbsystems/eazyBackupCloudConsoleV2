@@ -227,6 +227,7 @@
                             <div>
                                 <label class="eb-field-label" for="e3-user-detail-email">Email</label>
                                 <input id="e3-user-detail-email" type="email" x-model.trim="updateForm.email" class="eb-input" :class="updateErrors.email ? 'is-error' : ''">
+                                <p class="eb-field-help">Optional reporting contact. If empty, notifications use your account owner email.</p>
                                 <p class="eb-field-error" x-show="updateErrors.email" x-text="updateErrors.email"></p>
                             </div>
 
@@ -2303,9 +2304,7 @@ function backupUserDetailApp() {
                 this.updateErrors.username = 'Use 3-64 characters with letters, numbers, dots, underscores, or hyphens.';
             }
             const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-            if (!this.updateForm.email) {
-                this.updateErrors.email = 'Email is required.';
-            } else if (!emailPattern.test(this.updateForm.email)) {
+            if (this.updateForm.email && !emailPattern.test(this.updateForm.email)) {
                 this.updateErrors.email = 'Please enter a valid email address.';
             }
             return Object.keys(this.updateErrors).length === 0;

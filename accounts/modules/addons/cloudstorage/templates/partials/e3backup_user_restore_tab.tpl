@@ -2,12 +2,14 @@
     <div class="eb-subpanel overflow-visible">
         <div class="space-y-4">
             <div class="space-y-3">
-                <div class="eb-table-toolbar">
-                    <div class="relative" x-data="{ isOpen: false }" @click.away="isOpen = false">
+                <div class="eb-table-toolbar flex-wrap gap-4">
+                    <div class="flex w-full flex-col gap-1 sm:w-auto sm:min-w-[16rem]">
+                        <label class="eb-field-label">Job</label>
+                        <div class="relative" x-data="{ isOpen: false }" @click.away="isOpen = false">
                         <button type="button"
                                 @click="isOpen = !isOpen"
-                                class="eb-btn eb-btn-secondary eb-btn-sm min-w-[16rem] justify-between">
-                            <span class="truncate" x-text="'Job: ' + jobLabel()"></span>
+                                class="eb-btn eb-btn-primary eb-btn-sm w-full min-w-0 justify-between sm:min-w-[16rem]">
+                            <span class="truncate" x-text="jobLabel()"></span>
                             <svg class="h-4 w-4 transition-transform" :class="isOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
                                 <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
                             </svg>
@@ -42,13 +44,16 @@
                                 </template>
                             </div>
                         </div>
+                        </div>
                     </div>
 
-                    <div class="relative" x-data="{ isOpen: false }" @click.away="isOpen = false">
+                    <div class="flex w-full flex-col gap-1 sm:w-auto sm:min-w-[16rem]">
+                        <label class="eb-field-label">Agent</label>
+                        <div class="relative" x-data="{ isOpen: false }" @click.away="isOpen = false">
                         <button type="button"
                                 @click="isOpen = !isOpen"
-                                class="eb-btn eb-btn-secondary eb-btn-sm min-w-[16rem] justify-between">
-                            <span class="truncate" x-text="'Agent: ' + agentLabel()"></span>
+                                class="eb-btn eb-btn-secondary eb-btn-sm w-full min-w-0 justify-between sm:min-w-[16rem]">
+                            <span class="truncate" x-text="agentLabel()"></span>
                             <svg class="h-4 w-4 transition-transform" :class="isOpen ? 'rotate-180' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
                                 <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
                             </svg>
@@ -80,14 +85,15 @@
                                 </template>
                             </div>
                         </div>
+                        </div>
                     </div>
 
-                    <div class="flex-1"></div>
+                    <div class="flex-1 min-w-[12rem]"></div>
 
                     <input type="text"
                            placeholder="Search restore points"
                            x-model="searchQuery"
-                           class="eb-toolbar-search w-full xl:w-80">
+                           class="eb-toolbar-search w-full sm:w-auto xl:w-80">
                 </div>
 
                 <div class="flex flex-wrap items-center gap-2">
@@ -147,8 +153,8 @@
                             <tr>
                                 <td colspan="8">
                                     <div class="eb-app-empty !py-8">
-                                        <div class="eb-app-empty-title">Pick a job and an agent to see restore points</div>
-                                        <p class="eb-app-empty-copy">Use the filter row above to select the backup <strong>Job</strong> and the <strong>Agent</strong> that produced it &mdash; any matching restore points will appear here.</p>
+                                        <div class="eb-app-empty-title">Choose a Job above to see restore points</div>
+                                        <p class="eb-app-empty-copy">Select the backup job first, then optionally narrow by Agent &mdash; matching restore points will appear here.</p>
                                     </div>
                                 </td>
                             </tr>

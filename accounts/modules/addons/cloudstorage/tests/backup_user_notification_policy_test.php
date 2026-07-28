@@ -69,6 +69,22 @@ $jsonInArray = BackupUserNotificationSettingsService::validatePayload([
 assert_true(empty($jsonInArray['errors']), 'JSON string inside notify_emails array accepted');
 assert_same(['support@eazybackup.ca'], $jsonInArray['dto']['notify_emails'], 'JSON string inside array parsed');
 
+// Empty profile/recipient settings must resolve the live account-owner email.
+$resolveRecipients = new ReflectionMethod(CloudBackupNotificationPolicy::class, 'resolveRecipients');
+$resolveRecipients->setAccessible(true);
+$liveOwnerRecipients = $resolveRecipients->invoke(
+    null,
+    [],
+    (object) ['notify_emails' => null, 'email' => ''],
+    null,
+    (object) ['email' => 'current-owner@example.com']
+);
+assert_same(
+    ['current-owner@example.com'],
+    $liveOwnerRecipients,
+    'empty backup-user email falls back to live account-owner email'
+);
+
 $schema = Capsule::schema();
 $hasNotifyCols = $schema->hasTable('s3_backup_users')
     && $schema->hasColumn('s3_backup_users', 'notifications_enabled');

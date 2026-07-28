@@ -2,7 +2,7 @@
 
 **Purpose:** Single handoff document so the next agent knows where work stopped. Update this file at the **end of every session** (or after each meaningful milestone).
 
-**Last updated:** 2026-07-27
+**Last updated:** 2026-07-28
 **Module version (ms365backup):** 1.52.36
 **Cloudstorage (e3) version:** 2.2.0  
 **Worker version (ms365-backup-worker):** 0.4.21 (Kopia v0.23.1)
@@ -10,6 +10,14 @@
 ---
 
 ## Session log
+
+### 2026-07-28 — MS365 wizard inventory UX + Add User modal layout (cloudstorage 2.2.0)
+
+- **MS365 job wizard:** Stacked layout (&lt;1024px) gives inventory pane usable `min-height` (`min(50dvh, 20rem)`) without sharing tight `max-height` with selection summary; billing dock condenses to one compact row on mobile with “How this is calculated” disclosure default collapsed.
+- **Selection summary:** Replaced per-user “Selected for backup” list with Comet-style workload counters (`selectionWorkloadCounts()` in `ms365_job_selection.js`); exposed via wizard Alpine (`workloadCount`, protected accounts, Mail/Calendar/Contacts/Tasks/OneDrive, SharePoint, Teams, etc.).
+- **Add User modal:** Portaled to `document.body` via Alpine `x-teleport` at `z-[2200]`; managed recovery is a truthful read-only policy; password fields follow the policy note; backup reports are off by default and their recipients/outcome controls disclose only when enabled; pricing remains behind “Billing & pricing” on small screens; taller modal body on mobile (`100dvh`).
+- **Profile email:** Optional on create/update — format validated only when non-empty and empty remains empty in `s3_backup_users`; report delivery therefore resolves the live WHMCS account-owner email at send time instead of pinning a stale copy.
+- **Strict-mode creation deferred:** Existing strict rows are untouched. New creation is forced to managed mode until the agent/repository protocol supports a cryptographically bound customer-held recovery secret; the prior browser-only random download was not functional recovery.
 
 ### 2026-07-27 — Bill selected shared mailboxes (Comet parity, PHP 1.52.36)
 
@@ -1513,6 +1521,12 @@ Append newest entries at the **top**.
 
 - Implemented Entra admin consent, cloudstorage e3 MS365 page, bucket bootstrap, cloud storage adapter, queue ops, mail restore shell.
 - Docs: `ARCHITECTURE_BOUNDARIES.md`, updated `PHASE3_PRD.md`, `CUSTOMER_ONBOARDING.md`, agent prompts.
+
+### 2026-07-28 — e3 Cloud Backup responsive UI fixes
+
+- **MS365 job wizard:** Portal `#ms365JobWizardModal` to `document.body` on load (escapes `eb-page-inner` stacking context so modal renders above theme sidebar). Added responsive CSS for inventory/selection panes, billing dock single-column layout under 640px, and near full-viewport dialog on small screens. Bumped wizard CSS/JS cache versions.
+- **e3 sidebar:** Moved Download Agent and Collapse controls from sticky footer into scrollable `<nav>` after Media Builder (matches Backup Dashboard `eb-sidebar` pattern). User subnav listens for `eb-e3-sidebar-collapsed-changed` so nested collapse classes re-evaluate.
+- **Restore tab:** Added `eb-field-label` above Job and Agent filters; Job trigger uses `eb-btn-primary`; toolbar wraps/stacks on narrow widths; empty state points at Job filter above.
 
 ---
 

@@ -1324,20 +1324,13 @@ class Provisioner
             $intent = '';
         }
 
-        $encryptionMode = strtolower(trim((string) ($spec['encryption_mode'] ?? 'managed')));
-        if (!in_array($encryptionMode, ['managed', 'strict'], true)) {
-            $encryptionMode = 'managed';
-        }
-        if (in_array($intent, ['ms365', 'saas'], true)) {
-            $encryptionMode = 'managed';
-        }
+        // New e3 Backup Users are managed-only until a real agent/repository
+        // zero-knowledge protocol exists. Existing strict rows are not touched.
+        $encryptionMode = 'managed';
         if ($intent === '') {
-            $intent = $encryptionMode === 'strict' ? 'local' : 'local';
-        }
-        if ($encryptionMode === 'strict') {
             $intent = 'local';
         }
-        $backupType = $encryptionMode === 'strict' ? 'local' : 'both';
+        $backupType = 'both';
 
         $isExistingClient = !empty($spec['existing']);
         $tenantId = array_key_exists('tenant_id', $spec) ? $spec['tenant_id'] : null;
@@ -1347,13 +1340,6 @@ class Provisioner
         }
 
         $email = strtolower(trim((string) ($spec['email'] ?? '')));
-        if ($email === '') {
-            try {
-                $email = strtolower((string) Capsule::table('tblclients')->where('id', $clientId)->value('email'));
-            } catch (\Throwable $_) {
-                $email = '';
-            }
-        }
         $status = strtolower(trim((string) ($spec['status'] ?? 'active')));
         if (!in_array($status, ['active', 'disabled'], true)) {
             $status = 'active';
@@ -1365,7 +1351,7 @@ class Provisioner
         }
         $notifyEmailsJson = $notifyEmails === [] ? null : json_encode(array_values($notifyEmails));
         $notificationsEnabled = array_key_exists('notifications_enabled', $spec)
-            ? (bool) $spec['notifications_enabled'] : true;
+            ? (bool) $spec['notifications_enabled'] : false;
         $notifyOnSuccess = array_key_exists('notify_on_success', $spec)
             ? (bool) $spec['notify_on_success'] : true;
         $notifyOnWarning = array_key_exists('notify_on_warning', $spec)

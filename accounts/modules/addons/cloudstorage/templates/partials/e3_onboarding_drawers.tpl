@@ -43,7 +43,6 @@
             </div>
             <form id="eb-setpw-form" class="space-y-5" onsubmit="return ebPwSubmit(event);">
                 <input type="hidden" name="product_choice" id="eb-product-choice" value="">
-                <input type="hidden" name="encryption_mode" id="eb-e3-encryption-mode" value="managed">
                 <div id="eb-username-row" class="hidden">
                     <label for="eb-username" id="eb-username-label" class="eb-field-label">Backup agent username</label>
                     <input
@@ -85,47 +84,9 @@
                     </div>
                 </div>
 
-                <div id="eb-e3-encryption-row" class="hidden space-y-4">
-                    <div>
-                        <div class="eb-field-label">Encryption Mode</div>
-                        <div id="eb-e3-strict-warning" class="eb-alert eb-alert--warning hidden !mb-3">
-                            <div>This User will be restricted to Local Agent backups only. MS365 and SaaS require managed encryption.</div>
-                        </div>
-                        <div class="eb-subpanel !mb-0 space-y-3 !p-4">
-                            <label class="eb-inline-choice cursor-pointer">
-                                <input type="radio" name="eb_e3_encryption_mode" value="managed" class="eb-radio-input" checked onchange="ebE3EncryptionModeChanged('managed')">
-                                <span>
-                                    <span class="font-semibold text-[var(--eb-text-primary)]">Password - Managed Recovery</span>
-                                    <span class="mt-0.5 block eb-type-caption">Reset always possible. Local Agent, MS365, and SaaS backups.</span>
-                                </span>
-                            </label>
-                            <label class="eb-inline-choice cursor-pointer">
-                                <input type="radio" name="eb_e3_encryption_mode" value="strict" class="eb-radio-input" onchange="ebE3EncryptionModeChanged('strict')">
-                                <span class="font-semibold text-[var(--eb-text-primary)]">Strict Customer-Managed Encryption (Zero-Knowledge)</span>
-                            </label>
-                        </div>
-                    </div>
-
-                    <div id="eb-e3-managed-ack-row" class="eb-subpanel !mb-0 space-y-3 !p-4">
-                        <h3 class="eb-type-h4 text-[var(--eb-text-primary)]">Acknowledgement</h3>
-                        <label class="eb-inline-choice cursor-pointer">
-                            <input type="checkbox" id="eb-e3-managed-ack" class="eb-check-input">
-                            <span>I understand authorized account owners can reset encryption password for this User.</span>
-                        </label>
-                        <p id="eb-err-e3-managed-ack" class="eb-field-error hidden"></p>
-                    </div>
-
-                    <div id="eb-e3-strict-ack-row" class="hidden eb-subpanel !mb-0 flex flex-col gap-4 !p-4">
-                        <h3 class="eb-type-h4 text-[var(--eb-text-primary)]">Zero-Knowledge acknowledgement</h3>
-                        <div class="eb-alert eb-alert--warning !mb-0">
-                            <div>Admin reset is disabled in Strict mode. If the recovery key is lost, encrypted data cannot be recovered.</div>
-                        </div>
-                        <label class="eb-inline-choice cursor-pointer">
-                            <input type="checkbox" id="eb-e3-strict-ack" class="eb-check-input">
-                            <span>I understand admin reset is disabled, the recovery key is shown once and not stored by eazyBackup, and data recovery is not possible without it.</span>
-                        </label>
-                        <p id="eb-err-e3-strict-ack" class="eb-field-error hidden"></p>
-                    </div>
+                <div id="eb-e3-managed-note" class="hidden eb-subpanel !mb-0 !p-4">
+                    <p class="eb-field-label !mb-1">Managed Recovery</p>
+                    <p class="eb-type-caption">Authorized account owners can reset this password. Supports Local Agent, Microsoft 365, and SaaS backups.</p>
                 </div>
 
                 {if $ebExistingClientOnboarding}

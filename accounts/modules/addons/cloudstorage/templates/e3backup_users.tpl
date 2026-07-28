@@ -696,6 +696,7 @@ function backupUsersApp() {
         users: [],
         loading: true,
         saving: false,
+        createRequestToken: 0,
         isMspClient: {/literal}{if $isMspClient}true{else}false{/if}{literal},
         csrfToken: {/literal}{$csrfToken|@json_encode nofilter}{literal} || '',
         tenants: {/literal}{$tenants|@json_encode nofilter}{literal} || [],
@@ -723,7 +724,7 @@ function backupUsersApp() {
         },
         deleting: false,
         showCreateModal: false,
-        showRecoveryKeyCloseWarning: false,
+        showPricingDisclosure: false,
         formErrorMessage: '',
         createPageError: '',
         canonicalTenantLoadError: '',
@@ -733,14 +734,10 @@ function backupUsersApp() {
             email: '',
             password: '',
             password_confirm: '',
-            tenant_id: '',
-            encryption_mode: 'managed',
-            managed_acknowledged: false,
-            strict_acknowledged: false,
-            recovery_key_downloaded: false
+            tenant_id: ''
         },
         notificationForm: {
-            enabled: true,
+            enabled: false,
             emails: [],
             notify_on_success: true,
             notify_on_warning: true,
@@ -1114,51 +1111,6 @@ function backupUsersApp() {
             return tenant ? tenant.name : 'Select tenant';
         },
 
-        generateRecoveryKey() {
-            if (window.crypto && window.crypto.getRandomValues) {
-                const bytes = new Uint8Array(32);
-                window.crypto.getRandomValues(bytes);
-                return Array.from(bytes).map((b) => b.toString(16).padStart(2, '0')).join('');
-            }
-            return Math.random().toString(36).slice(2) + Date.now().toString(36);
-        },
-
-        downloadRecoveryKey() {
-            if (this.form.encryption_mode !== 'strict' || this.form.recovery_key_downloaded) {
-                return;
-            }
-
-            const keyValue = this.generateRecoveryKey();
-            const content = [
-                'eazyBackup Recovery Key',
-                '',
-                'User: ' + (this.form.username || ''),
-                'Email: ' + (this.form.email || ''),
-                'Generated At: ' + new Date().toISOString(),
-                '',
-                'Recovery Key:',
-                keyValue,
-                '',
-                'Important: This key is shown once and not stored by eazyBackup.'
-            ].join('\n');
-
-            const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
-            const url = URL.createObjectURL(blob);
-            const anchor = document.createElement('a');
-            const filenameSafeUser = (this.form.username || 'backup-user').replace(/[^a-zA-Z0-9._-]+/g, '-');
-            anchor.href = url;
-            anchor.download = filenameSafeUser + '-recovery-key.txt';
-            document.body.appendChild(anchor);
-            anchor.click();
-            document.body.removeChild(anchor);
-            URL.revokeObjectURL(url);
-
-            this.form.recovery_key_downloaded = true;
-            if (this.fieldErrors.recovery_key_downloaded) {
-                delete this.fieldErrors.recovery_key_downloaded;
-            }
-        },
-
         setTenantFilter(value) {
             this.tenantFilter = value;
             this.currentPage = 1;
@@ -1285,19 +1237,19 @@ function backupUsersApp() {
         },
 
         openCreateModal() {
+            if (this.saving) {
+                return;
+            }
+            this.createRequestToken += 1;
             this.form = {
                 username: '',
                 email: '',
                 password: '',
                 password_confirm: '',
-                tenant_id: '',
-                encryption_mode: 'managed',
-                managed_acknowledged: false,
-                strict_acknowledged: false,
-                recovery_key_downloaded: false
+                tenant_id: ''
             };
             this.notificationForm = {
-                enabled: true,
+                enabled: false,
                 emails: [],
                 notify_on_success: true,
                 notify_on_warning: true,
@@ -1308,7 +1260,7 @@ function backupUsersApp() {
             this.createPageError = '';
             this.fieldErrors = {};
             this.tenantAssignSearch = '';
-            this.showRecoveryKeyCloseWarning = false;
+            this.showPricingDisclosure = false;
             this.showCreateModal = true;
         },
 
@@ -1339,36 +1291,32 @@ function backupUsersApp() {
         },
 
         showCreatePageError(message) {
-            this.createPageError = String(message || '').trim();
-            if (!this.createPageError) {
+            const msg = String(message || '').trim();
+            this.createPageError = '';
+            if (!msg) {
                 return;
             }
-            this.$nextTick(() => {
-                const el = document.getElementById('e3-create-page-error');
-                if (el && typeof el.scrollIntoView === 'function') {
-                    el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-                }
-            });
+            if (typeof window.e3backupShowToast === 'function') {
+                window.e3backupShowToast('error', msg);
+            } else if (window.toast && typeof window.toast.error === 'function') {
+                window.toast.error(msg);
+            }
         },
 
         focusFirstCreateFieldError() {
             const fieldOrder = [
                 'username',
-                'email',
                 'password',
                 'password_confirm',
                 'notify_emails',
-                'tenant_id',
-                'managed_acknowledged',
-                'recovery_key_downloaded',
-                'strict_acknowledged'
+                'tenant_id'
             ];
             const fieldIds = {
                 username: 'e3-create-user-username',
-                email: 'e3-create-user-email',
                 password: 'e3-create-user-password',
                 password_confirm: 'e3-create-user-password-confirm',
-                notify_emails: 'e3-create-notify-email-input'
+                notify_emails: 'e3-create-notify-email-input',
+                tenant_id: 'e3-create-user-tenant'
             };
             for (const key of fieldOrder) {
                 if (!this.fieldErrors[key]) {
@@ -1376,32 +1324,32 @@ function backupUsersApp() {
                 }
                 const id = fieldIds[key];
                 if (!id) {
-                    break;
+                    continue;
                 }
                 const el = document.getElementById(id);
-                if (el && typeof el.focus === 'function') {
-                    el.focus();
+                if (!el) {
+                    continue;
+                }
+                if (typeof el.getClientRects === 'function' && el.getClientRects().length === 0) {
+                    continue;
+                }
+                if (typeof el.scrollIntoView === 'function') {
+                    el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+                }
+                if (typeof el.focus === 'function') {
+                    try { el.focus({ preventScroll: true }); } catch (e) { el.focus(); }
                 }
                 break;
             }
         },
 
         closeCreateModal(force = false) {
-            if (!force && this.form.encryption_mode === 'strict' && !this.form.recovery_key_downloaded) {
-                this.showRecoveryKeyCloseWarning = true;
+            if (this.saving && !force) {
                 return;
             }
-            this.showRecoveryKeyCloseWarning = false;
+            this.createRequestToken += 1;
             this.showCreateModal = false;
             this.saving = false;
-        },
-
-        cancelRecoveryKeyCloseWarning() {
-            this.showRecoveryKeyCloseWarning = false;
-        },
-
-        confirmCloseCreateWithoutRecoveryKey() {
-            this.closeCreateModal(true);
         },
 
         addNotificationEmail() {
@@ -1438,22 +1386,15 @@ function backupUsersApp() {
 
         validateCreateForm() {
             this.fieldErrors = {};
-            const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
             if (!this.form.username) {
-                this.fieldErrors.username = 'Username is required.';
+                this.fieldErrors.username = 'Please enter a username.';
             } else if (!/^[A-Za-z0-9._-]{3,64}$/.test(this.form.username)) {
                 this.fieldErrors.username = 'Use 3-64 characters with letters, numbers, dots, underscores, or hyphens.';
             }
 
-            if (!this.form.email) {
-                this.fieldErrors.email = 'Email is required.';
-            } else if (!emailPattern.test(this.form.email)) {
-                this.fieldErrors.email = 'Please enter a valid email address.';
-            }
-
             if (!this.form.password) {
-                this.fieldErrors.password = 'Password is required.';
+                this.fieldErrors.password = 'Please enter a password.';
             } else if (this.form.password.length < 8) {
                 this.fieldErrors.password = 'Password must be at least 8 characters.';
             }
@@ -1462,19 +1403,6 @@ function backupUsersApp() {
                 this.fieldErrors.password_confirm = 'Please confirm your password.';
             } else if (this.form.password !== this.form.password_confirm) {
                 this.fieldErrors.password_confirm = 'Password confirmation does not match.';
-            }
-
-            if (this.form.encryption_mode === 'managed') {
-                if (!this.form.managed_acknowledged) {
-                    this.fieldErrors.managed_acknowledged = 'Please acknowledge managed recovery.';
-                }
-            } else if (this.form.encryption_mode === 'strict') {
-                if (!this.form.recovery_key_downloaded) {
-                    this.fieldErrors.recovery_key_downloaded = 'Download the recovery key before creating this user.';
-                }
-                if (!this.form.strict_acknowledged) {
-                    this.fieldErrors.strict_acknowledged = 'Please acknowledge strict mode requirements.';
-                }
             }
 
             return Object.keys(this.fieldErrors).length === 0;
@@ -1537,26 +1465,31 @@ function backupUsersApp() {
         },
 
         async createUser() {
+            if (this.saving) {
+                return;
+            }
             this.formErrorMessage = '';
             this.createPageError = '';
             if (!this.validateCreateForm()) {
-                this.showCreatePageError(this.buildCreateErrorMessage({ errors: this.fieldErrors }));
-                this.focusFirstCreateFieldError();
+                // Incomplete fields: highlight in-modal only; gentle toast, never page alert.
+                if (typeof window.e3backupShowToast === 'function') {
+                    window.e3backupShowToast('warning', 'Please complete the highlighted fields.');
+                } else if (window.toast && typeof window.toast.warning === 'function') {
+                    window.toast.warning('Please complete the highlighted fields.');
+                }
+                this.$nextTick(() => this.focusFirstCreateFieldError());
                 return;
             }
 
             this.saving = true;
+            const requestToken = ++this.createRequestToken;
             try {
                 const body = new URLSearchParams({
                     username: this.form.username,
-                    email: this.form.email,
+                    email: '',
                     status: 'active',
                     password: this.form.password,
                     password_confirm: this.form.password_confirm,
-                    encryption_mode: this.form.encryption_mode,
-                    managed_acknowledged: this.form.managed_acknowledged ? '1' : '0',
-                    strict_acknowledged: this.form.strict_acknowledged ? '1' : '0',
-                    recovery_key_downloaded: this.form.recovery_key_downloaded ? '1' : '0',
                     notifications_enabled: this.notificationForm.enabled ? '1' : '0',
                     notify_on_success: this.notificationForm.notify_on_success ? '1' : '0',
                     notify_on_warning: this.notificationForm.notify_on_warning ? '1' : '0',
@@ -1575,23 +1508,40 @@ function backupUsersApp() {
                     body
                 });
                 const data = await response.json();
+                if (requestToken !== this.createRequestToken || !this.showCreateModal) {
+                    return;
+                }
 
                 if (data.status === 'success') {
                     this.createPageError = '';
                     this.closeCreateModal(true);
+                    if (typeof window.e3backupShowToast === 'function') {
+                        window.e3backupShowToast('success', 'User created successfully.');
+                    }
                     await this.loadUsers();
                 } else {
                     this.fieldErrors = data.errors || {};
                     if (this.fieldErrors.canonical_tenant_id && !this.fieldErrors.tenant_id) {
                         this.fieldErrors.tenant_id = this.fieldErrors.canonical_tenant_id;
                     }
-                    this.showCreatePageError(this.buildCreateErrorMessage(data));
-                    this.focusFirstCreateFieldError();
+                    const hasFieldErrors = Object.keys(this.fieldErrors).length > 0;
+                    if (hasFieldErrors) {
+                        if (typeof window.e3backupShowToast === 'function') {
+                            window.e3backupShowToast('warning', 'Please complete the highlighted fields.');
+                        }
+                        this.$nextTick(() => this.focusFirstCreateFieldError());
+                    } else {
+                        this.showCreatePageError(this.buildCreateErrorMessage(data));
+                    }
                 }
             } catch (error) {
-                this.showCreatePageError('Failed to create user.');
+                if (requestToken === this.createRequestToken && this.showCreateModal) {
+                    this.showCreatePageError('Failed to create user.');
+                }
             }
-            this.saving = false;
+            if (requestToken === this.createRequestToken) {
+                this.saving = false;
+            }
         }
     };
 }

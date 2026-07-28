@@ -10,7 +10,9 @@ function e3UserDetailSidebarNav() {
         vaultsCount: 0,
         hypervJobsCount: 0,
         hypervCount: 0,
+        _sidebarCollapsedTick: 0,
         get sidebarCollapsed() {
+            void this._sidebarCollapsedTick;
             try {
                 return !!(this.$root && this.$root.sidebarCollapsed);
             } catch (e) {
@@ -41,6 +43,9 @@ function e3UserDetailSidebarNav() {
                     if (typeof ev.detail.hyperv_vms_count === 'number') self.hypervCount = ev.detail.hyperv_vms_count;
                 }
                 self.syncFromApp();
+            });
+            window.addEventListener('eb-e3-sidebar-collapsed-changed', function() {
+                self._sidebarCollapsedTick += 1;
             });
             this.syncFromApp();
         },

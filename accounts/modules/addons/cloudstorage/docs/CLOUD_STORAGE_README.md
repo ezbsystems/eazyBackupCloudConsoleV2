@@ -118,9 +118,13 @@ Customer-facing behavior:
 
 Each user has a `backup_type` column (ENUM: `cloud_only`, `local`, `both`, default `both`). This controls:
 
-- **Create User modal**: `cloud_only` hides encryption/password fields and auto-generates a server-side password
+- **New User creation**: client-area and welcome flows create managed-recovery users (`encryption_mode=managed`, `backup_type=both`). Existing strict rows remain unchanged.
 - **User Detail page**: `cloud_only` hides the Agents tab and the Local Agent job type; `local` hides the Cloud Backup job type
 - **Upgrade**: Users can be upgraded from `cloud_only` to `both` (or vice versa) from the Overview tab
+
+True zero-knowledge creation is deferred until the agent and repository protocol
+can generate, bind, and consume a customer-held recovery secret. A browser-only
+download is not a recovery mechanism and is intentionally not offered.
 
 ### Important implementation note
 
@@ -156,9 +160,9 @@ Each user has a `backup_type` column (ENUM: `cloud_only`, `local`, `both`, defau
   - User records must remain direct (`tenant_id = NULL`).
 - Validation:
   - `username`: required, regex constrained, uniqueness in account scope (`client_id + tenant_id` logical scope).
-  - `email`: required, valid format.
-  - `password`: required on create when `backup_type` is `local` or `both`; auto-generated for `cloud_only`.
-  - `backup_type`: `cloud_only`, `local`, or `both` (default `both`).
+  - `email`: optional on create/update; valid format when supplied and stored empty when omitted or cleared. Notification delivery resolves the live WHMCS account-owner email at send time when no more-specific recipient exists.
+  - `password`: required on create (minimum 8 characters plus matching confirmation).
+  - New users are always provisioned with managed recovery; existing strict rows are not migrated.
   - `status`: limited to `active` or `disabled`.
 
 ### UI behavior delivered
@@ -167,7 +171,9 @@ Each user has a `backup_type` column (ENUM: `cloud_only`, `local`, `both`, defau
   - sortable columns
   - column show/hide controls
   - show entries control (`10/25/50/100`)
-  - Add User modal (Username, Backup Type selector, Password/Encryption Mode conditional on type, Email, Tenant assignment for MSP)
+  - Add User modal (Username, managed-recovery note, Password/Confirm, optional backup-report disclosure, Tenant assignment for MSP)
+  - backup reports off by default; enabling the master switch reveals recipients and Success/Warning/Failure controls
+  - empty report recipients fall back to the account owner while reports are enabled
   - row click to user detail view
 - Dropdowns/menus on this page are Alpine components (custom menus, not native select menus for custom UI controls).
 

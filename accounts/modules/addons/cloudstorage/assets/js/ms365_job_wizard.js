@@ -317,6 +317,7 @@
             billingPreviewError: '',
             billingCalcOpen: false,
             selectionSummaryGroups: [],
+            selectionWorkloadCounts: {},
             savedSelectionIds: [],
             searchQuery: '',
             scheduleFrequency: 'once_daily',
@@ -390,6 +391,7 @@
                 this.billingPreviewError = '';
                 this.billingCalcOpen = false;
                 this.selectionSummaryGroups = [];
+                this.selectionWorkloadCounts = {};
                 this.savedSelectionIds = [];
                 this.searchQuery = '';
                 this.scheduleFrequency = 'once_daily';
@@ -1399,8 +1401,25 @@
             },
 
             selectionSummaryRowCount() {
+                const counts = this.selectionWorkloadCounts || {};
+                if (Number(counts.protected_accounts) > 0) {
+                    return Number(counts.protected_accounts);
+                }
                 if (!window.ms365JobSelection) return 0;
                 return window.ms365JobSelection.summaryRowCount(this.selectionSummaryGroups);
+            },
+
+            workloadCount(key) {
+                const counts = this.selectionWorkloadCounts || {};
+                return Number(counts[key] || 0);
+            },
+
+            hasAnyUserWorkloadCounts() {
+                return this.workloadCount('mail') > 0
+                    || this.workloadCount('calendar') > 0
+                    || this.workloadCount('contacts') > 0
+                    || this.workloadCount('tasks') > 0
+                    || this.workloadCount('onedrive') > 0;
             },
 
             rebuildTrees() {
@@ -1447,6 +1466,11 @@
                     this.treesBySection,
                     this.selection,
                 );
+                this.selectionWorkloadCounts = window.ms365JobSelection.selectionWorkloadCounts(
+                    this.inventory,
+                    this.treesBySection,
+                    this.selection,
+                );
                 this.scheduleRefreshPlan();
             },
 
@@ -1465,6 +1489,7 @@
                     this.billingPreview = null;
                     this.billingPreviewLoading = false;
                     this.billingPreviewError = '';
+                    this.selectionWorkloadCounts = {};
                     return;
                 }
 
@@ -1814,6 +1839,18 @@
             toast('error', 'Could not load backup users.');
         }
     };
+
+    function portalMs365JobWizardModal() {
+        const modal = document.getElementById('ms365JobWizardModal');
+        if (modal && modal.parentElement !== document.body) {
+            document.body.appendChild(modal);
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', portalMs365JobWizardModal);
+    if (document.readyState !== 'loading') {
+        portalMs365JobWizardModal();
+    }
 
     document.addEventListener('DOMContentLoaded', () => {
         const params = new URLSearchParams(window.location.search);
