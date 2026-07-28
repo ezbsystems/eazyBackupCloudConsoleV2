@@ -39,12 +39,15 @@ type SharePointSyncResult struct {
 }
 
 type sharePointDriveResult struct {
-	deltaLink string
-	warnings  []string
-	removed   int
-	items     int
-	skipped   int
-	bytes     int64
+	deltaLink         string
+	warnings          []string
+	removed           int
+	items             int
+	skipped           int
+	bytes             int64
+	fullResync        bool
+	startedFull       bool
+	stoppedIncomplete bool
 }
 
 type sharePointDriveJob struct {
@@ -139,6 +142,9 @@ func SyncSharePoint(ctx context.Context, client *graph.Client, opts SharePointSy
 		stats["items"] += res.items
 		stats["removed"] += res.removed
 		stats["skipped_shard"] += res.skipped
+		if res.fullResync {
+			stats["full_resync"]++
+		}
 		bytesTotal += res.bytes
 		if res.deltaLink != "" {
 			deltaOut[driveID] = res.deltaLink
@@ -153,11 +159,7 @@ func SyncSharePoint(ctx context.Context, client *graph.Client, opts SharePointSy
 		for _, job := range jobs {
 			job := job
 			g.Go(func() error {
-				res, err := syncSharePointDrive(gctx, client, opts, job.id, job.priorDelta, &mu)
-				if err != nil {
-					return err
-				}
-				res, err = maybeResyncSharePointDriveFull(gctx, client, opts, job, res, &mu)
+				res, err := processSharePointDrive(gctx, client, opts, job, &mu)
 				if err != nil {
 					return err
 				}
@@ -170,11 +172,7 @@ func SyncSharePoint(ctx context.Context, client *graph.Client, opts SharePointSy
 		}
 	} else {
 		for _, job := range jobs {
-			res, err := syncSharePointDrive(ctx, client, opts, job.id, job.priorDelta, &mu)
-			if err != nil {
-				return nil, err
-			}
-			res, err = maybeResyncSharePointDriveFull(ctx, client, opts, job, res, &mu)
+			res, err := processSharePointDrive(ctx, client, opts, job, &mu)
 			if err != nil {
 				return nil, err
 			}
@@ -195,6 +193,49 @@ func SyncSharePoint(ctx context.Context, client *graph.Client, opts SharePointSy
 	}, nil
 }
 
+func processSharePointDrive(
+	ctx context.Context,
+	client *graph.Client,
+	opts SharePointSyncOptions,
+	job sharePointDriveJob,
+	mu *sync.Mutex,
+) (*sharePointDriveResult, error) {
+	priorDelta := job.priorDelta
+	fullResync := false
+	if needsSharePointPreflightRebaseline(opts, job.id, priorDelta) {
+		if opts.Log != nil {
+			opts.Log("warning", fmt.Sprintf("SharePoint drive %s: unproven baseline; forcing full delta before incremental", job.id))
+		}
+		clearSharePointDriveStaging(opts, job.id)
+		priorDelta = ""
+		fullResync = true
+	}
+
+	res, err := syncSharePointDrive(ctx, client, opts, job.id, priorDelta, mu)
+	if err != nil {
+		return nil, err
+	}
+	if fullResync {
+		res.fullResync = true
+	}
+
+	if shouldForceSharePointFullResync(opts, job.id, job.priorDelta, res) {
+		if opts.Log != nil {
+			opts.Log("warning", fmt.Sprintf("SharePoint drive %s: incremental completed without baseline proof; forcing full delta", job.id))
+		}
+		clearSharePointDriveStaging(opts, job.id)
+		full, err := syncSharePointDrive(ctx, client, opts, job.id, "", mu)
+		if err != nil {
+			return nil, err
+		}
+		full.fullResync = true
+		res = full
+	}
+
+	ensureSharePointCatalogMarker(opts, job.id, res)
+	return res, nil
+}
+
 func syncSharePointDrive(
 	ctx context.Context,
 	client *graph.Client,
@@ -202,7 +243,7 @@ func syncSharePointDrive(
 	driveID, priorDelta string,
 	mu *sync.Mutex,
 ) (*sharePointDriveResult, error) {
-	res := &sharePointDriveResult{}
+	res := &sharePointDriveResult{startedFull: strings.TrimSpace(priorDelta) == ""}
 	outcome := &graph.PaginationOutcome{}
 	monitor := paginationMonitorForJob(opts.Job, "sharepoint", "sharepoint:"+driveID, graphLog(opts.Log))
 	// Known Graph defect: a page can return only previously-seen item IDs while still
@@ -227,9 +268,11 @@ func syncSharePointDrive(
 		return nil, err
 	}
 	if outcome.CapReached {
+		res.stoppedIncomplete = true
 		res.warnings = append(res.warnings, fmt.Sprintf("drive %s: delta pagination cap reached (%d pages, %d items)", driveID, outcome.Pages, outcome.TotalItems))
 	}
 	if outcome.StoppedOnDuplicatePage {
+		res.stoppedIncomplete = true
 		res.warnings = append(res.warnings, fmt.Sprintf("drive %s: Graph duplicate-only page (known defect); partial delta kept, token not advanced", driveID))
 	}
 	for _, item := range items {
@@ -263,14 +306,14 @@ func syncSharePointDrive(
 		res.bytes += gf.Size()
 		res.items++
 	}
-	if deltaLink != "" {
+	if deltaLink != "" && !res.stoppedIncomplete {
 		res.deltaLink = deltaLink
 	}
 	return res, nil
 }
 
 // maybeResyncSharePointDriveFull clears a poisoned incremental delta when Graph reports
-// no file changes but the overlay still has no drive content tree (metadata-only snapshots).
+// changed files but the overlay still has no drive baseline proof (metadata-only snapshots).
 func maybeResyncSharePointDriveFull(
 	ctx context.Context,
 	client *graph.Client,
@@ -283,29 +326,115 @@ func maybeResyncSharePointDriveFull(
 		return res, nil
 	}
 	if opts.Log != nil {
-		opts.Log("warning", fmt.Sprintf("SharePoint drive %s: empty incremental with no content tree; forcing full delta", job.id))
+		opts.Log("warning", fmt.Sprintf("SharePoint drive %s: incremental without baseline proof; forcing full delta", job.id))
 	}
-	contentBase := siteDriveContentBase(opts.AzureTenantID, opts.SiteID, job.id)
-	opts.Staging.RemovePrefix(contentBase)
+	clearSharePointDriveStaging(opts, job.id)
 	full, err := syncSharePointDrive(ctx, client, opts, job.id, "", mu)
 	if err != nil {
 		return nil, err
 	}
+	full.fullResync = true
 	return full, nil
+}
+
+func needsSharePointPreflightRebaseline(opts SharePointSyncOptions, driveID, priorDelta string) bool {
+	if strings.TrimSpace(priorDelta) == "" {
+		return false
+	}
+	return !hasSharePointDriveBaselineProof(opts, driveID)
 }
 
 func shouldForceSharePointFullResync(opts SharePointSyncOptions, driveID, priorDelta string, res *sharePointDriveResult) bool {
 	if strings.TrimSpace(priorDelta) == "" || res == nil {
 		return false
 	}
-	if res.items > 0 {
-		return false
+	return !hasSharePointDriveBaselineProof(opts, driveID)
+}
+
+func hasSharePointDriveBaselineProof(opts SharePointSyncOptions, driveID string) bool {
+	if validSharePointCatalogMarker(opts, driveID) {
+		return true
 	}
 	if opts.Staging == nil {
 		return false
 	}
 	contentBase := siteDriveContentBase(opts.AzureTenantID, opts.SiteID, driveID)
-	return !opts.Staging.HasPathPrefix(contentBase)
+	if !opts.Staging.HasPathPrefix(contentBase) {
+		return false
+	}
+	// Sharded overlays may retain another shard's content tree from the prior manifest.
+	if opts.Shard.Active() {
+		return false
+	}
+	return true
+}
+
+func clearSharePointDriveStaging(opts SharePointSyncOptions, driveID string) {
+	if opts.Staging == nil {
+		return
+	}
+	opts.Staging.RemovePrefix(siteDriveContentBase(opts.AzureTenantID, opts.SiteID, driveID))
+}
+
+func sharePointCatalogMarkerPath(tenantID, siteID, driveID string) string {
+	return siteDriveContentBase(tenantID, siteID, driveID) + "/.catalog"
+}
+
+func sharePointShardMarkerIdentity(shard ShardFilter) (index, total int) {
+	if shard.Active() {
+		return shard.Index, shard.Total
+	}
+	return 0, 1
+}
+
+func validSharePointCatalogMarker(opts SharePointSyncOptions, driveID string) bool {
+	if opts.Staging == nil {
+		return false
+	}
+	path := sharePointCatalogMarkerPath(opts.AzureTenantID, opts.SiteID, driveID)
+	var marker struct {
+		V          int `json:"v"`
+		ShardIndex int `json:"shard_index"`
+		ShardTotal int `json:"shard_total"`
+	}
+	if !opts.Staging.ReadJSON(path, &marker) {
+		return false
+	}
+	if marker.V != 1 {
+		return false
+	}
+	wantIndex, wantTotal := sharePointShardMarkerIdentity(opts.Shard)
+	return marker.ShardIndex == wantIndex && marker.ShardTotal == wantTotal
+}
+
+func ensureSharePointCatalogMarker(opts SharePointSyncOptions, driveID string, res *sharePointDriveResult) {
+	if res == nil || opts.Staging == nil {
+		return
+	}
+	if !res.startedFull && !res.fullResync {
+		return
+	}
+	if res.stoppedIncomplete {
+		return
+	}
+	if strings.TrimSpace(res.deltaLink) == "" {
+		return
+	}
+	if res.items > 0 {
+		return
+	}
+	path := sharePointCatalogMarkerPath(opts.AzureTenantID, opts.SiteID, driveID)
+	if validSharePointCatalogMarker(opts, driveID) {
+		return
+	}
+	shardIndex, shardTotal := sharePointShardMarkerIdentity(opts.Shard)
+	payload, _ := json.Marshal(map[string]any{
+		"v":           1,
+		"files":       0,
+		"shard_index": shardIndex,
+		"shard_total": shardTotal,
+	})
+	opts.Staging.PutJSON(path, payload, time.Now().UTC())
 }
 
 func reportSharePointDriveProgress(opts SharePointSyncOptions, itemsDone int) {

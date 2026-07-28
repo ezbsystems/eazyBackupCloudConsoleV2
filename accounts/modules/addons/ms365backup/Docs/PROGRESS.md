@@ -3,13 +3,20 @@
 **Purpose:** Single handoff document so the next agent knows where work stopped. Update this file at the **end of every session** (or after each meaningful milestone).
 
 **Last updated:** 2026-07-28
-**Module version (ms365backup):** 1.52.39
+**Module version (ms365backup):** 1.52.40
 **Cloudstorage (e3) version:** 2.2.0  
-**Worker version (ms365-backup-worker):** 0.4.25 (Kopia v0.23.1)
+**Worker version (ms365-backup-worker):** 0.4.26 (Kopia v0.23.1)
 
 ---
 
 ## Session log
+
+### 2026-07-28 — SharePoint baseline hardening + delta reset tombstones (PHP 1.52.40, worker 0.4.26)
+
+- **Worker:** SharePoint drive sync now preflights to full rebaseline when a prior delta exists but baseline proof is absent (no content tree and no valid shard-aware `content/.catalog` marker), regardless of incremental item count. Marker is written only after terminal full delta completion; duplicate-page/cap soft-stops never write it. `.catalog` hidden in browse labels.
+- **PHP:** `ms365_delta_resets` tombstones + `ms365_delta_reset.php` CLI (`--apply` required). Legacy `delta_states_json` fallback ignores runs at or before `reset_at`; canonical state after reset remains authoritative.
+- **Verify:** `go test ./internal/graphsync -run SharePoint`, `go test ./...`, `ms365_delta_reset_test.php`, `ms365_batch_claim_test.php` PASS.
+- **Production remediation:** Reset three Option 2 Documents drives (`tenant_record_id=6`, job `a98f9943-…`) via delta reset CLI; deploy PHP 1.52.40 + worker 0.4.26; confirm next backup emits `full_resync` and non-metadata-only manifests.
 
 ### 2026-07-28 — SharePoint empty Files: site↔drive link + poisoned delta rebaseline (PHP 1.52.39, worker 0.4.25)
 

@@ -48,6 +48,9 @@ func shouldHideBrowseName(name string) bool {
 	if lower == "lists.json" || lower == "drives.json" {
 		return true
 	}
+	if lower == ".catalog" {
+		return true
+	}
 	if lower == "_folder.json" || lower == "_calendar.json" || lower == "_browse.json" || strings.HasSuffix(lower, ".removed.json") {
 		return true
 	}

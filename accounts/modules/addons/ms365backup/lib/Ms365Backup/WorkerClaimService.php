@@ -1023,11 +1023,16 @@ final class WorkerClaimService
             }
         }
 
-        $rows = $q->orderByDesc('finished_at')->get(['physical_key', 'delta_states_json']);
+        $rows = $q->orderByDesc('finished_at')->get(['physical_key', 'delta_states_json', 'finished_at']);
+        $resetCutoffs = self::legacyResetCutoffsForSources($tenantRecordId, $physicalKeys, $e3JobId);
         $out = [];
         foreach ($rows as $row) {
             $physicalKey = (string) ($row->physical_key ?? '');
             if ($physicalKey === '' || isset($out[$physicalKey])) {
+                continue;
+            }
+            $resetAt = $resetCutoffs[$physicalKey] ?? 0;
+            if ($resetAt > 0 && (int) ($row->finished_at ?? 0) <= $resetAt) {
                 continue;
             }
             $raw = (string) ($row->delta_states_json ?? '');
@@ -1042,6 +1047,48 @@ final class WorkerClaimService
         }
 
         return $out;
+    }
+
+    /**
+     * @param list<string> $physicalKeys
+     *
+     * @return array<string, int>
+     */
+    private static function legacyResetCutoffsForSources(int $tenantRecordId, array $physicalKeys, ?string $e3JobId): array
+    {
+        if (!DeltaStateRepository::resetsTableReady()) {
+            return [];
+        }
+        $lookupKeys = [];
+        foreach ($physicalKeys as $physicalKey) {
+            $lookupKeys[] = $physicalKey;
+            $base = PhysicalKeyHelper::baseKey($physicalKey);
+            if ($base !== $physicalKey) {
+                $lookupKeys[] = $base;
+            }
+        }
+        $stored = DeltaStateRepository::getResetCutoffsForSources(
+            $tenantRecordId,
+            array_values(array_unique($lookupKeys)),
+            $e3JobId,
+        );
+        $out = [];
+        foreach ($physicalKeys as $physicalKey) {
+            $base = PhysicalKeyHelper::baseKey($physicalKey);
+            $resetAt = max($stored[$physicalKey] ?? 0, $stored[$base] ?? 0);
+            if ($resetAt > 0) {
+                $out[$physicalKey] = $resetAt;
+            }
+        }
+
+        return $out;
+    }
+
+    private static function legacyResetCutoffForSource(int $tenantRecordId, string $physicalKey, ?string $e3JobId): int
+    {
+        $cutoffs = self::legacyResetCutoffsForSources($tenantRecordId, [$physicalKey], $e3JobId);
+
+        return $cutoffs[$physicalKey] ?? 0;
     }
 
     /** @param array<string, mixed> $workloads */
@@ -1093,6 +1140,10 @@ final class WorkerClaimService
             } else {
                 $q->where('e3_job_id', $e3JobId);
             }
+        }
+        $resetAt = self::legacyResetCutoffForSource($tenantRecordId, $physicalKey, $e3JobId);
+        if ($resetAt > 0) {
+            DeltaStateRepository::applyLegacyCutoff($q, $resetAt);
         }
         $raw = $q->orderByDesc('finished_at')->value('delta_states_json');
         if (!is_string($raw) || $raw === '') {

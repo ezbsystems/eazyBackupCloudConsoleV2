@@ -249,6 +249,10 @@ PHP admin/verify and Go backup worker share the same detection rules:
 |----------|-------------------|--------|
 | mail | per `folderId` | Per-folder `messages/delta` |
 | onedrive / sharepoint / sharepoint_lists | per drive/list id | `driveItem` / `listItem` delta |
+
+**SharePoint baseline proof (worker 0.4.26+):** Incremental SharePoint drive sync requires baseline proof before honoring a prior delta token. Proof is either a live content tree under `{tenant}/sites/{siteId}/drives/{driveId}/content/` (non-sharded runs) or a hidden shard-aware `.catalog` marker at `…/content/.catalog` written only after a **completed** full delta that returned a terminal `@odata.deltaLink`. Duplicate-page and pagination-cap soft-stops never write the marker and do not advance the token. Unproven drives preflight to an empty cursor (full rebaseline) even when Graph would return changed items on the poisoned incremental.
+
+**Delta reset tombstones (PHP 1.52.40+):** `ms365_delta_resets` records audited resets per `(tenant_record_id, e3_job_id, physical_key)`. A reset deletes canonical `ms365_delta_state` rows and sets `reset_at`; legacy `delta_states_json` from successful runs with `finished_at <= reset_at` are ignored during claim fallback. Runs completed after `reset_at` may become the new legacy source. CLI: `bin/ms365_delta_reset.php` (dry-run default; `--apply` required).
 | contacts | per `folderId` | `contacts/delta`; 410 → re-baseline |
 | tasks | per `listId` | `tasks/delta` |
 | teams | per `channelId` | `messages/delta` |
@@ -457,7 +461,7 @@ Run `status` values: `queued`, `running`, `success`, `error`, `cancelled`, `skip
 - **Engine:** `SharePointSiteBackupEngine` — phases `sharepoint_files`, `sharepoint_lists`.
 - **Services:** `SharePointFilesBackupService` (all document libraries via `DocumentLibraryBackupService` + `SiteDriveStorage`), `SharePointListsBackupService` (per-list `items/delta`).
 - **Physical job:** `site:{siteId}` when **Files** and/or **Lists** scope enabled; Team + Site selection dedupes to one site run (`logical_sources` lists all picker rows).
-- **Storage:** `{tenant}/sites/{safeSiteId}/drives/{driveId}/…`, `lists/{listId}/items/…`, catalogs `drives.json`, `lists/lists.json`.
+- **Storage:** `{tenant}/sites/{safeSiteId}/drives/{driveId}/…`, `lists/{listId}/items/…`, catalogs `drives.json`, `lists/lists.json`; per-drive empty-library proof via hidden `content/.catalog` (shard-aware).
 - **Refactor:** `DriveItemStorage` interface; `PersonalDriveStorage` (OneDrive), `SiteDriveStorage` (SharePoint libraries).
 - **Azure:** `Sites.Read.All` + `Files.Read.All` (existing).
 

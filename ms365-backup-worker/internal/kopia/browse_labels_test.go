@@ -663,6 +663,9 @@ func TestShouldHideListsJson(t *testing.T) {
 	if !shouldHideBrowseName("drives.json") {
 		t.Fatal("drives.json should be hidden from browse")
 	}
+	if !shouldHideBrowseName(".catalog") {
+		t.Fatal(".catalog should be hidden from browse")
+	}
 	if shouldHideBrowseName("Budget.xlsx") {
 		t.Fatal("regular files should not be hidden")
 	}

@@ -60,6 +60,263 @@ func TestShouldForceSharePointFullResyncHealthyContent(t *testing.T) {
 	}
 }
 
+func TestShouldForceSharePointFullResyncIncrementalWithItemsNoProof(t *testing.T) {
+	opts := SharePointSyncOptions{
+		AzureTenantID: "tenant-1",
+		SiteID:        "site1",
+		Staging:       graphfs.NewOverlayBuilder(),
+	}
+	res := &sharePointDriveResult{items: 5}
+	if !shouldForceSharePointFullResync(opts, "b!drive", "https://graph/delta?token=poison", res) {
+		t.Fatal("expected full resync when baseline proof is absent even if incremental returned items")
+	}
+}
+
+func TestShouldForceSharePointFullResyncValidCatalogMarker(t *testing.T) {
+	staging := graphfs.NewOverlayBuilder()
+	markerPath := sharePointCatalogMarkerPath("tenant-1", "site1", "b!drive")
+	staging.PutJSON(markerPath, []byte(`{"v":1,"files":0,"shard_index":0,"shard_total":1}`), time.Now())
+	opts := SharePointSyncOptions{
+		AzureTenantID: "tenant-1",
+		SiteID:        "site1",
+		Staging:       staging,
+	}
+	res := &sharePointDriveResult{items: 0}
+	if shouldForceSharePointFullResync(opts, "b!drive", "https://graph/delta?token=ok", res) {
+		t.Fatal("expected no resync when valid catalog marker exists")
+	}
+}
+
+func TestSharePointCatalogMarkerShardIdentity(t *testing.T) {
+	staging := graphfs.NewOverlayBuilder()
+	markerPath := sharePointCatalogMarkerPath("tenant-1", "site1", "b!drive")
+	staging.PutJSON(markerPath, []byte(`{"v":1,"files":0,"shard_index":1,"shard_total":4}`), time.Now())
+	opts := SharePointSyncOptions{
+		AzureTenantID: "tenant-1",
+		SiteID:        "site1",
+		Staging:       staging,
+		Shard:         ShardFilter{Index: 2, Total: 4},
+	}
+	if validSharePointCatalogMarker(opts, "b!drive") {
+		t.Fatal("marker for shard 1/4 must not validate for shard 2/4")
+	}
+	opts.Shard = ShardFilter{Index: 1, Total: 4}
+	if !validSharePointCatalogMarker(opts, "b!drive") {
+		t.Fatal("marker for shard 1/4 must validate for shard 1/4")
+	}
+}
+
+func TestSyncSharePointPreflightRebaselineWhenIncrementalWouldReturnItems(t *testing.T) {
+	driveID := "b!preflight-drive"
+	var deltaCalls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path
+		switch {
+		case path == "/drives/"+driveID:
+			payload, _ := json.Marshal(map[string]any{"id": driveID, "name": "Documents"})
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write(payload)
+		case strings.Contains(path, "/drives/") && strings.HasSuffix(path, "/root/delta"):
+			deltaCalls++
+			if strings.Contains(r.URL.String(), "token=poison") {
+				t.Fatal("incremental delta must not run when baseline proof is absent")
+			}
+			w.Header().Set("Content-Type", "application/json")
+			payload, _ := json.Marshal(map[string]any{
+				"value": []map[string]any{
+					{"id": "file-1", "name": "doc.pdf", "size": float64(42), "file": map[string]any{}},
+				},
+				"@odata.deltaLink": "http://" + r.Host + "/drives/" + driveID + "/root/delta?token=fresh",
+			})
+			_, _ = w.Write(payload)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	client := graph.NewTestClient(srv.URL, graph.ClientOptions{MaxRetries: 2, MaxConcurrency: 8})
+	staging := graphfs.NewOverlayBuilder()
+	staging.PutJSON(siteStoragePath("tenant-1", "site1")+"/_site.json", []byte(`{}`), time.Now())
+	res, err := SyncSharePoint(context.Background(), client, SharePointSyncOptions{
+		AzureTenantID: "tenant-1",
+		SiteID:        "site1",
+		DriveID:       driveID,
+		DeltaStates:   map[string]string{driveID: "https://graph/delta?token=poison"},
+		Staging:       staging,
+	})
+	if err != nil {
+		t.Fatalf("SyncSharePoint: %v", err)
+	}
+	if deltaCalls != 1 {
+		t.Fatalf("delta calls = %d, want 1 full baseline", deltaCalls)
+	}
+	if res.Stats["full_resync"] != 1 {
+		t.Fatalf("full_resync = %d, want 1", res.Stats["full_resync"])
+	}
+}
+
+func TestSyncSharePointEmptyFullScanWritesCatalogMarker(t *testing.T) {
+	driveID := "b!empty-drive"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path
+		switch {
+		case path == "/drives/"+driveID:
+			payload, _ := json.Marshal(map[string]any{"id": driveID, "name": "Documents"})
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write(payload)
+		case strings.Contains(path, "/drives/") && strings.HasSuffix(path, "/root/delta"):
+			payload, _ := json.Marshal(map[string]any{
+				"value":            []map[string]any{},
+				"@odata.deltaLink": "http://" + r.Host + "/drives/" + driveID + "/root/delta?token=empty",
+			})
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write(payload)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	client := graph.NewTestClient(srv.URL, graph.ClientOptions{MaxRetries: 2, MaxConcurrency: 8})
+	staging := graphfs.NewOverlayBuilder()
+	res, err := SyncSharePoint(context.Background(), client, SharePointSyncOptions{
+		AzureTenantID: "tenant-1",
+		SiteID:        "site1",
+		DriveID:       driveID,
+		Staging:       staging,
+	})
+	if err != nil {
+		t.Fatalf("SyncSharePoint: %v", err)
+	}
+	markerPath := sharePointCatalogMarkerPath("tenant-1", "site1", driveID)
+	if !staging.HasPath(markerPath) {
+		t.Fatalf("expected catalog marker at %s", markerPath)
+	}
+	priorDelta := res.DeltaStates[driveID]
+	if priorDelta == "" {
+		t.Fatal("expected delta link from first full scan")
+	}
+
+	var deltaCalls int
+	srv2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/root/delta") {
+			deltaCalls++
+			payload, _ := json.Marshal(map[string]any{
+				"value":            []map[string]any{},
+				"@odata.deltaLink": "http://" + r.Host + "/drives/" + driveID + "/root/delta?token=still-empty",
+			})
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write(payload)
+		}
+	}))
+	defer srv2.Close()
+	client2 := graph.NewTestClient(srv2.URL, graph.ClientOptions{MaxRetries: 2, MaxConcurrency: 8})
+	res, err = SyncSharePoint(context.Background(), client2, SharePointSyncOptions{
+		AzureTenantID: "tenant-1",
+		SiteID:        "site1",
+		DriveID:       driveID,
+		DeltaStates:   map[string]string{driveID: strings.Replace(priorDelta, srv.URL, srv2.URL, 1)},
+		Staging:       staging,
+	})
+	if err != nil {
+		t.Fatalf("second SyncSharePoint: %v", err)
+	}
+	if deltaCalls != 1 {
+		t.Fatalf("second run delta calls = %d, want 1 incremental", deltaCalls)
+	}
+	if res.Stats["full_resync"] != 0 {
+		t.Fatalf("second run full_resync = %d, want 0", res.Stats["full_resync"])
+	}
+}
+
+func TestSyncSharePointSoftStopDoesNotWriteCatalog(t *testing.T) {
+	driveID := "b!soft-stop"
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path
+		switch {
+		case path == "/drives/"+driveID:
+			payload, _ := json.Marshal(map[string]any{"id": driveID, "name": "Documents"})
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write(payload)
+		case strings.Contains(path, "/drives/") && strings.HasSuffix(path, "/root/delta"):
+			calls++
+			w.Header().Set("Content-Type", "application/json")
+			if calls == 1 {
+				payload, _ := json.Marshal(map[string]any{
+					"value": []map[string]any{
+						{"id": "file-1", "name": "a.docx", "size": float64(10), "file": map[string]any{}},
+					},
+					"@odata.nextLink": "http://" + r.Host + "/drives/" + driveID + "/root/delta?page=2",
+				})
+				_, _ = w.Write(payload)
+				return
+			}
+			payload, _ := json.Marshal(map[string]any{
+				"value": []map[string]any{
+					{"id": "file-1", "name": "a.docx", "size": float64(10), "file": map[string]any{}},
+				},
+				"@odata.nextLink": "http://" + r.Host + "/drives/" + driveID + "/root/delta?page=3",
+			})
+			_, _ = w.Write(payload)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	client := graph.NewTestClient(srv.URL, graph.ClientOptions{MaxRetries: 2, MaxConcurrency: 8})
+	staging := graphfs.NewOverlayBuilder()
+	_, err := SyncSharePoint(context.Background(), client, SharePointSyncOptions{
+		AzureTenantID: "tenant-1",
+		SiteID:        "site1",
+		DriveID:       driveID,
+		Staging:       staging,
+	})
+	if err != nil {
+		t.Fatalf("SyncSharePoint: %v", err)
+	}
+	markerPath := sharePointCatalogMarkerPath("tenant-1", "site1", driveID)
+	if staging.HasPath(markerPath) {
+		t.Fatal("duplicate-page soft-stop must not write catalog marker")
+	}
+}
+
+func TestSyncSharePointFailedFullScanLeavesNoMarker(t *testing.T) {
+	driveID := "b!fail-drive"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path
+		switch {
+		case path == "/drives/"+driveID:
+			payload, _ := json.Marshal(map[string]any{"id": driveID, "name": "Documents"})
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write(payload)
+		case strings.Contains(path, "/root/delta"):
+			http.Error(w, "server error", http.StatusInternalServerError)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	client := graph.NewTestClient(srv.URL, graph.ClientOptions{MaxRetries: 0, MaxConcurrency: 8})
+	staging := graphfs.NewOverlayBuilder()
+	_, err := SyncSharePoint(context.Background(), client, SharePointSyncOptions{
+		AzureTenantID: "tenant-1",
+		SiteID:        "site1",
+		DriveID:       driveID,
+		Staging:       staging,
+	})
+	if err == nil {
+		t.Fatal("expected sync failure")
+	}
+	markerPath := sharePointCatalogMarkerPath("tenant-1", "site1", driveID)
+	if staging.HasPath(markerPath) {
+		t.Fatal("failed full scan must not write catalog marker")
+	}
+}
+
 func TestShouldForceSharePointFullResyncNoPriorDelta(t *testing.T) {
 	opts := SharePointSyncOptions{
 		AzureTenantID: "tenant-1",

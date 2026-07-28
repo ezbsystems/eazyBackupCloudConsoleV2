@@ -226,6 +226,107 @@ final class DeltaStateRepository
         return self::computeJobScope($e3JobId, $tenantRecordId)['scoped_job_id'];
     }
 
+    public static function resetsTableReady(): bool
+    {
+        return class_exists(Capsule::class) && Capsule::schema()->hasTable('ms365_delta_resets');
+    }
+
+    public static function recordReset(
+        int $tenantRecordId,
+        string $physicalKey,
+        ?string $e3JobId,
+        string $reason,
+        string $operator,
+    ): void {
+        if ($tenantRecordId <= 0 || $physicalKey === '' || !self::resetsTableReady()) {
+            return;
+        }
+        $scopedJobId = self::scopedJobId($e3JobId, $tenantRecordId);
+        $now = time();
+        Capsule::table('ms365_delta_resets')->insert([
+            'tenant_record_id' => $tenantRecordId,
+            'e3_job_id' => $scopedJobId,
+            'physical_key' => $physicalKey,
+            'reset_at' => $now,
+            'reason' => mb_substr(trim($reason), 0, 500),
+            'operator' => mb_substr(trim($operator), 0, 191),
+            'created_at' => $now,
+        ]);
+    }
+
+    public static function clearCanonicalForSource(int $tenantRecordId, string $physicalKey, ?string $e3JobId = null): int
+    {
+        if ($tenantRecordId <= 0 || $physicalKey === '' || !self::tableReady()) {
+            return 0;
+        }
+        $q = Capsule::table('ms365_delta_state')
+            ->where('tenant_record_id', $tenantRecordId)
+            ->where('physical_key', $physicalKey);
+        self::applyJobScope($q, $e3JobId, $tenantRecordId);
+
+        return $q->delete();
+    }
+
+    public static function resetActiveAt(int $tenantRecordId, string $physicalKey, ?string $e3JobId = null): ?int
+    {
+        $cutoffs = self::getResetCutoffsForSources($tenantRecordId, [$physicalKey], $e3JobId);
+
+        return $cutoffs[$physicalKey] ?? null;
+    }
+
+    /**
+     * @param list<string> $physicalKeys
+     *
+     * @return array<string, int> physical_key => reset_at
+     */
+    public static function getResetCutoffsForSources(int $tenantRecordId, array $physicalKeys, ?string $e3JobId = null): array
+    {
+        if ($tenantRecordId <= 0 || $physicalKeys === [] || !self::resetsTableReady()) {
+            return [];
+        }
+        $physicalKeys = array_values(array_unique(array_filter(
+            $physicalKeys,
+            static fn ($key) => is_string($key) && $key !== '',
+        )));
+        if ($physicalKeys === []) {
+            return [];
+        }
+
+        $scopedJobId = self::scopedJobId($e3JobId, $tenantRecordId);
+        $q = Capsule::table('ms365_delta_resets')
+            ->where('tenant_record_id', $tenantRecordId)
+            ->whereIn('physical_key', $physicalKeys);
+        if (self::resetsTableReady() && Capsule::schema()->hasColumn('ms365_delta_resets', 'e3_job_id')) {
+            if ($scopedJobId === null) {
+                $q->whereNull('e3_job_id');
+            } else {
+                $q->where('e3_job_id', $scopedJobId);
+            }
+        }
+        $rows = $q->orderByDesc('reset_at')->get(['physical_key', 'reset_at']);
+        $out = [];
+        foreach ($rows as $row) {
+            $physicalKey = (string) ($row->physical_key ?? '');
+            if ($physicalKey === '' || isset($out[$physicalKey])) {
+                continue;
+            }
+            $out[$physicalKey] = (int) ($row->reset_at ?? 0);
+        }
+
+        return $out;
+    }
+
+    /**
+     * @param \Illuminate\Database\Query\Builder $q
+     */
+    public static function applyLegacyCutoff($q, int $resetAt): void
+    {
+        if ($resetAt <= 0) {
+            return;
+        }
+        $q->where('finished_at', '>', $resetAt);
+    }
+
   /**
      * @param \Illuminate\Database\Query\Builder $q
      */

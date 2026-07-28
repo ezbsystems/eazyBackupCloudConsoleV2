@@ -746,4 +746,75 @@ try {
     cleanupBatchTestRows([$drainBatch], [$drainChild]);
 }
 
+$resetBatchRunIds = [];
+$resetRunIds = [];
+try {
+    if (!Capsule::schema()->hasTable('ms365_delta_resets')) {
+        $sqlFile = dirname(__DIR__) . '/sql/upgrade_phase25_delta_resets.sql';
+        $sql = file_get_contents($sqlFile);
+        if (is_string($sql) && $sql !== '') {
+            foreach (array_filter(array_map('trim', explode(';', $sql))) as $statement) {
+                if ($statement !== '') {
+                    Capsule::connection()->statement($statement);
+                }
+            }
+        }
+    }
+
+    $resetBatch = test_uuid('reset-batch');
+    $resetChild = test_uuid('reset-child');
+    $resetBatchRunIds[] = $resetBatch;
+    $resetRunIds[] = $resetChild;
+    $resetTenant = 1;
+    $resetJobId = test_uuid('reset-job');
+    $resetPhysical = 'drive:' . test_uuid('reset-drive');
+    $resetFinished = time() - 3600;
+
+    insertTestRun($resetChild, [
+        'tenant_record_id' => $resetTenant,
+        'e3_batch_run_id' => $resetBatch,
+        'physical_key' => $resetPhysical,
+        'resource_id' => $resetPhysical,
+        'graph_id' => 'reset-drive',
+        'e3_job_id' => $resetJobId,
+        'scope_json' => json_encode(['files' => true, '_site_id' => 'site-reset', '_drive_id' => substr($resetPhysical, 6)]),
+    ]);
+    insertTestQueue($resetChild);
+
+    Capsule::table('ms365_backup_runs')->insert([
+        'id' => test_uuid('reset-legacy-run'),
+        'status' => 'success',
+        'phase' => 'done',
+        'physical_key' => $resetPhysical,
+        'tenant_record_id' => $resetTenant,
+        'whmcs_client_id' => 1,
+        'e3_job_id' => $resetJobId,
+        'delta_states_json' => json_encode(['sharepoint' => [substr($resetPhysical, 6) => 'https://graph.test/delta/pre-reset']], JSON_UNESCAPED_SLASHES),
+        'finished_at' => $resetFinished,
+        'created_at' => $resetFinished,
+        'updated_at' => $resetFinished,
+    ]);
+
+    DeltaStateRepository::recordReset($resetTenant, $resetPhysical, $resetJobId, 'batch claim test', 'phpunit');
+    DeltaStateRepository::clearCanonicalForSource($resetTenant, $resetPhysical, $resetJobId);
+
+    $payload = WorkerClaimService::buildRunPayload($resetChild);
+    $delta = $payload['delta_states'] ?? null;
+    if ($delta instanceof stdClass) {
+        $delta = (array) $delta;
+    }
+    assert_true(is_array($delta) && $delta === [], 'batch claim omits pre-reset legacy SharePoint delta after tombstone');
+
+    Capsule::table('ms365_backup_runs')
+        ->where('physical_key', $resetPhysical)
+        ->where('status', 'success')
+        ->delete();
+    Capsule::table('ms365_delta_resets')
+        ->where('tenant_record_id', $resetTenant)
+        ->where('physical_key', $resetPhysical)
+        ->delete();
+} finally {
+    cleanupBatchTestRows($resetBatchRunIds, $resetRunIds);
+}
+
 exit($failures > 0 ? 1 : 0);
