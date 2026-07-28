@@ -41,6 +41,49 @@ final class Ms365RestoreWorkerHooks
         if ($batchRunId === '' || $nodeId === '') {
             return 0;
         }
+        // #region agent log
+        if ($batchRunId === '57aaa06e-f872-4388-849d-98a4bff3b792') {
+            $phaseCounts = [];
+            $noProgressCount = 0;
+            $itemsDone = 0;
+            $bytesHashed = 0;
+            $bytesUploaded = 0;
+            $graphRequests = 0;
+            $graph429Hits = 0;
+            foreach ($children as $debugChild) {
+                if (!is_array($debugChild)) {
+                    continue;
+                }
+                $debugPhase = trim((string) ($debugChild['phase'] ?? ''));
+                $phaseCounts[$debugPhase] = ($phaseCounts[$debugPhase] ?? 0) + 1;
+                $noProgressCount += !empty($debugChild['no_progress']) ? 1 : 0;
+                $itemsDone += (int) ($debugChild['items_done'] ?? 0);
+                $bytesHashed += (int) ($debugChild['bytes_hashed'] ?? 0);
+                $bytesUploaded += (int) ($debugChild['bytes_uploaded'] ?? 0);
+                $graphRequests = max($graphRequests, (int) ($debugChild['graph_requests'] ?? 0));
+                $graph429Hits = max($graph429Hits, (int) ($debugChild['graph_429_hits'] ?? 0));
+            }
+            @file_put_contents('/var/www/eazybackup.ca/.cursor/debug-289953.log', json_encode([
+                'sessionId' => '289953',
+                'runId' => $batchRunId,
+                'hypothesisId' => 'H1-H4',
+                'location' => 'Ms365RestoreWorkerHooks.php:onBatchProgress',
+                'message' => 'Active batch progress boundary',
+                'data' => [
+                    'node_id' => $nodeId,
+                    'child_count' => count($children),
+                    'phase_counts' => $phaseCounts,
+                    'no_progress_count' => $noProgressCount,
+                    'items_done' => $itemsDone,
+                    'bytes_hashed' => $bytesHashed,
+                    'bytes_uploaded' => $bytesUploaded,
+                    'graph_requests' => $graphRequests,
+                    'graph_429_hits' => $graph429Hits,
+                ],
+                'timestamp' => (int) floor(microtime(true) * 1000),
+            ], JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE) . PHP_EOL, FILE_APPEND | LOCK_EX);
+        }
+        // #endregion
         WorkerLeaseService::renewForBatch($batchRunId, $nodeId);
         Ms365BatchClaimRepository::recordProgress($batchRunId, $nodeId);
 
