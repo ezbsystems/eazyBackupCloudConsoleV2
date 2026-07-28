@@ -318,13 +318,167 @@ func TestMailAttachmentFolderLabels(t *testing.T) {
 
 func TestIsMailMessageAttachmentFolder(t *testing.T) {
 	if !isMailMessageAttachmentFolder("users/u1/mail/inbox/msg1", "msg1") {
-		t.Fatal("expected attachment folder")
+		t.Fatal("expected current-layout attachment folder")
+	}
+	if !isMailMessageAttachmentFolder("users/u1/mail/messages/inbox/msg1", "msg1") {
+		t.Fatal("expected historical mail/messages/ attachment folder")
 	}
 	if isMailMessageAttachmentFolder("users/u1/mail/inbox", "inbox") {
 		t.Fatal("mail folder should not match")
 	}
 	if isMailMessageAttachmentFolder("users/u1/mail/inbox/msg1/attachments", "attachments") {
 		t.Fatal("nested attachment path should not match")
+	}
+	if isMailMessageAttachmentFolder("users/u1/mail/messages/inbox", "inbox") {
+		t.Fatal("historical mail folder should not match")
+	}
+}
+
+func TestMailAttachmentFolderLabelsHistoricalLayout(t *testing.T) {
+	ctx := context.Background()
+	msgID := "AAMkAGHistoricalMsg"
+	root := newMemDir("", map[string]kopiafs.Entry{
+		"users": newMemDir("users", map[string]kopiafs.Entry{
+			"u1": newMemDir("u1", map[string]kopiafs.Entry{
+				"mail": newMemDir("mail", map[string]kopiafs.Entry{
+					"messages": newMemDir("messages", map[string]kopiafs.Entry{
+						"inbox": newMemDir("inbox", map[string]kopiafs.Entry{
+							msgID + ".json": newMemFile(msgID+".json", []byte(`{
+								"subject":"Legacy layout report",
+								"receivedDateTime":"2025-06-11T15:39:00Z",
+								"from":{"emailAddress":{"name":"Archive","address":"archive@contoso.com"}}
+							}`)),
+							msgID: newMemDir(msgID, map[string]kopiafs.Entry{
+								"attachments": newMemDir("attachments", map[string]kopiafs.Entry{}),
+							}),
+						}),
+					}),
+				}),
+			}),
+		}),
+	})
+
+	folderPath := "users/u1/mail/messages/inbox/" + msgID
+	got := mailAttachmentFolderLabels(ctx, root, folderPath, msgID)
+	if got.Label != "Legacy layout report" {
+		t.Fatalf("label: got %q", got.Label)
+	}
+	if !strings.Contains(got.Subtitle, "Attachments") {
+		t.Fatalf("subtitle: got %q", got.Subtitle)
+	}
+}
+
+func TestBrowseMailPartialIndexFallsThroughToMessageJSON(t *testing.T) {
+	ctx := context.Background()
+	inboxPath := "users/u1/mail/inbox"
+	indexedMsgID := "AQMkAGIndexedOnly"
+	missingMsgID := "AQMkAGNotInIndex"
+	index := mailBrowseIndex{
+		Version: mailBrowseIndexVersion,
+		Messages: map[string]mailBrowseIndexEntry{
+			safeSnapshotID(indexedMsgID): {
+				ID:               indexedMsgID,
+				Subject:          "From index",
+				FromAddress:      "index@contoso.com",
+				ReceivedDateTime: "2025-07-01T10:00:00Z",
+			},
+		},
+	}
+	raw, _ := json.Marshal(index)
+	children := map[string]kopiafs.Entry{
+		"_browse.json": newMemFile("_browse.json", raw),
+		indexedMsgID + ".json": newMemFile(indexedMsgID+".json", []byte(`{"subject":"Should not read"}`)),
+		missingMsgID + ".json": newMemFile(missingMsgID+".json", []byte(`{
+			"subject":"From message JSON",
+			"receivedDateTime":"2025-06-11T15:39:00Z",
+			"from":{"emailAddress":{"name":"Sender","address":"sender@contoso.com"}}
+		}`)),
+	}
+	root := buildMemPath(strings.Split(inboxPath, "/"), children)
+	resolver := loadMailBrowseResolver(ctx, root, inboxPath)
+	if !resolver.hasIndex() {
+		t.Fatal("expected browse index")
+	}
+
+	indexedPath := inboxPath + "/" + indexedMsgID + ".json"
+	indexedGot := labelBrowseChild(ctx, root, indexedPath, indexedMsgID+".json", "file", true, resolver)
+	if indexedGot.Label != "From index" {
+		t.Fatalf("indexed label: got %q", indexedGot.Label)
+	}
+
+	missingPath := inboxPath + "/" + missingMsgID + ".json"
+	missingGot := labelBrowseChild(ctx, root, missingPath, missingMsgID+".json", "file", true, resolver)
+	if missingGot.Label == "Email message" {
+		t.Fatal("partial index miss must not return generic Email message")
+	}
+	if missingGot.Label != "From message JSON" {
+		t.Fatalf("missing index entry label: got %q", missingGot.Label)
+	}
+	if !strings.Contains(missingGot.Subtitle, "Sender") {
+		t.Fatalf("missing index entry subtitle: got %q", missingGot.Subtitle)
+	}
+}
+
+func TestBrowseMailPartialIndexAttachmentFolderFallsThrough(t *testing.T) {
+	ctx := context.Background()
+	inboxPath := "users/u1/mail/inbox"
+	msgID := "AQMkAGMissingFromIndex"
+	index := mailBrowseIndex{
+		Version:  mailBrowseIndexVersion,
+		Messages: map[string]mailBrowseIndexEntry{},
+	}
+	raw, _ := json.Marshal(index)
+	children := map[string]kopiafs.Entry{
+		"_browse.json": newMemFile("_browse.json", raw),
+		msgID + ".json": newMemFile(msgID+".json", []byte(`{
+			"subject":"Attachment folder subject",
+			"receivedDateTime":"2025-06-11T15:39:00Z",
+			"from":{"emailAddress":{"name":"Ops","address":"ops@contoso.com"}}
+		}`)),
+		msgID: newMemDir(msgID, map[string]kopiafs.Entry{
+			"attachments": newMemDir("attachments", map[string]kopiafs.Entry{}),
+		}),
+	}
+	root := buildMemPath(strings.Split(inboxPath, "/"), children)
+	resolver := loadMailBrowseResolver(ctx, root, inboxPath)
+
+	folderPath := inboxPath + "/" + msgID
+	got := labelBrowseChild(ctx, root, folderPath, msgID, "folder", true, resolver)
+	if got.Label != "Attachment folder subject" {
+		t.Fatalf("attachment folder label: got %q", got.Label)
+	}
+	if !strings.Contains(got.Subtitle, "Attachments") {
+		t.Fatalf("attachment folder subtitle: got %q", got.Subtitle)
+	}
+}
+
+func TestBrowseMailHistoricalLayoutAttachmentFolderWithResolver(t *testing.T) {
+	ctx := context.Background()
+	inboxPath := "users/u1/mail/messages/inbox"
+	msgID := "AAMkAGHistoricalMsg"
+	index := mailBrowseIndex{
+		Version:  mailBrowseIndexVersion,
+		Messages: map[string]mailBrowseIndexEntry{},
+	}
+	raw, _ := json.Marshal(index)
+	children := map[string]kopiafs.Entry{
+		"_browse.json": newMemFile("_browse.json", raw),
+		msgID + ".json": newMemFile(msgID+".json", []byte(`{
+			"subject":"Historical snapshot subject",
+			"receivedDateTime":"2025-06-11T15:39:00Z",
+			"from":{"emailAddress":{"name":"Legacy","address":"legacy@contoso.com"}}
+		}`)),
+		msgID: newMemDir(msgID, map[string]kopiafs.Entry{
+			"attachments": newMemDir("attachments", map[string]kopiafs.Entry{}),
+		}),
+	}
+	root := buildMemPath(strings.Split(inboxPath, "/"), children)
+	resolver := loadMailBrowseResolver(ctx, root, inboxPath)
+
+	folderPath := inboxPath + "/" + msgID
+	got := labelBrowseChild(ctx, root, folderPath, msgID, "folder", true, resolver)
+	if got.Label != "Historical snapshot subject" {
+		t.Fatalf("historical attachment folder label: got %q", got.Label)
 	}
 }
 
@@ -639,6 +793,32 @@ func TestAttachmentsFolderLabel(t *testing.T) {
 	got := browseLabel(ctx, nil, nil, root, path, "attachments", "folder")
 	if got.Label != "Attachments" {
 		t.Fatalf("label: got %q", got.Label)
+	}
+}
+
+func TestMailMessageLabelsLargeMetadataFile(t *testing.T) {
+	ctx := context.Background()
+	msgID := "AQMkLargeBodyMsg"
+	padding := strings.Repeat("x", 80*1024)
+	raw := `{"body":{"contentType":"html","content":"` + padding + `"},"subject":"Subject after large body","receivedDateTime":"2025-06-11T15:39:00Z","from":{"emailAddress":{"name":"Big Mail","address":"big@contoso.com"}}}`
+	root := newMemDir("", map[string]kopiafs.Entry{
+		"users": newMemDir("users", map[string]kopiafs.Entry{
+			"u1": newMemDir("u1", map[string]kopiafs.Entry{
+				"mail": newMemDir("mail", map[string]kopiafs.Entry{
+					"inbox": newMemDir("inbox", map[string]kopiafs.Entry{
+						msgID + ".json": newMemFile(msgID+".json", []byte(raw)),
+					}),
+				}),
+			}),
+		}),
+	})
+
+	got := mailMessageLabels(ctx, root, "users/u1/mail/inbox/"+msgID+".json")
+	if got.Label != "Subject after large body" {
+		t.Fatalf("large metadata label: got %q", got.Label)
+	}
+	if !strings.Contains(got.Subtitle, "Big Mail") {
+		t.Fatalf("large metadata subtitle: got %q", got.Subtitle)
 	}
 }
 

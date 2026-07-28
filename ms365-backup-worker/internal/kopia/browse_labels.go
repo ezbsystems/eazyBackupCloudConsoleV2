@@ -17,6 +17,12 @@ import (
 
 const browseMetaReadLimit = 64 * 1024
 
+// mailMetadataFullReadLimit allows reading complete mail sidecar JSON when the
+// file is still small enough to keep browse responsive. Graph message metadata
+// normally places subject/from near the top, but large HTML bodies can push
+// fields past browseMetaReadLimit and break JSON parsing on prefix reads.
+const mailMetadataFullReadLimit = 256 * 1024
+
 var (
 	reMailSubject      = regexp.MustCompile(`"subject"\s*:\s*"((?:\\.|[^"\\])*)"`)
 	reReceivedTime     = regexp.MustCompile(`"receivedDateTime"\s*:\s*"([^"]+)"`)
@@ -239,11 +245,27 @@ func isGuidLike(value string) bool {
 }
 
 func mailMessageLabels(ctx context.Context, root kopiafs.Directory, filePath string) browseLabelResult {
-	buf, err := readFilePrefix(ctx, root, filePath, browseMetaReadLimit)
+	buf, err := readMailMetadataFile(ctx, root, filePath)
 	if err != nil || len(buf) == 0 {
 		return browseLabelResult{Label: "Email message"}
 	}
 	return formatMailMessageLabels(parseMailMetadata(buf))
+}
+
+func readMailMetadataFile(ctx context.Context, root kopiafs.Directory, filePath string) ([]byte, error) {
+	entry, err := walkPath(ctx, root, filePath)
+	if err != nil {
+		return nil, err
+	}
+	file, ok := entry.(kopiafs.File)
+	if !ok {
+		return nil, io.EOF
+	}
+	limit := int64(browseMetaReadLimit)
+	if size := file.Size(); size > 0 && size <= mailMetadataFullReadLimit {
+		limit = size
+	}
+	return readFilePrefix(ctx, root, filePath, limit)
 }
 
 func contactMessageLabels(ctx context.Context, root kopiafs.Directory, filePath string) browseLabelResult {
@@ -336,6 +358,12 @@ func isMailMessageAttachmentFolder(folderPath, name string) bool {
 	for i, part := range parts {
 		if part != "mail" {
 			continue
+		}
+		if i+1 < len(parts) && parts[i+1] == "messages" {
+			if i+3 >= len(parts) {
+				return false
+			}
+			return parts[i+3] == name && i+4 == len(parts)
 		}
 		if i+2 >= len(parts) {
 			return false

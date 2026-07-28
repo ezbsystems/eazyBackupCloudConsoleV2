@@ -5,11 +5,28 @@
 **Last updated:** 2026-07-28
 **Module version (ms365backup):** 1.52.36
 **Cloudstorage (e3) version:** 2.2.0  
-**Worker version (ms365-backup-worker):** 0.4.21 (Kopia v0.23.1)
+**Worker version (ms365-backup-worker):** 0.4.22 (Kopia v0.23.1)
 
 ---
 
 ## Session log
+
+### 2026-07-28 — Mail restore browse labels (worker 0.4.22)
+
+- **Problem:** Restore wizard showed generic **Mail** folder / **Email message** labels when Graph metadata (subject, folder display name) existed in the snapshot.
+- **Root cause:** Partial `_browse.json` index treated a miss as final; attachment-folder detection ignored historical `mail/messages/…` layout; deleted/replaced messages left orphan attachment subtrees; PHP browse cache served stale generic labels.
+- **Fix summary:**
+  - Go browse: index miss falls through to sibling message JSON; dual mail layout support in `browse_labels.go` / `browse_mail.go`.
+  - Go backup: `mailMessageAttachmentPrefix` + `RemovePrefix` on tombstone/update in `graphsync/mail.go`.
+  - PHP: `v21-mail-layout-compat` cache key; historical `mail/messages/` path in `RestoreTreeBrowseService.php`.
+- **Files touched:** `internal/kopia/browse_mail.go`, `browse_labels.go`, `*_test.go`; `internal/graphsync/mail.go`, `mail_test.go`; `RestoreTreeBrowseService.php`, `ms365_restore_tree_browse_test.php`; `Docs/ARCHITECTURE.md`, `AZURE_SETUP.md`, `PROGRESS.md`; `internal/version/version.go`.
+- **Verify:**
+  - `cd ms365-backup-worker && go test ./... && go build ./...`
+  - `php accounts/modules/addons/ms365backup/tests/ms365_restore_tree_browse_test.php`
+  - `php accounts/modules/addons/ms365backup/tests/ms365_browse_binary_installer_test.php` (if present)
+  - Dev: build worker, run `bin/ms365_install_browse_binary.php`, confirm via `bin/ms365_browse_binary_diag.php`
+  - Restore wizard: current + historical/mixed snapshots — folder names, message subjects, `(No subject)` when appropriate
+- **Worker:** **0.4.22** (dev browse binary sync only; **no production deploy**).
 
 ### 2026-07-28 — MS365 wizard inventory UX + Add User modal layout (cloudstorage 2.2.0)
 

@@ -250,6 +250,7 @@ func SyncMail(ctx context.Context, client *graph.Client, opts MailSyncOptions) (
 					opts.Staging.PutJSON(tombPath, body, graphfsModTime(item["lastModifiedDateTime"]))
 					livePath := fmt.Sprintf("%s/users/%s/mail/%s/%s.json", opts.AzureTenantID, opts.UserID, safeID(folderID), safeID(msgID))
 					opts.Staging.Remove(livePath)
+					opts.Staging.RemovePrefix(mailMessageAttachmentPrefix(opts.AzureTenantID, opts.UserID, folderID, msgID))
 					removeBrowseIndex(msgID)
 					mu.Lock()
 					stats.Removed++
@@ -361,6 +362,7 @@ func SyncMail(ctx context.Context, client *graph.Client, opts MailSyncOptions) (
 }
 
 func syncMailAttachments(ctx context.Context, client *graph.Client, opts MailSyncOptions, folderID, msgID string, item map[string]any, mu *sync.Mutex, stats *MailStats, bytesTotal *int64, onStored func()) error {
+	opts.Staging.RemovePrefix(mailMessageAttachmentPrefix(opts.AzureTenantID, opts.UserID, folderID, msgID))
 	hasAttachments, _ := item["hasAttachments"].(bool)
 	if !hasAttachments {
 		return nil
@@ -420,6 +422,10 @@ func minInt(a, b int) int {
 
 func mailBrowseIndexPath(tenantID, userID, folderID string) string {
 	return fmt.Sprintf("%s/users/%s/mail/%s/_browse.json", tenantID, userID, safeID(folderID))
+}
+
+func mailMessageAttachmentPrefix(tenantID, userID, folderID, msgID string) string {
+	return fmt.Sprintf("%s/users/%s/mail/%s/%s/", tenantID, userID, safeID(folderID), safeID(msgID))
 }
 
 func loadMailBrowseIndex(staging *graphfs.OverlayBuilder, path string) mailBrowseIndex {

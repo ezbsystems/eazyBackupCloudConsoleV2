@@ -135,6 +135,27 @@ assert_eq(
     'attachment message folder keeps worker-provided subject'
 );
 
+$historicalMailMsgPath = $tenantId . '/users/user-1/mail/messages/inbox/' . $opaqueMsgId;
+
+assert_eq(
+    'Project kickoff',
+    $resolveMailLabel->invoke(null, 'Project kickoff', $opaqueMsgId, $historicalMailMsgPath, true),
+    'historical layout attachment message folder keeps worker-provided subject'
+);
+
+assert_eq(
+    'Email message',
+    $resolveMailLabel->invoke(null, $opaqueMsgId, $opaqueMsgId, $historicalMailMsgPath, true),
+    'historical layout opaque attachment-bearing message folder falls back to Email message'
+);
+
+$isMailMsgAttachmentFolder = $ref->getMethod('isMailMessageAttachmentFolderPath');
+$isMailMsgAttachmentFolder->setAccessible(true);
+assert_true(
+    $isMailMsgAttachmentFolder->invoke(null, $historicalMailMsgPath, $opaqueMsgId),
+    'isMailMessageAttachmentFolderPath recognizes historical mail/messages layout'
+);
+
 assert_eq(
     'Attachments',
     $resolveMailLabel->invoke(null, 'Folder', 'attachments', $mailMsgPath, true),

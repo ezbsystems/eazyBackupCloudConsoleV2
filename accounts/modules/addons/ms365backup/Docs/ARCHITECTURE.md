@@ -272,9 +272,14 @@ PHP admin/verify and Go backup worker share the same detection rules:
       teams.json
       inventory.json          # unified resource inventory (Phase 1 picker)
     users/{graph_user_id}/
-      mail/
+      mail/                         # see "Mail snapshot layout" (current + historical paths)
         folders.json
-        messages/{folder_id}/{message_id}.json
+        {folder_id}/                # current Go worker per-folder tree
+          _folder.json, _browse.json
+          {message_id}.json
+          {message_id}/attachments/…
+        messages/{folder_id}/       # historical legacy PHP StorageLayout (MergePrior)
+          {message_id}.json
       calendars/{calendar_id}/
         backup_state.json       # complete flag, scanMode, partition manifest
         events/{immutable_event_id}.json
@@ -287,6 +292,33 @@ PHP admin/verify and Go backup worker share the same detection rules:
 ```
 
 Run metadata and live logs are in MySQL for the admin UI; payload data lives under `users/{id}/mail` and `users/{id}/calendars`.
+
+### Mail snapshot layout (Kopia worker)
+
+Restore browse labels (folder display names, message subjects) are resolved from staged snapshot paths inside each Kopia manifest. Two on-disk layouts coexist in production snapshots:
+
+| Layout | Message JSON | Folder metadata | Attachments |
+|--------|----------------|-----------------|-----------|
+| **Current (Go worker)** | `{tenant}/users/{userId}/mail/{folderId}/{messageId}.json` | `folders.json`, per-folder `_folder.json` and `_browse.json` (subject/index sidecar) | `{tenant}/users/{userId}/mail/{folderId}/{msgId}/attachments/{fileName}` |
+| **Historical (legacy PHP)** | `{tenant}/users/{userId}/mail/messages/{folderId}/{messageId}.json` | `folders.json` only (no `_browse.json`) | Same tree shape under `mail/messages/{folderId}/{msgId}/attachments/` |
+
+- **Incrementals:** `MergePrior` copies prior snapshot trees forward, so older `mail/messages/…` paths remain readable until messages are rewritten under the current layout.
+- **Browse:** Go `browse` CLI and PHP `RestoreTreeBrowseService` recognize both layouts for attachment-folder detection; a partial `_browse.json` index miss falls through to the sibling message JSON for the subject.
+- **Delta tokens:** Per-folder `@odata.deltaLink` values are stored in MySQL (`ms365_delta_state`), not as `delta_state.json` under `mail/` (legacy PHP incremental layout).
+
+**Current worker paths** (under `{tenant}/users/{userId}/`):
+
+- `mail/folders.json` — folder catalog from Graph
+- `mail/{folderId}/_folder.json` — folder display name and metadata
+- `mail/{folderId}/_browse.json` — browse index (subject sidecar; optional)
+- `mail/{folderId}/{msgId}.json` — message payload
+- `mail/{folderId}/{msgId}/attachments/{fileName}` — attachment bytes
+
+**Historical legacy paths** (PHP `StorageLayout`, preserved by `MergePrior` until rewritten):
+
+- `mail/messages/{folderId}/{messageId}.json`
+- `mail/messages/{folderId}/{msgId}/attachments/{fileName}` (when attachments were staged)
+
 
 ### Unified inventory (`inventory.json`)
 
@@ -390,7 +422,7 @@ Run `status` values: `queued`, `running`, `success`, `error`, `cancelled`, `skip
 - **Storage:**
   - `{user}/contacts/folders.json`, `contacts/folders/{folderId}/contacts/*.json`, `delta_state.json`
   - `{user}/todo/lists.json`, `todo/lists/{listId}/tasks/*.json`, `delta_state.json`
-  - `{user}/mail/messages/{folderId}/delta_state.json`
+  - Mail delta: `{user}/mail/{folderId}/…` message paths; tokens in `ms365_delta_state` (legacy PHP used `{user}/mail/messages/{folderId}/delta_state.json` on disk)
 - **Tombstones:** Delta `@removed` items → `{id}.removed.json` (entity JSON not deleted).
 - **Tasks:** User resources only (shared mailboxes skip To Do with logged reason).
 - **Azure:** `Contacts.Read`, `Tasks.Read.All` (see [AZURE_SETUP.md](AZURE_SETUP.md)).

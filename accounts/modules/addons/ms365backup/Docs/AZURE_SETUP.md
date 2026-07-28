@@ -88,8 +88,9 @@ Click **Test connection**.
 ## 5. Mail incremental (delta)
 
 - First sync per folder uses `GET /users/{id}/mailFolders/{folderId}/messages/delta` (full export + delta token).
-- Subsequent runs resume from stored `@odata.deltaLink` under `{user}/mail/messages/{folderId}/delta_state.json`.
-- Removed messages are recorded as `{id}.removed.json` tombstones (original JSON retained).
+- **Kopia worker:** Subsequent runs resume from per-folder `@odata.deltaLink` values in MySQL (`ms365_delta_state`), injected on worker claim as `delta_states`. Message bodies are staged at `{tenant}/users/{userId}/mail/{folderId}/{messageId}.json` with optional `_browse.json` / `_folder.json` sidecars (see [ARCHITECTURE.md](ARCHITECTURE.md) — Mail snapshot layout).
+- **Legacy PHP incremental** (pre–1.18): delta links lived in `{user}/mail/messages/{folderId}/delta_state.json`; message JSON under `mail/messages/{folderId}/`. Those paths may still appear inside older Kopia snapshots after `MergePrior`.
+- Removed messages are recorded as `{messageId}.removed.json` tombstones beside live JSON (original payload retained where applicable).
 
 ## 6. OneDrive backup
 

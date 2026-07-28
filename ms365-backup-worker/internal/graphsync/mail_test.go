@@ -3,6 +3,7 @@ package graphsync
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -488,6 +489,131 @@ func TestSyncMailBrowseIndexIncrementalMergeAndDeletion(t *testing.T) {
 	}
 	if merged.Messages[safeID("msg-stale")].Subject != "Should remain" {
 		t.Fatal("stale prior entry should remain when not in delta")
+	}
+}
+
+func TestSyncMailRemovedMessageDeletesAttachmentSubtree(t *testing.T) {
+	const userID = "user-mail-attach-remove"
+	folderID := "folder-inbox"
+	removedID := "msg-removed"
+	keptID := "msg-kept"
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/mailFolders"):
+			_, _ = w.Write([]byte(`{"value":[{"id":"` + folderID + `","displayName":"Inbox"}]}`))
+		case strings.Contains(r.URL.Path, "/messages/delta"):
+			payload, _ := json.Marshal(map[string]any{
+				"value": []map[string]any{
+					{
+						"id":       removedID,
+						"@removed": map[string]any{"reason": "deleted"},
+					},
+					{
+						"id":               keptID,
+						"subject":          "Still here",
+						"receivedDateTime": "2026-06-24T12:00:00Z",
+						"body":             map[string]any{"contentType": "text", "content": "kept"},
+					},
+				},
+				"@odata.deltaLink": "https://graph.test/delta-done",
+			})
+			_, _ = w.Write(payload)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	overlay := graphfs.NewOverlayBuilder()
+	removedAttach := mailMessageAttachmentPrefix("tenant-1", userID, folderID, removedID) + "attachments/invoice.pdf"
+	untouchedAttach := mailMessageAttachmentPrefix("tenant-1", userID, folderID, "msg-untouched") + "attachments/report.pdf"
+	overlay.PutJSON(removedAttach, []byte("old-pdf"), time.Now())
+	overlay.PutJSON(untouchedAttach, []byte("untouched-pdf"), time.Now())
+	overlay.PutJSON(
+		fmt.Sprintf("%s/users/%s/mail/%s/%s.json", "tenant-1", userID, safeID(folderID), safeID(removedID)),
+		[]byte(`{"id":"`+removedID+`"}`),
+		time.Now(),
+	)
+
+	client := graph.NewTestClient(srv.URL, graph.ClientOptions{MaxRetries: 0, MaxConcurrency: 4})
+	_, err := SyncMail(context.Background(), client, MailSyncOptions{
+		AzureTenantID:  "tenant-1",
+		UserID:         userID,
+		Parallel:       2,
+		FolderParallel: 1,
+		Staging:        overlay,
+	})
+	if err != nil {
+		t.Fatalf("SyncMail: %v", err)
+	}
+
+	if overlay.HasPath(removedAttach) {
+		t.Fatalf("removed message attachment still present at %s", removedAttach)
+	}
+	if overlay.HasPathPrefix(mailMessageAttachmentPrefix("tenant-1", userID, folderID, removedID)) {
+		t.Fatal("removed message attachment prefix still has live entries")
+	}
+	if !overlay.HasPath(untouchedAttach) {
+		t.Fatalf("untouched message attachment should remain at %s", untouchedAttach)
+	}
+}
+
+func TestSyncMailUpdatedMessageClearsStaleAttachments(t *testing.T) {
+	const userID = "user-mail-attach-update"
+	folderID := "folder-inbox"
+	msgID := "msg-update"
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/mailFolders"):
+			_, _ = w.Write([]byte(`{"value":[{"id":"` + folderID + `","displayName":"Inbox"}]}`))
+		case strings.Contains(r.URL.Path, "/messages/delta"):
+			payload, _ := json.Marshal(map[string]any{
+				"value": []map[string]any{{
+					"id":               msgID,
+					"subject":          "Updated attachments",
+					"receivedDateTime": "2026-06-24T12:00:00Z",
+					"hasAttachments":   true,
+					"body":             map[string]any{"contentType": "text", "content": "updated"},
+				}},
+				"@odata.deltaLink": "https://graph.test/delta-done",
+			})
+			_, _ = w.Write(payload)
+		case strings.Contains(r.URL.Path, "/attachments") && !strings.HasSuffix(r.URL.Path, "/$value"):
+			_, _ = w.Write([]byte(`{"value":[{"id":"att-new","name":"new-file.pdf","size":11}]}`))
+		case strings.Contains(r.URL.Path, "/attachments/") && strings.HasSuffix(r.URL.Path, "/$value"):
+			_, _ = w.Write([]byte("new-pdf-bytes"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	overlay := graphfs.NewOverlayBuilder()
+	staleAttach := mailMessageAttachmentPrefix("tenant-1", userID, folderID, msgID) + "attachments/old-file.pdf"
+	overlay.PutJSON(staleAttach, []byte("stale-pdf"), time.Now())
+
+	client := graph.NewTestClient(srv.URL, graph.ClientOptions{MaxRetries: 0, MaxConcurrency: 4})
+	_, err := SyncMail(context.Background(), client, MailSyncOptions{
+		AzureTenantID:  "tenant-1",
+		UserID:         userID,
+		Parallel:       2,
+		FolderParallel: 1,
+		Staging:        overlay,
+	})
+	if err != nil {
+		t.Fatalf("SyncMail: %v", err)
+	}
+
+	if overlay.HasPath(staleAttach) {
+		t.Fatalf("stale attachment still present at %s", staleAttach)
+	}
+	newAttach := mailMessageAttachmentPrefix("tenant-1", userID, folderID, msgID) + "attachments/new-file.pdf"
+	if !overlay.HasPath(newAttach) {
+		t.Fatalf("expected new attachment at %s", newAttach)
 	}
 }
 

@@ -61,7 +61,7 @@ final class RestoreTreeBrowseService
             }
         }
 
-        $cacheKey = hash('sha256', 'v20-mail-human-labels' . "\0" . $manifestId . "\0" . $path . "\0" . $limit . "\0" . $offset);
+        $cacheKey = hash('sha256', 'v21-mail-layout-compat' . "\0" . $manifestId . "\0" . $path . "\0" . $limit . "\0" . $offset);
         $cached = self::readCache($cacheKey);
         if ($cached !== null) {
             return $cached;
@@ -766,6 +766,16 @@ final class RestoreTreeBrowseService
                 return false;
             }
 
+            // Historical layout: mail/messages/{folderId}/{msgId}
+            if (($parts[$i + 1] ?? '') === 'messages') {
+                if ($i + 3 >= count($parts)) {
+                    return false;
+                }
+
+                return $parts[$i + 3] === $name && $i + 4 === count($parts);
+            }
+
+            // Current layout: mail/{folderId}/{msgId}
             return $parts[$i + 2] === $name && $i + 3 === count($parts);
         }
 

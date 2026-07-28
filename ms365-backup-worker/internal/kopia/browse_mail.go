@@ -99,7 +99,7 @@ func (r *mailBrowseResolver) labelChild(ctx context.Context, root kopiafs.Direct
 		if entry, ok := r.lookupMessage(msgKey); ok {
 			return formatMailMessageLabels(mailMetadataFromBrowseEntry(entry)), true
 		}
-		return browseLabelResult{Label: "Email message"}, true
+		return browseLabelResult{}, false
 	}
 	if entryType == "folder" && strings.Contains(childPath, "/mail/") {
 		if folderLabel := folderDisplayName(ctx, root, childPath); folderLabel != "" {
