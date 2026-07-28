@@ -3,13 +3,19 @@
 **Purpose:** Single handoff document so the next agent knows where work stopped. Update this file at the **end of every session** (or after each meaningful milestone).
 
 **Last updated:** 2026-07-28
-**Module version (ms365backup):** 1.52.38
+**Module version (ms365backup):** 1.52.39
 **Cloudstorage (e3) version:** 2.2.0  
-**Worker version (ms365-backup-worker):** 0.4.24 (Kopia v0.23.1)
+**Worker version (ms365-backup-worker):** 0.4.25 (Kopia v0.23.1)
 
 ---
 
 ## Session log
+
+### 2026-07-28 — SharePoint empty Files: site↔drive link + poisoned delta rebaseline (PHP 1.52.39, worker 0.4.25)
+
+- **Evidence:** Sites like Option 2 - Impact / Technology / Operations Management bind Files correctly but drive manifests only contain `_site.json` (`sharepoint.items=0`, ~9KB) across many historical batches with high `graph_429_hits`. Restore UI empty state is accurate for those snapshots.
+- **Browse fixes:** `aggregateParentKey` prefers `_site_id` over drive-keyed shard parents (hub site can attach 800 drive shards). Files picks richest drive sibling; empty `/drives` synthesizes library entries from batch siblings. Cache namespace `v24-sharepoint-site-drive-link`.
+- **Backup fix:** SharePoint incremental with prior delta + zero items + missing content tree forces a full delta (mirrors OneDrive poisoned-delta recovery).
 
 ### 2026-07-28 — SharePoint restore browse drive IDs + browse cache isolation (PHP 1.52.38, worker 0.4.24)
 

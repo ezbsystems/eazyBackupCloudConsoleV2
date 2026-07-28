@@ -70,9 +70,9 @@ assert_true(
 $ref = new ReflectionClass(\Ms365Backup\RestoreTreeBrowseService::class);
 
 assert_eq(
-    'v23-sharepoint-drive-safeid',
+    'v24-sharepoint-site-drive-link',
     $ref->getConstant('BROWSE_CACHE_NAMESPACE'),
-    'browse cache namespace is v23-sharepoint-drive-safeid'
+    'browse cache namespace is v24-sharepoint-site-drive-link'
 );
 
 $aliasesMethod = $ref->getMethod('sharePointBrowsePathAliases');

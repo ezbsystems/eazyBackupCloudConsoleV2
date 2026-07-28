@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -156,6 +157,10 @@ func SyncSharePoint(ctx context.Context, client *graph.Client, opts SharePointSy
 				if err != nil {
 					return err
 				}
+				res, err = maybeResyncSharePointDriveFull(gctx, client, opts, job, res, &mu)
+				if err != nil {
+					return err
+				}
 				applyDriveResult(res, job.id)
 				return nil
 			})
@@ -166,6 +171,10 @@ func SyncSharePoint(ctx context.Context, client *graph.Client, opts SharePointSy
 	} else {
 		for _, job := range jobs {
 			res, err := syncSharePointDrive(ctx, client, opts, job.id, job.priorDelta, &mu)
+			if err != nil {
+				return nil, err
+			}
+			res, err = maybeResyncSharePointDriveFull(ctx, client, opts, job, res, &mu)
 			if err != nil {
 				return nil, err
 			}
@@ -258,6 +267,45 @@ func syncSharePointDrive(
 		res.deltaLink = deltaLink
 	}
 	return res, nil
+}
+
+// maybeResyncSharePointDriveFull clears a poisoned incremental delta when Graph reports
+// no file changes but the overlay still has no drive content tree (metadata-only snapshots).
+func maybeResyncSharePointDriveFull(
+	ctx context.Context,
+	client *graph.Client,
+	opts SharePointSyncOptions,
+	job sharePointDriveJob,
+	res *sharePointDriveResult,
+	mu *sync.Mutex,
+) (*sharePointDriveResult, error) {
+	if !shouldForceSharePointFullResync(opts, job.id, job.priorDelta, res) {
+		return res, nil
+	}
+	if opts.Log != nil {
+		opts.Log("warning", fmt.Sprintf("SharePoint drive %s: empty incremental with no content tree; forcing full delta", job.id))
+	}
+	contentBase := siteDriveContentBase(opts.AzureTenantID, opts.SiteID, job.id)
+	opts.Staging.RemovePrefix(contentBase)
+	full, err := syncSharePointDrive(ctx, client, opts, job.id, "", mu)
+	if err != nil {
+		return nil, err
+	}
+	return full, nil
+}
+
+func shouldForceSharePointFullResync(opts SharePointSyncOptions, driveID, priorDelta string, res *sharePointDriveResult) bool {
+	if strings.TrimSpace(priorDelta) == "" || res == nil {
+		return false
+	}
+	if res.items > 0 {
+		return false
+	}
+	if opts.Staging == nil {
+		return false
+	}
+	contentBase := siteDriveContentBase(opts.AzureTenantID, opts.SiteID, driveID)
+	return !opts.Staging.HasPathPrefix(contentBase)
 }
 
 func reportSharePointDriveProgress(opts SharePointSyncOptions, itemsDone int) {

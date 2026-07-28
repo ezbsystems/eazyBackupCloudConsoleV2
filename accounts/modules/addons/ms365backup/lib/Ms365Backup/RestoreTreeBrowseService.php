@@ -9,7 +9,7 @@ namespace Ms365Backup;
 final class RestoreTreeBrowseService
 {
     private const CACHE_TTL_SECONDS = 3600;
-    private const BROWSE_CACHE_NAMESPACE = 'v23-sharepoint-drive-safeid';
+    private const BROWSE_CACHE_NAMESPACE = 'v24-sharepoint-site-drive-link';
 
     /** @var array<string, string> */
     private const SEGMENT_LABELS = [
@@ -92,6 +92,26 @@ final class RestoreTreeBrowseService
 
         $raw = self::listKopiaDirectoryWithAliases($tenantRecord, $manifestId, $path, $childRun, $limit, $offset);
         $entries = self::autoDescendIfNeeded($tenantRecord, $manifestId, $path, $raw['entries'], $childRun);
+        if ($entries === [] && $childRun !== null) {
+            $syntheticDrives = self::synthesizeSharePointDriveEntries($tenantRecord, $path, $childRun, $batchRunId);
+            if ($syntheticDrives !== []) {
+                // #region agent log
+                self::debugLog('E', 'synthesized SharePoint drive entries under Files', [
+                    'path' => $path,
+                    'count' => count($syntheticDrives),
+                    'labels' => array_values(array_map(static fn ($e) => (string) ($e['label'] ?? ''), $syntheticDrives)),
+                ]);
+                // #endregion
+                $entries = $syntheticDrives;
+                $raw = [
+                    'entries' => $entries,
+                    'total_count' => count($entries),
+                    'has_more' => false,
+                    'offset' => $offset,
+                    'limit' => $limit,
+                ];
+            }
+        }
         $result = [
             'entries' => self::enrichEntries($entries, $path, $childRun),
             'total_count' => (int) ($raw['total_count'] ?? count($entries)),
@@ -99,6 +119,22 @@ final class RestoreTreeBrowseService
             'offset' => (int) ($raw['offset'] ?? $offset),
             'limit' => (int) ($raw['limit'] ?? $limit),
         ];
+
+        // #region agent log
+        if (str_contains($path, '/drives') || preg_match('#/sites/[^/]+/drives$#', $path) === 1) {
+            self::debugLog('D', 'SharePoint Files browse result', [
+                'path' => $path,
+                'manifest_id' => $manifestId,
+                'physical_key' => (string) ($childRun['physical_key'] ?? ''),
+                'entry_count' => count($result['entries']),
+                'items_done' => is_array($childRun) ? (int) ($childRun['items_done'] ?? 0) : 0,
+                'sample' => array_values(array_map(static fn ($e) => [
+                    'label' => (string) ($e['label'] ?? ''),
+                    'name' => (string) ($e['name'] ?? ''),
+                ], array_slice($result['entries'], 0, 8))),
+            ]);
+        }
+        // #endregion
 
         self::writeCache($cacheKey, $result);
 
@@ -257,7 +293,9 @@ final class RestoreTreeBrowseService
 
             if (str_starts_with($sibBase, 'drive:')) {
                 $mergedScope = $mergedScope->merge(new BackupScope([BackupScope::FILES => true]));
-                $filesRun ??= $sibling;
+                if ($filesRun === null || self::sharePointDriveRunRank($sibling) > self::sharePointDriveRunRank($filesRun)) {
+                    $filesRun = $sibling;
+                }
             }
             if (str_starts_with($sibBase, 'site:') && $sibScope->isEnabled(BackupScope::LISTS)) {
                 $listsRun ??= $sibling;
@@ -343,6 +381,112 @@ final class RestoreTreeBrowseService
         }
 
         return $run;
+    }
+
+    /**
+     * Prefer drive runs that actually uploaded document content over metadata-only stubs.
+     *
+     * @param array<string, mixed> $run
+     */
+    private static function sharePointDriveRunRank(array $run): int
+    {
+        $items = (int) ($run['items_done'] ?? 0);
+        $bytes = (int) ($run['bytes_uploaded'] ?? 0);
+        $statsRaw = (string) ($run['stats_json'] ?? '');
+        $spItems = 0;
+        if ($statsRaw !== '') {
+            $stats = json_decode($statsRaw, true);
+            if (is_array($stats)) {
+                $spItems = (int) ($stats['workloads']['sharepoint']['items'] ?? $stats['files'] ?? 0);
+            }
+        }
+
+        return ($spItems * 1_000_000) + ($items * 1_000) + min($bytes, 999);
+    }
+
+    /**
+     * When a single drive snapshot lacks /drives, list sibling drive libraries for the same site.
+     *
+     * @param array<string, mixed> $childRun
+     * @return list<array<string, mixed>>
+     */
+    private static function synthesizeSharePointDriveEntries(
+        array $tenantRecord,
+        string $path,
+        array $childRun,
+        string $batchRunId,
+    ): array {
+        if (preg_match('#^([^/]+)/sites/([^/]+)/drives$#', $path, $m) !== 1) {
+            return [];
+        }
+        $batchRunId = trim($batchRunId);
+        if ($batchRunId === '') {
+            return [];
+        }
+
+        $scope = self::scopeArrayFromChildRun($childRun);
+        $siteId = trim((string) ($scope['_site_id'] ?? ''));
+        $parentKey = PhysicalKeyHelper::aggregateParentKey((string) ($childRun['physical_key'] ?? ''), $childRun);
+        if ($siteId !== '') {
+            $parentKey = 'site:' . $siteId;
+        }
+        if (!str_starts_with($parentKey, 'site:')) {
+            return [];
+        }
+
+        $tenant = $m[1];
+        $siteSeg = $m[2];
+        $seen = [];
+        $out = [];
+        foreach (Ms365BatchRunRepository::getChildrenForBatch($batchRunId) as $sibling) {
+            if (($sibling['status'] ?? '') !== 'success') {
+                continue;
+            }
+            $sibKey = (string) ($sibling['physical_key'] ?? '');
+            $sibBase = PhysicalKeyHelper::baseKey($sibKey);
+            if (!str_starts_with($sibBase, 'drive:')) {
+                continue;
+            }
+            if (PhysicalKeyHelper::aggregateParentKey($sibKey, $sibling) !== $parentKey) {
+                continue;
+            }
+            $sibScope = self::scopeArrayFromChildRun($sibling);
+            $driveId = self::driveIdFromChildRun($sibling, $sibScope);
+            if ($driveId === '') {
+                $driveId = substr($sibBase, 6);
+            }
+            $driveSeg = PhysicalKeyHelper::pathSafeId($driveId);
+            if ($driveSeg === '' || isset($seen[$driveSeg])) {
+                continue;
+            }
+            $seen[$driveSeg] = true;
+            $label = trim((string) ($sibScope['_drive_display_name'] ?? ''));
+            if ($label === '') {
+                $label = self::resolveSharePointDriveLabel($driveSeg, $driveSeg, $path . '/' . $driveSeg, $sibling);
+            }
+            $run = self::sharePointRunWithManifestFallback($sibling, null);
+            $entryManifest = trim((string) ($run['manifest_id'] ?? ''));
+            if ($entryManifest === '') {
+                continue;
+            }
+            $out[] = [
+                'name' => $driveSeg,
+                'label' => $label !== '' ? $label : $driveSeg,
+                'subtitle' => 'Document library',
+                'path' => $tenant . '/sites/' . $siteSeg . '/drives/' . $driveSeg,
+                'type' => 'folder',
+                'has_children' => true,
+                'size' => 0,
+                'manifest_id' => $entryManifest,
+                'child_run_id' => (string) ($run['id'] ?? ''),
+            ];
+        }
+
+        usort($out, static function (array $a, array $b): int {
+            return strcasecmp((string) ($a['label'] ?? ''), (string) ($b['label'] ?? ''));
+        });
+
+        return $out;
     }
 
     /**

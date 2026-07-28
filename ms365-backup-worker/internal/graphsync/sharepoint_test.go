@@ -32,6 +32,46 @@ func TestSiteDriveContentBasePreservesBangDriveID(t *testing.T) {
 	}
 }
 
+func TestShouldForceSharePointFullResyncPoisonedDelta(t *testing.T) {
+	staging := graphfs.NewOverlayBuilder()
+	staging.PutJSON("tenant-1/sites/site1/_site.json", []byte(`{}`), time.Now())
+	opts := SharePointSyncOptions{
+		AzureTenantID: "tenant-1",
+		SiteID:        "site1",
+		Staging:       staging,
+	}
+	res := &sharePointDriveResult{items: 0}
+	if !shouldForceSharePointFullResync(opts, "b!drive", "https://graph/delta?token=poison", res) {
+		t.Fatal("expected full resync when incremental is empty and content tree missing")
+	}
+}
+
+func TestShouldForceSharePointFullResyncHealthyContent(t *testing.T) {
+	staging := graphfs.NewOverlayBuilder()
+	staging.PutJSON("tenant-1/sites/site1/drives/b!drive/content/doc.txt", []byte("x"), time.Now())
+	opts := SharePointSyncOptions{
+		AzureTenantID: "tenant-1",
+		SiteID:        "site1",
+		Staging:       staging,
+	}
+	res := &sharePointDriveResult{items: 0}
+	if shouldForceSharePointFullResync(opts, "b!drive", "https://graph/delta?token=ok", res) {
+		t.Fatal("expected no resync when content tree already present")
+	}
+}
+
+func TestShouldForceSharePointFullResyncNoPriorDelta(t *testing.T) {
+	opts := SharePointSyncOptions{
+		AzureTenantID: "tenant-1",
+		SiteID:        "site1",
+		Staging:       graphfs.NewOverlayBuilder(),
+	}
+	res := &sharePointDriveResult{items: 0}
+	if shouldForceSharePointFullResync(opts, "b!drive", "", res) {
+		t.Fatal("expected no resync without prior delta")
+	}
+}
+
 func TestPaginationMonitorForJobSharePoint(t *testing.T) {
 	job := &api.RunJob{
 		GraphPagination: map[string]api.PaginationLimit{

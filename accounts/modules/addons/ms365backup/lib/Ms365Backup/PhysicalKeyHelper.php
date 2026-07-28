@@ -203,18 +203,19 @@ final class PhysicalKeyHelper
         if ($scopeRaw !== '') {
             $scope = json_decode($scopeRaw, true);
             if (is_array($scope)) {
+                $siteId = trim((string) ($scope['_site_id'] ?? ''));
+                // Drive shards often set _shard.parent_physical_key to the drive itself
+                // (drive:b!…). Prefer _site_id so site hub browse can attach drive siblings.
                 $shardParent = trim((string) ($scope['_shard']['parent_physical_key'] ?? ''));
-                if ($shardParent !== '' && str_starts_with($physicalKey, 'drive:')) {
+                if ($shardParent !== '' && str_starts_with($physicalKey, 'drive:') && str_starts_with($shardParent, 'site:')) {
                     return $shardParent;
                 }
-                $siteId = trim((string) ($scope['_site_id'] ?? ''));
                 if ($siteId !== '' && str_starts_with($physicalKey, 'drive:')) {
                     return 'site:' . $siteId;
                 }
                 if ($siteId !== '' && str_starts_with($physicalKey, 'list:')) {
                     return 'site:' . $siteId;
                 }
-                $shardParent = trim((string) ($scope['_shard']['parent_physical_key'] ?? ''));
                 if ($shardParent !== '' && str_starts_with($physicalKey, 'list:') && PhysicalKeyHelper::isSharded($physicalKey)) {
                     return PhysicalKeyHelper::baseKey($shardParent);
                 }
