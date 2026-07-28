@@ -60,6 +60,13 @@ assert_true(
 );
 
 $ref = new ReflectionClass(\Ms365Backup\RestoreTreeBrowseService::class);
+
+assert_eq(
+    'v22-mail-orphan-labels',
+    $ref->getConstant('BROWSE_CACHE_NAMESPACE'),
+    'browse cache namespace is v22-mail-orphan-labels'
+);
+
 $aliasesMethod = $ref->getMethod('sharePointBrowsePathAliases');
 $aliasesMethod->setAccessible(true);
 $aliases = $aliasesMethod->invoke(null, $rawListsPath, [
@@ -124,15 +131,37 @@ assert_eq(
 );
 
 assert_eq(
-    'Email message',
+    'Message attachments (metadata unavailable)',
     $resolveMailLabel->invoke(null, $opaqueMsgId, $opaqueMsgId, $mailMsgPath, true),
-    'opaque attachment-bearing message folder falls back to Email message'
+    'opaque attachment-bearing message folder falls back to orphan attachment label'
+);
+
+assert_eq(
+    'Message attachments (metadata unavailable)',
+    $resolveMailLabel->invoke(null, 'Email message', $opaqueMsgId, $mailMsgPath, true),
+    'generic Email message on attachment folder is replaced with orphan attachment label'
+);
+
+// resolveMailOpaqueLabel() cannot distinguish a real message subject of "Email message" or
+// "Mail folder" from stale worker generic fallbacks without reading snapshot metadata.
+// On attachment-message folder paths those exact strings are intentionally rewritten.
+
+assert_eq(
+    'Message attachments (metadata unavailable)',
+    $resolveMailLabel->invoke(null, 'Mail folder', $opaqueMsgId, $mailMsgPath, true),
+    'generic Mail folder on attachment folder is replaced with orphan attachment label'
+);
+
+assert_eq(
+    'Message attachments (metadata unavailable)',
+    $resolveMailLabel->invoke(null, '', $opaqueMsgId, $mailMsgPath, true),
+    'empty label on attachment folder becomes orphan attachment label'
 );
 
 assert_eq(
     'Project kickoff',
-    $resolveMailLabel->invoke(null, 'Project kickoff', $opaqueMsgId, $mailInboxPath, true),
-    'attachment message folder keeps worker-provided subject'
+    $resolveMailLabel->invoke(null, 'Project kickoff', $opaqueMsgId, $mailMsgPath, true),
+    'current layout attachment message folder keeps worker-provided subject'
 );
 
 $historicalMailMsgPath = $tenantId . '/users/user-1/mail/messages/inbox/' . $opaqueMsgId;
@@ -144,9 +173,35 @@ assert_eq(
 );
 
 assert_eq(
-    'Email message',
+    'Message attachments (metadata unavailable)',
     $resolveMailLabel->invoke(null, $opaqueMsgId, $opaqueMsgId, $historicalMailMsgPath, true),
-    'historical layout opaque attachment-bearing message folder falls back to Email message'
+    'historical layout opaque attachment-bearing message folder falls back to orphan attachment label'
+);
+
+assert_eq(
+    'Message attachments (metadata unavailable)',
+    $resolveMailLabel->invoke(null, 'Email message', $opaqueMsgId, $historicalMailMsgPath, true),
+    'historical layout generic Email message on attachment folder is replaced with orphan attachment label'
+);
+
+assert_eq(
+    'Message attachments (metadata unavailable)',
+    $resolveMailLabel->invoke(null, 'Mail folder', $opaqueMsgId, $historicalMailMsgPath, true),
+    'historical layout generic Mail folder on attachment folder is replaced with orphan attachment label'
+);
+
+assert_eq(
+    'Message attachments (metadata unavailable)',
+    $resolveMailLabel->invoke(null, '', $opaqueMsgId, $historicalMailMsgPath, true),
+    'historical layout empty label on attachment folder becomes orphan attachment label'
+);
+
+$mailMsgJsonPath = $mailInboxPath . '/' . $opaqueMsgId . '.json';
+
+assert_eq(
+    'Email message',
+    $resolveMailLabel->invoke(null, 'Email message', $opaqueMsgId . '.json', $mailMsgJsonPath, false),
+    'generic Email message on message JSON file is not rewritten to orphan attachment label'
 );
 
 $isMailMsgAttachmentFolder = $ref->getMethod('isMailMessageAttachmentFolderPath');

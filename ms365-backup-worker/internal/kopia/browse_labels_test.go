@@ -119,16 +119,16 @@ func newMemDir(name string, children map[string]kopiafs.Entry) *memDir {
 	return &memDir{name: name, children: children}
 }
 
-func (d *memDir) Name() string                      { return d.name }
-func (d *memDir) Size() int64                       { return 0 }
-func (d *memDir) Mode() os.FileMode                 { return os.ModeDir | 0o755 }
-func (d *memDir) ModTime() time.Time                { return time.Time{} }
-func (d *memDir) IsDir() bool                       { return true }
-func (d *memDir) Owner() kopiafs.OwnerInfo          { return kopiafs.OwnerInfo{} }
-func (d *memDir) Device() kopiafs.DeviceInfo        { return kopiafs.DeviceInfo{} }
-func (d *memDir) LocalFilesystemPath() string       { return "" }
-func (d *memDir) Sys() any                          { return nil }
-func (d *memDir) Close() {}
+func (d *memDir) Name() string                { return d.name }
+func (d *memDir) Size() int64                 { return 0 }
+func (d *memDir) Mode() os.FileMode           { return os.ModeDir | 0o755 }
+func (d *memDir) ModTime() time.Time          { return time.Time{} }
+func (d *memDir) IsDir() bool                 { return true }
+func (d *memDir) Owner() kopiafs.OwnerInfo    { return kopiafs.OwnerInfo{} }
+func (d *memDir) Device() kopiafs.DeviceInfo  { return kopiafs.DeviceInfo{} }
+func (d *memDir) LocalFilesystemPath() string { return "" }
+func (d *memDir) Sys() any                    { return nil }
+func (d *memDir) Close()                      {}
 func (d *memDir) Child(_ context.Context, name string) (kopiafs.Entry, error) {
 	if e, ok := d.children[name]; ok {
 		return e, nil
@@ -178,7 +178,7 @@ func (f *memFile) Owner() kopiafs.OwnerInfo    { return kopiafs.OwnerInfo{} }
 func (f *memFile) Device() kopiafs.DeviceInfo  { return kopiafs.DeviceInfo{} }
 func (f *memFile) LocalFilesystemPath() string { return "" }
 func (f *memFile) Sys() any                    { return nil }
-func (f *memFile) Close() {}
+func (f *memFile) Close()                      {}
 func (f *memFile) Open(_ context.Context) (kopiafs.Reader, error) {
 	return &memReader{file: f, r: bytes.NewReader(f.data)}, nil
 }
@@ -188,8 +188,8 @@ type memReader struct {
 	r    *bytes.Reader
 }
 
-func (r *memReader) Read(p []byte) (int, error)  { return r.r.Read(p) }
-func (r *memReader) Close() error                { return nil }
+func (r *memReader) Read(p []byte) (int, error) { return r.r.Read(p) }
+func (r *memReader) Close() error               { return nil }
 func (r *memReader) Seek(offset int64, whence int) (int64, error) {
 	return r.r.Seek(offset, whence)
 }
@@ -292,7 +292,7 @@ func TestMailAttachmentFolderLabels(t *testing.T) {
 			"u1": newMemDir("u1", map[string]kopiafs.Entry{
 				"mail": newMemDir("mail", map[string]kopiafs.Entry{
 					"inbox": newMemDir("inbox", map[string]kopiafs.Entry{
-						msgID+".json": newMemFile(msgID+".json", []byte(`{
+						msgID + ".json": newMemFile(msgID+".json", []byte(`{
 							"subject":"Quarterly report",
 							"receivedDateTime":"2025-06-11T15:39:00Z",
 							"from":{"emailAddress":{"name":"Finance","address":"finance@contoso.com"}}
@@ -331,6 +331,105 @@ func TestIsMailMessageAttachmentFolder(t *testing.T) {
 	}
 	if isMailMessageAttachmentFolder("users/u1/mail/messages/inbox", "inbox") {
 		t.Fatal("historical mail folder should not match")
+	}
+}
+
+func TestMailAttachmentFolderLabelsOrphanCurrentLayout(t *testing.T) {
+	ctx := context.Background()
+	msgID := "AAMkAGOrphanMsgCurrent"
+	root := newMemDir("", map[string]kopiafs.Entry{
+		"users": newMemDir("users", map[string]kopiafs.Entry{
+			"u1": newMemDir("u1", map[string]kopiafs.Entry{
+				"mail": newMemDir("mail", map[string]kopiafs.Entry{
+					"inbox": newMemDir("inbox", map[string]kopiafs.Entry{
+						msgID: newMemDir(msgID, map[string]kopiafs.Entry{
+							"attachments": newMemDir("attachments", map[string]kopiafs.Entry{}),
+						}),
+					}),
+				}),
+			}),
+		}),
+	})
+
+	folderPath := "users/u1/mail/inbox/" + msgID
+	got := mailAttachmentFolderLabels(ctx, root, folderPath, msgID)
+	if got.Label != mailOrphanAttachmentFolderLabel {
+		t.Fatalf("label: got %q want %q", got.Label, mailOrphanAttachmentFolderLabel)
+	}
+	if !strings.Contains(got.Subtitle, "Attachments") {
+		t.Fatalf("subtitle: got %q", got.Subtitle)
+	}
+}
+
+func TestMailAttachmentFolderLabelsOrphanHistoricalLayout(t *testing.T) {
+	ctx := context.Background()
+	msgID := "AAMkAGOrphanMsgHistorical"
+	root := newMemDir("", map[string]kopiafs.Entry{
+		"users": newMemDir("users", map[string]kopiafs.Entry{
+			"u1": newMemDir("u1", map[string]kopiafs.Entry{
+				"mail": newMemDir("mail", map[string]kopiafs.Entry{
+					"messages": newMemDir("messages", map[string]kopiafs.Entry{
+						"inbox": newMemDir("inbox", map[string]kopiafs.Entry{
+							msgID: newMemDir(msgID, map[string]kopiafs.Entry{
+								"attachments": newMemDir("attachments", map[string]kopiafs.Entry{}),
+							}),
+						}),
+					}),
+				}),
+			}),
+		}),
+	})
+
+	folderPath := "users/u1/mail/messages/inbox/" + msgID
+	got := mailAttachmentFolderLabels(ctx, root, folderPath, msgID)
+	if got.Label != mailOrphanAttachmentFolderLabel {
+		t.Fatalf("label: got %q want %q", got.Label, mailOrphanAttachmentFolderLabel)
+	}
+}
+
+func TestBrowseMailOrphanAttachmentFolderCurrentLayout(t *testing.T) {
+	ctx := context.Background()
+	inboxPath := "users/u1/mail/inbox"
+	msgID := "AAMkAGOrphanBrowseCurrent"
+	children := map[string]kopiafs.Entry{
+		msgID: newMemDir(msgID, map[string]kopiafs.Entry{
+			"attachments": newMemDir("attachments", map[string]kopiafs.Entry{}),
+		}),
+	}
+	root := buildMemPath(strings.Split(inboxPath, "/"), children)
+
+	got := browseLabel(ctx, nil, nil, root, inboxPath+"/"+msgID, msgID, "folder")
+	if got.Label != mailOrphanAttachmentFolderLabel {
+		t.Fatalf("browseLabel orphan current layout: got %q", got.Label)
+	}
+
+	resolver := loadMailBrowseResolver(ctx, root, inboxPath)
+	labelGot := labelBrowseChild(ctx, root, inboxPath+"/"+msgID, msgID, "folder", true, resolver)
+	if labelGot.Label != mailOrphanAttachmentFolderLabel {
+		t.Fatalf("labelBrowseChild orphan current layout: got %q", labelGot.Label)
+	}
+}
+
+func TestBrowseMailOrphanAttachmentFolderHistoricalLayout(t *testing.T) {
+	ctx := context.Background()
+	inboxPath := "users/u1/mail/messages/inbox"
+	msgID := "AAMkAGOrphanBrowseHistorical"
+	children := map[string]kopiafs.Entry{
+		msgID: newMemDir(msgID, map[string]kopiafs.Entry{
+			"attachments": newMemDir("attachments", map[string]kopiafs.Entry{}),
+		}),
+	}
+	root := buildMemPath(strings.Split(inboxPath, "/"), children)
+
+	got := browseLabel(ctx, nil, nil, root, inboxPath+"/"+msgID, msgID, "folder")
+	if got.Label != mailOrphanAttachmentFolderLabel {
+		t.Fatalf("browseLabel orphan historical layout: got %q", got.Label)
+	}
+
+	resolver := loadMailBrowseResolver(ctx, root, inboxPath)
+	labelGot := labelBrowseChild(ctx, root, inboxPath+"/"+msgID, msgID, "folder", true, resolver)
+	if labelGot.Label != mailOrphanAttachmentFolderLabel {
+		t.Fatalf("labelBrowseChild orphan historical layout: got %q", labelGot.Label)
 	}
 }
 
@@ -386,7 +485,7 @@ func TestBrowseMailPartialIndexFallsThroughToMessageJSON(t *testing.T) {
 	}
 	raw, _ := json.Marshal(index)
 	children := map[string]kopiafs.Entry{
-		"_browse.json": newMemFile("_browse.json", raw),
+		"_browse.json":         newMemFile("_browse.json", raw),
 		indexedMsgID + ".json": newMemFile(indexedMsgID+".json", []byte(`{"subject":"Should not read"}`)),
 		missingMsgID + ".json": newMemFile(missingMsgID+".json", []byte(`{
 			"subject":"From message JSON",
@@ -416,6 +515,44 @@ func TestBrowseMailPartialIndexFallsThroughToMessageJSON(t *testing.T) {
 	}
 	if !strings.Contains(missingGot.Subtitle, "Sender") {
 		t.Fatalf("missing index entry subtitle: got %q", missingGot.Subtitle)
+	}
+}
+
+func TestBrowseMailPartialIndexOrphanAttachmentFolderNoSiblingJSON(t *testing.T) {
+	ctx := context.Background()
+	inboxPath := "users/u1/mail/inbox"
+	msgID := "AQMkAGOrphanNotInIndex"
+	index := mailBrowseIndex{
+		Version: mailBrowseIndexVersion,
+		Messages: map[string]mailBrowseIndexEntry{
+			safeSnapshotID("AQMkAGIndexedOnly"): {
+				ID:               "AQMkAGIndexedOnly",
+				Subject:          "Indexed elsewhere",
+				FromAddress:      "index@contoso.com",
+				ReceivedDateTime: "2025-07-01T10:00:00Z",
+			},
+		},
+	}
+	raw, _ := json.Marshal(index)
+	children := map[string]kopiafs.Entry{
+		"_browse.json": newMemFile("_browse.json", raw),
+		msgID: newMemDir(msgID, map[string]kopiafs.Entry{
+			"attachments": newMemDir("attachments", map[string]kopiafs.Entry{}),
+		}),
+	}
+	root := buildMemPath(strings.Split(inboxPath, "/"), children)
+	resolver := loadMailBrowseResolver(ctx, root, inboxPath)
+	if !resolver.hasIndex() {
+		t.Fatal("expected valid partial browse index")
+	}
+
+	folderPath := inboxPath + "/" + msgID
+	got := labelBrowseChild(ctx, root, folderPath, msgID, "folder", true, resolver)
+	if got.Label != mailOrphanAttachmentFolderLabel {
+		t.Fatalf("orphan attachment folder label: got %q want %q", got.Label, mailOrphanAttachmentFolderLabel)
+	}
+	if got.Subtitle != "Attachments" {
+		t.Fatalf("orphan attachment folder subtitle: got %q want %q", got.Subtitle, "Attachments")
 	}
 }
 
@@ -540,7 +677,7 @@ func TestSharePointListFolderDisplayNameFromCatalog(t *testing.T) {
 			"contoso_com_guid_guid": newMemDir("contoso_com_guid_guid", map[string]kopiafs.Entry{
 				"lists": newMemDir("lists", map[string]kopiafs.Entry{
 					"lists.json": newMemFile("lists.json", catalog),
-					listID:     newMemDir(listID, map[string]kopiafs.Entry{}),
+					listID:       newMemDir(listID, map[string]kopiafs.Entry{}),
 				}),
 			}),
 		}),
@@ -558,7 +695,7 @@ func TestIsSharePointListFolderExcludesItemsContainer(t *testing.T) {
 	if !isSharePointListFolder("tenant/sites/site1/lists/" + listID) {
 		t.Fatal("expected list folder path")
 	}
-	if isSharePointListFolder("tenant/sites/site1/lists/"+listID+"/items") {
+	if isSharePointListFolder("tenant/sites/site1/lists/" + listID + "/items") {
 		t.Fatal("items container should not be treated as a list folder")
 	}
 }
@@ -754,8 +891,8 @@ func TestBrowseMailRoutingWithIndexAvoidsMetadataReads(t *testing.T) {
 	}
 	raw, _ := json.Marshal(index)
 	children := map[string]kopiafs.Entry{
-		"_browse.json":      newMemFile("_browse.json", raw),
-		msgID + ".json":     newMemFile(msgID+".json", []byte(`{"subject":"Should not read"}`)),
+		"_browse.json":  newMemFile("_browse.json", raw),
+		msgID + ".json": newMemFile(msgID+".json", []byte(`{"subject":"Should not read"}`)),
 	}
 	root := buildMemPath(strings.Split(inboxPath, "/"), children)
 
@@ -937,10 +1074,10 @@ func buildMemPath(parts []string, leafChildren map[string]kopiafs.Entry) kopiafs
 
 func TestFormatMailMessageLabelsDraftAndSortKey(t *testing.T) {
 	got := formatMailMessageLabels(mailMetadata{
-		Subject:    "Budget approval request",
-		IsDraft:    true,
-		FromName:   "Contoso Admin",
-		SentAt:     "2025-06-11T14:00:00Z",
+		Subject:  "Budget approval request",
+		IsDraft:  true,
+		FromName: "Contoso Admin",
+		SentAt:   "2025-06-11T14:00:00Z",
 	})
 	if got.Label != "(Draft) Budget approval request" {
 		t.Fatalf("label: got %q", got.Label)

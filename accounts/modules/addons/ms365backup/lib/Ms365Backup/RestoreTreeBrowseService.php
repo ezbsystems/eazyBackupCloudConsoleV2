@@ -9,6 +9,7 @@ namespace Ms365Backup;
 final class RestoreTreeBrowseService
 {
     private const CACHE_TTL_SECONDS = 3600;
+    private const BROWSE_CACHE_NAMESPACE = 'v22-mail-orphan-labels';
 
     /** @var array<string, string> */
     private const SEGMENT_LABELS = [
@@ -61,7 +62,7 @@ final class RestoreTreeBrowseService
             }
         }
 
-        $cacheKey = hash('sha256', 'v21-mail-layout-compat' . "\0" . $manifestId . "\0" . $path . "\0" . $limit . "\0" . $offset);
+        $cacheKey = hash('sha256', self::BROWSE_CACHE_NAMESPACE . "\0" . $manifestId . "\0" . $path . "\0" . $limit . "\0" . $offset);
         $cached = self::readCache($cacheKey);
         if ($cached !== null) {
             return $cached;
@@ -708,11 +709,18 @@ final class RestoreTreeBrowseService
         }
 
         if ($label !== '' && !self::labelMatchesOpaqueMailName($label, $name)) {
-            return $label;
+            if (!self::isMailMessageAttachmentFolderPath($path, $name) || !self::isGenericMailMessageFallbackLabel($label)) {
+                return $label;
+            }
         }
 
         $opaqueCandidate = self::opaqueMailIdentifier($name, $label);
         if ($opaqueCandidate === '' || !self::isOpaqueGraphId($opaqueCandidate)) {
+            if (self::isMailMessageAttachmentFolderPath($path, $name)
+                && ($label === '' || self::labelMatchesOpaqueMailName($label, $name) || self::isGenericMailMessageFallbackLabel($label))) {
+                return 'Message attachments (metadata unavailable)';
+            }
+
             return $label;
         }
 
@@ -721,7 +729,7 @@ final class RestoreTreeBrowseService
         }
 
         if (self::isMailMessageAttachmentFolderPath($path, $name)) {
-            return 'Email message';
+            return 'Message attachments (metadata unavailable)';
         }
 
         if ($hasChildren) {
@@ -729,6 +737,11 @@ final class RestoreTreeBrowseService
         }
 
         return self::formatLabel($name, $path, $hasChildren);
+    }
+
+    private static function isGenericMailMessageFallbackLabel(string $label): bool
+    {
+        return $label === 'Email message' || $label === 'Mail folder';
     }
 
     private static function labelMatchesOpaqueMailName(string $label, string $name): bool
@@ -757,6 +770,10 @@ final class RestoreTreeBrowseService
 
     private static function isMailMessageAttachmentFolderPath(string $path, string $name): bool
     {
+        if (str_ends_with(strtolower($name), '.json')) {
+            return false;
+        }
+
         $parts = explode('/', trim($path, '/'));
         foreach ($parts as $i => $part) {
             if ($part !== 'mail') {

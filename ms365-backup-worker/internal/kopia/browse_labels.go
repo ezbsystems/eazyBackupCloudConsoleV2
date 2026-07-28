@@ -23,17 +23,19 @@ const browseMetaReadLimit = 64 * 1024
 // fields past browseMetaReadLimit and break JSON parsing on prefix reads.
 const mailMetadataFullReadLimit = 256 * 1024
 
+const mailOrphanAttachmentFolderLabel = "Message attachments (metadata unavailable)"
+
 var (
-	reMailSubject      = regexp.MustCompile(`"subject"\s*:\s*"((?:\\.|[^"\\])*)"`)
-	reReceivedTime     = regexp.MustCompile(`"receivedDateTime"\s*:\s*"([^"]+)"`)
-	reSentTime         = regexp.MustCompile(`"sentDateTime"\s*:\s*"([^"]+)"`)
-	reIsDraft          = regexp.MustCompile(`"isDraft"\s*:\s*(true|false)`)
-	reFromName         = regexp.MustCompile(`"from"\s*:\s*\{[^{}]*"name"\s*:\s*"((?:\\.|[^"\\])*)"`)
-	reFromAddress      = regexp.MustCompile(`"from"\s*:\s*\{[^{}]*"address"\s*:\s*"((?:\\.|[^"\\])*)"`)
-	reCalendarSubject  = regexp.MustCompile(`"subject"\s*:\s*"((?:\\.|[^"\\])*)"`)
-	reCalendarStart    = regexp.MustCompile(`"start"\s*:\s*\{[^{}]*"(?:dateTime|date)"\s*:\s*"([^"]+)"`)
-	reCalendarIsAllDay = regexp.MustCompile(`"isAllDay"\s*:\s*(true|false)`)
-	reCalendarType     = regexp.MustCompile(`"type"\s*:\s*"([^"]+)"`)
+	reMailSubject       = regexp.MustCompile(`"subject"\s*:\s*"((?:\\.|[^"\\])*)"`)
+	reReceivedTime      = regexp.MustCompile(`"receivedDateTime"\s*:\s*"([^"]+)"`)
+	reSentTime          = regexp.MustCompile(`"sentDateTime"\s*:\s*"([^"]+)"`)
+	reIsDraft           = regexp.MustCompile(`"isDraft"\s*:\s*(true|false)`)
+	reFromName          = regexp.MustCompile(`"from"\s*:\s*\{[^{}]*"name"\s*:\s*"((?:\\.|[^"\\])*)"`)
+	reFromAddress       = regexp.MustCompile(`"from"\s*:\s*\{[^{}]*"address"\s*:\s*"((?:\\.|[^"\\])*)"`)
+	reCalendarSubject   = regexp.MustCompile(`"subject"\s*:\s*"((?:\\.|[^"\\])*)"`)
+	reCalendarStart     = regexp.MustCompile(`"start"\s*:\s*\{[^{}]*"(?:dateTime|date)"\s*:\s*"([^"]+)"`)
+	reCalendarIsAllDay  = regexp.MustCompile(`"isAllDay"\s*:\s*(true|false)`)
+	reCalendarType      = regexp.MustCompile(`"type"\s*:\s*"([^"]+)"`)
 	reCalendarCancelled = regexp.MustCompile(`"isCancelled"\s*:\s*(true|false)`)
 	reSPListFieldTitle  = regexp.MustCompile(`"(?:Title|FileLeafRef|LinkTitle|Name|LinkFilename|Description|Subject)"\s*:\s*"((?:\\.|[^"\\])*)"`)
 )
@@ -339,7 +341,10 @@ func mailAttachmentFolderLabels(ctx context.Context, root kopiafs.Directory, fol
 	msgJSONPath := strings.Trim(folderPath, "/") + ".json"
 	labels := mailMessageLabels(ctx, root, msgJSONPath)
 	if labels.Label == "" || labels.Label == "Email message" {
-		return browseLabelResult{}
+		return browseLabelResult{
+			Label:    mailOrphanAttachmentFolderLabel,
+			Subtitle: "Attachments",
+		}
 	}
 	subtitle := "Attachments"
 	if labels.Subtitle != "" {
@@ -374,12 +379,12 @@ func isMailMessageAttachmentFolder(folderPath, name string) bool {
 }
 
 type mailMetadata struct {
-	Subject      string
-	FromName     string
-	FromAddress  string
-	ReceivedAt   string
-	SentAt       string
-	IsDraft      bool
+	Subject     string
+	FromName    string
+	FromAddress string
+	ReceivedAt  string
+	SentAt      string
+	IsDraft     bool
 }
 
 func parseMailMetadata(buf []byte) mailMetadata {

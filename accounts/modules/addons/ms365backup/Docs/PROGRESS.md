@@ -3,13 +3,20 @@
 **Purpose:** Single handoff document so the next agent knows where work stopped. Update this file at the **end of every session** (or after each meaningful milestone).
 
 **Last updated:** 2026-07-28
-**Module version (ms365backup):** 1.52.36
+**Module version (ms365backup):** 1.52.37
 **Cloudstorage (e3) version:** 2.2.0  
-**Worker version (ms365-backup-worker):** 0.4.22 (Kopia v0.23.1)
+**Worker version (ms365-backup-worker):** 0.4.23 (Kopia v0.23.1)
 
 ---
 
 ## Session log
+
+### 2026-07-28 — Mail orphan attachment labels (worker 0.4.23, PHP 1.52.37)
+
+- **Production evidence:** PHP commit `53f8ec0d` / browse cache **v21**; worker **0.4.21** on prod. Affected Inbox showed **211/333** generic labels under 0.4.21; **zero** generic labels under 0.4.22 dev browse binary **only for entries with valid sibling message JSON**. **Five** separate metadata-less orphan attachment trees (no sibling message JSON) still showed generic **Email message** / **Mail folder**.
+- **Fix:** Worker returns **Message attachments (metadata unavailable)** with subtitle **Attachments** when message JSON is missing; PHP rewrites stale generic fallbacks on attachment-folder paths; browse cache bumped to **v22-mail-orphan-labels**.
+- **Verify:** `go test ./...`, `go build ./...`, `ms365_restore_tree_browse_test.php`, `ms365_browse_binary_installer_test.php`.
+- **Deploy:** **Pending** — dev changes only; do not claim production rollout until released.
 
 ### 2026-07-28 — Mail restore browse labels (worker 0.4.22)
 
