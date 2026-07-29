@@ -60,6 +60,7 @@ type Scheduler struct {
 	freeMiBFn            func() int64
 	cachePressureMiB     atomic.Int64
 	lastCacheTelemetry   time.Time
+	lastIdleRecovery     time.Time
 	testHooks            *schedulerTestHooks
 	lastDrainSteps       []drainStep
 }
@@ -538,13 +539,96 @@ func (s *Scheduler) evaluateDiskPressure(ctx context.Context) {
 		evictCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 		s.repoPool.EvictIdle(evictCtx)
 		cancel()
+		// Prod 9002: soft pressure paused admissions while the batch still held a
+		// warm repo (refs>0), so EvictIdle left a ~20GiB contents cache. After
+		// children finished (reserved=0) free sat in the hysteresis dead zone
+		// (soft ≤ free < soft+hysteresis) and the latch never cleared.
+		if s.idleUnderDiskPressure() {
+			s.recoverIdleDiskPressure(ctx)
+		}
 		return
 	}
 
-	if s.diskCritical.Load() && in.canResumeFromPressure() {
+	if !s.diskCritical.Load() {
+		return
+	}
+	if in.canResumeFromPressure() {
 		log.Printf("disk recovered: %d MiB free above resume threshold (soft=%d cache=%d reserved=%d); resuming admissions",
 			in.freeMiB, in.softThresholdMiB(), in.cachePressureMiB, in.reservedDiskMiB)
 		s.diskCritical.Store(false)
+		return
+	}
+	// Hysteresis dead zone: soft pressure cleared but resume threshold not met.
+	// Keep attempting idle cache purge so a stuck latch can self-heal.
+	if s.idleUnderDiskPressure() {
+		s.recoverIdleDiskPressure(ctx)
+	}
+}
+
+// idleUnderDiskPressure is true when the latch is held but no work is consuming
+// paper disk budget or run slots — the recoverable stuck-latch shape.
+func (s *Scheduler) idleUnderDiskPressure() bool {
+	if s.activeReservedDiskMiB() != 0 {
+		return false
+	}
+	s.runningMu.Lock()
+	n := len(s.running)
+	s.runningMu.Unlock()
+	return n == 0
+}
+
+// recoverIdleDiskPressure force-purges Kopia caches (including repos still
+// referenced by an idle owned batch) and clears the latch when free space is at
+// least the soft threshold. If free is still insufficient and a batch is owned,
+// cooperative-drain releases the claim so a healthier node can continue.
+func (s *Scheduler) recoverIdleDiskPressure(ctx context.Context) {
+	if !s.lastIdleRecovery.IsZero() && time.Since(s.lastIdleRecovery) < time.Minute {
+		return
+	}
+	s.lastIdleRecovery = time.Now()
+
+	_, cacheBefore := s.repoPool.CacheBreakdownMiB()
+	inBefore := s.headroomInput(0)
+	// #region agent log
+	log.Printf("idle disk pressure recovery start hypothesisId=D free_mib=%d soft_mib=%d cache_mib=%d owns_batch=%v",
+		inBefore.freeMiB, inBefore.softThresholdMiB(), cacheBefore, s.ownsBatch())
+	// #endregion
+
+	evictCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	s.repoPool.DrainAndPurgeCaches(evictCtx)
+	cacheRoot := filepath.Join(s.cfg.Kopia.RepoConfigDir, "cache")
+	if err := os.RemoveAll(cacheRoot); err != nil && !os.IsNotExist(err) {
+		log.Printf("idle disk pressure cache root purge failed: %v", err)
+	}
+	cancel()
+
+	in := s.headroomInput(0)
+	_, cacheAfter := s.repoPool.CacheBreakdownMiB()
+	s.cachePressureMiB.Store(cacheAfter)
+	log.Printf("idle disk pressure recovery: purged caches before=%d after=%d free=%d soft=%d reserved=%d",
+		cacheBefore, cacheAfter, in.freeMiB, in.softThresholdMiB(), in.reservedDiskMiB)
+
+	// Idle recovery: clear once free is at/above soft threshold. Full hysteresis
+	// remains for under-load resume (canResumeFromPressure) to avoid flapping.
+	if in.freeMiB >= in.softThresholdMiB() {
+		log.Printf("disk recovered after idle cache purge: %d MiB free (soft=%d); resuming admissions",
+			in.freeMiB, in.softThresholdMiB())
+		s.diskCritical.Store(false)
+		// #region agent log
+		log.Printf("idle disk pressure recovery cleared latch hypothesisId=D free_mib=%d", in.freeMiB)
+		// #endregion
+		return
+	}
+
+	if s.ownsBatch() {
+		log.Printf("idle disk pressure: releasing batch claim after cache purge (free=%d soft=%d)",
+			in.freeMiB, in.softThresholdMiB())
+		s.cooperativeDrain(ctx, "drain", nil)
+		in = s.headroomInput(0)
+		if in.freeMiB >= in.softThresholdMiB() {
+			s.diskCritical.Store(false)
+			log.Printf("disk recovered after idle batch hand-off: %d MiB free", in.freeMiB)
+		}
 	}
 }
 

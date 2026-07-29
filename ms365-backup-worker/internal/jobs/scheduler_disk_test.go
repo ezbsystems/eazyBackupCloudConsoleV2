@@ -427,6 +427,66 @@ func TestDiskCriticalPersistsAcrossBriefFreeSpaceRecovery(t *testing.T) {
 	}
 }
 
+// Prod 9002 shape: idle (reserved=0, no runners), free in hysteresis dead zone
+// (soft ≤ free < soft+hysteresis), warm contents cache still on disk. Soft
+// pressure is false so the old path never called EvictIdle/Drain and the latch
+// stuck forever. Idle recovery must purge and clear at soft threshold.
+func TestIdleHysteresisDeadZoneClearsAfterCachePurge(t *testing.T) {
+	s := diskTestScheduler(t)
+	s.cfg.Worker.DiskWatermarkMiB = 4096
+	s.cfg.Worker.DiskFlushWatermarkMiB = 8192
+	s.cfg.Worker.DiskHysteresisMiB = 512
+	s.cfg.Worker.UpdateReserveMiB = 256
+
+	cacheDir := filepath.Join(s.cfg.Kopia.RepoConfigDir, "cache", "deadzone")
+	contents := filepath.Join(cacheDir, "contents")
+	if err := os.MkdirAll(contents, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(contents, "blob"), []byte("warm-cache"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var free atomic.Int64
+	// 8484 matches prod: above soft(8192) but below resume(8704).
+	free.Store(8484)
+	s.freeMiBFn = func() int64 { return free.Load() }
+	s.diskCritical.Store(true)
+
+	s.evaluateDiskPressure(context.Background())
+	if s.diskCritical.Load() {
+		t.Fatal("expected idle dead-zone recovery to clear diskCritical when free >= soft threshold")
+	}
+	if _, err := os.Stat(cacheDir); !os.IsNotExist(err) {
+		t.Fatal("expected warm cache directory removed during idle recovery")
+	}
+	if !s.hasDiskSpace() {
+		t.Fatal("expected admissions resumed after idle cache purge")
+	}
+}
+
+func TestIdleSoftPressurePurgesWarmCacheEvenWithPoolRefs(t *testing.T) {
+	s := diskTestScheduler(t)
+	s.cfg.Worker.DiskWatermarkMiB = 4096
+	s.cfg.Worker.DiskFlushWatermarkMiB = 8192
+	s.cfg.Worker.UpdateReserveMiB = 256
+
+	cacheDir := filepath.Join(s.cfg.Kopia.RepoConfigDir, "cache", "warm")
+	if err := os.MkdirAll(filepath.Join(cacheDir, "contents"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cacheDir, "contents", "x"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Soft pressure (7000 < 8192) with idle reserved/runners: recovery must
+	// RemoveAll the cache root even when EvictIdle would skip pooled refs.
+	s.freeMiBFn = func() int64 { return 7000 }
+	s.evaluateDiskPressure(context.Background())
+	if _, err := os.Stat(cacheDir); !os.IsNotExist(err) {
+		t.Fatal("expected idle soft-pressure recovery to RemoveAll cache root")
+	}
+}
+
 func TestHasRealHeadroom(t *testing.T) {
 	s := diskTestScheduler(t)
 	s.freeMiBFn = func() int64 { return 10000 }

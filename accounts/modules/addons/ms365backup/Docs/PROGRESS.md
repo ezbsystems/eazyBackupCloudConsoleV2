@@ -2,14 +2,23 @@
 
 **Purpose:** Single handoff document so the next agent knows where work stopped. Update this file at the **end of every session** (or after each meaningful milestone).
 
-**Last updated:** 2026-07-28
+**Last updated:** 2026-07-29
 **Module version (ms365backup):** 1.52.40
 **Cloudstorage (e3) version:** 2.2.0  
-**Worker version (ms365-backup-worker):** 0.4.26 (Kopia v0.23.1)
+**Worker version (ms365-backup-worker):** 0.4.27 (Kopia v0.23.1)
 
 ---
 
 ## Session log
+
+### 2026-07-29 — Idle disk-pressure latch dead zone (worker 0.4.27)
+
+- **Prod symptom:** Batch `a24212c8-…` (tenant 14) owned by **ms365-worker-9002** showed “Owner worker disk pressure latch”; 302 queued / 0 running. Batch `22ee9ad3-…` on **9013** was healthy (6 running) — warning was not a stall.
+- **Evidence (9002, 32 GiB rootfs):** Soft pressure at 01:13 (`free=16629` vs soft=`16640` from watermark+reserved 12288+update 256). Warm Kopia **contents cache grew to ~20 GiB**. Soft path only `EvictIdle` (skips refs>0). After children drained (`reserved=0`), free sat in hysteresis dead zone (`8484` with soft=`8192`, resume needs `8704`) so latch never cleared and admissions stayed blocked for ~11h.
+- **Immediate ops:** `systemctl restart ms365-backup-worker` on 9002 → startup cache sweep → `free≈29 GiB`, `pressure=false`, batch resumed (6 running).
+- **Fix (0.4.27):** When latched and idle (`reserved=0`, no runners), force `DrainAndPurgeCaches` + cache-root `RemoveAll`; clear latch at soft threshold (hysteresis still applies under load). If still short on free and a batch is owned, cooperative-drain hand-off.
+- **Ops follow-up:** Resize **9002** (and any other 32 GiB workers) to the fleet **62 GiB** rootfs — config soft threshold with 6×2048 reserved (~16 GiB) is sized for 62 GiB nodes.
+- **Verify:** `go test ./internal/jobs/ -run 'Disk|Idle'` PASS; post-restart WHMCS: 9002 `disk_critical=0`, batch advancing.
 
 ### 2026-07-28 — SharePoint baseline hardening + delta reset tombstones (PHP 1.52.40, worker 0.4.26)
 
