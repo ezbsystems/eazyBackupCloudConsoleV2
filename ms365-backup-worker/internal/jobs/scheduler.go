@@ -588,11 +588,6 @@ func (s *Scheduler) recoverIdleDiskPressure(ctx context.Context) {
 	s.lastIdleRecovery = time.Now()
 
 	_, cacheBefore := s.repoPool.CacheBreakdownMiB()
-	inBefore := s.headroomInput(0)
-	// #region agent log
-	log.Printf("idle disk pressure recovery start hypothesisId=D free_mib=%d soft_mib=%d cache_mib=%d owns_batch=%v",
-		inBefore.freeMiB, inBefore.softThresholdMiB(), cacheBefore, s.ownsBatch())
-	// #endregion
 
 	evictCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	s.repoPool.DrainAndPurgeCaches(evictCtx)
@@ -614,9 +609,6 @@ func (s *Scheduler) recoverIdleDiskPressure(ctx context.Context) {
 		log.Printf("disk recovered after idle cache purge: %d MiB free (soft=%d); resuming admissions",
 			in.freeMiB, in.softThresholdMiB())
 		s.diskCritical.Store(false)
-		// #region agent log
-		log.Printf("idle disk pressure recovery cleared latch hypothesisId=D free_mib=%d", in.freeMiB)
-		// #endregion
 		return
 	}
 
