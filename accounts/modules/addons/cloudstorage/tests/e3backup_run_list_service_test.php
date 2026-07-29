@@ -67,6 +67,16 @@ assertEq(
     str_contains($timeCutoffSql, 'COALESCE(r.started_at, r.created_at) >= ?'),
     'time cutoff still applies window to completed runs'
 );
+assertEq(
+    true,
+    str_starts_with($timeCutoffSql, '((') && str_ends_with($timeCutoffSql, '))'),
+    'time cutoff is fully parenthesized so AND client_id cannot be bypassed by OR'
+);
+assertEq(
+    '((r.finished_at IS NULL AND r.status IN (\'queued\',\'starting\',\'running\')) OR (COALESCE(r.started_at, r.created_at) >= ?))',
+    $timeCutoffSql,
+    'time cutoff exact SQL shape'
+);
 $startedOnlySql = E3BackupRunListService::buildTimeCutoffWhereClause('r.started_at');
 assertEq(
     true,

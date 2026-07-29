@@ -153,6 +153,46 @@ try {
         'job_id' => $jobFilterRaw,
     ]);
 
+    // #region agent log
+    $jobIds = [];
+    foreach (($result['rows'] ?? []) as $row) {
+        $jid = (string) ($row['job_id'] ?? '');
+        if ($jid !== '') {
+            $jobIds[$jid] = true;
+        }
+    }
+    $foreignJobCount = 0;
+    foreach (array_keys($jobIds) as $jid) {
+        $owns = Capsule::table('s3_cloudbackup_jobs')
+            ->whereRaw('job_id = UUID_TO_BIN(?)', [$jid])
+            ->where('client_id', $clientId)
+            ->exists();
+        if (!$owns) {
+            $foreignJobCount++;
+        }
+    }
+    @file_put_contents(
+        '/var/www/eazybackup.ca/.cursor/debug-9a270a.log',
+        json_encode([
+            'sessionId' => '9a270a',
+            'runId' => 'post-fix',
+            'hypothesisId' => 'A',
+            'location' => 'e3backup_run_list.php:listRuns',
+            'message' => 'job logs listRuns scope check',
+            'data' => [
+                'clientId' => $clientId,
+                'total' => (int) ($result['total'] ?? 0),
+                'rowCount' => count($result['rows'] ?? []),
+                'uniqueJobIds' => count($jobIds),
+                'foreignJobCount' => $foreignJobCount,
+                'timeCutoffSql' => E3BackupRunListService::buildTimeCutoffWhereClause('COALESCE(r.started_at, r.created_at)'),
+            ],
+            'timestamp' => (int) round(microtime(true) * 1000),
+        ]) . "\n",
+        FILE_APPEND | LOCK_EX
+    );
+    // #endregion
+
     (new JsonResponse([
         'status' => 'success',
         'total' => $result['total'],

@@ -357,11 +357,15 @@ final class E3BackupRunListService
 
   /**
    * SQL fragment: unfinished active runs bypass the time window; completed runs use effective start.
+   *
+   * MUST be a single parenthesized boolean group. Laravel whereRaw does not wrap the
+   * fragment, so an ungrouped `A OR B` binds as `client_id = ? AND … AND A OR B` and
+   * the OR branch leaks every client's recent runs (prod: client 2718 Job Logs).
    */
   public static function buildTimeCutoffWhereClause(string $effectiveStartedExpr): string
   {
-    return '(r.finished_at IS NULL AND r.status IN (\'queued\',\'starting\',\'running\'))'
-      . ' OR (' . $effectiveStartedExpr . ' >= ?)';
+    return '((r.finished_at IS NULL AND r.status IN (\'queued\',\'starting\',\'running\'))'
+      . ' OR (' . $effectiveStartedExpr . ' >= ?))';
   }
 
   public static function categorizeWorkload(string $sourceType, string $engine, string $agentUuid): string
