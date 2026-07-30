@@ -9,7 +9,7 @@ namespace Ms365Backup;
 final class RestoreTreeBrowseService
 {
     private const CACHE_TTL_SECONDS = 3600;
-    private const BROWSE_CACHE_NAMESPACE = 'v26-sharepoint-all-libraries';
+    private const BROWSE_CACHE_NAMESPACE = 'v26-browse-serve';
 
     /** @var array<string, string> */
     private const SEGMENT_LABELS = [
@@ -55,9 +55,43 @@ final class RestoreTreeBrowseService
         $limit = max(0, $limit);
         $offset = max(0, $offset);
 
+        // #region agent log
+        $agentDbg = static function (string $hypothesisId, string $message, array $data = []) use (&$batchRunId, &$path, &$manifestId, &$childRun): void {
+            $payload = [
+                'sessionId' => '5f0e31',
+                'hypothesisId' => $hypothesisId,
+                'location' => 'RestoreTreeBrowseService.php:list',
+                'message' => $message,
+                'data' => array_merge([
+                    'batch' => substr(trim($batchRunId), 0, 36),
+                    'path' => $path,
+                    'manifest' => substr(trim($manifestId), 0, 32),
+                    'child_pk' => is_array($childRun) ? (string) ($childRun['physical_key'] ?? '') : '',
+                    'child_items' => is_array($childRun) ? (int) ($childRun['items_done'] ?? 0) : 0,
+                    'child_hashed' => is_array($childRun) ? (int) ($childRun['bytes_hashed'] ?? 0) : 0,
+                ], $data),
+                'timestamp' => (int) (microtime(true) * 1000),
+            ];
+            $line = json_encode($payload, JSON_UNESCAPED_SLASHES) . "\n";
+            foreach ([
+                '/var/www/eazybackup.ca/.cursor/debug-5f0e31.log',
+                dirname(__DIR__, 2) . '/storage/debug-5f0e31.log',
+                '/tmp/ms365-debug-5f0e31.log',
+            ] as $logPath) {
+                @file_put_contents($logPath, $line, FILE_APPEND | LOCK_EX);
+            }
+        };
+        // #endregion
+
         if ($path === '' && $childRun !== null) {
             $synthetic = self::syntheticWorkloadEntries($tenantRecord, $childRun, $batchRunId);
             if ($synthetic !== []) {
+                // #region agent log
+                $agentDbg('A', 'synthetic_workloads', [
+                    'labels' => array_map(static fn ($e) => (string) ($e['label'] ?? ''), $synthetic),
+                    'entry_count' => count($synthetic),
+                ]);
+                // #endregion
                 return self::paginateEntries($synthetic, $limit, $offset);
             }
         }
@@ -84,6 +118,12 @@ final class RestoreTreeBrowseService
         );
         $cached = self::readCache($cacheKey);
         if ($cached !== null) {
+            // #region agent log
+            $agentDbg('E', 'cache_hit', [
+                'entry_count' => count($cached['entries'] ?? []),
+                'labels' => array_slice(array_map(static fn ($e) => (string) ($e['label'] ?? $e['name'] ?? ''), $cached['entries'] ?? []), 0, 20),
+            ]);
+            // #endregion
             return $cached;
         }
 
@@ -96,6 +136,16 @@ final class RestoreTreeBrowseService
                 $enriched = self::enrichEntries($syntheticDrives, $path, $childRun);
                 $result = self::paginateEntries($enriched, $limit, $offset);
                 self::writeCache($cacheKey, $result);
+                // #region agent log
+                $agentDbg('D', 'synthetic_drives', [
+                    'entry_count' => count($enriched),
+                    'libs' => array_map(static fn ($e) => [
+                        'label' => (string) ($e['label'] ?? ''),
+                        'manifest' => substr((string) ($e['manifest_id'] ?? ''), 0, 16),
+                        'child' => substr((string) ($e['child_run_id'] ?? ''), 0, 8),
+                    ], $enriched),
+                ]);
+                // #endregion
 
                 return $result;
             }
@@ -103,6 +153,7 @@ final class RestoreTreeBrowseService
 
         if ($browseContext['use_multi_source']) {
             $e3JobId = is_array($childRun) ? trim((string) ($childRun['e3_job_id'] ?? '')) : '';
+            $useServe = KopiaSnapshotBrowseService::supportsBrowseServe();
             $raw = KopiaSnapshotBrowseService::listDirectoryMultiSource(
                 $tenantRecord,
                 $path,
@@ -110,18 +161,24 @@ final class RestoreTreeBrowseService
                 $e3JobId !== '' ? $e3JobId : null,
                 $limit,
                 $offset,
+                $useServe,
             );
-            $entries = self::autoDescendIfNeeded(
-                $tenantRecord,
-                (string) ($browseContext['representative_manifest_id'] ?? $manifestId),
-                $path,
-                $raw['entries'],
-                $childRun,
-                $browseContext,
-            );
+            $entries = $useServe
+                ? $raw['entries']
+                : self::autoDescendIfNeeded(
+                    $tenantRecord,
+                    (string) ($browseContext['representative_manifest_id'] ?? $manifestId),
+                    $path,
+                    $raw['entries'],
+                    $childRun,
+                    $browseContext,
+                );
         } else {
             $raw = self::listKopiaDirectoryWithAliases($tenantRecord, $manifestId, $path, $childRun, $limit, $offset);
-            $entries = self::autoDescendIfNeeded($tenantRecord, $manifestId, $path, $raw['entries'], $childRun);
+            $useServe = KopiaSnapshotBrowseService::supportsBrowseServe();
+            $entries = $useServe
+                ? $raw['entries']
+                : self::autoDescendIfNeeded($tenantRecord, $manifestId, $path, $raw['entries'], $childRun);
         }
         $result = [
             'entries' => self::enrichEntries($entries, $path, $childRun),
@@ -135,6 +192,22 @@ final class RestoreTreeBrowseService
         }
 
         self::writeCache($cacheKey, $result);
+        // #region agent log
+        $agentDbg(preg_match('#/drives/b!#', $path) === 1 ? 'A' : 'B', 'kopia_list_result', [
+            'entry_count' => count($result['entries']),
+            'total_count' => $result['total_count'],
+            'multi' => !empty($browseContext['use_multi_source']),
+            'labels' => array_slice(array_map(static fn ($e) => (string) ($e['label'] ?? $e['name'] ?? ''), $result['entries']), 0, 20),
+            'sp_items' => (static function (?array $run): int {
+                if ($run === null) {
+                    return -1;
+                }
+                $stats = json_decode((string) ($run['stats_json'] ?? ''), true);
+
+                return is_array($stats) ? (int) ($stats['workloads']['sharepoint']['items'] ?? -1) : -1;
+            })($childRun),
+        ]);
+        // #endregion
 
         return $result;
     }
@@ -1172,22 +1245,7 @@ final class RestoreTreeBrowseService
         int $limit = 500,
         int $offset = 0,
     ): array {
-        $pathCandidates = [$path];
-        foreach (self::oneDriveBrowsePathAliases($path, $childRun) as $alias) {
-            if ($alias !== '' && !in_array($alias, $pathCandidates, true)) {
-                $pathCandidates[] = $alias;
-            }
-        }
-        foreach (self::sharePointBrowsePathAliases($path, $childRun) as $alias) {
-            if ($alias !== '' && !in_array($alias, $pathCandidates, true)) {
-                $pathCandidates[] = $alias;
-            }
-        }
-        foreach (self::sharePointDrivePathAliases($path, $childRun) as $alias) {
-            if ($alias !== '' && !in_array($alias, $pathCandidates, true)) {
-                $pathCandidates[] = $alias;
-            }
-        }
+        $pathCandidates = self::browsePathCandidates($path, $childRun);
 
         $manifestCandidates = [];
         $primaryManifest = trim($manifestId);
@@ -1203,12 +1261,46 @@ final class RestoreTreeBrowseService
                 $pathCandidates[] = 'content';
             }
         }
+
+        $useServe = KopiaSnapshotBrowseService::supportsBrowseServe();
+        if ($useServe && $manifestCandidates !== []) {
+            $e3JobId = is_array($childRun) ? trim((string) ($childRun['e3_job_id'] ?? '')) : '';
+            try {
+                $result = KopiaSnapshotBrowseService::listDirectory(
+                    $tenantRecord,
+                    $manifestCandidates[0],
+                    $path,
+                    $e3JobId !== '' ? $e3JobId : null,
+                    $limit,
+                    $offset,
+                    $pathCandidates,
+                    array_slice($manifestCandidates, 1),
+                    true,
+                );
+                if ($result['entries'] !== []) {
+                    $resolvedPath = trim((string) ($result['resolved_path'] ?? ''));
+                    if ($resolvedPath !== '' && $resolvedPath !== $path) {
+                        $result['entries'] = self::rebaseSharePointDriveBrowsePaths($result['entries'], $path, $resolvedPath, $childRun);
+                    }
+
+                    return $result;
+                }
+
+                return $result;
+            } catch (\RuntimeException $e) {
+                if (!self::isMissingWorkloadRoot($path, $e)) {
+                    throw $e;
+                }
+
+                return self::emptyBrowsePage($limit, $offset);
+            }
+        }
+
         if ($manifestCandidates === []) {
             $manifestCandidates[] = '';
         }
 
         $lastError = null;
-        $attemptLog = [];
         foreach ($manifestCandidates as $candidateManifest) {
             if ($candidateManifest === '') {
                 continue;
@@ -1216,13 +1308,6 @@ final class RestoreTreeBrowseService
             foreach ($pathCandidates as $candidate) {
                 try {
                     $result = self::listKopiaDirectory($tenantRecord, $candidateManifest, $candidate, $childRun, $limit, $offset);
-                    $count = count($result['entries'] ?? []);
-                    $attemptLog[] = [
-                        'manifest' => substr($candidateManifest, 0, 16),
-                        'path' => $candidate,
-                        'count' => $count,
-                        'err' => null,
-                    ];
                     if ($result['entries'] !== []) {
                         $result['entries'] = self::rebaseSharePointDriveBrowsePaths($result['entries'], $path, $candidate, $childRun);
 
@@ -1230,12 +1315,6 @@ final class RestoreTreeBrowseService
                     }
                 } catch (\RuntimeException $e) {
                     $lastError = $e;
-                    $attemptLog[] = [
-                        'manifest' => substr($candidateManifest, 0, 16),
-                        'path' => $candidate,
-                        'count' => null,
-                        'err' => substr($e->getMessage(), 0, 180),
-                    ];
                 }
             }
         }
@@ -1271,6 +1350,7 @@ final class RestoreTreeBrowseService
             $e3JobId !== '' ? $e3JobId : null,
             $limit,
             $offset,
+            KopiaSnapshotBrowseService::supportsBrowseServe(),
         );
     }
 

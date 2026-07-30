@@ -70,9 +70,27 @@ assert_true(
 $ref = new ReflectionClass(\Ms365Backup\RestoreTreeBrowseService::class);
 
 assert_eq(
-    'v26-sharepoint-all-libraries',
+    'v26-browse-serve',
     $ref->getConstant('BROWSE_CACHE_NAMESPACE'),
-    'browse cache namespace is v26-sharepoint-all-libraries'
+    'browse cache namespace is v26-browse-serve'
+);
+
+assert_eq(
+    '/run/ms365-browse/browse.sock',
+    \Ms365Backup\KopiaSnapshotBrowseService::browseSocketPath(),
+    'default browse socket path'
+);
+
+$isSocketUnavailable = (new ReflectionClass(\Ms365Backup\KopiaSnapshotBrowseService::class))
+    ->getMethod('isBrowseSocketUnavailable');
+$isSocketUnavailable->setAccessible(true);
+assert_true(
+    $isSocketUnavailable->invoke(null, new \RuntimeException('browse socket connect failed: Connection refused')),
+    'connection refused triggers CLI fallback'
+);
+assert_true(
+    !$isSocketUnavailable->invoke(null, new \RuntimeException('Browse failed: path not found')),
+    'browse errors do not trigger CLI fallback'
 );
 
 $buildCacheKey = $ref->getMethod('buildBrowseCacheKey');

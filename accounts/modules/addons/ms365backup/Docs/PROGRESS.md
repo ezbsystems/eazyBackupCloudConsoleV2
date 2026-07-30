@@ -5,11 +5,18 @@
 **Last updated:** 2026-07-30
 **Module version (ms365backup):** 1.52.42
 **Cloudstorage (e3) version:** 2.2.0  
-**Worker version (ms365-backup-worker):** 0.4.27 (Kopia v0.23.1)
+**Worker version (ms365-backup-worker):** 0.4.29 (Kopia v0.23.1)
 
 ---
 
 ## Session log
+
+### 2026-07-30 — Restore browse load-time: warm browse sidecar (worker 0.4.29, PHP browse cache v26-browse-serve)
+
+- **Problem:** Each uncached restore-tree expand spawned a cold `browse` CLI process (new Kopia pool + S3 repo open), multiplied by PHP path-alias and auto-descend retries.
+- **Fix:** Long-lived `browse-serve` Unix socket sidecar (`ms365-browse.service`, www-data) keeps a warm `kopia.Pool` with small browse-specific cache limits. Single JSON request carries `candidate_paths`, `manifest_candidates`, and `auto_descend` (mirrors PHP `shouldAutoDescend`). PHP `KopiaSnapshotBrowseService` prefers socket, falls back to CLI. `RestoreTreeBrowseService` sends all aliases in one serve request; PHP auto-descend only on CLI fallback. Browse cache namespace `v26-browse-serve`.
+- **Ops:** `deploy/systemd/ms365-browse.service`; `BrowseBinaryInstaller::restartBrowseService()` + ping after binary sync; `deploy-production.sh` installs/enables unit; `ms365_browse_binary_diag.php` reports socket ping.
+- **Verify (dev):** `go test ./internal/kopia/...` PASS; `ms365_restore_tree_browse_test.php` PASS; `ms365-browse.service` active; `browse_socket_ping.alive=true` (as www-data).
 
 ### 2026-07-30 — SharePoint restore Files lists all document libraries (PHP 1.52.42)
 

@@ -1,0 +1,22 @@
+[Unit]
+Description=MS365 restore browse sidecar (warm Kopia pool)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+RuntimeDirectory=ms365-browse
+ExecStart=/var/www/eazybackup.ca/ms365-backup-worker/ms365-backup-worker browse-serve --socket /run/ms365-browse/browse.sock
+Restart=on-failure
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ms365-browse
+
+NoNewPrivileges=true
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

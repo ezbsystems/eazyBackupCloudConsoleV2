@@ -18,6 +18,9 @@ final class KopiaSnapshotBrowseService
         ?string $e3JobId = null,
         int $limit = 0,
         int $offset = 0,
+        array $candidatePaths = [],
+        array $manifestCandidates = [],
+        bool $autoDescend = false,
     ): array {
         $manifestId = trim($manifestId);
         if ($manifestId === '') {
@@ -25,22 +28,18 @@ final class KopiaSnapshotBrowseService
         }
 
         $dest = self::resolveDestination($tenantRecord, $e3JobId);
-        $payload = [
-            'manifest_id' => $manifestId,
-            'path' => $path,
-            'limit' => $limit,
-            'offset' => $offset,
-            'dest_endpoint' => $dest['endpoint'],
-            'dest_region' => $dest['region'],
-            'dest_bucket' => $dest['bucket'],
-            'dest_prefix' => $dest['prefix'],
-            'dest_access_key' => $dest['access_key'],
-            'dest_secret_key' => $dest['secret_key'],
-            'repo_password' => $dest['repo_password'],
-            'repo_config' => sys_get_temp_dir() . '/ms365-browse-' . md5($manifestId) . '.config',
-        ];
+        $payload = self::buildBrowsePayload(
+            $manifestId,
+            $path,
+            $limit,
+            $offset,
+            $dest,
+            $candidatePaths,
+            $manifestCandidates,
+            $autoDescend,
+        );
 
-        $result = self::invokeBrowseCli($payload);
+        $result = self::invokeBrowse($payload);
 
         return self::normalizeBrowseResult($result, $offset, $limit);
     }
@@ -58,6 +57,7 @@ final class KopiaSnapshotBrowseService
         ?string $e3JobId = null,
         int $limit = 0,
         int $offset = 0,
+        bool $autoDescend = false,
     ): array {
         if ($sources === []) {
             throw new \RuntimeException('browse sources are required.');
@@ -101,6 +101,7 @@ final class KopiaSnapshotBrowseService
             'sources' => $browseSources,
             'limit' => $limit,
             'offset' => $offset,
+            'auto_descend' => $autoDescend,
             'dest_endpoint' => $dest['endpoint'],
             'dest_region' => $dest['region'],
             'dest_bucket' => $dest['bucket'],
@@ -111,7 +112,7 @@ final class KopiaSnapshotBrowseService
             'repo_config' => sys_get_temp_dir() . '/ms365-browse-' . md5($primaryManifest) . '.config',
         ];
 
-        $result = self::invokeBrowseCli($payload);
+        $result = self::invokeBrowse($payload);
 
         return self::normalizeBrowseResult($result, $offset, $limit);
     }
@@ -135,6 +136,58 @@ final class KopiaSnapshotBrowseService
         }
 
         return false;
+    }
+
+    public static function browseSocketPath(): string
+    {
+        $fromSetting = trim((string) (Ms365EngineConfig::moduleSettingPublic('ms365_browse_socket_path') ?? ''));
+        if ($fromSetting !== '') {
+            return $fromSetting;
+        }
+
+        return '/run/ms365-browse/browse.sock';
+    }
+
+    /**
+     * @return array{alive: bool, latency_ms: int|null, error: string}
+     */
+    public static function pingBrowseSocket(): array
+    {
+        $socketPath = self::browseSocketPath();
+        if ($socketPath === '' || !file_exists($socketPath)) {
+            return ['alive' => false, 'latency_ms' => null, 'error' => 'socket missing'];
+        }
+
+        $start = microtime(true);
+        $sock = @stream_socket_client('unix://' . $socketPath, $errno, $errstr, 2.0);
+        if ($sock === false) {
+            return ['alive' => false, 'latency_ms' => null, 'error' => $errstr !== '' ? $errstr : 'connect failed'];
+        }
+
+        try {
+            fwrite($sock, '{"op":"ping"}' . "\n");
+            $line = fgets($sock);
+            if ($line === false) {
+                return ['alive' => false, 'latency_ms' => null, 'error' => 'empty response'];
+            }
+            $decoded = json_decode(trim($line), true);
+            if (!is_array($decoded) || empty($decoded['pong'])) {
+                return ['alive' => false, 'latency_ms' => null, 'error' => 'invalid ping response'];
+            }
+
+            return [
+                'alive' => true,
+                'latency_ms' => (int) round((microtime(true) - $start) * 1000),
+                'error' => '',
+            ];
+        } finally {
+            fclose($sock);
+        }
+    }
+
+    public static function supportsBrowseServe(): bool
+    {
+        return self::pingBrowseSocket()['alive'];
     }
 
     /**
@@ -203,7 +256,121 @@ final class KopiaSnapshotBrowseService
      * @param array<string, mixed> $payload
      * @return array<string, mixed>
      */
-    private static function invokeBrowseCli(array $payload): array
+    private static function invokeBrowse(array $payload): array
+    {
+        try {
+            return self::invokeBrowseSocket($payload);
+        } catch (\RuntimeException $e) {
+            if (!self::isBrowseSocketUnavailable($e)) {
+                throw $e;
+            }
+        }
+
+        return self::invokeBrowseCliProcess($payload);
+    }
+
+    private static function isBrowseSocketUnavailable(\RuntimeException $e): bool
+    {
+        $msg = strtolower($e->getMessage());
+
+        return str_contains($msg, 'socket')
+            || str_contains($msg, 'connect')
+            || str_contains($msg, 'connection refused')
+            || str_contains($msg, 'no such file');
+    }
+
+    /**
+     * @param list<string> $candidatePaths
+     * @param list<string> $manifestCandidates
+     * @return array<string, mixed>
+     */
+    private static function buildBrowsePayload(
+        string $manifestId,
+        string $path,
+        int $limit,
+        int $offset,
+        array $dest,
+        array $candidatePaths = [],
+        array $manifestCandidates = [],
+        bool $autoDescend = false,
+    ): array {
+        $payload = [
+            'manifest_id' => $manifestId,
+            'path' => $path,
+            'limit' => $limit,
+            'offset' => $offset,
+            'dest_endpoint' => $dest['endpoint'],
+            'dest_region' => $dest['region'],
+            'dest_bucket' => $dest['bucket'],
+            'dest_prefix' => $dest['prefix'],
+            'dest_access_key' => $dest['access_key'],
+            'dest_secret_key' => $dest['secret_key'],
+            'repo_password' => $dest['repo_password'],
+            'repo_config' => sys_get_temp_dir() . '/ms365-browse-' . md5($manifestId) . '.config',
+        ];
+        if ($candidatePaths !== []) {
+            $payload['candidate_paths'] = array_values($candidatePaths);
+        }
+        if ($manifestCandidates !== []) {
+            $payload['manifest_candidates'] = array_values($manifestCandidates);
+        }
+        if ($autoDescend) {
+            $payload['auto_descend'] = true;
+        }
+
+        return $payload;
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     * @return array<string, mixed>
+     */
+    private static function invokeBrowseSocket(array $payload): array
+    {
+        $socketPath = self::browseSocketPath();
+        if ($socketPath === '' || !file_exists($socketPath)) {
+            throw new \RuntimeException('browse socket unavailable');
+        }
+
+        $sock = @stream_socket_client('unix://' . $socketPath, $errno, $errstr, 5.0);
+        if ($sock === false) {
+            throw new \RuntimeException('browse socket connect failed: ' . ($errstr !== '' ? $errstr : (string) $errno));
+        }
+
+        try {
+            $json = json_encode($payload, JSON_THROW_ON_ERROR);
+            if (fwrite($sock, $json . "\n") === false) {
+                throw new \RuntimeException('browse socket write failed');
+            }
+            $line = fgets($sock);
+            if ($line === false || trim($line) === '') {
+                throw new \RuntimeException('browse socket empty response');
+            }
+            $decoded = json_decode(trim($line), true);
+            if (!is_array($decoded)) {
+                throw new \RuntimeException('browse socket invalid response');
+            }
+            if (!empty($decoded['error'])) {
+                $e = new \RuntimeException('Browse failed: ' . (string) $decoded['error']);
+                Ms365CustomerError::log('kopia_browse_socket', $e);
+                throw $e;
+            }
+            $result = $decoded['result'] ?? $decoded;
+            if (!is_array($result) || !isset($result['entries'])) {
+                throw new \RuntimeException('browse socket missing result entries');
+            }
+
+            return $result;
+        } finally {
+            fclose($sock);
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     * @return array<string, mixed>
+     */
+    private static function invokeBrowseCliProcess(array $payload): array
     {
         $binary = self::workerBinaryPath();
         if (!is_executable($binary)) {

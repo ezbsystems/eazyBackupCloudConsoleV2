@@ -19,6 +19,13 @@ import (
 func main() {
 	updater.FinalizePendingInstall()
 
+	if len(os.Args) > 1 && os.Args[1] == "browse-serve" {
+		if err := runBrowseServeCLI(os.Args[2:]); err != nil {
+			log.Fatalf("browse-serve: %v", err)
+		}
+		return
+	}
+
 	if len(os.Args) > 1 && os.Args[1] == "browse" {
 		if err := runBrowseCLI(os.Args[2:]); err != nil {
 			log.Fatalf("browse: %v", err)
@@ -102,4 +109,28 @@ func runBrowseCLI(args []string) error {
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
 	return enc.Encode(result)
+}
+
+func runBrowseServeCLI(args []string) error {
+	fs := flag.NewFlagSet("browse-serve", flag.ExitOnError)
+	socket := fs.String("socket", kopia.DefaultBrowseServeSocket, "Unix socket path")
+	_ = fs.Parse(args)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		<-sigCh
+		log.Println("browse-serve shutting down...")
+		cancel()
+	}()
+
+	srv := kopia.NewBrowseServeServer(*socket)
+	go func() {
+		<-ctx.Done()
+		srv.Shutdown()
+	}()
+
+	return srv.Run(ctx)
 }

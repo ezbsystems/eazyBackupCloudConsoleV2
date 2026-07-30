@@ -365,11 +365,47 @@ final class BrowseBinaryInstaller
      */
     private static function finish(int $releaseId, array $result, bool $audit): array
     {
+        if ($result['ok']) {
+            $result['browse_service'] = self::restartBrowseService();
+        }
         if ($audit) {
             self::audit($releaseId, $result);
         }
 
         return $result;
+    }
+
+    /**
+     * @return array{restarted: bool, ping: array{alive: bool, latency_ms: int|null, error: string}}
+     */
+    public static function restartBrowseService(): array
+    {
+        $out = [
+            'restarted' => false,
+            'ping' => ['alive' => false, 'latency_ms' => null, 'error' => 'not attempted'],
+        ];
+        if (!function_exists('exec')) {
+            $out['ping']['error'] = 'exec disabled';
+
+            return $out;
+        }
+
+        $unit = '/etc/systemd/system/ms365-browse.service';
+        if (!is_file($unit)) {
+            $out['ping']['error'] = 'ms365-browse.service not installed';
+
+            return $out;
+        }
+
+        @exec('systemctl restart ms365-browse 2>&1', $lines, $code);
+        $out['restarted'] = $code === 0;
+        if ($code !== 0) {
+            $out['ping']['error'] = trim(implode("\n", $lines));
+        }
+
+        $out['ping'] = \Ms365Backup\KopiaSnapshotBrowseService::pingBrowseSocket();
+
+        return $out;
     }
 
     /**

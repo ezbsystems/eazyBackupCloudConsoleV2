@@ -108,6 +108,35 @@ chown_paths() {
   chown -R "$WEB_USER:$WEB_GROUP" "${paths[@]}"
 }
 
+ensure_browse_service() {
+  [[ "$DRY_RUN" -eq 1 ]] && return 0
+  if ! command -v systemctl >/dev/null; then
+    log "SKIP ms365-browse.service — systemctl not available"
+    return 0
+  fi
+
+  local unit_src="$PROD_ROOT/modules/addons/ms365backup/deploy/systemd/ms365-browse.service"
+  if [[ ! -f "$unit_src" ]]; then
+    fail "Missing browse sidecar unit: $unit_src"
+  fi
+
+  log "Post-deploy: install ms365-browse.service"
+  install -d -o "$WEB_USER" -g "$WEB_GROUP" /run/ms365-browse
+  install -m 0644 "$unit_src" /etc/systemd/system/ms365-browse.service
+  systemctl daemon-reload
+  systemctl enable ms365-browse.service
+  systemctl restart ms365-browse.service
+
+  if ! systemctl is-active --quiet ms365-browse.service; then
+    fail "ms365-browse.service failed to start — journalctl -u ms365-browse -n 50"
+  fi
+
+  log "Post-deploy: browse sidecar ping"
+  if ! php "$PROD_ROOT/modules/addons/ms365backup/bin/ms365_browse_binary_diag.php" | grep -q '"alive":true'; then
+    fail "Browse sidecar socket ping failed — run ms365_browse_binary_diag.php"
+  fi
+}
+
 post_deploy_checks() {
   [[ "$DRY_RUN" -eq 1 ]] && return 0
 
@@ -124,6 +153,8 @@ post_deploy_checks() {
     fail "Browse binary sync failed — run: php $PROD_ROOT/modules/addons/ms365backup/bin/ms365_browse_binary_diag.php"
   fi
   chown_paths "$WORKER_REPO_PATH/ms365-backup-worker"
+
+  ensure_browse_service
 
   log "Post-deploy: health check (includes browse binary version)"
   if ! php "$PROD_ROOT/modules/addons/ms365backup/bin/ms365_prod_health_check.php"; then

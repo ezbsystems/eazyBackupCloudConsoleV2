@@ -64,6 +64,8 @@ $lines['repo_dir_writable'] = is_dir($repo) && is_writable($repo);
 $lines['repo_parent_writable'] = is_writable(dirname($repo));
 $lines['dest_exists'] = is_file($dest);
 $lines['dest_executable'] = is_executable($dest);
+$lines['browse_socket'] = \Ms365Backup\KopiaSnapshotBrowseService::browseSocketPath();
+$lines['browse_socket_ping'] = \Ms365Backup\KopiaSnapshotBrowseService::pingBrowseSocket();
 
 $failure = null;
 if ($src === '' || !is_file($src)) {
@@ -85,6 +87,9 @@ if ($src === '' || !is_file($src)) {
             ? ('Fix permissions: chown -R www-data:www-data ' . BrowseBinaryInstaller::repoPath())
             : $lines['hint'];
     }
+} elseif (!($lines['browse_socket_ping']['alive'] ?? false)) {
+    $failure = 'browse_socket_down';
+    $lines['hint'] = 'Start browse sidecar: systemctl restart ms365-browse';
 } else {
     $lines['can_install'] = true;
 }

@@ -22,15 +22,18 @@ func browseRepoConfigDir() string {
 }
 
 type BrowseRequest struct {
-	Storage    StorageOptions
-	ManifestID string
-	Path       string
-	Host       string
-	Username   string
-	SourcePath string
-	Limit      int
-	Offset     int
-	Sources    []BrowseSource `json:"sources,omitempty"`
+	Storage            StorageOptions
+	ManifestID         string
+	Path               string
+	Host               string
+	Username           string
+	SourcePath         string
+	Limit              int
+	Offset             int
+	Sources            []BrowseSource `json:"sources,omitempty"`
+	CandidatePaths     []string       `json:"candidate_paths,omitempty"`
+	ManifestCandidates []string       `json:"manifest_candidates,omitempty"`
+	AutoDescend        bool           `json:"auto_descend,omitempty"`
 }
 
 const browseFastLabelChildThreshold = 200
@@ -49,12 +52,13 @@ type BrowseEntry struct {
 }
 
 type BrowseResult struct {
-	Entries    []BrowseEntry `json:"entries"`
-	TotalCount int           `json:"total_count,omitempty"`
-	HasMore    bool          `json:"has_more,omitempty"`
-	Offset     int           `json:"offset,omitempty"`
-	Limit      int           `json:"limit,omitempty"`
-	Warnings   []string      `json:"warnings,omitempty"`
+	Entries      []BrowseEntry `json:"entries"`
+	TotalCount   int           `json:"total_count,omitempty"`
+	HasMore      bool          `json:"has_more,omitempty"`
+	Offset       int           `json:"offset,omitempty"`
+	Limit        int           `json:"limit,omitempty"`
+	Warnings     []string      `json:"warnings,omitempty"`
+	ResolvedPath string        `json:"resolved_path,omitempty"`
 }
 
 type ExtractRequest struct {
