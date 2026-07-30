@@ -30,19 +30,22 @@ type BrowseRequest struct {
 	SourcePath string
 	Limit      int
 	Offset     int
+	Sources    []BrowseSource `json:"sources,omitempty"`
 }
 
 const browseFastLabelChildThreshold = 200
 const browseDefaultPageLimit = 500
 
 type BrowseEntry struct {
-	Name        string `json:"name"`
-	Label       string `json:"label,omitempty"`
-	Subtitle    string `json:"subtitle,omitempty"`
-	Path        string `json:"path"`
-	Type        string `json:"type"`
-	HasChildren bool   `json:"has_children"`
-	Size        int64  `json:"size"`
+	Name        string      `json:"name"`
+	Label       string      `json:"label,omitempty"`
+	Subtitle    string      `json:"subtitle,omitempty"`
+	Path        string      `json:"path"`
+	Type        string      `json:"type"`
+	HasChildren bool        `json:"has_children"`
+	Size        int64       `json:"size"`
+	SourceRefs  []SourceRef `json:"source_refs,omitempty"`
+	Selectable  *bool       `json:"selectable,omitempty"`
 }
 
 type BrowseResult struct {
@@ -51,6 +54,7 @@ type BrowseResult struct {
 	HasMore    bool          `json:"has_more,omitempty"`
 	Offset     int           `json:"offset,omitempty"`
 	Limit      int           `json:"limit,omitempty"`
+	Warnings   []string      `json:"warnings,omitempty"`
 }
 
 type ExtractRequest struct {
@@ -71,17 +75,14 @@ func Browse(ctx context.Context, req BrowseRequest) (*BrowseResult, error) {
 }
 
 func browseWithRepo(ctx context.Context, req BrowseRequest, acquire repoAcquirer) (*BrowseResult, error) {
+	if len(req.Sources) > 0 {
+		return browseMultiSourceWithRepo(ctx, req, acquire)
+	}
 	if strings.TrimSpace(req.ManifestID) == "" {
 		return nil, fmt.Errorf("manifest_id required")
 	}
-	if req.Host == "" {
-		req.Host = "ms365-worker"
-	}
-	if req.Username == "" {
-		req.Username = "ms365"
-	}
-	if req.SourcePath == "" {
-		req.SourcePath = "/ms365"
+	if err := prepareBrowseRequest(&req); err != nil {
+		return nil, err
 	}
 
 	rep, release, err := acquire(ctx)
@@ -118,66 +119,10 @@ func browseWithRepo(ctx context.Context, req BrowseRequest, acquire repoAcquirer
 		}
 	}
 
-	children, err := kopiafs.GetAllEntries(ctx, cur)
+	sorted, err := listBrowseDirectoryChildrenAt(ctx, root, cur, targetPath)
 	if err != nil {
-		return nil, fmt.Errorf("readdir: %w", err)
+		return nil, err
 	}
-
-	useFastLabels := len(children) > browseFastLabelChildThreshold
-	mailResolver := loadMailBrowseResolver(ctx, root, targetPath)
-
-	type entrySort struct {
-		entry   BrowseEntry
-		sortKey string
-	}
-	sorted := make([]entrySort, 0, len(children))
-	for _, child := range children {
-		name := child.Name()
-		if shouldHideBrowseName(name) {
-			continue
-		}
-		childPath := joinBrowsePath(targetPath, name)
-		entryType := "file"
-		hasChildren := false
-		var size int64
-		if _, isDir := child.(kopiafs.Directory); isDir {
-			entryType = "folder"
-			hasChildren = true
-		} else if f, ok := child.(kopiafs.File); ok {
-			size = f.Size()
-		}
-		var labelInfo browseLabelResult
-		useFast := useFastLabels && !needsFullSharePointListLabel(childPath, entryType)
-		if useFast && needsFullMailLabel(childPath, entryType) && (mailResolver == nil || !mailResolver.hasIndex()) {
-			useFast = false
-		}
-		labelInfo = labelBrowseChild(ctx, root, childPath, name, entryType, useFast, mailResolver)
-		if labelInfo.Label == "" {
-			continue
-		}
-		sorted = append(sorted, entrySort{
-			entry: BrowseEntry{
-				Name:        name,
-				Label:       labelInfo.Label,
-				Subtitle:    labelInfo.Subtitle,
-				Path:        childPath,
-				Type:        entryType,
-				HasChildren: hasChildren,
-				Size:        size,
-			},
-			sortKey: labelInfo.SortKey,
-		})
-	}
-	sort.Slice(sorted, func(i, j int) bool {
-		a, b := sorted[i], sorted[j]
-		if a.entry.Type != b.entry.Type {
-			return a.entry.Type == "folder"
-		}
-		if a.sortKey != "" && b.sortKey != "" && a.sortKey != b.sortKey {
-			return a.sortKey > b.sortKey
-		}
-		return strings.ToLower(a.entry.Label) < strings.ToLower(b.entry.Label)
-	})
 	totalCount := len(sorted)
 	offset := req.Offset
 	if offset < 0 {
@@ -217,6 +162,130 @@ func browseWithRepo(ctx context.Context, req BrowseRequest, acquire repoAcquirer
 		Offset:     offset,
 		Limit:      limit,
 	}, nil
+}
+
+type browseEntrySort struct {
+	entry   BrowseEntry
+	sortKey string
+}
+
+// listBrowseDirectoryChildren lists labeled children at targetPath (walks from snapRoot).
+func listBrowseDirectoryChildren(
+	ctx context.Context,
+	labelRoot kopiafs.Directory,
+	snapRoot kopiafs.Directory,
+	targetPath string,
+) ([]BrowseEntry, error) {
+	targetPath = normalizeBrowsePath(targetPath)
+	cur := snapRoot
+	if targetPath != "" {
+		curEntry, err := walkPath(ctx, snapRoot, targetPath)
+		if err != nil {
+			return nil, err
+		}
+		var dirOk bool
+		cur, dirOk = curEntry.(kopiafs.Directory)
+		if !dirOk {
+			return []BrowseEntry{}, nil
+		}
+	}
+	sorted, err := listBrowseDirectoryChildrenAt(ctx, labelRoot, cur, targetPath)
+	if err != nil {
+		return nil, err
+	}
+	entries := make([]BrowseEntry, len(sorted))
+	for i, item := range sorted {
+		entries[i] = item.entry
+	}
+	return entries, nil
+}
+
+// listBrowseDirectoryChildrenAt lists labeled immediate children of dir at logicalPath.
+func listBrowseDirectoryChildrenAt(
+	ctx context.Context,
+	labelRoot kopiafs.Directory,
+	dir kopiafs.Directory,
+	logicalPath string,
+) ([]browseEntrySort, error) {
+	children, err := kopiafs.GetAllEntries(ctx, dir)
+	if err != nil {
+		return nil, fmt.Errorf("readdir: %w", err)
+	}
+
+	useFastLabels := len(children) > browseFastLabelChildThreshold
+	mailResolver := loadMailBrowseResolver(ctx, labelRoot, logicalPath)
+
+	sorted := make([]browseEntrySort, 0, len(children))
+	for _, child := range children {
+		name := child.Name()
+		if shouldHideBrowseName(name) {
+			continue
+		}
+		childPath := joinBrowsePath(logicalPath, name)
+		entryType := "file"
+		hasChildren := false
+		var size int64
+		if _, isDir := child.(kopiafs.Directory); isDir {
+			entryType = "folder"
+			hasChildren = true
+		} else if f, ok := child.(kopiafs.File); ok {
+			size = f.Size()
+		}
+		useFast := useFastLabels && !needsFullSharePointListLabel(childPath, entryType)
+		if useFast && needsFullMailLabel(childPath, entryType) && (mailResolver == nil || !mailResolver.hasIndex()) {
+			useFast = false
+		}
+		labelInfo := labelBrowseChild(ctx, labelRoot, childPath, name, entryType, useFast, mailResolver)
+		if labelInfo.Label == "" {
+			continue
+		}
+		sorted = append(sorted, browseEntrySort{
+			entry: BrowseEntry{
+				Name:        name,
+				Label:       labelInfo.Label,
+				Subtitle:    labelInfo.Subtitle,
+				Path:        childPath,
+				Type:        entryType,
+				HasChildren: hasChildren,
+				Size:        size,
+			},
+			sortKey: labelInfo.SortKey,
+		})
+	}
+
+	if isSharePointListsBrowseDirectory(logicalPath) {
+		existing := make(map[string]struct{}, len(sorted))
+		for _, item := range sorted {
+			existing[normalizeListIDKey(item.entry.Name)] = struct{}{}
+		}
+		catalogPath := joinBrowsePath(logicalPath, "lists.json")
+		if catalog, err := loadSharePointListsCatalog(ctx, labelRoot, catalogPath); err == nil {
+			for _, list := range catalog {
+				key := normalizeListIDKey(list.ID)
+				if key == "" {
+					continue
+				}
+				if _, ok := existing[key]; ok {
+					continue
+				}
+				entry := synthesizeSharePointEmptyListEntry(logicalPath, list)
+				sorted = append(sorted, browseEntrySort{entry: entry})
+				existing[key] = struct{}{}
+			}
+		}
+	}
+
+	sort.Slice(sorted, func(i, j int) bool {
+		a, b := sorted[i], sorted[j]
+		if a.entry.Type != b.entry.Type {
+			return a.entry.Type == "folder"
+		}
+		if a.sortKey != "" && b.sortKey != "" && a.sortKey != b.sortKey {
+			return a.sortKey > b.sortKey
+		}
+		return strings.ToLower(a.entry.Label) < strings.ToLower(b.entry.Label)
+	})
+	return sorted, nil
 }
 
 func listDirectoryWithRepo(ctx context.Context, req BrowseRequest, acquire repoAcquirer) (*BrowseResult, error) {

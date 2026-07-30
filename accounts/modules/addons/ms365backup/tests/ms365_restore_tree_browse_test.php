@@ -70,10 +70,177 @@ assert_true(
 $ref = new ReflectionClass(\Ms365Backup\RestoreTreeBrowseService::class);
 
 assert_eq(
-    'v24-sharepoint-site-drive-link',
+    'v25-sharepoint-shard-sources',
     $ref->getConstant('BROWSE_CACHE_NAMESPACE'),
-    'browse cache namespace is v24-sharepoint-site-drive-link'
+    'browse cache namespace is v25-sharepoint-shard-sources'
 );
+
+$buildCacheKey = $ref->getMethod('buildBrowseCacheKey');
+$buildCacheKey->setAccessible(true);
+$cacheA = $buildCacheKey->invoke(null, 'batch-1', 'child-a', 'hash-a', 'manifest-a', 'path', 500, 0);
+$cacheB = $buildCacheKey->invoke(null, 'batch-1', 'child-a', 'hash-b', 'manifest-a', 'path', 500, 0);
+$cacheC = $buildCacheKey->invoke(null, 'batch-1', 'child-b', 'hash-a', 'manifest-a', 'path', 500, 0);
+assert_true($cacheA !== $cacheB, 'cache key changes when source-set hash changes');
+assert_true($cacheA !== $cacheC, 'cache key changes when representative child changes');
+
+$tenantRecord = ['id' => 1, 'azure_tenant_id' => $tenantId];
+$siteId = $rawSiteId;
+$driveId = $bangDriveId;
+$batchId = 'batch-shard-test';
+$children = [
+    [
+        'id' => 'shard-5',
+        'status' => 'success',
+        'e3_batch_run_id' => $batchId,
+        'physical_key' => 'drive:' . $driveId . '#shard:5',
+        'manifest_id' => 'manifest-5',
+        'scope_json' => json_encode(['_site_id' => $siteId, '_drive_id' => $driveId], JSON_THROW_ON_ERROR),
+    ],
+    [
+        'id' => 'shard-11',
+        'status' => 'success',
+        'e3_batch_run_id' => $batchId,
+        'physical_key' => 'drive:' . $driveId . '#shard:11',
+        'manifest_id' => 'manifest-11',
+        'scope_json' => json_encode(['_site_id' => $siteId, '_drive_id' => $driveId], JSON_THROW_ON_ERROR),
+    ],
+    [
+        'id' => 'shard-failed',
+        'status' => 'failed',
+        'e3_batch_run_id' => $batchId,
+        'physical_key' => 'drive:' . $driveId . '#shard:31',
+        'manifest_id' => 'manifest-31',
+        'scope_json' => json_encode(['_site_id' => $siteId, '_drive_id' => $driveId], JSON_THROW_ON_ERROR),
+    ],
+    [
+        'id' => 'foreign-batch',
+        'status' => 'success',
+        'e3_batch_run_id' => 'other-batch',
+        'physical_key' => 'drive:' . $driveId . '#shard:99',
+        'manifest_id' => 'manifest-99',
+        'scope_json' => json_encode(['_site_id' => $siteId, '_drive_id' => $driveId], JSON_THROW_ON_ERROR),
+    ],
+    [
+        'id' => 'shard-blank',
+        'status' => 'success',
+        'e3_batch_run_id' => $batchId,
+        'physical_key' => 'drive:' . $driveId . '#shard:7',
+        'manifest_id' => '',
+        'scope_json' => json_encode(['_site_id' => $siteId, '_drive_id' => $driveId], JSON_THROW_ON_ERROR),
+    ],
+];
+
+\Ms365Backup\SharePointShardSourceResolver::seedBatchChildrenCache($batchId, $children);
+
+$group = \Ms365Backup\SharePointShardSourceResolver::resolveDriveGroupForChild(
+    $batchId,
+    $children[0],
+    $tenantRecord,
+);
+assert_eq(2, count($group['members'] ?? []), 'shard group retains only successful same-batch members');
+assert_eq('manifest-5', $group['members'][0]['manifest_id'] ?? '', 'shard members sorted by shard index');
+assert_eq('manifest-11', $group['members'][1]['manifest_id'] ?? '', 'second shard member follows sorted index');
+
+$contentPath = $tenantId . '/sites/' . $safeSiteId . '/drives/' . $driveId . '/content';
+$candidates = \Ms365Backup\SharePointShardSourceResolver::candidatePathsForMember(
+    $contentPath,
+    $children[0],
+    $tenantRecord,
+);
+$shardPath = $tenantId . '/sites/' . $safeSiteId . '/drives/' . $driveId . '/.shards/5';
+assert_true(in_array($shardPath, $candidates, true), 'candidate paths include .shards/{index} layout');
+assert_true(in_array('content', $candidates, true), 'candidate paths include content alias');
+
+$sources = \Ms365Backup\SharePointShardSourceResolver::buildSourcesForPath($group, $contentPath, $tenantRecord);
+assert_eq(2, count($sources), 'buildSourcesForPath includes each successful shard manifest');
+$hashOne = \Ms365Backup\SharePointShardSourceResolver::sourceSetHash($sources);
+$hashTwo = \Ms365Backup\SharePointShardSourceResolver::sourceSetHash(array_reverse($sources));
+assert_eq($hashOne, $hashTwo, 'source-set hash is order-independent');
+
+assert_true(
+    \Ms365Backup\SharePointShardSourceResolver::isAuthorizedSourceRef(
+        $batchId,
+        ['child_run_id' => 'shard-5', 'manifest_id' => 'manifest-5'],
+        $children[0],
+        $tenantRecord,
+    ),
+    'authorized source ref accepted'
+);
+assert_true(
+    !\Ms365Backup\SharePointShardSourceResolver::isAuthorizedSourceRef(
+        $batchId,
+        ['child_run_id' => 'forged-run', 'manifest_id' => 'manifest-5'],
+        $children[0],
+        $tenantRecord,
+    ),
+    'forged child_run_id rejected'
+);
+assert_true(
+    !\Ms365Backup\SharePointShardSourceResolver::isAuthorizedSourceRef(
+        $batchId,
+        ['child_run_id' => 'shard-5', 'manifest_id' => 'forged-manifest'],
+        $children[0],
+        $tenantRecord,
+    ),
+    'forged manifest_id rejected'
+);
+
+$partialGroup = [
+    'members' => [
+        ['id' => 'shard-5', 'manifest_id' => 'manifest-5', 'physical_key' => 'drive:' . $driveId . '#shard:5', 'scope_json' => json_encode(['_site_id' => $siteId, '_drive_id' => $driveId])],
+        ['id' => 'shard-blank', 'manifest_id' => '', 'physical_key' => 'drive:' . $driveId . '#shard:7', 'scope_json' => json_encode(['_site_id' => $siteId, '_drive_id' => $driveId])],
+    ],
+];
+$partialSources = \Ms365Backup\SharePointShardSourceResolver::buildSourcesForPath($partialGroup, $contentPath, $tenantRecord);
+assert_eq(1, count($partialSources), 'partial source set excludes blank-manifest members');
+
+$partialCtx = \Ms365Backup\SharePointShardSourceResolver::buildBrowseContext(
+    $batchId,
+    $children[0],
+    $tenantRecord,
+    $contentPath,
+    'manifest-5',
+);
+if (\Ms365Backup\KopiaSnapshotBrowseService::supportsMultiSourceBrowse()) {
+    assert_eq(2, count($partialCtx['sources'] ?? []), 'browse context excludes blank-manifest shard from multi-source set');
+}
+
+$normalizeBrowse = (new ReflectionClass(\Ms365Backup\KopiaSnapshotBrowseService::class))
+    ->getMethod('normalizeBrowseResult');
+$normalizeBrowse->setAccessible(true);
+$withWarnings = $normalizeBrowse->invoke(null, [
+    'entries' => [
+        [
+            'name' => 'file.txt',
+            'path' => $contentPath . '/file.txt',
+            'type' => 'file',
+            'source_refs' => [
+                ['child_run_id' => 'shard-5', 'manifest_id' => 'manifest-5', 'source_path' => 'content/file.txt'],
+            ],
+        ],
+    ],
+    'total_count' => 1,
+    'warnings' => ['source shard-failed: load snapshot: missing'],
+], 0, 500);
+assert_eq(
+    ['source shard-failed: load snapshot: missing'],
+    $withWarnings['warnings'] ?? [],
+    'browse result preserves partial-source worker warnings'
+);
+assert_true(isset($withWarnings['entries'][0]['source_refs']), 'browse result preserves file source_refs');
+
+$legacyCtx = \Ms365Backup\SharePointShardSourceResolver::buildBrowseContext(
+    $batchId,
+    $children[0],
+    $tenantRecord,
+    $contentPath,
+    'manifest-5',
+);
+if (\Ms365Backup\KopiaSnapshotBrowseService::supportsMultiSourceBrowse()) {
+    assert_true($legacyCtx['use_multi_source'], 'multi-source browse used when worker supports it');
+} else {
+    assert_true(!$legacyCtx['use_multi_source'], 'legacy fallback when worker lacks multi-source browse');
+}
 
 $aliasesMethod = $ref->getMethod('sharePointBrowsePathAliases');
 $aliasesMethod->setAccessible(true);
@@ -265,6 +432,8 @@ $enriched = $enrichEntries->invoke(null, [
 ], $mailInboxPath, null);
 assert_eq(1, count($enriched), 'enrichEntries drops hidden catalog files');
 assert_eq('(No subject)', $enriched[0]['label'] ?? '', 'enrichEntries applies mail opaque-label guard');
+
+\Ms365Backup\SharePointShardSourceResolver::clearBatchChildrenCache();
 
 if ($failures > 0) {
     echo "\n{$failures} test(s) failed.\n";

@@ -99,17 +99,23 @@ final class Ms365EngineConfig
 
     public static function shardMaxCount(): int
     {
-        return max(2, min(64, (int) self::moduleSetting('ms365_shard_max_count', '48')));
+        return max(2, min(64, (int) self::moduleSetting('ms365_shard_max_count', '32')));
+    }
+
+    /** Minimum ms365-backup-worker browse binary version for multi-manifest union. */
+    public static function multiSourceBrowseMinWorkerVersion(): string
+    {
+        return trim(self::moduleSetting('ms365_multi_source_browse_min_version', '0.4.28'));
     }
 
     public static function shardItemThreshold(): int
     {
-        return max(1, (int) self::moduleSetting('ms365_shard_item_threshold', '10000'));
+        return max(1, (int) self::moduleSetting('ms365_shard_item_threshold', '25000'));
     }
 
     public static function shardTargetItems(): int
     {
-        return max(1, (int) self::moduleSetting('ms365_shard_target_items', '8000'));
+        return max(1, (int) self::moduleSetting('ms365_shard_target_items', '15000'));
     }
 
     public static function listJobItemThreshold(): int

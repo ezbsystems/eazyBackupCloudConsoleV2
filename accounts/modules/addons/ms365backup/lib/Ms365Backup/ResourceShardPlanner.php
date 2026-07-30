@@ -85,10 +85,12 @@ final class ResourceShardPlanner
                 $driveKey = 'drive:' . $driveId;
                 $driveResource = $job->primaryResource;
                 $meta = is_array($driveResource['meta'] ?? null) ? $driveResource['meta'] : [];
+                unset($meta['drives']);
                 $meta['drive_id'] = $driveId;
                 $meta['site_id'] = $siteId;
                 $meta['size_bytes'] = max(0, (int) ($drive['size_bytes'] ?? 0));
                 $meta['item_count'] = max(0, (int) ($drive['item_count'] ?? 0));
+                $meta['item_count_reliable'] = (bool) ($drive['item_count_reliable'] ?? false);
                 $meta['display_name'] = (string) ($drive['name'] ?? $driveId);
                 $driveResource['meta'] = $meta;
                 $driveResource['display_name'] = (string) ($drive['name'] ?? $driveId);
@@ -351,16 +353,17 @@ final class ResourceShardPlanner
         }
 
         if (str_starts_with($baseKey, 'drive:')) {
-            $siteId = trim((string) ($resource['meta']['site_id'] ?? ''));
-            if ($siteId !== '') {
-                return $this->sizeRangeShards($job, $sizeBytes, $itemCount, $threshold, $target, $itemThreshold, $itemTarget);
-            }
-
-            return $this->sizeRangeShards($job, $sizeBytes, $itemCount, $threshold, $target, $itemThreshold, $itemTarget);
+            return $this->sharePointDriveShards(
+                $job,
+                $itemCount,
+                PhysicalKeyHelper::itemCountReliable($resource),
+                $itemThreshold,
+                $itemTarget,
+            );
         }
 
         if ($type === TenantResource::TYPE_SHAREPOINT_SITE || str_starts_with($baseKey, 'site:')) {
-            return $this->sizeRangeShards($job, $sizeBytes, $itemCount, $threshold, $target, $itemThreshold, $itemTarget);
+            return [];
         }
 
         if (in_array($type, [TenantResource::TYPE_USER, TenantResource::TYPE_MAILBOX], true)
@@ -393,6 +396,51 @@ final class ResourceShardPlanner
         $byItems = $itemShard ? max(2, (int) ceil($itemCount / $itemTarget)) : 1;
         $shardCount = max($byBytes, $byItems);
         $shardCount = min($shardCount, Ms365EngineConfig::shardMaxCount());
+
+        $parentKey = $job->physicalKey;
+        $out = [];
+        for ($i = 0; $i < $shardCount; $i++) {
+            $shardKey = PhysicalKeyHelper::shardKey($job->physicalKey, $i);
+            $out[] = new PhysicalBackupJob(
+                $shardKey,
+                $job->primaryResource,
+                $job->logicalSources,
+                $job->scope,
+                $job->engineStatus,
+                $job->deferReason,
+                $parentKey,
+                $i,
+                $shardCount,
+            );
+        }
+
+        return $out;
+    }
+
+    /**
+     * SharePoint document libraries shard only on drive-scoped reliable item counts.
+     * Site-aggregate hints and quota.used alone never create shard jobs.
+     *
+     * @return list<PhysicalBackupJob>
+     */
+    private function sharePointDriveShards(
+        PhysicalBackupJob $job,
+        int $itemCount,
+        bool $itemCountReliable,
+        int $itemThreshold,
+        int $itemTarget,
+    ): array {
+        if (!$itemCountReliable || $itemCount < $itemThreshold) {
+            return [];
+        }
+
+        $shardCount = max(2, (int) ceil($itemCount / $itemTarget));
+        $shardCount = min($shardCount, Ms365EngineConfig::shardMaxCount());
+
+        $minItemsPerShard = max(1, (int) floor($itemTarget / 2));
+        while ($shardCount > 1 && (int) floor($itemCount / $shardCount) < $minItemsPerShard) {
+            --$shardCount;
+        }
 
         $parentKey = $job->physicalKey;
         $out = [];

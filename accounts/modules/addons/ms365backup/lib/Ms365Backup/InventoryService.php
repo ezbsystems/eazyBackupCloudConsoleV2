@@ -123,6 +123,7 @@ final class InventoryService
             }
             $resourceId = TenantResource::makeId(TenantResource::TYPE_SHAREPOINT_SITE, $siteId);
             $siteIdsForProbe[] = ['site_id' => $siteId, 'resource_id' => $resourceId];
+            $siteLists = $this->listSiteLists($siteId, !$lightweight);
             $resources[$resourceId] = TenantResource::build(
                 TenantResource::TYPE_SHAREPOINT_SITE,
                 $siteId,
@@ -135,8 +136,12 @@ final class InventoryService
                     'meta' => [
                         'web_url' => (string) ($site['webUrl'] ?? ''),
                         'site_collection' => $site['siteCollection'] ?? null,
-                        'drives' => $this->listSiteDrives($siteId),
-                        'lists' => $this->listSiteLists($siteId, !$lightweight),
+                        'drives' => $this->correlateSharePointDriveCounts(
+                            $siteId,
+                            $this->listSiteDrives($siteId),
+                            $siteLists,
+                        ),
+                        'lists' => $siteLists,
                     ],
                 ],
             );
@@ -701,7 +706,10 @@ final class InventoryService
     {
         $drives = [];
         try {
-            foreach ($this->graph->paginate('sites/' . rawurlencode($siteId) . '/drives', ['$top' => '50']) as $drive) {
+            foreach ($this->graph->paginate('sites/' . rawurlencode($siteId) . '/drives', [
+                '$select' => 'id,name,driveType,quota,webUrl',
+                '$top' => '50',
+            ]) as $drive) {
                 if (!is_array($drive)) {
                     continue;
                 }
@@ -713,8 +721,11 @@ final class InventoryService
                 $drives[] = [
                     'id' => $driveId,
                     'name' => (string) ($drive['name'] ?? $driveId),
+                    'drive_type' => (string) ($drive['driveType'] ?? ''),
+                    'web_url' => (string) ($drive['webUrl'] ?? ''),
                     'size_bytes' => max(0, (int) ($quota['used'] ?? 0)),
                     'item_count' => max(0, (int) ($drive['item_count'] ?? 0)),
+                    'item_count_reliable' => false,
                 ];
             }
         } catch (\Throwable $_) {
@@ -749,9 +760,12 @@ final class InventoryService
                     $itemCount = $this->listItemCount($siteId, $listId);
                     ++$probed;
                 }
+                $listMeta = is_array($list['list'] ?? null) ? $list['list'] : [];
                 $lists[] = [
                     'id' => $listId,
                     'display_name' => (string) ($list['displayName'] ?? $listId),
+                    'template' => (string) ($listMeta['template'] ?? ''),
+                    'web_url' => (string) ($list['webUrl'] ?? ''),
                     'item_count' => $itemCount,
                 ];
             }
@@ -775,6 +789,138 @@ final class InventoryService
         }
 
         return null;
+    }
+
+    /**
+     * Correlate document-library drives to list item counts via unique webUrl matches,
+     * with a bounded /drives/{id}/list fallback when correlation is ambiguous.
+     *
+     * @param list<array<string, mixed>> $drives
+     * @param list<array<string, mixed>> $lists
+     * @return list<array<string, mixed>>
+     */
+    private function correlateSharePointDriveCounts(string $siteId, array $drives, array $lists): array
+    {
+        if ($drives === []) {
+            return [];
+        }
+
+        $docLibsByUrl = [];
+        foreach ($lists as $list) {
+            if (!is_array($list)) {
+                continue;
+            }
+            if (!$this->isDocumentLibraryList($list)) {
+                continue;
+            }
+            $url = $this->normalizeWebUrl((string) ($list['web_url'] ?? ''));
+            if ($url === '') {
+                continue;
+            }
+            $docLibsByUrl[$url][] = $list;
+        }
+
+        $fallbackBudget = 25;
+        $out = [];
+        foreach ($drives as $drive) {
+            if (!is_array($drive)) {
+                continue;
+            }
+            $driveId = trim((string) ($drive['id'] ?? ''));
+            if ($driveId === '') {
+                continue;
+            }
+
+            $entry = $drive;
+            $entry['item_count_reliable'] = (bool) ($drive['item_count_reliable'] ?? false);
+
+            if (!$entry['item_count_reliable']) {
+                $driveUrl = $this->normalizeWebUrl((string) ($drive['web_url'] ?? ''));
+                $matches = $driveUrl !== '' ? ($docLibsByUrl[$driveUrl] ?? []) : [];
+                if (count($matches) === 1) {
+                    $matched = $matches[0];
+                    if (array_key_exists('item_count', $matched) && $matched['item_count'] !== null) {
+                        $entry['item_count'] = max(0, (int) $matched['item_count']);
+                        $entry['item_count_reliable'] = true;
+                    }
+                } elseif ($fallbackBudget > 0 && $this->isDocumentLibraryDrive($drive)) {
+                    $fallbackCount = $this->driveListItemCount($siteId, $driveId);
+                    --$fallbackBudget;
+                    if ($fallbackCount !== null) {
+                        $entry['item_count'] = $fallbackCount;
+                        $entry['item_count_reliable'] = true;
+                    }
+                }
+            }
+
+            $out[] = $entry;
+        }
+
+        return $out;
+    }
+
+    /**
+     * @param array<string, mixed> $list
+     */
+    private function isDocumentLibraryList(array $list): bool
+    {
+        $template = strtolower(trim((string) ($list['template'] ?? '')));
+
+        return $template === 'documentlibrary' || $template === 'document library';
+    }
+
+    /**
+     * @param array<string, mixed> $drive
+     */
+    private function isDocumentLibraryDrive(array $drive): bool
+    {
+        $driveType = strtolower(trim((string) ($drive['drive_type'] ?? '')));
+        if ($driveType === 'documentlibrary') {
+            return true;
+        }
+
+        return $driveType === '' || $driveType === 'document library';
+    }
+
+    private function normalizeWebUrl(string $url): string
+    {
+        $url = strtolower(trim($url));
+        if ($url === '') {
+            return '';
+        }
+        $parts = parse_url($url);
+        if (!is_array($parts)) {
+            return rtrim($url, '/');
+        }
+        $scheme = (string) ($parts['scheme'] ?? 'https');
+        $host = (string) ($parts['host'] ?? '');
+        $path = rtrim((string) ($parts['path'] ?? ''), '/');
+        if ($host === '') {
+            return rtrim($url, '/');
+        }
+
+        return $scheme . '://' . $host . $path;
+    }
+
+    private function driveListItemCount(string $siteId, string $driveId): ?int
+    {
+        try {
+            $list = $this->graph->get(
+                'sites/' . rawurlencode($siteId) . '/drives/' . rawurlencode($driveId) . '/list',
+                ['$select' => 'id'],
+            );
+            if (!is_array($list)) {
+                return null;
+            }
+            $listId = trim((string) ($list['id'] ?? ''));
+            if ($listId === '') {
+                return null;
+            }
+
+            return $this->listItemCount($siteId, $listId);
+        } catch (\Throwable $_) {
+            return null;
+        }
     }
 
   /**
@@ -1253,12 +1399,14 @@ final class InventoryService
         $meta = is_array($resource['meta'] ?? null) ? $resource['meta'] : [];
         $drives = $meta['drives'] ?? null;
         if (!is_array($drives) || $drives === []) {
-            $meta['drives'] = $this->listSiteDrives($siteId);
+            $drives = $this->listSiteDrives($siteId);
         }
         $lists = $meta['lists'] ?? null;
         if (!is_array($lists) || $lists === []) {
-            $meta['lists'] = $this->listSiteLists($siteId, !$lightweight);
+            $lists = $this->listSiteLists($siteId, !$lightweight);
         }
+        $meta['drives'] = $this->correlateSharePointDriveCounts($siteId, $drives, $lists);
+        $meta['lists'] = $lists;
 
         $sizeBytes = 0;
         $itemCount = 0;

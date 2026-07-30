@@ -459,7 +459,7 @@ final class Ms365E3Controller
                 $physicalKey = (string) ($entry['physical_key'] ?? '');
                 $resourceType = (string) ($entry['resource_type'] ?? '');
                 $label = trim((string) ($entry['display_name'] ?? $physicalKey ?: 'Workload'));
-                $roots[] = [
+                $root = [
                     'name' => $label,
                     'label' => $label,
                     'subtitle' => self::restoreBrowseResourceSubtitle($resourceType, $physicalKey),
@@ -473,6 +473,20 @@ final class Ms365E3Controller
                     'resource_type' => $resourceType,
                     'section_key' => self::restoreBrowseSectionKey($resourceType, $physicalKey),
                 ];
+                if (!empty($entry['is_sharded'])) {
+                    $root['is_sharded'] = true;
+                    $root['shard_count'] = (int) ($entry['shard_count'] ?? 1);
+                }
+                if (isset($entry['manifest_ids']) && is_array($entry['manifest_ids'])) {
+                    $root['manifest_ids'] = $entry['manifest_ids'];
+                }
+                if (isset($entry['shard_runs']) && is_array($entry['shard_runs'])) {
+                    $root['shard_runs'] = $entry['shard_runs'];
+                }
+                if (isset($entry['shard_members']) && is_array($entry['shard_members'])) {
+                    $root['shard_members'] = $entry['shard_members'];
+                }
+                $roots[] = $root;
             }
 
             return [

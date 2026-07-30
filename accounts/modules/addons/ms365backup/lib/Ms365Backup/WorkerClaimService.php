@@ -1211,6 +1211,8 @@ final class WorkerClaimService
                 'path' => (string) ($item['path'] ?? ''),
                 'path_prefix' => (string) ($item['path_prefix'] ?? ''),
                 'type' => (string) ($item['type'] ?? ''),
+                'source_path' => (string) ($item['source_path'] ?? ''),
+                'logical_path' => (string) ($item['logical_path'] ?? ''),
             ];
         }
 

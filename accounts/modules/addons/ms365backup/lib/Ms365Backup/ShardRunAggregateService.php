@@ -46,9 +46,13 @@ final class ShardRunAggregateService
             $shards = $group['shards'];
             usort($shards, static fn (array $a, array $b) => ($a['shard_index'] ?? 0) <=> ($b['shard_index'] ?? 0));
 
-            $primary = self::pickPrimaryChild($members);
-            $manifestId = self::resolveAggregateManifestId($members, $primary, $shards);
+            $successfulMembers = self::successfulMembersWithManifest($members);
+            $successfulShards = self::successfulShardRows($shards, $successfulMembers);
+            $primary = self::pickPrimaryChild($successfulMembers !== [] ? $successfulMembers : $members);
+            $manifestIds = self::collectManifestIds($successfulMembers, $successfulShards);
+            $manifestId = $manifestIds[0] ?? self::resolveAggregateManifestId($members, $primary, $successfulShards);
             $displayName = self::resolveAggregateDisplayName($members, $primary, $parentKey);
+            $isSharded = count($successfulShards) > 1;
 
             $entry = [
                 'run_id' => (string) ($primary['id'] ?? ''),
@@ -57,11 +61,17 @@ final class ShardRunAggregateService
                 'graph_id' => (string) ($primary['graph_id'] ?? $primary['user_id'] ?? ''),
                 'manifest_id' => $manifestId,
                 'display_name' => $displayName,
-                'is_sharded' => $shards !== [],
-                'shard_count' => $shards !== [] ? count($shards) : 1,
+                'is_sharded' => $isSharded,
+                'shard_count' => $isSharded ? count($successfulShards) : 1,
             ];
-            if ($shards !== []) {
-                $entry['shard_runs'] = $shards;
+            if ($manifestIds !== []) {
+                $entry['manifest_ids'] = $manifestIds;
+            }
+            if ($successfulShards !== []) {
+                $entry['shard_runs'] = $successfulShards;
+            }
+            if ($successfulMembers !== []) {
+                $entry['shard_members'] = self::summarizeShardMembers($successfulMembers);
             }
             $out[] = $entry;
         }
@@ -134,6 +144,113 @@ final class ShardRunAggregateService
         }
 
         return $score;
+    }
+
+    /**
+     * @param list<array<string, mixed>> $members
+     * @return list<array<string, mixed>>
+     */
+    private static function successfulMembersWithManifest(array $members): array
+    {
+        $out = [];
+        foreach ($members as $member) {
+            if (($member['status'] ?? '') !== 'success') {
+                continue;
+            }
+            if (trim((string) ($member['manifest_id'] ?? '')) === '') {
+                continue;
+            }
+            $out[] = $member;
+        }
+
+        return $out;
+    }
+
+    /**
+     * @param list<array<string, mixed>> $shards
+     * @param list<array<string, mixed>> $successfulMembers
+     * @return list<array<string, mixed>>
+     */
+    private static function successfulShardRows(array $shards, array $successfulMembers): array
+    {
+        if ($shards === []) {
+            return [];
+        }
+
+        $allowedRunIds = [];
+        foreach ($successfulMembers as $member) {
+            $runId = (string) ($member['id'] ?? '');
+            if ($runId !== '') {
+                $allowedRunIds[$runId] = true;
+            }
+        }
+
+        $out = [];
+        foreach ($shards as $shardRow) {
+            $manifest = trim((string) ($shardRow['manifest_id'] ?? ''));
+            $runId = (string) ($shardRow['run_id'] ?? '');
+            if ($manifest === '' || $runId === '' || !isset($allowedRunIds[$runId])) {
+                continue;
+            }
+            $out[] = $shardRow;
+        }
+
+        usort($out, static fn (array $a, array $b) => ($a['shard_index'] ?? 0) <=> ($b['shard_index'] ?? 0));
+
+        return $out;
+    }
+
+    /**
+     * @param list<array<string, mixed>> $successfulMembers
+     * @param list<array<string, mixed>> $successfulShards
+     * @return list<string>
+     */
+    private static function collectManifestIds(array $successfulMembers, array $successfulShards): array
+    {
+        $manifestIds = [];
+        if ($successfulShards !== []) {
+            foreach ($successfulShards as $shardRow) {
+                $manifest = trim((string) ($shardRow['manifest_id'] ?? ''));
+                if ($manifest !== '' && !in_array($manifest, $manifestIds, true)) {
+                    $manifestIds[] = $manifest;
+                }
+            }
+        } else {
+            foreach ($successfulMembers as $member) {
+                $manifest = trim((string) ($member['manifest_id'] ?? ''));
+                if ($manifest !== '' && !in_array($manifest, $manifestIds, true)) {
+                    $manifestIds[] = $manifest;
+                }
+            }
+        }
+
+        return $manifestIds;
+    }
+
+    /**
+     * @param list<array<string, mixed>> $members
+     * @return list<array<string, mixed>>
+     */
+    private static function summarizeShardMembers(array $members): array
+    {
+        $out = [];
+        foreach ($members as $member) {
+            $physicalKey = (string) ($member['physical_key'] ?? '');
+            $shard = PhysicalKeyHelper::parseShard($physicalKey);
+            $row = [
+                'run_id' => (string) ($member['id'] ?? ''),
+                'physical_key' => $physicalKey,
+                'manifest_id' => (string) ($member['manifest_id'] ?? ''),
+            ];
+            if ($shard !== null) {
+                $row['shard_index'] = (int) ($shard['index'] ?? 0);
+            }
+            $out[] = $row;
+        }
+
+        usort($out, static fn (array $a, array $b) => ($a['shard_index'] ?? 0) <=> ($b['shard_index'] ?? 0));
+
+        return $out;
     }
 
     /**

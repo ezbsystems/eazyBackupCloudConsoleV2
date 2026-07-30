@@ -171,7 +171,7 @@ func prepareEntry(
 ) preparedEntry {
 	pe := preparedEntry{
 		index:   index,
-		zipName: pipeline.resolver.ZipPath(file.Path),
+		zipName: pipeline.resolver.ZipPath(exportZipPath(file)),
 		method:  zipMethod,
 		file:    file,
 	}

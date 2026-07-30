@@ -38,6 +38,8 @@ final class RestoreJobService
             throw new \RuntimeException('At least one item must be selected for restore.');
         }
 
+        $items = self::expandAndValidateSelectionItems($sourceBatchRunId, $items, $record);
+
         $restoreMode = (string) ($selection['restore_mode'] ?? 'tenant');
         if ($restoreMode !== 'archive') {
             $restoreMode = 'tenant';
@@ -258,6 +260,189 @@ final class RestoreJobService
         }
 
         return $primary;
+    }
+
+    /**
+     * @param list<array<string, mixed>> $items
+     * @param array<string, mixed> $tenantRecord
+     * @return list<array<string, mixed>>
+     */
+    public static function expandAndValidateSelectionItems(
+        string $sourceBatchRunId,
+        array $items,
+        array $tenantRecord,
+    ): array {
+        $sourceBatchRunId = trim($sourceBatchRunId);
+        if ($sourceBatchRunId === '') {
+            throw new \RuntimeException('snapshot_batch_run_id is required.');
+        }
+
+        $expanded = [];
+        foreach ($items as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            foreach (self::expandSelectionItem($sourceBatchRunId, $item, $tenantRecord) as $bound) {
+                $expanded[] = $bound;
+            }
+        }
+
+        if ($expanded === []) {
+            throw new \RuntimeException('At least one item must be selected for restore.');
+        }
+
+        return $expanded;
+    }
+
+    /**
+     * @param array<string, mixed> $item
+     * @param array<string, mixed> $tenantRecord
+     * @return list<array<string, mixed>>
+     */
+    private static function expandSelectionItem(
+        string $sourceBatchRunId,
+        array $item,
+        array $tenantRecord,
+    ): array {
+        $type = strtolower(trim((string) ($item['type'] ?? '')));
+        $logicalPath = self::selectionLogicalPath($item);
+        $sourceRefs = $item['source_refs'] ?? null;
+
+        if (is_array($sourceRefs) && $sourceRefs !== []) {
+            $childRun = self::childRunForItem($sourceBatchRunId, $item);
+            $isFolder = $type === 'folder' || ($logicalPath !== '' && self::selectionPathPrefix($item) !== '');
+
+            if ($isFolder) {
+                $out = [];
+                foreach ($sourceRefs as $ref) {
+                    if (!is_array($ref)) {
+                        throw new \RuntimeException('Invalid source reference in selection.');
+                    }
+                    if (!SharePointShardSourceResolver::isAuthorizedSourceRef(
+                        $sourceBatchRunId,
+                        $ref,
+                        $childRun,
+                        $tenantRecord,
+                        $logicalPath,
+                    )) {
+                        throw new \RuntimeException('Restore selection contains an unauthorized source reference.');
+                    }
+                    $sourcePath = trim((string) ($ref['source_path'] ?? ''));
+                    if ($sourcePath === '') {
+                        throw new \RuntimeException('Restore selection is missing a source path.');
+                    }
+                    $out[] = [
+                        'child_run_id' => (string) ($ref['child_run_id'] ?? ''),
+                        'manifest_id' => (string) ($ref['manifest_id'] ?? ''),
+                        'path' => '',
+                        'path_prefix' => self::selectionPathPrefix($item),
+                        'source_path' => $sourcePath,
+                        'logical_path' => $logicalPath,
+                        'type' => 'folder',
+                    ];
+                }
+
+                return $out;
+            }
+
+            $primary = $sourceRefs[0];
+            if (!is_array($primary)) {
+                throw new \RuntimeException('Invalid source reference in selection.');
+            }
+            if (!SharePointShardSourceResolver::isAuthorizedSourceRef(
+                $sourceBatchRunId,
+                $primary,
+                $childRun,
+                $tenantRecord,
+                $logicalPath,
+            )) {
+                throw new \RuntimeException('Restore selection contains an unauthorized source reference.');
+            }
+            $sourcePath = trim((string) ($primary['source_path'] ?? ''));
+            if ($sourcePath === '') {
+                $sourcePath = $logicalPath;
+            }
+
+            return [[
+                'child_run_id' => (string) ($primary['child_run_id'] ?? $item['child_run_id'] ?? ''),
+                'manifest_id' => (string) ($primary['manifest_id'] ?? $item['manifest_id'] ?? ''),
+                'path' => trim((string) ($item['path'] ?? '')),
+                'path_prefix' => '',
+                'source_path' => $sourcePath,
+                'logical_path' => $logicalPath !== '' ? $logicalPath : trim((string) ($item['path'] ?? '')),
+                'type' => $type !== '' ? $type : 'file',
+            ]];
+        }
+
+        $bound = [
+            'child_run_id' => (string) ($item['child_run_id'] ?? ''),
+            'manifest_id' => (string) ($item['manifest_id'] ?? ''),
+            'path' => trim((string) ($item['path'] ?? '')),
+            'path_prefix' => self::selectionPathPrefix($item),
+            'type' => $type !== '' ? $type : ($item['path'] !== '' ? 'file' : 'folder'),
+        ];
+        $logical = $logicalPath;
+        if ($logical !== '') {
+            $bound['logical_path'] = $logical;
+            $bound['source_path'] = $logical;
+        }
+
+        return [$bound];
+    }
+
+    /**
+     * @param array<string, mixed> $item
+     */
+    private static function selectionLogicalPath(array $item): string
+    {
+        $path = trim((string) ($item['path'] ?? ''));
+        if ($path !== '') {
+            return trim($path, '/');
+        }
+
+        return trim((string) ($item['path_prefix'] ?? ''), '/');
+    }
+
+    /**
+     * @param array<string, mixed> $item
+     */
+    private static function selectionPathPrefix(array $item): string
+    {
+        $type = strtolower(trim((string) ($item['type'] ?? '')));
+        if ($type === 'file') {
+            return '';
+        }
+        $prefix = trim((string) ($item['path_prefix'] ?? ''));
+        if ($prefix !== '' && !str_ends_with($prefix, '/')) {
+            $prefix .= '/';
+        }
+        if ($prefix === '') {
+            $path = trim((string) ($item['path'] ?? ''));
+            if ($path !== '' && str_ends_with($path, '/')) {
+                return $path;
+            }
+        }
+
+        return $prefix;
+    }
+
+    /**
+     * @param array<string, mixed> $item
+     * @return ?array<string, mixed>
+     */
+    private static function childRunForItem(string $sourceBatchRunId, array $item): ?array
+    {
+        $childRunId = trim((string) ($item['child_run_id'] ?? ''));
+        if ($childRunId === '') {
+            return null;
+        }
+        foreach (Ms365BatchRunRepository::getChildrenForBatch($sourceBatchRunId) as $child) {
+            if ((string) ($child['id'] ?? '') === $childRunId) {
+                return $child;
+            }
+        }
+
+        return null;
     }
 
     /**

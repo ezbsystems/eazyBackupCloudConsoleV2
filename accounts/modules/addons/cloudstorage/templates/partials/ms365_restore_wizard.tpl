@@ -110,7 +110,7 @@
                                                                     @click="toggleExpand(node)"
                                                                     x-text="node.expanded ? '▼' : '▶'"></button>
                                                         </span>
-                                                        <input type="checkbox" class="eb-checkbox" :checked="isSelected(node)" @change="toggleSelect(node)">
+                                                        <input type="checkbox" class="eb-checkbox" :checked="isSelected(node)" :disabled="node.selectable === false || node.type === 'info'" @change="toggleSelect(node)">
                                                         <button type="button"
                                                                 class="ms365-tree-label"
                                                                 :class="node.loading ? 'is-loading' : ''"

@@ -202,11 +202,13 @@ type RestoreSelection struct {
 }
 
 type RestoreItem struct {
-	ChildRunID string `json:"child_run_id"`
-	ManifestID string `json:"manifest_id"`
-	Path       string `json:"path"`
-	PathPrefix string `json:"path_prefix"`
-	Type       string `json:"type"`
+	ChildRunID  string `json:"child_run_id"`
+	ManifestID  string `json:"manifest_id"`
+	Path        string `json:"path"`
+	PathPrefix  string `json:"path_prefix"`
+	Type        string `json:"type"`
+	SourcePath  string `json:"source_path,omitempty"`
+	LogicalPath string `json:"logical_path,omitempty"`
 }
 
 type RestoreTarget struct {

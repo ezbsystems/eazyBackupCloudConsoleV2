@@ -99,6 +99,14 @@ assert_eq(1, count($spTargets), 'SharePoint derive yields one target');
 assert_eq(TenantResource::TYPE_SHAREPOINT_SITE, $spTargets[0]['resource_type'], 'SharePoint target type');
 assert_eq($siteGraphId, $spTargets[0]['graph_id'], 'SharePoint target graph id resolved from safe segment');
 assert_eq($driveId, $spTargets[0]['drive_id'] ?? '', 'SharePoint target includes drive id');
+assert_true(!isset($spTargets[0]['child_run_id']), 'SharePoint target dedupes without child_run_id');
+
+$shardA = $sharePointItem;
+$shardA['child_run_id'] = 'run-shard-5';
+$shardB = $sharePointItem;
+$shardB['child_run_id'] = 'run-shard-11';
+$multiShardTargets = Ms365RestoreDestinationResolver::deriveOriginalTargets([$shardA, $shardB], $inventory);
+assert_eq(1, count($multiShardTargets), 'SharePoint shards dedupe to one logical target');
 
 $mailTargets = Ms365RestoreDestinationResolver::deriveOriginalTargets([$mailItem], $inventory);
 assert_eq(1, count($mailTargets), 'Mailbox derive yields one target');

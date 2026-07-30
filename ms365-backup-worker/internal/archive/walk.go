@@ -6,13 +6,15 @@ import (
 	"strings"
 
 	"github.com/eazybackup/ms365-backup-worker/internal/api"
+	"github.com/eazybackup/ms365-backup-worker/internal/graphrestore"
 	"github.com/eazybackup/ms365-backup-worker/internal/kopia"
 )
 
 type fileEntry struct {
-	Path       string
-	ManifestID string
-	Size       int64
+	Path        string
+	LogicalPath string
+	ManifestID  string
+	Size        int64
 }
 
 func collectSelectionFiles(
@@ -27,33 +29,63 @@ func collectSelectionFiles(
 	var files []fileEntry
 
 	for _, item := range items {
-		root := normalizeCollectRoot(itemRoot(item))
-		if root == "" && !isWholeManifestSelection(item) {
+		sourceRoot := effectiveCollectRoot(item)
+		logicalRoot := effectiveLogicalCollectRoot(item)
+		if sourceRoot == "" && !isWholeManifestSelection(item) {
 			continue
 		}
-		manifestID := resolveManifestID(item, root, sourceManifestID, manifestByPath)
-		collected, err := collectFiles(ctx, pool, storage, manifestID, root)
+		manifestID := resolveManifestID(item, logicalRoot, sourceManifestID, manifestByPath)
+		collected, err := collectFiles(ctx, pool, storage, manifestID, sourceRoot)
 		if err != nil {
 			if isCollectPathMissing(err) {
 				continue
 			}
-			label := root
+			label := sourceRoot
 			if label == "" {
 				label = "manifest:" + manifestID
 			}
 			return nil, fmt.Errorf("collect %s: %w", label, err)
 		}
 		for _, f := range collected {
-			key := manifestID + "\x00" + f.Path
+			logical := graphrestore.MapSourceFileToLogical(f.Path, sourceRoot, logicalRoot)
+			key := logical
+			if key == "" {
+				key = manifestID + "\x00" + f.Path
+			}
 			if _, ok := seen[key]; ok {
 				continue
 			}
 			seen[key] = struct{}{}
-			f.ManifestID = manifestID
-			files = append(files, f)
+			files = append(files, fileEntry{
+				Path:        f.Path,
+				LogicalPath: logical,
+				ManifestID:  manifestID,
+				Size:        f.Size,
+			})
 		}
 	}
 	return files, nil
+}
+
+func effectiveCollectRoot(item api.RestoreItem) string {
+	if p := strings.Trim(strings.TrimSuffix(strings.TrimSpace(item.SourcePath), "/"), "/"); p != "" {
+		return normalizeCollectRoot(p)
+	}
+	return normalizeCollectRoot(itemRoot(item))
+}
+
+func effectiveLogicalCollectRoot(item api.RestoreItem) string {
+	if p := strings.Trim(strings.TrimSuffix(strings.TrimSpace(item.LogicalPath), "/"), "/"); p != "" {
+		return normalizeCollectRoot(p)
+	}
+	return normalizeCollectRoot(itemRoot(item))
+}
+
+func exportZipPath(file fileEntry) string {
+	if p := strings.TrimSpace(file.LogicalPath); p != "" {
+		return p
+	}
+	return file.Path
 }
 
 func itemRoot(item api.RestoreItem) string {

@@ -1120,6 +1120,229 @@ func sharePointDriveBrowseTestRoot(t *testing.T) (context.Context, kopiafs.Direc
 	return ctx, root, base, driveID
 }
 
+func TestSharePointCatalogOnlyListEntry(t *testing.T) {
+	entry := synthesizeSharePointEmptyListEntry("tenant/sites/site1/lists", sharePointListCatalogEntry{
+		ID:          "list-guid-1",
+		DisplayName: "Announcements",
+	})
+	if entry.Label != "Announcements" {
+		t.Fatalf("label: %q", entry.Label)
+	}
+	if entry.Subtitle != sharePointEmptyListSubtitle {
+		t.Fatalf("subtitle: %q", entry.Subtitle)
+	}
+	if entry.Selectable == nil || *entry.Selectable {
+		t.Fatal("catalog-only list must be non-selectable")
+	}
+	if entry.HasChildren {
+		t.Fatal("catalog-only list must not have children")
+	}
+}
+
+func TestBrowseSharePointEmptyListsFromCatalog(t *testing.T) {
+	ctx := context.Background()
+	listsPath := "tenant/sites/site1/lists"
+	listWithItems := "list-with-items"
+	listEmpty := "list-empty-guid"
+	catalog, _ := json.Marshal(map[string]any{
+		"value": []map[string]any{
+			{"id": listWithItems, "displayName": "Tasks"},
+			{"id": listEmpty, "displayName": "Empty Announcements"},
+		},
+	})
+	root := newMemDir("", map[string]kopiafs.Entry{
+		"tenant": newMemDir("tenant", map[string]kopiafs.Entry{
+			"sites": newMemDir("sites", map[string]kopiafs.Entry{
+				"site1": newMemDir("site1", map[string]kopiafs.Entry{
+					"lists": newMemDir("lists", map[string]kopiafs.Entry{
+						"lists.json": newMemFile("lists.json", catalog),
+						listWithItems: newMemDir(listWithItems, map[string]kopiafs.Entry{
+							"items": newMemDir("items", map[string]kopiafs.Entry{}),
+						}),
+					}),
+				}),
+			}),
+		}),
+	})
+
+	result, err := browseMultiFromRoots(ctx, BrowseRequest{
+		Path:    listsPath,
+		Sources: []BrowseSource{{ManifestID: "m1", CandidatePaths: []string{listsPath}}},
+	}, map[string]kopiafs.Directory{"m1": root})
+	if err != nil {
+		t.Fatalf("browse: %v", err)
+	}
+
+	var physical, catalogOnly *BrowseEntry
+	for i := range result.Entries {
+		switch result.Entries[i].Name {
+		case listWithItems:
+			physical = &result.Entries[i]
+		case listEmpty:
+			catalogOnly = &result.Entries[i]
+		}
+	}
+	if physical == nil {
+		t.Fatal("missing physical list folder")
+	}
+	if physical.Selectable != nil && !*physical.Selectable {
+		t.Fatal("physical list should remain selectable/default")
+	}
+	if catalogOnly == nil {
+		t.Fatal("missing catalog-only list")
+	}
+	if catalogOnly.Subtitle != sharePointEmptyListSubtitle {
+		t.Fatalf("catalog subtitle: %q", catalogOnly.Subtitle)
+	}
+	if catalogOnly.Selectable == nil || *catalogOnly.Selectable {
+		t.Fatal("catalog-only list must be disabled")
+	}
+}
+
+func TestBrowseSharePoint27EmptyLists(t *testing.T) {
+	ctx := context.Background()
+	listsPath := "tenant/sites/site1/lists"
+	values := make([]map[string]any, 0, 27)
+	for i := 0; i < 27; i++ {
+		values = append(values, map[string]any{
+			"id":          fmt.Sprintf("empty-list-%02d", i),
+			"displayName": fmt.Sprintf("Empty List %02d", i),
+		})
+	}
+	catalog, _ := json.Marshal(map[string]any{"value": values})
+	root := newMemDir("", map[string]kopiafs.Entry{
+		"tenant": newMemDir("tenant", map[string]kopiafs.Entry{
+			"sites": newMemDir("sites", map[string]kopiafs.Entry{
+				"site1": newMemDir("site1", map[string]kopiafs.Entry{
+					"lists": newMemDir("lists", map[string]kopiafs.Entry{
+						"lists.json": newMemFile("lists.json", catalog),
+					}),
+				}),
+			}),
+		}),
+	})
+
+	result, err := browseMultiFromRoots(ctx, BrowseRequest{
+		Path:    listsPath,
+		Sources: []BrowseSource{{ManifestID: "m1", CandidatePaths: []string{listsPath}}},
+	}, map[string]kopiafs.Directory{"m1": root})
+	if err != nil {
+		t.Fatalf("browse: %v", err)
+	}
+	if len(result.Entries) != 27 {
+		t.Fatalf("expected 27 catalog-only lists, got %d", len(result.Entries))
+	}
+	for _, entry := range result.Entries {
+		if entry.Selectable == nil || *entry.Selectable {
+			t.Fatalf("entry %s should be non-selectable", entry.Name)
+		}
+	}
+}
+
+func TestIsSharePointListsBrowseDirectory(t *testing.T) {
+	if !isSharePointListsBrowseDirectory("tenant/sites/site1/lists") {
+		t.Fatal("expected lists container path")
+	}
+	if isSharePointListsBrowseDirectory("tenant/sites/site1/lists/list1") {
+		t.Fatal("list folder should not match lists container")
+	}
+	if isSharePointListsBrowseDirectory("tenant/sites/site1/lists/list1/items") {
+		t.Fatal("items path should not match lists container")
+	}
+}
+
+func TestSharePointCatalogOnlyListPrecedenceOverDuplicateCatalog(t *testing.T) {
+	ctx := context.Background()
+	listsPath := "tenant/sites/site1/lists"
+	listID := "dup-list-guid"
+	catalog, _ := json.Marshal(map[string]any{
+		"value": []map[string]any{
+			{"id": listID, "displayName": "First Name"},
+			{"id": listID, "displayName": "Duplicate Name"},
+		},
+	})
+	root := newMemDir("", map[string]kopiafs.Entry{
+		"tenant": newMemDir("tenant", map[string]kopiafs.Entry{
+			"sites": newMemDir("sites", map[string]kopiafs.Entry{
+				"site1": newMemDir("site1", map[string]kopiafs.Entry{
+					"lists": newMemDir("lists", map[string]kopiafs.Entry{
+						"lists.json": newMemFile("lists.json", catalog),
+						listID: newMemDir(listID, map[string]kopiafs.Entry{
+							"items": newMemDir("items", map[string]kopiafs.Entry{
+								"1.json": newMemFile("1.json", []byte(`{"fields":{"Title":"Item"}}`)),
+							}),
+						}),
+					}),
+				}),
+			}),
+		}),
+	})
+
+	result, err := browseMultiFromRoots(ctx, BrowseRequest{
+		Path:    listsPath,
+		Sources: []BrowseSource{{ManifestID: "m1", CandidatePaths: []string{listsPath}}},
+	}, map[string]kopiafs.Directory{"m1": root})
+	if err != nil {
+		t.Fatalf("browse: %v", err)
+	}
+	if len(result.Entries) != 1 {
+		t.Fatalf("expected only physical list, got %d entries", len(result.Entries))
+	}
+	if result.Entries[0].Subtitle == sharePointEmptyListSubtitle {
+		t.Fatalf("physical list should not be catalog-only: %+v", result.Entries[0])
+	}
+	if result.Entries[0].Label != "First Name" {
+		t.Fatalf("physical list label: got %q want %q", result.Entries[0].Label, "First Name")
+	}
+}
+
+func TestSingleSourceSharePointEmptyListSynthesis(t *testing.T) {
+	ctx := context.Background()
+	listsPath := "tenant/sites/site1/lists"
+	listEmpty := "empty-only-list"
+	catalog, _ := json.Marshal(map[string]any{
+		"value": []map[string]any{{"id": listEmpty, "displayName": "Hidden List"}},
+	})
+	root := newMemDir("", map[string]kopiafs.Entry{
+		"tenant": newMemDir("tenant", map[string]kopiafs.Entry{
+			"sites": newMemDir("sites", map[string]kopiafs.Entry{
+				"site1": newMemDir("site1", map[string]kopiafs.Entry{
+					"lists": newMemDir("lists", map[string]kopiafs.Entry{
+						"lists.json": newMemFile("lists.json", catalog),
+					}),
+				}),
+			}),
+		}),
+	})
+
+	entries, err := listBrowseDirectoryChildren(ctx, root, root, listsPath)
+	if err != nil {
+		t.Fatalf("list children: %v", err)
+	}
+	found := false
+	for _, entry := range entries {
+		if entry.Name == listEmpty {
+			found = true
+			if entry.Subtitle != sharePointEmptyListSubtitle {
+				t.Fatalf("subtitle: %q", entry.Subtitle)
+			}
+			if entry.Selectable == nil || *entry.Selectable {
+				t.Fatal("expected non-selectable catalog list")
+			}
+		}
+	}
+	if !found {
+		t.Fatal("catalog-only list missing from single-source browse")
+	}
+}
+
+func TestSharePointCatalogEntryLabelFallback(t *testing.T) {
+	got := sharePointCatalogEntryLabel(sharePointListCatalogEntry{ID: "abc-guid"})
+	if got != "List" && !strings.Contains(got, "List") {
+		t.Fatalf("fallback label: %q", got)
+	}
+}
+
 func TestBrowseLabelSharePointContentFolders(t *testing.T) {
 	ctx, root, base, driveID := sharePointDriveBrowseTestRoot(t)
 

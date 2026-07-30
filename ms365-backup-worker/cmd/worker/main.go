@@ -56,18 +56,19 @@ func main() {
 }
 
 type browseCLIRequest struct {
-	ManifestID    string `json:"manifest_id"`
-	Path          string `json:"path"`
-	Limit         int    `json:"limit"`
-	Offset        int    `json:"offset"`
-	DestEndpoint  string `json:"dest_endpoint"`
-	DestRegion   string `json:"dest_region"`
-	DestBucket   string `json:"dest_bucket"`
-	DestPrefix   string `json:"dest_prefix"`
-	DestAccessKey string `json:"dest_access_key"`
-	DestSecretKey string `json:"dest_secret_key"`
-	RepoPassword string `json:"repo_password"`
-	RepoConfig   string `json:"repo_config"`
+	ManifestID    string               `json:"manifest_id"`
+	Path          string               `json:"path"`
+	Limit         int                  `json:"limit"`
+	Offset        int                  `json:"offset"`
+	Sources       []kopia.BrowseSource `json:"sources,omitempty"`
+	DestEndpoint  string               `json:"dest_endpoint"`
+	DestRegion    string               `json:"dest_region"`
+	DestBucket    string               `json:"dest_bucket"`
+	DestPrefix    string               `json:"dest_prefix"`
+	DestAccessKey string               `json:"dest_access_key"`
+	DestSecretKey string               `json:"dest_secret_key"`
+	RepoPassword  string               `json:"repo_password"`
+	RepoConfig    string               `json:"repo_config"`
 }
 
 func runBrowseCLI(args []string) error {
@@ -93,6 +94,7 @@ func runBrowseCLI(args []string) error {
 		Path:       req.Path,
 		Limit:      req.Limit,
 		Offset:     req.Offset,
+		Sources:    req.Sources,
 	})
 	if err != nil {
 		return err

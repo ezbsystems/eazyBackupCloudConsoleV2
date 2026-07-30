@@ -113,6 +113,166 @@ assert_true(in_array('list-medium', $excluded, true) && in_array('list-whale', $
 $listKopia = PhysicalKeyHelper::kopiaSourcePath('tenant-guid', 'list:list-medium', ['_site_id' => 'site-abc']);
 assert_true(str_contains($listKopia, '/lists/list-medium'), 'list job kopia path');
 
+// SharePoint planner guard: tiny library with huge shared quota stays unsharded.
+$quotaBytes = 200 * 1024 * 1024 * 1024;
+$guardSiteResource = [
+    'id' => 'sharepoint_site:site-guard',
+    'resource_type' => TenantResource::TYPE_SHAREPOINT_SITE,
+    'graph_id' => 'site-guard',
+    'display_name' => 'Guard Site',
+    'meta' => [
+        'drives' => [
+            [
+                'id' => 'drive-tiny',
+                'name' => 'Documents',
+                'size_bytes' => $quotaBytes,
+                'item_count' => 3,
+                'item_count_reliable' => true,
+            ],
+            [
+                'id' => 'drive-whale',
+                'name' => 'Clients',
+                'size_bytes' => $quotaBytes,
+                'item_count' => 500000,
+                'item_count_reliable' => true,
+            ],
+        ],
+    ],
+];
+$guardSiteJob = new PhysicalBackupJob(
+    'site:site-guard',
+    $guardSiteResource,
+    [['id' => 'sharepoint_site:site-guard', 'resource_type' => TenantResource::TYPE_SHAREPOINT_SITE]],
+    new BackupScope([BackupScope::FILES => true]),
+    PhysicalBackupJob::STATUS_RUNNABLE,
+);
+$guardExpanded = $planner->expand(
+    ['site:site-guard' => $guardSiteJob],
+    ['sharepoint_site:site-guard' => $guardSiteResource],
+);
+assert_true(isset($guardExpanded['drive:drive-tiny']), 'tiny drive job exists');
+assert_true(!isset($guardExpanded['drive:drive-tiny#shard:0']), '3-item library is not sharded despite huge quota');
+assert_true(isset($guardExpanded['drive:drive-whale#shard:0']), 'large reliable library still shards');
+
+// Drive-scoped hint must not inherit sibling counts from parent meta.drives[].
+$scopedDriveResource = [
+    'meta' => [
+        'drive_id' => 'drive-tiny',
+        'item_count' => 0,
+        'item_count_reliable' => true,
+        'drives' => [
+            ['item_count' => 500000],
+        ],
+    ],
+];
+assert_true(
+    PhysicalKeyHelper::itemCountHint($scopedDriveResource) === 0,
+    'drive_id scope ignores sibling drive sums',
+);
+$zeroDriveExpanded = $guardExpanded['drive:drive-tiny'];
+assert_true(
+    ($zeroDriveExpanded->primaryResource['meta']['item_count'] ?? -1) === 3,
+    'tiny drive keeps its own item_count after expansion',
+);
+assert_true(
+    !array_key_exists('drives', $zeroDriveExpanded->primaryResource['meta'] ?? []),
+    'per-drive jobs strip parent meta.drives[]',
+);
+
+// Reliable 162k-item library produces bounded count-derived shards.
+$largeDriveResource = [
+    'id' => 'sharepoint_site:site-large',
+    'resource_type' => TenantResource::TYPE_SHAREPOINT_SITE,
+    'graph_id' => 'site-large',
+    'display_name' => 'Large Library Site',
+    'meta' => [
+        'drives' => [
+            [
+                'id' => 'drive-large',
+                'name' => 'Archive',
+                'size_bytes' => 10,
+                'item_count' => 162000,
+                'item_count_reliable' => true,
+            ],
+        ],
+    ],
+];
+$largeSiteJob = new PhysicalBackupJob(
+    'site:site-large',
+    $largeDriveResource,
+    [['id' => 'sharepoint_site:site-large', 'resource_type' => TenantResource::TYPE_SHAREPOINT_SITE]],
+    new BackupScope([BackupScope::FILES => true]),
+    PhysicalBackupJob::STATUS_RUNNABLE,
+);
+$largeExpanded = $planner->expand(
+    ['site:site-large' => $largeSiteJob],
+    ['sharepoint_site:site-large' => $largeDriveResource],
+);
+$largeShardCount = 0;
+foreach (array_keys($largeExpanded) as $key) {
+    if (str_starts_with($key, 'drive:drive-large#shard:')) {
+        ++$largeShardCount;
+    }
+}
+assert_true($largeShardCount === 11, '162k reliable items produce 11 bounded shards');
+
+// Unknown count stays conservative (quota alone does not shard).
+$unknownSiteResource = [
+    'id' => 'sharepoint_site:site-unknown',
+    'resource_type' => TenantResource::TYPE_SHAREPOINT_SITE,
+    'graph_id' => 'site-unknown',
+    'display_name' => 'Unknown Count Site',
+    'meta' => [
+        'drives' => [
+            [
+                'id' => 'drive-unknown',
+                'name' => 'Mystery',
+                'size_bytes' => $quotaBytes,
+                'item_count' => 0,
+                'item_count_reliable' => false,
+            ],
+        ],
+    ],
+];
+$unknownSiteJob = new PhysicalBackupJob(
+    'site:site-unknown',
+    $unknownSiteResource,
+    [['id' => 'sharepoint_site:site-unknown', 'resource_type' => TenantResource::TYPE_SHAREPOINT_SITE]],
+    new BackupScope([BackupScope::FILES => true]),
+    PhysicalBackupJob::STATUS_RUNNABLE,
+);
+$unknownExpanded = $planner->expand(
+    ['site:site-unknown' => $unknownSiteJob],
+    ['sharepoint_site:site-unknown' => $unknownSiteResource],
+);
+assert_true(isset($unknownExpanded['drive:drive-unknown']), 'unknown-count drive job exists');
+assert_true(!isset($unknownExpanded['drive:drive-unknown#shard:0']), 'unknown count stays unsharded');
+
+// OneDrive byte sharding remains unchanged.
+$oneDriveResource = [
+    'id' => 'user_onedrive:user-1',
+    'resource_type' => TenantResource::TYPE_USER_ONEDRIVE,
+    'graph_id' => 'drive-od',
+    'display_name' => 'User OneDrive',
+    'meta' => [
+        'drive_id' => 'drive-od',
+        'size_bytes' => 150 * 1024 * 1024 * 1024,
+        'item_count' => 0,
+    ],
+];
+$oneDriveJob = new PhysicalBackupJob(
+    'drive:drive-od',
+    $oneDriveResource,
+    [['id' => 'user_onedrive:user-1', 'resource_type' => TenantResource::TYPE_USER_ONEDRIVE]],
+    new BackupScope([BackupScope::FILES => true]),
+    PhysicalBackupJob::STATUS_RUNNABLE,
+);
+$oneDriveExpanded = $planner->expand(
+    ['drive:drive-od' => $oneDriveJob],
+    ['user_onedrive:user-1' => $oneDriveResource],
+);
+assert_true(isset($oneDriveExpanded['drive:drive-od#shard:0']), 'OneDrive still shards on byte threshold');
+
 if ($failures > 0) {
     echo "\n{$failures} test(s) failed.\n";
     exit(1);

@@ -177,6 +177,9 @@ final class PhysicalKeyHelper
     {
         $meta = is_array($resource['meta'] ?? null) ? $resource['meta'] : [];
         $count = max(0, (int) ($meta['item_count'] ?? 0));
+        if (trim((string) ($meta['drive_id'] ?? '')) !== '') {
+            return $count;
+        }
         if ($count > 0) {
             return $count;
         }
@@ -192,6 +195,16 @@ final class PhysicalKeyHelper
         }
 
         return $sum;
+    }
+
+    /**
+     * @param array<string, mixed> $resource
+     */
+    public static function itemCountReliable(array $resource): bool
+    {
+        $meta = is_array($resource['meta'] ?? null) ? $resource['meta'] : [];
+
+        return (bool) ($meta['item_count_reliable'] ?? false);
     }
 
     /**

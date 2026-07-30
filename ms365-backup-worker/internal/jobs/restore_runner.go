@@ -57,14 +57,6 @@ func (r *RestoreRunner) Run(ctx context.Context, job *api.RunJob, onAbort contex
 		return r.fail(ctx, job.RunID, "no restore target")
 	}
 
-	sendProgress(ctx, r.client, onAbort, api.ProgressUpdate{
-		RunID:      job.RunID,
-		Phase:      "restore_extract",
-		Percent:    5,
-		ItemsTotal: len(selection.Items),
-		Message:    "Reading snapshot items",
-	})
-
 	primaryTarget := graphrestore.Target{
 		ResourceID:      selection.Targets[0].ResourceID,
 		GraphID:         selection.Targets[0].GraphID,
@@ -111,7 +103,23 @@ func (r *RestoreRunner) Run(ctx context.Context, job *api.RunJob, onAbort contex
 			if item.PathPrefix != "" {
 				manifestByItem[item.PathPrefix] = item.ManifestID
 			}
+			logical := strings.Trim(strings.TrimSpace(item.LogicalPath), "/")
+			if logical != "" {
+				manifestByItem[logical] = item.ManifestID
+			}
+			source := strings.Trim(strings.TrimSpace(item.SourcePath), "/")
+			if source != "" {
+				manifestByItem[source] = item.ManifestID
+			}
 		}
+	}
+
+	resolvedFiles, err := graphrestore.ResolveSelectionFiles(ctx, r.repoPool, storage, itemsFromAPI(selection.Items))
+	if err != nil {
+		return r.fail(ctx, job.RunID, err.Error())
+	}
+	if len(resolvedFiles) == 0 {
+		return r.fail(ctx, job.RunID, "no restorable files found in selection")
 	}
 
 	fetch := graphrestore.ContentFetcher{
@@ -123,9 +131,10 @@ func (r *RestoreRunner) Run(ctx context.Context, job *api.RunJob, onAbort contex
 					break
 				}
 			}
-			for _, item := range selection.Items {
-				if item.ManifestID != "" {
-					manifestID = item.ManifestID
+			for _, file := range resolvedFiles {
+				if file.SourcePath == path || file.LogicalPath == path {
+					manifestID = file.ManifestID
+					path = file.SourcePath
 					break
 				}
 			}
@@ -138,22 +147,18 @@ func (r *RestoreRunner) Run(ctx context.Context, job *api.RunJob, onAbort contex
 		},
 		Stream: func(path string) (io.ReadCloser, int64, error) {
 			manifestID := job.SourceManifestID
-			for prefix, mid := range manifestByItem {
-				if path == prefix || stringsHasPrefix(path, prefix) {
-					manifestID = mid
-					break
-				}
-			}
-			for _, item := range selection.Items {
-				if item.ManifestID != "" {
-					manifestID = item.ManifestID
+			sourcePath := path
+			for _, file := range resolvedFiles {
+				if file.SourcePath == path || file.LogicalPath == path {
+					manifestID = file.ManifestID
+					sourcePath = file.SourcePath
 					break
 				}
 			}
 			reader, size, err := r.repoPool.ExtractReader(ctx, kopia.ExtractRequest{
 				Storage:    storage,
 				ManifestID: manifestID,
-				Path:       path,
+				Path:       sourcePath,
 				SourcePath: "/ms365",
 			})
 			if err != nil {
@@ -163,23 +168,31 @@ func (r *RestoreRunner) Run(ctx context.Context, job *api.RunJob, onAbort contex
 		},
 	}
 
-	items := make([]graphrestore.SelectionItem, len(selection.Items))
-	for i, item := range selection.Items {
-		items[i] = graphrestore.SelectionItem{
-			ChildRunID: item.ChildRunID,
-			ManifestID: item.ManifestID,
-			Path:       item.Path,
-			PathPrefix: item.PathPrefix,
-			Type:       item.Type,
+	restoreItems := make([]graphrestore.SelectionItem, len(resolvedFiles))
+	for i, file := range resolvedFiles {
+		restoreItems[i] = graphrestore.SelectionItem{
+			ManifestID:  file.ManifestID,
+			Path:        file.LogicalPath,
+			SourcePath:  file.SourcePath,
+			LogicalPath: file.LogicalPath,
+			Type:        "file",
 		}
 	}
+
+	sendProgress(ctx, r.client, onAbort, api.ProgressUpdate{
+		RunID:      job.RunID,
+		Phase:      "restore_extract",
+		Percent:    5,
+		ItemsTotal: len(restoreItems),
+		Message:    "Reading snapshot items",
+	})
 
 	var lastProgress api.ProgressUpdate
 	lastProgress = api.ProgressUpdate{
 		RunID:      job.RunID,
 		Phase:      "restore_graph",
 		Percent:    10,
-		ItemsTotal: len(selection.Items),
+		ItemsTotal: len(restoreItems),
 		Message:    "Restoring to Microsoft 365",
 	}
 	reportProgress := func(upd api.ProgressUpdate) {
@@ -217,7 +230,7 @@ func (r *RestoreRunner) Run(ctx context.Context, job *api.RunJob, onAbort contex
 		r.client.RunLogf(r.logCtx(ctx), job.RunID, "error", "restore item error: %s", message)
 	}
 
-	stats, err := runner.RestoreItems(ctx, primaryTarget, items, fetch)
+	stats, err := runner.RestoreItems(ctx, primaryTarget, restoreItems, fetch)
 	if err != nil {
 		if isCooperativeCancel(err, ctx) {
 			r.client.RunLogf(r.logCtx(ctx), job.RunID, "info", "restore cancelled")
@@ -227,7 +240,7 @@ func (r *RestoreRunner) Run(ctx context.Context, job *api.RunJob, onAbort contex
 		return failAndReturn(err.Error())
 	}
 	doneCount := stats.Restored + stats.Skipped
-	if doneCount == 0 && len(items) > 0 {
+	if doneCount == 0 && len(restoreItems) > 0 {
 		msg := "no items were restored"
 		if stats.Errors > 0 {
 			msg = fmt.Sprintf("failed to restore %d item(s)", stats.Errors)
@@ -240,7 +253,7 @@ func (r *RestoreRunner) Run(ctx context.Context, job *api.RunJob, onAbort contex
 			Phase:      "restore_graph",
 			Percent:    95,
 			ItemsDone:  0,
-			ItemsTotal: len(items),
+			ItemsTotal: len(restoreItems),
 			Message:    msg,
 		})
 		return failAndReturn(msg)
@@ -251,7 +264,7 @@ func (r *RestoreRunner) Run(ctx context.Context, job *api.RunJob, onAbort contex
 		Phase:      "restore_graph",
 		Percent:    99,
 		ItemsDone:  doneCount,
-		ItemsTotal: len(items),
+		ItemsTotal: len(restoreItems),
 		Message:    "Restore complete, finalizing",
 	})
 
@@ -392,4 +405,20 @@ func (r *RestoreRunner) failTerminal(ctx context.Context, runID, message string)
 
 func stringsHasPrefix(s, prefix string) bool {
 	return len(s) >= len(prefix) && s[:len(prefix)] == prefix
+}
+
+func itemsFromAPI(items []api.RestoreItem) []graphrestore.SelectionItem {
+	out := make([]graphrestore.SelectionItem, len(items))
+	for i, item := range items {
+		out[i] = graphrestore.SelectionItem{
+			ChildRunID:  item.ChildRunID,
+			ManifestID:  item.ManifestID,
+			Path:        item.Path,
+			PathPrefix:  item.PathPrefix,
+			Type:        item.Type,
+			SourcePath:  item.SourcePath,
+			LogicalPath: item.LogicalPath,
+		}
+	}
+	return out
 }

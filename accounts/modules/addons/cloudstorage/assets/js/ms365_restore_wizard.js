@@ -55,6 +55,14 @@
             const isFile = (e.type || '') === 'file';
             const sizeLabel = isFile ? formatFileSize(e.size) : '';
             const subtitle = e.subtitle || sizeLabel || (isFile ? 'File' : '');
+            const selectable = e.selectable !== false && (e.type || '') !== 'info';
+            const sourceRefs = Array.isArray(e.source_refs)
+                ? e.source_refs.map((ref) => ({
+                    child_run_id: String(ref.child_run_id || ''),
+                    manifest_id: String(ref.manifest_id || ''),
+                    source_path: String(ref.source_path || ''),
+                })).filter((ref) => ref.child_run_id && ref.manifest_id)
+                : [];
             return {
                 key,
                 name: e.name,
@@ -66,6 +74,8 @@
                 size: Number(e.size) || 0,
                 manifest_id: e.manifest_id || (parent && parent.manifest_id) || '',
                 child_run_id: e.child_run_id || (parent && parent.child_run_id) || '',
+                source_refs: sourceRefs,
+                selectable,
                 parentKey: parent ? parent.key : '',
                 section_key: sectionKey,
                 depth,
@@ -118,6 +128,7 @@
                 path: '',
                 type: 'info',
                 has_children: false,
+                selectable: false,
                 size: 0,
                 manifest_id: node.manifest_id,
                 child_run_id: node.child_run_id,
@@ -399,7 +410,7 @@
             },
 
             toggleSelect(node) {
-                if (node.type === 'info') return;
+                if (node.type === 'info' || node.selectable === false) return;
                 const key = this.selectionKey(node);
                 const idx = this.selectedItems.findIndex((s) => s.key === key);
                 if (idx >= 0) {
@@ -417,6 +428,14 @@
                     path_prefix: node.type === 'file' ? '' : (node.has_children ? (node.path ? node.path + '/' : '') : (node.path || '')),
                     type: node.type,
                 };
+                if (node.type !== 'file' && Array.isArray(node.source_refs) && node.source_refs.length > 0) {
+                    item.source_refs = node.source_refs;
+                } else if (node.type === 'file' && Array.isArray(node.source_refs) && node.source_refs.length > 0) {
+                    const primary = node.source_refs[0];
+                    item.child_run_id = primary.child_run_id || item.child_run_id;
+                    item.manifest_id = primary.manifest_id || item.manifest_id;
+                    item.source_refs = [primary];
+                }
                 if (!item.path && !item.path_prefix && node.path) {
                     item.path_prefix = node.path;
                 }
@@ -621,10 +640,13 @@
                     }
                     const parsed = this.parsePathIdentity(path, className);
                     const childRunId = String(item.child_run_id || '').trim();
-                    const targetKey = childRunId ? childRunId + '|' + parsed.identity_key : parsed.identity_key;
+                    let targetKey = parsed.identity_key;
+                    if (childRunId && className !== 'sharepoint') {
+                        targetKey = childRunId + '|' + parsed.identity_key;
+                    }
                     if (targetsByKey[targetKey]) return;
                     const target = this.buildTargetFromParsed(parsed, className);
-                    if (childRunId) target.child_run_id = childRunId;
+                    if (childRunId && className !== 'sharepoint') target.child_run_id = childRunId;
                     targetsByKey[targetKey] = target;
                 });
                 const targets = Object.values(targetsByKey);
@@ -726,13 +748,23 @@
                     restore_mode: this.restoreMode,
                     destination_mode: this.destinationMode,
                     conflict_policy: 'skip_duplicates',
-                    items: this.selectedItems.map((s) => ({
-                        child_run_id: String(s.child_run_id || ''),
-                        manifest_id: String(s.manifest_id || ''),
-                        path: String(s.path || ''),
-                        path_prefix: String(s.path_prefix || ''),
-                        type: String(s.type || ''),
-                    })),
+                    items: this.selectedItems.map((s) => {
+                        const payload = {
+                            child_run_id: String(s.child_run_id || ''),
+                            manifest_id: String(s.manifest_id || ''),
+                            path: String(s.path || ''),
+                            path_prefix: String(s.path_prefix || ''),
+                            type: String(s.type || ''),
+                        };
+                        if (Array.isArray(s.source_refs) && s.source_refs.length > 0) {
+                            payload.source_refs = s.source_refs.map((ref) => ({
+                                child_run_id: String(ref.child_run_id || ''),
+                                manifest_id: String(ref.manifest_id || ''),
+                                source_path: String(ref.source_path || ''),
+                            }));
+                        }
+                        return payload;
+                    }),
                     targets,
                 };
             },

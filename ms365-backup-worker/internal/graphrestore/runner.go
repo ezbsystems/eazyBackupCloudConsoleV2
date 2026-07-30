@@ -31,6 +31,8 @@ type SelectionItem struct {
 	Path        string `json:"path"`
 	PathPrefix  string `json:"path_prefix"`
 	Type        string `json:"type"`
+	SourcePath  string `json:"source_path,omitempty"`
+	LogicalPath string `json:"logical_path,omitempty"`
 }
 
 type Options struct {
@@ -105,18 +107,25 @@ func (r *Runner) RestoreItems(ctx context.Context, target Target, items []Select
 			continue
 		}
 		itemName := selectionItemName(item)
+		sourcePath := EffectiveSourcePath(item)
+		logicalPath := EffectiveLogicalPath(item)
 		var itemRestored, itemSkipped, itemFailed bool
 		var itemErr error
 		for _, p := range paths {
-			if isDriveContentPath(p) && fetch.Stream != nil {
-				rc, size, err := fetch.Stream(p)
+			fetchPath := sourcePath
+			restorePath := logicalPath
+			if p != "" && p != logicalPath {
+				restorePath = p
+			}
+			if isDriveContentPath(restorePath) && fetch.Stream != nil {
+				rc, size, err := fetch.Stream(fetchPath)
 				if err != nil {
 					itemFailed = true
 					itemErr = err
 					r.noteError(stats, fmt.Errorf("fetch %s: %w", shortPath(p), err))
 					continue
 				}
-				skipped, err := r.RestoreDriveContent(ctx, target, p, size, rc)
+				skipped, err := r.RestoreDriveContent(ctx, target, restorePath, size, rc)
 				_ = rc.Close()
 				if err != nil {
 					itemFailed = true
@@ -132,7 +141,7 @@ func (r *Runner) RestoreItems(ctx context.Context, target Target, items []Select
 				continue
 			}
 
-			data, err := fetch.Bytes(p)
+			data, err := fetch.Bytes(fetchPath)
 			if err != nil {
 				itemFailed = true
 				itemErr = err
@@ -145,7 +154,7 @@ func (r *Runner) RestoreItems(ctx context.Context, target Target, items []Select
 				r.noteError(stats, fmt.Errorf("empty payload for %s", shortPath(p)))
 				continue
 			}
-			skipped, err := r.restorePath(ctx, target, p, data)
+			skipped, err := r.restorePath(ctx, target, restorePath, data)
 			if err != nil {
 				itemFailed = true
 				itemErr = err
@@ -211,12 +220,13 @@ func isDriveContentPath(path string) bool {
 }
 
 func (r *Runner) resolvePaths(item SelectionItem, fetch func(path string) ([]byte, error)) ([]string, error) {
-	if item.Path != "" && !strings.HasSuffix(item.Path, "/") {
-		return []string{item.Path}, nil
+	logical := EffectiveLogicalPath(item)
+	if logical != "" && !strings.HasSuffix(logical, "/") && !isFolderSelection(item) {
+		return []string{logical}, nil
 	}
-	prefix := item.Path
+	prefix := logical
 	if prefix == "" {
-		prefix = item.PathPrefix
+		prefix = strings.Trim(strings.TrimSuffix(strings.TrimSpace(item.PathPrefix), "/"), "/")
 	}
 	if prefix == "" {
 		return nil, fmt.Errorf("empty path")

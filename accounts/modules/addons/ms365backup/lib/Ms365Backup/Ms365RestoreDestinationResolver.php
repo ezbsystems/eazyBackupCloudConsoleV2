@@ -91,16 +91,17 @@ final class Ms365RestoreDestinationResolver
 
             $parsed = self::parsePathIdentity($path, $class);
             $childRunId = trim((string) ($item['child_run_id'] ?? ''));
-            $targetKey = $childRunId !== ''
-                ? $childRunId . '|' . $parsed['identity_key']
-                : $parsed['identity_key'];
+            $targetKey = $parsed['identity_key'];
+            if ($childRunId !== '' && $class !== self::CLASS_SHAREPOINT) {
+                $targetKey = $childRunId . '|' . $parsed['identity_key'];
+            }
 
             if (isset($targetsByKey[$targetKey])) {
                 continue;
             }
 
             $target = self::buildTargetFromParsed($parsed, $class, $inventoryResources);
-            if ($childRunId !== '') {
+            if ($childRunId !== '' && $class !== self::CLASS_SHAREPOINT) {
                 $target['child_run_id'] = $childRunId;
             }
 
