@@ -289,46 +289,89 @@ if ($phpReady && $workerReady && $clientsChild !== null) {
     $record('clients_library_pagination', 'blocked', 'requires PHP+worker deploy or Clients shard child');
 }
 
-// --- 27 zero-item lists (Deetken Insight site lists) ---
-$listsChild = null;
+// --- 27 zero-item lists (catalog-only, across audit sites — not Insight alone) ---
+// Completeness audit found 27 Graph-empty lists missing physical folders across
+// these sites. Deetken Insight itself mostly has lists with items (only ~1 empty);
+// requiring ≥27 disabled rows on Insight alone was a false failure.
+$isCatalogDisabledEmptyList = static function (array $e): bool {
+    return ($e['selectable'] ?? true) === false
+        && str_contains((string) ($e['subtitle'] ?? ''), 'catalog captured');
+};
+$emptyListAuditSites = [
+    'Project Web App',
+    'Community',
+    'Payroll',
+    'The Deetken Group Team Site',
+    'Business Development-Innovation, Research and Development',
+    'Operations',
+    'Test',
+    'Test DocCentre',
+    'Business Development',
+    'Deetken Hub',
+    'Team Resources',
+];
+$siteChildrenByName = [];
 foreach ($children as $child) {
-    if ((string) ($child['user_display_name'] ?? '') === 'Deetken Insight'
-        && str_starts_with((string) ($child['physical_key'] ?? ''), 'site:')) {
-        $listsChild = $child;
-        break;
+    $pk = (string) ($child['physical_key'] ?? '');
+    if (!str_starts_with($pk, 'site:')) {
+        continue;
+    }
+    $name = (string) ($child['user_display_name'] ?? '');
+    if ($name !== '') {
+        $siteChildrenByName[$name] = $child;
     }
 }
-if ($phpReady && $workerReady && $listsChild !== null) {
-    $listsPath = PhysicalKeyHelper::kopiaSourcePath(
-        (string) ($tenant['azure_tenant_id'] ?? ''),
-        (string) ($listsChild['physical_key'] ?? ''),
-        json_decode((string) ($listsChild['scope_json'] ?? '{}'), true) ?: [],
-    ) . '/lists';
+if ($phpReady && $workerReady) {
+    $disabledTotal = 0;
+    $listsTotal = 0;
+    $sitesChecked = 0;
+    $sitesMissing = [];
+    $perSite = [];
     try {
-        $listsBrowse = RestoreTreeBrowseService::list(
-            $tenant,
-            (string) ($listsChild['manifest_id'] ?? ''),
-            $listsPath,
-            $listsChild,
-            $batchId,
-            500,
-            0,
-        );
-        $disabled = array_values(array_filter(
-            $listsBrowse['entries'] ?? [],
-            static fn (array $e): bool => ($e['selectable'] ?? true) === false
-                && str_contains((string) ($e['subtitle'] ?? ''), 'catalog captured'),
-        ));
+        foreach ($emptyListAuditSites as $siteName) {
+            $listsChild = $siteChildrenByName[$siteName] ?? null;
+            if ($listsChild === null) {
+                $sitesMissing[] = $siteName;
+                continue;
+            }
+            $listsPath = PhysicalKeyHelper::kopiaSourcePath(
+                (string) ($tenant['azure_tenant_id'] ?? ''),
+                (string) ($listsChild['physical_key'] ?? ''),
+                json_decode((string) ($listsChild['scope_json'] ?? '{}'), true) ?: [],
+            ) . '/lists';
+            $listsBrowse = RestoreTreeBrowseService::list(
+                $tenant,
+                (string) ($listsChild['manifest_id'] ?? ''),
+                $listsPath,
+                $listsChild,
+                $batchId,
+                500,
+                0,
+            );
+            $entries = $listsBrowse['entries'] ?? [];
+            $disabled = array_values(array_filter($entries, $isCatalogDisabledEmptyList));
+            $disabledTotal += count($disabled);
+            $listsTotal += count($entries);
+            $sitesChecked++;
+            $perSite[] = $siteName . '=' . count($disabled);
+        }
+        $detail = 'disabled_catalog_lists=' . $disabledTotal
+            . ' total_lists=' . $listsTotal
+            . ' sites_checked=' . $sitesChecked
+            . ' per_site=[' . implode(', ', $perSite) . ']';
+        if ($sitesMissing !== []) {
+            $detail .= ' missing_sites=[' . implode(', ', $sitesMissing) . ']';
+        }
         $record(
             'insight_empty_lists_disabled',
-            count($disabled) >= 27 ? 'pass' : 'fail',
-            'disabled_catalog_lists=' . count($disabled) . ' total_lists=' . count($listsBrowse['entries'] ?? [])
+            $disabledTotal >= 27 ? 'pass' : 'fail',
+            $detail
         );
     } catch (Throwable $e) {
         $record('insight_empty_lists_disabled', 'fail', $e->getMessage());
     }
 } else {
-    $record('insight_empty_lists_disabled', 'blocked', 'requires PHP+worker deploy or lists child');
+    $record('insight_empty_lists_disabled', 'blocked', 'requires PHP+worker deploy or site list children');
 }
 
 // --- planner dry run (Documents unsharded, Clients sharded) ---
