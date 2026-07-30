@@ -70,9 +70,9 @@ assert_true(
 $ref = new ReflectionClass(\Ms365Backup\RestoreTreeBrowseService::class);
 
 assert_eq(
-    'v25-sharepoint-shard-sources',
+    'v26-sharepoint-all-libraries',
     $ref->getConstant('BROWSE_CACHE_NAMESPACE'),
-    'browse cache namespace is v25-sharepoint-shard-sources'
+    'browse cache namespace is v26-sharepoint-all-libraries'
 );
 
 $buildCacheKey = $ref->getMethod('buildBrowseCacheKey');
@@ -432,6 +432,57 @@ $enriched = $enrichEntries->invoke(null, [
 ], $mailInboxPath, null);
 assert_eq(1, count($enriched), 'enrichEntries drops hidden catalog files');
 assert_eq('(No subject)', $enriched[0]['label'] ?? '', 'enrichEntries applies mail opaque-label guard');
+
+$twoDriveBatchId = 'batch-two-drive-site';
+$adminDriveId = 'b!AdminDriveId123456789012345678901234';
+$docsDriveId = 'b!DocsDriveId123456789012345678901234';
+$twoDriveChildren = [
+    [
+        'id' => 'run-admin',
+        'status' => 'success',
+        'e3_batch_run_id' => $twoDriveBatchId,
+        'physical_key' => 'drive:' . $adminDriveId,
+        'manifest_id' => 'manifest-admin',
+        'scope_json' => json_encode([
+            '_site_id' => $siteId,
+            '_drive_id' => $adminDriveId,
+            '_drive_display_name' => 'Administration',
+        ], JSON_THROW_ON_ERROR),
+    ],
+    [
+        'id' => 'run-docs',
+        'status' => 'success',
+        'e3_batch_run_id' => $twoDriveBatchId,
+        'physical_key' => 'drive:' . $docsDriveId,
+        'manifest_id' => 'manifest-docs',
+        'scope_json' => json_encode([
+            '_site_id' => $siteId,
+            '_drive_id' => $docsDriveId,
+            '_drive_display_name' => 'Documents',
+        ], JSON_THROW_ON_ERROR),
+    ],
+];
+\Ms365Backup\SharePointShardSourceResolver::seedBatchChildrenCache($twoDriveBatchId, $twoDriveChildren);
+
+$synthesizeDrives = $ref->getMethod('synthesizeSharePointDriveEntries');
+$synthesizeDrives->setAccessible(true);
+$synthEntries = $synthesizeDrives->invoke(
+    null,
+    $tenantRecord,
+    $drivesPath,
+    $twoDriveChildren[0],
+    $twoDriveBatchId,
+);
+assert_eq(2, count($synthEntries), 'synthesizeSharePointDriveEntries lists both sibling document libraries');
+$labels = array_map(static fn (array $e): string => (string) ($e['label'] ?? ''), $synthEntries);
+assert_true(in_array('Administration', $labels, true), 'synthesize includes Administration library');
+assert_true(in_array('Documents', $labels, true), 'synthesize includes Documents library');
+$manifests = array_map(static fn (array $e): string => (string) ($e['manifest_id'] ?? ''), $synthEntries);
+assert_true(in_array('manifest-admin', $manifests, true), 'Administration has distinct manifest');
+assert_true(in_array('manifest-docs', $manifests, true), 'Documents has distinct manifest');
+$childRunIds = array_map(static fn (array $e): string => (string) ($e['child_run_id'] ?? ''), $synthEntries);
+assert_true(in_array('run-admin', $childRunIds, true), 'Administration has correct child_run_id');
+assert_true(in_array('run-docs', $childRunIds, true), 'Documents has correct child_run_id');
 
 \Ms365Backup\SharePointShardSourceResolver::clearBatchChildrenCache();
 

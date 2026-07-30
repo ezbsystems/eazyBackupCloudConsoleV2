@@ -115,16 +115,24 @@
 
         function emptyFilesPlaceholder(node) {
             const isSharePointFiles = node.label === 'Files' && node.subtitle === 'Document libraries';
-            if (node.label !== 'OneDrive' && !isSharePointFiles) {
+            const isSharePointLibrary = node.subtitle === 'Document library'
+                || (node.path && /\/sites\/[^/]+\/drives\/b!/.test(node.path));
+            if (node.label !== 'OneDrive' && !isSharePointFiles && !isSharePointLibrary) {
                 return null;
+            }
+            let label = 'No files in this snapshot';
+            let subtitle = 'OneDrive was not cataloged in this backup. Run a new backup with worker 0.1.25 or later.';
+            if (isSharePointLibrary) {
+                label = 'No files in this library for this snapshot';
+                subtitle = 'This document library was captured but contains no files in this snapshot.';
+            } else if (isSharePointFiles) {
+                subtitle = 'SharePoint document libraries were not captured in this snapshot. Run a new backup with Files selected.';
             }
             return {
                 key: node.key + '-empty',
                 name: '',
-                label: 'No files in this snapshot',
-                subtitle: isSharePointFiles
-                    ? 'SharePoint document libraries were not captured in this snapshot. Run a new backup with Files selected.'
-                    : 'OneDrive was not cataloged in this backup. Run a new backup with worker 0.1.25 or later.',
+                label: label,
+                subtitle: subtitle,
                 path: '',
                 type: 'info',
                 has_children: false,

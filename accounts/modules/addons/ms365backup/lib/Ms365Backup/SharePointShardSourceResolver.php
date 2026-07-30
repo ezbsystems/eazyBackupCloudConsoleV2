@@ -27,6 +27,14 @@ final class SharePointShardSourceResolver
     }
 
     /**
+     * @return list<array<string, mixed>>
+     */
+    public static function getBatchChildren(string $batchRunId): array
+    {
+        return self::batchChildren(trim($batchRunId));
+    }
+
+    /**
      * @return array{
      *   use_multi_source: bool,
      *   sources: list<array{child_run_id: string, manifest_id: string, candidate_paths: list<string>}>,

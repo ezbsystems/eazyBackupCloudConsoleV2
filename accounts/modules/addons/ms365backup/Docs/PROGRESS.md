@@ -2,14 +2,21 @@
 
 **Purpose:** Single handoff document so the next agent knows where work stopped. Update this file at the **end of every session** (or after each meaningful milestone).
 
-**Last updated:** 2026-07-29
-**Module version (ms365backup):** 1.52.40
+**Last updated:** 2026-07-30
+**Module version (ms365backup):** 1.52.42
 **Cloudstorage (e3) version:** 2.2.0  
 **Worker version (ms365-backup-worker):** 0.4.27 (Kopia v0.23.1)
 
 ---
 
 ## Session log
+
+### 2026-07-30 — SharePoint restore Files lists all document libraries (PHP 1.52.42)
+
+- **Prod symptom:** Spirit Travel site showed only **Administration** under Files; **Documents** (~2.2 GB) was hidden. Spirit SharePoint Documents correctly empty but UX showed blank expand.
+- **Root cause:** `synthesizeSharePointDriveEntries` only ran when Kopia returned zero entries; a single-library Kopia result suppressed sibling drive runs.
+- **Fix:** For `…/sites/…/drives` browse paths, always build library index from sibling `drive:*` child runs (each with own `manifest_id` + `child_run_id`). Browse cache namespace bumped to `v26-sharepoint-all-libraries`. Restore wizard shows info placeholder when an empty document library expands.
+- **Verify:** `ms365_restore_tree_browse_test.php` PASS (two-drive synthesis fixture).
 
 ### 2026-07-29 — Idle disk-pressure latch dead zone (worker 0.4.27)
 

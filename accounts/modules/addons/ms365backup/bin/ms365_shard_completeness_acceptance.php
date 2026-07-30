@@ -80,7 +80,7 @@ $installedWorker = trim((string) ($browseStatus['installed_version'] ?? ''));
 $workerReady = $installedWorker !== ''
     && $minWorker !== ''
     && ReleaseRepository::compareVersions($installedWorker, $minWorker) >= 0;
-$phpReady = $phpReady && $cacheNs === 'v25-sharepoint-shard-sources';
+$phpReady = $phpReady && $cacheNs === 'v26-sharepoint-all-libraries';
 
 $record(
     'release_addon_version',
@@ -89,7 +89,7 @@ $record(
 );
 $record(
     'release_browse_cache_namespace',
-    $cacheNs === 'v25-sharepoint-shard-sources' ? 'pass' : 'fail',
+    $cacheNs === 'v26-sharepoint-all-libraries' ? 'pass' : 'fail',
     'namespace=' . $cacheNs
 );
 $record(

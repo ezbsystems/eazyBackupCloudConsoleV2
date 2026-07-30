@@ -9,7 +9,7 @@ namespace Ms365Backup;
 final class RestoreTreeBrowseService
 {
     private const CACHE_TTL_SECONDS = 3600;
-    private const BROWSE_CACHE_NAMESPACE = 'v25-sharepoint-shard-sources';
+    private const BROWSE_CACHE_NAMESPACE = 'v26-sharepoint-all-libraries';
 
     /** @var array<string, string> */
     private const SEGMENT_LABELS = [
@@ -87,6 +87,20 @@ final class RestoreTreeBrowseService
             return $cached;
         }
 
+        if ($childRun !== null
+            && trim($batchRunId) !== ''
+            && preg_match('#^[^/]+/sites/[^/]+/drives$#', $path) === 1
+        ) {
+            $syntheticDrives = self::synthesizeSharePointDriveEntries($tenantRecord, $path, $childRun, $batchRunId);
+            if ($syntheticDrives !== []) {
+                $enriched = self::enrichEntries($syntheticDrives, $path, $childRun);
+                $result = self::paginateEntries($enriched, $limit, $offset);
+                self::writeCache($cacheKey, $result);
+
+                return $result;
+            }
+        }
+
         if ($browseContext['use_multi_source']) {
             $e3JobId = is_array($childRun) ? trim((string) ($childRun['e3_job_id'] ?? '')) : '';
             $raw = KopiaSnapshotBrowseService::listDirectoryMultiSource(
@@ -108,19 +122,6 @@ final class RestoreTreeBrowseService
         } else {
             $raw = self::listKopiaDirectoryWithAliases($tenantRecord, $manifestId, $path, $childRun, $limit, $offset);
             $entries = self::autoDescendIfNeeded($tenantRecord, $manifestId, $path, $raw['entries'], $childRun);
-        }
-        if ($entries === [] && $childRun !== null) {
-            $syntheticDrives = self::synthesizeSharePointDriveEntries($tenantRecord, $path, $childRun, $batchRunId);
-            if ($syntheticDrives !== []) {
-                $entries = $syntheticDrives;
-                $raw = [
-                    'entries' => $entries,
-                    'total_count' => count($entries),
-                    'has_more' => false,
-                    'offset' => $offset,
-                    'limit' => $limit,
-                ];
-            }
         }
         $result = [
             'entries' => self::enrichEntries($entries, $path, $childRun),
@@ -453,7 +454,7 @@ final class RestoreTreeBrowseService
         $siteSeg = $m[2];
         $seen = [];
         $out = [];
-        foreach (Ms365BatchRunRepository::getChildrenForBatch($batchRunId) as $sibling) {
+        foreach (SharePointShardSourceResolver::getBatchChildren($batchRunId) as $sibling) {
             if (($sibling['status'] ?? '') !== 'success') {
                 continue;
             }
