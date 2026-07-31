@@ -4,12 +4,18 @@
 
 **Last updated:** 2026-07-30
 **Module version (ms365backup):** 1.52.42
-**Cloudstorage (e3) version:** 2.2.0  
+**Cloudstorage (e3) version:** 2.2.2  
 **Worker version (ms365-backup-worker):** 0.4.29 (Kopia v0.23.1)
 
 ---
 
 ## Session log
+
+### 2026-07-30 — MS365 job wizard inventory performance (cloudstorage 2.2.2)
+
+- **Problem:** Step 2 inventory froze the browser on large tenants (~1000 users, hundreds of SharePoint sites). Each checkbox click / expand took 5–10s due to O(n²) `visibleNodes`/`parentCheckState` scans, deep Alpine reactivity on full inventory trees, and rendering all rows at once.
+- **Fix:** `ms365_job_selection.js` — parent/child indexes, O(n) collapsed `visibleNodes`, indexed descendants/check-state helpers. `ms365_job_wizard.js` — inventory/trees in module-level stash (non-reactive), slimmed `syncSelectionPayload` (no per-toggle `selectionSummary`), memoized global counts, virtualized inventory list (~40px rows, ~100 DOM nodes). Template uses flat virtual rows + one-time icon init via `x-init`.
+- **Verify:** `ms365_job_selection_filter_test.php` PASS (incl. 2k-node collapsed visibility); manual QA on large tenant recommended post-deploy.
 
 ### 2026-07-30 — Restore browse load-time: warm browse sidecar (worker 0.4.29, PHP browse cache v26-browse-serve)
 

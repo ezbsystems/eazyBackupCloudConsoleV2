@@ -38,8 +38,27 @@ function textMatchesTokens(string $text, array $tokens): bool
     return true;
 }
 
-function getDescendants(array $sectionNodes, string $parentKey): array
+function buildSectionIndexes(array $sectionNodes): array
 {
+    $byKey = [];
+    $childrenByParentKey = [];
+    foreach ($sectionNodes as $node) {
+        $key = $node['key'] ?? '';
+        $byKey[$key] = $node;
+        $parentKey = $node['parentKey'] ?? '';
+        if (!isset($childrenByParentKey[$parentKey])) {
+            $childrenByParentKey[$parentKey] = [];
+        }
+        $childrenByParentKey[$parentKey][] = $node;
+    }
+    return ['byKey' => $byKey, 'childrenByParentKey' => $childrenByParentKey];
+}
+
+function getDescendants(array $sectionNodes, string $parentKey, ?array $indexes = null): array
+{
+    if ($indexes !== null && isset($indexes['childrenByParentKey'][$parentKey])) {
+        return $indexes['childrenByParentKey'][$parentKey];
+    }
     return array_values(array_filter($sectionNodes, static fn ($n) => ($n['parentKey'] ?? '') === $parentKey));
 }
 
@@ -70,23 +89,20 @@ function isFlatSection(array $sectionNodes): bool
     return true;
 }
 
-function visibleNodes(array $sectionNodes, string $searchQuery, array $expandedKeys): array
+function visibleNodes(array $sectionNodes, string $searchQuery, array $expandedKeys, ?array $indexes = null): array
 {
     $tokens = normalizeSearchTokens($searchQuery);
 
     if ($tokens === []) {
-        return array_values(array_filter($sectionNodes, static function ($node) use ($sectionNodes, $expandedKeys) {
+        $visible = [];
+        foreach ($sectionNodes as $node) {
             if (($node['depth'] ?? 0) === 0) {
-                return true;
+                $visible[] = $node;
+            } elseif (!empty($node['parentKey']) && !empty($expandedKeys[$node['parentKey']])) {
+                $visible[] = $node;
             }
-            $parentKey = $node['parentKey'] ?? '';
-            foreach ($sectionNodes as $parent) {
-                if (($parent['key'] ?? '') === $parentKey) {
-                    return !empty($expandedKeys[$parentKey]);
-                }
-            }
-            return false;
-        }));
+        }
+        return $visible;
     }
 
     if (isFlatSection($sectionNodes)) {
@@ -101,7 +117,7 @@ function visibleNodes(array $sectionNodes, string $searchQuery, array $expandedK
         if (($node['depth'] ?? 0) !== 0) {
             continue;
         }
-        $children = getDescendants($sectionNodes, $node['key']);
+        $children = getDescendants($sectionNodes, $node['key'], $indexes);
         if (!nodeMatchesQuery($node, $children, $tokens)) {
             continue;
         }
@@ -213,5 +229,18 @@ assertNotContainsKey($multi, 'cap:u1:calendar', 'calendar excluded by multi-toke
 $planner = visibleNodes($flatSection, 'q2', []);
 assertCount(1, $planner, 'flat section filters one leaf');
 assertContainsKey($planner, 'leaf:p2', 'q2 planner visible');
+
+// Large synthetic tree: collapsed visibility stays linear and only returns parents.
+$largeSection = [];
+for ($i = 0; $i < 2000; $i++) {
+    $parentKey = 'parent:u' . $i;
+    $largeSection[] = ['key' => $parentKey, 'label' => 'User ' . $i, 'subtitle' => '', 'depth' => 0, 'hasChildren' => true, 'parentKey' => ''];
+    $largeSection[] = ['key' => 'cap:' . $i . ':mail', 'label' => 'Mail', 'subtitle' => '', 'depth' => 1, 'hasChildren' => false, 'parentKey' => $parentKey];
+}
+$largeIndexes = buildSectionIndexes($largeSection);
+$largeCollapsed = visibleNodes($largeSection, '', [], $largeIndexes);
+assertCount(2000, $largeCollapsed, 'large collapsed tree shows only parents');
+$largeExpanded = visibleNodes($largeSection, '', ['parent:u0' => true], $largeIndexes);
+assertCount(2001, $largeExpanded, 'large expanded tree shows one parent and its child');
 
 echo "ms365_job_selection_filter_test: OK\n";

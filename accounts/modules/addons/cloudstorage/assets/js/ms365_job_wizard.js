@@ -26,6 +26,41 @@
     const INVENTORY_WORKER_START_TIMEOUT_MS = 15000;
     const INVENTORY_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
     const PLAN_DEBOUNCE_MS = 400;
+    const INVENTORY_ROW_HEIGHT = 40;
+    const INVENTORY_VIRTUAL_OVERSCAN = 10;
+
+    /** Large inventory/trees live outside Alpine reactivity to avoid deep-proxy cost. */
+    const inventoryStash = {
+        inventory: { resources: [] },
+        treesBySection: {},
+        sectionIndexes: {},
+        memo: {
+            inaccessibleSiteCount: null,
+            globalCheckState: null,
+        },
+    };
+
+    function clearInventoryStash() {
+        inventoryStash.inventory = { resources: [] };
+        inventoryStash.treesBySection = {};
+        inventoryStash.sectionIndexes = {};
+        inventoryStash.memo.inaccessibleSiteCount = null;
+        inventoryStash.memo.globalCheckState = null;
+    }
+
+    function rebuildInventoryStash(inventory) {
+        const sel = window.ms365JobSelection;
+        inventoryStash.inventory = inventory || { resources: [] };
+        if (!sel) {
+            inventoryStash.treesBySection = {};
+            inventoryStash.sectionIndexes = {};
+        } else {
+            inventoryStash.treesBySection = sel.buildAllTrees(inventoryStash.inventory);
+            inventoryStash.sectionIndexes = sel.buildAllSectionIndexes(inventoryStash.treesBySection);
+        }
+        inventoryStash.memo.inaccessibleSiteCount = null;
+        inventoryStash.memo.globalCheckState = null;
+    }
 
     const INVENTORY_PROGRESS_LABELS = {
         users: 'Users',
@@ -304,9 +339,9 @@
             manualTestPassed: false,
             manualNotice: '',
             manualError: '',
-            inventory: { resources: [] },
+            inventoryMeta: { resourceCount: 0, fetchedAt: null },
+            inventoryViewRevision: 0,
             inventoryBackgroundRefreshing: false,
-            treesBySection: {},
             selection: {},
             expandedKeys: {},
             scopeOverrides: {},
@@ -316,10 +351,12 @@
             billingPreviewLoading: false,
             billingPreviewError: '',
             billingCalcOpen: false,
-            selectionSummaryGroups: [],
             selectionWorkloadCounts: {},
             savedSelectionIds: [],
             searchQuery: '',
+            inventoryScrollTop: 0,
+            inventoryVirtualSlice: { rows: [], paddingTop: 0, paddingBottom: 0, totalHeight: 0 },
+            selectionVersion: 0,
             scheduleFrequency: 'once_daily',
             retentionTier: DEFAULT_RETENTION_TIER,
             retentionOptions: RETENTION_OPTIONS,
@@ -390,14 +427,18 @@
                 this.billingPreviewLoading = false;
                 this.billingPreviewError = '';
                 this.billingCalcOpen = false;
-                this.selectionSummaryGroups = [];
                 this.selectionWorkloadCounts = {};
                 this.savedSelectionIds = [];
                 this.searchQuery = '';
+                this.inventoryScrollTop = 0;
+                this.inventoryVirtualSlice = { rows: [], paddingTop: 0, paddingBottom: 0, totalHeight: 0 };
+                this.selectionVersion = 0;
                 this.scheduleFrequency = 'once_daily';
                 this.retentionTier = DEFAULT_RETENTION_TIER;
                 this.jobName = this.defaultJobName();
-                this.inventory = { resources: [] };
+                clearInventoryStash();
+                this.inventoryMeta = { resourceCount: 0, fetchedAt: null };
+                this.inventoryViewRevision = 0;
                 this.inventoryBackgroundRefreshing = false;
 
                 modal.classList.remove('hidden');
@@ -427,7 +468,7 @@
             },
 
             inventoryFetchedAtMs() {
-                const at = this.inventory && this.inventory.fetched_at;
+                const at = this.inventoryMeta && this.inventoryMeta.fetchedAt;
                 if (!at) {
                     return 0;
                 }
@@ -441,7 +482,11 @@
             },
 
             hasUsableInventory() {
-                return Array.isArray(this.inventory.resources) && this.inventory.resources.length > 0;
+                return (this.inventoryMeta.resourceCount || 0) > 0;
+            },
+
+            hasInventoryLoaded() {
+                return (this.inventoryMeta.resourceCount || 0) > 0;
             },
 
             async bootstrapInventoryForWizard(opts = {}) {
@@ -695,7 +740,10 @@
             handleReconnectRequired(message) {
                 this.step = 1;
                 this.consentError = message || this.status.health_error || '';
-                this.inventory = { resources: [] };
+                clearInventoryStash();
+                this.inventoryMeta = { resourceCount: 0, fetchedAt: null };
+                this.inventoryViewRevision += 1;
+                this.updateInventoryVirtualSlice();
                 return this.loadStatus();
             },
 
@@ -765,8 +813,9 @@
                         }
                         this.initManualFormFromStatus();
                         this.manualTestPassed = false;
-                        this.inventory = { resources: [] };
-                        this.treesBySection = {};
+                        clearInventoryStash();
+                        this.inventoryMeta = { resourceCount: 0, fetchedAt: null };
+                        this.inventoryViewRevision += 1;
                         this.selection = {};
                         this.step = 1;
                         this.confirmModal.open = false;
@@ -836,7 +885,7 @@
             goToStep(n) {
                 if (!this.canGoToStep(n)) return;
                 this.step = n;
-                if (n === 2 && (!this.inventory.resources || this.inventory.resources.length === 0)) {
+                if (n === 2 && !this.hasInventoryLoaded()) {
                     this.loadInventory();
                 }
             },
@@ -1213,8 +1262,16 @@
                     const res = await fetch(`${apiBase()}ms365_inventory.php?user_id=${encodeURIComponent(this.backupUserId)}`, { credentials: 'same-origin' });
                     const data = await res.json();
                     if (data.status === 'success') {
-                        this.inventory = data.inventory || { resources: [] };
-                        this.rebuildTrees();
+                        const inventory = data.inventory || { resources: [] };
+                        rebuildInventoryStash(inventory);
+                        this.inventoryMeta = {
+                            resourceCount: Array.isArray(inventory.resources) ? inventory.resources.length : 0,
+                            fetchedAt: inventory.fetched_at || null,
+                        };
+                        this.inventoryViewRevision += 1;
+                        inventoryStash.memo.inaccessibleSiteCount = null;
+                        inventoryStash.memo.globalCheckState = null;
+                        this.updateInventoryVirtualSlice();
                         if (this.savedSelectionIds.length > 0) {
                             this.applySavedSelection();
                         }
@@ -1277,7 +1334,9 @@
                 const waitUntil = opts.waitUntil || 'complete';
 
                 if (clearInventory) {
-                    this.inventory = { resources: [] };
+                    clearInventoryStash();
+                    this.inventoryMeta = { resourceCount: 0, fetchedAt: null };
+                    this.inventoryViewRevision += 1;
                 }
                 this.refreshingInventory = true;
                 this.startInventoryProgressPoll();
@@ -1352,7 +1411,7 @@
                         this.retentionTier = this.isRetentionTierEnabled(loadedTier)
                             ? loadedTier
                             : DEFAULT_RETENTION_TIER;
-                        if (this.inventory.resources && this.inventory.resources.length > 0) {
+                        if (this.hasInventoryLoaded()) {
                             this.applySavedSelection();
                         }
                     }
@@ -1375,7 +1434,15 @@
                 if (!window.ms365JobSelection) {
                     return 'unchecked';
                 }
-                return window.ms365JobSelection.globalCheckState(this.treesBySection, this.selection);
+                if (inventoryStash.memo.globalCheckState !== null) {
+                    return inventoryStash.memo.globalCheckState;
+                }
+                const state = window.ms365JobSelection.globalCheckState(
+                    inventoryStash.treesBySection,
+                    this.selection,
+                );
+                inventoryStash.memo.globalCheckState = state;
+                return state;
             },
 
             toggleSelectAllInventory() {
@@ -1383,17 +1450,25 @@
                     return;
                 }
                 this.selection = window.ms365JobSelection.toggleGlobalSelect(
-                    this.treesBySection,
+                    inventoryStash.treesBySection,
                     this.selection,
                 );
+                inventoryStash.memo.globalCheckState = null;
                 this.syncSelectionPayload();
             },
 
-            inventoryIconSvg(iconKey) {
-                if (window.ms365InventoryIcons) {
-                    return window.ms365InventoryIcons.svgFor(iconKey || 'user');
+            inventoryIconClass(iconKey) {
+                if (window.ms365InventoryIcons && typeof window.ms365InventoryIcons.cssClassFor === 'function') {
+                    return window.ms365InventoryIcons.cssClassFor(iconKey || 'user');
                 }
-                return '';
+                return 'ms365-inv-icon ms365-inv-icon--user';
+            },
+
+            initInventoryIcon(el, iconKey) {
+                if (!el || !window.ms365InventoryIcons) return;
+                if (el.dataset.iconKey === iconKey) return;
+                el.dataset.iconKey = iconKey || 'user';
+                el.innerHTML = window.ms365InventoryIcons.svgFor(iconKey || 'user');
             },
 
             usesServerSelectAll() {
@@ -1405,8 +1480,7 @@
                 if (Number(counts.protected_accounts) > 0) {
                     return Number(counts.protected_accounts);
                 }
-                if (!window.ms365JobSelection) return 0;
-                return window.ms365JobSelection.summaryRowCount(this.selectionSummaryGroups);
+                return (this.savedSelectionIds || []).length;
             },
 
             workloadCount(key) {
@@ -1423,17 +1497,19 @@
             },
 
             rebuildTrees() {
-                if (!window.ms365JobSelection) return;
-                this.treesBySection = window.ms365JobSelection.buildAllTrees(this.inventory);
+                rebuildInventoryStash(inventoryStash.inventory);
+                this.inventoryViewRevision += 1;
+                this.updateInventoryVirtualSlice();
             },
 
             applySavedSelection() {
                 if (!window.ms365JobSelection) return;
                 this.selection = window.ms365JobSelection.hydrateFromSavedJob(
-                    this.inventory,
+                    inventoryStash.inventory,
                     this.savedSelectionIds,
                     this.scopeOverrides,
                 );
+                inventoryStash.memo.globalCheckState = null;
                 this.syncSelectionPayload();
             },
 
@@ -1455,22 +1531,20 @@
             syncSelectionPayload() {
                 if (!window.ms365JobSelection) return;
                 const payload = window.ms365JobSelection.buildSavePayload(
-                    this.inventory,
-                    this.treesBySection,
+                    inventoryStash.inventory,
+                    inventoryStash.treesBySection,
                     this.selection,
                 );
                 this.scopeOverrides = payload.scope_overrides;
                 this.savedSelectionIds = payload.selected_resource_ids;
-                this.selectionSummaryGroups = window.ms365JobSelection.selectionSummary(
-                    this.inventory,
-                    this.treesBySection,
-                    this.selection,
-                );
                 this.selectionWorkloadCounts = window.ms365JobSelection.selectionWorkloadCounts(
-                    this.inventory,
-                    this.treesBySection,
+                    inventoryStash.inventory,
+                    inventoryStash.treesBySection,
                     this.selection,
                 );
+                inventoryStash.memo.globalCheckState = null;
+                this.selectionVersion += 1;
+                this.updateInventoryVirtualSlice();
                 this.scheduleRefreshPlan();
             },
 
@@ -1607,10 +1681,11 @@
             },
 
             sectionHasNodes(sectionKey) {
-                const nodes = this.treesBySection[sectionKey] || [];
+                const nodes = inventoryStash.treesBySection[sectionKey] || [];
+                const indexes = inventoryStash.sectionIndexes[sectionKey];
                 const sel = window.ms365JobSelection;
                 if (this.inventoryFilterActive() && sel) {
-                    return sel.sectionHasVisibleNodes(nodes, this.searchQuery, this.expandedKeys);
+                    return sel.sectionHasVisibleNodes(nodes, this.searchQuery, this.expandedKeys, indexes);
                 }
                 return nodes.some((n) => n.depth === 0);
             },
@@ -1619,35 +1694,119 @@
                 return (this.searchQuery || '').trim() !== '';
             },
 
-            inventoryVisibleNodeCount() {
+            buildInventoryFlatRows() {
                 const sel = window.ms365JobSelection;
                 if (!sel) {
-                    return 0;
+                    return [];
                 }
-                let count = 0;
+                const rows = [];
                 this.inventorySections().forEach((section) => {
-                    const nodes = this.treesBySection[section.key] || [];
-                    count += sel.visibleNodes(nodes, this.selection, this.searchQuery, this.expandedKeys).length;
+                    const nodes = inventoryStash.treesBySection[section.key] || [];
+                    const indexes = inventoryStash.sectionIndexes[section.key];
+                    const visible = sel.visibleNodes(
+                        nodes,
+                        this.selection,
+                        this.searchQuery,
+                        this.expandedKeys,
+                        indexes,
+                    );
+                    if (visible.length === 0) {
+                        return;
+                    }
+                    rows.push({
+                        type: 'section',
+                        key: `section:${section.key}`,
+                        sectionKey: section.key,
+                        label: section.label,
+                    });
+                    if (section.key === 'sharepoint' && this.inaccessibleSiteCount() > 0) {
+                        rows.push({
+                            type: 'sharepoint_notice',
+                            key: `section:${section.key}:notice`,
+                            count: this.inaccessibleSiteCount(),
+                        });
+                    }
+                    visible.forEach((node) => {
+                        rows.push({
+                            type: 'node',
+                            key: `${section.key}:${node.key}`,
+                            sectionKey: section.key,
+                            node,
+                        });
+                    });
                 });
-                return count;
+                return rows;
+            },
+
+            onInventoryScroll(event) {
+                const target = event && event.target;
+                if (!target) return;
+                this.inventoryScrollTop = target.scrollTop || 0;
+                if (target.clientHeight > 0) {
+                    this._inventoryViewportHeight = target.clientHeight;
+                }
+                this.updateInventoryVirtualSlice();
+            },
+
+            initInventoryScroller() {
+                const bind = () => {
+                    const el = this.$refs && this.$refs.inventoryScroller;
+                    if (!el) return;
+                    if (el.clientHeight > 0) {
+                        this._inventoryViewportHeight = el.clientHeight;
+                    }
+                    this.updateInventoryVirtualSlice();
+                };
+                if (typeof this.$nextTick === 'function') {
+                    this.$nextTick(bind);
+                } else {
+                    setTimeout(bind, 0);
+                }
+            },
+
+            updateInventoryVirtualSlice() {
+                const rows = this.buildInventoryFlatRows();
+                const rowHeight = INVENTORY_ROW_HEIGHT;
+                const viewport = this._inventoryViewportHeight || 480;
+                const scrollTop = this.inventoryScrollTop || 0;
+                const start = Math.max(0, Math.floor(scrollTop / rowHeight) - INVENTORY_VIRTUAL_OVERSCAN);
+                const visibleCount = Math.ceil(viewport / rowHeight) + (INVENTORY_VIRTUAL_OVERSCAN * 2);
+                const end = Math.min(rows.length, start + visibleCount);
+                this.inventoryVirtualSlice = {
+                    rows: rows.slice(start, end),
+                    paddingTop: start * rowHeight,
+                    paddingBottom: Math.max(0, (rows.length - end) * rowHeight),
+                    totalHeight: rows.length * rowHeight,
+                };
+            },
+
+            inventoryVisibleNodeCount() {
+                return this.buildInventoryFlatRows().filter((row) => row.type === 'node').length;
             },
 
             inaccessibleSiteCount() {
                 const sel = window.ms365JobSelection;
-                if (!sel || !this.inventory) return 0;
-                return sel.countInaccessibleSites(this.inventory);
+                if (!sel) return 0;
+                if (inventoryStash.memo.inaccessibleSiteCount !== null) {
+                    return inventoryStash.memo.inaccessibleSiteCount;
+                }
+                const count = sel.countInaccessibleSites(inventoryStash.inventory);
+                inventoryStash.memo.inaccessibleSiteCount = count;
+                return count;
             },
 
             visibleSectionNodes(sectionKey) {
                 const sel = window.ms365JobSelection;
                 if (!sel) return [];
-                const nodes = this.treesBySection[sectionKey] || [];
-                return sel.visibleNodes(nodes, this.selection, this.searchQuery, this.expandedKeys);
+                const nodes = inventoryStash.treesBySection[sectionKey] || [];
+                const indexes = inventoryStash.sectionIndexes[sectionKey];
+                return sel.visibleNodes(nodes, this.selection, this.searchQuery, this.expandedKeys, indexes);
             },
 
             toggleExpandNode(sectionKey, node) {
                 if (!node.hasChildren) return;
                 this.expandedKeys[node.key] = !this.expandedKeys[node.key];
+                this.updateInventoryVirtualSlice();
             },
 
             isNodeExpanded(node) {
@@ -1657,9 +1816,10 @@
             nodeCheckState(sectionKey, node) {
                 const sel = window.ms365JobSelection;
                 if (!sel) return 'unchecked';
-                const nodes = this.treesBySection[sectionKey] || [];
+                const nodes = inventoryStash.treesBySection[sectionKey] || [];
+                const indexes = inventoryStash.sectionIndexes[sectionKey];
                 if (node.kind === 'parent') {
-                    return sel.parentCheckState(nodes, this.selection, node);
+                    return sel.parentCheckState(nodes, this.selection, node, indexes);
                 }
                 return sel.isChecked(this.selection, node.key) ? 'checked' : 'unchecked';
             },
@@ -1667,8 +1827,9 @@
             toggleTreeNode(sectionKey, node) {
                 const sel = window.ms365JobSelection;
                 if (!sel) return;
-                const nodes = this.treesBySection[sectionKey] || [];
-                sel.toggleNode(nodes, this.selection, node);
+                const nodes = inventoryStash.treesBySection[sectionKey] || [];
+                const indexes = inventoryStash.sectionIndexes[sectionKey];
+                sel.toggleNode(nodes, this.selection, node, indexes);
                 this.syncSelectionPayload();
             },
 
@@ -1681,18 +1842,19 @@
             removeSummaryItem(sectionKey, item) {
                 const sel = window.ms365JobSelection;
                 if (!sel) return;
-                const nodes = this.treesBySection[sectionKey] || [];
+                const nodes = inventoryStash.treesBySection[sectionKey] || [];
+                const indexes = inventoryStash.sectionIndexes[sectionKey];
                 nodes.forEach((node) => {
                     if (!sel.isChecked(this.selection, node.key)) return;
                     if (node.kind === 'capability' && item.subtitle === node.label) {
-                        const parent = nodes.find((n) => n.key === node.parentKey);
-                        if (parent && parent.label === item.label) {
+                        const parentNode = sel.nodeByKey(nodes, node.parentKey, indexes);
+                        if (parentNode && parentNode.label === item.label) {
                             delete this.selection[node.key];
                         }
                     } else if ((node.kind === 'leaf' || node.kind === 'resource_child') && node.label === item.subtitle && item.label === node.label) {
                         delete this.selection[node.key];
                     } else if (node.kind === 'parent' && item.subtitle === 'All components' && node.label === item.label) {
-                        sel.toggleNode(nodes, this.selection, node);
+                        sel.toggleNode(nodes, this.selection, node, indexes);
                     }
                 });
                 this.syncSelectionPayload();

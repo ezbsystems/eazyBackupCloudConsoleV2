@@ -75,13 +75,46 @@
         return map;
     }
 
-    function childrenOf(inventory, parentId, types) {
-        const allowed = types ? new Set(types) : null;
-        return ((inventory && inventory.resources) || []).filter((r) => {
-            if ((r.parent_id || '') !== parentId) return false;
-            if (allowed && !allowed.has(r.resource_type)) return false;
-            return true;
+    function buildInventoryChildrenIndex(inventory) {
+        const index = {};
+        const resources = (inventory && inventory.resources) || [];
+        resources.forEach((r) => {
+            if (!r) return;
+            const parentId = r.parent_id || '';
+            if (!index[parentId]) index[parentId] = [];
+            index[parentId].push(r);
         });
+        return index;
+    }
+
+    function childrenOf(inventory, parentId, types, childrenIndex) {
+        const allowed = types ? new Set(types) : null;
+        const indexed = childrenIndex && childrenIndex[parentId || ''];
+        const candidates = indexed || ((inventory && inventory.resources) || []).filter((r) => (r.parent_id || '') === (parentId || ''));
+        if (!allowed) {
+            return candidates;
+        }
+        return candidates.filter((r) => allowed.has(r.resource_type));
+    }
+
+    function buildSectionIndexes(sectionNodes) {
+        const byKey = {};
+        const childrenByParentKey = {};
+        (sectionNodes || []).forEach((node) => {
+            byKey[node.key] = node;
+            const parentKey = node.parentKey || '';
+            if (!childrenByParentKey[parentKey]) childrenByParentKey[parentKey] = [];
+            childrenByParentKey[parentKey].push(node);
+        });
+        return { byKey, childrenByParentKey };
+    }
+
+    function buildAllSectionIndexes(treesBySection) {
+        const indexes = {};
+        SECTIONS.forEach((section) => {
+            indexes[section.key] = buildSectionIndexes((treesBySection && treesBySection[section.key]) || []);
+        });
+        return indexes;
     }
 
     function shouldShowInSection(resource, sectionKey) {
@@ -257,9 +290,10 @@
         };
     }
 
-    function buildSectionTree(inventory, section) {
+    function buildSectionTree(inventory, section, childrenIndex) {
         const nodes = [];
         const parents = parentResources(inventory, section.parentTypes, section.key);
+        const childIndex = childrenIndex || buildInventoryChildrenIndex(inventory);
 
         parents.forEach((parent) => {
             if (section.flat) {
@@ -272,15 +306,15 @@
 
             if (section.key === 'users') {
                 childDefs = USER_VIRTUAL;
-                inventoryChildren = childrenOf(inventory, parent.id, [TYPE_ONEDRIVE]);
+                inventoryChildren = childrenOf(inventory, parent.id, [TYPE_ONEDRIVE], childIndex);
             } else if (section.key === 'sharepoint') {
                 childDefs = SITE_VIRTUAL;
             } else if (section.key === 'teams') {
                 childDefs = TEAM_VIRTUAL;
-                inventoryChildren = childrenOf(inventory, parent.id, [TYPE_CHANNEL]);
+                inventoryChildren = childrenOf(inventory, parent.id, [TYPE_CHANNEL], childIndex);
             } else if (section.key === 'groups') {
                 childDefs = GROUP_VIRTUAL;
-                inventoryChildren = childrenOf(inventory, parent.id, [TYPE_PLANNER]);
+                inventoryChildren = childrenOf(inventory, parent.id, [TYPE_PLANNER], childIndex);
             }
 
             const virtualNodes = buildVirtualNodes(parent, section.key, childDefs, 1);
@@ -338,9 +372,10 @@
     }
 
     function buildAllTrees(inventory) {
+        const childrenIndex = buildInventoryChildrenIndex(inventory);
         const bySection = {};
         SECTIONS.forEach((section) => {
-            bySection[section.key] = buildSectionTree(inventory, section);
+            bySection[section.key] = buildSectionTree(inventory, section, childrenIndex);
         });
         return bySection;
     }
@@ -358,8 +393,18 @@
         return [...new Set(keys)];
     }
 
-    function getDescendants(sectionNodes, parentKey) {
+    function getDescendants(sectionNodes, parentKey, indexes) {
+        if (indexes && indexes.childrenByParentKey) {
+            return indexes.childrenByParentKey[parentKey] || [];
+        }
         return sectionNodes.filter((n) => n.parentKey === parentKey);
+    }
+
+    function nodeByKey(sectionNodes, key, indexes) {
+        if (indexes && indexes.byKey && indexes.byKey[key]) {
+            return indexes.byKey[key];
+        }
+        return sectionNodes.find((n) => n.key === key) || null;
     }
 
     function isChecked(selection, key) {
@@ -371,15 +416,15 @@
         else delete selection[key];
     }
 
-    function selectableChildren(sectionNodes, parentKey) {
-        return getDescendants(sectionNodes, parentKey).filter((c) => c.selectable !== false);
+    function selectableChildren(sectionNodes, parentKey, indexes) {
+        return getDescendants(sectionNodes, parentKey, indexes).filter((c) => c.selectable !== false);
     }
 
-    function toggleParent(sectionNodes, selection, parentNode) {
+    function toggleParent(sectionNodes, selection, parentNode, indexes) {
         if (parentNode.selectable === false) {
             return;
         }
-        const children = selectableChildren(sectionNodes, parentNode.key);
+        const children = selectableChildren(sectionNodes, parentNode.key, indexes);
         const allChecked = children.every((c) => isChecked(selection, c.key)) && children.length > 0;
         const next = !allChecked;
         if (next) setChecked(selection, parentNode.key, true);
@@ -387,24 +432,24 @@
         children.forEach((c) => setChecked(selection, c.key, next));
     }
 
-    function toggleNode(sectionNodes, selection, node) {
+    function toggleNode(sectionNodes, selection, node, indexes) {
         if (node.selectable === false) {
             return;
         }
         if (node.kind === 'parent') {
-            toggleParent(sectionNodes, selection, node);
+            toggleParent(sectionNodes, selection, node, indexes);
             return;
         }
         const now = !isChecked(selection, node.key);
         setChecked(selection, node.key, now);
         if (node.parentKey) {
-            const parent = sectionNodes.find((n) => n.key === node.parentKey);
-            if (parent) syncParentState(sectionNodes, selection, parent);
+            const parent = nodeByKey(sectionNodes, node.parentKey, indexes);
+            if (parent) syncParentState(sectionNodes, selection, parent, indexes);
         }
     }
 
-    function syncParentState(sectionNodes, selection, parentNode) {
-        const children = selectableChildren(sectionNodes, parentNode.key);
+    function syncParentState(sectionNodes, selection, parentNode, indexes) {
+        const children = selectableChildren(sectionNodes, parentNode.key, indexes);
         if (children.length === 0) return;
         const checkedCount = children.filter((c) => isChecked(selection, c.key)).length;
         if (checkedCount === children.length) {
@@ -416,8 +461,8 @@
         }
     }
 
-    function parentCheckState(sectionNodes, selection, parentNode) {
-        const children = selectableChildren(sectionNodes, parentNode.key);
+    function parentCheckState(sectionNodes, selection, parentNode, indexes) {
+        const children = selectableChildren(sectionNodes, parentNode.key, indexes);
         if (children.length === 0) {
             return isChecked(selection, parentNode.key) ? 'checked' : 'unchecked';
         }
@@ -585,7 +630,7 @@
                 }
             });
             nodes.filter((n) => n.kind === 'parent').forEach((parent) => {
-                syncParentState(nodes, selection, parent);
+                syncParentState(nodes, selection, parent, buildSectionIndexes(nodes));
             });
         });
 
@@ -595,13 +640,14 @@
     function pruneDisabledSelection(treesBySection, selection) {
         SECTIONS.forEach((section) => {
             const nodes = treesBySection[section.key] || [];
+            const indexes = buildSectionIndexes(nodes);
             nodes.forEach((node) => {
                 if (node.selectable === false) {
                     delete selection[node.key];
                 }
             });
             nodes.filter((n) => n.kind === 'parent').forEach((parent) => {
-                syncParentState(nodes, selection, parent);
+                syncParentState(nodes, selection, parent, indexes);
             });
         });
 
@@ -613,6 +659,7 @@
         SECTIONS.forEach((section) => {
             const items = [];
             const nodes = treesBySection[section.key] || [];
+            const indexes = buildSectionIndexes(nodes);
 
             if (section.flat) {
                 nodes.forEach((node) => {
@@ -625,7 +672,7 @@
                 });
             } else {
                 nodes.filter((n) => n.kind === 'parent').forEach((parent) => {
-                    const children = getDescendants(nodes, parent.key);
+                    const children = getDescendants(nodes, parent.key, indexes);
                     const badges = children
                         .filter((c) => (c.kind === 'capability' || c.kind === 'resource_child') && isChecked(selection, c.key))
                         .map((c) => c.label);
@@ -651,8 +698,8 @@
         return (groups || []).reduce((sum, group) => sum + (group.items ? group.items.length : 0), 0);
     }
 
-    function parentHasSelection(nodes, selection, parent) {
-        const children = getDescendants(nodes, parent.key);
+    function parentHasSelection(nodes, selection, parent, indexes) {
+        const children = getDescendants(nodes, parent.key, indexes);
         const hasLeafChildren = children.some((c) => c.kind === 'capability' || c.kind === 'resource_child');
         const parentOnly = !hasLeafChildren && isChecked(selection, parent.key);
         if (parentOnly) {
@@ -684,6 +731,7 @@
 
         SECTIONS.forEach((section) => {
             const nodes = treesBySection[section.key] || [];
+            const indexes = buildSectionIndexes(nodes);
 
             if (section.flat) {
                 nodes.forEach((node) => {
@@ -704,11 +752,11 @@
             if (section.key === 'users') {
                 let protectedAccounts = 0;
                 nodes.filter((n) => n.kind === 'parent').forEach((parent) => {
-                    if (!parentHasSelection(nodes, selection, parent)) {
+                    if (!parentHasSelection(nodes, selection, parent, indexes)) {
                         return;
                     }
                     protectedAccounts += 1;
-                    getDescendants(nodes, parent.key).forEach((child) => {
+                    getDescendants(nodes, parent.key, indexes).forEach((child) => {
                         if (child.kind !== 'capability' || !isChecked(selection, child.key)) {
                             return;
                         }
@@ -731,7 +779,7 @@
 
             if (section.key === 'sharepoint') {
                 nodes.filter((n) => n.kind === 'parent').forEach((parent) => {
-                    if (parentHasSelection(nodes, selection, parent)) {
+                    if (parentHasSelection(nodes, selection, parent, indexes)) {
                         counts.sharepoint_sites += 1;
                     }
                 });
@@ -740,7 +788,7 @@
 
             if (section.key === 'teams') {
                 nodes.filter((n) => n.kind === 'parent').forEach((parent) => {
-                    if (parentHasSelection(nodes, selection, parent)) {
+                    if (parentHasSelection(nodes, selection, parent, indexes)) {
                         counts.teams += 1;
                     }
                 });
@@ -749,7 +797,7 @@
 
             if (section.key === 'groups') {
                 nodes.filter((n) => n.kind === 'parent').forEach((parent) => {
-                    if (parentHasSelection(nodes, selection, parent)) {
+                    if (parentHasSelection(nodes, selection, parent, indexes)) {
                         counts.groups += 1;
                     }
                 });
@@ -787,10 +835,11 @@
         const selection = {};
         SECTIONS.forEach((section) => {
             const nodes = treesBySection[section.key] || [];
+            const indexes = buildSectionIndexes(nodes);
             nodes.forEach((node) => {
                 if (node.selectable === false) return;
                 if (node.kind === 'parent') {
-                    const children = selectableChildren(nodes, node.key);
+                    const children = selectableChildren(nodes, node.key, indexes);
                     if (children.length > 0) {
                         setChecked(selection, node.key, true);
                     }
@@ -865,18 +914,21 @@
             && sectionNodes.every((node) => node.depth === 0 && !node.hasChildren);
     }
 
-    function visibleNodes(sectionNodes, selection, searchQuery, expandedKeys) {
+    function visibleNodes(sectionNodes, selection, searchQuery, expandedKeys, indexes) {
         const tokens = normalizeSearchTokens(searchQuery);
         const expanded = expandedKeys || {};
 
         if (tokens.length === 0) {
-            return sectionNodes.filter((node) => {
+            const visible = [];
+            for (let i = 0; i < sectionNodes.length; i += 1) {
+                const node = sectionNodes[i];
                 if (node.depth === 0) {
-                    return true;
+                    visible.push(node);
+                } else if (node.parentKey && expanded[node.parentKey]) {
+                    visible.push(node);
                 }
-                const parent = sectionNodes.find((p) => p.key === node.parentKey);
-                return parent && (expanded[parent.key] || false);
-            });
+            }
+            return visible;
         }
 
         if (isFlatSection(sectionNodes)) {
@@ -888,7 +940,7 @@
             if (node.depth !== 0) {
                 return;
             }
-            const children = getDescendants(sectionNodes, node.key);
+            const children = getDescendants(sectionNodes, node.key, indexes);
             if (!nodeMatchesQuery(node, children, tokens)) {
                 return;
             }
@@ -911,13 +963,15 @@
         return visible;
     }
 
-    function sectionHasVisibleNodes(sectionNodes, searchQuery, expandedKeys) {
-        return visibleNodes(sectionNodes, {}, searchQuery, expandedKeys).length > 0;
+    function sectionHasVisibleNodes(sectionNodes, searchQuery, expandedKeys, indexes) {
+        return visibleNodes(sectionNodes, {}, searchQuery, expandedKeys, indexes).length > 0;
     }
 
     window.ms365JobSelection = {
         SECTIONS,
         buildAllTrees,
+        buildAllSectionIndexes,
+        buildSectionIndexes,
         isChecked,
         toggleNode,
         parentCheckState,
@@ -936,6 +990,7 @@
         textMatchesTokens,
         nodeMatchesQuery,
         getDescendants,
+        nodeByKey,
         countInaccessibleSites,
     };
 })();
