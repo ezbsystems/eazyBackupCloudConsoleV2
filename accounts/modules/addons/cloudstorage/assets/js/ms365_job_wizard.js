@@ -29,6 +29,32 @@
     const INVENTORY_ROW_HEIGHT = 40;
     const INVENTORY_VIRTUAL_OVERSCAN = 10;
 
+    // #region agent log
+    function dbgInvLog(hypothesisId, location, message, data) {
+        const payload = {
+            sessionId: 'a377a1',
+            runId: 'pre-fix',
+            hypothesisId: hypothesisId || '',
+            location: location || '',
+            message: message || '',
+            data: data || {},
+            timestamp: Date.now(),
+        };
+        const body = JSON.stringify(payload);
+        fetch('http://127.0.0.1:7675/ingest/9183d0cd-775c-444c-9a41-6e97e9e7d4d0', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'a377a1' },
+            body: body,
+        }).catch(() => {});
+        fetch(apiBase() + 'ms365_debug_ingest.php', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: body,
+        }).catch(() => {});
+    }
+    // #endregion
+
     /** Large inventory/trees live outside Alpine reactivity to avoid deep-proxy cost. */
     const inventoryStash = {
         inventory: { resources: [] },
@@ -370,6 +396,18 @@
             _planAbortController: null,
 
             init() {
+                // #region agent log
+                if (!window.__ms365InvDbgErrors) {
+                    window.__ms365InvDbgErrors = true;
+                    window.addEventListener('error', (ev) => {
+                        dbgInvLog('A', 'ms365_job_wizard.js:window.error', 'uncaught error', {
+                            error: String(ev && ev.message ? ev.message : ev),
+                            file: ev && ev.filename ? String(ev.filename).slice(-80) : '',
+                            line: ev && ev.lineno,
+                        });
+                    });
+                }
+                // #endregion
                 const params = new URLSearchParams(window.location.search);
                 const ctx = readWizardCtx();
                 const uid = window.ms365WizardState.backupUserId
@@ -1271,6 +1309,19 @@
                         this.inventoryViewRevision += 1;
                         inventoryStash.memo.inaccessibleSiteCount = null;
                         inventoryStash.memo.globalCheckState = null;
+                        // #region agent log
+                        (function () {
+                            const treeSizes = {};
+                            Object.keys(inventoryStash.treesBySection || {}).forEach((k) => {
+                                treeSizes[k] = (inventoryStash.treesBySection[k] || []).length;
+                            });
+                            dbgInvLog('D', 'ms365_job_wizard.js:loadInventory', 'inventory loaded into stash', {
+                                resourceCount: Array.isArray(inventory.resources) ? inventory.resources.length : 0,
+                                treeSizes,
+                                hasSelectionLib: !!window.ms365JobSelection,
+                            });
+                        })();
+                        // #endregion
                         this.updateInventoryVirtualSlice();
                         if (this.savedSelectionIds.length > 0) {
                             this.applySavedSelection();
@@ -1697,6 +1748,9 @@
             buildInventoryFlatRows() {
                 const sel = window.ms365JobSelection;
                 if (!sel) {
+                    // #region agent log
+                    dbgInvLog('D', 'ms365_job_wizard.js:buildInventoryFlatRows', 'ms365JobSelection missing', {});
+                    // #endregion
                     return [];
                 }
                 const rows = [];
@@ -1735,6 +1789,17 @@
                         });
                     });
                 });
+                // #region agent log
+                if (!this._dbgFlatRowsLogged || this._dbgFlatRowsLogged !== rows.length) {
+                    this._dbgFlatRowsLogged = rows.length;
+                    const sample = rows.slice(0, 3).map((r) => ({ type: r.type, key: r.key, hasNode: !!r.node }));
+                    dbgInvLog('C', 'ms365_job_wizard.js:buildInventoryFlatRows', 'flat rows built', {
+                        rowCount: rows.length,
+                        sample,
+                        nodeCount: rows.filter((r) => r.type === 'node').length,
+                    });
+                }
+                // #endregion
                 return rows;
             },
 
@@ -1765,19 +1830,45 @@
             },
 
             updateInventoryVirtualSlice() {
-                const rows = this.buildInventoryFlatRows();
-                const rowHeight = INVENTORY_ROW_HEIGHT;
-                const viewport = this._inventoryViewportHeight || 480;
-                const scrollTop = this.inventoryScrollTop || 0;
-                const start = Math.max(0, Math.floor(scrollTop / rowHeight) - INVENTORY_VIRTUAL_OVERSCAN);
-                const visibleCount = Math.ceil(viewport / rowHeight) + (INVENTORY_VIRTUAL_OVERSCAN * 2);
-                const end = Math.min(rows.length, start + visibleCount);
-                this.inventoryVirtualSlice = {
-                    rows: rows.slice(start, end),
-                    paddingTop: start * rowHeight,
-                    paddingBottom: Math.max(0, (rows.length - end) * rowHeight),
-                    totalHeight: rows.length * rowHeight,
-                };
+                try {
+                    const rows = this.buildInventoryFlatRows();
+                    const rowHeight = INVENTORY_ROW_HEIGHT;
+                    const viewport = this._inventoryViewportHeight || 480;
+                    const scrollTop = this.inventoryScrollTop || 0;
+                    const start = Math.max(0, Math.floor(scrollTop / rowHeight) - INVENTORY_VIRTUAL_OVERSCAN);
+                    const visibleCount = Math.ceil(viewport / rowHeight) + (INVENTORY_VIRTUAL_OVERSCAN * 2);
+                    const end = Math.min(rows.length, start + visibleCount);
+                    const sliceRows = rows.slice(start, end);
+                    this.inventoryVirtualSlice = {
+                        rows: sliceRows,
+                        paddingTop: start * rowHeight,
+                        paddingBottom: Math.max(0, (rows.length - end) * rowHeight),
+                        totalHeight: rows.length * rowHeight,
+                    };
+                    // #region agent log
+                    if (!this._dbgSliceLogged || this._dbgSliceLogged !== sliceRows.length + ':' + rows.length) {
+                        this._dbgSliceLogged = sliceRows.length + ':' + rows.length;
+                        dbgInvLog('E', 'ms365_job_wizard.js:updateInventoryVirtualSlice', 'virtual slice updated', {
+                            totalRows: rows.length,
+                            sliceLen: sliceRows.length,
+                            start,
+                            end,
+                            viewport,
+                            scrollTop,
+                            paddingTop: start * rowHeight,
+                            firstSliceType: sliceRows[0] && sliceRows[0].type,
+                            firstHasNode: !!(sliceRows[0] && sliceRows[0].node),
+                        });
+                    }
+                    // #endregion
+                } catch (err) {
+                    // #region agent log
+                    dbgInvLog('B', 'ms365_job_wizard.js:updateInventoryVirtualSlice', 'virtual slice threw', {
+                        error: String(err && err.message ? err.message : err),
+                    });
+                    // #endregion
+                    throw err;
+                }
             },
 
             inventoryVisibleNodeCount() {
