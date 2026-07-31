@@ -33,7 +33,7 @@
     function dbgInvLog(hypothesisId, location, message, data) {
         const payload = {
             sessionId: 'a377a1',
-            runId: 'pre-fix',
+            runId: 'post-fix',
             hypothesisId: hypothesisId || '',
             location: location || '',
             message: message || '',

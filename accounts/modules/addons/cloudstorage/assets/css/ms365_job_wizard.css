@@ -266,6 +266,16 @@
     min-height: 12rem;
 }
 
+.ms365-inventory-virtual-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+}
+
+.ms365-inventory-virtual-item {
+    min-height: 0;
+}
+
 .ms365-inventory-virtual-row {
     min-height: 40px;
     box-sizing: border-box;

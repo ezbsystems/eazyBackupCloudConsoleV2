@@ -1,4 +1,4 @@
-<link rel="stylesheet" href="modules/addons/cloudstorage/assets/css/ms365_job_wizard.css?v=22">
+<link rel="stylesheet" href="modules/addons/cloudstorage/assets/css/ms365_job_wizard.css?v=23">
 <link rel="stylesheet" href="modules/addons/cloudstorage/assets/css/ms365_restore_wizard.css?v=6">
 
 <div id="ms365JobWizardModal" class="ms365-job-wizard-modal-host fixed inset-0 z-[2200] hidden" x-data="ms365WizardApp()" x-cloak>
@@ -261,60 +261,63 @@
                                      x-effect="searchQuery; inventoryViewRevision; selectionVersion; updateInventoryVirtualSlice()"
                                      x-init="initInventoryScroller()">
                                     <div :style="'height:' + (inventoryVirtualSlice.paddingTop || 0) + 'px'" aria-hidden="true"></div>
-                                    <div class="space-y-4">
+                                    <div class="ms365-inventory-virtual-list">
                                         <template x-for="row in inventoryVirtualSlice.rows" :key="row.key">
-                                            <div x-show="row.type === 'section'">
-                                                <div class="text-xs font-semibold uppercase tracking-wide text-[var(--eb-text-muted)] mb-2 px-1" x-text="row.label"></div>
-                                            </div>
-                                            <p class="text-xs text-[var(--eb-text-muted)] mb-2 px-1"
-                                               x-show="row.type === 'sharepoint_notice'"
-                                               x-text="row.count + ' sites cannot be backed up — the app does not have access.'"></p>
-                                            <div class="ms365-tree-node ms365-inventory-virtual-row"
-                                                 x-show="row.type === 'node'"
-                                                 :class="{ 'ms365-tree-node--disabled': row.node.selectable === false }"
-                                                 :style="'padding-left:' + (row.node.depth * 12) + 'px'">
-                                                <span class="ms365-tree-toggle-slot">
+                                            <div class="ms365-inventory-virtual-item">
+                                                <div class="text-xs font-semibold uppercase tracking-wide text-[var(--eb-text-muted)] mb-2 px-1"
+                                                     x-show="row.type === 'section'"
+                                                     x-text="row.label"></div>
+                                                <p class="text-xs text-[var(--eb-text-muted)] mb-2 px-1"
+                                                   x-show="row.type === 'sharepoint_notice'"
+                                                   x-text="(row.count || 0) + ' sites cannot be backed up — the app does not have access.'"></p>
+                                                <div class="ms365-tree-node ms365-inventory-virtual-row"
+                                                     x-show="row.type === 'node' && row.node"
+                                                     :class="{ 'ms365-tree-node--disabled': row.node && row.node.selectable === false }"
+                                                     :style="row.node ? ('padding-left:' + ((row.node.depth || 0) * 12) + 'px') : ''">
+                                                    <span class="ms365-tree-toggle-slot">
+                                                        <button type="button"
+                                                                class="ms365-tree-toggle"
+                                                                x-show="row.node && row.node.hasChildren"
+                                                                @click="toggleExpandNode(row.sectionKey, row.node)"
+                                                                x-text="row.node && isNodeExpanded(row.node) ? '▼' : '▶'"></button>
+                                                    </span>
+                                                    <input type="checkbox"
+                                                           class="eb-check-input shrink-0"
+                                                           x-show="row.node"
+                                                           :disabled="row.node && row.node.selectable === false"
+                                                           :title="(row.node && row.node.disabledReason) || ''"
+                                                           :checked="row.node && nodeCheckState(row.sectionKey, row.node) === 'checked'"
+                                                           x-effect="row.node && setCheckboxIndeterminate($el, nodeCheckState(row.sectionKey, row.node))"
+                                                           @change="toggleTreeNode(row.sectionKey, row.node); setCheckboxIndeterminate($el, nodeCheckState(row.sectionKey, row.node))">
+                                                    <div class="ms365-tree-main" x-show="row.node">
+                                                        <button type="button"
+                                                                class="ms365-tree-label"
+                                                                :class="{ 'ms365-tree-label--disabled': row.node && row.node.selectable === false }"
+                                                                @click="row.node && row.node.hasChildren ? toggleExpandNode(row.sectionKey, row.node) : toggleTreeNode(row.sectionKey, row.node)">
+                                                            <span class="ms365-tree-label-row">
+                                                                <span class="ms365-tree-icon"
+                                                                      x-effect="row.node && initInventoryIcon($el, row.node.iconKey)"
+                                                                      aria-hidden="true"></span>
+                                                                <span class="ms365-tree-label-primary" x-text="row.node && row.node.label"></span>
+                                                            </span>
+                                                            <span class="ms365-tree-label-secondary" x-show="row.node && row.node.subtitle" x-text="row.node && row.node.subtitle"></span>
+                                                            <span class="ms365-tree-label-secondary ms365-tree-label-reason"
+                                                                  x-show="row.node && row.node.selectable === false && row.node.disabledReason"
+                                                                  x-text="row.node && row.node.disabledReason"></span>
+                                                        </button>
+                                                    </div>
                                                     <button type="button"
-                                                            class="ms365-tree-toggle"
-                                                            x-show="row.node.hasChildren"
-                                                            @click="toggleExpandNode(row.sectionKey, row.node)"
-                                                            x-text="isNodeExpanded(row.node) ? '▼' : '▶'"></button>
-                                                </span>
-                                                <input type="checkbox"
-                                                       class="eb-check-input shrink-0"
-                                                       :disabled="row.node.selectable === false"
-                                                       :title="row.node.disabledReason || ''"
-                                                       :checked="nodeCheckState(row.sectionKey, row.node) === 'checked'"
-                                                       x-init="setCheckboxIndeterminate($el, nodeCheckState(row.sectionKey, row.node))"
-                                                       @change="toggleTreeNode(row.sectionKey, row.node); setCheckboxIndeterminate($el, nodeCheckState(row.sectionKey, row.node))">
-                                                <div class="ms365-tree-main">
-                                                    <button type="button"
-                                                            class="ms365-tree-label"
-                                                            :class="{ 'ms365-tree-label--disabled': row.node.selectable === false }"
-                                                            @click="row.node.hasChildren ? toggleExpandNode(row.sectionKey, row.node) : toggleTreeNode(row.sectionKey, row.node)">
-                                                        <span class="ms365-tree-label-row">
-                                                            <span class="ms365-tree-icon"
-                                                                  x-init="initInventoryIcon($el, row.node.iconKey)"
-                                                                  aria-hidden="true"></span>
-                                                            <span class="ms365-tree-label-primary" x-text="row.node.label"></span>
-                                                        </span>
-                                                        <span class="ms365-tree-label-secondary" x-show="row.node.subtitle" x-text="row.node.subtitle"></span>
-                                                        <span class="ms365-tree-label-secondary ms365-tree-label-reason"
-                                                              x-show="row.node.selectable === false && row.node.disabledReason"
-                                                              x-text="row.node.disabledReason"></span>
+                                                            class="ms365-tree-info-btn"
+                                                            x-show="row.node && isDirectoryBaselineNode(row.node)"
+                                                            @click.stop="openDirectoryBaselineInfo()"
+                                                            @mouseenter.stop="openDirectoryBaselineInfo()"
+                                                            aria-label="What is Directory baseline?"
+                                                            title="What is Directory baseline?">
+                                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
+                                                        </svg>
                                                     </button>
                                                 </div>
-                                                <button type="button"
-                                                        class="ms365-tree-info-btn"
-                                                        x-show="isDirectoryBaselineNode(row.node)"
-                                                        @click.stop="openDirectoryBaselineInfo()"
-                                                        @mouseenter.stop="openDirectoryBaselineInfo()"
-                                                        aria-label="What is Directory baseline?"
-                                                        title="What is Directory baseline?">
-                                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
-                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
-                                                    </svg>
-                                                </button>
                                             </div>
                                         </template>
                                     </div>
@@ -673,4 +676,4 @@
 
 <script src="modules/addons/cloudstorage/assets/js/ms365_inventory_icons.js?v=1"></script>
 <script src="modules/addons/cloudstorage/assets/js/ms365_job_selection.js?v=8"></script>
-<script src="modules/addons/cloudstorage/assets/js/ms365_job_wizard.js?v=34"></script>
+<script src="modules/addons/cloudstorage/assets/js/ms365_job_wizard.js?v=35"></script>
