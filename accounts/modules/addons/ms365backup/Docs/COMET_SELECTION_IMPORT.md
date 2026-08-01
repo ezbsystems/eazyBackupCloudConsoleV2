@@ -6,6 +6,7 @@ This does **not** migrate backup data, vaults, or job history — selection only
 
 | | |
 |--|--|
+| **Status** | Implemented (PHP CLI + `Ms365Backup\Comet\*` mapper). Deploy module code to the WHMCS host before running. |
 | **CLI** | `accounts/modules/addons/ms365backup/bin/ms365_comet_selection_import.php` |
 | **Design** | [specs/2026-07-31-comet-ms365-selection-import-design.md](specs/2026-07-31-comet-ms365-selection-import-design.md) |
 | **Plan** | [plans/2026-07-31-comet-ms365-selection-import.md](plans/2026-07-31-comet-ms365-selection-import.md) |

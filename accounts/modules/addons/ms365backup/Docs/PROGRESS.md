@@ -2,7 +2,7 @@
 
 **Purpose:** Single handoff document so the next agent knows where work stopped. Update this file at the **end of every session** (or after each meaningful milestone).
 
-**Last updated:** 2026-07-30
+**Last updated:** 2026-08-01
 **Module version (ms365backup):** 1.52.42
 **Cloudstorage (e3) version:** 2.2.2  
 **Worker version (ms365-backup-worker):** 0.4.29 (Kopia v0.23.1)
@@ -10,6 +10,13 @@
 ---
 
 ## Session log
+
+### 2026-08-01 — Comet → e3 MS365 selection import CLI
+
+- **Goal:** Map legacy Comet `CUSTOM_SETTINGV2` (`BackupOptions` / `MemberBackupOptions` bitmasks) onto e3 `selected_resource_ids` + `scope_overrides` and create a **new** Users job only (never update existing).
+- **Ship:** `bin/ms365_comet_selection_import.php`; `lib/Ms365Backup/Comet/{CometServiceMask,CometOffice365SelectionParser,CometSelectionMapper,CometSelectionImportService}.php`; operator doc [COMET_SELECTION_IMPORT.md](COMET_SELECTION_IMPORT.md).
+- **Verify:** `ms365_comet_service_mask_test.php`, `ms365_comet_office365_selection_parser_test.php`, `ms365_comet_selection_mapper_test.php`, `ms365_comet_selection_import_service_test.php` PASS.
+- **Ops:** Dry-run first with `--comet-profile=… --whmcs-userid=… --service-id=… --backup-user-id=…`; `--apply` creates job. First target example: client `2269` / service `5471` / public_id `E0B22D704ECE1A42C08E0AD2C6`.
 
 ### 2026-07-30 — MS365 job wizard inventory performance (cloudstorage 2.2.2)
 
