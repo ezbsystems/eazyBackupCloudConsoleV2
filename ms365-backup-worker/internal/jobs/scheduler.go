@@ -529,7 +529,8 @@ func (s *Scheduler) evaluateDiskPressure(ctx context.Context) {
 	}
 
 	if in.softPressure() {
-		if !s.diskCritical.Load() {
+		wasSoftLatched := s.diskCritical.Load()
+		if !wasSoftLatched {
 			log.Printf("disk soft pressure: %d MiB free below threshold %d MiB (watermark=%d reserved=%d update=%d flush=%d cache=%d); pausing admissions and evicting idle caches",
 				in.freeMiB, in.softThresholdMiB(),
 				in.watermarkMiB, in.reservedDiskMiB, in.updateReserveMiB, in.flushMarkMiB, in.cachePressureMiB)
@@ -545,6 +546,20 @@ func (s *Scheduler) evaluateDiskPressure(ctx context.Context) {
 		// (soft ≤ free < soft+hysteresis) and the latch never cleared.
 		if s.idleUnderDiskPressure() {
 			s.recoverIdleDiskPressure(ctx)
+			return
+		}
+		// Prod 9008: soft pressure latched while children kept writing (reserved>0),
+		// but EvictIdle skips refs>0 pooled repos so the active contents cache kept
+		// growing (~50GiB -> ~53GiB) until free fell below the hard watermark
+		// mid-upload and force-cancelled in-flight work. Once soft pressure has
+		// already persisted a tick and free keeps sliding toward the watermark
+		// under load, hand off cooperatively now instead of waiting for the hard
+		// cancel.
+		if wasSoftLatched && s.activeReservedDiskMiB() > 0 && in.nearHardPressure() {
+			log.Printf("disk soft pressure escalating to cooperative drain: %d MiB free approaching watermark %d MiB under load (reserved=%d)",
+				in.freeMiB, in.watermarkMiB, in.reservedDiskMiB)
+			s.cooperativeDrain(ctx, "drain", nil)
+			s.gcOrphanedRuns()
 		}
 		return
 	}

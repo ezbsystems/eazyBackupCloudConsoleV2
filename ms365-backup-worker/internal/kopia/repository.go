@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -67,11 +68,25 @@ func openRepository(ctx context.Context, opts openRepoOptions) (repo.Repository,
 		}
 	}
 
+	// Kopia v0.23.1 exposes SetCachingOptions as a package-level function that
+	// rewrites the on-disk repo config (contentCacheSizeLimitBytes /
+	// metadataCacheSizeLimitBytes); there is no Repository method for this. It
+	// must run against an existing config file and before Open, so the
+	// PersistentCache constructed by Open picks up the hard limits. Without
+	// this, LimitBytes stays 0 (unlimited) and Kopia's content cache grows
+	// unbounded under concurrent uploads (prod: ~53GiB before hard drain).
+	if err := reconcileCacheSettings(ctx, repoConfig, caching); err != nil {
+		return nil, fmt.Errorf("set caching options: %w", err)
+	}
+
 	rep, err := repo.Open(ctx, repoConfig, password, nil)
 	if err != nil {
 		if errors.Is(err, repo.ErrRepositoryNotInitialized) || strings.Contains(strings.ToLower(err.Error()), "not initialized") {
 			if err := initAndConnect(); err != nil {
 				return nil, err
+			}
+			if err := reconcileCacheSettings(ctx, repoConfig, caching); err != nil {
+				return nil, fmt.Errorf("set caching options: %w", err)
 			}
 			rep, err = repo.Open(ctx, repoConfig, password, nil)
 		}
@@ -79,24 +94,31 @@ func openRepository(ctx context.Context, opts openRepoOptions) (repo.Repository,
 			return nil, fmt.Errorf("open repo: %w", err)
 		}
 	}
-	if err := reconcileCacheSettings(ctx, rep, caching); err != nil {
-		_ = rep.Close(ctx)
-		return nil, err
-	}
+	logCacheSettingsApplied(repoConfig, caching)
 	return rep, nil
 }
 
-func reconcileCacheSettings(ctx context.Context, rep repo.Repository, caching *content.CachingOptions) error {
-	if rep == nil || caching == nil {
+// reconcileCacheSettings persists the desired cache soft/hard limits into the
+// repo's on-disk config file. Must be called with an existing config (after
+// initAndConnect has run at least once) and before repo.Open.
+func reconcileCacheSettings(ctx context.Context, repoConfig string, caching *content.CachingOptions) error {
+	if caching == nil {
 		return nil
 	}
-	bm, ok := rep.(interface {
-		SetCachingOptions(ctx context.Context, opts *content.CachingOptions) error
-	})
-	if !ok {
-		return nil
+	return repo.SetCachingOptions(ctx, repoConfig, caching)
+}
+
+// logCacheSettingsApplied reports the applied content/metadata soft+hard MiB
+// limits once per repo open for ops visibility (e.g. confirming a rollout
+// actually caps the on-disk cache instead of silently no-op'ing).
+func logCacheSettingsApplied(repoConfig string, caching *content.CachingOptions) {
+	if caching == nil {
+		return
 	}
-	return bm.SetCachingOptions(ctx, caching)
+	log.Printf("kopia cache limits applied config=%s: content soft=%dMiB hard=%dMiB metadata soft=%dMiB hard=%dMiB",
+		filepath.Base(repoConfig),
+		caching.ContentCacheSizeBytes>>20, caching.ContentCacheSizeLimitBytes>>20,
+		caching.MetadataCacheSizeBytes>>20, caching.MetadataCacheSizeLimitBytes>>20)
 }
 
 func connectOptions(caching *content.CachingOptions) *repo.ConnectOptions {

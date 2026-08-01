@@ -51,6 +51,18 @@ func (in diskHeadroomInput) hardPressure() bool {
 	return in.freeMiB < in.watermarkMiB
 }
 
+// nearHardPressure is true once free space is within 2x the hard watermark.
+// Used to escalate a sustained soft-pressure latch to a cooperative drain
+// before free collapses below the watermark mid-upload (prod 9008: contents
+// cache kept growing under active uploads while soft pressure only paused
+// new admissions, until hard pressure hit and force-cancelled in-flight work).
+func (in diskHeadroomInput) nearHardPressure() bool {
+	if in.freeMiB >= 1<<29 || in.watermarkMiB <= 0 {
+		return false
+	}
+	return in.freeMiB < 2*in.watermarkMiB
+}
+
 func (in diskHeadroomInput) canResumeFromPressure() bool {
 	if in.freeMiB >= 1<<29 {
 		return true

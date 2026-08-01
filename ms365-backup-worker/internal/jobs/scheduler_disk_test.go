@@ -487,6 +487,90 @@ func TestIdleSoftPressurePurgesWarmCacheEvenWithPoolRefs(t *testing.T) {
 	}
 }
 
+// Prod 9008 shape: soft pressure latches while children hold reservations and
+// keep writing the contents cache (EvictIdle skips refs>0). Free keeps sliding
+// toward the hard watermark under sustained load. Once soft pressure has
+// persisted a tick, escalate to a cooperative drain instead of waiting for
+// hard pressure to force-cancel mid-upload.
+func TestSoftPressureEscalatesToCooperativeDrainUnderLoad(t *testing.T) {
+	var released atomic.Bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "ms365_worker_batch_release.php") {
+			released.Store(true)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"success","data":{}}`))
+	}))
+	defer srv.Close()
+
+	s := diskTestScheduler(t)
+	s.client = api.NewClient(srv.URL, "token", "node-1")
+	s.cfg.Worker.DiskWatermarkMiB = 1024
+	s.cfg.Worker.DiskFlushWatermarkMiB = 2048
+	s.cfg.Worker.UpdateReserveMiB = 256
+
+	s.batchMu.Lock()
+	s.activeBatchID = "batch-escalate"
+	s.batchMu.Unlock()
+
+	s.reserved.mu.Lock()
+	s.reserved.diskMiB = 512
+	s.reserved.mu.Unlock()
+
+	var free atomic.Int64
+	// soft threshold = max(1024+512+256, 2048) = 2048; first tick just latches.
+	free.Store(1800)
+	s.freeMiBFn = func() int64 { return free.Load() }
+	s.evaluateDiskPressure(context.Background())
+	if released.Load() {
+		t.Fatal("expected no escalation on the first soft-pressure tick")
+	}
+	if !s.diskCritical.Load() {
+		t.Fatal("expected diskCritical latched after first soft-pressure tick")
+	}
+
+	// Still soft, load still active, and within 2x watermark (2048) -> escalate.
+	free.Store(1600)
+	s.evaluateDiskPressure(context.Background())
+	if !released.Load() {
+		t.Fatal("expected cooperative drain escalation once soft-latched and free approaches watermark under load")
+	}
+}
+
+// Soft pressure that has NOT persisted (first tick) must not escalate even if
+// already within 2x watermark — give EvictIdle a chance first.
+func TestSoftPressureDoesNotEscalateOnFirstTick(t *testing.T) {
+	var released atomic.Bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "ms365_worker_batch_release.php") {
+			released.Store(true)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"success","data":{}}`))
+	}))
+	defer srv.Close()
+
+	s := diskTestScheduler(t)
+	s.client = api.NewClient(srv.URL, "token", "node-1")
+	s.cfg.Worker.DiskWatermarkMiB = 1024
+	s.cfg.Worker.DiskFlushWatermarkMiB = 2048
+	s.cfg.Worker.UpdateReserveMiB = 256
+
+	s.batchMu.Lock()
+	s.activeBatchID = "batch-no-escalate"
+	s.batchMu.Unlock()
+
+	s.reserved.mu.Lock()
+	s.reserved.diskMiB = 512
+	s.reserved.mu.Unlock()
+
+	s.freeMiBFn = func() int64 { return 1600 }
+	s.evaluateDiskPressure(context.Background())
+	if released.Load() {
+		t.Fatal("expected no escalation on the first soft-pressure tick even within 2x watermark")
+	}
+}
+
 func TestHasRealHeadroom(t *testing.T) {
 	s := diskTestScheduler(t)
 	s.freeMiBFn = func() int64 { return 10000 }
