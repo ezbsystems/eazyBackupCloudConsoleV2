@@ -14,8 +14,8 @@
 ### 2026-08-01 — Comet import: personal site → owner user mapping
 
 - **Problem:** Comet selects personal OneDrive sites (`*-my.sharepoint.com,…`) under SharePoint Sites (e.g. James Garcesa); e3 has no matching site row and shows the person under Users & Mailboxes — import left them unselected.
-- **Fix:** `CometPersonalSiteResolver` resolves Graph drive owners; mapper selects the owning `user`/`mailbox` (mailbox scopes + OneDrive). ImportService calls Graph via tenant credentials before map. Report: `personal_sites_mapped_to_users`.
-- **Verify:** `ms365_comet_personal_site_resolver_test.php`, `ms365_comet_selection_mapper_test.php` PASS.
+- **Fix:** `CometPersonalSiteResolver` resolves Graph drive owners; on Graph **423 blocked site**, fall back to `sites/getAllSites` metadata and match `/personal/…` path or display name to inventory user/mailbox. Mapper selects owner with mailbox scopes + OneDrive. Report: `personal_sites_mapped_to_users`.
+- **Verify:** Unit tests PASS; prod dry-run maps James (`fa2a9e71-…`) with `personal_sites_mapped_to_users=1`.
 
 ### 2026-08-01 — Comet → e3 MS365 selection import CLI
 
