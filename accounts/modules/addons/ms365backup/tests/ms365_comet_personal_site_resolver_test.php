@@ -45,4 +45,29 @@ $keys = CometPersonalSiteResolver::personalSiteKeysFromBackupOptions([
 ]);
 assert_true($keys === ['ncsaca-my.sharepoint.com,aaa,bbb'], 'extracts only personal site keys');
 
+assert_true(
+    CometPersonalSiteResolver::emailToPersonalPath('James-Garcesa@ncsa.ca') === 'james-garcesa_ncsa_ca',
+    'email encodes to personal path'
+);
+assert_true(
+    CometPersonalSiteResolver::personalPathFromWebUrl(
+        'https://ncsaca-my.sharepoint.com/personal/james-garcesa_ncsa_ca'
+    ) === 'james-garcesa_ncsa_ca',
+    'webUrl yields personal path'
+);
+
+$matched = CometPersonalSiteResolver::matchOwnerInInventory(
+    [[
+        'id' => 'user:fa2a9e71-b6ef-4f0e-ab3f-50c4d8d774b2',
+        'resource_type' => 'mailbox',
+        'graph_id' => 'fa2a9e71-b6ef-4f0e-ab3f-50c4d8d774b2',
+        'display_name' => 'James Garcesa',
+        'email' => 'James-Garcesa@ncsa.ca',
+        'meta' => [],
+    ]],
+    'James Garcesa',
+    'https://ncsaca-my.sharepoint.com/personal/james-garcesa_ncsa_ca',
+);
+assert_true($matched === 'fa2a9e71-b6ef-4f0e-ab3f-50c4d8d774b2', 'inventory match by personal path');
+
 exit($failures > 0 ? 1 : 0);

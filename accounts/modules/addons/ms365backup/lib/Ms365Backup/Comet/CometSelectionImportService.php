@@ -175,6 +175,7 @@ final class CometSelectionImportService
             $clientId,
             (int) $user['id'],
             $parsed['backup_options'] ?? [],
+            is_array($inventory['resources'] ?? null) ? $inventory['resources'] : [],
         );
 
         $mapped = CometSelectionMapper::map($parsed, $inventory, $personalSiteOwners['owners']);
@@ -253,14 +254,19 @@ final class CometSelectionImportService
 
     /**
      * @param array<string, int> $backupOptions
+     * @param list<array<string, mixed>> $inventoryResources
      * @return array{
      *   owners: array<string, string>,
      *   unresolved: list<string>,
      *   errors: array<string, string>
      * }
      */
-    public static function resolvePersonalSiteOwners(int $clientId, int $backupUserId, array $backupOptions): array
-    {
+    public static function resolvePersonalSiteOwners(
+        int $clientId,
+        int $backupUserId,
+        array $backupOptions,
+        array $inventoryResources = [],
+    ): array {
         $siteKeys = CometPersonalSiteResolver::personalSiteKeysFromBackupOptions($backupOptions);
         if ($siteKeys === []) {
             return ['owners' => [], 'unresolved' => [], 'errors' => []];
@@ -275,9 +281,15 @@ final class CometSelectionImportService
             ];
         }
 
+        if ($inventoryResources === []) {
+            $inventory = CustomerInventoryService::loadForBackupUser($clientId, $backupUserId);
+            $inventoryResources = is_array($inventory['resources'] ?? null) ? $inventory['resources'] : [];
+        }
+
         try {
             $ctx = RunTenantContext::forClientRecord($record);
-            return CometPersonalSiteResolver::resolveOwners($ctx->graph, $siteKeys);
+
+            return CometPersonalSiteResolver::resolveOwners($ctx->graph, $siteKeys, $inventoryResources);
         } catch (\Throwable $e) {
             // Fallback without RunTenantContext storage bootstrap if that fails.
             try {
@@ -290,7 +302,7 @@ final class CometSelectionImportService
                 );
                 $graph = new GraphClient($tokens, $creds['region']);
 
-                return CometPersonalSiteResolver::resolveOwners($graph, $siteKeys);
+                return CometPersonalSiteResolver::resolveOwners($graph, $siteKeys, $inventoryResources);
             } catch (\Throwable $e2) {
                 return [
                     'owners' => [],

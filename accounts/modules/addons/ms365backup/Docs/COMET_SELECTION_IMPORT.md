@@ -177,7 +177,7 @@ Note the returned `job_id`. Open **e3 → Users → that user → Jobs** and con
 
 ## Mapping notes / known limits
 
-- **Personal OneDrive sites (`*-my.sharepoint.com,…`):** Comet lists these under SharePoint Sites (often with the person’s name). e3 usually has no matching `sharepoint_site` row — the person appears under Users & Mailboxes. The importer resolves the Graph drive **owner** and selects that user/mailbox (mail/calendar/contacts + OneDrive when present). Report field: `personal_sites_mapped_to_users`.
+- **Personal OneDrive sites (`*-my.sharepoint.com,…`):** Comet lists these under SharePoint Sites (often with the person’s name). e3 usually has no matching `sharepoint_site` row — the person appears under Users & Mailboxes. The importer resolves the Graph drive **owner** when possible; if the site is **blocked** (Graph 423), it falls back to `sites/getAllSites` metadata and matches the owner via `/personal/…` path or display name against inventory. Report field: `personal_sites_mapped_to_users`.
 - **Tasks:** Comet has no Tasks bit → e3 `tasks` stays off (except when forced via personal-site owner mailbox scopes above).
 - **Teams messages:** Comet bitmasks do not model Teams chat separately; team resources get best-effort scopes when a team GUID appears in options.
 - **MemberBackupOptions:** Expansion uses membership already present in e3 inventory only (no live Graph member walk in v1). Unresolved roots are reported; they do not always block apply.
