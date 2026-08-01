@@ -5,11 +5,23 @@
 **Last updated:** 2026-08-01
 **Module version (ms365backup):** 1.52.42
 **Cloudstorage (e3) version:** 2.2.3  
-**Worker version (ms365-backup-worker):** 0.4.29 (Kopia v0.23.1)
+**Worker version (ms365-backup-worker):** 0.4.30 (Kopia v0.23.1)
 
 ---
 
 ## Session log
+
+### 2026-08-01 — Disk pressure latch: Kopia cache hard-limit no-op + soft-pressure escalation (worker 0.4.30)
+
+- **Prod symptom:** Batch `720968eb-…` (tenant 15) hit the disk pressure latch on **ms365-prod-worker-9008**: soft pressure paused admissions while active uploads kept writing the contents cache (`~50GiB → ~53GiB`), then hard pressure force-cancelled and cooperative-drained at 18:49 UTC; **9011** claimed the batch and continued (`attempts=2`). Fleet-wide (9001/9008/9009/9010/9011/9013) showed the same soft→hard spiral shape that day — 62 GiB rootfs does not protect against an unbounded Kopia contents cache.
+- **Root cause:** `reconcileCacheSettings` in `internal/kopia/repository.go` type-asserted `repo.Repository` for a `SetCachingOptions` method. Kopia v0.23.1 only exposes this as the **package-level** `repo.SetCachingOptions(ctx, configFile, opt)` — the assert always failed and silently no-op'd. Persisted repo configs kept `contentCacheSizeLimitBytes=0` (unlimited), so `MinContentSweepAge=3600` plus no hard limit let the cache grow to tens of GiB under concurrent SharePoint uploads before hard pressure intervened.
+- **Fix (primary):** `openRepository` now calls `repo.SetCachingOptions(ctx, repoConfig, caching)` against the on-disk config **before** `repo.Open` (including the not-initialized retry path), so the `PersistentCache` Open constructs actually has `LimitBytes` set. Broken type-assert helper removed; errors from `SetCachingOptions` now fail the open. Logs applied content/metadata soft+hard MiB once per open for ops visibility.
+- **Fix (defense in depth):** `evaluateDiskPressure` in `internal/jobs/scheduler.go` now escalates a **sustained** soft-pressure latch (already latched from the prior tick, `reserved>0`, free within 2× the hard watermark) to a cooperative drain instead of waiting for hard pressure to force-cancel mid-upload — `EvictIdle` alone cannot reclaim pooled repos with active refs. Idle recovery path from 0.4.27 unchanged.
+- **Fleet config:** Golden template + example config now set `worker.disk_hysteresis_mib: 512` explicitly alongside the existing `kopia.content_cache_limit_mib: 768` / `metadata_cache_limit_mib: 256` / `worker.update_reserve_mib: 256` (these were already correct code-level defaults in `config.go`, but prod's currently-rolled fleet config version (v5) predates them and omits the keys entirely — still safe because `applyDefaults` fills them in, but a new fleet config version should be saved/rolled from the updated template for auditability once 0.4.30 is fleet-wide).
+- **Tests:** New `internal/kopia/repository_test.go` — `TestReconcileCacheSettingsPersistsHardLimits` / `TestOpenRepositoryPersistsHardLimitsOnExistingConfig` build a real local-filesystem-backed Kopia repo (no S3/network dependency) and assert the persisted config gains `contentCacheSizeLimitBytes`/`metadataCacheSizeLimitBytes` in the 2–4 GiB band. New `internal/jobs/scheduler_disk_test.go` cases — `TestSoftPressureEscalatesToCooperativeDrainUnderLoad` / `TestSoftPressureDoesNotEscalateOnFirstTick`. `go test ./internal/kopia/... ./internal/jobs/ -run 'Disk|Cache|Idle'` and full `go test ./...` PASS.
+- **Ops (this session):** Batch `720968eb-…` verified healthy throughout — owner **9011**, `disk_critical=0`, `disk_free_mib` ~45–48 GiB, progressed **1696→1761 success / 6→5 running / 384→320 queued**; no intervention needed, claim left in place.
+- **Deploy:** Committed + pushed to `origin/main` (`2387cd77`) on dev. **Not yet deployed to the prod fleet** — worker binary rebuild/rolling deploy (busy nodes on drain/idle) and a new fleet config version (from the updated template) are the remaining ops steps; verify on a large SharePoint upload that `cache telemetry: contents=…` stays capped near the hard limit instead of climbing into the tens of GiB.
+- **Files:** `internal/kopia/repository.go`, `internal/kopia/repository_test.go`, `internal/jobs/scheduler.go`, `internal/jobs/disk_pressure.go`, `internal/jobs/scheduler_disk_test.go`, `deploy/proxmox/config.yaml.template`, `config/config.yaml.example`, `internal/version/version.go`.
 
 ### 2026-08-01 — MS365 job wizard Step 2 compact layout (cloudstorage 2.2.3)
 
