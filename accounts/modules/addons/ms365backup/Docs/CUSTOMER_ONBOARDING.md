@@ -105,6 +105,10 @@ Objects inside the customer bucket use prefix `{azure_tenant_id}/users/…`, `si
 
 Mail restore is available from the e3 MS365 page (target user Graph ID). Additional resource types are planned per restore architecture doc.
 
+## Migration from Comet (selection only)
+
+To copy a legacy Comet MS365 Protected Item selection into a **new** e3 Users backup job (create-only; does not migrate vault data), use the admin CLI documented in [COMET_SELECTION_IMPORT.md](COMET_SELECTION_IMPORT.md).
+
 ## Deprecations
 
 - **Comet / panel.eazybackup.ca** MS365 auth — replaced by in-portal OAuth
