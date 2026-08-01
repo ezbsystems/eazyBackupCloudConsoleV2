@@ -119,17 +119,18 @@ try {
     ms365_log_line("Comet source={$result['source_guid']} ({$result['source_description']})");
     $report = is_array($result['report'] ?? null) ? $result['report'] : [];
     ms365_log_line(sprintf(
-        'Matched users=%d sites=%d teams=%d groups=%d | selected=%d | unmatched BackupOptions=%d/%d (%.2f%%)',
+        'Matched users=%d sites=%d teams=%d groups=%d | personal_sites→users=%d | selected=%d | unmatched BackupOptions=%d/%d (%.2f%%)',
         (int) ($report['matched_users'] ?? 0),
         (int) ($report['matched_sites'] ?? 0),
         (int) ($report['matched_teams'] ?? 0),
         (int) ($report['matched_groups'] ?? 0),
+        (int) ($report['personal_sites_mapped_to_users'] ?? 0),
         (int) ($result['selected_count'] ?? 0),
         count($report['unmatched_backup_option_keys'] ?? []),
         (int) ($report['backup_options_total'] ?? 0),
         (float) ($result['unmatched_pct'] ?? 0)
     ));
-    foreach (['unmatched_backup_option_keys', 'unmatched_member_roots', 'missing_onedrive_children'] as $key) {
+    foreach (['unmatched_backup_option_keys', 'unmatched_member_roots', 'missing_onedrive_children', 'personal_site_owner_unresolved'] as $key) {
         $list = $report[$key] ?? [];
         if (!is_array($list) || $list === []) {
             continue;

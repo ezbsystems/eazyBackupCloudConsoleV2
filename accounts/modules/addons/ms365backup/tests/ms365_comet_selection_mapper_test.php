@@ -103,4 +103,58 @@ assert_true(
     'unknown GUID unmatched'
 );
 
+// Personal OneDrive site → owning mailbox (James-style)
+$jamesGraph = 'fa2a9e71-b6ef-4f0e-ab3f-50c4d8d774b2';
+$personalSite = 'contoso-my.sharepoint.com,c3608d35-dd2a-4b16-bd4a-ef027c2b96f0,e1a31aab-58ce-4686-962f-b45e3843b44d';
+$jamesInventory = [
+    'resources' => [
+        [
+            'id' => 'user:' . $jamesGraph,
+            'resource_type' => TenantResource::TYPE_MAILBOX,
+            'graph_id' => $jamesGraph,
+            'display_name' => 'James Garcesa',
+            'email' => 'James-Garcesa@contoso.com',
+            'parent_id' => null,
+            'access' => [],
+            'meta' => ['has_assigned_license' => false],
+        ],
+    ],
+];
+$personalMapped = CometSelectionMapper::map(
+    [
+        'organization' => false,
+        'whole_org' => false,
+        'backup_options' => [$personalSite => 24],
+        'member_backup_options' => [],
+    ],
+    $jamesInventory,
+    [$personalSite => $jamesGraph],
+);
+assert_true(
+    in_array('user:' . $jamesGraph, $personalMapped['selected_resource_ids'], true),
+    'personal site maps to owner mailbox'
+);
+assert_true(
+    ($personalMapped['report']['personal_sites_mapped_to_users'] ?? 0) === 1,
+    'personal_sites_mapped_to_users=1'
+);
+assert_true($personalMapped['report']['unmatched_backup_option_keys'] === [], 'personal site not unmatched');
+$jamesScope = $personalMapped['scope_overrides']['user:' . $jamesGraph] ?? [];
+assert_true(($jamesScope[BackupScope::MAIL] ?? false) === true, 'personal-site owner gets mail scope');
+
+$personalUnmapped = CometSelectionMapper::map(
+    [
+        'organization' => false,
+        'whole_org' => false,
+        'backup_options' => [$personalSite => 24],
+        'member_backup_options' => [],
+    ],
+    $jamesInventory,
+    [],
+);
+assert_true(
+    in_array($personalSite, $personalUnmapped['report']['unmatched_backup_option_keys'], true),
+    'personal site unmatched without owner map'
+);
+
 exit($failures > 0 ? 1 : 0);

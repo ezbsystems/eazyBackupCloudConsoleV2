@@ -20,6 +20,7 @@ final class CometSelectionMapper
      *   member_backup_options?: array<string, int>
      * } $parsed
      * @param array<string, mixed> $inventory
+     * @param array<string, string> $personalSiteOwners map of Comet personal site key → owner Azure AD object ID
      * @return array{
      *   selected_resource_ids: list<string>,
      *   scope_overrides: array<string, array<string, bool>>,
@@ -31,12 +32,13 @@ final class CometSelectionMapper
      *     unmatched_backup_option_keys: list<string>,
      *     unmatched_member_roots: list<string>,
      *     missing_onedrive_children: list<string>,
+     *     personal_sites_mapped_to_users: int,
      *     backup_options_total: int,
      *     whole_org: bool
      *   }
      * }
      */
-    public static function map(array $parsed, array $inventory): array
+    public static function map(array $parsed, array $inventory, array $personalSiteOwners = []): array
     {
         $wholeOrg = (bool) ($parsed['organization'] ?? false) || (bool) ($parsed['whole_org'] ?? false);
         if ($wholeOrg) {
@@ -55,10 +57,21 @@ final class CometSelectionMapper
                     'unmatched_backup_option_keys' => [],
                     'unmatched_member_roots' => [],
                     'missing_onedrive_children' => [],
+                    'personal_sites_mapped_to_users' => 0,
                     'backup_options_total' => count($parsed['backup_options'] ?? []),
                     'whole_org' => true,
                 ],
             ];
+        }
+
+        $ownerLookup = [];
+        foreach ($personalSiteOwners as $siteKey => $ownerId) {
+            $ownerId = trim((string) $ownerId);
+            if ($ownerId === '') {
+                continue;
+            }
+            $ownerLookup[(string) $siteKey] = $ownerId;
+            $ownerLookup[strtolower((string) $siteKey)] = $ownerId;
         }
 
         $resources = is_array($inventory['resources'] ?? null) ? $inventory['resources'] : [];
@@ -93,6 +106,7 @@ final class CometSelectionMapper
         $matchedSites = 0;
         $matchedTeams = 0;
         $matchedGroups = 0;
+        $personalSitesMapped = 0;
         $unmatchedBackup = [];
         $unmatchedMembers = [];
         $missingOd = [];
@@ -111,12 +125,14 @@ final class CometSelectionMapper
                 $byId,
                 $byGraph,
                 $onedriveByParent,
+                $ownerLookup,
                 $selected,
                 $scopes,
                 $matchedUsers,
                 $matchedSites,
                 $matchedTeams,
                 $matchedGroups,
+                $personalSitesMapped,
                 $missingOd,
                 $seenUser,
                 $seenSite,
@@ -164,12 +180,14 @@ final class CometSelectionMapper
                     $byId,
                     $byGraph,
                     $onedriveByParent,
+                    $ownerLookup,
                     $selected,
                     $scopes,
                     $matchedUsers,
                     $matchedSites,
                     $matchedTeams,
                     $matchedGroups,
+                    $personalSitesMapped,
                     $missingOd,
                     $seenUser,
                     $seenSite,
@@ -193,6 +211,7 @@ final class CometSelectionMapper
                 'unmatched_backup_option_keys' => array_values($unmatchedBackup),
                 'unmatched_member_roots' => array_values($unmatchedMembers),
                 'missing_onedrive_children' => array_values(array_unique($missingOd)),
+                'personal_sites_mapped_to_users' => $personalSitesMapped,
                 'backup_options_total' => count($backupOptions),
                 'whole_org' => false,
             ],
@@ -205,6 +224,7 @@ final class CometSelectionMapper
      * @param array<string, array<string, mixed>> $byId
      * @param array<string, list<array<string, mixed>>> $byGraph
      * @param array<string, array<string, mixed>> $onedriveByParent
+     * @param array<string, string> $ownerLookup
      * @param list<string> $missingOd
      * @param array<string, true> $seenUser
      * @param array<string, true> $seenSite
@@ -217,12 +237,14 @@ final class CometSelectionMapper
         array $byId,
         array $byGraph,
         array $onedriveByParent,
+        array $ownerLookup,
         array &$selected,
         array &$scopes,
         int &$matchedUsers,
         int &$matchedSites,
         int &$matchedTeams,
         int &$matchedGroups,
+        int &$personalSitesMapped,
         array &$missingOd,
         array &$seenUser,
         array &$seenSite,
@@ -231,11 +253,23 @@ final class CometSelectionMapper
     ): bool {
         if (str_contains($cometId, ',')) {
             $site = self::resolveSite($cometId, $byGraph);
-            if ($site === null) {
-                return false;
+            if ($site !== null) {
+                return self::selectSite($site, $mask, $selected, $scopes, $matchedSites, $seenSite);
             }
 
-            return self::selectSite($site, $mask, $selected, $scopes, $matchedSites, $seenSite);
+            return self::selectPersonalSiteOwner(
+                $cometId,
+                $mask,
+                $byGraph,
+                $onedriveByParent,
+                $ownerLookup,
+                $selected,
+                $scopes,
+                $matchedUsers,
+                $personalSitesMapped,
+                $missingOd,
+                $seenUser,
+            );
         }
 
         $resource = self::resolvePlainGuid($cometId, $byGraph, [
@@ -279,6 +313,75 @@ final class CometSelectionMapper
         }
 
         return false;
+    }
+
+    /**
+     * Map a Comet personal OneDrive site key to the owning e3 user/mailbox.
+     *
+     * e3 does not inventory *-my.sharepoint.com personal sites as sharepoint_site rows; the person
+     * appears under Users & Mailboxes. Comet Protected Accounts still count that identity, so we
+     * select the owner principal with mailbox + OneDrive scopes (OR'd with the Comet mask).
+     *
+     * @param array<string, list<array<string, mixed>>> $byGraph
+     * @param array<string, array<string, mixed>> $onedriveByParent
+     * @param array<string, string> $ownerLookup
+     * @param array<string, true> $selected
+     * @param array<string, array<string, bool>> $scopes
+     * @param list<string> $missingOd
+     * @param array<string, true> $seenUser
+     */
+    private static function selectPersonalSiteOwner(
+        string $siteKey,
+        int $mask,
+        array $byGraph,
+        array $onedriveByParent,
+        array $ownerLookup,
+        array &$selected,
+        array &$scopes,
+        int &$matchedUsers,
+        int &$personalSitesMapped,
+        array &$missingOd,
+        array &$seenUser,
+    ): bool {
+        if (!CometPersonalSiteResolver::isPersonalSiteKey($siteKey)) {
+            return false;
+        }
+
+        $ownerId = $ownerLookup[$siteKey] ?? $ownerLookup[strtolower($siteKey)] ?? '';
+        $ownerId = trim((string) $ownerId);
+        if ($ownerId === '') {
+            return false;
+        }
+
+        $owner = self::resolvePlainGuid($ownerId, $byGraph, [
+            TenantResource::TYPE_USER,
+            TenantResource::TYPE_MAILBOX,
+        ]);
+        if ($owner === null) {
+            return false;
+        }
+
+        // Personal-site selection in Comet implies a protected account. e3 represents that as a
+        // user/mailbox (+ OneDrive when present), so ensure mailbox scopes are enabled.
+        $effectiveMask = $mask
+            | CometServiceMask::MAIL
+            | CometServiceMask::CALENDAR
+            | CometServiceMask::CONTACT
+            | CometServiceMask::ONEDRIVE;
+
+        self::selectUser(
+            $owner,
+            $effectiveMask,
+            $onedriveByParent,
+            $selected,
+            $scopes,
+            $matchedUsers,
+            $missingOd,
+            $seenUser,
+        );
+        ++$personalSitesMapped;
+
+        return true;
     }
 
     /**

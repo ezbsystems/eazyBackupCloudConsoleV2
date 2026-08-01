@@ -5,8 +5,12 @@ namespace Ms365Backup\Comet;
 
 use Ms365Backup\CustomerInventoryService;
 use Ms365Backup\CustomerSelectionCodec;
+use Ms365Backup\GraphClient;
 use Ms365Backup\Ms365CustomerJobService;
 use Ms365Backup\Ms365ScheduleAssigner;
+use Ms365Backup\RunTenantContext;
+use Ms365Backup\TenantRecordRepository;
+use Ms365Backup\TokenProvider;
 use WHMCS\Database\Capsule;
 
 /**
@@ -167,8 +171,16 @@ final class CometSelectionImportService
             throw new \RuntimeException('Refresh tenant inventory before importing selection.');
         }
 
-        $mapped = CometSelectionMapper::map($parsed, $inventory);
+        $personalSiteOwners = self::resolvePersonalSiteOwners(
+            $clientId,
+            (int) $user['id'],
+            $parsed['backup_options'] ?? [],
+        );
+
+        $mapped = CometSelectionMapper::map($parsed, $inventory, $personalSiteOwners['owners']);
         $report = $mapped['report'];
+        $report['personal_site_owner_unresolved'] = $personalSiteOwners['unresolved'];
+        $report['personal_site_owner_errors'] = $personalSiteOwners['errors'];
         $unmatched = count($report['unmatched_backup_option_keys'] ?? []);
         $total = (int) ($report['backup_options_total'] ?? 0);
         $pct = self::unmatchedPct($unmatched, $total);
@@ -237,6 +249,56 @@ final class CometSelectionImportService
         $result['job_id'] = $created['job_id'] ?? null;
 
         return $result;
+    }
+
+    /**
+     * @param array<string, int> $backupOptions
+     * @return array{
+     *   owners: array<string, string>,
+     *   unresolved: list<string>,
+     *   errors: array<string, string>
+     * }
+     */
+    public static function resolvePersonalSiteOwners(int $clientId, int $backupUserId, array $backupOptions): array
+    {
+        $siteKeys = CometPersonalSiteResolver::personalSiteKeysFromBackupOptions($backupOptions);
+        if ($siteKeys === []) {
+            return ['owners' => [], 'unresolved' => [], 'errors' => []];
+        }
+
+        $record = TenantRecordRepository::getForBackupUser($clientId, $backupUserId);
+        if ($record === null) {
+            return [
+                'owners' => [],
+                'unresolved' => $siteKeys,
+                'errors' => ['_' => 'Tenant not connected; cannot resolve personal site owners.'],
+            ];
+        }
+
+        try {
+            $ctx = RunTenantContext::forClientRecord($record);
+            return CometPersonalSiteResolver::resolveOwners($ctx->graph, $siteKeys);
+        } catch (\Throwable $e) {
+            // Fallback without RunTenantContext storage bootstrap if that fails.
+            try {
+                $creds = TenantRecordRepository::resolvedCredentialsForRecord($record);
+                $tokens = new TokenProvider(
+                    $creds['region'],
+                    $creds['tenant_id'],
+                    $creds['client_id'],
+                    $creds['client_secret'],
+                );
+                $graph = new GraphClient($tokens, $creds['region']);
+
+                return CometPersonalSiteResolver::resolveOwners($graph, $siteKeys);
+            } catch (\Throwable $e2) {
+                return [
+                    'owners' => [],
+                    'unresolved' => $siteKeys,
+                    'errors' => ['_' => $e2->getMessage()],
+                ];
+            }
+        }
     }
 
     /** @return array<string, mixed> */
