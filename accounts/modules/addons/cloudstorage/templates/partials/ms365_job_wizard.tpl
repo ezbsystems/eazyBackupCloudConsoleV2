@@ -1,4 +1,4 @@
-<link rel="stylesheet" href="modules/addons/cloudstorage/assets/css/ms365_job_wizard.css?v=23">
+<link rel="stylesheet" href="modules/addons/cloudstorage/assets/css/ms365_job_wizard.css?v=24">
 <link rel="stylesheet" href="modules/addons/cloudstorage/assets/css/ms365_restore_wizard.css?v=6">
 
 <div id="ms365JobWizardModal" class="ms365-job-wizard-modal-host fixed inset-0 z-[2200] hidden" x-data="ms365WizardApp()" x-cloak>
@@ -219,15 +219,15 @@
                                x-show="inventoryProgress.detail && inventoryProgress.phase !== 'error'"
                                x-text="inventoryProgress.detail"></p>
                         </div>
-                        <div class="flex flex-wrap items-center gap-2 justify-end">
-                            <button type="button" class="eb-btn eb-btn-secondary eb-btn-sm" @click="refreshInventory()" :disabled="refreshingInventory || inventoryBackgroundRefreshing">
-                                <span x-text="refreshingInventory ? 'Refreshing…' : 'Refresh inventory'"></span>
-                            </button>
-                        </div>
-                        <div class="ms365-wizard-step2__grid grid grid-cols-1 lg:grid-cols-2 gap-4 flex-1 min-h-0">
+                        <div class="ms365-wizard-step2__grid grid grid-cols-1 gap-4 flex-1 min-h-0">
                             <div class="ms365-inventory-pane border border-[var(--eb-border-default)] rounded-lg overflow-hidden flex flex-col">
-                                <div class="eb-menu-label px-3 py-2 border-b border-[var(--eb-border-default)]">Tenant inventory</div>
-                                <div class="ms365-inventory-search-row px-3 py-2 border-b border-[var(--eb-border-default)] bg-[var(--eb-surface-muted)]"
+                                <div class="ms365-inventory-pane-header px-3 py-2 border-b border-[var(--eb-border-default)]">
+                                    <div class="eb-menu-label">Tenant inventory</div>
+                                    <button type="button" class="eb-btn eb-btn-secondary eb-btn-sm shrink-0" @click="refreshInventory()" :disabled="refreshingInventory || inventoryBackgroundRefreshing">
+                                        <span x-text="refreshingInventory ? 'Refreshing…' : 'Refresh inventory'"></span>
+                                    </button>
+                                </div>
+                                <div class="ms365-inventory-toolbar px-3 py-2 border-b border-[var(--eb-border-default)] bg-[var(--eb-surface-muted)]"
                                      x-show="hasInventoryLoaded()">
                                     <div class="ms365-inventory-search-wrap">
                                         <input type="search"
@@ -242,17 +242,14 @@
                                                 aria-label="Clear search"
                                                 title="Clear search">&times;</button>
                                     </div>
-                                </div>
-                                <div class="flex items-center gap-2 px-3 py-2 border-b border-[var(--eb-border-default)] bg-[var(--eb-surface-muted)]"
-                                     x-show="hasInventoryLoaded()">
-                                    <input type="checkbox"
-                                           id="ms365-inventory-select-all"
-                                           class="eb-check-input shrink-0"
-                                           :checked="inventoryGlobalCheckState() === 'checked'"
-                                           x-init="$el.indeterminate = inventoryGlobalCheckState() === 'indeterminate'"
-                                           @change="toggleSelectAllInventory(); $el.indeterminate = inventoryGlobalCheckState() === 'indeterminate'; $el.checked = inventoryGlobalCheckState() === 'checked'">
-                                    <label for="ms365-inventory-select-all" class="text-sm font-medium text-[var(--eb-text-primary)] cursor-pointer select-none">
-                                        Select all resources
+                                    <label for="ms365-inventory-select-all" class="ms365-inventory-select-all">
+                                        <input type="checkbox"
+                                               id="ms365-inventory-select-all"
+                                               class="eb-check-input shrink-0"
+                                               :checked="inventoryGlobalCheckState() === 'checked'"
+                                               x-init="$el.indeterminate = inventoryGlobalCheckState() === 'indeterminate'"
+                                               @change="toggleSelectAllInventory(); $el.indeterminate = inventoryGlobalCheckState() === 'indeterminate'; $el.checked = inventoryGlobalCheckState() === 'checked'">
+                                        <span class="text-sm font-medium text-[var(--eb-text-primary)] select-none">Select all resources</span>
                                     </label>
                                 </div>
                                 <div class="flex-1 overflow-x-hidden overflow-y-auto p-2"
@@ -447,90 +444,71 @@
                                                   x-text="billingPreview.member_resolution_pending ? 'Member counts incomplete' : 'Inventory may be stale'"></span>
                                         </template>
                                     </div>
-                                    <div class="ms365-wizard-billing-dock__compact-row lg:hidden"
-                                         x-show="billingPreview.protected_users != null || billingPreview.pricing">
-                                        <span class="ms365-wizard-billing-dock__compact-metric">
-                                            Protected Users:
-                                            <strong x-text="billingPreview.protected_users ?? 0"></strong>
-                                        </span>
-                                        <span class="ms365-wizard-billing-dock__compact-sep" aria-hidden="true">·</span>
-                                        <span class="ms365-wizard-billing-dock__compact-metric">
-                                            Est. monthly
-                                            <strong>$<span x-text="Number(billingPreview.pricing?.estimated_monthly_cad || 0).toFixed(2)"></span></strong>
-                                        </span>
-                                    </div>
-                                    <div class="ms365-wizard-billing-dock__metrics hidden lg:grid">
-                                        <div class="ms365-wizard-billing-dock__metric">
-                                            <span class="ms365-wizard-billing-dock__metric-label">Protected Users</span>
-                                            <span class="ms365-wizard-billing-dock__metric-value" x-text="billingPreview.protected_users ?? 0"></span>
-                                        </div>
-                                        <div class="ms365-wizard-billing-dock__metric">
-                                            <span class="ms365-wizard-billing-dock__metric-label">Est. monthly</span>
-                                            <span class="ms365-wizard-billing-dock__metric-value">
-                                                $<span x-text="Number(billingPreview.pricing?.estimated_monthly_cad || 0).toFixed(2)"></span>
+                                    <div class="ms365-wizard-billing-dock__summary-row">
+                                        <div class="ms365-wizard-billing-dock__compact-row"
+                                             x-show="billingPreview.protected_users != null || billingPreview.pricing">
+                                            <span class="ms365-wizard-billing-dock__compact-metric">
+                                                Protected Users:
+                                                <strong x-text="billingPreview.protected_users ?? 0"></strong>
+                                            </span>
+                                            <span class="ms365-wizard-billing-dock__compact-sep" aria-hidden="true">·</span>
+                                            <span class="ms365-wizard-billing-dock__compact-metric">
+                                                Est. monthly
+                                                <strong>$<span x-text="Number(billingPreview.pricing?.estimated_monthly_cad || 0).toFixed(2)"></span></strong>
                                             </span>
                                         </div>
-                                    </div>
-                                    <div class="ms365-wizard-billing-dock__calc">
-                                        <button type="button"
-                                                class="ms365-wizard-billing-dock__calc-toggle"
-                                                @click="billingCalcOpen = !billingCalcOpen"
-                                                :aria-expanded="billingCalcOpen ? 'true' : 'false'"
-                                                aria-controls="ms365-wizard-billing-calc-panel">
-                                            <span>How this is calculated</span>
-                                            <svg class="ms365-wizard-billing-dock__calc-chevron"
-                                                 :class="billingCalcOpen ? 'is-open' : ''"
-                                                 xmlns="http://www.w3.org/2000/svg"
-                                                 viewBox="0 0 20 20"
-                                                 fill="currentColor"
-                                                 aria-hidden="true">
-                                                <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
-                                            </svg>
-                                        </button>
-                                        <div id="ms365-wizard-billing-calc-panel"
-                                             class="eb-subpanel ms365-wizard-billing-dock__calc-panel"
-                                             x-show="billingCalcOpen"
-                                             x-cloak
-                                             role="region"
-                                             aria-label="Billing calculation details">
-                                            <dl class="ms365-wizard-billing-dock__calc-rows">
-                                                <div class="ms365-wizard-billing-dock__calc-row">
-                                                    <dt>Directly selected appearances</dt>
-                                                    <dd x-text="billingPreview.reconciliation?.direct_appearances ?? 0"></dd>
-                                                </div>
-                                                <div class="ms365-wizard-billing-dock__calc-row">
-                                                    <dt>Group/Team/site membership appearances</dt>
-                                                    <dd x-text="billingPreview.reconciliation?.membership_appearances ?? 0"></dd>
-                                                </div>
-                                                <div class="ms365-wizard-billing-dock__calc-row">
-                                                    <dt>Duplicate appearances removed</dt>
-                                                    <dd>
-                                                        −<span x-text="billingPreview.reconciliation?.duplicate_appearances_removed ?? 0"></span>
-                                                    </dd>
-                                                </div>
-                                                <div class="ms365-wizard-billing-dock__calc-row ms365-wizard-billing-dock__calc-row--total">
-                                                    <dt>Unique Protected Users</dt>
-                                                    <dd x-text="billingPreview.reconciliation?.protected_users ?? billingPreview.protected_users ?? 0"></dd>
-                                                </div>
-                                            </dl>
-                                            <p class="eb-type-caption text-[var(--eb-warning-text)] mb-0 mt-2"
-                                               x-show="billingPreview.member_resolution_pending">
-                                                Team, group, or site member lists could not be fully loaded. Counts reflect resolved data only; your estimate may increase after inventory refresh.
-                                            </p>
-                                            <p class="eb-type-caption text-[var(--eb-text-muted)] mb-0 mt-2">
-                                                Select All backs up everything. Guests never bill. Shared mailboxes bill when selected. SharePoint/Teams sites are not billable units.
-                                            </p>
+                                        <div class="ms365-wizard-billing-dock__calc">
+                                            <button type="button"
+                                                    class="ms365-wizard-billing-dock__calc-toggle"
+                                                    @click="billingCalcOpen = !billingCalcOpen"
+                                                    :aria-expanded="billingCalcOpen ? 'true' : 'false'"
+                                                    aria-controls="ms365-wizard-billing-calc-panel">
+                                                <span>How this is calculated</span>
+                                                <svg class="ms365-wizard-billing-dock__calc-chevron"
+                                                     :class="billingCalcOpen ? 'is-open' : ''"
+                                                     xmlns="http://www.w3.org/2000/svg"
+                                                     viewBox="0 0 20 20"
+                                                     fill="currentColor"
+                                                     aria-hidden="true">
+                                                    <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+                                                </svg>
+                                            </button>
                                         </div>
                                     </div>
-                                    <p class="eb-type-caption text-[var(--eb-text-muted)] mb-0">
-                                        Protected Users @ $<span x-text="Number(billingPreview.pricing?.protected_user_price_cad || 0).toFixed(2)"></span>/user
-                                        <template x-if="(billingPreview.onedrive_overage_gib || 0) > 0">
-                                            <span> · OneDrive overage included</span>
-                                        </template>
-                                    </p>
-                                    <p class="eb-type-caption text-[var(--eb-text-muted)] mb-0" x-show="editMode">
-                                        Counts reflect this job&apos;s selection. Your account total may include other active MS365 jobs.
-                                    </p>
+                                    <div id="ms365-wizard-billing-calc-panel"
+                                         class="eb-subpanel ms365-wizard-billing-dock__calc-panel"
+                                         x-show="billingCalcOpen"
+                                         x-cloak
+                                         role="region"
+                                         aria-label="Billing calculation details">
+                                        <dl class="ms365-wizard-billing-dock__calc-rows">
+                                            <div class="ms365-wizard-billing-dock__calc-row">
+                                                <dt>Directly selected appearances</dt>
+                                                <dd x-text="billingPreview.reconciliation?.direct_appearances ?? 0"></dd>
+                                            </div>
+                                            <div class="ms365-wizard-billing-dock__calc-row">
+                                                <dt>Group/Team/site membership appearances</dt>
+                                                <dd x-text="billingPreview.reconciliation?.membership_appearances ?? 0"></dd>
+                                            </div>
+                                            <div class="ms365-wizard-billing-dock__calc-row">
+                                                <dt>Duplicate appearances removed</dt>
+                                                <dd>
+                                                    −<span x-text="billingPreview.reconciliation?.duplicate_appearances_removed ?? 0"></span>
+                                                </dd>
+                                            </div>
+                                            <div class="ms365-wizard-billing-dock__calc-row ms365-wizard-billing-dock__calc-row--total">
+                                                <dt>Unique Protected Users</dt>
+                                                <dd x-text="billingPreview.reconciliation?.protected_users ?? billingPreview.protected_users ?? 0"></dd>
+                                            </div>
+                                        </dl>
+                                        <p class="eb-type-caption text-[var(--eb-warning-text)] mb-0 mt-2"
+                                           x-show="billingPreview.member_resolution_pending">
+                                            Team, group, or site member lists could not be fully loaded. Counts reflect resolved data only; your estimate may increase after inventory refresh.
+                                        </p>
+                                        <p class="eb-type-caption text-[var(--eb-text-muted)] mb-0 mt-2">
+                                            Select All backs up everything. Guests never bill. Shared mailboxes bill when selected. SharePoint/Teams sites are not billable units.
+                                        </p>
+                                    </div>
                                 </div>
                             </template>
                             </div>

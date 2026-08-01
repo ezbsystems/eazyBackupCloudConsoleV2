@@ -21,6 +21,12 @@
     min-height: 12rem;
 }
 
+@media (min-width: 1024px) {
+    .ms365-wizard-step2__grid {
+        grid-template-columns: 3fr 2fr;
+    }
+}
+
 .ms365-wizard-step2__grid > * {
     min-height: 0;
 }
@@ -36,35 +42,11 @@
     border: 1px solid var(--eb-border-default);
     border-radius: 0.5rem;
     background: var(--eb-surface-base);
-    padding: 0.75rem;
+    padding: 0.5rem 0.625rem;
     overflow: visible;
 }
 
-.ms365-wizard-billing-dock__metrics {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 1rem 1.5rem;
-}
-
-.ms365-wizard-billing-dock__metric {
-    display: flex;
-    flex-direction: column;
-    gap: 0.125rem;
-}
-
-.ms365-wizard-billing-dock__metric-label {
-    font-size: 0.875rem;
-    color: var(--eb-text-secondary);
-}
-
-.ms365-wizard-billing-dock__metric-value {
-    font-size: 1.5rem;
-    font-weight: 600;
-    line-height: 1.2;
-    color: var(--eb-text-primary);
-}
-
-.ms365-wizard-billing-dock__content--updating .ms365-wizard-billing-dock__metrics {
+.ms365-wizard-billing-dock__content--updating .ms365-wizard-billing-dock__compact-row {
     opacity: 0.72;
     transition: opacity 0.15s ease;
 }
@@ -75,7 +57,19 @@
 }
 
 .ms365-wizard-billing-dock__calc {
-    margin-top: 0.25rem;
+    margin-top: 0;
+}
+
+.ms365-wizard-billing-dock__summary-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.25rem 0.75rem;
+}
+
+.ms365-wizard-billing-dock__summary-row .ms365-wizard-billing-dock__calc-toggle {
+    width: auto;
+    padding: 0;
 }
 
 .ms365-wizard-billing-dock__calc-toggle {
@@ -218,8 +212,38 @@
     background: var(--eb-surface-base);
 }
 
-.ms365-inventory-search-row {
+.ms365-inventory-pane-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
     flex-shrink: 0;
+}
+
+.ms365-inventory-pane-header .eb-menu-label {
+    margin: 0;
+    padding: 0;
+}
+
+.ms365-inventory-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 0.75rem;
+    flex-shrink: 0;
+}
+
+.ms365-inventory-toolbar .ms365-inventory-search-wrap {
+    flex: 1 1 12rem;
+    min-width: 0;
+}
+
+.ms365-inventory-select-all {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-shrink: 0;
+    cursor: pointer;
 }
 
 .ms365-inventory-search-wrap {
@@ -496,11 +520,11 @@
     }
 
     .ms365-wizard-billing-dock__panel {
-        padding: 0.5rem 0.75rem;
+        padding: 0.375rem 0.5rem;
     }
 
     .ms365-wizard-billing-dock__content.space-y-2 > :not([hidden]) ~ :not([hidden]) {
-        margin-top: 0.375rem;
+        margin-top: 0.25rem;
     }
 }
 

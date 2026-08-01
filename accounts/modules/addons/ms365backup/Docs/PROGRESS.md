@@ -4,12 +4,18 @@
 
 **Last updated:** 2026-08-01
 **Module version (ms365backup):** 1.52.42
-**Cloudstorage (e3) version:** 2.2.2  
+**Cloudstorage (e3) version:** 2.2.3  
 **Worker version (ms365-backup-worker):** 0.4.29 (Kopia v0.23.1)
 
 ---
 
 ## Session log
+
+### 2026-08-01 — MS365 job wizard Step 2 compact layout (cloudstorage 2.2.3)
+
+- **Goal:** Give tenant inventory more usable space; shrink billing dock without changing selection, billing, or refresh behavior.
+- **Ship:** Refresh moved into Tenant inventory header; search + Select all merged into one toolbar; desktop grid ~60/40 (inventory/summary); compact billing metrics visible at all viewports; large desktop metrics row and per-user/account-total captions removed; billing summary row wraps metrics + “How this is calculated”.
+- **Verify:** PHP syntax OK; grep confirms removed markup/CSS gone; manual QA on dev `192.168.92.79` — Create/Edit Step 2 at desktop + narrow widths.
 
 ### 2026-08-01 — Comet import: live-fetch MemberBackupOptions members
 
