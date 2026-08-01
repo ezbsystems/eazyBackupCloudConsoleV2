@@ -178,10 +178,24 @@ final class CometSelectionImportService
             is_array($inventory['resources'] ?? null) ? $inventory['resources'] : [],
         );
 
-        $mapped = CometSelectionMapper::map($parsed, $inventory, $personalSiteOwners['owners']);
+        $memberExpansion = self::expandMemberBackupOptions(
+            $clientId,
+            (int) $user['id'],
+            $parsed['member_backup_options'] ?? [],
+            is_array($inventory['resources'] ?? null) ? $inventory['resources'] : [],
+        );
+
+        $mapped = CometSelectionMapper::map(
+            $parsed,
+            $inventory,
+            $personalSiteOwners['owners'],
+            $memberExpansion['members_by_root'],
+        );
         $report = $mapped['report'];
         $report['personal_site_owner_unresolved'] = $personalSiteOwners['unresolved'];
         $report['personal_site_owner_errors'] = $personalSiteOwners['errors'];
+        $report['member_expansion'] = $memberExpansion['stats'];
+        $report['member_expansion_errors'] = $memberExpansion['errors'];
         $unmatched = count($report['unmatched_backup_option_keys'] ?? []);
         $total = (int) ($report['backup_options_total'] ?? 0);
         $pct = self::unmatchedPct($unmatched, $total);
@@ -250,6 +264,82 @@ final class CometSelectionImportService
         $result['job_id'] = $created['job_id'] ?? null;
 
         return $result;
+    }
+
+    /**
+     * @param array<string, int> $memberBackupOptions
+     * @param list<array<string, mixed>> $inventoryResources
+     * @return array{
+     *   members_by_root: array<string, list<string>>,
+     *   errors: array<string, string>,
+     *   stats: array<string, int>
+     * }
+     */
+    public static function expandMemberBackupOptions(
+        int $clientId,
+        int $backupUserId,
+        array $memberBackupOptions,
+        array $inventoryResources = [],
+    ): array {
+        if ($memberBackupOptions === []) {
+            return [
+                'members_by_root' => [],
+                'errors' => [],
+                'stats' => [
+                    'roots_total' => 0,
+                    'roots_resolved' => 0,
+                    'roots_live_fetched' => 0,
+                    'roots_cache_fallback' => 0,
+                    'roots_unresolved' => 0,
+                    'member_ids_live' => 0,
+                    'unique_member_ids' => 0,
+                ],
+            ];
+        }
+
+        $graph = self::graphClientForBackupUser($clientId, $backupUserId);
+        if ($graph === null) {
+            return [
+                'members_by_root' => [],
+                'errors' => ['_' => 'Tenant not connected; cannot live-fetch MemberBackupOptions members.'],
+                'stats' => [
+                    'roots_total' => count($memberBackupOptions),
+                    'roots_resolved' => 0,
+                    'roots_live_fetched' => 0,
+                    'roots_cache_fallback' => 0,
+                    'roots_unresolved' => count($memberBackupOptions),
+                    'member_ids_live' => 0,
+                    'unique_member_ids' => 0,
+                ],
+            ];
+        }
+
+        return CometMemberOptionsExpander::expand($graph, $memberBackupOptions, $inventoryResources);
+    }
+
+    private static function graphClientForBackupUser(int $clientId, int $backupUserId): ?GraphClient
+    {
+        $record = TenantRecordRepository::getForBackupUser($clientId, $backupUserId);
+        if ($record === null) {
+            return null;
+        }
+        try {
+            return RunTenantContext::forClientRecord($record)->graph;
+        } catch (\Throwable $_) {
+            try {
+                $creds = TenantRecordRepository::resolvedCredentialsForRecord($record);
+                $tokens = new TokenProvider(
+                    $creds['region'],
+                    $creds['tenant_id'],
+                    $creds['client_id'],
+                    $creds['client_secret'],
+                );
+
+                return new GraphClient($tokens, $creds['region']);
+            } catch (\Throwable $__) {
+                return null;
+            }
+        }
     }
 
     /**

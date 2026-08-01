@@ -157,4 +157,65 @@ assert_true(
     'personal site unmatched without owner map'
 );
 
+// Live MemberBackupOptions expansion selects users not in BackupOptions
+$teamId = '11111111-1111-1111-1111-111111111111';
+$memberA = '22222222-2222-2222-2222-222222222222';
+$memberB = '33333333-3333-3333-3333-333333333333';
+$moInventory = [
+    'resources' => [
+        [
+            'id' => 'team:' . $teamId,
+            'resource_type' => TenantResource::TYPE_TEAM,
+            'graph_id' => $teamId,
+            'display_name' => 'Staff',
+            'parent_id' => null,
+            'access' => [],
+            'meta' => ['member_azure_ids' => []],
+        ],
+        [
+            'id' => 'user:' . $memberA,
+            'resource_type' => TenantResource::TYPE_USER,
+            'graph_id' => $memberA,
+            'display_name' => 'Member A',
+            'parent_id' => null,
+            'access' => [],
+            'meta' => [],
+        ],
+        [
+            'id' => 'onedrive:' . $memberA,
+            'resource_type' => TenantResource::TYPE_USER_ONEDRIVE,
+            'graph_id' => $memberA,
+            'display_name' => 'Member A OD',
+            'parent_id' => 'user:' . $memberA,
+            'access' => [],
+            'meta' => [],
+        ],
+        [
+            'id' => 'user:' . $memberB,
+            'resource_type' => TenantResource::TYPE_MAILBOX,
+            'graph_id' => $memberB,
+            'display_name' => 'Member B',
+            'parent_id' => null,
+            'access' => [],
+            'meta' => [],
+        ],
+    ],
+];
+$moMapped = CometSelectionMapper::map(
+    [
+        'organization' => false,
+        'whole_org' => false,
+        'backup_options' => [],
+        'member_backup_options' => [$teamId => 31],
+    ],
+    $moInventory,
+    [],
+    [$teamId => [$memberA, $memberB, '99999999-9999-9999-9999-999999999999']],
+);
+assert_true(in_array('user:' . $memberA, $moMapped['selected_resource_ids'], true), 'live MO member A selected');
+assert_true(in_array('user:' . $memberB, $moMapped['selected_resource_ids'], true), 'live MO member B selected');
+assert_true(($moMapped['report']['member_option_ids_expanded'] ?? 0) === 3, 'expanded 3 member ids');
+assert_true(($moMapped['report']['member_option_ids_selected'] ?? 0) === 2, 'selected 2 members in inventory');
+assert_true(($moMapped['report']['member_option_ids_not_in_inventory'] ?? 0) === 1, '1 member missing from inventory');
+
 exit($failures > 0 ? 1 : 0);

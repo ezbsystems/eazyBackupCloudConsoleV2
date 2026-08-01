@@ -21,6 +21,7 @@ final class CometSelectionMapper
      * } $parsed
      * @param array<string, mixed> $inventory
      * @param array<string, string> $personalSiteOwners map of Comet personal site key → owner Azure AD object ID
+     * @param array<string, list<string>> $liveMembersByRoot MemberBackupOptions root id → member Azure AD object IDs
      * @return array{
      *   selected_resource_ids: list<string>,
      *   scope_overrides: array<string, array<string, bool>>,
@@ -33,12 +34,20 @@ final class CometSelectionMapper
      *     unmatched_member_roots: list<string>,
      *     missing_onedrive_children: list<string>,
      *     personal_sites_mapped_to_users: int,
+     *     member_option_ids_expanded: int,
+     *     member_option_ids_selected: int,
+     *     member_option_ids_not_in_inventory: int,
      *     backup_options_total: int,
      *     whole_org: bool
      *   }
      * }
      */
-    public static function map(array $parsed, array $inventory, array $personalSiteOwners = []): array
+    public static function map(
+        array $parsed,
+        array $inventory,
+        array $personalSiteOwners = [],
+        array $liveMembersByRoot = [],
+    ): array
     {
         $wholeOrg = (bool) ($parsed['organization'] ?? false) || (bool) ($parsed['whole_org'] ?? false);
         if ($wholeOrg) {
@@ -58,6 +67,9 @@ final class CometSelectionMapper
                     'unmatched_member_roots' => [],
                     'missing_onedrive_children' => [],
                     'personal_sites_mapped_to_users' => 0,
+                    'member_option_ids_expanded' => 0,
+                    'member_option_ids_selected' => 0,
+                    'member_option_ids_not_in_inventory' => 0,
                     'backup_options_total' => count($parsed['backup_options'] ?? []),
                     'whole_org' => true,
                 ],
@@ -145,6 +157,18 @@ final class CometSelectionMapper
         }
 
         $memberOptions = is_array($parsed['member_backup_options'] ?? null) ? $parsed['member_backup_options'] : [];
+        $memberExpanded = 0;
+        $memberSelected = 0;
+        $memberNotInInventory = 0;
+        $liveLookup = [];
+        foreach ($liveMembersByRoot as $rootKey => $ids) {
+            if (!is_array($ids)) {
+                continue;
+            }
+            $liveLookup[(string) $rootKey] = array_values(array_map('strval', $ids));
+            $liveLookup[strtolower((string) $rootKey)] = $liveLookup[(string) $rootKey];
+        }
+
         foreach ($memberOptions as $rootId => $mask) {
             $rootId = (string) $rootId;
             $mask = (int) $mask;
@@ -167,14 +191,22 @@ final class CometSelectionMapper
                 self::selectSite($root, $mask, $selected, $scopes, $matchedSites, $seenSite);
             }
 
-            $meta = is_array($root['meta'] ?? null) ? $root['meta'] : [];
-            $memberIds = is_array($meta['member_azure_ids'] ?? null) ? $meta['member_azure_ids'] : [];
+            $memberIds = $liveLookup[$rootId] ?? $liveLookup[strtolower($rootId)] ?? null;
+            if (!is_array($memberIds) || $memberIds === []) {
+                $meta = is_array($root['meta'] ?? null) ? $root['meta'] : [];
+                $memberIds = is_array($meta['member_azure_ids'] ?? null)
+                    ? array_map('strval', $meta['member_azure_ids'])
+                    : [];
+            }
+
             foreach ($memberIds as $memberGraphId) {
-                $memberGraphId = (string) $memberGraphId;
+                $memberGraphId = trim((string) $memberGraphId);
                 if ($memberGraphId === '') {
                     continue;
                 }
-                self::applyBackupOption(
+                ++$memberExpanded;
+                $before = count($selected);
+                $ok = self::applyBackupOption(
                     $memberGraphId,
                     $mask,
                     $byId,
@@ -194,6 +226,13 @@ final class CometSelectionMapper
                     $seenTeam,
                     $seenGroup,
                 );
+                if ($ok) {
+                    if (count($selected) >= $before) {
+                        ++$memberSelected;
+                    }
+                } else {
+                    ++$memberNotInInventory;
+                }
             }
         }
 
@@ -212,6 +251,9 @@ final class CometSelectionMapper
                 'unmatched_member_roots' => array_values($unmatchedMembers),
                 'missing_onedrive_children' => array_values(array_unique($missingOd)),
                 'personal_sites_mapped_to_users' => $personalSitesMapped,
+                'member_option_ids_expanded' => $memberExpanded,
+                'member_option_ids_selected' => $memberSelected,
+                'member_option_ids_not_in_inventory' => $memberNotInInventory,
                 'backup_options_total' => count($backupOptions),
                 'whole_org' => false,
             ],

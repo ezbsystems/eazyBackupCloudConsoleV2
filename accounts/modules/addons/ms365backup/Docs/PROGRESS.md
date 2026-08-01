@@ -11,6 +11,12 @@
 
 ## Session log
 
+### 2026-08-01 — Comet import: live-fetch MemberBackupOptions members
+
+- **Problem:** Inventory `member_azure_ids` incomplete (`member_enrichment_complete=no`) so MO expansion under-selected vs Comet Protected Accounts (~219 vs 411).
+- **Fix:** `CometMemberOptionsExpander` live-fetches `teams/{id}/members` and `groups/{id}/members`; mapper prefers live IDs over cache. Report: `member_expansion`, `member_option_ids_*`.
+- **Verify:** Mapper unit tests PASS. ITadmin dry-run: `roots_live_fetched=37/39`, `unique_member_ids=441`, `matched_users=476` (was ~219 before live MO; Comet Protected Accounts ≈411). 2 MO roots still missing from inventory.
+
 ### 2026-08-01 — Comet import: personal site → owner user mapping
 
 - **Problem:** Comet selects personal OneDrive sites (`*-my.sharepoint.com,…`) under SharePoint Sites (e.g. James Garcesa); e3 has no matching site row and shows the person under Users & Mailboxes — import left them unselected.

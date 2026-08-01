@@ -180,7 +180,7 @@ Note the returned `job_id`. Open **e3 → Users → that user → Jobs** and con
 - **Personal OneDrive sites (`*-my.sharepoint.com,…`):** Comet lists these under SharePoint Sites (often with the person’s name). e3 usually has no matching `sharepoint_site` row — the person appears under Users & Mailboxes. The importer resolves the Graph drive **owner** when possible; if the site is **blocked** (Graph 423), it falls back to `sites/getAllSites` metadata and matches the owner via `/personal/…` path or display name against inventory. Report field: `personal_sites_mapped_to_users`.
 - **Tasks:** Comet has no Tasks bit → e3 `tasks` stays off (except when forced via personal-site owner mailbox scopes above).
 - **Teams messages:** Comet bitmasks do not model Teams chat separately; team resources get best-effort scopes when a team GUID appears in options.
-- **MemberBackupOptions:** Expansion uses membership already present in e3 inventory only (no live Graph member walk in v1). Unresolved roots are reported; they do not always block apply.
+- **MemberBackupOptions:** The importer **live-fetches** team/group members from Microsoft Graph (`teams/{id}/members`, `groups/{id}/members`), falling back to inventory `member_azure_ids` only when the live call fails or returns empty. Members present in e3 inventory are selected with the Comet mask. Report fields: `member_expansion`, `member_option_ids_*`.
 - **Whole org:** `Organization` / `WholeOrg` true → `CustomerSelectionCodec::selectAllFromInventory`.
 - **Schedule:** New job gets a normal e3 daily (or twice-daily) evening slot unless you change it later in the UI — Comet “Daily 21:30” is not copied bit-for-bit in v1.
 
