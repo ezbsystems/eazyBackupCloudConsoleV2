@@ -4,12 +4,19 @@
 
 **Last updated:** 2026-08-02
 **Module version (ms365backup):** 1.52.43
-**Cloudstorage (e3) version:** 2.2.3  
+**Cloudstorage (e3) version:** 2.2.4  
 **Worker version (ms365-backup-worker):** 0.4.30 (Kopia v0.23.1)
 
 ---
 
 ## Session log
+
+### 2026-08-02 — MS365 job wizard background inventory refresh progress UI (cloudstorage 2.2.4)
+
+- **Problem:** Edit/create job Step 2 showed a static “inventory updating” alert and **Member counts incomplete** billing badge during background refresh with no live progress (large tenants 10–15 min).
+- **Ship:** Header strip (spinner + live phase + elapsed), richer info banner (phase message, count chips, detail, error state), billing dock **Updating member counts…** while refresh active (hides stale/incomplete badges). JS: `inventoryRefreshActive()`, elapsed timer, progress poll interval fixed for background refresh.
+- **Files:** `ms365_job_wizard.tpl`, `ms365_job_wizard.js`, `ms365_job_wizard.css`, `cloudstorage.php` 2.2.4.
+- **Verify:** Manual QA on dev — edit job with stale inventory; confirm header/banner/billing update during background refresh.
 
 ### 2026-08-02 — Admin e3 Backup User deprovision page (ms365backup 1.52.43)
 

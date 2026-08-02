@@ -200,9 +200,38 @@
                     <div x-show="step === 2" class="ms365-wizard-step2 flex flex-col flex-1 min-h-0 gap-3 relative">
                         <div x-show="inventoryBackgroundRefreshing"
                              x-cloak
-                             class="eb-alert eb-alert--info text-sm shrink-0"
+                             class="eb-alert shrink-0"
+                             :class="inventoryProgress.phase === 'error' ? 'eb-alert--warning' : 'eb-alert--info'"
                              role="status">
-                            Inventory is updating in the background. Member counts may change until refresh completes.
+                            <div class="ms365-inventory-refresh-banner">
+                                <div class="ms365-inventory-refresh-banner__lead">
+                                    <span class="eb-loading-spinner--compact"
+                                          x-show="inventoryProgress.phase !== 'error'"
+                                          role="status"
+                                          aria-label="Refreshing inventory"></span>
+                                    <div class="ms365-inventory-refresh-banner__text">
+                                        <p class="text-sm mb-0"
+                                           x-text="inventoryProgress.phase === 'error' ? (inventoryProgress.message || 'Inventory refresh failed') : inventoryProgressMessage()"></p>
+                                        <p class="eb-type-caption text-[var(--eb-text-muted)] mb-0 mt-1"
+                                           x-show="inventoryProgress.phase !== 'error'">
+                                            Large tenants can take several minutes. Member counts may change until refresh completes.
+                                        </p>
+                                        <p class="eb-type-caption mb-0 mt-1"
+                                           x-show="inventoryProgress.phase === 'error'"
+                                           x-text="inventoryProgress.detail || 'Click Refresh inventory to try again.'"></p>
+                                    </div>
+                                </div>
+                                <div class="flex flex-wrap gap-2 mt-2"
+                                     x-show="inventoryProgressChips().length > 0 && inventoryProgress.phase !== 'error'">
+                                    <template x-for="chip in inventoryProgressChips()" :key="'bg-refresh-' + chip.key">
+                                        <span class="eb-badge eb-badge--neutral text-xs"
+                                              x-text="chip.count != null ? (chip.label + ': ' + chip.count) : chip.label"></span>
+                                    </template>
+                                </div>
+                                <p class="eb-type-caption text-[var(--eb-text-muted)] mb-0 mt-2"
+                                   x-show="inventoryProgress.detail && inventoryProgress.phase !== 'error'"
+                                   x-text="inventoryProgress.detail"></p>
+                            </div>
                         </div>
                         <div x-show="refreshingInventory && !loading && !hasUsableInventory()"
                              x-cloak
@@ -223,9 +252,30 @@
                             <div class="ms365-inventory-pane border border-[var(--eb-border-default)] rounded-lg overflow-hidden flex flex-col">
                                 <div class="ms365-inventory-pane-header px-3 py-2 border-b border-[var(--eb-border-default)]">
                                     <div class="eb-menu-label">Tenant inventory</div>
-                                    <button type="button" class="eb-btn eb-btn-secondary eb-btn-sm shrink-0" @click="refreshInventory()" :disabled="refreshingInventory || inventoryBackgroundRefreshing">
-                                        <span x-text="refreshingInventory ? 'Refreshing…' : 'Refresh inventory'"></span>
-                                    </button>
+                                    <div class="ms365-inventory-pane-header__actions">
+                                        <div class="ms365-inventory-refresh-strip"
+                                             x-show="inventoryShowsHeaderStrip()"
+                                             x-cloak
+                                             role="status"
+                                             :aria-label="inventoryProgressMessage()">
+                                            <span class="eb-loading-spinner--compact" role="presentation"></span>
+                                            <span class="ms365-inventory-refresh-strip__message" x-text="inventoryProgressMessage()"></span>
+                                            <span class="ms365-inventory-refresh-strip__elapsed eb-type-caption"
+                                                  x-show="inventoryElapsedLabel()"
+                                                  x-text="inventoryElapsedLabel()"></span>
+                                        </div>
+                                        <button type="button" class="eb-btn eb-btn-secondary eb-btn-sm shrink-0" @click="refreshInventory()" :disabled="refreshingInventory || inventoryBackgroundRefreshing">
+                                            <span x-text="refreshingInventory ? 'Refreshing…' : 'Refresh inventory'"></span>
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="ms365-inventory-refresh-bar"
+                                     x-show="inventoryShowsHeaderStrip()"
+                                     x-cloak
+                                     aria-hidden="true">
+                                    <div class="eb-live-bar">
+                                        <div class="eb-live-bar-fill eb-live-bar-fill--indeterminate"></div>
+                                    </div>
                                 </div>
                                 <div class="ms365-inventory-toolbar px-3 py-2 border-b border-[var(--eb-border-default)] bg-[var(--eb-surface-muted)]"
                                      x-show="hasInventoryLoaded()">
@@ -426,7 +476,13 @@
                                             Billing estimate
                                         </div>
                                         <span class="ms365-wizard-billing-dock__updating flex items-center gap-2 eb-type-caption text-[var(--eb-text-muted)]"
-                                              x-show="billingPreviewLoading"
+                                              x-show="inventoryRefreshActive()"
+                                              x-cloak>
+                                            <span class="eb-loading-spinner--compact" role="status" aria-label="Refreshing inventory"></span>
+                                            <span x-text="inventoryBackgroundRefreshing ? 'Updating member counts…' : 'Refreshing inventory…'"></span>
+                                        </span>
+                                        <span class="ms365-wizard-billing-dock__updating flex items-center gap-2 eb-type-caption text-[var(--eb-text-muted)]"
+                                              x-show="billingPreviewLoading && !inventoryRefreshActive()"
                                               x-cloak>
                                             <span class="eb-loading-spinner--compact" role="status" aria-label="Updating billing estimate"></span>
                                             <span>Updating…</span>
@@ -438,7 +494,7 @@
                                         <template x-if="billingPreview.trial_status === 'trialing'">
                                             <span class="eb-badge eb-badge--info text-xs">Trial — $0 until conversion</span>
                                         </template>
-                                        <template x-if="billingPreview.inventory_stale || billingPreview.member_resolution_pending">
+                                        <template x-if="(billingPreview.inventory_stale || billingPreview.member_resolution_pending) && !inventoryRefreshActive()">
                                             <span class="eb-badge eb-badge--warning text-xs"
                                                   :title="billingPreview.member_resolution_pending ? 'Team, group, or site member lists could not be loaded. Refresh inventory to update Protected User counts and pricing.' : 'Inventory may be outdated. Refresh inventory for current figures.'"
                                                   x-text="billingPreview.member_resolution_pending ? 'Member counts incomplete' : 'Inventory may be stale'"></span>
@@ -502,7 +558,7 @@
                                             </div>
                                         </dl>
                                         <p class="eb-type-caption text-[var(--eb-warning-text)] mb-0 mt-2"
-                                           x-show="billingPreview.member_resolution_pending">
+                                           x-show="billingPreview.member_resolution_pending && !inventoryRefreshActive()">
                                             Team, group, or site member lists could not be fully loaded. Counts reflect resolved data only; your estimate may increase after inventory refresh.
                                         </p>
                                         <p class="eb-type-caption text-[var(--eb-text-muted)] mb-0 mt-2">

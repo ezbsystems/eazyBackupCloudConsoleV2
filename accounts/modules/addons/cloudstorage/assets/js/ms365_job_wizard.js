@@ -342,6 +342,8 @@
             inventoryMeta: { resourceCount: 0, fetchedAt: null },
             inventoryViewRevision: 0,
             inventoryBackgroundRefreshing: false,
+            inventoryRefreshStartedAtMs: null,
+            inventoryElapsedTick: 0,
             selection: {},
             expandedKeys: {},
             scopeOverrides: {},
@@ -365,6 +367,7 @@
             _consentPollTimer: null,
             _consentTimeoutTimer: null,
             _inventoryProgressTimer: null,
+            _inventoryElapsedTimer: null,
             _planRequestSeq: 0,
             _planDebounceTimer: null,
             _planAbortController: null,
@@ -440,6 +443,7 @@
                 this.inventoryMeta = { resourceCount: 0, fetchedAt: null };
                 this.inventoryViewRevision = 0;
                 this.inventoryBackgroundRefreshing = false;
+                this.clearInventoryRefreshStart();
 
                 modal.classList.remove('hidden');
                 await this.loadStatus();
@@ -1180,6 +1184,51 @@
                 };
             },
 
+            inventoryRefreshActive() {
+                return this.refreshingInventory || this.inventoryBackgroundRefreshing;
+            },
+
+            inventoryShowsHeaderStrip() {
+                return this.inventoryRefreshActive()
+                    && (this.inventoryBackgroundRefreshing || (this.refreshingInventory && this.hasUsableInventory()));
+            },
+
+            markInventoryRefreshStart() {
+                this.inventoryRefreshStartedAtMs = Date.now();
+                this.inventoryElapsedTick = 0;
+                this.stopInventoryElapsedTimer();
+                this._inventoryElapsedTimer = setInterval(() => {
+                    this.inventoryElapsedTick += 1;
+                }, 1000);
+            },
+
+            clearInventoryRefreshStart() {
+                this.inventoryRefreshStartedAtMs = null;
+                this.stopInventoryElapsedTimer();
+            },
+
+            stopInventoryElapsedTimer() {
+                if (this._inventoryElapsedTimer) {
+                    clearInterval(this._inventoryElapsedTimer);
+                    this._inventoryElapsedTimer = null;
+                }
+            },
+
+            inventoryElapsedLabel() {
+                void this.inventoryElapsedTick;
+                const start = this.inventoryRefreshStartedAtMs;
+                if (!start) {
+                    return '';
+                }
+                const secs = Math.max(0, Math.floor((Date.now() - start) / 1000));
+                if (secs < 60) {
+                    return `${secs}s`;
+                }
+                const mins = Math.floor(secs / 60);
+                const rem = secs % 60;
+                return `${mins}m ${rem}s`;
+            },
+
             inventoryProgressMessage() {
                 const phase = this.inventoryProgress.phase || '';
                 if (phase === 'idle') {
@@ -1217,10 +1266,11 @@
             startInventoryProgressPoll() {
                 this.stopInventoryProgressPoll();
                 this.resetInventoryProgress();
+                this.markInventoryRefreshStart();
                 this.inventoryProgress.refresh_in_progress = true;
                 this.pollInventoryProgress();
                 this._inventoryProgressTimer = setInterval(() => {
-                    if (this.refreshingInventory) {
+                    if (this.inventoryRefreshActive()) {
                         this.pollInventoryProgress();
                     }
                 }, INVENTORY_PROGRESS_POLL_MS);
@@ -1232,6 +1282,7 @@
                     this._inventoryProgressTimer = null;
                 }
                 this.inventoryProgress.refresh_in_progress = false;
+                this.clearInventoryRefreshStart();
             },
 
             async pollInventoryProgress() {
@@ -1248,7 +1299,7 @@
                         this.inventoryProgress = {
                             ...this.inventoryProgress,
                             ...data.progress,
-                            refresh_in_progress: this.refreshingInventory,
+                            refresh_in_progress: this.inventoryRefreshActive(),
                         };
                     }
                 } catch (e) {

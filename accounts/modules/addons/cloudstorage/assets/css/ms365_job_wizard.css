@@ -220,6 +220,74 @@
     flex-shrink: 0;
 }
 
+.ms365-inventory-pane-header__actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    min-width: 0;
+    flex: 1 1 auto;
+}
+
+.ms365-inventory-refresh-strip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    min-width: 0;
+    max-width: min(100%, 18rem);
+    color: var(--eb-text-muted);
+}
+
+.ms365-inventory-refresh-strip .eb-loading-spinner--compact {
+    width: 0.875rem;
+    height: 0.875rem;
+    flex-shrink: 0;
+}
+
+.ms365-inventory-refresh-strip__message {
+    font-size: 0.75rem;
+    line-height: 1.25rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+}
+
+.ms365-inventory-refresh-strip__elapsed {
+    flex-shrink: 0;
+    color: var(--eb-text-muted);
+    font-variant-numeric: tabular-nums;
+}
+
+.ms365-inventory-refresh-bar {
+    flex-shrink: 0;
+    padding: 0 0.75rem 0.375rem;
+    border-bottom: 1px solid var(--eb-border-default);
+    background: var(--eb-surface-base);
+}
+
+.ms365-inventory-refresh-bar .eb-live-bar {
+    height: 4px;
+}
+
+.ms365-inventory-refresh-banner__lead {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.625rem;
+}
+
+.ms365-inventory-refresh-banner__lead .eb-loading-spinner--compact {
+    width: 1rem;
+    height: 1rem;
+    flex-shrink: 0;
+    margin-top: 0.125rem;
+}
+
+.ms365-inventory-refresh-banner__text {
+    min-width: 0;
+    flex: 1 1 auto;
+}
+
 .ms365-inventory-pane-header .eb-menu-label {
     margin: 0;
     padding: 0;
