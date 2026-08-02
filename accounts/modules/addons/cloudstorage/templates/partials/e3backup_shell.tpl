@@ -41,6 +41,7 @@
 <div class="eb-page">
     <div class="eb-page-inner">
         <div x-data="ebE3SidebarResponsive()"
+        data-eb-e3-sidebar-shell
         x-init="init(); if (window.ebE3SyncAppMinHeight) window.ebE3SyncAppMinHeight($el);"
         @keydown.window="onDrawerKeydown($event)"
         class="eb-panel eb-panel--e3-min-h !p-0 {$ebE3PanelClass}">

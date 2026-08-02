@@ -9,10 +9,7 @@
 <div class="space-y-1" x-data="e3UserDetailSidebarNav()" x-init="init()">
     <div
         class="eb-e3-sidebar-subnav space-y-1 transition-all duration-300"
-        :class="{
-            'eb-e3-sidebar-subnav--rail': isRailMode,
-            'eb-e3-sidebar-subnav--full': sidebarLabelsVisible && !isRailMode
-        }"
+        :class="isRailMode ? 'eb-e3-sidebar-subnav--rail' : 'eb-e3-sidebar-subnav--full'"
     >
         <div
             x-show="sidebarLabelsVisible"

@@ -807,13 +807,13 @@
   .eb-e3-sidebar--drawer {
     position: fixed;
     top: 0;
-    left: 0;
-    z-index: 46;
-    width: min(var(--eb-mobile-sidebar-width), calc(100vw - 1rem));
-    max-width: calc(100vw - 1rem);
+    left: var(--eb-mobile-sidebar-rail-width);
+    z-index: 100;
+    width: min(var(--eb-mobile-sidebar-width), calc(100vw - var(--eb-mobile-sidebar-rail-width) - 0.5rem));
+    max-width: calc(100vw - var(--eb-mobile-sidebar-rail-width) - 0.5rem);
     height: 100dvh;
     height: 100vh;
-    transform: translateX(-110%);
+    transform: translateX(-105%);
     box-shadow: var(--eb-shadow-lg);
     pointer-events: none;
     padding-top: env(safe-area-inset-top, 0);
@@ -901,6 +901,14 @@
     border-left: 1px solid var(--eb-border-subtle);
   }
 
+  .eb-e3-sidebar-subnav--full .eb-e3-sidebar-sublink {
+    justify-content: flex-start;
+    width: 100%;
+    min-width: 0;
+    margin-left: 0;
+    margin-right: 0;
+  }
+
   .eb-e3-sidebar-username {
     max-width: 100%;
     overflow: hidden;
@@ -911,7 +919,7 @@
   .eb-e3-sidebar-backdrop {
     position: fixed;
     inset: 0;
-    z-index: 45;
+    z-index: 99;
     background: rgba(2, 6, 23, 0.72);
     backdrop-filter: blur(2px);
   }

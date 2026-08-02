@@ -56,6 +56,20 @@ window.ebE3SidebarResponsive = function() {
             });
         },
 
+        mountDrawerPortal() {
+            if (this.sidebarMode !== 'mobile') {
+                return;
+            }
+            var drawer = document.getElementById('eb-e3-sidebar-drawer');
+            var backdrop = this.$el.querySelector('.eb-e3-sidebar-backdrop');
+            if (drawer && drawer.parentNode !== document.body) {
+                document.body.appendChild(drawer);
+            }
+            if (backdrop && backdrop.parentNode !== document.body) {
+                document.body.appendChild(backdrop);
+            }
+        },
+
         syncMode() {
             var w = window.innerWidth;
             var prev = this.sidebarMode;
@@ -94,6 +108,7 @@ window.ebE3SidebarResponsive = function() {
             if (this.sidebarMode !== 'mobile') {
                 return;
             }
+            this.mountDrawerPortal();
             this._lastMenuTrigger = triggerEl || document.activeElement;
             this.mobileDrawerOpen = true;
             document.body.classList.add('eb-e3-sidebar-drawer-open');

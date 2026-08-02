@@ -11,29 +11,54 @@ function e3UserDetailSidebarNav() {
         hypervJobsCount: 0,
         hypervCount: 0,
         _sidebarCollapsedTick: 0,
+        _shellData: null,
         get sidebarCollapsed() {
             void this._sidebarCollapsedTick;
-            try {
-                return !!(this.$root && this.$root.sidebarCollapsed);
-            } catch (e) {
-                return false;
-            }
+            return this.sidebarShellState('sidebarCollapsed', false);
         },
         get isRailMode() {
             void this._sidebarCollapsedTick;
-            try {
-                return !!(this.$root && this.$root.isRailMode);
-            } catch (e) {
-                return false;
-            }
+            return this.sidebarShellState('isRailMode', false);
         },
         get sidebarLabelsVisible() {
             void this._sidebarCollapsedTick;
-            try {
-                return !!(this.$root && this.$root.sidebarLabelsVisible);
-            } catch (e) {
-                return true;
+            return this.sidebarShellState('sidebarLabelsVisible', true);
+        },
+        get isFullMode() {
+            void this._sidebarCollapsedTick;
+            return this.sidebarShellState('isFullMode', false);
+        },
+        getShellData() {
+            if (this._shellData) {
+                return this._shellData;
             }
+            var shell = document.querySelector('[data-eb-e3-sidebar-shell]');
+            if (shell && window.Alpine && typeof window.Alpine.$data === 'function') {
+                try {
+                    this._shellData = window.Alpine.$data(shell);
+                    return this._shellData;
+                } catch (e) {}
+            }
+            return null;
+        },
+        sidebarShellState(key, fallback) {
+            var sources = [this.getShellData(), this.$parent, this.$root];
+            for (var i = 0; i < sources.length; i++) {
+                var node = sources[i];
+                if (!node) continue;
+                try {
+                    if (node[key] !== undefined) {
+                        return !!node[key];
+                    }
+                    if (key === 'sidebarLabelsVisible' && node.sidebarCollapsed !== undefined) {
+                        return !node.sidebarCollapsed;
+                    }
+                    if (key === 'isRailMode' && node.sidebarCollapsed !== undefined && node.isRailMode === undefined) {
+                        return !!node.sidebarCollapsed;
+                    }
+                } catch (e) {}
+            }
+            return fallback;
         },
         init() {
             const cfg = window.__ebE3UserSubnavConfig || {};
@@ -61,6 +86,7 @@ function e3UserDetailSidebarNav() {
                 self.syncFromApp();
             });
             window.addEventListener('eb-e3-sidebar-collapsed-changed', function() {
+                self._shellData = null;
                 self._sidebarCollapsedTick += 1;
             });
             this.syncFromApp();
