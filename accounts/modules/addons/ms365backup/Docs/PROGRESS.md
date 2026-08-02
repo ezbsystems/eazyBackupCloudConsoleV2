@@ -2,14 +2,22 @@
 
 **Purpose:** Single handoff document so the next agent knows where work stopped. Update this file at the **end of every session** (or after each meaningful milestone).
 
-**Last updated:** 2026-08-01
-**Module version (ms365backup):** 1.52.42
+**Last updated:** 2026-08-02
+**Module version (ms365backup):** 1.52.43
 **Cloudstorage (e3) version:** 2.2.3  
 **Worker version (ms365-backup-worker):** 0.4.30 (Kopia v0.23.1)
 
 ---
 
 ## Session log
+
+### 2026-08-02 — Prod ops: restore billing for deetkeninsight after wrong service delete (client 2721)
+
+- **Incident:** Admin deleted WHMCS service **5380** (e3 Backup User for active `deetkeninsight` / `public_id=6FF3AE2AC48D31C97A848B8712`). Active e3 user + MS365 tenant/job remained; cancelled twin service **5399** (`deetkeninsight26`, deleted backup user id=20) was unused.
+- **Repair (prod DB only, no code deploy):** Reactivated **5399** → `Active`; username `deetkeninsight26` → `deetkeninsight`; removed cancel request; set `s3_backup_users.id=12.whmcs_service_id=5399`; cleared `whmcs_service_id` on deleted user id=20; remapped connected `ms365_tenant_records.id=6` to service 5399; cleared tenant id=10 link.
+- **Remeter:** `Ms365BillingService` + `E3CloudBackupBilling` meter/rate/apply on 5399 → resolves backup_user_id=12; live **Protected Users=122** (`$427.00` = 122×$3.50); config option qty updated.
+- **Verify:** Storage service **5379** Active (`757787071476$mfreredeetkencom` / `s3_users.id=653`); MS365 vault `e3ms365-df0f6f3a4b869ebb7079f1e3` still on tenant 6 / backup user 12. Next due 2026-08-07.
+- **Note:** `s3_cloudbackup_trial_state` for 5399 still `trialing` until 2026-08-07 (agent metrics $0); MS365 protected-users rating uses settings pricing (not trial-zeroed).
 
 ### 2026-08-01 — Disk pressure latch: Kopia cache hard-limit no-op + soft-pressure escalation (worker 0.4.30)
 
