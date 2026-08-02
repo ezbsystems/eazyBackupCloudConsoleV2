@@ -55,33 +55,33 @@ add_hook('AdminAreaHeadOutput', 112222, function ($vars) {
             if (is_string($user)) {
                 return $return;
             }
-        } catch (\Throwable $e) {
-            return $return;
-        }
 
-        // Retrieve existing usage data
-        $deviceCount = comet_DeviceCount($user);
-        $totalStorageUsed = getUserStorage($username);
-        $protectedItemsSummary = getUserProtectedItemsSummary($username);
-        $totalAccountsCount = $protectedItemsSummary['totalAccountsCount'];
+            // Retrieve existing usage data
+            $deviceCount = comet_DeviceCount($user);
+            $totalStorageUsed = getUserStorage($username);
+            $protectedItemsSummary = getUserProtectedItemsSummary($username);
+            $totalAccountsCount = $protectedItemsSummary['totalAccountsCount'];
 
-        // Engine counts and VM guest counts per engine using summary functions
-        $vmCounts = comet_getVmCountsByEngineFromUser($user);
-        $hypervVmCount = $vmCounts['hyperv'];
-        $vmwareVmCount = $vmCounts['vmware'];
-        $proxmoxVmCount = $vmCounts['proxmox'];
+            // Engine counts and VM guest counts per engine using summary functions
+            $vmCounts = comet_getVmCountsByEngineFromUser($user);
+            $hypervVmCount = $vmCounts['hyperv'];
+            $vmwareVmCount = $vmCounts['vmware'];
+            $proxmoxVmCount = $vmCounts['proxmox'];
 
-        // Legacy engine counts for display
-        $diskImageCount = 0;
-        $fileFolderCount = 0;
-        if (isset($user->Sources) && is_array($user->Sources)) {
-            foreach ($user->Sources as $source) {
-                if (isset($source->Engine)) {
-                    $engineLower = strtolower($source->Engine);
-                    if ($engineLower === 'engine1/windisk') { $diskImageCount++; }
-                    if ($engineLower === 'engine1/file') { $fileFolderCount++; }
+            // Legacy engine counts for display
+            $diskImageCount = 0;
+            $fileFolderCount = 0;
+            if (isset($user->Sources) && is_array($user->Sources)) {
+                foreach ($user->Sources as $source) {
+                    if (isset($source->Engine)) {
+                        $engineLower = strtolower($source->Engine);
+                        if ($engineLower === 'engine1/windisk') { $diskImageCount++; }
+                        if ($engineLower === 'engine1/file') { $fileFolderCount++; }
+                    }
                 }
             }
+        } catch (\Throwable $e) {
+            return $return;
         }
 
         $return .= '<script type="text/javascript">

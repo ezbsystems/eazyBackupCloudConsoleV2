@@ -8,6 +8,28 @@ use WHMCS\Database\Capsule;
 require_once __DIR__ . '/../../../init.php';
 require_once __DIR__ . "/functions.php";
 
+/**
+ * Resolve a Comet hosting row for a username.
+ * Prefer servertype=comet so shared usernames with e3 Backup User / other products
+ * do not break comet_ProductParams().
+ *
+ * @return object|null {id, username, packageid, server}
+ */
+function comet_HostingByUsername(string $username)
+{
+    $username = trim($username);
+    if ($username === '') {
+        return null;
+    }
+
+    return Capsule::table('tblhosting as h')
+        ->join('tblproducts as p', 'p.id', '=', 'h.packageid')
+        ->where('h.username', $username)
+        ->where('p.servertype', 'comet')
+        ->orderBy('h.id')
+        ->first(['h.id', 'h.username', 'h.packageid', 'h.server']);
+}
+
 function getBackupSummary($clientId) {
     // Get all products for this client in one query.
     $products = Capsule::table('tblhosting')
@@ -195,15 +217,13 @@ function getBackupSummary($clientId) {
 function getUserStorage($username) {
     $totalStorageUsed = 0;
 
-    $product = Capsule::table('tblhosting')
-        ->where('username', $username)
-        ->first(['username', 'packageid']);
+    $product = comet_HostingByUsername((string) $username);
 
     if (!$product) {
         return comet_HumanFileSize($totalStorageUsed, 2);
     }
 
-    $params = comet_ProductParams($product->packageid); // Pass the package ID to the function
+    $params = comet_ProductParams($product->packageid, $product->server ?? null);
     $params['username'] = $product->username;
 
     if ($params['serverhostname'] === null || $params['serverusername'] === null) {
@@ -365,9 +385,7 @@ function getUserProtectedItemsSummary($username) {
     $totalVmCount = 0;
     $totalAccountsCount = 0;
 
-    $product = Capsule::table('tblhosting')
-        ->where('username', $username)
-        ->first(['username', 'packageid']);
+    $product = comet_HostingByUsername((string) $username);
 
     if (!$product) {
         return [
@@ -376,7 +394,7 @@ function getUserProtectedItemsSummary($username) {
         ];
     }
 
-    $params = comet_ProductParams($product->packageid); // Pass the package ID to the function
+    $params = comet_ProductParams($product->packageid, $product->server ?? null); // Pass the package ID to the function
     $params['username'] = $product->username;
 
     if ($params['serverhostname'] === null || $params['serverusername'] === null) {
@@ -422,15 +440,13 @@ function comet_getUserTotalSize($username)
 {
     $sumBytes = 0;
 
-    $product = Capsule::table('tblhosting')
-        ->where('username', $username)
-        ->first(['username', 'packageid']);
+    $product = comet_HostingByUsername((string) $username);
 
     if (!$product) {
         return ['bytes' => 0, 'human' => 'N/A'];
     }
 
-    $params = comet_ProductParams($product->packageid);
+    $params = comet_ProductParams($product->packageid, $product->server ?? null);
     $params['username'] = $product->username;
 
     if (!$params['serverhostname'] || !$params['serverusername']) {
@@ -777,15 +793,13 @@ function comet_getVmCountsByEngineFromUser($user) {
  * @return array { 'hyperv' => int, 'vmware' => int, 'proxmox' => int, 'total' => int }
  */
 function comet_getUserVmCountsByEngine($username) {
-    $product = Capsule::table('tblhosting')
-        ->where('username', $username)
-        ->first(['username', 'packageid']);
+    $product = comet_HostingByUsername((string) $username);
 
     if (!$product) {
         return [ 'hyperv' => 0, 'vmware' => 0, 'proxmox' => 0, 'total' => 0 ];
     }
 
-    $params = comet_ProductParams($product->packageid);
+    $params = comet_ProductParams($product->packageid, $product->server ?? null);
     $params['username'] = $product->username;
 
     if (empty($params['serverhostname']) || empty($params['serverusername'])) {
