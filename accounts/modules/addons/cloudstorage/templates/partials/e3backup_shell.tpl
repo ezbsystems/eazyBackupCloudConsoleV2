@@ -15,6 +15,7 @@
 
 {include file="modules/addons/eazybackup/templates/partials/_ui-tokens.tpl"}
 {include file="modules/addons/cloudstorage/templates/partials/e3backup_toast_stack.tpl"}
+{include file="modules/addons/cloudstorage/templates/partials/e3backup_sidebar_responsive_script.tpl"}
 
 {* Defaults so child includes work even when the e3backup view didn't inject these vars. *}
 {assign var=ebE3OnboardingState value=$ebE3OnboardingState|default:null}
@@ -35,34 +36,22 @@
 {if $ebGsUserId neq ''}
     {capture assign=ebGsGettingStartedHref}index.php?m=cloudstorage&page=e3backup&view=getting_started&user_id={$ebGsUserId|escape:'url'}&intent={$ebGsIntent|escape:'url'}{/capture}
 {/if}
+{assign var=ebE3HasHeader value=($ebE3TitleHtml|trim neq '' || $ebE3Title|trim neq '' || $ebE3Icon|trim neq '' || $ebE3Actions|trim neq '')}
 
 <div class="eb-page">
     <div class="eb-page-inner">
-        <div x-data="{
-            sidebarCollapsed: localStorage.getItem('eb_e3_sidebar_collapsed') === 'true' || window.innerWidth < 1360,
-            toggleCollapse() {
-                this.sidebarCollapsed = !this.sidebarCollapsed;
-                localStorage.setItem('eb_e3_sidebar_collapsed', this.sidebarCollapsed);
-                try {
-                    window.dispatchEvent(new CustomEvent('eb-e3-sidebar-collapsed-changed', {
-                        detail: { collapsed: this.sidebarCollapsed }
-                    }));
-                } catch (e) {}
-            },
-            handleResize() {
-                if (window.innerWidth < 1360 && !this.sidebarCollapsed) {
-                    this.sidebarCollapsed = true;
-                    try {
-                        window.dispatchEvent(new CustomEvent('eb-e3-sidebar-collapsed-changed', {
-                            detail: { collapsed: this.sidebarCollapsed }
-                        }));
-                    } catch (e) {}
-                }
-            }
-        }"
-        x-init="window.addEventListener('resize', () => handleResize()); if (window.ebE3SyncAppMinHeight) window.ebE3SyncAppMinHeight($el);"
+        <div x-data="ebE3SidebarResponsive()"
+        x-init="init(); if (window.ebE3SyncAppMinHeight) window.ebE3SyncAppMinHeight($el);"
+        @keydown.window="onDrawerKeydown($event)"
         class="eb-panel eb-panel--e3-min-h !p-0 {$ebE3PanelClass}">
-            <div class="eb-app-shell">
+            <div
+                x-show="mobileDrawerOpen"
+                x-cloak
+                class="eb-e3-sidebar-backdrop"
+                @click="closeMobileDrawer()"
+                aria-hidden="true"
+            ></div>
+            <div class="eb-app-shell eb-app-shell--e3-responsive">
                 {include file="modules/addons/cloudstorage/templates/partials/e3backup_sidebar.tpl"
                     activeNav=$ebE3SidebarPage
                     ebE3SidebarUsername=$ebE3SidebarUsername
@@ -82,8 +71,38 @@
                     ebGsIntent=$ebGsIntent
                 }
                 <main class="eb-app-main">
-                    {if $ebE3TitleHtml|trim neq '' || $ebE3Title|trim neq '' || $ebE3Icon|trim neq '' || $ebE3Actions|trim neq ''}
+                    {if not $ebE3HasHeader}
+                    <div class="eb-e3-mobile-nav-bar lg:hidden" x-show="isMobileMode" x-cloak>
+                        <button
+                            type="button"
+                            class="eb-e3-sidebar-mobile-toggle"
+                            aria-label="Open navigation menu"
+                            aria-controls="eb-e3-sidebar-drawer"
+                            :aria-expanded="mobileDrawerOpen ? 'true' : 'false'"
+                            @click="openMobileDrawer($el)"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-5 w-5" aria-hidden="true">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
+                            </svg>
+                        </button>
+                    </div>
+                    {/if}
+                    {if $ebE3HasHeader}
                         <div class="eb-app-header {$ebE3HeaderClass}">
+                            <button
+                                type="button"
+                                x-show="isMobileMode"
+                                x-cloak
+                                class="eb-e3-sidebar-mobile-toggle lg:hidden"
+                                aria-label="Open navigation menu"
+                                aria-controls="eb-e3-sidebar-drawer"
+                                :aria-expanded="mobileDrawerOpen ? 'true' : 'false'"
+                                @click="openMobileDrawer($el)"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-5 w-5" aria-hidden="true">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
+                                </svg>
+                            </button>
                             {if $ebE3TitleHtml|trim neq ''}
                             <div class="eb-app-header-copy min-w-0 flex-1 !items-start">
                                 {$ebE3TitleHtml nofilter}
@@ -143,6 +162,15 @@
                     </div>
                 </main>
             </div>
+            <div
+                x-show="tooltip.visible"
+                x-cloak
+                x-transition.opacity
+                class="eb-e3-sidebar-tooltip"
+                role="tooltip"
+                :style="'left:' + tooltip.x + 'px; top:' + tooltip.y + 'px;'"
+                x-text="tooltip.label"
+            ></div>
         </div>
     </div>
 </div>

@@ -19,6 +19,22 @@ function e3UserDetailSidebarNav() {
                 return false;
             }
         },
+        get isRailMode() {
+            void this._sidebarCollapsedTick;
+            try {
+                return !!(this.$root && this.$root.isRailMode);
+            } catch (e) {
+                return false;
+            }
+        },
+        get sidebarLabelsVisible() {
+            void this._sidebarCollapsedTick;
+            try {
+                return !!(this.$root && this.$root.sidebarLabelsVisible);
+            } catch (e) {
+                return true;
+            }
+        },
         init() {
             const cfg = window.__ebE3UserSubnavConfig || {};
             if (cfg.external && cfg.activeTab) {
