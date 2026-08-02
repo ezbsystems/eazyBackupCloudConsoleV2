@@ -781,6 +781,53 @@ try {
             echo json_encode(['ok' => true] + $result);
             break;
 
+        case 'deprovision_client_search':
+            $q = trim((string) ($_GET['q'] ?? ''));
+            $clients = \Ms365Backup\Ms365AdminDeprovisionService::searchClients($q);
+            echo json_encode(['ok' => true, 'clients' => $clients]);
+            break;
+
+        case 'deprovision_list_users':
+            $clientId = (int) ($_GET['client_id'] ?? 0);
+            if ($clientId <= 0) {
+                throw new \RuntimeException('client_id required');
+            }
+            $payload = \Ms365Backup\Ms365AdminDeprovisionService::listBackupUsersForClient($clientId);
+            echo json_encode(['ok' => true] + $payload);
+            break;
+
+        case 'deprovision_lookup_service':
+            $serviceId = (int) ($_GET['service_id'] ?? 0);
+            if ($serviceId <= 0) {
+                throw new \RuntimeException('service_id required');
+            }
+            $payload = \Ms365Backup\Ms365AdminDeprovisionService::resolveByServiceId($serviceId);
+            echo json_encode(['ok' => true] + $payload);
+            break;
+
+        case 'deprovision_preview':
+            $backupUserId = (int) ($_GET['backup_user_id'] ?? 0);
+            if ($backupUserId <= 0) {
+                throw new \RuntimeException('backup_user_id required');
+            }
+            $preview = \Ms365Backup\Ms365AdminDeprovisionService::buildPreview($backupUserId);
+            echo json_encode(['ok' => true, 'preview' => $preview]);
+            break;
+
+        case 'deprovision_execute':
+            $backupUserId = (int) ($_POST['backup_user_id'] ?? 0);
+            if ($backupUserId <= 0) {
+                throw new \RuntimeException('backup_user_id required');
+            }
+            $confirmPhrase = trim((string) ($_POST['confirm_phrase'] ?? ''));
+            if ($confirmPhrase === '') {
+                throw new \RuntimeException('confirm_phrase required');
+            }
+            $adminId = (int) ($_SESSION['adminid'] ?? 0);
+            $result = \Ms365Backup\Ms365AdminUsersService::deprovision($backupUserId, $confirmPhrase, $adminId);
+            echo json_encode(['ok' => true] + $result);
+            break;
+
         case 'jobs_batch_logs':
             $batchRunId = trim((string) ($_GET['batch_run_id'] ?? ''));
             if ($batchRunId === '') {

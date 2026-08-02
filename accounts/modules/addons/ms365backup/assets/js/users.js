@@ -83,7 +83,7 @@
         items.push('<li><a href="#" class="ms365-user-unsuspend" data-id="' + esc(id) + '">Unsuspend</a></li>');
       }
       items.push('<li class="divider"></li>');
-      items.push('<li><a href="#" class="ms365-user-deprovision text-danger" data-id="' + esc(id) + '" data-username="' + esc(username) + '">Deprovision…</a></li>');
+      items.push('<li><a href="' + esc(baseUrl + '&action=deprovision&backup_user_id=' + encodeURIComponent(id)) + '" class="text-danger">Deprovision…</a></li>');
     }
 
     if (!items.length) {
@@ -161,25 +161,6 @@
         if (!id || !window.confirm('Unsuspend this backup user and restore prior job statuses?')) return;
         post('users_unsuspend', { backup_user_id: id }).then(function (res) {
           alert(res.ok ? 'User unsuspended.' : (res.error || 'Unsuspend failed'));
-          loadUsers();
-        });
-      });
-    });
-    wrap.querySelectorAll('.ms365-user-deprovision').forEach(function (el) {
-      el.addEventListener('click', function (e) {
-        e.preventDefault();
-        var id = el.getAttribute('data-id');
-        var username = el.getAttribute('data-username') || '';
-        var expected = 'DELETE ' + username;
-        var phrase = window.prompt('Type exactly: ' + expected);
-        if (phrase === null) return;
-        if (phrase !== expected) {
-          alert('Confirmation phrase does not match.');
-          return;
-        }
-        if (!window.confirm('Permanently deprovision ' + username + '? This cannot be undone.')) return;
-        post('users_deprovision', { backup_user_id: id, confirm_phrase: phrase }).then(function (res) {
-          alert(res.ok ? (res.message || 'User deprovisioned.') : (res.error || 'Deprovision failed'));
           loadUsers();
         });
       });

@@ -28,7 +28,7 @@ function ms365backup_config(): array
     return [
         'name' => 'MS365 Backup',
         'description' => 'Admin-only Microsoft 365 backup development tool (mail, calendar, contacts, To Do, OneDrive).',
-        'version' => '1.52.42',
+        'version' => '1.52.43',
         'author' => 'eazyBackup',
         'language' => 'english',
         'fields' => [
@@ -797,6 +797,7 @@ function ms365backup_sidebar(array $vars): string
         . '<a href="' . $base . '&action=fleet" class="list-group-item"><i class="fa fa-server"></i> Worker Fleet</a>'
         . '<a href="' . $base . '&action=jobs" class="list-group-item"><i class="fa fa-list"></i> Jobs</a>'
         . '<a href="' . $base . '&action=users" class="list-group-item"><i class="fa fa-users"></i> Users</a>'
+        . '<a href="' . $base . '&action=deprovision" class="list-group-item"><i class="fa fa-user-times"></i> Deprovision</a>'
         . '<a href="' . $base . '&action=trials" class="list-group-item"><i class="fa fa-clock-o"></i> Trials</a>'
         . '<a href="' . $base . '&action=provision" class="list-group-item"><i class="fa fa-user-plus"></i> Provision Customer</a>'
         . '<a href="' . $base . '&action=tenant_export" class="list-group-item"><i class="fa fa-key"></i> Tenant Export</a>'
@@ -866,6 +867,7 @@ function ms365backup_output(array $vars): void
         'fleet' => 'Worker Fleet',
         'jobs' => 'Jobs',
         'users' => 'Users',
+        'deprovision' => 'Deprovision',
         'trials' => 'Trials',
         'provision' => 'Provision Customer',
         'tenant_export' => 'Tenant Export',
@@ -902,6 +904,9 @@ function ms365backup_output(array $vars): void
             break;
         case 'users':
             require __DIR__ . '/pages/admin/users.php';
+            break;
+        case 'deprovision':
+            require __DIR__ . '/pages/admin/deprovision.php';
             break;
         case 'user_jobs':
             require __DIR__ . '/pages/admin/user_jobs.php';

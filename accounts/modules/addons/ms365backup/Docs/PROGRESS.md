@@ -11,6 +11,13 @@
 
 ## Session log
 
+### 2026-08-02 — Admin e3 Backup User deprovision page (ms365backup 1.52.43)
+
+- **Goal:** Dedicated MS365 admin deprovision workflow for a single e3 Backup User (client/service search → preview → confirm), without touching e3 Object Storage.
+- **Ship:** New `action=deprovision` page + `Ms365AdminDeprovisionService` (client typeahead, service ID lookup, enriched preview with jobs/vaults/will-not-touch object storage). API ops: `deprovision_client_search`, `deprovision_list_users`, `deprovision_lookup_service`, `deprovision_preview`, `deprovision_execute`. Execute reuses `E3BackupUserLifecycleService` via `Ms365AdminUsersService::deprovision`. Users-tab Deprovision deep-links to `deprovision?backup_user_id=N`.
+- **Design:** [2026-08-02-admin-e3-backup-user-deprovision-design.md](specs/2026-08-02-admin-e3-backup-user-deprovision-design.md)
+- **Verify:** `php -l` on changed PHP files PASS; `ms365_admin_deprovision_service_test.php` PASS (preview shape + PID 108).
+
 ### 2026-08-02 — Prod ops: restore billing for deetkeninsight after wrong service delete (client 2721)
 
 - **Incident:** Admin deleted WHMCS service **5380** (e3 Backup User for active `deetkeninsight` / `public_id=6FF3AE2AC48D31C97A848B8712`). Active e3 user + MS365 tenant/job remained; cancelled twin service **5399** (`deetkeninsight26`, deleted backup user id=20) was unused.
