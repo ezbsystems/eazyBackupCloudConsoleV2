@@ -88,7 +88,7 @@ final class Ms365BatchRunRepository
      *
      * @return string skip batch run UUID
      */
-    public static function recordScheduledSkip(string $e3JobId, string $existingBatchRunId): string
+    public static function recordScheduledSkip(string $e3JobId, string $existingBatchRunId, string $existingStatus = 'running'): string
     {
         if (!self::isUuid($e3JobId) || !self::isUuid($existingBatchRunId)) {
             throw new \RuntimeException('Invalid job or run id for schedule skip.');
@@ -99,6 +99,26 @@ final class Ms365BatchRunRepository
 
         $runId = self::uuid();
         $now = date('Y-m-d H:i:s');
+        $status = trim($existingStatus) !== '' ? trim($existingStatus) : 'running';
+        $startedAt = null;
+        $parent = Capsule::table('s3_cloudbackup_runs')
+            ->whereRaw('run_id = ' . self::uuidToDbExpr($existingBatchRunId))
+            ->first(['started_at', 'created_at', 'status']);
+        if ($parent !== null) {
+            $startedAt = (string) ($parent->started_at ?? $parent->created_at ?? '');
+            if (trim((string) ($parent->status ?? '')) !== '') {
+                $status = trim((string) $parent->status);
+            }
+        }
+        $ageHint = '';
+        if ($startedAt !== null && $startedAt !== '') {
+            $startedTs = strtotime($startedAt);
+            if ($startedTs !== false) {
+                $hours = max(0, (int) floor((time() - $startedTs) / 3600));
+                $ageHint = $hours > 0 ? " (running for {$hours}h)" : '';
+            }
+        }
+        $shortId = substr($existingBatchRunId, 0, 8);
         $insert = [
             'run_id' => self::uuidToBinary($runId),
             'job_id' => self::uuidToBinary($e3JobId),
@@ -107,7 +127,8 @@ final class Ms365BatchRunRepository
             'created_at' => $now,
             'started_at' => $now,
             'finished_at' => $now,
-            'error_summary' => 'Scheduled backup skipped: a previous run is still in progress.',
+            'error_summary' => 'Scheduled backup skipped: previous run '
+                . $shortId . '… still in progress (' . $status . ')' . $ageHint . '.',
         ];
 
         if (Capsule::schema()->hasColumn('s3_cloudbackup_runs', 'engine')) {
@@ -121,6 +142,8 @@ final class Ms365BatchRunRepository
                 'ms365_schedule_skip' => true,
                 'skipped_reason' => 'overlap',
                 'existing_batch_run_id' => $existingBatchRunId,
+                'existing_batch_status' => $status,
+                'existing_batch_started_at' => $startedAt,
             ], JSON_UNESCAPED_SLASHES);
         }
 

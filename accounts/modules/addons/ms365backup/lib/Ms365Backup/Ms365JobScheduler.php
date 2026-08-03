@@ -77,7 +77,22 @@ final class Ms365JobScheduler
             $active = Ms365JobOverlapGuard::findActiveBackupBatch($jobId);
             if ($active !== null) {
                 try {
-                    Ms365BatchRunRepository::recordScheduledSkip($jobId, $active['run_id']);
+                    // #region agent log
+                    @file_put_contents('/var/www/eazybackup.ca/.cursor/debug-58741c.log', json_encode([
+                        'sessionId' => '58741c',
+                        'runId' => 'schedule-skip',
+                        'hypothesisId' => 'H1',
+                        'location' => 'Ms365JobScheduler.php:runDueJobs',
+                        'message' => 'schedule skipped due to active batch',
+                        'data' => [
+                            'job_id' => $jobId,
+                            'active_run_id' => $active['run_id'],
+                            'active_status' => $active['status'],
+                        ],
+                        'timestamp' => (int) (microtime(true) * 1000),
+                    ], JSON_UNESCAPED_SLASHES) . "\n", FILE_APPEND);
+                    // #endregion
+                    Ms365BatchRunRepository::recordScheduledSkip($jobId, $active['run_id'], $active['status']);
                     self::persistScheduledKey($jobId, $scheduleJson, $minuteKey);
                     Ms365CustomerError::log(
                         'Ms365JobScheduler',

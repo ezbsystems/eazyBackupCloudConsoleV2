@@ -93,6 +93,17 @@ assert_true(
     'infra graph_sync stall cap message is non-retryable'
 );
 
+assert_true(
+    !JobQueueRepository::isNonRetryableError('kopia upload stalled: no hashing or upload progress for 2700s'),
+    'kopia upload stall is retryable (transient infra)'
+);
+
+$serviceReadOnly = 'onedrive: graph 403 Forbidden: {"error":{"code":"accessDenied","innerError":{"code":"serviceReadOnly"},"message":"Database Is Read Only"}}';
+assert_true(
+    !JobQueueRepository::isNonRetryableError($serviceReadOnly),
+    'OneDrive serviceReadOnly / Database Is Read Only is retryable'
+);
+
 $directoryPagination = 'directory: Graph pagination loop suspected: 3 consecutive empty page(s) still have @odata.nextLink [directory:users]';
 assert_true(
     Ms365CustomerError::message(new \RuntimeException($directoryPagination))
