@@ -20,7 +20,8 @@
   - PHP: `KopiaSnapshotBrowseService::warmBrowseRepository()` (socket-only, best-effort); `Ms365E3Controller::browseRestoreSnapshot` triggers prewarm when returning synthetic workload roots.
 - **Baseline:** prod first browse 620,597 ms → warm 223 ms; 25,414 index blobs pre-compaction.
 - **Verify (dev):** `go test ./...` PASS; `ms365_restore_tree_browse_test.php` PASS; `ms365_browse_binary_installer_test.php` PASS; browse socket warm ack `{"ok":true}`.
-- **Deploy:** commit + push `origin/main`; publish worker 0.4.31; `deploy-production.sh`; enqueue one-time `maintenance_full` for repo `20`; validate cold/warm browse post-compaction.
+- **Deploy (prod):** commit `838cc49c` pushed; release **75** (`0.4.31`, sha256 `960370b1…`) published dev→prod; `deploy-production.sh` synced WHMCS PHP; browse binary **0.4.31** on prod WHMCS; fleet deploy job **41** → **8/8** nodes on **0.4.31**; browse socket ping alive.
+- **Compaction (repo 20):** enqueued `maintenance_full` op **572** (with `e3_job_id=a98f9943-…`) — **running** as of session end (op 571 failed: missing `e3_job_id` → invalid repo password). Post-compaction cold/warm browse validation pending op 572 success (`index_blobs_after` must fall below 5000).
 
 ### 2026-08-03 — Users-only billing (Comet parity, PHP 1.52.44)
 
