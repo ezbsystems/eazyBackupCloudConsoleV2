@@ -716,6 +716,10 @@
     function selectionWorkloadCounts(inventory, treesBySection, selection) {
         const counts = {
             protected_accounts: 0,
+            users_and_mailboxes: 0,
+            users: 0,
+            shared_mailboxes: 0,
+            guests: 0,
             mail: 0,
             calendar: 0,
             contacts: 0,
@@ -750,12 +754,19 @@
             }
 
             if (section.key === 'users') {
-                let protectedAccounts = 0;
+                let usersAndMailboxes = 0;
                 nodes.filter((n) => n.kind === 'parent').forEach((parent) => {
                     if (!parentHasSelection(nodes, selection, parent, indexes)) {
                         return;
                     }
-                    protectedAccounts += 1;
+                    usersAndMailboxes += 1;
+                    if (parent.iconKey === 'guest') {
+                        counts.guests += 1;
+                    } else if (parent.resourceType === TYPE_MAILBOX) {
+                        counts.shared_mailboxes += 1;
+                    } else {
+                        counts.users += 1;
+                    }
                     getDescendants(nodes, parent.key, indexes).forEach((child) => {
                         if (child.kind !== 'capability' || !isChecked(selection, child.key)) {
                             return;
@@ -773,7 +784,9 @@
                         }
                     });
                 });
-                counts.protected_accounts = protectedAccounts;
+                counts.users_and_mailboxes = usersAndMailboxes;
+                // Keep legacy key for callers that still read protected_accounts.
+                counts.protected_accounts = usersAndMailboxes;
                 return;
             }
 

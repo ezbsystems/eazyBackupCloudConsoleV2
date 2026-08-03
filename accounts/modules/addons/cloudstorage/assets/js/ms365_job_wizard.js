@@ -1528,8 +1528,9 @@
 
             selectionSummaryRowCount() {
                 const counts = this.selectionWorkloadCounts || {};
-                if (Number(counts.protected_accounts) > 0) {
-                    return Number(counts.protected_accounts);
+                const accounts = Number(counts.users_and_mailboxes || counts.protected_accounts || 0);
+                if (accounts > 0) {
+                    return accounts;
                 }
                 return (this.savedSelectionIds || []).length;
             },
@@ -1537,6 +1538,12 @@
             workloadCount(key) {
                 const counts = this.selectionWorkloadCounts || {};
                 return Number(counts[key] || 0);
+            },
+
+            hasAnyAccountBreakdown() {
+                return this.workloadCount('users') > 0
+                    || this.workloadCount('shared_mailboxes') > 0
+                    || this.workloadCount('guests') > 0;
             },
 
             hasAnyUserWorkloadCounts() {

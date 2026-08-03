@@ -1,4 +1,4 @@
-<link rel="stylesheet" href="modules/addons/cloudstorage/assets/css/ms365_job_wizard.css?v=24">
+<link rel="stylesheet" href="modules/addons/cloudstorage/assets/css/ms365_job_wizard.css?v=25">
 <link rel="stylesheet" href="modules/addons/cloudstorage/assets/css/ms365_restore_wizard.css?v=6">
 
 <div id="ms365JobWizardModal" class="ms365-job-wizard-modal-host fixed inset-0 z-[2200] hidden" x-data="ms365WizardApp()" x-cloak>
@@ -384,9 +384,23 @@
                                     </template>
                                     <template x-if="selectionCount() > 0">
                                         <div class="ms365-selection-summary">
-                                            <div class="ms365-selection-summary__row" x-show="workloadCount('protected_accounts') > 0">
-                                                <span class="ms365-selection-summary__label">Protected accounts</span>
-                                                <span class="ms365-selection-summary__value" x-text="workloadCount('protected_accounts')"></span>
+                                            <div class="ms365-selection-summary__row" x-show="workloadCount('users_and_mailboxes') > 0">
+                                                <span class="ms365-selection-summary__label">Users &amp; mailboxes</span>
+                                                <span class="ms365-selection-summary__value" x-text="workloadCount('users_and_mailboxes')"></span>
+                                            </div>
+                                            <div class="ms365-selection-summary__workloads" x-show="hasAnyAccountBreakdown()">
+                                                <div class="ms365-selection-summary__chip" x-show="workloadCount('users') > 0">
+                                                    <span class="ms365-selection-summary__chip-label">Users</span>
+                                                    <span class="ms365-selection-summary__chip-value" x-text="workloadCount('users')"></span>
+                                                </div>
+                                                <div class="ms365-selection-summary__chip" x-show="workloadCount('shared_mailboxes') > 0">
+                                                    <span class="ms365-selection-summary__chip-label">Shared mailboxes</span>
+                                                    <span class="ms365-selection-summary__chip-value" x-text="workloadCount('shared_mailboxes')"></span>
+                                                </div>
+                                                <div class="ms365-selection-summary__chip" x-show="workloadCount('guests') > 0">
+                                                    <span class="ms365-selection-summary__chip-label">Guests</span>
+                                                    <span class="ms365-selection-summary__chip-value" x-text="workloadCount('guests')"></span>
+                                                </div>
                                             </div>
                                             <div class="ms365-selection-summary__workloads" x-show="hasAnyUserWorkloadCounts()">
                                                 <div class="ms365-selection-summary__chip" x-show="workloadCount('mail') > 0">
@@ -709,5 +723,5 @@
 </div>
 
 <script src="modules/addons/cloudstorage/assets/js/ms365_inventory_icons.js?v=1"></script>
-<script src="modules/addons/cloudstorage/assets/js/ms365_job_selection.js?v=8"></script>
-<script src="modules/addons/cloudstorage/assets/js/ms365_job_wizard.js?v=36"></script>
+<script src="modules/addons/cloudstorage/assets/js/ms365_job_selection.js?v=9"></script>
+<script src="modules/addons/cloudstorage/assets/js/ms365_job_wizard.js?v=37"></script>

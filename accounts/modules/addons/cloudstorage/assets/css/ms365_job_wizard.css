@@ -423,6 +423,14 @@
     gap: 0.375rem 0.5rem;
 }
 
+.ms365-selection-summary__row + .ms365-selection-summary__workloads {
+    margin-top: -0.125rem;
+}
+
+.ms365-selection-summary__workloads + .ms365-selection-summary__workloads {
+    margin-top: 0.125rem;
+}
+
 .ms365-selection-summary__chip {
     display: inline-flex;
     align-items: center;
