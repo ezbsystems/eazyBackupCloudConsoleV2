@@ -3,13 +3,20 @@
 **Purpose:** Single handoff document so the next agent knows where work stopped. Update this file at the **end of every session** (or after each meaningful milestone).
 
 **Last updated:** 2026-08-03
-**Module version (ms365backup):** 1.52.44
+**Module version (ms365backup):** 1.52.45
 **Cloudstorage (e3) version:** 2.2.4  
 **Worker version (ms365-backup-worker):** 0.4.32 (Kopia v0.23.1)
 
 ---
 
 ## Session log
+
+### 2026-08-03 — Prod ops: Evoke schedule overlap + YouCan failed workloads
+
+- **EvokeBuildings (job `c2d3313e…`, user `5DA332A9…`):** Nightly skips were correct — parent batch `fecc0d78…` ran **85h** (Jul 30→Aug 3) while SharePoint Documents child `1fc3effd…` hashed ~5.8 TiB / 891k items. Overlap guard clear now (`success`/`done`); tonight’s 23:25 schedule can start. Skip message now includes blocking run id/status/age.
+- **YouCanM365 (batch `f1b80eea…`):** 2 failed children — Administration site `kopia upload stalled` (2700s) and Wali OneDrive `graph 403 serviceReadOnly` / Database Is Read Only. Both were classified **non-retryable**, so auto-retry could never recover them. Ops requeued both preserving progress (`queued`, attempts=0); claim still owns the batch — stranded hand-off will pick them up after in-flight siblings drain.
+- **PHP 1.52.45:** `isNonRetryableError` — `serviceReadOnly`/`Database Is Read Only` retryable; remove `kopia upload stalled` from non-retryable; richer `recordScheduledSkip` summary. Tests updated.
+- **Deploy:** commit `69982c06` pushed → `deploy-production.sh` on prod.
 
 ### 2026-08-03 — Fleet Dashboard compaction visibility
 
