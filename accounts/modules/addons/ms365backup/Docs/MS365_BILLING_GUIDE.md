@@ -46,7 +46,7 @@ A **Protected User** is one distinct Microsoft 365 directory identity (by Azure 
 
 **Guests never bill** (personal or membership). They remain visible and backup-selectable; org data is still protected via Teams/SharePoint membership of licensed members.
 
-**Shared mailboxes** are always backup-selectable. They bill when **personally selected** (individually or via Select All), unless the account is a guest. Membership-only shared mailboxes still do not bill.
+**Shared mailboxes** are always backup-selectable but **never bill** as Protected Users (Comet parity). Membership-only shared mailboxes also do not bill.
 
 ### What counts as a Protected Object
 
@@ -339,5 +339,6 @@ Use **one backup user per end customer**, one WHMCS service per backup user. The
 |------|--------|
 | 2026-07-22 | Job wizard billing dock: replaced per-group/site breakdown list with collapsed **How this is calculated** reconciliation panel (direct appearances + membership appearances − duplicates = unique Protected Objects). Backend exposes `billing.reconciliation` from `ProtectedUserResolver`. |
 | 2026-07-06 | Initial guide: member-based Protected Users (teams/groups), peak billing, OneDrive overage, wizard estimate, KB-oriented structure |
-| 2026-07-27 | **Comet parity:** selected shared mailboxes bill (individual or Select All); guests never bill. |
+| 2026-08-03 | **Users-only billing (Comet parity):** shared/room/equipment mailboxes never bill; Protected Users = member users only (+ membership). |
+| 2026-07-27 | **Comet parity (superseded):** selected shared mailboxes bill — reverted 2026-08-03. |
 | 2026-07-27 | **Auto Protected Users:** guests never bill; Select All billing is automatic (no Count as Protected User). Supersedes EXCEPTION-SM manual override. |

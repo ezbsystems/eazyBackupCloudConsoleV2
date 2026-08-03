@@ -798,6 +798,7 @@
 
   .eb-e3-sidebar {
     --eb-e3-sidebar-rail-width: 56px;
+    --eb-e3-sidebar-rail-item: 44px;
     flex-shrink: 0;
     overflow: hidden;
     border-radius: var(--eb-radius-xl) 0 0 var(--eb-radius-xl);
@@ -808,12 +809,12 @@
     position: fixed;
     top: 0;
     left: var(--eb-mobile-sidebar-rail-width);
-    z-index: 100;
+    z-index: 40;
     width: min(var(--eb-mobile-sidebar-width), calc(100vw - var(--eb-mobile-sidebar-rail-width) - 0.5rem));
     max-width: calc(100vw - var(--eb-mobile-sidebar-rail-width) - 0.5rem);
     height: 100dvh;
     height: 100vh;
-    transform: translateX(-105%);
+    transform: translate3d(-110%, 0, 0);
     box-shadow: var(--eb-shadow-lg);
     pointer-events: none;
     padding-top: env(safe-area-inset-top, 0);
@@ -821,25 +822,42 @@
   }
 
   .eb-e3-sidebar--drawer.eb-e3-sidebar--drawer-open {
-    transform: translateX(0);
+    z-index: 40;
+    transform: translate3d(0, 0, 0);
     pointer-events: auto;
   }
 
   .eb-e3-sidebar--rail {
     width: var(--eb-e3-sidebar-rail-width);
+    min-width: var(--eb-e3-sidebar-rail-width);
+    max-width: var(--eb-e3-sidebar-rail-width);
+    transform: none;
   }
 
   .eb-e3-sidebar--full {
     width: var(--eb-sidebar-width, 14rem);
+    transform: none;
   }
 
   .eb-e3-sidebar-inner {
     min-height: 100%;
   }
 
+  .eb-e3-sidebar--rail .eb-e3-sidebar-inner {
+    width: var(--eb-e3-sidebar-rail-width);
+    min-width: var(--eb-e3-sidebar-rail-width);
+    max-width: var(--eb-e3-sidebar-rail-width);
+  }
+
   .eb-e3-sidebar-nav {
     scrollbar-width: thin;
     scrollbar-color: var(--eb-border-default) transparent;
+  }
+
+  .eb-e3-sidebar--rail .eb-e3-sidebar-nav,
+  .eb-e3-sidebar-nav--rail {
+    padding-left: 6px !important;
+    padding-right: 6px !important;
   }
 
   .eb-e3-sidebar-footer {
@@ -849,28 +867,39 @@
     padding-bottom: calc(0.75rem + env(safe-area-inset-bottom, 0));
   }
 
+  .eb-e3-sidebar--rail .eb-e3-sidebar-footer {
+    padding-left: 6px !important;
+    padding-right: 6px !important;
+  }
+
   .eb-e3-sidebar-link--rail,
-  .eb-e3-sidebar-sublink.eb-e3-sidebar-link--rail {
+  .eb-e3-sidebar-sublink.eb-e3-sidebar-link--rail,
+  .eb-e3-sidebar--rail .eb-sidebar-link,
+  .eb-e3-sidebar--rail .eb-e3-sidebar-sublink {
     justify-content: center;
     padding-left: 0;
     padding-right: 0;
-    min-width: 44px;
-    min-height: 44px;
+    min-width: var(--eb-e3-sidebar-rail-item);
+    min-height: var(--eb-e3-sidebar-rail-item);
     margin-left: auto;
     margin-right: auto;
-    width: 44px;
+    width: var(--eb-e3-sidebar-rail-item) !important;
+    max-width: var(--eb-e3-sidebar-rail-item);
     border-left-width: 0;
     border-radius: var(--eb-radius-md);
   }
 
   .eb-e3-sidebar-link--rail .eb-sidebar-badge,
-  .eb-e3-sidebar-sublink.eb-e3-sidebar-link--rail .eb-sidebar-badge {
+  .eb-e3-sidebar-sublink.eb-e3-sidebar-link--rail .eb-sidebar-badge,
+  .eb-e3-sidebar--rail .eb-sidebar-badge {
     display: none;
   }
 
-  .eb-e3-sidebar-btn--rail {
-    width: 44px !important;
-    min-width: 44px;
+  .eb-e3-sidebar-btn--rail,
+  .eb-e3-sidebar--rail .eb-e3-sidebar-btn--rail {
+    width: var(--eb-e3-sidebar-rail-item) !important;
+    min-width: var(--eb-e3-sidebar-rail-item);
+    max-width: var(--eb-e3-sidebar-rail-item);
     padding-left: 0 !important;
     padding-right: 0 !important;
     margin-left: auto;
@@ -882,11 +911,21 @@
     flex-direction: column;
     align-items: center;
     gap: 2px;
-    margin: 4px 0 8px;
+    margin: 4px auto 8px;
     padding: 4px 0;
+    width: var(--eb-e3-sidebar-rail-item);
+    min-width: var(--eb-e3-sidebar-rail-item);
+    max-width: var(--eb-e3-sidebar-rail-item);
     border-left: 0;
     background: color-mix(in srgb, var(--eb-bg-hover) 55%, transparent);
     border-radius: var(--eb-radius-md);
+  }
+
+  .eb-e3-sidebar-subnav--rail .eb-e3-sidebar-sublink,
+  .eb-e3-sidebar-subnav--rail .eb-sidebar-link {
+    width: var(--eb-e3-sidebar-rail-item) !important;
+    max-width: var(--eb-e3-sidebar-rail-item);
+    min-width: var(--eb-e3-sidebar-rail-item);
   }
 
   .eb-e3-sidebar-subnav--rail .eb-e3-sidebar-sublink svg {

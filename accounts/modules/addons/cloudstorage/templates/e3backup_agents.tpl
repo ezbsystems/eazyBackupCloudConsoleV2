@@ -237,19 +237,15 @@
                                         <span class="text-xs text-[var(--eb-text-muted)]" x-show="agent.seconds_since_seen !== null && agent.seconds_since_seen !== undefined && agent.online_status !== 'online'" x-text="'(' + agent.seconds_since_seen + 's)'"></span>
                                     </div>
                                 </td>
-                                <td class="eb-table-mono eb-table-primary" x-show="showAgentUuid" x-text="agent.agent_uuid || '—'"></td>
-                                <td class="eb-table-primary" x-text="agent.hostname || '—'"></td>
+                                <td class="eb-table-mono" x-show="showAgentUuid" x-text="agent.agent_uuid || '—'"></td>
+                                <td class="eb-table-primary text-[var(--eb-text-primary)]" x-text="agent.hostname || '—'"></td>
                                 <td class="eb-table-mono" x-show="showDeviceId" x-text="agent.device_id || '—'"></td>
                                 <td x-show="showDeviceName" x-text="agent.device_name || '—'"></td>
                                 {if $isMspClient}
                                 <td x-text="agent.tenant_name || 'Direct'"></td>
                                 {/if}
+                                <td x-text="agent.agent_type || 'workstation'"></td>
                                 <td>
-                                    <span class="eb-badge"
-                                          :class="agent.agent_type === 'server' ? 'eb-badge--premium' : (agent.agent_type === 'hypervisor' ? 'eb-badge--warning' : 'eb-badge--info')"
-                                          x-text="agent.agent_type || 'workstation'"></span>
-                                </td>
-                                <td class="eb-table-primary">
                                     <div class="flex items-center gap-2">
                                         <span x-text="agent.agent_version || '—'"></span>
                                         <span class="eb-badge eb-badge--warning"
@@ -257,9 +253,7 @@
                                               title="A newer version is available">Update</span>
                                     </div>
                                 </td>
-                                <td>
-                                    <span class="eb-badge" :class="agent.status === 'active' ? 'eb-badge--success' : 'eb-badge--default'" x-text="agent.status"></span>
-                                </td>
+                                <td x-text="agent.status || '—'"></td>
                                 <td x-text="agent.last_seen_at || '—'"></td>
                                 <td x-text="agent.created_at"></td>
                                 <td class="text-right" @click.stop>

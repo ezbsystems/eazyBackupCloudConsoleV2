@@ -839,6 +839,19 @@
         }
     };
 
+    // Escape eb-theme-main / eb-page-inner stacking so modal paints above theme sidebar (same as job wizard).
+    function portalMs365RestoreWizardModal() {
+        const modal = document.getElementById('ms365RestoreWizardModal');
+        if (modal && modal.parentElement !== document.body) {
+            document.body.appendChild(modal);
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', portalMs365RestoreWizardModal);
+    if (document.readyState !== 'loading') {
+        portalMs365RestoreWizardModal();
+    }
+
     document.addEventListener('alpine:init', () => {
         document.addEventListener('ms365-restore-wizard-open', (ev) => {
             const modal = document.getElementById('ms365RestoreWizardModal');

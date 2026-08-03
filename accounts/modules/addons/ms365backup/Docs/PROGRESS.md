@@ -2,14 +2,19 @@
 
 **Purpose:** Single handoff document so the next agent knows where work stopped. Update this file at the **end of every session** (or after each meaningful milestone).
 
-**Last updated:** 2026-08-02
-**Module version (ms365backup):** 1.52.43
+**Last updated:** 2026-08-03
+**Module version (ms365backup):** 1.52.44
 **Cloudstorage (e3) version:** 2.2.4  
 **Worker version (ms365-backup-worker):** 0.4.30 (Kopia v0.23.1)
 
 ---
 
 ## Session log
+
+### 2026-08-03 — Users-only billing (Comet parity, PHP 1.52.44)
+
+- **Billing:** `TYPE_MAILBOX` never bills (personal or Select All); guests still never bill; membership still bills non-guest `TYPE_USER` members. Matches Comet user count (e.g. 96 not 124).
+- **Tests/docs:** Resolver tests flipped; billing guide/design §2.1 and wizard footnote updated.
 
 ### 2026-08-02 — MS365 job wizard background inventory refresh progress UI (cloudstorage 2.2.4)
 

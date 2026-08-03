@@ -128,19 +128,19 @@
                     <template x-for="(vault, vIdx) in pagedVaults()" :key="'vault-row-' + vaultSubTab + '-' + (vault.id || vIdx)">
                         <tr>
                             {if $ebE3VaultsShowUserCol|default:false}
-                            <td x-show="cols.user" class="px-4 py-3 whitespace-nowrap text-sm text-slate-300">
-                                <a class="text-slate-300 hover:text-slate-200"
+                            <td x-show="cols.user" class="px-4 py-3 whitespace-nowrap text-sm text-[var(--eb-text-primary)]">
+                                <a class="text-[var(--eb-text-primary)] hover:text-[var(--eb-text-primary)]"
                                    :href="userVaultsUrl(vault)"
                                    x-text="vault.username || '—'"></a>
                                 <div class="text-xs text-slate-400 mt-0.5" x-show="vault.tenant_name" x-text="vault.tenant_name"></div>
                             </td>
                             {/if}
-                            <td class="px-4 py-3 text-sm text-slate-300">
+                            <td class="px-4 py-3 text-sm text-[var(--eb-text-primary)]">
                                 <template x-if="vault.is_ms365">
-                                    <div class="break-all" x-text="vault.name"></div>
+                                    <div class="break-all text-[var(--eb-text-primary)]" x-text="vault.name"></div>
                                 </template>
                                 <template x-if="!vault.is_ms365">
-                                    <a class="text-slate-300 hover:text-slate-200 break-all"
+                                    <a class="text-[var(--eb-text-primary)] hover:text-[var(--eb-text-primary)] break-all"
                                        :href="'index.php?m=cloudstorage&page=buckets#bucketRow' + encodeURIComponent(vault.id)"
                                        x-text="vault.name"></a>
                                 </template>

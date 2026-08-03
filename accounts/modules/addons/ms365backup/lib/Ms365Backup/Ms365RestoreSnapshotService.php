@@ -11,6 +11,23 @@ use WHMCS\Database\Capsule;
 final class Ms365RestoreSnapshotService
 {
     /**
+     * Display fields for Restore tab rows (Source / Agent / Destination).
+     *
+     * @return array{source_display_name: string, source_type: string, agent_hostname: string, dest_type: string}
+     */
+    public static function displayMetaForTenant(?string $tenantLabel): array
+    {
+        $label = trim((string) $tenantLabel);
+
+        return [
+            'source_display_name' => $label !== '' ? $label : 'Microsoft 365',
+            'source_type' => 'ms365',
+            'agent_hostname' => 'Cloud',
+            'dest_type' => 'e3',
+        ];
+    }
+
+    /**
      * Lists restore points for a backup user, optionally scoped to one job.
      *
      * @return list<array<string, mixed>>
@@ -109,6 +126,11 @@ final class Ms365RestoreSnapshotService
         }
 
         $rows = $q->get()->map(static fn ($row) => (array) $row)->all();
+        $tenant = TenantRecordRepository::getForBackupUser($clientId, $backupUserId)
+            ?? TenantRecordRepository::getPrimaryForClient($clientId);
+        $displayMeta = self::displayMetaForTenant(
+            is_array($tenant) ? (string) ($tenant['label'] ?? '') : null
+        );
         $out = [];
         foreach ($rows as $row) {
             $batchRunId = self::normalizeRunId($row['run_id'] ?? '');
@@ -127,10 +149,10 @@ final class Ms365RestoreSnapshotService
             }
 
             $finishedAt = (string) ($row['finished_at'] ?? $row['started_at'] ?? '');
-            $childCount = count(ShardRunAggregateService::aggregateForRestore($restorableChildren));
-            $label = self::formatSnapshotLabel($finishedAt, $childCount);
+            $aggregated = ShardRunAggregateService::aggregateForRestore($restorableChildren);
+            $label = self::formatSnapshotLabel($finishedAt);
 
-            $out[] = [
+            $out[] = array_merge([
                 'id' => $batchRunId,
                 'batch_run_id' => $batchRunId,
                 'job_id' => $jobId,
@@ -142,19 +164,18 @@ final class Ms365RestoreSnapshotService
                 'is_restorable' => true,
                 'non_restorable_reason' => '',
                 'snapshot_label' => $label,
-                'child_runs' => ShardRunAggregateService::aggregateForRestore($restorableChildren),
-            ];
+                'child_runs' => $aggregated,
+            ], $displayMeta);
         }
 
         return $out;
     }
 
-    private static function formatSnapshotLabel(string $finishedAt, int $workloadCount): string
+    private static function formatSnapshotLabel(string $finishedAt): string
     {
         $ts = strtotime($finishedAt);
-        $dateLabel = $ts > 0 ? gmdate('M j, Y H:i', $ts) . ' UTC' : $finishedAt;
 
-        return $dateLabel . ' — ' . $workloadCount . ' workload' . ($workloadCount === 1 ? '' : 's');
+        return $ts > 0 ? gmdate('M j, Y H:i', $ts) . ' UTC' : $finishedAt;
     }
 
     private static function normalizeRunId(mixed $runId): string

@@ -122,7 +122,34 @@
                 </div>
             </div>
 
-            <div class="eb-table-shell">
+            <div x-show="loading" class="eb-app-empty !py-8">
+                <div class="inline-flex items-center gap-3 text-sm text-[var(--eb-text-muted)]">
+                    <span class="h-4 w-4 animate-spin rounded-full border-2 border-[color:var(--eb-info-border)] border-t-[color:var(--eb-info-icon)]"></span>
+                    Loading restore points...
+                </div>
+            </div>
+
+            <div x-show="!loading && restorePoints.length === 0 && !hasActiveFilter" class="eb-app-empty !py-8" style="display: none;">
+                <div class="eb-app-empty-title">Choose a Job above to see restore points</div>
+                <p class="eb-app-empty-copy">Select the backup job first, then optionally narrow by Agent &mdash; matching restore points will appear here.</p>
+            </div>
+
+            <div x-show="!loading && restorePoints.length === 0 && hasActiveFilter" class="eb-app-empty !py-8" style="display: none;">
+                <template x-if="selectedJobId && !agentFilter && !searchQuery && !dateFrom && !dateTo">
+                    <div>
+                        <div class="eb-app-empty-title">No snapshots for this job</div>
+                        <p class="eb-app-empty-copy">This job has no successful backup runs with a manifest yet. Run a backup first, or pick another job.</p>
+                    </div>
+                </template>
+                <template x-if="!(selectedJobId && !agentFilter && !searchQuery && !dateFrom && !dateTo)">
+                    <div>
+                        <div class="eb-app-empty-title">No restore points match the current filters</div>
+                        <p class="eb-app-empty-copy">Try clearing the date range, picking a different job, or switching the agent.</p>
+                    </div>
+                </template>
+            </div>
+
+            <div class="eb-table-shell" x-show="!loading && restorePoints.length > 0 && restoreLayoutWide" style="display: none;">
                 <table class="eb-table">
                     <thead>
                         <tr>
@@ -137,68 +164,19 @@
                         </tr>
                     </thead>
                     <tbody>
-                        <template x-if="loading">
-                            <tr>
-                                <td colspan="8">
-                                    <div class="eb-app-empty !py-8">
-                                        <div class="inline-flex items-center gap-3 text-sm text-[var(--eb-text-muted)]">
-                                            <span class="h-4 w-4 animate-spin rounded-full border-2 border-[color:var(--eb-info-border)] border-t-[color:var(--eb-info-icon)]"></span>
-                                            Loading restore points...
-                                        </div>
-                                    </div>
-                                </td>
-                            </tr>
-                        </template>
-                        <template x-if="!loading && restorePoints.length === 0 && !hasActiveFilter">
-                            <tr>
-                                <td colspan="8">
-                                    <div class="eb-app-empty !py-8">
-                                        <div class="eb-app-empty-title">Choose a Job above to see restore points</div>
-                                        <p class="eb-app-empty-copy">Select the backup job first, then optionally narrow by Agent &mdash; matching restore points will appear here.</p>
-                                    </div>
-                                </td>
-                            </tr>
-                        </template>
-                        <template x-if="!loading && restorePoints.length === 0 && hasActiveFilter">
-                            <tr>
-                                <td colspan="8">
-                                    <div class="eb-app-empty !py-8">
-                                        <template x-if="selectedJobId && !agentFilter && !searchQuery && !dateFrom && !dateTo">
-                                            <div>
-                                                <div class="eb-app-empty-title">No snapshots for this job</div>
-                                                <p class="eb-app-empty-copy">This job has no successful backup runs with a manifest yet. Run a backup first, or pick another job.</p>
-                                            </div>
-                                        </template>
-                                        <template x-if="!(selectedJobId && !agentFilter && !searchQuery && !dateFrom && !dateTo)">
-                                            <div>
-                                                <div class="eb-app-empty-title">No restore points match the current filters</div>
-                                                <p class="eb-app-empty-copy">Try clearing the date range, picking a different job, or switching the agent.</p>
-                                            </div>
-                                        </template>
-                                    </div>
-                                </td>
-                            </tr>
-                        </template>
                         <template x-for="(point, pIdx) in restorePoints" :key="'rp-' + (point.id || pIdx)">
                             <tr>
-                                <td class="eb-table-primary">
-                                    <div class="font-medium text-[var(--eb-text-primary)]" x-text="point.job_name || 'Unnamed job'"></div>
-                                    <div class="text-xs text-[var(--eb-text-muted)]" x-text="point.manifest_id || 'No manifest'"></div>
+                                <td>
+                                    <span class="whitespace-nowrap text-[var(--eb-text-primary)]" x-text="snapshotDateLabel(point)"></span>
                                     <span x-show="point.catalog_pruned"
-                                          class="eb-badge eb-badge--warning mt-1 inline-flex"
+                                          class="eb-badge eb-badge--warning ml-2 inline-flex"
                                           title="Snapshot exists in backup history but is not in the retention catalog">Beyond retention</span>
                                     <div class="text-xs text-[var(--eb-text-secondary)]" x-show="point.hyperv_vm_name">VM: <span x-text="point.hyperv_vm_name"></span></div>
                                 </td>
                                 <td x-text="point.agent_hostname || point.agent_uuid || '—'"></td>
+                                <td class="text-sm text-[var(--eb-text-secondary)]" x-text="engineLabel(point)"></td>
                                 <td>
-                                    <span class="eb-badge"
-                                          :class="{ 'eb-badge--info': point.engine === 'kopia', 'eb-badge--premium': point.engine === 'disk_image', 'eb-badge--warning': point.engine === 'hyperv', 'eb-badge--neutral': point.engine === 'ms365' || !point.engine }"
-                                          x-text="({ kopia: 'File/Folder', sync: 'File/Folder', disk_image: 'Disk Image', hyperv: 'Hyper-V', ms365: 'Microsoft 365' })[point.engine] || 'File/Folder'"></span>
-                                </td>
-                                <td>
-                                    <span class="eb-badge"
-                                          :class="point.status === 'success' ? 'eb-badge--success' : (point.status === 'warning' ? 'eb-badge--warning' : (point.status === 'metadata_incomplete' ? 'eb-badge--danger' : 'eb-badge--neutral'))"
-                                          x-text="point.status || 'unknown'"></span>
+                                    <div class="text-sm text-[var(--eb-text-secondary)]" x-text="point.status || 'unknown'"></div>
                                     <div class="mt-1 text-[11px] text-[var(--eb-warning-text)]" x-show="!point.is_restorable && point.non_restorable_reason" x-text="point.non_restorable_reason"></div>
                                 </td>
                                 <td>
@@ -206,7 +184,7 @@
                                     <div class="text-xs text-[var(--eb-text-muted)]" x-text="point.source_path || ''"></div>
                                 </td>
                                 <td>
-                                    <div class="text-xs text-[var(--eb-text-secondary)]" x-text="point.dest_type || 's3'"></div>
+                                    <div class="text-xs text-[var(--eb-text-secondary)]" x-text="destTypeLabel(point)"></div>
                                     <div class="text-xs text-[var(--eb-text-muted)]" x-text="point.dest_bucket_name || point.dest_prefix || point.dest_local_path || ''"></div>
                                 </td>
                                 <td x-text="point.finished_at || point.created_at || '—'"></td>
@@ -255,6 +233,85 @@
                         </template>
                     </tbody>
                 </table>
+            </div>
+
+            <div class="space-y-3" x-show="!loading && restorePoints.length > 0 && !restoreLayoutWide" style="display: none;">
+                <template x-for="(point, pIdx) in restorePoints" :key="'rp-card-' + (point.id || pIdx)">
+                    <div class="rounded-[var(--eb-radius-lg)] border border-[var(--eb-border-default)] bg-[var(--eb-surface-base)] p-4">
+                        <div class="text-[var(--eb-text-primary)]" x-text="snapshotDateLabel(point)"></div>
+                        <span x-show="point.catalog_pruned"
+                              class="eb-badge eb-badge--warning mt-2 inline-flex"
+                              title="Snapshot exists in backup history but is not in the retention catalog">Beyond retention</span>
+                        <div class="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 text-xs">
+                            <div>
+                                <div class="text-[var(--eb-text-muted)]">Engine</div>
+                                <div class="text-[var(--eb-text-secondary)]" x-text="engineLabel(point)"></div>
+                            </div>
+                            <div>
+                                <div class="text-[var(--eb-text-muted)]">Status</div>
+                                <div class="text-[var(--eb-text-secondary)]" x-text="point.status || 'unknown'"></div>
+                            </div>
+                            <div>
+                                <div class="text-[var(--eb-text-muted)]">Source</div>
+                                <div class="text-[var(--eb-text-secondary)]" x-text="point.source_display_name || point.source_type || '—'"></div>
+                            </div>
+                            <div>
+                                <div class="text-[var(--eb-text-muted)]">Destination</div>
+                                <div class="text-[var(--eb-text-secondary)]" x-text="destTypeLabel(point)"></div>
+                            </div>
+                            <div>
+                                <div class="text-[var(--eb-text-muted)]">Agent</div>
+                                <div class="text-[var(--eb-text-secondary)]" x-text="point.agent_hostname || point.agent_uuid || '—'"></div>
+                            </div>
+                            <div>
+                                <div class="text-[var(--eb-text-muted)]">Completed</div>
+                                <div class="text-[var(--eb-text-secondary)]" x-text="point.finished_at || point.created_at || '—'"></div>
+                            </div>
+                        </div>
+                        <div class="mt-1 text-[11px] text-[var(--eb-warning-text)]" x-show="!point.is_restorable && point.non_restorable_reason" x-text="point.non_restorable_reason"></div>
+                        <div class="mt-4">
+                            <template x-if="point.hyperv_backup_point_id">
+                                <a :href="'index.php?m=cloudstorage&page=e3backup&view=hyperv_restore&vm_id=' + point.hyperv_vm_id"
+                                   class="eb-btn eb-btn-info eb-btn-sm w-full justify-center">
+                                    Hyper-V Restore
+                                </a>
+                            </template>
+                            <template x-if="!point.hyperv_backup_point_id && String(point.engine || '').toLowerCase() === 'disk_image'">
+                                <span class="block">
+                                    <a x-show="point.is_restorable"
+                                       :href="'index.php?m=cloudstorage&page=e3backup&view=disk_image_restore&restore_point_id=' + point.id"
+                                       class="eb-btn eb-btn-premium eb-btn-sm w-full justify-center">
+                                        Disk Recovery
+                                    </a>
+                                    <button x-show="!point.is_restorable"
+                                            type="button"
+                                            class="eb-btn eb-btn-secondary eb-btn-sm w-full justify-center disabled"
+                                            :title="point.non_restorable_reason || 'Restore point is not restorable'"
+                                            disabled>
+                                        Unavailable
+                                    </button>
+                                </span>
+                            </template>
+                            <template x-if="!point.hyperv_backup_point_id && String(point.engine || '').toLowerCase() === 'ms365'">
+                                <button type="button"
+                                        class="eb-btn eb-btn-info eb-btn-sm w-full justify-center"
+                                        @click="openMs365Restore(point)"
+                                        :disabled="!point.is_restorable">
+                                    Restore
+                                </button>
+                            </template>
+                            <template x-if="!point.hyperv_backup_point_id && String(point.engine || '').toLowerCase() !== 'disk_image' && String(point.engine || '').toLowerCase() !== 'ms365'">
+                                <button @click="openRestoreModal(point)"
+                                        class="eb-btn eb-btn-info eb-btn-sm w-full justify-center"
+                                        :class="point.is_restorable ? '' : 'disabled'"
+                                        :title="point.non_restorable_reason || 'Restore point is not restorable'"
+                                        :disabled="!point.is_restorable">
+                                    <span x-text="point.is_restorable ? 'Restore' : 'Unavailable'"></span>
+                                </button>
+                            </template>
+                        </div>
+                    </div>
+                </template>
             </div>
 
             <div class="flex justify-center" x-show="hasMore && !loading" style="display: none;">
@@ -454,6 +511,9 @@ function userRestoreTabApp() {
         searchTimer: null,
         dateTimer: null,
         scopeUserId: window.restorePointUserScopeId || '',
+        restoreLayoutWide: true,
+        _restoreLayoutMq: null,
+        _restoreLayoutMqHandler: null,
 
         get filteredAgents() {
             const term = (this.agentSearch || '').toLowerCase().trim();
@@ -540,6 +600,17 @@ function userRestoreTabApp() {
                     this.loading = false;
                 }
             });
+
+            this._restoreLayoutMq = window.matchMedia('(min-width: 1200px)');
+            this._restoreLayoutMqHandler = () => {
+                this.restoreLayoutWide = !!(this._restoreLayoutMq && this._restoreLayoutMq.matches);
+            };
+            this._restoreLayoutMqHandler();
+            if (this._restoreLayoutMq.addEventListener) {
+                this._restoreLayoutMq.addEventListener('change', this._restoreLayoutMqHandler);
+            } else if (this._restoreLayoutMq.addListener) {
+                this._restoreLayoutMq.addListener(this._restoreLayoutMqHandler);
+            }
 
             this.loadJobOptions();
             // Filter-first (MSP scale): do not fire the unfiltered "all jobs,
@@ -633,6 +704,33 @@ function userRestoreTabApp() {
             const engine = String(match.engine || '').toLowerCase();
             const source = String(match.source_type || '').toLowerCase();
             return engine === 'ms365' || source === 'ms365';
+        },
+
+        engineLabel(point) {
+            const engine = String((point && point.engine) || '').toLowerCase();
+            const map = {
+                kopia: 'File/Folder',
+                sync: 'File/Folder',
+                disk_image: 'Disk Image',
+                hyperv: 'Hyper-V',
+                ms365: 'Microsoft 365',
+            };
+            return map[engine] || 'File/Folder';
+        },
+
+        snapshotDateLabel(point) {
+            if (!point) return '—';
+            if (String(point.engine || '').toLowerCase() === 'ms365') {
+                const label = String(point.snapshot_label || '').replace(/\s*[—-]\s*\d+\s+workloads?$/i, '').trim();
+                return label || point.finished_at || point.created_at || '—';
+            }
+            return point.finished_at || point.created_at || '—';
+        },
+
+        destTypeLabel(point) {
+            if (!point) return 's3';
+            if (point.dest_type) return point.dest_type;
+            return String(point.engine || '').toLowerCase() === 'ms365' ? 'e3' : 's3';
         },
 
         openMs365Restore(point) {

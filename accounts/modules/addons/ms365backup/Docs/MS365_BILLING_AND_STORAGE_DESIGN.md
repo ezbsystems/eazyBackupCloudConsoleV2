@@ -8,7 +8,7 @@ This document specifies how to make the **Microsoft 365 Backup** product billing
 
 Read alongside: [PRODUCT_ROADMAP.md](PRODUCT_ROADMAP.md) (product intent/phases), [ARCHITECTURE_BOUNDARIES.md](ARCHITECTURE_BOUNDARIES.md) (module split), and `modules/addons/cloudstorage/docs/E3_CLOUD_BACKUP_BILLING.md` (the metered-billing pattern this design mirrors).
 
-**Protected Users revision (2026-07-27):** billing counts **Protected Users** (reverted from 2026-07-21 Protected Objects expansion for mailboxes). **Comet parity (2026-07-27):** personally selected non-guest shared mailboxes always bill (individual or Select All); guests never bill; `billing_exempt_resource_ids` unused for billability. Internal keys unchanged.
+**Protected Users revision (2026-07-27):** billing counts **Protected Users** (reverted from 2026-07-21 Protected Objects expansion for mailboxes). **Users-only billing (2026-08-03):** `TYPE_MAILBOX` never bills; guests never bill; membership still bills non-guest `TYPE_USER` members. Internal keys unchanged.
 
 ---
 
@@ -33,9 +33,8 @@ A **Protected User** is one distinct Microsoft 365 directory identity, identifie
 1. **Personal user selection** — `user` or `user_onedrive` with at least one enabled personal scope (member users only; guests excluded).
 2. **Team / Group membership** — billable member of a selected Team, team channel (inherits parent team), or M365 Group with at least one enabled shared scope (guests and mailbox principals excluded).
 3. **SharePoint site membership** — billable member user principal on a selected SharePoint site with at least one enabled site scope (guests excluded).
-4. **Selected shared mailbox** — `TYPE_MAILBOX` personally selected with ≥1 mailbox scope and **not** a guest.
 
-**Guests never bill.** Selected shared mailboxes bill (individual or Select All). Membership-only mailbox principals do not bill.
+**Guests never bill.** Shared/room/equipment mailboxes never bill (backup-selectable only). Membership-only mailbox principals do not bill.
 
 Rules:
 

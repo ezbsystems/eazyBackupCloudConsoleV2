@@ -13,6 +13,8 @@ window.ebE3SidebarResponsive = function() {
         _mqWide: null,
         _focusTrapHandler: null,
         _lastMenuTrigger: null,
+        _drawerUnmountTimer: null,
+        _tooltipEl: null,
 
         get sidebarCollapsed() {
             return this.sidebarMode === 'rail';
@@ -60,14 +62,61 @@ window.ebE3SidebarResponsive = function() {
             if (this.sidebarMode !== 'mobile') {
                 return;
             }
+            if (this._drawerUnmountTimer) {
+                clearTimeout(this._drawerUnmountTimer);
+                this._drawerUnmountTimer = null;
+            }
             var drawer = document.getElementById('eb-e3-sidebar-drawer');
-            var backdrop = this.$el.querySelector('.eb-e3-sidebar-backdrop');
             if (drawer && drawer.parentNode !== document.body) {
                 document.body.appendChild(drawer);
             }
-            if (backdrop && backdrop.parentNode !== document.body) {
-                document.body.appendChild(backdrop);
+        },
+
+        unmountDrawerPortal() {
+            if (this._drawerUnmountTimer) {
+                clearTimeout(this._drawerUnmountTimer);
+                this._drawerUnmountTimer = null;
             }
+            var shell = this.$el.querySelector('[data-eb-e3-sidebar-slot]')
+                || this.$el.querySelector('.eb-app-shell');
+            if (!shell) {
+                return;
+            }
+            var drawer = document.getElementById('eb-e3-sidebar-drawer');
+            if (drawer && drawer.parentNode !== shell) {
+                shell.insertBefore(drawer, shell.firstChild);
+            }
+        },
+
+        scheduleUnmountDrawerPortal() {
+            var self = this;
+            var drawer = document.getElementById('eb-e3-sidebar-drawer');
+            if (this._drawerUnmountTimer) {
+                clearTimeout(this._drawerUnmountTimer);
+                this._drawerUnmountTimer = null;
+            }
+            var finish = function() {
+                if (self._drawerUnmountTimer) {
+                    clearTimeout(self._drawerUnmountTimer);
+                    self._drawerUnmountTimer = null;
+                }
+                if (drawer) {
+                    drawer.removeEventListener('transitionend', onEnd);
+                }
+                if (!self.mobileDrawerOpen) {
+                    self.unmountDrawerPortal();
+                }
+            };
+            var onEnd = function(e) {
+                if (e.target !== drawer) return;
+                if (e.propertyName && e.propertyName !== 'transform') return;
+                finish();
+            };
+            if (drawer) {
+                drawer.addEventListener('transitionend', onEnd);
+            }
+            // Fallback if transitionend does not fire (reduced motion / already closed).
+            this._drawerUnmountTimer = setTimeout(finish, 320);
         },
 
         syncMode() {
@@ -90,6 +139,10 @@ window.ebE3SidebarResponsive = function() {
 
             if (!this.mobileDrawerOpen) {
                 document.body.classList.remove('eb-e3-sidebar-drawer-open');
+            }
+
+            if (this.sidebarMode !== 'mobile') {
+                this.unmountDrawerPortal();
             }
 
             this.broadcastCollapsed();
@@ -128,6 +181,7 @@ window.ebE3SidebarResponsive = function() {
             document.body.classList.remove('eb-e3-sidebar-drawer-open');
             this.removeFocusTrap();
             this.hideTooltip();
+            this.scheduleUnmountDrawerPortal();
             var trigger = this._lastMenuTrigger;
             if (trigger && typeof trigger.focus === 'function') {
                 try { trigger.focus(); } catch (e) {}
@@ -195,29 +249,47 @@ window.ebE3SidebarResponsive = function() {
             var root = this.$root;
             if (!root) return;
             var self = this;
+            this._tooltipEl = null;
 
-            root.addEventListener('mouseenter', function(e) {
+            root.addEventListener('mouseover', function(e) {
+                if (!self.isRailMode) return;
                 var el = e.target.closest('[data-sidebar-label]');
                 if (!el || !root.contains(el)) return;
-                if (!self.isRailMode) return;
+                if (self._tooltipEl === el) return;
                 self.showTooltipFor(el);
-            }, true);
+                self._tooltipEl = el;
+            });
 
-            root.addEventListener('mouseleave', function(e) {
-                var el = e.target.closest('[data-sidebar-label]');
+            root.addEventListener('mouseout', function(e) {
+                var el = self._tooltipEl;
                 if (!el) return;
+                var related = e.relatedTarget;
+                // Still inside the same labeled control (e.g. moving between <a> and child <svg>).
+                if (related && (el === related || el.contains(related))) {
+                    return;
+                }
+                if (related && related.closest && related.closest('[data-sidebar-label]') === el) {
+                    return;
+                }
                 self.hideTooltip();
-            }, true);
+                self._tooltipEl = null;
+            });
 
             root.addEventListener('focusin', function(e) {
                 var el = e.target.closest('[data-sidebar-label]');
                 if (!el || !root.contains(el)) return;
                 if (!self.isRailMode) return;
                 self.showTooltipFor(el);
+                self._tooltipEl = el;
             });
 
-            root.addEventListener('focusout', function() {
+            root.addEventListener('focusout', function(e) {
+                var el = self._tooltipEl;
+                if (!el) return;
+                var related = e.relatedTarget;
+                if (related && (el === related || el.contains(related))) return;
                 self.hideTooltip();
+                self._tooltipEl = null;
             });
         },
 
@@ -228,13 +300,16 @@ window.ebE3SidebarResponsive = function() {
             this.tooltip = {
                 visible: true,
                 label: label,
-                x: rect.right + 10,
-                y: rect.top + rect.height / 2
+                x: Math.round(rect.right + 10),
+                y: Math.round(rect.top + rect.height / 2)
             };
         },
 
         hideTooltip() {
-            this.tooltip.visible = false;
+            if (this.tooltip.visible) {
+                this.tooltip.visible = false;
+            }
+            this._tooltipEl = null;
         },
 
         sidebarLinkClass(extra) {

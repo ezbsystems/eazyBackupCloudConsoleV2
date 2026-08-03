@@ -82,15 +82,7 @@ final class ProtectedUserResolver
                     continue;
                 }
                 if ($type === TenantResource::TYPE_MAILBOX) {
-                    if (TenantResource::isGuestResource($resource)) {
-                        continue;
-                    }
-                    $azureUserId = self::azureUserIdForResource($resource, $type);
-                    if ($azureUserId === '') {
-                        continue;
-                    }
-                    $protected[$azureUserId] = true;
-                    $sources[$resourceId] = [$azureUserId];
+                    // Backup-selectable; never a Protected User seat (Comet parity).
                     continue;
                 }
                 $azureUserId = self::azureUserIdForResource($resource, $type);

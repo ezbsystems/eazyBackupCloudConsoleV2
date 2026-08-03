@@ -183,8 +183,8 @@ $resultGuests = ProtectedUserResolver::resolve(
     $scopeGuests,
 );
 assert_true(!in_array($guestId, $resultGuests['protected_azure_ids'], true), 'guest user is not billed via team membership');
-assert_true(in_array('shared-1', $resultGuests['protected_azure_ids'], true), 'shared mailbox bills when personally selected');
-assert_eq(2, count($resultGuests['protected_azure_ids']), 'team member user-1 + shared mailbox = 2');
+assert_true(!in_array('shared-1', $resultGuests['protected_azure_ids'], true), 'shared mailbox does not bill when personally selected');
+assert_eq(1, count($resultGuests['protected_azure_ids']), 'team member user-1 only = 1');
 
 $inventoryLicensedMailbox = [
     'resources' => [
@@ -200,8 +200,8 @@ $resultLicensedMailbox = ProtectedUserResolver::resolve(
     ['mailbox:lic-shared'],
     ['mailbox:lic-shared' => [BackupScope::MAIL => true]],
 );
-assert_eq(1, count($resultLicensedMailbox['protected_azure_ids']), 'shared mailbox bills when personally selected');
-assert_true(in_array('lic-shared', $resultLicensedMailbox['protected_azure_ids'], true), 'licensed mailbox Azure ID is protected');
+assert_eq(0, count($resultLicensedMailbox['protected_azure_ids']), 'shared mailbox never bills when personally selected');
+assert_true(!in_array('lic-shared', $resultLicensedMailbox['protected_azure_ids'], true), 'mailbox Azure ID is not protected');
 
 $channelTeamMembers = makeMemberIds(3);
 $inventoryChannel = [
@@ -338,7 +338,7 @@ $resultRoomMailbox = ProtectedUserResolver::resolve(
     ['mailbox:room-1'],
     ['mailbox:room-1' => [BackupScope::CALENDAR => true]],
 );
-assert_eq(1, count($resultRoomMailbox['protected_azure_ids']), 'room-style shared mailbox bills when personally selected');
+assert_eq(0, count($resultRoomMailbox['protected_azure_ids']), 'room-style shared mailbox does not bill when personally selected');
 
 // Select-all-style: many exempt mailboxes + N users
 $selectAllUsers = [];
@@ -373,7 +373,7 @@ $resultSelectAll = ProtectedUserResolver::resolve(
     $selectAllExempt,
     true,
 );
-assert_eq(60, count($resultSelectAll['protected_azure_ids']), 'select-all bills users plus non-guest mailboxes');
+assert_eq(10, count($resultSelectAll['protected_azure_ids']), 'select-all bills TYPE_USER members only');
 
 $selectAllUsers[] = TenantResource::build(TenantResource::TYPE_MAILBOX, 'guest-mbox', 'Guest Mailbox', null, [
     'id' => 'mailbox:guest-mbox',
@@ -412,7 +412,7 @@ assert_true(in_array('member-user-1', $resultTeamMailboxMember['protected_azure_
 assert_true(!in_array('mbox-member-1', $resultTeamMailboxMember['protected_azure_ids'], true), 'mailbox Azure ID in team roster does not bill via membership');
 assert_eq(1, count($resultTeamMailboxMember['protected_azure_ids']), 'membership excludes mailbox principals');
 
-// billing_exempt_resource_ids are ignored — selected shared mailboxes always bill
+// billing_exempt_resource_ids are ignored — mailboxes never bill
 $inventoryMailboxBilling = [
     'resources' => [
         TenantResource::build(TenantResource::TYPE_USER, 'base-user', 'Base User', null, [
@@ -442,9 +442,9 @@ $resultMailboxBilling = ProtectedUserResolver::resolve(
     ['mailbox:receipts'],
     true,
 );
-assert_eq(3, count($resultMailboxBilling['protected_azure_ids']), 'selected shared mailboxes bill; exempt list ignored');
-assert_true(in_array('receipts', $resultMailboxBilling['protected_azure_ids'], true), 'shared mailbox bills even when listed exempt');
-assert_true(in_array('referrals', $resultMailboxBilling['protected_azure_ids'], true), 'unlicensed shared mailbox bills when selected');
+assert_eq(1, count($resultMailboxBilling['protected_azure_ids']), 'selected shared mailboxes do not bill; user only');
+assert_true(!in_array('receipts', $resultMailboxBilling['protected_azure_ids'], true), 'shared mailbox never bills');
+assert_true(!in_array('referrals', $resultMailboxBilling['protected_azure_ids'], true), 'unlicensed shared mailbox never bills');
 
 $inventoryPending = [
     'resources' => [
@@ -510,7 +510,7 @@ $resultSelectAllCodec = ProtectedUserResolver::resolve(
     $selectAllPayload['billing_exempt_resource_ids'],
     true,
 );
-assert_eq(60, count($resultSelectAllCodec['protected_azure_ids']), 'select all bills users plus non-guest mailboxes');
+assert_eq(10, count($resultSelectAllCodec['protected_azure_ids']), 'select all bills TYPE_USER members only');
 
 $measure = Ms365UsageMeter::measureSelection($inventoryTeamOnly, ['team:grp-tech'], $scopeTeam);
 assert_eq(29, $measure['protected_users'], 'Ms365UsageMeter::measureSelection matches resolver for team-only');

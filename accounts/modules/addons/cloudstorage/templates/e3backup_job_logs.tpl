@@ -169,7 +169,7 @@
                     </template>
                     <template x-for="row in rows" :key="row.run_id">
                         <tr class="cursor-pointer" @click="openRunRow(row)" :title="isLiveRunRow(row) ? 'View live progress' : 'Click to view log'">
-                            <td x-show="cols.started" class="eb-table-primary" x-text="fmtRunInstant(row, 'started_at', 'started_at_epoch_ms')"></td>
+                            <td x-show="cols.started" class="eb-table-primary text-[var(--eb-text-primary)]" x-text="fmtRunInstant(row, 'started_at', 'started_at_epoch_ms')"></td>
                             <td x-show="cols.job && showJobCol" x-text="row.job_name || '-'"></td>
                             <td x-show="cols.agent" x-text="sourceLabel(row)"></td>
                             <td x-show="cols.user && showUserCol" x-text="row.username || '-'"></td>

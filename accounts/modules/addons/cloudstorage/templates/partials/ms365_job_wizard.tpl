@@ -562,7 +562,7 @@
                                             Team, group, or site member lists could not be fully loaded. Counts reflect resolved data only; your estimate may increase after inventory refresh.
                                         </p>
                                         <p class="eb-type-caption text-[var(--eb-text-muted)] mb-0 mt-2">
-                                            Select All backs up everything. Guests never bill. Shared mailboxes bill when selected. SharePoint/Teams sites are not billable units.
+                                                Select All backs up everything. Guests and shared mailboxes never bill. Teams, groups, and SharePoint sites bill member users only.
                                         </p>
                                     </div>
                                 </div>

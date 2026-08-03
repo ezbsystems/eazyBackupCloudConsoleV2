@@ -331,27 +331,24 @@
                                         </button>
                                     </td>
                                     <td>
-                                        <div class="flex items-center gap-3">
-                                            <div class="eb-user-avatar-sm" x-text="userInitials(user)"></div>
-                                            <div class="min-w-0">
-                                                <div class="flex items-center gap-2">
-                                                    <a class="eb-link eb-user-row-name truncate"
-                                                       :href="'index.php?m=cloudstorage&page=e3backup&view=user_detail&user_id=' + encodeURIComponent(user.public_id || user.id)"
-                                                       @click.stop
-                                                       x-text="user.username"></a>
-                                                    <template x-if="isUserSuspended(user)">
-                                                        <span class="eb-badge eb-badge--warning">Suspended</span>
-                                                    </template>
-                                                </div>
-                                                <div class="eb-user-meta-line">
-                                                    <span x-text="user.email || '—'"></span>
-                                                    <template x-if="!(columnState.tenant && isMspClient)">
-                                                        <span>
-                                                            <span class="sep" aria-hidden="true"></span>
-                                                            <span x-text="user.tenant_name || 'Direct'"></span>
-                                                        </span>
-                                                    </template>
-                                                </div>
+                                        <div class="min-w-0">
+                                            <div class="flex items-center gap-2">
+                                                <a class="eb-link eb-user-row-name truncate"
+                                                   :href="'index.php?m=cloudstorage&page=e3backup&view=user_detail&user_id=' + encodeURIComponent(user.public_id || user.id)"
+                                                   @click.stop
+                                                   x-text="user.username"></a>
+                                                <template x-if="isUserSuspended(user)">
+                                                    <span class="eb-badge eb-badge--warning">Suspended</span>
+                                                </template>
+                                            </div>
+                                            <div class="eb-user-meta-line">
+                                                <span class="text-[var(--eb-text-primary)]" x-text="user.email || '—'"></span>
+                                                <template x-if="!(columnState.tenant && isMspClient)">
+                                                    <span>
+                                                        <span class="sep" aria-hidden="true"></span>
+                                                        <span x-text="user.tenant_name || 'Direct'"></span>
+                                                    </span>
+                                                </template>
                                             </div>
                                         </div>
                                     </td>
@@ -368,7 +365,7 @@
                                         <td class="eb-table-cell-numeric" x-text="user.agents_count"></td>
                                     </template>
                                     <template x-if="columnState.last_backup_at">
-                                        <td class="eb-table-mono" x-text="formatDate(user.last_backup_at)"></td>
+                                        <td x-text="formatDate(user.last_backup_at)"></td>
                                     </template>
                                     <template x-if="columnState.online_devices">
                                         <td class="eb-table-cell-numeric">

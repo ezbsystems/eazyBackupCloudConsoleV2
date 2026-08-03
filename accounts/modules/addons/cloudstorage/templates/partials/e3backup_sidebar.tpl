@@ -65,7 +65,9 @@
             </div>
         </div>
 
-        <nav class="eb-e3-sidebar-nav flex-1 space-y-1 overflow-y-auto px-3 py-3" aria-label="Primary">
+        <nav class="eb-e3-sidebar-nav flex-1 space-y-1 overflow-y-auto py-3"
+             :class="isRailMode ? 'eb-e3-sidebar-nav--rail px-0' : 'px-3'"
+             aria-label="Primary">
             {if not $ebGsHidden}
             <a href="{$ebGsGettingStartedHref|escape:'html'}"
                data-tour="sidebar-getting-started"

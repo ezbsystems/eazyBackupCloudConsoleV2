@@ -280,4 +280,4 @@
     </div>
 </div>
 
-<script src="modules/addons/cloudstorage/assets/js/ms365_restore_wizard.js?v=10"></script>
+<script src="modules/addons/cloudstorage/assets/js/ms365_restore_wizard.js?v=14"></script>

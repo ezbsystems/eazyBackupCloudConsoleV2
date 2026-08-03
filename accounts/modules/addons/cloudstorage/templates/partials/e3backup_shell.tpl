@@ -45,14 +45,7 @@
         x-init="init(); if (window.ebE3SyncAppMinHeight) window.ebE3SyncAppMinHeight($el);"
         @keydown.window="onDrawerKeydown($event)"
         class="eb-panel eb-panel--e3-min-h !p-0 {$ebE3PanelClass}">
-            <div
-                x-show="mobileDrawerOpen"
-                x-cloak
-                class="eb-e3-sidebar-backdrop"
-                @click="closeMobileDrawer()"
-                aria-hidden="true"
-            ></div>
-            <div class="eb-app-shell eb-app-shell--e3-responsive">
+            <div class="eb-app-shell eb-app-shell--e3-responsive" data-eb-e3-sidebar-slot>
                 {include file="modules/addons/cloudstorage/templates/partials/e3backup_sidebar.tpl"
                     activeNav=$ebE3SidebarPage
                     ebE3SidebarUsername=$ebE3SidebarUsername
@@ -166,7 +159,6 @@
             <div
                 x-show="tooltip.visible"
                 x-cloak
-                x-transition.opacity
                 class="eb-e3-sidebar-tooltip"
                 role="tooltip"
                 :style="'left:' + tooltip.x + 'px; top:' + tooltip.y + 'px;'"

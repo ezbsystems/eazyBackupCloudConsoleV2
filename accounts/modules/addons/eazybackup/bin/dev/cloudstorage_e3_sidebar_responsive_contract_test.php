@@ -48,7 +48,7 @@ $targets = [
         'markers' => [
             'responsive factory' => 'x-data="ebE3SidebarResponsive()"',
             'responsive script include' => 'e3backup_sidebar_responsive_script.tpl',
-            'drawer backdrop' => 'eb-e3-sidebar-backdrop',
+            'sidebar slot' => 'data-eb-e3-sidebar-slot',
             'tooltip portal' => 'eb-e3-sidebar-tooltip',
             'mobile nav bar' => 'eb-e3-mobile-nav-bar',
             'breakpoint shell class' => 'eb-app-shell--e3-responsive',
@@ -63,6 +63,9 @@ $targets = [
             'focus trap' => 'installFocusTrap',
             'tooltip delegation' => 'bindTooltipDelegation',
             'drawer close on nav' => 'bindDrawerNavClose',
+            'drawer unmount portal' => 'unmountDrawerPortal',
+            'deferred unmount' => 'scheduleUnmountDrawerPortal',
+            'no backdrop portal' => 'mountDrawerPortal',
         ],
     ],
     'tailwind responsive css' => [
@@ -70,6 +73,8 @@ $targets = [
         'markers' => [
             'drawer css' => '.eb-e3-sidebar--drawer',
             'rail css' => '.eb-e3-sidebar--rail',
+            'rail item token' => '--eb-e3-sidebar-rail-item',
+            'rail equal pad' => 'padding-left: 6px !important',
             'tooltip css' => '.eb-e3-sidebar-tooltip',
             'backdrop css' => '.eb-e3-sidebar-backdrop',
             'safe area footer' => 'safe-area-inset-bottom',
