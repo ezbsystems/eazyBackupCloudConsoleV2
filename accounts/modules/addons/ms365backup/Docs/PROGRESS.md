@@ -5,11 +5,22 @@
 **Last updated:** 2026-08-03
 **Module version (ms365backup):** 1.52.44
 **Cloudstorage (e3) version:** 2.2.4  
-**Worker version (ms365-backup-worker):** 0.4.30 (Kopia v0.23.1)
+**Worker version (ms365-backup-worker):** 0.4.31 (Kopia v0.23.1)
 
 ---
 
 ## Session log
+
+### 2026-08-03 — Restore cold-browse: index compaction + browse prewarm (worker 0.4.31)
+
+- **Root cause (prod repo 20 / job `a98f9943-379a-4197-b63e-384aecbedbe7`):** first browse `repo_acquire_ms=620,597` with **25,414** local Kopia index blobs; warm repeat **223 ms**. Weekly `maintenance_quick` succeeded 3× but never compacted; `maintenance_full` skipped on cold workers because index count used empty local cache only.
+- **Fix (worker 0.4.31):**
+  - `RunManagedMaintenance` opens repo before counting indexes; quick maintenance auto-escalates to full when post-open index count ≥ `index_maintenance_threshold` (5000). Repo ops log `index_blobs_before/after`, `requested_mode`, `effective_mode`, `escalated`, `skipped`.
+  - Browse sidecar: async socket `warm` op (single-flight), idle close retains on-disk index cache (`CloseIdleRepo`), bounded `PurgeStaleCaches` (7d / 4GiB), accurate `repo_acquire_ms` vs `list_ms` via single-session acquire.
+  - PHP: `KopiaSnapshotBrowseService::warmBrowseRepository()` (socket-only, best-effort); `Ms365E3Controller::browseRestoreSnapshot` triggers prewarm when returning synthetic workload roots.
+- **Baseline:** prod first browse 620,597 ms → warm 223 ms; 25,414 index blobs pre-compaction.
+- **Verify (dev):** `go test ./...` PASS; `ms365_restore_tree_browse_test.php` PASS; `ms365_browse_binary_installer_test.php` PASS; browse socket warm ack `{"ok":true}`.
+- **Deploy:** commit + push `origin/main`; publish worker 0.4.31; `deploy-production.sh`; enqueue one-time `maintenance_full` for repo `20`; validate cold/warm browse post-compaction.
 
 ### 2026-08-03 — Users-only billing (Comet parity, PHP 1.52.44)
 

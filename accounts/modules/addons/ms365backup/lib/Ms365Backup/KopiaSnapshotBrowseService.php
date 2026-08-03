@@ -191,6 +191,71 @@ final class KopiaSnapshotBrowseService
     }
 
     /**
+     * Best-effort socket-only repository warmup. Never falls back to the cold CLI.
+     */
+    public static function warmBrowseRepository(array $tenantRecord, ?string $e3JobId = null): bool
+    {
+        if (!self::supportsBrowseServe()) {
+            return false;
+        }
+
+        try {
+            $dest = self::resolveDestination($tenantRecord, $e3JobId);
+            $payload = [
+                'op' => 'warm',
+                'dest_endpoint' => $dest['endpoint'],
+                'dest_region' => $dest['region'],
+                'dest_bucket' => $dest['bucket'],
+                'dest_prefix' => $dest['prefix'],
+                'dest_access_key' => $dest['access_key'],
+                'dest_secret_key' => $dest['secret_key'],
+                'repo_password' => $dest['repo_password'],
+            ];
+            self::invokeWarmSocket($payload);
+
+            return true;
+        } catch (\Throwable $e) {
+            Ms365CustomerError::log('kopia_browse_warm', $e);
+
+            return false;
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     */
+    private static function invokeWarmSocket(array $payload): void
+    {
+        $socketPath = self::browseSocketPath();
+        if ($socketPath === '' || !file_exists($socketPath)) {
+            throw new \RuntimeException('browse socket unavailable');
+        }
+
+        $sock = @stream_socket_client('unix://' . $socketPath, $errno, $errstr, 2.0);
+        if ($sock === false) {
+            throw new \RuntimeException('browse socket connect failed: ' . ($errstr !== '' ? $errstr : (string) $errno));
+        }
+
+        try {
+            $json = json_encode($payload, JSON_THROW_ON_ERROR);
+            if (fwrite($sock, $json . "\n") === false) {
+                throw new \RuntimeException('browse socket write failed');
+            }
+            $line = fgets($sock);
+            if ($line === false || trim($line) === '') {
+                throw new \RuntimeException('browse socket empty response');
+            }
+            $decoded = json_decode(trim($line), true);
+            if (!is_array($decoded) || empty($decoded['ok'])) {
+                $error = is_array($decoded) ? (string) ($decoded['error'] ?? 'invalid warm response') : 'invalid warm response';
+                throw new \RuntimeException($error);
+            }
+        } finally {
+            fclose($sock);
+        }
+    }
+
+    /**
      * @param array<string, mixed> $result
      * @return array{entries: list<array<string, mixed>>, total_count: int, has_more: bool, offset: int, limit: int, warnings?: list<string>}
      */

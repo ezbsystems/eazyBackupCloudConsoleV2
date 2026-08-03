@@ -4,6 +4,9 @@ import (
 	"context"
 	"regexp"
 	"strings"
+	"time"
+
+	"github.com/kopia/kopia/repo"
 )
 
 var autoDescendTypedPrefixRe = regexp.MustCompile(`(?i)^[a-z]+:[0-9a-f-]+$`)
@@ -47,16 +50,50 @@ var (
 
 // browseWithAutoDescend lists a directory and transparently descends single-child wrapper folders.
 func browseWithAutoDescend(ctx context.Context, pool *Pool, req BrowseRequest) (*BrowseResult, browseTiming, error) {
+	return browseWithAutoDescendSession(ctx, pool, req)
+}
+
+func browseWithAutoDescendSession(ctx context.Context, pool *Pool, req BrowseRequest) (*BrowseResult, browseTiming, error) {
 	if len(req.Sources) > 0 {
+		acquireStart := time.Now()
 		result, err := pool.Browse(ctx, req)
-		return result, browseTiming{CandidatesTried: 1}, err
+		return result, browseTiming{
+			RepoAcquireMS:   time.Since(acquireStart).Milliseconds(),
+			ListMS:          time.Since(acquireStart).Milliseconds(),
+			CandidatesTried: 1,
+		}, err
+	}
+
+	acquireStart := time.Now()
+	rep, release, err := pool.Acquire(ctx, req.Storage, 64)
+	timing := browseTiming{RepoAcquireMS: time.Since(acquireStart).Milliseconds()}
+	if err != nil {
+		return nil, timing, err
+	}
+	defer release()
+
+	acquirer := func(ctx context.Context) (repo.Repository, func(), error) {
+		return rep, func() {}, nil
+	}
+
+	listStart := time.Now()
+	result, timing, err := browseWithAutoDescendAcquirer(ctx, acquirer, req, timing)
+	timing.ListMS = time.Since(listStart).Milliseconds()
+	return result, timing, err
+}
+
+func browseWithAutoDescendAcquirer(ctx context.Context, acquire repoAcquirer, req BrowseRequest, timing browseTiming) (*BrowseResult, browseTiming, error) {
+	if len(req.Sources) > 0 {
+		result, err := browseWithRepo(ctx, req, acquire)
+		timing.CandidatesTried = 1
+		return result, timing, err
 	}
 
 	currentPath := normalizeBrowsePath(req.Path)
 	tryReq := req
 	tryReq.Path = currentPath
 
-	result, timing, err := browseWithCandidates(ctx, pool, tryReq)
+	result, timing, err := browseWithCandidatesAcquirer(ctx, acquire, tryReq)
 	if err != nil {
 		return nil, timing, err
 	}
@@ -79,7 +116,7 @@ func browseWithAutoDescend(ctx context.Context, pool *Pool, req BrowseRequest) (
 		tryReq.CandidatePaths = nil
 		tryReq.ManifestCandidates = nil
 
-		next, nextTiming, err := browseWithCandidates(ctx, pool, tryReq)
+		next, nextTiming, err := browseWithCandidatesAcquirer(ctx, acquire, tryReq)
 		timing.CandidatesTried += nextTiming.CandidatesTried
 		if err != nil {
 			return nil, timing, err

@@ -93,6 +93,9 @@ assert_true(
     'browse errors do not trigger CLI fallback'
 );
 
+$warmResult = \Ms365Backup\KopiaSnapshotBrowseService::warmBrowseRepository(['id' => 1], null);
+assert_true(is_bool($warmResult), 'warm returns boolean without throwing');
+
 $buildCacheKey = $ref->getMethod('buildBrowseCacheKey');
 $buildCacheKey->setAccessible(true);
 $cacheA = $buildCacheKey->invoke(null, 'batch-1', 'child-a', 'hash-a', 'manifest-a', 'path', 500, 0);

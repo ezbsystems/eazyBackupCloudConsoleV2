@@ -152,6 +152,43 @@ func TestBrowseWithAutoDescendMem(t *testing.T) {
 	}
 }
 
+func TestBrowseServeWarmAcknowledgesImmediately(t *testing.T) {
+	socket := filepath.Join(t.TempDir(), "browse.sock")
+	srv := NewBrowseServeServer(socket)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- srv.Run(ctx)
+	}()
+	waitForSocket(t, socket)
+
+	conn, err := net.Dial("unix", socket)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.Close()
+
+	req := []byte(`{"op":"warm","dest_bucket":"warm-bucket","dest_endpoint":"http://s3.example"}` + "\n")
+	if _, err := conn.Write(req); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	var resp browseServeResponse
+	if err := json.NewDecoder(conn).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if !resp.OK {
+		t.Fatalf("unexpected warm response: %+v", resp)
+	}
+
+	srv.Shutdown()
+	cancel()
+	if err := <-errCh; err != nil && err != context.Canceled {
+		t.Fatalf("run: %v", err)
+	}
+}
+
 func waitForSocket(t *testing.T, socket string) {
 	t.Helper()
 	deadline := time.Now().Add(3 * time.Second)

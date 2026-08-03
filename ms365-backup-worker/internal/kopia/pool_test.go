@@ -46,6 +46,36 @@ func TestEvictRepoRespectsRefs(t *testing.T) {
 	}
 }
 
+func TestCloseIdleRetainsCache(t *testing.T) {
+	tmp := t.TempDir()
+	pool := NewPool(RepoCacheSettings{RepoConfigDir: tmp, ContentCacheSizeMiB: 64})
+
+	storages := []StorageOptions{
+		{Bucket: "b1", Endpoint: "http://s3"},
+		{Bucket: "b2", Endpoint: "http://s3"},
+	}
+	for _, storage := range storages {
+		cacheDir := filepath.Join(tmp, "cache", storage.repoHash())
+		if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		key := storage.RepoIdentity()
+		pool.repos[key] = &poolEntry{refs: 0, opened: time.Now(), cacheDir: cacheDir, rep: &trackCloseRepo{}}
+	}
+
+	pool.CloseIdle(context.Background())
+
+	for _, storage := range storages {
+		cacheDir := filepath.Join(tmp, "cache", storage.repoHash())
+		if _, err := os.Stat(cacheDir); os.IsNotExist(err) {
+			t.Fatalf("expected cache dir retained for %s", storage.RepoIdentity())
+		}
+	}
+	if len(pool.repos) != 2 {
+		t.Fatalf("expected pool entries retained, got %d", len(pool.repos))
+	}
+}
+
 func TestEvictIdleRemovesIdleCaches(t *testing.T) {
 	tmp := t.TempDir()
 	pool := NewPool(RepoCacheSettings{RepoConfigDir: tmp, ContentCacheSizeMiB: 64})
@@ -120,6 +150,25 @@ func withTestRepositoryOpener(t *testing.T, fn func(context.Context, openRepoOpt
 	prev := repositoryOpener
 	repositoryOpener = fn
 	t.Cleanup(func() { repositoryOpener = prev })
+}
+
+func TestPurgeStaleCachesRemovesOldDirs(t *testing.T) {
+	tmp := t.TempDir()
+	pool := NewPool(RepoCacheSettings{RepoConfigDir: tmp, ContentCacheSizeMiB: 64})
+	cacheDir := filepath.Join(tmp, "cache", "old-repo")
+	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	oldTime := time.Now().Add(-8 * 24 * time.Hour)
+	if err := os.Chtimes(cacheDir, oldTime, oldTime); err != nil {
+		t.Fatal(err)
+	}
+
+	pool.PurgeStaleCaches(7*24*time.Hour, 4096)
+
+	if _, err := os.Stat(cacheDir); !os.IsNotExist(err) {
+		t.Fatal("expected stale cache dir to be purged")
+	}
 }
 
 func TestAcquireCancelledOpenerClearsOpening(t *testing.T) {

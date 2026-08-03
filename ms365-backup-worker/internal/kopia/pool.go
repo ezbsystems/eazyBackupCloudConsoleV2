@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 	"time"
 
@@ -40,8 +41,14 @@ type poolEntry struct {
 	rep      repo.Repository
 	refs     int
 	opened   time.Time
+	closedAt time.Time
 	cacheDir string
 }
+
+const (
+	defaultStaleCacheMaxAge      = 7 * 24 * time.Hour
+	defaultStaleCacheMaxTotalMiB = int64(4096)
+)
 
 func NewPool(cache RepoCacheSettings) *Pool {
 	return &Pool{
@@ -117,11 +124,21 @@ func (p *Pool) Acquire(ctx context.Context, storage StorageOptions, maxPackSizeM
 				return nil, nil, r.err
 			}
 			p.mu.Lock()
-			if entry, ok := p.repos[key]; ok && entry.rep != nil {
-				_ = r.rep.Close(ctx)
-				entry.refs++
+			if entry, ok := p.repos[key]; ok && entry != nil {
+				if entry.rep != nil {
+					_ = r.rep.Close(ctx)
+					entry.refs++
+					p.mu.Unlock()
+					return entry.rep, func() { p.release(key) }, nil
+				}
+				entry.rep = r.rep
+				entry.refs = 1
+				entry.opened = time.Now()
+				if entry.cacheDir == "" {
+					entry.cacheDir = p.cacheDir(storage)
+				}
 				p.mu.Unlock()
-				return entry.rep, func() { p.release(key) }, nil
+				return r.rep, func() { p.release(key) }, nil
 			}
 			p.repos[key] = &poolEntry{rep: r.rep, refs: 1, opened: time.Now(), cacheDir: p.cacheDir(storage)}
 			p.mu.Unlock()
@@ -144,6 +161,15 @@ func (p *Pool) cacheDir(storage StorageOptions) string {
 	return filepath.Join(p.cache.RepoConfigDir, "cache", storage.repoHash())
 }
 
+// HasActiveEntry reports whether a repository handle is currently pooled.
+func (p *Pool) HasActiveEntry(storage StorageOptions) bool {
+	key := storage.RepoIdentity()
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	entry, ok := p.repos[key]
+	return ok && entry != nil && entry.rep != nil
+}
+
 // IndexBlobCount returns the number of files in a repository's index cache directory.
 func (p *Pool) IndexBlobCount(storage StorageOptions) int {
 	indexDir := filepath.Join(p.cacheDir(storage), "indexes")
@@ -158,6 +184,24 @@ func (p *Pool) IndexBlobCount(storage StorageOptions) int {
 		}
 	}
 	return count
+}
+
+// CloseIdleRepo closes a pooled repository handle without deleting its on-disk cache.
+func (p *Pool) CloseIdleRepo(ctx context.Context, storage StorageOptions) {
+	key := storage.RepoIdentity()
+
+	p.mu.Lock()
+	entry, ok := p.repos[key]
+	if !ok || entry == nil || entry.refs > 0 || entry.rep == nil {
+		p.mu.Unlock()
+		return
+	}
+	rep := entry.rep
+	entry.rep = nil
+	entry.closedAt = time.Now()
+	p.mu.Unlock()
+
+	_ = rep.Close(ctx)
 }
 
 // EvictRepo closes and removes a pooled repository when it has no active references,
@@ -185,6 +229,25 @@ func (p *Pool) EvictRepo(ctx context.Context, storage StorageOptions) {
 	_ = os.RemoveAll(cacheDir)
 }
 
+// CloseIdle closes idle pooled repository handles but retains on-disk caches.
+func (p *Pool) CloseIdle(ctx context.Context) {
+	p.mu.Lock()
+	var idle []repo.Repository
+	for _, entry := range p.repos {
+		if entry == nil || entry.refs > 0 || entry.rep == nil {
+			continue
+		}
+		idle = append(idle, entry.rep)
+		entry.rep = nil
+		entry.closedAt = time.Now()
+	}
+	p.mu.Unlock()
+
+	for _, rep := range idle {
+		_ = rep.Close(ctx)
+	}
+}
+
 // EvictIdle evicts every pooled repository with no active references and deletes cache dirs.
 func (p *Pool) EvictIdle(ctx context.Context) {
 	p.mu.Lock()
@@ -205,6 +268,82 @@ func (p *Pool) EvictIdle(ctx context.Context) {
 		if entry.cacheDir != "" {
 			_ = os.RemoveAll(entry.cacheDir)
 		}
+	}
+}
+
+// PurgeStaleCaches removes closed repository cache directories older than maxAge and
+// enforces an approximate total size cap across remaining cache directories.
+func (p *Pool) PurgeStaleCaches(maxAge time.Duration, maxTotalMiB int64) {
+	if maxAge <= 0 {
+		maxAge = defaultStaleCacheMaxAge
+	}
+	if maxTotalMiB <= 0 {
+		maxTotalMiB = defaultStaleCacheMaxTotalMiB
+	}
+
+	cacheRoot := filepath.Join(p.cache.RepoConfigDir, "cache")
+	type cacheCandidate struct {
+		path    string
+		modTime time.Time
+		sizeMiB int64
+	}
+	now := time.Now()
+	var candidates []cacheCandidate
+
+	entries, err := os.ReadDir(cacheRoot)
+	if err != nil {
+		return
+	}
+	for _, repoDir := range entries {
+		if !repoDir.IsDir() {
+			continue
+		}
+		base := filepath.Join(cacheRoot, repoDir.Name())
+		info, err := repoDir.Info()
+		if err != nil {
+			continue
+		}
+		candidates = append(candidates, cacheCandidate{
+			path:    base,
+			modTime: info.ModTime(),
+			sizeMiB: DirSizeMiB(base),
+		})
+	}
+
+	activeDirs := make(map[string]struct{})
+	p.mu.Lock()
+	for _, entry := range p.repos {
+		if entry != nil && entry.cacheDir != "" && entry.rep != nil {
+			activeDirs[entry.cacheDir] = struct{}{}
+		}
+	}
+	p.mu.Unlock()
+
+	remaining := make([]cacheCandidate, 0, len(candidates))
+	for _, candidate := range candidates {
+		if _, active := activeDirs[candidate.path]; active {
+			remaining = append(remaining, candidate)
+			continue
+		}
+		if now.Sub(candidate.modTime) >= maxAge {
+			_ = os.RemoveAll(candidate.path)
+			continue
+		}
+		remaining = append(remaining, candidate)
+	}
+
+	sort.Slice(remaining, func(i, j int) bool {
+		return remaining[i].modTime.Before(remaining[j].modTime)
+	})
+	var total int64
+	for _, candidate := range remaining {
+		total += candidate.sizeMiB
+	}
+	for total > maxTotalMiB && len(remaining) > 0 {
+		oldest := remaining[0]
+		remaining = remaining[1:]
+		_ = os.RemoveAll(oldest.path)
+		total -= oldest.sizeMiB
 	}
 }
 

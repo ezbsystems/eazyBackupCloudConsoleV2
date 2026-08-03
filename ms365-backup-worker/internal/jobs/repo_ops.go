@@ -95,22 +95,38 @@ func (s *Scheduler) executeRepoOperation(ctx context.Context, op *api.RepoOperat
 			"sources_count": ret.SourcesCount,
 		}, nil
 	case "maintenance_quick":
-		if err := kopia.RunMaintenance(ctx, s.repoPool, storage, s.cfg.Kopia.MaxPackSizeMiB, true); err != nil {
+		outcome, err := kopia.RunManagedMaintenance(ctx, s.repoPool, storage, s.cfg.Kopia.MaxPackSizeMiB, true, s.cfg.Kopia.IndexMaintenanceThreshold)
+		if err != nil {
 			return nil, err
 		}
-		return map[string]any{"mode": "quick"}, nil
+		log.Printf("maintenance_quick op=%d requested=%s effective=%s escalated=%v index_blobs_before=%d index_blobs_after=%d",
+			op.OperationID, outcome.RequestedMode, outcome.EffectiveMode, outcome.Escalated, outcome.IndexBlobsBefore, outcome.IndexBlobsAfter)
+		return maintenanceOutcomeMap(outcome), nil
 	case "maintenance_full":
-		indexCount := s.repoPool.IndexBlobCount(storage)
-		if indexCount < s.cfg.Kopia.IndexMaintenanceThreshold {
-			log.Printf("maintenance_full op=%d skipped: index_blobs=%d below threshold %d",
-				op.OperationID, indexCount, s.cfg.Kopia.IndexMaintenanceThreshold)
-			return map[string]any{"mode": "full", "skipped": true, "index_blobs": indexCount}, nil
-		}
-		if err := kopia.RunMaintenance(ctx, s.repoPool, storage, s.cfg.Kopia.MaxPackSizeMiB, false); err != nil {
+		outcome, err := kopia.RunManagedMaintenance(ctx, s.repoPool, storage, s.cfg.Kopia.MaxPackSizeMiB, false, s.cfg.Kopia.IndexMaintenanceThreshold)
+		if err != nil {
 			return nil, err
 		}
-		return map[string]any{"mode": "full"}, nil
+		log.Printf("maintenance_full op=%d requested=%s effective=%s skipped=%v index_blobs_before=%d index_blobs_after=%d",
+			op.OperationID, outcome.RequestedMode, outcome.EffectiveMode, outcome.Skipped, outcome.IndexBlobsBefore, outcome.IndexBlobsAfter)
+		return maintenanceOutcomeMap(outcome), nil
 	default:
 		return nil, fmt.Errorf("unsupported repo operation: %s", op.OpType)
 	}
+}
+
+func maintenanceOutcomeMap(outcome kopia.MaintenanceOutcome) map[string]any {
+	result := map[string]any{
+		"requested_mode":     outcome.RequestedMode,
+		"effective_mode":     outcome.EffectiveMode,
+		"index_blobs_before": outcome.IndexBlobsBefore,
+		"index_blobs_after":  outcome.IndexBlobsAfter,
+	}
+	if outcome.Escalated {
+		result["escalated"] = true
+	}
+	if outcome.Skipped {
+		result["skipped"] = true
+	}
+	return result
 }

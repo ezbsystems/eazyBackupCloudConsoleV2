@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"strings"
+
+	"github.com/kopia/kopia/repo"
 )
 
 // browseTiming captures serve-side performance fields for structured logs.
@@ -54,6 +56,12 @@ func browsePathCandidates(req BrowseRequest) []string {
 
 // browseWithCandidates tries manifest and path aliases until a non-empty listing is found.
 func browseWithCandidates(ctx context.Context, pool *Pool, req BrowseRequest) (*BrowseResult, browseTiming, error) {
+	return browseWithCandidatesAcquirer(ctx, func(ctx context.Context) (repo.Repository, func(), error) {
+		return pool.Acquire(ctx, req.Storage, 64)
+	}, req)
+}
+
+func browseWithCandidatesAcquirer(ctx context.Context, acquire repoAcquirer, req BrowseRequest) (*BrowseResult, browseTiming, error) {
 	manifests := browseManifestCandidates(req)
 	if len(manifests) == 0 {
 		return nil, browseTiming{}, fmt.Errorf("manifest_id required")
@@ -78,7 +86,7 @@ func browseWithCandidates(ctx context.Context, pool *Pool, req BrowseRequest) (*
 			tryReq.ManifestCandidates = nil
 			tryReq.Sources = nil
 
-			result, err := pool.Browse(ctx, tryReq)
+			result, err := browseWithRepo(ctx, tryReq, acquire)
 			if err != nil {
 				lastErr = err
 				continue

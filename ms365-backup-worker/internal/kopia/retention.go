@@ -62,14 +62,79 @@ func ApplyRetention(ctx context.Context, pool *Pool, storage StorageOptions, max
 	return RetentionResult{DeletedCount: totalDeleted, SourcesCount: len(sources)}, nil
 }
 
+// MaintenanceOutcome reports index compaction results for repo operations.
+type MaintenanceOutcome struct {
+	RequestedMode    string `json:"requested_mode"`
+	EffectiveMode    string `json:"effective_mode"`
+	Escalated        bool   `json:"escalated,omitempty"`
+	Skipped          bool   `json:"skipped,omitempty"`
+	IndexBlobsBefore int    `json:"index_blobs_before"`
+	IndexBlobsAfter  int    `json:"index_blobs_after"`
+}
+
 // RunMaintenance runs Kopia quick or full maintenance.
 func RunMaintenance(ctx context.Context, pool *Pool, storage StorageOptions, maxPackSizeMiB int, quick bool) error {
+	_, err := RunManagedMaintenance(ctx, pool, storage, maxPackSizeMiB, quick, 0)
+	return err
+}
+
+// RunManagedMaintenance opens the repository before counting indexes, runs quick or full
+// maintenance, and escalates quick to full when the post-open index count meets threshold.
+func RunManagedMaintenance(ctx context.Context, pool *Pool, storage StorageOptions, maxPackSizeMiB int, quick bool, threshold int) (MaintenanceOutcome, error) {
+	requested := "full"
+	if quick {
+		requested = "quick"
+	}
+	coldCount := pool.IndexBlobCount(storage)
+
 	rep, release, err := pool.Acquire(ctx, storage, maxPackSizeMiB)
 	if err != nil {
-		return err
+		return MaintenanceOutcome{RequestedMode: requested, IndexBlobsBefore: coldCount}, err
 	}
 	defer release()
 
+	before := pool.IndexBlobCount(storage)
+	if before == 0 {
+		before = coldCount
+	}
+	outcome := MaintenanceOutcome{
+		RequestedMode:    requested,
+		IndexBlobsBefore: before,
+	}
+
+	if !quick {
+		if threshold > 0 && before < threshold {
+			outcome.EffectiveMode = "full"
+			outcome.Skipped = true
+			outcome.IndexBlobsAfter = before
+			return outcome, nil
+		}
+		if err := runMaintenanceOnRepo(ctx, rep, false); err != nil {
+			return outcome, err
+		}
+		outcome.EffectiveMode = "full"
+		outcome.IndexBlobsAfter = pool.IndexBlobCount(storage)
+		return outcome, nil
+	}
+
+	if err := runMaintenanceOnRepo(ctx, rep, true); err != nil {
+		return outcome, err
+	}
+	afterQuick := pool.IndexBlobCount(storage)
+	if threshold > 0 && afterQuick >= threshold {
+		if err := runMaintenanceOnRepo(ctx, rep, false); err != nil {
+			return outcome, err
+		}
+		outcome.EffectiveMode = "full"
+		outcome.Escalated = true
+	} else {
+		outcome.EffectiveMode = "quick"
+	}
+	outcome.IndexBlobsAfter = pool.IndexBlobCount(storage)
+	return outcome, nil
+}
+
+func runMaintenanceOnRepo(ctx context.Context, rep repo.Repository, quick bool) error {
 	dr, ok := rep.(repo.DirectRepository)
 	if !ok {
 		return fmt.Errorf("kopia: repository does not support maintenance")

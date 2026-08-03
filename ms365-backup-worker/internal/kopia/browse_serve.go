@@ -18,9 +18,10 @@ import (
 )
 
 const (
-	DefaultBrowseServeSocket       = "/run/ms365-browse/browse.sock"
+	DefaultBrowseServeSocket        = "/run/ms365-browse/browse.sock"
 	defaultBrowseServeMaxConcurrent = 8
 	defaultBrowseServeIdleEviction  = 20 * time.Minute
+	defaultBrowseServeWarmTimeout   = 30 * time.Minute
 )
 
 // BrowseServeCacheSettings returns small on-disk cache limits for the WHMCS browse sidecar.
@@ -73,7 +74,9 @@ type BrowseServeServer struct {
 	pool           *Pool
 	sem            chan struct{}
 	lastUsed       map[string]time.Time
+	warming        map[string]struct{}
 	lastUsedMu     sync.Mutex
+	warmingMu      sync.Mutex
 	listener       net.Listener
 	shutdown       chan struct{}
 	shutdownOnce   sync.Once
@@ -90,6 +93,7 @@ func NewBrowseServeServer(socketPath string) *BrowseServeServer {
 		pool:          NewPool(BrowseServeCacheSettings()),
 		sem:           make(chan struct{}, defaultBrowseServeMaxConcurrent),
 		lastUsed:      make(map[string]time.Time),
+		warming:       make(map[string]struct{}),
 		shutdown:      make(chan struct{}),
 	}
 }
@@ -205,6 +209,9 @@ func (s *BrowseServeServer) dispatch(ctx context.Context, raw []byte) browseServ
 		start := time.Now()
 		return browseServeResponse{OK: true, Pong: true, Latency: time.Since(start).Milliseconds()}
 	}
+	if req.Op == "warm" {
+		return s.handleWarm(req.browseServeBrowsePayload)
+	}
 
 	select {
 	case s.sem <- struct{}{}:
@@ -214,18 +221,22 @@ func (s *BrowseServeServer) dispatch(ctx context.Context, raw []byte) browseServ
 	}
 
 	start := time.Now()
+	storage := storageFromBrowsePayload(req.browseServeBrowsePayload)
+	repoWarm := s.pool.HasActiveEntry(storage)
+	indexBlobs := s.pool.IndexBlobCount(storage)
 	result, timing, err := s.handleBrowse(ctx, req.browseServeBrowsePayload)
 	if err != nil {
-		log.Printf("browse-serve browse error candidates_tried=%d err=%v", timing.CandidatesTried, err)
+		log.Printf("browse-serve browse error candidates_tried=%d repo_warm=%v index_blobs=%d err=%v",
+			timing.CandidatesTried, repoWarm, indexBlobs, err)
 		return browseServeResponse{Error: err.Error()}
 	}
-	log.Printf("browse-serve browse path=%q manifest=%s candidates_tried=%d repo_acquire_ms=%d list_ms=%d entries=%d duration_ms=%d",
-		req.Path, req.ManifestID, timing.CandidatesTried, timing.RepoAcquireMS, timing.ListMS, len(result.Entries), time.Since(start).Milliseconds())
+	log.Printf("browse-serve browse path=%q manifest=%s candidates_tried=%d repo_warm=%v index_blobs=%d repo_acquire_ms=%d list_ms=%d entries=%d duration_ms=%d",
+		req.Path, req.ManifestID, timing.CandidatesTried, repoWarm, indexBlobs, timing.RepoAcquireMS, timing.ListMS, len(result.Entries), time.Since(start).Milliseconds())
 	return browseServeResponse{OK: true, Result: result}
 }
 
-func (s *BrowseServeServer) handleBrowse(ctx context.Context, req browseServeBrowsePayload) (*BrowseResult, browseTiming, error) {
-	storage := StorageOptions{
+func storageFromBrowsePayload(req browseServeBrowsePayload) StorageOptions {
+	return StorageOptions{
 		Endpoint:     req.DestEndpoint,
 		Region:       req.DestRegion,
 		Bucket:       req.DestBucket,
@@ -234,6 +245,50 @@ func (s *BrowseServeServer) handleBrowse(ctx context.Context, req browseServeBro
 		SecretKey:    req.DestSecretKey,
 		RepoPassword: req.RepoPassword,
 	}
+}
+
+func (s *BrowseServeServer) handleWarm(req browseServeBrowsePayload) browseServeResponse {
+	storage := storageFromBrowsePayload(req)
+	key := storage.RepoIdentity()
+	s.touchRepo(storage)
+
+	if s.pool.HasActiveEntry(storage) {
+		return browseServeResponse{OK: true}
+	}
+
+	s.warmingMu.Lock()
+	if _, ok := s.warming[key]; ok {
+		s.warmingMu.Unlock()
+		return browseServeResponse{OK: true}
+	}
+	s.warming[key] = struct{}{}
+	s.warmingMu.Unlock()
+
+	go func() {
+		defer func() {
+			s.warmingMu.Lock()
+			delete(s.warming, key)
+			s.warmingMu.Unlock()
+		}()
+
+		warmCtx, cancel := context.WithTimeout(context.Background(), defaultBrowseServeWarmTimeout)
+		defer cancel()
+		start := time.Now()
+		_, release, err := s.pool.Acquire(warmCtx, storage, 64)
+		if err != nil {
+			log.Printf("browse-serve warm error key=%s err=%v", key, err)
+			return
+		}
+		release()
+		log.Printf("browse-serve warm complete key=%s index_blobs=%d duration_ms=%d",
+			key, s.pool.IndexBlobCount(storage), time.Since(start).Milliseconds())
+	}()
+
+	return browseServeResponse{OK: true}
+}
+
+func (s *BrowseServeServer) handleBrowse(ctx context.Context, req browseServeBrowsePayload) (*BrowseResult, browseTiming, error) {
+	storage := storageFromBrowsePayload(req)
 	s.touchRepo(storage)
 
 	browseReq := BrowseRequest{
@@ -248,14 +303,7 @@ func (s *BrowseServeServer) handleBrowse(ctx context.Context, req browseServeBro
 		AutoDescend:        req.AutoDescend,
 	}
 
-	acquireStart := time.Now()
-	result, timing, err := browseWithAutoDescend(ctx, s.pool, browseReq)
-	timing.RepoAcquireMS = time.Since(acquireStart).Milliseconds()
-	if err != nil {
-		return nil, timing, err
-	}
-	timing.ListMS = time.Since(acquireStart).Milliseconds() - timing.RepoAcquireMS
-	return result, timing, nil
+	return browseWithAutoDescendSession(ctx, s.pool, browseReq)
 }
 
 func (s *BrowseServeServer) touchRepo(storage StorageOptions) {
@@ -276,6 +324,7 @@ func (s *BrowseServeServer) evictionLoop(ctx context.Context) {
 			return
 		case <-ticker.C:
 			s.evictIdleRepos(ctx)
+			s.pool.PurgeStaleCaches(defaultStaleCacheMaxAge, defaultStaleCacheMaxTotalMiB)
 		}
 	}
 }
@@ -300,8 +349,8 @@ func (s *BrowseServeServer) evictIdleRepos(ctx context.Context) {
 	s.lastUsedMu.Unlock()
 
 	for _, item := range idle {
-		s.pool.EvictRepo(ctx, item.storage)
-		log.Printf("browse-serve evicted idle repo key=%s", item.key)
+		s.pool.CloseIdleRepo(ctx, item.storage)
+		log.Printf("browse-serve closed idle repo key=%s", item.key)
 	}
 }
 

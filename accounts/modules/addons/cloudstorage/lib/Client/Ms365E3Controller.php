@@ -489,6 +489,16 @@ final class Ms365E3Controller
                 $roots[] = $root;
             }
 
+            $e3JobId = '';
+            foreach ($childRuns as $child) {
+                $candidate = trim((string) ($child['e3_job_id'] ?? ''));
+                if ($candidate !== '') {
+                    $e3JobId = $candidate;
+                    break;
+                }
+            }
+            \Ms365Backup\KopiaSnapshotBrowseService::warmBrowseRepository($record, $e3JobId !== '' ? $e3JobId : null);
+
             return [
                 'entries' => $roots,
                 'total_count' => count($roots),
