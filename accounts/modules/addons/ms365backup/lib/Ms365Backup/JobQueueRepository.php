@@ -18,51 +18,33 @@ final class JobQueueRepository
     public static function isNonRetryableError(string $message): bool
     {
         $message = strtolower($message);
-        // #region agent log
-        $__dbgClassify = static function (string $msg, bool $result, string $reason) use ($message): bool {
-            @file_put_contents('/var/www/eazybackup.ca/.cursor/debug-58741c.log', json_encode([
-                'sessionId' => '58741c',
-                'runId' => 'classify',
-                'hypothesisId' => 'H2',
-                'location' => 'JobQueueRepository.php:isNonRetryableError',
-                'message' => 'error classification',
-                'data' => [
-                    'non_retryable' => $result,
-                    'reason' => $reason,
-                    'msg_prefix' => mb_substr($message, 0, 120),
-                ],
-                'timestamp' => (int) (microtime(true) * 1000),
-            ], JSON_UNESCAPED_SLASHES) . "\n", FILE_APPEND);
-            return $result;
-        };
-        // #endregion
         if (str_contains($message, 'looking for beginning of value')) {
-            return $__dbgClassify($message, true, 'json_decode');
+            return true;
         }
         if (str_contains($message, 'graph 401 after token refresh')) {
-            return $__dbgClassify($message, true, 'token_refresh_401');
+            return true;
         }
         if (str_contains($message, 'request_unsupportedquery')) {
-            return $__dbgClassify($message, true, 'unsupported_query');
+            return true;
         }
         if (str_contains($message, 'graph 400') && str_contains($message, 'invalid property')) {
-            return $__dbgClassify($message, true, 'invalid_property');
+            return true;
         }
         if (str_contains($message, 'graph 400') && str_contains($message, 'query option \'top\' is not allowed')) {
-            return $__dbgClassify($message, true, 'top_not_allowed');
+            return true;
         }
         if (str_contains($message, 'graph 400') && str_contains($message, 'deltatoken')) {
-            return $__dbgClassify($message, true, 'deltatoken');
+            return true;
         }
         if (str_contains($message, 'graph 400') && str_contains($message, 'parameter \'deltatoken\' not supported')) {
-            return $__dbgClassify($message, true, 'deltatoken_param');
+            return true;
         }
         // OneDrive/SharePoint "Database Is Read Only" (serviceReadOnly) is a transient
         // Microsoft-side lock; retries often succeed. Must be excluded before the
         // generic graph 403 / access denied patterns below.
         if (str_contains($message, 'servicereadonly')
             || str_contains($message, 'database is read only')) {
-            return $__dbgClassify($message, false, 'service_read_only_retryable');
+            return false;
         }
         $patterns = [
             'graph 403',
@@ -76,17 +58,17 @@ final class JobQueueRepository
         ];
         foreach ($patterns as $pattern) {
             if (str_contains($message, $pattern)) {
-                return $__dbgClassify($message, true, 'auth_pattern:' . $pattern);
+                return true;
             }
         }
         if (str_contains($message, 'workload stalled during graph sync')) {
-            return $__dbgClassify($message, true, 'infra_stall_cap');
+            return true;
         }
         if (str_contains($message, 'graph_sync stalled')) {
-            return $__dbgClassify($message, true, 'graph_sync_stalled');
+            return true;
         }
         if (str_contains($message, 'no enumeration progress')) {
-            return $__dbgClassify($message, true, 'no_enum_progress');
+            return true;
         }
         // Kopia upload stalls are often transient (disk pressure, network, node hand-off).
         // Leave them retryable so markFailed / batch auto-retry can use remaining attempts.
@@ -97,10 +79,10 @@ final class JobQueueRepository
             || str_contains($message, 'page contained only previously seen items')
             || str_contains($message, 'identical @odata.nextlink')
             || str_contains($message, 'consecutive empty page')) {
-            return $__dbgClassify($message, true, 'pagination_loop');
+            return true;
         }
 
-        return $__dbgClassify($message, false, 'default_retryable');
+        return false;
     }
 
     public static function countStaleRunning(): int
