@@ -202,6 +202,24 @@ final class Ms365EngineConfig
         return max(1, (int) self::moduleSetting('ms365_kopia_maintenance_interval_days', '7'));
     }
 
+    /** Repo-op lock TTL (seconds) for MS365 worker maintenance claims. */
+    public static function kopiaRepoOpLockTtlSeconds(): int
+    {
+        return max(300, (int) self::moduleSetting('ms365_kopia_repo_op_lock_ttl_seconds', '1800'));
+    }
+
+    /** Stale-running grace (seconds) before fleet reaper fails orphaned repo ops. */
+    public static function kopiaRepoOpProgressGraceSeconds(): int
+    {
+        return max(300, (int) self::moduleSetting('ms365_kopia_repo_op_progress_grace_seconds', '2700'));
+    }
+
+    /** Max automatic requeue attempts after an orphaned maintenance op is reaped. */
+    public static function kopiaRepoOpRequeueMaxAttempts(): int
+    {
+        return max(1, (int) self::moduleSetting('ms365_kopia_repo_op_requeue_max_attempts', '3'));
+    }
+
     public static function fairSchedulingEnabled(): bool
     {
         return strtolower(trim(self::moduleSetting('ms365_fair_scheduling_enabled', '1'))) !== '0';

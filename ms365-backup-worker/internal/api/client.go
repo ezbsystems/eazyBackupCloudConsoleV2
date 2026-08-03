@@ -490,10 +490,22 @@ func (c *Client) CompleteRepoOperation(ctx context.Context, operationID int, sta
 	if result == nil {
 		result = map[string]any{}
 	}
-	return c.postWithRetry(ctx, "ms365_worker_maintenance_complete.php", map[string]any{
+	return c.postTerminalWithRetry(ctx, "ms365_worker_maintenance_complete.php", map[string]any{
 		"operation_id": operationID,
 		"status":       status,
 		"result":       result,
+	}, &struct{}{})
+}
+
+func (c *Client) ProgressRepoOperation(ctx context.Context, operationID int, phase string, fields map[string]any) error {
+	if fields == nil {
+		fields = map[string]any{}
+	}
+	return c.postWithRetry(ctx, "ms365_worker_maintenance_progress.php", map[string]any{
+		"node_id":       c.nodeID,
+		"operation_id":  operationID,
+		"phase":         phase,
+		"fields":        fields,
 	}, &struct{}{}, 3)
 }
 

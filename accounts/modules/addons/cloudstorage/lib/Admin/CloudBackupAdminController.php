@@ -444,19 +444,63 @@ class CloudBackupAdminController {
                     'op.created_at',
                     'op.updated_at',
                     'op.next_attempt_at',
+                    'op.result_json',
                     'r.repository_id',
                     'r.client_id'
-                )
-                ->orderBy('op.created_at', 'desc')
+                );
+            if (Capsule::schema()->hasColumn('s3_kopia_repo_operations', 'claimed_by_node_id')) {
+                $query->addSelect('op.claimed_by_node_id');
+            }
+            $query->orderBy('op.created_at', 'desc')
                 ->limit($limit);
             $rows = $query->get();
             return array_map(function ($item) {
-                return (array) $item;
+                $row = (array) $item;
+                $summary = self::summarizeRepoOpResult($row['result_json'] ?? null);
+                $row['phase'] = $summary['phase'] ?? '';
+                $row['effective_mode'] = $summary['effective_mode'] ?? '';
+                $row['index_blobs_before'] = $summary['index_blobs_before'] ?? null;
+                $row['index_blobs_after'] = $summary['index_blobs_after'] ?? null;
+                $row['escalated'] = !empty($summary['escalated']);
+                $row['skipped'] = !empty($summary['skipped']);
+                $row['duration_seconds'] = self::repoOpDurationSeconds($row['created_at'] ?? null, $row['updated_at'] ?? null);
+
+                return $row;
             }, $rows->toArray());
         } catch (\Throwable $e) {
             logModuleCall('cloudstorage', 'getRepoRetentionOps', [], $e->getMessage());
             return [];
         }
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private static function summarizeRepoOpResult(mixed $raw): array
+    {
+        if (!is_string($raw) || $raw === '') {
+            return [];
+        }
+        $decoded = json_decode($raw, true);
+        if (!is_array($decoded)) {
+            return [];
+        }
+
+        return $decoded;
+    }
+
+    private static function repoOpDurationSeconds(mixed $createdAt, mixed $updatedAt): ?int
+    {
+        if (!is_string($createdAt) || !is_string($updatedAt) || $createdAt === '' || $updatedAt === '') {
+            return null;
+        }
+        $start = strtotime($createdAt);
+        $end = strtotime($updatedAt);
+        if ($start === false || $end === false || $end < $start) {
+            return null;
+        }
+
+        return $end - $start;
     }
 
     /**

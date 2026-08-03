@@ -56,6 +56,8 @@ type Scheduler struct {
 	batchProgress        sync.Map
 	batchRunner          *BatchRunner
 	completionOutbox     *CompletionOutbox
+	activeRepoOpsMu      sync.Mutex
+	activeRepoOps        int
 	diskCritical         atomic.Bool
 	freeMiBFn            func() int64
 	cachePressureMiB     atomic.Int64
@@ -67,6 +69,7 @@ type Scheduler struct {
 
 type schedulerTestHooks struct {
 	onReleaseClaims func()
+	repoOpExecute     func(ctx context.Context, op *api.RepoOperation, reportProgress func(phase string, fields map[string]any)) (map[string]any, error)
 }
 
 type resourceBudget struct {
@@ -920,9 +923,12 @@ func (s *Scheduler) currentLoad() int {
 		return 1
 	}
 	s.batchMu.Unlock()
+	s.activeRepoOpsMu.Lock()
+	repoOps := s.activeRepoOps
+	s.activeRepoOpsMu.Unlock()
 	s.runningMu.Lock()
 	defer s.runningMu.Unlock()
-	return len(s.running)
+	return len(s.running) + repoOps
 }
 
 type activeJob struct {

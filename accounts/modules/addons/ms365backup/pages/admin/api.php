@@ -1017,6 +1017,17 @@ try {
             echo json_encode(['ok' => true, 'job_id' => $jobId, 'message' => 'Build queued; deploy after publish can be triggered manually or via cron hook']);
             break;
 
+        case 'fleet_repo_ops':
+            $data = \Ms365Backup\Ms365FleetRepoOpsService::listForFleet();
+            ms365backup_echo_json(['ok' => true] + $data);
+            break;
+
+        case 'fleet_repo_ops_enqueue':
+            $repoId = (int) ($_POST['repo_id'] ?? 0);
+            $opType = trim((string) ($_POST['op_type'] ?? ''));
+            ms365backup_echo_json(\Ms365Backup\Ms365FleetRepoOpsService::enqueue($repoId, $opType));
+            break;
+
         default:
             http_response_code(400);
             echo json_encode(['ok' => false, 'error' => 'Unknown op']);

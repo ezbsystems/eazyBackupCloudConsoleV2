@@ -507,12 +507,21 @@ function e3backupGetJobsApp() {
     return null;
 }
 
-function e3backupReloadJobs() {
+function e3backupReloadJobs(attempt) {
+    attempt = attempt || 0;
     const app = e3backupGetJobsApp();
     if (app && typeof app.loadJobs === 'function') {
         return app.loadJobs();
     }
-    console.warn('e3backupReloadJobs: jobsApp() not found/initialized yet');
+    const root = document.querySelector('[data-e3backup-jobs-app]');
+    if (root && attempt < 5) {
+        const delay = attempt === 0 ? 0 : 50;
+        window.setTimeout(function () { e3backupReloadJobs(attempt + 1); }, delay);
+        return null;
+    }
+    if (root) {
+        console.warn('e3backupReloadJobs: jobsApp() not found/initialized yet');
+    }
     return null;
 }
 

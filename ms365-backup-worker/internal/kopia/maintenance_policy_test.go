@@ -22,7 +22,7 @@ func TestRunManagedMaintenanceFullSkipsColdCacheBelowThreshold(t *testing.T) {
 		return &maintenanceCountRepo{}, nil
 	})
 
-	outcome, err := RunManagedMaintenance(context.Background(), pool, storage, 64, false, 5000)
+	outcome, err := RunManagedMaintenance(context.Background(), pool, storage, 64, false, 5000, nil)
 	if err != nil {
 		t.Fatalf("RunManagedMaintenance: %v", err)
 	}
@@ -31,6 +31,17 @@ func TestRunManagedMaintenanceFullSkipsColdCacheBelowThreshold(t *testing.T) {
 	}
 	if outcome.IndexBlobsBefore != 0 || outcome.IndexBlobsAfter != 0 {
 		t.Fatalf("unexpected index counts: %+v", outcome)
+	}
+
+	var phases []string
+	_, err = RunManagedMaintenance(context.Background(), pool, storage, 64, false, 5000, func(phase string, _ map[string]any) {
+		phases = append(phases, phase)
+	})
+	if err != nil {
+		t.Fatalf("RunManagedMaintenance with progress: %v", err)
+	}
+	if phases[0] != "pre_open" || phases[len(phases)-1] != "complete" {
+		t.Fatalf("expected pre_open..complete phases on skip, got %v", phases)
 	}
 }
 
@@ -52,7 +63,7 @@ func TestRunManagedMaintenanceFullRunsWhenIndexCountAboveThreshold(t *testing.T)
 		return &maintenanceCountRepo{}, nil
 	})
 
-	outcome, err := RunManagedMaintenance(context.Background(), pool, storage, 64, false, 5000)
+	outcome, err := RunManagedMaintenance(context.Background(), pool, storage, 64, false, 5000, nil)
 	if err == nil {
 		t.Fatalf("expected maintenance error from mock repo, got outcome=%+v", outcome)
 	}

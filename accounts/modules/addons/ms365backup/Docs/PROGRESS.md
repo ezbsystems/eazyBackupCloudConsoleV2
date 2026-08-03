@@ -5,11 +5,25 @@
 **Last updated:** 2026-08-03
 **Module version (ms365backup):** 1.52.44
 **Cloudstorage (e3) version:** 2.2.4  
-**Worker version (ms365-backup-worker):** 0.4.31 (Kopia v0.23.1)
+**Worker version (ms365-backup-worker):** 0.4.32 (Kopia v0.23.1)
 
 ---
 
 ## Session log
+
+### 2026-08-03 — Fleet Dashboard compaction visibility
+
+- **Ship:** Dashboard panel "Repo operations / compaction" with active strip, recent table, enqueue (`maintenance_*` / `retention_apply`); API `fleet_repo_ops` / `fleet_repo_ops_enqueue`; `Ms365FleetRepoOpsService` (local DB only).
+- **Verify:** `ms365_fleet_repo_ops_test.php` PASS; Fleet Dashboard shows phase/claimed node for running ops.
+
+### 2026-08-03 — Repo-op reliability + compaction visibility (worker 0.4.32)
+
+- **Problem:** `maintenance_full` op **573** stranded `running` after fleet deploy — no `claimed_by_node_id`, 600s lock TTL never renewed, no reaper for repo ops, `CompleteRepoOperation` lost on cancelled worker context, claim returned null when head-op lock busy (blocked whole queue).
+- **Fix (PHP):** `claimed_by_node_id` column + schema upgrade; claim sets node id with **1800s** lock TTL; skip-to-next on lock-busy; `recordProgress` API (`ms365_worker_maintenance_progress.php`) merges `result_json` + renews lock; `reapStaleRunningOps()` in fleet cron (45m grace, `orphaned_stale`); schedule suppression ignores terminal errors/stale orphans; admin Retention ops table shows phase/index/duration/claimed node; `ms365_repo_ops_diag.php` CLI.
+- **Fix (worker 0.4.32):** `repo_op_start` + phase progress POSTs (`pre_open`→`repo_open`→`full_run`→`complete`); 150s heartbeat ticker; `CompleteRepoOperation` via `postTerminalWithRetry` + `context.WithoutCancel`; repo ops counted in `currentLoad()`.
+- **Verify:** `go test ./...` PASS; `ms365_repo_ops_test.php` PASS (16 cases).
+- **Deploy:** release **152** dev / **76** prod (`0.4.32`, sha256 `72941ea3…`); PHP rsynced to prod; fleet deploy job **42** (2 nodes pending → **0.4.32**); browse binary **0.4.32** on prod.
+- **Prod remediation (repo 20):** fleet cron reaped orphans (**540**, **344**, **573** context); cleared stale op **573**; enqueued `maintenance_full` op **574** (`e3_job_id=a98f9943-…`) — **running** on node `9667565c…`, phase `pre_open` with 30m lock renew. Post-compaction validation pending (`index_blobs_after` < 5000).
 
 ### 2026-08-03 — Restore cold-browse: index compaction + browse prewarm (worker 0.4.31)
 

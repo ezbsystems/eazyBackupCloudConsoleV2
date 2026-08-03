@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"time"
 
 	"github.com/kopia/kopia/repo"
 	"github.com/kopia/kopia/repo/maintenance"
@@ -62,7 +63,9 @@ func ApplyRetention(ctx context.Context, pool *Pool, storage StorageOptions, max
 	return RetentionResult{DeletedCount: totalDeleted, SourcesCount: len(sources)}, nil
 }
 
-// MaintenanceOutcome reports index compaction results for repo operations.
+// MaintenanceProgressFunc reports phase transitions during managed maintenance.
+type MaintenanceProgressFunc func(phase string, fields map[string]any)
+
 type MaintenanceOutcome struct {
 	RequestedMode    string `json:"requested_mode"`
 	EffectiveMode    string `json:"effective_mode"`
@@ -74,21 +77,46 @@ type MaintenanceOutcome struct {
 
 // RunMaintenance runs Kopia quick or full maintenance.
 func RunMaintenance(ctx context.Context, pool *Pool, storage StorageOptions, maxPackSizeMiB int, quick bool) error {
-	_, err := RunManagedMaintenance(ctx, pool, storage, maxPackSizeMiB, quick, 0)
+	_, err := RunManagedMaintenance(ctx, pool, storage, maxPackSizeMiB, quick, 0, nil)
 	return err
 }
 
 // RunManagedMaintenance opens the repository before counting indexes, runs quick or full
 // maintenance, and escalates quick to full when the post-open index count meets threshold.
-func RunManagedMaintenance(ctx context.Context, pool *Pool, storage StorageOptions, maxPackSizeMiB int, quick bool, threshold int) (MaintenanceOutcome, error) {
+func RunManagedMaintenance(
+	ctx context.Context,
+	pool *Pool,
+	storage StorageOptions,
+	maxPackSizeMiB int,
+	quick bool,
+	threshold int,
+	onProgress MaintenanceProgressFunc,
+) (MaintenanceOutcome, error) {
+	report := func(phase string, fields map[string]any) {
+		if onProgress != nil {
+			onProgress(phase, fields)
+		}
+	}
+
 	requested := "full"
 	if quick {
 		requested = "quick"
 	}
 	coldCount := pool.IndexBlobCount(storage)
+	report("pre_open", map[string]any{
+		"requested_mode":   requested,
+		"index_blobs_cold": coldCount,
+	})
 
+	acquireStart := time.Now()
 	rep, release, err := pool.Acquire(ctx, storage, maxPackSizeMiB)
+	acquireMs := time.Since(acquireStart).Milliseconds()
 	if err != nil {
+		report("repo_open", map[string]any{
+			"requested_mode": requested,
+			"acquire_ms":     acquireMs,
+			"error":          err.Error(),
+		})
 		return MaintenanceOutcome{RequestedMode: requested, IndexBlobsBefore: coldCount}, err
 	}
 	defer release()
@@ -97,6 +125,11 @@ func RunManagedMaintenance(ctx context.Context, pool *Pool, storage StorageOptio
 	if before == 0 {
 		before = coldCount
 	}
+	report("repo_open", map[string]any{
+		"requested_mode":     requested,
+		"acquire_ms":         acquireMs,
+		"index_blobs_before": before,
+	})
 	outcome := MaintenanceOutcome{
 		RequestedMode:    requested,
 		IndexBlobsBefore: before,
@@ -107,21 +140,42 @@ func RunManagedMaintenance(ctx context.Context, pool *Pool, storage StorageOptio
 			outcome.EffectiveMode = "full"
 			outcome.Skipped = true
 			outcome.IndexBlobsAfter = before
+			report("skipped", map[string]any{
+				"requested_mode":     requested,
+				"effective_mode":     outcome.EffectiveMode,
+				"index_blobs_before": before,
+				"index_blobs_after":  before,
+			})
+			report("complete", maintenanceProgressFields(outcome))
 			return outcome, nil
 		}
+		report("full_run", map[string]any{
+			"requested_mode":     requested,
+			"index_blobs_before": before,
+		})
 		if err := runMaintenanceOnRepo(ctx, rep, false); err != nil {
 			return outcome, err
 		}
 		outcome.EffectiveMode = "full"
 		outcome.IndexBlobsAfter = pool.IndexBlobCount(storage)
+		report("complete", maintenanceProgressFields(outcome))
 		return outcome, nil
 	}
 
+	report("quick_run", map[string]any{
+		"requested_mode":     requested,
+		"index_blobs_before": before,
+	})
 	if err := runMaintenanceOnRepo(ctx, rep, true); err != nil {
 		return outcome, err
 	}
 	afterQuick := pool.IndexBlobCount(storage)
 	if threshold > 0 && afterQuick >= threshold {
+		report("escalating", map[string]any{
+			"requested_mode":     requested,
+			"index_blobs_before": before,
+			"index_blobs_after":  afterQuick,
+		})
 		if err := runMaintenanceOnRepo(ctx, rep, false); err != nil {
 			return outcome, err
 		}
@@ -131,7 +185,24 @@ func RunManagedMaintenance(ctx context.Context, pool *Pool, storage StorageOptio
 		outcome.EffectiveMode = "quick"
 	}
 	outcome.IndexBlobsAfter = pool.IndexBlobCount(storage)
+	report("complete", maintenanceProgressFields(outcome))
 	return outcome, nil
+}
+
+func maintenanceProgressFields(outcome MaintenanceOutcome) map[string]any {
+	fields := map[string]any{
+		"requested_mode":     outcome.RequestedMode,
+		"effective_mode":     outcome.EffectiveMode,
+		"index_blobs_before": outcome.IndexBlobsBefore,
+		"index_blobs_after":  outcome.IndexBlobsAfter,
+	}
+	if outcome.Escalated {
+		fields["escalated"] = true
+	}
+	if outcome.Skipped {
+		fields["skipped"] = true
+	}
+	return fields
 }
 
 func runMaintenanceOnRepo(ctx context.Context, rep repo.Repository, quick bool) error {

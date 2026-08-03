@@ -56,6 +56,33 @@ foreach ($tabs as $key => $label):
 <div id="fleet-dashboard">
     <p class="text-muted">Loading fleet summary…</p>
 </div>
+<div class="panel panel-default" style="margin-top:15px" id="fleet-repo-ops-panel">
+    <div class="panel-heading"><strong>Repo operations / compaction</strong></div>
+    <div class="panel-body">
+        <p class="text-muted" style="margin-top:0"><small id="fleet-repo-ops-env-note">Local WHMCS environment: <?= $e($fleetMeta['server_environment'] ?? 'development') ?> — not the remote fleet target. Shows operations for this WHMCS environment only.</small></p>
+        <div id="fleet-repo-ops-fleet-warning"></div>
+        <div id="fleet-repo-ops-active"><p class="text-muted">Loading…</p></div>
+        <form id="fleet-repo-ops-enqueue" class="form-inline" style="margin:12px 0">
+            <div class="form-group">
+                <label for="fleet-repo-ops-repo">Repo</label>
+                <select id="fleet-repo-ops-repo" name="repo_id" class="form-control input-sm" style="min-width:220px"></select>
+            </div>
+            <div class="form-group" style="margin-left:10px">
+                <label for="fleet-repo-ops-type">Type</label>
+                <select id="fleet-repo-ops-type" name="op_type" class="form-control input-sm">
+                    <option value="maintenance_full" selected>maintenance_full</option>
+                    <option value="maintenance_quick">maintenance_quick</option>
+                    <option value="retention_apply">retention_apply</option>
+                </select>
+            </div>
+            <button type="submit" class="btn btn-primary btn-sm" style="margin-left:10px" id="fleet-repo-ops-enqueue-btn">Enqueue</button>
+        </form>
+        <p class="text-muted"><small>Attaches <code>e3_job_id</code> from the latest op for that repo when available (needed for the correct repo password).</small></p>
+        <div id="fleet-repo-ops-notice"></div>
+        <h5 style="margin-top:16px">Recent</h5>
+        <div id="fleet-repo-ops-recent"><p class="text-muted">Loading…</p></div>
+    </div>
+</div>
 <div class="panel panel-default" style="margin-top:15px">
     <div class="panel-heading"><strong>Recent audit</strong></div>
     <div class="panel-body" id="fleet-audit"><p class="text-muted">Loading…</p></div>

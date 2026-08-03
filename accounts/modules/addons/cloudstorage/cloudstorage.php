@@ -3509,6 +3509,7 @@ function cloudstorage_activate() {
         cloudstorage_ensure_cloudnas_schema('activate');
         cloudstorage_ensure_agent_update_schema('activate');
         cloudstorage_ensure_ms365_vault_lifecycle_schema('activate');
+        cloudstorage_ensure_ms365_repo_ops_schema('activate');
         cloudstorage_ensure_e3cb_billing_schema('activate');
         cloudstorage_ensure_e3cb_product('activate');
         cloudstorage_ensure_e3bu_product('activate');
@@ -5688,6 +5689,7 @@ function cloudstorage_upgrade($vars) {
         cloudstorage_ensure_cloudnas_schema('upgrade');
         cloudstorage_ensure_agent_update_schema('upgrade');
         cloudstorage_ensure_ms365_vault_lifecycle_schema('upgrade');
+        cloudstorage_ensure_ms365_repo_ops_schema('upgrade');
         cloudstorage_ensure_e3cb_billing_schema('upgrade');
         cloudstorage_ensure_e3cb_product('upgrade');
         cloudstorage_ensure_e3bu_product('upgrade');
@@ -6893,6 +6895,30 @@ function cloudstorage_ensure_ms365_vault_lifecycle_schema(string $context = 'act
  * reports progress against it and the server marks success once the agent comes
  * back online reporting the target version.
  */
+/**
+ * MS365 worker repo-operation columns (claimed_by_node_id for worker attribution).
+ */
+function cloudstorage_ensure_ms365_repo_ops_schema(string $context = 'activate'): void
+{
+    try {
+        $schema = \WHMCS\Database\Capsule::schema();
+        if (!$schema->hasTable('s3_kopia_repo_operations')) {
+            return;
+        }
+        if (!$schema->hasColumn('s3_kopia_repo_operations', 'claimed_by_node_id')) {
+            $schema->table('s3_kopia_repo_operations', function ($table) {
+                $table->string('claimed_by_node_id', 36)->nullable()->after('claimed_by_agent_id');
+            });
+            logModuleCall('cloudstorage', $context, [], 'Added s3_kopia_repo_operations.claimed_by_node_id', [], []);
+        }
+    } catch (\Throwable $e) {
+        try {
+            logModuleCall('cloudstorage', 'ensure_ms365_repo_ops_schema', [], $e->getMessage(), [], []);
+        } catch (\Throwable $_) {
+        }
+    }
+}
+
 function cloudstorage_ensure_agent_update_schema(string $context = 'activate'): void
 {
     try {

@@ -20,6 +20,7 @@ use Ms365Backup\Fleet\FleetSettings;
 use Ms365Backup\Fleet\RetentionService;
 use Ms365Backup\Ms365BatchClaimRepository;
 use Ms365Backup\Ms365BatchRunRepository;
+use Ms365Backup\Ms365KopiaRepoOperationService;
 use Ms365Backup\ProxmoxProvisioner;
 use Ms365Backup\WorkerClaimService;
 use Ms365Backup\WorkerNodeRepository;
@@ -29,6 +30,7 @@ try {
     $reconciled = DeployService::reconcileStuckDeployStatuses();
     $ghostLoads = WorkerClaimService::reconcileGhostNodeLoads();
     $batchesReaped = Ms365BatchClaimRepository::reapStaleBatches();
+    $repoOpsReaped = Ms365KopiaRepoOperationService::reapStaleRunningOps();
     $erroredQueued = WorkerClaimService::reconcileQueuedErroredRuns();
     $activeBatches = Ms365BatchRunRepository::reconcileActiveBatches();
     FleetAlertService::checkOfflineNodes();
@@ -42,6 +44,7 @@ try {
         'deploy_reconciled' => $reconciled,
         'ghost_loads_corrected' => $ghostLoads,
         'batches_reaped' => $batchesReaped,
+        'repo_ops_reaped' => $repoOpsReaped,
         'errored_queued_failed' => $erroredQueued,
         'active_batches_reconciled' => $activeBatches,
         'telemetry_pruned' => $telemetryPruned,

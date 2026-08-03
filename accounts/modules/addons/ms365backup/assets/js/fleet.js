@@ -5,6 +5,11 @@
   var token = window.MS365_TOKEN || '';
   var fleetMeta = window.MS365_FLEET_META || {};
   var fleetTarget = window.MS365_FLEET_TARGET || 'development';
+  var serverEnv = window.MS365_SERVER_ENV || 'development';
+
+  function normalizeEnv(v) {
+    return String(v || '').toLowerCase() === 'production' ? 'production' : 'development';
+  }
 
   function withFleet(params) {
     var p = params || {};
@@ -85,6 +90,171 @@
     return html;
   }
 
+  function statusLabel(status) {
+    var s = String(status || 'queued');
+    var cls = 'default';
+    if (s === 'success') cls = 'success';
+    else if (s === 'error' || s === 'failed') cls = 'danger';
+    else if (s === 'running') cls = 'info';
+    return '<span class="label label-' + cls + '">' + esc(s) + '</span>';
+  }
+
+  function indexBlobsCell(op) {
+    if (op.index_blobs_before == null && op.index_blobs_after == null) return '—';
+    var a = op.index_blobs_before != null ? op.index_blobs_before : '—';
+    var b = op.index_blobs_after != null ? op.index_blobs_after : '—';
+    return esc(a) + ' → ' + esc(b);
+  }
+
+  function phaseCell(op) {
+    var phase = op.phase || '—';
+    var extra = '';
+    if (op.effective_mode) {
+      extra = '<br><small class="text-muted">' + esc(op.effective_mode);
+      if (op.escalated) extra += ' (escalated)';
+      if (op.skipped) extra += ' (skipped)';
+      extra += '</small>';
+    }
+    if (op.error) {
+      extra += '<br><small class="text-danger">' + esc(op.error) + '</small>';
+    }
+    return esc(phase) + extra;
+  }
+
+  function repoOpsActiveTable(rows) {
+    if (!rows || !rows.length) {
+      return '<p class="text-muted">No active MS365 repo operations.</p>';
+    }
+    return '<table class="table table-condensed table-striped"><thead><tr>' +
+      '<th>ID</th><th>Repo</th><th>Type</th><th>Status</th><th>Claimed node</th><th>Phase</th><th>Index blobs</th><th>Updated</th>' +
+      '</tr></thead><tbody>' + rows.map(function (op) {
+        var node = op.claimed_by_node_id ? '<code>' + esc(String(op.claimed_by_node_id).slice(0, 8)) + '…</code>' : '—';
+        return '<tr>' +
+          '<td>' + esc(op.id) + '</td>' +
+          '<td>#' + esc(op.repo_id) + ' <small>(' + esc((op.repository_id || '').slice(0, 24)) + ')</small></td>' +
+          '<td>' + esc(op.op_type) + '</td>' +
+          '<td>' + statusLabel(op.status) + '</td>' +
+          '<td>' + node + '</td>' +
+          '<td>' + phaseCell(op) + '</td>' +
+          '<td>' + indexBlobsCell(op) + '</td>' +
+          '<td>' + esc(op.updated_at || '—') + '</td>' +
+          '</tr>';
+      }).join('') + '</tbody></table>';
+  }
+
+  function repoOpsRecentTable(rows) {
+    if (!rows || !rows.length) {
+      return '<p class="text-muted">No recent MS365 repo operations.</p>';
+    }
+    return '<table class="table table-condensed table-striped"><thead><tr>' +
+      '<th>ID</th><th>Repo</th><th>Type</th><th>Status</th><th>Claimed node</th><th>Phase / Outcome</th><th>Index blobs</th><th>Attempts</th><th>Duration</th><th>Created</th><th>Updated</th>' +
+      '</tr></thead><tbody>' + rows.map(function (op) {
+        var node = op.claimed_by_node_id ? '<code>' + esc(String(op.claimed_by_node_id).slice(0, 8)) + '…</code>' : '—';
+        var dur = op.duration_seconds != null ? esc(op.duration_seconds) + 's' : '—';
+        return '<tr>' +
+          '<td>' + esc(op.id) + '</td>' +
+          '<td>#' + esc(op.repo_id) + '</td>' +
+          '<td>' + esc(op.op_type) + '</td>' +
+          '<td>' + statusLabel(op.status) + '</td>' +
+          '<td>' + node + '</td>' +
+          '<td>' + phaseCell(op) + '</td>' +
+          '<td>' + indexBlobsCell(op) + '</td>' +
+          '<td>' + esc(op.attempt_count || 0) + '</td>' +
+          '<td>' + dur + '</td>' +
+          '<td>' + esc(op.created_at || '—') + '</td>' +
+          '<td>' + esc(op.updated_at || '—') + '</td>' +
+          '</tr>';
+      }).join('') + '</tbody></table>';
+  }
+
+  function fillRepoSelect(repos) {
+    var sel = document.getElementById('fleet-repo-ops-repo');
+    if (!sel) return;
+    var prev = sel.value;
+    sel.innerHTML = (repos || []).map(function (r) {
+      return '<option value="' + esc(r.id) + '">#' + esc(r.id) + ' ' + esc(r.repository_id) + '</option>';
+    }).join('') || '<option value="">No MS365 repos</option>';
+    if (prev) sel.value = prev;
+  }
+
+  function bindRepoOpsEnqueue() {
+    var form = document.getElementById('fleet-repo-ops-enqueue');
+    if (!form || form.getAttribute('data-bound') === '1') return;
+    form.setAttribute('data-bound', '1');
+    form.addEventListener('submit', function (ev) {
+      ev.preventDefault();
+      var btn = document.getElementById('fleet-repo-ops-enqueue-btn');
+      var notice = document.getElementById('fleet-repo-ops-notice');
+      var repoId = document.getElementById('fleet-repo-ops-repo').value;
+      var opType = document.getElementById('fleet-repo-ops-type').value;
+      if (notice) notice.innerHTML = '';
+      if (btn) btn.disabled = true;
+      post('fleet_repo_ops_enqueue', { repo_id: repoId, op_type: opType }).then(function (res) {
+        if (btn) btn.disabled = false;
+        if (!notice) return;
+        if (!res.ok) {
+          notice.innerHTML = '<div class="alert alert-danger">' + esc(res.error || 'Enqueue failed') + '</div>';
+          return;
+        }
+        notice.innerHTML = '<div class="alert alert-success">' + esc(res.message || ('Enqueued #' + res.operation_id)) + '</div>';
+        renderRepoOps();
+      }).catch(function (err) {
+        if (btn) btn.disabled = false;
+        if (notice) notice.innerHTML = '<div class="alert alert-danger">' + esc((err && err.message) || 'Enqueue request failed') + '</div>';
+      });
+    });
+  }
+
+  function repoOpsFleetMismatch() {
+    return !!fleetMeta.can_select_fleet && normalizeEnv(fleetTarget) !== normalizeEnv(serverEnv);
+  }
+
+  function applyRepoOpsFleetGuard() {
+    var mismatch = repoOpsFleetMismatch();
+    var btn = document.getElementById('fleet-repo-ops-enqueue-btn');
+    var repoSel = document.getElementById('fleet-repo-ops-repo');
+    var typeSel = document.getElementById('fleet-repo-ops-type');
+    var warning = document.getElementById('fleet-repo-ops-fleet-warning');
+    if (btn) btn.disabled = mismatch;
+    if (repoSel) repoSel.disabled = mismatch;
+    if (typeSel) typeSel.disabled = mismatch;
+    if (warning) {
+      warning.innerHTML = mismatch
+        ? '<div class="alert alert-warning" style="margin-bottom:10px">Enqueue is disabled while viewing the ' + esc(fleetTarget) + ' fleet target — repo operations run against the local WHMCS environment (' + esc(serverEnv) + ') only.</div>'
+        : '';
+    }
+  }
+
+  function renderRepoOps() {
+    var panel = document.getElementById('fleet-repo-ops-panel');
+    if (!panel) return;
+    bindRepoOpsEnqueue();
+    applyRepoOpsFleetGuard();
+    var noteEl = document.getElementById('fleet-repo-ops-env-note');
+    if (noteEl) {
+      noteEl.textContent = 'Local WHMCS environment: ' + serverEnv + ' — not the remote fleet target. Shows operations for this WHMCS environment only.';
+    }
+    get('fleet_repo_ops').then(function (res) {
+      var activeEl = document.getElementById('fleet-repo-ops-active');
+      var recentEl = document.getElementById('fleet-repo-ops-recent');
+      if (!res.ok) {
+        var msg = '<div class="alert alert-danger">' + esc(res.error || 'Failed to load repo ops') + '</div>';
+        if (activeEl) activeEl.innerHTML = msg;
+        if (recentEl) recentEl.innerHTML = msg;
+        return;
+      }
+      fillRepoSelect(res.repos || []);
+      if (activeEl) activeEl.innerHTML = repoOpsActiveTable(res.active || []);
+      if (recentEl) recentEl.innerHTML = repoOpsRecentTable(res.recent || []);
+    }).catch(function (err) {
+      var msg = '<div class="alert alert-danger">' + esc((err && err.message) || 'Failed to load repo ops') + '</div>';
+      var activeEl = document.getElementById('fleet-repo-ops-active');
+      var recentEl = document.getElementById('fleet-repo-ops-recent');
+      if (activeEl) activeEl.innerHTML = msg;
+      if (recentEl) recentEl.innerHTML = msg;
+    });
+  }
+
   function renderDashboard() {
     var el = document.getElementById('fleet-dashboard');
     if (!el) return;
@@ -156,6 +326,9 @@
             return '<tr><td>' + esc(new Date((e.created_at || 0) * 1000).toLocaleString()) + '</td><td>' + esc(e.action) + '</td><td>' + esc(e.message) + '</td></tr>';
           }).join('') + '</tbody></table>';
       });
+    }
+    if (document.getElementById('fleet-repo-ops-panel')) {
+      renderRepoOps();
     }
   }
 

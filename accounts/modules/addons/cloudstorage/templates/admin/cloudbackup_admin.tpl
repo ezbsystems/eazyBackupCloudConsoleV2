@@ -541,8 +541,11 @@
                                 <th>Repo</th>
                                 <th>Type</th>
                                 <th>Status</th>
+                                <th>Claimed Node</th>
+                                <th>Phase / Outcome</th>
+                                <th>Index Blobs</th>
                                 <th>Attempts</th>
-                                <th>Next Attempt</th>
+                                <th>Duration</th>
                                 <th>Created</th>
                                 <th>Updated</th>
                             </tr>
@@ -555,19 +558,39 @@
                                         <td>#{$op.repo_id} ({$op.repository_id|default:'-'|truncate:16})</td>
                                         <td>{$op.op_type|default:'-'}</td>
                                         <td>
-                                            <span class="label label-{if $op.status eq 'success'}success{elseif $op.status eq 'failed'}danger{elseif $op.status eq 'running'}info{else}default{/if}">
+                                            <span class="label label-{if $op.status eq 'success'}success{elseif $op.status eq 'failed' or $op.status eq 'error'}danger{elseif $op.status eq 'running'}info{else}default{/if}">
                                                 {$op.status|default:'queued'|ucfirst}
                                             </span>
                                         </td>
+                                        <td>
+                                            {if $op.claimed_by_node_id}
+                                                <code>{$op.claimed_by_node_id|truncate:12}</code>
+                                            {else}-{/if}
+                                        </td>
+                                        <td>
+                                            {if $op.phase}{$op.phase}{else}-{/if}
+                                            {if $op.effective_mode}
+                                                <br><small class="text-muted">{$op.effective_mode}{if $op.escalated} (escalated){/if}{if $op.skipped} (skipped){/if}</small>
+                                            {/if}
+                                        </td>
+                                        <td>
+                                            {if $op.index_blobs_before !== null && $op.index_blobs_after !== null}
+                                                {$op.index_blobs_before} &rarr; {$op.index_blobs_after}
+                                            {else}-{/if}
+                                        </td>
                                         <td>{$op.attempt_count|default:0}</td>
-                                        <td>{if $op.next_attempt_at}{$op.next_attempt_at|date_format:"%d %b %Y %H:%M"}{else}-{/if}</td>
+                                        <td>
+                                            {if $op.duration_seconds !== null}
+                                                {$op.duration_seconds}s
+                                            {else}-{/if}
+                                        </td>
                                         <td>{if $op.created_at}{$op.created_at|date_format:"%d %b %Y %H:%M"}{else}-{/if}</td>
                                         <td>{if $op.updated_at}{$op.updated_at|date_format:"%d %b %Y %H:%M"}{else}-{/if}</td>
                                     </tr>
                                 {/foreach}
                             {else}
                                 <tr>
-                                    <td colspan="8" class="text-center">No repo operations found</td>
+                                    <td colspan="11" class="text-center">No repo operations found</td>
                                 </tr>
                             {/if}
                         </tbody>
