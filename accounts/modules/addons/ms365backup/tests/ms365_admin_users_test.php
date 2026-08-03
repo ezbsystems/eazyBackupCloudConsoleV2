@@ -58,7 +58,13 @@ assert_true(is_array($list['rows']), 'listUsers rows is array');
 foreach ($list['rows'] as $row) {
     assert_true(isset($row['backup_user_id'], $row['client_name'], $row['username'], $row['status']), 'listUsers row has core columns');
     assert_true(isset($row['protected_users'], $row['onedrive_overage_gib'], $row['vaults'], $row['jobs']), 'listUsers row has billing/vault/job columns');
+    assert_true(array_key_exists('whmcs_service_id', $row), 'listUsers row includes whmcs_service_id for service link');
+    assert_true(array_key_exists('client_id', $row), 'listUsers row includes client_id for service link');
     assert_true(in_array($row['status'], ['Active', 'Suspended', 'Disabled'], true), 'listUsers status is valid badge');
+    if (!empty($row['vaults'])) {
+        $v = $row['vaults'][0];
+        assert_true(isset($v['name'], $v['size_display']), 'vault entry has name and size_display for Stored column');
+    }
     break;
 }
 

@@ -6,6 +6,21 @@
   var currentPage = 1;
   var currentFilters = {};
   var baseUrl = 'addonmodules.php?module=ms365backup';
+  var lastRows = [];
+  var lastMeta = { total: 0, page: 1, per_page: 50 };
+  var sortKey = 'username';
+  var sortDir = 'asc';
+
+  var SORTABLE_COLUMNS = [
+    { key: 'client_name', label: 'Client', type: 'string' },
+    { key: 'username', label: 'Username', type: 'string' },
+    { key: 'status', label: 'Status', type: 'string' },
+    { key: 'protected_users', label: 'Protected Users', type: 'number' },
+    { key: 'onedrive_overage_gib', label: 'OD Overage (GiB)', type: 'number' },
+    { key: 'vaults', label: 'Vaults', type: 'vaults' },
+    { key: 'stored', label: 'Stored', type: 'stored' },
+    { key: 'jobs', label: 'Jobs', type: 'jobs' }
+  ];
 
   function post(op, data) {
     var body = new URLSearchParams(data || {});
@@ -64,14 +79,34 @@
     var vaults = row.vaults || [];
     if (!vaults.length) return '<span class="text-muted">—</span>';
     return vaults.map(function (v) {
-      return esc(v.name || '') + ' <small class="text-muted">(' + esc(v.size_display || '—') + ')</small>';
+      return esc(v.name || '—');
     }).join('<br>');
+  }
+
+  function storedList(row) {
+    var vaults = row.vaults || [];
+    if (!vaults.length) return '<span class="text-muted">—</span>';
+    return vaults.map(function (v) {
+      return esc(v.size_display || '—');
+    }).join('<br>');
+  }
+
+  function usernameCell(row) {
+    var username = row.username || '';
+    var clientId = parseInt(row.client_id, 10) || 0;
+    var serviceId = parseInt(row.whmcs_service_id, 10) || 0;
+    var code = '<code>' + esc(username) + '</code>';
+    if (!username || clientId <= 0 || serviceId <= 0) {
+      return code;
+    }
+    var href = '/admin/clientsservices.php?userid=' + encodeURIComponent(clientId)
+      + '&id=' + encodeURIComponent(serviceId);
+    return '<a href="' + esc(href) + '" title="Open WHMCS service">' + code + '</a>';
   }
 
   function buildActionsDropdown(row) {
     var status = String(row.status || '').toLowerCase();
     var adminSuspended = !!row.admin_suspended;
-    var username = row.username || '';
     var id = row.backup_user_id;
     var items = [];
 
@@ -95,36 +130,103 @@
       '<ul class="dropdown-menu dropdown-menu-right">' + items.join('') + '</ul></div>';
   }
 
-  function renderTable(res) {
+  function sortValue(row, col) {
+    if (col.type === 'number') {
+      var n = Number(row[col.key]);
+      return isFinite(n) ? n : 0;
+    }
+    if (col.type === 'vaults') {
+      var vaults = row.vaults || [];
+      return {
+        count: vaults.length,
+        name: vaults.length ? String(vaults[0].name || '').toLowerCase() : ''
+      };
+    }
+    if (col.type === 'stored') {
+      var total = 0;
+      (row.vaults || []).forEach(function (v) {
+        var gib = Number(v.size_gib);
+        if (isFinite(gib)) total += gib;
+      });
+      return total;
+    }
+    if (col.type === 'jobs') {
+      return (row.jobs || []).length;
+    }
+    return String(row[col.key] == null ? '' : row[col.key]).toLowerCase();
+  }
+
+  function compareRows(a, b, col, dir) {
+    var av = sortValue(a, col);
+    var bv = sortValue(b, col);
+    var cmp = 0;
+    if (col.type === 'vaults') {
+      cmp = av.count - bv.count;
+      if (cmp === 0) cmp = av.name < bv.name ? -1 : (av.name > bv.name ? 1 : 0);
+    } else if (typeof av === 'number' && typeof bv === 'number') {
+      cmp = av - bv;
+    } else {
+      cmp = av < bv ? -1 : (av > bv ? 1 : 0);
+    }
+    return dir === 'desc' ? -cmp : cmp;
+  }
+
+  function sortedRows(rows) {
+    var col = null;
+    for (var i = 0; i < SORTABLE_COLUMNS.length; i++) {
+      if (SORTABLE_COLUMNS[i].key === sortKey) {
+        col = SORTABLE_COLUMNS[i];
+        break;
+      }
+    }
+    if (!col) return rows.slice();
+    return rows.slice().sort(function (a, b) {
+      return compareRows(a, b, col, sortDir);
+    });
+  }
+
+  function sortIndicator(key) {
+    if (key !== sortKey) {
+      return ' <span class="text-muted" style="opacity:.35">↕</span>';
+    }
+    return sortDir === 'asc'
+      ? ' <span aria-hidden="true">▲</span>'
+      : ' <span aria-hidden="true">▼</span>';
+  }
+
+  function headerHtml() {
+    return SORTABLE_COLUMNS.map(function (col) {
+      return '<th style="cursor:pointer;user-select:none;white-space:nowrap" class="ms365-users-sort" data-sort="' +
+        esc(col.key) + '" title="Sort by ' + esc(col.label) + '" role="button" tabindex="0">' +
+        esc(col.label) + sortIndicator(col.key) + '</th>';
+    }).join('') + '<th>Actions</th>';
+  }
+
+  function renderRows(rows) {
     var wrap = document.getElementById('ms365-users-table-wrap');
     var pager = document.getElementById('ms365-users-pagination');
     if (!wrap) return;
 
-    if (!res || !res.ok) {
-      wrap.innerHTML = '<div class="alert alert-danger">' + esc((res && res.error) || 'Failed to load users') + '</div>';
-      if (pager) pager.innerHTML = '';
-      return;
-    }
-
-    var rows = res.rows || [];
     if (!rows.length) {
       wrap.innerHTML = '<p class="text-muted">No MS365 backup users found.</p>';
       if (pager) pager.innerHTML = '';
       return;
     }
 
+    var ordered = sortedRows(rows);
     wrap.innerHTML =
       '<table class="table table-striped table-condensed"><thead><tr>' +
-      '<th>Client</th><th>Username</th><th>Status</th><th>Protected Users</th><th>OD Overage (GiB)</th><th>Vaults</th><th>Jobs</th><th>Actions</th>' +
+      headerHtml() +
       '</tr></thead><tbody>' +
-      rows.map(function (row) {
+      ordered.map(function (row) {
         return '<tr>' +
           '<td>' + esc(row.client_name) + '</td>' +
-          '<td><code>' + esc(row.username) + '</code></td>' +
+          '<td>' + usernameCell(row) + '</td>' +
           '<td>' + statusBadge(row.status) + '</td>' +
           '<td>' + esc(row.protected_users) + '</td>' +
           '<td>' + esc(row.onedrive_overage_gib) + '</td>' +
           '<td><small>' + vaultList(row) + '</small></td>' +
+          '<td><small>' + storedList(row) + '</small></td>' +
           '<td><small>' + jobLinks(row) + '</small></td>' +
           '<td>' + buildActionsDropdown(row) + '</td>' +
           '</tr>';
@@ -132,14 +234,65 @@
       '</tbody></table>';
 
     bindActions(wrap);
+    bindSortHeaders(wrap);
 
     if (pager) {
-      var total = res.total || 0;
-      var page = res.page || 1;
-      var perPage = res.per_page || 50;
+      var total = lastMeta.total || 0;
+      var page = lastMeta.page || 1;
+      var perPage = lastMeta.per_page || 50;
       var pages = Math.max(1, Math.ceil(total / perPage));
-      pager.innerHTML = '<small class="text-muted">' + total + ' user(s) — page ' + page + ' of ' + pages + '</small>';
+      pager.innerHTML = '<small class="text-muted">' + total + ' user(s) — page ' + page + ' of ' + pages +
+        ' <span class="text-muted">(sort applies to this page)</span></small>';
     }
+  }
+
+  function renderTable(res) {
+    var wrap = document.getElementById('ms365-users-table-wrap');
+    var pager = document.getElementById('ms365-users-pagination');
+    if (!wrap) return;
+
+    if (!res || !res.ok) {
+      lastRows = [];
+      wrap.innerHTML = '<div class="alert alert-danger">' + esc((res && res.error) || 'Failed to load users') + '</div>';
+      if (pager) pager.innerHTML = '';
+      return;
+    }
+
+    lastRows = res.rows || [];
+    lastMeta = {
+      total: res.total || 0,
+      page: res.page || 1,
+      per_page: res.per_page || 50
+    };
+    renderRows(lastRows);
+  }
+
+  function bindSortHeaders(wrap) {
+    wrap.querySelectorAll('.ms365-users-sort').forEach(function (el) {
+      function activate() {
+        var key = el.getAttribute('data-sort');
+        if (!key) return;
+        if (sortKey === key) {
+          sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+        } else {
+          sortKey = key;
+          sortDir = (key === 'protected_users' || key === 'onedrive_overage_gib' || key === 'stored' || key === 'jobs')
+            ? 'desc'
+            : 'asc';
+        }
+        renderRows(lastRows);
+      }
+      el.addEventListener('click', function (e) {
+        e.preventDefault();
+        activate();
+      });
+      el.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          activate();
+        }
+      });
+    });
   }
 
   function bindActions(wrap) {

@@ -33,6 +33,8 @@ final class Ms365AdminUsersRepository
             return ['rows' => [], 'total' => 0, 'page' => $page, 'per_page' => $perPage];
         }
 
+        $hasWhmcsServiceId = Capsule::schema()->hasColumn('s3_backup_users', 'whmcs_service_id');
+
         $query = Capsule::table('s3_backup_users as u')
             ->join('tblclients as c', 'u.client_id', '=', 'c.id')
             ->select([
@@ -45,6 +47,9 @@ final class Ms365AdminUsersRepository
                 'c.companyname',
                 'c.email',
             ]);
+        if ($hasWhmcsServiceId) {
+            $query->addSelect('u.whmcs_service_id');
+        }
 
         if (class_exists(\WHMCS\Module\Addon\CloudStorage\Client\E3BackupUserScope::class)) {
             \WHMCS\Module\Addon\CloudStorage\Client\E3BackupUserScope::applyNotDeletedScope($query, 'u');
@@ -156,6 +161,7 @@ final class Ms365AdminUsersRepository
         $billingCache = self::billingSummariesForKeys(array_values($billingPairs));
         $jobsByUser = self::ms365JobsForUsers($backupUserIds);
         $vaultsByUser = self::vaultsForUsers($backupUserIds, $jobsByUser);
+        $serviceIdsByUser = self::serviceIdsForUsers($parsed);
 
         $out = [];
         foreach ($parsed as $arr) {
@@ -174,6 +180,7 @@ final class Ms365AdminUsersRepository
                 'client_id' => $clientId,
                 'client_name' => self::formatClientName($arr),
                 'username' => (string) ($arr['username'] ?? ''),
+                'whmcs_service_id' => (int) ($serviceIdsByUser[$backupUserId] ?? 0),
                 'status' => $status,
                 'admin_suspended' => !empty($adminSuspended[$backupUserId]),
                 'protected_users' => (int) ($billing['protected_users'] ?? 0),
@@ -348,6 +355,62 @@ final class Ms365AdminUsersRepository
                 'job_id' => $jobId,
                 'name' => (string) ($arr['name'] ?? ''),
             ];
+        }
+
+        return $out;
+    }
+
+    /**
+     * Resolve WHMCS hosting service ids for Users-page links (clientsservices.php).
+     *
+     * @param list<array<string, mixed>> $rows
+     * @return array<int, int> backup_user_id => tblhosting.id
+     */
+    private static function serviceIdsForUsers(array $rows): array
+    {
+        $out = [];
+        $needFallback = [];
+        foreach ($rows as $arr) {
+            $backupUserId = (int) ($arr['backup_user_id'] ?? 0);
+            $clientId = (int) ($arr['client_id'] ?? 0);
+            if ($backupUserId <= 0 || $clientId <= 0) {
+                continue;
+            }
+            $fromCol = (int) ($arr['whmcs_service_id'] ?? 0);
+            if ($fromCol > 0) {
+                $out[$backupUserId] = $fromCol;
+                continue;
+            }
+            $needFallback[$backupUserId] = $clientId;
+        }
+
+        if ($needFallback === []) {
+            return $out;
+        }
+
+        if (Capsule::schema()->hasTable('ms365_tenant_records')
+            && Capsule::schema()->hasColumn('ms365_tenant_records', 'whmcs_service_id')) {
+            $tenantRows = Capsule::table('ms365_tenant_records')
+                ->whereIn('backup_user_id', array_keys($needFallback))
+                ->where('is_active', 1)
+                ->where('whmcs_service_id', '>', 0)
+                ->orderByDesc('id')
+                ->get(['backup_user_id', 'whmcs_service_id']);
+            foreach ($tenantRows as $tr) {
+                $uid = (int) ($tr->backup_user_id ?? 0);
+                $sid = (int) ($tr->whmcs_service_id ?? 0);
+                if ($uid > 0 && $sid > 0 && !isset($out[$uid])) {
+                    $out[$uid] = $sid;
+                    unset($needFallback[$uid]);
+                }
+            }
+        }
+
+        foreach ($needFallback as $backupUserId => $clientId) {
+            $sid = Ms365BillingService::resolveServiceIdForBackupUser($clientId, $backupUserId);
+            if ($sid > 0) {
+                $out[$backupUserId] = $sid;
+            }
         }
 
         return $out;
