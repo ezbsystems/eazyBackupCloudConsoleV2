@@ -130,26 +130,26 @@ $showDrilldown = $showDrilldown ?? true;
         <?php endif; ?>
     </div>
     <?php endif; ?>
-    <table class="cb-items-table" id="cb-items-comparison-table">
+    <table class="cb-items-table cb-sortable-table" id="cb-items-comparison-table">
         <thead>
             <tr>
-                <th>Item Type</th>
-                <th>Server Count</th>
-                <th>Portal Count</th>
-                <th>Portal Amount</th>
-                <th>Variance</th>
-                <th>Past-grace overbill</th>
-                <th>Status</th>
+                <th class="cb-sortable" data-type="text">Item Type</th>
+                <th class="cb-sortable" data-type="number">Server Count</th>
+                <th class="cb-sortable" data-type="number">Portal Count</th>
+                <th class="cb-sortable" data-type="number">Portal Amount</th>
+                <th class="cb-sortable" data-type="number">Variance</th>
+                <th class="cb-sortable" data-type="number">Past-grace overbill</th>
+                <th class="cb-sortable" data-type="text">Status</th>
             </tr>
         </thead>
         <tbody>
             <?php foreach ($report['items'] as $key => $item): ?>
             <tr class="cb-category-row" data-category-status="<?= htmlspecialchars($item['status']) ?>">
-                <td><strong><?= htmlspecialchars($item['label']) ?></strong></td>
-                <td><?= number_format($item['server']) ?></td>
-                <td><?= number_format($item['portal']) ?></td>
-                <td>$<?= number_format($item['portal_amount'], 2) ?></td>
-                <td>
+                <td data-sort="<?= htmlspecialchars(strtolower((string) $item['label'])) ?>"><strong><?= htmlspecialchars($item['label']) ?></strong></td>
+                <td data-sort="<?= htmlspecialchars((string) $item['server']) ?>"><?= number_format($item['server']) ?></td>
+                <td data-sort="<?= htmlspecialchars((string) $item['portal']) ?>"><?= number_format($item['portal']) ?></td>
+                <td data-sort="<?= htmlspecialchars((string) $item['portal_amount']) ?>">$<?= number_format($item['portal_amount'], 2) ?></td>
+                <td data-sort="<?= htmlspecialchars((string) $item['variance']) ?>">
                     <?php
                     $sign = $item['variance'] > 0 ? '+' : '';
                     $class = $item['status'] === 'ok' ? 'variance-ok' : ($item['status'] === 'warning' ? 'variance-over' : ($item['status'] === 'over_billed' ? 'variance-over' : 'variance-under'));
@@ -159,7 +159,7 @@ $showDrilldown = $showDrilldown ?? true;
                     <span style="font-size: 11px; color: #666;">(<?= $sign . $item['variance_pct'] ?>%)</span>
                     <?php endif; ?>
                 </td>
-                <td>
+                <td data-sort="<?= htmlspecialchars((string) ((float) ($item['past_grace_overbill'] ?? 0))) ?>">
                     <?php if (!empty($item['past_grace_overbill']) && $item['past_grace_overbill'] > 0): ?>
                     <span style="color:#b91c1c;font-weight:600;">$<?= number_format((float) $item['past_grace_overbill'], 2) ?></span>
                     <?php if (!empty($item['past_grace_count'])): ?>
@@ -169,7 +169,7 @@ $showDrilldown = $showDrilldown ?? true;
                     —
                     <?php endif; ?>
                 </td>
-                <td>
+                <td data-sort="<?= htmlspecialchars((string) $item['status']) ?>">
                     <?php if ($item['status'] === 'ok'): ?>
                     <span class="status-ok">✓ OK</span>
                     <?php elseif ($item['status'] === 'warning'): ?>
@@ -207,53 +207,74 @@ $showDrilldown = $showDrilldown ?? true;
                             echo '<p style="font-size: 12px; color: #666;">None</p>';
                             return;
                         }
-                        echo '<table class="cb-items-table cb-portal-only-table" style="margin-top: 8px; font-size: 12px;"><thead><tr>';
-                        echo '<th>Account</th><th>Device</th><th>Server</th><th>Friendly Name</th>';
+                        echo '<table class="cb-items-table cb-portal-only-table cb-sortable-table" style="margin-top: 8px; font-size: 12px;"><thead><tr>';
+                        echo '<th class="cb-sortable" data-type="text">Account</th>'
+                            . '<th class="cb-sortable" data-type="text">Device</th>'
+                            . '<th class="cb-sortable" data-type="text">Server</th>'
+                            . '<th class="cb-sortable" data-type="text">Friendly Name</th>';
                         if ($showQty) {
-                            echo '<th>Portal Qty</th><th>Server Qty</th>';
+                            echo '<th class="cb-sortable" data-type="number">Portal Qty</th>'
+                                . '<th class="cb-sortable" data-type="number">Server Qty</th>';
                         }
                         if ($showBilling) {
-                            echo '<th>Registered</th><th>Revoked / removed</th><th>Cycle</th><th>Next due</th><th>Expected end</th><th>Billing status</th><th>Overbill $</th>';
+                            echo '<th class="cb-sortable" data-type="text">Registered</th>'
+                                . '<th class="cb-sortable" data-type="text">Revoked / removed</th>'
+                                . '<th class="cb-sortable" data-type="text">Cycle</th>'
+                                . '<th class="cb-sortable" data-type="text">Next due</th>'
+                                . '<th class="cb-sortable" data-type="text">Expected end</th>'
+                                . '<th class="cb-sortable" data-type="text">Billing status</th>'
+                                . '<th class="cb-sortable" data-type="number">Overbill $</th>';
                         }
-                        echo '<th>Amount</th></tr></thead><tbody>';
+                        echo '<th class="cb-sortable" data-type="number">Amount</th></tr></thead><tbody>';
                         foreach ($rows as $row) {
                             $status = $row['billing_status'] ?? null;
                             $rowStyle = $status === 'overbilled_past_grace' ? ' style="background:#fef2f2;"' : ($status === 'expected_grace' ? ' style="background:#fffbeb;"' : '');
                             $billingAttr = $showBilling ? ' data-billing-status="' . htmlspecialchars((string) ($status ?: 'unknown')) . '"' : '';
+                            $account = (string) ($row['account'] ?? $row['username'] ?? '—');
+                            $deviceId = (string) ($row['device_id'] ?? '—');
+                            $serverKey = (string) ($row['server_key'] ?? '—');
+                            $friendly = (string) ($row['friendly_name'] ?? $row['device_name'] ?? '—');
                             echo '<tr class="cb-portal-row"' . $billingAttr . $rowStyle . '>';
-                            echo '<td>' . htmlspecialchars($row['account'] ?? $row['username'] ?? '—') . '</td>';
-                            echo '<td>' . htmlspecialchars($row['device_id'] ?? '—') . '</td>';
-                            echo '<td>' . htmlspecialchars($row['server_key'] ?? '—') . '</td>';
-                            echo '<td>' . htmlspecialchars($row['friendly_name'] ?? $row['device_name'] ?? '—') . '</td>';
+                            echo '<td data-sort="' . htmlspecialchars(strtolower($account)) . '">' . htmlspecialchars($account) . '</td>';
+                            echo '<td data-sort="' . htmlspecialchars(strtolower($deviceId)) . '">' . htmlspecialchars($deviceId) . '</td>';
+                            echo '<td data-sort="' . htmlspecialchars(strtolower($serverKey)) . '">' . htmlspecialchars($serverKey) . '</td>';
+                            echo '<td data-sort="' . htmlspecialchars(strtolower($friendly)) . '">' . htmlspecialchars($friendly) . '</td>';
                             if ($showQty) {
-                                echo '<td>' . htmlspecialchars((string) ($row['portal_qty'] ?? '—')) . '</td>';
-                                echo '<td>' . htmlspecialchars((string) ($row['server_qty'] ?? '—')) . '</td>';
+                                $pq = $row['portal_qty'] ?? null;
+                                $sq = $row['server_qty'] ?? null;
+                                echo '<td data-sort="' . htmlspecialchars((string) ($pq ?? '')) . '">' . htmlspecialchars((string) ($pq ?? '—')) . '</td>';
+                                echo '<td data-sort="' . htmlspecialchars((string) ($sq ?? '')) . '">' . htmlspecialchars((string) ($sq ?? '—')) . '</td>';
                             }
                             if ($showBilling) {
-                                echo '<td>' . htmlspecialchars(!empty($row['registered_at']) ? substr((string)$row['registered_at'], 0, 10) : '—') . '</td>';
-                                echo '<td>' . htmlspecialchars($row['revoked_at'] ? substr((string)$row['revoked_at'], 0, 19) : (!empty($row['expected_billing_end']) ? (string)$row['expected_billing_end'] : '—')) . '</td>';
-                                $cycle = (int)($row['billing_cycle_days'] ?? 30);
-                                echo '<td>' . ($cycle <= 1 ? 'daily' : (string)$cycle) . '</td>';
-                                echo '<td>' . htmlspecialchars($row['next_due_date'] ?? '—') . '</td>';
-                                echo '<td>' . htmlspecialchars($row['expected_billing_end'] ?? '—') . '</td>';
-                                if ($status === 'overbilled_past_grace') {
-                                    echo '<td><span style="color:#b91c1c;font-weight:600;">Overbilled past grace</span></td>';
-                                } elseif ($status === 'expected_grace') {
-                                    echo '<td><span style="color:#92400e;">Expected grace</span></td>';
-                                } elseif ($status === 'unknown') {
-                                    echo '<td><span style="color:#6b7280;">Unknown revoke</span></td>';
-                                } else {
-                                    echo '<td>—</td>';
-                                }
+                                $registered = !empty($row['registered_at']) ? substr((string) $row['registered_at'], 0, 10) : '';
+                                $revokedDisp = $row['revoked_at'] ? substr((string) $row['revoked_at'], 0, 19) : (!empty($row['expected_billing_end']) ? (string) $row['expected_billing_end'] : '');
+                                $cycle = (int) ($row['billing_cycle_days'] ?? 30);
+                                $cycleDisp = $cycle <= 1 ? 'daily' : (string) $cycle;
+                                $nextDue = (string) ($row['next_due_date'] ?? '');
+                                $expectedEnd = (string) ($row['expected_billing_end'] ?? '');
                                 $overbill = (float) ($row['overbill_amount'] ?? 0);
-                                if ($status === 'overbilled_past_grace' && $overbill > 0) {
-                                    echo '<td><span style="color:#b91c1c;font-weight:600;">$' . number_format($overbill, 2) . '</span></td>';
+                                echo '<td data-sort="' . htmlspecialchars($registered) . '">' . htmlspecialchars($registered !== '' ? $registered : '—') . '</td>';
+                                echo '<td data-sort="' . htmlspecialchars($revokedDisp) . '">' . htmlspecialchars($revokedDisp !== '' ? $revokedDisp : '—') . '</td>';
+                                echo '<td data-sort="' . htmlspecialchars($cycle <= 1 ? '1' : (string) $cycle) . '">' . htmlspecialchars($cycleDisp) . '</td>';
+                                echo '<td data-sort="' . htmlspecialchars($nextDue) . '">' . htmlspecialchars($nextDue !== '' ? $nextDue : '—') . '</td>';
+                                echo '<td data-sort="' . htmlspecialchars($expectedEnd) . '">' . htmlspecialchars($expectedEnd !== '' ? $expectedEnd : '—') . '</td>';
+                                if ($status === 'overbilled_past_grace') {
+                                    echo '<td data-sort="overbilled_past_grace"><span style="color:#b91c1c;font-weight:600;">Overbilled past grace</span></td>';
+                                } elseif ($status === 'expected_grace') {
+                                    echo '<td data-sort="expected_grace"><span style="color:#92400e;">Expected grace</span></td>';
+                                } elseif ($status === 'unknown') {
+                                    echo '<td data-sort="unknown"><span style="color:#6b7280;">Unknown revoke</span></td>';
                                 } else {
-                                    echo '<td>—</td>';
+                                    echo '<td data-sort="">—</td>';
+                                }
+                                if ($status === 'overbilled_past_grace' && $overbill > 0) {
+                                    echo '<td data-sort="' . htmlspecialchars((string) $overbill) . '"><span style="color:#b91c1c;font-weight:600;">$' . number_format($overbill, 2) . '</span></td>';
+                                } else {
+                                    echo '<td data-sort="0">—</td>';
                                 }
                             }
                             $amt = $row['amount'] ?? null;
-                            echo '<td>' . ($amt !== null ? '$' . number_format((float) $amt, 2) : '—') . '</td>';
+                            echo '<td data-sort="' . htmlspecialchars((string) ($amt ?? '')) . '">' . ($amt !== null ? '$' . number_format((float) $amt, 2) : '—') . '</td>';
                             echo '</tr>';
                         }
                         echo '</tbody></table>';
@@ -289,9 +310,108 @@ $showDrilldown = $showDrilldown ?? true;
     </table>
 </div>
 
-<?php if ($showDrilldown): ?>
+<style>
+.cb-items-table th.cb-sortable { cursor: pointer; user-select: none; white-space: nowrap; }
+.cb-items-table th.cb-sortable:hover { background: #f3f4f6; color: #111827; }
+.cb-items-table th.cb-sortable::after { content: " \2195"; opacity: 0.35; font-size: 10px; }
+.cb-items-table th.cb-sort-asc::after { content: " \25B2"; opacity: 0.7; }
+.cb-items-table th.cb-sort-desc::after { content: " \25BC"; opacity: 0.7; }
+</style>
 <script>
 (function () {
+    function cellSortValue(row, colIndex, type) {
+        var cell = row.children[colIndex];
+        if (!cell) return type === 'number' ? 0 : '';
+        var raw = cell.getAttribute('data-sort');
+        if (raw === null || raw === undefined) {
+            raw = (cell.textContent || '').replace(/\s+/g, ' ').trim();
+        }
+        if (type === 'number') {
+            if (raw === '' || raw === '—' || raw === '-') return Number.NEGATIVE_INFINITY;
+            var n = parseFloat(String(raw).replace(/[^0-9.\-]/g, ''));
+            return isNaN(n) ? Number.NEGATIVE_INFINITY : n;
+        }
+        return String(raw).toLowerCase();
+    }
+
+    function compareValues(a, b, type, dir) {
+        if (type === 'number') {
+            return dir === 'asc' ? a - b : b - a;
+        }
+        if (a < b) return dir === 'asc' ? -1 : 1;
+        if (a > b) return dir === 'asc' ? 1 : -1;
+        return 0;
+    }
+
+    function sortPlainTable(table, colIndex, type, dir) {
+        var tbody = table.tBodies[0];
+        if (!tbody) return;
+        var rows = Array.prototype.slice.call(tbody.rows);
+        rows.sort(function (ra, rb) {
+            return compareValues(
+                cellSortValue(ra, colIndex, type),
+                cellSortValue(rb, colIndex, type),
+                type,
+                dir
+            );
+        });
+        rows.forEach(function (row) { tbody.appendChild(row); });
+    }
+
+    function sortCategoryTable(table, colIndex, type, dir) {
+        var tbody = table.tBodies[0];
+        if (!tbody) return;
+        var groups = [];
+        var rows = Array.prototype.slice.call(tbody.rows);
+        for (var i = 0; i < rows.length; i++) {
+            var row = rows[i];
+            if (!row.classList.contains('cb-category-row')) continue;
+            var group = [row];
+            var next = rows[i + 1];
+            if (next && next.classList.contains('cb-drilldown-row')) {
+                group.push(next);
+                i++;
+            }
+            groups.push(group);
+        }
+        groups.sort(function (ga, gb) {
+            return compareValues(
+                cellSortValue(ga[0], colIndex, type),
+                cellSortValue(gb[0], colIndex, type),
+                type,
+                dir
+            );
+        });
+        groups.forEach(function (group) {
+            group.forEach(function (row) { tbody.appendChild(row); });
+        });
+    }
+
+    function bindSortableTable(table) {
+        var headers = table.querySelectorAll('thead th.cb-sortable');
+        headers.forEach(function (th, colIndex) {
+            th.addEventListener('click', function () {
+                var type = th.getAttribute('data-type') || 'text';
+                var current = th.getAttribute('data-sort-dir');
+                var dir = current === 'asc' ? 'desc' : 'asc';
+                headers.forEach(function (h) {
+                    h.removeAttribute('data-sort-dir');
+                    h.classList.remove('cb-sort-asc', 'cb-sort-desc');
+                });
+                th.setAttribute('data-sort-dir', dir);
+                th.classList.add(dir === 'asc' ? 'cb-sort-asc' : 'cb-sort-desc');
+
+                if (table.id === 'cb-items-comparison-table') {
+                    sortCategoryTable(table, colIndex, type, dir);
+                } else {
+                    sortPlainTable(table, colIndex, type, dir);
+                }
+            });
+        });
+    }
+
+    document.querySelectorAll('table.cb-sortable-table').forEach(bindSortableTable);
+
     var catSel = document.getElementById('cb-filter-category');
     var billSel = document.getElementById('cb-filter-billing');
     var summary = document.getElementById('cb-filter-summary');
@@ -328,11 +448,13 @@ $showDrilldown = $showDrilldown ?? true;
             if (show) portalVisible++;
         });
 
-        var parts = [catVisible + ' categor' + (catVisible === 1 ? 'y' : 'ies')];
-        if (billFilter !== 'all' || portalTotal > 0) {
-            parts.push(portalVisible + ' of ' + portalTotal + ' portal-only row' + (portalTotal === 1 ? '' : 's'));
+        if (summary) {
+            var parts = [catVisible + ' categor' + (catVisible === 1 ? 'y' : 'ies')];
+            if (billFilter !== 'all' || portalTotal > 0) {
+                parts.push(portalVisible + ' of ' + portalTotal + ' portal-only row' + (portalTotal === 1 ? '' : 's'));
+            }
+            summary.textContent = parts.join(' · ');
         }
-        summary.textContent = parts.join(' · ');
     }
 
     catSel.addEventListener('change', applyFilters);
@@ -340,7 +462,6 @@ $showDrilldown = $showDrilldown ?? true;
     applyFilters();
 })();
 </script>
-<?php endif; ?>
 
 <?php if ($showDrilldown && (!empty($report['other_boosters']) || !empty($report['unknown']))): ?>
 <div class="cb-box">

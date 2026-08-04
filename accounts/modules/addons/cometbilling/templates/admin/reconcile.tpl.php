@@ -63,6 +63,11 @@ $availableSnapshots = Capsule::table('cb_server_usage_combined')
 .cb-items-table th, .cb-items-table td { padding: 12px; text-align: left; border-bottom: 1px solid #e5e5e5; }
 .cb-items-table th { background: #f9fafb; font-weight: 600; font-size: 12px; text-transform: uppercase; }
 .cb-items-table tr:hover { background: #f9fafb; }
+.cb-items-table th.cb-sortable { cursor: pointer; user-select: none; white-space: nowrap; }
+.cb-items-table th.cb-sortable:hover { background: #f3f4f6; color: #111827; }
+.cb-items-table th.cb-sortable::after { content: " \2195"; opacity: 0.35; font-size: 10px; }
+.cb-items-table th.cb-sort-asc::after { content: " \25B2"; opacity: 0.7; }
+.cb-items-table th.cb-sort-desc::after { content: " \25BC"; opacity: 0.7; }
 .status-ok { color: #10b981; font-weight: 600; }
 .status-over { color: #f59e0b; font-weight: 600; }
 .status-under { color: #ef4444; font-weight: 600; }
