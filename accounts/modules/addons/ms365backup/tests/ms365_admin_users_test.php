@@ -64,6 +64,14 @@ foreach ($list['rows'] as $row) {
     if (!empty($row['vaults'])) {
         $v = $row['vaults'][0];
         assert_true(isset($v['name'], $v['size_display']), 'vault entry has name and size_display for Stored column');
+        // Guard against the off-by-one TiB label bug: size_gib is bytes/1024^3;
+        // when size_gib < 1024 the display must not say TiB.
+        if (isset($v['size_gib']) && is_numeric($v['size_gib']) && (float) $v['size_gib'] < 1024) {
+            assert_true(
+                !str_contains((string) $v['size_display'], 'TiB'),
+                'Stored display must not label sub-TiB sizes as TiB (got ' . $v['size_display'] . ' for size_gib=' . $v['size_gib'] . ')'
+            );
+        }
     }
     break;
 }

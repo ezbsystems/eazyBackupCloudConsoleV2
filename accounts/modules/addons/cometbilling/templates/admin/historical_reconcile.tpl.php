@@ -193,7 +193,7 @@ $exportUrl = $exportBase
                 <?php foreach ($report['rows'] as $row): ?>
                 <tr>
                     <td data-sort="<?= htmlspecialchars($row['verdict'] ?? '') ?>" class="<?= in_array($row['verdict'] ?? '', ['confirmed', 'probable'], true) ? 'cb-status-overbill' : '' ?>">
-                        <?= htmlspecialchars(ucfirst(str_replace('_', ' ', (string) ($row['verdict'] ?? ''))) ?>
+                        <?= htmlspecialchars(ucfirst(str_replace('_', ' ', (string) ($row['verdict'] ?? '')))) ?>
                     </td>
                     <td data-sort="<?= htmlspecialchars($row['debit_evidence'] ?? '') ?>"><?= htmlspecialchars($row['debit_evidence'] ?? '') ?></td>
                     <td data-sort="<?= htmlspecialchars($row['usage_date']) ?>"><?= htmlspecialchars($row['usage_date']) ?></td>

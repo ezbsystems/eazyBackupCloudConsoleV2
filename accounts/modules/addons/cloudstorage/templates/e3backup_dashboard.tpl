@@ -581,10 +581,10 @@
         <div class="eb-panel-section-header flex flex-wrap items-center justify-between gap-3">
             <div>
                 <h2 class="eb-type-h3">Recent Backup History</h2>
-                <p class="eb-type-caption">Per-agent backup status over the selected window. Hover a day to see that day's runs, or expand an agent to see each job.</p>
+                <p class="eb-type-caption">Per-agent and Microsoft 365 backup status over the selected window. Hover a day to see that day's runs, or expand a row to see each job.</p>
             </div>
             <div class="flex flex-wrap items-center gap-2">
-                <input type="search" class="eb-input eb-input-sm" placeholder="Search agents..." x-model.debounce.300ms="search">
+                <input type="search" class="eb-input eb-input-sm" placeholder="Search..." x-model.debounce.300ms="search">
                 <label class="inline-flex items-center gap-1 eb-type-caption">
                     <input type="checkbox" x-model="onlineOnly"> Online only
                 </label>
@@ -604,7 +604,7 @@
             <template x-if="!loading && visibleAgents().length === 0">
                 <div class="eb-app-empty py-8">
                     <div class="eb-app-empty-title">No backup history yet</div>
-                    <p class="eb-app-empty-copy">Once your agents run backups, their daily status will appear here.</p>
+                    <p class="eb-app-empty-copy">Once your agents or Microsoft 365 backups run, their daily status will appear here.</p>
                 </div>
             </template>
 

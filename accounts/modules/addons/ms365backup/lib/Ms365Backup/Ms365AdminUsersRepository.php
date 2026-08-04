@@ -580,10 +580,8 @@ final class Ms365AdminUsersRepository
 
     private static function formatBytes(int $bytes): string
     {
-        if ($bytes < 1024) {
-            return $bytes . ' B';
-        }
-        $units = ['KiB', 'MiB', 'GiB', 'TiB'];
+        // Units must start at B so each /1024 advances the label correctly.
+        $units = ['B', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB'];
         $value = (float) $bytes;
         $unit = 0;
         while ($value >= 1024 && $unit < count($units) - 1) {
@@ -591,6 +589,10 @@ final class Ms365AdminUsersRepository
             ++$unit;
         }
 
-        return round($value, 2) . ' ' . $units[$unit];
+        if ($unit === 0) {
+            return ((int) $value) . ' B';
+        }
+
+        return round($value, $unit < 3 ? 1 : 2) . ' ' . $units[$unit];
     }
 }
