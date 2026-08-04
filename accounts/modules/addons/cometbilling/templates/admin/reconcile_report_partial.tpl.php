@@ -213,7 +213,7 @@ $showDrilldown = $showDrilldown ?? true;
                             echo '<th>Portal Qty</th><th>Server Qty</th>';
                         }
                         if ($showBilling) {
-                            echo '<th>Revoked at</th><th>Cycle days</th><th>Next due</th><th>Expected end</th><th>Billing status</th><th>Overbill $</th>';
+                            echo '<th>Registered</th><th>Revoked / removed</th><th>Cycle</th><th>Next due</th><th>Expected end</th><th>Billing status</th><th>Overbill $</th>';
                         }
                         echo '<th>Amount</th></tr></thead><tbody>';
                         foreach ($rows as $row) {
@@ -230,8 +230,10 @@ $showDrilldown = $showDrilldown ?? true;
                                 echo '<td>' . htmlspecialchars((string) ($row['server_qty'] ?? '—')) . '</td>';
                             }
                             if ($showBilling) {
-                                echo '<td>' . htmlspecialchars($row['revoked_at'] ? substr((string) $row['revoked_at'], 0, 19) : '—') . '</td>';
-                                echo '<td>' . htmlspecialchars((string) ($row['billing_cycle_days'] ?? '—')) . '</td>';
+                                echo '<td>' . htmlspecialchars(!empty($row['registered_at']) ? substr((string)$row['registered_at'], 0, 10) : '—') . '</td>';
+                                echo '<td>' . htmlspecialchars($row['revoked_at'] ? substr((string)$row['revoked_at'], 0, 19) : (!empty($row['expected_billing_end']) ? (string)$row['expected_billing_end'] : '—')) . '</td>';
+                                $cycle = (int)($row['billing_cycle_days'] ?? 30);
+                                echo '<td>' . ($cycle <= 1 ? 'daily' : (string)$cycle) . '</td>';
                                 echo '<td>' . htmlspecialchars($row['next_due_date'] ?? '—') . '</td>';
                                 echo '<td>' . htmlspecialchars($row['expected_billing_end'] ?? '—') . '</td>';
                                 if ($status === 'overbilled_past_grace') {
@@ -257,7 +259,7 @@ $showDrilldown = $showDrilldown ?? true;
                         echo '</tbody></table>';
                     };
                     ?>
-                    <p style="font-size: 11px; color: #666; margin: 0 0 8px;">Host-device level only. Comet bills ~30 days after revoke; portal-only rows past that window are flagged as overbilled.</p>
+                    <p style="font-size: 11px; color: #666; margin: 0 0 8px;">Devices: billed on registration-aligned cycles; expected end is the period containing revoke. Boosters: billed daily; remove day is last billable.</p>
                     <?php if ($pastGraceCount > 0): ?>
                     <p style="font-size: 12px; color: #b91c1c; margin: 0 0 8px;"><strong><?= (int) $pastGraceCount ?></strong> portal-only item(s) billed past the post-revoke grace window<?php if ($graceCount > 0): ?> · <?= (int) $graceCount ?> in expected grace<?php endif; ?>.</p>
                     <?php endif; ?>
