@@ -466,10 +466,6 @@ func (r *Runner) Run(ctx context.Context, job *api.RunJob, onAbort context.Cance
 	})
 	snapshotElapsed := time.Since(snapshotStart)
 	if err != nil {
-		// #region agent log
-		log.Printf("agent_debug session=aeefbd hypothesisId=H1 H5 run=%s snapshot_err=%v stalled=%v coop_parent=%v coop_snap=%v elapsed_ms=%d",
-			job.RunID, err, stalled.Load(), isCooperativeCancel(err, ctx), isCooperativeCancel(snapCtx.Err(), ctx), snapshotElapsed.Milliseconds())
-		// #endregion
 		// Stall watchdog owns terminal reporting even if a parent cancel races in.
 		// Checking stalled before cooperative-cancel prevents silent slot release
 		// with queue+run left "running" (prod: Emily Corbett / 4b46670d).
