@@ -11,6 +11,8 @@ namespace WHMCS\Database {
         public static array $usageRows = [];
         /** @var list<object> */
         public static array $activeRows = [];
+        /** @var list<object> */
+        public static array $manifestRows = [];
 
         public static function schema(): object
         {
@@ -24,12 +26,16 @@ namespace WHMCS\Database {
                         'cb_credit_purchases',
                         'cb_audit_runs',
                         'cb_audit_findings',
+                        'cb_portal_pull_manifests',
                     ], true);
                 }
 
                 public function hasColumn(string $table, string $column): bool
                 {
-                    return $table === 'cb_credit_purchases' && $column === 'record_type';
+                    if ($table === 'cb_credit_purchases' && $column === 'record_type') {
+                        return true;
+                    }
+                    return $table === 'cb_credit_usage' && $column === 'is_present_in_latest_pull';
                 }
             };
         }
@@ -50,14 +56,60 @@ namespace WHMCS\Database {
                 }
 
                 public function whereNotNull(string $column): self { return $this; }
-                public function where(string $column, mixed $opOrVal, mixed $val = null): self
+                public function where(string|\Closure $column, mixed $opOrVal = null, mixed $val = null): self
                 {
+                    if ($column instanceof \Closure) {
+                        $nested = new class {
+                            /** @var list<array{0: string, 1: string, 2: mixed, 3: string}> */
+                            private array $conditions = [];
+
+                            public function where(string $col, mixed $opOrVal = null, mixed $val = null): self
+                            {
+                                if ($val === null) {
+                                    $this->conditions[] = [$col, '=', $opOrVal, 'and'];
+                                } else {
+                                    $this->conditions[] = [$col, (string) $opOrVal, $val, 'and'];
+                                }
+                                return $this;
+                            }
+
+                            public function orWhere(string $col, mixed $opOrVal = null, mixed $val = null): self
+                            {
+                                if ($val === null) {
+                                    $this->conditions[] = [$col, '=', $opOrVal, 'or'];
+                                } else {
+                                    $this->conditions[] = [$col, (string) $opOrVal, $val, 'or'];
+                                }
+                                return $this;
+                            }
+
+                            /** @return list<array{0: string, 1: string, 2: mixed, 3: string}> */
+                            public function getConditions(): array
+                            {
+                                return $this->conditions;
+                            }
+                        };
+                        $column($nested);
+                        $this->conditions[] = ['__group__', 'group', $nested->getConditions()];
+                        return $this;
+                    }
                     if ($val === null) {
                         $this->conditions[] = [$column, '=', $opOrVal];
                     } elseif (strtolower((string) $opOrVal) === 'like') {
                         $this->conditions[] = [$column, 'like', $val];
                     } else {
                         $this->conditions[] = [$column, (string) $opOrVal, $val];
+                    }
+                    return $this;
+                }
+                public function orWhere(string $column, mixed $opOrVal = null, mixed $val = null): self
+                {
+                    if ($val === null) {
+                        $this->conditions[] = [$column, '=', $opOrVal, 'or'];
+                    } elseif (strtolower((string) $opOrVal) === 'like') {
+                        $this->conditions[] = [$column, 'like', $val, 'or'];
+                    } else {
+                        $this->conditions[] = [$column, (string) $opOrVal, $val, 'or'];
                     }
                     return $this;
                 }
@@ -97,7 +149,14 @@ namespace WHMCS\Database {
                 }
                 public function pluck(string $column)
                 {
-                    $arr = $this->table === 'cb_active_services' ? ['2026-07-07 12:00:00'] : [];
+                    if ($this->table === 'cb_active_services' && $this->conditions === []) {
+                        $arr = ['2026-07-07 12:00:00'];
+                    } else {
+                        $arr = array_map(
+                            fn (object $row) => $row->{$column} ?? null,
+                            $this->get()
+                        );
+                    }
                     return new class($arr) {
                         public function __construct(private array $items) {}
                         public function toArray(): array { return $this->items; }
@@ -125,34 +184,39 @@ namespace WHMCS\Database {
                         'comet_devices' => Capsule::$deviceRows,
                         'cb_credit_usage' => Capsule::$usageRows,
                         'cb_active_services' => Capsule::$activeRows,
+                        'cb_portal_pull_manifests' => Capsule::$manifestRows,
                         default => [],
                     };
                     $filtered = array_values(array_filter($rows, function (object $row): bool {
-                        foreach ($this->conditions as [$column, $operator, $value]) {
-                            $actual = $row->{$column} ?? null;
-                            if ($operator === '=' && $actual != $value) {
+                        foreach ($this->conditions as $condition) {
+                            if (count($condition) === 4 && ($condition[3] ?? null) === 'or') {
+                                [$column, $operator, $value] = $condition;
+                                if ($this->matchesCondition($row, $column, $operator, $value)) {
+                                    continue;
+                                }
                                 return false;
                             }
-                            if ($operator === 'between' && is_array($value)) {
-                                if ($actual < $value[0] || $actual > $value[1]) {
+                            if (($condition[1] ?? null) === 'group') {
+                                if (!$this->matchesGroup($row, $condition[2])) {
                                     return false;
                                 }
+                                continue;
                             }
-                            if ($operator === 'like' && is_string($value)) {
-                                $pattern = str_replace('%', '', $value);
-                                if (!str_contains((string) $actual, $pattern)) {
-                                    return false;
-                                }
-                            }
-                            if ($operator === '<' && $actual >= $value) {
-                                return false;
-                            }
-                            if ($operator === '>=' && $actual < $value) {
+                            [$column, $operator, $value] = $condition;
+                            if (!$this->matchesCondition($row, $column, $operator, $value)) {
                                 return false;
                             }
                         }
                         return true;
                     }));
+                    if ($this->orderColumn !== null) {
+                        usort($filtered, function (object $a, object $b): int {
+                            $av = $a->{$this->orderColumn} ?? null;
+                            $bv = $b->{$this->orderColumn} ?? null;
+                            $cmp = $av <=> $bv;
+                            return $this->orderDir === 'desc' ? -$cmp : $cmp;
+                        });
+                    }
                     if ($this->offset !== null) {
                         $filtered = array_slice($filtered, $this->offset);
                     }
@@ -160,6 +224,58 @@ namespace WHMCS\Database {
                         $filtered = array_slice($filtered, 0, $this->limit);
                     }
                     return $filtered;
+                }
+
+                private function matchesCondition(object $row, string $column, string $operator, mixed $value): bool
+                {
+                    $actual = $row->{$column} ?? null;
+                    if ($operator === '=' && $actual != $value) {
+                        return false;
+                    }
+                    if ($operator === 'between' && is_array($value)) {
+                        if ($actual < $value[0] || $actual > $value[1]) {
+                            return false;
+                        }
+                    }
+                    if ($operator === 'like' && is_string($value)) {
+                        $pattern = str_replace('%', '', $value);
+                        if (!str_contains((string) $actual, $pattern)) {
+                            return false;
+                        }
+                    }
+                    if ($operator === '<' && $actual >= $value) {
+                        return false;
+                    }
+                    if ($operator === '>=' && $actual < $value) {
+                        return false;
+                    }
+                    return true;
+                }
+
+                /** @param list<array{0: string, 1: string, 2: mixed, 3: string}> $groupConditions */
+                private function matchesGroup(object $row, array $groupConditions): bool
+                {
+                    $hasOr = false;
+                    foreach ($groupConditions as $groupCondition) {
+                        if (($groupCondition[3] ?? 'and') === 'or') {
+                            $hasOr = true;
+                            break;
+                        }
+                    }
+                    if ($hasOr) {
+                        foreach ($groupConditions as [$column, $operator, $value]) {
+                            if ($this->matchesCondition($row, $column, $operator, $value)) {
+                                return true;
+                            }
+                        }
+                        return false;
+                    }
+                    foreach ($groupConditions as [$column, $operator, $value]) {
+                        if (!$this->matchesCondition($row, $column, $operator, $value)) {
+                            return false;
+                        }
+                    }
+                    return true;
                 }
             };
         }
@@ -177,7 +293,9 @@ namespace {
     require_once __DIR__ . '/../lib/SourceCoverageReporter.php';
     require_once __DIR__ . '/../lib/OverbillEvidenceEvaluator.php';
     require_once __DIR__ . '/../lib/HistoricalReconciler.php';
+    require_once __DIR__ . '/../lib/CanonicalUsage.php';
 
+    use CometBilling\CanonicalUsage;
     use CometBilling\HistoricalReconciler;
     use CometBilling\OverbillEvidenceEvaluator;
     use CometBilling\PackUsageParser;
@@ -250,6 +368,47 @@ namespace {
 
     $report = HistoricalReconciler::report('2026-07-01', '2026-07-31', false, false);
     assert_eq($report['summary']['charges_scanned'], 2, 'scans all usage rows');
+
+    Capsule::$manifestRows = [
+        (object) ['id' => 1, 'pulled_at' => '2026-08-01 12:00:00'],
+    ];
+    Capsule::$usageRows = [
+        (object) [
+            'id' => 10,
+            'occurrence_number' => 1,
+            'is_present_in_latest_pull' => 1,
+            'usage_date' => '2026-07-07',
+            'tenant_id' => 'DailyCorp',
+            'device_id' => 'dailyhyperv12345',
+        ],
+        (object) [
+            'id' => 11,
+            'occurrence_number' => 2,
+            'is_present_in_latest_pull' => 1,
+            'usage_date' => '2026-07-07',
+            'tenant_id' => 'DailyCorp',
+            'device_id' => 'dailyhyperv12345',
+        ],
+        (object) [
+            'id' => 12,
+            'occurrence_number' => 1,
+            'is_present_in_latest_pull' => 0,
+            'usage_date' => '2026-07-06',
+            'tenant_id' => 'DailyCorp',
+            'device_id' => 'dailyhyperv12345',
+        ],
+    ];
+    CanonicalUsage::clearCache();
+    assert_eq(CanonicalUsage::hasCanonicalPull(), true, 'hasCanonicalPull true when manifest exists');
+    $canonicalRows = CanonicalUsage::query()->get();
+    assert_eq(count($canonicalRows), 2, 'canonical query excludes stale rows');
+    $occurrences = array_map(static fn (object $row): int => (int) $row->occurrence_number, $canonicalRows);
+    sort($occurrences);
+    assert_eq($occurrences, [1, 2], 'only current occurrences remain');
+
+    Capsule::$manifestRows = [];
+    CanonicalUsage::clearCache();
+    assert_eq(CanonicalUsage::hasCanonicalPull(), false, 'hasCanonicalPull false when manifest empty');
 
     echo "\nAll HistoricalReconciler audit tests passed.\n";
 }
