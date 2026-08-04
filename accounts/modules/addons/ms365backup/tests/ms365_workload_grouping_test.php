@@ -134,6 +134,39 @@ assert_near($inProgressUnit, 0.75, 0.01, 'Grouped progress unit averages site su
 $singleGroupAgg = Ms365BatchRunRepository::computeAggregates($inProgressSiteA);
 assert_near((float) ($singleGroupAgg['progress_pct'] ?? 0), 75.0, 0.5, 'Single grouped workload uses grouped progress percent');
 
+// Prod regression: running Documents with items_done==items_total must not pin parent at 100%.
+$uploadTailBatch = [];
+for ($i = 0; $i < 9; $i++) {
+    $uploadTailBatch[] = [
+        'id' => 'ok-' . $i,
+        'resource_type' => 'mailbox',
+        'status' => 'success',
+        'physical_key' => 'user:u' . $i,
+        'items_done' => 10,
+        'items_total' => 10,
+        'percent' => 100.0,
+    ];
+}
+$uploadTailBatch[] = [
+    'id' => 'docs-tail',
+    'resource_type' => 'sharepoint_site',
+    'status' => 'running',
+    'phase' => 'upload',
+    'physical_key' => 'drive:b!docs',
+    'user_display_name' => 'Documents',
+    'items_done' => 12491,
+    'items_total' => 12491,
+    'percent' => 147.14,
+];
+$uploadTailAgg = Ms365BatchRunRepository::computeAggregates($uploadTailBatch);
+assert_true((int) ($uploadTailAgg['active_running_workloads'] ?? 0) === 1, 'Upload-tail batch has one active workload');
+assert_true((float) ($uploadTailAgg['progress_pct'] ?? 0) < 100.0, 'Upload-tail batch must stay below 100% while running');
+assert_true(
+    str_contains((string) ($uploadTailAgg['stage'] ?? ''), 'Finalizing cloud upload')
+        || str_contains((string) ($uploadTailAgg['stage'] ?? ''), 'Uploading'),
+    'Upload-tail stage mentions upload/finalize'
+);
+
 $anonymousChildren = array_fill(0, 213, ['status' => 'queued']);
 $anonymousGroups = Ms365WorkloadGrouping::groupChildren($anonymousChildren);
 assert_true(count($anonymousGroups) === 213, 'Anonymous test children remain one group per child');

@@ -999,6 +999,11 @@ final class Ms365BatchRunRepository
         } elseif ($totalWorkloads > 0) {
             $progressPct = min(100.0, round(($completedWorkloads / $totalWorkloads) * 100, 2));
         }
+        // With hundreds of workloads, a single running tail still rounds to 100.00
+        // (e.g. 213.99/214). Keep parent below 100 while any workload is active.
+        if ($activeRunning > 0 && $progressPct >= 100.0) {
+            $progressPct = 99.9;
+        }
 
         $currentItem = self::buildCurrentItemLabel($runningChildren, $activeChild);
         $dominantPhase = self::dominantPhaseForChildren($runningChildren);
@@ -1013,7 +1018,7 @@ final class Ms365BatchRunRepository
                         $activeRunning,
                         $totalWorkloads
                     );
-                } elseif ($dominantPhase === 'kopia_upload') {
+                } elseif ($dominantPhase === 'kopia_upload' || $dominantPhase === 'upload') {
                     $stage = $isRestore
                         ? sprintf('Uploading restore data (%d of %d workloads active)', $activeRunning, $totalWorkloads)
                         : sprintf('Uploading to cloud storage (%d of %d workloads active)', $activeRunning, $totalWorkloads);
@@ -1034,8 +1039,16 @@ final class Ms365BatchRunRepository
                     $stage = $isRestore ? 'Waiting for restore worker' : 'Waiting for worker';
                 } elseif ($activePhase === 'graph_sync' || $activePhase === 'prior_snapshot') {
                     $stage = 'Syncing from Microsoft Graph';
-                } elseif ($activePhase === 'kopia_upload') {
-                    $stage = $isRestore ? 'Uploading restore data' : 'Uploading to cloud storage';
+                } elseif ($activePhase === 'kopia_upload' || $activePhase === 'upload') {
+                    $itemsDone = (int) ($activeChild['items_done'] ?? 0);
+                    $itemsTotal = (int) ($activeChild['items_total'] ?? 0);
+                    if ($itemsTotal > 0 && $itemsDone >= $itemsTotal) {
+                        $stage = $isRestore
+                            ? 'Finalizing restore upload'
+                            : 'Finalizing cloud upload (hashing/packing)';
+                    } else {
+                        $stage = $isRestore ? 'Uploading restore data' : 'Uploading to cloud storage';
+                    }
                 } else {
                     $stage = $workloadVerb . ' workload ' . $activeIndex . ' of ' . $totalWorkloads;
                 }

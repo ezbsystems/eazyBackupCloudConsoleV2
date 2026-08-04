@@ -11,6 +11,13 @@
 
 ## Session log
 
+### 2026-08-04 — Jobs “stuck at 100%” while tail workloads still run (PHP 1.52.46)
+
+- **Batches:** `6ca25e36`, `6e5b9b4b`, `d8d4bb2b` showed `progress_pct=100` with Documents/SharePoint children still `running` (upload/graph_sync). `95cf1ae1` had already completed successfully.
+- **Root cause:** `Ms365WorkloadGrouping::childProgressUnit` treated `items_done==items_total` as a full unit even while status=`running`, so long Kopia upload/hash tails pinned the parent at 100%. Stage also missed phase `upload` (only matched `kopia_upload`).
+- **Fix:** Cap running progress at 0.99 / 99%; force parent `progress_pct` to 99.9 while any workload is active; stage “Finalizing cloud upload…” for item-complete upload tails.
+- **Not a hang:** Live evidence showed fresh `last_progress_at` and worker journals (prior timeout → graph_sync; upload hashing ~99 GiB this attempt).
+
 ### 2026-08-04 — prior_snapshot MergePrior wedge + missing fleet cron
 
 - **Prod batch `d8d4bb2b…` (Deetken):** Clients/IT/Offboarded_Users stuck in `prior_snapshot` ~60m with 0 items; Business_Development sibling healthy in upload after **917s** prior merge.

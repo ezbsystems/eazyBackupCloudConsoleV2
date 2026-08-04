@@ -80,6 +80,7 @@ final class Ms365WorkloadGrouping
 
         [, , $percent] = self::mergeGroupProgress($group, $mergedStatus);
         if ($percent > 0) {
+            // mergeGroupProgress already caps running groups below 100.
             return min(1.0, $percent / 100.0);
         }
 
@@ -108,14 +109,18 @@ final class Ms365WorkloadGrouping
         $childPercent = (float) ($child['percent'] ?? 0);
         $childItemsTotal = max(0, (int) ($child['items_total'] ?? 0));
         $childItemsDone = max(0, (int) ($child['items_done'] ?? 0));
+        // Running children often reach items_done==items_total during graph_sync
+        // completion or long Kopia upload/hash. Never report a full unit until the
+        // child is terminal — otherwise parent progress_pct freezes at 100% for hours
+        // (prod: Documents tails on 6ca25e36 / 6e5b9b4b / d8d4bb2b).
+        $capRunning = static function (float $unit): float {
+            return min(0.99, max(0.0, $unit));
+        };
         if ($childItemsTotal > 0) {
-            return min(1.0, $childItemsDone / $childItemsTotal);
-        }
-        if ($childPercent > 1.0) {
-            return min(1.0, $childPercent / 100.0);
+            return $capRunning($childItemsDone / $childItemsTotal);
         }
         if ($childPercent > 0) {
-            return min(1.0, $childPercent / 100.0);
+            return $capRunning($childPercent / 100.0);
         }
         if ($phase === 'kopia_upload' || $phase === 'upload') {
             return 0.5;
@@ -250,6 +255,9 @@ final class Ms365WorkloadGrouping
 
         if ($mergedStatus === 'success') {
             $percent = 100.0;
+        } elseif (in_array($mergedStatus, ['running', 'starting'], true)) {
+            // Mirror childProgressUnit: item-complete running tails must not read as 100%.
+            $percent = min(99.0, $percent);
         }
 
         return [$itemsDone, $itemsTotal, $percent];
