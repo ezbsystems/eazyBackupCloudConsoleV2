@@ -15,13 +15,18 @@ class HistoricalReconciler
     /**
      * @return array<string, mixed>
      */
-    public static function report(string $fromDate, string $toDate, bool $includeGrace = false, bool $persist = true): array
+    public static function report(string $fromDate, string $toDate, bool $includeGrace = false, bool $persist = false): array
     {
         $fromDate = self::normalizeDate($fromDate);
         $toDate = self::normalizeDate($toDate);
         if ($fromDate > $toDate) {
             [$fromDate, $toDate] = [$toDate, $fromDate];
         }
+
+        // Warm shared caches once per request.
+        ServiceIdentityResolver::loadIndex();
+        BillingCadenceResolver::clearCache();
+        LifecycleResolver::clearCache();
 
         $coverage = SourceCoverageReporter::report($fromDate, $toDate);
         $coverageComplete = (bool) $coverage['complete_overlap'];

@@ -8,6 +8,9 @@ use WHMCS\Database\Capsule;
  */
 class LifecycleResolver
 {
+    /** @var array<string, array<string, mixed>> */
+    private static array $cache = [];
+
     /**
      * @return array{
      *   registered_at: ?string,
@@ -20,6 +23,11 @@ class LifecycleResolver
      */
     public static function resolve(string $deviceHash, string $category, ?string $account = null): array
     {
+        $cacheKey = $deviceHash . '|' . $category;
+        if (isset(self::$cache[$cacheKey])) {
+            return self::$cache[$cacheKey];
+        }
+
         $index = ServiceIdentityResolver::loadIndex();
         $device = $index['by_hash'][$deviceHash] ?? null;
 
@@ -39,21 +47,25 @@ class LifecycleResolver
             $source = 'comet_devices.revoked_at';
         }
 
-        $inventoryRemove = self::findInventoryRemoveDate($deviceHash, $category);
-        if ($inventoryRemove !== null) {
-            if ($removeDate === null) {
+        // Inventory lookback only needed when revoke is unknown or for daily boosters
+        // confirming disappearance. Skip when host revoke already provides a stop date
+        // for non-booster categories to avoid per-row inventory scans.
+        $needsInventory = in_array($category, [
+            'hyperv_vms', 'vmware_vms', 'proxmox_vms', 'disk_image', 'mssql', 'm365_accounts',
+        ], true) && ($revokedAt === null);
+
+        if ($needsInventory) {
+            $inventoryRemove = self::findInventoryRemoveDate($deviceHash, $category);
+            if ($inventoryRemove !== null) {
                 $removeDate = $inventoryRemove;
                 $removeEnd = $inventoryRemove;
                 $confidence = 'medium';
                 $source = 'cb_server_device_inventory';
-            } elseif ($inventoryRemove <= $removeDate) {
-                $removeDate = $inventoryRemove;
-                $source = 'inventory_and_revoked';
             }
         }
 
         if ($removeDate === null) {
-            return [
+            $result = [
                 'registered_at' => $registeredAt,
                 'revoked_at' => null,
                 'remove_date' => null,
@@ -61,9 +73,11 @@ class LifecycleResolver
                 'confidence' => 'unknown',
                 'source' => null,
             ];
+            self::$cache[$cacheKey] = $result;
+            return $result;
         }
 
-        return [
+        $result = [
             'registered_at' => $registeredAt,
             'revoked_at' => $revokedAt,
             'remove_date' => $removeDate,
@@ -71,6 +85,13 @@ class LifecycleResolver
             'confidence' => $confidence,
             'source' => $source,
         ];
+        self::$cache[$cacheKey] = $result;
+        return $result;
+    }
+
+    public static function clearCache(): void
+    {
+        self::$cache = [];
     }
 
     private static function findInventoryRemoveDate(string $deviceHash, string $category): ?string
@@ -98,7 +119,7 @@ class LifecycleResolver
             ->orderBy('snapshot_date')
             ->get();
 
-        if ($rows->isEmpty()) {
+        if ((is_countable($rows) ? count($rows) : 0) === 0) {
             return null;
         }
 

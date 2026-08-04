@@ -327,10 +327,19 @@ function cometbilling_output($vars)
             break;
 
         case 'historical_reconcile':
+            // Long audit scan — release session so other admin tabs stay responsive.
+            cometbilling_releaseSession();
+            if (function_exists('set_time_limit')) {
+                @set_time_limit(600);
+            }
             include __DIR__ . '/templates/admin/historical_reconcile.tpl.php';
             break;
 
         case 'historical_reconcile_export':
+            cometbilling_releaseSession();
+            if (function_exists('set_time_limit')) {
+                @set_time_limit(600);
+            }
             try {
                 $from = !empty($_GET['from']) ? (string) $_GET['from'] : null;
                 $to = !empty($_GET['to']) ? (string) $_GET['to'] : null;

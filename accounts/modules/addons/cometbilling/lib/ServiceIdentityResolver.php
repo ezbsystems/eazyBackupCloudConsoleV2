@@ -8,6 +8,9 @@ use WHMCS\Database\Capsule;
  */
 class ServiceIdentityResolver
 {
+    /** @var array{by_hash: array<string, array>, by_prefix: array<string, list<array>>}|null */
+    private static ?array $cachedIndex = null;
+
     /**
      * @return array{
      *   status: string,
@@ -108,11 +111,16 @@ class ServiceIdentityResolver
      */
     public static function loadIndex(): array
     {
+        if (self::$cachedIndex !== null) {
+            return self::$cachedIndex;
+        }
+
         $byHash = [];
         $byPrefix = [];
 
         if (!Capsule::schema()->hasTable('comet_devices')) {
-            return ['by_hash' => $byHash, 'by_prefix' => $byPrefix];
+            self::$cachedIndex = ['by_hash' => $byHash, 'by_prefix' => $byPrefix];
+            return self::$cachedIndex;
         }
 
         $rows = Capsule::table('comet_devices')
@@ -141,7 +149,13 @@ class ServiceIdentityResolver
             $byPrefix[$prefix][] = $entry;
         }
 
-        return ['by_hash' => $byHash, 'by_prefix' => $byPrefix];
+        self::$cachedIndex = ['by_hash' => $byHash, 'by_prefix' => $byPrefix];
+        return self::$cachedIndex;
+    }
+
+    public static function clearCache(): void
+    {
+        self::$cachedIndex = null;
     }
 
     private static function unmatched(): array

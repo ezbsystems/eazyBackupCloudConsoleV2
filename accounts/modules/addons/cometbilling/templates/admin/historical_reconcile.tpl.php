@@ -1,5 +1,6 @@
 <?php
 use CometBilling\HistoricalReconciler;
+use WHMCS\Database\Capsule;
 
 $baseUrl = 'addonmodules.php?module=cometbilling&action=historical_reconcile';
 $exportBase = 'addonmodules.php?module=cometbilling&action=historical_reconcile_export';
@@ -8,9 +9,21 @@ $preset = $_GET['preset'] ?? null;
 $fromInput = $_GET['from'] ?? null;
 $toInput = $_GET['to'] ?? null;
 $includeGrace = !empty($_GET['include_grace']);
+$run = !empty($_GET['run']) || ($fromInput && $toInput);
 
 $range = HistoricalReconciler::resolveDateRange($preset, $fromInput, $toInput);
-$report = HistoricalReconciler::report($range['from'], $range['to'], $includeGrace);
+$report = null;
+$lastSaved = null;
+
+if (Capsule::schema()->hasTable('cb_audit_runs')) {
+    $lastSaved = Capsule::table('cb_audit_runs')->orderBy('id', 'desc')->first();
+}
+
+if ($run) {
+    // Persist only when explicitly requested — keeps page load lighter.
+    $persist = !empty($_GET['persist']);
+    $report = HistoricalReconciler::report($range['from'], $range['to'], $includeGrace, $persist);
+}
 
 function histPresetLink(string $baseUrl, $days, $activePreset, string $label): string
 {
@@ -18,7 +31,7 @@ function histPresetLink(string $baseUrl, $days, $activePreset, string $label): s
     $class = $isActive ? 'btn btn-primary' : 'btn btn-default';
     $param = $days === 'all' ? 'all' : (int) $days;
 
-    return '<a href="' . htmlspecialchars($baseUrl . '&preset=' . $param) . '" class="' . $class . '">' . htmlspecialchars($label) . '</a>';
+    return '<a href="' . htmlspecialchars($baseUrl . '&preset=' . $param . '&run=1') . '" class="' . $class . '">' . htmlspecialchars($label) . '</a>';
 }
 
 $exportUrl = $exportBase
@@ -58,7 +71,51 @@ $exportUrl = $exportBase
     <div class="cb-banner">
         Audit-grade analysis correlating Comet <strong>Amount Used</strong> + <strong>Packs Used</strong> debits with billing periods and lifecycle evidence.
         This proves overbilling from Comet’s own records — not independent verification of a hidden account balance (Comet does not expose one).
+        Large ranges can take a few minutes; other admin tabs stay responsive while this runs.
     </div>
+
+    <div class="cb-box">
+        <h4>Date Range</h4>
+        <div class="cb-filter-row">
+            <?= histPresetLink($baseUrl, 30, $run ? $range['preset'] : null, 'Last 30 days') ?>
+            <?= histPresetLink($baseUrl, 90, $run ? $range['preset'] : null, 'Last 90 days') ?>
+            <?= histPresetLink($baseUrl, 365, $run ? $range['preset'] : null, 'Last 365 days') ?>
+            <?= histPresetLink($baseUrl, 'all', $run ? $range['preset'] : null, 'All history') ?>
+        </div>
+        <form method="get" class="cb-form-inline">
+            <input type="hidden" name="module" value="cometbilling">
+            <input type="hidden" name="action" value="historical_reconcile">
+            <input type="hidden" name="run" value="1">
+            <label for="from">From</label>
+            <input type="date" id="from" name="from" value="<?= htmlspecialchars($range['from']) ?>" required>
+            <label for="to">To</label>
+            <input type="date" id="to" name="to" value="<?= htmlspecialchars($range['to']) ?>" required>
+            <label style="margin-left:12px;">
+                <input type="checkbox" name="include_grace" value="1" <?= $includeGrace ? 'checked' : '' ?>>
+                Include expected grace rows
+            </label>
+            <label style="margin-left:12px;">
+                <input type="checkbox" name="persist" value="1" <?= !empty($_GET['persist']) ? 'checked' : '' ?>>
+                Save audit run
+            </label>
+            <button type="submit" class="btn btn-primary">Run audit</button>
+        </form>
+        <p class="cb-muted">Period: <?= htmlspecialchars($range['from']) ?> to <?= htmlspecialchars($range['to']) ?> (UTC). Click a preset or <strong>Run audit</strong> to generate results.</p>
+    </div>
+
+<?php if (!$run): ?>
+    <div class="cb-box">
+        <h4>Ready to run</h4>
+        <p class="cb-muted">Choose a date range above to start. Default recommendation: <a href="<?= htmlspecialchars($baseUrl . '&preset=90&run=1') ?>">Last 90 days</a>.</p>
+        <?php if ($lastSaved): ?>
+        <p class="cb-muted">
+            Last saved audit: #<?= (int) $lastSaved->id ?>
+            (<?= htmlspecialchars((string) $lastSaved->from_date) ?> → <?= htmlspecialchars((string) $lastSaved->to_date) ?>,
+            <?= htmlspecialchars((string) $lastSaved->run_at) ?> UTC)
+        </p>
+        <?php endif; ?>
+    </div>
+<?php else: ?>
 
     <?php if (!empty($report['coverage'])): ?>
     <div class="cb-box">
@@ -75,30 +132,6 @@ $exportUrl = $exportBase
         </ul>
     </div>
     <?php endif; ?>
-
-    <div class="cb-box">
-        <h4>Date Range</h4>
-        <div class="cb-filter-row">
-            <?= histPresetLink($baseUrl, 30, $range['preset'], 'Last 30 days') ?>
-            <?= histPresetLink($baseUrl, 90, $range['preset'], 'Last 90 days') ?>
-            <?= histPresetLink($baseUrl, 365, $range['preset'], 'Last 365 days') ?>
-            <?= histPresetLink($baseUrl, 'all', $range['preset'], 'All history') ?>
-        </div>
-        <form method="get" class="cb-form-inline">
-            <input type="hidden" name="module" value="cometbilling">
-            <input type="hidden" name="action" value="historical_reconcile">
-            <label for="from">From</label>
-            <input type="date" id="from" name="from" value="<?= htmlspecialchars($range['from']) ?>" required>
-            <label for="to">To</label>
-            <input type="date" id="to" name="to" value="<?= htmlspecialchars($range['to']) ?>" required>
-            <label style="margin-left:12px;">
-                <input type="checkbox" name="include_grace" value="1" <?= $includeGrace ? 'checked' : '' ?>>
-                Include expected grace rows
-            </label>
-            <button type="submit" class="btn btn-default">Apply</button>
-        </form>
-        <p class="cb-muted">Period: <?= htmlspecialchars($range['from']) ?> to <?= htmlspecialchars($range['to']) ?> (UTC)</p>
-    </div>
 
     <div class="cb-box">
         <h4>Summary</h4>
@@ -220,6 +253,7 @@ $exportUrl = $exportBase
         </table>
         <?php endif; ?>
     </div>
+<?php endif; ?>
 </div>
 
 <script>
