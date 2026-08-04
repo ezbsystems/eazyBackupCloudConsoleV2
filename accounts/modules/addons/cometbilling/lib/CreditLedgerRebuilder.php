@@ -37,7 +37,7 @@ class CreditLedgerRebuilder
         $isComplete = $purchaseCoverage['earliest'] !== null
             && $purchaseCoverage['earliest'] <= $openingDate;
 
-        $usageRows = Capsule::table('cb_credit_usage')
+        $usageRows = CanonicalUsage::query()
             ->whereBetween('usage_date', [$openingDate, $closingDate])
             ->orderBy('usage_date')
             ->orderBy('id')
@@ -143,7 +143,7 @@ class CreditLedgerRebuilder
         $purchases = (float) Capsule::table('cb_credit_purchases')
             ->where('purchased_at', '<', $beforeDate . ' 00:00:00')
             ->sum(Capsule::raw('credit_amount + bonus_credit'));
-        $usage = (float) Capsule::table('cb_credit_usage')
+        $usage = (float) CanonicalUsage::query()
             ->where('usage_date', '<', $beforeDate)
             ->sum('amount');
 
@@ -211,7 +211,7 @@ class CreditLedgerRebuilder
             $purchases = (float) Capsule::table('cb_credit_purchases')
                 ->whereDate('purchased_at', $day)
                 ->sum(Capsule::raw('credit_amount + bonus_credit'));
-            $usageAmt = (float) Capsule::table('cb_credit_usage')
+            $usageAmt = (float) CanonicalUsage::query()
                 ->where('usage_date', $day)
                 ->sum('amount');
 

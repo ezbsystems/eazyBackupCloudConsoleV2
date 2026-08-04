@@ -1,7 +1,8 @@
 <?php
 use WHMCS\Database\Capsule;
+use CometBilling\CanonicalUsage;
 $limit = 500;
-$rows = Capsule::table('cb_credit_usage')
+$rows = CanonicalUsage::query()
     ->orderBy('usage_date', 'desc')
     ->limit($limit)
     ->get();

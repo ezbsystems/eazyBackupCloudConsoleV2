@@ -222,7 +222,7 @@ class BillingCadenceResolver
         }
 
         $from = date('Y-m-d', strtotime($usageDate . ' -14 days'));
-        $query = Capsule::table('cb_credit_usage')
+        $query = CanonicalUsage::query()
             ->whereBetween('usage_date', [$from, $usageDate]);
 
         if ($deviceHash) {

@@ -366,9 +366,6 @@ namespace {
     $grace = OverbillEvidenceEvaluator::evaluate(Capsule::$usageRows[1], false);
     assert_eq($grace['verdict'], 'not_overbilled', 'revoke day charge not overbilled');
 
-    $report = HistoricalReconciler::report('2026-07-01', '2026-07-31', false, false);
-    assert_eq($report['summary']['charges_scanned'], 2, 'scans all usage rows');
-
     Capsule::$manifestRows = [
         (object) ['id' => 1, 'pulled_at' => '2026-08-01 12:00:00'],
     ];
@@ -399,6 +396,8 @@ namespace {
         ],
     ];
     CanonicalUsage::clearCache();
+    $report = HistoricalReconciler::report('2026-07-01', '2026-07-31', false, false);
+    assert_eq($report['summary']['charges_scanned'], 2, 'scans only current usage occurrences');
     assert_eq(CanonicalUsage::hasCanonicalPull(), true, 'hasCanonicalPull true when manifest exists');
     $canonicalRows = CanonicalUsage::query()->get();
     assert_eq(count($canonicalRows), 2, 'canonical query excludes stale rows');

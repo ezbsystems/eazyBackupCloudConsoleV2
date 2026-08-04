@@ -27,6 +27,7 @@ class HistoricalReconciler
         ServiceIdentityResolver::loadIndex();
         BillingCadenceResolver::clearCache();
         LifecycleResolver::clearCache();
+        CanonicalUsage::clearCache();
 
         $coverage = SourceCoverageReporter::report($fromDate, $toDate);
         $coverageComplete = (bool) $coverage['complete_overlap'];
@@ -319,7 +320,7 @@ class HistoricalReconciler
             return [];
         }
 
-        $query = Capsule::table('cb_credit_usage')
+        $query = CanonicalUsage::query()
             ->whereBetween('usage_date', [$fromDate, $toDate])
             ->orderBy('id');
 
@@ -356,7 +357,7 @@ class HistoricalReconciler
         if (!Capsule::schema()->hasTable('cb_credit_usage')) {
             return null;
         }
-        $min = Capsule::table('cb_credit_usage')->min('usage_date');
+        $min = CanonicalUsage::query()->min('usage_date');
 
         return $min ? self::normalizeDate((string) $min) : null;
     }

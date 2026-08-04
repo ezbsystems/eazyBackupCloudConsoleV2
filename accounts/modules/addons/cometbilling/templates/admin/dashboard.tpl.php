@@ -1,11 +1,12 @@
 <?php
 use WHMCS\Database\Capsule;
+use CometBilling\CanonicalUsage;
 use CometBilling\PortalUsageExtractor;
 use CometBilling\CreditLedger;
 use CometBilling\Reconciler;
 use CometBilling\Settings;
 
-$usageCount = Capsule::table('cb_credit_usage')->count();
+$usageCount = CanonicalUsage::query()->count();
 $svcCount   = Capsule::table('cb_active_services')->count();
 $purchSum   = Capsule::table('cb_credit_purchases')->sum(Capsule::raw('credit_amount + bonus_credit'));
 $lastBal    = Capsule::table('cb_daily_balance')->orderBy('balance_date', 'desc')->first();

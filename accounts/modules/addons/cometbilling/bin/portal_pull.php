@@ -30,7 +30,7 @@ use CometBilling\ActiveServicesNormalizer;
 use CometBilling\Settings;
 use CometBilling\CreditLedger;
 use CometBilling\UsagePullReconciler;
-use CometBilling\CreditLedgerRebuilder;
+use CometBilling\CanonicalUsage;
 
 $logLines = [];
 $exitCode = 0;
@@ -237,7 +237,7 @@ function cbIncrementalBalanceRecompute(): void
         $purchases = (float) Capsule::table('cb_credit_purchases')
             ->whereDate('purchased_at', $day)
             ->sum(Capsule::raw('credit_amount + bonus_credit'));
-        $usageAmt = (float) Capsule::table('cb_credit_usage')
+        $usageAmt = (float) CanonicalUsage::query()
             ->whereDate('usage_date', $day)
             ->sum('amount');
 
@@ -294,7 +294,7 @@ function cbComputeOpeningBalance(string $beforeDate): float
     $purchases = (float) Capsule::table('cb_credit_purchases')
         ->where('purchased_at', '<', $beforeDate . ' 00:00:00')
         ->sum(Capsule::raw('credit_amount + bonus_credit'));
-    $usage = (float) Capsule::table('cb_credit_usage')
+    $usage = (float) CanonicalUsage::query()
         ->where('usage_date', '<', $beforeDate)
         ->sum('amount');
 

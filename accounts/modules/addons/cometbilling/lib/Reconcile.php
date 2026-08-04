@@ -7,7 +7,7 @@ class Reconcile
 {
     public static function chargesByType(string $fromDate, string $toDate): array
     {
-        $rows = Capsule::table('cb_credit_usage')
+        $rows = CanonicalUsage::query()
             ->select('item_type', Capsule::raw('SUM(amount) as amt'))
             ->whereBetween('usage_date', [$fromDate, $toDate])
             ->groupBy('item_type')
@@ -31,7 +31,7 @@ class Reconcile
     // Placeholder for future in-depth checks
     public static function detectCatchUpCharges(string $fromDate, string $toDate): array
     {
-        $rows = Capsule::table('cb_credit_usage')
+        $rows = CanonicalUsage::query()
             ->whereBetween('usage_date', [$fromDate, $toDate])
             ->whereNotNull('posted_at')
             ->get();

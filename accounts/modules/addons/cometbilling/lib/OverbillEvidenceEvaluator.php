@@ -237,7 +237,7 @@ class OverbillEvidenceEvaluator
             return null;
         }
 
-        $query = Capsule::table('cb_credit_usage')
+        $query = CanonicalUsage::query()
             ->where('usage_date', '>=', $usageDate)
             ->where('amount', '<', 0);
 

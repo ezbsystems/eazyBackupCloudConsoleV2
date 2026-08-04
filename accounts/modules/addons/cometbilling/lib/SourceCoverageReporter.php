@@ -13,8 +13,8 @@ class SourceCoverageReporter
      */
     public static function report(string $fromDate, string $toDate): array
     {
-        $usageMin = self::minDate('cb_credit_usage', 'usage_date');
-        $usageMax = self::maxDate('cb_credit_usage', 'usage_date');
+        $usageMin = self::usageMinDate('usage_date');
+        $usageMax = self::usageMaxDate('usage_date');
         $activeMin = self::minSnapshotDate();
         $activeMax = self::maxSnapshotDate();
         $purchaseMin = self::minDate('cb_credit_purchases', 'purchased_at', true);
@@ -48,6 +48,32 @@ class SourceCoverageReporter
             'purchases' => ['min' => $purchaseMin, 'max' => $purchaseMax],
             'inventory' => ['min' => $inventoryMin, 'max' => $inventoryMax],
         ];
+    }
+
+    private static function usageMinDate(string $column): ?string
+    {
+        if (!Capsule::schema()->hasTable('cb_credit_usage')) {
+            return null;
+        }
+        $val = CanonicalUsage::query()->min($column);
+        if ($val === null) {
+            return null;
+        }
+
+        return (string) $val;
+    }
+
+    private static function usageMaxDate(string $column): ?string
+    {
+        if (!Capsule::schema()->hasTable('cb_credit_usage')) {
+            return null;
+        }
+        $val = CanonicalUsage::query()->max($column);
+        if ($val === null) {
+            return null;
+        }
+
+        return (string) $val;
     }
 
     private static function minDate(string $table, string $column, bool $datetime = false): ?string
