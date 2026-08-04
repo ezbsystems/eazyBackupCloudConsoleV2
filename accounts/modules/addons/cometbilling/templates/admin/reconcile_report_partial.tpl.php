@@ -261,7 +261,7 @@ $showDrilldown = $showDrilldown ?? true;
                     ?>
                     <p style="font-size: 11px; color: #666; margin: 0 0 8px;">Devices: billed on registration-aligned cycles; expected end is the period containing revoke. Boosters: billed daily; remove day is last billable.</p>
                     <?php if ($pastGraceCount > 0): ?>
-                    <p style="font-size: 12px; color: #b91c1c; margin: 0 0 8px;"><strong><?= (int) $pastGraceCount ?></strong> portal-only item(s) billed past the post-revoke grace window<?php if ($graceCount > 0): ?> · <?= (int) $graceCount ?> in expected grace<?php endif; ?>.</p>
+                    <p style="font-size: 12px; color: #b91c1c; margin: 0 0 8px;"><strong><?= (int) $pastGraceCount ?></strong> portal-only item(s) billed past expected billing end<?php if ($graceCount > 0): ?> · <?= (int) $graceCount ?> still within expected end<?php endif; ?>.</p>
                     <?php endif; ?>
                     <details open>
                         <summary style="cursor: pointer; font-size: 13px;">Unmatched items</summary>
