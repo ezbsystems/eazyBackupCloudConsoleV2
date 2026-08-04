@@ -21,7 +21,7 @@ Category via `ChargeCategoryResolver`.
 |---------|------------|
 | Devices | `devices` |
 | Boosters | `hyperv_vms`, `vmware_vms`, `proxmox_vms`, `disk_image`, `mssql` |
-| M365 | `m365_accounts` |
+| M365 | `m365_accounts` — summary = sum of protected accounts on newly first-billed hosts (from qty / "Accounts N" / amount), not host count |
 
 Boosters summary also shows a per-type breakdown.  
 `account_plan` / `other` are excluded.

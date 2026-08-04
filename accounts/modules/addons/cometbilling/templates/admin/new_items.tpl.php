@@ -58,6 +58,7 @@ function newItemsBucketLink(string $baseUrl, string $from, string $to, ?string $
     <p class="cb-muted">
         Counts identities whose <strong>first</strong> canonical Bill History charge falls in the selected period.
         Renewals and daily re-bills are excluded. Boosters = Hyper-V / VMware / Proxmox / Disk Image / MS SQL.
+        M365 shows total protected accounts on newly first-billed M365 boosters (not host count).
     </p>
 
     <div class="cb-box">
@@ -91,9 +92,14 @@ function newItemsBucketLink(string $baseUrl, string $from, string $to, ?string $
             </div>
             <div class="cb-stat">
                 <div class="value"><?= number_format((int) $counts['m365']) ?></div>
-                <div class="label">New M365</div>
+                <div class="label">New M365 accounts</div>
             </div>
         </div>
+        <?php if ((int) ($counts['m365_hosts'] ?? 0) > 0): ?>
+        <div class="cb-breakdown">
+            <span>M365 hosts first billed: <?= number_format((int) $counts['m365_hosts']) ?></span>
+        </div>
+        <?php endif; ?>
         <?php if ((int) $counts['boosters'] > 0): ?>
         <div class="cb-breakdown">
             <?php foreach ($report['booster_breakdown'] as $cat => $n): ?>
@@ -107,12 +113,14 @@ function newItemsBucketLink(string $baseUrl, string $from, string $to, ?string $
 
     <div class="cb-box">
         <h4>Detail</h4>
-        <?php $totalInPeriod = (int) $counts['devices'] + (int) $counts['boosters'] + (int) $counts['m365']; ?>
+        <?php
+        $hostTotal = (int) $counts['devices'] + (int) $counts['boosters'] + (int) ($counts['m365_hosts'] ?? 0);
+        ?>
         <div class="cb-filter-row">
-            <?= newItemsBucketLink($baseUrl, $range['from'], $range['to'], $range['preset'], 'all', 'All (' . number_format($totalInPeriod) . ')', $bucketFilter) ?>
+            <?= newItemsBucketLink($baseUrl, $range['from'], $range['to'], $range['preset'], 'all', 'All (' . number_format($hostTotal) . ')', $bucketFilter) ?>
             <?= newItemsBucketLink($baseUrl, $range['from'], $range['to'], $range['preset'], 'devices', 'Devices (' . number_format((int)$counts['devices']) . ')', $bucketFilter) ?>
             <?= newItemsBucketLink($baseUrl, $range['from'], $range['to'], $range['preset'], 'boosters', 'Boosters (' . number_format((int)$counts['boosters']) . ')', $bucketFilter) ?>
-            <?= newItemsBucketLink($baseUrl, $range['from'], $range['to'], $range['preset'], 'm365', 'M365 (' . number_format((int)$counts['m365']) . ')', $bucketFilter) ?>
+            <?= newItemsBucketLink($baseUrl, $range['from'], $range['to'], $range['preset'], 'm365', 'M365 (' . number_format((int)$counts['m365']) . ' accounts)', $bucketFilter) ?>
         </div>
 
         <?php $detailCount = count($report['items']); ?>

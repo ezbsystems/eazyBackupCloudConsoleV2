@@ -22,7 +22,7 @@ final class NewItemsReport
      * @return array{
      *   from: string,
      *   to: string,
-     *   counts: array{devices: int, boosters: int, m365: int},
+     *   counts: array{devices: int, boosters: int, m365: int, m365_hosts: int},
      *   booster_breakdown: array<string, int>,
      *   items: list<array<string, mixed>>
      * }
@@ -35,6 +35,7 @@ final class NewItemsReport
             self::BUCKET_DEVICES => 0,
             self::BUCKET_BOOSTERS => 0,
             self::BUCKET_M365 => 0,
+            'm365_hosts' => 0,
         ];
         $boosterBreakdown = [];
         foreach (self::BOOSTER_CATEGORIES as $cat) {
@@ -52,7 +53,19 @@ final class NewItemsReport
                 continue;
             }
 
-            $counts[$bucket]++;
+            $protectedAccounts = null;
+            if ($bucket === self::BUCKET_M365) {
+                $protectedAccounts = self::protectedAccountCount(
+                    $row['item_desc'] !== null ? (string) $row['item_desc'] : null,
+                    $row['quantity'],
+                    (float) $row['amount']
+                );
+                $counts[self::BUCKET_M365] += $protectedAccounts;
+                $counts['m365_hosts']++;
+            } else {
+                $counts[$bucket]++;
+            }
+
             if ($bucket === self::BUCKET_BOOSTERS) {
                 $boosterBreakdown[(string) $row['category']] =
                     ($boosterBreakdown[(string) $row['category']] ?? 0) + 1;
@@ -63,6 +76,11 @@ final class NewItemsReport
                 continue;
             }
 
+            $qtyDisplay = $row['quantity'];
+            if ($bucket === self::BUCKET_M365) {
+                $qtyDisplay = $protectedAccounts;
+            }
+
             $items[] = [
                 'first_billed' => $firstDate,
                 'bucket' => $bucket,
@@ -71,7 +89,8 @@ final class NewItemsReport
                 'tenant_id' => $row['tenant_id'],
                 'device_id' => $row['device_id'],
                 'item_desc' => $row['item_desc'],
-                'quantity' => $row['quantity'],
+                'quantity' => $qtyDisplay,
+                'protected_accounts' => $protectedAccounts,
                 'amount' => $row['amount'],
             ];
         }
@@ -91,6 +110,27 @@ final class NewItemsReport
             'booster_breakdown' => $boosterBreakdown,
             'items' => $items,
         ];
+    }
+
+    /**
+     * Protected account count from Bill History quantity, "Accounts N" text, or $1/account amount.
+     */
+    public static function protectedAccountCount(?string $itemDesc, mixed $quantity, float $amount): int
+    {
+        if ($quantity !== null && $quantity !== '' && is_numeric($quantity) && (float) $quantity > 0) {
+            return (int) round((float) $quantity);
+        }
+
+        $desc = (string) $itemDesc;
+        if (preg_match('/Accounts?\s+(\d+)/i', $desc, $m)) {
+            return (int) $m[1];
+        }
+
+        if ($amount > 0) {
+            return (int) round($amount);
+        }
+
+        return 1;
     }
 
     public static function bucketForCategory(string $category): ?string
