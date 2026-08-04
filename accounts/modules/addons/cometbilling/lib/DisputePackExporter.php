@@ -101,6 +101,7 @@ class DisputePackExporter
         $nextDue = (string) ($finding['next_due_date'] ?? '');
         $deviceName = (string) ($finding['device_name'] ?? '');
         $identity = $finding['evidence']['identity'] ?? [];
+        $cadence = $finding['evidence']['cadence'] ?? [];
         $reversal = $finding['evidence']['reversal'] ?? null;
 
         $reversalStatus = 'none_found';
@@ -109,6 +110,25 @@ class DisputePackExporter
             $reversalStatus = 'offsetting_record_found';
             $reversalDetail = json_encode($reversal);
         }
+
+        $activeServiceName = (string) ($cadence['service_name'] ?? '');
+        $activeSnapshotAt = (string) ($cadence['snapshot_at'] ?? '');
+        $activeQuantity = $cadence['service_quantity'] ?? null;
+        $activeAmount = $cadence['service_amount'] ?? null;
+        $activeUnitCost = $cadence['service_unit_cost'] ?? null;
+        $activeServiceEvidence = $activeServiceName !== ''
+            ? sprintf(
+                'Snapshot %s still listed "%s" (quantity=%s, cycle=%d day%s, displayed amount=%s, unit cost=%s, next due=%s)',
+                $activeSnapshotAt !== '' ? $activeSnapshotAt : '(unknown)',
+                $activeServiceName,
+                $activeQuantity !== null ? self::formatNumber((float) $activeQuantity) : '(unknown)',
+                $cycleDays,
+                $cycleDays === 1 ? '' : 's',
+                $activeAmount !== null ? '$' . number_format((float) $activeAmount, 2) : '(unknown)',
+                $activeUnitCost !== null ? '$' . number_format((float) $activeUnitCost, 2) : '(unknown)',
+                $nextDue !== '' ? $nextDue : '(unknown)'
+            )
+            : 'No matching Active Services row was available near the debit date';
 
         $claim = sprintf(
             '%s Comet debited $%s / %s for device %s after that device was revoked on %s and after its %s paid-through date of %s, with no later offsetting credit found.',
@@ -144,6 +164,12 @@ class DisputePackExporter
             'billing_verdict' => (string) ($finding['billing_verdict'] ?? ''),
             'identity_status' => (string) ($identity['status'] ?? ''),
             'identity_match_method' => (string) ($identity['match_method'] ?? ''),
+            'active_service_name' => $activeServiceName,
+            'active_service_snapshot_at' => $activeSnapshotAt,
+            'active_service_quantity' => $activeQuantity,
+            'active_service_amount' => $activeAmount,
+            'active_service_unit_cost' => $activeUnitCost,
+            'active_service_evidence' => $activeServiceEvidence,
             'reversal_status' => $reversalStatus,
             'reversal_detail' => $reversalDetail,
             'evidence_1_comet_debit' => sprintf(
@@ -182,9 +208,167 @@ class DisputePackExporter
         ];
     }
 
+    /**
+     * Group daily findings into one device/service case and collapse identical
+     * same-day occurrences into one confirmed debit plus pending duplicates.
+     *
+     * @param list<array<string, mixed>> $packs
+     * @return list<array<string, mixed>>
+     */
+    public static function groupForDispute(array $packs): array
+    {
+        $groups = [];
+
+        foreach ($packs as $pack) {
+            $isDaily = ($pack['cycle'] ?? '') === 'daily';
+            $baseKey = implode('|', [
+                (string) ($pack['account'] ?? ''),
+                (string) ($pack['device_id'] ?? ''),
+                (string) ($pack['item_desc'] ?? ''),
+                (string) ($pack['category'] ?? ''),
+                (string) ($pack['cycle'] ?? ''),
+            ]);
+            $groupKey = $isDaily
+                ? 'daily|' . $baseKey
+                : 'dated|' . $baseKey . '|' . (string) ($pack['debit_date'] ?? '');
+
+            if (!isset($groups[$groupKey])) {
+                $groups[$groupKey] = [
+                    'account' => (string) ($pack['account'] ?? ''),
+                    'device_id' => (string) ($pack['device_id'] ?? ''),
+                    'device_name' => (string) ($pack['device_name'] ?? ''),
+                    'item_desc' => (string) ($pack['item_desc'] ?? ''),
+                    'category' => (string) ($pack['category'] ?? ''),
+                    'cycle' => (string) ($pack['cycle'] ?? ''),
+                    'cycle_days' => (int) ($pack['cycle_days'] ?? 0),
+                    'revoked_at' => (string) ($pack['revoked_at'] ?? ''),
+                    'registered_at' => (string) ($pack['registered_at'] ?? ''),
+                    'expected_billing_end' => (string) ($pack['expected_billing_end'] ?? ''),
+                    'next_due_date' => (string) ($pack['next_due_date'] ?? ''),
+                    'active_service_name' => (string) ($pack['active_service_name'] ?? ''),
+                    'active_service_snapshot_at' => (string) ($pack['active_service_snapshot_at'] ?? ''),
+                    'active_service_quantity' => $pack['active_service_quantity'] ?? null,
+                    'active_service_amount' => $pack['active_service_amount'] ?? null,
+                    'active_service_unit_cost' => $pack['active_service_unit_cost'] ?? null,
+                    'active_service_evidence' => (string) ($pack['active_service_evidence'] ?? ''),
+                    'reversal_status' => (string) ($pack['reversal_status'] ?? ''),
+                    'debit_dates' => [],
+                ];
+            }
+
+            $date = (string) ($pack['debit_date'] ?? '');
+            if (!isset($groups[$groupKey]['debit_dates'][$date])) {
+                $groups[$groupKey]['debit_dates'][$date] = [
+                    'debit_date' => $date,
+                    'amount_per_occurrence' => (float) ($pack['amount_used'] ?? 0),
+                    'packs_used' => (string) ($pack['packs_used'] ?? ''),
+                    'pack_debited' => (string) ($pack['pack_debited'] ?? ''),
+                    'occurrences' => [],
+                ];
+            }
+
+            $occurrenceIndex = count($groups[$groupKey]['debit_dates'][$date]['occurrences']);
+            $groups[$groupKey]['debit_dates'][$date]['occurrences'][] = [
+                'usage_id' => (int) ($pack['usage_id'] ?? 0),
+                'amount' => (float) ($pack['amount_used'] ?? 0),
+                'status' => $occurrenceIndex === 0
+                    ? 'confirmed debit'
+                    : 'duplicate debit pending Comet confirmation',
+            ];
+        }
+
+        $cases = [];
+        foreach ($groups as $group) {
+            ksort($group['debit_dates']);
+            $group['debit_dates'] = array_values($group['debit_dates']);
+            $group['distinct_debit_dates'] = count($group['debit_dates']);
+            $group['occurrence_count'] = 0;
+            $group['duplicate_pending_count'] = 0;
+            $confirmedAmount = 0.0;
+            $pendingAmount = 0.0;
+
+            foreach ($group['debit_dates'] as &$dateRow) {
+                $count = count($dateRow['occurrences']);
+                $amount = (float) $dateRow['amount_per_occurrence'];
+                $dateRow['occurrence_count'] = $count;
+                $dateRow['confirmed_amount'] = number_format($amount, 2, '.', '');
+                $dateRow['duplicate_pending_count'] = max(0, $count - 1);
+                $dateRow['duplicate_pending_amount'] = number_format(
+                    $amount * max(0, $count - 1),
+                    2,
+                    '.',
+                    ''
+                );
+                $group['occurrence_count'] += $count;
+                $group['duplicate_pending_count'] += max(0, $count - 1);
+                $confirmedAmount += $amount;
+                $pendingAmount += $amount * max(0, $count - 1);
+            }
+            unset($dateRow);
+
+            $group['first_debit_date'] = (string) ($group['debit_dates'][0]['debit_date'] ?? '');
+            $last = $group['debit_dates'][count($group['debit_dates']) - 1] ?? [];
+            $group['last_debit_date'] = (string) ($last['debit_date'] ?? '');
+            $group['confirmed_amount'] = number_format($confirmedAmount, 2, '.', '');
+            $group['duplicate_pending_amount'] = number_format($pendingAmount, 2, '.', '');
+
+            if ($group['cycle'] === 'daily') {
+                $service = $group['active_service_name'] !== ''
+                    ? '"' . $group['active_service_name'] . '"'
+                    : 'the ' . $group['item_desc'] . ' service';
+                $snapshotDate = $group['active_service_snapshot_at'] !== ''
+                    ? substr($group['active_service_snapshot_at'], 0, 10)
+                    : '(snapshot date unavailable)';
+                $group['claim'] = sprintf(
+                    'Device %s was revoked on %s, but Comet’s Active Services report still listed %s on %s, and Bill History recorded daily charges on %d date%s from %s through %s.',
+                    $group['device_id'] !== '' ? $group['device_id'] : '(unknown)',
+                    $group['revoked_at'] !== '' ? $group['revoked_at'] : '(unknown)',
+                    $service,
+                    $snapshotDate,
+                    $group['distinct_debit_dates'],
+                    $group['distinct_debit_dates'] === 1 ? '' : 's',
+                    $group['first_debit_date'],
+                    $group['last_debit_date']
+                );
+            } else {
+                $firstDate = $group['debit_dates'][0] ?? [];
+                $group['claim'] = sprintf(
+                    '%s Comet debited $%s / %s for device %s after that device was revoked on %s and after its monthly paid-through date of %s, with no later offsetting credit found.',
+                    $group['first_debit_date'],
+                    (string) ($firstDate['confirmed_amount'] ?? '0.00'),
+                    (string) ($firstDate['packs_used'] ?? 'unknown pack'),
+                    $group['device_id'] !== '' ? $group['device_id'] : '(unknown)',
+                    $group['revoked_at'] !== '' ? $group['revoked_at'] : '(unknown)',
+                    $group['expected_billing_end'] !== '' ? $group['expected_billing_end'] : '(unknown)'
+                );
+            }
+
+            $cases[] = $group;
+        }
+
+        usort($cases, static function (array $a, array $b): int {
+            $cmp = strcmp((string) $b['last_debit_date'], (string) $a['last_debit_date']);
+            if ($cmp !== 0) {
+                return $cmp;
+            }
+
+            return strcmp((string) $a['account'], (string) $b['account']);
+        });
+
+        return $cases;
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    public static function collectCases(string $fromDate, string $toDate): array
+    {
+        return self::groupForDispute(self::collectConfirmed($fromDate, $toDate));
+    }
+
     public static function buildCsv(string $fromDate, string $toDate): string
     {
-        $packs = self::collectConfirmed($fromDate, $toDate);
+        $cases = self::collectCases($fromDate, $toDate);
         $headers = [
             'claim',
             'account',
@@ -192,35 +376,44 @@ class DisputePackExporter
             'device_name',
             'item_desc',
             'category',
-            'debit_date',
-            'amount_used',
-            'packs_used',
-            'pack_debited',
-            'debit_evidence',
+            'cycle',
             'revoked_at',
             'registered_at',
-            'cycle',
-            'cycle_days',
-            'next_due_date',
             'expected_billing_end',
-            'billing_verdict',
-            'reversal_status',
-            'evidence_1_comet_debit',
-            'evidence_2_amount_pack',
-            'evidence_3_revocation',
-            'evidence_4_billing_period',
-            'evidence_5_after_expected_end',
-            'evidence_6_no_reversal',
+            'active_service_snapshot_at',
+            'active_service_name',
+            'active_service_quantity',
+            'active_service_amount',
+            'active_service_evidence',
+            'debit_date',
+            'confirmed_amount',
+            'occurrence_count',
+            'duplicate_pending_count',
+            'duplicate_pending_amount',
+            'packs_used',
+            'pack_debited',
+            'occurrence_statuses',
         ];
 
         $fh = fopen('php://temp', 'r+');
         fputcsv($fh, $headers);
-        foreach ($packs as $pack) {
-            $line = [];
-            foreach ($headers as $h) {
-                $line[] = $pack[$h] ?? '';
+        foreach ($cases as $case) {
+            foreach ($case['debit_dates'] as $dateRow) {
+                $row = array_merge($case, $dateRow, [
+                    'occurrence_statuses' => implode(
+                        '; ',
+                        array_map(
+                            static fn (array $occurrence): string => (string) $occurrence['status'],
+                            $dateRow['occurrences']
+                        )
+                    ),
+                ]);
+                $line = [];
+                foreach ($headers as $h) {
+                    $line[] = $row[$h] ?? '';
+                }
+                fputcsv($fh, $line);
             }
-            fputcsv($fh, $line);
         }
         rewind($fh);
         $csv = stream_get_contents($fh);
@@ -233,15 +426,21 @@ class DisputePackExporter
     {
         $fromDate = self::normalizeDate($fromDate);
         $toDate = self::normalizeDate($toDate);
-        $packs = self::collectConfirmed($fromDate, $toDate);
+        $cases = self::collectCases($fromDate, $toDate);
         $generatedAt = gmdate('Y-m-d H:i:s') . ' UTC';
-        $totalAmount = 0.0;
-        foreach ($packs as $pack) {
-            $totalAmount += (float) ($pack['amount_used'] ?? 0);
+        $confirmedAmount = 0.0;
+        $pendingAmount = 0.0;
+        $occurrenceCount = 0;
+        $pendingCount = 0;
+        foreach ($cases as $case) {
+            $confirmedAmount += (float) ($case['confirmed_amount'] ?? 0);
+            $pendingAmount += (float) ($case['duplicate_pending_amount'] ?? 0);
+            $occurrenceCount += (int) ($case['occurrence_count'] ?? 0);
+            $pendingCount += (int) ($case['duplicate_pending_count'] ?? 0);
         }
 
         $html = '<!DOCTYPE html><html><head><meta charset="utf-8">';
-        $html .= '<title>Comet Overbilling Dispute Pack ' . htmlspecialchars($fromDate) . ' to ' . htmlspecialchars($toDate) . '</title>';
+        $html .= '<title>Comet Overbilling ' . htmlspecialchars($fromDate) . ' to ' . htmlspecialchars($toDate) . '</title>';
         $html .= '<style>
             body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;margin:24px;color:#111;line-height:1.45}
             h1{font-size:22px;margin:0 0 8px}
@@ -255,44 +454,71 @@ class DisputePackExporter
             dd{margin:0}
             .evidence{margin-top:12px}
             .evidence li{margin:0 0 6px}
+            .active{background:#eff6ff;border:1px solid #bfdbfe;padding:10px 12px;margin:12px 0;font-size:13px}
+            .debits{width:100%;border-collapse:collapse;margin-top:12px;font-size:12px}
+            .debits th,.debits td{border:1px solid #d1d5db;padding:7px;text-align:left}
+            .debits th{background:#f3f4f6}
+            .pending{color:#b45309;font-weight:600}
             .actions{margin:0 0 18px}
             @media print{.actions{display:none} body{margin:12px}}
         </style></head><body>';
         $html .= '<div class="actions"><button onclick="window.print()">Print / Save as PDF</button></div>';
-        $html .= '<h1>Comet Overbilling Dispute Pack</h1>';
+        $html .= '<h1>Comet Overbilling</h1>';
         $html .= '<div class="meta">Period: ' . htmlspecialchars($fromDate) . ' to ' . htmlspecialchars($toDate)
-            . ' &middot; Generated: ' . htmlspecialchars($generatedAt)
-            . '<br>Evidence is assembled from Comet Bill History, device revocation records, and observed billing cadence. '
-            . 'This proves Comet recorded a pack debit after the paid-through date; Comet does not expose an independent account-balance API.</div>';
-        $html .= '<div class="summary"><strong>' . count($packs) . '</strong> confirmed overbill charge(s); '
-            . 'total Amount Used <strong>$' . number_format($totalAmount, 2) . '</strong></div>';
+            . ' &middot; Generated: ' . htmlspecialchars($generatedAt) . '</div>';
+        $html .= '<div class="summary"><strong>' . count($cases) . '</strong> dispute case(s); '
+            . '<strong>' . $occurrenceCount . '</strong> Bill History occurrence(s)<br>'
+            . 'Conservative confirmed amount: <strong>$' . number_format($confirmedAmount, 2) . '</strong><br>'
+            . 'Potential duplicate amount pending Comet confirmation: <strong>$'
+            . number_format($pendingAmount, 2) . '</strong> (' . $pendingCount . ' occurrence(s))</div>';
 
-        if ($packs === []) {
+        if ($cases === []) {
             $html .= '<p>No confirmed overbill findings in this period.</p>';
         }
 
-        foreach ($packs as $i => $pack) {
+        foreach ($cases as $i => $case) {
             $n = $i + 1;
             $html .= '<section class="case">';
-            $html .= '<h2>#' . $n . ' ' . htmlspecialchars((string) $pack['account'])
-                . ' — ' . htmlspecialchars((string) $pack['item_desc'])
-                . ' — $' . htmlspecialchars((string) $pack['amount_used']) . '</h2>';
-            $html .= '<div class="claim">' . htmlspecialchars((string) $pack['claim']) . '</div>';
+            $html .= '<h2>#' . $n . ' ' . htmlspecialchars((string) $case['account'])
+                . ' — ' . htmlspecialchars((string) $case['item_desc'])
+                . ' — confirmed $' . htmlspecialchars((string) $case['confirmed_amount']) . '</h2>';
+            $html .= '<div class="claim">' . htmlspecialchars((string) $case['claim']) . '</div>';
             $html .= '<dl>';
-            $html .= '<dt>Account</dt><dd>' . htmlspecialchars((string) $pack['account']) . '</dd>';
-            $html .= '<dt>Device ID</dt><dd>' . htmlspecialchars((string) $pack['device_id']) . '</dd>';
-            $html .= '<dt>Device name</dt><dd>' . htmlspecialchars((string) $pack['device_name']) . '</dd>';
-            $html .= '<dt>Item</dt><dd>' . htmlspecialchars((string) $pack['item_desc']) . '</dd>';
-            $html .= '<dt>Category</dt><dd>' . htmlspecialchars((string) $pack['category']) . '</dd>';
+            $html .= '<dt>Account</dt><dd>' . htmlspecialchars((string) $case['account']) . '</dd>';
+            $html .= '<dt>Device ID</dt><dd>' . htmlspecialchars((string) $case['device_id']) . '</dd>';
+            $html .= '<dt>Device name</dt><dd>' . htmlspecialchars((string) $case['device_name']) . '</dd>';
+            $html .= '<dt>Item</dt><dd>' . htmlspecialchars((string) $case['item_desc']) . '</dd>';
+            $html .= '<dt>Category</dt><dd>' . htmlspecialchars((string) $case['category']) . '</dd>';
+            $html .= '<dt>Revoked</dt><dd>' . htmlspecialchars((string) $case['revoked_at']) . '</dd>';
+            $html .= '<dt>Billing cycle</dt><dd>' . htmlspecialchars((string) $case['cycle']) . '</dd>';
+            $html .= '<dt>Expected billing end</dt><dd>' . htmlspecialchars((string) $case['expected_billing_end']) . '</dd>';
             $html .= '</dl>';
-            $html .= '<ol class="evidence">';
-            $html .= '<li><strong>Comet debit:</strong> ' . htmlspecialchars((string) $pack['evidence_1_comet_debit']) . '</li>';
-            $html .= '<li><strong>Amount / pack:</strong> ' . htmlspecialchars((string) $pack['evidence_2_amount_pack']) . '</li>';
-            $html .= '<li><strong>Revocation:</strong> ' . htmlspecialchars((string) $pack['evidence_3_revocation']) . '</li>';
-            $html .= '<li><strong>Billing period:</strong> ' . htmlspecialchars((string) $pack['evidence_4_billing_period']) . '</li>';
-            $html .= '<li><strong>After expected end:</strong> ' . htmlspecialchars((string) $pack['evidence_5_after_expected_end']) . '</li>';
-            $html .= '<li><strong>No reversal:</strong> ' . htmlspecialchars((string) $pack['evidence_6_no_reversal']) . '</li>';
-            $html .= '</ol>';
+            $html .= '<div class="active"><strong>Active Services evidence:</strong> '
+                . htmlspecialchars((string) $case['active_service_evidence']) . '</div>';
+            $html .= '<table class="debits"><thead><tr>'
+                . '<th>Debit date</th><th>Amount</th><th>Pack debited</th><th>Occurrence</th><th>Status</th>'
+                . '</tr></thead><tbody>';
+            foreach ($case['debit_dates'] as $dateRow) {
+                foreach ($dateRow['occurrences'] as $occurrenceIndex => $occurrence) {
+                    $pending = $occurrenceIndex > 0;
+                    $html .= '<tr' . ($pending ? ' class="pending"' : '') . '>';
+                    $html .= '<td>' . htmlspecialchars((string) $dateRow['debit_date']) . '</td>';
+                    $html .= '<td>$' . number_format((float) $occurrence['amount'], 2) . '</td>';
+                    $html .= '<td>' . htmlspecialchars((string) $dateRow['pack_debited']) . '</td>';
+                    $html .= '<td>' . ($occurrenceIndex + 1) . ' of ' . count($dateRow['occurrences']) . '</td>';
+                    $html .= '<td>' . htmlspecialchars((string) $occurrence['status']) . '</td>';
+                    $html .= '</tr>';
+                }
+            }
+            $html .= '</tbody></table>';
+            $html .= '<p><strong>Conservative confirmed amount:</strong> $'
+                . htmlspecialchars((string) $case['confirmed_amount']);
+            if ((float) $case['duplicate_pending_amount'] > 0) {
+                $html .= ' &middot; <span class="pending">Potential duplicate amount: $'
+                    . htmlspecialchars((string) $case['duplicate_pending_amount'])
+                    . ' pending Comet confirmation</span>';
+            }
+            $html .= '</p>';
             $html .= '</section>';
         }
 
@@ -358,6 +584,15 @@ class DisputePackExporter
         $results = $query->limit($limit)->get();
 
         return is_array($results) ? $results : $results->all();
+    }
+
+    private static function formatNumber(float $value): string
+    {
+        if (floor($value) === $value) {
+            return (string) (int) $value;
+        }
+
+        return rtrim(rtrim(number_format($value, 4, '.', ''), '0'), '.');
     }
 
     private static function normalizeDate(string $date): string

@@ -222,6 +222,9 @@ namespace {
             'billing_cycle_days' => 1,
             'next_due_date' => '2026-07-07',
             'device_id' => 'dailyh',
+            'quantity' => '2.0000',
+            'amount' => '2.5000',
+            'unit_cost' => '3.0000',
         ],
     ];
     Capsule::$manifestRows = [(object) ['id' => 1]];
@@ -284,10 +287,30 @@ namespace {
     assert_true(str_contains($pack['evidence_3_revocation'], '2026-07-06'), 'evidence 3 revoke');
     assert_true(str_contains($pack['evidence_5_after_expected_end'], 'Debit date'), 'evidence 5 uses debit date');
     assert_true(str_contains($pack['evidence_6_no_reversal'], 'No offsetting'), 'evidence 6 reversal');
+    assert_true(str_contains($pack['active_service_evidence'], 'Booster Hyper-V'), 'pack includes Active Services evidence');
+
+    $duplicate = $pack;
+    $duplicate['usage_id'] = 3;
+    $nextDay = $pack;
+    $nextDay['usage_id'] = 4;
+    $nextDay['debit_date'] = '2026-07-08';
+    $nextDay['usage_date'] = '2026-07-08';
+    $cases = DisputePackExporter::groupForDispute([$pack, $duplicate, $nextDay]);
+    assert_eq(count($cases), 1, 'daily findings grouped into one device case');
+    assert_eq($cases[0]['distinct_debit_dates'], 2, 'daily case counts distinct dates');
+    assert_eq($cases[0]['occurrence_count'], 3, 'daily case counts all API occurrences');
+    assert_eq($cases[0]['duplicate_pending_count'], 1, 'second identical occurrence is pending');
+    assert_eq($cases[0]['confirmed_amount'], '5.00', 'conservative total counts one debit per day');
+    assert_eq($cases[0]['duplicate_pending_amount'], '2.50', 'duplicate amount shown separately');
+    assert_true(str_contains($cases[0]['claim'], 'Active Services report still listed'), 'daily claim includes Active Services');
+    assert_true(str_contains($cases[0]['claim'], '2 dates from 2026-07-07 through 2026-07-08'), 'daily claim includes debit timeline');
+    assert_eq($cases[0]['debit_dates'][0]['occurrences'][1]['status'], 'duplicate debit pending Comet confirmation', 'duplicate occurrence labeled pending');
 
     $csv = DisputePackExporter::buildCsv('2026-07-01', '2026-07-31');
     assert_true(str_contains($csv, 'claim'), 'csv has claim header');
-    assert_true(str_contains($csv, 'evidence_2_amount_pack'), 'csv has amount/pack column');
+    assert_true(str_contains($csv, 'active_service_evidence'), 'csv has Active Services evidence');
+    assert_true(str_contains($csv, 'duplicate_pending_amount'), 'csv has pending duplicate amount');
+    assert_true(str_contains($csv, 'occurrence_statuses'), 'csv has occurrence statuses');
     assert_true(str_contains($csv, 'DailyCorp'), 'csv includes confirmed account');
     assert_true(!str_contains($csv, 'identity_status'), 'csv omits identity columns');
     assert_true(!str_contains($csv, 'usage_id'), 'csv omits usage_id');
@@ -296,9 +319,12 @@ namespace {
 
     $html = DisputePackExporter::buildHtml('2026-07-01', '2026-07-31');
     assert_true(str_contains($html, 'Print / Save as PDF'), 'html has print control');
-    assert_true(str_contains($html, '<strong>Comet debit:</strong>'), 'html lists comet debit without manual number');
-    assert_true(str_contains($html, '<strong>Amount / pack:</strong>'), 'html lists amount/pack');
-    assert_true(str_contains($html, '<strong>No reversal:</strong>'), 'html includes no-reversal evidence');
+    assert_true(str_contains($html, 'Comet Overbilling</h1>'), 'html uses revised heading');
+    assert_true(!str_contains($html, 'Comet Overbilling Dispute Pack</h1>'), 'old heading removed');
+    assert_true(!str_contains($html, 'Evidence is assembled from'), 'introductory evidence disclaimer removed');
+    assert_true(str_contains($html, 'Active Services evidence'), 'html includes Active Services evidence');
+    assert_true(str_contains($html, 'Conservative confirmed amount'), 'html shows conservative amount');
+    assert_true(str_contains($html, 'Potential duplicate amount'), 'html shows pending duplicate amount');
     assert_true(!str_contains($html, 'Usage ID'), 'html omits usage id');
     assert_true(!str_contains($html, 'Identity'), 'html omits identity');
     assert_true(!str_contains($html, '<strong>1. '), 'html does not double-number');

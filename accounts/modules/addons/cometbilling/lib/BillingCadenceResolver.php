@@ -27,7 +27,11 @@ class BillingCadenceResolver
      *   mode: string,
      *   confidence: string,
      *   snapshot_at: ?string,
-     *   observed_daily: bool
+     *   observed_daily: bool,
+     *   service_name: ?string,
+     *   service_quantity: ?float,
+     *   service_amount: ?float,
+     *   service_unit_cost: ?float
      * }
      */
     public static function resolve(
@@ -70,6 +74,10 @@ class BillingCadenceResolver
             'confidence' => $confidence,
             'snapshot_at' => $portal['snapshot_at'],
             'observed_daily' => $observedDaily,
+            'service_name' => $portal['service_name'] ?? null,
+            'service_quantity' => $portal['quantity'] ?? null,
+            'service_amount' => $portal['amount'] ?? null,
+            'service_unit_cost' => $portal['unit_cost'] ?? null,
         ];
     }
 
@@ -82,7 +90,16 @@ class BillingCadenceResolver
     }
 
     /**
-     * @return array{found: bool, billing_cycle_days: ?int, next_due_date: ?string, snapshot_at: ?string}
+     * @return array{
+     *   found: bool,
+     *   billing_cycle_days: ?int,
+     *   next_due_date: ?string,
+     *   snapshot_at: ?string,
+     *   service_name?: ?string,
+     *   quantity?: ?float,
+     *   amount?: ?float,
+     *   unit_cost?: ?float
+     * }
      */
     private static function findPortalAnchor(
         string $usageDate,
@@ -161,6 +178,10 @@ class BillingCadenceResolver
             'billing_cycle_days' => (int) $row->billing_cycle_days,
             'next_due_date' => (string) $row->next_due_date,
             'snapshot_at' => $snapshotAt,
+            'service_name' => isset($row->service_name) ? (string) $row->service_name : null,
+            'quantity' => isset($row->quantity) ? (float) $row->quantity : null,
+            'amount' => isset($row->amount) ? (float) $row->amount : null,
+            'unit_cost' => isset($row->unit_cost) ? (float) $row->unit_cost : null,
         ];
     }
 
