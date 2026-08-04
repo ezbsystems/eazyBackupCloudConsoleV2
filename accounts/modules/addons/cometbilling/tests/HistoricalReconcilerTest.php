@@ -361,7 +361,7 @@ namespace {
     $over = OverbillEvidenceEvaluator::evaluate(Capsule::$usageRows[0], false);
     assert_eq($over['billing_verdict'], 'after_expected_end', 'hyper-v day after revoke is after expected end');
     assert_eq($over['debit_evidence'], 'present', 'pack debit evidence present');
-    assert_eq(in_array($over['verdict'], ['probable', 'review_required', 'confirmed'], true), true, 'post-period charge flagged');
+    assert_eq($over['verdict'], 'confirmed', 'complete row evidence confirms despite range coverage gap');
 
     $grace = OverbillEvidenceEvaluator::evaluate(Capsule::$usageRows[1], false);
     assert_eq($grace['verdict'], 'not_overbilled', 'revoke day charge not overbilled');

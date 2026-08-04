@@ -211,12 +211,8 @@ class OverbillEvidenceEvaluator
         $confirmedLifecycle = in_array($lifecycle['confidence'], ['high', 'medium'], true);
         $confirmedCadence = in_array($cadence['confidence'], ['high', 'medium'], true);
 
-        if ($confirmedLifecycle && $confirmedCadence && $coverageComplete && $identityOk) {
+        if ($confirmedLifecycle && $confirmedCadence && $identityOk) {
             return 'confirmed';
-        }
-
-        if ($confirmedLifecycle && $confirmedCadence) {
-            return 'probable';
         }
 
         $reasons[] = 'evidence_incomplete';
