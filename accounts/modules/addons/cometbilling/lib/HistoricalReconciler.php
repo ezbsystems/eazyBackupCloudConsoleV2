@@ -404,7 +404,9 @@ class HistoricalReconciler
             $query->offset($offset);
         }
 
-        return $query->limit($limit)->get();
+        $results = $query->limit($limit)->get();
+
+        return is_array($results) ? $results : $results->all();
     }
 
     /**
