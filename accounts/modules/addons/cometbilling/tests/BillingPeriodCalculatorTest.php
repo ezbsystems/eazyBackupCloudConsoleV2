@@ -44,10 +44,10 @@ assert_eq(
 );
 
 // No reg: walk back from next_due. next_due=2026-08-06, cycle=30 → period [2026-07-07, 2026-08-06]
-// revoke 2026-06-27 is in prior period ending 2026-07-07
+// revoke 2026-06-27 is in the prior period ending 2026-07-06
 assert_eq(
     BillingPeriodCalculator::deviceExpectedEnd(null, '2026-06-27', 30, '2026-08-06'),
-    '2026-07-07',
+    '2026-07-06',
     'next_due walk-back period containing revoke'
 );
 

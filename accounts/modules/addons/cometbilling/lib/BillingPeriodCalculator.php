@@ -82,9 +82,6 @@ class BillingPeriodCalculator
             if ($revoked >= $start && $revoked <= $end) {
                 return $end;
             }
-            if ($revoked < $start) {
-                return null;
-            }
             $start = date('Y-m-d', strtotime($end . ' +1 day'));
         }
 
@@ -107,7 +104,7 @@ class BillingPeriodCalculator
                 // revoke after known next_due horizon — treat next_due as too early; unknown
                 return null;
             }
-            $periodEnd = $start;
+            $periodEnd = date('Y-m-d', strtotime($start . ' -1 day'));
         }
 
         return null;

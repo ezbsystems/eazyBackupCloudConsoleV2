@@ -148,7 +148,7 @@ namespace {
 
     $nextDueFallback = $result['portal_only'][1];
     assert_eq($nextDueFallback['registered_at'], null, 'missing RegistrationTime remains null');
-    assert_eq($nextDueFallback['expected_billing_end'], '2026-07-07', 'next_due walk-back determines expected end');
+    assert_eq($nextDueFallback['expected_billing_end'], '2026-07-06', 'next_due walk-back determines expected end');
     assert_eq($nextDueFallback['expected_billing_end'] === '2026-07-27', false, 'expected end is not revoked-plus-cycle');
 
     $boosterResult = DeviceMatcher::matchCategory('hyperv_vms', [[
