@@ -1,7 +1,9 @@
 package graphfs
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 )
@@ -58,4 +60,14 @@ func TestOverlayReadFileConcurrent(t *testing.T) {
 		}
 	}
 	<-done
+}
+
+func TestMergePriorRespectsCanceledContext(t *testing.T) {
+	b := NewOverlayBuilder()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	err := b.MergePrior(ctx, nil, "")
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("MergePrior err=%v want context.Canceled", err)
+	}
 }

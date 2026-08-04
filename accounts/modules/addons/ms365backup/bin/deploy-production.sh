@@ -137,6 +137,30 @@ ensure_browse_service() {
   fi
 }
 
+ensure_fleet_timer() {
+  [[ "$DRY_RUN" -eq 1 ]] && return 0
+  if ! command -v systemctl >/dev/null; then
+    log "SKIP ms365-worker-fleet.timer — systemctl not available"
+    return 0
+  fi
+
+  local svc_src="$PROD_ROOT/modules/addons/ms365backup/deploy/systemd/ms365-worker-fleet.service"
+  local timer_src="$PROD_ROOT/modules/addons/ms365backup/deploy/systemd/ms365-worker-fleet.timer"
+  if [[ ! -f "$svc_src" || ! -f "$timer_src" ]]; then
+    log "SKIP ms365-worker-fleet.timer — unit files missing"
+    return 0
+  fi
+
+  log "Post-deploy: install ms365-worker-fleet.timer"
+  install -m 0644 "$svc_src" /etc/systemd/system/ms365-worker-fleet.service
+  install -m 0644 "$timer_src" /etc/systemd/system/ms365-worker-fleet.timer
+  systemctl daemon-reload
+  systemctl enable --now ms365-worker-fleet.timer
+  if ! systemctl is-active --quiet ms365-worker-fleet.timer; then
+    fail "ms365-worker-fleet.timer failed to activate"
+  fi
+}
+
 post_deploy_checks() {
   [[ "$DRY_RUN" -eq 1 ]] && return 0
 
@@ -155,6 +179,7 @@ post_deploy_checks() {
   chown_paths "$WORKER_REPO_PATH/ms365-backup-worker"
 
   ensure_browse_service
+  ensure_fleet_timer
 
   log "Post-deploy: health check (includes browse binary version)"
   if ! php "$PROD_ROOT/modules/addons/ms365backup/bin/ms365_prod_health_check.php"; then

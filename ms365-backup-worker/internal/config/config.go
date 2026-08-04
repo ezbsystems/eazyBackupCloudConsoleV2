@@ -102,8 +102,9 @@ type KopiaConfig struct {
 	UploadStallSeconds        *int   `yaml:"upload_stall_seconds"` // nil/900 default; 0 = use stall_seconds
 	StallCheckIntervalSeconds int    `yaml:"stall_check_interval_seconds"`
 	StallGraceSeconds         int    `yaml:"stall_grace_seconds"`
-	// PriorSnapshotTimeoutSeconds bounds Kopia prior-snapshot repo acquire/open.
-	// On timeout the run continues without incremental merge. 0 = default 300.
+	// PriorSnapshotTimeoutSeconds bounds Kopia prior-snapshot repo acquire/open
+	// and the subsequent overlay MergePrior walk. On timeout the run continues
+	// without incremental merge. 0 = default 300.
 	PriorSnapshotTimeoutSeconds int `yaml:"prior_snapshot_timeout_seconds"`
 }
 

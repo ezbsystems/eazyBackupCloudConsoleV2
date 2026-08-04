@@ -121,11 +121,17 @@ func (b *OverlayBuilder) MergePrior(ctx context.Context, dir kopiafs.Directory, 
 }
 
 func walkPrior(ctx context.Context, dir kopiafs.Directory, relPrefix string, b *OverlayBuilder) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	children, err := kopiafs.GetAllEntries(ctx, dir)
 	if err != nil {
 		return err
 	}
 	for _, child := range children {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		name := child.Name()
 		childRel := name
 		if relPrefix != "" {

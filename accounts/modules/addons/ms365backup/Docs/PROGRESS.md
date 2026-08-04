@@ -11,6 +11,13 @@
 
 ## Session log
 
+### 2026-08-04 — prior_snapshot MergePrior wedge + missing fleet cron
+
+- **Prod batch `d8d4bb2b…` (Deetken):** Clients/IT/Offboarded_Users stuck in `prior_snapshot` ~60m with 0 items; Business_Development sibling healthy in upload after **917s** prior merge.
+- **Root cause:** (1) `overlay.MergePrior` ran on unbounded parent ctx after `PriorSnapshotRoot` timeout was cancelled — worker journal confirmed `prior merge warning: … context canceled` only after ops abort. (2) `ms365_worker_fleet.timer` was **not installed** on prod/dev, so the 600s prior_snapshot soft-abort reaper never ran.
+- **Ops:** Soft-abort + requeued three children; `Business _Development` left running. Enabled `ms365-worker-fleet.timer` on prod+dev (every 1m).
+- **Fix:** Worker **0.4.33** — MergePrior under same `prior_snapshot_timeout`; `walkPrior` checks `ctx.Err()`. `deploy-production.sh` installs fleet timer. Stranded hand-off will reclaim the three queued children after the upload sibling finishes.
+
 ### 2026-08-03 — Prod ops: Evoke schedule overlap + YouCan failed workloads
 
 - **EvokeBuildings (job `c2d3313e…`, user `5DA332A9…`):** Nightly skips were correct — parent batch `fecc0d78…` ran **85h** (Jul 30→Aug 3) while SharePoint Documents child `1fc3effd…` hashed ~5.8 TiB / 891k items. Overlap guard clear now (`success`/`done`); tonight’s 23:25 schedule can start. Skip message now includes blocking run id/status/age.
