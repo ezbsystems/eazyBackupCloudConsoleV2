@@ -284,6 +284,7 @@ function cometbilling_output($vars)
         . '<a href="'.$baseUrl.'&action=purchases" class="btn btn-default">Purchases</a> '
         . '<a href="'.$baseUrl.'&action=active_services" class="btn btn-default">Active Services</a> '
         . '<a href="'.$baseUrl.'&action=usage" class="btn btn-default">Usage History</a> '
+        . '<a href="'.$baseUrl.'&action=new_items" class="btn btn-default">New Items</a> '
         . '<a href="'.$baseUrl.'&action=m365_report" class="btn btn-default">M365 Report</a>'
         . '</p>';
 
@@ -320,6 +321,15 @@ function cometbilling_output($vars)
             
         case 'usage':
             include __DIR__ . '/templates/admin/usage.tpl.php';
+            break;
+
+        case 'new_items':
+            // Full-history scan for first-billed dates — release session so other admin tabs stay responsive.
+            cometbilling_releaseSession();
+            if (function_exists('set_time_limit')) {
+                @set_time_limit(300);
+            }
+            include __DIR__ . '/templates/admin/new_items.tpl.php';
             break;
 
         case 'm365_report':
