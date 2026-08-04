@@ -132,6 +132,50 @@ function cometbilling_releaseSession(): void
 }
 
 /**
+ * Resolve a PHP CLI binary suitable for background scripts.
+ * Under PHP-FPM, PHP_BINARY is php-fpm and cannot execute CLI scripts.
+ */
+function cometbilling_phpCliBinary(): string
+{
+    $candidates = [];
+
+    if (defined('PHP_BINARY') && PHP_BINARY !== '') {
+        $candidates[] = PHP_BINARY;
+    }
+
+    $version = PHP_MAJOR_VERSION . '.' . PHP_MINOR_VERSION;
+    $candidates[] = '/usr/bin/php' . $version;
+    $candidates[] = '/usr/local/bin/php' . $version;
+    $candidates[] = '/usr/bin/php';
+    $candidates[] = '/usr/local/bin/php';
+
+    $which = trim((string) @shell_exec('command -v php 2>/dev/null'));
+    if ($which !== '') {
+        $candidates[] = $which;
+    }
+
+    $seen = [];
+    foreach ($candidates as $bin) {
+        if ($bin === '' || isset($seen[$bin])) {
+            continue;
+        }
+        $seen[$bin] = true;
+
+        $base = basename($bin);
+        if (stripos($base, 'php-fpm') !== false) {
+            continue;
+        }
+        if (!is_executable($bin)) {
+            continue;
+        }
+
+        return $bin;
+    }
+
+    return 'php';
+}
+
+/**
  * Spawn a CLI script in the background; returns false if spawn failed.
  *
  * @param string $scriptBasename e.g. portal_pull.php
@@ -151,7 +195,8 @@ function cometbilling_spawnCli(string $scriptBasename, ?string $jobKey = null): 
         @mkdir($logDir, 0755, true);
     }
     $logFile = $logDir . '/' . pathinfo($scriptBasename, PATHINFO_FILENAME) . '.log';
-    $cmd = escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg($script)
+    $phpBinary = cometbilling_phpCliBinary();
+    $cmd = escapeshellarg($phpBinary) . ' ' . escapeshellarg($script)
         . ' >> ' . escapeshellarg($logFile) . ' 2>&1';
 
     if ($jobKey !== null && class_exists(\CometBilling\Settings::class)) {
@@ -159,6 +204,11 @@ function cometbilling_spawnCli(string $scriptBasename, ?string $jobKey = null): 
     }
 
     if (!function_exists('proc_open')) {
+        return false;
+    }
+
+    // Refuse to "succeed" with an FPM binary — fall back to inline execution
+    if (stripos(basename($phpBinary), 'php-fpm') !== false) {
         return false;
     }
 
@@ -202,7 +252,8 @@ function cometbilling_output($vars)
         case 'pullnow':
             echo '<h3>Manual Pull</h3>';
             if ($_SERVER['REQUEST_METHOD'] === 'POST' && function_exists('check_token') && check_token('WHMCS.admin.default')) {
-                if (cometbilling_spawnCli('portal_pull.php', 'portal_pull')) {
+                $spawned = cometbilling_spawnCli('portal_pull.php', 'portal_pull');
+                if ($spawned) {
                     echo '<div class="successbox">Portal pull started in the background. '
                         . 'Other admin pages will remain responsive. '
                         . 'Check <a href="' . $baseUrl . '&action=sync">Data Sync</a> for status (refresh after a minute).</div>';
@@ -340,7 +391,7 @@ function cometbilling_cron($vars)
     }
 
     $runScript = function (string $scriptPath, string $label) {
-        $cmd = PHP_BINARY . ' ' . escapeshellarg($scriptPath) . ' 2>&1';
+        $cmd = escapeshellarg(cometbilling_phpCliBinary()) . ' ' . escapeshellarg($scriptPath) . ' 2>&1';
         $output = [];
         $exitCode = 0;
 

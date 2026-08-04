@@ -152,14 +152,22 @@ try {
     );
     logMsg("Saved combined snapshot for {$today}", $verbose);
 
-    Settings::markJobFinished(
-        'collect_usage',
-        'ok',
-        "Collected {$today}: " . count($allData['servers'] ?? []) . ' server(s)'
-    );
+    $successCount = count($allData['servers'] ?? []);
+    $errorCount = count($allData['errors'] ?? []);
+    $statusMsg = "Collected {$today}: {$successCount} server(s)";
+    if ($errorCount > 0) {
+        $errParts = [];
+        foreach ($allData['errors'] as $srv => $err) {
+            $errParts[] = "{$srv}: {$err}";
+        }
+        $statusMsg .= '; failed: ' . implode('; ', $errParts);
+    }
+    $jobStatus = $successCount === 0 ? 'error' : ($errorCount > 0 ? 'partial' : 'ok');
+
+    Settings::markJobFinished('collect_usage', $jobStatus, $statusMsg);
 
     logMsg("Usage collection complete.", $verbose);
-    exit(0);
+    exit($successCount === 0 ? 1 : 0);
 
 } catch (\Exception $e) {
     logMsg("FATAL ERROR: " . $e->getMessage(), true);

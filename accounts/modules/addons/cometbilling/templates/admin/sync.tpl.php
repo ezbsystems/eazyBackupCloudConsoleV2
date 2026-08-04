@@ -28,6 +28,7 @@ $collectStartedAt = Settings::getJobStartedAt('collect_usage');
 .cb-badge-running { background: #fef3c7; color: #92400e; }
 .cb-badge-idle { background: #f3f4f6; color: #4b5563; }
 .cb-badge-ok { background: #d1fae5; color: #065f46; }
+.cb-badge-partial { background: #fef3c7; color: #92400e; }
 .cb-badge-error { background: #fee2e2; color: #991b1b; }
 .cb-muted { color: #666; font-size: 12px; }
 </style>
@@ -48,7 +49,7 @@ $collectStartedAt = Settings::getJobStartedAt('collect_usage');
             <p>Started: <strong><?= htmlspecialchars($portalStartedAt ?? '—') ?></strong></p>
             <p class="cb-muted">Fetching billing history and active services from the Comet Portal. This may take 1–2 minutes.</p>
             <?php else: ?>
-            <span class="cb-badge <?= $lastPortalStatus === 'ok' ? 'cb-badge-ok' : ($lastPortalStatus === 'error' ? 'cb-badge-error' : 'cb-badge-idle') ?>">
+            <span class="cb-badge <?= $lastPortalStatus === 'ok' ? 'cb-badge-ok' : ($lastPortalStatus === 'partial' ? 'cb-badge-partial' : ($lastPortalStatus === 'error' ? 'cb-badge-error' : 'cb-badge-idle')) ?>">
                 <?= $lastPortalStatus ? htmlspecialchars(strtoupper($lastPortalStatus)) : 'IDLE' ?>
             </span>
             <p>Last completed: <strong><?= $lastPortalPull ? htmlspecialchars($lastPortalPull) : 'Never' ?></strong></p>
@@ -68,7 +69,7 @@ $collectStartedAt = Settings::getJobStartedAt('collect_usage');
             <p>Started: <strong><?= htmlspecialchars($collectStartedAt ?? '—') ?></strong></p>
             <p class="cb-muted">Collecting device and VM counts from Comet servers via Admin API.</p>
             <?php else: ?>
-            <span class="cb-badge <?= $lastCollectStatus === 'ok' ? 'cb-badge-ok' : ($lastCollectStatus === 'error' ? 'cb-badge-error' : 'cb-badge-idle') ?>">
+            <span class="cb-badge <?= $lastCollectStatus === 'ok' ? 'cb-badge-ok' : ($lastCollectStatus === 'partial' ? 'cb-badge-partial' : ($lastCollectStatus === 'error' ? 'cb-badge-error' : 'cb-badge-idle')) ?>">
                 <?= $lastCollectStatus ? htmlspecialchars(strtoupper($lastCollectStatus)) : 'IDLE' ?>
             </span>
             <p>Last completed: <strong><?= $lastCollect ? htmlspecialchars($lastCollect) : 'Never' ?></strong></p>

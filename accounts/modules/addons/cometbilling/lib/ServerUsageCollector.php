@@ -11,8 +11,18 @@ class ServerUsageCollector
 {
     /**
      * Default server keys to collect from.
+     * Keys are resolved against WHMCS server groups / tblservers (see getCometServer).
      */
     private const DEFAULT_SERVERS = ['cometbackup', 'obc'];
+
+    /**
+     * Explicit aliases from collect keys → preferred WHMCS group/server names.
+     * "cometbackup" must map to "Comet Backup" (space) — LIKE '%cometbackup%' never matches.
+     */
+    private const SERVER_KEY_ALIASES = [
+        'cometbackup' => ['Comet Backup', 'cometbackup', 'eazybackup'],
+        'obc' => ['OBC', 'obc'],
+    ];
 
     /**
      * Collect aggregate usage from all configured Comet servers.
@@ -171,40 +181,14 @@ class ServerUsageCollector
 
     /**
      * Get a Comet\Server instance for a server key.
-     * Looks up server credentials from WHMCS tblservers.
-     * 
-     * @param string $serverKey Server key matching tblservergroups.name
+     * Looks up server credentials from WHMCS tblservers via server groups.
+     *
+     * @param string $serverKey Server profile key (e.g., 'cometbackup', 'obc')
      * @return \Comet\Server|null
      */
     private static function getCometServer(string $serverKey): ?\Comet\Server
     {
-        // Look up server group in WHMCS by name pattern
-        $serverGroup = Capsule::table('tblservergroups')
-            ->whereRaw('LOWER(name) LIKE ?', ['%' . strtolower($serverKey) . '%'])
-            ->first();
-
-        if (!$serverGroup) {
-            return null;
-        }
-
-        // Get server associated with this group
-        $server = Capsule::table('tblservers')
-            ->where('name', $serverGroup->name)
-            ->first();
-
-        if (!$server) {
-            // Try getting any server in the group
-            $serverRel = Capsule::table('tblservergroupsrel')
-                ->where('groupid', $serverGroup->id)
-                ->first();
-            
-            if ($serverRel) {
-                $server = Capsule::table('tblservers')
-                    ->where('id', $serverRel->serverid)
-                    ->first();
-            }
-        }
-
+        $server = self::resolveWhmcsServer($serverKey);
         if (!$server) {
             return null;
         }
@@ -218,11 +202,112 @@ class ServerUsageCollector
             return null;
         }
 
+        if ($password === '') {
+            return null;
+        }
+
         $protocol = $server->secure ? 'https' : 'http';
         $port = !empty($server->port) ? ':' . $server->port : '';
         $url = "{$protocol}://{$server->hostname}{$port}/";
 
         return new \Comet\Server($url, $server->username, $password);
+    }
+
+    /**
+     * Resolve a WHMCS tblservers row for a collect key.
+     *
+     * Prefers exact alias / normalized name matches so key "obc" resolves to group "OBC"
+     * rather than the first of many "*obcbackup.com*" groups.
+     */
+    private static function resolveWhmcsServer(string $serverKey): ?object
+    {
+        $key = strtolower(trim($serverKey));
+        if ($key === '') {
+            return null;
+        }
+
+        $normalizedKey = self::normalizeLookupToken($key);
+        $aliasNames = self::SERVER_KEY_ALIASES[$key] ?? [$serverKey];
+
+        // 1) Exact case-insensitive match on preferred alias names
+        foreach ($aliasNames as $alias) {
+            $group = Capsule::table('tblservergroups')
+                ->whereRaw('LOWER(name) = ?', [strtolower($alias)])
+                ->orderBy('id')
+                ->first();
+            if ($group) {
+                $resolved = self::serverFromGroup($group);
+                if ($resolved) {
+                    return $resolved;
+                }
+            }
+        }
+
+        // 2) Space/punct-insensitive group match; prefer shortest name (primary group)
+        $candidates = Capsule::table('tblservergroups')
+            ->select(['id', 'name'])
+            ->get()
+            ->filter(static function ($group) use ($normalizedKey) {
+                return str_contains(self::normalizeLookupToken((string) $group->name), $normalizedKey);
+            })
+            ->sortBy(static function ($group) {
+                return [strlen((string) $group->name), (int) $group->id];
+            })
+            ->values();
+
+        foreach ($candidates as $group) {
+            $resolved = self::serverFromGroup($group);
+            if ($resolved) {
+                return $resolved;
+            }
+        }
+
+        // 3) Fall back to tblservers name/hostname containing the key
+        $server = Capsule::table('tblservers')
+            ->where('type', 'comet')
+            ->where(function ($q) use ($key, $normalizedKey, $aliasNames) {
+                foreach ($aliasNames as $alias) {
+                    $q->orWhereRaw('LOWER(name) = ?', [strtolower($alias)]);
+                }
+                $q->orWhereRaw('LOWER(hostname) LIKE ?', ['%' . $key . '%']);
+                $q->orWhereRaw(
+                    "REPLACE(REPLACE(LOWER(name), ' ', ''), '-', '') LIKE ?",
+                    ['%' . $normalizedKey . '%']
+                );
+            })
+            ->orderByRaw('CASE WHEN active = 1 THEN 0 ELSE 1 END')
+            ->orderBy('id')
+            ->first();
+
+        return $server ?: null;
+    }
+
+    /** @param object $group tblservergroups row */
+    private static function serverFromGroup(object $group): ?object
+    {
+        $server = Capsule::table('tblservers')
+            ->where('name', $group->name)
+            ->first();
+        if ($server) {
+            return $server;
+        }
+
+        $serverRel = Capsule::table('tblservergroupsrel')
+            ->where('groupid', $group->id)
+            ->orderBy('serverid')
+            ->first();
+        if ($serverRel) {
+            return Capsule::table('tblservers')
+                ->where('id', $serverRel->serverid)
+                ->first();
+        }
+
+        return null;
+    }
+
+    private static function normalizeLookupToken(string $value): string
+    {
+        return preg_replace('/[^a-z0-9]/', '', strtolower($value)) ?? '';
     }
 
     /**
