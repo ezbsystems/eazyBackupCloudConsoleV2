@@ -142,15 +142,35 @@ namespace {
 
     $registrationAligned = $result['portal_only'][0];
     assert_eq($registrationAligned['registered_at'], '2026-06-06', 'RegistrationTime exposed as registered_at');
-    assert_eq($registrationAligned['expected_billing_end'], '2026-07-06', 'RegistrationTime determines expected end');
-    assert_eq($registrationAligned['billing_status'], 'overbilled_past_grace', 'registration-aligned status');
-    assert_eq($registrationAligned['overbill_amount'], 10.0, 'registration-aligned overbill amount');
+    // With next_due present, period end comes from walk-back (same Jul 6 in this fixture)
+    assert_eq($registrationAligned['expected_billing_end'], '2026-07-06', 'next_due walk-back determines expected end');
+    assert_eq($registrationAligned['billing_status'], 'overbilled_past_grace', 'past period end is overbilled');
+    assert_eq($registrationAligned['overbill_amount'], 10.0, 'overbill amount when past period end');
 
     $nextDueFallback = $result['portal_only'][1];
     assert_eq($nextDueFallback['registered_at'], null, 'missing RegistrationTime remains null');
-    assert_eq($nextDueFallback['expected_billing_end'], '2026-07-06', 'next_due walk-back determines expected end');
+    assert_eq($nextDueFallback['expected_billing_end'], '2026-07-06', 'next_due walk-back determines expected end without reg');
     assert_eq($nextDueFallback['expected_billing_end'] === '2026-07-27', false, 'expected end is not revoked-plus-cycle');
 
+    // Device where RegistrationTime period disagrees with portal next_due (ssi.chirosuite-style)
+    Capsule::$rows[] = (object) [
+        'hash' => 'd1ebef440455',
+        'username' => 'ssi.chirosuite',
+        'name' => 'r1.aflsrv',
+        'revoked_at' => '2026-07-31 20:43:17',
+        'content' => json_encode(['RegistrationTime' => strtotime('2024-05-03 20:11:48 UTC')]),
+    ];
+    $chiroResult = DeviceMatcher::matchCategory('devices', [[
+        'account' => 'ssi.chirosuite',
+        'device_id' => 'd1ebef',
+        'next_due_date' => '2026-08-22',
+        'billing_cycle_days' => 30,
+        'amount' => 2.0,
+    ]], [], false);
+    $chiro = $chiroResult['portal_only'][0];
+    assert_eq($chiro['expected_billing_end'], '2026-08-22', 'device expected end follows portal next_due period');
+    assert_eq($chiro['billing_status'], 'expected_grace', 'device still within portal billing period');
+    assert_eq($chiro['overbill_amount'], 0.0, 'device not overbilled before next due advances');
     $boosterResult = DeviceMatcher::matchCategory('hyperv_vms', [[
         'account' => 'KaizaCorp',
         'device_id' => '7bef57',

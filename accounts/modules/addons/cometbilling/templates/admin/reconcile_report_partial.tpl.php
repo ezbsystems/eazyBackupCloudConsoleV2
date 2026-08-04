@@ -280,7 +280,7 @@ $showDrilldown = $showDrilldown ?? true;
                         echo '</tbody></table>';
                     };
                     ?>
-                    <p style="font-size: 11px; color: #666; margin: 0 0 8px;">Billing mode follows portal cycle days: monthly lines use registration-aligned periods (expected end is the period containing revoke); daily lines (cycle 1) use remove day as last billable.</p>
+                    <p style="font-size: 11px; color: #666; margin: 0 0 8px;">Billing mode follows portal cycle days: monthly lines use Comet next_due periods (expected end is the period containing revoke); daily lines (cycle 1) use remove day as last billable.</p>
                     <?php if ($pastGraceCount > 0): ?>
                     <p style="font-size: 12px; color: #b91c1c; margin: 0 0 8px;"><strong><?= (int) $pastGraceCount ?></strong> portal-only item(s) billed past expected billing end<?php if ($graceCount > 0): ?> · <?= (int) $graceCount ?> still within expected end<?php endif; ?>.</p>
                     <?php endif; ?>

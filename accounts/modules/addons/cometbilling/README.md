@@ -142,7 +142,7 @@ Matching uses the portal's 6-character device ID prefix against full server devi
 
 **Revoked / removed billing:** Portal-only rows are enriched from `comet_devices` (and inventory history for daily boosters). Mode follows the portal line’s `billing_cycle_days`:
 
-- **Monthly cycle (`billing_cycle_days` > 1)** — Devices, M365, Disk Image, MSSQL, etc. Expected billing end is the end of the registration-aligned period that contained `revoked_at` (`RegistrationTime` when available; otherwise walk back from portal `next_due`). Status `expected_grace` if portal `next_due` is still within that end; `overbilled_past_grace` if `next_due` advances past it.
+- **Monthly cycle (`billing_cycle_days` > 1)** — Devices, M365, Disk Image, MSSQL, etc. Expected billing end is the portal billing period that contained `revoked_at`, found by walking back from portal `next_due` by cycle days (Comet’s calendar). `RegistrationTime` is shown for context and used only if `next_due` is missing. Status `expected_grace` if portal `next_due` is still that period’s end; `overbilled_past_grace` if `next_due` advances to a later period.
 - **Daily cycle (`billing_cycle_days` = 1)** — Hyper-V, VMware, Proxmox, etc. Last billable day is host `revoked_at` or the last inventory day the booster was present. Still portal-only after that day → `overbilled_past_grace`.
 - `unknown` — cannot determine registration/period or remove date.
 

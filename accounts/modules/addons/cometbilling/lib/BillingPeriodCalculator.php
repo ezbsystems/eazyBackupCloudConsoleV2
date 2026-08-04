@@ -16,6 +16,9 @@ class BillingPeriodCalculator
 
     /**
      * Expected billing end for a revoked device (Y-m-d), or null if unknown.
+     *
+     * Prefer portal next_due walk-back (Comet's actual billing calendar). Fall
+     * back to RegistrationTime-aligned periods only when next_due is missing.
      */
     public static function deviceExpectedEnd(
         ?string $registrationDate,
@@ -26,16 +29,19 @@ class BillingPeriodCalculator
         $cycleDays = $cycleDays > 0 ? $cycleDays : 30;
         $revoked = self::dateOnly($revokedDate);
 
+        if ($nextDueDate !== null && $nextDueDate !== '') {
+            $fromNextDue = self::walkBackFromNextDue(self::dateOnly($nextDueDate), $revoked, $cycleDays);
+            if ($fromNextDue !== null) {
+                return $fromNextDue;
+            }
+        }
+
         if ($registrationDate !== null && $registrationDate !== '') {
             $reg = self::dateOnly($registrationDate);
             $end = self::periodEndContaining($reg, $revoked, $cycleDays);
             if ($end !== null) {
                 return $end;
             }
-        }
-
-        if ($nextDueDate !== null && $nextDueDate !== '') {
-            return self::walkBackFromNextDue(self::dateOnly($nextDueDate), $revoked, $cycleDays);
         }
 
         return null;

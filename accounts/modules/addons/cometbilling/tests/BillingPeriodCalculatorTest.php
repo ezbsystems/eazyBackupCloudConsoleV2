@@ -85,4 +85,20 @@ assert_eq(
     'booster unknown'
 );
 
+// When both RegistrationTime and next_due exist, prefer Comet next_due calendar
+// (ssi.chirosuite-style): revoke 2026-07-31, next_due 2026-08-22 → still in period
+assert_eq(
+    BillingPeriodCalculator::deviceExpectedEnd('2024-05-03', '2026-07-31', 30, '2026-08-22'),
+    '2026-08-22',
+    'next_due preferred over RegistrationTime'
+);
+assert_eq(
+    BillingPeriodCalculator::deviceBillingStatus(
+        BillingPeriodCalculator::deviceExpectedEnd('2024-05-03', '2026-07-31', 30, '2026-08-22'),
+        '2026-08-22'
+    ),
+    'expected_grace',
+    'still expected while next_due is current period end'
+);
+
 echo "All BillingPeriodCalculator tests passed.\n";
