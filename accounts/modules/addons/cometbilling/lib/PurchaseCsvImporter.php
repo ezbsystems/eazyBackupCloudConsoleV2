@@ -21,6 +21,12 @@ class PurchaseCsvImporter
     {
         $result = ['imported' => 0, 'skipped' => 0, 'lots' => 0, 'errors' => [], 'batch_id' => null];
 
+        $migrate = SchemaMigrator::ensurePurchaseSchema();
+        if (!$migrate['ok']) {
+            $result['errors'][] = 'Schema migration failed: ' . ($migrate['error'] ?? 'unknown');
+            return $result;
+        }
+
         try {
             $parsedRows = self::parseFile($path);
         } catch (\RuntimeException $e) {

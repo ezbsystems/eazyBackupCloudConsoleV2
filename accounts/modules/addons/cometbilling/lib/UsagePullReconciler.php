@@ -120,8 +120,11 @@ class UsagePullReconciler
 
     private static function ensureSchema(): void
     {
-        if (!Capsule::schema()->hasTable('cb_portal_pull_manifests')) {
-            throw new \RuntimeException('Audit schema missing. Run addon upgrade to 1.0.3+.');
+        $migrate = SchemaMigrator::ensureLatest();
+        if (!$migrate['ok'] || !Capsule::schema()->hasTable('cb_portal_pull_manifests')) {
+            throw new \RuntimeException(
+                'Audit schema missing: ' . ($migrate['error'] ?? 'run SchemaMigrator::ensureLatest()')
+            );
         }
     }
 }

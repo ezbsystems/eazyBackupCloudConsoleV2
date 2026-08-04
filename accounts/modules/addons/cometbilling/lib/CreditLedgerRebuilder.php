@@ -238,8 +238,11 @@ class CreditLedgerRebuilder
 
     private static function ensureSchema(): void
     {
-        if (!Capsule::schema()->hasTable('cb_ledger_rebuild_batches')) {
-            throw new \RuntimeException('Ledger rebuild schema missing. Upgrade addon to 1.0.3+.');
+        $migrate = SchemaMigrator::ensureLatest();
+        if (!$migrate['ok'] || !Capsule::schema()->hasTable('cb_ledger_rebuild_batches')) {
+            throw new \RuntimeException(
+                'Ledger rebuild schema missing: ' . ($migrate['error'] ?? 'run SchemaMigrator::ensureLatest()')
+            );
         }
     }
 }
