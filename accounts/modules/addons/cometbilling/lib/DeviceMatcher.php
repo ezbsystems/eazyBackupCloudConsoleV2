@@ -335,12 +335,113 @@ class DeviceMatcher
                 continue;
             }
 
-            // Booster billing enrichment is implemented in Task 3.
-            $portalOnly[$i]['billing_status'] = 'unknown';
-            $portalOnly[$i]['overbill_amount'] = 0.0;
+            $removeDate = self::resolveBoosterRemoveDate($row, $revoked, $categoryKey, $snapshotDate);
+            $snap = $snapshotDate ?: gmdate('Y-m-d');
+            $status = BillingPeriodCalculator::boosterBillingStatus($removeDate, $snap);
+
+            if ($revoked !== null) {
+                $portalOnly[$i]['revoked_at'] = (string) $revoked['revoked_at'];
+                $portalOnly[$i]['registered_at'] = $revoked['registered_at'] ?? null;
+                if (empty($portalOnly[$i]['friendly_name']) && !empty($revoked['name'])) {
+                    $portalOnly[$i]['friendly_name'] = $revoked['name'];
+                }
+                $portalOnly[$i]['device_name'] = $revoked['name'] ?? null;
+            }
+
+            $portalOnly[$i]['billing_cycle_days'] = 1;
+            $portalOnly[$i]['expected_billing_end'] = $removeDate;
+            $portalOnly[$i]['billing_status'] = $status;
+            $portalOnly[$i]['overbill_amount'] = $status === 'overbilled_past_grace'
+                ? (float) ($row['amount'] ?? 0)
+                : 0.0;
         }
 
         return $portalOnly;
+    }
+
+    private static function resolveBoosterRemoveDate(
+        array $row,
+        ?array $revoked,
+        string $categoryKey,
+        ?string $snapshotDate
+    ): ?string {
+        if ($revoked !== null && !empty($revoked['revoked_at'])) {
+            return BillingPeriodCalculator::dateOnly((string) $revoked['revoked_at']);
+        }
+
+        $deviceId = (string) ($row['server_device_id'] ?? '');
+        if ($deviceId === '' || $snapshotDate === null || $snapshotDate === '') {
+            return null;
+        }
+
+        return self::findBoosterDisappearedDate($deviceId, $categoryKey, $snapshotDate);
+    }
+
+    /**
+     * Last snapshot date where category quantity was positive before a later
+     * snapshot showed zero or did not include the device.
+     */
+    private static function findBoosterDisappearedDate(
+        string $deviceId,
+        string $categoryKey,
+        string $asOfSnapshotDate
+    ): ?string {
+        if (!Capsule::schema()->hasTable('cb_server_device_inventory')) {
+            return null;
+        }
+
+        $allowed = [
+            'hyperv_vms',
+            'vmware_vms',
+            'proxmox_vms',
+            'disk_image',
+            'mssql',
+            'm365_accounts',
+        ];
+        if (!in_array($categoryKey, $allowed, true)) {
+            return null;
+        }
+
+        $rows = Capsule::table('cb_server_device_inventory')
+            ->where('device_id', $deviceId)
+            ->where('snapshot_date', '<=', $asOfSnapshotDate)
+            ->orderBy('snapshot_date', 'asc')
+            ->get(['snapshot_date', $categoryKey]);
+
+        $lastPositive = null;
+        $prevQty = null;
+        $prevDate = null;
+        foreach ($rows as $row) {
+            $qty = (int) $row->{$categoryKey};
+            $date = (string) $row->snapshot_date;
+            if ($prevDate !== null && $prevQty > 0 && $qty <= 0) {
+                return $prevDate;
+            }
+            if ($qty > 0) {
+                $lastPositive = $date;
+            }
+            $prevQty = $qty;
+            $prevDate = $date;
+        }
+
+        if ($lastPositive !== null && $lastPositive < $asOfSnapshotDate) {
+            $laterExists = Capsule::table('cb_server_device_inventory')
+                ->where('snapshot_date', '>', $lastPositive)
+                ->where('snapshot_date', '<=', $asOfSnapshotDate)
+                ->where('device_id', $deviceId)
+                ->exists();
+            if (!$laterExists) {
+                $snapshotTaken = Capsule::table('cb_server_device_inventory')
+                    ->where('snapshot_date', '>', $lastPositive)
+                    ->where('snapshot_date', '<=', $asOfSnapshotDate)
+                    ->exists();
+                if ($snapshotTaken) {
+                    return $lastPositive;
+                }
+            }
+        }
+
+        return null;
     }
 
     /**
