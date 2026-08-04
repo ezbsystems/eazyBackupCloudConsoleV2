@@ -91,7 +91,7 @@ assert_eq(
 // Next period: revoke day after end uses following period
 assert_eq(
     BillingPeriodCalculator::deviceExpectedEnd('2026-07-06', '2026-08-06', 30, null),
-    '2026-09-04', // 2026-08-06 + 30 days
+    '2026-09-05', // next period start 2026-08-06 + 30 days
     'revoke starts next period'
 );
 
