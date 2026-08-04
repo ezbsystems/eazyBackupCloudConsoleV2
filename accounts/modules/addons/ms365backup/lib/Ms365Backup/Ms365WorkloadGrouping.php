@@ -107,8 +107,9 @@ final class Ms365WorkloadGrouping
 
         $phase = strtolower(trim((string) ($child['phase'] ?? '')));
         $childPercent = (float) ($child['percent'] ?? 0);
-        $childItemsTotal = max(0, (int) ($child['items_total'] ?? 0));
-        $childItemsDone = max(0, (int) ($child['items_done'] ?? 0));
+        $progress = Ms365BatchRunRepository::attemptAwareProgressCounters($child);
+        $childItemsTotal = $progress['items_total'];
+        $childItemsDone = $progress['items_done'];
         // Running children often reach items_done==items_total during graph_sync
         // completion or long Kopia upload/hash. Never report a full unit until the
         // child is terminal — otherwise parent progress_pct freezes at 100% for hours

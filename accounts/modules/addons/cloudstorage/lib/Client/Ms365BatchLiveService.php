@@ -621,11 +621,12 @@ final class Ms365BatchLiveService
 
         $status = strtolower((string) ($child['status'] ?? ''));
         $phase = (string) ($child['phase'] ?? '');
-        $itemsTotal = max(0, (int) ($child['items_total'] ?? 0));
-        $itemsDone = max(0, (int) ($child['items_done'] ?? 0));
+        $progress = \Ms365Backup\Ms365BatchRunRepository::attemptAwareProgressCounters($child);
+        $itemsTotal = $progress['items_total'];
+        $itemsDone = $progress['items_done'];
         $percent = isset($child['percent']) ? (float) $child['percent'] : null;
-        if ($percent === null) {
-            $percent = $itemsTotal > 0 ? min(100.0, ($itemsDone / $itemsTotal) * 100) : 0.0;
+        if ($percent === null || ($itemsTotal > 0 && in_array($status, ['running', 'starting'], true))) {
+            $percent = $itemsTotal > 0 ? min(100.0, ($itemsDone / $itemsTotal) * 100) : (float) ($percent ?? 0.0);
         }
         if ($status === 'success') {
             $percent = 100.0;

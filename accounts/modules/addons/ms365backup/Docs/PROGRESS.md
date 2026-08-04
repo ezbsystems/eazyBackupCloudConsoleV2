@@ -3,7 +3,7 @@
 **Purpose:** Single handoff document so the next agent knows where work stopped. Update this file at the **end of every session** (or after each meaningful milestone).
 
 **Last updated:** 2026-08-03
-**Module version (ms365backup):** 1.52.45
+**Module version (ms365backup):** 1.52.46
 **Cloudstorage (e3) version:** 2.2.4  
 **Worker version (ms365-backup-worker):** 0.4.32 (Kopia v0.23.1)
 

@@ -935,13 +935,14 @@ final class Ms365BatchRunRepository
 
         foreach ($children as $index => $child) {
             $status = (string) ($child['status'] ?? '');
-            $childItemsTotal = max(0, (int) ($child['items_total'] ?? 0));
-            $childItemsDone = max(0, (int) ($child['items_done'] ?? 0));
+            $progress = self::attemptAwareProgressCounters($child);
+            $childItemsTotal = $progress['items_total'];
+            $childItemsDone = $progress['items_done'];
             $childItemsSkipped = max(0, (int) ($child['items_skipped'] ?? 0));
             $childPercent = (float) ($child['percent'] ?? 0);
 
-            $bytesProcessed += (int) ($child['bytes_hashed'] ?? 0);
-            $bytesTransferred += (int) ($child['bytes_uploaded'] ?? 0);
+            $bytesProcessed += $progress['bytes_hashed'];
+            $bytesTransferred += $progress['bytes_uploaded'];
             $itemsDone += $childItemsDone;
             $itemsSkipped += $childItemsSkipped;
             $itemsTotal += $childItemsTotal;
@@ -951,7 +952,7 @@ final class Ms365BatchRunRepository
             if ($hits429 > 0) {
                 $graph429Total += $hits429;
             }
-            $requests = (int) ($childStats['graph_requests'] ?? 0);
+            $requests = $progress['graph_requests'];
             if ($requests > 0) {
                 $graphRequestsTotal += $requests;
             }
@@ -1095,6 +1096,66 @@ final class Ms365BatchRunRepository
      * @param array<string, mixed> $child
      * @return array<string, mixed>
      */
+    /**
+     * Prefer current-attempt counters when the row still holds prior-attempt maxima.
+     *
+     * @param array<string, mixed> $child
+     * @return array{items_done: int, items_total: int, bytes_hashed: int, bytes_uploaded: int, graph_requests: int}
+     */
+    public static function attemptAwareProgressCounters(array $child): array
+    {
+        $itemsDone = max(0, (int) ($child['items_done'] ?? 0));
+        $itemsTotal = max(0, (int) ($child['items_total'] ?? 0));
+        $bytesHashed = max(0, (int) ($child['bytes_hashed'] ?? 0));
+        $bytesUploaded = max(0, (int) ($child['bytes_uploaded'] ?? 0));
+        $stats = self::decodeChildStatsJson($child);
+        $graphRequests = max(0, (int) ($stats['graph_requests'] ?? 0));
+
+        $status = strtolower((string) ($child['status'] ?? ''));
+        $startedAt = (int) ($child['started_at'] ?? 0);
+        $attemptStarted = (int) ($stats['attempt_progress_started_at'] ?? 0);
+        if (!in_array($status, ['running', 'starting'], true)
+            || $startedAt <= 0
+            || $attemptStarted !== $startedAt) {
+            return [
+                'items_done' => $itemsDone,
+                'items_total' => $itemsTotal,
+                'bytes_hashed' => $bytesHashed,
+                'bytes_uploaded' => $bytesUploaded,
+                'graph_requests' => $graphRequests,
+            ];
+        }
+
+        $attemptItems = max(0, (int) ($stats['attempt_items_done'] ?? 0));
+        $attemptHashed = max(0, (int) ($stats['attempt_bytes_hashed'] ?? 0));
+        $attemptUploaded = max(0, (int) ($stats['attempt_bytes_uploaded'] ?? 0));
+        $attemptGraph = max(0, (int) ($stats['attempt_graph_requests'] ?? 0));
+
+        if ($itemsDone > $attemptItems) {
+            $itemsDone = $attemptItems;
+        }
+        if ($bytesHashed > $attemptHashed) {
+            $bytesHashed = $attemptHashed;
+        }
+        if ($bytesUploaded > $attemptUploaded) {
+            $bytesUploaded = $attemptUploaded;
+        }
+        if ($attemptGraph > 0 && $graphRequests > $attemptGraph) {
+            $graphRequests = $attemptGraph;
+        }
+        if ($itemsTotal > 0 && $itemsDone > $itemsTotal) {
+            $itemsDone = $itemsTotal;
+        }
+
+        return [
+            'items_done' => $itemsDone,
+            'items_total' => $itemsTotal,
+            'bytes_hashed' => $bytesHashed,
+            'bytes_uploaded' => $bytesUploaded,
+            'graph_requests' => $graphRequests,
+        ];
+    }
+
     private static function decodeChildStatsJson(array $child): array
     {
         if (self::$hasStatsJsonColumn === null) {

@@ -1761,6 +1761,10 @@ final class WorkerClaimService
                     $runUpdate['percent'] = 0;
                     $runUpdate['items_done'] = 0;
                     $runUpdate['items_total'] = 0;
+                    if (Capsule::schema()->hasColumn('ms365_backup_runs', 'bytes_hashed')) {
+                        $runUpdate['bytes_hashed'] = 0;
+                        $runUpdate['bytes_uploaded'] = 0;
+                    }
                 }
                 // Soft-abort requeues preserve counters but must refresh liveness so the
                 // admin health banner does not keep counting the pre-abort silence.

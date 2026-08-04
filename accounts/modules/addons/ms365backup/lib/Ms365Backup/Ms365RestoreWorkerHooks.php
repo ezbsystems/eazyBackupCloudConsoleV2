@@ -161,8 +161,17 @@ final class Ms365RestoreWorkerHooks
         $existingChildStats = self::decodeChildStatsJson($existing);
         $existingChild429 = (int) ($existingChildStats['graph_429_hits'] ?? 0);
         $existingChildRequests = (int) ($existingChildStats['graph_requests'] ?? 0);
+        $attemptGraphRequests = (int) ($existingChildStats['attempt_graph_requests'] ?? 0);
+        // Compare request deltas against this attempt's counter. Prior-attempt max() residue
+        // in graph_requests (e.g. 3550 vs live 1600) would otherwise hide real Graph activity.
+        $requestBaseline = $existingChildRequests;
+        if ($attemptGraphRequests >= 0
+            && (int) ($existingChildStats['attempt_progress_started_at'] ?? 0) === (int) ($existing['started_at'] ?? 0)
+            && $existingChildRequests > $attemptGraphRequests) {
+            $requestBaseline = $attemptGraphRequests;
+        }
         $delta429 = max(0, $incoming429 - $existingChild429);
-        $deltaRequests = max(0, $incomingRequests - $existingChildRequests);
+        $deltaRequests = max(0, $incomingRequests - $requestBaseline);
         $effectivePhase = strtolower(trim($rawPhase !== '' ? $rawPhase : (string) ($existing['phase'] ?? '')));
         $graphSyncRequestLiveness = $effectivePhase === 'graph_sync' && $deltaRequests > 0;
         $tenantRecordId = (int) ($existing['tenant_record_id'] ?? 0);
@@ -207,6 +216,7 @@ final class Ms365RestoreWorkerHooks
                     }
                     if ($incomingRequests > 0) {
                         $statsPatch['graph_requests'] = max($incomingRequests, $existingChildRequests);
+                        $statsPatch['attempt_graph_requests'] = $incomingRequests;
                     }
                     $encoded = self::encodeMergedChildStatsJson($existing, $statsPatch);
                     if ($encoded !== null) {
@@ -245,6 +255,7 @@ final class Ms365RestoreWorkerHooks
                     }
                     if ($incomingRequests > 0) {
                         $statsPatch['graph_requests'] = max($incomingRequests, $existingChildRequests);
+                        $statsPatch['attempt_graph_requests'] = $incomingRequests;
                     }
                     $encoded = self::encodeMergedChildStatsJson($existing, $statsPatch);
                     if ($encoded !== null) {
@@ -320,20 +331,23 @@ final class Ms365RestoreWorkerHooks
             }
         }
         $persistedPhase = strtolower(trim((string) ($fields['phase'] ?? $existingPhase)));
+        $attemptStartedAt = (int) ($existing['started_at'] ?? 0);
+        $priorAttemptStartedAt = (int) ($existingStats['attempt_progress_started_at'] ?? 0);
         if (!$isHeartbeat && !$rejectedNonEmptyPhaseUpdate) {
-            $attemptStartedAt = (int) ($existing['started_at'] ?? 0);
             $attemptPhase = $persistedPhase;
-            $sameAttempt = (int) ($existingStats['attempt_progress_started_at'] ?? 0) === $attemptStartedAt
+            $sameAttempt = $priorAttemptStartedAt === $attemptStartedAt
                 && (string) ($existingStats['attempt_progress_phase'] ?? '') === $attemptPhase;
 
             if (!$sameAttempt) {
                 $attemptLocalProgress = $incomingItemsDone > 0
                     || $incomingBytesHashed > 0
-                    || $incomingBytesUploaded > 0;
+                    || $incomingBytesUploaded > 0
+                    || $incomingRequests > 0;
             } else {
                 $attemptLocalProgress = $incomingItemsDone > (int) ($existingStats['attempt_items_done'] ?? 0)
                     || $incomingBytesHashed > (int) ($existingStats['attempt_bytes_hashed'] ?? 0)
-                    || $incomingBytesUploaded > (int) ($existingStats['attempt_bytes_uploaded'] ?? 0);
+                    || $incomingBytesUploaded > (int) ($existingStats['attempt_bytes_uploaded'] ?? 0)
+                    || $incomingRequests > $attemptGraphRequests;
             }
 
             $attemptProgressPatch = [
@@ -342,7 +356,31 @@ final class Ms365RestoreWorkerHooks
                 'attempt_items_done' => $incomingItemsDone,
                 'attempt_bytes_hashed' => $incomingBytesHashed,
                 'attempt_bytes_uploaded' => $incomingBytesUploaded,
+                'attempt_graph_requests' => $incomingRequests,
             ];
+            // #region agent log
+            $storedItemsDoneLog = (int) ($existing['items_done'] ?? 0);
+            $attemptItemsLog = (int) ($existingStats['attempt_items_done'] ?? 0);
+            if ($sameAttempt && $storedItemsDoneLog > $incomingItemsDone && $attemptItemsLog < $storedItemsDoneLog) {
+                @file_put_contents('/var/www/eazybackup.ca/.cursor/debug-58741c.log', json_encode([
+                    'sessionId' => '58741c',
+                    'hypothesisId' => 'H1',
+                    'location' => 'Ms365RestoreWorkerHooks.php:residueVisible',
+                    'message' => 'column high-water ahead of attempt; UI must use attempt counters',
+                    'data' => [
+                        'run_id' => $runId,
+                        'stored_items' => $storedItemsDoneLog,
+                        'attempt_items' => $attemptItemsLog,
+                        'incoming_items' => $incomingItemsDone,
+                        'stored_graph_requests' => $existingChildRequests,
+                        'attempt_graph_requests' => $attemptGraphRequests,
+                        'incoming_graph_requests' => $incomingRequests,
+                        'attempt_local_progress' => $attemptLocalProgress,
+                    ],
+                    'timestamp' => (int) (microtime(true) * 1000),
+                ], JSON_UNESCAPED_SLASHES) . "\n", FILE_APPEND | LOCK_EX);
+            }
+            // #endregion
         }
 
         if (!$isHeartbeat) {
@@ -423,7 +461,27 @@ final class Ms365RestoreWorkerHooks
                 }
             }
             if ($incomingRequests > 0) {
+                // Keep high-water graph_requests for infra-preserved totals; attempt_* drives UI/deltas.
                 $statsPatch['graph_requests'] = max($incomingRequests, $existingChildRequests);
+                // #region agent log
+                if ($existingChildRequests > $attemptGraphRequests
+                    && $priorAttemptStartedAt === $attemptStartedAt
+                    && $incomingRequests < $existingChildRequests) {
+                    @file_put_contents('/var/www/eazybackup.ca/.cursor/debug-58741c.log', json_encode([
+                        'sessionId' => '58741c',
+                        'hypothesisId' => 'H1',
+                        'location' => 'Ms365RestoreWorkerHooks.php:graphReqHighWater',
+                        'message' => 'kept graph_requests high-water; attempt counter advancing',
+                        'data' => [
+                            'run_id' => $runId,
+                            'stored' => $existingChildRequests,
+                            'attempt' => $attemptGraphRequests,
+                            'incoming' => $incomingRequests,
+                        ],
+                        'timestamp' => (int) (microtime(true) * 1000),
+                    ], JSON_UNESCAPED_SLASHES) . "\n", FILE_APPEND | LOCK_EX);
+                }
+                // #endregion
             }
         }
         $phaseForStats = $rawPhase;

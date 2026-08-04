@@ -319,8 +319,32 @@ final class BackupRunRepository
             'finished_at' => null,
             'updated_at' => $now,
         ];
+        if (Capsule::schema()->hasColumn('ms365_backup_runs', 'bytes_hashed')) {
+            $fields['bytes_hashed'] = 0;
+            $fields['bytes_uploaded'] = 0;
+        }
         if (ChildAbortRepository::columnReady()) {
             $fields['abort_requested_at'] = null;
+        }
+        $existing = self::get($id);
+        if (is_array($existing) && Capsule::schema()->hasColumn('ms365_backup_runs', 'stats_json')) {
+            $stats = [];
+            $raw = $existing['stats_json'] ?? null;
+            if (is_array($raw)) {
+                $stats = $raw;
+            } elseif (is_string($raw) && $raw !== '') {
+                $decoded = json_decode($raw, true);
+                if (is_array($decoded)) {
+                    $stats = $decoded;
+                }
+            }
+            foreach (array_keys($stats) as $key) {
+                if (str_starts_with((string) $key, 'attempt_')
+                    || in_array((string) $key, ['graph_requests', 'graph_429_hits', 'graph_adaptive_limit'], true)) {
+                    unset($stats[$key]);
+                }
+            }
+            $fields['stats_json'] = json_encode($stats, JSON_UNESCAPED_SLASHES);
         }
         self::update($id, $fields);
     }
