@@ -1506,6 +1506,31 @@ function cloudstorage_ensure_e3bu_product(string $context = 'activate'): void
 }
 
 /**
+ * Per-service Object Storage billing exemption flags (admin complimentary accounts).
+ *
+ * Idempotent: safe to invoke on every activate and upgrade.
+ */
+function cloudstorage_ensure_s3_billing_flags_schema(string $context = 'activate'): void
+{
+    $schema = Capsule::schema();
+    if ($schema->hasTable('s3_billing_flags')) {
+        return;
+    }
+    try {
+        $schema->create('s3_billing_flags', function ($table) {
+            $table->unsignedInteger('service_id')->primary();
+            $table->tinyInteger('billing_exempt')->default(0);
+            $table->text('notes')->nullable();
+            $table->timestamp('created_at')->useCurrent();
+            $table->timestamp('updated_at')->useCurrent()->useCurrentOnUpdate();
+        });
+        logModuleCall('cloudstorage', $context, [], 'Created s3_billing_flags', [], []);
+    } catch (\Throwable $e) {
+        logModuleCall('cloudstorage', "{$context}_create_s3_billing_flags", [], $e->getMessage(), [], []);
+    }
+}
+
+/**
  * Zero tblpricing.monthly for pid_cloud_storage so WHMCS does not bill a static
  * catalog base fee; S3Billing sets tblhosting.amount from live usage each cron.
  */
@@ -3511,6 +3536,7 @@ function cloudstorage_activate() {
         cloudstorage_ensure_ms365_vault_lifecycle_schema('activate');
         cloudstorage_ensure_ms365_repo_ops_schema('activate');
         cloudstorage_ensure_e3cb_billing_schema('activate');
+        cloudstorage_ensure_s3_billing_flags_schema('activate');
         cloudstorage_ensure_e3cb_product('activate');
         cloudstorage_ensure_e3bu_product('activate');
 
@@ -5691,6 +5717,7 @@ function cloudstorage_upgrade($vars) {
         cloudstorage_ensure_ms365_vault_lifecycle_schema('upgrade');
         cloudstorage_ensure_ms365_repo_ops_schema('upgrade');
         cloudstorage_ensure_e3cb_billing_schema('upgrade');
+        cloudstorage_ensure_s3_billing_flags_schema('upgrade');
         cloudstorage_ensure_e3cb_product('upgrade');
         cloudstorage_ensure_e3bu_product('upgrade');
         cloudstorage_zero_storage_tblpricing_base('upgrade');

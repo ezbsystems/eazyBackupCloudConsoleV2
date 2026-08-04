@@ -14,6 +14,67 @@ class S3Billing {
     private static $module = 'cloudstorage';
 
     /**
+     * Whether a WHMCS Cloud Storage service is marked complimentary (billing exempt).
+     */
+    public static function isServiceBillingExempt(int $serviceId): bool
+    {
+        if ($serviceId <= 0) {
+            return false;
+        }
+        try {
+            if (!Capsule::schema()->hasTable('s3_billing_flags')) {
+                return false;
+            }
+            $row = Capsule::table('s3_billing_flags')->where('service_id', $serviceId)->first();
+            return $row !== null && (int) ($row->billing_exempt ?? 0) === 1;
+        } catch (\Throwable $e) {
+            logModuleCall(self::$module, 'isServiceBillingExempt_fail', ['service_id' => $serviceId], $e->getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Force $0 on the WHMCS service and zero in-window s3_prices snapshots.
+     * Used by the admin exempt toggle (immediate) and by the billing cron.
+     *
+     * @param object $product tblhosting row (needs id, userid, packageid)
+     * @param int $s3UserId primary s3_users.id for price snapshots
+     * @return array{update_status:bool, in_window_rows_zeroed:int, final_amount_written:float}
+     */
+    public function applyComplimentaryBilling($product, int $s3UserId): array
+    {
+        $result = [
+            'update_status' => false,
+            'in_window_rows_zeroed' => 0,
+            'final_amount_written' => 0.00,
+        ];
+        try {
+            $billingController = new BillingController();
+            $displayPeriod = $billingController->calculateDisplayPeriod((int) $product->userid, (int) $product->packageid);
+            $rangeStart = $displayPeriod['start'] ?? date('Y-m-d', strtotime('-1 month'));
+            $rangeEnd = $displayPeriod['end_for_queries'] ?? date('Y-m-d');
+
+            DBController::savePrices([
+                'user_id' => $s3UserId,
+                'amount' => 0.00,
+                'usage_bytes' => 0,
+            ]);
+            $zeroed = $this->zeroInWindowPrices($s3UserId, $rangeStart, $rangeEnd);
+            Capsule::table('tblhosting')->where('id', $product->id)->update(['amount' => 0.00]);
+
+            $result['update_status'] = true;
+            $result['in_window_rows_zeroed'] = (int) ($zeroed['updated'] ?? 0);
+            $result['final_amount_written'] = 0.00;
+        } catch (\Throwable $e) {
+            logModuleCall(self::$module, 'applyComplimentaryBilling_fail', [
+                'service_id' => $product->id ?? null,
+                'user_id' => $s3UserId,
+            ], $e->getMessage());
+        }
+        return $result;
+    }
+
+    /**
      * Gather Billing Data.
      *
      * @return object|null
@@ -188,6 +249,23 @@ class S3Billing {
             'new_amount' => null,
             'update_status' => false
         ];
+
+        // Complimentary / billing-exempt services: always $0, skip MAX-over-window.
+        if (self::isServiceBillingExempt((int) ($product->id ?? 0))) {
+            $applied = $this->applyComplimentaryBilling($product, (int) $userId);
+            $result['new_amount'] = 0.00;
+            $result['update_status'] = (bool) ($applied['update_status'] ?? false);
+            logModuleCall(self::$module, 'updateProductPrice_billing_exempt', [
+                'user_id' => $userId,
+                'service_id' => $product->id ?? null,
+                'package_id' => $product->packageid ?? null,
+                'usage_bytes' => (int) $totalBucketSize,
+            ], [
+                'in_window_rows_zeroed' => $applied['in_window_rows_zeroed'] ?? 0,
+                'final_amount_written' => 0.00,
+            ]);
+            return $result;
+        }
 
         // Defensive defaults if callers pass non-positive values
         if (!is_numeric($baseFee) || (float)$baseFee <= 0) {

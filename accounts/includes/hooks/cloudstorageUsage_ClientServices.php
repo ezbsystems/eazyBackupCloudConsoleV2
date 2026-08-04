@@ -152,6 +152,16 @@ HTML;
         // Format bytes
         $formattedBytes = eb_cloudstorage_format_bytes($totalBytes);
 
+        $billingExempt = false;
+        try {
+            if (Capsule::schema()->hasTable('s3_billing_flags')) {
+                $flag = Capsule::table('s3_billing_flags')->where('service_id', $serviceId)->first();
+                $billingExempt = $flag !== null && (int) ($flag->billing_exempt ?? 0) === 1;
+            }
+        } catch (\Throwable $e) {
+            $billingExempt = false;
+        }
+
         // JSON for JS injection
         $data = [
             'serviceId' => $serviceId,
@@ -162,6 +172,7 @@ HTML;
             'totalBytesFormatted' => $formattedBytes,
             'totalObjects' => $totalObjects,
             'activeBucketsOnly' => $hasBucketIsActive ? true : false,
+            'billing_exempt' => $billingExempt,
         ];
         $json = json_encode($data);
 
@@ -171,9 +182,10 @@ HTML;
   var data = $json;
   function panelHtml(){
     var sub = (data.tenantCount > 0) ? ('<span class="label label-info" style="margin-left:8px;">' + data.tenantCount + ' tenant(s)</span>') : '';
+    var exemptBadge = data.billing_exempt ? ('<span class="label label-success" style="margin-left:8px;">Billing exempt</span>') : '';
     var note = data.activeBucketsOnly ? '' : '<div class="text-muted" style="margin-top:6px;">Note: Bucket active flag not available; counts may include inactive buckets.</div>';
     return '<div class="panel panel-default" id="eb-e3-storage-summary">'
-      + '<div class="panel-heading"><strong>e3 Object Storage Summary</strong>' + sub + '</div>'
+      + '<div class="panel-heading"><strong>e3 Object Storage Summary</strong>' + sub + exemptBadge + '</div>'
       + '<div class="panel-body">'
       +   '<div class="row">'
       +     '<div class="col-md-4"><strong>Total Buckets:</strong><br><span style="font-size:18px;">' + data.bucketCount + '</span></div>'

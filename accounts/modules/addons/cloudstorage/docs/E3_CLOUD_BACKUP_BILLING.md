@@ -124,6 +124,13 @@ Metered by `S3Billing` (`lib/Admin/S3Billing.php`), invoked hourly from
   for customers with usage; direct `$0` for live-zero to avoid stale snapshots).
 - `tblpricing.monthly` for `pid_cloud_storage` is `$0` so WHMCS does not apply
   an independent catalog base fee; the dynamic amount from `S3Billing` governs.
+- Per-service **billing exempt** (complimentary) accounts are stored in
+  `s3_billing_flags` and toggled on the WHMCS admin Products/Services page
+  (`clientsservices.php`) via **Object storage billing exempt**. While exempt,
+  `S3Billing` always writes `$0.00` and skips MAX-over-window metering. Enabling
+  the flag also immediately zeros `tblhosting.amount` and in-window `s3_prices`
+  so the customer Billing page updates without waiting for cron. Clearing the
+  flag leaves amount restoration to the next billing cron run.
 
 **One-time reconcile after deploy** (safe to re-run):
 
