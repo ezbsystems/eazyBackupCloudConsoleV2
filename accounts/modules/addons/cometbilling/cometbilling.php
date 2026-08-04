@@ -350,6 +350,38 @@ function cometbilling_output($vars)
                 echo '<p><a href="' . $baseUrl . '&action=historical_reconcile" class="btn btn-default">Back to Historical Reconcile</a></p>';
             }
             break;
+
+        case 'historical_reconcile_dispute_csv':
+            cometbilling_releaseSession();
+            if (function_exists('set_time_limit')) {
+                @set_time_limit(600);
+            }
+            try {
+                $from = !empty($_GET['from']) ? (string) $_GET['from'] : null;
+                $to = !empty($_GET['to']) ? (string) $_GET['to'] : null;
+                $range = \CometBilling\HistoricalReconciler::resolveDateRange(null, $from, $to);
+                \CometBilling\DisputePackExporter::streamCsv($range['from'], $range['to']);
+            } catch (\Throwable $e) {
+                echo '<div class="errorbox">Dispute pack CSV export failed: ' . htmlspecialchars($e->getMessage()) . '</div>';
+                echo '<p><a href="' . $baseUrl . '&action=historical_reconcile" class="btn btn-default">Back to Historical Reconcile</a></p>';
+            }
+            break;
+
+        case 'historical_reconcile_dispute_pdf':
+            cometbilling_releaseSession();
+            if (function_exists('set_time_limit')) {
+                @set_time_limit(600);
+            }
+            try {
+                $from = !empty($_GET['from']) ? (string) $_GET['from'] : null;
+                $to = !empty($_GET['to']) ? (string) $_GET['to'] : null;
+                $range = \CometBilling\HistoricalReconciler::resolveDateRange(null, $from, $to);
+                \CometBilling\DisputePackExporter::streamHtml($range['from'], $range['to']);
+            } catch (\Throwable $e) {
+                echo '<div class="errorbox">Dispute pack PDF export failed: ' . htmlspecialchars($e->getMessage()) . '</div>';
+                echo '<p><a href="' . $baseUrl . '&action=historical_reconcile" class="btn btn-default">Back to Historical Reconcile</a></p>';
+            }
+            break;
             
         case 'active_services':
             include __DIR__ . '/templates/admin/active_services.tpl.php';

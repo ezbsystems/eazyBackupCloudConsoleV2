@@ -4,6 +4,8 @@ use WHMCS\Database\Capsule;
 
 $baseUrl = 'addonmodules.php?module=cometbilling&action=historical_reconcile';
 $exportBase = 'addonmodules.php?module=cometbilling&action=historical_reconcile_export';
+$disputeCsvBase = 'addonmodules.php?module=cometbilling&action=historical_reconcile_dispute_csv';
+$disputePdfBase = 'addonmodules.php?module=cometbilling&action=historical_reconcile_dispute_pdf';
 
 $preset = $_GET['preset'] ?? null;
 $fromInput = $_GET['from'] ?? null;
@@ -35,6 +37,12 @@ function histPresetLink(string $baseUrl, $days, $activePreset, string $label): s
 }
 
 $exportUrl = $exportBase
+    . '&from=' . urlencode($range['from'])
+    . '&to=' . urlencode($range['to']);
+$disputeCsvUrl = $disputeCsvBase
+    . '&from=' . urlencode($range['from'])
+    . '&to=' . urlencode($range['to']);
+$disputePdfUrl = $disputePdfBase
     . '&from=' . urlencode($range['from'])
     . '&to=' . urlencode($range['to']);
 ?>
@@ -166,7 +174,13 @@ $exportUrl = $exportBase
             Probable and review rows are excluded from confirmed totals.
         </p>
         <p>
-            <a class="btn btn-primary" href="<?= htmlspecialchars($exportUrl) ?>">Export overbilled (CSV)</a>
+            <a class="btn btn-primary" href="<?= htmlspecialchars($disputeCsvUrl) ?>">Export dispute pack (CSV)</a>
+            <a class="btn btn-primary" href="<?= htmlspecialchars($disputePdfUrl) ?>" target="_blank" rel="noopener">Export dispute pack (PDF)</a>
+            <a class="btn btn-default" href="<?= htmlspecialchars($exportUrl) ?>">Export overbilled (CSV)</a>
+        </p>
+        <p class="cb-muted">
+            Dispute pack includes Confirmed rows only with the five evidence fields and a one-sentence claim suitable for Comet.
+            PDF opens a printable report — use your browser’s Print / Save as PDF.
         </p>
     </div>
 
