@@ -125,6 +125,31 @@ Alternatively, enable "Enable Daily Pull" in addon settings to run both during W
 | MS SQL | count of engine1/mssql sources | Type='booster' + 'SQL Server' |
 | M365 Accounts | TotalAccountsCount for engine1/winmsofficemail | Type='booster' + 'Office 365' |
 
+
+### Unmatched Device Lists
+
+When a reconcile category has variance, the report can list **host-device** mismatches:
+
+- **Portal only** — billed on the portal but not found on your Comet servers (or booster not present on that device)
+- **Server only** — present on servers but not billed on the portal
+- **Qty mismatch** — same device on both sides, but portal quantity differs from server (Hyper-V, VMware, Proxmox, M365)
+
+Matching uses the portal's 6-character device ID prefix against full server device IDs, with account/username used to resolve ambiguous matches.
+
+**Requirements:** Run **Collect Server Usage** after upgrading so per-device inventory is stored (`cb_server_device_inventory`). Historical snapshots collected before this feature will show a message to re-collect.
+
+**Limits:** Lists are capped at 100 rows per bucket in saved reports. Individual guest VMs and M365 mailboxes cannot be enumerated — only per-host quantities.
+
+**Revoked-device billing:** Portal-only rows are enriched from `comet_devices.revoked_at` (websocket worker / sync). Each row shows portal `next_due_date`, billing cycle days (usually 30), and expected billing end (`revoked_at + cycle`). Status:
+
+- `expected_grace` — portal due date is still within the post-revoke billing window
+- `overbilled_past_grace` — portal still billing after that window (likely overbill)
+- `unknown` — no matching revoked device in `comet_devices`
+
+Use **Export overbilled past grace (CSV)** on the Reconcile page to download all categories (Devices, Hyper-V, M365, etc.) in a Comet-support-ready CSV. Export re-matches without the UI 100-row cap.
+
+Re-run **Reconcile** after a portal pull to refresh; saved reports are not retroactively enriched.
+
 ## Reconciliation Modes
 
 - **Stored Snapshots (default)**: Uses `cb_server_usage_combined` aligned with the nearest portal `cb_active_services` snapshot. Faster and consistent timing.

@@ -119,6 +119,15 @@ $availableSnapshots = Capsule::table('cb_server_usage_combined')
     </div>
 
     <?php if ($report): ?>
+    <?php
+    $exportSnapshot = $report['snapshot_date'] ?? null;
+    $exportUrl = $baseUrl . '&action=reconcile_export_overbilled'
+        . ($exportSnapshot ? '&snapshot_date=' . urlencode((string) $exportSnapshot) : '');
+    ?>
+    <p style="margin: 0 0 12px;">
+        <a class="btn btn-default" href="<?= htmlspecialchars($exportUrl) ?>">Export overbilled past grace (CSV)</a>
+        <span style="font-size: 12px; color: #666; margin-left: 8px;">All categories · for Comet support</span>
+    </p>
     <?php include __DIR__ . '/reconcile_report_partial.tpl.php'; ?>
     <?php endif; ?>
 
@@ -154,6 +163,7 @@ $availableSnapshots = Capsule::table('cb_server_usage_combined')
                     <td><?= $r->summary['under_billed'] ?? 0 ?></td>
                     <td>
                         <a href="<?= $baseUrl ?>&action=reconcile_view&id=<?= $r->id ?>" class="btn btn-xs btn-default">View</a>
+                        <a href="<?= $baseUrl ?>&action=reconcile_export_overbilled" class="btn btn-xs btn-default">CSV</a>
                     </td>
                 </tr>
                 <?php endforeach; ?>

@@ -32,7 +32,7 @@ function cometbilling_config()
     return [
         'name'        => 'CometBilling',
         'description' => 'Pull Comet Account Portal billing data, store locally, and reconcile.',
-        'version'     => '1.0.1',
+        'version'     => '1.0.2',
         'author'      => 'eazyBackup',
         'language'    => 'english',
         'fields'      => [
@@ -117,6 +117,34 @@ function cometbilling_upgrade($vars)
             }
         } catch (\Throwable $e) {
             // Non-fatal; ensureTables will retry on next allocation
+        }
+    }
+
+    // 1.0.1 → 1.0.2: per-device server inventory for reconcile drill-down
+    if (version_compare($version, '1.0.2', '<')) {
+        try {
+            if (!Capsule::schema()->hasTable('cb_server_device_inventory')) {
+                Capsule::schema()->create('cb_server_device_inventory', function ($table) {
+                    $table->bigIncrements('id');
+                    $table->date('snapshot_date');
+                    $table->string('server_key', 64);
+                    $table->string('username', 255)->default('');
+                    $table->string('device_id', 64);
+                    $table->string('friendly_name', 255)->nullable();
+                    $table->unsignedInteger('hyperv_vms')->default(0);
+                    $table->unsignedInteger('vmware_vms')->default(0);
+                    $table->unsignedInteger('proxmox_vms')->default(0);
+                    $table->unsignedInteger('disk_image')->default(0);
+                    $table->unsignedInteger('mssql')->default(0);
+                    $table->unsignedInteger('m365_accounts')->default(0);
+                    $table->dateTime('created_at');
+                    $table->unique(['snapshot_date', 'server_key', 'device_id'], 'uq_snapshot_device');
+                    $table->index('snapshot_date');
+                    $table->index('server_key');
+                });
+            }
+        } catch (\Throwable $e) {
+            // Non-fatal
         }
     }
 }
@@ -294,6 +322,16 @@ function cometbilling_output($vars)
         case 'reconcile':
             include __DIR__ . '/templates/admin/reconcile.tpl.php';
             break;
+
+        case 'reconcile_export_overbilled':
+            try {
+                $snapshotDate = !empty($_GET['snapshot_date']) ? (string) $_GET['snapshot_date'] : null;
+                \CometBilling\Reconciler::streamOverbilledPastGraceCsv($snapshotDate);
+            } catch (\Throwable $e) {
+                echo '<div class="errorbox">Export failed: ' . htmlspecialchars($e->getMessage()) . '</div>';
+                echo '<p><a href="' . $baseUrl . '&action=reconcile" class="btn btn-default">Back to Reconciliation</a></p>';
+            }
+            break;
             
         case 'reconcile_view':
             $reportId = (int)($_GET['id'] ?? 0);
@@ -301,8 +339,13 @@ function cometbilling_output($vars)
                 $saved = \CometBilling\Reconciler::getReport($reportId);
                 if ($saved) {
                     $report = \CometBilling\Reconciler::reportFromSaved($saved);
+                    $exportSnapshot = $report['snapshot_date'] ?? null;
                     echo '<h3>Reconciliation Report #' . $reportId . '</h3>';
                     echo '<p>Generated: ' . htmlspecialchars($saved->report_date) . '</p>';
+                    echo '<p><a class="btn btn-default" href="' . $baseUrl
+                        . '&action=reconcile_export_overbilled'
+                        . ($exportSnapshot ? '&snapshot_date=' . urlencode((string) $exportSnapshot) : '')
+                        . '">Export overbilled past grace (CSV)</a></p>';
                     include __DIR__ . '/templates/admin/reconcile_report_partial.tpl.php';
                     echo '<p><a href="'.$baseUrl.'&action=reconcile" class="btn btn-default">Back to Reconciliation</a></p>';
                 } else {

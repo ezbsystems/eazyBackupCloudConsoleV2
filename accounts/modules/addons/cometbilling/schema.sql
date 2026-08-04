@@ -183,3 +183,23 @@ CREATE TABLE IF NOT EXISTS cb_server_usage_combined (
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- Per-device server inventory (for reconciliation drill-down)
+CREATE TABLE IF NOT EXISTS cb_server_device_inventory (
+  id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+  snapshot_date DATE NOT NULL,
+  server_key VARCHAR(64) NOT NULL,
+  username VARCHAR(255) NOT NULL DEFAULT '',
+  device_id VARCHAR(64) NOT NULL,
+  friendly_name VARCHAR(255) NULL,
+  hyperv_vms INT UNSIGNED NOT NULL DEFAULT 0,
+  vmware_vms INT UNSIGNED NOT NULL DEFAULT 0,
+  proxmox_vms INT UNSIGNED NOT NULL DEFAULT 0,
+  disk_image INT UNSIGNED NOT NULL DEFAULT 0,
+  mssql INT UNSIGNED NOT NULL DEFAULT 0,
+  m365_accounts INT UNSIGNED NOT NULL DEFAULT 0,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_snapshot_device (snapshot_date, server_key, device_id),
+  KEY idx_snapshot (snapshot_date),
+  KEY idx_server (server_key)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+

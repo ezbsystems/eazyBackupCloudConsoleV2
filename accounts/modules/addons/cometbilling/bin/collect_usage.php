@@ -132,6 +132,13 @@ try {
         logMsg("Saved snapshot for {$srvKey}", $verbose);
     }
 
+    ServerUsageCollector::persistDeviceInventory($today, $allData);
+    $inventoryCount = 0;
+    foreach ($allData['servers'] ?? [] as $srvData) {
+        $inventoryCount += count($srvData['device_inventory'] ?? []);
+    }
+    logMsg("Saved {$inventoryCount} device inventory row(s) for {$today}", $verbose);
+
     // Store combined snapshot
     Capsule::table('cb_server_usage_combined')->updateOrInsert(
         ['snapshot_date' => $today],

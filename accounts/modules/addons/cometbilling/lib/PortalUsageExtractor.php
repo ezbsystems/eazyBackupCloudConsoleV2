@@ -200,6 +200,8 @@ class PortalUsageExtractor
             'amount' => (float)($row->amount ?? 0),
             'account' => null,
             'device_id' => null,
+            'next_due_date' => $row->next_due_date ?? null,
+            'billing_cycle_days' => (int) ($row->billing_cycle_days ?? 30) ?: 30,
         ];
 
         // Try to extract account name
@@ -232,6 +234,8 @@ class PortalUsageExtractor
             'account' => null,
             'device_id' => null,
             'booster_type' => null,
+            'next_due_date' => $row->next_due_date ?? null,
+            'billing_cycle_days' => (int) ($row->billing_cycle_days ?? 30) ?: 30,
         ];
 
         // Try to extract account name

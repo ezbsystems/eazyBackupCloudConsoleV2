@@ -37,7 +37,8 @@ class Reconciler
         $serverData = ServerUsageCollector::collectAll();
         $portalData = PortalUsageExtractor::getLatestSnapshot();
 
-        $report = self::buildReport($serverData, $portalData, $tolerance);
+        $inventory = DeviceMatcher::flattenCollectedInventory($serverData);
+        $report = self::buildReport($serverData, $portalData, $tolerance, $inventory);
         $report['mode'] = 'live';
         $report['snapshot_date'] = null;
 
@@ -86,8 +87,9 @@ class Reconciler
         }
 
         $portalData = PortalUsageExtractor::getSnapshot($portalPulledAt);
+        $inventory = DeviceMatcher::loadInventoryForSnapshot($snapshotDate);
 
-        $report = self::buildReport($serverData, $portalData, $tolerance);
+        $report = self::buildReport($serverData, $portalData, $tolerance, $inventory);
         $report['mode'] = 'snapshot';
         $report['snapshot_date'] = $snapshotDate;
 
@@ -136,8 +138,13 @@ class Reconciler
         ];
     }
 
-    public static function buildReport(array $serverData, array $portalData, int $tolerance = self::DEFAULT_TOLERANCE): array
-    {
+    public static function buildReport(
+        array $serverData,
+        array $portalData,
+        int $tolerance = self::DEFAULT_TOLERANCE,
+        ?array $serverInventory = null
+    ): array {
+        $hasInventory = $serverInventory !== null && $serverInventory !== [];
         $report = [
             'generated_at' => date('Y-m-d H:i:s'),
             'server_collected_at' => $serverData['collected_at'] ?? null,
@@ -154,6 +161,7 @@ class Reconciler
                 'over_billed' => 0,
                 'under_billed' => 0,
                 'server_errors' => $serverData['errors'] ?? [],
+                'past_grace_overbill' => 0.0,
             ],
             'server_raw' => self::summarizeServerData($serverData),
             'portal_raw' => self::summarizePortalData($portalData),
@@ -176,8 +184,20 @@ class Reconciler
                 'status' => $status,
             ];
 
-            if ($status !== 'ok' && !empty($portalData[$key]['items'])) {
-                $item['portal_items'] = $portalData[$key]['items'];
+            if ($status !== 'ok') {
+                if ($hasInventory) {
+                    $unmatched = DeviceMatcher::matchCategory(
+                        $key,
+                        $portalData[$key]['items'] ?? [],
+                        $serverInventory
+                    );
+                    $item['unmatched'] = $unmatched;
+                    $item['past_grace_count'] = (int) ($unmatched['past_grace_count'] ?? 0);
+                    $item['past_grace_overbill'] = (float) ($unmatched['past_grace_overbill_total'] ?? 0);
+                    $report['summary']['past_grace_overbill'] += $item['past_grace_overbill'];
+                } else {
+                    $item['unmatched_unavailable'] = 'Re-run Collect Server Usage to enable device-level unmatched lists.';
+                }
             }
 
             $report['items'][$key] = $item;
@@ -192,6 +212,7 @@ class Reconciler
         ];
 
         $report['overall_status'] = self::getOverallStatus($report['summary']);
+        $report['summary']['past_grace_overbill'] = round($report['summary']['past_grace_overbill'], 2);
 
         return $report;
     }
@@ -376,5 +397,141 @@ class Reconciler
         }
 
         return implode("\n", $lines);
+    }
+
+    /**
+     * Collect all portal-only rows with billing_status=overbilled_past_grace across categories.
+     * Re-runs matching without UI list caps so the CSV is complete.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public static function collectOverbilledPastGraceRows(?string $snapshotDate = null): array
+    {
+        if ($snapshotDate === null) {
+            $snapshotDate = Capsule::table('cb_server_usage_combined')
+                ->orderBy('snapshot_date', 'desc')
+                ->value('snapshot_date');
+        }
+        if (!$snapshotDate) {
+            throw new \RuntimeException('No server usage snapshots found. Run collect_usage first.');
+        }
+
+        $combined = Capsule::table('cb_server_usage_combined')
+            ->where('snapshot_date', $snapshotDate)
+            ->first();
+        if (!$combined) {
+            throw new \RuntimeException("No combined snapshot for date {$snapshotDate}");
+        }
+
+        $portalPulledAt = PortalUsageExtractor::findSnapshotNear(
+            $combined->created_at ?? ($snapshotDate . ' 00:00:00')
+        );
+        if (!$portalPulledAt) {
+            $portalPulledAt = Capsule::table('cb_active_services')->max('pulled_at');
+        }
+        if (!$portalPulledAt) {
+            throw new \RuntimeException('No portal active services snapshot found. Run portal pull first.');
+        }
+
+        $portalData = PortalUsageExtractor::getSnapshot($portalPulledAt);
+        $inventory = DeviceMatcher::loadInventoryForSnapshot($snapshotDate);
+
+        $rows = [];
+        foreach (self::ITEM_TYPES as $key => $label) {
+            $unmatched = DeviceMatcher::matchCategory(
+                $key,
+                $portalData[$key]['items'] ?? [],
+                $inventory,
+                false
+            );
+            foreach ($unmatched['portal_only'] ?? [] as $item) {
+                if (($item['billing_status'] ?? '') !== 'overbilled_past_grace') {
+                    continue;
+                }
+                $rows[] = [
+                    'category' => $label,
+                    'category_key' => $key,
+                    'account' => $item['account'] ?? $item['username'] ?? '',
+                    'device_id' => $item['device_id'] ?? '',
+                    'device_hash' => $item['server_device_id'] ?? '',
+                    'device_name' => $item['device_name'] ?? $item['friendly_name'] ?? '',
+                    'quantity' => $item['portal_qty'] ?? 1,
+                    'amount' => $item['amount'] ?? 0,
+                    'overbill_amount' => $item['overbill_amount'] ?? $item['amount'] ?? 0,
+                    'revoked_at' => $item['revoked_at'] ?? '',
+                    'billing_cycle_days' => $item['billing_cycle_days'] ?? 30,
+                    'expected_billing_end' => $item['expected_billing_end'] ?? '',
+                    'next_due_date' => $item['next_due_date'] ?? '',
+                    'billing_status' => $item['billing_status'] ?? '',
+                    'service_name' => $item['service'] ?? '',
+                    'snapshot_date' => $snapshotDate,
+                    'portal_snapshot_at' => $portalPulledAt,
+                ];
+            }
+        }
+
+        return $rows;
+    }
+
+    /**
+     * Build CSV string of overbilled-past-grace items for Comet support.
+     */
+    public static function buildOverbilledPastGraceCsv(?string $snapshotDate = null): string
+    {
+        $rows = self::collectOverbilledPastGraceRows($snapshotDate);
+        $headers = [
+            'category',
+            'account',
+            'device_id',
+            'device_hash',
+            'device_name',
+            'quantity',
+            'amount',
+            'overbill_amount',
+            'revoked_at',
+            'billing_cycle_days',
+            'expected_billing_end',
+            'next_due_date',
+            'billing_status',
+            'service_name',
+            'snapshot_date',
+            'portal_snapshot_at',
+        ];
+
+        $fh = fopen('php://temp', 'r+');
+        fputcsv($fh, $headers);
+        foreach ($rows as $row) {
+            $line = [];
+            foreach ($headers as $h) {
+                $line[] = $row[$h] ?? '';
+            }
+            fputcsv($fh, $line);
+        }
+        rewind($fh);
+        $csv = stream_get_contents($fh);
+        fclose($fh);
+
+        return $csv === false ? '' : $csv;
+    }
+
+    /**
+     * Stream overbilled-past-grace CSV as a download response.
+     */
+    public static function streamOverbilledPastGraceCsv(?string $snapshotDate = null): void
+    {
+        $csv = self::buildOverbilledPastGraceCsv($snapshotDate);
+        $dateStamp = $snapshotDate ?: date('Y-m-d');
+        $filename = 'comet-overbilled-past-grace-' . $dateStamp . '.csv';
+
+        while (ob_get_level() > 0) {
+            ob_end_clean();
+        }
+
+        header('Content-Type: text/csv; charset=utf-8');
+        header('Content-Disposition: attachment; filename="' . $filename . '"');
+        header('Content-Length: ' . strlen($csv));
+        header('Cache-Control: no-store');
+        echo $csv;
+        exit;
     }
 }
