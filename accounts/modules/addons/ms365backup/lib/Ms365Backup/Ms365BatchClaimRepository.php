@@ -699,34 +699,6 @@ final class Ms365BatchClaimRepository
 
             $batchRunId = (string) ($child['e3_batch_run_id'] ?? '');
 
-            // #region agent log
-            if ($staleProgress && Ms365BatchRunRepository::isUploadLikePhase($phase)) {
-                @file_put_contents('/var/www/eazybackup.ca/.cursor/debug-045118.log', json_encode([
-                    'sessionId' => '045118',
-                    'runId' => 'post-fix',
-                    'hypothesisId' => 'U1',
-                    'location' => 'Ms365BatchClaimRepository.php:reapStalledBatchChildren',
-                    'message' => 'upload-like stale reaper',
-                    'data' => [
-                        'run_id' => $runId,
-                        'batch_run_id' => $batchRunId,
-                        'phase' => $phase,
-                        'items_done' => $itemsDone,
-                        'items_total' => $itemsTotal,
-                        'silence_threshold' => $silenceSeconds,
-                        'actual_silence' => $freshness > 0 ? ($now - $freshness) : -1,
-                        'started_at' => (int) ($child['started_at'] ?? 0),
-                        'since_started' => ((int) ($child['started_at'] ?? 0)) > 0
-                            ? ($now - (int) $child['started_at']) : -1,
-                        'action' => ($batchRunId !== '' && isset($liveBatchSet[$batchRunId]))
-                            ? ($abortAt <= 0 ? 'soft_abort' : 'wait_or_requeue')
-                            : 'requeue_orphan',
-                    ],
-                    'timestamp' => (int) (microtime(true) * 1000),
-                ], JSON_UNESCAPED_SLASHES) . "\n", FILE_APPEND | LOCK_EX);
-            }
-            // #endregion
-
             if (!$staleProgress && !$staleLease) {
                 // Progress resumed after a soft-abort: clear orphaned abort so a later
                 // brief silence does not immediately requeue past the grace window.

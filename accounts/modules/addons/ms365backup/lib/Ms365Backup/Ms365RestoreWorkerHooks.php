@@ -310,24 +310,6 @@ final class Ms365RestoreWorkerHooks
                     && \WHMCS\Database\Capsule::schema()->hasColumn('ms365_backup_runs', 'last_progress_at')) {
                     $fields['last_progress_at'] = time();
                 }
-                // #region agent log
-                if ($advancedToUpload) {
-                    @file_put_contents('/var/www/eazybackup.ca/.cursor/debug-045118.log', json_encode([
-                        'sessionId' => '045118',
-                        'runId' => 'post-fix',
-                        'hypothesisId' => 'U2',
-                        'location' => 'Ms365RestoreWorkerHooks.php:phase-advance',
-                        'message' => 'upload phase advance refreshes liveness',
-                        'data' => [
-                            'run_id' => $runId,
-                            'from_phase' => $existingPhase,
-                            'to_phase' => $incomingPhase,
-                            'items' => [(int) ($existing['items_done'] ?? 0), (int) ($existing['items_total'] ?? 0)],
-                        ],
-                        'timestamp' => (int) (microtime(true) * 1000),
-                    ], JSON_UNESCAPED_SLASHES) . "\n", FILE_APPEND | LOCK_EX);
-                }
-                // #endregion
             }
         }
         $persistedPhase = strtolower(trim((string) ($fields['phase'] ?? $existingPhase)));
@@ -358,29 +340,6 @@ final class Ms365RestoreWorkerHooks
                 'attempt_bytes_uploaded' => $incomingBytesUploaded,
                 'attempt_graph_requests' => $incomingRequests,
             ];
-            // #region agent log
-            $storedItemsDoneLog = (int) ($existing['items_done'] ?? 0);
-            $attemptItemsLog = (int) ($existingStats['attempt_items_done'] ?? 0);
-            if ($sameAttempt && $storedItemsDoneLog > $incomingItemsDone && $attemptItemsLog < $storedItemsDoneLog) {
-                @file_put_contents('/var/www/eazybackup.ca/.cursor/debug-58741c.log', json_encode([
-                    'sessionId' => '58741c',
-                    'hypothesisId' => 'H1',
-                    'location' => 'Ms365RestoreWorkerHooks.php:residueVisible',
-                    'message' => 'column high-water ahead of attempt; UI must use attempt counters',
-                    'data' => [
-                        'run_id' => $runId,
-                        'stored_items' => $storedItemsDoneLog,
-                        'attempt_items' => $attemptItemsLog,
-                        'incoming_items' => $incomingItemsDone,
-                        'stored_graph_requests' => $existingChildRequests,
-                        'attempt_graph_requests' => $attemptGraphRequests,
-                        'incoming_graph_requests' => $incomingRequests,
-                        'attempt_local_progress' => $attemptLocalProgress,
-                    ],
-                    'timestamp' => (int) (microtime(true) * 1000),
-                ], JSON_UNESCAPED_SLASHES) . "\n", FILE_APPEND | LOCK_EX);
-            }
-            // #endregion
         }
 
         if (!$isHeartbeat) {
@@ -463,25 +422,6 @@ final class Ms365RestoreWorkerHooks
             if ($incomingRequests > 0) {
                 // Keep high-water graph_requests for infra-preserved totals; attempt_* drives UI/deltas.
                 $statsPatch['graph_requests'] = max($incomingRequests, $existingChildRequests);
-                // #region agent log
-                if ($existingChildRequests > $attemptGraphRequests
-                    && $priorAttemptStartedAt === $attemptStartedAt
-                    && $incomingRequests < $existingChildRequests) {
-                    @file_put_contents('/var/www/eazybackup.ca/.cursor/debug-58741c.log', json_encode([
-                        'sessionId' => '58741c',
-                        'hypothesisId' => 'H1',
-                        'location' => 'Ms365RestoreWorkerHooks.php:graphReqHighWater',
-                        'message' => 'kept graph_requests high-water; attempt counter advancing',
-                        'data' => [
-                            'run_id' => $runId,
-                            'stored' => $existingChildRequests,
-                            'attempt' => $attemptGraphRequests,
-                            'incoming' => $incomingRequests,
-                        ],
-                        'timestamp' => (int) (microtime(true) * 1000),
-                    ], JSON_UNESCAPED_SLASHES) . "\n", FILE_APPEND | LOCK_EX);
-                }
-                // #endregion
             }
         }
         $phaseForStats = $rawPhase;
