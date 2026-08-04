@@ -11,6 +11,13 @@
 
 ## Session log
 
+### 2026-08-04 — Proxmox template refresh + prod fleet scale-out (+12)
+
+- **Template 9099 (r640):** rootfs already **62G**; baked worker **0.4.33**, prod config **v6** budgets, `MS365_WORKER_API_BASE=http://192.168.92.75/modules/addons/cloudstorage/api`.
+- **Per-node templates (cluster VMID unique):** 9099→r640, **9098**→r630 `local-lvm`, **9097**→r730 `local-lvm` (vzdump/restore). `proxmox_template_vmid_map` set on DEV+PROD; clone ACLs on `/vms/9097`+`/vms/9098`.
+- **Scale-up:** 6 prod workers on r630 (**9014–9019**), 6 on r730 (**9020–9025**); all active/heartbeat on **0.4.33**. Fleet now ~19 prod workers (6/node + legacy 9001).
+- **Code fix:** `ProxmoxProvisioner` SSH `pct exec`/`pct push` hops via entry host to the CT’s node; bootstrap waits for guest systemd/D-Bus. Deployed to prod via `deploy-production.sh`.
+
 ### 2026-08-04 — “1 workload with no progress” zombies (PHP 1.52.48, worker 0.4.34)
 
 - **Batches:** `a92de69f…` (Emily Corbett upload 0/19) and `783c96b5…` (sylvia.larke queue=done / run=running `no_changes`).

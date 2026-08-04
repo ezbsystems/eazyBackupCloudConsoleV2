@@ -1186,13 +1186,12 @@ final class ProxmoxProvisioner
             $shell .= ' | grep -E ' . escapeshellarg($grepPattern) . ' || true';
         }
 
-        $sshTarget = self::proxmoxShellTarget();
         $execRes = self::execLxcShell($apiUrl, $node, $vmid, $shell, $tokenId, $tokenSecret);
         if ($execRes['ok']) {
             $output = (string) ($execRes['output'] ?? '');
-        } elseif ($sshTarget !== '') {
+        } elseif (self::proxmoxShellTarget() !== '') {
             $remoteCmd = 'pct exec ' . $vmid . ' -- /bin/sh -c ' . escapeshellarg($shell);
-            $sshRes = self::runSshCommand($sshTarget, $remoteCmd);
+            $sshRes = self::runPctCommandViaSsh($node, $remoteCmd);
             if ($sshRes['ok']) {
                 $output = (string) ($sshRes['output'] ?? '');
             } else {
@@ -1313,15 +1312,14 @@ final class ProxmoxProvisioner
             return ['ok' => true, 'method' => 'lxc_exec'];
         }
 
-        $sshTarget = self::proxmoxShellTarget();
-        if ($sshTarget !== '') {
+        if (self::proxmoxShellTarget() !== '') {
             $hostTmp = '/tmp/ms365-worker-env-' . $vmid . '.conf';
             $remoteCmd = 'echo ' . escapeshellarg($b64)
                 . ' | base64 -d > ' . escapeshellarg($hostTmp)
                 . ' && chmod 600 ' . escapeshellarg($hostTmp)
                 . ' && pct push ' . $vmid . ' ' . escapeshellarg($hostTmp) . ' ' . escapeshellarg($dropin)
                 . ' && rm -f ' . escapeshellarg($hostTmp);
-            $sshRes = self::runSshCommand($sshTarget, $remoteCmd);
+            $sshRes = self::runPctCommandViaSsh($hostNode, $remoteCmd);
             if ($sshRes['ok']) {
                 FleetAuditLog::write(
                     'provision_env_inject',
@@ -1425,6 +1423,33 @@ final class ProxmoxProvisioner
         }
 
         return trim(Ms365EngineConfig::moduleSettingPublic('proxmox_shell_target', ''));
+    }
+
+    /**
+     * Run a pct/host command on the Proxmox node that owns the CT.
+     * WHMCS often only has SSH to one cluster entry host (proxmox_ssh_target); when the CT
+     * lives on another node, hop via that entry host (cluster node ↔ node SSH).
+     *
+     * @return array{ok: bool, message?: string, output?: string}
+     */
+    private static function runPctCommandViaSsh(string $hostNode, string $pctCommand): array
+    {
+        $sshTarget = self::proxmoxShellTarget();
+        if ($sshTarget === '') {
+            return ['ok' => false, 'message' => 'proxmox_ssh_target not configured'];
+        }
+
+        $homeNode = trim(Ms365EngineConfig::moduleSettingPublic('proxmox_node', ''));
+        $hostNode = trim($hostNode);
+        if ($hostNode === '' || $homeNode === '' || $hostNode === $homeNode) {
+            return self::runSshCommand($sshTarget, $pctCommand);
+        }
+
+        $hop = 'ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new '
+            . escapeshellarg('root@' . $hostNode) . ' '
+            . escapeshellarg($pctCommand);
+
+        return self::runSshCommand($sshTarget, $hop);
     }
 
     /** Proxmox storage pool for LXC full-clone rootfs (shared storage enables cross-node scale-up). */
@@ -1575,8 +1600,7 @@ final class ProxmoxProvisioner
             return ['ok' => true, 'method' => 'lxc_exec', 'output' => (string) ($execRes['output'] ?? '')];
         }
 
-        $sshTarget = self::proxmoxShellTarget();
-        if ($sshTarget === '') {
+        if (self::proxmoxShellTarget() === '') {
             return [
                 'ok' => false,
                 'message' => (string) ($execRes['message'] ?? 'LXC exec failed')
@@ -1585,7 +1609,7 @@ final class ProxmoxProvisioner
         }
 
         $remoteCmd = 'pct exec ' . $vmid . ' -- /bin/sh -c ' . escapeshellarg($shell);
-        $sshRes = self::runSshCommand($sshTarget, $remoteCmd);
+        $sshRes = self::runPctCommandViaSsh($hostNode, $remoteCmd);
         if ($sshRes['ok']) {
             return ['ok' => true, 'method' => 'ssh_pct_exec', 'output' => (string) ($sshRes['output'] ?? '')];
         }
@@ -1608,7 +1632,11 @@ final class ProxmoxProvisioner
         sleep(2);
 
         $unit = self::WORKER_SYSTEMD_UNIT;
-        $shell = 'systemctl daemon-reload'
+        // Wait for guest systemd/D-Bus before enable/restart (fresh clones often race dbus).
+        $shell = 'i=0; while [ "$i" -lt 45 ]; do'
+            . ' if systemctl is-system-running >/dev/null 2>&1 || systemctl daemon-reload >/dev/null 2>&1; then break; fi;'
+            . ' i=$((i+1)); sleep 1; done;'
+            . ' systemctl daemon-reload'
             . ' && systemctl enable ' . escapeshellarg($unit)
             . ' && systemctl restart ' . escapeshellarg($unit)
             . ' && systemctl is-active ' . escapeshellarg($unit);
