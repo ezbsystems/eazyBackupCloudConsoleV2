@@ -3,13 +3,20 @@
 **Purpose:** Single handoff document so the next agent knows where work stopped. Update this file at the **end of every session** (or after each meaningful milestone).
 
 **Last updated:** 2026-08-04
-**Module version (ms365backup):** 1.52.47
+**Module version (ms365backup):** 1.52.48
 **Cloudstorage (e3) version:** 2.2.4  
-**Worker version (ms365-backup-worker):** 0.4.33 (Kopia v0.23.1)
+**Worker version (ms365-backup-worker):** 0.4.34 (Kopia v0.23.1)
 
 ---
 
 ## Session log
+
+### 2026-08-04 — “1 workload with no progress” zombies (PHP 1.52.48, worker 0.4.34)
+
+- **Batches:** `a92de69f…` (Emily Corbett upload 0/19) and `783c96b5…` (sylvia.larke queue=done / run=running `no_changes`).
+- **Root cause:** (1) Zero-byte Kopia upload wedges left `running` after stall watchdog; reaper used full 1800s because `items_done=0` skipped shortened silence. (2) `no_changes` completion marked queue `done` while run row stayed `running`. (3) Batch `failSink` dropped failed ACK with no outbox.
+- **Fix:** Reaper soft-aborts zero-byte uploads at `UPLOAD_TAIL_STALE_SECONDS` (900); `reconcileRunQueueStatusMismatch` heals queue=done+run=running(+no_changes); hub progress skips terminal queue children; stall reports before coop-cancel; failSink outboxes failures.
+- **Ops:** Heal Emily (requeue) + Sylvia (mark success) after PHP deploy; fleet worker 0.4.34 via build/deploy when ready.
 
 ### 2026-08-04 — Apparent “no progress” at 99.9% (PHP 1.52.47)
 
