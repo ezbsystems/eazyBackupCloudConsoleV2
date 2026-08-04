@@ -29,6 +29,8 @@ use CometBilling\UsageNormalizer;
 use CometBilling\ActiveServicesNormalizer;
 use CometBilling\Settings;
 use CometBilling\CreditLedger;
+use CometBilling\UsagePullReconciler;
+use CometBilling\CreditLedgerRebuilder;
 
 $logLines = [];
 $exitCode = 0;
@@ -98,7 +100,7 @@ try {
     cbFinish(1);
 }
 
-/** 1) Billing History → cb_credit_usage (bulk INSERT IGNORE) */
+/** 1) Billing History → cb_credit_usage (occurrence-aware reconcile) */
 cbPhaseStart('billing_history_api');
 try {
     $usage = $client->reportBillingHistory();
@@ -112,49 +114,13 @@ try {
 cbPhaseEnd('billing_history_api', ['rows' => is_countable($usage) ? count($usage) : 0]);
 
 cbPhaseStart('billing_history_insert');
-$insU = 0;
-$batch = [];
-$batchSize = 500;
-$now = date('Y-m-d H:i:s');
-
-foreach ($usage as $row) {
-    if (!is_array($row)) {
-        continue;
-    }
-    $n = UsageNormalizer::normalizeRow($row);
-    if (!$n['usage_date']) {
-        continue;
-    }
-
-    $batch[] = [
-        'usage_date'      => $n['usage_date'],
-        'posted_at'       => $n['posted_at'],
-        'tenant_id'       => $n['tenant_id'],
-        'device_id'       => $n['device_id'],
-        'item_type'       => $n['item_type'],
-        'item_desc'       => $n['item_desc'],
-        'quantity'        => $n['quantity'],
-        'unit_cost'       => $n['unit_cost'],
-        'amount'          => $n['amount'],
-        'packs_used'      => $n['packs_used'],
-        'raw_row'         => json_encode($n['raw_row']),
-        'row_fingerprint' => $n['row_fingerprint'],
-        'created_at'      => $now,
-    ];
-
-    if (count($batch) >= $batchSize) {
-        $insU += cbBulkInsertIgnore('cb_credit_usage', $batch);
-        $batch = [];
-    }
-}
-
-if (!empty($batch)) {
-    $insU += cbBulkInsertIgnore('cb_credit_usage', $batch);
-}
-
-cbLog("Usage rows: inserted={$insU}");
-cbPhaseEnd('billing_history_insert', ['inserted' => $insU]);
-Settings::setKv('last_billing_history_pull', gmdate('Y-m-d H:i:s'));
+$pulledAt = gmdate('Y-m-d H:i:s');
+$usageRows = is_array($usage) ? $usage : [];
+$ingest = UsagePullReconciler::ingestBillingHistory($usageRows, $pulledAt);
+$insU = (int) ($ingest['inserted'] ?? 0);
+cbLog("Usage rows: inserted={$insU} updated=" . (int) ($ingest['updated'] ?? 0) . ' total_in_pull=' . (int) ($ingest['total_in_pull'] ?? 0));
+cbPhaseEnd('billing_history_insert', $ingest);
+Settings::setKv('last_billing_history_pull', $pulledAt);
 
 /** 2) Active Services → cb_active_services (bulk INSERT IGNORE) */
 cbPhaseStart('active_services_api');
@@ -173,6 +139,7 @@ cbPhaseStart('active_services_insert');
 $pulledAt = gmdate('Y-m-d H:i:s');
 $insS = 0;
 $svcBatch = [];
+$batchSize = 500;
 
 foreach ($services as $row) {
     if (!is_array($row)) {
@@ -208,36 +175,57 @@ cbLog("Active services snapshot: inserted={$insS} pulled_at={$pulledAt}");
 cbPhaseEnd('active_services_insert', ['inserted' => $insS]);
 Settings::setKv('last_active_services_pull', $pulledAt);
 
-/** 3) Incremental daily balance roll-forward */
+/** 3) Rebuild local credit ledger from Bill History + usage */
 cbPhaseStart('balance_recompute');
-$end = date('Y-m-d');
-$lastBalanceDate = Settings::getKv('last_balance_recompute_date');
-$lastBalRow = Capsule::table('cb_daily_balance')->orderBy('balance_date', 'desc')->first();
-
-if ($lastBalanceDate && $lastBalRow) {
-    $start = date('Y-m-d', strtotime($lastBalanceDate . ' +1 day'));
-    $running = (float) $lastBalRow->closing_credit;
-} elseif ($lastBalRow) {
-    $start = date('Y-m-d', strtotime($lastBalRow->balance_date . ' +1 day'));
-    $running = (float) $lastBalRow->closing_credit;
-} else {
-    // First run: seed from day before window or compute opening from history
-    $start = date('Y-m-d', strtotime('-120 days'));
-    $priorRow = Capsule::table('cb_daily_balance')
-        ->where('balance_date', '<', $start)
-        ->orderBy('balance_date', 'desc')
-        ->first();
-
-    if ($priorRow) {
-        $running = (float) $priorRow->closing_credit;
-    } else {
-        $running = cbComputeOpeningBalance($start);
-    }
+try {
+    $opening = CreditLedgerRebuilder::purchaseCoverage()['earliest']
+        ?? date('Y-m-d', strtotime('-120 days'));
+    $rebuild = CreditLedgerRebuilder::rebuild($opening, date('Y-m-d'), false);
+    cbLog('Ledger rebuild: closing=' . ($rebuild['validation']['closing_credit'] ?? 'n/a')
+        . ' complete=' . (($rebuild['validation']['purchase_coverage_complete'] ?? false) ? 'yes' : 'no'));
+} catch (\Throwable $e) {
+    cbLog('Ledger rebuild skipped/failed: ' . $e->getMessage());
+    // Fallback incremental roll-forward
+    cbIncrementalBalanceRecompute();
 }
+cbPhaseEnd('balance_recompute');
 
-if (strtotime($start) > strtotime($end)) {
-    cbLog("Balance already up to date through {$end}");
-} else {
+cbFinish(0);
+
+/**
+ * Legacy incremental balance path when rebuild schema unavailable.
+ */
+function cbIncrementalBalanceRecompute(): void
+{
+    $end = date('Y-m-d');
+    $lastBalanceDate = Settings::getKv('last_balance_recompute_date');
+    $lastBalRow = Capsule::table('cb_daily_balance')->orderBy('balance_date', 'desc')->first();
+
+    if ($lastBalanceDate && $lastBalRow) {
+        $start = date('Y-m-d', strtotime($lastBalanceDate . ' +1 day'));
+        $running = (float) $lastBalRow->closing_credit;
+    } elseif ($lastBalRow) {
+        $start = date('Y-m-d', strtotime($lastBalRow->balance_date . ' +1 day'));
+        $running = (float) $lastBalRow->closing_credit;
+    } else {
+        $start = date('Y-m-d', strtotime('-120 days'));
+        $priorRow = Capsule::table('cb_daily_balance')
+            ->where('balance_date', '<', $start)
+            ->orderBy('balance_date', 'desc')
+            ->first();
+
+        if ($priorRow) {
+            $running = (float) $priorRow->closing_credit;
+        } else {
+            $running = cbComputeOpeningBalance($start);
+        }
+    }
+
+    if (strtotime($start) > strtotime($end)) {
+        cbLog("Balance already up to date through {$end}");
+        return;
+    }
+
     $dates = new DatePeriod(
         new DateTime($start),
         new DateInterval('P1D'),
@@ -260,15 +248,14 @@ if (strtotime($start) > strtotime($end)) {
         Capsule::table('cb_daily_balance')->updateOrInsert(
             ['balance_date' => $day],
             [
-                'opening_credit'   => number_format($opening, 4, '.', ''),
+                'opening_credit' => number_format($opening, 4, '.', ''),
                 'purchases_credit' => number_format($purchases, 4, '.', ''),
-                'usage_amount'     => number_format($usageAmt, 4, '.', ''),
-                'closing_credit'   => number_format($closing, 4, '.', ''),
-                'recomputed_at'    => date('Y-m-d H:i:s'),
+                'usage_amount' => number_format($usageAmt, 4, '.', ''),
+                'closing_credit' => number_format($closing, 4, '.', ''),
+                'recomputed_at' => date('Y-m-d H:i:s'),
             ]
         );
 
-        // FIFO allocation for this day's usage
         if ($usageAmt > 0) {
             $alloc = CreditLedger::allocateUsage($usageAmt, $day, 'Portal billing usage');
             if (!empty($alloc['allocated']) && empty($alloc['skipped'])) {
@@ -280,9 +267,6 @@ if (strtotime($start) > strtotime($end)) {
     Settings::setKv('last_balance_recompute_date', $end);
     cbLog("Balance recompute complete through {$end}");
 }
-cbPhaseEnd('balance_recompute');
-
-cbFinish(0);
 
 /**
  * Bulk INSERT IGNORE helper (no full-table COUNT scans).

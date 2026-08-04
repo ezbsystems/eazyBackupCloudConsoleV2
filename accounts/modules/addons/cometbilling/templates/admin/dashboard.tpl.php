@@ -143,7 +143,7 @@ $setupComplete = count(array_filter($setupSteps, fn($s) => $s['done'])) === coun
         </div>
 
         <div class="cb-card">
-            <h4>📊 Portal-Reconciled Balance</h4>
+            <h4>📊 Reconstructed Local Ledger</h4>
             <div class="stat">
                 <?= $portalBalance !== null ? '$' . number_format($portalBalance, 2) : 'N/A' ?>
             </div>
@@ -235,7 +235,7 @@ $setupComplete = count(array_filter($setupSteps, fn($s) => $s['done'])) === coun
             <tr><td>Usage History Rows</td><td><?= number_format($usageCount) ?></td></tr>
             <tr><td>Total Purchases (Lifetime)</td><td>$<?= number_format((float)$purchSum, 2) ?></td></tr>
             <tr>
-                <td>Portal-Reconciled Balance</td>
+                <td>Reconstructed Local Ledger</td>
                 <td>
                     <?php if ($lastBal): ?>
                     $<?= number_format((float)$lastBal->closing_credit, 2) ?>

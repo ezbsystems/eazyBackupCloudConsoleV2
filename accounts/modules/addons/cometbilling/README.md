@@ -107,7 +107,10 @@ Alternatively, enable "Enable Daily Pull" in addon settings to run both during W
 | `PortalUsageExtractor` | Parse cb_active_services into aggregated totals |
 | `ServerUsageCollector` | Collect device/addon counts from Comet servers via Admin API |
 | `Reconciler` | Compare server usage vs portal billing, flag discrepancies |
-| `HistoricalReconciler` | Find historical overbill charges from `cb_credit_usage` vs revoked devices |
+| `HistoricalReconciler` | Audit-grade overbill findings with confidence grades |
+| `OverbillEvidenceEvaluator` | Per-charge debit + billing period evidence evaluation |
+| `CreditLedgerRebuilder` | Deterministic ledger rebuild from Bill History + usage |
+| `PackUsageParser` | Lossless parse of Comet Packs Used strings |
 | `Settings` | Addon settings loader (decrypts PortalToken) + cb_settings KV store |
 | `CreditLedger` | FIFO credit lot management and consumption tracking |
 | `PurchaseCsvImporter` | Import Comet purchase history CSV exports |
@@ -209,19 +212,25 @@ Use the dashboard setup checklist, or:
 - **Usage History**: View billing history
 - **M365 Report**: Filter Microsoft 365 Protected Accounts booster billing by date range (latest portal snapshot in period)
 
-### Historical Reconcile
+### Historical Reconcile (audit-grade)
 
-The **Historical Reconcile** page scans `cb_credit_usage` charge lines (Comet billing history, typically back to ~2019) and compares each charge's `usage_date` to the expected billing end for revoked devices in `comet_devices`.
+The **Historical Reconcile** page performs evidence-based overbill analysis using Comet’s own records:
 
-**Scope:** This answers "was this charge posted after billing should have stopped?" — not server inventory vs portal count variance over time (no historical server inventory for that).
+- **Credit usage history** — `Amount Used` + `Packs Used` (pack debit evidence)
+- **Active services snapshots** — observed `billing_cycle_days` and `next_due_date`
+- **Device lifecycle** — `comet_devices` revocation/registration + server inventory where available
+- **Bill History CSV** — purchased credits for reconstructed ledger completeness
 
-**Rules (same semantics as live Reconcile):**
-- **Monthly** (devices, M365, disk image, MSSQL, etc.): expected end is the registration-aligned 30-day period containing `revoked_at` when `RegistrationTime` is available; if missing, revoke date + 30 days as fallback.
-- **Daily** (Hyper-V, VMware, Proxmox): last billable day is the revoke date; charges on later days are overbilled.
+**Accuracy boundary:** Comet does not expose an authoritative account balance. We can prove Comet recorded a pack debit and that the charge date falls after the proven final billable date. We cannot independently observe Comet’s hidden balance.
 
-**Defaults:** Last 90 days; presets for 30/90/365 days and all history. Detail table capped at 2,000 overbilled rows (summary totals are full-range); CSV export is uncapped.
+**Verdict grades:**
+- **Confirmed by Comet records** — proven identity, lifecycle stop, portal-supported cadence, pack debit, no reversal, full source coverage
+- **Probable** — strong evidence but one inferred anchor
+- **Review required** — ambiguous identity, sparse lifecycle, or incomplete coverage
+- **Not overbilled** — charge within proven billable period
+- **Reversed** — offsetting Comet record found
 
-Charges without a matching revoked device are counted as unmatched (active or unknown) and excluded from overbill totals.
+Import the full **Bill History CSV** on the Purchases page before relying on reconstructed ledger totals. Run `bin/rebuild_ledger.php` to rebuild daily balances and per-event FIFO allocations.
 
 ### M365 Protected Accounts Report
 

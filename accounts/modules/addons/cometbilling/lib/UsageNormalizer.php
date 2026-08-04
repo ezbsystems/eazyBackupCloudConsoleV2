@@ -51,6 +51,9 @@ class UsageNormalizer
             'DeviceID',
             'Device Id',
         ]));
+        if ($deviceId === null) {
+            $deviceId = self::extractDeviceIdFromText($subItems ?? '') ?? self::extractDeviceIdFromText($itemRaw ?? '');
+        }
 
         $qty = self::toDec(self::pick($row, ['Quantity', 'Qty']));
         $unitCost = self::toDec(self::moneyToNumber(self::pick($row, [
@@ -63,34 +66,56 @@ class UsageNormalizer
             'Charge',
         ]);
         $amount = self::toDec(self::moneyToNumber($amountRaw) ?? '0');
-        $packsUsed = self::toDec(self::moneyToNumber(self::pick($row, [
-            'Packs Used',
-            'PacksUsed',
-        ])));
+
+        $packsUsedRaw = self::pick($row, ['Packs Used', 'PacksUsed']);
+        $packParsed = PackUsageParser::parse($packsUsedRaw !== null ? (string) $packsUsedRaw : null);
+        $packsUsed = $packParsed['primary_denomination'] !== null
+            ? self::toDec((string) $packParsed['primary_denomination'])
+            : self::toDec(self::moneyToNumber($packsUsedRaw));
 
         $normalized = [
             'usage_date' => $usageDate,
-            'posted_at'  => $postedAt,
-            'tenant_id'  => $tenantId,
-            'device_id'  => $deviceId,
-            'item_type'  => $itemType,
-            'item_desc'  => $itemDesc,
-            'quantity'   => $qty,
-            'unit_cost'  => $unitCost,
-            'amount'     => $amount,
+            'posted_at' => $postedAt,
+            'tenant_id' => $tenantId,
+            'device_id' => $deviceId,
+            'item_type' => $itemType,
+            'item_desc' => $itemDesc,
+            'quantity' => $qty,
+            'unit_cost' => $unitCost,
+            'amount' => $amount,
             'packs_used' => $packsUsed,
-            'raw_row'    => $row,
+            'packs_used_raw' => $packsUsedRaw !== null ? (string) $packsUsedRaw : null,
+            'packs_used_parsed' => $packParsed,
+            'raw_row' => $row,
         ];
 
-        $normalized['row_fingerprint'] = md5(json_encode([
-            $usageDate, $postedAt, $tenantId, $deviceId, $itemType, $itemDesc,
-            $qty, $unitCost, $amount, $packsUsed,
-        ]));
+        $normalized['content_fingerprint'] = self::contentFingerprint($normalized);
+        $normalized['row_fingerprint'] = $normalized['content_fingerprint'];
+        $normalized['occurrence_number'] = 1;
 
         return $normalized;
     }
 
-  /**
+    /**
+     * @param array<string, mixed> $normalized
+     */
+    public static function contentFingerprint(array $normalized): string
+    {
+        return md5(json_encode([
+            $normalized['usage_date'] ?? null,
+            $normalized['posted_at'] ?? null,
+            $normalized['tenant_id'] ?? null,
+            $normalized['device_id'] ?? null,
+            $normalized['item_type'] ?? null,
+            $normalized['item_desc'] ?? null,
+            $normalized['quantity'] ?? null,
+            $normalized['unit_cost'] ?? null,
+            $normalized['amount'] ?? null,
+            $normalized['packs_used_raw'] ?? null,
+        ]));
+    }
+
+    /**
      * @param array<string, mixed> $row
      * @param list<string> $keys
      */
@@ -119,12 +144,24 @@ class UsageNormalizer
         return (string) $v;
     }
 
+    private static function extractDeviceIdFromText(string $text): ?string
+    {
+        if (preg_match('/Device\s+ID:\s*([a-f0-9]+)/i', $text, $m)) {
+            return strtolower(trim($m[1]));
+        }
+        if (preg_match('/Device\s+([a-f0-9]{6,})/i', $text, $m)) {
+            return strtolower(trim($m[1]));
+        }
+
+        return null;
+    }
+
     private static function inferItemType(?string $item): string
     {
         if ($item === null || $item === '') {
             return 'other';
         }
-        if (stripos($item, 'Booster -') === 0) {
+        if (stripos($item, 'Booster -') === 0 || stripos($item, 'Booster') === 0) {
             return 'booster';
         }
         if (stripos($item, 'Device -') === 0) {

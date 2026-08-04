@@ -13,13 +13,13 @@ class PurchaseCsvImporter
     private const NOTES = 'Imported from Comet CSV';
 
     /**
-     * Import purchases from a Comet CSV export file.
+     * Import purchases from a Comet Bill History CSV export file.
      *
-     * @return array{imported: int, skipped: int, lots: int, errors: string[]}
+     * @return array{imported: int, skipped: int, lots: int, errors: string[], batch_id: ?int}
      */
-    public static function import(string $path, bool $dryRun = false): array
+    public static function import(string $path, bool $dryRun = false, bool $markComplete = false): array
     {
-        $result = ['imported' => 0, 'skipped' => 0, 'lots' => 0, 'errors' => []];
+        $result = ['imported' => 0, 'skipped' => 0, 'lots' => 0, 'errors' => [], 'batch_id' => null];
 
         try {
             $parsedRows = self::parseFile($path);
@@ -28,17 +28,53 @@ class PurchaseCsvImporter
             return $result;
         }
 
+        $batchId = null;
+        $earliest = null;
+        $latest = null;
+        $purchaseCount = 0;
+        $refundCount = 0;
+
+        if (!$dryRun && Capsule::schema()->hasTable('cb_purchase_import_batches')) {
+            $batchId = (int) Capsule::table('cb_purchase_import_batches')->insertGetId([
+                'imported_at' => gmdate('Y-m-d H:i:s'),
+                'source_filename' => basename($path),
+                'row_count' => count($parsedRows),
+                'is_complete' => $markComplete ? 1 : 0,
+                'notes' => self::NOTES,
+                'created_at' => gmdate('Y-m-d H:i:s'),
+            ]);
+            $result['batch_id'] = $batchId;
+        }
+
         foreach ($parsedRows as $index => $row) {
-            $lineNum = $index + 2; // 1-based, account for header row
+            $lineNum = $index + 2;
             $purchase = self::parseRow($row, $lineNum, $result['errors']);
 
             if ($purchase === null) {
                 continue;
             }
 
+            $dateOnly = substr((string) $purchase['purchased_at'], 0, 10);
+            if ($earliest === null || $dateOnly < $earliest) {
+                $earliest = $dateOnly;
+            }
+            if ($latest === null || $dateOnly > $latest) {
+                $latest = $dateOnly;
+            }
+
+            if (($purchase['record_type'] ?? 'purchase') === 'refund') {
+                $refundCount++;
+            } else {
+                $purchaseCount++;
+            }
+
             if (self::isDuplicate($purchase)) {
                 $result['skipped']++;
                 continue;
+            }
+
+            if ($batchId !== null) {
+                $purchase['import_batch_id'] = $batchId;
             }
 
             if (!$dryRun) {
@@ -52,6 +88,15 @@ class PurchaseCsvImporter
 
             $result['imported']++;
             $result['lots'] += self::countLotsForPurchase($purchase);
+        }
+
+        if ($batchId !== null) {
+            Capsule::table('cb_purchase_import_batches')->where('id', $batchId)->update([
+                'earliest_date' => $earliest,
+                'latest_date' => $latest,
+                'purchase_count' => $purchaseCount,
+                'refund_count' => $refundCount,
+            ]);
         }
 
         return $result;
@@ -122,8 +167,12 @@ class PurchaseCsvImporter
     public static function parseRow(array $row, int $lineNum, array &$errors): ?array
     {
         if (!self::isCustomerPurchase($row['type'] ?? '')) {
-            return null;
+            if (!self::isRefundOrAdjustment($row['type'] ?? '')) {
+                return null;
+            }
         }
+
+        $recordType = self::isRefundOrAdjustment($row['type'] ?? '') ? 'refund' : 'purchase';
 
         $purchasedAt = self::parseDate($row['date'] ?? '');
         if ($purchasedAt === null) {
@@ -153,6 +202,7 @@ class PurchaseCsvImporter
         return [
             'purchased_at' => $purchasedAt,
             'currency' => 'USD',
+            'record_type' => $recordType,
             'pack_label' => $packLabel !== '' ? $packLabel : null,
             'pack_units' => $packUnits,
             'credit_amount' => $cost,
@@ -312,6 +362,12 @@ class PurchaseCsvImporter
     public static function isCustomerPurchase(string $type): bool
     {
         return strcasecmp(trim($type), 'Customer Purchase') === 0;
+    }
+
+    public static function isRefundOrAdjustment(string $type): bool
+    {
+        $t = strtolower(trim($type));
+        return str_contains($t, 'refund') || str_contains($t, 'adjustment') || str_contains($t, 'credit');
     }
 
     /**

@@ -3,6 +3,8 @@ CREATE TABLE IF NOT EXISTS cb_credit_purchases (
   id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
   purchased_at DATETIME NOT NULL,
   currency CHAR(3) NOT NULL DEFAULT 'USD',
+  record_type ENUM('purchase','refund','adjustment') NOT NULL DEFAULT 'purchase',
+  import_batch_id BIGINT UNSIGNED NULL,
   pack_label VARCHAR(64) NULL,
   pack_units INT NULL,
   credit_amount DECIMAL(12,4) NOT NULL,
@@ -30,10 +32,18 @@ CREATE TABLE IF NOT EXISTS cb_credit_usage (
   unit_cost DECIMAL(12,6) NULL,
   amount DECIMAL(12,4) NOT NULL,
   packs_used DECIMAL(12,4) NULL,
+  packs_used_raw VARCHAR(512) NULL,
+  packs_used_parsed JSON NULL,
   raw_row JSON NOT NULL,
   row_fingerprint CHAR(32) NOT NULL,
+  content_fingerprint CHAR(32) NOT NULL,
+  occurrence_number INT UNSIGNED NOT NULL DEFAULT 1,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  UNIQUE KEY uq_fingerprint (row_fingerprint),
+  first_seen_at DATETIME NULL,
+  last_seen_at DATETIME NULL,
+  pull_manifest_id BIGINT UNSIGNED NULL,
+  is_present_in_latest_pull TINYINT(1) NOT NULL DEFAULT 1,
+  UNIQUE KEY uq_content_occurrence (content_fingerprint, occurrence_number),
   KEY ix_usage_date (usage_date),
   KEY ix_type_date (item_type, usage_date),
   KEY ix_tenant_device_date (tenant_id, device_id, usage_date)
@@ -201,5 +211,90 @@ CREATE TABLE IF NOT EXISTS cb_server_device_inventory (
   UNIQUE KEY uq_snapshot_device (snapshot_date, server_key, device_id),
   KEY idx_snapshot (snapshot_date),
   KEY idx_server (server_key)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Portal pull provenance
+CREATE TABLE IF NOT EXISTS cb_portal_pull_manifests (
+  id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+  pulled_at DATETIME NOT NULL,
+  source VARCHAR(32) NOT NULL,
+  row_count INT UNSIGNED NOT NULL DEFAULT 0,
+  new_rows INT UNSIGNED NOT NULL DEFAULT 0,
+  updated_rows INT UNSIGNED NOT NULL DEFAULT 0,
+  checksum CHAR(32) NULL,
+  meta JSON NULL,
+  created_at DATETIME NOT NULL,
+  KEY idx_pulled_at (pulled_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS cb_purchase_import_batches (
+  id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+  imported_at DATETIME NOT NULL,
+  source_filename VARCHAR(255) NULL,
+  earliest_date DATE NULL,
+  latest_date DATE NULL,
+  row_count INT UNSIGNED NOT NULL DEFAULT 0,
+  purchase_count INT UNSIGNED NOT NULL DEFAULT 0,
+  refund_count INT UNSIGNED NOT NULL DEFAULT 0,
+  is_complete TINYINT(1) NOT NULL DEFAULT 0,
+  notes TEXT NULL,
+  created_at DATETIME NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS cb_audit_runs (
+  id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+  run_at DATETIME NOT NULL,
+  from_date DATE NOT NULL,
+  to_date DATE NOT NULL,
+  summary JSON NOT NULL,
+  coverage JSON NULL,
+  created_at DATETIME NOT NULL,
+  KEY idx_run_at (run_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS cb_audit_findings (
+  id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+  audit_run_id BIGINT UNSIGNED NOT NULL,
+  usage_id BIGINT UNSIGNED NULL,
+  verdict VARCHAR(32) NOT NULL,
+  debit_evidence VARCHAR(16) NOT NULL DEFAULT 'unclear',
+  billing_verdict VARCHAR(32) NOT NULL,
+  amount DECIMAL(12,4) NOT NULL,
+  account VARCHAR(128) NULL,
+  device_id VARCHAR(128) NULL,
+  category VARCHAR(32) NULL,
+  usage_date DATE NOT NULL,
+  item_desc VARCHAR(255) NULL,
+  expected_billing_end DATE NULL,
+  confidence_reasons JSON NULL,
+  evidence JSON NOT NULL,
+  KEY idx_audit_run (audit_run_id),
+  KEY idx_verdict (verdict),
+  KEY idx_usage_date (usage_date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS cb_ledger_rebuild_batches (
+  id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+  started_at DATETIME NOT NULL,
+  completed_at DATETIME NULL,
+  opening_date DATE NOT NULL,
+  closing_date DATE NOT NULL,
+  opening_credit DECIMAL(12,4) NOT NULL,
+  closing_credit DECIMAL(12,4) NULL,
+  is_complete TINYINT(1) NOT NULL DEFAULT 0,
+  validation JSON NULL,
+  created_at DATETIME NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS cb_credit_usage_allocations (
+  id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+  usage_id BIGINT UNSIGNED NOT NULL,
+  lot_id BIGINT UNSIGNED NOT NULL,
+  amount DECIMAL(12,4) NOT NULL,
+  lot_remaining_after DECIMAL(12,4) NOT NULL,
+  rebuild_batch_id BIGINT UNSIGNED NULL,
+  created_at DATETIME NOT NULL,
+  UNIQUE KEY uq_usage_lot (usage_id, lot_id),
+  KEY idx_usage_id (usage_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 

@@ -56,9 +56,25 @@ $exportUrl = $exportBase
 <div class="cb-hist">
     <h3>Historical Reconciliation</h3>
     <div class="cb-banner">
-        Uses Comet billing history charges (<code>cb_credit_usage</code>) compared to device revocation dates.
-        This is <strong>not</strong> server inventory vs portal count variance — it finds charges posted after the expected billing end for revoked devices and boosters.
+        Audit-grade analysis correlating Comet <strong>Amount Used</strong> + <strong>Packs Used</strong> debits with billing periods and lifecycle evidence.
+        This proves overbilling from Comet’s own records — not independent verification of a hidden account balance (Comet does not expose one).
     </div>
+
+    <?php if (!empty($report['coverage'])): ?>
+    <div class="cb-box">
+        <h4>Source Coverage</h4>
+        <?php if (!$report['coverage']['complete_overlap']): ?>
+        <p class="cb-muted" style="color:#b45309;"><strong>Coverage incomplete.</strong> Confirmed findings require full overlap of usage, active services, and Bill History CSV.</p>
+        <?php else: ?>
+        <p class="cb-muted">All required sources overlap the selected period.</p>
+        <?php endif; ?>
+        <ul class="cb-muted">
+            <li>Usage: <?= htmlspecialchars($report['coverage']['usage']['min'] ?? '—') ?> → <?= htmlspecialchars($report['coverage']['usage']['max'] ?? '—') ?></li>
+            <li>Active services: <?= htmlspecialchars($report['coverage']['active_services']['min'] ?? '—') ?> → <?= htmlspecialchars($report['coverage']['active_services']['max'] ?? '—') ?></li>
+            <li>Bill History (purchases): <?= htmlspecialchars($report['coverage']['purchases']['min'] ?? '—') ?> → <?= htmlspecialchars($report['coverage']['purchases']['max'] ?? '—') ?></li>
+        </ul>
+    </div>
+    <?php endif; ?>
 
     <div class="cb-box">
         <h4>Date Range</h4>
@@ -92,25 +108,29 @@ $exportUrl = $exportBase
                 <div class="label">Charges scanned</div>
             </div>
             <div class="cb-stat">
-                <div class="value"><?= number_format((int) $report['summary']['matched_revoked']) ?></div>
-                <div class="label">Matched revoked devices</div>
+                <div class="value warn"><?= number_format((int) ($report['summary']['confirmed_count'] ?? 0)) ?></div>
+                <div class="label">Confirmed by Comet records</div>
             </div>
             <div class="cb-stat">
-                <div class="value warn"><?= number_format((int) $report['summary']['overbilled_count']) ?></div>
-                <div class="label">Overbilled charges</div>
+                <div class="value warn">$<?= number_format((float) ($report['summary']['confirmed_amount'] ?? 0), 2) ?></div>
+                <div class="label">Confirmed $</div>
             </div>
             <div class="cb-stat">
-                <div class="value warn">$<?= number_format((float) $report['summary']['overbilled_amount'], 2) ?></div>
-                <div class="label">Overbilled amount</div>
+                <div class="value"><?= number_format((int) ($report['summary']['probable_count'] ?? 0)) ?></div>
+                <div class="label">Probable overbill</div>
+            </div>
+            <div class="cb-stat">
+                <div class="value"><?= number_format((int) ($report['summary']['review_required_count'] ?? 0)) ?></div>
+                <div class="label">Review required</div>
             </div>
             <div class="cb-stat">
                 <div class="value"><?= number_format((int) $report['summary']['unmatched_device_count']) ?></div>
-                <div class="label">Unmatched / active devices</div>
+                <div class="label">Unmatched / active</div>
             </div>
         </div>
         <p class="cb-muted">
-            Monthly lines (devices, M365, disk image, MSSQL): period end from device <code>RegistrationTime</code> when available; otherwise revoke + 30 days.
-            Daily lines (Hyper-V, VMware, Proxmox): last billable day is revoke date.
+            <strong>Confirmed</strong> requires proven identity, lifecycle stop, portal-supported cadence, pack debit evidence, and no reversal.
+            Probable and review rows are excluded from confirmed totals.
         </p>
         <p>
             <a class="btn btn-primary" href="<?= htmlspecialchars($exportUrl) ?>">Export overbilled (CSV)</a>
@@ -154,6 +174,8 @@ $exportUrl = $exportBase
         <table class="cb-table cb-sortable-table" id="cb-hist-detail">
             <thead>
                 <tr>
+                    <th class="cb-sortable" data-type="text">Verdict</th>
+                    <th class="cb-sortable" data-type="text">Debit</th>
                     <th class="cb-sortable" data-type="date">Usage date</th>
                     <th class="cb-sortable" data-type="text">Account</th>
                     <th class="cb-sortable" data-type="text">Device</th>
@@ -165,12 +187,15 @@ $exportUrl = $exportBase
                     <th class="cb-sortable" data-type="date">Expected end</th>
                     <th class="cb-sortable" data-type="text">Cycle</th>
                     <th class="cb-sortable" data-type="text">Status</th>
-                    <th class="cb-sortable num" data-type="number">Overbill $</th>
                 </tr>
             </thead>
             <tbody>
                 <?php foreach ($report['rows'] as $row): ?>
                 <tr>
+                    <td data-sort="<?= htmlspecialchars($row['verdict'] ?? '') ?>" class="<?= in_array($row['verdict'] ?? '', ['confirmed', 'probable'], true) ? 'cb-status-overbill' : '' ?>">
+                        <?= htmlspecialchars(ucfirst(str_replace('_', ' ', (string) ($row['verdict'] ?? ''))) ?>
+                    </td>
+                    <td data-sort="<?= htmlspecialchars($row['debit_evidence'] ?? '') ?>"><?= htmlspecialchars($row['debit_evidence'] ?? '') ?></td>
                     <td data-sort="<?= htmlspecialchars($row['usage_date']) ?>"><?= htmlspecialchars($row['usage_date']) ?></td>
                     <td data-sort="<?= htmlspecialchars($row['account'] ?? '') ?>"><?= htmlspecialchars($row['account'] ?? '—') ?></td>
                     <td data-sort="<?= htmlspecialchars(substr((string) ($row['device_id'] ?? ''), 0, 8)) ?>">
@@ -186,10 +211,9 @@ $exportUrl = $exportBase
                     <td data-sort="<?= htmlspecialchars($row['registered_at'] ?? '') ?>"><?= htmlspecialchars($row['registered_at'] ?? '—') ?></td>
                     <td data-sort="<?= htmlspecialchars($row['expected_billing_end'] ?? '') ?>"><?= htmlspecialchars($row['expected_billing_end'] ?? '—') ?></td>
                     <td data-sort="<?= htmlspecialchars($row['cycle'] ?? '') ?>"><?= htmlspecialchars($row['cycle'] ?? '') ?></td>
-                    <td data-sort="<?= htmlspecialchars($row['billing_status'] ?? '') ?>" class="<?= ($row['billing_status'] ?? '') === 'overbilled_past_grace' ? 'cb-status-overbill' : 'cb-status-grace' ?>">
-                        <?= ($row['billing_status'] ?? '') === 'overbilled_past_grace' ? 'Overbilled past grace' : 'Expected grace' ?>
+                    <td data-sort="<?= htmlspecialchars($row['billing_verdict'] ?? '') ?>">
+                        <?= htmlspecialchars(str_replace('_', ' ', (string) ($row['billing_verdict'] ?? ''))) ?>
                     </td>
-                    <td class="num" data-sort="<?= (float) ($row['overbill_amount'] ?? 0) ?>">$<?= number_format((float) ($row['overbill_amount'] ?? 0), 2) ?></td>
                 </tr>
                 <?php endforeach; ?>
             </tbody>
