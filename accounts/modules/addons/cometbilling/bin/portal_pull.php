@@ -31,6 +31,7 @@ use CometBilling\Settings;
 use CometBilling\CreditLedger;
 use CometBilling\UsagePullReconciler;
 use CometBilling\CanonicalUsage;
+use CometBilling\CreditLedgerRebuilder;
 
 $logLines = [];
 $exitCode = 0;
