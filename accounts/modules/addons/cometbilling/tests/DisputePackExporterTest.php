@@ -271,28 +271,37 @@ namespace {
     $finding = OverbillEvidenceEvaluator::evaluate(Capsule::$usageRows[0], false);
     assert_eq($finding['verdict'], 'confirmed', 'fixture is confirmed');
     $pack = DisputePackExporter::packFromFinding($finding);
-    assert_true(str_contains($pack['claim'], '2026-07-07'), 'claim includes usage date');
+    assert_true(str_starts_with($pack['claim'], '2026-07-07 Comet debited'), 'claim starts with debit date');
     assert_true(str_contains($pack['claim'], '$2.50'), 'claim includes amount');
     assert_true(str_contains($pack['claim'], '2026-07-06'), 'claim includes revoke date');
+    assert_true(!str_contains($pack['claim'], 'on account '), 'claim omits account clause');
     assert_eq($pack['packs_used'], '10,000 Dollars', 'packs used captured');
+    assert_true(str_contains($pack['pack_debited'], '10,000 Dollars'), 'pack debited label present');
     assert_eq($pack['reversal_status'], 'none_found', 'no reversal');
-    assert_true(str_contains($pack['evidence_1_comet_debit'], 'amount=$2.50'), 'evidence 1 debit');
-    assert_true(str_contains($pack['evidence_2_revocation'], '2026-07-06'), 'evidence 2 revoke');
-    assert_true(str_contains($pack['evidence_4_after_expected_end'], 'after expected'), 'evidence 4 condition');
-    assert_true(str_contains($pack['evidence_5_no_reversal'], 'No offsetting'), 'evidence 5 reversal');
+    assert_true(str_contains($pack['evidence_1_comet_debit'], 'debit date=2026-07-07'), 'evidence 1 debit date');
+    assert_true(str_contains($pack['evidence_2_amount_pack'], 'amount=$2.50'), 'evidence 2 amount');
+    assert_true(str_contains($pack['evidence_2_amount_pack'], 'pack_debited='), 'evidence 2 pack');
+    assert_true(str_contains($pack['evidence_3_revocation'], '2026-07-06'), 'evidence 3 revoke');
+    assert_true(str_contains($pack['evidence_5_after_expected_end'], 'Debit date'), 'evidence 5 uses debit date');
+    assert_true(str_contains($pack['evidence_6_no_reversal'], 'No offsetting'), 'evidence 6 reversal');
 
     $csv = DisputePackExporter::buildCsv('2026-07-01', '2026-07-31');
     assert_true(str_contains($csv, 'claim'), 'csv has claim header');
-    assert_true(str_contains($csv, 'evidence_1_comet_debit'), 'csv has evidence columns');
+    assert_true(str_contains($csv, 'evidence_2_amount_pack'), 'csv has amount/pack column');
     assert_true(str_contains($csv, 'DailyCorp'), 'csv includes confirmed account');
+    assert_true(!str_contains($csv, 'identity_status'), 'csv omits identity columns');
+    assert_true(!str_contains($csv, 'usage_id'), 'csv omits usage_id');
     $lines = array_values(array_filter(explode("\n", trim($csv))));
     assert_eq(count($lines), 2, 'csv has header + one confirmed row');
-    assert_true(str_contains($lines[1], ',1,'), 'csv data row is usage_id 1');
 
     $html = DisputePackExporter::buildHtml('2026-07-01', '2026-07-31');
     assert_true(str_contains($html, 'Print / Save as PDF'), 'html has print control');
-    assert_true(str_contains($html, '1. Comet debit'), 'html lists five evidence sections');
-    assert_true(str_contains($html, '5. No reversal'), 'html includes no-reversal evidence');
+    assert_true(str_contains($html, '<strong>Comet debit:</strong>'), 'html lists comet debit without manual number');
+    assert_true(str_contains($html, '<strong>Amount / pack:</strong>'), 'html lists amount/pack');
+    assert_true(str_contains($html, '<strong>No reversal:</strong>'), 'html includes no-reversal evidence');
+    assert_true(!str_contains($html, 'Usage ID'), 'html omits usage id');
+    assert_true(!str_contains($html, 'Identity'), 'html omits identity');
+    assert_true(!str_contains($html, '<strong>1. '), 'html does not double-number');
 
     echo "\nAll DisputePackExporter tests passed.\n";
 }

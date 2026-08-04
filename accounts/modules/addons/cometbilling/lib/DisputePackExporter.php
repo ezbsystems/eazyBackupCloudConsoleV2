@@ -50,7 +50,7 @@ class DisputePackExporter
         }
 
         usort($packs, static function (array $a, array $b): int {
-            $cmp = strcmp((string) $b['usage_date'], (string) $a['usage_date']);
+            $cmp = strcmp((string) ($b['debit_date'] ?? $b['usage_date'] ?? ''), (string) ($a['debit_date'] ?? $a['usage_date'] ?? ''));
             if ($cmp !== 0) {
                 return $cmp;
             }
@@ -76,11 +76,24 @@ class DisputePackExporter
             ?? $raw['Packs Used']
             ?? $raw['PacksUsed']
             ?? '');
+        $packParsed = $finding['evidence']['packs_used_parsed'] ?? null;
+        if (!is_array($packParsed)) {
+            $packParsed = PackUsageParser::parse($packsUsed !== '' ? $packsUsed : null);
+        }
+        $packDenomination = $packParsed['primary_denomination'] ?? null;
+        $packLabel = $packsUsed !== '' ? $packsUsed : '(none)';
+        if ($packDenomination !== null) {
+            $packLabel = number_format((int) $packDenomination) . ' Dollars pack';
+            if ($packsUsed !== '' && $packsUsed !== $packLabel) {
+                $packLabel .= ' (Packs Used: ' . $packsUsed . ')';
+            }
+        }
+
         $amountUsed = number_format((float) ($finding['amount'] ?? 0), 2, '.', '');
         $deviceId = (string) ($finding['device_id'] ?? '');
         $account = (string) ($finding['account'] ?? '');
         $item = (string) ($finding['item_desc'] ?? ($raw['Item'] ?? ''));
-        $usageDate = (string) ($finding['usage_date'] ?? '');
+        $debitDate = (string) ($finding['usage_date'] ?? '');
         $revokedAt = (string) ($finding['revoked_at'] ?? '');
         $expectedEnd = (string) ($finding['expected_billing_end'] ?? '');
         $cycle = (string) ($finding['cycle'] ?? '');
@@ -98,12 +111,11 @@ class DisputePackExporter
         }
 
         $claim = sprintf(
-            'On %s, Comet Bill History debited $%s%s for device %s on account %s after that device was revoked on %s and after its %s paid-through date of %s, with no later offsetting credit found.',
-            $usageDate,
+            '%s Comet debited $%s / %s for device %s after that device was revoked on %s and after its %s paid-through date of %s, with no later offsetting credit found.',
+            $debitDate,
             $amountUsed,
-            $packsUsed !== '' ? ' / ' . $packsUsed : '',
+            $packsUsed !== '' ? $packsUsed : 'unknown pack',
             $deviceId !== '' ? $deviceId : '(unknown)',
-            $account !== '' ? $account : '(unknown)',
             $revokedAt !== '' ? $revokedAt : '(unknown)',
             $cycle !== '' ? $cycle : 'billing-cycle',
             $expectedEnd !== '' ? $expectedEnd : '(unknown)'
@@ -117,9 +129,11 @@ class DisputePackExporter
             'device_name' => $deviceName,
             'item_desc' => $item,
             'category' => (string) ($finding['category_label'] ?? $finding['category'] ?? ''),
-            'usage_date' => $usageDate,
+            'debit_date' => $debitDate,
+            'usage_date' => $debitDate,
             'amount_used' => $amountUsed,
             'packs_used' => $packsUsed,
+            'pack_debited' => $packLabel,
             'debit_evidence' => (string) ($finding['debit_evidence'] ?? ''),
             'revoked_at' => $revokedAt,
             'registered_at' => (string) ($finding['registered_at'] ?? ''),
@@ -133,34 +147,36 @@ class DisputePackExporter
             'reversal_status' => $reversalStatus,
             'reversal_detail' => $reversalDetail,
             'evidence_1_comet_debit' => sprintf(
-                'Bill History debit: account=%s device=%s item=%s date=%s amount=$%s packs=%s',
+                'debit date=%s account=%s device=%s item=%s',
+                $debitDate,
                 $account,
                 $deviceId,
-                $item,
-                $usageDate,
-                $amountUsed,
-                $packsUsed !== '' ? $packsUsed : '(none)'
+                $item
             ),
-            'evidence_2_revocation' => sprintf(
+            'evidence_2_amount_pack' => sprintf(
+                'amount=$%s pack_debited=%s',
+                $amountUsed,
+                $packLabel
+            ),
+            'evidence_3_revocation' => sprintf(
                 'Device revoked %s (name=%s, registered=%s)',
                 $revokedAt !== '' ? $revokedAt : '(unknown)',
                 $deviceName !== '' ? $deviceName : '(unknown)',
                 (string) ($finding['registered_at'] ?? '') !== '' ? (string) $finding['registered_at'] : '(unknown)'
             ),
-            'evidence_3_billing_period' => sprintf(
+            'evidence_4_billing_period' => sprintf(
                 'Cycle=%s (%d days), next_due=%s, expected_billing_end=%s',
                 $cycle !== '' ? $cycle : '(unknown)',
                 $cycleDays,
                 $nextDue !== '' ? $nextDue : '(unknown)',
                 $expectedEnd !== '' ? $expectedEnd : '(unknown)'
             ),
-            'evidence_4_after_expected_end' => sprintf(
-                'Usage date %s is after expected billing end %s (%s)',
-                $usageDate,
-                $expectedEnd !== '' ? $expectedEnd : '(unknown)',
-                (string) ($finding['billing_verdict'] ?? '')
+            'evidence_5_after_expected_end' => sprintf(
+                'Debit date %s is after expected billing end %s',
+                $debitDate,
+                $expectedEnd !== '' ? $expectedEnd : '(unknown)'
             ),
-            'evidence_5_no_reversal' => $reversalStatus === 'none_found'
+            'evidence_6_no_reversal' => $reversalStatus === 'none_found'
                 ? 'No offsetting negative usage or refund matched after the charge'
                 : 'Offsetting record present: ' . $reversalDetail,
         ];
@@ -171,15 +187,15 @@ class DisputePackExporter
         $packs = self::collectConfirmed($fromDate, $toDate);
         $headers = [
             'claim',
-            'usage_id',
             'account',
             'device_id',
             'device_name',
             'item_desc',
             'category',
-            'usage_date',
+            'debit_date',
             'amount_used',
             'packs_used',
+            'pack_debited',
             'debit_evidence',
             'revoked_at',
             'registered_at',
@@ -188,14 +204,13 @@ class DisputePackExporter
             'next_due_date',
             'expected_billing_end',
             'billing_verdict',
-            'identity_status',
-            'identity_match_method',
             'reversal_status',
             'evidence_1_comet_debit',
-            'evidence_2_revocation',
-            'evidence_3_billing_period',
-            'evidence_4_after_expected_end',
-            'evidence_5_no_reversal',
+            'evidence_2_amount_pack',
+            'evidence_3_revocation',
+            'evidence_4_billing_period',
+            'evidence_5_after_expected_end',
+            'evidence_6_no_reversal',
         ];
 
         $fh = fopen('php://temp', 'r+');
@@ -264,21 +279,19 @@ class DisputePackExporter
                 . ' — $' . htmlspecialchars((string) $pack['amount_used']) . '</h2>';
             $html .= '<div class="claim">' . htmlspecialchars((string) $pack['claim']) . '</div>';
             $html .= '<dl>';
-            $html .= '<dt>Usage ID</dt><dd>' . (int) $pack['usage_id'] . '</dd>';
             $html .= '<dt>Account</dt><dd>' . htmlspecialchars((string) $pack['account']) . '</dd>';
             $html .= '<dt>Device ID</dt><dd>' . htmlspecialchars((string) $pack['device_id']) . '</dd>';
             $html .= '<dt>Device name</dt><dd>' . htmlspecialchars((string) $pack['device_name']) . '</dd>';
             $html .= '<dt>Item</dt><dd>' . htmlspecialchars((string) $pack['item_desc']) . '</dd>';
             $html .= '<dt>Category</dt><dd>' . htmlspecialchars((string) $pack['category']) . '</dd>';
-            $html .= '<dt>Identity</dt><dd>' . htmlspecialchars((string) $pack['identity_status'])
-                . ' / ' . htmlspecialchars((string) $pack['identity_match_method']) . '</dd>';
             $html .= '</dl>';
             $html .= '<ol class="evidence">';
-            $html .= '<li><strong>1. Comet debit:</strong> ' . htmlspecialchars((string) $pack['evidence_1_comet_debit']) . '</li>';
-            $html .= '<li><strong>2. Revocation:</strong> ' . htmlspecialchars((string) $pack['evidence_2_revocation']) . '</li>';
-            $html .= '<li><strong>3. Billing period:</strong> ' . htmlspecialchars((string) $pack['evidence_3_billing_period']) . '</li>';
-            $html .= '<li><strong>4. After expected end:</strong> ' . htmlspecialchars((string) $pack['evidence_4_after_expected_end']) . '</li>';
-            $html .= '<li><strong>5. No reversal:</strong> ' . htmlspecialchars((string) $pack['evidence_5_no_reversal']) . '</li>';
+            $html .= '<li><strong>Comet debit:</strong> ' . htmlspecialchars((string) $pack['evidence_1_comet_debit']) . '</li>';
+            $html .= '<li><strong>Amount / pack:</strong> ' . htmlspecialchars((string) $pack['evidence_2_amount_pack']) . '</li>';
+            $html .= '<li><strong>Revocation:</strong> ' . htmlspecialchars((string) $pack['evidence_3_revocation']) . '</li>';
+            $html .= '<li><strong>Billing period:</strong> ' . htmlspecialchars((string) $pack['evidence_4_billing_period']) . '</li>';
+            $html .= '<li><strong>After expected end:</strong> ' . htmlspecialchars((string) $pack['evidence_5_after_expected_end']) . '</li>';
+            $html .= '<li><strong>No reversal:</strong> ' . htmlspecialchars((string) $pack['evidence_6_no_reversal']) . '</li>';
             $html .= '</ol>';
             $html .= '</section>';
         }
