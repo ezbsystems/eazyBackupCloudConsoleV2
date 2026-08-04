@@ -67,7 +67,8 @@ class DeviceMatcher
         string $categoryKey,
         array $portalItems,
         array $serverInventory,
-        bool $applyCap = true
+        bool $applyCap = true,
+        ?string $snapshotDate = null
     ): array {
         $portalOnly = [];
         $serverOnly = [];
@@ -138,7 +139,7 @@ class DeviceMatcher
             }
         }
 
-        $portalOnly = self::enrichPortalOnlyRows($portalOnly);
+        $portalOnly = self::enrichPortalOnlyRows($portalOnly, $categoryKey, $snapshotDate);
 
         $pastGraceOverbill = 0.0;
         $pastGraceCount = 0;
@@ -270,6 +271,7 @@ class DeviceMatcher
             'next_due_date' => $portalItem['next_due_date'] ?? null,
             'billing_cycle_days' => (int) ($portalItem['billing_cycle_days'] ?? 30) ?: 30,
             'revoked_at' => null,
+            'registered_at' => null,
             'device_name' => null,
             'expected_billing_end' => null,
             'billing_status' => null,
@@ -278,12 +280,16 @@ class DeviceMatcher
     }
 
     /**
-     * Attach revocation and post-revoke billing grace status to portal-only rows.
+     * Attach revocation and billing period status to portal-only rows.
      *
      * @param list<array<string, mixed>> $portalOnly
      * @return list<array<string, mixed>>
      */
-    private static function enrichPortalOnlyRows(array $portalOnly): array
+    private static function enrichPortalOnlyRows(
+        array $portalOnly,
+        string $categoryKey,
+        ?string $snapshotDate = null
+    ): array
     {
         if ($portalOnly === []) {
             return $portalOnly;
@@ -291,31 +297,47 @@ class DeviceMatcher
 
         $index = self::loadRevokedDeviceIndex();
 
+        $isBooster = $categoryKey !== 'devices';
+
         foreach ($portalOnly as $i => $row) {
             $revoked = self::findRevokedDevice($row, $index);
             $cycleDays = (int) ($row['billing_cycle_days'] ?? 30) ?: 30;
             $nextDue = $row['next_due_date'] ?? null;
 
-            if ($revoked === null) {
+            if (!$isBooster && $revoked === null) {
                 $portalOnly[$i]['billing_status'] = 'unknown';
                 $portalOnly[$i]['overbill_amount'] = 0.0;
                 continue;
             }
 
-            $revokedAt = (string) $revoked['revoked_at'];
-            $expectedEnd = date('Y-m-d', strtotime($revokedAt . ' +' . $cycleDays . ' days'));
+            if (!$isBooster) {
+                $revokedAt = BillingPeriodCalculator::dateOnly((string) $revoked['revoked_at']);
+                $registeredAt = $revoked['registered_at'] ?? null;
+                $expectedEnd = BillingPeriodCalculator::deviceExpectedEnd(
+                    $registeredAt,
+                    $revokedAt,
+                    $cycleDays,
+                    $nextDue
+                );
+                $billingStatus = BillingPeriodCalculator::deviceBillingStatus($expectedEnd, $nextDue);
 
-            $portalOnly[$i]['revoked_at'] = $revokedAt;
-            $portalOnly[$i]['device_name'] = $revoked['name'] ?? null;
-            $portalOnly[$i]['expected_billing_end'] = $expectedEnd;
-            $billingStatus = self::computeBillingStatus($revokedAt, $nextDue, $cycleDays);
-            $portalOnly[$i]['billing_status'] = $billingStatus;
-            $portalOnly[$i]['overbill_amount'] = $billingStatus === 'overbilled_past_grace'
-                ? (float) ($row['amount'] ?? 0)
-                : 0.0;
-            if (empty($portalOnly[$i]['friendly_name']) && !empty($revoked['name'])) {
-                $portalOnly[$i]['friendly_name'] = $revoked['name'];
+                $portalOnly[$i]['revoked_at'] = $revokedAt;
+                $portalOnly[$i]['registered_at'] = $registeredAt;
+                $portalOnly[$i]['device_name'] = $revoked['name'] ?? null;
+                $portalOnly[$i]['expected_billing_end'] = $expectedEnd;
+                $portalOnly[$i]['billing_status'] = $billingStatus;
+                $portalOnly[$i]['overbill_amount'] = $billingStatus === 'overbilled_past_grace'
+                    ? (float) ($row['amount'] ?? 0)
+                    : 0.0;
+                if (empty($portalOnly[$i]['friendly_name']) && !empty($revoked['name'])) {
+                    $portalOnly[$i]['friendly_name'] = $revoked['name'];
+                }
+                continue;
             }
+
+            // Booster billing enrichment is implemented in Task 3.
+            $portalOnly[$i]['billing_status'] = 'unknown';
+            $portalOnly[$i]['overbill_amount'] = 0.0;
         }
 
         return $portalOnly;
@@ -335,16 +357,25 @@ class DeviceMatcher
 
         $rows = Capsule::table('comet_devices')
             ->whereNotNull('revoked_at')
-            ->select(['hash', 'username', 'name', 'revoked_at'])
+            ->select(['hash', 'username', 'name', 'revoked_at', 'content'])
             ->get();
 
         foreach ($rows as $row) {
             $hash = strtolower((string) $row->hash);
+            $registrationAt = null;
+            $content = json_decode((string) ($row->content ?? ''), true);
+            if (is_array($content)) {
+                $registrationTime = (int) ($content['RegistrationTime'] ?? 0);
+                if ($registrationTime > 0) {
+                    $registrationAt = gmdate('Y-m-d', $registrationTime);
+                }
+            }
             $entry = [
                 'hash' => $hash,
                 'username' => (string) $row->username,
                 'name' => $row->name,
                 'revoked_at' => (string) $row->revoked_at,
+                'registered_at' => $registrationAt,
             ];
             $byHash[$hash] = $entry;
             $prefix = substr($hash, 0, 6);
@@ -392,18 +423,6 @@ class DeviceMatcher
         }
 
         return null;
-    }
-
-    private static function computeBillingStatus(string $revokedAt, ?string $nextDueDate, int $cycleDays): string
-    {
-        $expectedEnd = date('Y-m-d', strtotime($revokedAt . ' +' . $cycleDays . ' days'));
-        $compareDate = $nextDueDate ? substr((string) $nextDueDate, 0, 10) : date('Y-m-d');
-
-        if ($compareDate <= $expectedEnd) {
-            return 'expected_grace';
-        }
-
-        return 'overbilled_past_grace';
     }
 
     private static function formatServerRow(array $serverRow, string $categoryKey, float $serverQty): array

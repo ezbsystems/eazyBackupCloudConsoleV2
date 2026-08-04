@@ -38,7 +38,7 @@ class Reconciler
         $portalData = PortalUsageExtractor::getLatestSnapshot();
 
         $inventory = DeviceMatcher::flattenCollectedInventory($serverData);
-        $report = self::buildReport($serverData, $portalData, $tolerance, $inventory);
+        $report = self::buildReport($serverData, $portalData, $tolerance, $inventory, null);
         $report['mode'] = 'live';
         $report['snapshot_date'] = null;
 
@@ -89,7 +89,7 @@ class Reconciler
         $portalData = PortalUsageExtractor::getSnapshot($portalPulledAt);
         $inventory = DeviceMatcher::loadInventoryForSnapshot($snapshotDate);
 
-        $report = self::buildReport($serverData, $portalData, $tolerance, $inventory);
+        $report = self::buildReport($serverData, $portalData, $tolerance, $inventory, $snapshotDate);
         $report['mode'] = 'snapshot';
         $report['snapshot_date'] = $snapshotDate;
 
@@ -142,7 +142,8 @@ class Reconciler
         array $serverData,
         array $portalData,
         int $tolerance = self::DEFAULT_TOLERANCE,
-        ?array $serverInventory = null
+        ?array $serverInventory = null,
+        ?string $snapshotDate = null
     ): array {
         $hasInventory = $serverInventory !== null && $serverInventory !== [];
         $report = [
@@ -189,7 +190,9 @@ class Reconciler
                     $unmatched = DeviceMatcher::matchCategory(
                         $key,
                         $portalData[$key]['items'] ?? [],
-                        $serverInventory
+                        $serverInventory,
+                        true,
+                        $snapshotDate
                     );
                     $item['unmatched'] = $unmatched;
                     $item['past_grace_count'] = (int) ($unmatched['past_grace_count'] ?? 0);
@@ -442,7 +445,8 @@ class Reconciler
                 $key,
                 $portalData[$key]['items'] ?? [],
                 $inventory,
-                false
+                false,
+                $snapshotDate
             );
             foreach ($unmatched['portal_only'] ?? [] as $item) {
                 if (($item['billing_status'] ?? '') !== 'overbilled_past_grace') {
