@@ -107,6 +107,7 @@ Alternatively, enable "Enable Daily Pull" in addon settings to run both during W
 | `PortalUsageExtractor` | Parse cb_active_services into aggregated totals |
 | `ServerUsageCollector` | Collect device/addon counts from Comet servers via Admin API |
 | `Reconciler` | Compare server usage vs portal billing, flag discrepancies |
+| `HistoricalReconciler` | Find historical overbill charges from `cb_credit_usage` vs revoked devices |
 | `Settings` | Addon settings loader (decrypts PortalToken) + cb_settings KV store |
 | `CreditLedger` | FIFO credit lot management and consumption tracking |
 | `PurchaseCsvImporter` | Import Comet purchase history CSV exports |
@@ -200,12 +201,27 @@ Use the dashboard setup checklist, or:
 - **Dashboard**: Setup checklist, FIFO vs portal balances, sync status, bonus credit warning
 - **Data Sync**: Last portal pull / usage collection status with manual triggers
 - **Reconcile**: Snapshot or live comparison with tolerance and item drill-down
+- **Historical Reconcile**: Scan billing history charges for overbilling after device/booster expected end
 - **Credit Lots**: View/manage FIFO lots, create opening balance, sync from purchases
 - **Allocations**: FIFO allocation history (usage date → lots consumed)
 - **Purchases**: Import Comet CSV purchase history or record purchases manually (auto-creates lots)
 - **Active Services**: View Portal API snapshot data
 - **Usage History**: View billing history
 - **M365 Report**: Filter Microsoft 365 Protected Accounts booster billing by date range (latest portal snapshot in period)
+
+### Historical Reconcile
+
+The **Historical Reconcile** page scans `cb_credit_usage` charge lines (Comet billing history, typically back to ~2019) and compares each charge's `usage_date` to the expected billing end for revoked devices in `comet_devices`.
+
+**Scope:** This answers "was this charge posted after billing should have stopped?" — not server inventory vs portal count variance over time (no historical server inventory for that).
+
+**Rules (same semantics as live Reconcile):**
+- **Monthly** (devices, M365, disk image, MSSQL, etc.): expected end is the registration-aligned 30-day period containing `revoked_at` when `RegistrationTime` is available; if missing, revoke date + 30 days as fallback.
+- **Daily** (Hyper-V, VMware, Proxmox): last billable day is the revoke date; charges on later days are overbilled.
+
+**Defaults:** Last 90 days; presets for 30/90/365 days and all history. Detail table capped at 2,000 overbilled rows (summary totals are full-range); CSV export is uncapped.
+
+Charges without a matching revoked device are counted as unmatched (active or unknown) and excluded from overbill totals.
 
 ### M365 Protected Accounts Report
 

@@ -268,6 +268,7 @@ function cometbilling_output($vars)
         . '<a href="'.$baseUrl.'&action=dashboard" class="btn btn-default">Dashboard</a> '
         . '<a href="'.$baseUrl.'&action=sync" class="btn btn-default">Data Sync</a> '
         . '<a href="'.$baseUrl.'&action=reconcile" class="btn btn-default">Reconcile</a> '
+        . '<a href="'.$baseUrl.'&action=historical_reconcile" class="btn btn-default">Historical Reconcile</a> '
         . '<a href="'.$baseUrl.'&action=credit_lots" class="btn btn-default">Credit Lots</a> '
         . '<a href="'.$baseUrl.'&action=allocations" class="btn btn-default">Allocations</a> '
         . '<a href="'.$baseUrl.'&action=purchases" class="btn btn-default">Purchases</a> '
@@ -313,6 +314,22 @@ function cometbilling_output($vars)
 
         case 'm365_report':
             include __DIR__ . '/templates/admin/m365_report.tpl.php';
+            break;
+
+        case 'historical_reconcile':
+            include __DIR__ . '/templates/admin/historical_reconcile.tpl.php';
+            break;
+
+        case 'historical_reconcile_export':
+            try {
+                $from = !empty($_GET['from']) ? (string) $_GET['from'] : null;
+                $to = !empty($_GET['to']) ? (string) $_GET['to'] : null;
+                $range = \CometBilling\HistoricalReconciler::resolveDateRange(null, $from, $to);
+                \CometBilling\HistoricalReconciler::streamCsv($range['from'], $range['to']);
+            } catch (\Throwable $e) {
+                echo '<div class="errorbox">Export failed: ' . htmlspecialchars($e->getMessage()) . '</div>';
+                echo '<p><a href="' . $baseUrl . '&action=historical_reconcile" class="btn btn-default">Back to Historical Reconcile</a></p>';
+            }
             break;
             
         case 'active_services':
