@@ -282,6 +282,10 @@ class DeviceMatcher
     /**
      * Attach revocation and billing period status to portal-only rows.
      *
+     * Mode is driven by portal billing_cycle_days on the line:
+     * - cycle > 1: registration-aligned periods (devices, M365, disk image, MSSQL, …)
+     * - cycle <= 1: daily remove-day (Hyper-V, VMware, Proxmox, …)
+     *
      * @param list<array<string, mixed>> $portalOnly
      * @return list<array<string, mixed>>
      */
@@ -289,69 +293,79 @@ class DeviceMatcher
         array $portalOnly,
         string $categoryKey,
         ?string $snapshotDate = null
-    ): array
-    {
+    ): array {
         if ($portalOnly === []) {
             return $portalOnly;
         }
 
         $index = self::loadRevokedDeviceIndex();
 
-        $isBooster = $categoryKey !== 'devices';
-
         foreach ($portalOnly as $i => $row) {
             $revoked = self::findRevokedDevice($row, $index);
             $cycleDays = (int) ($row['billing_cycle_days'] ?? 30) ?: 30;
             $nextDue = $row['next_due_date'] ?? null;
+            $isDaily = $cycleDays <= 1;
 
-            if (!$isBooster && $revoked === null) {
+            if ($isDaily) {
+                $removeDate = self::resolveBoosterRemoveDate($row, $revoked, $categoryKey, $snapshotDate);
+                $snap = $snapshotDate ?: gmdate('Y-m-d');
+                $status = BillingPeriodCalculator::boosterBillingStatus($removeDate, $snap);
+
+                if ($revoked !== null) {
+                    $portalOnly[$i]['revoked_at'] = (string) $revoked['revoked_at'];
+                    $portalOnly[$i]['registered_at'] = $revoked['registered_at'] ?? null;
+                    if (empty($portalOnly[$i]['friendly_name']) && !empty($revoked['name'])) {
+                        $portalOnly[$i]['friendly_name'] = $revoked['name'];
+                    }
+                    $portalOnly[$i]['device_name'] = $revoked['name'] ?? null;
+                }
+
+                $portalOnly[$i]['billing_cycle_days'] = 1;
+                $portalOnly[$i]['expected_billing_end'] = $removeDate;
+                $portalOnly[$i]['billing_status'] = $status;
+                $portalOnly[$i]['overbill_amount'] = $status === 'overbilled_past_grace'
+                    ? (float) ($row['amount'] ?? 0)
+                    : 0.0;
+                continue;
+            }
+
+            // Monthly / multi-day cycle: registration-aligned period containing revoke/remove.
+            $eventDate = null;
+            $registeredAt = null;
+            if ($revoked !== null) {
+                $eventDate = BillingPeriodCalculator::dateOnly((string) $revoked['revoked_at']);
+                $registeredAt = $revoked['registered_at'] ?? null;
+                $portalOnly[$i]['revoked_at'] = $eventDate;
+                $portalOnly[$i]['registered_at'] = $registeredAt;
+                $portalOnly[$i]['device_name'] = $revoked['name'] ?? null;
+                if (empty($portalOnly[$i]['friendly_name']) && !empty($revoked['name'])) {
+                    $portalOnly[$i]['friendly_name'] = $revoked['name'];
+                }
+            } elseif ($categoryKey !== 'devices') {
+                $eventDate = self::resolveBoosterRemoveDate($row, null, $categoryKey, $snapshotDate);
+                if ($eventDate !== null) {
+                    $portalOnly[$i]['revoked_at'] = $eventDate;
+                }
+            }
+
+            if ($eventDate === null) {
                 $portalOnly[$i]['billing_status'] = 'unknown';
                 $portalOnly[$i]['overbill_amount'] = 0.0;
                 continue;
             }
 
-            if (!$isBooster) {
-                $revokedAt = BillingPeriodCalculator::dateOnly((string) $revoked['revoked_at']);
-                $registeredAt = $revoked['registered_at'] ?? null;
-                $expectedEnd = BillingPeriodCalculator::deviceExpectedEnd(
-                    $registeredAt,
-                    $revokedAt,
-                    $cycleDays,
-                    $nextDue
-                );
-                $billingStatus = BillingPeriodCalculator::deviceBillingStatus($expectedEnd, $nextDue);
+            $expectedEnd = BillingPeriodCalculator::deviceExpectedEnd(
+                $registeredAt,
+                $eventDate,
+                $cycleDays,
+                $nextDue
+            );
+            $billingStatus = BillingPeriodCalculator::deviceBillingStatus($expectedEnd, $nextDue);
 
-                $portalOnly[$i]['revoked_at'] = $revokedAt;
-                $portalOnly[$i]['registered_at'] = $registeredAt;
-                $portalOnly[$i]['device_name'] = $revoked['name'] ?? null;
-                $portalOnly[$i]['expected_billing_end'] = $expectedEnd;
-                $portalOnly[$i]['billing_status'] = $billingStatus;
-                $portalOnly[$i]['overbill_amount'] = $billingStatus === 'overbilled_past_grace'
-                    ? (float) ($row['amount'] ?? 0)
-                    : 0.0;
-                if (empty($portalOnly[$i]['friendly_name']) && !empty($revoked['name'])) {
-                    $portalOnly[$i]['friendly_name'] = $revoked['name'];
-                }
-                continue;
-            }
-
-            $removeDate = self::resolveBoosterRemoveDate($row, $revoked, $categoryKey, $snapshotDate);
-            $snap = $snapshotDate ?: gmdate('Y-m-d');
-            $status = BillingPeriodCalculator::boosterBillingStatus($removeDate, $snap);
-
-            if ($revoked !== null) {
-                $portalOnly[$i]['revoked_at'] = (string) $revoked['revoked_at'];
-                $portalOnly[$i]['registered_at'] = $revoked['registered_at'] ?? null;
-                if (empty($portalOnly[$i]['friendly_name']) && !empty($revoked['name'])) {
-                    $portalOnly[$i]['friendly_name'] = $revoked['name'];
-                }
-                $portalOnly[$i]['device_name'] = $revoked['name'] ?? null;
-            }
-
-            $portalOnly[$i]['billing_cycle_days'] = 1;
-            $portalOnly[$i]['expected_billing_end'] = $removeDate;
-            $portalOnly[$i]['billing_status'] = $status;
-            $portalOnly[$i]['overbill_amount'] = $status === 'overbilled_past_grace'
+            $portalOnly[$i]['billing_cycle_days'] = $cycleDays;
+            $portalOnly[$i]['expected_billing_end'] = $expectedEnd;
+            $portalOnly[$i]['billing_status'] = $billingStatus;
+            $portalOnly[$i]['overbill_amount'] = $billingStatus === 'overbilled_past_grace'
                 ? (float) ($row['amount'] ?? 0)
                 : 0.0;
         }

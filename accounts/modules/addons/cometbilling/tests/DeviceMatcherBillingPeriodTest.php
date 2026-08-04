@@ -155,15 +155,38 @@ namespace {
         'account' => 'KaizaCorp',
         'device_id' => '7bef57',
         'next_due_date' => '2026-08-06',
-        'billing_cycle_days' => 30,
+        'billing_cycle_days' => 1,
         'amount' => 12.50,
     ]], [], false, '2026-08-04');
 
     $booster = $boosterResult['portal_only'][0];
-    assert_eq($booster['expected_billing_end'], '2026-06-27', 'booster expected end is revoke date');
-    assert_eq($booster['billing_cycle_days'], 1, 'booster billing cycle is daily');
-    assert_eq($booster['billing_status'], 'overbilled_past_grace', 'revoked booster is overbilled');
-    assert_eq($booster['overbill_amount'], 12.50, 'revoked booster overbill amount');
+    assert_eq($booster['expected_billing_end'], '2026-06-27', 'daily booster expected end is revoke date');
+    assert_eq($booster['billing_cycle_days'], 1, 'daily booster billing cycle is daily');
+    assert_eq($booster['billing_status'], 'overbilled_past_grace', 'revoked daily booster is overbilled');
+    assert_eq($booster['overbill_amount'], 12.50, 'revoked daily booster overbill amount');
+
+    Capsule::$rows[] = (object) [
+        'hash' => 'c74a4fd85344',
+        'username' => 'MeasurementsO365',
+        'name' => 'MeasurementsO365',
+        'revoked_at' => '2026-08-03 19:28:15',
+        'content' => json_encode(['RegistrationTime' => strtotime('2025-09-27 00:00:00 UTC')]),
+    ];
+
+    $m365Result = DeviceMatcher::matchCategory('m365_accounts', [[
+        'account' => 'MeasurementsO365',
+        'device_id' => 'c74a4f',
+        'next_due_date' => '2026-08-24',
+        'billing_cycle_days' => 30,
+        'amount' => 31.0,
+        'quantity' => 31,
+    ]], [], false, '2026-08-04');
+
+    $m365 = $m365Result['portal_only'][0];
+    assert_eq($m365['billing_cycle_days'], 30, 'M365 keeps monthly cycle from portal');
+    assert_eq($m365['billing_status'], 'expected_grace', 'M365 still within current monthly period');
+    assert_eq($m365['overbill_amount'], 0.0, 'M365 not overbilled before next due');
+    assert_eq($m365['expected_billing_end'] === '2026-08-03', false, 'M365 expected end is not revoke day');
 
     Capsule::$inventoryRows = [
         (object) ['device_id' => 'inventory-device', 'snapshot_date' => '2026-07-01', 'hyperv_vms' => 1],
@@ -173,7 +196,7 @@ namespace {
         'account' => 'Inventory Corp',
         'device_id' => 'inventory',
         'next_due_date' => '2026-08-06',
-        'billing_cycle_days' => 30,
+        'billing_cycle_days' => 1,
         'amount' => 8.00,
     ]], [[
         'device_id' => 'inventory-device',
@@ -184,8 +207,8 @@ namespace {
 
     $inventoryBooster = $inventoryBoosterResult['portal_only'][0];
     assert_eq($inventoryBooster['expected_billing_end'], '2026-07-01', 'inventory disappearance uses last positive date');
-    assert_eq($inventoryBooster['billing_cycle_days'], 1, 'inventory booster billing cycle is daily');
-    assert_eq($inventoryBooster['billing_status'], 'overbilled_past_grace', 'inventory disappeared booster is overbilled');
+    assert_eq($inventoryBooster['billing_cycle_days'], 1, 'inventory daily booster cycle is daily');
+    assert_eq($inventoryBooster['billing_status'], 'overbilled_past_grace', 'inventory disappeared daily booster is overbilled');
 
     echo "All DeviceMatcher billing period tests passed.\n";
 }

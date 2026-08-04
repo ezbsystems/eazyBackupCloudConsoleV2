@@ -140,10 +140,10 @@ Matching uses the portal's 6-character device ID prefix against full server devi
 
 **Limits:** Lists are capped at 100 rows per bucket in saved reports. Individual guest VMs and M365 mailboxes cannot be enumerated — only per-host quantities.
 
-**Revoked / removed billing:** Portal-only rows are enriched from `comet_devices` (and inventory history for boosters).
+**Revoked / removed billing:** Portal-only rows are enriched from `comet_devices` (and inventory history for daily boosters). Mode follows the portal line’s `billing_cycle_days`:
 
-- **Devices:** Expected billing end is the end of the registration-aligned period that contained `revoked_at` (`RegistrationTime` when available; otherwise walk back from portal `next_due` by cycle days). Status `expected_grace` if portal `next_due` is still within that end; `overbilled_past_grace` if `next_due` is past it.
-- **Boosters** (Hyper-V, VMware, Proxmox, Disk Image, MSSQL, M365): Billed daily. Last billable day is host `revoked_at` or the last inventory day the booster was present. Still portal-only after that day → `overbilled_past_grace`.
+- **Monthly cycle (`billing_cycle_days` > 1)** — Devices, M365, Disk Image, MSSQL, etc. Expected billing end is the end of the registration-aligned period that contained `revoked_at` (`RegistrationTime` when available; otherwise walk back from portal `next_due`). Status `expected_grace` if portal `next_due` is still within that end; `overbilled_past_grace` if `next_due` advances past it.
+- **Daily cycle (`billing_cycle_days` = 1)** — Hyper-V, VMware, Proxmox, etc. Last billable day is host `revoked_at` or the last inventory day the booster was present. Still portal-only after that day → `overbilled_past_grace`.
 - `unknown` — cannot determine registration/period or remove date.
 
 Use **Export overbilled past grace (CSV)** on the Reconcile page to download all categories (Devices, Hyper-V, M365, etc.) in a Comet-support-ready CSV. Export re-matches without the UI 100-row cap.
