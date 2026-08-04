@@ -264,6 +264,129 @@ try {
     Capsule::table('ms365_job_queue')->where('run_id', $priorStaleChildId)->delete();
     Capsule::table('ms365_backup_runs')->where('id', $priorStaleChildId)->delete();
     Capsule::table('ms365_batch_claims')->where('batch_run_id', $priorBatchId)->delete();
+
+    // Zero-byte upload open/hash wedge (prod Emily): items_done=0 must not wait full 1800s.
+    $zeroBatchId = abort_uuid('zero-batch');
+    $zeroChildId = abort_uuid('zero-upload');
+    $zeroTenant = 999005;
+    Ms365BatchClaimRepository::enqueueBatch($zeroBatchId, $zeroTenant, 50);
+    Capsule::table('ms365_batch_claims')->where('batch_run_id', $zeroBatchId)->update([
+        'status' => 'running',
+        'worker_node_id' => $nodeId,
+        'running_tenant_key' => $zeroTenant,
+        'claimed_at' => $now - 1200,
+        'lease_expires_at' => $now + 600,
+        'last_heartbeat_at' => $now,
+        'last_progress_at' => $now,
+    ]);
+    Capsule::table('ms365_backup_runs')->insert([
+        'id' => $zeroChildId,
+        'e3_batch_run_id' => $zeroBatchId,
+        'status' => 'running',
+        'phase' => 'upload',
+        'items_done' => 0,
+        'items_total' => 19,
+        'bytes_hashed' => 0,
+        'bytes_uploaded' => 0,
+        'last_progress_at' => $now - 950,
+        'physical_key' => 'user:' . $zeroChildId,
+        'resource_type' => 'user',
+        'resource_id' => 'user:' . $zeroChildId,
+        'graph_id' => $zeroChildId,
+        'user_display_name' => 'Zero Byte Upload Abort Test',
+        'backup_path' => '/tmp/ms365-zero-upload-' . $zeroChildId,
+        'tenant_record_id' => $zeroTenant,
+        'whmcs_client_id' => 1,
+        'created_at' => $now - 1200,
+        'updated_at' => $now - 950,
+        'started_at' => $now - 950,
+    ]);
+    Capsule::table('ms365_job_queue')->insert([
+        'run_id' => $zeroChildId,
+        'job_type' => 'backup',
+        'status' => 'running',
+        'priority' => 50,
+        'attempts' => 2,
+        'max_attempts' => 5,
+        'scheduled_at' => $now - 1200,
+        'claimed_at' => $now - 950,
+        'lease_expires_at' => $now + 600,
+        'created_at' => $now - 1200,
+    ]);
+    Ms365BatchClaimRepository::reapStalledBatchChildren();
+    $zeroRow = Capsule::table('ms365_backup_runs')->where('id', $zeroChildId)->first();
+    abort_assert(
+        ($zeroRow->status ?? '') === 'running'
+        && (int) ($zeroRow->abort_requested_at ?? 0) >= $now - 5,
+        'live batch zero-byte upload child soft-aborts after upload-tail silence',
+    );
+    Capsule::table('ms365_job_queue')->where('run_id', $zeroChildId)->delete();
+    Capsule::table('ms365_backup_runs')->where('id', $zeroChildId)->delete();
+    Capsule::table('ms365_batch_claims')->where('batch_run_id', $zeroBatchId)->delete();
+
+    // Queue=done / run=running no_changes zombie (prod Sylvia).
+    $mismatchBatchId = abort_uuid('mismatch-batch');
+    $mismatchChildId = abort_uuid('mismatch-child');
+    $mismatchTenant = 999006;
+    Ms365BatchClaimRepository::enqueueBatch($mismatchBatchId, $mismatchTenant, 50);
+    Capsule::table('ms365_batch_claims')->where('batch_run_id', $mismatchBatchId)->update([
+        'status' => 'running',
+        'worker_node_id' => $nodeId,
+        'running_tenant_key' => $mismatchTenant,
+        'claimed_at' => $now - 600,
+        'lease_expires_at' => $now + 600,
+        'last_heartbeat_at' => $now,
+        'last_progress_at' => $now,
+    ]);
+    Capsule::table('ms365_backup_runs')->insert([
+        'id' => $mismatchChildId,
+        'e3_batch_run_id' => $mismatchBatchId,
+        'status' => 'running',
+        'phase' => 'graph_sync',
+        'percent' => 100,
+        'items_done' => 0,
+        'items_total' => 0,
+        'bytes_hashed' => 0,
+        'bytes_uploaded' => 0,
+        'stats_json' => '{"status":"no_changes"}',
+        'last_progress_at' => $now - 500,
+        'finished_at' => $now - 510,
+        'physical_key' => 'user:' . $mismatchChildId,
+        'resource_type' => 'mailbox',
+        'resource_id' => 'user:' . $mismatchChildId,
+        'graph_id' => $mismatchChildId,
+        'user_display_name' => 'Queue Done Mismatch Test',
+        'backup_path' => '/tmp/ms365-mismatch-' . $mismatchChildId,
+        'tenant_record_id' => $mismatchTenant,
+        'whmcs_client_id' => 1,
+        'created_at' => $now - 600,
+        'updated_at' => $now - 500,
+        'started_at' => $now - 500,
+    ]);
+    Capsule::table('ms365_job_queue')->insert([
+        'run_id' => $mismatchChildId,
+        'job_type' => 'backup',
+        'status' => 'done',
+        'priority' => 50,
+        'attempts' => 1,
+        'max_attempts' => 5,
+        'scheduled_at' => $now - 600,
+        'claimed_at' => $now - 500,
+        'finished_at' => $now - 500,
+        'lease_expires_at' => $now + 600,
+        'created_at' => $now - 600,
+    ]);
+    $healed = Ms365BatchClaimRepository::reconcileRunQueueStatusMismatch();
+    abort_assert($healed >= 1, 'reconcileRunQueueStatusMismatch heals queue=done run=running no_changes');
+    $mismatchRow = Capsule::table('ms365_backup_runs')->where('id', $mismatchChildId)->first();
+    abort_assert(
+        ($mismatchRow->status ?? '') === 'success'
+        && ($mismatchRow->phase ?? '') === 'complete',
+        'no_changes queue/run mismatch child marked success/complete',
+    );
+    Capsule::table('ms365_job_queue')->where('run_id', $mismatchChildId)->delete();
+    Capsule::table('ms365_backup_runs')->where('id', $mismatchChildId)->delete();
+    Capsule::table('ms365_batch_claims')->where('batch_run_id', $mismatchBatchId)->delete();
 } finally {
     foreach ([$staleChildId, $freshChildId] as $childId) {
         Capsule::table('ms365_job_queue')->where('run_id', $childId)->delete();

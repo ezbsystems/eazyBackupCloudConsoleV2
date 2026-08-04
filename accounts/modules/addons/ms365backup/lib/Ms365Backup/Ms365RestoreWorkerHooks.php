@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Ms365Backup;
 
+use WHMCS\Database\Capsule;
 use WHMCS\Module\Addon\CloudStorage\Client\CustomerFacingTextSanitizer;
 
 /**
@@ -64,6 +65,15 @@ final class Ms365RestoreWorkerHooks
             // abort recovery (prod: Marketing upload-tail requeued then immediately
             // re-promoted with the same stale last_progress_at).
             if (!Ms365BatchClaimRepository::shouldPromoteFromBatchProgress($runId)) {
+                continue;
+            }
+            // Queue already terminal: do not re-animate a completed child via hub progress
+            // (prod Sylvia: queue=done + stats no_changes while run stayed running).
+            $queueStatus = '';
+            if (Capsule::schema()->hasTable('ms365_job_queue')) {
+                $queueStatus = strtolower(trim((string) (Capsule::table('ms365_job_queue')->where('run_id', $runId)->value('status') ?? '')));
+            }
+            if (in_array($queueStatus, ['done', 'failed', 'cancelled'], true)) {
                 continue;
             }
             Ms365BatchClaimRepository::promoteBatchChildToRunning($runId, $nodeId);
@@ -682,6 +692,23 @@ final class Ms365RestoreWorkerHooks
                 if (!$isNoChanges) {
                     // Batch workers can emit child-complete while graph sync is still running.
                     // Ignore until upload/snapshot phases finish and a manifest is available.
+                    // #region agent log
+                    $agentLog = [
+                        'sessionId' => 'aeefbd',
+                        'runId' => 'pre-fix',
+                        'hypothesisId' => 'H2',
+                        'location' => 'Ms365RestoreWorkerHooks.php:backupComplete',
+                        'message' => 'backupComplete early-return graph phase without no_changes',
+                        'data' => [
+                            'run_id' => $runId,
+                            'effective_phase' => $effectivePhase,
+                            'existing_status' => (string) ($existing['status'] ?? ''),
+                            'manifest_empty' => true,
+                        ],
+                        'timestamp' => (int) round(microtime(true) * 1000),
+                    ];
+                    @file_put_contents('/tmp/ms365-debug-aeefbd.ndjson', json_encode($agentLog, JSON_UNESCAPED_SLASHES) . "\n", FILE_APPEND | LOCK_EX);
+                    // #endregion
                     return;
                 }
                 // Empty shard: graph sync finished with zero files and no Kopia snapshot.
@@ -691,6 +718,24 @@ final class Ms365RestoreWorkerHooks
                 return;
             }
         }
+        // #region agent log
+        $agentLog = [
+            'sessionId' => 'aeefbd',
+            'runId' => 'pre-fix',
+            'hypothesisId' => 'H2',
+            'location' => 'Ms365RestoreWorkerHooks.php:backupComplete',
+            'message' => 'backupComplete applying success',
+            'data' => [
+                'run_id' => $runId,
+                'is_no_changes' => $isNoChanges,
+                'manifest_id_empty' => $manifestId === '',
+                'existing_status' => (string) ($existing['status'] ?? ''),
+                'existing_phase' => (string) ($existing['phase'] ?? ''),
+            ],
+            'timestamp' => (int) round(microtime(true) * 1000),
+        ];
+        @file_put_contents('/tmp/ms365-debug-aeefbd.ndjson', json_encode($agentLog, JSON_UNESCAPED_SLASHES) . "\n", FILE_APPEND | LOCK_EX);
+        // #endregion
         $update = [
             'status' => 'success',
             'phase' => 'complete',

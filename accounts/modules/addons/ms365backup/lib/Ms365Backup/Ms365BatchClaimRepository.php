@@ -424,6 +424,69 @@ final class Ms365BatchClaimRepository
             ++$healed;
         }
 
+        // Prod Sylvia: worker completed no_changes (queue=done, stats status set) but the
+        // run row stayed running/graph_sync, pinning "1 workload with no progress".
+        $query = Capsule::table('ms365_backup_runs as r')
+            ->join('ms365_job_queue as q', 'q.run_id', '=', 'r.id')
+            ->whereIn('r.status', ['running', 'starting'])
+            ->where('q.status', 'done')
+            ->select(['r.id', 'r.phase', 'r.stats_json', 'r.finished_at', 'r.percent']);
+        foreach ($query->get() as $row) {
+            $runId = (string) ($row->id ?? '');
+            if ($runId === '') {
+                continue;
+            }
+            $stats = [];
+            $raw = $row->stats_json ?? null;
+            if (is_string($raw) && $raw !== '') {
+                $decoded = json_decode($raw, true);
+                if (is_array($decoded)) {
+                    $stats = $decoded;
+                }
+            }
+            $isNoChanges = ($stats['status'] ?? '') === 'no_changes';
+            $phase = strtolower(trim((string) ($row->phase ?? '')));
+            $finishedAt = (int) ($row->finished_at ?? 0);
+            if (!$isNoChanges && $finishedAt <= 0 && (float) ($row->percent ?? 0) < 100.0) {
+                continue;
+            }
+            // #region agent log
+            $agentLog = [
+                'sessionId' => 'aeefbd',
+                'runId' => 'post-fix',
+                'hypothesisId' => 'H2',
+                'location' => 'Ms365BatchClaimRepository.php:reconcileRunQueueStatusMismatch',
+                'message' => 'healing queue=done run=running mismatch',
+                'data' => [
+                    'run_id' => $runId,
+                    'phase' => $phase,
+                    'is_no_changes' => $isNoChanges,
+                    'finished_at' => $finishedAt,
+                ],
+                'timestamp' => (int) round(microtime(true) * 1000),
+            ];
+            @file_put_contents('/tmp/ms365-debug-aeefbd.ndjson', json_encode($agentLog, JSON_UNESCAPED_SLASHES) . "\n", FILE_APPEND | LOCK_EX);
+            // #endregion
+            BackupRunRepository::update($runId, [
+                'status' => 'success',
+                'phase' => 'complete',
+                'percent' => 100,
+                'finished_at' => $finishedAt > 0 ? $finishedAt : $now,
+                'updated_at' => $now,
+                'error_message' => null,
+            ]);
+            if ($isNoChanges && Capsule::schema()->hasColumn('ms365_backup_runs', 'stats_json')) {
+                $merged = $stats;
+                $merged['status'] = 'no_changes';
+                $encoded = json_encode($merged, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+                if (is_string($encoded)) {
+                    BackupRunRepository::update($runId, ['stats_json' => $encoded]);
+                }
+            }
+            Ms365BatchRunRepository::syncForChildRun($runId);
+            ++$healed;
+        }
+
         return $healed;
     }
 
@@ -641,6 +704,13 @@ final class Ms365BatchClaimRepository
             'items_done',
             'items_total',
         ];
+        if (Capsule::schema()->hasColumn('ms365_backup_runs', 'bytes_hashed')) {
+            $select[] = 'bytes_hashed';
+            $select[] = 'bytes_uploaded';
+        }
+        if (Capsule::schema()->hasColumn('ms365_backup_runs', 'stats_json')) {
+            $select[] = 'stats_json';
+        }
         if (ChildAbortRepository::columnReady()) {
             $select[] = 'abort_requested_at';
         }
@@ -663,6 +733,8 @@ final class Ms365BatchClaimRepository
             $phase = strtolower(trim((string) ($child['phase'] ?? '')));
             $itemsDone = (int) ($child['items_done'] ?? 0);
             $itemsTotal = (int) ($child['items_total'] ?? 0);
+            $bytesHashed = (int) ($child['bytes_hashed'] ?? 0);
+            $bytesUploaded = (int) ($child['bytes_uploaded'] ?? 0);
             $freshness = Ms365BatchRunRepository::progressFreshnessAt($child);
             $silenceSeconds = Ms365BatchRunRepository::STALE_SILENCE_SECONDS;
             // Shortened silence is upload-phase only. Graph-bound children often reach
@@ -685,6 +757,17 @@ final class Ms365BatchClaimRepository
                     Ms365BatchRunRepository::UPLOAD_TAIL_STALE_SECONDS
                 );
             }
+            // Zero-byte upload open/hash wedge (prod: Emily Corbett). items_done stays 0
+            // while Kopia never hashes; without this the child waited full 1800s.
+            if (Ms365BatchRunRepository::isUploadLikePhase($phase)
+                && $itemsDone === 0
+                && $bytesHashed === 0
+                && $bytesUploaded === 0) {
+                $silenceSeconds = min(
+                    $silenceSeconds,
+                    Ms365BatchRunRepository::UPLOAD_TAIL_STALE_SECONDS
+                );
+            }
             $staleProgress = $freshness > 0 && $freshness < ($now - $silenceSeconds);
 
             $queue = Capsule::table('ms365_job_queue')->where('run_id', $runId)->first();
@@ -698,6 +781,40 @@ final class Ms365BatchClaimRepository
                 : 0;
 
             $batchRunId = (string) ($child['e3_batch_run_id'] ?? '');
+
+            // #region agent log
+            if (in_array($runId, [
+                '4b46670d-a229-4439-a525-efa2303d1d87',
+                'cb0aea22-4176-4823-85f9-30bcf5acd9cc',
+            ], true)
+                || ($staleProgress || $staleLease || ((string) ($queue->status ?? '') === 'done' && strtolower((string) ($child['status'] ?? '')) === 'running'))
+            ) {
+                $agentLog = [
+                    'sessionId' => 'aeefbd',
+                    'runId' => 'pre-fix',
+                    'hypothesisId' => ((string) ($queue->status ?? '') === 'done') ? 'H2' : 'H1',
+                    'location' => 'Ms365BatchClaimRepository.php:reapStalledBatchChildren',
+                    'message' => 'reaper evaluating stalled/mismatched child',
+                    'data' => [
+                        'run_id' => $runId,
+                        'batch_run_id' => $batchRunId,
+                        'phase' => $phase,
+                        'items_done' => $itemsDone,
+                        'items_total' => $itemsTotal,
+                        'silence_seconds_applied' => $silenceSeconds,
+                        'freshness_age' => $freshness > 0 ? ($now - $freshness) : -1,
+                        'stale_progress' => $staleProgress,
+                        'stale_lease' => $staleLease,
+                        'abort_at' => $abortAt,
+                        'queue_status' => (string) ($queue->status ?? ''),
+                        'run_status' => (string) ($child['status'] ?? ''),
+                        'live_batch' => isset($liveBatchSet[$batchRunId]),
+                    ],
+                    'timestamp' => (int) round(microtime(true) * 1000),
+                ];
+                @file_put_contents('/tmp/ms365-debug-aeefbd.ndjson', json_encode($agentLog, JSON_UNESCAPED_SLASHES) . "\n", FILE_APPEND | LOCK_EX);
+            }
+            // #endregion
 
             if (!$staleProgress && !$staleLease) {
                 // Progress resumed after a soft-abort: clear orphaned abort so a later

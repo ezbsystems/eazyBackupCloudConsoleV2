@@ -466,14 +466,22 @@ func (r *Runner) Run(ctx context.Context, job *api.RunJob, onAbort context.Cance
 	})
 	snapshotElapsed := time.Since(snapshotStart)
 	if err != nil {
-		if isCooperativeCancel(err, ctx) || isCooperativeCancel(snapCtx.Err(), ctx) {
-			r.client.RunLogf(ctx, job.RunID, "info", "run cancelled during kopia snapshot")
-			return err
-		}
+		// #region agent log
+		log.Printf("agent_debug session=aeefbd hypothesisId=H1 H5 run=%s snapshot_err=%v stalled=%v coop_parent=%v coop_snap=%v elapsed_ms=%d",
+			job.RunID, err, stalled.Load(), isCooperativeCancel(err, ctx), isCooperativeCancel(snapCtx.Err(), ctx), snapshotElapsed.Milliseconds())
+		// #endregion
+		// Stall watchdog owns terminal reporting even if a parent cancel races in.
+		// Checking stalled before cooperative-cancel prevents silent slot release
+		// with queue+run left "running" (prod: Emily Corbett / 4b46670d).
 		if stalled.Load() {
-			msg := fmt.Sprintf("kopia upload stalled: no hashing or upload progress for %ds", r.cfg.Kopia.StallSeconds)
+			msg := fmt.Sprintf("kopia upload stalled: no hashing or upload progress for %ds",
+				r.cfg.Kopia.ResolvedUploadStallSeconds(r.cfg.Kopia.StallSeconds))
 			r.client.RunLogf(ctx, job.RunID, "error", "%s", msg)
 			r.reportFail(ctx, job.RunID, msg)
+			return err
+		}
+		if isCooperativeCancel(err, ctx) || isCooperativeCancel(snapCtx.Err(), ctx) {
+			r.client.RunLogf(ctx, job.RunID, "info", "run cancelled during kopia snapshot")
 			return err
 		}
 		r.client.RunLogf(ctx, job.RunID, "error", "kopia_snapshot failed after %dms: %v", snapshotElapsed.Milliseconds(), err)

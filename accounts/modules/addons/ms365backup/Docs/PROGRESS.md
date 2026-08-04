@@ -2,14 +2,21 @@
 
 **Purpose:** Single handoff document so the next agent knows where work stopped. Update this file at the **end of every session** (or after each meaningful milestone).
 
-**Last updated:** 2026-08-03
-**Module version (ms365backup):** 1.52.46
+**Last updated:** 2026-08-04
+**Module version (ms365backup):** 1.52.47
 **Cloudstorage (e3) version:** 2.2.4  
-**Worker version (ms365-backup-worker):** 0.4.32 (Kopia v0.23.1)
+**Worker version (ms365-backup-worker):** 0.4.33 (Kopia v0.23.1)
 
 ---
 
 ## Session log
+
+### 2026-08-04 — Apparent “no progress” at 99.9% (PHP 1.52.47)
+
+- **Symptom:** Batches `6e5b9b4b` / `d8d4bb2b` looked frozen (items/graph_requests flat, “Active 5s ago”) while user watched Documents for 5+ minutes.
+- **Evidence:** Worker 9002 journal `requests_total` 22→1600+; DB `attempt_items_done` climbing; column `items_done`/`graph_requests` pinned at prior-attempt maxima via `max()`. Deetken IT/Offboarded truly stalled in upload (`last_progress` 10+ min, 0 upload bytes).
+- **Fix:** Live UI + aggregates use `attemptAwareProgressCounters`; track `attempt_graph_requests` for deltas/liveness; soft-abort requeue clears bytes; reaper still handles upload tails.
+- **Ops:** Soft-abort IT/Offboarded (and Clients if still silent) after deploy.
 
 ### 2026-08-04 — Jobs “stuck at 100%” while tail workloads still run (PHP 1.52.46)
 

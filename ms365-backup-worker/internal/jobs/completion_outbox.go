@@ -22,6 +22,8 @@ const (
 type completionEntry struct {
 	RunID         string             `json:"run_id"`
 	BatchRunID    string             `json:"batch_run_id,omitempty"`
+	Status        string             `json:"status,omitempty"` // success (default) or failed
+	Message       string             `json:"message,omitempty"`
 	Complete      api.CompleteUpdate `json:"complete"`
 	EnqueuedAt    time.Time          `json:"enqueued_at"`
 	FlushAttempts int                `json:"flush_attempts"`
@@ -56,7 +58,28 @@ func (o *CompletionOutbox) Enqueue(batchRunID string, upd api.CompleteUpdate) {
 	o.entries[runID] = &completionEntry{
 		RunID:      runID,
 		BatchRunID: batchRunID,
+		Status:     "success",
 		Complete:   upd,
+		EnqueuedAt: time.Now(),
+	}
+	o.mu.Unlock()
+	o.appendToDisk(runID)
+}
+
+// EnqueueFail persists a failed terminal report for retry (stall/failSink ACK loss).
+func (o *CompletionOutbox) EnqueueFail(batchRunID, runID, message string) {
+	runID = strings.TrimSpace(runID)
+	if runID == "" {
+		return
+	}
+	batchRunID = strings.TrimSpace(batchRunID)
+	o.mu.Lock()
+	o.entries[runID] = &completionEntry{
+		RunID:      runID,
+		BatchRunID: batchRunID,
+		Status:     "failed",
+		Message:    message,
+		Complete:   api.CompleteUpdate{RunID: runID},
 		EnqueuedAt: time.Now(),
 	}
 	o.mu.Unlock()
@@ -102,18 +125,26 @@ func (o *CompletionOutbox) Flush(ctx context.Context, client *api.Client) (acked
 
 	for _, entry := range snapshot {
 		var err error
+		status := strings.TrimSpace(entry.Status)
+		if status == "" {
+			status = "success"
+		}
 		if entry.BatchRunID != "" {
+			child := api.BatchChildResult{
+				RunID:      entry.Complete.RunID,
+				Status:     status,
+				ManifestID: entry.Complete.ManifestID,
+				ItemsDone:  entry.Complete.ItemsDone,
+				ItemsTotal: entry.Complete.ItemsTotal,
+				StatsJSON:  entry.Complete.StatsJSON,
+				Message:    entry.Message,
+			}
 			err = client.BatchComplete(ctx, api.BatchCompleteUpdate{
 				BatchRunID: entry.BatchRunID,
-				Children: []api.BatchChildResult{{
-					RunID:      entry.Complete.RunID,
-					Status:     "success",
-					ManifestID: entry.Complete.ManifestID,
-					ItemsDone:  entry.Complete.ItemsDone,
-					ItemsTotal: entry.Complete.ItemsTotal,
-					StatsJSON:  entry.Complete.StatsJSON,
-				}},
+				Children:   []api.BatchChildResult{child},
 			})
+		} else if status == "failed" {
+			err = client.Fail(ctx, api.FailUpdate{RunID: entry.RunID, Message: entry.Message})
 		} else {
 			err = client.Complete(ctx, entry.Complete)
 		}

@@ -317,9 +317,14 @@ func (br *BatchRunner) Run(ctx context.Context, batch *api.BatchJob, onAbort con
 					Message: message,
 				}},
 			})
-			if err == nil {
-				hub.remove(runID)
+			if err != nil {
+				log.Printf("batch %s failSink delivery failed for %s: %v", batchRunID, runID, err)
+				if br.completionOutbox != nil {
+					br.completionOutbox.EnqueueFail(batchRunID, runID, message)
+				}
+				return
 			}
+			hub.remove(runID)
 		},
 	}
 	batchCtx := withBatchRunContext(ctx, brc)
