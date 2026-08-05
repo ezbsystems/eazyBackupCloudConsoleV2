@@ -320,6 +320,11 @@ function cometbilling_output($vars)
             break;
             
         case 'usage':
+            // Large date ranges can return tens of thousands of rows.
+            cometbilling_releaseSession();
+            if (function_exists('set_time_limit')) {
+                @set_time_limit(300);
+            }
             include __DIR__ . '/templates/admin/usage.tpl.php';
             break;
 

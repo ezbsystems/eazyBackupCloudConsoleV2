@@ -15,7 +15,6 @@ if ($fromInput === null && $toInput === null && $preset === null) {
 $range = HistoricalReconciler::resolveDateRange($preset, $fromInput, $toInput);
 $from = $range['from'];
 $to = $range['to'];
-$rowCap = 2000;
 
 $chargeCount = (int) CanonicalUsage::query()->whereBetween('usage_date', [$from, $to])->count();
 $creditConsumed = (float) CanonicalUsage::query()->whereBetween('usage_date', [$from, $to])->sum('amount');
@@ -24,8 +23,17 @@ $rows = CanonicalUsage::query()
     ->whereBetween('usage_date', [$from, $to])
     ->orderBy('usage_date', 'desc')
     ->orderBy('id', 'desc')
-    ->limit($rowCap)
-    ->get();
+    ->get([
+        'usage_date',
+        'posted_at',
+        'item_type',
+        'item_desc',
+        'quantity',
+        'unit_cost',
+        'amount',
+        'tenant_id',
+        'device_id',
+    ]);
 
 function usagePresetLink(string $baseUrl, $days, $activePreset, string $label): string
 {
@@ -87,12 +95,10 @@ function usagePresetLink(string $baseUrl, $days, $activePreset, string $label): 
 
     <div class="cb-box">
         <h4>Usage Detail</h4>
-        <?php if ($chargeCount > $rowCap): ?>
-        <p class="cb-muted">Showing the latest <?= number_format($rowCap) ?> of <?= number_format($chargeCount) ?> charges. Credit consumed above includes the full period.</p>
-        <?php endif; ?>
         <?php if ($chargeCount === 0): ?>
         <p class="cb-muted">No usage charges in this period.</p>
         <?php else: ?>
+        <p class="cb-muted">Showing all <?= number_format($chargeCount) ?> charge<?= $chargeCount === 1 ? '' : 's' ?> in this period.</p>
         <table class="datatable" width="100%">
             <thead>
                 <tr>
