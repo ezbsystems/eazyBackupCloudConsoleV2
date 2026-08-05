@@ -94,6 +94,10 @@ class LifecycleResolver
         self::$cache = [];
     }
 
+    /**
+     * Last inventory date the booster was present, only when a later snapshot
+     * shows quantity dropped to zero. Still-positive latest qty means active → null.
+     */
     private static function findInventoryRemoveDate(string $deviceHash, string $category): ?string
     {
         if (!Capsule::schema()->hasTable('cb_server_device_inventory')) {
@@ -124,13 +128,24 @@ class LifecycleResolver
         }
 
         $lastPositive = null;
+        $disappeared = false;
+        $latestQty = 0;
         foreach ($rows as $row) {
             $qty = (int) ($row->{$column} ?? 0);
+            $latestQty = $qty;
             if ($qty > 0) {
                 $lastPositive = (string) $row->snapshot_date;
+                $disappeared = false;
+            } elseif ($lastPositive !== null) {
+                $disappeared = true;
             }
         }
 
-        return $lastPositive;
+        // Booster still present on the newest inventory snapshot → not removed.
+        if ($latestQty > 0) {
+            return null;
+        }
+
+        return $disappeared ? $lastPositive : null;
     }
 }

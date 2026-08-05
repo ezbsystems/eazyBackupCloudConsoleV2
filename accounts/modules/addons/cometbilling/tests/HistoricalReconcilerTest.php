@@ -13,6 +13,8 @@ namespace WHMCS\Database {
         public static array $activeRows = [];
         /** @var list<object> */
         public static array $manifestRows = [];
+        /** @var list<object> */
+        public static array $inventoryRows = [];
 
         public static function schema(): object
         {
@@ -27,6 +29,7 @@ namespace WHMCS\Database {
                         'cb_audit_runs',
                         'cb_audit_findings',
                         'cb_portal_pull_manifests',
+                        'cb_server_device_inventory',
                     ], true);
                 }
 
@@ -182,6 +185,7 @@ namespace WHMCS\Database {
                         'cb_credit_usage' => Capsule::$usageRows,
                         'cb_active_services' => Capsule::$activeRows,
                         'cb_portal_pull_manifests' => Capsule::$manifestRows,
+                        'cb_server_device_inventory' => Capsule::$inventoryRows,
                         default => [],
                     };
                     $filtered = array_values(array_filter($rows, function (object $row): bool {
@@ -420,6 +424,80 @@ namespace {
     $afterUtcDay = OverbillEvidenceEvaluator::evaluate($dayAfterUtcRevoke, false);
     assert_eq($afterUtcDay['billing_verdict'], 'after_expected_end', 'day after UTC revoke still after expected end');
     assert_eq($afterUtcDay['verdict'], 'confirmed', 'day after UTC revoke still confirmed overbill');
+
+    // ISOB2026-style: active device, inventory still positive → must NOT invent remove_date
+    Capsule::$deviceRows = [
+        (object) [
+            'hash' => '14ea18cd30a9f27a0f4d036c3482020ff9f9290b',
+            'username' => 'ISOB2026',
+            'name' => 'Boss11.isob.local',
+            'revoked_at' => null,
+            'content' => json_encode(['RegistrationTime' => strtotime('2026-04-05 19:57:13 UTC')]),
+        ],
+    ];
+    Capsule::$inventoryRows = [
+        (object) [
+            'device_id' => '14ea18cd30a9f27a0f4d036c3482020ff9f9290b',
+            'snapshot_date' => '2026-08-04',
+            'vmware_vms' => 1,
+            'hyperv_vms' => 0,
+        ],
+    ];
+    Capsule::$activeRows = [
+        (object) [
+            'id' => 3,
+            'pulled_at' => '2026-08-04 19:05:08',
+            'service_name' => 'Account ISOB2026 - Device 14ea18 - Booster (VMware) Guest Count 1',
+            'billing_cycle_days' => 1,
+            'next_due_date' => '2026-08-06',
+            'device_id' => '14ea18',
+        ],
+    ];
+    Capsule::$usageRows = [
+        (object) [
+            'id' => 200,
+            'usage_date' => '2026-08-05',
+            'tenant_id' => 'ISOB2026',
+            'device_id' => '14ea18cd30a9f27a0f4d036c3482020ff9f9290b',
+            'item_type' => 'booster',
+            'item_desc' => 'Booster - VMware',
+            'amount' => '0.16',
+            'packs_used_raw' => '10,000 Dollars',
+            'packs_used_parsed' => json_encode(PackUsageParser::parse('10,000 Dollars')),
+            'raw_row' => json_encode([]),
+        ],
+    ];
+    \CometBilling\LifecycleResolver::clearCache();
+    \CometBilling\ServiceIdentityResolver::clearCache();
+    \CometBilling\BillingCadenceResolver::clearCache();
+
+    $activeVmware = OverbillEvidenceEvaluator::evaluate(Capsule::$usageRows[0], false);
+    assert_eq($activeVmware['evidence']['lifecycle']['remove_date'] ?? null, null, 'active inventory booster has no remove_date');
+    assert_eq($activeVmware['billing_verdict'], 'active_or_unknown', 'active booster not after expected end');
+    assert_eq($activeVmware['verdict'] === 'confirmed', false, 'active VMware booster not confirmed overbill');
+
+    // Inventory drop 1→0 still yields remove_date
+    Capsule::$inventoryRows = [
+        (object) [
+            'device_id' => '14ea18cd30a9f27a0f4d036c3482020ff9f9290b',
+            'snapshot_date' => '2026-08-03',
+            'vmware_vms' => 1,
+            'hyperv_vms' => 0,
+        ],
+        (object) [
+            'device_id' => '14ea18cd30a9f27a0f4d036c3482020ff9f9290b',
+            'snapshot_date' => '2026-08-04',
+            'vmware_vms' => 0,
+            'hyperv_vms' => 0,
+        ],
+    ];
+    \CometBilling\LifecycleResolver::clearCache();
+    $dropped = \CometBilling\LifecycleResolver::resolve(
+        '14ea18cd30a9f27a0f4d036c3482020ff9f9290b',
+        'vmware_vms',
+        'ISOB2026'
+    );
+    assert_eq($dropped['remove_date'], '2026-08-03', 'inventory 1→0 uses last positive as remove_date');
 
     Capsule::$manifestRows = [
         (object) ['id' => 1, 'pulled_at' => '2026-08-01 12:00:00'],
