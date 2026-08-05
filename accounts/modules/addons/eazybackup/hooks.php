@@ -109,11 +109,23 @@ add_hook('ClientAreaPage', 1, function ($vars) {
             'isBranded' => 0,
         ];
         if ($clientId > 0) {
-            $row = Capsule::table('eb_whitelabel_tenants')
+            $rows = Capsule::table('eb_whitelabel_tenants')
                 ->where('client_id', $clientId)
                 ->where('status', 'active')
                 ->orderBy('updated_at', 'desc')
-                ->first();
+                ->get();
+            $row = null;
+            foreach ($rows as $candidate) {
+                $brandCandidate = json_decode((string)($candidate->brand_json ?? '{}'), true) ?: [];
+                $productCandidate = trim((string)($brandCandidate['ProductName'] ?? $brandCandidate['BrandName'] ?? ''));
+                if ($productCandidate !== '') {
+                    $row = $candidate;
+                    break;
+                }
+            }
+            if (!$row && count($rows) > 0) {
+                $row = $rows[0];
+            }
             if ($row) {
                 $brand = json_decode((string)($row->brand_json ?? '{}'), true) ?: [];
                 $product = (string)($brand['ProductName'] ?? $brand['BrandName'] ?? '');

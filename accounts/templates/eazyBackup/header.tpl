@@ -487,7 +487,13 @@
                     </div>
                     <!-- Column 2: OBC or Custom White Label Products -->
                     <div>
-                            <h3 class="eb-flyout-section-title">OBC</h3>
+                        {assign var=ebOrderBrandName value='OBC'}
+                        {if isset($eb_brand_download.isBranded) && $eb_brand_download.isBranded && isset($eb_brand_download.productName) && $eb_brand_download.productName neq ''}
+                            {assign var=ebOrderBrandName value=$eb_brand_download.productName}
+                        {elseif isset($whitelabel_product_name) && $whitelabel_product_name neq '' && $whitelabel_product_name neq 'OBC'}
+                            {assign var=ebOrderBrandName value=$whitelabel_product_name}
+                        {/if}
+                            <h3 class="eb-flyout-section-title">{$ebOrderBrandName|escape}</h3>
                         <ul class="space-y-1">
                             <li>
                                 {if isset($whitelabel_product_name) && $whitelabel_product_name neq "OBC"}
@@ -501,13 +507,13 @@
                                             <path stroke-linecap="round" stroke-linejoin="round" d="M9 17.25v1.007a3 3 0 0 1-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0 1 15 18.257V17.25m6-12V15a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 15V5.25m18 0A2.25 2.25 0 0 0 18.75 3H5.25A2.25 2.25 0 0 0 3 5.25m18 0V12a2.25 2.25 0 0 1-2.25 2.25H5.25a2.25 2.25 0 0 1-2.25-2.25V5.25" />
                                         </svg>
                                         <div>
-                                                <h3 class="eb-flyout-card-title">OBC</h3>
+                                                <h3 class="eb-flyout-card-title">{$ebOrderBrandName|escape}</h3>
                                             <ul class="eb-flyout-card-list">
                                                 <li>Windows 10/11/Server, macOS, Linux</li>
                                                 <li>Protect unlimited files and folders</li>
                                                 <li>Disk Image for Windows and Linux</li>
                                                 <li>Protect Hyper-V, Proxmox and VMware guests</li>
-                                                <li>OBC branded client</li>
+                                                <li>{$ebOrderBrandName|escape} branded client</li>
                                             </ul>
                                         </div>
                                     </a>
@@ -525,11 +531,11 @@
                                             <path stroke-linecap="round" stroke-linejoin="round" d="M5.25 14.25h13.5m-13.5 0a3 3 0 0 1-3-3m3 3a3 3 0 1 0 0 6h13.5a3 3 0 1 0 0-6m-16.5-3a3 3 0 0 1 3-3h13.5a3 3 0 0 1 3 3m-19.5 0a4.5 4.5 0 0 1 .9-2.7L5.737 5.1a3.375 3.375 0 0 1 2.7-1.35h7.126c1.062 0 2.062.5 2.7 1.35l2.587 3.45a4.5 4.5 0 0 1 .9 2.7m0 0a3 3 0 0 1-3 3m0 3h.008v.008h-.008v-.008Zm0-6h.008v.008h-.008v-.008Zm-3 6h.008v.008h-.008v-.008Zm0-6h.008v.008h-.008v-.008Z" />
                                         </svg>
                                         <div>
-                                            <h3 class="eb-flyout-card-title">Virtual Server Backup (OBC)</h3>
+                                            <h3 class="eb-flyout-card-title">Virtual Server Backup ({$ebOrderBrandName|escape})</h3>
                                             <ul class="eb-flyout-card-list">
                                                 <li>For Windows and Linux Servers</li>
                                                 <li>Hyper-V, Proxmox, VMware guest VM backups only</li> 
-                                                <li>OBC branded client</li>
+                                                <li>{$ebOrderBrandName|escape} branded client</li>
                                             </ul>
                                         </div>
                                     </a>

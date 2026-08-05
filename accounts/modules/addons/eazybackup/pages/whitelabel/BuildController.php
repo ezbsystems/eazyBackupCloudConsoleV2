@@ -149,6 +149,62 @@ function eazybackup_whitelabel_queue_provisioning_steps(array $vars, int $tenant
     }
 }
 
+/**
+ * Queue/spawn provisioning for an existing WL tenant during Partner Hub enable.
+ */
+function eazybackup_whitelabel_finish_enable_existing_tenant(array $vars, int $tenantId, string $statusBefore, bool $alreadyEnabled = true): array
+{
+    $out = [
+        'ok' => false,
+        'tenant_id' => $tenantId,
+        'already_enabled' => $alreadyEnabled,
+        'error' => '',
+    ];
+    if ($tenantId <= 0) {
+        $out['error'] = 'invalid_tenant_id';
+        return $out;
+    }
+    try {
+        eazybackup_whitelabel_queue_provisioning_steps(
+            $vars,
+            $tenantId,
+            in_array($statusBefore, ['queued', 'failed', 'building'], true)
+        );
+    } catch (\Throwable $_) {
+        $out['error'] = 'enable_queue_failed';
+        return $out;
+    }
+    eazybackup_whitelabel_spawn_pipeline($tenantId);
+    $out['ok'] = true;
+    return $out;
+}
+
+/**
+ * Find an unlinked WL tenant for this client that can be linked to a canonical tenant.
+ */
+function eazybackup_whitelabel_find_reusable_unlinked_tenant(int $clientId): ?object
+{
+    if ($clientId <= 0) {
+        return null;
+    }
+    try {
+        $rows = Capsule::table('eb_whitelabel_tenants')
+            ->where('client_id', $clientId)
+            ->whereIn('status', ['queued', 'building', 'active'])
+            ->where(function ($q) {
+                $q->whereNull('canonical_tenant_id')->orWhere('canonical_tenant_id', 0);
+            })
+            ->orderBy('id', 'asc')
+            ->get();
+        foreach ($rows as $row) {
+            return $row;
+        }
+    } catch (\Throwable $_) {
+        return null;
+    }
+    return null;
+}
+
 function eazybackup_whitelabel_enable_for_canonical_tenant(array $vars, int $clientId, int $canonicalTenantId, array $canonicalTenant = []): array
 {
     $out = [
@@ -182,19 +238,26 @@ function eazybackup_whitelabel_enable_for_canonical_tenant(array $vars, int $cli
     if ($existing) {
         $tenantId = (int)($existing->id ?? 0);
         $statusBefore = strtolower(trim((string)($existing->status ?? '')));
+        return eazybackup_whitelabel_finish_enable_existing_tenant($vars, $tenantId, $statusBefore, true);
+    }
+
+    $reusable = eazybackup_whitelabel_find_reusable_unlinked_tenant($clientId);
+    if ($reusable) {
+        $tenantId = (int)($reusable->id ?? 0);
+        $statusBefore = strtolower(trim((string)($reusable->status ?? '')));
         try {
-            eazybackup_whitelabel_queue_provisioning_steps($vars, $tenantId, in_array($statusBefore, ['queued', 'failed', 'building'], true));
+            Capsule::table('eb_whitelabel_tenants')
+                ->where('id', $tenantId)
+                ->update([
+                    'canonical_tenant_id' => $canonicalTenantId,
+                    'updated_at' => $now,
+                ]);
         } catch (\Throwable $_) {
-            $out['error'] = 'enable_queue_failed';
+            $out['error'] = 'enable_link_failed';
             $out['tenant_id'] = $tenantId;
             return $out;
         }
-        // Partner Hub enable previously queued steps without spawning; always kick off if queued.
-        eazybackup_whitelabel_spawn_pipeline($tenantId);
-        $out['ok'] = true;
-        $out['tenant_id'] = $tenantId;
-        $out['already_enabled'] = true;
-        return $out;
+        return eazybackup_whitelabel_finish_enable_existing_tenant($vars, $tenantId, $statusBefore, true);
     }
 
     $baseDomain = strtolower(trim((string)($vars['whitelabel_base_domain'] ?? 'obcbackup.com')));
