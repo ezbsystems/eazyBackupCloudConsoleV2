@@ -106,6 +106,21 @@ contract_contains(
     'hook resolves Cloud Storage PID from addon settings'
 );
 contract_contains(
+    $sources['hook'],
+    '$pid !== 48 && $pid !== $configuredPid',
+    'hook accepts legacy PID 48 or configured pid_cloud_storage'
+);
+contract_contains(
+    $sources['usage_hook'],
+    'Object storage billing exempt',
+    'usage summary panel embeds Object storage billing exempt controls'
+);
+contract_contains(
+    $sources['usage_hook'],
+    'billingFormHtml',
+    'usage summary builds billing form HTML'
+);
+contract_contains(
     $sources['ajax'],
     'save_billing_flags',
     'ajax endpoint accepts save_billing_flags'

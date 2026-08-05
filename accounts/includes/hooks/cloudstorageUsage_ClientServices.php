@@ -153,13 +153,16 @@ HTML;
         $formattedBytes = eb_cloudstorage_format_bytes($totalBytes);
 
         $billingExempt = false;
+        $billingNotes = '';
         try {
             if (Capsule::schema()->hasTable('s3_billing_flags')) {
                 $flag = Capsule::table('s3_billing_flags')->where('service_id', $serviceId)->first();
                 $billingExempt = $flag !== null && (int) ($flag->billing_exempt ?? 0) === 1;
+                $billingNotes = $flag ? (string) ($flag->notes ?? '') : '';
             }
         } catch (\Throwable $e) {
             $billingExempt = false;
+            $billingNotes = '';
         }
 
         // JSON for JS injection
@@ -173,6 +176,8 @@ HTML;
             'totalObjects' => $totalObjects,
             'activeBucketsOnly' => $hasBucketIsActive ? true : false,
             'billing_exempt' => $billingExempt,
+            'billing_notes' => $billingNotes,
+            'ajaxPath' => '/includes/hooks/s3_billing_flags_ajax.php',
         ];
         $json = json_encode($data);
 
@@ -180,6 +185,22 @@ HTML;
 <script type="text/javascript">
 (function($){
   var data = $json;
+  function billingFormHtml(){
+    var checked = data.billing_exempt ? ' checked="checked"' : '';
+    var notes = (data.billing_notes || '').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+    return '<div id="s3-billing-flags-panel" style="margin-top:14px;padding-top:12px;border-top:1px solid #eee;">'
+      + '<strong>Object Storage Billing</strong>'
+      + '<p class="text-muted" style="margin:6px 0 8px;">Mark this Cloud Storage service as complimentary. While exempt, the billing cron keeps the recurring amount at \$0.00.</p>'
+      + '<div class="form-group" style="margin-bottom:8px;">'
+      +   '<label><input type="checkbox" id="s3_billing_exempt" value="1"' + checked + '> Object storage billing exempt</label>'
+      + '</div>'
+      + '<div class="form-group" style="margin-bottom:8px;">'
+      +   '<label for="s3_billing_notes">Notes</label>'
+      +   '<input type="text" class="form-control" id="s3_billing_notes" value="' + notes + '" placeholder="e.g. Partner complimentary account" style="max-width:400px;">'
+      + '</div>'
+      + '<button type="button" class="btn btn-primary btn-sm" id="s3-save-billing-flags">Save Billing Flag</button>'
+      + '</div>';
+  }
   function panelHtml(){
     var sub = (data.tenantCount > 0) ? ('<span class="label label-info" style="margin-left:8px;">' + data.tenantCount + ' tenant(s)</span>') : '';
     var exemptBadge = data.billing_exempt ? ('<span class="label label-success" style="margin-left:8px;">Billing exempt</span>') : '';
@@ -194,16 +215,39 @@ HTML;
       +   '</div>'
       +   '<div class="text-muted" style="margin-top:8px;">Primary storage user: <span style="font-family:monospace;">' + data.primary + '</span></div>'
       +   note
+      +   billingFormHtml()
       + '</div>'
       + '</div>';
+  }
+  function bindSave(){
+    $(document).off('click.s3BillingFlags', '#s3-save-billing-flags').on('click.s3BillingFlags', '#s3-save-billing-flags', function(){
+      var \$btn = $(this);
+      if (\$btn.prop('disabled')) return;
+      var token = $("input[name='token']").first().val() || (typeof csrfToken !== 'undefined' ? csrfToken : '') || '';
+      var billing_exempt = $('#s3_billing_exempt').prop('checked') ? 1 : 0;
+      var notes = ($('#s3_billing_notes').val() || '').trim();
+      \$btn.prop('disabled', true).text('Saving…');
+      $.post(data.ajaxPath, {
+        ajax_action: 'save_billing_flags',
+        token: token,
+        service_id: data.serviceId,
+        billing_exempt: billing_exempt,
+        notes: notes
+      }).done(function(r){
+        try { if (typeof r === 'string') r = JSON.parse(r); } catch(e) { r = { status: false }; }
+        if (r && r.status) { \$btn.text('Saved').css('color','green'); setTimeout(function(){ location.reload(); }, 600); }
+        else { alert(r && r.message ? r.message : 'Save failed'); \$btn.prop('disabled', false).text('Save Billing Flag'); }
+      }).fail(function(){ alert('Request failed'); \$btn.prop('disabled', false).text('Save Billing Flag'); });
+    });
   }
   function inject(){
     if($("#eb-e3-storage-summary").length) return;
     var host = $("#profileContent");
     if(!host.length){ setTimeout(inject, 250); return; }
     host.prepend(panelHtml());
+    bindSave();
   }
-  $(function(){ inject(); });
+  $(function(){ inject(); bindSave(); });
 })(jQuery);
 </script>
 HTML;

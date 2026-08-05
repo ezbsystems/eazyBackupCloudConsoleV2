@@ -69,7 +69,9 @@ try {
     // keep legacy fallback
 }
 
-if ((int) ($service->packageid ?? 0) !== $pidCloudStorage) {
+$packageId = (int) ($service->packageid ?? 0);
+// Accept legacy PID 48 (summary hook) or the configured pid_cloud_storage.
+if ($packageId !== 48 && $packageId !== $pidCloudStorage) {
     echo json_encode(['status' => false, 'message' => 'Not a Cloud Storage service']);
     exit;
 }
