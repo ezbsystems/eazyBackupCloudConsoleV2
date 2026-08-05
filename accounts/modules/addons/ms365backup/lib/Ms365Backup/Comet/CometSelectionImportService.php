@@ -167,7 +167,9 @@ final class CometSelectionImportService
         self::assertServiceLinkage($user, $serviceId);
 
         $parsed = CometOffice365SelectionParser::parseProfile($profile, $mergeAllSources);
-        if ($timezone === null && $parsed['local_timezone'] !== '') {
+        // Profile LocalTimezone is a create-only default; never override an existing job's zone
+        // unless the operator passed --timezone= (handled below / via $opts).
+        if ($jobId === '' && $timezone === null && $parsed['local_timezone'] !== '') {
             $timezone = $parsed['local_timezone'];
         }
 

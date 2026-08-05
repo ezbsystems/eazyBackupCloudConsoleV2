@@ -16,7 +16,7 @@
 - **Need:** EvokeBuildings had 3 Comet MS365 Protected Items; selection must land on existing job `c2d3313e-…` (not a new job).
 - **Ship:** `--merge-all-sources` unions all `engine1/winmsofficemail` Sources (OR bitmasks / WholeOrg); `--job-id=` with `--apply` calls `Ms365CustomerJobService::update` preserving schedule slots + `last_scheduled_key`.
 - **Tests/docs:** parser merge cases; `COMET_SELECTION_IMPORT.md` updated.
-- **Ops:** Deploy + dry-run/apply Evoke merge on prod.
+- **Ops:** Deployed `73c9cab5` to prod; Evoke dry-run + apply — 3 PIs merged → job `c2d3313e-…` **65** selected (30 users + 6 groups + OD children), 0% unmatched; schedule slot 23:25 preserved. Follow-up: profile LocalTimezone no longer overrides `--job-id` updates; Evoke tz restored to `America/Toronto`.
 
 ### 2026-08-05 — Non-backupable directory accounts (PHP 1.52.49–1.52.50)
 
