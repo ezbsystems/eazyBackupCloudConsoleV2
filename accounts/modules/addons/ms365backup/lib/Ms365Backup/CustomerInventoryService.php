@@ -240,6 +240,7 @@ final class CustomerInventoryService
             $resources = is_array($data['resources'] ?? null) ? array_values($data['resources']) : [];
             $relationships = is_array($data['relationships'] ?? null) ? $data['relationships'] : [];
             $resources = TenantResource::enrichSharePointDisplayMetadata($resources, $relationships);
+            $resources = TenantResource::enrichPersonalBackupSelectability($resources);
             foreach ($resources as $i => $resource) {
                 if (!is_array($resource)) {
                     continue;

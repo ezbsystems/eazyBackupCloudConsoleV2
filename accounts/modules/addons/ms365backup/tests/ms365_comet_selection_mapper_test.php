@@ -195,9 +195,10 @@ $moInventory = [
             'resource_type' => TenantResource::TYPE_MAILBOX,
             'graph_id' => $memberB,
             'display_name' => 'Member B',
+            'email' => 'memberb@example.com',
             'parent_id' => null,
             'access' => [],
-            'meta' => [],
+            'meta' => ['mail' => 'memberb@example.com'],
         ],
     ],
 ];

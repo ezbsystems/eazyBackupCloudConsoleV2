@@ -134,6 +134,7 @@ final class CometSelectionMapper
             $ok = self::applyBackupOption(
                 $cometId,
                 $mask,
+                $resources,
                 $byId,
                 $byGraph,
                 $onedriveByParent,
@@ -209,6 +210,7 @@ final class CometSelectionMapper
                 $ok = self::applyBackupOption(
                     $memberGraphId,
                     $mask,
+                    $resources,
                     $byId,
                     $byGraph,
                     $onedriveByParent,
@@ -276,6 +278,7 @@ final class CometSelectionMapper
     private static function applyBackupOption(
         string $cometId,
         int $mask,
+        array $allResources,
         array $byId,
         array $byGraph,
         array $onedriveByParent,
@@ -305,6 +308,7 @@ final class CometSelectionMapper
                 $byGraph,
                 $onedriveByParent,
                 $ownerLookup,
+                $allResources,
                 $selected,
                 $scopes,
                 $matchedUsers,
@@ -331,6 +335,7 @@ final class CometSelectionMapper
                 $resource,
                 $mask,
                 $onedriveByParent,
+                $allResources,
                 $selected,
                 $scopes,
                 $matchedUsers,
@@ -378,6 +383,7 @@ final class CometSelectionMapper
         array $byGraph,
         array $onedriveByParent,
         array $ownerLookup,
+        array $allResources,
         array &$selected,
         array &$scopes,
         int &$matchedUsers,
@@ -415,6 +421,7 @@ final class CometSelectionMapper
             $owner,
             $effectiveMask,
             $onedriveByParent,
+            $allResources,
             $selected,
             $scopes,
             $matchedUsers,
@@ -478,6 +485,7 @@ final class CometSelectionMapper
         array $resource,
         int $mask,
         array $onedriveByParent,
+        array $allResources,
         array &$selected,
         array &$scopes,
         int &$matchedUsers,
@@ -488,6 +496,10 @@ final class CometSelectionMapper
         $id = (string) ($resource['id'] ?? '');
         $type = (string) ($resource['resource_type'] ?? TenantResource::TYPE_USER);
         if ($id === '') {
+            return;
+        }
+
+        if (!TenantResource::isPersonallyBackupable($resource, $allResources)) {
             return;
         }
 

@@ -156,6 +156,9 @@ final class CustomerSelectionCodec
             switch ($type) {
                 case TenantResource::TYPE_USER:
                 case TenantResource::TYPE_MAILBOX:
+                    if (!TenantResource::isPersonallyBackupable($resource, $resources)) {
+                        break;
+                    }
                     $add($id, $type);
                     foreach ($resources as $child) {
                         if (!is_array($child)) {

@@ -250,8 +250,13 @@
 
     function buildParentNode(resource, sectionKey, hasChildren) {
         const isSite = resource.resource_type === TYPE_SITE;
-        const selectable = !isSite || resource.selectable !== false;
-        const disabledReason = isSite ? (resource.disabled_reason || '') : '';
+        const isUserOrMailbox = resource.resource_type === TYPE_USER || resource.resource_type === TYPE_MAILBOX;
+        const selectable = (isSite || isUserOrMailbox)
+            ? resource.selectable !== false
+            : true;
+        const disabledReason = (isSite || isUserOrMailbox)
+            ? (resource.disabled_reason || '')
+            : '';
         return {
             key: nodeKey('parent', resource.id),
             kind: 'parent',
@@ -756,6 +761,9 @@
             if (section.key === 'users') {
                 let usersAndMailboxes = 0;
                 nodes.filter((n) => n.kind === 'parent').forEach((parent) => {
+                    if (parent.selectable === false) {
+                        return;
+                    }
                     if (!parentHasSelection(nodes, selection, parent, indexes)) {
                         return;
                     }

@@ -79,6 +79,12 @@
 - **Deploy (prod):** commit `838cc49c` pushed; release **75** (`0.4.31`, sha256 `960370b1…`) published dev→prod; `deploy-production.sh` synced WHMCS PHP; browse binary **0.4.31** on prod WHMCS; fleet deploy job **41** → **8/8** nodes on **0.4.31**; browse socket ping alive.
 - **Compaction (repo 20):** enqueued `maintenance_full` op **572** (with `e3_job_id=a98f9943-…`) — **running** as of session end (op 571 failed: missing `e3_job_id` → invalid repo password). Post-compaction cold/warm browse validation pending op 572 success (`index_blobs_after` must fall below 5000).
 
+### 2026-08-05 — Non-backupable directory accounts (PHP 1.52.49)
+
+- **Rule:** Users & mailboxes without license, Graph mail, or OneDrive child are **disabled** in the wizard (`No mailbox or OneDrive to back up`), excluded from Select All / Comet WholeOrg import, and **never billed** (personal or team/group/site membership).
+- **Expected:** NGIbackup Protected Users **88 → 80** (drop 8 DirSync/VPN/admin service accounts).
+- **Tests:** `ms365_personal_backup_selectability_test.php`; resolver/comet tests updated.
+
 ### 2026-08-03 — Users-only billing (Comet parity, PHP 1.52.44)
 
 - **Billing:** `TYPE_MAILBOX` never bills (personal or Select All); guests still never bill; membership still bills non-guest `TYPE_USER` members. Matches Comet user count (e.g. 96 not 124).

@@ -235,6 +235,107 @@ final class TenantResource
     }
 
     /**
+     * @param list<array<string, mixed>> $inventoryResources
+     */
+    public static function hasOneDriveChild(string $resourceId, array $inventoryResources): bool
+    {
+        if ($resourceId === '') {
+            return false;
+        }
+
+        foreach ($inventoryResources as $child) {
+            if (!is_array($child)) {
+                continue;
+            }
+            if ((string) ($child['parent_id'] ?? '') !== $resourceId) {
+                continue;
+            }
+            if ((string) ($child['resource_type'] ?? '') === self::TYPE_USER_ONEDRIVE) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Whether a user or mailbox row has personal backup surface (license, mail, or OneDrive).
+     *
+     * @param array<string, mixed> $resource
+     * @param list<array<string, mixed>> $inventoryResources
+     */
+    public static function isPersonallyBackupable(array $resource, array $inventoryResources): bool
+    {
+        $type = (string) ($resource['resource_type'] ?? '');
+        if (!in_array($type, [self::TYPE_USER, self::TYPE_MAILBOX], true)) {
+            return true;
+        }
+
+        if (self::hasAssignedLicense($resource)) {
+            return true;
+        }
+
+        $meta = is_array($resource['meta'] ?? null) ? $resource['meta'] : [];
+        $mail = trim((string) ($meta['mail'] ?? ''));
+        if ($mail === '') {
+            $mail = trim((string) ($resource['email'] ?? ''));
+        }
+        if ($mail !== '') {
+            return true;
+        }
+
+        $id = (string) ($resource['id'] ?? '');
+
+        return $id !== '' && self::hasOneDriveChild($id, $inventoryResources);
+    }
+
+    /**
+     * Derive wizard selectability for a user or mailbox resource.
+     *
+     * @param array<string, mixed> $resource
+     * @param list<array<string, mixed>> $inventoryResources
+     * @return array{selectable: bool, disabled_reason: string}
+     */
+    public static function personalBackupSelectability(array $resource, array $inventoryResources): array
+    {
+        $type = (string) ($resource['resource_type'] ?? '');
+        if (!in_array($type, [self::TYPE_USER, self::TYPE_MAILBOX], true)) {
+            return ['selectable' => true, 'disabled_reason' => ''];
+        }
+
+        if (self::isPersonallyBackupable($resource, $inventoryResources)) {
+            return ['selectable' => true, 'disabled_reason' => ''];
+        }
+
+        return [
+            'selectable' => false,
+            'disabled_reason' => 'No mailbox or OneDrive to back up',
+        ];
+    }
+
+    /**
+     * Stamp personal backup selectability onto user/mailbox inventory rows.
+     *
+     * @param list<array<string, mixed>> $resources
+     * @return list<array<string, mixed>>
+     */
+    public static function enrichPersonalBackupSelectability(array $resources): array
+    {
+        foreach ($resources as $i => $resource) {
+            if (!is_array($resource)) {
+                continue;
+            }
+            $type = (string) ($resource['resource_type'] ?? '');
+            if (!in_array($type, [self::TYPE_USER, self::TYPE_MAILBOX], true)) {
+                continue;
+            }
+            $resources[$i] = array_merge($resource, self::personalBackupSelectability($resource, $resources));
+        }
+
+        return $resources;
+    }
+
+    /**
      * SharePoint system / infrastructure sites that should not appear in customer pickers.
      */
     public static function isInfrastructureSharePointSite(array $resource): bool

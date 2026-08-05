@@ -8,7 +8,7 @@ This document specifies how to make the **Microsoft 365 Backup** product billing
 
 Read alongside: [PRODUCT_ROADMAP.md](PRODUCT_ROADMAP.md) (product intent/phases), [ARCHITECTURE_BOUNDARIES.md](ARCHITECTURE_BOUNDARIES.md) (module split), and `modules/addons/cloudstorage/docs/E3_CLOUD_BACKUP_BILLING.md` (the metered-billing pattern this design mirrors).
 
-**Protected Users revision (2026-07-27):** billing counts **Protected Users** (reverted from 2026-07-21 Protected Objects expansion for mailboxes). **Users-only billing (2026-08-03):** `TYPE_MAILBOX` never bills; guests never bill; membership still bills non-guest `TYPE_USER` members. Internal keys unchanged.
+**Protected Users revision (2026-07-27):** billing counts **Protected Users** (reverted from 2026-07-21 Protected Objects expansion for mailboxes). **Users-only billing (2026-08-03):** `TYPE_MAILBOX` never bills; guests never bill; membership still bills non-guest `TYPE_USER` members. **Non-backupable accounts (2026-08-05):** users/mailboxes without license, mail, or OneDrive never bill and are wizard-disabled. Internal keys unchanged.
 
 ---
 
@@ -30,8 +30,8 @@ Read alongside: [PRODUCT_ROADMAP.md](PRODUCT_ROADMAP.md) (product intent/phases)
 
 A **Protected User** is one distinct Microsoft 365 directory identity, identified by **Azure object ID**, counted at most **once** per backup user for the billing window, when it is reached by any of:
 
-1. **Personal user selection** — `user` or `user_onedrive` with at least one enabled personal scope (member users only; guests excluded).
-2. **Team / Group membership** — billable member of a selected Team, team channel (inherits parent team), or M365 Group with at least one enabled shared scope (guests and mailbox principals excluded).
+1. **Personal user selection** — `user` or `user_onedrive` with at least one enabled personal scope (member users with backup surface only; guests and directory-only accounts excluded).
+2. **Team / Group membership** — billable member of a selected Team, team channel (inherits parent team), or M365 Group with at least one enabled shared scope (guests, mailbox principals, and non-backupable directory accounts excluded).
 3. **SharePoint site membership** — billable member user principal on a selected SharePoint site with at least one enabled site scope (guests excluded).
 
 **Guests never bill.** Shared/room/equipment mailboxes never bill (backup-selectable only). Membership-only mailbox principals do not bill.

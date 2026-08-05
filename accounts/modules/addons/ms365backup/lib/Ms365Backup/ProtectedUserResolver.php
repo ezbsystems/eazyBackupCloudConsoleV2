@@ -260,7 +260,7 @@ final class ProtectedUserResolver
     }
 
     /**
-     * @param array<string, array{user_type: string, upn: string, resource_type: string}> $userIndex
+     * @param array<string, array{user_type: string, upn: string, resource_type: string, personally_backupable: bool}> $userIndex
      * @param array<string, mixed>|null $memberRow
      */
     public static function isBillableMember(string $azureId, array $userIndex, ?array $memberRow = null): bool
@@ -295,14 +295,19 @@ final class ProtectedUserResolver
             return false;
         }
 
+        if (isset($userIndex[$azureId]) && ($userIndex[$azureId]['personally_backupable'] ?? true) === false) {
+            return false;
+        }
+
         return true;
     }
 
-    /** @return array<string, array{user_type: string, upn: string, resource_type: string}> */
+    /** @return array<string, array{user_type: string, upn: string, resource_type: string, personally_backupable: bool}> */
     private static function buildUserIndex(array $inventory): array
     {
         $index = [];
-        foreach ($inventory['resources'] ?? [] as $resource) {
+        $resources = is_array($inventory['resources'] ?? null) ? $inventory['resources'] : [];
+        foreach ($resources as $resource) {
             if (!is_array($resource)) {
                 continue;
             }
@@ -319,6 +324,7 @@ final class ProtectedUserResolver
                 'user_type' => (string) ($meta['user_type'] ?? ''),
                 'upn' => strtolower((string) ($resource['email'] ?? $meta['mail'] ?? '')),
                 'resource_type' => $type,
+                'personally_backupable' => TenantResource::isPersonallyBackupable($resource, $resources),
             ];
         }
 

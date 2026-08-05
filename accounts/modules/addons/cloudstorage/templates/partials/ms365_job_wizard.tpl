@@ -723,5 +723,5 @@
 </div>
 
 <script src="modules/addons/cloudstorage/assets/js/ms365_inventory_icons.js?v=1"></script>
-<script src="modules/addons/cloudstorage/assets/js/ms365_job_selection.js?v=9"></script>
+<script src="modules/addons/cloudstorage/assets/js/ms365_job_selection.js?v=10"></script>
 <script src="modules/addons/cloudstorage/assets/js/ms365_job_wizard.js?v=37"></script>

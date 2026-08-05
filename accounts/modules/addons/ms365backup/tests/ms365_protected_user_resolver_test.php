@@ -242,11 +242,11 @@ $inventorySite = [
         ]),
         TenantResource::build(TenantResource::TYPE_USER, 'sp-user-1', 'SP User 1', null, [
             'id' => 'user:sp-user-1',
-            'meta' => ['user_type' => 'Member'],
+            'meta' => ['user_type' => 'Member', 'has_assigned_license' => true],
         ]),
         TenantResource::build(TenantResource::TYPE_USER, 'sp-user-2', 'SP User 2', null, [
             'id' => 'user:sp-user-2',
-            'meta' => ['user_type' => 'Member'],
+            'meta' => ['user_type' => 'Member', 'has_assigned_license' => true],
         ]),
     ],
 ];
@@ -263,7 +263,7 @@ $inventoryCross = [
     'resources' => [
         TenantResource::build(TenantResource::TYPE_USER, $alice, 'Alice', null, [
             'id' => 'user:' . $alice,
-            'meta' => ['user_type' => 'Member'],
+            'meta' => ['user_type' => 'Member', 'has_assigned_license' => true],
         ]),
         TenantResource::build(TenantResource::TYPE_TEAM, 'grp-cross', 'Cross Team', null, [
             'id' => 'team:grp-cross',
@@ -280,11 +280,11 @@ $inventoryCross = [
         ]),
         TenantResource::build(TenantResource::TYPE_USER, 'bob-1', 'Bob', null, [
             'id' => 'user:bob-1',
-            'meta' => ['user_type' => 'Member'],
+            'meta' => ['user_type' => 'Member', 'has_assigned_license' => true],
         ]),
         TenantResource::build(TenantResource::TYPE_USER, 'carol-1', 'Carol', null, [
             'id' => 'user:carol-1',
-            'meta' => ['user_type' => 'Member'],
+            'meta' => ['user_type' => 'Member', 'has_assigned_license' => true],
         ]),
     ],
 ];
@@ -348,7 +348,7 @@ for ($i = 1; $i <= 10; $i++) {
     $uid = 'sel-user-' . $i;
     $selectAllUsers[] = TenantResource::build(TenantResource::TYPE_USER, $uid, 'User ' . $i, null, [
         'id' => 'user:' . $uid,
-        'meta' => ['user_type' => 'Member'],
+        'meta' => ['user_type' => 'Member', 'has_assigned_license' => true],
     ]);
     $selectAllScopes['user:' . $uid] = [BackupScope::MAIL => true];
 }
@@ -395,7 +395,7 @@ $inventoryTeamWithMailboxMember = [
         ]),
         TenantResource::build(TenantResource::TYPE_USER, 'member-user-1', 'Member User', null, [
             'id' => 'user:member-user-1',
-            'meta' => ['user_type' => 'Member'],
+            'meta' => ['user_type' => 'Member', 'has_assigned_license' => true],
         ]),
         TenantResource::build(TenantResource::TYPE_MAILBOX, 'mbox-member-1', 'Shared In Team', null, [
             'id' => 'mailbox:mbox-member-1',
@@ -417,7 +417,7 @@ $inventoryMailboxBilling = [
     'resources' => [
         TenantResource::build(TenantResource::TYPE_USER, 'base-user', 'Base User', null, [
             'id' => 'user:base-user',
-            'meta' => ['user_type' => 'Member'],
+            'meta' => ['user_type' => 'Member', 'has_assigned_license' => true],
         ]),
         TenantResource::build(TenantResource::TYPE_MAILBOX, 'receipts', 'Receipts', null, [
             'id' => 'mailbox:receipts',
@@ -454,7 +454,7 @@ $inventoryPending = [
         ]),
         TenantResource::build(TenantResource::TYPE_USER, 'solo-1', 'Solo User', null, [
             'id' => 'user:solo-1',
-            'meta' => ['user_type' => 'Member'],
+            'meta' => ['user_type' => 'Member', 'has_assigned_license' => true],
         ]),
     ],
 ];
@@ -511,6 +511,40 @@ $resultSelectAllCodec = ProtectedUserResolver::resolve(
     true,
 );
 assert_eq(10, count($resultSelectAllCodec['protected_azure_ids']), 'select all bills TYPE_USER members only');
+
+// Non-backupable directory account: personally selected or via membership never bills
+$dirSyncId = 'ngi-dirsync';
+$inventoryNonBackupable = [
+    'resources' => [
+        TenantResource::build(TenantResource::TYPE_USER, $dirSyncId, 'DirSync', null, [
+            'id' => 'user:' . $dirSyncId,
+            'meta' => ['user_type' => 'Member', 'mail' => '', 'has_assigned_license' => false],
+        ]),
+        TenantResource::build(TenantResource::TYPE_USER, 'licensed-ngi', 'Licensed', null, [
+            'id' => 'user:licensed-ngi',
+            'meta' => ['user_type' => 'Member', 'has_assigned_license' => true],
+        ]),
+        TenantResource::build(TenantResource::TYPE_TEAM, 'grp-ngi', 'All Users', null, [
+            'id' => 'team:grp-ngi',
+            'meta' => [
+                'group_id' => 'grp-ngi',
+                'member_azure_ids' => [$dirSyncId, 'licensed-ngi'],
+            ],
+        ]),
+    ],
+];
+$resultDirSyncPersonal = ProtectedUserResolver::resolve(
+    $inventoryNonBackupable,
+    ['user:' . $dirSyncId],
+    ['user:' . $dirSyncId => [BackupScope::MAIL => true]],
+);
+assert_eq(0, count($resultDirSyncPersonal['protected_azure_ids']), 'non-backupable user never bills when personally selected');
+$resultDirSyncTeam = ProtectedUserResolver::resolve(
+    $inventoryNonBackupable,
+    ['team:grp-ngi'],
+    ['team:grp-ngi' => [BackupScope::TEAMS_MESSAGES => true]],
+);
+assert_eq(1, count($resultDirSyncTeam['protected_azure_ids']), 'team membership skips non-backupable DirSync (NGI 88→80 pattern)');
 
 $measure = Ms365UsageMeter::measureSelection($inventoryTeamOnly, ['team:grp-tech'], $scopeTeam);
 assert_eq(29, $measure['protected_users'], 'Ms365UsageMeter::measureSelection matches resolver for team-only');

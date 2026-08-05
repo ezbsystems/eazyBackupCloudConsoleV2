@@ -331,6 +331,7 @@ final class InventoryService
         $this->enrichSharePointSiteMembers($resources, $discoveryCounts);
 
         $resourceList = array_values($resources);
+        $resourceList = TenantResource::enrichPersonalBackupSelectability($resourceList);
         $resolver = new RelationshipResolver();
         $relationships = $resolver->build($resourceList);
 
@@ -390,6 +391,7 @@ final class InventoryService
         string $message,
     ): void {
         $resourceList = array_values($resources);
+        $resourceList = TenantResource::enrichPersonalBackupSelectability($resourceList);
         $resolver = new RelationshipResolver();
         $relationships = $resolver->build($resourceList);
 

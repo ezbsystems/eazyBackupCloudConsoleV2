@@ -42,7 +42,9 @@ On unified **e3 Backup User** products, MS365 metrics (`protected_users`, `onedr
 
 ## Protected Users
 
-A **Protected User** is one distinct Microsoft 365 directory identity (by Azure object ID) — a licensed **member** user — reached by your backup selections. You are charged once per identity per backup user per month, regardless of how many workloads you back up for it or how many ways it's reached (personal selection, team/group membership, or SharePoint site membership).
+A **Protected User** is one distinct Microsoft 365 directory identity (by Azure object ID) — a licensed **member** user with personal backup surface (assigned license, mailbox, or OneDrive) — reached by your backup selections. You are charged once per identity per backup user per month, regardless of how many workloads you back up for it or how many ways it's reached (personal selection, team/group membership, or SharePoint site membership).
+
+**Directory-only accounts** (e.g. DirSync, VPN, admin UPNs with no mail and no OneDrive) appear in the inventory as disabled rows and are never billed, even via "All Users" group membership.
 
 **Guests never bill** (personal or membership). They remain visible and backup-selectable; org data is still protected via Teams/SharePoint membership of licensed members.
 
@@ -339,6 +341,7 @@ Use **one backup user per end customer**, one WHMCS service per backup user. The
 |------|--------|
 | 2026-07-22 | Job wizard billing dock: replaced per-group/site breakdown list with collapsed **How this is calculated** reconciliation panel (direct appearances + membership appearances − duplicates = unique Protected Objects). Backend exposes `billing.reconciliation` from `ProtectedUserResolver`. |
 | 2026-07-06 | Initial guide: member-based Protected Users (teams/groups), peak billing, OneDrive overage, wizard estimate, KB-oriented structure |
+| 2026-08-05 | **Non-backupable directory accounts:** unlicensed users/mailboxes with no mail and no OneDrive are disabled in wizard, excluded from Select All, never billed (including membership). |
 | 2026-08-03 | **Users-only billing (Comet parity):** shared/room/equipment mailboxes never bill; Protected Users = member users only (+ membership). |
 | 2026-07-27 | **Comet parity (superseded):** selected shared mailboxes bill — reverted 2026-08-03. |
 | 2026-07-27 | **Auto Protected Users:** guests never bill; Select All billing is automatic (no Count as Protected User). Supersedes EXCEPTION-SM manual override. |
