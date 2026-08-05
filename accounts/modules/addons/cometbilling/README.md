@@ -210,6 +210,8 @@ Use the dashboard setup checklist, or:
 - **Purchases**: Import Comet CSV purchase history or record purchases manually (auto-creates lots)
 - **Active Services**: View Portal API snapshot data
 - **Usage History**: View billing history
+- **New Items**: Count devices, boosters, and M365 identities first billed in a date range
+- **Period Compare**: Compare Bill History credit spend between two periods (category totals, item-level drivers, Active Services snapshot run-rate near each period end)
 - **M365 Report**: Filter Microsoft 365 Protected Accounts booster billing by date range (latest portal snapshot in period)
 
 ### Historical Reconcile (audit-grade)
