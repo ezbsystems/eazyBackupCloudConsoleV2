@@ -34,7 +34,7 @@ class LifecycleResolver
         $registeredAt = $device['registered_at'] ?? null;
         $revokedAt = null;
         if ($device !== null && !empty($device['revoked_at'])) {
-            $revokedAt = BillingPeriodCalculator::dateOnly((string) $device['revoked_at']);
+            $revokedAt = BillingPeriodCalculator::utcDateOnly((string) $device['revoked_at']);
         }
 
         $removeDate = $revokedAt;

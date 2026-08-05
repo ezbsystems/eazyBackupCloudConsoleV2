@@ -149,14 +149,11 @@ namespace WHMCS\Database {
                 }
                 public function pluck(string $column)
                 {
-                    if ($this->table === 'cb_active_services' && $this->conditions === []) {
-                        $arr = ['2026-07-07 12:00:00'];
-                    } else {
-                        $arr = array_map(
-                            fn (object $row) => $row->{$column} ?? null,
-                            $this->get()
-                        );
-                    }
+                    $arr = array_map(
+                        fn (object $row) => $row->{$column} ?? null,
+                        $this->get()
+                    );
+                    $arr = array_values(array_unique(array_filter($arr, static fn ($v) => $v !== null)));
                     return new class($arr) {
                         public function __construct(private array $items) {}
                         public function toArray(): array { return $this->items; }
@@ -365,6 +362,64 @@ namespace {
 
     $grace = OverbillEvidenceEvaluator::evaluate(Capsule::$usageRows[1], false);
     assert_eq($grace['verdict'], 'not_overbilled', 'revoke day charge not overbilled');
+
+    // Evening local revoke → UTC next calendar day still billable (timezone boundary)
+    Capsule::$deviceRows = [
+        (object) [
+            'hash' => 'boundaryeve12345',
+            'username' => 'BoundaryCorp',
+            'name' => 'Edge Host',
+            'revoked_at' => '2026-07-31 20:43:17',
+            'content' => '{}',
+        ],
+    ];
+    Capsule::$activeRows = [
+        (object) [
+            'id' => 2,
+            'pulled_at' => '2026-08-01 12:00:00',
+            'service_name' => 'Account BoundaryCorp - Device boundar - Booster Hyper-V',
+            'billing_cycle_days' => 1,
+            'next_due_date' => '2026-08-01',
+            'device_id' => 'bounda',
+        ],
+    ];
+    \CometBilling\LifecycleResolver::clearCache();
+    \CometBilling\ServiceIdentityResolver::clearCache();
+    \CometBilling\BillingCadenceResolver::clearCache();
+
+    $utcRevokeDay = (object) [
+        'id' => 100,
+        'usage_date' => '2026-08-01',
+        'tenant_id' => 'BoundaryCorp',
+        'device_id' => 'boundaryeve12345',
+        'item_type' => 'booster',
+        'item_desc' => 'Booster - Hyper-V Guest Count',
+        'amount' => '0.20',
+        'packs_used_raw' => '10,000 Dollars',
+        'packs_used_parsed' => json_encode(PackUsageParser::parse('10,000 Dollars')),
+        'raw_row' => json_encode([]),
+    ];
+    $dayAfterUtcRevoke = (object) [
+        'id' => 101,
+        'usage_date' => '2026-08-02',
+        'tenant_id' => 'BoundaryCorp',
+        'device_id' => 'boundaryeve12345',
+        'item_type' => 'booster',
+        'item_desc' => 'Booster - Hyper-V Guest Count',
+        'amount' => '0.20',
+        'packs_used_raw' => '10,000 Dollars',
+        'packs_used_parsed' => json_encode(PackUsageParser::parse('10,000 Dollars')),
+        'raw_row' => json_encode([]),
+    ];
+
+    $withinUtcDay = OverbillEvidenceEvaluator::evaluate($utcRevokeDay, false);
+    assert_eq($withinUtcDay['expected_billing_end'], '2026-08-01', 'expected end uses UTC revoke date');
+    assert_eq($withinUtcDay['billing_verdict'], 'within_period', 'UTC revoke day charge within period');
+    assert_eq($withinUtcDay['verdict'], 'not_overbilled', 'UTC revoke day not confirmed overbill');
+
+    $afterUtcDay = OverbillEvidenceEvaluator::evaluate($dayAfterUtcRevoke, false);
+    assert_eq($afterUtcDay['billing_verdict'], 'after_expected_end', 'day after UTC revoke still after expected end');
+    assert_eq($afterUtcDay['verdict'], 'confirmed', 'day after UTC revoke still confirmed overbill');
 
     Capsule::$manifestRows = [
         (object) ['id' => 1, 'pulled_at' => '2026-08-01 12:00:00'],

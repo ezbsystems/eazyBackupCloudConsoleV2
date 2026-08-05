@@ -9,9 +9,108 @@ namespace CometBilling;
  */
 class BillingPeriodCalculator
 {
+    private static ?string $dbTimeZone = null;
+    private static bool $dbTimeZoneResolved = false;
+
     public static function dateOnly(string $dateTimeOrDate): string
     {
         return substr($dateTimeOrDate, 0, 10);
+    }
+
+    /**
+     * Calendar date in UTC for a DB-local revoked_at timestamp.
+     *
+     * comet_devices.revoked_at is written with MySQL NOW() in session/system TZ
+     * (America/Toronto on our WHMCS hosts). Comet portal usage_date values are UTC
+     * calendar dates. Date-only inputs pass through unchanged.
+     */
+    public static function utcDateOnly(string $dateTimeOrDate): string
+    {
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateTimeOrDate)) {
+            return $dateTimeOrDate;
+        }
+
+        $normalized = strlen($dateTimeOrDate) >= 19
+            ? substr($dateTimeOrDate, 0, 19)
+            : self::dateOnly($dateTimeOrDate);
+
+        $localTz = self::resolveDbTimeZone();
+        try {
+            $local = new \DateTimeImmutable($normalized, new \DateTimeZone($localTz));
+
+            return $local->setTimezone(new \DateTimeZone('UTC'))->format('Y-m-d');
+        } catch (\Throwable $e) {
+            return self::dateOnly($dateTimeOrDate);
+        }
+    }
+
+    public static function clearTimezoneCache(): void
+    {
+        self::$dbTimeZone = null;
+        self::$dbTimeZoneResolved = false;
+    }
+
+    private static function resolveDbTimeZone(): string
+    {
+        if (self::$dbTimeZoneResolved) {
+            return self::$dbTimeZone ?? 'America/Toronto';
+        }
+
+        self::$dbTimeZoneResolved = true;
+        self::$dbTimeZone = 'America/Toronto';
+
+        if (!class_exists(\WHMCS\Database\Capsule::class)) {
+            return self::$dbTimeZone;
+        }
+
+        try {
+            $row = \WHMCS\Database\Capsule::select(
+                'SELECT @@session.time_zone AS session_tz, @@system_time_zone AS system_tz LIMIT 1'
+            );
+            if ($row !== []) {
+                $sessionTz = trim((string) ($row[0]->session_tz ?? ''));
+                $systemTz = trim((string) ($row[0]->system_tz ?? ''));
+                $candidate = strtoupper($sessionTz) === 'SYSTEM' ? $systemTz : $sessionTz;
+                self::$dbTimeZone = self::normalizeTimeZone($candidate);
+            }
+        } catch (\Throwable $e) {
+            // Keep America/Toronto fallback.
+        }
+
+        return self::$dbTimeZone;
+    }
+
+    private static function normalizeTimeZone(string $timeZone): string
+    {
+        $timeZone = trim($timeZone);
+        if ($timeZone === '') {
+            return 'America/Toronto';
+        }
+
+        static $abbreviationMap = [
+            'EDT' => 'America/Toronto',
+            'EST' => 'America/Toronto',
+            'CDT' => 'America/Winnipeg',
+            'CST' => 'America/Winnipeg',
+            'MDT' => 'America/Edmonton',
+            'MST' => 'America/Edmonton',
+            'PDT' => 'America/Vancouver',
+            'PST' => 'America/Vancouver',
+            'UTC' => 'UTC',
+        ];
+
+        $upper = strtoupper($timeZone);
+        if (isset($abbreviationMap[$upper])) {
+            return $abbreviationMap[$upper];
+        }
+
+        try {
+            new \DateTimeZone($timeZone);
+
+            return $timeZone;
+        } catch (\Throwable $e) {
+            return 'America/Toronto';
+        }
     }
 
     /**

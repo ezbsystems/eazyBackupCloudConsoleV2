@@ -333,7 +333,7 @@ class DeviceMatcher
             $eventDate = null;
             $registeredAt = null;
             if ($revoked !== null) {
-                $eventDate = BillingPeriodCalculator::dateOnly((string) $revoked['revoked_at']);
+                $eventDate = BillingPeriodCalculator::utcDateOnly((string) $revoked['revoked_at']);
                 $registeredAt = $revoked['registered_at'] ?? null;
                 $portalOnly[$i]['revoked_at'] = $eventDate;
                 $portalOnly[$i]['registered_at'] = $registeredAt;
@@ -380,7 +380,7 @@ class DeviceMatcher
         ?string $snapshotDate
     ): ?string {
         if ($revoked !== null && !empty($revoked['revoked_at'])) {
-            return BillingPeriodCalculator::dateOnly((string) $revoked['revoked_at']);
+            return BillingPeriodCalculator::utcDateOnly((string) $revoked['revoked_at']);
         }
 
         $deviceId = (string) ($row['server_device_id'] ?? '');

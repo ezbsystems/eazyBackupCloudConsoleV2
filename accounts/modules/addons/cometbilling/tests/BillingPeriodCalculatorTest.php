@@ -101,4 +101,22 @@ assert_eq(
     'still expected while next_due is current period end'
 );
 
+// UTC revoke calendar dates (DB local America/Toronto fallback in standalone tests)
+BillingPeriodCalculator::clearTimezoneCache();
+assert_eq(
+    BillingPeriodCalculator::utcDateOnly('2026-07-31 20:43:17'),
+    '2026-08-01',
+    'evening EDT revoke maps to next UTC day'
+);
+assert_eq(
+    BillingPeriodCalculator::utcDateOnly('2026-06-27 12:00:00'),
+    '2026-06-27',
+    'midday EDT revoke stays same UTC day'
+);
+assert_eq(
+    BillingPeriodCalculator::utcDateOnly('2026-06-27'),
+    '2026-06-27',
+    'date-only passthrough'
+);
+
 echo "All BillingPeriodCalculator tests passed.\n";
