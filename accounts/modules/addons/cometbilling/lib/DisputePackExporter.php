@@ -468,7 +468,7 @@ class DisputePackExporter
             . ' &middot; Generated: ' . htmlspecialchars($generatedAt) . '</div>';
         $html .= '<div class="summary"><strong>' . count($cases) . '</strong> dispute case(s); '
             . '<strong>' . $occurrenceCount . '</strong> Bill History occurrence(s)<br>'
-            . 'Conservative confirmed amount: <strong>$' . number_format($confirmedAmount, 2) . '</strong><br>'
+            . 'Overcharged amount: <strong>$' . number_format($confirmedAmount, 2) . '</strong><br>'
             . 'Potential duplicate amount pending Comet confirmation: <strong>$'
             . number_format($pendingAmount, 2) . '</strong> (' . $pendingCount . ' occurrence(s))</div>';
 
@@ -481,7 +481,7 @@ class DisputePackExporter
             $html .= '<section class="case">';
             $html .= '<h2>#' . $n . ' ' . htmlspecialchars((string) $case['account'])
                 . ' — ' . htmlspecialchars((string) $case['item_desc'])
-                . ' — confirmed $' . htmlspecialchars((string) $case['confirmed_amount']) . '</h2>';
+                . ' — $' . htmlspecialchars((string) $case['confirmed_amount']) . '</h2>';
             $html .= '<div class="claim">' . htmlspecialchars((string) $case['claim']) . '</div>';
             $html .= '<dl>';
             $html .= '<dt>Account</dt><dd>' . htmlspecialchars((string) $case['account']) . '</dd>';
@@ -493,7 +493,7 @@ class DisputePackExporter
             $html .= '<dt>Billing cycle</dt><dd>' . htmlspecialchars((string) $case['cycle']) . '</dd>';
             $html .= '<dt>Expected billing end</dt><dd>' . htmlspecialchars((string) $case['expected_billing_end']) . '</dd>';
             $html .= '</dl>';
-            $html .= '<div class="active"><strong>Active Services evidence:</strong> '
+            $html .= '<div class="active"><strong>Comet Active Services:</strong> '
                 . htmlspecialchars((string) $case['active_service_evidence']) . '</div>';
             $html .= '<table class="debits"><thead><tr>'
                 . '<th>Debit date</th><th>Amount</th><th>Pack debited</th><th>Occurrence</th><th>Status</th>'
@@ -511,7 +511,7 @@ class DisputePackExporter
                 }
             }
             $html .= '</tbody></table>';
-            $html .= '<p><strong>Conservative confirmed amount:</strong> $'
+            $html .= '<p><strong>Overcharged amount:</strong> $'
                 . htmlspecialchars((string) $case['confirmed_amount']);
             if ((float) $case['duplicate_pending_amount'] > 0) {
                 $html .= ' &middot; <span class="pending">Potential duplicate amount: $'

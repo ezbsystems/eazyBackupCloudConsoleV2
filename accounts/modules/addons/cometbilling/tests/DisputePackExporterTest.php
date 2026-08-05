@@ -322,8 +322,10 @@ namespace {
     assert_true(str_contains($html, 'Comet Overbilling</h1>'), 'html uses revised heading');
     assert_true(!str_contains($html, 'Comet Overbilling Dispute Pack</h1>'), 'old heading removed');
     assert_true(!str_contains($html, 'Evidence is assembled from'), 'introductory evidence disclaimer removed');
-    assert_true(str_contains($html, 'Active Services evidence'), 'html includes Active Services evidence');
-    assert_true(str_contains($html, 'Conservative confirmed amount'), 'html shows conservative amount');
+    assert_true(str_contains($html, 'Comet Active Services'), 'html includes Comet Active Services');
+    assert_true(str_contains($html, 'Overcharged amount'), 'html shows overcharged amount');
+    assert_true(!str_contains($html, 'Conservative confirmed amount'), 'html no longer says Conservative confirmed amount');
+    assert_true(!preg_match('/— confirmed \$/', $html), 'case heading omits confirmed word');
     assert_true(str_contains($html, 'Potential duplicate amount'), 'html shows pending duplicate amount');
     assert_true(!str_contains($html, 'Usage ID'), 'html omits usage id');
     assert_true(!str_contains($html, 'Identity'), 'html omits identity');
