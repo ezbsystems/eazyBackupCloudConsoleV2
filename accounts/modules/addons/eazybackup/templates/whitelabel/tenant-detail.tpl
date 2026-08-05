@@ -503,58 +503,7 @@
         </div>
       </div>
     {elseif $activeTab eq 'billing'}
-      <section class="eb-card-raised !p-0 overflow-hidden">
-        <div class="border-b border-[var(--eb-border-subtle)] px-6 py-5">
-          <h2 class="eb-card-title text-lg font-semibold">Billing Overview</h2>
-        </div>
-        <div class="grid grid-cols-1 gap-4 px-6 py-5 text-sm md:grid-cols-2">
-          <div class="eb-card !p-4">
-            <h3 class="eb-card-title">Tenant Billing</h3>
-            <p class="eb-card-subtitle">Current Stripe customer linkage and local billing status for this tenant.</p>
-            {if $billing_tenant}
-              <div class="mt-4 space-y-3">
-                <label class="block">
-                  <span class="eb-field-label">Tenant ID</span>
-                  <input value="{$billing_tenant.public_id|escape}" disabled class="eb-input eb-type-mono mt-2 w-full cursor-not-allowed opacity-90" />
-                </label>
-                <label class="block">
-                  <span class="eb-field-label">Stripe Customer</span>
-                  <input value="{$billing_tenant.stripe_customer_id|default:'-'|escape}" disabled class="eb-input mt-2 w-full cursor-not-allowed opacity-90" />
-                </label>
-                <label class="block">
-                  <span class="eb-field-label">Status</span>
-                  <input value="{$billing_tenant.status|default:'-'|escape}" disabled class="eb-input mt-2 w-full cursor-not-allowed opacity-90" />
-                </label>
-              </div>
-            {else}
-              <div class="eb-alert eb-alert--info mt-4 !mb-0">No billing data for this tenant.</div>
-            {/if}
-          </div>
-          <div class="eb-card !p-4">
-            <h3 class="eb-card-title">Quick Totals</h3>
-            <p class="eb-card-subtitle">Subscription, usage, and invoice counts cached for this tenant.</p>
-            <div class="mt-4 grid grid-cols-1 gap-3">
-              <label class="block">
-                <span class="eb-field-label">Subscriptions</span>
-                <input value="{$billing_subscriptions_count|default:0|escape}" disabled class="eb-input mt-2 w-full cursor-not-allowed opacity-90" />
-              </label>
-              <label class="block">
-                <span class="eb-field-label">Usage Metrics</span>
-                <input value="{$billing_usage_metrics_count|default:0|escape}" disabled class="eb-input mt-2 w-full cursor-not-allowed opacity-90" />
-              </label>
-              <label class="block">
-                <span class="eb-field-label">Invoices Cached</span>
-                <input value="{$billing_invoices_count|default:0|escape}" disabled class="eb-input mt-2 w-full cursor-not-allowed opacity-90" />
-              </label>
-            </div>
-          </div>
-        </div>
-        {if $billing_error|default:'' neq ''}
-          <div class="px-6 pb-5">
-            <div class="eb-alert eb-alert--warning !mb-0">Unable to load some billing data ({$billing_error|escape}).</div>
-          </div>
-        {/if}
-        <div x-data="{
+      <div x-data="{
                    assignOpen: false,
                    assignSaving: false,
                    assignMessage: '',
@@ -766,9 +715,66 @@
                      }
                    }
                  }"
-             class="mx-6 mb-6 mt-4">
+             class="space-y-4">
+        <section class="eb-card-raised !p-0 overflow-hidden">
+          <div class="border-b border-[var(--eb-border-subtle)] px-6 py-5">
+            <h2 class="eb-card-title text-lg font-semibold">Billing Overview</h2>
+            <p class="eb-card-subtitle mt-1">Stripe customer linkage, status, and cached billing counts for this tenant.</p>
+          </div>
+          <div class="grid grid-cols-1 gap-4 p-6 md:grid-cols-2">
+            <div class="eb-subpanel">
+              <h3 class="eb-card-title">Tenant Billing</h3>
+              <p class="eb-card-subtitle">Current Stripe customer linkage and local billing status.</p>
+              {if $billing_tenant}
+                <div class="eb-kv-list mt-4">
+                  <div class="eb-kv-row">
+                    <span class="eb-kv-label">Tenant ID</span>
+                    <span class="eb-kv-value eb-type-mono break-all text-left md:text-right">{$billing_tenant.public_id|escape}</span>
+                  </div>
+                  <div class="eb-kv-row">
+                    <span class="eb-kv-label">Stripe Customer</span>
+                    <span class="eb-kv-value eb-type-mono break-all text-left md:text-right">{$billing_tenant.stripe_customer_id|default:'-'|escape}</span>
+                  </div>
+                  <div class="eb-kv-row">
+                    <span class="eb-kv-label">Status</span>
+                    <span class="eb-kv-value">
+                      {assign var=billingStatus value=$billing_tenant.status|default:'unknown'|lower}
+                      <span class="eb-badge {if $billingStatus eq 'active'}eb-badge--success{elseif $billingStatus eq 'suspended'}eb-badge--warning{else}eb-badge--neutral{/if}">{$billing_tenant.status|default:'-'|escape}</span>
+                    </span>
+                  </div>
+                </div>
+              {else}
+                <div class="eb-alert eb-alert--info mt-4 !mb-0">No billing data for this tenant.</div>
+              {/if}
+            </div>
+            <div class="eb-subpanel">
+              <h3 class="eb-card-title">Quick Totals</h3>
+              <p class="eb-card-subtitle">Subscription, usage, and invoice counts cached for this tenant.</p>
+              <div class="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <div class="eb-stat-card">
+                  <div class="eb-stat-label">Subscriptions</div>
+                  <div class="eb-stat-value !text-2xl">{$billing_subscriptions_count|default:0|escape}</div>
+                </div>
+                <div class="eb-stat-card">
+                  <div class="eb-stat-label">Usage Metrics</div>
+                  <div class="eb-stat-value !text-2xl">{$billing_usage_metrics_count|default:0|escape}</div>
+                </div>
+                <div class="eb-stat-card">
+                  <div class="eb-stat-label">Invoices Cached</div>
+                  <div class="eb-stat-value !text-2xl">{$billing_invoices_count|default:0|escape}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+          {if $billing_error|default:'' neq ''}
+            <div class="px-6 pb-5">
+              <div class="eb-alert eb-alert--warning !mb-0">Unable to load some billing data ({$billing_error|escape}).</div>
+            </div>
+          {/if}
+        </section>
+
           <section class="eb-card-raised !p-0 overflow-hidden">
-          <div class="flex items-center justify-between border-b border-[var(--eb-border-subtle)] px-6 py-4">
+          <div class="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--eb-border-subtle)] px-6 py-4">
             <h2 class="eb-card-title text-lg font-semibold">Active Plans</h2>
             <div class="flex flex-wrap items-center gap-2">
               <button type="button" class="eb-btn eb-btn-primary eb-btn-sm" @click="openAssignModal()" {if $billing_assignable_plans|default:array()|count eq 0}disabled{/if}>Assign Plan</button>
@@ -809,19 +815,20 @@
               </div>
             </div>
           {/if}
-          <div x-show="assignOpen" x-cloak class="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/70 px-4" @click.self="assignOpen = false">
-            <div class="w-full max-w-lg rounded-2xl border border-slate-800 bg-slate-900 shadow-2xl">
-              <div class="flex items-center justify-between border-b border-slate-800 px-6 py-4">
+          <div x-show="assignOpen" x-cloak class="fixed inset-0 z-40 flex items-center justify-center px-4" @keydown.escape.window="assignOpen = false">
+            <div class="eb-modal-backdrop absolute inset-0" @click="assignOpen = false"></div>
+            <div class="eb-modal relative z-10 w-full max-w-lg" @click.stop>
+              <div class="eb-modal-header">
                 <div>
-                  <h3 class="text-lg font-semibold text-slate-100">Assign Plan</h3>
-                  <p class="mt-1 text-sm text-slate-400">Create a plan assignment for this tenant using the existing Partner Hub billing flow.</p>
+                  <h3 class="eb-modal-title">Assign Plan</h3>
+                  <p class="eb-modal-subtitle">Create a plan assignment for this tenant using the Partner Hub billing flow.</p>
                 </div>
-                <button type="button" class="eb-btn eb-btn-secondary eb-btn-xs" @click="assignOpen = false">Close</button>
+                <button type="button" class="eb-modal-close" @click="assignOpen = false" aria-label="Close">&times;</button>
               </div>
-              <div class="space-y-4 px-6 py-5">
-                <label class="block text-sm">
-                  <span class="mb-1 block text-slate-300">Plan</span>
-                  <div class="relative" @click.outside="assignPlanOpen = false">
+              <div class="eb-modal-body space-y-4">
+                <label class="block">
+                  <span class="eb-field-label">Plan</span>
+                  <div class="relative mt-2" @click.outside="assignPlanOpen = false">
                     <button
                       type="button"
                       class="eb-input relative flex w-full cursor-pointer items-center justify-between gap-2 pr-10 text-left"
@@ -864,15 +871,15 @@
                   </div>
                 </label>
                 <template x-if="selectedPlan()">
-                  <div class="eb-card !p-4">
-                    <div class="font-medium text-slate-100" x-text="selectedPlan().name || 'Selected plan'"></div>
-                    <div class="mt-1" x-text="selectedPlan().description || 'No description provided.'"></div>
+                  <div class="eb-subpanel">
+                    <div class="eb-card-title !text-sm" x-text="selectedPlan().name || 'Selected plan'"></div>
+                    <p class="eb-card-subtitle mt-1" x-text="selectedPlan().description || 'No description provided.'"></p>
                   </div>
                 </template>
                 <div x-show="requiresCometUser()">
-                  <label class="block text-sm">
-                    <span class="mb-1 block text-slate-300">Backup User</span>
-                    <div class="relative" @click.outside="assignCometUserOpen = false">
+                  <label class="block">
+                    <span class="eb-field-label">Backup User</span>
+                    <div class="relative mt-2" @click.outside="assignCometUserOpen = false">
                       <button
                         type="button"
                         class="eb-input relative flex w-full cursor-pointer items-center justify-between gap-2 pr-10 text-left disabled:cursor-not-allowed disabled:opacity-50"
@@ -914,12 +921,12 @@
                       </div>
                     </div>
                   </label>
-                  <p class="mt-2 text-xs text-slate-500" x-show="cometUsers.length === 0">No linked backup users were found for this tenant.</p>
+                  <p class="eb-field-help mt-2" x-show="cometUsers.length === 0">No linked backup users were found for this tenant.</p>
                 </div>
                 <div x-show="requiresS3User()">
-                  <label class="block text-sm">
-                    <span class="mb-1 block text-slate-300">S3 User</span>
-                    <div class="relative" @click.outside="assignS3UserOpen = false">
+                  <label class="block">
+                    <span class="eb-field-label">S3 User</span>
+                    <div class="relative mt-2" @click.outside="assignS3UserOpen = false">
                       <button
                         type="button"
                         class="eb-input relative flex w-full cursor-pointer items-center justify-between gap-2 pr-10 text-left disabled:cursor-not-allowed disabled:opacity-50"
@@ -962,21 +969,21 @@
                       </div>
                     </div>
                   </label>
-                  <p class="mt-2 text-xs text-slate-500">Choose the MSP-owned S3 user that should back this storage subscription.</p>
+                  <p class="eb-field-help mt-2">Choose the MSP-owned S3 user that should back this storage subscription.</p>
                 </div>
                 <template x-if="assignMessage">
                   <div class="eb-alert eb-alert--danger !mb-0" x-text="assignMessage"></div>
                 </template>
               </div>
-              <div class="flex items-center justify-end gap-3 border-t border-slate-800 px-6 py-4">
+              <div class="eb-modal-footer !justify-end">
                 <button type="button" class="eb-btn eb-btn-secondary" @click="assignOpen = false">Cancel</button>
                 <button type="button" class="eb-btn eb-btn-primary" :disabled="assignSaving" @click="submitAssignPlan()" x-text="assignSaving ? 'Assigning...' : 'Assign Plan'"></button>
               </div>
             </div>
           </div>
           </section>
-        <section class="mx-6 mb-6 mt-4 eb-card-raised !p-0 overflow-hidden">
-          <div class="flex items-center justify-between border-b border-[var(--eb-border-subtle)] px-6 py-4">
+        <section class="eb-card-raised !p-0 overflow-hidden">
+          <div class="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--eb-border-subtle)] px-6 py-4">
             <h2 class="eb-card-title text-lg font-semibold">Saved Payment Methods</h2>
             <span class="eb-badge eb-badge--default">{$billing_payment_methods|default:array()|count} on file</span>
           </div>
@@ -987,12 +994,12 @@
           {elseif $billing_payment_methods|default:array()|count > 0}
             <div class="grid grid-cols-1 gap-4 px-6 py-5 md:grid-cols-2">
               {foreach from=$billing_payment_methods item=pm}
-                <article class="eb-card !p-4">
+                <article class="eb-subpanel">
                   <div class="flex items-start justify-between gap-3">
-                    <div>
-                      <div class="text-sm uppercase tracking-[0.2em] text-slate-500">{$pm.brand|default:'card'|escape}</div>
-                      <div class="mt-2 text-lg font-semibold text-slate-100">•••• {$pm.last4|default:'----'|escape}</div>
-                      <div class="mt-1 text-sm text-slate-400">Expires {$pm.exp_month|string_format:'%02d'}/{$pm.exp_year|escape}</div>
+                    <div class="min-w-0">
+                      <div class="eb-stat-label">{$pm.brand|default:'card'|escape}</div>
+                      <div class="mt-2 text-lg font-semibold text-[var(--eb-text-primary)]">•••• {$pm.last4|default:'----'|escape}</div>
+                      <div class="mt-1 text-sm text-[var(--eb-text-secondary)]">Expires {$pm.exp_month|string_format:'%02d'}/{$pm.exp_year|escape}</div>
                     </div>
                     {if $pm.is_default|default:false}
                       <span class="eb-badge eb-badge--success">Default</span>
@@ -1015,7 +1022,6 @@
           {/if}
         </section>
         </div>
-      </section>
     {elseif $activeTab eq 'white_label'}
       <section class="eb-card-raised !p-0 overflow-hidden">
         <div class="border-b border-[var(--eb-border-subtle)] px-6 py-5"><h2 class="eb-card-title text-lg font-semibold">White Label Mapping</h2></div>

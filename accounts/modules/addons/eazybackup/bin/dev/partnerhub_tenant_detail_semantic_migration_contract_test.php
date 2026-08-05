@@ -27,7 +27,7 @@ $sectionTitleAnchors = [
     'Edit Customer Tenant',
     'Canonical Tenant Status',
     'Tenant Members',
-    'Storage Users',
+    'Assigned Storage Plans',
     'Active Plans',
     'White Label Mapping',
 ];
@@ -181,7 +181,7 @@ $regions = [
     ],
     [
         'key' => 'storage_users',
-        'anchor' => '>Storage Users</h2>',
+        'anchor' => '>Assigned Storage Plans</h2>',
         'guard' => "{elseif \$activeTab eq 'billing'",
     ],
     [
@@ -233,7 +233,7 @@ $requiredSemantics = [
             ['eb-card-raised', 'eb-card'],
             ['eb-table-shell', 'eb-table'],
             ['eb-badge'],
-            ['eb-alert'],
+            ['eb-app-empty', 'eb-alert'],
         ],
         'all_of' => [
             '<table',
