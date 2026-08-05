@@ -299,12 +299,26 @@ namespace {
     assert_eq(count($cases), 1, 'daily findings grouped into one device case');
     assert_eq($cases[0]['distinct_debit_dates'], 2, 'daily case counts distinct dates');
     assert_eq($cases[0]['occurrence_count'], 3, 'daily case counts all API occurrences');
-    assert_eq($cases[0]['duplicate_pending_count'], 1, 'second identical occurrence is pending');
-    assert_eq($cases[0]['confirmed_amount'], '5.00', 'conservative total counts one debit per day');
-    assert_eq($cases[0]['duplicate_pending_amount'], '2.50', 'duplicate amount shown separately');
+    assert_eq($cases[0]['duplicate_pending_count'], 0, 'guest VM lines are not pending duplicates');
+    assert_eq($cases[0]['confirmed_amount'], '7.50', 'overcharged total sums all per-VM lines');
+    assert_eq($cases[0]['duplicate_pending_amount'], '0.00', 'guest VM case has no pending duplicate amount');
     assert_true(str_contains($cases[0]['claim'], 'Active Services report still listed'), 'daily claim includes Active Services');
     assert_true(str_contains($cases[0]['claim'], '2 dates from 2026-07-07 through 2026-07-08'), 'daily claim includes debit timeline');
-    assert_eq($cases[0]['debit_dates'][0]['occurrences'][1]['status'], 'duplicate debit pending Comet confirmation', 'duplicate occurrence labeled pending');
+    assert_true(str_contains($cases[0]['claim'], 'multiple identical guest-booster lines'), 'daily claim notes per-VM lines');
+    assert_eq($cases[0]['debit_dates'][0]['occurrences'][1]['status'], DisputePackExporter::PER_VM_CHARGE_STATUS, 'second guest line is per-VM charge');
+    assert_eq($cases[0]['debit_dates'][0]['confirmed_amount'], '5.00', 'same-day total includes both VM lines');
+
+    $devicePack = $pack;
+    $devicePack['category'] = 'Devices';
+    $devicePack['category_key'] = 'devices';
+    $devicePack['cycle'] = 'monthly';
+    $devicePack['item_desc'] = 'Device - dailyhy';
+    $deviceDup = $devicePack;
+    $deviceDup['usage_id'] = 99;
+    $deviceCases = DisputePackExporter::groupForDispute([$devicePack, $deviceDup]);
+    assert_eq($deviceCases[0]['duplicate_pending_count'], 1, 'non-guest duplicate still pending');
+    assert_eq($deviceCases[0]['confirmed_amount'], '2.50', 'non-guest counts one confirmed per date');
+    assert_eq($deviceCases[0]['duplicate_pending_amount'], '2.50', 'non-guest duplicate amount separate');
 
     $csv = DisputePackExporter::buildCsv('2026-07-01', '2026-07-31');
     assert_true(str_contains($csv, 'claim'), 'csv has claim header');
@@ -326,7 +340,7 @@ namespace {
     assert_true(str_contains($html, 'Overcharged amount'), 'html shows overcharged amount');
     assert_true(!str_contains($html, 'Conservative confirmed amount'), 'html no longer says Conservative confirmed amount');
     assert_true(!preg_match('/— confirmed \$/', $html), 'case heading omits confirmed word');
-    assert_true(str_contains($html, 'Potential duplicate amount'), 'html shows pending duplicate amount');
+    assert_true(!str_contains($html, 'Potential duplicate amount'), 'html hides pending duplicate when none');
     assert_true(!str_contains($html, 'Usage ID'), 'html omits usage id');
     assert_true(!str_contains($html, 'Identity'), 'html omits identity');
     assert_true(!str_contains($html, '<strong>1. '), 'html does not double-number');

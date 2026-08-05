@@ -8,6 +8,19 @@ class DisputePackExporter
 {
     private const CHUNK_SIZE = 5000;
 
+    private const PER_VM_GUEST_CATEGORIES = [
+        'hyperv_vms',
+        'vmware_vms',
+        'proxmox_vms',
+    ];
+
+    public const PER_VM_CHARGE_STATUS = 'per-VM charge (Comet does not identify guest)';
+
+    private static function isPerVmGuestCategory(string $category): bool
+    {
+        return in_array($category, self::PER_VM_GUEST_CATEGORIES, true);
+    }
+
     /**
      * @return list<array<string, mixed>>
      */
@@ -149,6 +162,7 @@ class DisputePackExporter
             'device_name' => $deviceName,
             'item_desc' => $item,
             'category' => (string) ($finding['category_label'] ?? $finding['category'] ?? ''),
+            'category_key' => (string) ($finding['category'] ?? ''),
             'debit_date' => $debitDate,
             'usage_date' => $debitDate,
             'amount_used' => $amountUsed,
@@ -209,8 +223,8 @@ class DisputePackExporter
     }
 
     /**
-     * Group daily findings into one device/service case and collapse identical
-     * same-day occurrences into one confirmed debit plus pending duplicates.
+     * Group daily findings into one device/service case. For guest VM boosters,
+     * same-day Bill History lines are per-VM charges (not duplicates).
      *
      * @param list<array<string, mixed>> $packs
      * @return list<array<string, mixed>>
@@ -221,11 +235,14 @@ class DisputePackExporter
 
         foreach ($packs as $pack) {
             $isDaily = ($pack['cycle'] ?? '') === 'daily';
+            $category = (string) ($pack['category'] ?? '');
+            $categoryKey = (string) ($pack['category_key'] ?? $category);
+            $perVmGuest = self::isPerVmGuestCategory($categoryKey);
             $baseKey = implode('|', [
                 (string) ($pack['account'] ?? ''),
                 (string) ($pack['device_id'] ?? ''),
                 (string) ($pack['item_desc'] ?? ''),
-                (string) ($pack['category'] ?? ''),
+                $category,
                 (string) ($pack['cycle'] ?? ''),
             ]);
             $groupKey = $isDaily
@@ -238,7 +255,7 @@ class DisputePackExporter
                     'device_id' => (string) ($pack['device_id'] ?? ''),
                     'device_name' => (string) ($pack['device_name'] ?? ''),
                     'item_desc' => (string) ($pack['item_desc'] ?? ''),
-                    'category' => (string) ($pack['category'] ?? ''),
+                    'category' => $category,
                     'cycle' => (string) ($pack['cycle'] ?? ''),
                     'cycle_days' => (int) ($pack['cycle_days'] ?? 0),
                     'revoked_at' => (string) ($pack['revoked_at'] ?? ''),
@@ -252,6 +269,7 @@ class DisputePackExporter
                     'active_service_unit_cost' => $pack['active_service_unit_cost'] ?? null,
                     'active_service_evidence' => (string) ($pack['active_service_evidence'] ?? ''),
                     'reversal_status' => (string) ($pack['reversal_status'] ?? ''),
+                    'per_vm_guest' => $perVmGuest,
                     'debit_dates' => [],
                 ];
             }
@@ -268,17 +286,23 @@ class DisputePackExporter
             }
 
             $occurrenceIndex = count($groups[$groupKey]['debit_dates'][$date]['occurrences']);
+            if ($perVmGuest) {
+                $status = self::PER_VM_CHARGE_STATUS;
+            } else {
+                $status = $occurrenceIndex === 0
+                    ? 'confirmed debit'
+                    : 'duplicate debit pending Comet confirmation';
+            }
             $groups[$groupKey]['debit_dates'][$date]['occurrences'][] = [
                 'usage_id' => (int) ($pack['usage_id'] ?? 0),
                 'amount' => (float) ($pack['amount_used'] ?? 0),
-                'status' => $occurrenceIndex === 0
-                    ? 'confirmed debit'
-                    : 'duplicate debit pending Comet confirmation',
+                'status' => $status,
             ];
         }
 
         $cases = [];
         foreach ($groups as $group) {
+            $perVmGuest = !empty($group['per_vm_guest']);
             ksort($group['debit_dates']);
             $group['debit_dates'] = array_values($group['debit_dates']);
             $group['distinct_debit_dates'] = count($group['debit_dates']);
@@ -286,23 +310,41 @@ class DisputePackExporter
             $group['duplicate_pending_count'] = 0;
             $confirmedAmount = 0.0;
             $pendingAmount = 0.0;
+            $multiVmDays = 0;
 
             foreach ($group['debit_dates'] as &$dateRow) {
                 $count = count($dateRow['occurrences']);
-                $amount = (float) $dateRow['amount_per_occurrence'];
+                $unitAmount = (float) $dateRow['amount_per_occurrence'];
+                $dayTotal = 0.0;
+                foreach ($dateRow['occurrences'] as $occurrence) {
+                    $dayTotal += (float) ($occurrence['amount'] ?? 0);
+                }
                 $dateRow['occurrence_count'] = $count;
-                $dateRow['confirmed_amount'] = number_format($amount, 2, '.', '');
-                $dateRow['duplicate_pending_count'] = max(0, $count - 1);
-                $dateRow['duplicate_pending_amount'] = number_format(
-                    $amount * max(0, $count - 1),
-                    2,
-                    '.',
-                    ''
-                );
+                if ($perVmGuest) {
+                    $dateRow['confirmed_amount'] = number_format($dayTotal, 2, '.', '');
+                    $dateRow['duplicate_pending_count'] = 0;
+                    $dateRow['duplicate_pending_amount'] = '0.00';
+                    if ($count > 1) {
+                        $multiVmDays++;
+                    }
+                } else {
+                    $dateRow['confirmed_amount'] = number_format($unitAmount, 2, '.', '');
+                    $dateRow['duplicate_pending_count'] = max(0, $count - 1);
+                    $dateRow['duplicate_pending_amount'] = number_format(
+                        $unitAmount * max(0, $count - 1),
+                        2,
+                        '.',
+                        ''
+                    );
+                }
                 $group['occurrence_count'] += $count;
-                $group['duplicate_pending_count'] += max(0, $count - 1);
-                $confirmedAmount += $amount;
-                $pendingAmount += $amount * max(0, $count - 1);
+                if ($perVmGuest) {
+                    $confirmedAmount += $dayTotal;
+                } else {
+                    $group['duplicate_pending_count'] += max(0, $count - 1);
+                    $confirmedAmount += $unitAmount;
+                    $pendingAmount += $unitAmount * max(0, $count - 1);
+                }
             }
             unset($dateRow);
 
@@ -330,6 +372,13 @@ class DisputePackExporter
                     $group['first_debit_date'],
                     $group['last_debit_date']
                 );
+                if ($perVmGuest && $multiVmDays > 0) {
+                    $group['claim'] .= ' On '
+                        . $multiVmDays
+                        . ' date'
+                        . ($multiVmDays === 1 ? '' : 's')
+                        . ', Bill History lists multiple identical guest-booster lines without guest names or IDs; we treat each line as one selected VM charged for that day.';
+                }
             } else {
                 $firstDate = $group['debit_dates'][0] ?? [];
                 $group['claim'] = sprintf(
@@ -468,9 +517,12 @@ class DisputePackExporter
             . ' &middot; Generated: ' . htmlspecialchars($generatedAt) . '</div>';
         $html .= '<div class="summary"><strong>' . count($cases) . '</strong> dispute case(s); '
             . '<strong>' . $occurrenceCount . '</strong> Bill History occurrence(s)<br>'
-            . 'Overcharged amount: <strong>$' . number_format($confirmedAmount, 2) . '</strong><br>'
-            . 'Potential duplicate amount pending Comet confirmation: <strong>$'
-            . number_format($pendingAmount, 2) . '</strong> (' . $pendingCount . ' occurrence(s))</div>';
+            . 'Overcharged amount: <strong>$' . number_format($confirmedAmount, 2) . '</strong>';
+        if ($pendingAmount > 0) {
+            $html .= '<br>Potential duplicate amount pending Comet confirmation: <strong>$'
+                . number_format($pendingAmount, 2) . '</strong> (' . $pendingCount . ' occurrence(s))';
+        }
+        $html .= '</div>';
 
         if ($cases === []) {
             $html .= '<p>No confirmed overbill findings in this period.</p>';
@@ -500,8 +552,11 @@ class DisputePackExporter
                 . '</tr></thead><tbody>';
             foreach ($case['debit_dates'] as $dateRow) {
                 foreach ($dateRow['occurrences'] as $occurrenceIndex => $occurrence) {
-                    $pending = $occurrenceIndex > 0;
-                    $html .= '<tr' . ($pending ? ' class="pending"' : '') . '>';
+                    $isPendingDuplicate = str_contains(
+                        (string) ($occurrence['status'] ?? ''),
+                        'duplicate debit pending'
+                    );
+                    $html .= '<tr' . ($isPendingDuplicate ? ' class="pending"' : '') . '>';
                     $html .= '<td>' . htmlspecialchars((string) $dateRow['debit_date']) . '</td>';
                     $html .= '<td>$' . number_format((float) $occurrence['amount'], 2) . '</td>';
                     $html .= '<td>' . htmlspecialchars((string) $dateRow['pack_debited']) . '</td>';
