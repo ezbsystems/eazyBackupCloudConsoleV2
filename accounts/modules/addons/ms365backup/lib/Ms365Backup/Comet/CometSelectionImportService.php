@@ -128,6 +128,8 @@ final class CometSelectionImportService
      *   schedule_frequency?: string,
      *   timezone?: string|null,
      *   job_name?: string,
+     *   job_id?: string|null,
+     *   merge_all_sources?: bool,
      *   max_unmatched_pct?: float,
      *   apply?: bool,
      *   out_selection?: string|null
@@ -140,13 +142,16 @@ final class CometSelectionImportService
         $serviceId = (int) ($opts['service_id'] ?? 0);
         $backupUserRef = (string) ($opts['backup_user_ref'] ?? '');
         $apply = (bool) ($opts['apply'] ?? false);
+        $mergeAllSources = (bool) ($opts['merge_all_sources'] ?? false);
         $maxUnmatchedPct = (float) ($opts['max_unmatched_pct'] ?? 25.0);
         $scheduleFrequency = (string) ($opts['schedule_frequency'] ?? Ms365ScheduleAssigner::FREQUENCY_ONCE_DAILY);
         $timezone = isset($opts['timezone']) && $opts['timezone'] !== null && $opts['timezone'] !== ''
             ? (string) $opts['timezone']
             : null;
         $jobName = trim((string) ($opts['job_name'] ?? ''));
+        $jobId = trim((string) ($opts['job_id'] ?? ''));
         $outSelection = isset($opts['out_selection']) ? (string) $opts['out_selection'] : '';
+        $scheduleFrequencyExplicit = array_key_exists('schedule_frequency', $opts);
 
         if ($clientId <= 0) {
             throw new \InvalidArgumentException('whmcs-userid is required.');
@@ -161,7 +166,7 @@ final class CometSelectionImportService
         $user = self::resolveBackupUser($clientId, $backupUserRef);
         self::assertServiceLinkage($user, $serviceId);
 
-        $parsed = CometOffice365SelectionParser::parseProfile($profile);
+        $parsed = CometOffice365SelectionParser::parseProfile($profile, $mergeAllSources);
         if ($timezone === null && $parsed['local_timezone'] !== '') {
             $timezone = $parsed['local_timezone'];
         }
@@ -196,6 +201,9 @@ final class CometSelectionImportService
         $report['personal_site_owner_errors'] = $personalSiteOwners['errors'];
         $report['member_expansion'] = $memberExpansion['stats'];
         $report['member_expansion_errors'] = $memberExpansion['errors'];
+        $report['source_guids'] = $parsed['source_guids'] ?? [$parsed['source_guid']];
+        $report['source_count'] = (int) ($parsed['source_count'] ?? 1);
+        $report['sources_merged'] = (bool) ($parsed['merged'] ?? false);
         $unmatched = count($report['unmatched_backup_option_keys'] ?? []);
         $total = (int) ($report['backup_options_total'] ?? 0);
         $pct = self::unmatchedPct($unmatched, $total);
@@ -223,12 +231,16 @@ final class CometSelectionImportService
             'backup_user_public_id' => (string) $user['public_id'],
             'backup_username' => (string) $user['username'],
             'source_guid' => $parsed['source_guid'],
+            'source_guids' => $parsed['source_guids'] ?? [$parsed['source_guid']],
+            'source_count' => (int) ($parsed['source_count'] ?? 1),
+            'sources_merged' => (bool) ($parsed['merged'] ?? false),
             'source_description' => $parsed['description'],
             'selected_count' => count($mapped['selected_resource_ids']),
             'unmatched_pct' => round($pct, 2),
             'max_unmatched_pct' => $maxUnmatchedPct,
             'report' => $report,
-            'job_id' => null,
+            'job_id' => $jobId !== '' ? $jobId : null,
+            'update_existing' => $jobId !== '',
         ];
 
         if (!$apply) {
@@ -243,6 +255,46 @@ final class CometSelectionImportService
                 $unmatched,
                 $total
             ));
+        }
+
+        if ($jobId !== '') {
+            $existing = Ms365CustomerJobService::getForClient($clientId, (int) $user['id'], $jobId);
+            if ($existing === null) {
+                throw new \RuntimeException("Job not found for this backup user: {$jobId}");
+            }
+            $jobRow = Ms365CustomerJobService::getJobRow($clientId, (int) $user['id'], $jobId);
+            $existingSchedule = [];
+            if ($jobRow !== null && is_string($jobRow->schedule_json ?? null)) {
+                $decoded = json_decode((string) $jobRow->schedule_json, true);
+                $existingSchedule = is_array($decoded) ? $decoded : [];
+            }
+
+            $updateName = $jobName !== '' ? $jobName : (string) ($existing['name'] ?? '');
+            // Prefer explicit CLI frequency/timezone; otherwise keep the live job schedule.
+            if (!$scheduleFrequencyExplicit) {
+                $scheduleFrequency = (string) ($existing['schedule_frequency'] ?? $scheduleFrequency);
+            }
+            if ($timezone === null) {
+                $timezone = (string) ($existing['timezone'] ?? '');
+            }
+
+            $updated = Ms365CustomerJobService::update($clientId, (int) $user['id'], $jobId, [
+                'name' => $updateName,
+                'selected_resource_ids' => $mapped['selected_resource_ids'],
+                'scope_overrides' => $mapped['scope_overrides'],
+                'billing_exempt_resource_ids' => $existing['billing_exempt_resource_ids'] ?? [],
+                'schedule_frequency' => $scheduleFrequency,
+                'schedule_slots' => $existing['schedule_slots'] ?? [],
+                'timezone' => $timezone !== '' ? $timezone : null,
+                'retention_tier' => (string) ($existing['retention_tier'] ?? '1y'),
+                'last_scheduled_key' => (string) ($existingSchedule['last_scheduled_key'] ?? ''),
+            ]);
+
+            $result['dry_run'] = false;
+            $result['job_id'] = $updated['job_id'] ?? $jobId;
+            $result['updated_existing'] = true;
+
+            return $result;
         }
 
         if ($jobName === '') {
@@ -262,6 +314,7 @@ final class CometSelectionImportService
 
         $result['dry_run'] = false;
         $result['job_id'] = $created['job_id'] ?? null;
+        $result['updated_existing'] = false;
 
         return $result;
     }

@@ -2,14 +2,28 @@
 
 **Purpose:** Single handoff document so the next agent knows where work stopped. Update this file at the **end of every session** (or after each meaningful milestone).
 
-**Last updated:** 2026-08-04
-**Module version (ms365backup):** 1.52.48
+**Last updated:** 2026-08-05
+**Module version (ms365backup):** 1.52.51
 **Cloudstorage (e3) version:** 2.2.4  
 **Worker version (ms365-backup-worker):** 0.4.34 (Kopia v0.23.1)
 
 ---
 
 ## Session log
+
+### 2026-08-05 — Comet import: merge all PIs + update existing job (PHP 1.52.51)
+
+- **Need:** EvokeBuildings had 3 Comet MS365 Protected Items; selection must land on existing job `c2d3313e-…` (not a new job).
+- **Ship:** `--merge-all-sources` unions all `engine1/winmsofficemail` Sources (OR bitmasks / WholeOrg); `--job-id=` with `--apply` calls `Ms365CustomerJobService::update` preserving schedule slots + `last_scheduled_key`.
+- **Tests/docs:** parser merge cases; `COMET_SELECTION_IMPORT.md` updated.
+- **Ops:** Deploy + dry-run/apply Evoke merge on prod.
+
+### 2026-08-05 — Non-backupable directory accounts (PHP 1.52.49–1.52.50)
+
+- **Rule:** Users & mailboxes without license, Graph mail, or OneDrive child are **disabled** in the wizard (`No mailbox or OneDrive to back up`), excluded from Select All / Comet WholeOrg import, and **never billed** (personal or team/group/site membership).
+- **Fix (1.52.50):** Backupability uses **`meta.mail` only** (Graph `mail`), not inventory `email` (UPN). NGI DirSync/VPN/admin rows have UPNs but empty Graph mail — were incorrectly counted as backupable in 1.52.49.
+- **Expected:** NGIbackup Protected Users **88 → 80** (drop 8 DirSync/VPN/admin service accounts).
+- **Tests:** `ms365_personal_backup_selectability_test.php`; resolver/comet tests updated.
 
 ### 2026-08-04 — Proxmox template refresh + prod fleet scale-out (+12)
 

@@ -3,9 +3,10 @@
 declare(strict_types=1);
 
 /**
- * Import Comet MS365 Protected Item selection into a new e3 Users backup job.
+ * Import Comet MS365 Protected Item selection into an e3 Users backup job.
  *
- * Dry-run by default. Never updates existing jobs (--apply creates only).
+ * Dry-run by default. --apply creates a new job, or updates --job-id when set.
+ * --merge-all-sources unions every engine1/winmsofficemail Protected Item.
  *
  * Usage:
  *   php ms365_comet_selection_import.php \
@@ -13,6 +14,8 @@ declare(strict_types=1);
  *     --whmcs-userid=2269 \
  *     --service-id=5471 \
  *     --backup-user-id=E0B22D704ECE1A42C08E0AD2C6 \
+ *     [--merge-all-sources] \
+ *     [--job-id=UUID] \
  *     [--schedule-frequency=once_daily] \
  *     [--timezone=America/Edmonton] \
  *     [--job-name='M365 (imported from Comet)'] \
@@ -31,7 +34,7 @@ use Ms365Backup\Ms365ScheduleAssigner;
 
 function ms365_comet_import_usage(): void
 {
-    ms365_log_line('Usage: php ms365_comet_selection_import.php --comet-profile=FILE --whmcs-userid=N --service-id=N --backup-user-id=PUBLIC_ID_OR_ID [--apply] [--json]');
+    ms365_log_line('Usage: php ms365_comet_selection_import.php --comet-profile=FILE --whmcs-userid=N --service-id=N --backup-user-id=PUBLIC_ID_OR_ID [--merge-all-sources] [--job-id=UUID] [--apply] [--json]');
     ms365_log_line('See Docs/COMET_SELECTION_IMPORT.md');
 }
 
@@ -56,8 +59,11 @@ $clientId = 0;
 $serviceId = 0;
 $backupUserRef = '';
 $scheduleFrequency = Ms365ScheduleAssigner::FREQUENCY_ONCE_DAILY;
+$scheduleFrequencySet = false;
 $timezone = null;
 $jobName = '';
+$jobId = '';
+$mergeAllSources = false;
 $maxUnmatchedPct = 25.0;
 $outSelection = null;
 $apply = false;
@@ -74,14 +80,19 @@ foreach ($args as $arg) {
         $backupUserRef = substr($arg, strlen('--backup-user-id='));
     } elseif (str_starts_with($arg, '--schedule-frequency=')) {
         $scheduleFrequency = substr($arg, strlen('--schedule-frequency='));
+        $scheduleFrequencySet = true;
     } elseif (str_starts_with($arg, '--timezone=')) {
         $timezone = substr($arg, strlen('--timezone='));
     } elseif (str_starts_with($arg, '--job-name=')) {
         $jobName = substr($arg, strlen('--job-name='));
+    } elseif (str_starts_with($arg, '--job-id=')) {
+        $jobId = substr($arg, strlen('--job-id='));
     } elseif (str_starts_with($arg, '--max-unmatched-pct=')) {
         $maxUnmatchedPct = (float) substr($arg, strlen('--max-unmatched-pct='));
     } elseif (str_starts_with($arg, '--out-selection=')) {
         $outSelection = substr($arg, strlen('--out-selection='));
+    } elseif ($arg === '--merge-all-sources') {
+        $mergeAllSources = true;
     } elseif ($arg === '--apply') {
         $apply = true;
     } elseif ($arg === '--json') {
@@ -96,18 +107,24 @@ foreach ($args as $arg) {
 try {
     ms365_comet_import_init_whmcs();
 
-    $result = CometSelectionImportService::run([
+    $runOpts = [
         'profile_path' => $profilePath,
         'client_id' => $clientId,
         'service_id' => $serviceId,
         'backup_user_ref' => $backupUserRef,
-        'schedule_frequency' => $scheduleFrequency,
         'timezone' => $timezone,
         'job_name' => $jobName,
+        'job_id' => $jobId,
+        'merge_all_sources' => $mergeAllSources,
         'max_unmatched_pct' => $maxUnmatchedPct,
         'apply' => $apply,
         'out_selection' => $outSelection,
-    ]);
+    ];
+    if ($scheduleFrequencySet) {
+        $runOpts['schedule_frequency'] = $scheduleFrequency;
+    }
+
+    $result = CometSelectionImportService::run($runOpts);
 
     if ($asJson) {
         echo json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . PHP_EOL;
@@ -116,7 +133,11 @@ try {
 
     $mode = ($result['dry_run'] ?? true) ? 'DRY-RUN' : 'APPLY';
     ms365_log_line("[{$mode}] backup_user_id={$result['backup_user_id']} public_id={$result['backup_user_public_id']} username={$result['backup_username']}");
-    ms365_log_line("Comet source={$result['source_guid']} ({$result['source_description']})");
+    $sourceCount = (int) ($result['source_count'] ?? 1);
+    $sourceLabel = $sourceCount > 1
+        ? sprintf('%d sources merged: %s', $sourceCount, implode(', ', $result['source_guids'] ?? []))
+        : sprintf('%s (%s)', (string) ($result['source_guid'] ?? ''), (string) ($result['source_description'] ?? ''));
+    ms365_log_line("Comet source={$sourceLabel}");
     $report = is_array($result['report'] ?? null) ? $result['report'] : [];
     ms365_log_line(sprintf(
         'Matched users=%d sites=%d teams=%d groups=%d | personal_sites→users=%d | MO members expanded=%d selected=%d missing=%d | selected=%d | unmatched BackupOptions=%d/%d (%.2f%%)',
@@ -148,21 +169,16 @@ try {
         if (!is_array($list) || $list === []) {
             continue;
         }
-        ms365_log_line($key . ' (' . count($list) . '):');
-        foreach (array_slice($list, 0, 40) as $item) {
-            ms365_log_line('  - ' . $item);
-        }
-        if (count($list) > 40) {
-            ms365_log_line('  … +' . (count($list) - 40) . ' more');
-        }
+        ms365_log_line($key . '=' . json_encode(array_values($list), JSON_UNESCAPED_SLASHES));
     }
     if (!empty($result['job_id'])) {
-        ms365_log_line('Created job_id=' . $result['job_id']);
-    } else {
-        ms365_log_line('No job created (dry-run). Re-run with --apply to create a new job.');
+        $action = !empty($result['updated_existing']) || !empty($result['update_existing'])
+            ? 'job_id (update)'
+            : 'job_id (create)';
+        ms365_log_line("{$action}={$result['job_id']}");
     }
     exit(0);
-} catch (Throwable $e) {
+} catch (\Throwable $e) {
     fwrite(STDERR, 'ERROR: ' . $e->getMessage() . PHP_EOL);
     exit(1);
 }

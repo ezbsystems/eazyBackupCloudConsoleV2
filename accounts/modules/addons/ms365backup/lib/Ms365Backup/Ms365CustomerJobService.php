@@ -165,9 +165,12 @@ final class Ms365CustomerJobService
             isset($payload['timezone']) ? (string) $payload['timezone'] : null,
         );
         $schedulePayload = Ms365ScheduleAssigner::buildSchedulePayload(
-            (string) $payload['schedule_frequency'],
+            (string) ($payload['schedule_frequency'] ?? Ms365ScheduleAssigner::FREQUENCY_ONCE_DAILY),
             $timezone,
         );
+        if (!empty($payload['schedule_slots']) && is_array($payload['schedule_slots'])) {
+            $schedulePayload['schedule_slots'] = array_values($payload['schedule_slots']);
+        }
         $ms365Json = self::buildMs365ScheduleJson($record, $payload, $schedulePayload);
         $newTier = (string) ($payload['retention_tier'] ?? Ms365RetentionTierPolicyService::DEFAULT_TIER);
         if (!Ms365RetentionTierPolicyService::isValidTier($newTier)) {
@@ -413,7 +416,9 @@ final class Ms365CustomerJobService
             'scope_overrides' => CustomerSelectionCodec::normalizeScopeOverrides($payload['scope_overrides'] ?? []),
             'billing_exempt_resource_ids' => CustomerSelectionCodec::normalizeIds($payload['billing_exempt_resource_ids'] ?? []),
             'retention_tier' => (string) ($payload['retention_tier'] ?? '1y'),
-            'last_scheduled_key' => '',
+            'last_scheduled_key' => array_key_exists('last_scheduled_key', $payload)
+                ? (string) $payload['last_scheduled_key']
+                : '',
         ]);
     }
 

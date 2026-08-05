@@ -1,6 +1,6 @@
 # Comet → e3 MS365 selection import
 
-Admin CLI that reads Microsoft 365 **inventory selection** from a legacy Comet Backup user profile and creates a **new** e3 MS365 Users backup job with equivalent `selected_resource_ids` + `scope_overrides`.
+Admin CLI that reads Microsoft 365 **inventory selection** from a legacy Comet Backup user profile and creates a **new** e3 MS365 Users backup job (or **updates** an existing job via `--job-id`) with equivalent `selected_resource_ids` + `scope_overrides`.
 
 This does **not** migrate backup data, vaults, or job history — selection only.
 
@@ -64,14 +64,15 @@ ID shapes in `BackupOptions`:
 
 **Security:** Profiles often contain `APP_SECRET`, vault keys, and password hashes. Store exports outside the web root, restrict permissions, and rotate any secret that was pasted into chat or tickets. The importer must not log secrets.
 
-## Policy: create new job only
+## Policy: create or update
 
 | Mode | Behavior |
 |------|----------|
 | Default (no `--apply`) | Dry-run: parse, map, print report; **no DB write** |
-| `--apply` | Calls `Ms365CustomerJobService::create` only — **never** updates or deletes existing jobs |
+| `--apply` (no `--job-id`) | Calls `Ms365CustomerJobService::create` — creates a **new** job |
+| `--apply --job-id=UUID` | Calls `Ms365CustomerJobService::update` on that job — **replaces** selection; preserves schedule slots, timezone, retention, and `last_scheduled_key` unless overridden by CLI flags |
 
-If a job already exists for the backup user, it is left untouched. Review the new job in the e3 UI after apply.
+Without `--merge-all-sources`, only the **first** `engine1/winmsofficemail` Protected Item is imported (legacy behavior).
 
 ## CLI reference
 
@@ -83,6 +84,8 @@ php /var/www/eazybackup.ca/accounts/modules/addons/ms365backup/bin/ms365_comet_s
   --whmcs-userid=2269 \
   --service-id=5471 \
   --backup-user-id=E0B22D704ECE1A42C08E0AD2C6 \
+  [--merge-all-sources] \
+  [--job-id=c2d3313e-b9d1-4f6c-b0a9-12175624eda8] \
   [--schedule-frequency=once_daily] \
   [--timezone=America/Edmonton] \
   [--job-name='M365 (imported from Comet)'] \
@@ -100,12 +103,14 @@ php /var/www/eazybackup.ca/accounts/modules/addons/ms365backup/bin/ms365_comet_s
 | `--whmcs-userid=` | Yes | WHMCS client id (`tblclients.id`) |
 | `--service-id=` | Yes | WHMCS hosting service id; must link to the backup user |
 | `--backup-user-id=` | Yes | e3 `s3_backup_users.public_id` (26-char) **or** numeric `s3_backup_users.id` |
-| `--schedule-frequency=` | No | Default `once_daily` (also `twice_daily`). Slot times use `Ms365ScheduleAssigner` evening window — not a hard-coded Comet clock time |
-| `--timezone=` | No | Job timezone; else client resolver / profile `LocalTimezone` when available |
-| `--job-name=` | No | Display name for the new job |
+| `--merge-all-sources` | No | Union **all** `engine1/winmsofficemail` Sources (OR bitmasks for overlapping IDs; WholeOrg if any PI sets it) |
+| `--job-id=` | No | Existing e3 MS365 job UUID. With `--apply`, updates this job instead of creating a new one |
+| `--schedule-frequency=` | No | Default `once_daily` on **create**. On **update**, omitted = keep existing frequency |
+| `--timezone=` | No | Job timezone; else client resolver / profile `LocalTimezone`. On **update**, omitted = keep existing |
+| `--job-name=` | No | Display name for new job, or rename when updating |
 | `--max-unmatched-pct=` | No | Default `25`. `--apply` refused if unmatched `BackupOptions` keys exceed this % of total |
 | `--out-selection=` | No | Write proposed `selected_resource_ids` + `scope_overrides` JSON (dry-run or apply) |
-| `--apply` | No | Create the new job |
+| `--apply` | No | Create new job, or update `--job-id` |
 | `--json` | No | Machine-readable report on stdout |
 
 ### Exit behavior
@@ -149,7 +154,9 @@ Review:
 
 If many sites/users are unmatched, refresh e3 inventory and re-run dry-run before apply.
 
-### 4. Apply (create new job)
+### 4. Apply (create new job **or** update existing)
+
+Create a new job:
 
 ```bash
 php /var/www/eazybackup.ca/accounts/modules/addons/ms365backup/bin/ms365_comet_selection_import.php \
@@ -163,7 +170,22 @@ php /var/www/eazybackup.ca/accounts/modules/addons/ms365backup/bin/ms365_comet_s
   --json
 ```
 
-Note the returned `job_id`. Open **e3 → Users → that user → Jobs** and confirm selection in the wizard/UI. Existing jobs for the same backup user must still be present and unchanged.
+Merge **all** Comet MS365 Protected Items into an **existing** e3 job (selection replace; schedule preserved):
+
+```bash
+php /var/www/eazybackup.ca/accounts/modules/addons/ms365backup/bin/ms365_comet_selection_import.php \
+  --comet-profile=/root/EvokeBuildings.json \
+  --whmcs-userid=1010 \
+  --service-id=5384 \
+  --backup-user-id=5DA332A993A9CBE91D584FC53E \
+  --merge-all-sources \
+  --job-id=c2d3313e-b9d1-4f6c-b0a9-12175624eda8 \
+  --out-selection=/tmp/evoke-merged-selection.json \
+  --json
+# review dry-run, then add --apply
+```
+
+Note the returned `job_id`. Open **e3 → Users → that user → Jobs** and confirm selection in the wizard/UI.
 
 ### 5. First production example (ITadmin → e3)
 
