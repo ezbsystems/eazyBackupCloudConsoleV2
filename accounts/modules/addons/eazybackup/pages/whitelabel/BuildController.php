@@ -6,6 +6,35 @@ use Illuminate\Database\Capsule\Manager as DB;
 require_once __DIR__ . '/../../lib/Whitelabel/Builder.php';
 
 /**
+ * Resolve a CLI PHP binary suitable for background pipeline exec.
+ *
+ * Under php-fpm, PHP_BINARY is often the FPM SAPI (e.g. php-fpm8.2), which
+ * cannot run CLI scripts. Prefer a real CLI binary instead.
+ */
+function eazybackup_whitelabel_resolve_php_cli(): string
+{
+    $candidates = [];
+
+    $fromBinary = trim((string)(PHP_BINARY ?: ''));
+    if ($fromBinary !== '' && stripos($fromBinary, 'php-fpm') === false) {
+        $candidates[] = $fromBinary;
+    }
+
+    $candidates[] = '/usr/bin/php';
+    $candidates[] = '/usr/bin/php8.2';
+    $candidates[] = '/usr/bin/php8.3';
+    $candidates[] = '/usr/bin/php8.1';
+
+    foreach ($candidates as $bin) {
+        if ($bin !== '' && is_file($bin) && is_executable($bin)) {
+            return $bin;
+        }
+    }
+
+    return 'php';
+}
+
+/**
  * Spawn the provisioning pipeline as a background CLI process.
  *
  * Guards: will not spawn if the tenant already has a running step
@@ -45,7 +74,7 @@ function eazybackup_whitelabel_spawn_pipeline(int $tenantId): bool
         return false;
     }
 
-    $phpBin = PHP_BINARY ?: '/usr/bin/php';
+    $phpBin = eazybackup_whitelabel_resolve_php_cli();
     $cmd = sprintf(
         '%s %s %d >> /tmp/eb_pipeline_%d.log 2>&1 &',
         escapeshellarg($phpBin),
@@ -60,6 +89,7 @@ function eazybackup_whitelabel_spawn_pipeline(int $tenantId): bool
         logModuleCall('eazybackup', 'spawn_pipeline', [
             'tenant_id' => $tenantId,
             'cmd' => $cmd,
+            'php_bin' => $phpBin,
             'exit_code' => $ret,
         ], $ret === 0 ? 'ok' : 'exec_error');
     } catch (\Throwable $_) {}
@@ -153,12 +183,14 @@ function eazybackup_whitelabel_enable_for_canonical_tenant(array $vars, int $cli
         $tenantId = (int)($existing->id ?? 0);
         $statusBefore = strtolower(trim((string)($existing->status ?? '')));
         try {
-            eazybackup_whitelabel_queue_provisioning_steps($vars, $tenantId, in_array($statusBefore, ['queued', 'failed'], true));
+            eazybackup_whitelabel_queue_provisioning_steps($vars, $tenantId, in_array($statusBefore, ['queued', 'failed', 'building'], true));
         } catch (\Throwable $_) {
             $out['error'] = 'enable_queue_failed';
             $out['tenant_id'] = $tenantId;
             return $out;
         }
+        // Partner Hub enable previously queued steps without spawning; always kick off if queued.
+        eazybackup_whitelabel_spawn_pipeline($tenantId);
         $out['ok'] = true;
         $out['tenant_id'] = $tenantId;
         $out['already_enabled'] = true;
@@ -203,6 +235,24 @@ function eazybackup_whitelabel_enable_for_canonical_tenant(array $vars, int $cli
         }
     }
 
+    $displayName = trim((string)($canonicalTenant['name'] ?? ''));
+    if ($displayName === '') {
+        $displayName = trim((string)($canonicalTenant['slug'] ?? ''));
+    }
+    if ($displayName === '') {
+        $displayName = $subdomain;
+    }
+    $seedBrand = [
+        'BrandName' => $displayName,
+        'ProductName' => $displayName,
+        'CompanyName' => $displayName,
+        'DefaultLoginServerURL' => 'https://' . $fqdn . '/',
+        'BrandingStyleType' => 3,
+        'TopColor' => '#1B2C50',
+        'AccentColor' => '#D88463',
+        'TileBackgroundColor' => '#1B2C50',
+    ];
+
     try {
         $tenantId = (int)Capsule::table('eb_whitelabel_tenants')->insertGetId([
             'client_id' => $clientId,
@@ -218,8 +268,8 @@ function eazybackup_whitelabel_enable_for_canonical_tenant(array $vars, int $cli
             'servergroup_id' => null,
             'comet_admin_user' => null,
             'comet_admin_pass_enc' => null,
-            'brand_json' => json_encode([]),
-            'email_json' => json_encode([]),
+            'brand_json' => json_encode($seedBrand),
+            'email_json' => json_encode(['inherit' => 1, 'Mode' => 'builtin']),
             'policy_ids_json' => json_encode([]),
             'storage_template_json' => json_encode([]),
             'idempotency_key' => sha1($clientId . ':' . $canonicalTenantId . ':' . $fqdn),
@@ -247,6 +297,9 @@ function eazybackup_whitelabel_enable_for_canonical_tenant(array $vars, int $cli
         $out['tenant_id'] = $tenantId;
         return $out;
     }
+
+    eazybackup_whitelabel_spawn_pipeline($tenantId);
+
     $out['ok'] = true;
     $out['tenant_id'] = $tenantId;
     return $out;

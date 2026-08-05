@@ -37,6 +37,33 @@ function eb_ph_tenant_whitelabel_enable(array $vars): void
         eb_ph_tenant_whitelabel_redirect($vars, $tenantPublicId, 'error=' . urlencode($err));
     }
 
+    $wlTenantId = (int)($enabled['tenant_id'] ?? 0);
+    if ($wlTenantId > 0) {
+        // Belt-and-suspenders: enable_for_canonical_tenant also spawns; safe if already running.
+        eazybackup_whitelabel_spawn_pipeline($wlTenantId);
+
+        // Send the customer to the loader while provisioning is in progress.
+        $loaderTid = '';
+        $wlStatus = '';
+        try {
+            $wlRow = Capsule::table('eb_whitelabel_tenants')->where('id', $wlTenantId)->first(['public_id', 'status']);
+            $loaderTid = (string)($wlRow->public_id ?? '');
+            $wlStatus = strtolower(trim((string)($wlRow->status ?? '')));
+        } catch (\Throwable $_) {
+            $wlStatus = '';
+        }
+
+        if (in_array($wlStatus, ['queued', 'building'], true)) {
+            $base = (string)($vars['modulelink'] ?? 'index.php?m=eazybackup');
+            if ($loaderTid !== '') {
+                header('Location: ' . $base . '&a=whitelabel-loader&tid=' . urlencode($loaderTid));
+                exit;
+            }
+            header('Location: ' . $base . '&a=whitelabel-loader&id=' . urlencode((string)$wlTenantId));
+            exit;
+        }
+    }
+
     if (!empty($enabled['already_enabled'])) {
         eb_ph_tenant_whitelabel_redirect($vars, $tenantPublicId, 'notice=whitelabel_already_enabled');
     }

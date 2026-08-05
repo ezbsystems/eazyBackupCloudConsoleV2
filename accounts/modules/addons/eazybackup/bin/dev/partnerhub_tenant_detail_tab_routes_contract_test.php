@@ -74,6 +74,8 @@ $targets = [
         'markers' => [
             'white label action marker' => 'function eb_ph_tenant_whitelabel(array $vars)',
             'white label enable action marker' => 'function eb_ph_tenant_whitelabel_enable(array $vars): void',
+            'white label enable spawn marker' => 'eazybackup_whitelabel_spawn_pipeline($wlTenantId)',
+            'white label enable loader redirect marker' => "a=whitelabel-loader&tid=",
             'white label shell response marker' => "return eb_ph_tenant_shell_response(\$vars, (array)\$msp, (array)\$tenant, 'white_label'",
         ],
     ],
