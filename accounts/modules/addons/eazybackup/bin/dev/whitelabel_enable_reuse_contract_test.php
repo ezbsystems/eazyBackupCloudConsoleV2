@@ -23,6 +23,8 @@ $targets = [
             'reuse oldest wins' => '->orderBy(\'id\', \'asc\')',
             'link canonical on reuse' => '\'canonical_tenant_id\' => $canonicalTenantId',
             'reuse before insert' => 'eazybackup_whitelabel_find_reusable_unlinked_tenant($clientId)',
+            'branding directory hides removing' => "->whereNotIn('t.status', ['removing', 'removed'])",
+            'branding detail blocks removing' => "in_array(\$tenantStatus, ['removing', 'removed'], true)",
         ],
     ],
 ];

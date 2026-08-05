@@ -616,6 +616,7 @@ function eazybackup_whitelabel_branding(array $vars)
             $rows = Capsule::table('eb_whitelabel_tenants as t')
                 ->leftJoin('tblproducts as p', 'p.id', '=', 't.product_id')
                 ->where('t.client_id', $clientId)
+                ->whereNotIn('t.status', ['removing', 'removed'])
                 ->orderBy('t.created_at', 'desc')
                 ->select(['t.*', Capsule::raw('p.name as product_name')])
                 ->get();
@@ -654,6 +655,11 @@ function eazybackup_whitelabel_branding(array $vars)
                 'tenants' => $tenants,
             ],
         ];
+    }
+    $tenantStatus = strtolower(trim((string)($tenantObj->status ?? '')));
+    if (in_array($tenantStatus, ['removing', 'removed'], true)) {
+        header('Location: ' . $vars['modulelink'] . '&a=whitelabel-branding', true, 302);
+        exit;
     }
     // Canonicalize to tid on GET when available
     if ((string)($tenantObj->public_id ?? '') !== '' && isset($_GET['id']) && !isset($_GET['tid'])) {
