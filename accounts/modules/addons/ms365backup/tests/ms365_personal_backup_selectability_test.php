@@ -154,5 +154,15 @@ assert_true(
     'user with OneDrive child is backupable without license or mail'
 );
 
+$upnOnly = TenantResource::build(TenantResource::TYPE_USER, 'upn-only', 'DirSync Style', null, [
+    'id' => 'user:upn-only',
+    'email' => 'dirsync@contoso.onmicrosoft.com',
+    'meta' => ['user_type' => 'Member', 'mail' => '', 'has_assigned_license' => false],
+]);
+assert_true(
+    !TenantResource::isPersonallyBackupable($upnOnly, [$upnOnly]),
+    'UPN in email field without Graph mail is not backupable'
+);
+
 echo $failures === 0 ? "\nAll tests passed.\n" : "\n{$failures} test(s) failed.\n";
 exit($failures === 0 ? 0 : 1);

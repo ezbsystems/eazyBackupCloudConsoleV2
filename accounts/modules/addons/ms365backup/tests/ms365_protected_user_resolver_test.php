@@ -107,7 +107,7 @@ $inventoryDedup = buildTeamInventory('team:grp-tech', 'grp-tech', 'Technical', $
     TenantResource::build(TenantResource::TYPE_USER, $overlapUserId, 'Overlap User', null, [
         'id' => 'user:' . $overlapUserId,
         'email' => 'overlap@example.com',
-        'meta' => ['user_type' => 'Member'],
+        'meta' => ['user_type' => 'Member', 'mail' => 'overlap@example.com'],
     ]),
 ]);
 $scopeBoth = $scopeTeam + [

@@ -116,7 +116,7 @@ $jamesInventory = [
             'email' => 'James-Garcesa@contoso.com',
             'parent_id' => null,
             'access' => [],
-            'meta' => ['has_assigned_license' => false],
+            'meta' => ['has_assigned_license' => false, 'mail' => 'James-Garcesa@contoso.com'],
         ],
     ],
 ];

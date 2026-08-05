@@ -276,11 +276,7 @@ final class TenantResource
         }
 
         $meta = is_array($resource['meta'] ?? null) ? $resource['meta'] : [];
-        $mail = trim((string) ($meta['mail'] ?? ''));
-        if ($mail === '') {
-            $mail = trim((string) ($resource['email'] ?? ''));
-        }
-        if ($mail !== '') {
+        if (trim((string) ($meta['mail'] ?? '')) !== '') {
             return true;
         }
 
