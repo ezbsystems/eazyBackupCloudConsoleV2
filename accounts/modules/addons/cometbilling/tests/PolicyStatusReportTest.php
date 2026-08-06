@@ -91,6 +91,44 @@ assertEq(8.0, $sections['billed_successful'][0]['billed_booster_amount'], 'secti
 assertEq(true, PolicyStatusReport::isSuccess(5000), 'isSuccess 5000');
 assertEq(false, PolicyStatusReport::isSuccess(7001), 'isSuccess excludes warning');
 
+$csvReport = [
+    'warning_accounts' => [[
+        'server_label' => 'csw.obcbackup.com',
+        'server_key' => 'obc',
+        'policy_id' => '9005920f-fa54-4a22-8844-533bda81da4c',
+        'username' => 'WarnOnly',
+        'warning_source_count' => 1,
+        'source_count' => 1,
+        'last_job_time' => 1720000000,
+        'status' => 7001,
+        'status_label' => 'warning',
+    ]],
+    'billed_unhealthy' => [[
+        'server_label' => 'csw.obcbackup.com',
+        'server_key' => 'obc',
+        'policy_id' => '9005920f-fa54-4a22-8844-533bda81da4c',
+        'username' => 'ErrBilled',
+        'warning_source_count' => 0,
+        'source_count' => 1,
+        'last_job_time' => 1720000000,
+        'status' => 7002,
+        'status_label' => 'error',
+        'billed_device_amount' => 2.0,
+        'billed_booster_amount' => 8.5,
+    ]],
+    'billed_successful' => [],
+];
+$csvA = PolicyStatusReport::buildCsvForSection($csvReport, PolicyStatusReport::SECTION_WARNING);
+assertEq(true, str_contains($csvA, 'Username'), 'csv A has username header');
+assertEq(false, str_contains($csvA, 'Device charge'), 'csv A omits charge columns');
+assertEq(true, str_contains($csvA, 'WarnOnly'), 'csv A has warn username');
+$csvB = PolicyStatusReport::buildCsvForSection($csvReport, PolicyStatusReport::SECTION_BILLED_UNHEALTHY);
+assertEq(true, str_contains($csvB, 'Device charge'), 'csv B has device charge header');
+assertEq(true, str_contains($csvB, 'Booster charge'), 'csv B has booster charge header');
+assertEq(true, str_contains($csvB, '8.50'), 'csv B has booster amount');
+assertEq(true, PolicyStatusReport::isValidSection('billed_successful'), 'valid section successful');
+assertEq(false, PolicyStatusReport::isValidSection('nope'), 'invalid section rejected');
+
 assertEq('booster', PolicyStatusReport::activeServiceChargeBucket(
     (object) ['extra' => '{"Type":"booster"}', 'service_name' => 'Account X - Device abc123 - Booster (Microsoft 365)'],
 ), 'type booster wins over device text');

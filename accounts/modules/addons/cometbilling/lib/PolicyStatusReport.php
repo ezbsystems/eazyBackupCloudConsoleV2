@@ -15,6 +15,16 @@ final class PolicyStatusReport
         'cometbackup' => 'csw.eazybackup.ca',
     ];
 
+    public const SECTION_WARNING = 'warning_accounts';
+    public const SECTION_BILLED_UNHEALTHY = 'billed_unhealthy';
+    public const SECTION_BILLED_SUCCESSFUL = 'billed_successful';
+
+    public const SECTION_LABELS = [
+        self::SECTION_WARNING => 'warning-accounts',
+        self::SECTION_BILLED_UNHEALTHY => 'billed-unhealthy',
+        self::SECTION_BILLED_SUCCESSFUL => 'billed-successful',
+    ];
+
     public static function severityRank(int $status): int
     {
         if ($status === 5000) return 0;
@@ -340,5 +350,99 @@ final class PolicyStatusReport
             'billed_unhealthy' => $billedUnhealthy,
             'billed_successful' => $billedSuccessful,
         ];
+    }
+
+    public static function isValidSection(string $section): bool
+    {
+        return isset(self::SECTION_LABELS[$section]);
+    }
+
+    /**
+     * @param array<string, mixed> $report Output of report() or buildSections()+meta
+     */
+    public static function buildCsvForSection(array $report, string $section): string
+    {
+        if (!self::isValidSection($section)) {
+            throw new \InvalidArgumentException('Unknown Policy Status section: ' . $section);
+        }
+
+        $rows = $report[$section] ?? [];
+        if (!is_array($rows)) {
+            $rows = [];
+        }
+
+        $includeCharges = $section !== self::SECTION_WARNING;
+        $headers = [
+            'Server',
+            'Server key',
+            'Policy ID',
+            'Username',
+            'Sources warn',
+            'Sources total',
+            'Last job UTC',
+            'Status',
+        ];
+        if ($includeCharges) {
+            $headers[] = 'Device charge';
+            $headers[] = 'Booster charge';
+        }
+
+        $fh = fopen('php://temp', 'r+');
+        if ($fh === false) {
+            throw new \RuntimeException('Unable to open CSV buffer');
+        }
+        fwrite($fh, "\xEF\xBB\xBF");
+        fputcsv($fh, $headers);
+
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $ts = (int) ($row['last_job_time'] ?? 0);
+            $line = [
+                (string) ($row['server_label'] ?? ''),
+                (string) ($row['server_key'] ?? ''),
+                (string) ($row['policy_id'] ?? ''),
+                (string) ($row['username'] ?? ''),
+                (int) ($row['warning_source_count'] ?? 0),
+                (int) ($row['source_count'] ?? 0),
+                $ts > 0 ? gmdate('Y-m-d H:i:s', $ts) : '',
+                (string) ($row['status_label'] ?? self::statusLabel((int) ($row['status'] ?? 0))),
+            ];
+            if ($includeCharges) {
+                $line[] = number_format((float) ($row['billed_device_amount'] ?? 0), 2, '.', '');
+                $line[] = number_format((float) ($row['billed_booster_amount'] ?? 0), 2, '.', '');
+            }
+            fputcsv($fh, $line);
+        }
+
+        rewind($fh);
+        $csv = stream_get_contents($fh);
+        fclose($fh);
+
+        return $csv === false ? '' : $csv;
+    }
+
+    public static function streamCsv(string $section): void
+    {
+        if (!self::isValidSection($section)) {
+            throw new \InvalidArgumentException('Unknown Policy Status section: ' . $section);
+        }
+
+        $report = self::report();
+        $csv = self::buildCsvForSection($report, $section);
+        $slug = self::SECTION_LABELS[$section];
+        $filename = 'policy-status-' . $slug . '-' . gmdate('Y-m-d') . '.csv';
+
+        while (ob_get_level() > 0) {
+            ob_end_clean();
+        }
+
+        header('Content-Type: text/csv; charset=utf-8');
+        header('Content-Disposition: attachment; filename="' . $filename . '"');
+        header('Content-Length: ' . strlen($csv));
+        header('Cache-Control: no-store');
+        echo $csv;
+        exit;
     }
 }

@@ -355,6 +355,27 @@ function cometbilling_output($vars)
             include __DIR__ . '/templates/admin/policy_status.tpl.php';
             break;
 
+        case 'policy_status_csv':
+            cometbilling_releaseSession();
+            if (function_exists('set_time_limit')) {
+                @set_time_limit(600);
+            }
+            try {
+                $section = isset($_GET['section']) ? (string) $_GET['section'] : '';
+                if (!\CometBilling\PolicyStatusReport::isValidSection($section)) {
+                    throw new \InvalidArgumentException(
+                        'Invalid section. Use warning_accounts, billed_unhealthy, or billed_successful.'
+                    );
+                }
+                \CometBilling\PolicyStatusReport::streamCsv($section);
+            } catch (\Throwable $e) {
+                echo '<div class="errorbox">Policy Status CSV export failed: '
+                    . htmlspecialchars($e->getMessage()) . '</div>';
+                echo '<p><a class="btn btn-default" href="' . $baseUrl
+                    . '&action=policy_status">Back to Policy Status</a></p>';
+            }
+            break;
+
         case 'm365_report':
             include __DIR__ . '/templates/admin/m365_report.tpl.php';
             break;

@@ -32,6 +32,10 @@ function policyStatusFormatMoney(float $amount): string
 {
     return $amount > 0 ? '$' . number_format($amount, 2) : '—';
 }
+$csvBase = 'addonmodules.php?module=cometbilling&action=policy_status_csv';
+$csvWarningUrl = $csvBase . '&section=' . urlencode(PolicyStatusReport::SECTION_WARNING);
+$csvUnhealthyUrl = $csvBase . '&section=' . urlencode(PolicyStatusReport::SECTION_BILLED_UNHEALTHY);
+$csvSuccessfulUrl = $csvBase . '&section=' . urlencode(PolicyStatusReport::SECTION_BILLED_SUCCESSFUL);
 ?>
 <style>
 .cb-policy-status { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
@@ -48,6 +52,8 @@ function policyStatusFormatMoney(float $amount): string
 .cb-status-warn { color: #e37400; font-weight: 600; }
 .cb-status-error { color: #c5221f; font-weight: 600; }
 .cb-policy-list { margin: 10px 0 0; padding-left: 20px; }
+.cb-section-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 15px; }
+.cb-section-head h4 { margin: 0; }
 </style>
 
 <div class="cb-policy-status">
@@ -116,7 +122,10 @@ function policyStatusFormatMoney(float $amount): string
     </div>
 
     <div class="cb-box">
-        <h4>Section A — Warning Accounts</h4>
+        <div class="cb-section-head">
+            <h4>Section A — Warning Accounts</h4>
+            <a class="btn btn-default btn-sm" href="<?= htmlspecialchars($csvWarningUrl) ?>">Export CSV</a>
+        </div>
         <p class="cb-muted">Accounts with last backup job status exactly <strong>warning</strong> (7001).</p>
         <?php if (count($warningAccounts) === 0): ?>
         <p class="cb-muted">No warning accounts found.</p>
@@ -150,7 +159,10 @@ function policyStatusFormatMoney(float $amount): string
     </div>
 
     <div class="cb-box">
-        <h4>Section B — Billed Unhealthy</h4>
+        <div class="cb-section-head">
+            <h4>Section B — Billed Unhealthy</h4>
+            <a class="btn btn-default btn-sm" href="<?= htmlspecialchars($csvUnhealthyUrl) ?>">Export CSV</a>
+        </div>
         <p class="cb-muted">
             Warning or error accounts present in the latest Active Services snapshot
             <?php if ($asPulledAt): ?>
@@ -195,7 +207,10 @@ function policyStatusFormatMoney(float $amount): string
     </div>
 
     <div class="cb-box">
-        <h4>Section C — Billed Successful</h4>
+        <div class="cb-section-head">
+            <h4>Section C — Billed Successful</h4>
+            <a class="btn btn-default btn-sm" href="<?= htmlspecialchars($csvSuccessfulUrl) ?>">Export CSV</a>
+        </div>
         <p class="cb-muted">
             Accounts on the same Policy IDs whose worst last backup status is <strong>success</strong> (5000)
             and that appear in the latest Active Services snapshot
