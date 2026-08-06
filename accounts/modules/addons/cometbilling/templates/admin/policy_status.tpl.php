@@ -5,6 +5,7 @@ $report = PolicyStatusReport::report();
 
 $warningAccounts = $report['warning_accounts'];
 $billedUnhealthy = $report['billed_unhealthy'];
+$billedSuccessful = $report['billed_successful'] ?? [];
 $asPulledAt = $report['active_services_pulled_at'];
 $serverErrors = $report['server_errors'];
 
@@ -15,13 +16,21 @@ function policyStatusFormatJobTime(int $ts): string
 
 function policyStatusStatusClass(string $label): string
 {
+    if ($label === 'success') {
+        return 'cb-status-ok';
+    }
     if ($label === 'warning') {
         return 'cb-status-warn';
     }
-    if (in_array($label, ['error', 'timeout', 'quota', 'missed'], true)) {
+    if (in_array($label, ['error', 'timeout', 'quota', 'missed', 'unknown'], true)) {
         return 'cb-status-error';
     }
     return '';
+}
+
+function policyStatusFormatMoney(float $amount): string
+{
+    return $amount > 0 ? '$' . number_format($amount, 2) : '—';
 }
 ?>
 <style>
@@ -35,6 +44,7 @@ function policyStatusStatusClass(string $label): string
 .cb-stat .value.positive { color: #137333; }
 .cb-stat .label { font-size: 12px; color: #666; margin-top: 4px; }
 .cb-muted { color: #666; font-size: 12px; margin-top: 10px; }
+.cb-status-ok { color: #137333; font-weight: 600; }
 .cb-status-warn { color: #e37400; font-weight: 600; }
 .cb-status-error { color: #c5221f; font-weight: 600; }
 .cb-policy-list { margin: 10px 0 0; padding-left: 20px; }
@@ -43,8 +53,10 @@ function policyStatusStatusClass(string $label): string
 <div class="cb-policy-status">
     <h3>Policy Status</h3>
     <p class="cb-muted">
-        Accounts on configured CSW Policy IDs with last backup warning status.
-        Section B cross-references Active Services for billed warning/error accounts.
+        Accounts on configured CSW Policy IDs.
+        Section A lists last-backup <strong>warning</strong>;
+        Section B lists billed accounts with warning/error;
+        Section C lists billed accounts with last-backup <strong>success</strong> and their device/booster Active Services charges.
     </p>
 
     <div class="cb-box">
@@ -74,6 +86,10 @@ function policyStatusStatusClass(string $label): string
             <div class="cb-stat">
                 <div class="value negative"><?= number_format(count($billedUnhealthy)) ?></div>
                 <div class="label">Section B — billed unhealthy</div>
+            </div>
+            <div class="cb-stat">
+                <div class="value positive"><?= number_format(count($billedSuccessful)) ?></div>
+                <div class="label">Section C — billed successful</div>
             </div>
             <div class="cb-stat">
                 <div class="value"><?= $asPulledAt ? htmlspecialchars((string) $asPulledAt) : '—' ?></div>
@@ -161,11 +177,7 @@ function policyStatusStatusClass(string $label): string
             </thead>
             <tbody>
             <?php foreach ($billedUnhealthy as $row): ?>
-                <?php
-                $statusLabel = (string) ($row['status_label'] ?? '');
-                $deviceAmt = (float) ($row['billed_device_amount'] ?? 0);
-                $boosterAmt = (float) ($row['billed_booster_amount'] ?? 0);
-                ?>
+                <?php $statusLabel = (string) ($row['status_label'] ?? ''); ?>
                 <tr>
                     <td><?= htmlspecialchars((string) ($row['server_label'] ?? '')) ?></td>
                     <td><code><?= htmlspecialchars((string) ($row['policy_id'] ?? '')) ?></code></td>
@@ -173,8 +185,55 @@ function policyStatusStatusClass(string $label): string
                     <td><?= number_format((int) ($row['warning_source_count'] ?? 0)) ?> / <?= number_format((int) ($row['source_count'] ?? 0)) ?></td>
                     <td><?= htmlspecialchars(policyStatusFormatJobTime((int) ($row['last_job_time'] ?? 0))) ?></td>
                     <td class="<?= policyStatusStatusClass($statusLabel) ?>"><?= htmlspecialchars($statusLabel) ?></td>
-                    <td><?= $deviceAmt > 0 ? '$' . number_format($deviceAmt, 2) : '—' ?></td>
-                    <td><?= $boosterAmt > 0 ? '$' . number_format($boosterAmt, 2) : '—' ?></td>
+                    <td><?= policyStatusFormatMoney((float) ($row['billed_device_amount'] ?? 0)) ?></td>
+                    <td><?= policyStatusFormatMoney((float) ($row['billed_booster_amount'] ?? 0)) ?></td>
+                </tr>
+            <?php endforeach; ?>
+            </tbody>
+        </table>
+        <?php endif; ?>
+    </div>
+
+    <div class="cb-box">
+        <h4>Section C — Billed Successful</h4>
+        <p class="cb-muted">
+            Accounts on the same Policy IDs whose worst last backup status is <strong>success</strong> (5000)
+            and that appear in the latest Active Services snapshot
+            <?php if ($asPulledAt): ?>
+            (<?= htmlspecialchars((string) $asPulledAt) ?>).
+            <?php else: ?>
+            (no snapshot available).
+            <?php endif; ?>
+            Device and booster charges are Active Services run-rate amounts.
+        </p>
+        <?php if (count($billedSuccessful) === 0): ?>
+        <p class="cb-muted">No billed successful accounts found.</p>
+        <?php else: ?>
+        <table class="datatable" width="100%">
+            <thead>
+                <tr>
+                    <th>Server</th>
+                    <th>Policy ID</th>
+                    <th>Username</th>
+                    <th>Sources (warn/total)</th>
+                    <th>Last job (UTC)</th>
+                    <th>Status</th>
+                    <th>Device charge</th>
+                    <th>Booster charge</th>
+                </tr>
+            </thead>
+            <tbody>
+            <?php foreach ($billedSuccessful as $row): ?>
+                <?php $statusLabel = (string) ($row['status_label'] ?? ''); ?>
+                <tr>
+                    <td><?= htmlspecialchars((string) ($row['server_label'] ?? '')) ?></td>
+                    <td><code><?= htmlspecialchars((string) ($row['policy_id'] ?? '')) ?></code></td>
+                    <td><?= htmlspecialchars((string) ($row['username'] ?? '')) ?></td>
+                    <td><?= number_format((int) ($row['warning_source_count'] ?? 0)) ?> / <?= number_format((int) ($row['source_count'] ?? 0)) ?></td>
+                    <td><?= htmlspecialchars(policyStatusFormatJobTime((int) ($row['last_job_time'] ?? 0))) ?></td>
+                    <td class="<?= policyStatusStatusClass($statusLabel) ?>"><?= htmlspecialchars($statusLabel) ?></td>
+                    <td><?= policyStatusFormatMoney((float) ($row['billed_device_amount'] ?? 0)) ?></td>
+                    <td><?= policyStatusFormatMoney((float) ($row['billed_booster_amount'] ?? 0)) ?></td>
                 </tr>
             <?php endforeach; ?>
             </tbody>

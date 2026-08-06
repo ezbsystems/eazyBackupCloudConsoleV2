@@ -48,6 +48,11 @@ final class PolicyStatusReport
         return $status === 7001;
     }
 
+    public static function isSuccess(int $status): bool
+    {
+        return $status === 5000;
+    }
+
     public static function isWarningOrError(int $status): bool
     {
         return self::severityRank($status) >= 3;
@@ -305,26 +310,35 @@ final class PolicyStatusReport
     {
         $warning = [];
         $billedUnhealthy = [];
+        $billedSuccessful = [];
         foreach ($accounts as $acct) {
             $status = (int) ($acct['status'] ?? 0);
             if (self::isWarning($status)) {
                 $warning[] = $acct;
             }
             $key = self::normalizeAccountKey((string) ($acct['username'] ?? ''));
-            if ($key !== '' && isset($billedByAccount[$key]) && self::isWarningOrError($status)) {
-                $billed = $billedByAccount[$key];
-                $billedUnhealthy[] = $acct + [
-                    'billed_categories' => $billed['categories'],
-                    'billed_amount' => $billed['amount'],
-                    'billed_device_amount' => (float) ($billed['device_amount'] ?? 0),
-                    'billed_booster_amount' => (float) ($billed['booster_amount'] ?? 0),
-                    'billed_line_count' => $billed['line_count'],
-                ];
+            if ($key === '' || !isset($billedByAccount[$key])) {
+                continue;
+            }
+            $billed = $billedByAccount[$key];
+            $billedFields = [
+                'billed_categories' => $billed['categories'],
+                'billed_amount' => $billed['amount'],
+                'billed_device_amount' => (float) ($billed['device_amount'] ?? 0),
+                'billed_booster_amount' => (float) ($billed['booster_amount'] ?? 0),
+                'billed_line_count' => $billed['line_count'],
+            ];
+            if (self::isWarningOrError($status)) {
+                $billedUnhealthy[] = $acct + $billedFields;
+            }
+            if (self::isSuccess($status)) {
+                $billedSuccessful[] = $acct + $billedFields;
             }
         }
         return [
             'warning_accounts' => $warning,
             'billed_unhealthy' => $billedUnhealthy,
+            'billed_successful' => $billedSuccessful,
         ];
     }
 }

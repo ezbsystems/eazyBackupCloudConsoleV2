@@ -71,9 +71,11 @@ $accounts = [
     ['server_key'=>'obc','policy_id'=>'9005920f-fa54-4a22-8844-533bda81da4c','username'=>'WarnOnly','status'=>7001,'last_job_time'=>1,'source_count'=>1,'warning_source_count'=>1,'error_source_count'=>0],
     ['server_key'=>'obc','policy_id'=>'9005920f-fa54-4a22-8844-533bda81da4c','username'=>'ErrBilled','status'=>7002,'last_job_time'=>2,'source_count'=>1,'warning_source_count'=>0,'error_source_count'=>1],
     ['server_key'=>'cometbackup','policy_id'=>'0e545d31-e0b3-4b38-8456-0999fa46f588','username'=>'Ok','status'=>5000,'last_job_time'=>3,'source_count'=>1,'warning_source_count'=>0,'error_source_count'=>0],
+    ['server_key'=>'obc','policy_id'=>'9005920f-fa54-4a22-8844-533bda81da4c','username'=>'SuccessBilled','status'=>5000,'status_label'=>'success','last_job_time'=>4,'source_count'=>2,'warning_source_count'=>0,'error_source_count'=>0],
 ];
 $billed = [
     'errbilled' => ['categories'=>['devices'],'amount'=>2.0,'device_amount'=>2.0,'booster_amount'=>0.0,'line_count'=>1],
+    'successbilled' => ['categories'=>['devices','m365_accounts'],'amount'=>10.0,'device_amount'=>2.0,'booster_amount'=>8.0,'line_count'=>2],
 ];
 $sections = PolicyStatusReport::buildSections($accounts, $billed);
 assertEq(1, count($sections['warning_accounts']), 'section A one warning');
@@ -82,6 +84,12 @@ assertEq(1, count($sections['billed_unhealthy']), 'section B one billed unhealth
 assertEq('ErrBilled', $sections['billed_unhealthy'][0]['username'], 'section B username');
 assertEq(2.0, $sections['billed_unhealthy'][0]['billed_device_amount'], 'section B device amount');
 assertEq(0.0, $sections['billed_unhealthy'][0]['billed_booster_amount'], 'section B booster amount');
+assertEq(1, count($sections['billed_successful']), 'section C one billed successful');
+assertEq('SuccessBilled', $sections['billed_successful'][0]['username'], 'section C username');
+assertEq(2.0, $sections['billed_successful'][0]['billed_device_amount'], 'section C device amount');
+assertEq(8.0, $sections['billed_successful'][0]['billed_booster_amount'], 'section C booster amount');
+assertEq(true, PolicyStatusReport::isSuccess(5000), 'isSuccess 5000');
+assertEq(false, PolicyStatusReport::isSuccess(7001), 'isSuccess excludes warning');
 
 assertEq('booster', PolicyStatusReport::activeServiceChargeBucket(
     (object) ['extra' => '{"Type":"booster"}', 'service_name' => 'Account X - Device abc123 - Booster (Microsoft 365)'],
