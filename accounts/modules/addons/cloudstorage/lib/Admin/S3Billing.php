@@ -8,6 +8,7 @@ use WHMCS\Module\Addon\CloudStorage\Client\DBController;
 use WHMCS\Module\Addon\CloudStorage\Admin\AdminOps;
 use WHMCS\Module\Addon\CloudStorage\Client\BucketController;
 use WHMCS\Module\Addon\CloudStorage\Client\BillingController;
+use WHMCS\Module\Addon\CloudStorage\Client\HelperController;
 
 class S3Billing {
 
@@ -511,120 +512,292 @@ class S3Billing {
     }
 
     /**
-     * Export Bucket Usage.
+     * Export per-bucket transfer usage into s3_transfer_stats(_summary).
      *
-     * @return object|null
+     * IMPORTANT: Query RGW usage per uid. A cluster-wide /admin/usage?show-entries
+     * dump returns ~2x the true totals for some tenanted buckets (verified against
+     * per-uid usage and on-disk size). Collecting per uid avoids that inflation.
+     *
+     * @param string $s3Endpoint
+     * @param string $cephAdminAccessKey
+     * @param string $cephAdminSecretKey
+     * @param string $currentTime
+     * @return void
      */
     private function exportBucketUsage($s3Endpoint, $cephAdminAccessKey, $cephAdminSecretKey, $currentTime)
     {
-        $params = [
-            'show_entries' => true
-        ];
+        $users = Capsule::table('s3_users')
+            ->select('id', 'username', 'tenant_id', 'ceph_uid', 'is_active')
+            ->when(
+                Capsule::schema()->hasColumn('s3_users', 'is_active'),
+                function ($q) {
+                    $q->where(function ($inner) {
+                        $inner->where('is_active', 1)->orWhereNull('is_active');
+                    });
+                }
+            )
+            ->get();
 
-        $data = AdminOps::getUsage($s3Endpoint, $cephAdminAccessKey, $cephAdminSecretKey, $params);
+        foreach ($users as $user) {
+            $uid = $this->resolveUsageUid($user);
+            if ($uid === '') {
+                continue;
+            }
 
-        if (isset($data['data']['entries'])) {
+            $data = AdminOps::getUsage($s3Endpoint, $cephAdminAccessKey, $cephAdminSecretKey, [
+                'uid' => $uid,
+                'show_entries' => true,
+            ]);
+
+            if (($data['status'] ?? '') !== 'success' || empty($data['data']['entries'])) {
+                continue;
+            }
+
             $bucketUsageRecords = [];
             foreach ($data['data']['entries'] as $entry) {
-                foreach ($entry['buckets'] as $bucketData) {
-                    $bucketName = $bucketData['bucket'];
-                    $owner = $bucketData['owner'];
-
-                    if ($bucketName === "" || $bucketName === "-") {
+                foreach (($entry['buckets'] ?? []) as $bucketData) {
+                    $bucketName = (string) ($bucketData['bucket'] ?? '');
+                    if ($bucketName === '' || $bucketName === '-') {
                         continue;
                     }
 
-                    // Use composite key (owner|bucket) to avoid cross-user collisions on same bucket name
-                    $compositeKey = $owner . '|' . $bucketName;
-
-                    if (!isset($bucketUsageRecords[$compositeKey])) {
-                        $bucketUsageRecords[$compositeKey] = [
-                            'owner' => $owner,
+                    if (!isset($bucketUsageRecords[$bucketName])) {
+                        $bucketUsageRecords[$bucketName] = [
                             'bucket' => $bucketName,
                             'bytes_sent' => 0,
                             'bytes_received' => 0,
                             'ops' => 0,
-                            'successful_ops' => 0
+                            'successful_ops' => 0,
                         ];
                     }
 
-                    foreach ($bucketData['categories'] as $category) {
-                        $bucketUsageRecords[$compositeKey]['bytes_sent'] += $category['bytes_sent'];
-                        $bucketUsageRecords[$compositeKey]['bytes_received'] += $category['bytes_received'];
-                        $bucketUsageRecords[$compositeKey]['ops'] += $category['ops'];
-                        $bucketUsageRecords[$compositeKey]['successful_ops'] += $category['successful_ops'];
+                    foreach (($bucketData['categories'] ?? []) as $category) {
+                        $bucketUsageRecords[$bucketName]['bytes_sent'] += (int) ($category['bytes_sent'] ?? 0);
+                        $bucketUsageRecords[$bucketName]['bytes_received'] += (int) ($category['bytes_received'] ?? 0);
+                        $bucketUsageRecords[$bucketName]['ops'] += (int) ($category['ops'] ?? 0);
+                        $bucketUsageRecords[$bucketName]['successful_ops'] += (int) ($category['successful_ops'] ?? 0);
                     }
-
                 }
             }
 
-            if (count($bucketUsageRecords)) {
-                foreach ($bucketUsageRecords as $compositeKey => $bucketUsageRecord) {
-                    $bucketName = $bucketUsageRecord['bucket'];
-                    $owner = $bucketUsageRecord['owner'];
+            foreach ($bucketUsageRecords as $bucketUsageRecord) {
+                $bucket = Capsule::table('s3_buckets')
+                    ->select('id', 'user_id')
+                    ->where('name', $bucketUsageRecord['bucket'])
+                    ->where('user_id', (int) $user->id)
+                    ->first();
+                if ($bucket === null) {
+                    continue;
+                }
 
-                    // Resolve owner user by matching RGW uid to (tenant_id'$'username) or username (no tenant)
-                    $ownerUser = Capsule::table('s3_users')
-                        ->select('id', 'username', 'tenant_id')
-                        ->whereRaw("(CASE WHEN (tenant_id IS NULL OR tenant_id = '') THEN username ELSE CONCAT(tenant_id, '$', username) END) = ?", [$owner])
-                        ->first();
+                $this->persistTransferUsageSample(
+                    (int) $user->id,
+                    (int) $bucket->id,
+                    $bucketUsageRecord,
+                    $currentTime
+                );
+            }
+        }
+    }
 
-                    $bucketQuery = Capsule::table('s3_buckets')->select('id', 'user_id')->where('name', $bucketName);
-                    if (!is_null($ownerUser)) {
-                        $bucketQuery->where('user_id', $ownerUser->id);
-                    }
-                    $bucket = $bucketQuery->first();
-                    if (is_null($bucket)) {
-                        // No exact match for this owner+bucket; skip to avoid misattribution
+    /**
+     * Build the RGW uid used for Admin Ops usage queries.
+     */
+    private function resolveUsageUid($user): string
+    {
+        $base = HelperController::stripCephTenantPrefix(HelperController::resolveCephBaseUid($user));
+        if ($base === '') {
+            return '';
+        }
+        $tenantId = trim((string) ($user->tenant_id ?? ''));
+        if ($tenantId !== '') {
+            return $tenantId . '$' . $base;
+        }
+        return $base;
+    }
+
+    /**
+     * Persist one cumulative usage snapshot + delta summary row for a bucket.
+     */
+    private function persistTransferUsageSample(int $userId, int $bucketId, array $usage, string $currentTime): void
+    {
+        $bytesSent = max(0, (int) ($usage['bytes_sent'] ?? 0));
+        $bytesReceived = max(0, (int) ($usage['bytes_received'] ?? 0));
+        $ops = max(0, (int) ($usage['ops'] ?? 0));
+        $successfulOps = max(0, (int) ($usage['successful_ops'] ?? 0));
+
+        $last = Capsule::table('s3_transfer_stats')
+            ->where('user_id', $userId)
+            ->where('bucket_id', $bucketId)
+            ->orderBy('id', 'desc')
+            ->first();
+
+        if ($last !== null) {
+            // Usage trim / baseline correction (e.g. after switching off a doubled
+            // cluster-wide dump): never store a negative "delta".
+            $bytesSentSummary = max(0, $bytesSent - (int) $last->bytes_sent);
+            $bytesReceivedSummary = max(0, $bytesReceived - (int) $last->bytes_received);
+            $opsSummary = max(0, $ops - (int) $last->ops);
+            $successfulOpsSummary = max(0, $successfulOps - (int) $last->successful_ops);
+        } else {
+            $bytesSentSummary = $bytesSent;
+            $bytesReceivedSummary = $bytesReceived;
+            $opsSummary = $ops;
+            $successfulOpsSummary = $successfulOps;
+        }
+
+        DBController::saveTransferStats([
+            'user_id' => $userId,
+            'bucket_id' => $bucketId,
+            'bytes_sent' => $bytesSent,
+            'bytes_received' => $bytesReceived,
+            'ops' => $ops,
+            'successful_ops' => $successfulOps,
+            'created_at' => $currentTime,
+        ]);
+
+        // Skip zero-delta rows after a baseline correction to avoid chart clutter.
+        if ($last !== null
+            && $bytesSentSummary === 0
+            && $bytesReceivedSummary === 0
+            && $opsSummary === 0
+            && $successfulOpsSummary === 0
+        ) {
+            return;
+        }
+
+        DBController::saveTransferStatsSummary([
+            'user_id' => $userId,
+            'bucket_id' => $bucketId,
+            'bytes_sent' => $bytesSentSummary,
+            'bytes_received' => $bytesReceivedSummary,
+            'ops' => $opsSummary,
+            'successful_ops' => $successfulOpsSummary,
+            'created_at' => $currentTime,
+        ]);
+    }
+
+    /**
+     * Detect whether stored cumulative transfer stats are ~2x live per-uid RGW usage.
+     */
+    public static function isApproximatelyDoubled(int $stored, int $live, float $tolerance = 0.05): bool
+    {
+        if ($live <= 0 || $stored <= 0) {
+            return false;
+        }
+        $ratio = $stored / $live;
+        return $ratio >= (2.0 - $tolerance) && $ratio <= (2.0 + $tolerance);
+    }
+
+    /**
+     * Repair buckets whose transfer cumulatives were inflated by the old cluster-wide
+     * usage dump. Halves summary deltas and rewrites cumulative snapshots to match
+     * live per-uid RGW usage.
+     *
+     * @return array{checked:int, repaired:int, buckets:array<int,string>}
+     */
+    public function repairDoubledTransferStats($s3Endpoint, $cephAdminAccessKey, $cephAdminSecretKey): array
+    {
+        $result = ['checked' => 0, 'repaired' => 0, 'buckets' => []];
+
+        $latest = Capsule::select("
+            SELECT t.bucket_id, t.user_id, t.bytes_sent, t.bytes_received, t.ops, t.successful_ops,
+                   b.name AS bucket_name, u.username, u.tenant_id, u.ceph_uid
+            FROM s3_transfer_stats t
+            INNER JOIN (
+                SELECT bucket_id, MAX(id) AS id FROM s3_transfer_stats GROUP BY bucket_id
+            ) latest ON latest.id = t.id
+            INNER JOIN s3_buckets b ON b.id = t.bucket_id
+            INNER JOIN s3_users u ON u.id = t.user_id
+        ");
+
+        foreach ($latest as $row) {
+            $result['checked']++;
+            $uid = $this->resolveUsageUid($row);
+            if ($uid === '') {
+                continue;
+            }
+
+            $data = AdminOps::getUsage($s3Endpoint, $cephAdminAccessKey, $cephAdminSecretKey, [
+                'uid' => $uid,
+                'show_entries' => true,
+            ]);
+            if (($data['status'] ?? '') !== 'success') {
+                continue;
+            }
+
+            $liveSent = 0;
+            $liveReceived = 0;
+            $liveOps = 0;
+            $liveSuccessfulOps = 0;
+            foreach (($data['data']['entries'] ?? []) as $entry) {
+                foreach (($entry['buckets'] ?? []) as $bucketData) {
+                    if ((string) ($bucketData['bucket'] ?? '') !== (string) $row->bucket_name) {
                         continue;
                     }
-                    $userId = $bucket->user_id;
-
-                    $transferStats = Capsule::table('s3_transfer_stats')->where([
-                        ['user_id', '=', $userId],
-                        ['bucket_id', '=', $bucket->id],
-                    ])
-                    ->orderBy('id', 'desc')
-                    ->first();
-
-                    if (!is_null($transferStats)) {
-                        $bytesSentSummary = $bucketUsageRecord['bytes_sent'] - $transferStats->bytes_sent;
-                        $bytesReceivedSummary = $bucketUsageRecord['bytes_received'] - $transferStats->bytes_received;
-                        $opsSummary = $bucketUsageRecord['ops'] - $transferStats->ops;
-                        $successfulOpsSummary = $bucketUsageRecord['successful_ops'] - $transferStats->successful_ops;
-                    } else {
-                        $bytesSentSummary = $bucketUsageRecord['bytes_sent'];
-                        $bytesReceivedSummary = $bucketUsageRecord['bytes_received'];
-                        $opsSummary = $bucketUsageRecord['ops'];
-                        $successfulOpsSummary = $bucketUsageRecord['successful_ops'];
+                    foreach (($bucketData['categories'] ?? []) as $category) {
+                        $liveSent += (int) ($category['bytes_sent'] ?? 0);
+                        $liveReceived += (int) ($category['bytes_received'] ?? 0);
+                        $liveOps += (int) ($category['ops'] ?? 0);
+                        $liveSuccessfulOps += (int) ($category['successful_ops'] ?? 0);
                     }
-
-                    $transferStats = [
-                        'user_id' => $userId,
-                        'bucket_id' => $bucket->id,
-                        'bytes_sent' => $bucketUsageRecord['bytes_sent'],
-                        'bytes_received' => $bucketUsageRecord['bytes_received'],
-                        'ops' => $bucketUsageRecord['ops'],
-                        'successful_ops' => $bucketUsageRecord['successful_ops'],
-                        'created_at' => $currentTime
-                    ];
-
-                    $transferStatsSummary = [
-                        'user_id' => $userId,
-                        'bucket_id' => $bucket->id,
-                        'bytes_sent' => $bytesSentSummary,
-                        'bytes_received' => $bytesReceivedSummary,
-                        'ops' => $opsSummary,
-                        'successful_ops' => $successfulOpsSummary,
-                        'created_at' => $currentTime
-                    ];
-
-                    DBController::saveTransferStats($transferStats);
-                    DBController::saveTransferStatsSummary($transferStatsSummary);
                 }
             }
 
+            $sentDoubled = self::isApproximatelyDoubled((int) $row->bytes_sent, $liveSent);
+            $recvDoubled = self::isApproximatelyDoubled((int) $row->bytes_received, $liveReceived);
+            if (!$sentDoubled && !$recvDoubled) {
+                continue;
+            }
+
+            $bucketId = (int) $row->bucket_id;
+            Capsule::table('s3_transfer_stats_summary')
+                ->where('bucket_id', $bucketId)
+                ->update([
+                    'bytes_sent' => Capsule::raw('GREATEST(0, FLOOR(bytes_sent / 2))'),
+                    'bytes_received' => Capsule::raw('GREATEST(0, FLOOR(bytes_received / 2))'),
+                    'ops' => Capsule::raw('GREATEST(0, FLOOR(ops / 2))'),
+                    'successful_ops' => Capsule::raw('GREATEST(0, FLOOR(successful_ops / 2))'),
+                ]);
+
+            Capsule::table('s3_transfer_stats')
+                ->where('bucket_id', $bucketId)
+                ->update([
+                    'bytes_sent' => Capsule::raw('GREATEST(0, FLOOR(bytes_sent / 2))'),
+                    'bytes_received' => Capsule::raw('GREATEST(0, FLOOR(bytes_received / 2))'),
+                    'ops' => Capsule::raw('GREATEST(0, FLOOR(ops / 2))'),
+                    'successful_ops' => Capsule::raw('GREATEST(0, FLOOR(successful_ops / 2))'),
+                ]);
+
+            // Anchor the latest cumulative exactly to live RGW so the next cron
+            // delta starts from the correct baseline.
+            $latestId = Capsule::table('s3_transfer_stats')
+                ->where('bucket_id', $bucketId)
+                ->orderBy('id', 'desc')
+                ->value('id');
+            if ($latestId) {
+                Capsule::table('s3_transfer_stats')->where('id', $latestId)->update([
+                    'bytes_sent' => $liveSent,
+                    'bytes_received' => $liveReceived,
+                    'ops' => $liveOps,
+                    'successful_ops' => $liveSuccessfulOps,
+                ]);
+            }
+
+            $result['repaired']++;
+            $result['buckets'][$bucketId] = (string) $row->bucket_name;
+            logModuleCall(self::$module, 'repairDoubledTransferStats', [
+                'bucket_id' => $bucketId,
+                'bucket' => $row->bucket_name,
+                'uid' => $uid,
+                'db_sent' => (int) $row->bytes_sent,
+                'live_sent' => $liveSent,
+                'db_received' => (int) $row->bytes_received,
+                'live_received' => $liveReceived,
+            ], 'halved transfer history and re-anchored cumulative');
         }
+
+        return $result;
     }
 
     /**
