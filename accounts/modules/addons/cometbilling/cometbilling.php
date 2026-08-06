@@ -362,12 +362,18 @@ function cometbilling_output($vars)
             }
             try {
                 $section = isset($_GET['section']) ? (string) $_GET['section'] : '';
+                $group = isset($_GET['group']) ? (string) $_GET['group'] : \CometBilling\PolicyStatusReport::GROUP_M365;
                 if (!\CometBilling\PolicyStatusReport::isValidSection($section)) {
                     throw new \InvalidArgumentException(
                         'Invalid section. Use warning_accounts, billed_unhealthy, or billed_successful.'
                     );
                 }
-                \CometBilling\PolicyStatusReport::streamCsv($section);
+                if (!\CometBilling\PolicyStatusReport::isValidGroup($group)) {
+                    throw new \InvalidArgumentException(
+                        'Invalid group. Use m365 or virtual_server.'
+                    );
+                }
+                \CometBilling\PolicyStatusReport::streamCsv($section, $group);
             } catch (\Throwable $e) {
                 echo '<div class="errorbox">Policy Status CSV export failed: '
                     . htmlspecialchars($e->getMessage()) . '</div>';

@@ -128,6 +128,17 @@ assertEq(true, str_contains($csvB, 'Booster charge'), 'csv B has booster charge 
 assertEq(true, str_contains($csvB, '8.50'), 'csv B has booster amount');
 assertEq(true, PolicyStatusReport::isValidSection('billed_successful'), 'valid section successful');
 assertEq(false, PolicyStatusReport::isValidSection('nope'), 'invalid section rejected');
+assertEq(true, PolicyStatusReport::isValidGroup(PolicyStatusReport::GROUP_VIRTUAL_SERVER), 'virtual server group valid');
+assertEq(
+    'a0d772aa-bf57-47f1-86f3-ff078364bee4',
+    PolicyStatusReport::POLICY_GROUPS[PolicyStatusReport::GROUP_VIRTUAL_SERVER]['policies']['cometbackup'],
+    'virtual server eazybackup policy id'
+);
+assertEq(
+    '77ad6576-912a-4ac7-8cd2-064c7f8907d2',
+    PolicyStatusReport::POLICY_GROUPS[PolicyStatusReport::GROUP_VIRTUAL_SERVER]['policies']['obc'],
+    'virtual server obc policy id'
+);
 
 assertEq('booster', PolicyStatusReport::activeServiceChargeBucket(
     (object) ['extra' => '{"Type":"booster"}', 'service_name' => 'Account X - Device abc123 - Booster (Microsoft 365)'],

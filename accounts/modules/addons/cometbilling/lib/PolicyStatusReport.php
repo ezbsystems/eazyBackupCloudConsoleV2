@@ -5,6 +5,33 @@ use WHMCS\Database\Capsule;
 
 final class PolicyStatusReport
 {
+    public const GROUP_M365 = 'm365';
+    public const GROUP_VIRTUAL_SERVER = 'virtual_server';
+
+    /**
+     * Named policy sets: server key → PolicyID.
+     * M365 = Office 365 protected-accounts policies; Virtual Server = guest-VM-only policies.
+     */
+    public const POLICY_GROUPS = [
+        self::GROUP_M365 => [
+            'label' => 'Microsoft 365',
+            'slug' => 'm365',
+            'policies' => [
+                'obc' => '9005920f-fa54-4a22-8844-533bda81da4c',
+                'cometbackup' => '0e545d31-e0b3-4b38-8456-0999fa46f588',
+            ],
+        ],
+        self::GROUP_VIRTUAL_SERVER => [
+            'label' => 'Virtual Server',
+            'slug' => 'virtual-server',
+            'policies' => [
+                'obc' => '77ad6576-912a-4ac7-8cd2-064c7f8907d2',
+                'cometbackup' => 'a0d772aa-bf57-47f1-86f3-ff078364bee4',
+            ],
+        ],
+    ];
+
+    /** @deprecated Use POLICY_GROUPS[GROUP_M365]['policies']; kept for older call sites. */
     public const POLICY_MAP = [
         'obc' => '9005920f-fa54-4a22-8844-533bda81da4c',
         'cometbackup' => '0e545d31-e0b3-4b38-8456-0999fa46f588',
@@ -192,22 +219,37 @@ final class PolicyStatusReport
 
     public static function report(): array
     {
-        $accounts = [];
+        $accountsByGroup = [];
+        foreach (self::POLICY_GROUPS as $groupKey => $_meta) {
+            $accountsByGroup[$groupKey] = [];
+        }
         $serverErrors = [];
 
-        foreach (self::POLICY_MAP as $key => $policyId) {
+        // serverKey => [policyId => groupKey]
+        $policyLookup = [];
+        $serverKeys = [];
+        foreach (self::POLICY_GROUPS as $groupKey => $group) {
+            foreach ($group['policies'] as $serverKey => $policyId) {
+                $policyLookup[$serverKey][$policyId] = $groupKey;
+                $serverKeys[$serverKey] = true;
+            }
+        }
+
+        foreach (array_keys($serverKeys) as $serverKey) {
             try {
-                $server = ServerUsageCollector::openServer($key);
+                $server = ServerUsageCollector::openServer($serverKey);
                 if ($server === null) {
-                    $serverErrors[$key] = "Cannot connect to Comet server: {$key}";
+                    $serverErrors[$serverKey] = "Cannot connect to Comet server: {$serverKey}";
                     continue;
                 }
                 $profiles = $server->AdminListUsersFull();
+                $wanted = $policyLookup[$serverKey] ?? [];
                 foreach ($profiles as $profile) {
                     $profilePolicyId = (string) self::profileValue($profile, 'PolicyID');
-                    if ($profilePolicyId !== $policyId) {
+                    if ($profilePolicyId === '' || !isset($wanted[$profilePolicyId])) {
                         continue;
                     }
+                    $groupKey = $wanted[$profilePolicyId];
 
                     $sources = [];
                     foreach ((self::profileValue($profile, 'Sources') ?? []) as $sourceId => $source) {
@@ -230,10 +272,11 @@ final class PolicyStatusReport
                     if ($agg === null) {
                         continue;
                     }
-                    $accounts[] = [
-                        'server_key' => $key,
-                        'server_label' => self::SERVER_LABELS[$key] ?? $key,
-                        'policy_id' => $policyId,
+                    $accountsByGroup[$groupKey][] = [
+                        'server_key' => $serverKey,
+                        'server_label' => self::SERVER_LABELS[$serverKey] ?? $serverKey,
+                        'policy_id' => $profilePolicyId,
+                        'policy_group' => $groupKey,
                         'username' => (string) self::profileValue($profile, 'Username'),
                         'status' => $agg['status'],
                         'status_label' => $agg['status_label'],
@@ -244,17 +287,42 @@ final class PolicyStatusReport
                     ];
                 }
             } catch (\Throwable $e) {
-                $serverErrors[$key] = $e->getMessage();
+                $serverErrors[$serverKey] = $e->getMessage();
             }
         }
 
         $activeServices = self::indexLatestActiveServicesByAccount();
-        $sections = self::buildSections($accounts, $activeServices['by_account']);
+        $groups = [];
+        $totalAccounts = 0;
+        foreach (self::POLICY_GROUPS as $groupKey => $groupMeta) {
+            $accounts = $accountsByGroup[$groupKey] ?? [];
+            $sections = self::buildSections($accounts, $activeServices['by_account']);
+            $totalAccounts += count($accounts);
+            $groups[$groupKey] = $sections + [
+                'key' => $groupKey,
+                'label' => $groupMeta['label'],
+                'slug' => $groupMeta['slug'],
+                'policies' => $groupMeta['policies'],
+                'account_count' => count($accounts),
+            ];
+        }
 
-        return $sections + [
+        // Backward-compatible top-level M365 sections for older callers.
+        $m365 = $groups[self::GROUP_M365] ?? [
+            'warning_accounts' => [],
+            'billed_unhealthy' => [],
+            'billed_successful' => [],
+            'account_count' => 0,
+        ];
+
+        return [
+            'groups' => $groups,
+            'warning_accounts' => $m365['warning_accounts'],
+            'billed_unhealthy' => $m365['billed_unhealthy'],
+            'billed_successful' => $m365['billed_successful'],
             'active_services_pulled_at' => $activeServices['pulled_at'],
             'server_errors' => $serverErrors,
-            'account_count' => count($accounts),
+            'account_count' => $totalAccounts,
             'server_error_count' => count($serverErrors),
         ];
     }
@@ -352,21 +420,26 @@ final class PolicyStatusReport
         ];
     }
 
+    public static function isValidGroup(string $group): bool
+    {
+        return isset(self::POLICY_GROUPS[$group]);
+    }
+
     public static function isValidSection(string $section): bool
     {
         return isset(self::SECTION_LABELS[$section]);
     }
 
     /**
-     * @param array<string, mixed> $report Output of report() or buildSections()+meta
+     * @param array<string, mixed> $reportSection Output of buildSections() (or a groups[*] entry)
      */
-    public static function buildCsvForSection(array $report, string $section): string
+    public static function buildCsvForSection(array $reportSection, string $section): string
     {
         if (!self::isValidSection($section)) {
             throw new \InvalidArgumentException('Unknown Policy Status section: ' . $section);
         }
 
-        $rows = $report[$section] ?? [];
+        $rows = $reportSection[$section] ?? [];
         if (!is_array($rows)) {
             $rows = [];
         }
@@ -423,16 +496,25 @@ final class PolicyStatusReport
         return $csv === false ? '' : $csv;
     }
 
-    public static function streamCsv(string $section): void
+    public static function streamCsv(string $section, ?string $group = null): void
     {
         if (!self::isValidSection($section)) {
             throw new \InvalidArgumentException('Unknown Policy Status section: ' . $section);
         }
+        $groupKey = $group !== null && $group !== '' ? $group : self::GROUP_M365;
+        if (!self::isValidGroup($groupKey)) {
+            throw new \InvalidArgumentException('Unknown Policy Status group: ' . $groupKey);
+        }
 
         $report = self::report();
-        $csv = self::buildCsvForSection($report, $section);
+        $groupData = $report['groups'][$groupKey] ?? null;
+        if (!is_array($groupData)) {
+            throw new \RuntimeException('Policy group data missing: ' . $groupKey);
+        }
+        $csv = self::buildCsvForSection($groupData, $section);
+        $groupSlug = (string) (self::POLICY_GROUPS[$groupKey]['slug'] ?? $groupKey);
         $slug = self::SECTION_LABELS[$section];
-        $filename = 'policy-status-' . $slug . '-' . gmdate('Y-m-d') . '.csv';
+        $filename = 'policy-status-' . $groupSlug . '-' . $slug . '-' . gmdate('Y-m-d') . '.csv';
 
         while (ob_get_level() > 0) {
             ob_end_clean();
