@@ -1,4 +1,17 @@
 <?php
+namespace WHMCS\Database {
+    class Capsule {
+        public static function table(string $table): object {
+            return new class {
+                public function max(string $column): ?string {
+                    return null;
+                }
+            };
+        }
+    }
+}
+
+namespace {
 require_once __DIR__ . '/../lib/PolicyStatusReport.php';
 use CometBilling\PolicyStatusReport;
 
@@ -40,4 +53,8 @@ assertEq('WarnOnly', $sections['warning_accounts'][0]['username'], 'section A us
 assertEq(1, count($sections['billed_unhealthy']), 'section B one billed unhealthy');
 assertEq('ErrBilled', $sections['billed_unhealthy'][0]['username'], 'section B username');
 
+$activeServices = PolicyStatusReport::indexLatestActiveServicesByAccount();
+assertEq(['pulled_at' => null, 'by_account' => []], $activeServices, 'empty active services index');
+
 echo "All PolicyStatusReport tests passed.\n";
+}

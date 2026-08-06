@@ -1,6 +1,8 @@
 <?php
 namespace CometBilling;
 
+use WHMCS\Database\Capsule;
+
 final class PolicyStatusReport
 {
     public const POLICY_MAP = [
@@ -53,6 +55,117 @@ final class PolicyStatusReport
     public static function normalizeAccountKey(string $name): string
     {
         return strtolower(trim($name));
+    }
+
+    public static function indexLatestActiveServicesByAccount(): array
+    {
+        $latest = Capsule::table('cb_active_services')->max('pulled_at');
+        if (!$latest) {
+            return ['pulled_at' => null, 'by_account' => []];
+        }
+        $rows = Capsule::table('cb_active_services')->where('pulled_at', $latest)->get();
+        $by = [];
+        foreach ($rows as $row) {
+            $account = trim((string) ($row->tenant_id ?? ''));
+            if ($account === '') {
+                $sn = (string) ($row->service_name ?? '');
+                if (preg_match('/Account\s+([^\-]+)/i', $sn, $m)) {
+                    $account = trim($m[1]);
+                }
+            }
+            if ($account === '') {
+                continue;
+            }
+            $key = self::normalizeAccountKey($account);
+            if (!isset($by[$key])) {
+                $by[$key] = ['categories' => [], 'amount' => 0.0, 'line_count' => 0, 'display_name' => $account];
+            }
+            $cat = ChargeCategoryResolver::fromServiceName((string) ($row->service_name ?? ''));
+            if (!in_array($cat, $by[$key]['categories'], true)) {
+                $by[$key]['categories'][] = $cat;
+            }
+            $by[$key]['amount'] += (float) ($row->amount ?? 0);
+            $by[$key]['line_count']++;
+        }
+        return ['pulled_at' => $latest, 'by_account' => $by];
+    }
+
+    public static function report(): array
+    {
+        $accounts = [];
+        $serverErrors = [];
+
+        foreach (self::POLICY_MAP as $key => $policyId) {
+            try {
+                $server = ServerUsageCollector::openServer($key);
+                if ($server === null) {
+                    $serverErrors[$key] = "Cannot connect to Comet server: {$key}";
+                    continue;
+                }
+                $profiles = $server->AdminListUsersFull();
+                foreach ($profiles as $profile) {
+                    $profilePolicyId = (string) self::profileValue($profile, 'PolicyID');
+                    if ($profilePolicyId !== $policyId) {
+                        continue;
+                    }
+
+                    $sources = [];
+                    foreach ((self::profileValue($profile, 'Sources') ?? []) as $sourceId => $source) {
+                        $job = $source->Statistics->LastBackupJob ?? null;
+                        if ($job === null) {
+                            continue;
+                        }
+                        $status = (int) ($job->Status ?? 0);
+                        if ($status <= 0) {
+                            continue;
+                        }
+                        $sources[] = [
+                            'status' => $status,
+                            'end_time' => (int) ($job->EndTime ?? 0),
+                            'start_time' => (int) ($job->StartTime ?? 0),
+                            'source_id' => (string) $sourceId,
+                        ];
+                    }
+                    $agg = self::aggregateAccountFromSources($sources);
+                    if ($agg === null) {
+                        continue;
+                    }
+                    $accounts[] = [
+                        'server_key' => $key,
+                        'server_label' => self::SERVER_LABELS[$key] ?? $key,
+                        'policy_id' => $policyId,
+                        'username' => (string) self::profileValue($profile, 'Username'),
+                        'status' => $agg['status'],
+                        'status_label' => $agg['status_label'],
+                        'last_job_time' => $agg['last_job_time'],
+                        'source_count' => $agg['source_count'],
+                        'warning_source_count' => $agg['warning_source_count'],
+                        'error_source_count' => $agg['error_source_count'],
+                    ];
+                }
+            } catch (\Throwable $e) {
+                $serverErrors[$key] = $e->getMessage();
+            }
+        }
+
+        $activeServices = self::indexLatestActiveServicesByAccount();
+        $sections = self::buildSections($accounts, $activeServices['by_account']);
+
+        return $sections + [
+            'active_services_pulled_at' => $activeServices['pulled_at'],
+            'server_errors' => $serverErrors,
+            'account_count' => count($accounts),
+            'server_error_count' => count($serverErrors),
+        ];
+    }
+
+    private static function profileValue($profile, string $key)
+    {
+        if (is_array($profile)) {
+            return $profile[$key] ?? null;
+        }
+
+        return is_object($profile) ? ($profile->{$key} ?? null) : null;
     }
 
     /** @param list<array{status:int,end_time?:int,start_time?:int,source_id?:string}> $sources */

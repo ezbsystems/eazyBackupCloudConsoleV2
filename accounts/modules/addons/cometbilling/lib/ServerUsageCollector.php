@@ -99,6 +99,11 @@ class ServerUsageCollector
         return $totals;
     }
 
+    public static function openServer(string $serverKey): ?\Comet\Server
+    {
+        return self::getCometServer($serverKey);
+    }
+
     /**
      * Extract billable usage counts from a user profile.
      * 
