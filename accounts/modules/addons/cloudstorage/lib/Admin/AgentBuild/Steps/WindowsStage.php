@@ -14,6 +14,7 @@ use WHMCS\Module\Addon\CloudStorage\Admin\AgentBuild\WindowsRemote;
  *   bin\e3-backup-tray.exe
  *   bin\e3-recovery-agent.exe   (only if include_recovery)
  *   installer\e3-backup-agent.iss
+ *   THIRD_PARTY_LICENSES.txt    (referenced by .iss as ..\THIRD_PARTY_LICENSES.txt)
  *   assets\tray_logo-drk-orange120x120.png
  *   assets\tray_logo-drk-orange.svg
  *   assets\tray_logo.ico
@@ -42,6 +43,8 @@ class WindowsStage extends StepBase
             $repo . '/bin/e3-backup-agent.exe' => $remoteRoot . '\\bin\\e3-backup-agent.exe',
             $repo . '/bin/e3-backup-tray.exe'  => $remoteRoot . '\\bin\\e3-backup-tray.exe',
             $repo . '/installer/e3-backup-agent.iss' => $remoteRoot . '\\installer\\e3-backup-agent.iss',
+            // Required by installer/e3-backup-agent.iss [Files] Source: "..\THIRD_PARTY_LICENSES.txt"
+            $repo . '/THIRD_PARTY_LICENSES.txt' => $remoteRoot . '\\THIRD_PARTY_LICENSES.txt',
         ];
 
         if ($this->flag($job, 'include_recovery') && file_exists($repo . '/bin/e3-recovery-agent.exe')) {
@@ -53,6 +56,12 @@ class WindowsStage extends StepBase
             if (file_exists($assetsDir . '/' . $a)) {
                 $uploads[$assetsDir . '/' . $a] = $remoteRoot . '\\assets\\' . $a;
             }
+        }
+
+        $licensesLocal = $repo . '/THIRD_PARTY_LICENSES.txt';
+        if (!is_file($licensesLocal)) {
+            $this->appendLog($logPath, "[error] missing required file for Inno: $licensesLocal");
+            return 2;
         }
 
         foreach ($uploads as $local => $remotePath) {

@@ -116,38 +116,31 @@ HTML;
         }
         $bucketCount = (int)$bucketQuery->count();
 
-        // Total storage bytes: sum latest history per bucket_name+bucket_owner for the buckets belonging to these users.
-        // We join s3_buckets -> s3_users to get the expected bucket_owner (username).
-        $latestSub = Capsule::raw('(
-            SELECT bucket_name, bucket_owner, MAX(collected_at) AS max_collected_at
-            FROM s3_bucket_sizes_history
-            GROUP BY bucket_name, bucket_owner
-        ) h2');
-
-        $histQuery = Capsule::table('s3_buckets as b')
+        // Total storage: latest sample per owned bucket via indexed point lookups.
+        // Avoid full-table GROUP BY on s3_bucket_sizes_history (~millions of rows).
+        $bucketRowsQuery = Capsule::table('s3_buckets as b')
             ->join('s3_users as u', 'u.id', '=', 'b.user_id')
-            ->leftJoin($latestSub, function ($join) {
-                $join->on('h2.bucket_name', '=', 'b.name')
-                    ->on('h2.bucket_owner', '=', 'u.username');
-            })
-            ->leftJoin('s3_bucket_sizes_history as h1', function ($join) {
-                $join->on('h1.bucket_name', '=', 'b.name')
-                    ->on('h1.bucket_owner', '=', 'u.username')
-                    ->on('h1.collected_at', '=', 'h2.max_collected_at');
-            })
-            ->whereIn('b.user_id', $userIds);
-
+            ->whereIn('b.user_id', $userIds)
+            ->select(['b.name as bucket_name', 'u.username as bucket_owner']);
         if ($hasBucketIsActive) {
-            $histQuery->where('b.is_active', 1);
+            $bucketRowsQuery->where('b.is_active', 1);
         }
+        $bucketRows = $bucketRowsQuery->get();
 
-        $totals = $histQuery->select([
-            Capsule::raw('SUM(COALESCE(h1.bucket_size_bytes, 0)) AS total_bytes'),
-            Capsule::raw('SUM(COALESCE(h1.bucket_object_count, 0)) AS total_objects')
-        ])->first();
-
-        $totalBytes = (int)($totals->total_bytes ?? 0);
-        $totalObjects = (int)($totals->total_objects ?? 0);
+        $totalBytes = 0;
+        $totalObjects = 0;
+        foreach ($bucketRows as $bucketRow) {
+            $latest = Capsule::table('s3_bucket_sizes_history')
+                ->where('bucket_name', (string) $bucketRow->bucket_name)
+                ->where('bucket_owner', (string) $bucketRow->bucket_owner)
+                ->orderBy('collected_at', 'desc')
+                ->limit(1)
+                ->first(['bucket_size_bytes', 'bucket_object_count']);
+            if ($latest) {
+                $totalBytes += (int) ($latest->bucket_size_bytes ?? 0);
+                $totalObjects += (int) ($latest->bucket_object_count ?? 0);
+            }
+        }
 
         // Format bytes
         $formattedBytes = eb_cloudstorage_format_bytes($totalBytes);
@@ -272,5 +265,3 @@ function eb_cloudstorage_format_bytes(int $bytes, int $precision = 2): string
     }
     return round($value, $precision) . ' ' . $units[$i];
 }
-
-
