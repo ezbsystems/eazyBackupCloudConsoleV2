@@ -184,25 +184,71 @@
         <div class="eb-sidebar-flyout-body flex-1 overflow-y-auto p-4">
             <div class="space-y-4">
                 <p class="text-sm" style="color:var(--eb-text-muted);">Download the e3 Backup Agent for your operating system.</p>
-                <a href="/client_installer/e3-backup-agent-setup.exe" target="_blank" rel="noopener" class="eb-btn eb-btn-primary eb-btn-md w-full justify-center">
-                    Windows Agent
-                </a>
-                <a href="/client_installer/e3-backup-agent-linux-install.sh" target="_blank" rel="noopener" class="eb-btn eb-btn-primary eb-btn-md w-full justify-center">
-                    Linux Installer (recommended)
-                </a>
-                <a href="/client_installer/e3-backup-agent-linux.deb" target="_blank" rel="noopener" class="eb-btn eb-btn-secondary eb-btn-md w-full justify-center">
-                    Linux .deb (Ubuntu/Debian)
-                </a>
-                <a href="/client_installer/e3-backup-agent-linux" target="_blank" rel="noopener" class="eb-btn eb-btn-secondary eb-btn-md w-full justify-center text-sm">
-                    Linux binary (advanced)
-                </a>
-                <div class="eb-card !p-4">
-                    <p class="text-sm" style="color:var(--eb-text-secondary);">
-                        Need an enrollment token after download?
-                    </p>
-                    <a href="index.php?m=cloudstorage&page=e3backup&view=tokens" class="mt-3 inline-flex text-sm font-medium" style="color:var(--eb-info-text);">
-                        Open enrollment tokens
+
+                {assign var=dlWindows value=$agentDownloads.windows|default:[]}
+                {assign var=dlLinuxSh value=$agentDownloads.linux_install_sh|default:[]}
+                {assign var=dlLinuxDeb value=$agentDownloads.linux_deb|default:[]}
+                {assign var=dlLinuxBin value=$agentDownloads.linux_binary|default:[]}
+
+                <div id="e3-download-panel-os" class="space-y-3">
+                    <a href="{$dlWindows.url|default:'/client_installer/e3-backup-agent-setup.exe'|escape:'html'}" target="_blank" rel="noopener" class="eb-btn eb-btn-primary eb-btn-md w-full justify-center">
+                        Windows Agent
                     </a>
+                    {if $dlWindows.version_label|default:''}
+                    <p class="text-xs text-center" style="color:var(--eb-text-muted);">
+                        Version {$dlWindows.version_label|escape:'html'}{if $dlWindows.size_label|default:''} · {$dlWindows.size_label|escape:'html'}{/if}
+                    </p>
+                    {/if}
+
+                    <button type="button" id="e3-download-show-linux" class="eb-btn eb-btn-secondary eb-btn-md w-full justify-center">
+                        Linux Agent
+                    </button>
+
+                    <div class="eb-card !p-4">
+                        <p class="text-sm" style="color:var(--eb-text-secondary);">
+                            Need an enrollment token after download?
+                        </p>
+                        <a href="index.php?m=cloudstorage&page=e3backup&view=tokens" class="mt-3 inline-flex text-sm font-medium" style="color:var(--eb-info-text);">
+                            Open enrollment tokens
+                        </a>
+                    </div>
+                </div>
+
+                <div id="e3-download-panel-linux" class="space-y-3" hidden>
+                    <button type="button" id="e3-download-back-os" class="eb-btn eb-btn-secondary eb-btn-sm">
+                        ← Back
+                    </button>
+                    <p class="text-sm" style="color:var(--eb-text-muted);">Choose a Linux installer for your distribution.</p>
+
+                    <a href="{$dlLinuxSh.url|default:'/client_installer/e3-backup-agent-linux-install.sh'|escape:'html'}" target="_blank" rel="noopener" class="eb-btn eb-btn-primary eb-btn-md w-full justify-center">
+                        Installer script (recommended)
+                    </a>
+                    <p class="text-xs" style="color:var(--eb-text-muted);">
+                        Best for curl | bash with your enrollment token. Works on any systemd Linux host.
+                        {if $dlLinuxSh.version_label|default:''}
+                        <span class="block mt-1">Version {$dlLinuxSh.version_label|escape:'html'}{if $dlLinuxSh.size_label|default:''} · {$dlLinuxSh.size_label|escape:'html'}{/if}</span>
+                        {/if}
+                    </p>
+
+                    <a href="{$dlLinuxDeb.url|default:'/client_installer/e3-backup-agent-linux.deb'|escape:'html'}" target="_blank" rel="noopener" class="eb-btn eb-btn-secondary eb-btn-md w-full justify-center">
+                        Debian package (.deb)
+                    </a>
+                    <p class="text-xs" style="color:var(--eb-text-muted);">
+                        Ubuntu and Debian. Set <code class="eb-type-mono text-xs">TOKEN=…</code> when installing.
+                        {if $dlLinuxDeb.version_label|default:''}
+                        <span class="block mt-1">Version {$dlLinuxDeb.version_label|escape:'html'}{if $dlLinuxDeb.size_label|default:''} · {$dlLinuxDeb.size_label|escape:'html'}{/if}</span>
+                        {/if}
+                    </p>
+
+                    <a href="{$dlLinuxBin.url|default:'/client_installer/e3-backup-agent-linux'|escape:'html'}" target="_blank" rel="noopener" class="eb-btn eb-btn-secondary eb-btn-md w-full justify-center text-sm">
+                        Binary (advanced)
+                    </a>
+                    <p class="text-xs" style="color:var(--eb-text-muted);">
+                        Manual install — configure systemd and <code class="eb-type-mono text-xs">agent.conf</code> yourself.
+                        {if $dlLinuxBin.version_label|default:''}
+                        <span class="block mt-1">Version {$dlLinuxBin.version_label|escape:'html'}{if $dlLinuxBin.size_label|default:''} · {$dlLinuxBin.size_label|escape:'html'}{/if}</span>
+                        {/if}
+                    </p>
                 </div>
             </div>
         </div>
@@ -424,11 +470,26 @@
 document.addEventListener('DOMContentLoaded', function() {
     var flyout = document.getElementById('e3-download-flyout');
     var closeBtn = document.getElementById('e3-download-flyout-close');
+    var panelOs = document.getElementById('e3-download-panel-os');
+    var panelLinux = document.getElementById('e3-download-panel-linux');
+    var showLinuxBtn = document.getElementById('e3-download-show-linux');
+    var backOsBtn = document.getElementById('e3-download-back-os');
     if (!flyout) return;
 
     document.body.appendChild(flyout);
 
+    function showOsPanel() {
+        if (panelOs) panelOs.hidden = false;
+        if (panelLinux) panelLinux.hidden = true;
+    }
+
+    function showLinuxPanel() {
+        if (panelOs) panelOs.hidden = true;
+        if (panelLinux) panelLinux.hidden = false;
+    }
+
     function openFlyout() {
+        showOsPanel();
         flyout.classList.add('is-open');
         flyout.setAttribute('aria-hidden', 'false');
         // The customer opened the flyout - mark Step 1 complete.
@@ -438,7 +499,11 @@ document.addEventListener('DOMContentLoaded', function() {
     function closeFlyout() {
         flyout.classList.remove('is-open');
         flyout.setAttribute('aria-hidden', 'true');
+        showOsPanel();
     }
+
+    if (showLinuxBtn) showLinuxBtn.addEventListener('click', showLinuxPanel);
+    if (backOsBtn) backOsBtn.addEventListener('click', showOsPanel);
 
     window.addEventListener('open-e3-download-flyout', openFlyout);
     if (closeBtn) closeBtn.addEventListener('click', closeFlyout);
@@ -487,6 +552,30 @@ document.addEventListener('DOMContentLoaded', function() {
             window.ebE3Tour.maybeAutoStartFirstJobTour(state);
         }
     });
+})();
+{/literal}
+</script>
+{/if}
+{if $agentDownloads|default:[]}
+<script type="application/json" id="ebAgentDownloadsData">{$agentDownloads|@json_encode nofilter}</script>
+<script>
+{literal}
+(function () {
+    function readDownloads() {
+        try {
+            var el = document.getElementById('ebAgentDownloadsData');
+            if (!el) return {};
+            return JSON.parse(el.textContent || '{}') || {};
+        } catch (e) { return {}; }
+    }
+    window.ebAgentDownloads = readDownloads();
+    window.ebAgentDownloadAbsoluteUrl = function (path) {
+        var url = (path || '').trim();
+        if (!url) return '';
+        if (/^https?:\/\//i.test(url)) return url;
+        var origin = window.location.origin || '';
+        return origin + (url.charAt(0) === '/' ? url : '/' + url);
+    };
 })();
 {/literal}
 </script>

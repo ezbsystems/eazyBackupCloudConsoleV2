@@ -841,12 +841,14 @@ On a successful build with **Publish** checked, the runner writes versioned and 
 
 | Platform | Versioned | Latest alias |
 | -------- | --------- | ------------ |
-| Linux    | `e3-backup-agent-linux-<version>` | `e3-backup-agent-linux` |
+| Linux binary | `e3-backup-agent-linux-<version>` | `e3-backup-agent-linux` |
+| Linux installer script | `e3-backup-agent-linux-install-<version>.sh` | `e3-backup-agent-linux-install.sh` |
+| Linux Debian package | `e3-backup-agent-linux_<version>_amd64.deb` | `e3-backup-agent-linux.deb` |
 | Windows  | `e3-backup-agent-setup-<version>.exe` | `e3-backup-agent-setup.exe` |
 | Recovery | `e3-recovery-agent-<version>.exe` | `e3-recovery-agent.exe` |
 | Recovery media creator | `e3-recovery-media-creator-<version>.exe` | `e3-recovery-media-creator.exe` |
 
-A row is inserted in `s3_agent_releases` for each artifact (sha256, size, signed metadata, version, commit, download URL). The Releases tab lets admins promote any prior versioned file back to "latest".
+A row is inserted in `s3_agent_releases` for each artifact (sha256, size, signed metadata, version, commit, download URL). The Releases tab lets admins promote any prior versioned file back to "latest". The e3 Cloud Backup client area reads those `is_latest` rows via `AgentDownloadCatalog`, so a successful Publish refreshes download links and version labels in the portal without template edits.
 
 When **Also build recovery agent** is checked, the pipeline also builds and publishes `e3-recovery-media-creator.exe`.
 

@@ -53,11 +53,30 @@ class AgentUpdateService
         if (!Capsule::schema()->hasTable('s3_agent_releases')) {
             return null;
         }
+        $binaryFilename = self::binaryArtifactFilename($platform);
+        if ($binaryFilename === '') {
+            return null;
+        }
         return Capsule::table('s3_agent_releases')
             ->where('platform', $platform)
             ->where('is_latest', 1)
+            ->where('artifact_filename', $binaryFilename)
             ->orderByDesc('id')
             ->first();
+    }
+
+    /**
+     * Latest-alias filename agents download for self-update (not .deb / install.sh).
+     */
+    public static function binaryArtifactFilename(string $platform): string
+    {
+        if ($platform === 'windows') {
+            return 'e3-backup-agent-setup.exe';
+        }
+        if ($platform === 'linux') {
+            return 'e3-backup-agent-linux';
+        }
+        return '';
     }
 
     /**

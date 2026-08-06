@@ -6054,6 +6054,10 @@ function cloudstorage_clientarea($vars) {
                 if (is_file($e3StatePath)) {
                     require_once $e3StatePath;
                 }
+                $agentCatalogPath = __DIR__ . '/lib/Client/AgentDownloadCatalog.php';
+                if (is_file($agentCatalogPath)) {
+                    require_once $agentCatalogPath;
+                }
                 $ms365Autoload = __DIR__ . '/../ms365backup/ms365backup_autoload.php';
                 if (is_file($ms365Autoload)) {
                     require_once $ms365Autoload;
@@ -6297,6 +6301,11 @@ function cloudstorage_clientarea($vars) {
             }
             // Merge the shared onboarding vars into every e3backup view.
             // Individual pages can override any key by setting it themselves.
+            if (class_exists('\\WHMCS\\Module\\Addon\\CloudStorage\\Client\\AgentDownloadCatalog')) {
+                $ebE3OnboardingShared['agentDownloads'] = \WHMCS\Module\Addon\CloudStorage\Client\AgentDownloadCatalog::forClientArea();
+            } else {
+                $ebE3OnboardingShared['agentDownloads'] = [];
+            }
             if (is_array($viewVars)) {
                 $viewVars = $viewVars + $ebE3OnboardingShared;
             } else {

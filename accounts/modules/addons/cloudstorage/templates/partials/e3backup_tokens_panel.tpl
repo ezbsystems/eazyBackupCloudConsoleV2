@@ -568,12 +568,21 @@ function tokensApp() {
         },
 
         setInstallCommands(tokenValue) {
-            const origin = window.location.origin || 'https://accounts.eazybackup.ca';
-            const installShUrl = origin + '/client_installer/e3-backup-agent-linux-install.sh';
-            const debUrl = origin + '/client_installer/e3-backup-agent-linux.deb';
-            this.installCmdWindows = 'e3-backup-agent-setup.exe /VERYSILENT /TOKEN=' + tokenValue;
+            const dl = window.ebAgentDownloads || {};
+            const abs = window.ebAgentDownloadAbsoluteUrl || function (path) {
+                const origin = window.location.origin || 'https://accounts.eazybackup.ca';
+                const url = (path || '').trim();
+                if (!url) return origin;
+                if (/^https?:\/\//i.test(url)) return url;
+                return origin + (url.charAt(0) === '/' ? url : '/' + url);
+            };
+            const installShUrl = abs((dl.linux_install_sh && dl.linux_install_sh.url) || '/client_installer/e3-backup-agent-linux-install.sh');
+            const debUrl = abs((dl.linux_deb && dl.linux_deb.url) || '/client_installer/e3-backup-agent-linux.deb');
+            const winFilename = (dl.windows && dl.windows.filename) || 'e3-backup-agent-setup.exe';
+            const debFilename = (dl.linux_deb && dl.linux_deb.filename) || 'e3-backup-agent-linux.deb';
+            this.installCmdWindows = winFilename + ' /VERYSILENT /TOKEN=' + tokenValue;
             this.installCmdLinux = 'curl -fsSL ' + installShUrl + ' | sudo bash -s -- --token ' + tokenValue;
-            this.installCmdLinuxDeb = 'curl -fsSL -o e3-backup-agent.deb ' + debUrl + ' && sudo TOKEN=' + tokenValue + ' dpkg -i e3-backup-agent.deb';
+            this.installCmdLinuxDeb = 'curl -fsSL -o ' + debFilename + ' ' + debUrl + ' && sudo TOKEN=' + tokenValue + ' dpkg -i ' + debFilename;
             this.installCmd = this.installCmdWindows;
         },
 
