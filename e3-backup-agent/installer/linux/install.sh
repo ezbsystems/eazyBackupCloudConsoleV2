@@ -184,6 +184,15 @@ prompt_enrollment_token() {
 }
 
 resolve_enrollment_token() {
+  # #region agent log
+  printf '{"sessionId":"bcd995","runId":"pre-fix","hypothesisId":"C","location":"install.sh:resolve_enrollment_token","message":"enrollment resolve entry","data":{"hasToken":%s,"confExists":%s,"debianFrontend":"%s","noninteractive":%s},"timestamp":%s}\n' \
+    "$([[ -n "$TOKEN" ]] && echo true || echo false)" \
+    "$([[ -f "$CONF_FILE" ]] && echo true || echo false)" \
+    "${DEBIAN_FRONTEND:-}" \
+    "$NONINTERACTIVE" \
+    "$(date +%s000)" \
+    >> /tmp/e3-backup-agent-install-debug.ndjson 2>/dev/null || true
+  # #endregion
   if conf_has_enrollment; then
     return 0
   fi
@@ -199,6 +208,11 @@ resolve_enrollment_token() {
   fi
 
   if is_interactive; then
+    # #region agent log
+    printf '{"sessionId":"bcd995","runId":"pre-fix","hypothesisId":"C","location":"install.sh:resolve_enrollment_token","message":"prompting for token","data":{"interactive":true},"timestamp":%s}\n' \
+      "$(date +%s000)" \
+      >> /tmp/e3-backup-agent-install-debug.ndjson 2>/dev/null || true
+    # #endregion
     prompt_enrollment_token
     return 0
   fi
@@ -262,6 +276,22 @@ install_binary() {
   mkdir -p "$(dirname "$BIN_DEST")"
   if [[ -n "$BINARY_PATH" ]]; then
     [[ -f "$BINARY_PATH" ]] || die "Binary not found: ${BINARY_PATH}"
+    local same_file=0
+    if [[ "$BINARY_PATH" -ef "$BIN_DEST" ]] || [[ "$BINARY_PATH" == "$BIN_DEST" ]]; then
+      same_file=1
+    fi
+    # #region agent log
+    printf '{"sessionId":"bcd995","runId":"pre-fix","hypothesisId":"A","location":"install.sh:install_binary","message":"binary install path check","data":{"binaryPath":"%s","binDest":"%s","sameFile":%s},"timestamp":%s}\n' \
+      "$BINARY_PATH" "$BIN_DEST" "$([[ "$same_file" -eq 1 ]] && echo true || echo false)" "$(date +%s000)" \
+      >> /tmp/e3-backup-agent-install-debug.ndjson 2>/dev/null || true
+    # #endregion
+    # .deb postinst passes --binary pointing at the already-unpacked destination.
+    if [[ "$same_file" -eq 1 ]]; then
+      chmod 755 "$BIN_DEST"
+      chown root:root "$BIN_DEST"
+      log "Binary already at ${BIN_DEST} — skipping copy"
+      return
+    fi
     install -m 755 -o root -g root "$BINARY_PATH" "$BIN_DEST"
     log "Installed binary from ${BINARY_PATH}"
     return
