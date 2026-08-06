@@ -11,6 +11,12 @@
 
 ## Session log
 
+### 2026-08-06 — Restore archive download in Job Logs + run-log modal
+
+- **Need:** Archive restore `.zip` download was only on the live run page; clients leaving live had no way to fetch the export during the retention window.
+- **Ship:** `Ms365ArchiveDownloadService` derives `archive_download_ready` / `archive_expired` from restore batch children; exposed on `e3backup_run_list` rows and MS365 `run_summary` in `cloudbackup_get_run_logs`. Job Logs Actions + run-log modal show **Download archive** or **Archive expired**; `restoreArchiveDownloadUrl` now rejects expired archives and allows `partial_success` when object key exists. Wizard review copy mentions Job Logs.
+- **Tests:** `ms365_archive_download_service_test.php` (ready / not archive / expired / missing key / partial_success).
+
 ### 2026-08-06 — Restore browse: `&` paths, drive labels, filtered expand
 
 - **Case:** user `6FF3AE2AC48D31C97A848B8712`, batch `ceb1b925-…`, Deetken Insight SharePoint.

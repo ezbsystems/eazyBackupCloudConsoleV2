@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace WHMCS\Module\Addon\CloudStorage\Client;
 
 use Ms365Backup\BackupRunRepository;
+use Ms365Backup\Ms365ArchiveDownloadService;
 use Ms365Backup\Ms365BatchRunRepository;
 use Ms365Backup\Ms365LiveSpeedMetrics;
 use Ms365Backup\Ms365WorkloadGrouping;
@@ -218,19 +219,24 @@ final class Ms365BatchLiveService
         }, $structuredLogs));
 
         $bytesTransferred = (int) ($parentRun['bytes_transferred'] ?? $agg['bytes_transferred']);
+        $isRestore = Ms365BatchRunRepository::isRestoreBatch($batchRunId);
+        $runSummary = [
+            'bytes_transferred' => $bytesTransferred,
+            'bytes_processed' => (int) ($parentRun['bytes_processed'] ?? $agg['bytes_processed']),
+            'is_restore' => $isRestore,
+            'uploaded_formatted' => $isRestore ? '—' : self::formatBytesHuman($bytesTransferred),
+            'downloaded_formatted' => $isRestore ? self::formatBytesHuman($bytesTransferred) : '—',
+        ];
+        if ($isRestore) {
+            $runSummary = array_merge($runSummary, Ms365ArchiveDownloadService::forRestoreChildren($children));
+        }
 
         return [
             'backup_log' => $formattedBackupLog,
             'validation_log' => null,
             'has_validation' => false,
             'structured_logs' => $structuredLogs,
-            'run_summary' => [
-                'bytes_transferred' => $bytesTransferred,
-                'bytes_processed' => (int) ($parentRun['bytes_processed'] ?? $agg['bytes_processed']),
-                'is_restore' => false,
-                'uploaded_formatted' => self::formatBytesHuman($bytesTransferred),
-                'downloaded_formatted' => '—',
-            ],
+            'run_summary' => $runSummary,
         ];
     }
 

@@ -74,8 +74,99 @@
         meta: {},
         rows: [],
         severity: 'all',
-        searchQuery: ''
+        searchQuery: '',
+        archive: {
+            restore_run_id: '',
+            archive_download_ready: false,
+            archive_expired: false,
+            archive_expires_at: null
+        }
     };
+
+    var ARCHIVE_DOWNLOAD_ENDPOINT = 'modules/addons/cloudstorage/api/ms365_restore_download.php';
+
+    function formatArchiveExpiry(epochSeconds) {
+        if (!epochSeconds) return '';
+        var d = new Date(Number(epochSeconds) * 1000);
+        if (isNaN(d.getTime())) return '';
+        return d.toLocaleString();
+    }
+
+    function hideArchivePanel() {
+        hide(el('ebE3RunArchivePanel'));
+        state.archive = {
+            restore_run_id: '',
+            archive_download_ready: false,
+            archive_expired: false,
+            archive_expires_at: null
+        };
+    }
+
+    function renderArchivePanel(summary) {
+        var panel = el('ebE3RunArchivePanel');
+        var readyBlock = el('ebE3RunArchiveReady');
+        var expiredBlock = el('ebE3RunArchiveExpired');
+        if (!panel) return;
+
+        var archiveRestore = summary && summary.archive_restore;
+        if (!archiveRestore) {
+            hideArchivePanel();
+            return;
+        }
+
+        state.archive = {
+            restore_run_id: summary.restore_run_id || '',
+            archive_download_ready: !!summary.archive_download_ready,
+            archive_expired: !!summary.archive_expired,
+            archive_expires_at: summary.archive_expires_at || null
+        };
+
+        show(panel);
+        if (summary.archive_download_ready) {
+            show(readyBlock);
+            hide(expiredBlock);
+            var expiryText = summary.archive_expires_at
+                ? 'Available until ' + formatArchiveExpiry(summary.archive_expires_at)
+                : 'Archive download available';
+            setText('ebE3RunArchiveExpiry', expiryText);
+        } else if (summary.archive_expired) {
+            hide(readyBlock);
+            show(expiredBlock);
+        } else {
+            hide(panel);
+        }
+    }
+
+    async function downloadArchive() {
+        var restoreRunId = state.archive.restore_run_id;
+        if (!restoreRunId) return;
+        var btn = el('ebE3RunArchiveDownloadBtn');
+        var originalLabel = btn ? btn.textContent : '';
+        if (btn) {
+            btn.disabled = true;
+            btn.textContent = 'Preparing…';
+        }
+        try {
+            var params = new URLSearchParams({ restore_run_id: String(restoreRunId) });
+            var r = await fetch(ARCHIVE_DOWNLOAD_ENDPOINT + '?' + params.toString(), { credentials: 'same-origin' });
+            var data = await r.json();
+            if (data.status === 'success' && data.download_url) {
+                window.open(data.download_url, '_blank');
+            } else {
+                throw new Error(data.message || 'Download link unavailable');
+            }
+        } catch (e) {
+            var msg = (e && e.message) ? e.message : 'Failed to prepare download';
+            if (window.toast && window.toast.error) window.toast.error(msg);
+            else if (typeof window.e3backupNotify === 'function') window.e3backupNotify('error', msg);
+            else alert(msg);
+        } finally {
+            if (btn) {
+                btn.disabled = false;
+                btn.textContent = originalLabel || 'Download archive';
+            }
+        }
+    }
 
     function levelRank(level) {
         var l = String(level || '').toLowerCase();
@@ -238,6 +329,7 @@
                     state.rows = structured;
                     renderLogs();
                     renderTransferSummary(data.run_summary || null);
+                    renderArchivePanel(data.run_summary || null);
 
                     var valSection = el('ebE3RunValidation');
                     var valBody = el('ebE3RunValidationBody');
@@ -273,6 +365,7 @@
         renderSummary();
         setSeverity('all');
         hide(el('ebE3RunValidation'));
+        hideArchivePanel();
 
         modal.classList.remove('hidden');
         modal.classList.add('flex');
@@ -312,6 +405,12 @@
         document.addEventListener('keydown', function (e) {
             if (e.key === 'Escape' && !modal.classList.contains('hidden')) close();
         });
+        var archiveBtn = el('ebE3RunArchiveDownloadBtn');
+        if (archiveBtn) {
+            archiveBtn.addEventListener('click', function () {
+                downloadArchive();
+            });
+        }
     }
 
     window.ebE3RunModal = { open: open, close: close, setSeverity: setSeverity };

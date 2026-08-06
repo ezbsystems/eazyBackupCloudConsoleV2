@@ -191,6 +191,14 @@
                                         class="eb-btn eb-btn-ghost eb-btn-sm text-[var(--eb-info-text)]"
                                         @click.stop="goToLiveRun(row)">View Live</button>
                                 <button type="button"
+                                        x-show="!isLiveRunRow(row) && row.archive_download_ready"
+                                        class="eb-btn eb-btn-primary eb-btn-sm"
+                                        @click.stop="downloadMs365Archive(row)">Download archive</button>
+                                <span type="button"
+                                      x-show="!isLiveRunRow(row) && row.archive_expired"
+                                      class="eb-btn eb-btn-ghost eb-btn-sm text-[var(--eb-text-muted)] cursor-default"
+                                      :title="archiveExpiryTitle(row)">Archive expired</span>
+                                <button type="button"
                                         x-show="!isLiveRunRow(row)"
                                         class="eb-btn eb-btn-ghost eb-btn-sm"
                                         @click.stop="openRun(row)">View log</button>
@@ -465,8 +473,35 @@ function e3JobLogsApp() {
                 started: this.fmtRunInstant(row, 'started_at', 'started_at_epoch_ms'),
                 finished: row.finished_at ? this.fmtRunInstant(row, 'finished_at', 'finished_at_epoch_ms') : '-',
                 durationText: row.duration,
-                sizeText: row.size_formatted
+                sizeText: row.size_formatted,
+                archive_download_ready: !!row.archive_download_ready,
+                archive_expired: !!row.archive_expired,
+                restore_run_id: row.restore_run_id || '',
+                archive_expires_at: row.archive_expires_at || null
             });
+        },
+        archiveExpiryTitle(row) {
+            if (!row || !row.archive_expires_at) return 'Archive expired';
+            const d = new Date(Number(row.archive_expires_at) * 1000);
+            return 'Expired ' + (isNaN(d.getTime()) ? '' : d.toLocaleString());
+        },
+        async downloadMs365Archive(row) {
+            if (!row || !row.restore_run_id) return;
+            const params = new URLSearchParams({ restore_run_id: String(row.restore_run_id) });
+            try {
+                const r = await fetch('modules/addons/cloudstorage/api/ms365_restore_download.php?' + params.toString(), { credentials: 'same-origin' });
+                const data = await r.json();
+                if (data.status === 'success' && data.download_url) {
+                    window.open(data.download_url, '_blank');
+                } else {
+                    throw new Error(data.message || 'Download link unavailable');
+                }
+            } catch (e) {
+                const msg = (e && e.message) ? e.message : 'Failed to prepare download';
+                if (window.toast && window.toast.error) window.toast.error(msg);
+                else if (typeof window.e3backupNotify === 'function') window.e3backupNotify('error', msg);
+                else alert(msg);
+            }
         },
         reload() {
             this.loading = true;

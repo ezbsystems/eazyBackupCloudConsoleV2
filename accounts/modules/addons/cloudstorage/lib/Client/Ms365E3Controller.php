@@ -23,6 +23,7 @@ use Symfony\Component\HttpFoundation\JsonResponse;
 use Ms365Backup\KopiaSnapshotBrowseService;
 use Ms365Backup\Ms365RestoreSnapshotService;
 use Ms365Backup\RestoreJobService;
+use Ms365Backup\Ms365ArchiveDownloadService;
 use Ms365Backup\Ms365ArchiveExportService;
 use Ms365Backup\RestoreRunRepository;
 use Ms365Backup\TenantRecordRepository;
@@ -539,8 +540,20 @@ final class Ms365E3Controller
         if ($restoreMode !== 'archive') {
             throw new \RuntimeException('This restore run is not an archive export.');
         }
-        if ((string) ($run['status'] ?? '') !== 'success') {
+
+        $status = (string) ($run['status'] ?? '');
+        if (!Ms365ArchiveDownloadService::isDownloadableStatus($status)) {
             throw new \RuntimeException('Archive export is not ready for download.');
+        }
+
+        $objectKey = trim((string) ($run['archive_object_key'] ?? ''));
+        if ($objectKey === '') {
+            throw new \RuntimeException('Archive export is not ready for download.');
+        }
+
+        $expiresAt = isset($run['archive_expires_at']) ? (int) $run['archive_expires_at'] : null;
+        if (Ms365ArchiveDownloadService::isExpired($expiresAt > 0 ? $expiresAt : null)) {
+            throw new \RuntimeException('This archive has expired and is no longer available for download.');
         }
 
         $ttlSeconds = max(60, min(86400, $ttlSeconds));

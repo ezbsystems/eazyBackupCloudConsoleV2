@@ -68,6 +68,17 @@
                 </div>
             </div>
 
+            <div id="ebE3RunArchivePanel" class="eb-subpanel !mb-4 hidden">
+                <div id="ebE3RunArchiveReady" class="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                        <div class="eb-field-label">Restore archive</div>
+                        <p class="eb-type-caption !mt-1" id="ebE3RunArchiveExpiry"></p>
+                    </div>
+                    <button type="button" class="eb-btn eb-btn-primary eb-btn-sm" id="ebE3RunArchiveDownloadBtn">Download archive</button>
+                </div>
+                <p class="eb-type-caption text-[var(--eb-text-muted)] hidden" id="ebE3RunArchiveExpired">Archive no longer available.</p>
+            </div>
+
             <div class="eb-table-shell overflow-hidden !mb-3">
                 <div class="eb-table-toolbar flex flex-col gap-2 px-3 py-2 text-xs sm:flex-row sm:items-center sm:justify-between">
                     <div class="flex flex-wrap items-center gap-2"

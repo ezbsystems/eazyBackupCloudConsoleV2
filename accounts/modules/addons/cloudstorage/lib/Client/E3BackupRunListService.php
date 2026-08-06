@@ -4,7 +4,10 @@ declare(strict_types=1);
 
 namespace WHMCS\Module\Addon\CloudStorage\Client;
 
+use Ms365Backup\Ms365ArchiveDownloadService;
 use WHMCS\Database\Capsule;
+
+require_once dirname(__DIR__) . '/Ms365BackupBootstrap.php';
 
 /**
  * Paginated run list for the global / scoped Job Logs page.
@@ -319,7 +322,7 @@ final class E3BackupRunListService
       $startedAtEpochMs = TimezoneHelper::instantToEpochMs($startedAt);
       $finishedAtEpochMs = TimezoneHelper::instantToEpochMs($finishedAtRaw);
 
-      $out[] = [
+      $row = [
         'run_id' => (string) ($r->run_id ?? ''),
         'job_id' => (string) ($r->job_id ?? ''),
         'status' => (string) $r->status,
@@ -346,6 +349,17 @@ final class E3BackupRunListService
         'duration' => $duration,
         'size_formatted' => $bytes > 0 ? HelperController::formatSizeUnitsPlain($bytes) : '-',
       ];
+
+      if (
+        $engine === self::WORKLOAD_MS365
+        && $hasRunTypeCol
+        && strtolower((string) ($r->run_type ?? '')) === 'restore'
+      ) {
+        cloudstorage_load_ms365backup();
+        $row = array_merge($row, Ms365ArchiveDownloadService::forBatchRunId((string) ($r->run_id ?? '')));
+      }
+
+      $out[] = $row;
     }
 
     return [

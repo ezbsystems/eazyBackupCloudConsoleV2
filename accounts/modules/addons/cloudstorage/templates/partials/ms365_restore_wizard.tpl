@@ -254,7 +254,7 @@
                         </div>
                         <div class="eb-alert eb-alert--info" x-show="restoreMode === 'archive'">
                             <div class="eb-alert-title">Archive export</div>
-                            <p class="eb-type-caption !mt-1">Selected items are packaged into a single .zip file. After the export completes, download it from the live run page. The archive is automatically deleted after the retention period (typically 7 days).</p>
+                            <p class="eb-type-caption !mt-1">Selected items are packaged into a single .zip file. After the export completes, download it from the live run page or Job Logs while the archive is available. The archive is automatically deleted after the retention period (typically 7 days).</p>
                         </div>
                         <ul class="text-sm space-y-1 text-[var(--eb-text-secondary)]">
                             <li><strong>Snapshot:</strong> <span x-text="snapshotTitle()"></span></li>
