@@ -58,7 +58,7 @@ func buildZipFromFiles(
 	report func(done, total int, message string, bytes int64),
 ) (int64, error) {
 	if pipeline == nil {
-		pipeline = &exportPipeline{pool: pool, storage: storage, resolver: NewZipPathResolver(NewMetadataIndex())}
+		pipeline = &exportPipeline{pool: pool, storage: storage, resolver: NewZipPathResolver(NewMetadataIndex(), nil)}
 	}
 	if len(files) == 0 {
 		return 0, nil

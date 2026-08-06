@@ -186,10 +186,11 @@ type BatchCompleteUpdate struct {
 }
 
 type ArchiveExport struct {
-	ObjectKey   string `json:"object_key"`
-	Bucket      string `json:"bucket"`
-	Prefix      string `json:"prefix"`
-	Compression string `json:"compression"`
+	ObjectKey   string            `json:"object_key"`
+	Bucket      string            `json:"bucket"`
+	Prefix      string            `json:"prefix"`
+	Compression string            `json:"compression"`
+	UserLabels  map[string]string `json:"user_labels,omitempty"`
 }
 
 type RestoreSelection struct {

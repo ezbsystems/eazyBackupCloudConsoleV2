@@ -192,17 +192,30 @@ func safeSnapshotID(id string) string {
 
 // ZipPathResolver maps snapshot paths to human-readable zip entry paths.
 type ZipPathResolver struct {
-	meta       *MetadataIndex
-	collisions map[string]map[string]int
+	meta               *MetadataIndex
+	userLabels         map[string]string
+	collisions         map[string]map[string]int
+	resolvedUserLabels map[string]string
 }
 
-func NewZipPathResolver(meta *MetadataIndex) *ZipPathResolver {
+func NewZipPathResolver(meta *MetadataIndex, userLabels map[string]string) *ZipPathResolver {
 	if meta == nil {
 		meta = NewMetadataIndex()
 	}
+	normalized := map[string]string{}
+	for key, label := range userLabels {
+		key = strings.ToLower(strings.TrimSpace(key))
+		label = strings.TrimSpace(label)
+		if key == "" || label == "" {
+			continue
+		}
+		normalized[key] = label
+	}
 	return &ZipPathResolver{
-		meta:       meta,
-		collisions: map[string]map[string]int{},
+		meta:               meta,
+		userLabels:         normalized,
+		collisions:         map[string]map[string]int{},
+		resolvedUserLabels: map[string]string{},
 	}
 }
 
@@ -412,14 +425,40 @@ func jsonStringField(data []byte, keys ...string) string {
 }
 
 func (r *ZipPathResolver) userLabel(userID string) string {
-	rel := "directory/users/" + safeSnapshotID(userID) + ".json"
-	if label := jsonStringField(r.metaBySuffix(rel), "userPrincipalName", "mail", "displayName"); label != "" {
-		return sanitizeZipSegment(label)
+	if label, ok := r.resolvedUserLabels[userID]; ok {
+		return label
 	}
-	if isGuidLike(userID) {
-		return guidSuffix(userID)
+
+	var raw string
+	if claimLabel := r.claimUserLabel(userID); claimLabel != "" {
+		raw = claimLabel
+	} else {
+		rel := "directory/users/" + safeSnapshotID(userID) + ".json"
+		raw = jsonStringField(r.metaBySuffix(rel), "userPrincipalName", "mail", "displayName")
 	}
-	return sanitizeZipSegment(userID)
+
+	var label string
+	switch {
+	case raw != "":
+		label = r.uniqueSegment("_users", raw, userID)
+	case isGuidLike(userID):
+		label = guidSuffix(userID)
+	default:
+		label = sanitizeZipSegment(userID)
+	}
+
+	r.resolvedUserLabels[userID] = label
+	return label
+}
+
+func (r *ZipPathResolver) claimUserLabel(userID string) string {
+	if r.userLabels == nil {
+		return ""
+	}
+	if label, ok := r.userLabels[strings.ToLower(strings.TrimSpace(userID))]; ok {
+		return label
+	}
+	return ""
 }
 
 func (r *ZipPathResolver) mailFolderLabel(userID, folderID string) string {

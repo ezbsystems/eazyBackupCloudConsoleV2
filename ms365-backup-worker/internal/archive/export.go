@@ -89,7 +89,7 @@ func Export(ctx context.Context, opts ExportOptions) (*ExportResult, error) {
 	pipeline := &exportPipeline{
 		pool:        opts.Pool,
 		storage:     opts.Storage,
-		resolver:    NewZipPathResolver(meta),
+		resolver:    NewZipPathResolver(meta, ae.UserLabels),
 		attachments: attachmentIndex,
 	}
 

@@ -1289,11 +1289,19 @@ final class WorkerClaimService
         ];
 
         if ($restoreMode === 'archive') {
+            $userLabels = Ms365ArchiveUserLabelService::buildUserLabels(
+                $restoreItems,
+                $restoreTargets,
+                $run,
+                $tenantRecordId,
+                (int) ($run['whmcs_client_id'] ?? 0),
+            );
             $archiveExport = [
                 'object_key' => Ms365ArchiveExportService::precomputedObjectKey($restoreRunId),
                 'bucket' => (string) ($dest['bucket'] ?? ''),
                 'prefix' => 'exports/',
                 'compression' => 'store',
+                'user_labels' => $userLabels,
             ];
             $payload['archive_export'] = $archiveExport;
             $payload['restore_selection']['archive_export'] = $archiveExport;

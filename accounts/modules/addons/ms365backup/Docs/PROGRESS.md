@@ -3,13 +3,19 @@
 **Purpose:** Single handoff document so the next agent knows where work stopped. Update this file at the **end of every session** (or after each meaningful milestone).
 
 **Last updated:** 2026-08-06
-**Module version (ms365backup):** 1.52.51
+**Module version (ms365backup):** 1.52.52
 **Cloudstorage (e3) version:** 2.2.4  
-**Worker version (ms365-backup-worker):** 0.4.34 (Kopia v0.23.1)
+**Worker version (ms365-backup-worker):** 0.4.35 (Kopia v0.23.1)
 
 ---
 
 ## Session log
+
+### 2026-08-06 — Archive restore: UPN person folder names
+
+- **Need:** Archive zips used 8-char Azure GUID folders (`5fbc7fbb`) under `mail/`, `onedrive/`, `calendar/`, `tasks/` because directory user metadata was not in the same snapshot as workload files.
+- **Ship:** `Ms365ArchiveUserLabelService` builds `archive_export.user_labels` (GUID→UPN) on restore claim from backup runs + inventory; worker `ZipPathResolver` prefers claim labels with collision-safe caching. `Inbox_N` unchanged (folder displayName collisions, not personas).
+- **Tests:** `ms365_archive_user_label_service_test.php`, Go `path_resolver_test.go` claim-label cases. Worker **0.4.35**.
 
 ### 2026-08-06 — Restore archive download in Job Logs + run-log modal
 
