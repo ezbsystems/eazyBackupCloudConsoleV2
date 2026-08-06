@@ -1293,61 +1293,6 @@ class BucketController {
                 $totalOps           += $transferStatsSummary->total_ops;
             }
         }
-        // #region agent log
-        try {
-            $currentBucketIds = Capsule::table('s3_buckets')
-                ->whereIn('user_id', $userIds)
-                ->where('is_active', 1)
-                ->pluck('id')
-                ->all();
-            $cutoverDate = null;
-            if (!empty($currentBucketIds)) {
-                $cutoverDate = Capsule::table('s3_transfer_stats_summary')
-                    ->whereIn('user_id', $userIds)
-                    ->whereIn('bucket_id', $currentBucketIds)
-                    ->selectRaw('MIN(DATE(created_at)) as cutover')
-                    ->value('cutover');
-            }
-            $currentOnlyTotals = Capsule::table('s3_transfer_stats_summary')
-                ->selectRaw('SUM(bytes_sent) as total_bytes_sent, SUM(bytes_received) as total_bytes_received, SUM(ops) as total_ops')
-                ->whereIn('user_id', $userIds)
-                ->when(!empty($startDate), function ($q) use ($startDate) {
-                    $q->whereDate('created_at', '>=', $startDate);
-                })
-                ->when(!empty($endDate), function ($q) use ($endDate) {
-                    $q->whereDate('created_at', '<=', $endDate);
-                })
-                ->when(!empty($currentBucketIds), function ($q) use ($currentBucketIds) {
-                    $q->whereIn('bucket_id', $currentBucketIds);
-                })
-                ->first();
-            file_put_contents(
-                '/var/www/eazybackup.ca/.cursor/debug.log',
-                json_encode([
-                    'id' => uniqid('log_', true),
-                    'timestamp' => (int)round(microtime(true) * 1000),
-                    'location' => 'lib/Client/BucketController.php:getTotalUsageForBillingPeriod',
-                    'message' => 'Transfer totals vs current buckets',
-                    'data' => [
-                        'userIds' => $userIds,
-                        'startDate' => $startDate,
-                        'endDate' => $endDate,
-                        'cutoverDate' => $cutoverDate,
-                        'currentBucketIdsCount' => is_array($currentBucketIds) ? count($currentBucketIds) : 0,
-                        'totalBytesSent' => $totalBytesSent,
-                        'totalBytesReceived' => $totalBytesReceived,
-                        'totalOps' => $totalOps,
-                        'currentOnlyBytesSent' => $currentOnlyTotals->total_bytes_sent ?? 0,
-                        'currentOnlyBytesReceived' => $currentOnlyTotals->total_bytes_received ?? 0,
-                        'currentOnlyOps' => $currentOnlyTotals->total_ops ?? 0
-                    ],
-                    'runId' => 'pre-fix-2',
-                    'hypothesisId' => 'H5'
-                ]) . PHP_EOL,
-                FILE_APPEND
-            );
-        } catch (\Throwable $e) {}
-        // #endregion
 
         return [
             'total_bytes_sent'     => $totalBytesSent,
@@ -1400,82 +1345,50 @@ class BucketController {
                 ->value('cutover');
         }
 
-        $bucketStatsSummary = collect();
-        if (!empty($currentBucketIds) && !empty($cutoverDate)) {
-            // Before cutover: use legacy bucket IDs (not in current list)
-            $beforeRows = Capsule::table('s3_bucket_stats_summary AS s')
-                ->selectRaw('
-                    DATE(s.created_at) AS date,
-                    SUM(
-                        (
-                            SELECT MAX(total_usage)
-                            FROM s3_bucket_stats_summary AS inner_s
-                            WHERE inner_s.user_id = s.user_id
-                            AND inner_s.bucket_id = s.bucket_id
-                            AND DATE(inner_s.created_at) = DATE(s.created_at)
-                        )
-                    ) AS total_usage
-                ')
-                ->whereIn('s.user_id', $userIds)
-                ->whereDate('s.created_at', '>=', $startDate)
-                ->whereDate('s.created_at', '<', $cutoverDate)
-                ->whereNotIn('s.bucket_id', $currentBucketIds)
-                ->groupBy('date')
-                ->orderBy('date', 'ASC')
-                ->get();
+        // Per-bucket daily peak, then sum across buckets. Avoid SUM(MAX) over every
+        // sample row, which multiplies usage by the number of collections that day.
+        $peakQuery = Capsule::table('s3_bucket_stats_summary')
+            ->selectRaw('DATE(created_at) AS date, bucket_id, MAX(total_usage) AS peak_usage')
+            ->whereIn('user_id', $userIds)
+            ->whereDate('created_at', '>=', $startDate)
+            ->whereDate('created_at', '<=', $endDate)
+            ->groupBy(Capsule::raw('DATE(created_at)'), 'bucket_id');
 
-            // After cutover: use current bucket IDs only
-            $afterRows = Capsule::table('s3_bucket_stats_summary AS s')
-                ->selectRaw('
-                    DATE(s.created_at) AS date,
-                    SUM(
-                        (
-                            SELECT MAX(total_usage)
-                            FROM s3_bucket_stats_summary AS inner_s
-                            WHERE inner_s.user_id = s.user_id
-                            AND inner_s.bucket_id = s.bucket_id
-                            AND DATE(inner_s.created_at) = DATE(s.created_at)
-                        )
-                    ) AS total_usage
-                ')
-                ->whereIn('s.user_id', $userIds)
-                ->whereDate('s.created_at', '>=', $cutoverDate)
-                ->whereDate('s.created_at', '<=', $endDate)
-                ->whereIn('s.bucket_id', $currentBucketIds)
-                ->groupBy('date')
-                ->orderBy('date', 'ASC')
-                ->get();
+        $peakRows = $peakQuery->get();
+        $dailyTotals = [];
+        foreach ($peakRows as $row) {
+            $date = $row->date;
+            $bucketId = (int) $row->bucket_id;
+            $peak = (float) ($row->peak_usage ?? 0);
 
-            $bucketStatsSummary = $beforeRows->merge($afterRows);
-        } else {
-            // Fallback to original behavior if cutover cannot be determined
-            $bucketStatsSummary = Capsule::table('s3_bucket_stats_summary AS s')
-                ->selectRaw('
-                    DATE(s.created_at) AS date,
-                    SUM(
-                        (
-                            SELECT MAX(total_usage)
-                            FROM s3_bucket_stats_summary AS inner_s
-                            WHERE inner_s.user_id = s.user_id
-                            AND inner_s.bucket_id = s.bucket_id
-                            AND DATE(inner_s.created_at) = DATE(s.created_at)
-                        )
-                    ) AS total_usage
-                ')
-                ->whereIn('s.user_id', $userIds)
-                ->whereDate('s.created_at', '>=', $startDate)
-                ->whereDate('s.created_at', '<=', $endDate)
-                ->groupBy('date')
-                ->orderBy('date', 'ASC')
-                ->limit($limit)
-                ->get();
+            if (!empty($currentBucketIds) && !empty($cutoverDate)) {
+                if ($date < $cutoverDate) {
+                    if (in_array($bucketId, $currentBucketIds, true)) {
+                        continue;
+                    }
+                } else {
+                    if (!in_array($bucketId, $currentBucketIds, true)) {
+                        continue;
+                    }
+                }
+            }
+
+            if (!isset($dailyTotals[$date])) {
+                $dailyTotals[$date] = 0.0;
+            }
+            $dailyTotals[$date] += $peak;
+        }
+
+        ksort($dailyTotals);
+        if ($limit > 0 && count($dailyTotals) > $limit) {
+            $dailyTotals = array_slice($dailyTotals, 0, $limit, true);
         }
 
         $aggregatedBucketSummary = [];
-        foreach ($bucketStatsSummary as $row) {
+        foreach ($dailyTotals as $date => $totalUsage) {
             $aggregatedBucketSummary[] = [
-                'period'      => $row->date,
-                'total_usage' => $row->total_usage
+                'period'      => $date,
+                'total_usage' => $totalUsage
             ];
         }
 
@@ -1547,40 +1460,6 @@ class BucketController {
                 ->orderBy('usage_period', 'ASC')
                 ->get();
         }
-        // #region agent log
-        try {
-            $rowsCount = is_iterable($transferStatsSummary) ? count($transferStatsSummary) : 0;
-            $sumReceived = 0.0;
-            $sumSent = 0.0;
-            if (is_iterable($transferStatsSummary)) {
-                foreach ($transferStatsSummary as $row) {
-                    $sumReceived += (float)($row->total_bytes_received ?? 0);
-                    $sumSent += (float)($row->total_bytes_sent ?? 0);
-                }
-            }
-            file_put_contents(
-                '/var/www/eazybackup.ca/.cursor/debug.log',
-                json_encode([
-                    'id' => uniqid('log_', true),
-                    'timestamp' => (int)round(microtime(true) * 1000),
-                    'location' => 'lib/Client/BucketController.php:getUserTransferSummary',
-                    'message' => 'Transfer series summary',
-                    'data' => [
-                        'userIds' => $userIds,
-                        'limit' => $limit,
-                        'cutoverDate' => $cutoverDate,
-                        'currentBucketIdsCount' => is_array($currentBucketIds) ? count($currentBucketIds) : 0,
-                        'rowsCount' => $rowsCount,
-                        'sumReceived' => $sumReceived,
-                        'sumSent' => $sumSent
-                    ],
-                    'runId' => 'pre-fix-2',
-                    'hypothesisId' => 'H5'
-                ]) . PHP_EOL,
-                FILE_APPEND
-            );
-        } catch (\Throwable $e) {}
-        // #endregion
 
         $aggregatedTransferSummary = [];
 
@@ -1671,7 +1550,12 @@ class BucketController {
     }
 
     /**
-     * Apply cutover filtering and exclude first snapshot rows on cutover date.
+     * Apply cutover filtering and exclude first snapshot rows for current buckets.
+     *
+     * Remigration creates new bucket IDs whose first transfer_stats_summary row is the
+     * full RGW lifetime cumulative written as a false daily delta. Including that row
+     * (especially for buckets that first appear after the global cutover date) roughly
+     * doubles ingress/egress. Legacy bucket rows are kept intact.
      *
      * @param \Illuminate\Database\Query\Builder $query
      * @param array $currentBucketIds
@@ -1706,14 +1590,15 @@ class BucketController {
             });
         }
 
-        if (!empty($cutoverDate)) {
-            $query->where(function ($q) use ($cutoverDate) {
+        if (!empty($cutoverDate) && !empty($currentBucketIds)) {
+            // Skip the first summary row for current (post-cutover) buckets only.
+            // That row is the RGW lifetime cumulative written as a false delta and
+            // roughly doubles ingress/egress when a bucket appears after cutover.
+            // Legacy buckets keep all rows, including their own first snapshot.
+            $query->where(function ($q) use ($currentBucketIds) {
                 $q->whereNull('fs.first_seen')
-                    ->orWhereDate('fs.first_seen', '!=', $cutoverDate)
-                    ->orWhere(function ($q2) use ($cutoverDate) {
-                        $q2->whereDate('fs.first_seen', '=', $cutoverDate)
-                            ->whereRaw('t.created_at <> fs.first_seen');
-                    });
+                    ->orWhereNotIn('t.bucket_id', $currentBucketIds)
+                    ->orWhereRaw('t.created_at <> fs.first_seen');
             });
         }
     }
@@ -3950,44 +3835,6 @@ class BucketController {
             ->orderBy('date')
             ->get()
             ->toArray();
-        // #region agent log
-        try {
-            $dailyCount = is_array($dailyUsageQuery) ? count($dailyUsageQuery) : 0;
-            $transferCount = is_array($transferDataQuery) ? count($transferDataQuery) : 0;
-            $peakDay = null;
-            $peakStorage = 0.0;
-            if (is_array($dailyUsageQuery)) {
-                foreach ($dailyUsageQuery as $row) {
-                    $value = (float)($row->total_storage ?? 0);
-                    if ($value >= $peakStorage) {
-                        $peakStorage = $value;
-                        $peakDay = $row->date ?? $peakDay;
-                    }
-                }
-            }
-            file_put_contents(
-                '/var/www/eazybackup.ca/.cursor/debug.log',
-                json_encode([
-                    'id' => uniqid('log_', true),
-                    'timestamp' => (int)round(microtime(true) * 1000),
-                    'location' => 'lib/Client/BucketController.php:getHistoricalUsage',
-                    'message' => 'Historical usage aggregates',
-                    'data' => [
-                        'userIds' => $userIds,
-                        'startDate' => $startDate,
-                        'endDate' => $endDate,
-                        'dailyCount' => $dailyCount,
-                        'transferCount' => $transferCount,
-                        'peakDay' => $peakDay,
-                        'peakStorage' => $peakStorage
-                    ],
-                    'runId' => 'pre-fix-2',
-                    'hypothesisId' => 'H6'
-                ]) . PHP_EOL,
-                FILE_APPEND
-            );
-        } catch (\Throwable $e) {}
-        // #endregion
 
         // Find peak usage (date and size of the highest storage day) - FIXED: Use aggregated totals
         $peakUsageQuery = Capsule::table('s3_historical_stats')
