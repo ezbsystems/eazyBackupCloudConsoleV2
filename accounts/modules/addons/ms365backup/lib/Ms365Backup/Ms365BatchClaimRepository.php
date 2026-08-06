@@ -765,6 +765,42 @@ final class Ms365BatchClaimRepository
 
             $batchRunId = (string) ($child['e3_batch_run_id'] ?? '');
 
+            // #region agent log
+            if ($batchRunId === '367728c5-695d-41d3-b925-f229e4d7c48c') {
+                $payload = [
+                    'sessionId' => 'c1a35f',
+                    'runId' => 'pre-fix',
+                    'hypothesisId' => 'H2-H4',
+                    'location' => 'Ms365BatchClaimRepository.php:reapStalledBatchChildren',
+                    'message' => 'Affected child reaper evaluation',
+                    'data' => [
+                        'batchRunId' => $batchRunId,
+                        'childRunId' => $runId,
+                        'phase' => $phase,
+                        'freshness' => $freshness,
+                        'silenceSeconds' => $silenceSeconds,
+                        'staleProgress' => $staleProgress,
+                        'staleLease' => $staleLease,
+                        'liveBatch' => isset($liveBatchSet[$batchRunId]),
+                        'abortRequestedAt' => $abortAt,
+                        'itemsDone' => $itemsDone,
+                        'itemsTotal' => $itemsTotal,
+                        'bytesHashed' => $bytesHashed,
+                        'bytesUploaded' => $bytesUploaded,
+                    ],
+                    'timestamp' => (int) floor(microtime(true) * 1000),
+                ];
+                $encoded = json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+                if (is_string($encoded)) {
+                    @file_put_contents(
+                        '/var/www/eazybackup.ca/.cursor/debug-c1a35f.log',
+                        $encoded . PHP_EOL,
+                        FILE_APPEND | LOCK_EX
+                    );
+                }
+            }
+            // #endregion
+
             if (!$staleProgress && !$staleLease) {
                 // Progress resumed after a soft-abort: clear orphaned abort so a later
                 // brief silence does not immediately requeue past the grace window.
