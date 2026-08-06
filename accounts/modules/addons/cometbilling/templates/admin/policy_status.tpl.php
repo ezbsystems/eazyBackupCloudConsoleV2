@@ -155,19 +155,16 @@ function policyStatusStatusClass(string $label): string
                     <th>Sources (warn/total)</th>
                     <th>Last job (UTC)</th>
                     <th>Status</th>
-                    <th>Billed categories</th>
-                    <th>Billed amount</th>
+                    <th>Device charge</th>
+                    <th>Booster charge</th>
                 </tr>
             </thead>
             <tbody>
             <?php foreach ($billedUnhealthy as $row): ?>
                 <?php
                 $statusLabel = (string) ($row['status_label'] ?? '');
-                $categories = $row['billed_categories'] ?? [];
-                $categoryLabels = array_map(
-                    static fn ($cat) => \CometBilling\ChargeCategoryResolver::label((string) $cat),
-                    $categories
-                );
+                $deviceAmt = (float) ($row['billed_device_amount'] ?? 0);
+                $boosterAmt = (float) ($row['billed_booster_amount'] ?? 0);
                 ?>
                 <tr>
                     <td><?= htmlspecialchars((string) ($row['server_label'] ?? '')) ?></td>
@@ -176,8 +173,8 @@ function policyStatusStatusClass(string $label): string
                     <td><?= number_format((int) ($row['warning_source_count'] ?? 0)) ?> / <?= number_format((int) ($row['source_count'] ?? 0)) ?></td>
                     <td><?= htmlspecialchars(policyStatusFormatJobTime((int) ($row['last_job_time'] ?? 0))) ?></td>
                     <td class="<?= policyStatusStatusClass($statusLabel) ?>"><?= htmlspecialchars($statusLabel) ?></td>
-                    <td><?= htmlspecialchars(implode(', ', $categoryLabels)) ?></td>
-                    <td>$<?= number_format((float) ($row['billed_amount'] ?? 0), 2) ?></td>
+                    <td><?= $deviceAmt > 0 ? '$' . number_format($deviceAmt, 2) : '—' ?></td>
+                    <td><?= $boosterAmt > 0 ? '$' . number_format($boosterAmt, 2) : '—' ?></td>
                 </tr>
             <?php endforeach; ?>
             </tbody>

@@ -84,16 +84,95 @@ final class PolicyStatusReport
             }
             $key = self::normalizeAccountKey($account);
             if (!isset($by[$key])) {
-                $by[$key] = ['categories' => [], 'amount' => 0.0, 'line_count' => 0, 'display_name' => $account];
+                $by[$key] = [
+                    'categories' => [],
+                    'amount' => 0.0,
+                    'device_amount' => 0.0,
+                    'booster_amount' => 0.0,
+                    'line_count' => 0,
+                    'display_name' => $account,
+                ];
             }
-            $cat = ChargeCategoryResolver::fromServiceName((string) ($row->service_name ?? ''));
-            if (!in_array($cat, $by[$key]['categories'], true)) {
+            $serviceName = (string) ($row->service_name ?? '');
+            $bucket = self::activeServiceChargeBucket($row, $serviceName);
+            $cat = self::activeServiceCategory($bucket, $serviceName);
+            if ($cat !== null && !in_array($cat, $by[$key]['categories'], true)) {
                 $by[$key]['categories'][] = $cat;
             }
-            $by[$key]['amount'] += (float) ($row->amount ?? 0);
+            $amount = (float) ($row->amount ?? 0);
+            $by[$key]['amount'] += $amount;
+            if ($bucket === 'device') {
+                $by[$key]['device_amount'] += $amount;
+            } elseif ($bucket === 'booster') {
+                $by[$key]['booster_amount'] += $amount;
+            }
             $by[$key]['line_count']++;
         }
         return $by;
+    }
+
+    /**
+     * Classify an Active Services row as device or booster using portal Type when present.
+     */
+    public static function activeServiceChargeBucket(object $row, ?string $serviceName = null): string
+    {
+        $extra = $row->extra ?? null;
+        if (is_string($extra) && $extra !== '') {
+            $decoded = json_decode($extra, true);
+            $extra = is_array($decoded) ? $decoded : [];
+        } elseif (!is_array($extra)) {
+            $extra = [];
+        }
+        $type = strtolower(trim((string) ($extra['Type'] ?? '')));
+        if ($type === 'device') {
+            return 'device';
+        }
+        if ($type === 'booster') {
+            return 'booster';
+        }
+
+        $sn = strtolower((string) ($serviceName ?? $row->service_name ?? ''));
+        if (str_contains($sn, 'booster') || str_contains($sn, 'office 365')
+            || str_contains($sn, 'microsoft 365') || str_contains($sn, 'm365')
+            || str_contains($sn, 'hyper-v') || str_contains($sn, 'hyperv')
+            || str_contains($sn, 'vmware') || str_contains($sn, 'proxmox')
+            || str_contains($sn, 'disk image') || str_contains($sn, 'sql server')) {
+            return 'booster';
+        }
+        if ($type === 'account' || $type === 'serial') {
+            return 'other';
+        }
+        return 'device';
+    }
+
+    private static function activeServiceCategory(string $bucket, string $serviceName): ?string
+    {
+        if ($bucket === 'device') {
+            return 'devices';
+        }
+        if ($bucket === 'booster') {
+            $sn = strtolower($serviceName);
+            if (str_contains($sn, 'office 365') || str_contains($sn, 'microsoft 365') || str_contains($sn, 'm365')) {
+                return 'm365_accounts';
+            }
+            if (str_contains($sn, 'hyper-v') || str_contains($sn, 'hyperv')) {
+                return 'hyperv_vms';
+            }
+            if (str_contains($sn, 'vmware')) {
+                return 'vmware_vms';
+            }
+            if (str_contains($sn, 'proxmox')) {
+                return 'proxmox_vms';
+            }
+            if (str_contains($sn, 'disk image')) {
+                return 'disk_image';
+            }
+            if (str_contains($sn, 'sql server') || str_contains($sn, 'mssql')) {
+                return 'mssql';
+            }
+            return 'other';
+        }
+        return null;
     }
 
     public static function report(): array
@@ -220,7 +299,7 @@ final class PolicyStatusReport
 
     /**
      * @param list<array<string,mixed>> $accounts
-     * @param array<string, array{categories: list<string>, amount: float, line_count: int}> $billedByAccount
+     * @param array<string, array{categories: list<string>, amount: float, device_amount?: float, booster_amount?: float, line_count: int}> $billedByAccount
      */
     public static function buildSections(array $accounts, array $billedByAccount): array
     {
@@ -233,10 +312,13 @@ final class PolicyStatusReport
             }
             $key = self::normalizeAccountKey((string) ($acct['username'] ?? ''));
             if ($key !== '' && isset($billedByAccount[$key]) && self::isWarningOrError($status)) {
+                $billed = $billedByAccount[$key];
                 $billedUnhealthy[] = $acct + [
-                    'billed_categories' => $billedByAccount[$key]['categories'],
-                    'billed_amount' => $billedByAccount[$key]['amount'],
-                    'billed_line_count' => $billedByAccount[$key]['line_count'],
+                    'billed_categories' => $billed['categories'],
+                    'billed_amount' => $billed['amount'],
+                    'billed_device_amount' => (float) ($billed['device_amount'] ?? 0),
+                    'billed_booster_amount' => (float) ($billed['booster_amount'] ?? 0),
+                    'billed_line_count' => $billed['line_count'],
                 ];
             }
         }
