@@ -188,7 +188,6 @@
                 {assign var=dlWindows value=$agentDownloads.windows|default:[]}
                 {assign var=dlLinuxSh value=$agentDownloads.linux_install_sh|default:[]}
                 {assign var=dlLinuxDeb value=$agentDownloads.linux_deb|default:[]}
-                {assign var=dlLinuxBin value=$agentDownloads.linux_binary|default:[]}
 
                 <div id="e3-download-panel-os" class="space-y-3">
                     <a href="{$dlWindows.url|default:'/client_installer/e3-backup-agent-setup.exe'|escape:'html'}" target="_blank" rel="noopener" class="eb-btn eb-btn-primary eb-btn-md w-full justify-center">
@@ -234,19 +233,9 @@
                         Debian package (.deb)
                     </a>
                     <p class="text-xs" style="color:var(--eb-text-muted);">
-                        Ubuntu and Debian. Set <code class="eb-type-mono text-xs">TOKEN=…</code> when installing.
+                        Ubuntu and Debian. Use <code class="eb-type-mono text-xs">TOKEN=…</code> for silent install, or run <code class="eb-type-mono text-xs">sudo dpkg -i …</code> in a terminal and paste your token when prompted.
                         {if $dlLinuxDeb.version_label|default:''}
                         <span class="block mt-1">Version {$dlLinuxDeb.version_label|escape:'html'}{if $dlLinuxDeb.size_label|default:''} · {$dlLinuxDeb.size_label|escape:'html'}{/if}</span>
-                        {/if}
-                    </p>
-
-                    <a href="{$dlLinuxBin.url|default:'/client_installer/e3-backup-agent-linux'|escape:'html'}" target="_blank" rel="noopener" class="eb-btn eb-btn-secondary eb-btn-md w-full justify-center text-sm">
-                        Binary (advanced)
-                    </a>
-                    <p class="text-xs" style="color:var(--eb-text-muted);">
-                        Manual install — configure systemd and <code class="eb-type-mono text-xs">agent.conf</code> yourself.
-                        {if $dlLinuxBin.version_label|default:''}
-                        <span class="block mt-1">Version {$dlLinuxBin.version_label|escape:'html'}{if $dlLinuxBin.size_label|default:''} · {$dlLinuxBin.size_label|escape:'html'}{/if}</span>
                         {/if}
                     </p>
                 </div>

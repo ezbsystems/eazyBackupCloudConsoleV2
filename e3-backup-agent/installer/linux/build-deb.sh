@@ -45,7 +45,6 @@ set -e
 
 CONF_DIR="/etc/e3-backup-agent"
 CONF_FILE="${CONF_DIR}/agent.conf"
-TEMPLATE="/usr/share/e3-backup-agent/agent.conf.template"
 INSTALL_SH="/usr/share/e3-backup-agent/install.sh"
 RUN_DIR="/var/lib/e3-backup-agent/runs"
 
@@ -60,22 +59,13 @@ fi
 if [ -f "$CONF_FILE" ] && grep -qE '^[[:space:]]*agent_uuid:' "$CONF_FILE" \
    && grep -qE '^[[:space:]]*agent_token:' "$CONF_FILE"; then
   echo "e3-backup-agent: existing enrolled config preserved."
-elif [ -n "$TOKEN" ] && [ -x "$INSTALL_SH" ]; then
+elif [ -x "$INSTALL_SH" ]; then
   API_BASE="${API_BASE:-https://accounts.eazybackup.ca/modules/addons/cloudstorage/api}"
-  "$INSTALL_SH" --token "$TOKEN" --api "$API_BASE" --binary /usr/local/bin/e3-backup-agent
-  exit 0
-elif [ ! -f "$CONF_FILE" ]; then
-  API_BASE="${API_BASE:-https://accounts.eazybackup.ca/modules/addons/cloudstorage/api}"
-  DEVICE_NAME="$(hostname -s 2>/dev/null || hostname)"
-  sed \
-    -e "s|__API_BASE_URL__|${API_BASE}|g" \
-    -e "s|__DEVICE_NAME__|${DEVICE_NAME}|g" \
-    -e 's|__ENROLLMENT_BLOCK__|# Add enrollment_token from the portal, then: systemctl enable --now e3-backup-agent|g' \
-    "$TEMPLATE" > "$CONF_FILE"
-  chmod 600 "$CONF_FILE"
-  chown root:root "$CONF_FILE"
-  echo "e3-backup-agent: installed. Set enrollment_token in ${CONF_FILE}, then run:"
-  echo "  systemctl enable --now e3-backup-agent"
+  if [ -n "$TOKEN" ]; then
+    "$INSTALL_SH" --token "$TOKEN" --api "$API_BASE" --binary /usr/local/bin/e3-backup-agent
+  else
+    "$INSTALL_SH" --api "$API_BASE" --binary /usr/local/bin/e3-backup-agent
+  fi
   exit 0
 fi
 

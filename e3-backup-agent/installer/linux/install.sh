@@ -22,6 +22,7 @@ BINARY_PATH=""
 BINARY_URL="${BINARY_URL_DEFAULT}"
 UNINSTALL=0
 SHOW_VERSION=0
+NONINTERACTIVE=0
 
 log() { printf 'e3-backup-agent: %s\n' "$*"; }
 die() { log "ERROR: $*" >&2; exit 1; }
@@ -38,6 +39,7 @@ Options:
   --device-name NAME    Friendly device name (default: hostname)
   --binary PATH         Use a local agent binary instead of downloading
   --binary-url URL      Download URL for the agent binary
+  --noninteractive      Never prompt; require --token or enrollment.token
   --version             Show installer version and exit
   --uninstall           Stop service, remove unit and binary (keeps agent.conf)
   -h, --help            Show this help
@@ -45,6 +47,7 @@ Options:
 Examples:
   sudo bash install.sh --token YOUR_TOKEN
   curl -fsSL .../e3-backup-agent-linux-install.sh | sudo bash -s -- --token YOUR_TOKEN
+  sudo dpkg -i e3-backup-agent-linux.deb
 EOF
 }
 
@@ -58,6 +61,7 @@ parse_args() {
       --binary-url) BINARY_URL="${2:-}"; shift 2 ;;
       --version) SHOW_VERSION=1; shift ;;
       --uninstall) UNINSTALL=1; shift ;;
+      --noninteractive) NONINTERACTIVE=1; shift ;;
       -h|--help) usage; exit 0 ;;
       *) die "Unknown option: $1 (use --help)" ;;
     esac
@@ -97,6 +101,111 @@ conf_has_enrollment() {
     && grep -qE '^[[:space:]]*agent_token:[[:space:]]*' "$CONF_FILE"
 }
 
+conf_has_enrollment_token() {
+  [[ -f "$CONF_FILE" ]] || return 1
+  grep -qE '^[[:space:]]*enrollment_token:[[:space:]]*' "$CONF_FILE"
+}
+
+is_interactive() {
+  [[ "$NONINTERACTIVE" -eq 0 ]] || return 1
+  [[ "${DEBIAN_FRONTEND:-}" != "noninteractive" ]] || return 1
+  [[ -r /dev/tty && -w /dev/tty ]] || return 1
+  stty -F /dev/tty size >/dev/null 2>&1
+}
+
+load_enrollment_token_file() {
+  local token_file="${CONF_DIR}/enrollment.token"
+  if [[ -z "$TOKEN" ]] && [[ -f "$token_file" ]]; then
+    TOKEN="$(tr -d '[:space:]' < "$token_file")"
+  fi
+}
+
+die_no_token_noninteractive() {
+  die "No enrollment token provided.
+
+For silent install, pass a token from the eazyBackup portal (Enrollment Tokens):
+  sudo bash install.sh --token YOUR_TOKEN
+  sudo TOKEN=YOUR_TOKEN dpkg -i e3-backup-agent-linux.deb
+
+Or run the installer in an interactive terminal to be prompted for your token."
+}
+
+prompt_enrollment_token() {
+  local attempt=0
+  local max_attempts=3
+  local input=""
+
+  exec 3<>/dev/tty || die "Cannot open /dev/tty for enrollment prompt."
+
+  while [[ "$attempt" -lt "$max_attempts" ]]; do
+    {
+      echo ""
+      echo "========================================"
+      echo "  E3 Backup Agent — Enrollment"
+      echo "========================================"
+      echo "  Paste the enrollment token from the"
+      echo "  eazyBackup portal (Enrollment Tokens)."
+      echo ""
+      echo -n "  Token: "
+    } >&3
+
+    if ! IFS= read -r input <&3; then
+      exec 3<&-
+      exec 3>&-
+      die "Failed to read enrollment token."
+    fi
+
+    input="$(printf '%s' "$input" | tr -d '[:space:]')"
+    if [[ -z "$input" ]]; then
+      {
+        echo ""
+        echo "  Token cannot be empty."
+      } >&3
+      attempt=$((attempt + 1))
+      continue
+    fi
+
+    if [[ ! "$input" =~ ^[0-9a-fA-F]+$ ]] || [[ ${#input} -lt 16 ]]; then
+      {
+        echo ""
+        echo "  Note: token format looks unusual; continuing anyway."
+      } >&3
+    fi
+
+    TOKEN="$input"
+    exec 3<&-
+    exec 3>&-
+    return 0
+  done
+
+  exec 3<&- 2>/dev/null || true
+  exec 3>&- 2>/dev/null || true
+  die "No enrollment token entered after ${max_attempts} attempts. Generate one in the eazyBackup portal under Enrollment Tokens."
+}
+
+resolve_enrollment_token() {
+  if conf_has_enrollment; then
+    return 0
+  fi
+
+  load_enrollment_token_file
+
+  if [[ -n "$TOKEN" ]]; then
+    return 0
+  fi
+
+  if conf_has_enrollment_token; then
+    return 0
+  fi
+
+  if is_interactive; then
+    prompt_enrollment_token
+    return 0
+  fi
+
+  die_no_token_noninteractive
+}
+
 write_conf() {
   local api_quoted device_quoted enroll_block=""
   api_quoted="$(yaml_quote "$API_BASE")"
@@ -121,11 +230,11 @@ write_conf() {
   fi
 
   if [[ -z "$TOKEN" ]] && [[ ! -f "$CONF_FILE" ]]; then
-    die "No enrollment token provided. Use --token from the eazyBackup portal."
+    die "No enrollment token available after resolution."
   fi
 
   if [[ -f "$CONF_FILE" ]] && [[ -z "$TOKEN" ]]; then
-    if grep -qE '^[[:space:]]*enrollment_token:[[:space:]]*' "$CONF_FILE"; then
+    if conf_has_enrollment_token; then
       log "Using existing agent.conf with enrollment_token."
       chmod 600 "$CONF_FILE"
       chown root:root "$CONF_FILE"
@@ -221,6 +330,7 @@ main() {
   fi
 
   install_binary
+  resolve_enrollment_token
   write_conf
   install_unit
   prepare_dirs

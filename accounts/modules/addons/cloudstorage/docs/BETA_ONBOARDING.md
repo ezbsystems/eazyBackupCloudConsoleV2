@@ -22,11 +22,12 @@ Generate an enrollment token from **Enrollment Tokens** in the portal, then use 
   ```bash
   curl -fsSL https://accounts.eazybackup.ca/client_installer/e3-backup-agent-linux-install.sh | sudo bash -s -- --token <one-time-token>
   ```
-  Or install the `.deb` package:
+  Or install the `.deb` package (silent, recommended for scripts):
   ```bash
   curl -fsSL -o e3-backup-agent.deb https://accounts.eazybackup.ca/client_installer/e3-backup-agent-linux.deb
   sudo TOKEN=<one-time-token> dpkg -i e3-backup-agent.deb
   ```
+  In an interactive terminal, you can also run `sudo dpkg -i e3-backup-agent.deb` without `TOKEN=` — the installer prompts for your enrollment token on screen.
   The installer writes `/etc/e3-backup-agent/agent.conf`, installs the systemd service, and enrolls automatically.
 
 - **Windows:** download `e3-backup-agent-setup.exe`, then run silently:
