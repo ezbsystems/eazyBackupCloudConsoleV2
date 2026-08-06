@@ -2,7 +2,7 @@
 
 **Purpose:** Single handoff document so the next agent knows where work stopped. Update this file at the **end of every session** (or after each meaningful milestone).
 
-**Last updated:** 2026-08-05
+**Last updated:** 2026-08-06
 **Module version (ms365backup):** 1.52.51
 **Cloudstorage (e3) version:** 2.2.4  
 **Worker version (ms365-backup-worker):** 0.4.34 (Kopia v0.23.1)
@@ -10,6 +10,15 @@
 ---
 
 ## Session log
+
+### 2026-08-06 — Restore browse: `&` paths, drive labels, filtered expand
+
+- **Case:** user `6FF3AE2AC48D31C97A848B8712`, batch `ceb1b925-…`, Deetken Insight SharePoint.
+- **P1 (500 on `Resumes & Bios`):** WHMCS `init.php` HTML-escapes `$_GET` (`&` → `&amp;`); browse looked up wrong Kopia path. Fix: `html_entity_decode` in `ms365_restore_browse.php`.
+- **P2 (all Files libraries same name e.g. Clients):** `resolveSharePointDriveLabel` treated drive-id `name` as reason to overwrite sibling synthetic labels with the browsing child run’s `_drive_display_name`. Fix: preserve human labels; cache `v27-drive-label-preserve`.
+- **P3 (search blocks expand):** `filteredTreeNodes` dropped non-matching children/ancestors. Fix: keep ancestors of matches + children of expanded kept nodes.
+- **P4 (corrupt archive):** still open — need a specific restore_run_id / sample zip; deferred worker changes.
+- **Verify (prod):** escaped path fails; decoded path lists resumes; `/drives` returns 25 unique library labels including Clients. Deployed commit `11bd1ffe` via `deploy-production.sh`.
 
 ### 2026-08-05 — Comet import: merge all PIs + update existing job (PHP 1.52.51)
 
