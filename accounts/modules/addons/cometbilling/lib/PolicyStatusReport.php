@@ -22,6 +22,7 @@ final class PolicyStatusReport
         if ($status === 7004) return 2;
         if ($status === 7001) return 3;
         if (in_array($status, [7000, 7002, 7003, 7005, 7006, 7007], true)) return 4;
+        if ($status > 0) return 4;
         return -1;
     }
 
@@ -64,6 +65,11 @@ final class PolicyStatusReport
             return ['pulled_at' => null, 'by_account' => []];
         }
         $rows = Capsule::table('cb_active_services')->where('pulled_at', $latest)->get();
+        return ['pulled_at' => $latest, 'by_account' => self::indexActiveServicesRows($rows)];
+    }
+
+    public static function indexActiveServicesRows(iterable $rows): array
+    {
         $by = [];
         foreach ($rows as $row) {
             $account = trim((string) ($row->tenant_id ?? ''));
@@ -87,7 +93,7 @@ final class PolicyStatusReport
             $by[$key]['amount'] += (float) ($row->amount ?? 0);
             $by[$key]['line_count']++;
         }
-        return ['pulled_at' => $latest, 'by_account' => $by];
+        return $by;
     }
 
     public static function report(): array

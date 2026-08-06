@@ -12,6 +12,7 @@ namespace WHMCS\Database {
 }
 
 namespace {
+require_once __DIR__ . '/../lib/ChargeCategoryResolver.php';
 require_once __DIR__ . '/../lib/PolicyStatusReport.php';
 use CometBilling\PolicyStatusReport;
 
@@ -27,6 +28,8 @@ assertEq(false, PolicyStatusReport::isWarning(7002), 'error not warning-only');
 assertEq(true, PolicyStatusReport::isWarningOrError(7001), 'warning in warn/error');
 assertEq(true, PolicyStatusReport::isWarningOrError(7002), 'error in warn/error');
 assertEq(false, PolicyStatusReport::isWarningOrError(5000), 'success excluded');
+assertEq(4, PolicyStatusReport::severityRank(7999), 'unknown positive status is error rank');
+assertEq(true, PolicyStatusReport::isWarningOrError(7999), 'unknown positive status is warn/error');
 
 $agg = PolicyStatusReport::aggregateAccountFromSources([
     ['status' => 5000, 'end_time' => 100, 'source_id' => 'a'],
@@ -38,6 +41,18 @@ assertEq(1, $agg['warning_source_count'], 'one warning source');
 assertEq(1, $agg['error_source_count'], 'one error source');
 
 assertEq('acme', PolicyStatusReport::normalizeAccountKey(' Acme '), 'normalize account');
+
+$activeServiceIndex = PolicyStatusReport::indexActiveServicesRows([
+    (object) ['tenant_id' => 'Tenant A', 'service_name' => 'Device - 123abc', 'amount' => '2.50'],
+    (object) ['tenant_id' => 'Tenant A', 'service_name' => 'Microsoft 365 backup', 'amount' => '1.25'],
+    (object) ['tenant_id' => '', 'service_name' => 'Account Fallback - Proxmox VM', 'amount' => '3.00'],
+]);
+assertEq(['devices', 'm365_accounts'], $activeServiceIndex['tenant a']['categories'], 'tenant account categories aggregate');
+assertEq(3.75, $activeServiceIndex['tenant a']['amount'], 'tenant account amounts aggregate');
+assertEq(2, $activeServiceIndex['tenant a']['line_count'], 'tenant account rows aggregate');
+assertEq('Fallback', $activeServiceIndex['fallback']['display_name'], 'service name account fallback');
+assertEq(['proxmox_vms'], $activeServiceIndex['fallback']['categories'], 'fallback category');
+assertEq(3.0, $activeServiceIndex['fallback']['amount'], 'fallback amount');
 
 $accounts = [
     ['server_key'=>'obc','policy_id'=>'9005920f-fa54-4a22-8844-533bda81da4c','username'=>'WarnOnly','status'=>7001,'last_job_time'=>1,'source_count'=>1,'warning_source_count'=>1,'error_source_count'=>0],
