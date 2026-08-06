@@ -140,6 +140,50 @@ assertEq(
     'virtual server obc policy id'
 );
 
+$hist = PolicyStatusReport::historicalDeviceCharges([]);
+assertEq(0.0, $hist['total_amount'], 'empty hist total without members');
+assertEq([], $hist['summary'], 'empty hist summary without members');
+
+// Exercise CSV builders with synthetic payload.
+$histPayload = [
+    'historical_device' => [
+        'summary' => [[
+            'server_label' => 'csw.obcbackup.com',
+            'server_key' => 'obc',
+            'policy_id' => '77ad6576-912a-4ac7-8cd2-064c7f8907d2',
+            'username' => 'ClaimAcct',
+            'first_charge' => '2023-01-01',
+            'last_charge' => '2024-06-01',
+            'charge_count' => 2,
+            'total_amount' => 4.0,
+        ]],
+        'details' => [[
+            'server_label' => 'csw.obcbackup.com',
+            'server_key' => 'obc',
+            'policy_id' => '77ad6576-912a-4ac7-8cd2-064c7f8907d2',
+            'username' => 'ClaimAcct',
+            'usage_date' => '2023-01-01',
+            'device_id' => 'abc123',
+            'item_type' => 'device',
+            'item_desc' => 'Device - abc123',
+            'amount' => 2.0,
+        ]],
+    ],
+];
+$csvHistSum = PolicyStatusReport::buildCsvForSection(
+    $histPayload,
+    PolicyStatusReport::SECTION_HISTORICAL_DEVICE_SUMMARY
+);
+assertEq(true, str_contains($csvHistSum, 'First device charge'), 'hist summary header');
+assertEq(true, str_contains($csvHistSum, 'ClaimAcct'), 'hist summary username');
+assertEq(true, str_contains($csvHistSum, '4.00'), 'hist summary total');
+$csvHistDet = PolicyStatusReport::buildCsvForSection(
+    $histPayload,
+    PolicyStatusReport::SECTION_HISTORICAL_DEVICE_DETAIL
+);
+assertEq(true, str_contains($csvHistDet, 'Item description'), 'hist detail header');
+assertEq(true, str_contains($csvHistDet, '2023-01-01'), 'hist detail date');
+
 assertEq('booster', PolicyStatusReport::activeServiceChargeBucket(
     (object) ['extra' => '{"Type":"booster"}', 'service_name' => 'Account X - Device abc123 - Booster (Microsoft 365)'],
 ), 'type booster wins over device text');

@@ -365,7 +365,7 @@ function cometbilling_output($vars)
                 $group = isset($_GET['group']) ? (string) $_GET['group'] : \CometBilling\PolicyStatusReport::GROUP_M365;
                 if (!\CometBilling\PolicyStatusReport::isValidSection($section)) {
                     throw new \InvalidArgumentException(
-                        'Invalid section. Use warning_accounts, billed_unhealthy, or billed_successful.'
+                        'Invalid section. Use warning_accounts, billed_unhealthy, billed_successful, historical_device_summary, or historical_device_detail.'
                     );
                 }
                 if (!\CometBilling\PolicyStatusReport::isValidGroup($group)) {

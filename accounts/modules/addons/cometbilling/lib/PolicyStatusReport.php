@@ -45,11 +45,15 @@ final class PolicyStatusReport
     public const SECTION_WARNING = 'warning_accounts';
     public const SECTION_BILLED_UNHEALTHY = 'billed_unhealthy';
     public const SECTION_BILLED_SUCCESSFUL = 'billed_successful';
+    public const SECTION_HISTORICAL_DEVICE_SUMMARY = 'historical_device_summary';
+    public const SECTION_HISTORICAL_DEVICE_DETAIL = 'historical_device_detail';
 
     public const SECTION_LABELS = [
         self::SECTION_WARNING => 'warning-accounts',
         self::SECTION_BILLED_UNHEALTHY => 'billed-unhealthy',
         self::SECTION_BILLED_SUCCESSFUL => 'billed-successful',
+        self::SECTION_HISTORICAL_DEVICE_SUMMARY => 'historical-device-summary',
+        self::SECTION_HISTORICAL_DEVICE_DETAIL => 'historical-device-detail',
     ];
 
     public static function severityRank(int $status): int
@@ -220,8 +224,10 @@ final class PolicyStatusReport
     public static function report(): array
     {
         $accountsByGroup = [];
+        $membersByGroup = [];
         foreach (self::POLICY_GROUPS as $groupKey => $_meta) {
             $accountsByGroup[$groupKey] = [];
+            $membersByGroup[$groupKey] = [];
         }
         $serverErrors = [];
 
@@ -250,6 +256,17 @@ final class PolicyStatusReport
                         continue;
                     }
                     $groupKey = $wanted[$profilePolicyId];
+                    $username = (string) self::profileValue($profile, 'Username');
+                    $deviceIds = self::profileDeviceIds($profile);
+
+                    $membersByGroup[$groupKey][] = [
+                        'server_key' => $serverKey,
+                        'server_label' => self::SERVER_LABELS[$serverKey] ?? $serverKey,
+                        'policy_id' => $profilePolicyId,
+                        'policy_group' => $groupKey,
+                        'username' => $username,
+                        'device_ids' => $deviceIds,
+                    ];
 
                     $sources = [];
                     foreach ((self::profileValue($profile, 'Sources') ?? []) as $sourceId => $source) {
@@ -277,7 +294,7 @@ final class PolicyStatusReport
                         'server_label' => self::SERVER_LABELS[$serverKey] ?? $serverKey,
                         'policy_id' => $profilePolicyId,
                         'policy_group' => $groupKey,
-                        'username' => (string) self::profileValue($profile, 'Username'),
+                        'username' => $username,
                         'status' => $agg['status'],
                         'status_label' => $agg['status_label'],
                         'last_job_time' => $agg['last_job_time'],
@@ -294,16 +311,22 @@ final class PolicyStatusReport
         $activeServices = self::indexLatestActiveServicesByAccount();
         $groups = [];
         $totalAccounts = 0;
+        $totalMembers = 0;
         foreach (self::POLICY_GROUPS as $groupKey => $groupMeta) {
             $accounts = $accountsByGroup[$groupKey] ?? [];
+            $members = $membersByGroup[$groupKey] ?? [];
             $sections = self::buildSections($accounts, $activeServices['by_account']);
+            $historical = self::historicalDeviceCharges($members);
             $totalAccounts += count($accounts);
+            $totalMembers += count($members);
             $groups[$groupKey] = $sections + [
                 'key' => $groupKey,
                 'label' => $groupMeta['label'],
                 'slug' => $groupMeta['slug'],
                 'policies' => $groupMeta['policies'],
                 'account_count' => count($accounts),
+                'member_count' => count($members),
+                'historical_device' => $historical,
             ];
         }
 
@@ -323,7 +346,194 @@ final class PolicyStatusReport
             'active_services_pulled_at' => $activeServices['pulled_at'],
             'server_errors' => $serverErrors,
             'account_count' => $totalAccounts,
+            'member_count' => $totalMembers,
             'server_error_count' => count($serverErrors),
+        ];
+    }
+
+    /**
+     * @return list<string>
+     */
+    private static function profileDeviceIds($profile): array
+    {
+        $devices = self::profileValue($profile, 'Devices');
+        if (!is_array($devices) && !($devices instanceof \Traversable)) {
+            return [];
+        }
+        $ids = [];
+        foreach ($devices as $deviceId => $_device) {
+            $id = trim((string) $deviceId);
+            if ($id !== '') {
+                $ids[] = $id;
+            }
+        }
+        return $ids;
+    }
+
+    /**
+     * Bill History device charges for current policy members (claim support).
+     *
+     * @param list<array{username:string,server_key?:string,server_label?:string,policy_id?:string,device_ids?:list<string>}> $members
+     * @return array{
+     *   summary: list<array<string,mixed>>,
+     *   details: list<array<string,mixed>>,
+     *   total_amount: float,
+     *   charge_count: int,
+     *   account_count_with_charges: int,
+     *   earliest: ?string,
+     *   latest: ?string
+     * }
+     */
+    public static function historicalDeviceCharges(array $members): array
+    {
+        $byUser = [];
+        $usernames = [];
+        $deviceToUser = [];
+        $allDeviceIds = [];
+
+        foreach ($members as $member) {
+            $username = trim((string) ($member['username'] ?? ''));
+            if ($username === '') {
+                continue;
+            }
+            $key = self::normalizeAccountKey($username);
+            $byUser[$key] = [
+                'username' => $username,
+                'server_key' => (string) ($member['server_key'] ?? ''),
+                'server_label' => (string) ($member['server_label'] ?? ''),
+                'policy_id' => (string) ($member['policy_id'] ?? ''),
+            ];
+            $usernames[$username] = true;
+            foreach (($member['device_ids'] ?? []) as $deviceId) {
+                $deviceId = trim((string) $deviceId);
+                if ($deviceId === '') {
+                    continue;
+                }
+                $deviceToUser[strtolower($deviceId)] = $key;
+                $allDeviceIds[$deviceId] = true;
+            }
+        }
+
+        if ($byUser === []) {
+            return [
+                'summary' => [],
+                'details' => [],
+                'total_amount' => 0.0,
+                'charge_count' => 0,
+                'account_count_with_charges' => 0,
+                'earliest' => null,
+                'latest' => null,
+            ];
+        }
+
+        $usernameList = array_keys($usernames);
+        $deviceList = array_keys($allDeviceIds);
+
+        $query = CanonicalUsage::query()
+            ->where('amount', '>', 0)
+            ->where(function ($q) use ($usernameList, $deviceList) {
+                $q->whereIn('tenant_id', $usernameList);
+                if ($deviceList !== []) {
+                    $q->orWhereIn('device_id', $deviceList);
+                }
+            })
+            ->orderBy('usage_date')
+            ->orderBy('id');
+
+        $summaryMap = [];
+        $details = [];
+        $totalAmount = 0.0;
+        $earliest = null;
+        $latest = null;
+
+        foreach ($query->get(['usage_date', 'tenant_id', 'device_id', 'item_type', 'item_desc', 'amount']) as $row) {
+            $category = ChargeCategoryResolver::fromUsageRow(
+                (string) ($row->item_type ?? ''),
+                $row->item_desc !== null ? (string) $row->item_desc : null
+            );
+            if ($category !== 'devices') {
+                continue;
+            }
+
+            $tenantKey = self::normalizeAccountKey((string) ($row->tenant_id ?? ''));
+            $deviceId = strtolower(trim((string) ($row->device_id ?? '')));
+            $userKey = null;
+            if ($tenantKey !== '' && isset($byUser[$tenantKey])) {
+                $userKey = $tenantKey;
+            } elseif ($deviceId !== '' && isset($deviceToUser[$deviceId])) {
+                $userKey = $deviceToUser[$deviceId];
+            }
+            if ($userKey === null || !isset($byUser[$userKey])) {
+                continue;
+            }
+
+            $amount = round((float) ($row->amount ?? 0), 2);
+            $date = substr((string) ($row->usage_date ?? ''), 0, 10);
+            $meta = $byUser[$userKey];
+
+            if (!isset($summaryMap[$userKey])) {
+                $summaryMap[$userKey] = [
+                    'server_key' => $meta['server_key'],
+                    'server_label' => $meta['server_label'],
+                    'policy_id' => $meta['policy_id'],
+                    'username' => $meta['username'],
+                    'charge_count' => 0,
+                    'total_amount' => 0.0,
+                    'first_charge' => $date !== '' ? $date : null,
+                    'last_charge' => $date !== '' ? $date : null,
+                ];
+            }
+            $summaryMap[$userKey]['charge_count']++;
+            $summaryMap[$userKey]['total_amount'] = round(
+                (float) $summaryMap[$userKey]['total_amount'] + $amount,
+                2
+            );
+            if ($date !== '') {
+                if ($summaryMap[$userKey]['first_charge'] === null || $date < $summaryMap[$userKey]['first_charge']) {
+                    $summaryMap[$userKey]['first_charge'] = $date;
+                }
+                if ($summaryMap[$userKey]['last_charge'] === null || $date > $summaryMap[$userKey]['last_charge']) {
+                    $summaryMap[$userKey]['last_charge'] = $date;
+                }
+                if ($earliest === null || $date < $earliest) {
+                    $earliest = $date;
+                }
+                if ($latest === null || $date > $latest) {
+                    $latest = $date;
+                }
+            }
+
+            $totalAmount = round($totalAmount + $amount, 2);
+            $details[] = [
+                'server_key' => $meta['server_key'],
+                'server_label' => $meta['server_label'],
+                'policy_id' => $meta['policy_id'],
+                'username' => $meta['username'],
+                'usage_date' => $date,
+                'device_id' => (string) ($row->device_id ?? ''),
+                'item_type' => (string) ($row->item_type ?? ''),
+                'item_desc' => (string) ($row->item_desc ?? ''),
+                'amount' => $amount,
+            ];
+        }
+
+        $summary = array_values($summaryMap);
+        usort($summary, static function (array $a, array $b): int {
+            $cmp = ((float) $b['total_amount']) <=> ((float) $a['total_amount']);
+            if ($cmp !== 0) {
+                return $cmp;
+            }
+            return strcmp((string) $a['username'], (string) $b['username']);
+        });
+
+        return [
+            'summary' => $summary,
+            'details' => $details,
+            'total_amount' => $totalAmount,
+            'charge_count' => count($details),
+            'account_count_with_charges' => count($summary),
+            'earliest' => $earliest,
+            'latest' => $latest,
         ];
     }
 
@@ -439,6 +649,11 @@ final class PolicyStatusReport
             throw new \InvalidArgumentException('Unknown Policy Status section: ' . $section);
         }
 
+        if ($section === self::SECTION_HISTORICAL_DEVICE_SUMMARY
+            || $section === self::SECTION_HISTORICAL_DEVICE_DETAIL) {
+            return self::buildHistoricalDeviceCsv($reportSection, $section);
+        }
+
         $rows = $reportSection[$section] ?? [];
         if (!is_array($rows)) {
             $rows = [];
@@ -460,17 +675,7 @@ final class PolicyStatusReport
             $headers[] = 'Booster charge';
         }
 
-        $fh = fopen('php://temp', 'r+');
-        if ($fh === false) {
-            throw new \RuntimeException('Unable to open CSV buffer');
-        }
-        fwrite($fh, "\xEF\xBB\xBF");
-        fputcsv($fh, $headers);
-
-        foreach ($rows as $row) {
-            if (!is_array($row)) {
-                continue;
-            }
+        return self::csvFromRows($headers, $rows, static function (array $row) use ($includeCharges): array {
             $ts = (int) ($row['last_job_time'] ?? 0);
             $line = [
                 (string) ($row['server_label'] ?? ''),
@@ -486,13 +691,100 @@ final class PolicyStatusReport
                 $line[] = number_format((float) ($row['billed_device_amount'] ?? 0), 2, '.', '');
                 $line[] = number_format((float) ($row['billed_booster_amount'] ?? 0), 2, '.', '');
             }
-            fputcsv($fh, $line);
+            return $line;
+        });
+    }
+
+    private static function buildHistoricalDeviceCsv(array $reportSection, string $section): string
+    {
+        $historical = $reportSection['historical_device'] ?? [];
+        if ($section === self::SECTION_HISTORICAL_DEVICE_SUMMARY) {
+            $rows = $historical['summary'] ?? [];
+            if (!is_array($rows)) {
+                $rows = [];
+            }
+            return self::csvFromRows(
+                [
+                    'Server',
+                    'Server key',
+                    'Policy ID',
+                    'Username',
+                    'First device charge',
+                    'Last device charge',
+                    'Charge count',
+                    'Total device amount',
+                ],
+                $rows,
+                static function (array $row): array {
+                    return [
+                        (string) ($row['server_label'] ?? ''),
+                        (string) ($row['server_key'] ?? ''),
+                        (string) ($row['policy_id'] ?? ''),
+                        (string) ($row['username'] ?? ''),
+                        (string) ($row['first_charge'] ?? ''),
+                        (string) ($row['last_charge'] ?? ''),
+                        (int) ($row['charge_count'] ?? 0),
+                        number_format((float) ($row['total_amount'] ?? 0), 2, '.', ''),
+                    ];
+                }
+            );
         }
 
+        $rows = $historical['details'] ?? [];
+        if (!is_array($rows)) {
+            $rows = [];
+        }
+        return self::csvFromRows(
+            [
+                'Server',
+                'Server key',
+                'Policy ID',
+                'Username',
+                'Usage date',
+                'Device ID',
+                'Item type',
+                'Item description',
+                'Amount',
+            ],
+            $rows,
+            static function (array $row): array {
+                return [
+                    (string) ($row['server_label'] ?? ''),
+                    (string) ($row['server_key'] ?? ''),
+                    (string) ($row['policy_id'] ?? ''),
+                    (string) ($row['username'] ?? ''),
+                    (string) ($row['usage_date'] ?? ''),
+                    (string) ($row['device_id'] ?? ''),
+                    (string) ($row['item_type'] ?? ''),
+                    (string) ($row['item_desc'] ?? ''),
+                    number_format((float) ($row['amount'] ?? 0), 2, '.', ''),
+                ];
+            }
+        );
+    }
+
+    /**
+     * @param list<string> $headers
+     * @param list<array<string,mixed>> $rows
+     * @param callable(array<string,mixed>): list<scalar> $mapper
+     */
+    private static function csvFromRows(array $headers, array $rows, callable $mapper): string
+    {
+        $fh = fopen('php://temp', 'r+');
+        if ($fh === false) {
+            throw new \RuntimeException('Unable to open CSV buffer');
+        }
+        fwrite($fh, "\xEF\xBB\xBF");
+        fputcsv($fh, $headers);
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            fputcsv($fh, $mapper($row));
+        }
         rewind($fh);
         $csv = stream_get_contents($fh);
         fclose($fh);
-
         return $csv === false ? '' : $csv;
     }
 

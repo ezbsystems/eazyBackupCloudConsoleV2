@@ -111,12 +111,17 @@ function policyStatusCsvUrl(string $csvBase, string $groupKey, string $section):
         $csvWarningUrl = policyStatusCsvUrl($csvBase, (string) $groupKey, PolicyStatusReport::SECTION_WARNING);
         $csvUnhealthyUrl = policyStatusCsvUrl($csvBase, (string) $groupKey, PolicyStatusReport::SECTION_BILLED_UNHEALTHY);
         $csvSuccessfulUrl = policyStatusCsvUrl($csvBase, (string) $groupKey, PolicyStatusReport::SECTION_BILLED_SUCCESSFUL);
+        $csvHistSummaryUrl = policyStatusCsvUrl($csvBase, (string) $groupKey, PolicyStatusReport::SECTION_HISTORICAL_DEVICE_SUMMARY);
+        $csvHistDetailUrl = policyStatusCsvUrl($csvBase, (string) $groupKey, PolicyStatusReport::SECTION_HISTORICAL_DEVICE_DETAIL);
+        $historical = $group['historical_device'] ?? [];
+        $histSummary = $historical['summary'] ?? [];
         ?>
         <div class="cb-group-block">
             <div class="cb-box">
                 <h3 class="cb-group-title"><?= htmlspecialchars($groupLabel) ?></h3>
                 <p class="cb-muted" style="margin-top: 0;">
-                    <?= number_format((int) ($group['account_count'] ?? 0)) ?> account(s) with a last backup job on this policy set.
+                    <?= number_format((int) ($group['member_count'] ?? 0)) ?> account(s) currently on this policy set;
+                    <?= number_format((int) ($group['account_count'] ?? 0)) ?> with a last backup job for Sections A–C.
                 </p>
                 <ul class="cb-policy-list">
                     <?php foreach (($group['policies'] ?? []) as $serverKey => $policyId): ?>
@@ -262,6 +267,59 @@ function policyStatusCsvUrl(string $csvBase, string $groupKey, string $section):
                             <td class="<?= policyStatusStatusClass($statusLabel) ?>"><?= htmlspecialchars($statusLabel) ?></td>
                             <td><?= policyStatusFormatMoney((float) ($row['billed_device_amount'] ?? 0)) ?></td>
                             <td><?= policyStatusFormatMoney((float) ($row['billed_booster_amount'] ?? 0)) ?></td>
+                        </tr>
+                    <?php endforeach; ?>
+                    </tbody>
+                </table>
+                <?php endif; ?>
+            </div>
+
+            <div class="cb-box">
+                <div class="cb-section-head">
+                    <h4>Historical Device Charges (Bill History)</h4>
+                    <div>
+                        <a class="btn btn-default btn-sm" href="<?= htmlspecialchars($csvHistSummaryUrl) ?>">Export summary CSV</a>
+                        <a class="btn btn-default btn-sm" href="<?= htmlspecialchars($csvHistDetailUrl) ?>">Export detail CSV</a>
+                    </div>
+                </div>
+                <p class="cb-muted">
+                    Every account currently on this policy set, with all canonical Bill History
+                    <strong>device</strong> charges as far back as available (for Comet credit claims).
+                    This does not change Sections A–C above (those still use Active Services run-rate).
+                    <?php if (!empty($historical['earliest']) || !empty($historical['latest'])): ?>
+                    Range: <?= htmlspecialchars((string) ($historical['earliest'] ?? '—')) ?>
+                    → <?= htmlspecialchars((string) ($historical['latest'] ?? '—')) ?>.
+                    <?php endif; ?>
+                    Total device charges:
+                    <strong>$<?= number_format((float) ($historical['total_amount'] ?? 0), 2) ?></strong>
+                    across <?= number_format((int) ($historical['charge_count'] ?? 0)) ?> line(s)
+                    on <?= number_format((int) ($historical['account_count_with_charges'] ?? 0)) ?> account(s).
+                </p>
+                <?php if (count($histSummary) === 0): ?>
+                <p class="cb-muted">No historical device charges found for current policy members.</p>
+                <?php else: ?>
+                <table class="datatable" width="100%">
+                    <thead>
+                        <tr>
+                            <th>Server</th>
+                            <th>Policy ID</th>
+                            <th>Username</th>
+                            <th>First device charge</th>
+                            <th>Last device charge</th>
+                            <th>Charge count</th>
+                            <th>Total device $</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    <?php foreach ($histSummary as $row): ?>
+                        <tr>
+                            <td><?= htmlspecialchars((string) ($row['server_label'] ?? '')) ?></td>
+                            <td><code><?= htmlspecialchars((string) ($row['policy_id'] ?? '')) ?></code></td>
+                            <td><?= htmlspecialchars((string) ($row['username'] ?? '')) ?></td>
+                            <td><?= htmlspecialchars((string) ($row['first_charge'] ?? '—')) ?></td>
+                            <td><?= htmlspecialchars((string) ($row['last_charge'] ?? '—')) ?></td>
+                            <td><?= number_format((int) ($row['charge_count'] ?? 0)) ?></td>
+                            <td>$<?= number_format((float) ($row['total_amount'] ?? 0), 2) ?></td>
                         </tr>
                     <?php endforeach; ?>
                     </tbody>
