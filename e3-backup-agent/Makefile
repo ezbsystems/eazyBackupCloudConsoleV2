@@ -1,4 +1,4 @@
-.PHONY: build build-windows build-agent-windows build-tray-windows install test clean deps lint licenses
+.PHONY: build build-windows build-agent-windows build-tray-windows install linux-installer deb test clean deps lint licenses
 
 # Version metadata (overridable via environment, e.g. `VERSION=1.2.3 make build`)
 VERSION ?= dev
@@ -58,6 +58,19 @@ install: build
 	@sudo chown root:root /usr/local/bin/e3-backup-agent
 	@sudo chmod 755 /usr/local/bin/e3-backup-agent
 	@echo "Installation complete"
+
+# Stage Linux installer script for publish (requires build)
+linux-installer: build
+	@echo "Staging Linux installer artifacts..."
+	@mkdir -p bin
+	@cp installer/linux/install.sh bin/e3-backup-agent-linux-install.sh
+	@chmod 755 bin/e3-backup-agent-linux-install.sh
+	@sed -i "s/^VERSION=\"dev\"/VERSION=\"$(VERSION)\"/" bin/e3-backup-agent-linux-install.sh
+	@echo "Staged: bin/e3-backup-agent-linux-install.sh"
+
+# Build .deb package (requires build)
+deb: build linux-installer
+	@VERSION=$(VERSION) bash installer/linux/build-deb.sh
 
 # Run tests
 test:

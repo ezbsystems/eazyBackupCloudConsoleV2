@@ -1572,6 +1572,10 @@ func (r *Runner) pushEvents(runID string, events ...RunEvent) {
 func fallbackSummaryFromEvents(events []RunEvent) (string, bool) {
 	for i := len(events) - 1; i >= 0; i-- {
 		ev := events[i]
+		msgID := strings.ToUpper(strings.TrimSpace(ev.MessageID))
+		if strings.HasPrefix(msgID, "MAINTENANCE_") {
+			continue
+		}
 		level := strings.ToLower(strings.TrimSpace(ev.Level))
 		typ := strings.ToLower(strings.TrimSpace(ev.Type))
 		if level != "error" && typ != "error" {

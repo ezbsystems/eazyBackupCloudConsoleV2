@@ -35,6 +35,18 @@ class Publish extends StepBase
                 'versioned'  => 'e3-backup-agent-linux-' . $version,
                 'platform'   => 'linux',
             ];
+            $publishMap[] = [
+                'src'        => $repo . '/bin/e3-backup-agent-linux-install.sh',
+                'latest'     => 'e3-backup-agent-linux-install.sh',
+                'versioned'  => 'e3-backup-agent-linux-install-' . $version . '.sh',
+                'platform'   => 'linux',
+            ];
+            $publishMap[] = [
+                'src'        => $repo . '/bin/e3-backup-agent-linux.deb',
+                'latest'     => 'e3-backup-agent-linux.deb',
+                'versioned'  => 'e3-backup-agent-linux_' . $version . '_amd64.deb',
+                'platform'   => 'linux',
+            ];
         }
         if (in_array($platform, ['windows', 'both'], true)) {
             $publishMap[] = [

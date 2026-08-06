@@ -154,6 +154,7 @@ $agentSelect = [
     'a.tenant_id',
     'a.status',
     'a.last_seen_at',
+    'a.agent_os',
     Capsule::raw('TIMESTAMPDIFF(SECOND, a.last_seen_at, NOW()) as seconds_since_seen'),
 ];
 

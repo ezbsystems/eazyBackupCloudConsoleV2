@@ -327,8 +327,10 @@
                             </span>
                             <div class="eb-app-empty-title">Install your first agent</div>
                             <p class="eb-app-empty-copy">
-                                Run the installer on the computer you want to back up, then sign in with your portal email and password.
-                                The agent will appear here within ~10 seconds of signing in.
+                                Generate an enrollment token, then install the agent on the computer you want to back up.
+                                Windows: run the installer and sign in, or use a silent install command with your token.
+                                Linux: run the one-line install command from the token page.
+                                The agent will appear here within ~10 seconds.
                             </p>
                             <div class="mt-4 flex flex-wrap items-center justify-center gap-2">
                                 <button type="button"

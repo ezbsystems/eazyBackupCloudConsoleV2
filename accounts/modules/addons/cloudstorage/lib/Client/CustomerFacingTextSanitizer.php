@@ -61,8 +61,11 @@ final class CustomerFacingTextSanitizer
         // Phase codes such as kopia_upload → upload
         $text = preg_replace('/\bkopia_([a-z0-9_]+)/i', '$1', $text) ?? $text;
 
-        // Remove any remaining standalone "kopia" word
-        $text = preg_replace('/\bkopia\b/i', '', $text) ?? $text;
+        // Preserve filesystem paths that include a /kopia/ segment (repo config dirs).
+        if (!str_contains($text, '/kopia/') && !str_contains($text, '\\kopia\\')) {
+            // Remove any remaining standalone "kopia" word (prose only).
+            $text = preg_replace('/\bkopia\b/i', '', $text) ?? $text;
+        }
 
         // Drop redundant vendor prefix before generic backup wording
         $text = preg_replace('/\beazybackup\s+(?=backup\b)/i', '', $text) ?? $text;

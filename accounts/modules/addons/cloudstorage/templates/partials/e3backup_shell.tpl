@@ -187,8 +187,14 @@
                 <a href="/client_installer/e3-backup-agent-setup.exe" target="_blank" rel="noopener" class="eb-btn eb-btn-primary eb-btn-md w-full justify-center">
                     Windows Agent
                 </a>
-                <a href="/client_installer/e3-backup-agent-linux" target="_blank" rel="noopener" class="eb-btn eb-btn-secondary eb-btn-md w-full justify-center">
-                    Linux Agent
+                <a href="/client_installer/e3-backup-agent-linux-install.sh" target="_blank" rel="noopener" class="eb-btn eb-btn-primary eb-btn-md w-full justify-center">
+                    Linux Installer (recommended)
+                </a>
+                <a href="/client_installer/e3-backup-agent-linux.deb" target="_blank" rel="noopener" class="eb-btn eb-btn-secondary eb-btn-md w-full justify-center">
+                    Linux .deb (Ubuntu/Debian)
+                </a>
+                <a href="/client_installer/e3-backup-agent-linux" target="_blank" rel="noopener" class="eb-btn eb-btn-secondary eb-btn-md w-full justify-center text-sm">
+                    Linux binary (advanced)
                 </a>
                 <div class="eb-card !p-4">
                     <p class="text-sm" style="color:var(--eb-text-secondary);">

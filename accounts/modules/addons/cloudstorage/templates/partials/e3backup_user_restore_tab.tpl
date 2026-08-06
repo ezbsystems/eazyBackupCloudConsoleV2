@@ -427,7 +427,7 @@
                                         Browse
                                     </button>
                                 </div>
-                                <label class="eb-inline-choice">
+                                <label id="restorePointMountRow" class="eb-inline-choice">
                                     <input id="restorePointMount" type="checkbox" class="eb-check-input">
                                     <span>Request mount instead of copy</span>
                                 </label>
@@ -910,6 +910,7 @@ function restorePointAgentPicker() {
             this.selectedId = id;
             if (window.restorePointState) {
                 window.restorePointState.targetAgentUuid = id;
+                updateRestorePointMountVisibility();
             }
             const hidden = document.getElementById('restorePointTargetAgent');
             if (hidden) {
@@ -950,6 +951,30 @@ function hydrateRestorePointAgents(point) {
             hint.textContent = '';
             hint.classList.add('hidden');
         }
+    }
+}
+
+function getRestorePointAgentOs(agentUuid) {
+    if (!agentUuid) return '';
+    const agents = Array.isArray(window.restorePointAgents) ? window.restorePointAgents : [];
+    const found = agents.find((agent) => String(agent.agent_uuid || '') === String(agentUuid));
+    return found ? String(found.agent_os || '').toLowerCase() : '';
+}
+
+function updateRestorePointMountVisibility() {
+    const st = window.restorePointState || {};
+    const mountRow = document.getElementById('restorePointMountRow');
+    const mountInput = document.getElementById('restorePointMount');
+    if (!mountRow || !mountInput) return;
+
+    const engine = String((st.point && st.point.engine) || '').toLowerCase();
+    const agentOs = getRestorePointAgentOs(st.targetAgentUuid || (st.point && st.point.agent_uuid) || '');
+    const hideMount = engine === 'disk_image' || agentOs === 'linux';
+
+    mountRow.classList.toggle('hidden', hideMount);
+    if (hideMount) {
+        mountInput.checked = false;
+        st.mount = false;
     }
 }
 
@@ -1402,6 +1427,7 @@ function openRestorePointModal(point) {
     window.restorePointState.snapshotError = '';
     window.restorePointState.snapshotAgentUuid = '';
     hydrateRestorePointAgents(point);
+    updateRestorePointMountVisibility();
     const modal = document.getElementById('restorePointModal');
     if (modal) modal.classList.remove('hidden');
     updateRestorePointView();

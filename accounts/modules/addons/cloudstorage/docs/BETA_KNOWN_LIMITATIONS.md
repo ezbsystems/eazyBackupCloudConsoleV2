@@ -18,24 +18,11 @@ on the agent and reach out to support so we can capture your use case.
 - **Cross-platform BMR** — There is no Linux BMR equivalent today.
 
 ## Disk-image restores
-- **Disk-image is BACKUP-ONLY for beta.** Restore (whether full
-  block-level or file-level via `kopia mount`) is GA-only:
-  - Full block-level Windows disk-image restore has the residual
-    content-hash mismatch tracked in VALIDATION_REPORT_V2.
-  - File-level (`kopia mount`) restore from a disk-image snapshot is
-    not yet implemented in the agent (`mount not implemented` is
-    returned for `disk_image` restore points). Phase 1C surfaced this
-    against `linux-disk-image-selective-restore`,
-    `windows-disk-image-selective-restore`, and
-    `windows2019-disk-image-selective-restore` and they are flagged
-    `beta_scope: false, deferred_to: GA` accordingly.
-- Linux disk-image backup is fully validated; the captured snapshots
-  are durable and cycle-tested (see `linux-disk-image-cycle`). They
-  are **safe to keep** through beta and will become restorable when
-  the GA agent ships.
-- For beta customers who hit a real-world need to restore a single
-  file from a disk-image snapshot, contact support — we have an
-  out-of-band manual procedure.
+- **Linux block-level restore** is validated (`linux-disk-image-cycle` passes). Restorable disk-image points can be restored to a target device when `is_restorable` is true.
+- **Windows full block-level disk-image restore** has a residual content-hash mismatch tracked in VALIDATION_REPORT_V2 and remains GA-only for beta.
+- **Mount snapshot** (file-level restore via FUSE mount) is not implemented (`mount not implemented`). This applies to file backups on Linux and disk-image points on all platforms. The portal hides mount restore for Linux agents.
+- Linux disk-image backup is fully validated; captured snapshots are durable and cycle-tested.
+- For beta customers who need a single file from a disk-image snapshot without block restore, contact support for an out-of-band manual procedure.
 
 ## Operations
 - **Encryption-key rotation** — No documented rotation flow. Treat the
@@ -61,6 +48,11 @@ on the agent and reach out to support so we can capture your use case.
 - **Per-run structured log aggregation** — `stats_json.restore_readiness`
   is the supported view for "why did this run end the way it did". A
   rolled-up "this run had N permission-denied files" surface is GA-only.
+
+## Installer (Linux)
+- **Installer script and .deb** — `e3-backup-agent-linux-install.sh` and `e3-backup-agent-linux.deb` install the binary, systemd unit, and `agent.conf`. Enrollment uses a portal token (`--token` or `TOKEN=` env).
+- **Upgrade path** — Re-running the install script or installing a newer `.deb` preserves enrolled credentials. Not yet covered by an automated lab scenario.
+- **Distro support** — Ubuntu 22.04 lab-validated. Debian-family expected compatible. RHEL/Rocky not yet tested.
 
 ## Installer (Windows)
 - **Upgrade path** — Installing a new build over an old build is

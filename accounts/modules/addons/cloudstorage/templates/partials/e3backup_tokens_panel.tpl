@@ -349,25 +349,62 @@
         <div class="eb-modal relative z-10 !max-w-3xl">
             <div class="eb-modal-header">
                 <div>
-                    <h2 class="eb-modal-title">Silent Install Command</h2>
-                    <p class="eb-modal-subtitle">Copy the command below and run it after downloading the Windows agent installer.</p>
+                    <h2 class="eb-modal-title">Install commands</h2>
+                    <p class="eb-modal-subtitle">Copy the command for your operating system. The token is embedded — run it on the computer you want to back up.</p>
                 </div>
                 <button type="button" class="eb-modal-close" @click="showInstallModal = false">&times;</button>
             </div>
 
             <div class="eb-modal-body space-y-4">
-                <label class="block">
-                    <span class="eb-field-label">Windows CMD / PowerShell</span>
-                    <div class="eb-card mt-2 !p-4 overflow-x-auto">
-                        <pre class="eb-type-mono whitespace-pre-wrap break-all text-[var(--eb-text-primary)]" x-text="installCmd"></pre>
-                    </div>
-                </label>
-                <p class="eb-field-help !mt-0">Download the agent installer from the Agents page, then run this command to enroll the device with the embedded token.</p>
+                <div class="flex flex-wrap gap-2" role="tablist">
+                    <button type="button"
+                            class="eb-btn eb-btn-sm"
+                            :class="installTab === 'windows' ? 'eb-btn-primary' : 'eb-btn-secondary'"
+                            @click="installTab = 'windows'">Windows</button>
+                    <button type="button"
+                            class="eb-btn eb-btn-sm"
+                            :class="installTab === 'linux' ? 'eb-btn-primary' : 'eb-btn-secondary'"
+                            @click="installTab = 'linux'">Linux (installer)</button>
+                    <button type="button"
+                            class="eb-btn eb-btn-sm"
+                            :class="installTab === 'linux_deb' ? 'eb-btn-primary' : 'eb-btn-secondary'"
+                            @click="installTab = 'linux_deb'">Linux (.deb)</button>
+                </div>
+
+                <div x-show="installTab === 'windows'">
+                    <label class="block">
+                        <span class="eb-field-label">Windows — silent install</span>
+                        <div class="eb-card mt-2 !p-4 overflow-x-auto">
+                            <pre class="eb-type-mono whitespace-pre-wrap break-all text-[var(--eb-text-primary)]" x-text="installCmdWindows"></pre>
+                        </div>
+                    </label>
+                    <p class="eb-field-help !mt-2">Download <code class="eb-type-mono text-xs">e3-backup-agent-setup.exe</code> first, then run this command as Administrator.</p>
+                </div>
+
+                <div x-show="installTab === 'linux'" x-cloak>
+                    <label class="block">
+                        <span class="eb-field-label">Linux — one-line install (recommended)</span>
+                        <div class="eb-card mt-2 !p-4 overflow-x-auto">
+                            <pre class="eb-type-mono whitespace-pre-wrap break-all text-[var(--eb-text-primary)]" x-text="installCmdLinux"></pre>
+                        </div>
+                    </label>
+                    <p class="eb-field-help !mt-2">Run as root on Ubuntu, Debian, or any systemd Linux host. Installs the service and enrolls automatically.</p>
+                </div>
+
+                <div x-show="installTab === 'linux_deb'" x-cloak>
+                    <label class="block">
+                        <span class="eb-field-label">Linux — Debian package</span>
+                        <div class="eb-card mt-2 !p-4 overflow-x-auto">
+                            <pre class="eb-type-mono whitespace-pre-wrap break-all text-[var(--eb-text-primary)]" x-text="installCmdLinuxDeb"></pre>
+                        </div>
+                    </label>
+                    <p class="eb-field-help !mt-2">Download <code class="eb-type-mono text-xs">e3-backup-agent-linux.deb</code>, then run this command as root.</p>
+                </div>
             </div>
 
             <div class="eb-modal-footer">
                 <button type="button" class="eb-btn eb-btn-secondary eb-btn-sm" @click="showInstallModal = false">Close</button>
-                <button type="button" class="eb-btn eb-btn-primary eb-btn-sm" @click="copyInstallCmd()">Copy Command</button>
+                <button type="button" class="eb-btn eb-btn-primary eb-btn-sm" @click="copyActiveInstallCmd()">Copy command</button>
             </div>
         </div>
     </div>
@@ -411,6 +448,10 @@ function tokensApp() {
         showRevokeModal: false,
         revokeTarget: null,
         installCmd: '',
+        installCmdWindows: '',
+        installCmdLinux: '',
+        installCmdLinuxDeb: '',
+        installTab: 'windows',
         searchQuery: '',
         entriesPerPage: 25,
         currentPage: 1,
@@ -477,7 +518,8 @@ function tokensApp() {
                         max_uses: 0,
                         expires_in: '7d'
                     };
-                    this.installCmd = 'e3-backup-agent.exe /S /TOKEN=' + data.token;
+                    this.setInstallCommands(data.token);
+                    this.installTab = 'windows';
                     this.showInstallModal = true;
                     this.setSuccess('Enrollment token generated.');
                     await this.loadTokens();
@@ -525,8 +567,19 @@ function tokensApp() {
             this.revoking = false;
         },
 
+        setInstallCommands(tokenValue) {
+            const origin = window.location.origin || 'https://accounts.eazybackup.ca';
+            const installShUrl = origin + '/client_installer/e3-backup-agent-linux-install.sh';
+            const debUrl = origin + '/client_installer/e3-backup-agent-linux.deb';
+            this.installCmdWindows = 'e3-backup-agent-setup.exe /VERYSILENT /TOKEN=' + tokenValue;
+            this.installCmdLinux = 'curl -fsSL ' + installShUrl + ' | sudo bash -s -- --token ' + tokenValue;
+            this.installCmdLinuxDeb = 'curl -fsSL -o e3-backup-agent.deb ' + debUrl + ' && sudo TOKEN=' + tokenValue + ' dpkg -i e3-backup-agent.deb';
+            this.installCmd = this.installCmdWindows;
+        },
+
         showInstallCmd(token) {
-            this.installCmd = 'e3-backup-agent.exe /S /TOKEN=' + token.token;
+            this.setInstallCommands(token.token);
+            this.installTab = 'windows';
             this.showInstallModal = true;
         },
 
@@ -535,7 +588,17 @@ function tokensApp() {
         },
 
         async copyInstallCmd() {
-            await this.copyText(this.installCmd, 'Install command copied.');
+            await this.copyActiveInstallCmd();
+        },
+
+        async copyActiveInstallCmd() {
+            let cmd = this.installCmdWindows;
+            if (this.installTab === 'linux') {
+                cmd = this.installCmdLinux;
+            } else if (this.installTab === 'linux_deb') {
+                cmd = this.installCmdLinuxDeb;
+            }
+            await this.copyText(cmd, 'Install command copied.');
         },
 
         async copyText(value, successMessage) {

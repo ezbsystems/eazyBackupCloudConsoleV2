@@ -11,7 +11,6 @@ import (
 	"math"
 	"net/url"
 	"os"
-	"path"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -1876,48 +1875,56 @@ func (r *Runner) kopiaRestoreSelectedPaths(ctx context.Context, run *NextRunResp
 	unique := map[string]struct{}{}
 	paths := make([]string, 0, len(selectedPaths))
 	for _, raw := range selectedPaths {
-		p := normalizeSnapshotPath(raw)
-		if p == "" {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
 			continue
 		}
-		if _, exists := unique[p]; exists {
+		if _, exists := unique[raw]; exists {
 			continue
 		}
-		unique[p] = struct{}{}
-		paths = append(paths, p)
+		unique[raw] = struct{}{}
+		paths = append(paths, raw)
 	}
 	if len(paths) == 0 {
 		return fmt.Errorf("kopia: no valid paths selected")
 	}
 
-	for _, rel := range paths {
-		entry, err := findSnapshotEntry(ctx, rootEntry, rel)
+	for _, raw := range paths {
+		entry, rel, err := resolveSnapshotEntry(ctx, rootEntry, raw, run.SourcePath)
 		if err != nil {
-			return fmt.Errorf("kopia: selected path not found (%s): %w", rel, err)
+			return fmt.Errorf("kopia: selected path not found (%s): %w", raw, err)
 		}
 
-		parentRel := path.Dir(rel)
-		if parentRel == "." || parentRel == "/" {
-			parentRel = ""
-		}
 		destBase := targetPath
-		if parentRel != "" {
-			destBase = filepath.Join(targetPath, filepath.FromSlash(parentRel))
+		var out restore.Output
+		if _, isDir := entry.(kopiafs.Directory); isDir {
+			if rel != "" {
+				destBase = filepath.Join(targetPath, filepath.FromSlash(rel))
+			}
+			if err := os.MkdirAll(destBase, 0o755); err != nil {
+				return fmt.Errorf("kopia: mkdir target for %s: %w", rel, err)
+			}
+			fsOut := &restore.FilesystemOutput{
+				TargetPath:           destBase,
+				OverwriteDirectories: true,
+				OverwriteFiles:       true,
+				OverwriteSymlinks:    true,
+				WriteFilesAtomically: false,
+				SkipOwners:           true,
+				SkipPermissions:      true,
+			}
+			out = &fullRestoreOutput{fsOut}
+		} else {
+			finalPath := filepath.Join(targetPath, filepath.FromSlash(rel))
+			if err := os.MkdirAll(filepath.Dir(finalPath), 0o755); err != nil {
+				return fmt.Errorf("kopia: mkdir target for %s: %w", rel, err)
+			}
+			out = &singleFileRestoreOutput{
+				targetPath:       finalPath,
+				knownFileSize:    entry.Size(),
+				progressCallback: progressCounter.onProgress,
+			}
 		}
-		if err := os.MkdirAll(destBase, 0o755); err != nil {
-			return fmt.Errorf("kopia: mkdir target for %s: %w", rel, err)
-		}
-
-		fsOut := &restore.FilesystemOutput{
-			TargetPath:           destBase,
-			OverwriteDirectories: true,
-			OverwriteFiles:       true,
-			OverwriteSymlinks:    true,
-			WriteFilesAtomically: false,
-			SkipOwners:           true,
-			SkipPermissions:      true,
-		}
-		out := &fullRestoreOutput{fsOut}
 
 		if _, err := restore.Entry(ctx, rep, out, entry, restore.Options{
 			ProgressCallback:       progressCounter.onProgress,
@@ -2492,7 +2499,7 @@ func (r *Runner) kopiaMaintenance(ctx context.Context, run *NextRunResponse, mod
 	opts := kopiaOptionsFromRun(r.cfg, run)
 	repoPath := kopiaRepoConfigPath(r.cfg, run)
 	password := opts.password()
-	if _, statErr := os.Stat(repoPath); os.IsNotExist(statErr) && run != nil && run.RepoConfigKey != "" {
+	if _, statErr := os.Stat(repoPath); os.IsNotExist(statErr) {
 		st, stErr := opts.storage(ctx)
 		if stErr != nil {
 			return fmt.Errorf("kopia: storage init for maintenance: %w", stErr)

@@ -15,26 +15,31 @@ Once your password is set, the product picker unlocks. Selecting
 previous step is automatically reused as the backup agent password).
 
 ## 1. Enroll an agent
-- Linux: download `e3-backup-agent-linux`, drop into `/usr/local/bin`,
-  run `e3-backup-agent -enroll -token <one-time-token>` then
-  `systemctl enable --now e3-backup-agent`.
-- Windows: run `e3-backup-agent-setup.exe`, accept the SmartScreen
-  warning if unsigned, paste the one-time token when prompted, finish
-  the wizard. The service starts automatically and the tray helper
-  launches at next login.
+
+Generate an enrollment token from **Enrollment Tokens** in the portal, then use the OS-specific install command shown after generation.
+
+- **Linux (recommended):**
+  ```bash
+  curl -fsSL https://accounts.eazybackup.ca/client_installer/e3-backup-agent-linux-install.sh | sudo bash -s -- --token <one-time-token>
+  ```
+  Or install the `.deb` package:
+  ```bash
+  curl -fsSL -o e3-backup-agent.deb https://accounts.eazybackup.ca/client_installer/e3-backup-agent-linux.deb
+  sudo TOKEN=<one-time-token> dpkg -i e3-backup-agent.deb
+  ```
+  The installer writes `/etc/e3-backup-agent/agent.conf`, installs the systemd service, and enrolls automatically.
+
+- **Windows:** download `e3-backup-agent-setup.exe`, then run silently:
+  ```text
+  e3-backup-agent-setup.exe /VERYSILENT /TOKEN=<one-time-token>
+  ```
+  Or run the wizard and sign in with your portal credentials. The service starts automatically and the tray helper launches at next login.
 
 ### Quick-enroll (recommended for testers)
 
-The user detail page (Cloud Backup -> Users -> *click row* -> Agents tab)
-now exposes a **Generate token** button. It mints a 60-minute single-use
-token and renders ready-to-paste install snippets for:
+The **Enrollment Tokens** page exposes a **Generate Token** button. It mints a single-use token and shows ready-to-paste install commands for Windows and Linux.
 
-- Linux
-- Windows Server 2019
-- Windows Server 2025
-
-Copy the snippet and paste it into the test box. The agent will appear in
-the Agents table on the same page within ~10 seconds.
+Copy the command for your OS and run it on the target host. The agent will appear in the Agents table within ~10 seconds.
 
 ## 2. First backup
 - Sign in to the customer portal → e3 Cloud Backup → Users → click your
@@ -60,12 +65,11 @@ the Agents table on the same page within ~10 seconds.
   target directory on the agent host, click **Restore**.
 - The job appears in **Jobs → Restores** until it finishes.
 
-## 4. Disk-image selective restore (beta)
-- Same flow as file restore, but pick a `disk_image` snapshot and
-  choose **Mount snapshot** instead of **Copy files**. The captured
-  volume image is FUSE-mounted read-only on the agent host so you can
-  cherry-pick files out of it without restoring the whole volume.
-- Full block-level disk-image restore is GA-only for this beta.
+## 4. Disk-image restore (beta)
+- **Linux block-level restore** is available for restorable disk-image points (lab-validated).
+- **Mount snapshot** (file-level restore from a disk-image point) is not yet available on Linux agents.
+- **Windows** full block-level disk-image restore via the portal is GA-only for this beta.
+- For a single file from a disk-image snapshot, contact support for an out-of-band procedure until mount restore ships.
 
 ## 5. Hyper-V backup + restore
 - Backup is configured per-VM at job-create time. The agent picks the

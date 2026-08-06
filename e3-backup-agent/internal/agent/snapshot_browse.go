@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -172,6 +173,51 @@ func (r *Runner) browseSnapshot(ctx context.Context, job *JobContext, manifestID
 	}, nil
 }
 
+func resolveSelectedSnapshotPaths(rawPaths []string, sourcePath string) []string {
+	unique := map[string]struct{}{}
+	out := make([]string, 0, len(rawPaths))
+	sourcePath = strings.TrimSpace(sourcePath)
+	sourceBase := ""
+	if sourcePath != "" {
+		sourceBase = strings.Trim(filepath.Base(sourcePath), "/\\")
+	}
+
+	add := func(p string) {
+		p = normalizeSnapshotPath(p)
+		if p == "" {
+			return
+		}
+		if _, exists := unique[p]; exists {
+			return
+		}
+		unique[p] = struct{}{}
+		out = append(out, p)
+	}
+
+	for _, raw := range rawPaths {
+		candidates := []string{raw}
+		if sourceBase != "" {
+			candidates = append(candidates,
+				strings.TrimPrefix(normalizeSnapshotPath(raw), sourceBase+"/"),
+				strings.TrimPrefix(normalizeSnapshotPath(raw), sourceBase),
+			)
+		}
+		if sourcePath != "" {
+			candidates = append(candidates,
+				strings.TrimPrefix(raw, sourcePath),
+				strings.TrimPrefix(raw, sourcePath+"/"),
+				strings.TrimPrefix(raw, sourcePath+"\\"),
+			)
+		}
+		candidates = append(candidates, filepath.Base(raw))
+
+		for _, c := range candidates {
+			add(c)
+		}
+	}
+	return out
+}
+
 func normalizeSnapshotPath(raw string) string {
 	p := strings.TrimSpace(raw)
 	if p == "" {
@@ -184,6 +230,25 @@ func normalizeSnapshotPath(raw string) string {
 	}
 	p = strings.TrimPrefix(p, "/")
 	return p
+}
+
+func resolveSnapshotEntry(ctx context.Context, root kopiafs.Entry, rawPath, sourcePath string) (kopiafs.Entry, string, error) {
+	candidates := resolveSelectedSnapshotPaths([]string{rawPath}, sourcePath)
+	sort.Slice(candidates, func(i, j int) bool {
+		return len(candidates[i]) > len(candidates[j])
+	})
+	var lastErr error
+	for _, rel := range candidates {
+		entry, err := findSnapshotEntry(ctx, root, rel)
+		if err == nil {
+			return entry, rel, nil
+		}
+		lastErr = err
+	}
+	if lastErr == nil {
+		lastErr = fmt.Errorf("entry not found")
+	}
+	return nil, "", lastErr
 }
 
 func findSnapshotEntry(ctx context.Context, root kopiafs.Entry, relPath string) (kopiafs.Entry, error) {

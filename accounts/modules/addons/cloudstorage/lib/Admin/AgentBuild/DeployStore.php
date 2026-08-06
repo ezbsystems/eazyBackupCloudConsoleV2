@@ -14,6 +14,18 @@ class DeployStore
       'versioned_prefix' => 'e3-backup-agent-linux-',
       'versioned_ext' => '',
     ],
+    'linux_install_sh' => [
+      'platform' => 'linux',
+      'latest' => 'e3-backup-agent-linux-install.sh',
+      'versioned_prefix' => 'e3-backup-agent-linux-install-',
+      'versioned_ext' => '.sh',
+    ],
+    'linux_deb' => [
+      'platform' => 'linux',
+      'latest' => 'e3-backup-agent-linux.deb',
+      'versioned_prefix' => 'e3-backup-agent-linux_',
+      'versioned_ext' => '_amd64.deb',
+    ],
     'windows' => [
       'platform' => 'windows',
       'latest' => 'e3-backup-agent-setup.exe',

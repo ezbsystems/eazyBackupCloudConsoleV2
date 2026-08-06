@@ -209,7 +209,7 @@
                     <div class="min-w-0 flex-1">
                         <div class="eb-type-eyebrow">Step 1</div>
                         <div class="eb-card-title">Download the agent</div>
-                        <p class="eb-card-subtitle">Pick the installer for Windows or Linux. It runs on the computer you want to back up.</p>
+                        <p class="eb-card-subtitle">Windows: download the installer. Linux: use the installer script or .deb package from the download menu.</p>
                     </div>
                 </div>
                 <div class="mt-4 flex items-center gap-2">
@@ -240,8 +240,8 @@
                     </span>
                     <div class="min-w-0 flex-1">
                         <div class="eb-type-eyebrow">Step 2</div>
-                        <div class="eb-card-title">Sign in from the agent</div>
-                        <p class="eb-card-subtitle">When the installer launches, sign in with your portal credentials. The agent will appear here within ~10 seconds.</p>
+                        <div class="eb-card-title">Enroll the agent</div>
+                        <p class="eb-card-subtitle">Generate an enrollment token, then run the install command on your computer. Windows signs in via the tray; Linux enrolls automatically from the token.</p>
                     </div>
                 </div>
                 <div class="mt-4 flex items-center gap-2">

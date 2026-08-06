@@ -105,21 +105,49 @@ scp bin/e3-backup-agent root@linux-host:/usr/local/bin/e3-backup-agent
 ssh root@linux-host 'chown root:root /usr/local/bin/e3-backup-agent && chmod 755 /usr/local/bin/e3-backup-agent'
 ```
 
+### Customer install (recommended)
+
+Customers should use the Linux installer script or `.deb` package (not the raw binary):
+
+| Artifact | URL |
+| -------- | --- |
+| Installer script | `https://accounts.eazybackup.ca/client_installer/e3-backup-agent-linux-install.sh` |
+| Debian package | `https://accounts.eazybackup.ca/client_installer/e3-backup-agent-linux.deb` |
+| Raw binary (advanced) | `https://accounts.eazybackup.ca/client_installer/e3-backup-agent-linux` |
+
+**One-line install with enrollment token:**
+
+```bash
+curl -fsSL https://accounts.eazybackup.ca/client_installer/e3-backup-agent-linux-install.sh | sudo bash -s -- --token YOUR_TOKEN
+```
+
+**Debian package:**
+
+```bash
+curl -fsSL -o e3-backup-agent.deb https://accounts.eazybackup.ca/client_installer/e3-backup-agent-linux.deb
+sudo TOKEN=YOUR_TOKEN dpkg -i e3-backup-agent.deb
+```
+
+Build installer artifacts locally:
+
+```bash
+cd /var/www/eazybackup.ca/e3-backup-agent
+make build linux-installer deb VERSION=2026.08.06
+```
+
 ### Publish Linux Download Artifact
 
-To make the Linux binary available from the WHMCS download path:
+To make Linux artifacts available from the WHMCS download path:
 
 ```bash
 mkdir -p /var/www/eazybackup.ca/accounts/client_installer
 cp /var/www/eazybackup.ca/e3-backup-agent/bin/e3-backup-agent \
   /var/www/eazybackup.ca/accounts/client_installer/e3-backup-agent-linux
-chmod 644 /var/www/eazybackup.ca/accounts/client_installer/e3-backup-agent-linux
-```
-
-Download URL:
-
-```text
-https://accounts.eazybackup.ca/client_installer/e3-backup-agent-linux
+cp /var/www/eazybackup.ca/e3-backup-agent/bin/e3-backup-agent-linux-install.sh \
+  /var/www/eazybackup.ca/accounts/client_installer/
+cp /var/www/eazybackup.ca/e3-backup-agent/bin/e3-backup-agent-linux.deb \
+  /var/www/eazybackup.ca/accounts/client_installer/
+chmod 644 /var/www/eazybackup.ca/accounts/client_installer/e3-backup-agent-linux*
 ```
 
 ---

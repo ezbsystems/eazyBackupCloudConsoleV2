@@ -14,6 +14,6 @@ class LinuxBuild extends StepBase
         // Pass VERSION as a Make variable so we don't have to build an explicit
         // $env array (which would mask the systemd/inherited env including
         // PATH, HOME, GOCACHE, GOMODCACHE, GOTMPDIR).
-        return $runner->run(['make', 'VERSION=' . $version, 'build'], $logPath, $repo);
+        return $runner->run(['make', 'VERSION=' . $version, 'build', 'linux-installer', 'deb'], $logPath, $repo);
     }
 }

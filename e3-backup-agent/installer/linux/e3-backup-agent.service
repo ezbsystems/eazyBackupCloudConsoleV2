@@ -1,0 +1,15 @@
+[Unit]
+Description=E3 Backup Agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/e3-backup-agent -config /etc/e3-backup-agent/agent.conf
+Restart=always
+RestartSec=10
+User=root
+Group=root
+
+[Install]
+WantedBy=multi-user.target
