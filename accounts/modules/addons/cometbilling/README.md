@@ -212,6 +212,7 @@ Use the dashboard setup checklist, or:
 - **Usage History**: View billing history
 - **New Items**: Count devices, boosters, and M365 identities first billed in a date range
 - **Period Compare**: Compare Bill History credit spend between two periods (category totals, item-level drivers, Active Services snapshot run-rate near each period end)
+- **Policy Status**: Accounts on configured CSW Policy IDs with last backup warning; cross-ref Active Services for billed warning/error accounts
 - **M365 Report**: Filter Microsoft 365 Protected Accounts booster billing by date range (latest portal snapshot in period)
 
 ### Historical Reconcile (audit-grade)

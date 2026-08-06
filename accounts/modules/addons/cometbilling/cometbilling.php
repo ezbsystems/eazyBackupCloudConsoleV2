@@ -286,6 +286,7 @@ function cometbilling_output($vars)
         . '<a href="'.$baseUrl.'&action=usage" class="btn btn-default">Usage History</a> '
         . '<a href="'.$baseUrl.'&action=new_items" class="btn btn-default">New Items</a> '
         . '<a href="'.$baseUrl.'&action=period_compare" class="btn btn-default">Period Compare</a> '
+        . '<a href="'.$baseUrl.'&action=policy_status" class="btn btn-default">Policy Status</a> '
         . '<a href="'.$baseUrl.'&action=m365_report" class="btn btn-default">M365 Report</a>'
         . '</p>';
 
@@ -344,6 +345,14 @@ function cometbilling_output($vars)
                 @set_time_limit(300);
             }
             include __DIR__ . '/templates/admin/period_compare.tpl.php';
+            break;
+
+        case 'policy_status':
+            cometbilling_releaseSession();
+            if (function_exists('set_time_limit')) {
+                @set_time_limit(600);
+            }
+            include __DIR__ . '/templates/admin/policy_status.tpl.php';
             break;
 
         case 'm365_report':
