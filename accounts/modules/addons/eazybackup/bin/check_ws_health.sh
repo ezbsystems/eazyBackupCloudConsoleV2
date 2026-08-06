@@ -14,7 +14,9 @@ SES_SENDER="${SES_SENDER:-postmaster@eazybackup.ca}"
 SES_RECIPIENT="${SES_RECIPIENT:-services@eazybackup.ca}"
 
 # Patterns that indicate worker health issues likely to impact notifications.
-PATTERN='Could not resolve host|Heartbeat ERROR|WS error|Auth failed|No auth response|Non-JSON frame'
+PATTERN='Could not resolve host|Heartbeat ERROR|WS error|WS auth-timeout|Auth failed|No auth response|Non-JSON frame|WS recovery failed|WS connection failure'
+# Routine single idle recycles that recover immediately are informational only.
+IGNORE_PATTERN='WS idle-recycle:|WS stream recovered|idle-recycle recovered'
 
 STATE_DIR="/tmp/eazybackup-ws-health"
 mkdir -p "$STATE_DIR"
@@ -29,10 +31,13 @@ units=(
 
 filter_hits() {
   local input="$1"
+  local filtered="$input"
   if command -v rg >/dev/null 2>&1; then
-    printf '%s\n' "$input" | rg -i "$PATTERN" || true
+    filtered="$(printf '%s\n' "$input" | rg -vi "$IGNORE_PATTERN" || true)"
+    printf '%s\n' "$filtered" | rg -i "$PATTERN" || true
   else
-    printf '%s\n' "$input" | grep -E -i "$PATTERN" || true
+    filtered="$(printf '%s\n' "$input" | grep -E -vi "$IGNORE_PATTERN" || true)"
+    printf '%s\n' "$filtered" | grep -E -i "$PATTERN" || true
   fi
 }
 

@@ -304,6 +304,11 @@ Readers / presenters:
 **Environment variable:**
 
 - `EB_HEARTBEAT_INTERVAL` — Heartbeat interval in seconds (default: 60).
+- `EB_WS_IDLE_TIMEOUT` — Recycle when no application messages arrive for this many seconds (default: 300).
+- `EB_WS_AUTH_TIMEOUT` — Auth handshake response timeout in seconds (default: 30).
+- `EB_WS_IDLE_ALERT_AFTER` — Alert only after this many consecutive idle recycles without recovery (default: 2).
+- `EB_WS_RECOVERY_DEADLINE` — Seconds after auth to receive `SEVT_META_HELLO` or a stream event before recovery-failed handling (default: 60).
+- `EB_DEVICE_OFFLINE_STRIKES` — Consecutive heartbeat misses before marking a device offline (default: 2).
 
 **Logging:**
 With `EB_WS_DEBUG=1`, the heartbeat logs:
@@ -461,6 +466,51 @@ WantedBy=multi-user.target
   # Debug toggles (optional):
   # EB_WS_DEBUG=1 ? log raw frames and parsed events.
   # EB_DB_DEBUG=1 ? log database writes.
+  # WebSocket recovery (comet_ws_worker.php):
+  EB_WS_IDLE_TIMEOUT=300
+  EB_WS_AUTH_TIMEOUT=30
+  EB_WS_IDLE_ALERT_AFTER=2
+  EB_WS_RECOVERY_DEADLINE=60
+  EB_WS_IDLE_RECONNECT_DELAY=2
+  EB_WS_CONNECT_BACKOFF_BASE=2
+  EB_WS_CONNECT_BACKOFF_MAX=32
+  EB_WS_CONNECT_ALERT_AFTER=3
+  EB_DEVICE_OFFLINE_STRIKES=2
+  EB_WS_RECOVERY_STATE_DIR=/var/lib/eazybackup/ws-recovery
+  EB_RECONCILE_INCOMPLETE_MODE=enforce
+  EB_RECONCILE_ACTION_LIMIT=25
+
+**WebSocket Idle Stream Incident (2026-08-05)**
+
+- Symptom: both `eazybackup-comet-ws@cometbackup.service` and `eazybackup-comet-ws@obc.service` on dev and production sent admin emails claiming the worker "stalled" after exactly 300 seconds with no frames.
+- Evidence:
+  - Both profiles on both hosts timed out within milliseconds (`18:14:13 UTC` on `cometbackup`).
+  - Admin API heartbeats (`refreshDeviceOnlineStatus`) continued every 60 seconds during the gap.
+  - Comet dispatcher connection counts nearly doubled on both profiles before returning to baseline after reconnect.
+  - Both `csw.eazybackup.ca` and `csw.obcbackup.com` resolve to the same edge (`45.45.161.146`).
+  - Workers reconnected and authenticated within seconds; `NRestarts=0` on all units.
+- Root cause class: shared Comet edge/proxy or dispatcher event-stream disturbance. The PHP workers were healthy; the upstream stream stopped delivering application messages. Amp `receive()` measures application messages, not WebSocket ping/pong control frames.
+- Fix (Aug 2026):
+  - Added `lib/WebsocketRecoveryPolicy.php` for deterministic reconnect/alert policy.
+  - Idle gaps now log as `WS idle-recycle` and reconnect immediately (before any slow WHMCS email work).
+  - Admin alerts fire only after repeated idle recycles, connect/auth failures, or failed post-auth recovery (no `SEVT_META_HELLO`/stream event within `EB_WS_RECOVERY_DEADLINE`).
+  - Recovery state persisted to `EB_WS_RECOVERY_STATE_DIR` for watchdog visibility.
+  - Cursor flushed to `eb_event_cursor` before each disconnect.
+  - Device offline heartbeat uses `EB_DEVICE_OFFLINE_STRIKES` hysteresis to avoid mass false offline flips.
+  - `monitor_stalled_jobs.php` incomplete-job reconciliation enabled (`EB_RECONCILE_INCOMPLETE_MODE=enforce`) to catch missed active jobs after stream gaps.
+  - `comet_ws_watchdog.php` now checks recovery-state freshness; `check_ws_health.sh` ignores routine recovered idle recycles.
+- Verification:
+  ```bash
+  journalctl -u eazybackup-comet-ws@cometbackup.service -n 20 --no-pager | grep -E 'idle-recycle|stream recovered|authenticated'
+  cat /var/lib/eazybackup/ws-recovery/cometbackup.json
+  php accounts/modules/addons/eazybackup/bin/comet_ws_watchdog.php
+  php accounts/modules/addons/eazybackup/bin/dev/websocket_recovery_policy_test.php
+  ```
+- Rollback (production files saved under `/root/ws-recovery-rollback-<timestamp>/`):
+  ```bash
+  cp /root/ws-recovery-rollback-*/comet_ws_worker.php /var/www/eazybackup.ca/accounts/modules/addons/eazybackup/bin/
+  systemctl restart eazybackup-comet-ws@cometbackup eazybackup-comet-ws@obc
+  ```
 
 **Worker Stability Incident (2026-02-17)**
 

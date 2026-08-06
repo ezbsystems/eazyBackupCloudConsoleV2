@@ -93,6 +93,10 @@ function pick(array $src, array $keys, $default = '') {
 // Amp v3 helpers will be referenced via fully-qualified names (\\Amp\\async, \\Amp\\delay, \\Amp\\Future\\awaitAll)
 // Websocket client (v2) used via fully-qualified names
 use Comet\Server as CometServer;
+use WHMCS\Module\Addon\Eazybackup\WebsocketRecoveryPolicy;
+use Amp\Websocket\WebsocketCount;
+
+require_once __DIR__ . '/../lib/WebsocketRecoveryPolicy.php';
 
 /////////////////
 // .env loader //
@@ -300,21 +304,131 @@ function throwableSummary(Throwable $e): string {
 }
 
 function isWsIdleTimeout(Throwable $e): bool {
-    $cur = $e;
-    while ($cur !== null) {
-        if ($cur instanceof \Amp\TimeoutException) {
-            return true;
-        }
-        $msg = $cur->getMessage();
-        if (str_contains($msg, 'No websocket frames received for') || str_contains($msg, 'Timed out waiting for auth response')) {
-            return true;
-        }
-        $cur = $cur->getPrevious();
-    }
-    return false;
+    return WebsocketRecoveryPolicy::isApplicationMessageIdleTimeout($e)
+        || WebsocketRecoveryPolicy::isAuthTimeout($e);
 }
 
-function sendWsAdminAlert(PDO $pdo, string $profile, string $kind, string $reason): void {
+function wsRecoveryStateDir(): string {
+    $dir = trim((string)(getenv('EB_WS_RECOVERY_STATE_DIR') ?: '/var/lib/eazybackup/ws-recovery'));
+    if ($dir === '') {
+        $dir = '/var/lib/eazybackup/ws-recovery';
+    }
+    if (!is_dir($dir)) {
+        @mkdir($dir, 0750, true);
+    }
+    return rtrim($dir, '/');
+}
+
+function persistWsRecoveryState(string $profile, array $state, string $reason = 'unspecified'): void {
+    $safe = preg_replace('/[^a-zA-Z0-9_.-]+/', '_', $profile) ?: 'unknown';
+    $path = wsRecoveryStateDir() . '/' . $safe . '.json';
+    $payload = WebsocketRecoveryPolicy::persistencePayload($profile, $state, time());
+    $json = json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT);
+    if ($json !== false) {
+        @file_put_contents($path, $json);
+    }
+}
+
+function wsConnectionDiagnostics(?object $conn): array {
+    if ($conn === null) {
+        return [];
+    }
+    $stats = [];
+    try {
+        if (method_exists($conn, 'getCount')) {
+            foreach ([
+                WebsocketCount::FramesReceived,
+                WebsocketCount::FramesSent,
+                WebsocketCount::MessagesReceived,
+                WebsocketCount::MessagesSent,
+                WebsocketCount::PingsReceived,
+                WebsocketCount::PingsSent,
+                WebsocketCount::PongsReceived,
+                WebsocketCount::PongsSent,
+                WebsocketCount::UnansweredPings,
+            ] as $case) {
+                $stats[$case->name] = $conn->getCount($case);
+            }
+        }
+        if (method_exists($conn, 'isClosed') && $conn->isClosed() && method_exists($conn, 'getCloseInfo')) {
+            $info = $conn->getCloseInfo();
+            $stats['close_code'] = $info->getCode();
+            $stats['close_reason'] = $info->getReason();
+        }
+    } catch (Throwable $_) {
+        /* ignore */
+    }
+    return $stats;
+}
+
+function wsAlertSubject(string $profile, string $kind): string {
+    return match ($kind) {
+        WebsocketRecoveryPolicy::ALERT_IDLE_RECYCLE =>
+            "[EazyBackup] WebSocket idle stream recycle: {$profile}",
+        WebsocketRecoveryPolicy::ALERT_CONNECT_FAILURE =>
+            "[EazyBackup] WebSocket connection failure: {$profile}",
+        WebsocketRecoveryPolicy::ALERT_RECOVERY_FAILED =>
+            "[EazyBackup] WebSocket recovery failed: {$profile}",
+        default => "[EazyBackup] WebSocket worker alert: {$profile}",
+    };
+}
+
+function wsAlertBody(
+    string $profile,
+    string $kind,
+    string $reason,
+    array $recoveryState = [],
+    array $diagnostics = []
+): string {
+    $host = gethostname() ?: php_uname('n');
+    $cursorTs = 'unknown';
+    try {
+        $pdo = db();
+        $stmt = $pdo->prepare("SELECT last_ts FROM eb_event_cursor WHERE source = ? LIMIT 1");
+        $stmt->execute(["comet-ws:{$profile}"]);
+        $ts = $stmt->fetchColumn();
+        if ($ts !== false && $ts !== null && (int)$ts > 0) {
+            $cursorTs = gmdate('Y-m-d H:i:s', (int)$ts) . ' UTC';
+        }
+    } catch (Throwable $_) {
+        /* ignore */
+    }
+
+    $body = "The eazyBackup websocket worker detected a condition requiring attention.\n\n"
+        . "Host: {$host}\n"
+        . "Profile: {$profile}\n"
+        . "Condition: {$kind}\n"
+        . "Message idle timeout: " . EB_WS_IDLE_TIMEOUT . " seconds\n"
+        . "Last cursor timestamp: {$cursorTs}\n"
+        . "Time: " . gmdate('Y-m-d H:i:s') . " UTC\n";
+
+    if (!empty($recoveryState)) {
+        $body .= "\nRecovery state:\n"
+            . "  session_healthy=" . (($recoveryState['session_healthy'] ?? false) ? 'yes' : 'no') . "\n"
+            . "  consecutive_idle_recycles=" . (int)($recoveryState['consecutive_idle_recycles'] ?? 0) . "\n"
+            . "  consecutive_connect_failures=" . (int)($recoveryState['consecutive_connect_failures'] ?? 0) . "\n"
+            . "  total_idle_recycles=" . (int)($recoveryState['total_idle_recycles'] ?? 0) . "\n";
+        if (!empty($recoveryState['last_disconnect_reason'])) {
+            $body .= "  last_disconnect_reason=" . $recoveryState['last_disconnect_reason'] . "\n";
+        }
+    }
+
+    if (!empty($diagnostics)) {
+        $body .= "\nConnection diagnostics: "
+            . WebsocketRecoveryPolicy::formatDiagnostics($diagnostics) . "\n";
+    }
+
+    return $body . "\nReason:\n{$reason}\n";
+}
+
+function sendWsAdminAlert(
+    PDO $pdo,
+    string $profile,
+    string $kind,
+    string $reason,
+    array $recoveryState = [],
+    array $diagnostics = []
+): void {
     if (!addonBool($pdo, 'ws_alert_enabled', true)) {
         return;
     }
@@ -332,26 +446,8 @@ function sendWsAdminAlert(PDO $pdo, string $profile, string $kind, string $reaso
         return;
     }
 
-    $cursorTs = '';
-    try {
-        $stmt = $pdo->prepare("SELECT last_ts FROM eb_event_cursor WHERE source = ? LIMIT 1");
-        $stmt->execute(["comet-ws:{$profile}"]);
-        $ts = $stmt->fetchColumn();
-        if ($ts !== false && $ts !== null && (int)$ts > 0) {
-            $cursorTs = gmdate('Y-m-d H:i:s', (int)$ts) . ' UTC';
-        }
-    } catch (Throwable $e) { /* ignore */ }
-
-    $host = gethostname() ?: php_uname('n');
-    $subject = "[EazyBackup] WebSocket worker stalled: {$profile}";
-    $body = "The eazyBackup websocket worker detected a stalled websocket stream and forced a reconnect.\n\n"
-        . "Host: {$host}\n"
-        . "Profile: {$profile}\n"
-        . "Condition: {$kind}\n"
-        . "Idle timeout: " . EB_WS_IDLE_TIMEOUT . " seconds\n"
-        . "Last cursor timestamp: " . ($cursorTs !== '' ? $cursorTs : 'unknown') . "\n"
-        . "Time: " . gmdate('Y-m-d H:i:s') . " UTC\n\n"
-        . "Reason:\n{$reason}\n";
+    $subject = wsAlertSubject($profile, $kind);
+    $body = wsAlertBody($profile, $kind, $reason, $recoveryState, $diagnostics);
 
     $sent = false;
     foreach ($recipients as $to) {
@@ -1178,6 +1274,9 @@ function syncUserDevices(PDO $pdo, string $profile, string $username): void {
  * Comet doesn't emit an event when a device goes offline, so we poll AdminDispatcherListActive().
  */
 function refreshDeviceOnlineStatus(PDO $pdo, string $profile): void {
+    static $offline_strikes = [];
+    $requiredStrikes = max(1, (int)(getenv('EB_DEVICE_OFFLINE_STRIKES') ?: 2));
+
     $client = cometAdminClientForProfile($pdo, $profile);
     if (!$client) {
         if (EB_WS_DEBUG) logLine($profile, "Heartbeat: no admin client for profile {$profile}");
@@ -1240,13 +1339,28 @@ function refreshDeviceOnlineStatus(PDO $pdo, string $profile): void {
         $offlineCount = 0;
         $changedCount = 0;
 
+        $skippedOffline = 0;
+
         foreach ($devices as $device) {
             $deviceHash = $device['hash'] ?? '';
             $deviceUsername = $device['username'] ?? '';
+            $deviceId = (string)($device['id'] ?? '');
             $currentStatus = (int)($device['is_active'] ?? 0);
 
             // Check if THIS user's device is in the active list (must match both username AND deviceHash)
             $shouldBeActive = isset($activeByUser[$deviceUsername][$deviceHash]) ? 1 : 0;
+
+            if ($shouldBeActive === 1) {
+                unset($offline_strikes[$deviceId]);
+            } elseif ($currentStatus === 1) {
+                $offline_strikes[$deviceId] = ($offline_strikes[$deviceId] ?? 0) + 1;
+                if ($offline_strikes[$deviceId] < $requiredStrikes) {
+                    $shouldBeActive = 1;
+                    $skippedOffline++;
+                }
+            } else {
+                unset($offline_strikes[$deviceId]);
+            }
 
             if ($currentStatus !== $shouldBeActive) {
                 $updateStmt = $pdo->prepare("UPDATE comet_devices
@@ -1270,7 +1384,7 @@ function refreshDeviceOnlineStatus(PDO $pdo, string $profile): void {
             }
         }
 
-        logLine($profile, "Heartbeat: checked " . count($devices) . " devices for " . count($serverUsers) . " server users, online={$onlineCount}, offline={$offlineCount}, changed={$changedCount}");
+        logLine($profile, "Heartbeat: checked " . count($devices) . " devices for " . count($serverUsers) . " server users, online={$onlineCount}, offline={$offlineCount}, changed={$changedCount}, offline_hysteresis_skipped={$skippedOffline}");
     } catch (Throwable $e) {
         logLine($profile, "Heartbeat ERROR: " . $e->getMessage());
     }
@@ -1635,8 +1749,9 @@ function handleEvent(PDO &$pdo, string $profile, array $evt): void {
 /////////////////////
 // Heartbeat interval in seconds (check device online status every 60 seconds)
 define('EB_HEARTBEAT_INTERVAL', (int)(getenv('EB_HEARTBEAT_INTERVAL') ?: 60));
-// If no websocket frames arrive for too long, force a reconnect instead of hanging forever.
+// If no application messages arrive for too long, force a reconnect instead of hanging forever.
 define('EB_WS_IDLE_TIMEOUT', (int)(getenv('EB_WS_IDLE_TIMEOUT') ?: 300));
+define('EB_WS_AUTH_TIMEOUT', (int)(getenv('EB_WS_AUTH_TIMEOUT') ?: 30));
 
 function handleEventWithDbResilience(PDO &$pdo, string $profile, array $evt): void {
     withDbRetry($pdo, $profile, function (PDO &$pdo) use ($profile, $evt): void {
@@ -1653,10 +1768,14 @@ function runOneProfile(PDO &$pdo, array $cfg): never {
     $pass    = $cfg['password'];
     $sess    = $cfg['sessionkey'];
     $totp    = $cfg['totp'];
+    $recoveryConfig = WebsocketRecoveryPolicy::configFromEnv();
+    $recoveryState = WebsocketRecoveryPolicy::initialState();
+    $pendingAlert = null;
+    $reconnectDelay = $recoveryConfig['idle_reconnect_delay'];
 
     // Start heartbeat timer to periodically refresh device online status
     // Comet doesn't emit events when devices go offline, so we poll AdminDispatcherListActive()
-    $heartbeatId = EventLoop::repeat(EB_HEARTBEAT_INTERVAL, function() use (&$pdo, $profile) {
+    EventLoop::repeat(EB_HEARTBEAT_INTERVAL, function() use (&$pdo, $profile, &$recoveryState) {
         try {
             withDbRetry($pdo, $profile, function (PDO &$pdo) use ($profile): void {
                 refreshDeviceOnlineStatus($pdo, $profile);
@@ -1664,6 +1783,8 @@ function runOneProfile(PDO &$pdo, array $cfg): never {
         } catch (Throwable $e) {
             logLine($profile, "Heartbeat exception: " . $e->getMessage());
         }
+        // Watchdog freshness: keep recovery state current while the worker is alive.
+        persistWsRecoveryState($profile, $recoveryState, 'heartbeat');
     });
     logLine($profile, "Started heartbeat timer (interval=" . EB_HEARTBEAT_INTERVAL . "s)");
 
@@ -1676,15 +1797,20 @@ function runOneProfile(PDO &$pdo, array $cfg): never {
         logLine($profile, "Initial heartbeat exception: " . $e->getMessage());
     }
 
+    persistWsRecoveryState($profile, $recoveryState, 'startup');
+
     while (true) {
         $conn = null;
+        $disconnectDiagnostics = [];
+        $disconnectKind = 'unknown';
         try {
             // Build handshake and set Origin header.
             $hs = (new WebsocketHandshake($url))
-            ->withHeader('Origin', $origin);
+                ->withHeader('Origin', $origin);
 
             // Connect (returns Amp\Websocket\Client\Connection)
             $conn = connect($hs);
+            $recoveryState['consecutive_connect_failures'] = 0;
             logLine($profile, "WS connected url={$url}");
 
             // Comet auth: 5 text frames
@@ -1695,7 +1821,10 @@ function runOneProfile(PDO &$pdo, array $cfg): never {
             $conn->sendText($totp);
 
             // Expect "200 OK"
-            $hello = $conn->receive(new \Amp\TimeoutCancellation((float) EB_WS_IDLE_TIMEOUT, "Timed out waiting for auth response from {$profile}"));
+            $hello = $conn->receive(new \Amp\TimeoutCancellation(
+                (float) EB_WS_AUTH_TIMEOUT,
+                "Timed out waiting for auth response from {$profile}"
+            ));
             if ($hello === null) {
                 throw new RuntimeException("No auth response from {$profile}");
             }
@@ -1703,17 +1832,41 @@ function runOneProfile(PDO &$pdo, array $cfg): never {
             if ($txt !== '200 OK') {
                 throw new RuntimeException("Auth failed on {$profile}: {$txt}");
             }
-            logLine($profile, "WS authenticated; idle_timeout=" . EB_WS_IDLE_TIMEOUT . "s");
+            WebsocketRecoveryPolicy::onAuthenticated($recoveryState, time());
+            logLine(
+                $profile,
+                "WS authenticated; message_idle_timeout=" . EB_WS_IDLE_TIMEOUT
+                . "s auth_timeout=" . EB_WS_AUTH_TIMEOUT . "s"
+            );
+            persistWsRecoveryState($profile, $recoveryState, 'authenticated');
 
             // Stream events forever
-            while ($msg = $conn->receive(new \Amp\TimeoutCancellation((float) EB_WS_IDLE_TIMEOUT, "No websocket frames received for " . EB_WS_IDLE_TIMEOUT . "s on {$profile}"))) {
+            $idleMessage = "No application messages received for " . EB_WS_IDLE_TIMEOUT . "s on {$profile}";
+            while ($msg = $conn->receive(new \Amp\TimeoutCancellation((float) EB_WS_IDLE_TIMEOUT, $idleMessage))) {
+                $now = time();
                 $raw = $msg->buffer();
                 if (EB_WS_DEBUG) { logLine($profile, 'RAW ' . substr($raw, 0, 800)); }
-                $evt = json_decode($raw, true);            
+                $evt = json_decode($raw, true);
                 if (!is_array($evt)) {
                     error_log("[{$profile}] Non-JSON frame: " . substr($raw, 0, 200));
                     continue;
                 }
+
+                $typeString = (string)($evt['TypeString'] ?? '');
+                $effects = WebsocketRecoveryPolicy::onStreamEvent($recoveryState, $typeString, $now);
+                if (!empty($effects['recovery_complete'])) {
+                    logLine($profile, "WS stream recovered event={$typeString}");
+                    persistWsRecoveryState($profile, $recoveryState, 'recovery_complete');
+                } else {
+                    // Throttle disk writes on busy streams; heartbeat also refreshes state.
+                    static $lastHealthyPersistAt = [];
+                    $prevPersist = (int)($lastHealthyPersistAt[$profile] ?? 0);
+                    if (($now - $prevPersist) >= max(30, (int)EB_HEARTBEAT_INTERVAL)) {
+                        persistWsRecoveryState($profile, $recoveryState, 'healthy-event-throttle');
+                        $lastHealthyPersistAt[$profile] = $now;
+                    }
+                }
+
                 try {
                     handleEventWithDbResilience($pdo, $profile, $evt);
                 } catch (Throwable $e) {
@@ -1726,24 +1879,112 @@ function runOneProfile(PDO &$pdo, array $cfg): never {
             }
         } catch (Throwable $e) {
             $summary = throwableSummary($e);
-            error_log("[{$profile}] WS error: {$summary}");
-            if (isWsIdleTimeout($e)) {
-                try {
-                    withDbRetry($pdo, $profile, function (PDO &$pdo) use ($profile, $summary): void {
-                        sendWsAdminAlert($pdo, $profile, 'idle-timeout', $summary);
-                    });
-                } catch (Throwable $alertErr) {
-                    error_log("[{$profile}] WS alert skipped (DB unavailable): " . $alertErr->getMessage());
+            $disconnectDiagnostics = wsConnectionDiagnostics($conn);
+            $now = time();
+
+            if (WebsocketRecoveryPolicy::isApplicationMessageIdleTimeout($e)) {
+                $decision = WebsocketRecoveryPolicy::onIdleRecycle(
+                    $recoveryState,
+                    $now,
+                    EB_WS_IDLE_TIMEOUT,
+                    $recoveryConfig
+                );
+                $disconnectKind = $decision['log'];
+                $reconnectDelay = $decision['reconnect_delay'];
+                $diagText = WebsocketRecoveryPolicy::formatDiagnostics($disconnectDiagnostics);
+                logLine(
+                    $profile,
+                    "WS idle-recycle: {$summary}"
+                    . ($diagText !== '' ? " diagnostics={$diagText}" : '')
+                );
+                if ($decision['should_alert']) {
+                    $pendingAlert = [
+                        'should_alert' => true,
+                        'alert_kind' => $decision['alert_kind'],
+                        'alert_reason' => $decision['alert_reason'] ?? $summary,
+                    ];
+                } elseif (!$recoveryState['session_healthy']) {
+                    $deadlineAlert = WebsocketRecoveryPolicy::recoveryDeadlineExceeded(
+                        $recoveryState,
+                        $now,
+                        $recoveryConfig
+                    );
+                    if ($deadlineAlert !== null) {
+                        $pendingAlert = $deadlineAlert;
+                    }
+                }
+            } elseif (WebsocketRecoveryPolicy::isAuthTimeout($e)) {
+                $decision = WebsocketRecoveryPolicy::onConnectFailure(
+                    $recoveryState,
+                    $now,
+                    $summary,
+                    $recoveryConfig
+                );
+                $disconnectKind = 'auth-timeout';
+                $reconnectDelay = $decision['reconnect_delay'];
+                error_log("[{$profile}] WS auth-timeout: {$summary}");
+                if ($decision['should_alert']) {
+                    $pendingAlert = $decision;
+                }
+            } else {
+                $decision = WebsocketRecoveryPolicy::onConnectFailure(
+                    $recoveryState,
+                    $now,
+                    $summary,
+                    $recoveryConfig
+                );
+                $disconnectKind = $decision['log'];
+                $reconnectDelay = $decision['reconnect_delay'];
+                error_log("[{$profile}] WS error: {$summary}");
+                if ($decision['should_alert']) {
+                    $pendingAlert = $decision;
+                } elseif ($pendingAlert === null && str_contains(strtolower($summary), 'recovery failed')) {
+                    $pendingAlert = [
+                        'should_alert' => true,
+                        'alert_kind' => WebsocketRecoveryPolicy::ALERT_RECOVERY_FAILED,
+                        'alert_reason' => $summary,
+                    ];
                 }
             }
+
+            persistWsRecoveryState($profile, $recoveryState, 'disconnect:' . $disconnectKind);
         } finally {
+            try {
+                flushCursor($pdo, $profile);
+            } catch (Throwable $_) {
+                /* ignore */
+            }
             if ($conn !== null) {
+                $disconnectDiagnostics = $disconnectDiagnostics ?: wsConnectionDiagnostics($conn);
                 try { $conn->close(); } catch (Throwable $_) { /* ignore */ }
             }
-            logLine($profile, "WS reconnecting in 2s");
+            logLine($profile, "WS reconnecting in {$reconnectDelay}s (kind={$disconnectKind})");
         }
-        // backoff
-        \Amp\delay(2.0);
+
+        \Amp\delay((float) $reconnectDelay);
+
+        if (is_array($pendingAlert) && !empty($pendingAlert['should_alert'])) {
+            try {
+                withDbRetry($pdo, $profile, function (PDO &$pdo) use (
+                    $profile,
+                    $pendingAlert,
+                    $recoveryState,
+                    $disconnectDiagnostics
+                ): void {
+                    sendWsAdminAlert(
+                        $pdo,
+                        $profile,
+                        (string)($pendingAlert['alert_kind'] ?? 'unknown'),
+                        (string)($pendingAlert['alert_reason'] ?? 'unknown'),
+                        $recoveryState,
+                        $disconnectDiagnostics
+                    );
+                });
+            } catch (Throwable $alertErr) {
+                error_log("[{$profile}] WS alert skipped (DB unavailable): " . $alertErr->getMessage());
+            }
+            $pendingAlert = null;
+        }
     }
 }
 

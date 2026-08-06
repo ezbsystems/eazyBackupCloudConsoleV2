@@ -7,12 +7,14 @@ declare(strict_types=1);
  * Alerts (WHMCS admin email, same recipients as WS stall alerts) when:
  *  - eazybackup-comet-ws@<profile>.service is not active
  *  - eb_jobs_live row count exceeds fleet-wide or per-profile thresholds
+ *  - websocket recovery state is stale or reports an unhealthy session
  *
  * Env (optional):
  *   EB_WATCH_JOBS_LIVE_MAX=500          Fleet-wide eb_jobs_live row cap
  *   EB_WATCH_JOBS_LIVE_PROFILE_MAX=300  Per server_id row cap
  *   EB_WATCH_STALE_HOURS=24             Stale = no activity within this many hours
  *   EB_WATCH_RECONCILE_STALE_MIN=20      Incomplete-job discovery freshness
+ *   EB_WATCH_WS_RECOVERY_STALE_MIN=15    Recovery state file freshness
  *   EB_WATCH_COOLDOWN_MIN=360           Minutes between repeat alerts for same condition
  *   EB_WATCH_STATE_DIR=/var/lib/eazybackup/watchdog  Persistent alert cooldown state
  *   EB_WATCH_DRY_RUN=1                  Log only; do not send email
@@ -34,6 +36,7 @@ $JOBS_LIVE_MAX = max(50, (int)(getenv('EB_WATCH_JOBS_LIVE_MAX') ?: 500));
 $JOBS_LIVE_PROFILE_MAX = max(50, (int)(getenv('EB_WATCH_JOBS_LIVE_PROFILE_MAX') ?: 300));
 $STALE_HOURS = max(1, (int)(getenv('EB_WATCH_STALE_HOURS') ?: 24));
 $RECONCILE_STALE_MIN = max(5, (int)(getenv('EB_WATCH_RECONCILE_STALE_MIN') ?: 20));
+$WS_RECOVERY_STALE_MIN = max(5, (int)(getenv('EB_WATCH_WS_RECOVERY_STALE_MIN') ?: 15));
 $COOLDOWN_MIN = max(15, (int)(getenv('EB_WATCH_COOLDOWN_MIN') ?: 360));
 $DRY_RUN = getenv('EB_WATCH_DRY_RUN') === '1' || in_array('--dry-run', $argv ?? [], true);
 $RECONCILE_MODE = strtolower((string)(getenv('EB_RECONCILE_INCOMPLETE_MODE') ?: 'off'));
@@ -59,6 +62,48 @@ foreach ($profiles as $profile) {
                 . "Job completion events are not being processed; eb_jobs_live will grow until the worker is restarted.\n"
                 . "Try: sudo systemctl reset-failed {$unit} && sudo systemctl start {$unit}",
         ];
+        continue;
+    }
+
+    $recovery = loadWsRecoveryState($profile);
+    if ($recovery === null) {
+        $issues[] = [
+            'kind' => 'ws-recovery-stale',
+            'profile' => $profile,
+            'fingerprint' => sha1("ws-recovery-missing|{$profile}"),
+            'summary' => "WebSocket recovery state missing for '{$profile}'",
+            'detail' => 'Expected recovery state under '
+                . wsRecoveryStateDir()
+                . ". The worker may be running an older build or cannot write state files.",
+        ];
+        continue;
+    }
+
+    $updatedAt = (int)($recovery['updated_at'] ?? 0);
+    $staleAfter = $WS_RECOVERY_STALE_MIN * 60;
+    if ($updatedAt <= 0 || (time() - $updatedAt) > $staleAfter) {
+        $age = $updatedAt > 0 ? time() - $updatedAt : null;
+        $issues[] = [
+            'kind' => 'ws-recovery-stale',
+            'profile' => $profile,
+            'fingerprint' => sha1("ws-recovery-stale|{$profile}|{$WS_RECOVERY_STALE_MIN}"),
+            'summary' => "WebSocket recovery state is stale for '{$profile}'",
+            'detail' => $age !== null
+                ? "Last recovery-state update was {$age} seconds ago; threshold is {$staleAfter} seconds."
+                : 'Recovery state file exists but has no updated_at timestamp.',
+        ];
+    } elseif (empty($recovery['session_healthy'])) {
+        $idleRecycles = (int)($recovery['consecutive_idle_recycles'] ?? 0);
+        if ($idleRecycles >= 2) {
+            $issues[] = [
+                'kind' => 'ws-recovery-unhealthy',
+                'profile' => $profile,
+                'fingerprint' => sha1("ws-recovery-unhealthy|{$profile}|{$idleRecycles}"),
+                'summary' => "WebSocket stream unhealthy for '{$profile}'",
+                'detail' => "session_healthy=no consecutive_idle_recycles={$idleRecycles}\n"
+                    . 'last_disconnect_reason=' . (string)($recovery['last_disconnect_reason'] ?? 'unknown'),
+            ];
+        }
     }
 }
 
@@ -255,6 +300,38 @@ function wsServiceActiveState(string $unit): string
     $state = trim((string)@shell_exec($cmd));
 
     return $state !== '' ? $state : 'unknown';
+}
+
+function wsRecoveryStateDir(): string
+{
+    $dir = trim((string)(getenv('EB_WS_RECOVERY_STATE_DIR') ?: '/var/lib/eazybackup/ws-recovery'));
+    if ($dir === '') {
+        $dir = '/var/lib/eazybackup/ws-recovery';
+    }
+
+    return rtrim($dir, '/');
+}
+
+function wsRecoveryStateFile(string $profile): string
+{
+    $safe = preg_replace('/[^a-zA-Z0-9_.-]+/', '_', $profile) ?: 'unknown';
+
+    return wsRecoveryStateDir() . '/' . $safe . '.json';
+}
+
+/**
+ * @return array<string,mixed>|null
+ */
+function loadWsRecoveryState(string $profile): ?array
+{
+    $path = wsRecoveryStateFile($profile);
+    if (!is_file($path)) {
+        return null;
+    }
+    $raw = @file_get_contents($path);
+    $data = is_string($raw) ? json_decode($raw, true) : null;
+
+    return is_array($data) ? $data : null;
 }
 
 /**
