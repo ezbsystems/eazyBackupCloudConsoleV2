@@ -9,7 +9,7 @@ namespace Ms365Backup;
 final class RestoreTreeBrowseService
 {
     private const CACHE_TTL_SECONDS = 3600;
-    private const BROWSE_CACHE_NAMESPACE = 'v26-browse-serve';
+    private const BROWSE_CACHE_NAMESPACE = 'v27-drive-label-preserve';
 
     /** @var array<string, string> */
     private const SEGMENT_LABELS = [
@@ -1080,7 +1080,9 @@ final class RestoreTreeBrowseService
         if (!self::isSharePointDriveRootEntry($path, $name)) {
             return $label;
         }
-        if ($label !== '' && $label !== $name && !self::isSharePointDriveId($name)) {
+        // Prefer an existing human label (e.g. synthetic sibling drive names). Do not
+        // overwrite with the browsing child run's _drive_display_name when name is a drive id.
+        if ($label !== '' && $label !== $name && !self::isSharePointDriveId($label)) {
             return $label;
         }
 

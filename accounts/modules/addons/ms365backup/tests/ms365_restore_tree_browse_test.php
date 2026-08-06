@@ -70,9 +70,9 @@ assert_true(
 $ref = new ReflectionClass(\Ms365Backup\RestoreTreeBrowseService::class);
 
 assert_eq(
-    'v26-browse-serve',
+    'v27-drive-label-preserve',
     $ref->getConstant('BROWSE_CACHE_NAMESPACE'),
-    'browse cache namespace is v26-browse-serve'
+    'browse cache namespace is v27-drive-label-preserve'
 );
 
 assert_eq(
@@ -504,6 +504,12 @@ assert_true(in_array('manifest-docs', $manifests, true), 'Documents has distinct
 $childRunIds = array_map(static fn (array $e): string => (string) ($e['child_run_id'] ?? ''), $synthEntries);
 assert_true(in_array('run-admin', $childRunIds, true), 'Administration has correct child_run_id');
 assert_true(in_array('run-docs', $childRunIds, true), 'Documents has correct child_run_id');
+
+$enrichedDrives = $enrichEntries->invoke(null, $synthEntries, $drivesPath, $twoDriveChildren[0]);
+$enrichedLabels = array_map(static fn (array $e): string => (string) ($e['label'] ?? ''), $enrichedDrives);
+assert_true(in_array('Administration', $enrichedLabels, true), 'enrichEntries keeps Administration label');
+assert_true(in_array('Documents', $enrichedLabels, true), 'enrichEntries does not overwrite sibling drive labels with browsing child display name');
+assert_true(!in_array($docsDriveId, $enrichedLabels, true), 'enriched labels are not raw drive ids');
 
 \Ms365Backup\SharePointShardSourceResolver::clearBatchChildrenCache();
 
