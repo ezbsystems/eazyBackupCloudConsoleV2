@@ -258,24 +258,6 @@ final class WorkerClaimService
 
         $ownedBatches = Ms365BatchClaimRepository::countRunningForNode($nodeId);
         if ($ownedBatches >= Ms365EngineConfig::maxBatchesPerNode()) {
-            // #region agent log
-            @file_put_contents(
-                '/var/www/eazybackup.ca/.cursor/debug-9e9596.log',
-                json_encode([
-                    'sessionId' => '9e9596',
-                    'hypothesisId' => 'H5',
-                    'location' => 'WorkerClaimService.php:claimNextBatch',
-                    'message' => 'node at max batches; resume path',
-                    'data' => [
-                        'node_id' => $nodeId,
-                        'owned_batches' => $ownedBatches,
-                        'max_batches' => Ms365EngineConfig::maxBatchesPerNode(),
-                    ],
-                    'timestamp' => (int) round(microtime(true) * 1000),
-                ], JSON_UNESCAPED_SLASHES) . "\n",
-                FILE_APPEND
-            );
-            // #endregion
             $resumed = self::resumeOwnedRunningBatch($nodeId);
             if ($resumed !== null) {
                 return $resumed;
@@ -334,25 +316,6 @@ final class WorkerClaimService
         // heartbeats refresh the lease — blocking that node from claiming other
         // queued tenant batches (prod: 9022 stuck on a4fb01f8 at 5/5).
         if ($attempts >= $maxAttempts) {
-            // #region agent log
-            @file_put_contents(
-                '/var/www/eazybackup.ca/.cursor/debug-9e9596.log',
-                json_encode([
-                    'sessionId' => '9e9596',
-                    'hypothesisId' => 'H3',
-                    'location' => 'WorkerClaimService.php:resumeOwnedRunningBatch',
-                    'message' => 'refuse resume exhausted batch',
-                    'data' => [
-                        'node_id' => $nodeId,
-                        'batch_run_id' => $batchRunId,
-                        'attempts' => $attempts,
-                        'max_attempts' => $maxAttempts,
-                    ],
-                    'timestamp' => (int) round(microtime(true) * 1000),
-                ], JSON_UNESCAPED_SLASHES) . "\n",
-                FILE_APPEND
-            );
-            // #endregion
             Ms365BatchClaimRepository::fail(
                 $batchRunId,
                 $nodeId,

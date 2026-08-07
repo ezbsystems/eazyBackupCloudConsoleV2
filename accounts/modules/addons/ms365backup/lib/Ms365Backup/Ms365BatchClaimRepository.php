@@ -560,23 +560,6 @@ final class Ms365BatchClaimRepository
             ->pluck('b.batch_run_id')
             ->all();
 
-        if ($batchRunIds !== []) {
-            // #region agent log
-            @file_put_contents(
-                '/var/www/eazybackup.ca/.cursor/debug-9e9596.log',
-                json_encode([
-                    'sessionId' => '9e9596',
-                    'hypothesisId' => 'H4',
-                    'location' => 'Ms365BatchClaimRepository.php:reconcileIdleOwnedQueuedBatches',
-                    'message' => 'idle owned batch handoff candidates',
-                    'data' => ['batch_run_ids' => array_values($batchRunIds), 'count' => count($batchRunIds)],
-                    'timestamp' => (int) round(microtime(true) * 1000),
-                ], JSON_UNESCAPED_SLASHES) . "\n",
-                FILE_APPEND
-            );
-            // #endregion
-        }
-
         return self::handOffRunningBatchClaims($batchRunIds, 'Idle owned batch with queued children');
     }
 
