@@ -43,15 +43,23 @@ cat > "$STAGING/DEBIAN/templates" <<'TEMPLATES'
 Template: e3-backup-agent/enrollment_token
 Type: password
 Description: Enrollment token for e3 Backup Agent:
-Extended description: Enter the one-time enrollment token from the eazyBackup portal (Enrollment Tokens). The agent enrolls automatically after install.
- .
+ Enter the one-time enrollment token from the eazyBackup portal
+ (Enrollment Tokens). The agent enrolls automatically after install.
+
 Template: e3-backup-agent/enrollment_token/empty
 Type: error
 Description: Enrollment token required
-Extended description: An enrollment token is required to register this computer. Generate one in the eazyBackup portal under Enrollment Tokens, then reinstall or run:
- sudo TOKEN=YOUR_TOKEN dpkg -i e3-backup-agent-linux.deb
- .
+ An enrollment token is required to register this computer.
+ Generate one in the eazyBackup portal under Enrollment Tokens,
+ then reinstall or run:
+  sudo TOKEN=YOUR_TOKEN dpkg -i e3-backup-agent-linux.deb
 TEMPLATES
+
+# Fail the package build if templates are invalid (debconf-utils optional).
+if command -v debconf-loadtemplate >/dev/null 2>&1; then
+  debconf-loadtemplate e3-backup-agent "$STAGING/DEBIAN/templates" \
+    || die "Invalid DEBIAN/templates (debconf-loadtemplate failed)"
+fi
 
 cat > "$STAGING/DEBIAN/config" <<'CONFIG'
 #!/bin/sh
@@ -83,19 +91,25 @@ if [ -z "$TOKEN" ] && [ -f "${CONF_DIR}/enrollment.token" ]; then
 fi
 
 if [ -n "$TOKEN" ]; then
+  # #region agent log
+  printf '{"sessionId":"bcd995","hypothesisId":"B","location":"config","message":"token from env or file","data":{"hasToken":true},"timestamp":%s}\n' "$(date +%s000)" >> /tmp/e3-backup-agent-install-debug.ndjson 2>/dev/null || true
+  # #endregion
   db_set "$TOKEN_QUESTION" "$TOKEN"
   exit 0
 fi
 
 attempt=0
 while [ "$attempt" -lt 3 ]; do
+  # #region agent log
+  printf '{"sessionId":"bcd995","hypothesisId":"A","location":"config","message":"prompting via db_input","data":{"attempt":%s},"timestamp":%s}\n' "$attempt" "$(date +%s000)" >> /tmp/e3-backup-agent-install-debug.ndjson 2>/dev/null || true
+  # #endregion
   db_input high "$TOKEN_QUESTION" || exit 1
   if ! db_go; then
     exit 1
   fi
 
-  db_get "$TOKEN_QUESTION" TOKEN
-  TOKEN="$(trim_token "$TOKEN")"
+  db_get "$TOKEN_QUESTION"
+  TOKEN="$(trim_token "$RET")"
   if [ -n "$TOKEN" ]; then
     db_set "$TOKEN_QUESTION" "$TOKEN"
     exit 0
@@ -148,9 +162,15 @@ if [ -z "$TOKEN" ] && [ -f "${CONF_DIR}/enrollment.token" ]; then
   TOKEN="$(trim_token "$(cat "${CONF_DIR}/enrollment.token")")"
 fi
 if [ -z "$TOKEN" ]; then
-  db_get "$TOKEN_QUESTION" TOKEN
-  TOKEN="$(trim_token "$TOKEN")"
+  db_get "$TOKEN_QUESTION"
+  TOKEN="$(trim_token "$RET")"
 fi
+
+# #region agent log
+printf '{"sessionId":"bcd995","hypothesisId":"C","location":"postinst","message":"token resolved","data":{"hasToken":%s},"timestamp":%s}\n' \
+  "$([ -n "$TOKEN" ] && echo true || echo false)" "$(date +%s000)" \
+  >> /tmp/e3-backup-agent-install-debug.ndjson 2>/dev/null || true
+# #endregion
 
 if [ -z "$TOKEN" ]; then
   echo "e3-backup-agent: ERROR: No enrollment token provided." >&2
