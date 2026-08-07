@@ -75,19 +75,10 @@ Driver: File
 Mode: 644
 Filename: ${_debconf_tmpdir}/templates.dat
 EOF
-  # #region agent log
-  printf '{"sessionId":"bcd995","hypothesisId":"D","location":"build-deb.sh","message":"validating templates with private debconf db","data":{"tmpdir":"%s","user":"%s"},"timestamp":%s}\n' \
-    "$_debconf_tmpdir" "$(id -un 2>/dev/null || echo unknown)" "$(date +%s000)" \
-    >> /var/www/eazybackup.ca/.cursor/debug-bcd995.log 2>/dev/null || true
-  # #endregion
   if ! DEBCONF_SYSTEMRC="$_debconf_rc" debconf-loadtemplate e3-backup-agent "$STAGING/DEBIAN/templates"; then
     rm -rf "$_debconf_tmpdir"
     die "Invalid DEBIAN/templates (debconf-loadtemplate failed)"
   fi
-  # #region agent log
-  printf '{"sessionId":"bcd995","hypothesisId":"D","location":"build-deb.sh","message":"templates validation ok","data":{"ok":true},"timestamp":%s}\n' \
-    "$(date +%s000)" >> /var/www/eazybackup.ca/.cursor/debug-bcd995.log 2>/dev/null || true
-  # #endregion
   rm -rf "$_debconf_tmpdir"
 fi
 
@@ -121,18 +112,12 @@ if [ -z "$TOKEN" ] && [ -f "${CONF_DIR}/enrollment.token" ]; then
 fi
 
 if [ -n "$TOKEN" ]; then
-  # #region agent log
-  printf '{"sessionId":"bcd995","hypothesisId":"B","location":"config","message":"token from env or file","data":{"hasToken":true},"timestamp":%s}\n' "$(date +%s000)" >> /tmp/e3-backup-agent-install-debug.ndjson 2>/dev/null || true
-  # #endregion
   db_set "$TOKEN_QUESTION" "$TOKEN"
   exit 0
 fi
 
 attempt=0
 while [ "$attempt" -lt 3 ]; do
-  # #region agent log
-  printf '{"sessionId":"bcd995","hypothesisId":"A","location":"config","message":"prompting via db_input","data":{"attempt":%s},"timestamp":%s}\n' "$attempt" "$(date +%s000)" >> /tmp/e3-backup-agent-install-debug.ndjson 2>/dev/null || true
-  # #endregion
   db_input high "$TOKEN_QUESTION" || exit 1
   if ! db_go; then
     exit 1
@@ -195,12 +180,6 @@ if [ -z "$TOKEN" ]; then
   db_get "$TOKEN_QUESTION"
   TOKEN="$(trim_token "$RET")"
 fi
-
-# #region agent log
-printf '{"sessionId":"bcd995","hypothesisId":"C","location":"postinst","message":"token resolved","data":{"hasToken":%s},"timestamp":%s}\n' \
-  "$([ -n "$TOKEN" ] && echo true || echo false)" "$(date +%s000)" \
-  >> /tmp/e3-backup-agent-install-debug.ndjson 2>/dev/null || true
-# #endregion
 
 if [ -z "$TOKEN" ]; then
   echo "e3-backup-agent: ERROR: No enrollment token provided." >&2
