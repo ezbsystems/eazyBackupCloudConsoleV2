@@ -247,6 +247,21 @@ class BillingCadenceResolver
     /**
      * @return list<object>
      */
+    private static function normalizeRows(mixed $rows): array
+    {
+        if (is_array($rows)) {
+            return $rows;
+        }
+        if (is_object($rows) && method_exists($rows, 'all')) {
+            return $rows->all();
+        }
+
+        return [];
+    }
+
+    /**
+     * @return list<object>
+     */
     private static function fetchDeviceRowsInSnapshot(
         string $snapshotAt,
         ?string $deviceHash,
@@ -263,33 +278,34 @@ class BillingCadenceResolver
                 })
                 ->orderBy('id', 'desc')
                 ->get();
+            $rows = self::normalizeRows($rows);
             if ($rows !== []) {
                 return $rows;
             }
 
-            return Capsule::table('cb_active_services')
+            return self::normalizeRows(Capsule::table('cb_active_services')
                 ->where('pulled_at', $snapshotAt)
                 ->where('service_name', 'like', '%Device ' . $short . '%')
                 ->orderBy('id', 'desc')
-                ->get();
+                ->get());
         }
 
         if ($account !== null && $account !== '') {
-            return Capsule::table('cb_active_services')
+            return self::normalizeRows(Capsule::table('cb_active_services')
                 ->where('pulled_at', $snapshotAt)
                 ->where('service_name', 'like', '%' . $account . '%')
                 ->orderBy('id', 'desc')
-                ->get();
+                ->get());
         }
 
         if ($itemDesc !== null) {
             $needle = substr($itemDesc, 0, 40);
 
-            return Capsule::table('cb_active_services')
+            return self::normalizeRows(Capsule::table('cb_active_services')
                 ->where('pulled_at', $snapshotAt)
                 ->where('service_name', 'like', '%' . $needle . '%')
                 ->orderBy('id', 'desc')
-                ->get();
+                ->get());
         }
 
         return [];
