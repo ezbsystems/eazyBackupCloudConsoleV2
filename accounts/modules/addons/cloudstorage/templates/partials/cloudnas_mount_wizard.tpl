@@ -70,6 +70,7 @@
                         <div class="eb-alert-title">Cloud NAS Component Required</div>
                         <p class="eb-type-body !mb-0 mt-1">
                             Cloud NAS requires the optional Cloud NAS component. Re-run the E3 Backup Agent installer and keep &ldquo;Install Cloud NAS&rdquo; checked.
+                            <a href="index.php?m=cloudstorage&page=e3backup&view=agents" class="eb-link">Download agent installer</a>
                         </p>
                     </div>
                 </div>
