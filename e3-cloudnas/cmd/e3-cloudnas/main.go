@@ -27,14 +27,16 @@ func main() {
 	}
 
 	var mounter mount.Mounter = mount.NewManager()
+	winfspAvailable := mount.WinFspAvailable()
 	if runtime.GOOS == "windows" {
 		realMounter, err := mount.NewWinFspMounter(version)
 		if err != nil {
-			log.Fatalf("initialize WinFsp mounter: %v", err)
+			log.Printf("WinFsp mounter unavailable: %v", err)
+			mounter = mount.NewUnavailableMounter(err)
+		} else {
+			mounter = realMounter
 		}
-		mounter = realMounter
 	}
-	winfspAvailable := mount.WinFspAvailable()
 
 	listener, err := api.NewServer(mounter, "", version, winfspAvailable).Listen()
 	if err != nil {

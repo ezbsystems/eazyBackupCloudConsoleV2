@@ -37,10 +37,13 @@ func TestS3ConfigMatchesAgentCephSettings(t *testing.T) {
 	}
 }
 
-func TestRemoteRootCleansPrefix(t *testing.T) {
+func TestRemoteRootMatchesAgentPrefixJoin(t *testing.T) {
 	req := api.MountRequest{Bucket: "bucket", Prefix: "/folder/subfolder/"}
-	if got, want := remoteRoot(req), "bucket/folder/subfolder"; got != want {
+	if got, want := remoteRoot(req), "bucket/folder/subfolder/"; got != want {
 		t.Fatalf("remoteRoot() = %q, want %q", got, want)
+	}
+	if got, want := remoteRoot(api.MountRequest{Bucket: "bucket"}), "bucket"; got != want {
+		t.Fatalf("remoteRoot() without prefix = %q, want %q", got, want)
 	}
 }
 

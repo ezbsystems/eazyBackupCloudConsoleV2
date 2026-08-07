@@ -39,9 +39,6 @@ type winFspMounter struct {
 }
 
 func NewWinFspMounter(version string) (Mounter, error) {
-	if !WinFspAvailable() {
-		return nil, fmt.Errorf("WinFsp is not installed or its runtime is unavailable")
-	}
 	return &winFspMounter{
 		mounts:  make(map[string]*winFspMount),
 		version: version,
@@ -67,6 +64,9 @@ func WinFspAvailable() bool {
 }
 
 func (m *winFspMounter) Mount(ctx context.Context, req api.MountRequest) error {
+	if !WinFspAvailable() {
+		return fmt.Errorf("WinFsp is not installed or its runtime is unavailable")
+	}
 	letter, err := normalizeDriveLetter(req.DriveLetter)
 	if err != nil {
 		return err

@@ -9,10 +9,9 @@ import (
 )
 
 func remoteRoot(req api.MountRequest) string {
-	root := strings.Trim(req.Bucket, "/")
-	prefix := strings.Trim(req.Prefix, "/")
-	if prefix != "" {
-		root += "/" + prefix
+	root := req.Bucket
+	if req.Prefix != "" {
+		root = req.Bucket + "/" + strings.TrimPrefix(req.Prefix, "/")
 	}
 	return root
 }
