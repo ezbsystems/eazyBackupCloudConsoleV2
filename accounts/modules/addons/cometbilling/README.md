@@ -268,6 +268,11 @@ php modules/addons/cometbilling/bin/m365_report.php --preset=60 --json
 - This is expected! Each `pulled_at` is a separate snapshot
 - Rows with the same `row_fingerprint` represent the same service at different times
 
+### Historical Reconcile false positives on period-end charges
+- Device IDs in Bill History are matched to `comet_devices` hashes; replacement devices are separate identities (old + new charges on the same day are not conflated).
+- Period-end charges must use a **pre-roll** Active Services anchor (`next_due_date >= usage_date`). If the nearest snapshot was taken after portal `next_due` advanced, expected end can be one day too early.
+- Re-run Historical Reconcile after portal pull; import Bill History CSV for complete debit evidence.
+
 ## Dependencies
 
 - PHP 8.1+

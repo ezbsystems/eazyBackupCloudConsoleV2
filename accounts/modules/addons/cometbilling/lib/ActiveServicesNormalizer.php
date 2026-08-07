@@ -18,6 +18,13 @@ class ActiveServicesNormalizer
         $tenantId = self::pick($row, ['TenantID','Tenant Id','AccountID','Account ID']);
         $deviceId = self::pick($row, ['DeviceID','Device Id']);
 
+        if ($tenantId === null && preg_match('/Account\s+([^\-]+)/i', $service, $m)) {
+            $tenantId = trim($m[1]);
+        }
+        if ($deviceId === null && preg_match('/Device\s+([a-f0-9]+)/i', $service, $m)) {
+            $deviceId = trim($m[1]);
+        }
+
         $unit   = self::toDec(self::moneyToNumber($unitRaw));
         $qty    = self::toDec($qtyRaw);
         $amount = self::toDec(self::moneyToNumber($amtRaw));

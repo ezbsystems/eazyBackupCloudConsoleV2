@@ -542,5 +542,132 @@ namespace {
     CanonicalUsage::clearCache();
     assert_eq(CanonicalUsage::hasCanonicalPull(), false, 'hasCanonicalPull false when manifest empty');
 
+    // Korol-style: period-end charge on revoked device uses pre-roll next_due (not post-roll snapshot)
+    $korolHash = '69da4c4ae1e1598f9002334ec6894307a2a9cfe0';
+    Capsule::$deviceRows = [
+        (object) [
+            'hash' => $korolHash,
+            'username' => 'dr_jacqueline_korol',
+            'name' => 'server',
+            'revoked_at' => '2026-08-04 10:52:29',
+            'content' => json_encode(['RegistrationTime' => strtotime('2023-09-19 16:36:04')]),
+        ],
+    ];
+    Capsule::$activeRows = [
+        (object) [
+            'id' => 10,
+            'pulled_at' => '2026-08-04 19:05:08',
+            'service_name' => 'Account dr_jacqueline_korol - Device 69da4cPlanAdvanced Plan ($2/device)',
+            'billing_cycle_days' => 30,
+            'next_due_date' => '2026-08-05',
+            'device_id' => '69da4c',
+            'extra' => json_encode(['Type' => 'device']),
+        ],
+        (object) [
+            'id' => 11,
+            'pulled_at' => '2026-08-04 19:05:08',
+            'service_name' => 'Account dr_jacqueline_korol - Device 69da4c - Booster (Microsoft SQL Server)PlanAdvanced Plan',
+            'billing_cycle_days' => 30,
+            'next_due_date' => '2026-08-05',
+            'device_id' => '69da4c',
+            'extra' => json_encode(['Type' => 'booster']),
+        ],
+        (object) [
+            'id' => 12,
+            'pulled_at' => '2026-08-05 12:09:17',
+            'service_name' => 'Account dr_jacqueline_korol - Device 69da4cPlanAdvanced Plan ($2/device)',
+            'billing_cycle_days' => 30,
+            'next_due_date' => '2026-09-04',
+            'device_id' => '69da4c',
+            'extra' => json_encode(['Type' => 'device']),
+        ],
+        (object) [
+            'id' => 13,
+            'pulled_at' => '2026-08-05 12:09:17',
+            'service_name' => 'Account dr_jacqueline_korol - Device 69da4c - Booster (Microsoft SQL Server)PlanAdvanced Plan',
+            'billing_cycle_days' => 30,
+            'next_due_date' => '2026-09-04',
+            'device_id' => '69da4c',
+            'extra' => json_encode(['Type' => 'booster']),
+        ],
+    ];
+    \CometBilling\LifecycleResolver::clearCache();
+    \CometBilling\ServiceIdentityResolver::clearCache();
+    \CometBilling\BillingCadenceResolver::clearCache();
+
+    $korolDeviceCharge = (object) [
+        'id' => 300,
+        'usage_date' => '2026-08-05',
+        'tenant_id' => 'dr_jacqueline_korol',
+        'device_id' => $korolHash,
+        'item_type' => 'device',
+        'item_desc' => 'Device - dr_jacqueline_korol',
+        'amount' => '2.00',
+        'packs_used_raw' => '10,000 Dollars',
+        'packs_used_parsed' => json_encode(PackUsageParser::parse('10,000 Dollars')),
+        'raw_row' => json_encode([]),
+    ];
+    $korolMssqlCharge = (object) [
+        'id' => 301,
+        'usage_date' => '2026-08-05',
+        'tenant_id' => 'dr_jacqueline_korol',
+        'device_id' => $korolHash,
+        'item_type' => 'booster',
+        'item_desc' => 'Booster - Microsoft SQL Server',
+        'amount' => '1.00',
+        'packs_used_raw' => '10,000 Dollars',
+        'packs_used_parsed' => json_encode(PackUsageParser::parse('10,000 Dollars')),
+        'raw_row' => json_encode([]),
+    ];
+
+    $korolDevice = OverbillEvidenceEvaluator::evaluate($korolDeviceCharge, false);
+    assert_eq($korolDevice['expected_billing_end'], '2026-08-05', 'korol device uses pre-roll expected end');
+    assert_eq($korolDevice['billing_verdict'], 'within_period', 'korol device period-end charge within period');
+    assert_eq($korolDevice['verdict'], 'not_overbilled', 'korol device period-end charge not overbilled');
+    assert_eq(
+        str_contains((string) ($korolDevice['evidence']['cadence']['service_name'] ?? ''), 'Booster'),
+        false,
+        'korol device cadence does not bind to mssql booster row'
+    );
+
+    $korolMssql = OverbillEvidenceEvaluator::evaluate($korolMssqlCharge, false);
+    assert_eq($korolMssql['expected_billing_end'], '2026-08-05', 'korol mssql uses pre-roll expected end');
+    assert_eq($korolMssql['verdict'], 'not_overbilled', 'korol mssql period-end charge not overbilled');
+    assert_eq(
+        str_contains((string) ($korolMssql['evidence']['cadence']['service_name'] ?? ''), 'SQL Server'),
+        true,
+        'korol mssql cadence binds to mssql booster row'
+    );
+
+    // Post-roll only: true residual after expected end still confirms (policy A)
+    Capsule::$activeRows = [
+        (object) [
+            'id' => 20,
+            'pulled_at' => '2026-09-05 12:00:00',
+            'service_name' => 'Account dr_jacqueline_korol - Device 69da4cPlanAdvanced Plan ($2/device)',
+            'billing_cycle_days' => 30,
+            'next_due_date' => '2026-09-04',
+            'device_id' => '69da4c',
+            'extra' => json_encode(['Type' => 'device']),
+        ],
+    ];
+    \CometBilling\BillingCadenceResolver::clearCache();
+
+    $korolResidual = (object) [
+        'id' => 302,
+        'usage_date' => '2026-09-05',
+        'tenant_id' => 'dr_jacqueline_korol',
+        'device_id' => $korolHash,
+        'item_type' => 'device',
+        'item_desc' => 'Device - dr_jacqueline_korol',
+        'amount' => '2.00',
+        'packs_used_raw' => '10,000 Dollars',
+        'packs_used_parsed' => json_encode(PackUsageParser::parse('10,000 Dollars')),
+        'raw_row' => json_encode([]),
+    ];
+    $residual = OverbillEvidenceEvaluator::evaluate($korolResidual, false);
+    assert_eq($residual['billing_verdict'], 'after_expected_end', 'post-roll residual charge after expected end');
+    assert_eq($residual['verdict'], 'confirmed', 'post-roll residual charge still confirmed overbill');
+
     echo "\nAll HistoricalReconciler audit tests passed.\n";
 }

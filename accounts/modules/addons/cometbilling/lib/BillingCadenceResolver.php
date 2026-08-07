@@ -11,8 +11,8 @@ class BillingCadenceResolver
     /** @var list<string>|null */
     private static ?array $snapshotList = null;
 
-    /** @var array<string, ?string> */
-    private static array $snapshotNearCache = [];
+    /** @var array<string, list<string>> */
+    private static array $snapshotsNearCache = [];
 
     /** @var array<string, array{found: bool, billing_cycle_days: ?int, next_due_date: ?string, snapshot_at: ?string}> */
     private static array $portalAnchorCache = [];
@@ -41,7 +41,7 @@ class BillingCadenceResolver
         ?string $deviceHash,
         ?string $itemDesc
     ): array {
-        $portal = self::findPortalAnchor($usageDate, $account, $deviceHash, $itemDesc);
+        $portal = self::findPortalAnchor($usageDate, $category, $account, $deviceHash, $itemDesc);
 
         // Expensive charge-history scan — only when portal cadence is unknown.
         $observedDaily = false;
@@ -84,7 +84,7 @@ class BillingCadenceResolver
     public static function clearCache(): void
     {
         self::$snapshotList = null;
-        self::$snapshotNearCache = [];
+        self::$snapshotsNearCache = [];
         self::$portalAnchorCache = [];
         self::$dailyCadenceCache = [];
     }
@@ -103,11 +103,12 @@ class BillingCadenceResolver
      */
     private static function findPortalAnchor(
         string $usageDate,
+        string $category,
         ?string $account,
         ?string $deviceHash,
         ?string $itemDesc
     ): array {
-        $cacheKey = $usageDate . '|' . ($deviceHash ?? '') . '|' . ($account ?? '');
+        $cacheKey = $usageDate . '|' . $category . '|' . ($deviceHash ?? '') . '|' . ($account ?? '');
         if (isset(self::$portalAnchorCache[$cacheKey])) {
             return self::$portalAnchorCache[$cacheKey];
         }
@@ -121,8 +122,8 @@ class BillingCadenceResolver
             ];
         }
 
-        $snapshotAt = self::findSnapshotNearCached($usageDate . ' 12:00:00');
-        if ($snapshotAt === null) {
+        $snapshots = self::findSnapshotsNearCached($usageDate . ' 12:00:00');
+        if ($snapshots === []) {
             return self::$portalAnchorCache[$cacheKey] = [
                 'found' => false,
                 'billing_cycle_days' => null,
@@ -131,53 +132,36 @@ class BillingCadenceResolver
             ];
         }
 
-        $row = null;
-        if ($deviceHash !== null && $deviceHash !== '') {
-            $short = substr($deviceHash, 0, 6);
-            $row = Capsule::table('cb_active_services')
-                ->where('pulled_at', $snapshotAt)
-                ->where(function ($q) use ($deviceHash, $short) {
-                    $q->where('device_id', $deviceHash)
-                        ->orWhere('device_id', $short);
-                })
-                ->orderBy('id', 'desc')
-                ->first();
+        $candidates = [];
+        foreach ($snapshots as $snapshotAt) {
+            $row = self::findCategoryRowInSnapshot($snapshotAt, $deviceHash, $account, $itemDesc, $category);
             if ($row === null) {
-                $row = Capsule::table('cb_active_services')
-                    ->where('pulled_at', $snapshotAt)
-                    ->where('service_name', 'like', '%Device ' . $short . '%')
-                    ->orderBy('id', 'desc')
-                    ->first();
+                continue;
             }
-        } elseif ($account !== null && $account !== '') {
-            $row = Capsule::table('cb_active_services')
-                ->where('pulled_at', $snapshotAt)
-                ->where('service_name', 'like', '%' . $account . '%')
-                ->orderBy('id', 'desc')
-                ->first();
-        } elseif ($itemDesc !== null) {
-            $needle = substr($itemDesc, 0, 40);
-            $row = Capsule::table('cb_active_services')
-                ->where('pulled_at', $snapshotAt)
-                ->where('service_name', 'like', '%' . $needle . '%')
-                ->orderBy('id', 'desc')
-                ->first();
+            $candidates[] = [
+                'row' => $row,
+                'snapshot_at' => $snapshotAt,
+                'next_due_date' => (string) $row->next_due_date,
+            ];
         }
 
-        if ($row === null) {
+        $selected = self::selectPreRollAnchor($candidates, $usageDate);
+        if ($selected === null) {
             return self::$portalAnchorCache[$cacheKey] = [
                 'found' => false,
                 'billing_cycle_days' => null,
                 'next_due_date' => null,
-                'snapshot_at' => $snapshotAt,
+                'snapshot_at' => $snapshots[0] ?? null,
             ];
         }
+
+        $row = $selected['row'];
 
         return self::$portalAnchorCache[$cacheKey] = [
             'found' => true,
             'billing_cycle_days' => (int) $row->billing_cycle_days,
-            'next_due_date' => (string) $row->next_due_date,
-            'snapshot_at' => $snapshotAt,
+            'next_due_date' => $selected['next_due_date'],
+            'snapshot_at' => $selected['snapshot_at'],
             'service_name' => isset($row->service_name) ? (string) $row->service_name : null,
             'quantity' => isset($row->quantity) ? (float) $row->quantity : null,
             'amount' => isset($row->amount) ? (float) $row->amount : null,
@@ -185,11 +169,179 @@ class BillingCadenceResolver
         ];
     }
 
-    private static function findSnapshotNearCached(string $targetDatetime): ?string
+    /**
+     * Prefer pre-roll next_due (>= usage_date); among ties pick nearest snapshot.
+     *
+     * @param list<array{row: object, snapshot_at: string, next_due_date: string}> $candidates
+     * @return array{row: object, snapshot_at: string, next_due_date: string}|null
+     */
+    private static function selectPreRollAnchor(array $candidates, string $usageDate): ?array
+    {
+        if ($candidates === []) {
+            return null;
+        }
+
+        $usageTs = strtotime($usageDate . ' 12:00:00');
+        $preRoll = array_values(array_filter(
+            $candidates,
+            static fn (array $candidate): bool => $candidate['next_due_date'] >= $usageDate
+        ));
+
+        if ($preRoll !== []) {
+            usort($preRoll, static function (array $a, array $b) use ($usageTs): int {
+                $dueCmp = strcmp($a['next_due_date'], $b['next_due_date']);
+                if ($dueCmp !== 0) {
+                    return $dueCmp;
+                }
+
+                $diffA = abs(strtotime($a['snapshot_at']) - $usageTs);
+                $diffB = abs(strtotime($b['snapshot_at']) - $usageTs);
+                if ($diffA !== $diffB) {
+                    return $diffA <=> $diffB;
+                }
+
+                return strcmp($b['snapshot_at'], $a['snapshot_at']);
+            });
+
+            return $preRoll[0];
+        }
+
+        $pool = $candidates;
+        usort($pool, static function (array $a, array $b) use ($usageTs): int {
+            $diffA = abs(strtotime($a['snapshot_at']) - $usageTs);
+            $diffB = abs(strtotime($b['snapshot_at']) - $usageTs);
+            if ($diffA !== $diffB) {
+                return $diffA <=> $diffB;
+            }
+
+            return strcmp($b['snapshot_at'], $a['snapshot_at']);
+        });
+
+        return $pool[0];
+    }
+
+    private static function findCategoryRowInSnapshot(
+        string $snapshotAt,
+        ?string $deviceHash,
+        ?string $account,
+        ?string $itemDesc,
+        string $category
+    ): ?object {
+        $rows = self::fetchDeviceRowsInSnapshot($snapshotAt, $deviceHash, $account, $itemDesc);
+        if ($rows === []) {
+            return null;
+        }
+
+        $matched = array_values(array_filter(
+            $rows,
+            static fn (object $row): bool => self::rowMatchesCategory($row, $category)
+        ));
+
+        if ($matched !== []) {
+            return $matched[0];
+        }
+
+        return $rows[0] ?? null;
+    }
+
+    /**
+     * @return list<object>
+     */
+    private static function fetchDeviceRowsInSnapshot(
+        string $snapshotAt,
+        ?string $deviceHash,
+        ?string $account,
+        ?string $itemDesc
+    ): array {
+        if ($deviceHash !== null && $deviceHash !== '') {
+            $short = substr($deviceHash, 0, 6);
+            $rows = Capsule::table('cb_active_services')
+                ->where('pulled_at', $snapshotAt)
+                ->where(function ($q) use ($deviceHash, $short) {
+                    $q->where('device_id', $deviceHash)
+                        ->orWhere('device_id', $short);
+                })
+                ->orderBy('id', 'desc')
+                ->get();
+            if ($rows !== []) {
+                return $rows;
+            }
+
+            return Capsule::table('cb_active_services')
+                ->where('pulled_at', $snapshotAt)
+                ->where('service_name', 'like', '%Device ' . $short . '%')
+                ->orderBy('id', 'desc')
+                ->get();
+        }
+
+        if ($account !== null && $account !== '') {
+            return Capsule::table('cb_active_services')
+                ->where('pulled_at', $snapshotAt)
+                ->where('service_name', 'like', '%' . $account . '%')
+                ->orderBy('id', 'desc')
+                ->get();
+        }
+
+        if ($itemDesc !== null) {
+            $needle = substr($itemDesc, 0, 40);
+
+            return Capsule::table('cb_active_services')
+                ->where('pulled_at', $snapshotAt)
+                ->where('service_name', 'like', '%' . $needle . '%')
+                ->orderBy('id', 'desc')
+                ->get();
+        }
+
+        return [];
+    }
+
+    private static function rowMatchesCategory(object $row, string $category): bool
+    {
+        $serviceName = (string) ($row->service_name ?? '');
+        $type = self::activeServiceType($row);
+
+        if ($category === 'devices') {
+            if ($type === 'device') {
+                return true;
+            }
+            if ($type === 'booster') {
+                return false;
+            }
+
+            return str_contains(strtolower($serviceName), 'device')
+                && !str_contains(strtolower($serviceName), 'booster');
+        }
+
+        if ($type === 'booster') {
+            return ChargeCategoryResolver::fromServiceName($serviceName) === $category;
+        }
+
+        return ChargeCategoryResolver::fromServiceName($serviceName) === $category;
+    }
+
+    private static function activeServiceType(object $row): ?string
+    {
+        $extra = $row->extra ?? null;
+        if (is_string($extra)) {
+            $decoded = json_decode($extra, true);
+
+            return is_array($decoded) ? ($decoded['Type'] ?? null) : null;
+        }
+        if (is_array($extra)) {
+            return $extra['Type'] ?? null;
+        }
+
+        return null;
+    }
+
+    /**
+     * @return list<string>
+     */
+    private static function findSnapshotsNearCached(string $targetDatetime): array
     {
         $day = substr($targetDatetime, 0, 10);
-        if (array_key_exists($day, self::$snapshotNearCache)) {
-            return self::$snapshotNearCache[$day];
+        if (array_key_exists($day, self::$snapshotsNearCache)) {
+            return self::$snapshotsNearCache[$day];
         }
 
         if (self::$snapshotList === null) {
@@ -206,25 +358,27 @@ class BillingCadenceResolver
         }
 
         if (self::$snapshotList === []) {
-            return self::$snapshotNearCache[$day] = null;
+            return self::$snapshotsNearCache[$day] = [];
         }
 
         $targetTs = strtotime($targetDatetime);
-        $best = null;
-        $bestDiff = PHP_INT_MAX;
+        $within = [];
         foreach (self::$snapshotList as $pulledAt) {
             $diff = abs(strtotime((string) $pulledAt) - $targetTs);
-            if ($diff < $bestDiff) {
-                $bestDiff = $diff;
-                $best = (string) $pulledAt;
+            if ($diff <= 48 * 3600) {
+                $within[] = [
+                    'pulled_at' => (string) $pulledAt,
+                    'diff' => $diff,
+                ];
             }
         }
 
-        if ($best === null || $bestDiff > 48 * 3600) {
-            return self::$snapshotNearCache[$day] = null;
-        }
+        usort($within, static fn (array $a, array $b): int => $a['diff'] <=> $b['diff']);
 
-        return self::$snapshotNearCache[$day] = $best;
+        return self::$snapshotsNearCache[$day] = array_map(
+            static fn (array $item): string => $item['pulled_at'],
+            $within
+        );
     }
 
     private static function observedDailyCadence(
