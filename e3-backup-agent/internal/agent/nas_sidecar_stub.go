@@ -5,6 +5,7 @@ package agent
 import (
 	"errors"
 	"os"
+	"syscall"
 )
 
 func cloudNASProgramDataDir() string {
@@ -12,7 +13,10 @@ func cloudNASProgramDataDir() string {
 }
 
 func isSidecarProcessRunning(pid int) bool {
-	return true
+	if pid <= 0 {
+		return false
+	}
+	return syscall.Kill(pid, syscall.Signal(0)) == nil
 }
 
 func readFileOS(path string) ([]byte, error) {

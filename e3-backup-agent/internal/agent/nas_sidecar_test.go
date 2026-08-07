@@ -73,6 +73,85 @@ func TestSidecarMountPostsJSON(t *testing.T) {
 	assertJSONField(t, gotBody, "cache_mode", "writes")
 }
 
+func TestSidecarNotRunningErrors(t *testing.T) {
+	t.Run("connection refused", func(t *testing.T) {
+		dir := t.TempDir()
+		writeSidecarDiscoveryFiles(t, dir, "127.0.0.1:1", "token", os.Getpid())
+		t.Setenv("ProgramData", dir)
+
+		r := &Runner{}
+		err := r.sidecarMount(context.Background(), MountNASPayload{DriveLetter: "Y", Bucket: "b"}, "label")
+		if err == nil {
+			t.Fatal("expected connection refused error")
+		}
+		if !errors.Is(err, ErrCloudNASSidecarNotRunning) {
+			t.Fatalf("error = %v, want ErrCloudNASSidecarNotRunning", err)
+		}
+	})
+
+	t.Run("dead discovery pid", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			io.WriteString(w, `{"ok":true,"version":"0.1.0","winfsp":true}`)
+		}))
+		t.Cleanup(srv.Close)
+
+		host := strings.TrimPrefix(srv.URL, "http://")
+		dir := t.TempDir()
+		writeSidecarDiscoveryFiles(t, dir, host, "token", 99999999)
+
+		r := &Runner{}
+		t.Setenv("ProgramData", dir)
+		err := r.sidecarHealth(context.Background())
+		if err == nil {
+			t.Fatal("expected dead pid error")
+		}
+		if !errors.Is(err, ErrCloudNASSidecarNotRunning) {
+			t.Fatalf("error = %v, want ErrCloudNASSidecarNotRunning", err)
+		}
+	})
+}
+
+func TestSidecarUnmountPostsJSON(t *testing.T) {
+	var gotToken string
+	var gotBody map[string]any
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/unmount" {
+			http.NotFound(w, r)
+			return
+		}
+		if r.Method != http.MethodPost {
+			t.Errorf("method = %s, want POST", r.Method)
+		}
+		gotToken = r.Header.Get(sidecarTokenHeader)
+		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
+			t.Errorf("decode unmount body: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	host := strings.TrimPrefix(srv.URL, "http://")
+	dir := t.TempDir()
+	writeSidecarDiscoveryFiles(t, dir, host, "unmount-token", os.Getpid())
+
+	r := &Runner{}
+	t.Setenv("ProgramData", dir)
+	if err := r.sidecarUnmount(context.Background(), "z"); err != nil {
+		t.Fatalf("sidecarUnmount: %v", err)
+	}
+
+	if gotToken != "unmount-token" {
+		t.Fatalf("token header = %q, want unmount-token", gotToken)
+	}
+	if gotBody == nil {
+		t.Fatal("unmount body was not received")
+	}
+	assertJSONField(t, gotBody, "drive_letter", "Z")
+}
+
 func TestSidecarMissingDiscovery(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("ProgramData", dir)
