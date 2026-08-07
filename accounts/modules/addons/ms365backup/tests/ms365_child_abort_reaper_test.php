@@ -175,7 +175,19 @@ try {
         Capsule::table('ms365_backup_runs')->where('id', $staleChildId)->value('abort_requested_at') === null,
         'resetForQueueRequeue clears abort_requested_at',
     );
+    abort_assert(
+        !Ms365BatchClaimRepository::shouldPromoteFromBatchProgress($staleChildId),
+        'stale hub progress must not re-promote a worker-failure requeue',
+    );
+    Ms365BatchClaimRepository::promoteBatchChildToRunning($staleChildId, $nodeId);
+    abort_assert(
+        Capsule::table('ms365_backup_runs')->where('id', $staleChildId)->value('status') === 'queued',
+        'worker-failure requeue stays queued until a real claim',
+    );
 
+    Capsule::table('ms365_job_queue')->where('run_id', $staleChildId)->update([
+        'error_message' => '',
+    ]);
     Capsule::table('ms365_backup_runs')->where('id', $staleChildId)->update([
         'abort_requested_at' => $now,
     ]);

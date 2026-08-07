@@ -1240,7 +1240,9 @@ final class Ms365BatchClaimRepository
             return true;
         }
 
-        return !str_contains($message, 'child progress stale');
+        // Any queued child with an operational error was deliberately released for a
+        // future claim. A stale in-flight hub snapshot is not proof that it restarted.
+        return false;
     }
 
     private static function requeueBatchChildren(string $batchRunId, string $message, bool $incrementAttempts): void
