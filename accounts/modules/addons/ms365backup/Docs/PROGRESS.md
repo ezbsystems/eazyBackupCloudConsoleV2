@@ -19,7 +19,7 @@
 - **Fix (PHP 1.52.54):** `buildContentStreamStatsPatch()` persists monotonic telemetry counters without falsifying byte/item liveness.
 - **Concurrency:** Retain fleet template `parallel_uploads: 8`; no raise to Graph/`max_concurrent_runs` this release (benchmark lacked ≥20% staging gain at 12).
 - **Verify:** `go test ./...` PASS; `ms365_batch_progress_liveness_test.php` PASS (content telemetry cases).
-- **Deploy:** commit → `origin/main` → `deploy-production.sh` → fleet build **0.4.37** canary then rolling.
+- **Deploy:** commit `c7652c01` → `origin/main`; PHP **1.52.54** via `deploy-production.sh`; dev build job **145** → release **156** / prod release **80** (`sha256 ba636917…`); rolling deploy job **46** → **20/20** nodes on **0.4.37**; `ms365_prod_health_check.php` + `ms365_fleet_smoke.php` PASS; browse binary synced **0.4.37**.
 
 ### 2026-08-06 — Waiting-for-worker: RunLog race + exhausted resume wedge
 
