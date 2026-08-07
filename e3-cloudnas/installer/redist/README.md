@@ -1,7 +1,9 @@
-# WinFsp redistribution input
-
 Place the approved x64-capable WinFsp MSI here as `winfsp.msi`. The MSI is a
 build input and is intentionally excluded from Git.
+
+Agent Builds (`windows_build_cloudnas`) will download and SHA-256-verify this
+file automatically when missing, then cache a copy under
+`/var/cache/e3-agent-build/winfsp.msi`.
 
 Current candidate fetch URL:
 
