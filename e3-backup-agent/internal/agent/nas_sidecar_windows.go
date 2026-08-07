@@ -5,7 +5,8 @@ package agent
 import (
 	"errors"
 	"os"
-	"syscall"
+
+	"golang.org/x/sys/windows"
 )
 
 func cloudNASProgramDataDir() string {
@@ -17,14 +18,14 @@ func cloudNASProgramDataDir() string {
 }
 
 func isSidecarProcessRunning(pid int) bool {
-	handle, err := syscall.OpenProcess(syscall.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))
+	handle, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))
 	if err != nil {
 		return false
 	}
-	defer syscall.CloseHandle(handle)
+	defer windows.CloseHandle(handle)
 
 	var exitCode uint32
-	if err := syscall.GetExitCodeProcess(handle, &exitCode); err != nil {
+	if err := windows.GetExitCodeProcess(handle, &exitCode); err != nil {
 		return false
 	}
 	const stillActive = 259

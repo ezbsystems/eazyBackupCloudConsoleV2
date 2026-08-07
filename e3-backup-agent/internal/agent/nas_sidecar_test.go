@@ -152,6 +152,114 @@ func TestSidecarUnmountPostsJSON(t *testing.T) {
 	assertJSONField(t, gotBody, "drive_letter", "Z")
 }
 
+func TestEnsurePreparedNASMountUsesSidecar(t *testing.T) {
+	var routes []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		routes = append(routes, r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/health":
+			_, _ = io.WriteString(w, `{"ok":true,"version":"0.1.0","winfsp":true}`)
+		case "/mount":
+			_, _ = io.WriteString(w, `{"ok":true}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	dir := t.TempDir()
+	writeSidecarDiscoveryFiles(t, dir, strings.TrimPrefix(srv.URL, "http://"), "token", os.Getpid())
+	t.Setenv("ProgramData", dir)
+	resetNASManagerForTest(t)
+
+	r := &Runner{}
+	mount, err := r.ensurePreparedNASMount(context.Background(), MountNASPayload{
+		MountID:     42,
+		DriveLetter: "y:",
+		Bucket:      "bucket",
+		AccessKey:   "access",
+		SecretKey:   "secret",
+	})
+	if err != nil {
+		t.Fatalf("ensurePreparedNASMount: %v", err)
+	}
+	if strings.Join(routes, ",") != "/health,/mount" {
+		t.Fatalf("sidecar routes = %v, want health then mount", routes)
+	}
+	if mount.DriveLetter != "Y" || mount.BucketName != "bucket" {
+		t.Fatalf("mount = %#v", mount)
+	}
+	if mount.WebDAV != nil || mount.VFS != nil || mount.ServerPort != 0 || mount.TargetURL != "" {
+		t.Fatalf("sidecar mount retained WebDAV state: %#v", mount)
+	}
+}
+
+func TestStopPreparedNASMountUsesSidecar(t *testing.T) {
+	var unmounted string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/unmount" {
+			http.NotFound(w, r)
+			return
+		}
+		var body sidecarUnmountRequest
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode unmount request: %v", err)
+		}
+		unmounted = body.DriveLetter
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"ok":true}`)
+	}))
+	t.Cleanup(srv.Close)
+
+	dir := t.TempDir()
+	writeSidecarDiscoveryFiles(t, dir, strings.TrimPrefix(srv.URL, "http://"), "token", os.Getpid())
+	t.Setenv("ProgramData", dir)
+	resetNASManagerForTest(t)
+	nasManager.mounts["Z"] = &NASMount{MountID: 7, DriveLetter: "Z"}
+
+	r := &Runner{}
+	if err := r.stopPreparedNASMount("z:", true); err != nil {
+		t.Fatalf("stopPreparedNASMount: %v", err)
+	}
+
+	if unmounted != "Z" {
+		t.Fatalf("sidecar unmounted %q, want Z", unmounted)
+	}
+	if _, ok := nasManager.mounts["Z"]; ok {
+		t.Fatal("mount remained registered after stop")
+	}
+}
+
+func TestFormatCloudNASErrorUsesStableStatusPrefixes(t *testing.T) {
+	tests := []struct {
+		err    error
+		prefix string
+	}{
+		{ErrCloudNASSidecarMissing, "cloudnas_sidecar_missing:"},
+		{ErrCloudNASSidecarNotRunning, "cloudnas_sidecar_not_running:"},
+		{ErrWinFspMissing, "winfsp_missing:"},
+	}
+	for _, tc := range tests {
+		if got := formatCloudNASError(tc.err); !strings.HasPrefix(got, tc.prefix) {
+			t.Errorf("formatCloudNASError(%v) = %q, want prefix %q", tc.err, got, tc.prefix)
+		}
+	}
+}
+
+func resetNASManagerForTest(t *testing.T) {
+	t.Helper()
+	nasManager.mu.Lock()
+	previous := nasManager.mounts
+	nasManager.mounts = make(map[string]*NASMount)
+	nasManager.mu.Unlock()
+	t.Cleanup(func() {
+		nasManager.mu.Lock()
+		nasManager.mounts = previous
+		nasManager.mu.Unlock()
+	})
+}
+
 func TestSidecarMissingDiscovery(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("ProgramData", dir)

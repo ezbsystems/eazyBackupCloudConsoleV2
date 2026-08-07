@@ -134,8 +134,6 @@ func (r *Runner) cloudNASPrepareLoop(stop <-chan struct{}) {
 		return
 	}
 
-	configureWebClientForLargeFiles()
-
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	if err := r.startPendingNASMounts(ctx); err != nil {
 		log.Printf("agent: Cloud NAS prepare sync failed: %v", err)
@@ -196,9 +194,9 @@ func (r *Runner) startPendingNASMounts(ctx context.Context) error {
 
 		prepared, err := r.ensurePreparedNASMount(ctx, payload)
 		if err != nil {
-			log.Printf("agent: failed to prepare Cloud NAS WebDAV for %s: %v", driveLetter, err)
+			log.Printf("agent: failed to mount Cloud NAS sidecar drive %s: %v", driveLetter, err)
 			if payload.MountID > 0 {
-				_ = r.client.UpdateNASMountStatus(payload.MountID, "error", err.Error())
+				_ = r.client.UpdateNASMountStatus(payload.MountID, "error", formatCloudNASError(err))
 			}
 			continue
 		}
@@ -207,18 +205,6 @@ func (r *Runner) startPendingNASMounts(ctx context.Context) error {
 		statusNorm := strings.ToLower(strings.TrimSpace(payload.Status))
 		if statusNorm == "pending" || statusNorm == "mounting" {
 			if payload.MountID > 0 {
-				_ = r.client.UpdateNASMountStatus(payload.MountID, "mounting", "")
-			}
-			log.Printf("agent: auto-mapping prepared Cloud NAS drive %s: to %s", prepared.DriveLetter, prepared.TargetURL)
-			if err := r.mapDriveInUserSession(ctx, prepared.DriveLetter, prepared.TargetURL, prepared.BucketName, prepared.ServerPort); err != nil {
-				log.Printf("agent: auto-mapping Cloud NAS drive %s failed: %v", prepared.DriveLetter, err)
-				r.stopPreparedNASMount(prepared.DriveLetter, true)
-				if payload.MountID > 0 {
-					_ = r.client.UpdateNASMountStatus(payload.MountID, "error", err.Error())
-				}
-				continue
-			}
-			if payload.MountID > 0 {
 				_ = r.client.UpdateNASMountStatus(payload.MountID, "mounted", "")
 			}
 			prepared.Status = "mounted"
@@ -226,7 +212,7 @@ func (r *Runner) startPendingNASMounts(ctx context.Context) error {
 		}
 
 		regCtx, regCancel := context.WithTimeout(ctx, 5*time.Second)
-		if err := registerPreparedNASDriveViaTray(regCtx, prepared.MountID, prepared.DriveLetter, prepared.TargetURL, prepared.BucketName, prepared.ServerPort, trayStatus); err != nil {
+		if err := registerPreparedNASDriveViaTray(regCtx, prepared.MountID, prepared.DriveLetter, prepared.BucketName, trayStatus); err != nil {
 			log.Printf("agent: Cloud NAS tray register warning for %s: %v", prepared.DriveLetter, err)
 		}
 		regCancel()
@@ -255,8 +241,10 @@ func (r *Runner) reconcilePreparedNASMounts(desired map[string]bool) {
 	nasManager.mu.RUnlock()
 
 	for _, letter := range letters {
-		log.Printf("agent: Cloud NAS mount %s no longer desired; stopping local WebDAV", letter)
-		r.stopPreparedNASMount(letter, true)
+		log.Printf("agent: Cloud NAS mount %s no longer desired; stopping sidecar mount", letter)
+		if err := r.stopPreparedNASMount(letter, true); err != nil {
+			log.Printf("agent: Cloud NAS sidecar unmount warning for %s: %v", letter, err)
+		}
 	}
 }
 
@@ -283,12 +271,28 @@ func (r *Runner) ensurePreparedNASMount(ctx context.Context, payload MountNASPay
 			nasManager.mu.Unlock()
 			return existing, nil
 		}
-		r.stopPreparedNASMount(driveLetter, true)
+		if err := r.stopPreparedNASMount(driveLetter, true); err != nil {
+			log.Printf("agent: Cloud NAS replacement unmount warning for %s: %v", driveLetter, err)
+		}
 	}
 
-	mount, err := r.startNASWebDAV(ctx, payload)
-	if err != nil {
+	if err := r.sidecarHealth(ctx); err != nil {
 		return nil, err
+	}
+	label := fmt.Sprintf("Cloud NAS (%s)", payload.Bucket)
+	if err := r.sidecarMount(ctx, payload, label); err != nil {
+		return nil, err
+	}
+	mount := &NASMount{
+		MountID:     payload.MountID,
+		DriveLetter: driveLetter,
+		BucketName:  payload.Bucket,
+		Prefix:      payload.Prefix,
+		ReadOnly:    payload.ReadOnly,
+		CacheMode:   payload.CacheMode,
+		Persistent:  payload.Persistent,
+		Status:      payload.Status,
+		MountedAt:   time.Now(),
 	}
 
 	nasManager.mu.Lock()
@@ -297,7 +301,7 @@ func (r *Runner) ensurePreparedNASMount(ctx context.Context, payload MountNASPay
 	return mount, nil
 }
 
-func (r *Runner) stopPreparedNASMount(driveLetter string, removeUserMapping bool) {
+func (r *Runner) stopPreparedNASMount(driveLetter string, _ bool) error {
 	driveLetter = strings.ToUpper(strings.TrimSuffix(strings.TrimSpace(driveLetter), ":"))
 
 	nasManager.mu.Lock()
@@ -307,28 +311,18 @@ func (r *Runner) stopPreparedNASMount(driveLetter string, removeUserMapping bool
 	}
 	nasManager.mu.Unlock()
 
-	if removeUserMapping {
-		r.unmapDriveInUserSession(driveLetter)
-	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	unmountErr := r.sidecarUnmount(ctx, driveLetter)
+	cancel()
 
-	if mount != nil {
-		if mount.WebDAV != nil {
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			_ = mount.WebDAV.Shutdown(ctx)
-			cancel()
-		}
-		if mount.VFS != nil {
-			mount.VFS.Shutdown()
-		}
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
 	_ = unregisterPreparedNASDriveViaTray(ctx, driveLetter)
 	cancel()
 
-	if removeUserMapping {
-		r.notifyShellDriveRemoved(driveLetter)
+	if mount != nil {
+		log.Printf("agent: stopped Cloud NAS sidecar mount %s", driveLetter)
 	}
+	return unmountErr
 }
 
 func (r *Runner) startNASWebDAV(ctx context.Context, payload MountNASPayload) (*NASMount, error) {
@@ -521,7 +515,7 @@ func (r *Runner) executeNASMountCommand(ctx context.Context, cmd PendingCommand)
 		_ = r.client.CompleteCommand(cmd.CommandID, "failed", err.Error())
 		// Update mount status to error in dashboard
 		if payload.MountID > 0 {
-			_ = r.client.UpdateNASMountStatus(payload.MountID, "error", err.Error())
+			_ = r.client.UpdateNASMountStatus(payload.MountID, "error", formatCloudNASError(err))
 		}
 		return
 	}
@@ -563,7 +557,7 @@ func (r *Runner) executeNASUnmountCommand(ctx context.Context, cmd PendingComman
 		_ = r.client.CompleteCommand(cmd.CommandID, "failed", err.Error())
 		// Update mount status to error in dashboard
 		if mountID > 0 {
-			_ = r.client.UpdateNASMountStatus(mountID, "error", err.Error())
+			_ = r.client.UpdateNASMountStatus(mountID, "error", formatCloudNASError(err))
 		}
 		return
 	}
@@ -658,9 +652,8 @@ func (r *Runner) executeNASUnmountSnapshotCommand(ctx context.Context, cmd Pendi
 	_ = r.client.CompleteCommand(cmd.CommandID, "completed", "snapshot unmounted")
 }
 
-// mountNASDrive keeps compatibility with the legacy command-driven Cloud NAS
-// flow. It first prepares the local WebDAV server, then asks the tray helper
-// to attempt the Windows drive mapping immediately.
+// mountNASDrive keeps compatibility with the command-driven Cloud NAS flow.
+// The sidecar performs and verifies the Windows drive mount directly.
 func (r *Runner) mountNASDrive(ctx context.Context, payload MountNASPayload) error {
 	if runtime.GOOS != "windows" {
 		return fmt.Errorf("NAS mount is only supported on Windows")
@@ -671,23 +664,14 @@ func (r *Runner) mountNASDrive(ctx context.Context, payload MountNASPayload) err
 		return err
 	}
 
-	log.Printf("agent: mapping drive %s: to %s", prepared.DriveLetter, prepared.TargetURL)
-	if err := r.mapDriveInUserSession(ctx, prepared.DriveLetter, prepared.TargetURL, prepared.BucketName, prepared.ServerPort); err != nil {
-		log.Printf("agent: user-session tray mapping failed: %v", err)
-		r.stopPreparedNASMount(prepared.DriveLetter, true)
-		return fmt.Errorf("interactive Explorer-session mapping failed: %w", err)
-	}
-
 	prepared.Status = "mounted"
 	regCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	if err := registerPreparedNASDriveViaTray(regCtx, prepared.MountID, prepared.DriveLetter, prepared.TargetURL, prepared.BucketName, prepared.ServerPort, "mounted"); err != nil {
+	if err := registerPreparedNASDriveViaTray(regCtx, prepared.MountID, prepared.DriveLetter, prepared.BucketName, "mounted"); err != nil {
 		log.Printf("agent: Cloud NAS tray register warning for %s after mount: %v", prepared.DriveLetter, err)
 	}
 	cancel()
 
-	log.Printf("agent: drive %s: mapped in user session for Explorer visibility", prepared.DriveLetter)
-	log.Printf("agent: *** IMPORTANT: Keep this agent running! The WebDAV server will stop if the agent exits. ***")
-	log.Printf("agent: mount successful - %s: -> %s (WebDAV port: %d)", prepared.DriveLetter, prepared.TargetURL, prepared.ServerPort)
+	log.Printf("agent: Cloud NAS sidecar mount successful - %s: -> %s/%s", prepared.DriveLetter, prepared.BucketName, prepared.Prefix)
 	return nil
 }
 
@@ -695,19 +679,9 @@ func (r *Runner) mountNASDrive(ctx context.Context, payload MountNASPayload) err
 func (r *Runner) unmountNASDrive(driveLetter string) error {
 	driveLetter = strings.ToUpper(strings.TrimSuffix(driveLetter, ":"))
 
-	r.stopPreparedNASMount(driveLetter, true)
-
-	// Legacy cleanup in the service session in case an older build created a
-	// hidden mapping there.
-	unmountScript := fmt.Sprintf(`
-net use %s: /delete /y 2>$null
-Stop-Service WebClient -Force -ErrorAction SilentlyContinue
-Start-Sleep -Milliseconds 300
-Start-Service WebClient -ErrorAction SilentlyContinue
-`, driveLetter)
-
-	unmountCmd := exec.Command("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", unmountScript)
-	_ = unmountCmd.Run()
+	if err := r.stopPreparedNASMount(driveLetter, true); err != nil {
+		return err
+	}
 
 	log.Printf("agent: unmounted %s:", driveLetter)
 	return nil
