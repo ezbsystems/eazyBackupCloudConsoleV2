@@ -85,6 +85,20 @@ class LifecycleResolver
             'confidence' => $confidence,
             'source' => $source,
         ];
+        // #region agent log
+        if (str_starts_with($deviceHash, '32789ae') || $category === 'hyperv_vms') {
+            self::debugLog('LifecycleResolver.php:resolve', 'lifecycle_resolved', 'A', [
+                'deviceHash' => $deviceHash,
+                'category' => $category,
+                'is_active' => $device['is_active'] ?? null,
+                'revoked_at' => $revokedAt,
+                'remove_date' => $removeDate,
+                'source' => $source,
+                'confidence' => $confidence,
+                'registered_at' => $registeredAt,
+            ]);
+        }
+        // #endregion
         self::$cache[$cacheKey] = $result;
         return $result;
     }
@@ -130,9 +144,13 @@ class LifecycleResolver
         $lastPositive = null;
         $disappeared = false;
         $latestQty = 0;
+        $latestDate = null;
+        $rowCount = 0;
         foreach ($rows as $row) {
+            $rowCount++;
             $qty = (int) ($row->{$column} ?? 0);
             $latestQty = $qty;
+            $latestDate = (string) $row->snapshot_date;
             if ($qty > 0) {
                 $lastPositive = (string) $row->snapshot_date;
                 $disappeared = false;
@@ -142,10 +160,43 @@ class LifecycleResolver
         }
 
         // Booster still present on the newest inventory snapshot → not removed.
+        $result = null;
         if ($latestQty > 0) {
-            return null;
+            $result = null;
+        } else {
+            $result = $disappeared ? $lastPositive : null;
         }
-
-        return $disappeared ? $lastPositive : null;
+        // #region agent log
+        if (str_starts_with($deviceHash, '32789ae') || $result !== null) {
+            self::debugLog('LifecycleResolver.php:findInventoryRemoveDate', 'inventory_scan', 'A', [
+                'deviceHash' => $deviceHash,
+                'category' => $category,
+                'column' => $column,
+                'rowCount' => $rowCount,
+                'lastPositive' => $lastPositive,
+                'latestDate' => $latestDate,
+                'latestQty' => $latestQty,
+                'disappeared' => $disappeared,
+                'removeDate' => $result,
+            ]);
+        }
+        // #endregion
+        return $result;
     }
+
+    // #region agent log
+    private static function debugLog(string $location, string $message, string $hypothesisId, array $data): void
+    {
+        $payload = [
+            'sessionId' => 'd2324a',
+            'runId' => 'pre-fix',
+            'hypothesisId' => $hypothesisId,
+            'location' => $location,
+            'message' => $message,
+            'data' => $data,
+            'timestamp' => (int) round(microtime(true) * 1000),
+        ];
+        @file_put_contents('/var/www/eazybackup.ca/.cursor/debug-d2324a.log', json_encode($payload) . "\n", FILE_APPEND);
+    }
+    // #endregion
 }

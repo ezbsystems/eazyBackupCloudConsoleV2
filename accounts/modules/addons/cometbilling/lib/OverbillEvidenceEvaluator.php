@@ -86,6 +86,48 @@ class OverbillEvidenceEvaluator
             $reasons
         );
 
+        // #region agent log
+        $hashForLog = (string) ($identity['device_hash'] ?? $deviceIdRaw);
+        if (str_starts_with($hashForLog, '32789ae')
+            || str_contains(strtolower($itemDesc), 'hyper-v')
+            || ($verdict === 'confirmed' && in_array($category, ['hyperv_vms', 'vmware_vms', 'proxmox_vms'], true))
+        ) {
+            $asQty = $cadence['service_quantity'] ?? null;
+            $lifeSrc = is_array($lifecycle) ? ($lifecycle['source'] ?? null) : null;
+            $removeDate = is_array($lifecycle) ? ($lifecycle['remove_date'] ?? null) : null;
+            $revokedAt = is_array($lifecycle) ? ($lifecycle['revoked_at'] ?? null) : null;
+            self::debugLog('OverbillEvidenceEvaluator.php:evaluate', 'charge_evaluated', 'A', [
+                'usage_date' => $usageDate,
+                'device_raw' => $deviceIdRaw,
+                'device_hash' => $identity['device_hash'] ?? null,
+                'identity_status' => $identity['status'] ?? null,
+                'category' => $category,
+                'item_desc' => $itemDesc,
+                'amount' => $amount,
+                'cycle' => $cadence['mode'] ?? null,
+                'cycle_days' => $cadence['cycle_days'] ?? null,
+                'next_due' => $cadence['next_due_date'] ?? null,
+                'as_qty' => $asQty,
+                'as_snapshot' => $cadence['snapshot_at'] ?? null,
+                'as_name' => $cadence['service_name'] ?? null,
+                'lifecycle_source' => $lifeSrc,
+                'revoked_at' => $revokedAt,
+                'remove_date' => $removeDate,
+                'expected_end' => $expectedEnd,
+                'billing_verdict' => $billingVerdict,
+                'verdict' => $verdict,
+                'reasons' => $reasons,
+                'as_positive_while_removed' => ($removeDate !== null && $asQty !== null && (float) $asQty > 0),
+                'hypothesis_D_daily_end_eq_nextdue_minus_1' => (
+                    ($cadence['mode'] ?? '') === 'daily'
+                    && $expectedEnd !== null
+                    && !empty($cadence['next_due_date'])
+                    && $expectedEnd === date('Y-m-d', strtotime((string) $cadence['next_due_date'] . ' -1 day'))
+                ),
+            ]);
+        }
+        // #endregion
+
         return [
             'usage_id' => (int) ($row->id ?? 0),
             'usage_date' => $usageDate,
@@ -273,4 +315,20 @@ class OverbillEvidenceEvaluator
 
         return null;
     }
+
+    // #region agent log
+    private static function debugLog(string $location, string $message, string $hypothesisId, array $data): void
+    {
+        $payload = [
+            'sessionId' => 'd2324a',
+            'runId' => 'pre-fix',
+            'hypothesisId' => $hypothesisId,
+            'location' => $location,
+            'message' => $message,
+            'data' => $data,
+            'timestamp' => (int) round(microtime(true) * 1000),
+        ];
+        @file_put_contents('/var/www/eazybackup.ca/.cursor/debug-d2324a.log', json_encode($payload) . "\n", FILE_APPEND);
+    }
+    // #endregion
 }
