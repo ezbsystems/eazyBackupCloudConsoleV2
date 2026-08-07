@@ -233,7 +233,7 @@
                         Debian package (.deb)
                     </a>
                     <p class="text-xs" style="color:var(--eb-text-muted);">
-                        Ubuntu and Debian. Use <code class="eb-type-mono text-xs">TOKEN=…</code> for silent install, or run <code class="eb-type-mono text-xs">sudo dpkg -i …</code> in a terminal and paste your token when prompted.
+                        Ubuntu and Debian. Use <code class="eb-type-mono text-xs">TOKEN=…</code> for silent install, or run <code class="eb-type-mono text-xs">sudo dpkg -i …</code> in a terminal — a debconf dialog will ask for your token.
                         {if $dlLinuxDeb.version_label|default:''}
                         <span class="block mt-1">Version {$dlLinuxDeb.version_label|escape:'html'}{if $dlLinuxDeb.size_label|default:''} · {$dlLinuxDeb.size_label|escape:'html'}{/if}</span>
                         {/if}

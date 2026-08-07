@@ -398,7 +398,7 @@
                             <pre class="eb-type-mono whitespace-pre-wrap break-all text-[var(--eb-text-primary)]" x-text="installCmdLinuxDeb"></pre>
                         </div>
                     </label>
-                    <p class="eb-field-help !mt-2">Download <code class="eb-type-mono text-xs">e3-backup-agent-linux.deb</code>, then run this command as root. Or run <code class="eb-type-mono text-xs">sudo dpkg -i …</code> in a terminal and paste your token when prompted.</p>
+                    <p class="eb-field-help !mt-2">Download <code class="eb-type-mono text-xs">e3-backup-agent-linux.deb</code>, then run this command as root for silent install. Or run <code class="eb-type-mono text-xs">sudo dpkg -i …</code> in a terminal — a debconf dialog will ask for your token.</p>
                 </div>
             </div>
 

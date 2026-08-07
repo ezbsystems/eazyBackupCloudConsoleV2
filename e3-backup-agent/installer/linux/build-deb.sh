@@ -36,44 +36,141 @@ Architecture: ${ARCH}
 Maintainer: eazyBackup <support@eazybackup.ca>
 Description: e3 Cloud Backup local agent
  Installs the e3 backup agent service for Linux endpoints.
-Depends: systemd
+Depends: systemd, debconf (>= 0.5) | debconf-2.0
 EOF
+
+cat > "$STAGING/DEBIAN/templates" <<'TEMPLATES'
+Template: e3-backup-agent/enrollment_token
+Type: password
+Description: Enrollment token for e3 Backup Agent:
+Extended description: Enter the one-time enrollment token from the eazyBackup portal (Enrollment Tokens). The agent enrolls automatically after install.
+ .
+Template: e3-backup-agent/enrollment_token/empty
+Type: error
+Description: Enrollment token required
+Extended description: An enrollment token is required to register this computer. Generate one in the eazyBackup portal under Enrollment Tokens, then reinstall or run:
+ sudo TOKEN=YOUR_TOKEN dpkg -i e3-backup-agent-linux.deb
+ .
+TEMPLATES
+
+cat > "$STAGING/DEBIAN/config" <<'CONFIG'
+#!/bin/sh
+set -e
+
+. /usr/share/debconf/confmodule
+
+CONF_DIR="/etc/e3-backup-agent"
+CONF_FILE="${CONF_DIR}/agent.conf"
+TOKEN_QUESTION="e3-backup-agent/enrollment_token"
+
+is_enrolled() {
+  [ -f "$CONF_FILE" ] \
+    && grep -qE '^[[:space:]]*agent_uuid:[[:space:]]*' "$CONF_FILE" \
+    && grep -qE '^[[:space:]]*agent_token:[[:space:]]*' "$CONF_FILE"
+}
+
+trim_token() {
+  printf '%s' "$1" | tr -d '[:space:]'
+}
+
+if is_enrolled; then
+  exit 0
+fi
+
+TOKEN="$(trim_token "${TOKEN:-}")"
+if [ -z "$TOKEN" ] && [ -f "${CONF_DIR}/enrollment.token" ]; then
+  TOKEN="$(trim_token "$(cat "${CONF_DIR}/enrollment.token")")"
+fi
+
+if [ -n "$TOKEN" ]; then
+  db_set "$TOKEN_QUESTION" "$TOKEN"
+  exit 0
+fi
+
+attempt=0
+while [ "$attempt" -lt 3 ]; do
+  db_input high "$TOKEN_QUESTION" || exit 1
+  if ! db_go; then
+    exit 1
+  fi
+
+  db_get "$TOKEN_QUESTION" TOKEN
+  TOKEN="$(trim_token "$TOKEN")"
+  if [ -n "$TOKEN" ]; then
+    db_set "$TOKEN_QUESTION" "$TOKEN"
+    exit 0
+  fi
+
+  db_input high e3-backup-agent/enrollment_token/empty || true
+  db_go || true
+  attempt=$((attempt + 1))
+done
+
+exit 1
+CONFIG
 
 cat > "$STAGING/DEBIAN/postinst" <<'POSTINST'
 #!/bin/sh
 set -e
 
+. /usr/share/debconf/confmodule
+
 CONF_DIR="/etc/e3-backup-agent"
 CONF_FILE="${CONF_DIR}/agent.conf"
 INSTALL_SH="/usr/share/e3-backup-agent/install.sh"
 RUN_DIR="/var/lib/e3-backup-agent/runs"
+TOKEN_QUESTION="e3-backup-agent/enrollment_token"
+
+trim_token() {
+  printf '%s' "$1" | tr -d '[:space:]'
+}
+
+clear_debconf_token() {
+  db_set "$TOKEN_QUESTION" ''
+  db_fset "$TOKEN_QUESTION" seen false 2>/dev/null || true
+}
 
 mkdir -p "$CONF_DIR" "$RUN_DIR"
 chmod 700 "$CONF_DIR" "$(dirname "$RUN_DIR")" "$RUN_DIR" 2>/dev/null || true
 
-TOKEN="${TOKEN:-}"
-if [ -z "$TOKEN" ] && [ -f "${CONF_DIR}/enrollment.token" ]; then
-  TOKEN="$(tr -d '[:space:]' < "${CONF_DIR}/enrollment.token")"
-fi
-
 if [ -f "$CONF_FILE" ] && grep -qE '^[[:space:]]*agent_uuid:' "$CONF_FILE" \
    && grep -qE '^[[:space:]]*agent_token:' "$CONF_FILE"; then
   echo "e3-backup-agent: existing enrolled config preserved."
-elif [ -x "$INSTALL_SH" ]; then
-  API_BASE="${API_BASE:-https://accounts.eazybackup.ca/modules/addons/cloudstorage/api}"
-  if [ -n "$TOKEN" ]; then
-    "$INSTALL_SH" --token "$TOKEN" --api "$API_BASE" --binary /usr/local/bin/e3-backup-agent
-  else
-    "$INSTALL_SH" --api "$API_BASE" --binary /usr/local/bin/e3-backup-agent
-  fi
+  clear_debconf_token
+  systemctl daemon-reload
+  systemctl enable e3-backup-agent 2>/dev/null || true
+  systemctl restart e3-backup-agent 2>/dev/null || true
   exit 0
 fi
 
-systemctl daemon-reload
-if [ -f "$CONF_FILE" ]; then
-  systemctl enable e3-backup-agent 2>/dev/null || true
-  systemctl restart e3-backup-agent 2>/dev/null || true
+TOKEN="$(trim_token "${TOKEN:-}")"
+if [ -z "$TOKEN" ] && [ -f "${CONF_DIR}/enrollment.token" ]; then
+  TOKEN="$(trim_token "$(cat "${CONF_DIR}/enrollment.token")")"
 fi
+if [ -z "$TOKEN" ]; then
+  db_get "$TOKEN_QUESTION" TOKEN
+  TOKEN="$(trim_token "$TOKEN")"
+fi
+
+if [ -z "$TOKEN" ]; then
+  echo "e3-backup-agent: ERROR: No enrollment token provided." >&2
+  echo "Generate a token in the eazyBackup portal (Enrollment Tokens) and reinstall, or run:" >&2
+  echo "  sudo TOKEN=YOUR_TOKEN dpkg -i e3-backup-agent-linux.deb" >&2
+  clear_debconf_token
+  exit 1
+fi
+
+if [ ! -x "$INSTALL_SH" ]; then
+  echo "e3-backup-agent: ERROR: installer script missing at ${INSTALL_SH}" >&2
+  clear_debconf_token
+  exit 1
+fi
+
+API_BASE="${API_BASE:-https://accounts.eazybackup.ca/modules/addons/cloudstorage/api}"
+"$INSTALL_SH" --token "$TOKEN" --api "$API_BASE" --binary /usr/local/bin/e3-backup-agent --noninteractive
+
+clear_debconf_token
+exit 0
 POSTINST
 
 cat > "$STAGING/DEBIAN/prerm" <<'PRERM'
@@ -85,7 +182,17 @@ if [ "$1" = "remove" ] || [ "$1" = "deconfigure" ]; then
 fi
 PRERM
 
-chmod 755 "$STAGING/DEBIAN/postinst" "$STAGING/DEBIAN/prerm"
+cat > "$STAGING/DEBIAN/postrm" <<'POSTRM'
+#!/bin/sh
+set -e
+
+if [ "$1" = "purge" ]; then
+  . /usr/share/debconf/confmodule
+  db_purge
+fi
+POSTRM
+
+chmod 755 "$STAGING/DEBIAN/config" "$STAGING/DEBIAN/postinst" "$STAGING/DEBIAN/prerm" "$STAGING/DEBIAN/postrm"
 
 dpkg-deb --build "$STAGING" "$OUTPUT"
 cp -f "$OUTPUT" "$OUTPUT_LATEST"
