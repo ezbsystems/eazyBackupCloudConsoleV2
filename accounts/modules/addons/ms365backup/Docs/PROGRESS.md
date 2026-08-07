@@ -5,11 +5,17 @@
 **Last updated:** 2026-08-07
 **Module version (ms365backup):** 1.52.62
 **Cloudstorage (e3) version:** 2.2.4  
-**Worker version (ms365-backup-worker):** 0.4.39 (Kopia v0.23.1)
+**Worker version (ms365-backup-worker):** 0.4.41 (Kopia v0.23.1)
 
 ---
 
 ## Session log
+
+### 2026-08-07 — Ruben cold-repo open misclassified as upload stall (worker 0.4.40→0.4.41)
+
+- **Runtime proof:** On two workers, `prior_snapshot` timed out at exactly 300s. Worker 0.4.40 diagnostics then logged `snapshot pipeline entered` but never `repository acquired`; the cold Kopia index cache grew **4,472 → 4,929 in 20s** and later exceeded 6,000 files. Repo 20 has **25,453 index blobs** despite full maintenance op 574 reporting success.
+- **Root cause:** `StartStallWatch` started before `Pool.Snapshot` acquired/opened the repository. Cold loading of the fragmented index set was therefore labeled `upload` and cancelled after 900s before Kopia's uploader had started. Worker hand-off moved the retry to another cold cache and repeated the cycle.
+- **Fix:** Track Kopia's `UploadStarted` callback; the upload watchdog ignores pre-upload repository acquisition. Report the pre-uploader phase as `repo_open`, which receives the generic 1800s control-plane window instead of the 900s upload-tail rule. Diagnostic stage logs remain active for post-fix proof.
 
 ### 2026-08-07 — Warning-on-success + wedged upload + sticky suppress (PHP 1.52.60→1.52.62)
 
@@ -17,10 +23,6 @@
 - **Fix:** success/skipped + cancelled (no errors) → `success`; Graph throttling progress log downgraded to `info`. Healed parent to `success`.
 - **5964c88e Ruben:** After graph_sync, Kopia upload wedged (hash frozen, 0 CPU). Soft-abort + hand-off left child queued because queue error `Ops soft-abort:…` was not in the fragile LIKE clear-list → `shouldPromoteFromBatchProgress` blocked forever.
 - **Fix:** `buildBatchPayload` clears **any** non-empty queued suppress marker.
-
-- **f4bee1e7:** Completed `warning` because `aggregateStatus` mapped success+cancelled → warning (22 SharePoint Lists policy cancels). Graph 429 log lines were `warning` level and looked like the cause.
-- **Fix:** success/skipped + cancelled (no errors) → `success`; Graph throttling progress log downgraded to `info`.
-- **5964c88e Ruben:** After graph_sync, Kopia upload wedged (hash frozen, 0 CPU). Soft-abort + requeue after deploy.
 
 ### 2026-08-07 — Drive lock thrash: serviceReadOnly + 423 Locked (PHP 1.52.59, worker 0.4.39)
 

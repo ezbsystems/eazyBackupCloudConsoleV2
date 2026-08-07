@@ -12,17 +12,17 @@ import (
 
 // StallWatchConfig controls worker-side detection of wedged Kopia uploads.
 type StallWatchConfig struct {
-	StallSeconds           int
-	CheckIntervalSeconds   int
-	GraceSeconds           int
-	RunID                  string
-	RunDir                 string
-	ReportedItemsTotal     int64
+	StallSeconds         int
+	CheckIntervalSeconds int
+	GraceSeconds         int
+	RunID                string
+	RunDir               string
+	ReportedItemsTotal   int64
 	// GraphEnumerationComplete is true when Graph sync finished (items_done >= items_total)
 	// before Kopia upload. Kopia FilesDone can lag graph item counts; without this flag
 	// the watchdog stays in mid-upload AND mode and parallel hash progress masks wedges.
 	GraphEnumerationComplete bool
-	OnStall                func(snapshot map[string]any)
+	OnStall                  func(snapshot map[string]any)
 }
 
 // StartStallWatch monitors hashing and upload progress during a Kopia snapshot
@@ -57,6 +57,12 @@ func StartStallWatch(ctx context.Context, cancel context.CancelFunc, counter *Pr
 				return
 			case <-ticker.C:
 				if time.Since(started) < time.Duration(grace)*time.Second {
+					continue
+				}
+				// Repository acquisition can legitimately spend many minutes loading
+				// fragmented indexes on a cold worker. It is not an upload stall:
+				// Kopia calls UploadStarted only after repo open/policy/listing finish.
+				if !counter.IsUploadStarted() {
 					continue
 				}
 				snapshot := counter.SafeDebugSnapshot()

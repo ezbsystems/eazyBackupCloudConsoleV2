@@ -16,6 +16,7 @@ type ProgressCounter struct {
 	lastHashAt    atomic.Int64
 	lastUploadAt  atomic.Int64
 	startedAt     atomic.Int64
+	uploadStarted atomic.Bool
 	currentFile   atomic.Value
 	callback      func(ProgressCounter)
 }
@@ -49,6 +50,10 @@ func (p *ProgressCounter) SecondsSinceLastHash() int64 {
 
 func (p *ProgressCounter) SecondsSinceLastUpload() int64 {
 	return secondsSinceAtomic(&p.lastUploadAt)
+}
+
+func (p *ProgressCounter) IsUploadStarted() bool {
+	return p.uploadStarted.Load()
 }
 
 func (p *ProgressCounter) DebugSnapshot() map[string]any {
@@ -105,14 +110,20 @@ func secondsSinceAtomic(ts *atomic.Int64) int64 {
 	return int64(elapsed.Seconds())
 }
 
-func (p *ProgressCounter) UploadStarted()                          {}
-func (p *ProgressCounter) UploadFinished()                         { p.notify() }
-func (p *ProgressCounter) Enabled() bool                           { return p.callback != nil }
-func (p *ProgressCounter) HashingFile(fname string)                { p.currentFile.Store(fname) }
-func (p *ProgressCounter) ExcludedFile(fname string, size int64)   {}
-func (p *ProgressCounter) ExcludedDir(dirname string)              {}
-func (p *ProgressCounter) StartedDirectory(dirname string)         {}
-func (p *ProgressCounter) FinishedDirectory(dirname string)        {}
+func (p *ProgressCounter) UploadStarted() {
+	now := time.Now().UnixNano()
+	p.startedAt.Store(now)
+	p.lastHashAt.Store(now)
+	p.lastUploadAt.Store(now)
+	p.uploadStarted.Store(true)
+}
+func (p *ProgressCounter) UploadFinished()                       { p.notify() }
+func (p *ProgressCounter) Enabled() bool                         { return p.callback != nil }
+func (p *ProgressCounter) HashingFile(fname string)              { p.currentFile.Store(fname) }
+func (p *ProgressCounter) ExcludedFile(fname string, size int64) {}
+func (p *ProgressCounter) ExcludedDir(dirname string)            {}
+func (p *ProgressCounter) StartedDirectory(dirname string)       {}
+func (p *ProgressCounter) FinishedDirectory(dirname string)      {}
 func (p *ProgressCounter) EstimatedDataSize(fileCount, totalBytes int64) {
 	p.FilesTotal.Store(fileCount)
 }

@@ -396,12 +396,12 @@ func (r *Runner) Run(ctx context.Context, job *api.RunJob, onAbort context.Cance
 
 	uploadStart := api.ProgressUpdate{
 		RunID:       job.RunID,
-		Phase:       "kopia_upload",
-		Percent:     40,
+		Phase:       "repo_open",
+		Percent:     38,
 		ItemsTotal:  wlRes.FileCount,
 		ItemsDone:   int(wlRes.ItemsDone),
 		BytesHashed: wlRes.BytesTotal,
-		Message:     "Uploading snapshot to Kopia repository",
+		Message:     "Opening Kopia repository",
 	}
 	applyUploadParallelismTelemetry(&uploadStart, uploadParallel)
 	sendChildProgress(uploadStart)

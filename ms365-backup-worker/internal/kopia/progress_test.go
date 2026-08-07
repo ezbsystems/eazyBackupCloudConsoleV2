@@ -56,8 +56,29 @@ func TestProgressCounterUpdatesLastUploadAt(t *testing.T) {
 	}
 }
 
+func TestStallWatchIgnoresIdleBeforeUploadStarted(t *testing.T) {
+	counter := NewProgressCounter(nil)
+	stale := time.Now().Add(-10 * time.Second).UnixNano()
+	counter.lastHashAt.Store(stale)
+	counter.lastUploadAt.Store(stale)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	stop := StartStallWatch(ctx, cancel, counter, StallWatchConfig{
+		StallSeconds:         1,
+		CheckIntervalSeconds: 1,
+		GraceSeconds:         0,
+	})
+	defer stop()
+
+	time.Sleep(1500 * time.Millisecond)
+	if ctx.Err() != nil {
+		t.Fatal("repository open must not be classified as a stalled upload")
+	}
+}
+
 func TestStallWatchCancelsOnIdle(t *testing.T) {
 	counter := NewProgressCounter(nil)
+	counter.UploadStarted()
 	stale := time.Now().Add(-10 * time.Second).UnixNano()
 	counter.lastHashAt.Store(stale)
 	counter.lastUploadAt.Store(stale)
@@ -91,6 +112,7 @@ func TestStallWatchCancelsOnIdle(t *testing.T) {
 
 func TestStallWatchCancelsOnPostHashUploadStall(t *testing.T) {
 	counter := NewProgressCounter(nil)
+	counter.UploadStarted()
 	counter.FinishedHashingFile("done.txt", 4096)
 	stale := time.Now().Add(-10 * time.Second).UnixNano()
 	counter.lastHashAt.Store(stale)
@@ -129,6 +151,7 @@ func TestStallWatchCancelsOnPostHashUploadStall(t *testing.T) {
 
 func TestStallWatchTailPhaseCancelsOnUploadStallOnly(t *testing.T) {
 	counter := NewProgressCounter(nil)
+	counter.UploadStarted()
 	counter.FilesTotal.Store(10)
 	counter.FilesDone.Store(10)
 	counter.lastHashAt.Store(time.Now().UnixNano())
@@ -165,6 +188,7 @@ func TestStallWatchTailPhaseCancelsOnUploadStallOnly(t *testing.T) {
 
 func TestStallWatchMidUploadDoesNotCancelOnSingleSideStall(t *testing.T) {
 	counter := NewProgressCounter(nil)
+	counter.UploadStarted()
 	counter.FilesTotal.Store(100)
 	counter.FilesDone.Store(50)
 	counter.lastHashAt.Store(time.Now().UnixNano())
@@ -187,6 +211,7 @@ func TestStallWatchMidUploadDoesNotCancelOnSingleSideStall(t *testing.T) {
 
 func TestStallWatchDoesNotCancelWhenUploadActive(t *testing.T) {
 	counter := NewProgressCounter(nil)
+	counter.UploadStarted()
 	counter.lastHashAt.Store(time.Now().Add(-10 * time.Second).UnixNano())
 	counter.FinishedHashingFile("done.txt", 4096)
 
@@ -218,6 +243,7 @@ func TestStallWatchDoesNotCancelWhenUploadActive(t *testing.T) {
 
 func TestStallWatchTailPhaseUsesReportedItemsTotal(t *testing.T) {
 	counter := NewProgressCounter(nil)
+	counter.UploadStarted()
 	counter.FilesTotal.Store(0)
 	counter.FilesDone.Store(10)
 	counter.lastHashAt.Store(time.Now().UnixNano())
@@ -255,6 +281,7 @@ func TestStallWatchTailPhaseUsesReportedItemsTotal(t *testing.T) {
 
 func TestStallWatchMidUploadIgnoresHighReportedItemsTotal(t *testing.T) {
 	counter := NewProgressCounter(nil)
+	counter.UploadStarted()
 	counter.FilesTotal.Store(100)
 	counter.FilesDone.Store(50)
 	counter.lastHashAt.Store(time.Now().UnixNano())
@@ -278,6 +305,7 @@ func TestStallWatchMidUploadIgnoresHighReportedItemsTotal(t *testing.T) {
 
 func TestStallWatchGraphEnumerationCompleteCancelsOnFlatUploadDespiteActiveHash(t *testing.T) {
 	counter := NewProgressCounter(nil)
+	counter.UploadStarted()
 	counter.FilesTotal.Store(100)
 	counter.FilesDone.Store(10)
 	counter.lastHashAt.Store(time.Now().UnixNano())
@@ -288,11 +316,11 @@ func TestStallWatchGraphEnumerationCompleteCancelsOnFlatUploadDespiteActiveHash(
 	defer cancel()
 	stalled := false
 	stop := StartStallWatch(ctx, cancel, counter, StallWatchConfig{
-		StallSeconds:               1,
-		CheckIntervalSeconds:       1,
-		GraceSeconds:               0,
-		ReportedItemsTotal:         34999,
-		GraphEnumerationComplete:   true,
+		StallSeconds:             1,
+		CheckIntervalSeconds:     1,
+		GraceSeconds:             0,
+		ReportedItemsTotal:       34999,
+		GraphEnumerationComplete: true,
 		OnStall: func(snapshot map[string]any) {
 			stalled = true
 		},
