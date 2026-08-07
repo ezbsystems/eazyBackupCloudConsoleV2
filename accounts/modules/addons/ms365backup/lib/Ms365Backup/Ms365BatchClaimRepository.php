@@ -765,45 +765,6 @@ final class Ms365BatchClaimRepository
 
             $batchRunId = (string) ($child['e3_batch_run_id'] ?? '');
 
-            // #region agent log
-            if ($batchRunId === '145a31e9-4a0b-425b-bac7-d7a532ec8f57'
-                && $runId === '04f75ca1-d8c0-41df-aad2-12c3f54adc8c') {
-                $payload = [
-                    'sessionId' => 'c1a35f',
-                    'runId' => 'pre-fix-145a31e9',
-                    'hypothesisId' => 'H3-H4-H5',
-                    'location' => 'Ms365BatchClaimRepository.php:reapStalledBatchChildren',
-                    'message' => 'Affected ghost child reaper evaluation',
-                    'data' => [
-                        'batchRunId' => $batchRunId,
-                        'childRunId' => $runId,
-                        'phase' => $phase,
-                        'freshness' => $freshness,
-                        'now' => $now,
-                        'silenceSeconds' => $silenceSeconds,
-                        'staleProgress' => $staleProgress,
-                        'staleLease' => $staleLease,
-                        'liveBatch' => isset($liveBatchSet[$batchRunId]),
-                        'abortRequestedAt' => $abortAt,
-                        'itemsDone' => $itemsDone,
-                        'itemsTotal' => $itemsTotal,
-                        'bytesHashed' => $bytesHashed,
-                        'bytesUploaded' => $bytesUploaded,
-                        'queueStatus' => (string) ($queue->status ?? ''),
-                        'queueAttempts' => (int) ($queue->attempts ?? 0),
-                        'queueError' => (string) ($queue->error_message ?? ''),
-                        'queueStartedAt' => (int) ($queue->started_at ?? 0),
-                        'queueClaimedAt' => (int) ($queue->claimed_at ?? 0),
-                    ],
-                    'timestamp' => (int) floor(microtime(true) * 1000),
-                ];
-                $encoded = json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
-                if (is_string($encoded)) {
-                    @file_put_contents('/var/www/eazybackup.ca/.cursor/debug-c1a35f.log', $encoded . PHP_EOL, FILE_APPEND | LOCK_EX);
-                }
-            }
-            // #endregion
-
             if (!$staleProgress && !$staleLease) {
                 // Progress resumed after a soft-abort: clear orphaned abort so a later
                 // brief silence does not immediately requeue past the grace window.

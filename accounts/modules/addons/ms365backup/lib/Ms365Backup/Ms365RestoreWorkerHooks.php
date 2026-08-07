@@ -45,50 +45,6 @@ final class Ms365RestoreWorkerHooks
         WorkerLeaseService::renewForBatch($batchRunId, $nodeId);
         Ms365BatchClaimRepository::recordProgress($batchRunId, $nodeId);
 
-        // #region agent log
-        if ($batchRunId === '145a31e9-4a0b-425b-bac7-d7a532ec8f57') {
-            $targetRunId = '04f75ca1-d8c0-41df-aad2-12c3f54adc8c';
-            $targetPresent = false;
-            foreach ($children as $debugChild) {
-                if (is_array($debugChild) && (string) ($debugChild['run_id'] ?? '') === $targetRunId) {
-                    $targetPresent = true;
-                    break;
-                }
-            }
-            $queue = Capsule::table('ms365_job_queue')->where('run_id', $targetRunId)
-                ->first(['status', 'attempts', 'error_message', 'started_at', 'claimed_at']);
-            $run = Capsule::table('ms365_backup_runs')->where('id', $targetRunId)
-                ->first(['status', 'phase', 'last_progress_at', 'abort_requested_at']);
-            $payload = [
-                'sessionId' => 'c1a35f',
-                'runId' => 'pre-fix-145a31e9',
-                'hypothesisId' => 'H1-H2-H4',
-                'location' => 'Ms365RestoreWorkerHooks.php:onBatchProgress',
-                'message' => 'Affected batch progress snapshot',
-                'data' => [
-                    'batchRunId' => $batchRunId,
-                    'targetRunId' => $targetRunId,
-                    'targetPresent' => $targetPresent,
-                    'childCount' => count($children),
-                    'queueStatus' => (string) ($queue->status ?? ''),
-                    'queueAttempts' => (int) ($queue->attempts ?? 0),
-                    'queueError' => (string) ($queue->error_message ?? ''),
-                    'queueStartedAt' => (int) ($queue->started_at ?? 0),
-                    'queueClaimedAt' => (int) ($queue->claimed_at ?? 0),
-                    'runStatus' => (string) ($run->status ?? ''),
-                    'phase' => (string) ($run->phase ?? ''),
-                    'lastProgressAt' => (int) ($run->last_progress_at ?? 0),
-                    'abortRequestedAt' => (int) ($run->abort_requested_at ?? 0),
-                ],
-                'timestamp' => (int) floor(microtime(true) * 1000),
-            ];
-            $encoded = json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
-            if (is_string($encoded)) {
-                @file_put_contents('/var/www/eazybackup.ca/.cursor/debug-c1a35f.log', $encoded . PHP_EOL, FILE_APPEND | LOCK_EX);
-            }
-        }
-        // #endregion
-
         $graphTenantBudget = 0;
         $tenantRecordId = 0;
         $azureTenantId = '';
@@ -121,34 +77,6 @@ final class Ms365RestoreWorkerHooks
                 continue;
             }
             Ms365BatchClaimRepository::promoteBatchChildToRunning($runId, $nodeId);
-            // #region agent log
-            if ($batchRunId === '145a31e9-4a0b-425b-bac7-d7a532ec8f57'
-                && $runId === '04f75ca1-d8c0-41df-aad2-12c3f54adc8c') {
-                $queueAfter = Capsule::table('ms365_job_queue')->where('run_id', $runId)
-                    ->first(['status', 'attempts', 'error_message', 'started_at', 'claimed_at']);
-                $payload = [
-                    'sessionId' => 'c1a35f',
-                    'runId' => 'pre-fix-145a31e9',
-                    'hypothesisId' => 'H1-H2',
-                    'location' => 'Ms365RestoreWorkerHooks.php:onBatchProgress:afterPromote',
-                    'message' => 'Affected child post-progress promotion',
-                    'data' => [
-                        'batchRunId' => $batchRunId,
-                        'childRunId' => $runId,
-                        'queueStatus' => (string) ($queueAfter->status ?? ''),
-                        'queueAttempts' => (int) ($queueAfter->attempts ?? 0),
-                        'queueError' => (string) ($queueAfter->error_message ?? ''),
-                        'queueStartedAt' => (int) ($queueAfter->started_at ?? 0),
-                        'queueClaimedAt' => (int) ($queueAfter->claimed_at ?? 0),
-                    ],
-                    'timestamp' => (int) floor(microtime(true) * 1000),
-                ];
-                $encoded = json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
-                if (is_string($encoded)) {
-                    @file_put_contents('/var/www/eazybackup.ca/.cursor/debug-c1a35f.log', $encoded . PHP_EOL, FILE_APPEND | LOCK_EX);
-                }
-            }
-            // #endregion
             // Batch children share one graph.Client, so each reports the SAME
             // cumulative 429 count. Suppress per-child budget recording here and
             // record the shared client's throttle exactly once below (high-water
@@ -1111,49 +1039,7 @@ final class Ms365RestoreWorkerHooks
     {
         $now = time();
         $customerMessage = Ms365CustomerError::message(new \RuntimeException($message));
-        // #region agent log
-        $debugBatchRunId = (string) (Capsule::table('ms365_backup_runs')->where('id', $runId)->value('e3_batch_run_id') ?? '');
-        $debugQueueBefore = null;
-        if ($debugBatchRunId === '145a31e9-4a0b-425b-bac7-d7a532ec8f57') {
-            $debugQueueBefore = Capsule::table('ms365_job_queue')->where('run_id', $runId)
-                ->first(['status', 'attempts', 'error_message', 'started_at', 'claimed_at']);
-        }
-        // #endregion
         $requeued = JobQueueRepository::markFailed($runId, $message);
-        // #region agent log
-        if ($debugBatchRunId === '145a31e9-4a0b-425b-bac7-d7a532ec8f57') {
-            $debugQueueAfter = Capsule::table('ms365_job_queue')->where('run_id', $runId)
-                ->first(['status', 'attempts', 'error_message', 'started_at', 'claimed_at']);
-            $payload = [
-                'sessionId' => 'c1a35f',
-                'runId' => 'pre-fix-145a31e9',
-                'hypothesisId' => 'H1-H2-H3',
-                'location' => 'Ms365RestoreWorkerHooks.php:backupFail',
-                'message' => 'Affected child failure transition',
-                'data' => [
-                    'batchRunId' => $debugBatchRunId,
-                    'childRunId' => $runId,
-                    'failureMessage' => $message,
-                    'requeued' => $requeued,
-                    'beforeStatus' => (string) ($debugQueueBefore->status ?? ''),
-                    'beforeAttempts' => (int) ($debugQueueBefore->attempts ?? 0),
-                    'beforeError' => (string) ($debugQueueBefore->error_message ?? ''),
-                    'beforeStartedAt' => (int) ($debugQueueBefore->started_at ?? 0),
-                    'beforeClaimedAt' => (int) ($debugQueueBefore->claimed_at ?? 0),
-                    'afterStatus' => (string) ($debugQueueAfter->status ?? ''),
-                    'afterAttempts' => (int) ($debugQueueAfter->attempts ?? 0),
-                    'afterError' => (string) ($debugQueueAfter->error_message ?? ''),
-                    'afterStartedAt' => (int) ($debugQueueAfter->started_at ?? 0),
-                    'afterClaimedAt' => (int) ($debugQueueAfter->claimed_at ?? 0),
-                ],
-                'timestamp' => (int) floor(microtime(true) * 1000),
-            ];
-            $encoded = json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
-            if (is_string($encoded)) {
-                @file_put_contents('/var/www/eazybackup.ca/.cursor/debug-c1a35f.log', $encoded . PHP_EOL, FILE_APPEND | LOCK_EX);
-            }
-        }
-        // #endregion
         ChildAbortRepository::clearAbortRequested([$runId]);
         if (!$requeued) {
             BackupRunRepository::update($runId, [
