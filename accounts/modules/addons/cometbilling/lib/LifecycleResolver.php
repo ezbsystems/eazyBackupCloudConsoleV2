@@ -189,7 +189,7 @@ class LifecycleResolver
     {
         $payload = [
             'sessionId' => 'd2324a',
-            'runId' => 'pre-fix',
+            'runId' => 'post-fix',
             'hypothesisId' => $hypothesisId,
             'location' => $location,
             'message' => $message,

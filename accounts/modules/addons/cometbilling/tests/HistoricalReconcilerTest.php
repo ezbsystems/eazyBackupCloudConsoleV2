@@ -544,6 +544,69 @@ namespace {
     );
     assert_eq($dropped['remove_date'], '2026-08-03', 'inventory 1→0 uses last positive as remove_date');
 
+    // TechComp-style false positive: inventory hv 1→0 but Active Services still qty=1
+    Capsule::$deviceRows = [
+        (object) [
+            'hash' => '32789ae06f748489ff6e0c6352e8fada6513915f',
+            'username' => 'TechCompITSolutions',
+            'name' => 'R640-HOME',
+            'revoked_at' => null,
+            'content' => json_encode(['RegistrationTime' => strtotime('2025-03-10 12:00:00 UTC')]),
+        ],
+    ];
+    Capsule::$inventoryRows = [
+        (object) [
+            'device_id' => '32789ae06f748489ff6e0c6352e8fada6513915f',
+            'snapshot_date' => '2026-08-04',
+            'hyperv_vms' => 1,
+            'vmware_vms' => 0,
+        ],
+        (object) [
+            'device_id' => '32789ae06f748489ff6e0c6352e8fada6513915f',
+            'snapshot_date' => '2026-08-07',
+            'hyperv_vms' => 0,
+            'vmware_vms' => 0,
+        ],
+    ];
+    Capsule::$activeRows = [
+        (object) [
+            'id' => 40,
+            'pulled_at' => '2026-08-07 11:49:00',
+            'service_name' => 'Account TechCompITSolutions - Device 32789a - Booster (Microsoft Hyper-V) Guest Count 1',
+            'billing_cycle_days' => 1,
+            'next_due_date' => '2026-08-08',
+            'quantity' => 1,
+            'amount' => 0.1,
+            'unit_cost' => 3,
+            'device_id' => '',
+        ],
+    ];
+    Capsule::$usageRows = [
+        (object) [
+            'id' => 501,
+            'usage_date' => '2026-08-05',
+            'tenant_id' => 'TechCompITSolutions',
+            'device_id' => '32789ae06f748489ff6e0c6352e8fada6513915f',
+            'item_type' => 'booster',
+            'item_desc' => 'Booster - Microsoft Hyper-V',
+            'amount' => '0.10',
+            'packs_used_raw' => '10,000 Dollars',
+            'packs_used_parsed' => json_encode(PackUsageParser::parse('10,000 Dollars')),
+            'raw_row' => json_encode([]),
+        ],
+    ];
+    \CometBilling\LifecycleResolver::clearCache();
+    \CometBilling\ServiceIdentityResolver::clearCache();
+    \CometBilling\BillingCadenceResolver::clearCache();
+    $techComp = OverbillEvidenceEvaluator::evaluate(Capsule::$usageRows[0], true);
+    assert_eq($techComp['verdict'] === 'confirmed', false, 'AS-positive Hyper-V not confirmed when inventory drops to 0');
+    assert_eq($techComp['billing_verdict'], 'active_or_unknown', 'AS override keeps Hyper-V active_or_unknown');
+    assert_eq(
+        in_array('inventory_remove_overridden_by_active_services', $techComp['confidence_reasons'], true),
+        true,
+        'reason notes AS override of inventory remove'
+    );
+
     Capsule::$manifestRows = [
         (object) ['id' => 1, 'pulled_at' => '2026-08-01 12:00:00'],
     ];

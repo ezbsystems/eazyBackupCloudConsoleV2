@@ -44,6 +44,24 @@ class OverbillEvidenceEvaluator
 
         if ($identity['device_hash'] !== null) {
             $lifecycle = LifecycleResolver::resolve($identity['device_hash'], $category, $identity['account']);
+
+            // Inventory VM counts can drop to 0 while Comet still bills the booster
+            // (e.g. offline device / empty LastBackupJob.TotalVmCount). Active Services
+            // quantity > 0 near the charge date means the service is still billable.
+            if (
+                is_array($lifecycle)
+                && ($lifecycle['source'] ?? null) === 'cb_server_device_inventory'
+                && ($lifecycle['remove_date'] ?? null) !== null
+                && ($cadence['service_quantity'] ?? null) !== null
+                && (float) $cadence['service_quantity'] > 0
+            ) {
+                $reasons[] = 'inventory_remove_overridden_by_active_services';
+                $lifecycle['remove_date'] = null;
+                $lifecycle['remove_date_end'] = null;
+                $lifecycle['confidence'] = 'unknown';
+                $lifecycle['source'] = 'active_services_overrides_inventory';
+            }
+
             $expectedEnd = self::expectedBillingEnd($lifecycle, $cadence, $usageDate);
 
             if ($lifecycle['remove_date'] === null) {
@@ -321,7 +339,7 @@ class OverbillEvidenceEvaluator
     {
         $payload = [
             'sessionId' => 'd2324a',
-            'runId' => 'pre-fix',
+            'runId' => 'post-fix',
             'hypothesisId' => $hypothesisId,
             'location' => $location,
             'message' => $message,
