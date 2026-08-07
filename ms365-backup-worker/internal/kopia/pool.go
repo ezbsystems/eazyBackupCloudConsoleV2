@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -459,11 +460,21 @@ func (p *Pool) Snapshot(ctx context.Context, req SnapshotRequest) (*SnapshotResu
 		req.SourcePath = "/ms365"
 	}
 
+	// #region agent log
+	debugStart := time.Now()
+	log.Printf(`{"sessionId":"2c7deb","hypothesisId":"H8,H9,H10","location":"kopia/pool.go:Snapshot","message":"snapshot pipeline entered","data":{"parallel":%d,"max_pack_mib":%d}}`, req.Parallel, req.MaxPackSizeMiB)
+	// #endregion
 	rep, release, err := p.Acquire(ctx, req.Storage, req.MaxPackSizeMiB)
 	if err != nil {
+		// #region agent log
+		log.Printf(`{"sessionId":"2c7deb","hypothesisId":"H8","location":"kopia/pool.go:Snapshot.Acquire","message":"repository acquire failed","data":{"elapsed_ms":%d,"error":%q}}`, time.Since(debugStart).Milliseconds(), err.Error())
+		// #endregion
 		return nil, err
 	}
 	defer release()
+	// #region agent log
+	log.Printf(`{"sessionId":"2c7deb","hypothesisId":"H8","location":"kopia/pool.go:Snapshot.Acquire","message":"repository acquired","data":{"elapsed_ms":%d}}`, time.Since(debugStart).Milliseconds())
+	// #endregion
 
 	srcInfo := snapshot.SourceInfo{
 		Host:     req.Host,
@@ -475,6 +486,9 @@ func (p *Pool) Snapshot(ctx context.Context, req SnapshotRequest) (*SnapshotResu
 	if err != nil {
 		return nil, fmt.Errorf("policy: %w", err)
 	}
+	// #region agent log
+	log.Printf(`{"sessionId":"2c7deb","hypothesisId":"H9","location":"kopia/pool.go:Snapshot.Policy","message":"policy loaded","data":{"elapsed_ms":%d}}`, time.Since(debugStart).Milliseconds())
+	// #endregion
 	ep := pol.EffectivePolicy()
 	ep.CompressionPolicy.CompressorName = compression.Name(req.Compressor)
 
@@ -482,6 +496,9 @@ func (p *Pool) Snapshot(ctx context.Context, req SnapshotRequest) (*SnapshotResu
 	if snaps, err := snapshot.ListSnapshots(ctx, rep, srcInfo); err == nil {
 		previousManifests = snaps
 	}
+	// #region agent log
+	log.Printf(`{"sessionId":"2c7deb","hypothesisId":"H9","location":"kopia/pool.go:Snapshot.ListSnapshots","message":"previous snapshots listed","data":{"elapsed_ms":%d,"count":%d}}`, time.Since(debugStart).Milliseconds(), len(previousManifests))
+	// #endregion
 
 	counter := req.Counter
 	if counter == nil {
@@ -491,10 +508,16 @@ func (p *Pool) Snapshot(ctx context.Context, req SnapshotRequest) (*SnapshotResu
 	}
 	manifestID := ""
 
+	// #region agent log
+	log.Printf(`{"sessionId":"2c7deb","hypothesisId":"H10","location":"kopia/pool.go:Snapshot.WriteSession","message":"write session starting","data":{"elapsed_ms":%d}}`, time.Since(debugStart).Milliseconds())
+	// #endregion
 	uploadErr := repo.WriteSession(ctx, rep, repo.WriteSessionOptions{
 		Purpose:  "snapshot",
 		OnUpload: counter.UploadedBytes,
 	}, func(wctx context.Context, w repo.RepositoryWriter) error {
+		// #region agent log
+		log.Printf(`{"sessionId":"2c7deb","hypothesisId":"H10","location":"kopia/pool.go:Snapshot.Upload","message":"uploader entered","data":{"elapsed_ms":%d}}`, time.Since(debugStart).Milliseconds())
+		// #endregion
 		u := upload.NewUploader(w)
 		u.Progress = counter
 		u.ParallelUploads = req.Parallel
