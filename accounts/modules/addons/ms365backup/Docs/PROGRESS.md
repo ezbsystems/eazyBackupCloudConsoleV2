@@ -17,7 +17,7 @@
 - **Fix (worker 0.4.38):** After `graph_sync`, classify overlay (`staticFile` vs `GraphFile`) + avg size; **overlay** mode scales Kopia workers up to **64** for tiny static-heavy workloads; **graph_small** mode raises toward **16** clamped by AIMD/global headroom; baseline unchanged for large files.
 - **Fix (PHP 1.52.55):** Persist `upload_parallelism` + `upload_parallelism_mode` in `stats_json`.
 - **Verify:** `go test ./...` PASS; `ms365_batch_progress_liveness_test.php` PASS (upload parallelism telemetry).
-- **Deploy:** pending commit → fleet build **0.4.38** → canary then rolling.
+- **Deploy:** commit `71df8e41` → `origin/main`; PHP **1.52.55** via `deploy-production.sh`; dev build job **146** → release **157** / prod release **81** (`sha256 1ac6ad24…`); rolling deploy job **47** → **20/20** nodes on **0.4.38**; `ms365_fleet_smoke.php` PASS; browse binary synced **0.4.38**.
 
 ### 2026-08-07 — Worker performance: glacial Graph content-stream recovery (worker 0.4.37, PHP 1.52.54)
 
