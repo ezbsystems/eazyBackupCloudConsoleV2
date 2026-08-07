@@ -3,7 +3,7 @@
 #endif
 
 [Setup]
-AppId={{6AE903FC-EF29-46C4-8AC8-85E84AE6D5ED}
+AppId={{6AE903FC-EF29-46C4-8AC8-85E84AE6D5ED}}
 AppName=E3 Cloud NAS
 AppVersion={#AppVersion}
 AppPublisher=EazyBackup
