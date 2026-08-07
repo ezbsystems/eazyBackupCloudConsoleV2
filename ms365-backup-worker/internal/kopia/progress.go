@@ -1,6 +1,7 @@
 package kopia
 
 import (
+	"fmt"
 	"sync/atomic"
 	"time"
 
@@ -67,6 +68,29 @@ func (p *ProgressCounter) DebugSnapshot() map[string]any {
 		"seconds_since_last_upload": p.SecondsSinceLastUpload(),
 		"current_item":              currentItem,
 	}
+}
+
+// SafeDebugSnapshot returns stall diagnostics without customer filenames.
+func (p *ProgressCounter) SafeDebugSnapshot() map[string]any {
+	snap := p.DebugSnapshot()
+	delete(snap, "current_item")
+	if v := p.currentFile.Load(); v != nil {
+		if name, ok := v.(string); ok && name != "" {
+			snap["current_item_hash"] = hashProgressPath(name)
+		}
+	}
+	return snap
+}
+
+func hashProgressPath(name string) string {
+	if name == "" {
+		return ""
+	}
+	var h uint64
+	for i := 0; i < len(name); i++ {
+		h = h*131 + uint64(name[i])
+	}
+	return fmt.Sprintf("%016x", h)
 }
 
 func secondsSinceAtomic(ts *atomic.Int64) int64 {

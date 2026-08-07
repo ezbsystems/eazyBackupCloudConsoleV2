@@ -482,6 +482,40 @@ try {
         (int) ($retryAfterReplay['last_progress_at'] ?? 0) < $now - 60,
         'identical retry-local upload sample does not hide a wedged upload',
     );
+
+    $telemetryRunId = test_uuid('content-telemetry');
+    $runIds[] = $telemetryRunId;
+    insertTestRun($telemetryRunId, [
+        'phase' => 'kopia_upload',
+        'bytes_hashed' => 1000,
+        'bytes_uploaded' => 0,
+        'updated_at' => $now - 120,
+        'last_progress_at' => $now - 120,
+    ]);
+    Ms365RestoreWorkerHooks::onProgress($telemetryRunId, [
+        'phase' => 'kopia_upload',
+        'bytes_hashed' => 1000,
+        'bytes_uploaded' => 0,
+        'content_bytes_read' => 5000,
+        'content_slow_detections' => 1,
+        'content_range_recoveries' => 1,
+        'content_source_bytes_per_sec' => 4096,
+        'message' => 'heartbeat',
+    ]);
+    $telemetryAfter = BackupRunRepository::get($telemetryRunId) ?? [];
+    $telemetryStats = json_decode((string) ($telemetryAfter['stats_json'] ?? ''), true) ?: [];
+    assert_true(
+        (int) ($telemetryStats['content_bytes_read'] ?? 0) === 5000
+        && (int) ($telemetryStats['content_slow_detections'] ?? 0) === 1
+        && (int) ($telemetryStats['content_range_recoveries'] ?? 0) === 1
+        && (int) ($telemetryStats['content_source_bytes_per_sec'] ?? 0) === 4096,
+        'content-stream telemetry persists into stats_json',
+    );
+    assert_true(
+        (int) ($telemetryAfter['bytes_hashed'] ?? 0) === 1000
+        && (int) ($telemetryAfter['last_progress_at'] ?? 0) < $now - 60,
+        'telemetry-only heartbeat does not falsify byte progress liveness',
+    );
 } finally {
     cleanupTestRows($runIds);
 }

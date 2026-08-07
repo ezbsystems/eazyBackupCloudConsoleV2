@@ -446,6 +446,10 @@ final class Ms365RestoreWorkerHooks
         if ($phasePatch !== null) {
             $statsPatch = array_merge($statsPatch, $phasePatch);
         }
+        $contentPatch = self::buildContentStreamStatsPatch($existing, $body);
+        if ($contentPatch !== null) {
+            $statsPatch = array_merge($statsPatch, $contentPatch);
+        }
         if ($statsPatch !== []) {
             $encoded = self::encodeMergedChildStatsJson($existing, $statsPatch);
             if ($encoded !== null) {
@@ -1030,6 +1034,60 @@ final class Ms365RestoreWorkerHooks
             if ($kopiaStart > 0) {
                 $patch['kopia_snapshot_ms'] = ($now - $kopiaStart) * 1000;
             }
+        }
+
+        return $patch === [] ? null : $patch;
+    }
+
+    /**
+     * Persist aggregate content-stream telemetry from worker progress payloads.
+     *
+     * @param array<string, mixed> $existing
+     * @param array<string, mixed> $body
+     * @return array<string, mixed>|null
+     */
+    private static function buildContentStreamStatsPatch(array $existing, array $body): ?array
+    {
+        if (!\WHMCS\Database\Capsule::schema()->hasColumn('ms365_backup_runs', 'stats_json')) {
+            return null;
+        }
+        $keys = [
+            'content_streams_active',
+            'content_bytes_read',
+            'content_slow_detections',
+            'content_range_recoveries',
+            'content_recovery_exhausted',
+            'content_source_bytes_per_sec',
+        ];
+        $hasAny = false;
+        foreach ($keys as $key) {
+            if (array_key_exists($key, $body)) {
+                $hasAny = true;
+                break;
+            }
+        }
+        if (!$hasAny) {
+            return null;
+        }
+        $stats = self::decodeChildStatsJson($existing);
+        $patch = [];
+        $monotonic = [
+            'content_bytes_read',
+            'content_slow_detections',
+            'content_range_recoveries',
+            'content_recovery_exhausted',
+        ];
+        foreach ($keys as $key) {
+            if (!array_key_exists($key, $body)) {
+                continue;
+            }
+            $incoming = (int) $body[$key];
+            if (in_array($key, $monotonic, true)) {
+                $stored = (int) ($stats[$key] ?? 0);
+                $patch[$key] = max($stored, $incoming);
+                continue;
+            }
+            $patch[$key] = $incoming;
         }
 
         return $patch === [] ? null : $patch;

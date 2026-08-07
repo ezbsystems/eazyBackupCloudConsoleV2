@@ -57,6 +57,19 @@ type Client struct {
 	contentReadIdle       time.Duration
 	contentReadRetries    int
 	streamHeaderTimeout   time.Duration
+	contentMinBPS         int64
+	contentMinWindowSec   int
+	contentMinFileSize    int64
+	// Aggregate content-stream telemetry (no paths or filenames).
+	contentStreamsActive     int64
+	contentBytesRead         int64
+	contentSlowDetections    int64
+	contentRangeRecoveries   int64
+	contentRecoveryExhausted int64
+	contentSourceBytesPerSec int64 // rolling EMA, bytes/sec
+	contentTelemetryMu       sync.Mutex
+	contentWindowBytes       int64
+	contentWindowStarted     time.Time
 }
 
 // TokenRefreshFunc fetches a new Graph bearer token (e.g. from WHMCS mid-run refresh API).
@@ -70,6 +83,10 @@ type ClientOptions struct {
 	ContentReadIdleSeconds      int // <0 = default 120; 0 = disable idle wrapper
 	ContentReadRetries          int // per-file Range resume attempts during upload
 	StreamResponseHeaderSeconds int
+	// Throughput guard for large content streams (0 = use defaults; negative fields disable).
+	ContentReadMinBytesPerSecond int64
+	ContentReadMinWindowSeconds  int
+	ContentReadMinFileSizeBytes  int64
 }
 
 func NewClient(token, region string, opts ClientOptions) *Client {
@@ -143,6 +160,9 @@ func NewClient(token, region string, opts ClientOptions) *Client {
 		contentReadIdle:     time.Duration(idleSec) * time.Second,
 		contentReadRetries:  retries,
 		streamHeaderTimeout: headerTimeout,
+		contentMinBPS:       opts.ContentReadMinBytesPerSecond,
+		contentMinWindowSec: opts.ContentReadMinWindowSeconds,
+		contentMinFileSize:  opts.ContentReadMinFileSizeBytes,
 	}
 	if opts.AdaptiveLimit {
 		c.adaptiveEnabled = true
@@ -166,6 +186,101 @@ func (c *Client) ContentReadIdle() time.Duration {
 // ContentReadRetries returns per-open file retry attempts after idle/transient errors.
 func (c *Client) ContentReadRetries() int {
 	return c.contentReadRetries
+}
+
+// ContentReadMinBytesPerSecond returns the configured minimum source throughput floor.
+func (c *Client) ContentReadMinBytesPerSecond() int64 {
+	return c.contentMinBPS
+}
+
+// ContentReadMinWindowSeconds returns the rolling throughput measurement window.
+func (c *Client) ContentReadMinWindowSeconds() int {
+	return c.contentMinWindowSec
+}
+
+// ContentReadMinFileSizeBytes returns the minimum file size for the throughput guard.
+func (c *Client) ContentReadMinFileSizeBytes() int64 {
+	return c.contentMinFileSize
+}
+
+// ContentStreamTelemetry returns aggregate content-read counters (no paths or filenames).
+func (c *Client) ContentStreamTelemetry() (active, bytesRead, slowDetections, rangeRecoveries, recoveryExhausted, sourceBPS int64) {
+	return atomic.LoadInt64(&c.contentStreamsActive),
+		atomic.LoadInt64(&c.contentBytesRead),
+		atomic.LoadInt64(&c.contentSlowDetections),
+		atomic.LoadInt64(&c.contentRangeRecoveries),
+		atomic.LoadInt64(&c.contentRecoveryExhausted),
+		atomic.LoadInt64(&c.contentSourceBytesPerSec)
+}
+
+func (c *Client) ContentStreamOpened() {
+	c.contentStreamOpened()
+}
+
+func (c *Client) ContentStreamClosed() {
+	c.contentStreamClosed()
+}
+
+func (c *Client) RecordContentBytesRead(n int64) {
+	c.recordContentBytesRead(n)
+}
+
+func (c *Client) RecordContentSlowDetection() {
+	c.recordContentSlowDetection()
+}
+
+func (c *Client) RecordContentRangeRecovery() {
+	c.recordContentRangeRecovery()
+}
+
+func (c *Client) RecordContentRecoveryExhausted() {
+	c.recordContentRecoveryExhausted()
+}
+
+func (c *Client) contentStreamOpened() {
+	atomic.AddInt64(&c.contentStreamsActive, 1)
+}
+
+func (c *Client) contentStreamClosed() {
+	atomic.AddInt64(&c.contentStreamsActive, -1)
+}
+
+func (c *Client) recordContentBytesRead(n int64) {
+	if n <= 0 {
+		return
+	}
+	atomic.AddInt64(&c.contentBytesRead, n)
+	c.contentTelemetryMu.Lock()
+	defer c.contentTelemetryMu.Unlock()
+	now := time.Now()
+	if c.contentWindowStarted.IsZero() {
+		c.contentWindowStarted = now
+	}
+	c.contentWindowBytes += n
+	elapsed := now.Sub(c.contentWindowStarted).Seconds()
+	if elapsed >= 5 {
+		bps := int64(float64(c.contentWindowBytes) / elapsed)
+		prev := atomic.LoadInt64(&c.contentSourceBytesPerSec)
+		if prev == 0 {
+			atomic.StoreInt64(&c.contentSourceBytesPerSec, bps)
+		} else {
+			atomic.StoreInt64(&c.contentSourceBytesPerSec, (prev*3+bps)/4)
+		}
+		c.contentWindowBytes = 0
+		c.contentWindowStarted = now
+	}
+}
+
+func (c *Client) recordContentSlowDetection() {
+	atomic.AddInt64(&c.contentSlowDetections, 1)
+}
+
+func (c *Client) recordContentRangeRecovery() {
+	atomic.AddInt64(&c.contentRangeRecoveries, 1)
+}
+
+func (c *Client) recordContentRecoveryExhausted() {
+	atomic.AddInt64(&c.contentRecoveryExhausted, 1)
 }
 
 // RequestsTotal returns the number of completed Graph HTTP round-trips.
@@ -1201,6 +1316,27 @@ func (c *Client) getStream(ctx context.Context, path string, offset int64) (io.R
 			return nil, 0, fmt.Errorf("graph range not satisfiable at offset %d", offset)
 		}
 
+		if offset > 0 {
+			if statusCode != http.StatusPartialContent {
+				discardStreamResponse(resp, headerCancel)
+				c.releaseTransport()
+				if workloadHeld {
+					c.releaseWorkload()
+				}
+				return nil, 0, fmt.Errorf("graph range resume at offset %d: expected 206, got %d", offset, statusCode)
+			}
+			cr := resp.Header.Get("Content-Range")
+			start, ok := parseContentRangeStart(cr)
+			if !ok || start != offset {
+				discardStreamResponse(resp, headerCancel)
+				c.releaseTransport()
+				if workloadHeld {
+					c.releaseWorkload()
+				}
+				return nil, 0, fmt.Errorf("graph range resume at offset %d: invalid Content-Range %q", offset, cr)
+			}
+		}
+
 		if statusCode >= 400 {
 			body, _ := io.ReadAll(resp.Body)
 			resp.Body.Close()
@@ -1292,6 +1428,24 @@ func parseContentRangeTotal(v string) int64 {
 		return 0
 	}
 	return parseContentLength(parts[1])
+}
+
+// parseContentRangeStart extracts the start byte from a Content-Range header.
+func parseContentRangeStart(v string) (int64, bool) {
+	v = strings.TrimSpace(v)
+	if !strings.HasPrefix(v, "bytes ") {
+		return 0, false
+	}
+	rest := strings.TrimPrefix(v, "bytes ")
+	dash := strings.Index(rest, "-")
+	if dash <= 0 {
+		return 0, false
+	}
+	start, err := strconv.ParseInt(strings.TrimSpace(rest[:dash]), 10, 64)
+	if err != nil || start < 0 {
+		return 0, false
+	}
+	return start, true
 }
 
 func (c *Client) PostJSON(ctx context.Context, path string, body map[string]any) (map[string]any, error) {

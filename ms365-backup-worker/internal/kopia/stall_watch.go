@@ -59,7 +59,7 @@ func StartStallWatch(ctx context.Context, cancel context.CancelFunc, counter *Pr
 				if time.Since(started) < time.Duration(grace)*time.Second {
 					continue
 				}
-				snapshot := counter.DebugSnapshot()
+				snapshot := counter.SafeDebugSnapshot()
 				sinceHash, _ := snapshot["seconds_since_last_hash"].(int64)
 				sinceUpload, _ := snapshot["seconds_since_last_upload"].(int64)
 				filesDone := counter.FilesDone.Load()

@@ -414,7 +414,7 @@ func (r *Runner) Run(ctx context.Context, job *api.RunJob, onAbort context.Cance
 		if total > 0 {
 			pct = 40 + (float64(done)/float64(total))*55
 		}
-		emitAndRecordUpload(api.ProgressUpdate{
+		upd := api.ProgressUpdate{
 			RunID:         job.RunID,
 			Phase:         "kopia_upload",
 			Percent:       pct,
@@ -422,7 +422,9 @@ func (r *Runner) Run(ctx context.Context, job *api.RunJob, onAbort context.Cance
 			BytesUploaded: p.BytesUploaded.Load(),
 			ItemsDone:     done,
 			ItemsTotal:    total,
-		})
+		}
+		applyContentStreamTelemetry(&upd, gc)
+		emitAndRecordUpload(upd)
 	})
 
 	snapCtx, cancelSnap := context.WithCancel(ctx)
@@ -592,8 +594,22 @@ func (r *Runner) graphProgressUpdate(runID string, pct float64, itemsDone, items
 			upd.ThrottleWaiting = true
 			upd.Message = "Throttled by Microsoft — waiting"
 		}
+		applyContentStreamTelemetry(&upd, gc)
 	}
 	return upd
+}
+
+func applyContentStreamTelemetry(upd *api.ProgressUpdate, gc *graph.Client) {
+	if upd == nil || gc == nil {
+		return
+	}
+	active, bytesRead, slow, recoveries, exhausted, sourceBPS := gc.ContentStreamTelemetry()
+	upd.ContentStreamsActive = active
+	upd.ContentBytesRead = bytesRead
+	upd.ContentSlowDetections = slow
+	upd.ContentRangeRecoveries = recoveries
+	upd.ContentRecoveryExhausted = exhausted
+	upd.ContentSourceBytesPerSec = sourceBPS
 }
 
 func (r *Runner) RunSafe(ctx context.Context, job *api.RunJob, onAbort context.CancelFunc) (err error) {

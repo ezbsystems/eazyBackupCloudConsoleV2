@@ -88,6 +88,9 @@ Workers call `ms365_worker_graph_token.php` on Graph **401** and proactively eve
 | `graph.content_read_idle_seconds` | `120`; `0` = disable | Abort wedged Graph `/content` body reads with no bytes for N seconds |
 | `graph.content_read_retries` | `3` | Per-file Range resume attempts after idle/transient read errors during upload |
 | `graph.stream_response_header_seconds` | `120` | Header timeout for stream client (body has no absolute deadline) |
+| `graph.content_read_min_bytes_per_second` | `65536` | Large-file throughput floor; explicit `0` disables |
+| `graph.content_read_min_window_seconds` | `300` | Rolling window for throughput guard; explicit `0` disables |
+| `graph.content_read_min_file_size_mib` | `16` | Minimum file size before throughput guard applies; explicit `0` disables |
 | `kopia.stall_check_interval_seconds` | `60` | Stall watchdog poll interval |
 | `kopia.stall_grace_seconds` | `300` | Ignore stall checks during initial repo open |
 

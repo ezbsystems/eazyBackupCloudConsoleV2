@@ -156,6 +156,8 @@ claim gate or fleet-wide budget division. Restore keeps per-run `claimNext` via 
 
 OneDrive workloads use the **heavy job** RAM/disk budget (`heavy_job_ram_budget_mib`); raising `max_concurrent_runs` without more RAM can block claims.
 
+**Kopia `parallel_uploads` (0.4.37 benchmark note):** Golden fleet template keeps **`parallel_uploads: 8`**. Code default when unset is **4**. Dev micro-benchmark (`BenchmarkContentStreamRecovery`) confirms healthy streams complete orders of magnitude faster than trickle-recovery paths; without staging evidence of ≥20% wall-time gain at **12** uploads with Graph 429 ratio ≤5%, this release does **not** raise `parallel_uploads`, `max_concurrent_runs`, or `graph_parallel_requests`. Extra CPU/RAM alone does not fix glacial Graph content streams — the throughput guard addresses that class of wedge.
+
 **UI note:** The live page stage shows e.g. `Syncing from Microsoft Graph (3 of 12 workloads active)` when multiple children run in parallel; parent progress blends completed workloads plus in-flight graph_sync fraction. When Graph pacing is **material** (429 ratio ≥5% or active throttle window), a reassuring pacing banner appears — a handful of 429s alone does not alarm.
 
 ## Graph throttling and stall safety (worker 0.3.16+)
@@ -167,6 +169,7 @@ OneDrive workloads use the **heavy job** RAM/disk budget (`heavy_job_ram_budget_
 | `graph_sync` stall watchdog | Same `kopia.stall_seconds` as coarse backstop; 429 Retry-After backoff counts as activity |
 | `kopia_upload` stall watchdog | `kopia.upload_stall_seconds` (default **900**); both hash and upload bytes must be flat |
 | Graph content idle timeout | `graph.content_read_idle_seconds` (default **120**) aborts wedged `/content` body reads during Kopia upload; per-file Range retry (`content_read_retries`, default **3**) |
+| Graph content throughput guard (0.4.37+) | `graph.content_read_min_*` — large files below **64 KiB/s** over **300s** trigger bounded Range resume; shares per-file retry budget; PII-safe telemetry in `stats_json` |
 | Per-tenant Graph budget ceiling | Batch payload `graph_tenant_budget` — full ceiling, not divided | Worker `setCeiling` clamps the in-process controller |
 | Adaptive budget floor (1.45.0+) | Under sustained `recent_429_count` (≥10 → floor 2, ≥20 → floor 1) so hammered tenants truly back off |
 | `throttle_waiting` progress flag (worker 0.3.13+) | Control plane refreshes `last_429_at` during parked Retry-After waits even when `no_progress` |

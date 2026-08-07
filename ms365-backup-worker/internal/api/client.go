@@ -242,6 +242,13 @@ type ProgressUpdate struct {
 	CheckpointDeltaStates map[string]map[string]string `json:"checkpoint_delta_states,omitempty"`
 	// NoProgress tells the control plane to skip lease renewal and last_progress_at bumps.
 	NoProgress bool `json:"no_progress,omitempty"`
+	// Aggregate content-stream telemetry (no paths or filenames).
+	ContentStreamsActive     int64 `json:"content_streams_active,omitempty"`
+	ContentBytesRead         int64 `json:"content_bytes_read,omitempty"`
+	ContentSlowDetections    int64 `json:"content_slow_detections,omitempty"`
+	ContentRangeRecoveries   int64 `json:"content_range_recoveries,omitempty"`
+	ContentRecoveryExhausted int64 `json:"content_recovery_exhausted,omitempty"`
+	ContentSourceBytesPerSec int64 `json:"content_source_bytes_per_sec,omitempty"`
 }
 
 type CompleteUpdate struct {

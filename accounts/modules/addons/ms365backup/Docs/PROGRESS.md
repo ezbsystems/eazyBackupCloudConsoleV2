@@ -2,14 +2,24 @@
 
 **Purpose:** Single handoff document so the next agent knows where work stopped. Update this file at the **end of every session** (or after each meaningful milestone).
 
-**Last updated:** 2026-08-06
-**Module version (ms365backup):** 1.52.53
+**Last updated:** 2026-08-07
+**Module version (ms365backup):** 1.52.54
 **Cloudstorage (e3) version:** 2.2.4  
-**Worker version (ms365-backup-worker):** 0.4.36 (Kopia v0.23.1)
+**Worker version (ms365-backup-worker):** 0.4.37 (Kopia v0.23.1)
 
 ---
 
 ## Session log
+
+### 2026-08-07 — Worker performance: glacial Graph content-stream recovery (worker 0.4.37, PHP 1.52.54)
+
+- **Prod case:** Batch `895844b3-…` crawled at ~3.4 KB/s in Kopia upload/hash for hours after Graph enumeration finished; only **54** historical 429s; worker CPU/RAM/disk/S3 healthy — not Graph-throttle bound.
+- **Root cause:** `idle_reader` only detects zero-byte stalls; `ProgressCounter`/`StartStallWatch` treat any byte increment as progress. Sub-64 KiB/s trickle evades all guards indefinitely.
+- **Fix (worker 0.4.37):** Large files (≥16 MiB) below **64 KiB/s** over **300s** trigger bounded HTTP Range resume (shares `content_read_retries`); `GetStreamRange` requires HTTP **206** with matching `Content-Range` start; PII-safe content-stream telemetry on progress + `stats_json`.
+- **Fix (PHP 1.52.54):** `buildContentStreamStatsPatch()` persists monotonic telemetry counters without falsifying byte/item liveness.
+- **Concurrency:** Retain fleet template `parallel_uploads: 8`; no raise to Graph/`max_concurrent_runs` this release (benchmark lacked ≥20% staging gain at 12).
+- **Verify:** `go test ./...` PASS; `ms365_batch_progress_liveness_test.php` PASS (content telemetry cases).
+- **Deploy:** commit → `origin/main` → `deploy-production.sh` → fleet build **0.4.37** canary then rolling.
 
 ### 2026-08-06 — Waiting-for-worker: RunLog race + exhausted resume wedge
 

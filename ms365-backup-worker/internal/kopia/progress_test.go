@@ -6,6 +6,18 @@ import (
 	"time"
 )
 
+func TestProgressCounterSafeDebugSnapshotOmitsFilename(t *testing.T) {
+	counter := NewProgressCounter(nil)
+	counter.HashingFile("/tenant/sites/secret/customer-file.pdf")
+	snap := counter.SafeDebugSnapshot()
+	if _, ok := snap["current_item"]; ok {
+		t.Fatal("SafeDebugSnapshot must not include current_item")
+	}
+	if snap["current_item_hash"] == nil || snap["current_item_hash"] == "" {
+		t.Fatal("expected hashed current_item marker")
+	}
+}
+
 func TestProgressCounterUpdatesLastHashAt(t *testing.T) {
 	counter := NewProgressCounter(nil)
 	before := counter.SecondsSinceLastHash()

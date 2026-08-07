@@ -67,6 +67,17 @@ func (f *GraphFile) LocalFilesystemPath() string { return "" }
 
 func (f *GraphFile) Close() {}
 
+func throughputPolicyFromClient(c *graph.Client) ContentThroughputPolicy {
+	if c == nil {
+		return ContentThroughputPolicy{}
+	}
+	return ContentThroughputPolicy{
+		MinBytesPerSecond: c.ContentReadMinBytesPerSecond(),
+		WindowSeconds:     c.ContentReadMinWindowSeconds(),
+		MinFileSizeBytes:  c.ContentReadMinFileSizeBytes(),
+	}
+}
+
 func (f *GraphFile) Open(ctx context.Context) (kopiafs.Reader, error) {
 	rc, size, err := f.client.GetStream(ctx, f.contentPath)
 	if err != nil {
@@ -75,6 +86,7 @@ func (f *GraphFile) Open(ctx context.Context) (kopiafs.Reader, error) {
 	if size > 0 && f.size == 0 {
 		f.size = size
 	}
+	f.client.ContentStreamOpened()
 	return &streamReader{
 		ctx:        ctx,
 		ReadCloser: rc,
@@ -84,6 +96,8 @@ func (f *GraphFile) Open(ctx context.Context) (kopiafs.Reader, error) {
 		client:     f.client,
 		path:       f.contentPath,
 		maxRetries: f.client.ContentReadRetries(),
+		policy:     throughputPolicyFromClient(f.client),
+		throughput: newThroughputWindow(throughputPolicyFromClient(f.client), nil),
 	}, nil
 }
 
@@ -97,10 +111,21 @@ type streamReader struct {
 	path       string
 	maxRetries int
 	attempts   int
+	policy     ContentThroughputPolicy
+	throughput *throughputWindow
+	closed     bool
 }
 
 func (r *streamReader) Close() error {
-	return r.ReadCloser.Close()
+	if r.closed {
+		return nil
+	}
+	r.closed = true
+	err := r.ReadCloser.Close()
+	if r.client != nil {
+		r.client.ContentStreamClosed()
+	}
+	return err
 }
 
 func (r *streamReader) Seek(offset int64, whence int) (int64, error) {
@@ -129,6 +154,7 @@ func (r *streamReader) Seek(offset int64, whence int) (int64, error) {
 	r.ReadCloser = rc
 	r.offset = abs
 	r.attempts = 0
+	r.throughput = newThroughputWindow(r.policy, nil)
 	return abs, nil
 }
 
@@ -137,24 +163,74 @@ func (r *streamReader) Read(p []byte) (int, error) {
 		n, err := r.ReadCloser.Read(p)
 		if n > 0 {
 			r.offset += int64(n)
+			if r.client != nil {
+				r.client.RecordContentBytesRead(int64(n))
+			}
+			if r.policy.Enabled(r.size) && r.throughput != nil && r.throughput.add(n) {
+				if recoverErr := r.recoverFromThroughputStall(); recoverErr != nil {
+					if n > 0 {
+						return n, recoverErr
+					}
+					return 0, recoverErr
+				}
+				if n > 0 {
+					return n, nil
+				}
+				continue
+			}
 		}
 		if err == nil || !isRetriableContentReadError(err) {
 			return n, err
 		}
-		if r.attempts >= r.maxRetries {
-			return n, fmt.Errorf("graph content read failed after %d attempts at offset %d for %s: %w", r.attempts, r.offset, r.path, err)
+		if recoverErr := r.recoverStream(int64(n), err); recoverErr != nil {
+			if n > 0 {
+				return n, recoverErr
+			}
+			return 0, recoverErr
 		}
-		r.attempts++
-		_ = r.ReadCloser.Close()
-		rc, _, reopenErr := r.client.GetStreamRange(r.ctx, r.path, r.offset)
-		if reopenErr != nil {
-			return n, fmt.Errorf("graph content read retry %d/%d at offset %d for %s: %w", r.attempts, r.maxRetries, r.offset, r.path, reopenErr)
-		}
-		r.ReadCloser = rc
 		if n > 0 {
 			return n, nil
 		}
 	}
+}
+
+func (r *streamReader) recoverFromThroughputStall() error {
+	if r.client != nil {
+		r.client.RecordContentSlowDetection()
+	}
+	return r.recoverStream(0, ErrContentThroughputStall)
+}
+
+func (r *streamReader) recoverStream(partialBytes int64, cause error) error {
+	if r.attempts >= r.maxRetries {
+		if r.client != nil {
+			r.client.RecordContentRecoveryExhausted()
+		}
+		if partialBytes > 0 {
+			return fmt.Errorf("graph content read failed after %d attempts at offset %d: %w", r.attempts, r.offset, cause)
+		}
+		return fmt.Errorf("%w after %d attempts at offset %d", ErrContentThroughputStall, r.attempts, r.offset)
+	}
+	r.attempts++
+	_ = r.ReadCloser.Close()
+	rc, _, reopenErr := r.client.GetStreamRange(r.ctx, r.path, r.offset)
+	if reopenErr != nil {
+		if r.attempts >= r.maxRetries {
+			if r.client != nil {
+				r.client.RecordContentRecoveryExhausted()
+			}
+		}
+		if partialBytes > 0 {
+			return fmt.Errorf("graph content read retry %d/%d at offset %d: %w", r.attempts, r.maxRetries, r.offset, reopenErr)
+		}
+		return fmt.Errorf("%w: range resume at offset %d failed (attempt %d/%d): %v", cause, r.offset, r.attempts, r.maxRetries, reopenErr)
+	}
+	r.ReadCloser = rc
+	r.throughput = newThroughputWindow(r.policy, nil)
+	if r.client != nil {
+		r.client.RecordContentRangeRecovery()
+	}
+	return nil
 }
 
 func (r *streamReader) Entry() (kopiafs.Entry, error) {
@@ -164,6 +240,9 @@ func (r *streamReader) Entry() (kopiafs.Entry, error) {
 func isRetriableContentReadError(err error) bool {
 	if err == nil || errors.Is(err, io.EOF) {
 		return false
+	}
+	if IsContentThroughputStall(err) {
+		return true
 	}
 	if graph.IsContentReadIdleTimeout(err) {
 		return true

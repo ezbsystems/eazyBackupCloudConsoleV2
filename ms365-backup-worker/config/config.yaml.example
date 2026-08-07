@@ -63,6 +63,9 @@ graph:
   content_read_idle_seconds: 120
   content_read_retries: 3
   stream_response_header_seconds: 120
+  content_read_min_bytes_per_second: 65536
+  content_read_min_window_seconds: 300
+  content_read_min_file_size_mib: 16
   # Cancel graph_sync when items/bytes are flat this long despite ongoing 429 throttling.
   # 0 = disabled (default). Only set when you want to cancel runs stuck in perpetual 429 with no item progress.
   throttle_stall_ceiling_seconds: 0

@@ -121,6 +121,13 @@ type GraphConfig struct {
 	ContentReadIdleSeconds        *int `yaml:"content_read_idle_seconds"` // nil/120 default; 0 = disable idle wrapper
 	ContentReadRetries            int  `yaml:"content_read_retries"`
 	StreamResponseHeaderSeconds   int  `yaml:"stream_response_header_seconds"`
+	// ContentReadMinBytesPerSecond triggers Range resume when average source throughput
+	// over the window falls below this floor (nil/65536 default; explicit 0 disables).
+	ContentReadMinBytesPerSecond *int `yaml:"content_read_min_bytes_per_second"`
+	// ContentReadMinWindowSeconds is the rolling measurement window (nil/300 default; 0 disables).
+	ContentReadMinWindowSeconds *int `yaml:"content_read_min_window_seconds"`
+	// ContentReadMinFileSizeMiB applies the guard only to files at or above this size (nil/16 default; 0 disables).
+	ContentReadMinFileSizeMiB *int `yaml:"content_read_min_file_size_mib"`
 }
 
 func (g GraphConfig) AdaptiveEnabled() bool {
@@ -402,6 +409,43 @@ func (g GraphConfig) ResolvedStreamResponseHeaderSeconds() int {
 		return 120
 	}
 	return g.StreamResponseHeaderSeconds
+}
+
+// ResolvedContentReadMinBytesPerSecond returns the minimum source throughput floor.
+// nil uses 65536 (64 KiB/s); explicit 0 disables the throughput guard.
+func (g GraphConfig) ResolvedContentReadMinBytesPerSecond() int64 {
+	if g.ContentReadMinBytesPerSecond == nil {
+		return 65536
+	}
+	v := int64(*g.ContentReadMinBytesPerSecond)
+	if v < 0 {
+		return 0
+	}
+	return v
+}
+
+// ResolvedContentReadMinWindowSeconds returns the rolling throughput window.
+// nil uses 300; explicit 0 disables the throughput guard.
+func (g GraphConfig) ResolvedContentReadMinWindowSeconds() int {
+	if g.ContentReadMinWindowSeconds == nil {
+		return 300
+	}
+	if *g.ContentReadMinWindowSeconds < 0 {
+		return 0
+	}
+	return *g.ContentReadMinWindowSeconds
+}
+
+// ResolvedContentReadMinFileSizeMiB returns the minimum file size for the guard.
+// nil uses 16 MiB; explicit 0 disables the throughput guard.
+func (g GraphConfig) ResolvedContentReadMinFileSizeMiB() int {
+	if g.ContentReadMinFileSizeMiB == nil {
+		return 16
+	}
+	if *g.ContentReadMinFileSizeMiB < 0 {
+		return 0
+	}
+	return *g.ContentReadMinFileSizeMiB
 }
 
 // ResolvedUploadStallSeconds returns the upload-phase stall watchdog duration.

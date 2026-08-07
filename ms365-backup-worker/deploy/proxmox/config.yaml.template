@@ -48,3 +48,9 @@ graph:
   adaptive_concurrency: true
   use_batch_fallback: true
   global_max_concurrency: 48
+  content_read_idle_seconds: 120
+  content_read_retries: 3
+  stream_response_header_seconds: 120
+  content_read_min_bytes_per_second: 65536
+  content_read_min_window_seconds: 300
+  content_read_min_file_size_mib: 16
