@@ -1,7 +1,7 @@
 # Cloud NAS WinFsp Sidecar — Design
 
 Date: 2026-08-07  
-Status: Draft (awaiting user review)  
+Status: Approved  
 Related bug: Mapped Cloud NAS drive mirrors C: capacity/free space; writes fail when C: is low.
 
 ## Goal
@@ -180,8 +180,8 @@ Secrets only on loopback; never logged in full. Discovery file example: `%Progra
 3. Proprietary agent binaries contain **no** WinFsp/cgofuse linkage.  
 4. End users who select Cloud NAS at install do not manually install third-party software.
 
-## Open product decisions (resolve in implementation plan)
+## Product decisions (resolved in implementation plan)
 
-1. Default Inno checkbox: Cloud NAS **on** vs **off** for typical agent installs.  
-2. Sidecar source location: new top-level `e3-cloudnas/` in monorepo vs separate public repo.  
-3. Fixed display capacity vs rclone’s 1 PiB default.
+1. Default Inno checkbox: Cloud NAS **checked** by default.  
+2. Sidecar source location: monorepo top-level **`e3-cloudnas/`**.  
+3. Capacity display: rclone VFS default (~1 PiB free when backend has no About).
