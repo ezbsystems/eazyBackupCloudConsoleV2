@@ -16,6 +16,7 @@
 - **Runtime proof:** On two workers, `prior_snapshot` timed out at exactly 300s. Worker 0.4.40 diagnostics then logged `snapshot pipeline entered` but never `repository acquired`; the cold Kopia index cache grew **4,472 → 4,929 in 20s** and later exceeded 6,000 files. Repo 20 has **25,453 index blobs** despite full maintenance op 574 reporting success.
 - **Root cause:** `StartStallWatch` started before `Pool.Snapshot` acquired/opened the repository. Cold loading of the fragmented index set was therefore labeled `upload` and cancelled after 900s before Kopia's uploader had started. Worker hand-off moved the retry to another cold cache and repeated the cycle.
 - **Fix:** Track Kopia's `UploadStarted` callback; the upload watchdog ignores pre-upload repository acquisition. Report the pre-uploader phase as `repo_open`, which receives the generic 1800s control-plane window instead of the 900s upload-tail rule. Diagnostic stage logs remain active for post-fix proof.
+- **Post-fix proof:** Worker 9009 stayed in `repo_open` for **1,544,102ms** without aborting, including past the former 900s cutoff; cache indexes advanced **4,740 → 23,176**. It then logged acquire → policy → list → uploader, and Ruben advanced to real upload at **46.34%**, `attempt_bytes_hashed=365,853,377`, fresh liveness, and no abort. Build 149 / release 160→84 / deploy 50 completed **20/20** on 0.4.41.
 
 ### 2026-08-07 — Warning-on-success + wedged upload + sticky suppress (PHP 1.52.60→1.52.62)
 
