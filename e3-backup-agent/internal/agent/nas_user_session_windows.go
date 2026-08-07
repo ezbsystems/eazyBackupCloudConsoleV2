@@ -4,53 +4,12 @@ package agent
 
 import (
 	"fmt"
-	"log"
 	"os/exec"
 	"strings"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
-	"golang.org/x/sys/windows/registry"
 )
-
-// mapNASDriveInteractiveUserWTS maps a WebDAV URL to a drive letter by running
-// net.exe in the interactive user's session (WTSQueryUserToken + CreateProcessAsUser).
-// This avoids Task Scheduler logon types that run without the user's WebClient context.
-func mapNASDriveInteractiveUserWTS(driveLetter, targetURL string) error {
-	sid, err := resolveWTSSessionForNAS()
-	if err != nil {
-		return err
-	}
-	cmdLine := fmt.Sprintf(`C:\Windows\System32\cmd.exe /c net use %s: "%s" /persistent:no`,
-		strings.TrimSuffix(strings.ToUpper(driveLetter), ":"), targetURL)
-	exit, err := runCmdLineInWTSUserSession(sid, cmdLine)
-	if err != nil {
-		return err
-	}
-	if exit != 0 {
-		return fmt.Errorf("net use exited with code %d", exit)
-	}
-	return nil
-}
-
-// unmapNASDriveInteractiveUserWTS removes a drive mapping in the interactive user's session.
-func unmapNASDriveInteractiveUserWTS(driveLetter string) {
-	sid, err := resolveWTSSessionForNAS()
-	if err != nil {
-		log.Printf("agent: WTS unmap: resolve session: %v", err)
-		return
-	}
-	dl := strings.TrimSuffix(strings.ToUpper(driveLetter), ":")
-	cmdLine := fmt.Sprintf(`C:\Windows\System32\cmd.exe /c net use %s: /delete /y`, dl)
-	exit, err := runCmdLineInWTSUserSession(sid, cmdLine)
-	if err != nil {
-		log.Printf("agent: WTS unmap failed: %v", err)
-		return
-	}
-	if exit != 0 {
-		log.Printf("agent: WTS unmap: net use exit code %d", exit)
-	}
-}
 
 func getInteractiveUserNameForNAS() (string, error) {
 	ps := `$ErrorActionPreference = 'Stop'
@@ -185,90 +144,4 @@ func resolveWTSSessionForNAS() (uint32, error) {
 	}
 	t.Close()
 	return sid, nil
-}
-
-func runCmdLineInWTSUserSession(sessionID uint32, cmdLine string) (exitCode uint32, err error) {
-	var userToken windows.Token
-	if err := windows.WTSQueryUserToken(sessionID, &userToken); err != nil {
-		return 0, fmt.Errorf("WTSQueryUserToken: %w", err)
-	}
-	defer userToken.Close()
-
-	var primary windows.Token
-	if err := windows.DuplicateTokenEx(userToken, windows.MAXIMUM_ALLOWED, nil, windows.SecurityIdentification, windows.TokenPrimary, &primary); err != nil {
-		return 0, fmt.Errorf("DuplicateTokenEx: %w", err)
-	}
-	defer primary.Close()
-
-	var envBlock *uint16
-	if err := windows.CreateEnvironmentBlock(&envBlock, primary, false); err != nil {
-		return 0, fmt.Errorf("CreateEnvironmentBlock: %w", err)
-	}
-	defer windows.DestroyEnvironmentBlock(envBlock)
-
-	app, err := windows.UTF16PtrFromString(`C:\Windows\System32\cmd.exe`)
-	if err != nil {
-		return 0, err
-	}
-	cmdUTF16, err := windows.UTF16FromString(cmdLine)
-	if err != nil {
-		return 0, err
-	}
-
-	si := &windows.StartupInfo{}
-	si.Cb = uint32(unsafe.Sizeof(*si))
-	si.Flags = windows.STARTF_USESHOWWINDOW
-	si.ShowWindow = windows.SW_HIDE
-	var pi windows.ProcessInformation
-
-	creationFlags := uint32(windows.CREATE_UNICODE_ENVIRONMENT | windows.CREATE_NO_WINDOW)
-
-	if err := windows.CreateProcessAsUser(primary, app, &cmdUTF16[0], nil, nil, false, creationFlags, envBlock, nil, si, &pi); err != nil {
-		return 0, fmt.Errorf("CreateProcessAsUser: %w", err)
-	}
-	defer windows.CloseHandle(pi.Thread)
-	defer windows.CloseHandle(pi.Process)
-
-	if _, err := windows.WaitForSingleObject(pi.Process, windows.INFINITE); err != nil {
-		return 0, fmt.Errorf("WaitForSingleObject: %w", err)
-	}
-	if err := windows.GetExitCodeProcess(pi.Process, &exitCode); err != nil {
-		return 0, fmt.Errorf("GetExitCodeProcess: %w", err)
-	}
-	return exitCode, nil
-}
-
-// configureWebClientForLargeFiles raises the Windows WebClient (WebDAV
-// redirector) file-size limit from the default 50 MB to 4 GB so that large
-// files such as videos and disk images can be accessed through Cloud NAS
-// mounted drives.  The agent service runs as SYSTEM and has HKLM write
-// access.  The WebClient service is restarted only if the value was changed.
-func configureWebClientForLargeFiles() {
-	const regPath = `SYSTEM\CurrentControlSet\Services\WebClient\Parameters`
-	const valueName = "FileSizeLimitInBytes"
-	const desired = uint32(0xFFFFFFFF) // 4 GB (max DWORD)
-
-	key, err := registry.OpenKey(registry.LOCAL_MACHINE, regPath, registry.QUERY_VALUE|registry.SET_VALUE)
-	if err != nil {
-		log.Printf("agent: WebClient registry open failed (non-critical): %v", err)
-		return
-	}
-	defer key.Close()
-
-	current, _, err := key.GetIntegerValue(valueName)
-	if err == nil && uint32(current) >= desired {
-		return
-	}
-
-	if err := key.SetDWordValue(valueName, desired); err != nil {
-		log.Printf("agent: WebClient FileSizeLimitInBytes write failed (non-critical): %v", err)
-		return
-	}
-	log.Printf("agent: WebClient FileSizeLimitInBytes raised to %d (was %d); restarting WebClient service", desired, current)
-
-	stop := exec.Command("net", "stop", "webclient", "/y")
-	_ = stop.Run()
-
-	start := exec.Command("net", "start", "webclient")
-	_ = start.Run()
 }

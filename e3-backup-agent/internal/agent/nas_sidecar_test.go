@@ -190,9 +190,6 @@ func TestEnsurePreparedNASMountUsesSidecar(t *testing.T) {
 	if mount.DriveLetter != "Y" || mount.BucketName != "bucket" {
 		t.Fatalf("mount = %#v", mount)
 	}
-	if mount.WebDAV != nil || mount.VFS != nil || mount.ServerPort != 0 || mount.TargetURL != "" {
-		t.Fatalf("sidecar mount retained WebDAV state: %#v", mount)
-	}
 }
 
 func TestStopPreparedNASMountUsesSidecar(t *testing.T) {

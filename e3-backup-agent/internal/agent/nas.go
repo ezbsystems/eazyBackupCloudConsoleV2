@@ -3,22 +3,12 @@ package agent
 import (
 	"context"
 	"fmt"
-	"io"
 	"log"
-	"net"
-	"net/http"
-	"os"
 	"os/exec"
 	"runtime"
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/rclone/rclone/backend/s3"
-	"github.com/rclone/rclone/fs/config/configmap"
-	"github.com/rclone/rclone/vfs"
-	"github.com/rclone/rclone/vfs/vfscommon"
-	"golang.org/x/net/webdav"
 )
 
 // NASMount represents an active NAS mount
@@ -32,12 +22,6 @@ type NASMount struct {
 	Persistent  bool
 	Status      string
 	MountedAt   time.Time
-
-	// WebDAV server components
-	WebDAV     *http.Server
-	VFS        *vfs.VFS
-	ServerPort int // Port the WebDAV server is listening on (for debugging/status)
-	TargetURL  string
 }
 
 // NASManager manages active NAS mounts
@@ -84,28 +68,6 @@ type MountSnapshotPayload struct {
 	AccessKey   string `json:"access_key"`
 	SecretKey   string `json:"secret_key"`
 	Region      string `json:"region"`
-}
-
-// mapDriveInUserSession maps the WebDAV share through the tray helper running in
-// the logged-in Explorer session. The mount is only considered successful once
-// the tray verifies the drive is reachable in that session.
-func (r *Runner) mapDriveInUserSession(ctx context.Context, driveLetter, target, bucketName string, webdavPort int) error {
-	return mapNASDriveViaTray(ctx, driveLetter, target, bucketName, webdavPort)
-}
-
-// setDriveLabelInUserSession is no longer needed — the tray process now sets
-// the drive label directly via the registry in the user's HKCU hive (see
-// setCloudNASDriveLabel in cmd/tray/cloudnas_control_windows.go). This stub
-// is kept so the signature remains available if called from other code paths.
-func (r *Runner) setDriveLabelInUserSession(_ context.Context, driveLetter, bucketName string, _ int) {
-	log.Printf("agent: drive label for %s: is set by the tray helper (bucket=%s)", driveLetter, bucketName)
-}
-
-// notifyShellDriveChange is no longer needed — the tray process now calls
-// SHChangeNotify directly via Win32 syscalls in the user's desktop session.
-// Shell notifications from Session 0 (SYSTEM) cannot affect the user's Explorer.
-func (r *Runner) notifyShellDriveChange(driveLetter string) {
-	log.Printf("agent: shell notification for %s: is handled by the tray helper", driveLetter)
 }
 
 func normalizeNASDriveLetter(raw string) (string, error) {
@@ -323,137 +285,6 @@ func (r *Runner) stopPreparedNASMount(driveLetter string, _ bool) error {
 		log.Printf("agent: stopped Cloud NAS sidecar mount %s", driveLetter)
 	}
 	return unmountErr
-}
-
-func (r *Runner) startNASWebDAV(ctx context.Context, payload MountNASPayload) (*NASMount, error) {
-	if payload.Bucket == "" || payload.DriveLetter == "" || payload.AccessKey == "" || payload.SecretKey == "" {
-		return nil, fmt.Errorf("missing required mount parameters")
-	}
-
-	driveLetter, err := normalizeNASDriveLetter(payload.DriveLetter)
-	if err != nil {
-		return nil, err
-	}
-
-	root := payload.Bucket
-	if payload.Prefix != "" {
-		root = payload.Bucket + "/" + strings.TrimPrefix(payload.Prefix, "/")
-	}
-
-	opt := configmap.Simple{
-		"provider":          "Ceph",
-		"access_key_id":     payload.AccessKey,
-		"secret_access_key": payload.SecretKey,
-		"endpoint":          payload.Endpoint,
-		"chunk_size":        "5Mi",
-		"copy_cutoff":       "5Gi",
-		"upload_cutoff":     "200Mi",
-		"force_path_style":  "true",
-		"disable_http2":     "true",
-		"no_check_bucket":   "true",
-		"list_chunk":        "1000",
-	}
-	if payload.Region != "" {
-		opt["region"] = payload.Region
-	} else {
-		opt["region"] = ""
-	}
-
-	log.Printf("agent: creating S3 filesystem - endpoint=%s, bucket=%s, prefix=%s, root=%s",
-		payload.Endpoint, payload.Bucket, payload.Prefix, root)
-	log.Printf("agent: S3 config - provider=Ceph, access_key=%s..., force_path_style=true",
-		payload.AccessKey[:8])
-
-	f, err := s3.NewFs(ctx, "cloudnas", root, opt)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create s3 fs: %w", err)
-	}
-
-	log.Printf("agent: S3 filesystem type: %s, root: %s", f.Name(), f.Root())
-	entries, listErr := f.List(ctx, "")
-	if listErr != nil {
-		log.Printf("agent: WARNING - S3 list root failed: %v", listErr)
-		log.Printf("agent: Attempting directory check...")
-	} else {
-		log.Printf("agent: S3 root has %d entries", len(entries))
-		for i, entry := range entries {
-			if i < 10 {
-				log.Printf("agent:   - %s (size=%d, isDir=%v)", entry.Remote(), entry.Size(), entry.Size() == -1)
-			}
-		}
-		if len(entries) > 10 {
-			log.Printf("agent:   ... and %d more", len(entries)-10)
-		}
-	}
-
-	vfsOpt := vfscommon.DefaultOpt
-	switch strings.ToLower(payload.CacheMode) {
-	case "off":
-		vfsOpt.CacheMode = vfscommon.CacheModeOff
-	case "minimal":
-		vfsOpt.CacheMode = vfscommon.CacheModeMinimal
-	case "full":
-		vfsOpt.CacheMode = vfscommon.CacheModeFull
-	default:
-		vfsOpt.CacheMode = vfscommon.CacheModeWrites
-	}
-	if payload.ReadOnly {
-		vfsOpt.ReadOnly = true
-	}
-	vfsInst := vfs.New(f, &vfsOpt)
-
-	fsWrapper := &vfsWebDAVFS{vfs: vfsInst}
-	handler := &webdav.Handler{
-		Prefix:     "/",
-		FileSystem: fsWrapper,
-		LockSystem: &noopLockSystem{},
-	}
-
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		vfsInst.Shutdown()
-		return nil, fmt.Errorf("failed to listen for webdav: %w", err)
-	}
-	srv := &http.Server{Handler: handler}
-	go func() {
-		if serveErr := srv.Serve(ln); serveErr != nil && serveErr != http.ErrServerClosed {
-			log.Printf("agent: webdav serve error: %v", serveErr)
-		}
-	}()
-
-	port := ln.Addr().(*net.TCPAddr).Port
-	time.Sleep(500 * time.Millisecond)
-
-	startSvc := exec.CommandContext(ctx, "net", "start", "webclient")
-	_ = startSvc.Run()
-	time.Sleep(300 * time.Millisecond)
-
-	httpTarget := fmt.Sprintf("http://127.0.0.1:%d/", port)
-	httpClient := &http.Client{Timeout: 10 * time.Second}
-	resp, httpErr := httpClient.Get(httpTarget)
-	if httpErr != nil {
-		log.Printf("agent: WARNING - WebDAV server not reachable via HTTP: %v", httpErr)
-	} else {
-		io.Copy(io.Discard, resp.Body)
-		resp.Body.Close()
-		log.Printf("agent: WebDAV server responding on port %d (status %d)", port, resp.StatusCode)
-	}
-
-	return &NASMount{
-		MountID:     payload.MountID,
-		DriveLetter: driveLetter,
-		BucketName:  payload.Bucket,
-		Prefix:      payload.Prefix,
-		ReadOnly:    payload.ReadOnly,
-		CacheMode:   payload.CacheMode,
-		Persistent:  payload.Persistent,
-		Status:      payload.Status,
-		MountedAt:   time.Now(),
-		WebDAV:      srv,
-		VFS:         vfsInst,
-		ServerPort:  port,
-		TargetURL:   httpTarget,
-	}, nil
 }
 
 // executeNASMountCommand handles nas_mount commands
@@ -687,26 +518,6 @@ func (r *Runner) unmountNASDrive(driveLetter string) error {
 	return nil
 }
 
-// notifyShellDriveRemoved is handled by the tray process via direct Win32
-// SHChangeNotify syscalls. The agent service (Session 0) cannot influence
-// the user's Explorer shell, so this is a no-op here.
-func (r *Runner) notifyShellDriveRemoved(driveLetter string) {
-	log.Printf("agent: shell removal notification for %s: is handled by the tray helper", driveLetter)
-}
-
-// unmapDriveInUserSession removes the mapping from the tray-owned Explorer
-// session and then performs best-effort legacy cleanup for older builds.
-func (r *Runner) unmapDriveInUserSession(driveLetter string) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	if err := unmapNASDriveViaTray(ctx, driveLetter); err != nil {
-		log.Printf("agent: tray user-session unmount (non-critical): %v", err)
-	}
-	if runtime.GOOS == "windows" {
-		unmapNASDriveInteractiveUserWTS(driveLetter)
-	}
-}
-
 // mountKopiaSnapshot mounts a Kopia snapshot using kopia's mount functionality
 func (r *Runner) mountKopiaSnapshot(ctx context.Context, payload MountSnapshotPayload) error {
 	// For Kopia snapshot mounting, we'll use the kopia CLI or library
@@ -755,77 +566,15 @@ func GetActiveMounts() []NASMount {
 // UnmountAll unmounts all active NAS drives (called on shutdown)
 func UnmountAll() {
 	nasManager.mu.Lock()
-	defer nasManager.mu.Unlock()
+	letters := make([]string, 0, len(nasManager.mounts))
+	for letter := range nasManager.mounts {
+		letters = append(letters, letter)
+	}
+	nasManager.mu.Unlock()
 
-	for letter, mount := range nasManager.mounts {
+	r := &Runner{}
+	for _, letter := range letters {
 		log.Printf("agent: unmounting %s: on shutdown", letter)
-		_ = exec.Command("net", "use", letter+":", "/delete", "/y").Run()
-		if mount.WebDAV != nil {
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			_ = mount.WebDAV.Shutdown(ctx)
-			cancel()
-		}
-		if mount.VFS != nil {
-			mount.VFS.Shutdown()
-		}
+		_ = r.stopPreparedNASMount(letter, true)
 	}
-	nasManager.mounts = make(map[string]*NASMount)
-}
-
-// vfsWebDAVFS adapts rclone VFS to x/net/webdav FileSystem
-type vfsWebDAVFS struct {
-	vfs *vfs.VFS
-}
-
-func (fsys *vfsWebDAVFS) Mkdir(ctx context.Context, name string, perm os.FileMode) error {
-	dir, leaf, err := fsys.vfs.StatParent(name)
-	if err != nil {
-		return err
-	}
-	_, err = dir.Mkdir(leaf)
-	return err
-}
-
-func (fsys *vfsWebDAVFS) OpenFile(ctx context.Context, name string, flags int, perm os.FileMode) (webdav.File, error) {
-	return fsys.vfs.OpenFile(name, flags, perm)
-}
-
-func (fsys *vfsWebDAVFS) RemoveAll(ctx context.Context, name string) error {
-	node, err := fsys.vfs.Stat(name)
-	if err != nil {
-		return err
-	}
-	return node.RemoveAll()
-}
-
-func (fsys *vfsWebDAVFS) Rename(ctx context.Context, oldName, newName string) error {
-	return fsys.vfs.Rename(oldName, newName)
-}
-
-func (fsys *vfsWebDAVFS) Stat(ctx context.Context, name string) (os.FileInfo, error) {
-	return fsys.vfs.Stat(name)
-}
-
-// noopLockSystem implements webdav.LockSystem as a permissive no-op.  S3 has
-// no concept of byte-range or exclusive file locks.  The default in-memory
-// lock system (webdav.NewMemLS) causes "0x80070021" lock-conflict errors
-// during large file uploads because Windows Explorer's LOCK requests can
-// expire before the upload/flush cycle completes.  A no-op lock system
-// lets every LOCK succeed immediately and never blocks concurrent access.
-type noopLockSystem struct{}
-
-func (*noopLockSystem) Confirm(time.Time, string, string, ...webdav.Condition) (func(), error) {
-	return func() {}, nil
-}
-
-func (*noopLockSystem) Create(time.Time, webdav.LockDetails) (string, error) {
-	return "opaquelocktoken:cloudnas-noop", nil
-}
-
-func (*noopLockSystem) Refresh(time.Time, string, time.Duration) (webdav.LockDetails, error) {
-	return webdav.LockDetails{}, nil
-}
-
-func (*noopLockSystem) Unlock(time.Time, string) error {
-	return nil
 }
