@@ -995,11 +995,21 @@ type PreparedNASMount struct {
 	Region      string `json:"region"`
 }
 
+// ForceUnmountNAS is a Cloud NAS mount the agent must tear down (UI unmount in progress).
+type ForceUnmountNAS struct {
+	MountID     int64  `json:"mount_id"`
+	DriveLetter string `json:"drive_letter"`
+}
+
+type PreparedNASPollResult struct {
+	Mounts       []PreparedNASMount
+	ForceUnmount []ForceUnmountNAS
+}
+
 // PollPreparedNASMounts returns Cloud NAS mounts the agent should keep ready.
-// activeMountIDs tells the server which mounts already have a live WebDAV
-// instance so temp credentials are only minted when a fresh mount needs to be
-// prepared.
-func (c *Client) PollPreparedNASMounts(activeMountIDs []int64) ([]PreparedNASMount, error) {
+// activeMountIDs tells the server which mounts already have a live instance so
+// temp credentials are only minted when a fresh mount needs to be prepared.
+func (c *Client) PollPreparedNASMounts(activeMountIDs []int64) (PreparedNASPollResult, error) {
 	endpoint := c.baseURL + "/cloudnas_pending_mounts.php"
 	body := map[string]any{
 		"active_mount_ids": activeMountIDs,
@@ -1007,32 +1017,33 @@ func (c *Client) PollPreparedNASMounts(activeMountIDs []int64) ([]PreparedNASMou
 	buf, _ := json.Marshal(body)
 	req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(buf))
 	if err != nil {
-		return nil, err
+		return PreparedNASPollResult{}, err
 	}
 	c.authHeaders(req)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, err
+		return PreparedNASPollResult{}, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("poll prepared NAS mounts status %d", resp.StatusCode)
+		return PreparedNASPollResult{}, fmt.Errorf("poll prepared NAS mounts status %d", resp.StatusCode)
 	}
 
 	var out struct {
-		Status  string             `json:"status"`
-		Message string             `json:"message,omitempty"`
-		Mounts  []PreparedNASMount `json:"mounts"`
+		Status       string             `json:"status"`
+		Message      string             `json:"message,omitempty"`
+		Mounts       []PreparedNASMount `json:"mounts"`
+		ForceUnmount []ForceUnmountNAS  `json:"force_unmount"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return nil, err
+		return PreparedNASPollResult{}, err
 	}
 	if out.Status != "success" {
-		return nil, fmt.Errorf("poll prepared NAS mounts failed: %s", out.Message)
+		return PreparedNASPollResult{}, fmt.Errorf("poll prepared NAS mounts failed: %s", out.Message)
 	}
-	return out.Mounts, nil
+	return PreparedNASPollResult{Mounts: out.Mounts, ForceUnmount: out.ForceUnmount}, nil
 }
 
 // PendingCommand represents a command waiting to be executed (restore, maintenance).

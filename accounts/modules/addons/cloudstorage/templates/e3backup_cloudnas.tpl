@@ -306,13 +306,41 @@ function cloudNAS() {
         
         // Check if there are active mount state transitions and refresh if needed
         async checkPendingMounts() {
-            const pendingMounts = this.mounts.filter(m => 
+            const pendingMounts = this.mounts.filter(m =>
                 m.status === 'mounting' || m.status === 'unmounting'
             );
-            if (pendingMounts.length > 0) {
-                await this.loadMounts();
-                this.calculateAvailableDriveLetters();
+            if (pendingMounts.length === 0) {
+                return;
             }
+            // Stuck transitions: stop thrashing the UI after ~2 minutes and surface an error.
+            const now = Date.now();
+            let timedOut = false;
+            for (const m of pendingMounts) {
+                if (!m._pendingSince) m._pendingSince = now;
+                if ((now - m._pendingSince) > 120000) {
+                    timedOut = true;
+                    const wasUnmounting = m.status === 'unmounting';
+                    m.status = 'error';
+                    m.error = wasUnmounting
+                        ? 'Unmount timed out. Retry Unmount, or restart the e3 tray/Cloud NAS component.'
+                        : 'Mount timed out. Retry Mount.';
+                }
+            }
+            if (timedOut) {
+                this.showToast('A Cloud NAS operation timed out. Check the drive card for details.', 'error');
+                // Keep local error state; avoid reloading unmounting/mounting from the server.
+                return;
+            }
+            await this.loadMounts();
+            // Preserve pending timers across reload for mounts still in transition.
+            for (const m of this.mounts) {
+                if (m.status === 'mounting' || m.status === 'unmounting') {
+                    const prev = pendingMounts.find(p => p.id === m.id);
+                    if (prev && prev._pendingSince) m._pendingSince = prev._pendingSince;
+                    else if (!m._pendingSince) m._pendingSince = now;
+                }
+            }
+            // Do not refetch available drives every poll — that XHR loop feels like a full refresh.
         },
         
         // Load agents

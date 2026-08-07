@@ -9,7 +9,6 @@ require_once __DIR__ . '/../../../../init.php';
 use Illuminate\Database\Capsule\Manager as Capsule;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use WHMCS\ClientArea;
-use WHMCS\Module\Addon\CloudStorage\Admin\AdminOps;
 
 if (!defined("WHMCS")) {
     die("This file cannot be accessed directly");
@@ -56,32 +55,27 @@ try {
     }
     $agentUuid = trim((string) $agent->agent_uuid);
 
-    // Revoke the temporary S3 key that was created for this mount
-    $hasTempKey = Capsule::schema()->hasColumn('s3_cloudnas_mounts', 'temp_access_key');
-    if ($hasTempKey) {
-        $tempAccessKey = $mount->temp_access_key ?? null;
-        $tempKeyCephUid = '';
-        if (Capsule::schema()->hasColumn('s3_cloudnas_mounts', 'temp_key_ceph_uid')) {
-            $tempKeyCephUid = $mount->temp_key_ceph_uid ?? '';
-        }
-        if ($tempAccessKey && $tempAccessKey !== '' && $tempKeyCephUid !== '') {
-            $settings = Capsule::table('tbladdonmodules')
-                ->where('module', 'cloudstorage')
-                ->whereIn('setting', ['s3_endpoint', 'ceph_access_key', 'ceph_secret_key'])
-                ->pluck('value', 'setting');
+    // Do NOT revoke the temp S3 key here. Revoking before the sidecar unmounts
+    // leaves a half-dead WinFsp drive (letter still present, no capacity). The
+    // key is revoked when the agent reports status=unmounted (see
+    // cloudnas_update_status.php).
 
-            $s3Endpoint     = $settings['s3_endpoint']     ?? '';
-            $adminAccessKey = $settings['ceph_access_key'] ?? '';
-            $adminSecretKey = $settings['ceph_secret_key'] ?? '';
-
-            if ($adminAccessKey !== '' && $adminSecretKey !== '') {
-                try {
-                    AdminOps::removeKey($s3Endpoint, $adminAccessKey, $adminSecretKey, $tempAccessKey, $tempKeyCephUid, null);
-                } catch (\Throwable $e) {
-                    error_log("cloudnas_unmount: temp key revoke warning: " . $e->getMessage());
-                }
-            }
-        }
+    // Re-queue even if a previous nas_unmount is stuck in "processing" after an
+    // agent restart mid-command.
+    if (Capsule::schema()->hasColumn('s3_cloudbackup_run_commands', 'agent_uuid')) {
+        Capsule::table('s3_cloudbackup_run_commands')
+            ->where('agent_uuid', $agentUuid)
+            ->where('type', 'nas_unmount')
+            ->whereIn('status', ['pending', 'processing'])
+            ->where(function ($q) use ($mountId) {
+                $q->where('payload_json', 'like', '%"mount_id":' . $mountId . '%')
+                    ->orWhere('payload_json', 'like', '%"mount_id": ' . $mountId . '%');
+            })
+            ->update([
+                'status' => 'failed',
+                'result_message' => 'superseded by newer unmount request',
+                'processed_at' => Capsule::raw('NOW()'),
+            ]);
     }
 
     // Queue unmount command for agent
@@ -102,18 +96,30 @@ try {
     }
     $commandId = Capsule::table('s3_cloudbackup_run_commands')->insertGetId($commandPayload);
 
-    // Update mount status
-    $updateData = [
+    // #region agent log
+    @file_put_contents('/var/www/eazybackup.ca/.cursor/debug-acfd10.log', json_encode([
+        'sessionId' => 'acfd10',
+        'hypothesisId' => 'H1',
+        'location' => 'cloudnas_unmount.php:queued',
+        'message' => 'nas_unmount queued; temp key deferred',
+        'data' => [
+            'mountId' => $mountId,
+            'commandId' => $commandId,
+            'agentUuid' => $agentUuid,
+            'drive' => (string) $mount->drive_letter,
+            'hadTempKey' => Capsule::schema()->hasColumn('s3_cloudnas_mounts', 'temp_access_key')
+                && trim((string) ($mount->temp_access_key ?? '')) !== '',
+        ],
+        'timestamp' => (int) round(microtime(true) * 1000),
+        'runId' => 'unmount-fix',
+    ], JSON_UNESCAPED_SLASHES) . "\n", FILE_APPEND);
+    // #endregion
+
+    // Update mount status (keep temp key until agent confirms unmounted)
+    Capsule::table('s3_cloudnas_mounts')->where('id', $mountId)->update([
         'status' => 'unmounting',
         'updated_at' => date('Y-m-d H:i:s'),
-    ];
-    if ($hasTempKey) {
-        $updateData['temp_access_key'] = null;
-        if (Capsule::schema()->hasColumn('s3_cloudnas_mounts', 'temp_key_ceph_uid')) {
-            $updateData['temp_key_ceph_uid'] = null;
-        }
-    }
-    Capsule::table('s3_cloudnas_mounts')->where('id', $mountId)->update($updateData);
+    ]);
 
     (new JsonResponse([
         'status' => 'success',

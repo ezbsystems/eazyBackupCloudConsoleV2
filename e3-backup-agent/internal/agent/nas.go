@@ -123,13 +123,37 @@ func (r *Runner) startPendingNASMounts(ctx context.Context) error {
 		return nil
 	}
 
-	mounts, err := r.client.PollPreparedNASMounts(activeNASMountIDs())
+	poll, err := r.client.PollPreparedNASMounts(activeNASMountIDs())
 	if err != nil {
 		return err
 	}
 
-	desired := make(map[string]bool, len(mounts))
-	for _, mount := range mounts {
+	for _, force := range poll.ForceUnmount {
+		driveLetter, normErr := normalizeNASDriveLetter(force.DriveLetter)
+		if normErr != nil {
+			log.Printf("agent: Cloud NAS force-unmount invalid drive for mount %d: %v", force.MountID, normErr)
+			if force.MountID > 0 {
+				_ = r.client.UpdateNASMountStatus(force.MountID, "error", normErr.Error())
+			}
+			continue
+		}
+		log.Printf("agent: Cloud NAS force-unmount mount=%d drive=%s (dashboard status=unmounting)", force.MountID, driveLetter)
+		if unmountErr := r.stopPreparedNASMount(driveLetter, true); unmountErr != nil {
+			log.Printf("agent: Cloud NAS force-unmount failed mount=%d drive=%s: %v", force.MountID, driveLetter, unmountErr)
+			if force.MountID > 0 {
+				_ = r.client.UpdateNASMountStatus(force.MountID, "error", formatCloudNASError(unmountErr))
+			}
+			continue
+		}
+		if force.MountID > 0 {
+			if statusErr := r.client.UpdateNASMountStatus(force.MountID, "unmounted", ""); statusErr != nil {
+				log.Printf("agent: Cloud NAS force-unmount status update failed mount=%d: %v", force.MountID, statusErr)
+			}
+		}
+	}
+
+	desired := make(map[string]bool, len(poll.Mounts))
+	for _, mount := range poll.Mounts {
 		payload := MountNASPayload{
 			MountID:     mount.MountID,
 			Bucket:      firstNonEmpty(mount.Bucket, mount.BucketName),
@@ -388,7 +412,9 @@ func (r *Runner) executeNASUnmountCommand(ctx context.Context, cmd PendingComman
 		_ = r.client.CompleteCommand(cmd.CommandID, "failed", err.Error())
 		// Update mount status to error in dashboard
 		if mountID > 0 {
-			_ = r.client.UpdateNASMountStatus(mountID, "error", formatCloudNASError(err))
+			if statusErr := r.client.UpdateNASMountStatus(mountID, "error", formatCloudNASError(err)); statusErr != nil {
+				log.Printf("agent: NAS unmount status update failed mount=%d: %v", mountID, statusErr)
+			}
 		}
 		return
 	}
@@ -397,7 +423,9 @@ func (r *Runner) executeNASUnmountCommand(ctx context.Context, cmd PendingComman
 	_ = r.client.CompleteCommand(cmd.CommandID, "completed", fmt.Sprintf("unmounted %s:", driveLetter))
 	// Update mount status to unmounted in dashboard
 	if mountID > 0 {
-		_ = r.client.UpdateNASMountStatus(mountID, "unmounted", "")
+		if statusErr := r.client.UpdateNASMountStatus(mountID, "unmounted", ""); statusErr != nil {
+			log.Printf("agent: NAS unmount status update failed mount=%d: %v", mountID, statusErr)
+		}
 	}
 }
 

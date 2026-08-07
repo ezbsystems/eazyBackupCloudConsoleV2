@@ -106,6 +106,18 @@ function cloudstorage_fetch_pending_commands(object $agent): array
     try {
     $commands = [];
     
+    // First, reclaim NAS commands stuck in "processing" after an agent crash /
+    // restart mid-command so unmount/mount can complete.
+    Capsule::table('s3_cloudbackup_run_commands')
+        ->where('agent_uuid', $agent->agent_uuid)
+        ->where('status', 'processing')
+        ->whereIn('type', ['nas_mount', 'nas_unmount', 'nas_mount_snapshot', 'nas_unmount_snapshot'])
+        ->where('created_at', '<', Capsule::raw('DATE_SUB(NOW(), INTERVAL 2 MINUTE)'))
+        ->update([
+            'status' => 'pending',
+            'result_message' => null,
+        ]);
+
     // First, check for NAS commands (these are tied directly to agent_uuid, not jobs)
     $hasRunIdBinary = Capsule::schema()->hasColumn('s3_cloudbackup_run_commands', 'run_id')
         && stripos((string) (Capsule::selectOne("SHOW COLUMNS FROM s3_cloudbackup_run_commands WHERE Field = 'run_id'")->Type ?? ''), 'binary') !== false;

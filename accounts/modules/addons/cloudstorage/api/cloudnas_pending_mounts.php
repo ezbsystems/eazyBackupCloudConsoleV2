@@ -72,8 +72,25 @@ try {
         ->orderBy('id', 'asc')
         ->get();
 
+    $forceUnmountRows = Capsule::table('s3_cloudnas_mounts')
+        ->where('agent_id', (int) $agent->id)
+        ->where('status', 'unmounting')
+        ->orderBy('id', 'asc')
+        ->get(['id', 'drive_letter']);
+    $forceUnmount = [];
+    foreach ($forceUnmountRows as $row) {
+        $forceUnmount[] = [
+            'mount_id' => (int) $row->id,
+            'drive_letter' => (string) $row->drive_letter,
+        ];
+    }
+
     if ($mountRows->isEmpty()) {
-        respondPendingMounts(['status' => 'success', 'mounts' => []]);
+        respondPendingMounts([
+            'status' => 'success',
+            'mounts' => [],
+            'force_unmount' => $forceUnmount,
+        ]);
     }
 
     $settings = Capsule::table('tbladdonmodules')
@@ -203,6 +220,7 @@ try {
     respondPendingMounts([
         'status' => 'success',
         'mounts' => $payloads,
+        'force_unmount' => $forceUnmount,
     ]);
 } catch (\Throwable $e) {
     logModuleCall('cloudstorage', 'cloudnas_pending_mounts', ['agent_uuid' => $agent->agent_uuid ?? ''], $e->getMessage(), $e->getTraceAsString());

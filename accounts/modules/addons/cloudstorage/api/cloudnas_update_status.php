@@ -12,6 +12,7 @@ require_once __DIR__ . '/../../../../init.php';
 
 use Illuminate\Database\Capsule\Manager as Capsule;
 use Symfony\Component\HttpFoundation\JsonResponse;
+use WHMCS\Module\Addon\CloudStorage\Admin\AdminOps;
 
 if (!defined("WHMCS")) {
     die("This file cannot be accessed directly");
@@ -85,13 +86,61 @@ try {
         $updateData['error'] = $error ?: 'Unknown error';
     } elseif ($status === 'unmounted') {
         $updateData['error'] = null;
+        // Revoke temp key only after the agent confirms the drive is gone.
+        $tempAccessKey = '';
+        $tempKeyCephUid = '';
+        if (Capsule::schema()->hasColumn('s3_cloudnas_mounts', 'temp_access_key')) {
+            $tempAccessKey = trim((string) ($mount->temp_access_key ?? ''));
+        }
+        if (Capsule::schema()->hasColumn('s3_cloudnas_mounts', 'temp_key_ceph_uid')) {
+            $tempKeyCephUid = trim((string) ($mount->temp_key_ceph_uid ?? ''));
+        }
+        if ($tempAccessKey !== '' && $tempKeyCephUid !== '') {
+            try {
+                $settings = Capsule::table('tbladdonmodules')
+                    ->where('module', 'cloudstorage')
+                    ->whereIn('setting', ['s3_endpoint', 'ceph_access_key', 'ceph_secret_key'])
+                    ->pluck('value', 'setting');
+                $s3Endpoint = $settings['s3_endpoint'] ?? '';
+                $adminAccessKey = $settings['ceph_access_key'] ?? '';
+                $adminSecretKey = $settings['ceph_secret_key'] ?? '';
+                if ($adminAccessKey !== '' && $adminSecretKey !== '') {
+                    AdminOps::removeKey(
+                        $s3Endpoint,
+                        $adminAccessKey,
+                        $adminSecretKey,
+                        $tempAccessKey,
+                        $tempKeyCephUid,
+                        null
+                    );
+                }
+            } catch (\Throwable $e) {
+                error_log('cloudnas_update_status: temp key revoke warning: ' . $e->getMessage());
+            }
+            $updateData['temp_access_key'] = null;
+            if (Capsule::schema()->hasColumn('s3_cloudnas_mounts', 'temp_key_ceph_uid')) {
+                $updateData['temp_key_ceph_uid'] = null;
+            }
+        }
     }
 
     Capsule::table('s3_cloudnas_mounts')
         ->where('id', $mountId)
         ->update($updateData);
 
-    if ($status === 'error' || $status === 'mounted') {
+    // #region agent log
+    @file_put_contents('/var/www/eazybackup.ca/.cursor/debug-acfd10.log', json_encode([
+        'sessionId' => 'acfd10',
+        'hypothesisId' => 'H2',
+        'location' => 'cloudnas_update_status.php',
+        'message' => 'mount status updated',
+        'data' => ['mountId' => $mountId, 'status' => $status, 'error' => $error],
+        'timestamp' => (int) round(microtime(true) * 1000),
+        'runId' => 'unmount-fix',
+    ], JSON_UNESCAPED_SLASHES) . "\n", FILE_APPEND);
+    // #endregion
+
+    if ($status === 'error' || $status === 'mounted' || $status === 'unmounted') {
         error_log(sprintf(
             'cloudnas_update_status mount=%d agent_uuid=%s status=%s detail=%s',
             $mountId,
