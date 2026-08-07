@@ -12,6 +12,7 @@ use WHMCS\Module\Addon\CloudStorage\Admin\AgentBuild\Steps\RecoveryBuild;
 use WHMCS\Module\Addon\CloudStorage\Admin\AgentBuild\Steps\StepBase;
 use WHMCS\Module\Addon\CloudStorage\Admin\AgentBuild\Steps\Verify;
 use WHMCS\Module\Addon\CloudStorage\Admin\AgentBuild\Steps\WindowsBuild;
+use WHMCS\Module\Addon\CloudStorage\Admin\AgentBuild\Steps\WindowsBuildCloudNAS;
 use WHMCS\Module\Addon\CloudStorage\Admin\AgentBuild\Steps\WindowsFetch;
 use WHMCS\Module\Addon\CloudStorage\Admin\AgentBuild\Steps\WindowsStage;
 
@@ -25,6 +26,7 @@ class BuildRunner
             'go_test'        => new GoTest('go_test'),
             'linux_build'    => new LinuxBuild('linux_build'),
             'windows_build'  => new WindowsBuild('windows_build'),
+            'windows_build_cloudnas' => new WindowsBuildCloudNAS('windows_build_cloudnas'),
             'recovery_build' => new RecoveryBuild('recovery_build'),
             'windows_stage'  => new WindowsStage('windows_stage'),
             'windows_inno'   => new InnoCompile('windows_inno'),

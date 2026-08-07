@@ -27,24 +27,11 @@ type cloudNASTrayDiscovery struct {
 	UpdatedAt    string `json:"updated_at"`
 }
 
-type cloudNASMountRequest struct {
-	DriveLetter string `json:"drive_letter"`
-	TargetURL   string `json:"target_url"`
-	BucketName  string `json:"bucket_name"`
-	WebDAVPort  int    `json:"webdav_port"`
-}
-
 type cloudNASRegisterRequest struct {
 	MountID     int64  `json:"mount_id"`
 	DriveLetter string `json:"drive_letter"`
-	TargetURL   string `json:"target_url"`
 	BucketName  string `json:"bucket_name"`
-	WebDAVPort  int    `json:"webdav_port"`
 	Status      string `json:"status"`
-}
-
-type cloudNASUnmountRequest struct {
-	DriveLetter string `json:"drive_letter"`
 }
 
 type cloudNASUnregisterRequest struct {
@@ -133,57 +120,7 @@ func callCloudNASTrayControl(ctx context.Context, discovery *cloudNASTrayDiscove
 	return &out, nil
 }
 
-func mapNASDriveViaTray(ctx context.Context, driveLetter, targetURL, bucketName string, webdavPort int) error {
-	sessionID, err := resolveWTSSessionForNAS()
-	if err != nil {
-		return fmt.Errorf("no logged-in Windows desktop session found; sign in to Windows and ensure the E3 Backup tray is running: %w", err)
-	}
-	log.Printf("agent: Cloud NAS selected interactive session %d", sessionID)
-
-	discovery, err := loadCloudNASTrayDiscovery(sessionID)
-	if err != nil {
-		return err
-	}
-	log.Printf("agent: Cloud NAS tray discovery session=%d user=%s addr=%s", discovery.SessionID, discovery.Username, discovery.ListenAddr)
-
-	pingResp, err := callCloudNASTrayControl(ctx, discovery, http.MethodGet, "/control/ping", nil)
-	if err != nil {
-		return fmt.Errorf("tray helper in session %d is unavailable: %w", sessionID, err)
-	}
-	log.Printf("agent: Cloud NAS tray ping succeeded for session %d message=%s", sessionID, strings.TrimSpace(pingResp.Message))
-
-	req := cloudNASMountRequest{
-		DriveLetter: driveLetter,
-		TargetURL:   targetURL,
-		BucketName:  bucketName,
-		WebDAVPort:  webdavPort,
-	}
-	mountResp, err := callCloudNASTrayControl(ctx, discovery, http.MethodPost, "/control/cloudnas/mount", req)
-	if err != nil {
-		return fmt.Errorf("tray mapping failed: %w", err)
-	}
-	log.Printf("agent: Cloud NAS tray mapping verified drive=%s session=%d detail=%s", driveLetter, sessionID, strings.TrimSpace(mountResp.Message))
-	return nil
-}
-
-func unmapNASDriveViaTray(ctx context.Context, driveLetter string) error {
-	sessionID, err := resolveWTSSessionForNAS()
-	if err != nil {
-		return err
-	}
-	discovery, err := loadCloudNASTrayDiscovery(sessionID)
-	if err != nil {
-		return err
-	}
-	unmountResp, err := callCloudNASTrayControl(ctx, discovery, http.MethodPost, "/control/cloudnas/unmount", cloudNASUnmountRequest{DriveLetter: driveLetter})
-	if err != nil {
-		return err
-	}
-	log.Printf("agent: Cloud NAS tray unmount completed drive=%s session=%d detail=%s", driveLetter, sessionID, strings.TrimSpace(unmountResp.Message))
-	return nil
-}
-
-func registerPreparedNASDriveViaTray(ctx context.Context, mountID int64, driveLetter, targetURL, bucketName string, webdavPort int, status string) error {
+func registerPreparedNASDriveViaTray(ctx context.Context, mountID int64, driveLetter, bucketName, status string) error {
 	sessionID, err := resolveWTSSessionForNAS()
 	if err != nil {
 		return fmt.Errorf("no logged-in Windows desktop session found; sign in to Windows and ensure the E3 Backup tray is running: %w", err)
@@ -195,9 +132,7 @@ func registerPreparedNASDriveViaTray(ctx context.Context, mountID int64, driveLe
 	req := cloudNASRegisterRequest{
 		MountID:     mountID,
 		DriveLetter: driveLetter,
-		TargetURL:   targetURL,
 		BucketName:  bucketName,
-		WebDAVPort:  webdavPort,
 		Status:      status,
 	}
 	resp, err := callCloudNASTrayControl(ctx, discovery, http.MethodPost, "/control/cloudnas/register", req)

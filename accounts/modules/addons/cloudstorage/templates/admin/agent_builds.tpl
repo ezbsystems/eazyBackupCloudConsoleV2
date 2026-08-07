@@ -94,6 +94,8 @@
         <div class="checkbox"><label><input type="checkbox" name="publish" checked> Publish to /client_installer/</label></div>
         <div class="checkbox"><label><input type="checkbox" name="deploy_after_publish"> Deploy to production after publish</label></div>
         <div class="checkbox"><label><input type="checkbox" name="include_recovery"> Also build recovery agent</label></div>
+        <div class="checkbox"><label><input type="checkbox" name="include_cloudnas" checked> Include Cloud NAS (Windows CGO sidecar + WinFsp MSI)</label></div>
+        <p class="help-block">Windows builds run <code>windows_build_cloudnas</code> on the build host (requires WinFsp Developer + MinGW). Use a git ref that contains <code>e3-cloudnas/</code> (e.g. <code>feature/cloudnas-winfsp-sidecar</code> until merged).</p>
         <button type="submit" class="btn btn-primary"><i class="fa fa-play"></i> Start Build</button>
         <span id="ebNewBuildMsg" class="text-muted" style="margin-left:10px;"></span>
       </form>

@@ -17,6 +17,22 @@
     </div>
 </template>
 
+{* Sidecar / WinFsp missing — actionable install guidance *}
+<template x-if="hasSidecarInstallError">
+    <div class="eb-alert eb-alert--warning mb-6">
+        <svg class="eb-alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+        </svg>
+        <div>
+            <div class="eb-alert-title">Cloud NAS Component Required</div>
+            <p class="eb-type-body !mb-0 mt-1">
+                Cloud NAS requires the optional Cloud NAS component. Re-run the E3 Backup Agent installer and keep &ldquo;Install Cloud NAS&rdquo; checked.
+                <a href="index.php?m=cloudstorage&page=e3backup&view=agents" class="eb-link">Download agent installer</a>
+            </p>
+        </div>
+    </div>
+</template>
+
 {* Summary Cards *}
 <div class="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
     <div class="eb-stat-card">

@@ -13,6 +13,7 @@ $files = [
     $base . '/Steps/GoTest.php',
     $base . '/Steps/LinuxBuild.php',
     $base . '/Steps/WindowsBuild.php',
+    $base . '/Steps/WindowsBuildCloudNAS.php',
     $base . '/Steps/RecoveryBuild.php',
     $base . '/Steps/WindowsStage.php',
     $base . '/Steps/InnoCompile.php',

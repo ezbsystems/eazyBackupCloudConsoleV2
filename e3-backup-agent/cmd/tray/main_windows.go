@@ -298,6 +298,11 @@ func (a *trayApp) onReady() {
 	a.httpOnce.Do(func() {
 		a.startHTTP()
 	})
+	go func() {
+		if err := ensureCloudNASSidecarRunning(); err != nil {
+			logDebug("cloudnas: sidecar startup check: %v", err)
+		}
+	}()
 
 	// Ensure a config exists and stable identity is persisted so the UI can always display/copy device_id.
 	cfg, err := loadConfig(a.configPath)
@@ -343,7 +348,7 @@ func (a *trayApp) onReady() {
 	mStop := systray.AddMenuItem("Stop service", "Stop the E3 Backup Agent service")
 	mRestart := systray.AddMenuItem("Restart service", "Restart the E3 Backup Agent service")
 	mRecovery := systray.AddMenuItem("Create recovery media…", "Create a bootable recovery USB")
-	mCloudNAS := systray.AddMenuItem("Cloud NAS", "Complete prepared Cloud NAS mounts")
+	mCloudNAS := systray.AddMenuItem("Cloud NAS", "Cloud NAS mount status")
 	mCloudNAS.Disable()
 	a.cloudNASMenu = mCloudNAS
 	if a.cloudNASMounts == nil {

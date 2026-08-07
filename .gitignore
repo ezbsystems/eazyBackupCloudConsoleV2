@@ -31,6 +31,10 @@
 !/e3-backup-agent/
 !/e3-backup-agent/**
 
+# Cloud NAS WinFsp sidecar (GPLv3)
+!/e3-cloudnas/
+!/e3-cloudnas/**
+
 # Recovery media scripts/docs (track these)
 !/recovery/
 !/recovery/**

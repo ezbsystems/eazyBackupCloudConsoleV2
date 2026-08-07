@@ -12,6 +12,7 @@ class JobStore
         'go_test',
         'linux_build',
         'windows_build',
+        'windows_build_cloudnas',
         'recovery_build',
         'windows_stage',
         'windows_inno',
@@ -53,6 +54,10 @@ class JobStore
         $platform = $data['platform'] ?? 'both';
         $flags    = $data['flags'] ?? [];
         $includeRecovery = !empty($flags['include_recovery']);
+        // Cloud NAS sidecar + WinFsp MSI are included for Windows builds by default.
+        $includeCloudNas = array_key_exists('include_cloudnas', $flags)
+            ? !empty($flags['include_cloudnas'])
+            : true;
         $sign = !empty($flags['sign']);
         $publish = !empty($flags['publish']);
         $runTests = !empty($flags['run_tests']);
@@ -66,8 +71,11 @@ class JobStore
             if ($stepKey === 'linux_build' && !in_array($platform, ['linux', 'both'], true)) {
                 $skip = true;
             }
-            if (in_array($stepKey, ['windows_build', 'windows_stage', 'windows_inno', 'windows_fetch'], true)
+            if (in_array($stepKey, ['windows_build', 'windows_build_cloudnas', 'windows_stage', 'windows_inno', 'windows_fetch'], true)
                 && !in_array($platform, ['windows', 'both', 'recovery_iso'], true)) {
+                $skip = true;
+            }
+            if ($stepKey === 'windows_build_cloudnas' && !$includeCloudNas) {
                 $skip = true;
             }
             if ($stepKey === 'recovery_build' && !$includeRecovery && $platform !== 'recovery_iso') {

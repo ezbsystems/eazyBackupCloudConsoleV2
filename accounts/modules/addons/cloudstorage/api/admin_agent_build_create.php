@@ -43,6 +43,9 @@ $flags = [
     'sign'             => !empty($_POST['sign']),
     'publish'          => !empty($_POST['publish']),
     'include_recovery' => !empty($_POST['include_recovery']),
+    'include_cloudnas' => array_key_exists('include_cloudnas', $_POST)
+        ? !empty($_POST['include_cloudnas'])
+        : true,
     'deploy_after_publish' => !empty($_POST['deploy_after_publish']),
 ];
 
