@@ -1,8 +1,10 @@
 <?php
 use CometBilling\HistoricalReconciler;
+use CometBilling\Settings;
 use WHMCS\Database\Capsule;
 
 $baseUrl = 'addonmodules.php?module=cometbilling&action=historical_reconcile';
+$runUrl = 'addonmodules.php?module=cometbilling&action=historical_reconcile_run';
 $exportBase = 'addonmodules.php?module=cometbilling&action=historical_reconcile_export';
 $disputeCsvBase = 'addonmodules.php?module=cometbilling&action=historical_reconcile_dispute_csv';
 $disputePdfBase = 'addonmodules.php?module=cometbilling&action=historical_reconcile_dispute_pdf';
@@ -11,20 +13,30 @@ $preset = $_GET['preset'] ?? null;
 $fromInput = $_GET['from'] ?? null;
 $toInput = $_GET['to'] ?? null;
 $includeGrace = !empty($_GET['include_grace']);
-$run = !empty($_GET['run']) || ($fromInput && $toInput);
 
 $range = HistoricalReconciler::resolveDateRange($preset, $fromInput, $toInput);
 $report = null;
 $lastSaved = null;
+$jobRunning = Settings::isJobRunning('historical_reconcile');
+$jobStartedAt = Settings::getJobStartedAt('historical_reconcile');
+$lastJobStatus = Settings::getKv('last_historical_reconcile_status');
+$lastJobMessage = Settings::getKv('last_historical_reconcile_message');
+$lastJobAt = Settings::getKv('last_historical_reconcile_at');
 
 if (Capsule::schema()->hasTable('cb_audit_runs')) {
     $lastSaved = Capsule::table('cb_audit_runs')->orderBy('id', 'desc')->first();
 }
 
-if ($run) {
-    // Persist only when explicitly requested — keeps page load lighter.
-    $persist = !empty($_GET['persist']);
-    $report = HistoricalReconciler::report($range['from'], $range['to'], $includeGrace, $persist);
+if (!$jobRunning) {
+    $report = HistoricalReconciler::loadPersistedReport($range['from'], $range['to'], $includeGrace);
+}
+
+$rangeQs = 'from=' . urlencode($range['from']) . '&to=' . urlencode($range['to']);
+if ($range['preset'] !== null) {
+    $rangeQs .= '&preset=' . urlencode((string) $range['preset']);
+}
+if ($includeGrace) {
+    $rangeQs .= '&include_grace=1';
 }
 
 function histPresetLink(string $baseUrl, $days, $activePreset, string $label): string
@@ -33,24 +45,24 @@ function histPresetLink(string $baseUrl, $days, $activePreset, string $label): s
     $class = $isActive ? 'btn btn-primary' : 'btn btn-default';
     $param = $days === 'all' ? 'all' : (int) $days;
 
-    return '<a href="' . htmlspecialchars($baseUrl . '&preset=' . $param . '&run=1') . '" class="' . $class . '">' . htmlspecialchars($label) . '</a>';
+    return '<a href="' . htmlspecialchars($baseUrl . '&preset=' . $param) . '" class="' . $class . '">' . htmlspecialchars($label) . '</a>';
 }
 
-$exportUrl = $exportBase
-    . '&from=' . urlencode($range['from'])
-    . '&to=' . urlencode($range['to']);
-$disputeCsvUrl = $disputeCsvBase
-    . '&from=' . urlencode($range['from'])
-    . '&to=' . urlencode($range['to']);
-$disputePdfUrl = $disputePdfBase
-    . '&from=' . urlencode($range['from'])
-    . '&to=' . urlencode($range['to']);
+$auditRunId = $report['audit_run_id'] ?? null;
+$exportSuffix = $auditRunId ? '&audit_run_id=' . (int) $auditRunId . '&' . $rangeQs : '&' . $rangeQs;
+$exportUrl = $exportBase . $exportSuffix;
+$disputeCsvUrl = $disputeCsvBase . $exportSuffix;
+$disputePdfUrl = $disputePdfBase . $exportSuffix;
 ?>
 <style>
 .cb-hist { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
 .cb-box { background: #fff; border: 1px solid #e5e5e5; border-radius: 8px; padding: 20px; margin: 20px 0; }
 .cb-box h4 { margin: 0 0 15px 0; }
 .cb-banner { background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 12px 16px; margin: 0 0 16px; color: #1e3a5f; font-size: 13px; }
+.cb-badge { display: inline-block; padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: 600; margin-bottom: 10px; }
+.cb-badge-running { background: #fef3c7; color: #92400e; }
+.cb-badge-ok { background: #d1fae5; color: #065f46; }
+.cb-badge-error { background: #fee2e2; color: #991b1b; }
 .cb-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 15px; margin: 15px 0; }
 .cb-stat { background: #f9fafb; border: 1px solid #e5e5e5; border-radius: 8px; padding: 15px; text-align: center; }
 .cb-stat .value { font-size: 22px; font-weight: 700; color: #1a73e8; }
@@ -78,22 +90,43 @@ $disputePdfUrl = $disputePdfBase
     <h3>Historical Reconciliation</h3>
     <div class="cb-banner">
         Audit-grade analysis correlating Comet <strong>Amount Used</strong> + <strong>Packs Used</strong> debits with billing periods and lifecycle evidence.
-        This proves overbilling from Comet’s own records — not independent verification of a hidden account balance (Comet does not expose one).
-        Large ranges can take a few minutes; other admin tabs stay responsive while this runs.
+        Audits run in the <strong>background</strong> to avoid gateway timeouts; results load from the last saved run for the selected range.
     </div>
+
+    <?php if (!empty($_GET['started'])): ?>
+    <div class="successbox">Audit started in the background. This page refreshes automatically while the job runs.</div>
+    <?php endif; ?>
+    <?php if (!empty($_GET['busy'])): ?>
+    <div class="infobox">An audit is already running. Please wait for it to finish.</div>
+    <?php endif; ?>
+
+    <?php if ($jobRunning): ?>
+    <div class="cb-box">
+        <span class="cb-badge cb-badge-running">Running</span>
+        <p>Started: <strong><?= htmlspecialchars($jobStartedAt ?? '—') ?></strong> UTC</p>
+        <p class="cb-muted">Large ranges can take several minutes. This page refreshes every 15 seconds.</p>
+    </div>
+    <?php elseif ($lastJobAt): ?>
+    <p class="cb-muted">
+        Last job: <span class="cb-badge <?= $lastJobStatus === 'ok' ? 'cb-badge-ok' : 'cb-badge-error' ?>"><?= htmlspecialchars(strtoupper((string) $lastJobStatus)) ?></span>
+        at <?= htmlspecialchars((string) $lastJobAt) ?> UTC
+    </p>
+    <?php if ($lastJobMessage): ?>
+    <pre style="font-size: 11px; max-height: 80px; overflow: auto; background: #f9fafb; padding: 8px;"><?= htmlspecialchars((string) $lastJobMessage) ?></pre>
+    <?php endif; ?>
+    <?php endif; ?>
 
     <div class="cb-box">
         <h4>Date Range</h4>
         <div class="cb-filter-row">
-            <?= histPresetLink($baseUrl, 30, $run ? $range['preset'] : null, 'Last 30 days') ?>
-            <?= histPresetLink($baseUrl, 90, $run ? $range['preset'] : null, 'Last 90 days') ?>
-            <?= histPresetLink($baseUrl, 365, $run ? $range['preset'] : null, 'Last 365 days') ?>
-            <?= histPresetLink($baseUrl, 'all', $run ? $range['preset'] : null, 'All history') ?>
+            <?= histPresetLink($baseUrl, 30, $range['preset'], 'Last 30 days') ?>
+            <?= histPresetLink($baseUrl, 90, $range['preset'], 'Last 90 days') ?>
+            <?= histPresetLink($baseUrl, 365, $range['preset'], 'Last 365 days') ?>
+            <?= histPresetLink($baseUrl, 'all', $range['preset'], 'All history') ?>
         </div>
-        <form method="get" class="cb-form-inline">
+        <form method="get" action="addonmodules.php" class="cb-form-inline">
             <input type="hidden" name="module" value="cometbilling">
-            <input type="hidden" name="action" value="historical_reconcile">
-            <input type="hidden" name="run" value="1">
+            <input type="hidden" name="action" value="historical_reconcile_run">
             <label for="from">From</label>
             <input type="date" id="from" name="from" value="<?= htmlspecialchars($range['from']) ?>" required>
             <label for="to">To</label>
@@ -102,32 +135,28 @@ $disputePdfUrl = $disputePdfBase
                 <input type="checkbox" name="include_grace" value="1" <?= $includeGrace ? 'checked' : '' ?>>
                 Include expected grace rows
             </label>
-            <label style="margin-left:12px;">
-                <input type="checkbox" name="persist" value="1" <?= !empty($_GET['persist']) ? 'checked' : '' ?>>
-                Save audit run
-            </label>
-            <button type="submit" class="btn btn-primary">Run audit</button>
+            <button type="submit" class="btn btn-primary"<?= $jobRunning ? ' disabled' : '' ?>>Run audit</button>
         </form>
-        <p class="cb-muted">Period: <?= htmlspecialchars($range['from']) ?> to <?= htmlspecialchars($range['to']) ?> (UTC). Click a preset or <strong>Run audit</strong> to generate results.</p>
+        <p class="cb-muted">Period: <?= htmlspecialchars($range['from']) ?> to <?= htmlspecialchars($range['to']) ?> (UTC).</p>
     </div>
 
-<?php if (!$run): ?>
+<?php if ($report === null && !$jobRunning): ?>
     <div class="cb-box">
-        <h4>Ready to run</h4>
-        <p class="cb-muted">Choose a date range above to start. Default recommendation: <a href="<?= htmlspecialchars($baseUrl . '&preset=90&run=1') ?>">Last 90 days</a>.</p>
+        <h4>No saved audit for this range</h4>
+        <p class="cb-muted">Click <strong>Run audit</strong> to start a background scan. Results appear here when complete.</p>
         <?php if ($lastSaved): ?>
         <p class="cb-muted">
-            Last saved audit: #<?= (int) $lastSaved->id ?>
+            Most recent saved audit: #<?= (int) $lastSaved->id ?>
             (<?= htmlspecialchars((string) $lastSaved->from_date) ?> → <?= htmlspecialchars((string) $lastSaved->to_date) ?>,
             <?= htmlspecialchars((string) $lastSaved->run_at) ?> UTC)
         </p>
         <?php endif; ?>
     </div>
-<?php else: ?>
+<?php elseif ($report !== null): ?>
 
     <?php if (!empty($report['coverage'])): ?>
     <div class="cb-box">
-        <h4>Source Coverage</h4>
+        <h4>Source Coverage<?php if ($auditRunId): ?> <span class="cb-muted">(run #<?= (int) $auditRunId ?>)</span><?php endif; ?></h4>
         <?php if (!$report['coverage']['complete_overlap']): ?>
         <p class="cb-muted" style="color:#b45309;"><strong>Coverage incomplete.</strong> Confirmed findings require full overlap of usage, active services, and Bill History CSV.</p>
         <?php else: ?>
@@ -169,19 +198,15 @@ $disputePdfUrl = $disputePdfBase
                 <div class="label">Unmatched / active</div>
             </div>
         </div>
-        <p class="cb-muted">
-            <strong>Confirmed</strong> requires proven identity, lifecycle stop, portal-supported cadence, pack debit evidence, and no reversal.
-            Probable and review rows are excluded from confirmed totals.
-        </p>
+        <?php if ($auditRunId): ?>
         <p>
             <a class="btn btn-primary" href="<?= htmlspecialchars($disputeCsvUrl) ?>">Export dispute pack (CSV)</a>
             <a class="btn btn-primary" href="<?= htmlspecialchars($disputePdfUrl) ?>" target="_blank" rel="noopener">Export dispute pack (PDF)</a>
             <a class="btn btn-default" href="<?= htmlspecialchars($exportUrl) ?>">Export overbilled (CSV)</a>
         </p>
-        <p class="cb-muted">
-            Dispute pack includes Confirmed rows only with the five evidence fields and a one-sentence claim suitable for Comet.
-            PDF opens a printable report — use your browser’s Print / Save as PDF.
-        </p>
+        <?php else: ?>
+        <p class="cb-muted">Exports require a saved audit run.</p>
+        <?php endif; ?>
     </div>
 
     <?php if (!empty($report['categories'])): ?>
@@ -213,7 +238,7 @@ $disputePdfUrl = $disputePdfBase
     <div class="cb-box">
         <h4>Charge Detail<?= $includeGrace ? '' : ' (overbilled only)' ?></h4>
         <?php if (!empty($report['summary']['ui_rows_truncated'])): ?>
-        <p class="cb-muted">Showing first <?= (int) $report['summary']['ui_row_cap'] ?> overbilled rows. Export CSV for the full list.</p>
+        <p class="cb-muted">Showing first <?= (int) $report['summary']['ui_row_cap'] ?> rows. Export CSV for the full list.</p>
         <?php endif; ?>
         <?php if (empty($report['rows'])): ?>
         <p class="cb-muted">No matching charges in this period.</p>
@@ -269,6 +294,12 @@ $disputePdfUrl = $disputePdfBase
     </div>
 <?php endif; ?>
 </div>
+
+<?php if ($jobRunning): ?>
+<script>
+setTimeout(function () { window.location.reload(); }, 15000);
+</script>
+<?php endif; ?>
 
 <script>
 (function () {

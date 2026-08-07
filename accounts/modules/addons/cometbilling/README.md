@@ -217,7 +217,7 @@ Use the dashboard setup checklist, or:
 
 ### Historical Reconcile (audit-grade)
 
-The **Historical Reconcile** page performs evidence-based overbill analysis using Comet’s own records:
+The **Historical Reconcile** page performs evidence-based overbill analysis using Comet’s own records. Audits **run in the background** (CLI job) to avoid gateway timeouts; the admin page loads results from the last saved audit run for the selected date range (`cb_audit_runs` / `cb_audit_findings`).
 
 - **Credit usage history** — `Amount Used` + `Packs Used` (pack debit evidence)
 - **Active services snapshots** — observed `billing_cycle_days` and `next_due_date`
@@ -272,6 +272,11 @@ php modules/addons/cometbilling/bin/m365_report.php --preset=60 --json
 - Device IDs in Bill History are matched to `comet_devices` hashes; replacement devices are separate identities (old + new charges on the same day are not conflated).
 - Period-end charges must use a **pre-roll** Active Services anchor (`next_due_date >= usage_date`). If the nearest snapshot was taken after portal `next_due` advanced, expected end can be one day too early.
 - Re-run Historical Reconcile after portal pull; import Bill History CSV for complete debit evidence.
+
+### Historical Reconcile page times out (504)
+- The page no longer scans Bill History in the HTTP request. Click **Run audit** and wait for the background job (badge + auto-refresh). Results load from the saved audit run.
+- Large ranges (90d / all history) can take several minutes in CLI; check `modules/addons/cometbilling/logs/historical_reconcile.log`.
+- Exports require a completed saved audit for the selected range (`audit_run_id`).
 
 ## Dependencies
 

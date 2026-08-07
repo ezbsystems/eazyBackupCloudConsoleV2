@@ -75,6 +75,40 @@ class DisputePackExporter
     }
 
     /**
+     * @return list<array<string, mixed>>
+     */
+    public static function collectConfirmedForRun(int $auditRunId): array
+    {
+        $findings = HistoricalReconciler::loadFindingsForRun($auditRunId, false);
+        $packs = [];
+        foreach ($findings as $finding) {
+            if (($finding['verdict'] ?? '') !== 'confirmed') {
+                continue;
+            }
+            $packs[] = self::packFromFinding($finding);
+        }
+
+        usort($packs, static function (array $a, array $b): int {
+            $cmp = strcmp((string) ($b['debit_date'] ?? $b['usage_date'] ?? ''), (string) ($a['debit_date'] ?? $a['usage_date'] ?? ''));
+            if ($cmp !== 0) {
+                return $cmp;
+            }
+
+            return strcmp((string) $a['account'], (string) $b['account']);
+        });
+
+        return $packs;
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    public static function collectCasesForRun(int $auditRunId): array
+    {
+        return self::groupForDispute(self::collectConfirmedForRun($auditRunId));
+    }
+
+    /**
      * @param array<string, mixed> $finding
      * @return array<string, mixed>
      */
@@ -417,7 +451,17 @@ class DisputePackExporter
 
     public static function buildCsv(string $fromDate, string $toDate): string
     {
-        $cases = self::collectCases($fromDate, $toDate);
+        $run = HistoricalReconciler::latestRunForRange($fromDate, $toDate);
+        if ($run === null) {
+            throw new \RuntimeException('No saved audit run for this date range. Run an audit first.');
+        }
+
+        return self::buildCsvForRun((int) $run->id);
+    }
+
+    public static function buildCsvForRun(int $auditRunId): string
+    {
+        $cases = self::collectCasesForRun($auditRunId);
         $headers = [
             'claim',
             'account',
@@ -473,9 +517,24 @@ class DisputePackExporter
 
     public static function buildHtml(string $fromDate, string $toDate): string
     {
+        $run = HistoricalReconciler::latestRunForRange($fromDate, $toDate);
+        if ($run === null) {
+            throw new \RuntimeException('No saved audit run for this date range. Run an audit first.');
+        }
+
+        return self::buildHtmlForRun((int) $run->id, (string) $run->from_date, (string) $run->to_date);
+    }
+
+    public static function buildHtmlForRun(int $auditRunId, ?string $fromDate = null, ?string $toDate = null): string
+    {
+        if ($fromDate === null || $toDate === null) {
+            $run = \WHMCS\Database\Capsule::table('cb_audit_runs')->where('id', $auditRunId)->first();
+            $fromDate = $run ? (string) $run->from_date : '';
+            $toDate = $run ? (string) $run->to_date : '';
+        }
         $fromDate = self::normalizeDate($fromDate);
         $toDate = self::normalizeDate($toDate);
-        $cases = self::collectCases($fromDate, $toDate);
+        $cases = self::collectCasesForRun($auditRunId);
         $generatedAt = gmdate('Y-m-d H:i:s') . ' UTC';
         $confirmedAmount = 0.0;
         $pendingAmount = 0.0;
@@ -584,7 +643,21 @@ class DisputePackExporter
 
     public static function streamCsv(string $fromDate, string $toDate): void
     {
-        $csv = self::buildCsv($fromDate, $toDate);
+        $run = HistoricalReconciler::latestRunForRange($fromDate, $toDate);
+        if ($run === null) {
+            throw new \RuntimeException('No saved audit run for this date range. Run an audit first.');
+        }
+        self::streamCsvForRun((int) $run->id, (string) $run->from_date, (string) $run->to_date);
+    }
+
+    public static function streamCsvForRun(int $auditRunId, ?string $fromDate = null, ?string $toDate = null): void
+    {
+        $csv = self::buildCsvForRun($auditRunId);
+        if ($fromDate === null || $toDate === null) {
+            $run = \WHMCS\Database\Capsule::table('cb_audit_runs')->where('id', $auditRunId)->first();
+            $fromDate = $run ? (string) $run->from_date : 'unknown';
+            $toDate = $run ? (string) $run->to_date : 'unknown';
+        }
         $from = self::normalizeDate($fromDate);
         $to = self::normalizeDate($toDate);
         $filename = 'comet-dispute-pack-' . $from . '_to_' . $to . '.csv';
@@ -603,7 +676,21 @@ class DisputePackExporter
 
     public static function streamHtml(string $fromDate, string $toDate): void
     {
-        $html = self::buildHtml($fromDate, $toDate);
+        $run = HistoricalReconciler::latestRunForRange($fromDate, $toDate);
+        if ($run === null) {
+            throw new \RuntimeException('No saved audit run for this date range. Run an audit first.');
+        }
+        self::streamHtmlForRun((int) $run->id, (string) $run->from_date, (string) $run->to_date);
+    }
+
+    public static function streamHtmlForRun(int $auditRunId, ?string $fromDate = null, ?string $toDate = null): void
+    {
+        $html = self::buildHtmlForRun($auditRunId, $fromDate, $toDate);
+        if ($fromDate === null || $toDate === null) {
+            $run = \WHMCS\Database\Capsule::table('cb_audit_runs')->where('id', $auditRunId)->first();
+            $fromDate = $run ? (string) $run->from_date : 'unknown';
+            $toDate = $run ? (string) $run->to_date : 'unknown';
+        }
         $from = self::normalizeDate($fromDate);
         $to = self::normalizeDate($toDate);
         $filename = 'comet-dispute-pack-' . $from . '_to_' . $to . '.html';

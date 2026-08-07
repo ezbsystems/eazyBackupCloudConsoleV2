@@ -176,14 +176,33 @@ class Settings
         $started = self::getJobStartedAt($job);
         if ($started) {
             $startedTs = strtotime($started . ' UTC');
-            if ($startedTs !== false && (time() - $startedTs) > 1200) {
-                // Stale after 20 minutes — job likely crashed without finishing
+            $staleSeconds = $job === 'historical_reconcile' ? 7200 : 1200;
+            if ($startedTs !== false && (time() - $startedTs) > $staleSeconds) {
                 self::setKv($job . '_running', '0');
                 return false;
             }
         }
 
         return true;
+    }
+
+    /**
+     * @return array{from: string, to: string, include_grace: bool}
+     */
+    public static function getHistoricalReconcileJobParams(): array
+    {
+        return [
+            'from' => (string) (self::getKv('historical_reconcile_job_from') ?? ''),
+            'to' => (string) (self::getKv('historical_reconcile_job_to') ?? ''),
+            'include_grace' => self::getKv('historical_reconcile_job_include_grace') === '1',
+        ];
+    }
+
+    public static function setHistoricalReconcileJobParams(string $from, string $to, bool $includeGrace): void
+    {
+        self::setKv('historical_reconcile_job_from', $from);
+        self::setKv('historical_reconcile_job_to', $to);
+        self::setKv('historical_reconcile_job_include_grace', $includeGrace ? '1' : '0');
     }
 
     public static function getJobStartedAt(string $job): ?string

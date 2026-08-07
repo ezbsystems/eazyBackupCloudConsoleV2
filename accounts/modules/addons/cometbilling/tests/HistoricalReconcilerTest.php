@@ -15,6 +15,10 @@ namespace WHMCS\Database {
         public static array $manifestRows = [];
         /** @var list<object> */
         public static array $inventoryRows = [];
+        /** @var list<object> */
+        public static array $auditRuns = [];
+        /** @var list<object> */
+        public static array $auditFindings = [];
 
         public static function schema(): object
         {
@@ -30,6 +34,8 @@ namespace WHMCS\Database {
                         'cb_audit_findings',
                         'cb_portal_pull_manifests',
                         'cb_server_device_inventory',
+                        'cb_audit_runs',
+                        'cb_audit_findings',
                     ], true);
                 }
 
@@ -122,7 +128,11 @@ namespace WHMCS\Database {
                     return $this;
                 }
                 public function whereDate(string $column, string $date): self { return $this; }
-                public function whereIn(string $column, array $vals): self { return $this; }
+                public function whereIn(string $column, array $vals): self
+                {
+                    $this->conditions[] = [$column, 'in', $vals];
+                    return $this;
+                }
                 public function orderBy(string $column, string $dir = 'asc'): self
                 {
                     $this->orderColumn = $column;
@@ -163,12 +173,36 @@ namespace WHMCS\Database {
                     };
                 }
                 public function sum(mixed $column): float { return 0.0; }
-                public function count(): int { return 0; }
+                public function count(): int
+                {
+                    return count($this->get());
+                }
                 public function insertGetId(array $data): int
                 {
-                    return $this->insertId++;
+                    $id = $this->insertId++;
+                    if ($this->table === 'cb_audit_runs') {
+                        $data['id'] = $id;
+                        Capsule::$auditRuns[] = (object) $data;
+                    }
+
+                    return $id;
                 }
-                public function insert(array $data): bool { return true; }
+                public function insert(array $data): bool
+                {
+                    if ($this->table === 'cb_audit_findings') {
+                        if (isset($data[0]) && is_array($data[0])) {
+                            foreach ($data as $row) {
+                                $row['id'] = $this->insertId++;
+                                Capsule::$auditFindings[] = (object) $row;
+                            }
+                        } else {
+                            $data['id'] = $this->insertId++;
+                            Capsule::$auditFindings[] = (object) $data;
+                        }
+                    }
+
+                    return true;
+                }
                 public function update(array $data): int { return 0; }
                 public function delete(): int { return 0; }
                 public function first(): ?object
@@ -186,6 +220,8 @@ namespace WHMCS\Database {
                         'cb_active_services' => Capsule::$activeRows,
                         'cb_portal_pull_manifests' => Capsule::$manifestRows,
                         'cb_server_device_inventory' => Capsule::$inventoryRows,
+                        'cb_audit_runs' => Capsule::$auditRuns,
+                        'cb_audit_findings' => Capsule::$auditFindings,
                         default => [],
                     };
                     $filtered = array_values(array_filter($rows, function (object $row): bool {
@@ -250,6 +286,12 @@ namespace WHMCS\Database {
                     if ($operator === '>=' && $actual < $value) {
                         return false;
                     }
+                    if ($operator === '>' && $actual <= $value) {
+                        return false;
+                    }
+                    if ($operator === 'in' && is_array($value) && !in_array($actual, $value, true)) {
+                        return false;
+                    }
                     return true;
                 }
 
@@ -291,6 +333,7 @@ namespace {
     require_once __DIR__ . '/../lib/ServiceIdentityResolver.php';
     require_once __DIR__ . '/../lib/LifecycleResolver.php';
     require_once __DIR__ . '/../lib/BillingCadenceResolver.php';
+    require_once __DIR__ . '/../lib/ReversalIndex.php';
     require_once __DIR__ . '/../lib/SourceCoverageReporter.php';
     require_once __DIR__ . '/../lib/OverbillEvidenceEvaluator.php';
     require_once __DIR__ . '/../lib/HistoricalReconciler.php';
@@ -300,6 +343,8 @@ namespace {
     use CometBilling\HistoricalReconciler;
     use CometBilling\OverbillEvidenceEvaluator;
     use CometBilling\PackUsageParser;
+    use CometBilling\BillingCadenceResolver;
+    use CometBilling\ReversalIndex;
     use WHMCS\Database\Capsule;
 
     function assert_eq($a, $b, string $label): void
@@ -668,6 +713,63 @@ namespace {
     $residual = OverbillEvidenceEvaluator::evaluate($korolResidual, false);
     assert_eq($residual['billing_verdict'], 'after_expected_end', 'post-roll residual charge after expected end');
     assert_eq($residual['verdict'], 'confirmed', 'post-roll residual charge still confirmed overbill');
+
+    // Persist + load round-trip
+    Capsule::$deviceRows = [
+        (object) [
+            'hash' => 'persistdev123456',
+            'username' => 'PersistCorp',
+            'name' => 'Host',
+            'revoked_at' => '2026-07-06 08:00:00',
+            'content' => '{}',
+        ],
+    ];
+    Capsule::$activeRows = [
+        (object) [
+            'id' => 50,
+            'pulled_at' => '2026-07-07 12:00:00',
+            'service_name' => 'Account PersistCorp - Device persist - Booster Hyper-V',
+            'billing_cycle_days' => 1,
+            'next_due_date' => '2026-07-07',
+            'device_id' => 'persis',
+        ],
+    ];
+    Capsule::$usageRows = [
+        (object) [
+            'id' => 500,
+            'usage_date' => '2026-07-07',
+            'tenant_id' => 'PersistCorp',
+            'device_id' => 'persistdev123456',
+            'item_type' => 'booster',
+            'item_desc' => 'Booster - Hyper-V Guest Count',
+            'amount' => '2.50',
+            'packs_used_raw' => '10,000 Dollars',
+            'packs_used_parsed' => json_encode(PackUsageParser::parse('10,000 Dollars')),
+            'raw_row' => json_encode([]),
+        ],
+    ];
+    Capsule::$auditRuns = [];
+    Capsule::$auditFindings = [];
+    \CometBilling\LifecycleResolver::clearCache();
+    \CometBilling\ServiceIdentityResolver::clearCache();
+    \CometBilling\BillingCadenceResolver::clearCache();
+    ReversalIndex::clear();
+
+    $live = HistoricalReconciler::report('2026-07-01', '2026-07-31', false, true);
+    assert_eq($live['audit_run_id'] !== null, true, 'persist creates audit run id');
+    assert_eq(count(Capsule::$auditFindings) >= 1, true, 'persist stores findings');
+
+    $loaded = HistoricalReconciler::loadPersistedReport('2026-07-01', '2026-07-31', false);
+    assert_eq($loaded !== null, true, 'loadPersistedReport returns report');
+    assert_eq((int) ($loaded['audit_run_id'] ?? 0), (int) $live['audit_run_id'], 'loaded run id matches');
+    assert_eq((int) ($loaded['summary']['confirmed_count'] ?? 0), (int) ($live['summary']['confirmed_count'] ?? 0), 'loaded summary matches');
+
+    // No near AS snapshot → skip observedDaily (monthly default, low confidence)
+    Capsule::$activeRows = [];
+    \CometBilling\BillingCadenceResolver::clearCache();
+    $noSnap = BillingCadenceResolver::resolve('2026-06-15', 'devices', 'PersistCorp', 'persistdev123456', 'Device - PersistCorp');
+    assert_eq($noSnap['observed_daily'], false, 'no near snapshot skips observed daily scan');
+    assert_eq($noSnap['confidence'], 'low', 'cadence low confidence without portal anchor');
 
     echo "\nAll HistoricalReconciler audit tests passed.\n";
 }

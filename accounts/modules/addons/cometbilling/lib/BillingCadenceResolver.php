@@ -43,9 +43,9 @@ class BillingCadenceResolver
     ): array {
         $portal = self::findPortalAnchor($usageDate, $category, $account, $deviceHash, $itemDesc);
 
-        // Expensive charge-history scan — only when portal cadence is unknown.
+        // Expensive charge-history scan — only when portal cadence is unknown AND a near AS snapshot exists.
         $observedDaily = false;
-        if (!$portal['found']) {
+        if (!$portal['found'] && self::hasNearSnapshot($usageDate)) {
             $observedDaily = self::observedDailyCadence($usageDate, $itemDesc, $account, $deviceHash);
         }
 
@@ -395,6 +395,11 @@ class BillingCadenceResolver
             static fn (array $item): string => $item['pulled_at'],
             $within
         );
+    }
+
+    public static function hasNearSnapshot(string $usageDate): bool
+    {
+        return self::findSnapshotsNearCached($usageDate . ' 12:00:00') !== [];
     }
 
     private static function observedDailyCadence(

@@ -67,7 +67,8 @@ class OverbillEvidenceEvaluator
 
         $reversed = null;
         if ($billingVerdict === 'after_expected_end') {
-            $reversed = self::findReversal($row, $usageDate, $tenantId, $identity['device_hash']);
+            $reversed = ReversalIndex::lookup($usageDate, $tenantId, $identity['device_hash'])
+                ?? self::findReversal($row, $usageDate, $tenantId, $identity['device_hash']);
             if ($reversed) {
                 $billingVerdict = 'reversed';
                 $reasons[] = 'offsetting_record_found';

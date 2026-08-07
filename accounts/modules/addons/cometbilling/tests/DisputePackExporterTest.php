@@ -13,6 +13,10 @@ namespace WHMCS\Database {
         public static array $activeRows = [];
         /** @var list<object> */
         public static array $manifestRows = [];
+        /** @var list<object> */
+        public static array $auditRuns = [];
+        /** @var list<object> */
+        public static array $auditFindings = [];
 
         public static function schema(): object
         {
@@ -25,6 +29,8 @@ namespace WHMCS\Database {
                         'cb_active_services',
                         'cb_credit_purchases',
                         'cb_portal_pull_manifests',
+                        'cb_audit_runs',
+                        'cb_audit_findings',
                     ], true);
                 }
 
@@ -79,6 +85,12 @@ namespace WHMCS\Database {
                     return $this;
                 }
 
+                public function whereIn(string $column, array $vals): self
+                {
+                    $this->conditions[] = [$column, 'in', $vals];
+                    return $this;
+                }
+
                 public function orderBy(string $column, string $dir = 'asc'): self { return $this; }
                 public function offset(int $offset): self { $this->offset = $offset; return $this; }
                 public function limit(int $limit): self { $this->limit = $limit; return $this; }
@@ -107,6 +119,8 @@ namespace WHMCS\Database {
                         'cb_credit_usage' => Capsule::$usageRows,
                         'cb_active_services' => Capsule::$activeRows,
                         'cb_portal_pull_manifests' => Capsule::$manifestRows,
+                        'cb_audit_runs' => Capsule::$auditRuns,
+                        'cb_audit_findings' => Capsule::$auditFindings,
                         default => [],
                     };
                     $filtered = array_values(array_filter($rows, function (object $row): bool {
@@ -150,6 +164,9 @@ namespace WHMCS\Database {
                     if ($operator === '>=' && $actual < $value) {
                         return false;
                     }
+                    if ($operator === 'in' && is_array($value) && !in_array($actual, $value, true)) {
+                        return false;
+                    }
                     return true;
                 }
 
@@ -176,9 +193,11 @@ namespace {
     require_once __DIR__ . '/../lib/ServiceIdentityResolver.php';
     require_once __DIR__ . '/../lib/LifecycleResolver.php';
     require_once __DIR__ . '/../lib/BillingCadenceResolver.php';
+    require_once __DIR__ . '/../lib/ReversalIndex.php';
     require_once __DIR__ . '/../lib/SourceCoverageReporter.php';
     require_once __DIR__ . '/../lib/OverbillEvidenceEvaluator.php';
     require_once __DIR__ . '/../lib/CanonicalUsage.php';
+    require_once __DIR__ . '/../lib/HistoricalReconciler.php';
     require_once __DIR__ . '/../lib/DisputePackExporter.php';
 
     use CometBilling\CanonicalUsage;
@@ -319,6 +338,37 @@ namespace {
     assert_eq($deviceCases[0]['duplicate_pending_count'], 1, 'non-guest duplicate still pending');
     assert_eq($deviceCases[0]['confirmed_amount'], '2.50', 'non-guest counts one confirmed per date');
     assert_eq($deviceCases[0]['duplicate_pending_amount'], '2.50', 'non-guest duplicate amount separate');
+
+    Capsule::$auditRuns = [
+        (object) [
+            'id' => 1,
+            'from_date' => '2026-07-01',
+            'to_date' => '2026-07-31',
+            'run_at' => '2026-07-08 12:00:00',
+            'summary' => json_encode(['confirmed_count' => 1]),
+            'coverage' => json_encode([]),
+            'created_at' => '2026-07-08 12:00:00',
+        ],
+    ];
+    Capsule::$auditFindings = [
+        (object) [
+            'id' => 1,
+            'audit_run_id' => 1,
+            'usage_id' => $finding['usage_id'],
+            'verdict' => 'confirmed',
+            'debit_evidence' => $finding['debit_evidence'],
+            'billing_verdict' => $finding['billing_verdict'],
+            'amount' => $finding['amount'],
+            'account' => $finding['account'],
+            'device_id' => $finding['device_id'],
+            'category' => $finding['category'],
+            'usage_date' => $finding['usage_date'],
+            'item_desc' => $finding['item_desc'],
+            'expected_billing_end' => $finding['expected_billing_end'],
+            'confidence_reasons' => json_encode($finding['confidence_reasons'] ?? []),
+            'evidence' => json_encode($finding['evidence'] ?? []),
+        ],
+    ];
 
     $csv = DisputePackExporter::buildCsv('2026-07-01', '2026-07-31');
     assert_true(str_contains($csv, 'claim'), 'csv has claim header');

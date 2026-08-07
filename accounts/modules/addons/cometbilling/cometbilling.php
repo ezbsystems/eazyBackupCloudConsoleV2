@@ -387,20 +387,60 @@ function cometbilling_output($vars)
             break;
 
         case 'historical_reconcile':
-            // Long audit scan — release session so other admin tabs stay responsive.
             cometbilling_releaseSession();
-            if (function_exists('set_time_limit')) {
-                @set_time_limit(600);
-            }
             include __DIR__ . '/templates/admin/historical_reconcile.tpl.php';
+            break;
+
+        case 'historical_reconcile_run':
+            cometbilling_releaseSession();
+            $preset = $_REQUEST['preset'] ?? null;
+            $fromReq = !empty($_REQUEST['from']) ? (string) $_REQUEST['from'] : null;
+            $toReq = !empty($_REQUEST['to']) ? (string) $_REQUEST['to'] : null;
+            $includeGraceReq = !empty($_REQUEST['include_grace']);
+            $range = \CometBilling\HistoricalReconciler::resolveDateRange($preset, $fromReq, $toReq);
+            $redirectQs = 'from=' . urlencode($range['from']) . '&to=' . urlencode($range['to']);
+            if ($range['preset'] !== null) {
+                $redirectQs .= '&preset=' . urlencode((string) $range['preset']);
+            }
+            if ($includeGraceReq) {
+                $redirectQs .= '&include_grace=1';
+            }
+            $histUrl = $baseUrl . '&action=historical_reconcile&' . $redirectQs;
+
+            if (\CometBilling\Settings::isJobRunning('historical_reconcile')) {
+                header('Location: ' . $histUrl . '&busy=1');
+                exit;
+            }
+
+            \CometBilling\Settings::setHistoricalReconcileJobParams(
+                $range['from'],
+                $range['to'],
+                $includeGraceReq
+            );
+            $spawned = cometbilling_spawnCli('historical_reconcile.php', 'historical_reconcile');
+            if ($spawned) {
+                header('Location: ' . $histUrl . '&started=1');
+                exit;
+            }
+
+            if (!defined('COMETBILLING_INLINE')) {
+                define('COMETBILLING_INLINE', true);
+            }
+            ob_start();
+            include __DIR__ . '/bin/historical_reconcile.php';
+            $output = ob_get_clean();
+            echo '<div class="successbox">Historical audit completed inline (background spawn unavailable).</div>';
+            echo '<pre style="max-height:400px;overflow:auto">' . htmlspecialchars((string) $output) . '</pre>';
+            echo '<p><a href="' . htmlspecialchars($histUrl) . '" class="btn btn-default">Back to Historical Reconcile</a></p>';
             break;
 
         case 'historical_reconcile_export':
             cometbilling_releaseSession();
-            if (function_exists('set_time_limit')) {
-                @set_time_limit(600);
-            }
             try {
+                $auditRunId = !empty($_GET['audit_run_id']) ? (int) $_GET['audit_run_id'] : 0;
+                if ($auditRunId > 0) {
+                    \CometBilling\HistoricalReconciler::streamCsvForRun($auditRunId);
+                }
                 $from = !empty($_GET['from']) ? (string) $_GET['from'] : null;
                 $to = !empty($_GET['to']) ? (string) $_GET['to'] : null;
                 $range = \CometBilling\HistoricalReconciler::resolveDateRange(null, $from, $to);
@@ -413,10 +453,11 @@ function cometbilling_output($vars)
 
         case 'historical_reconcile_dispute_csv':
             cometbilling_releaseSession();
-            if (function_exists('set_time_limit')) {
-                @set_time_limit(600);
-            }
             try {
+                $auditRunId = !empty($_GET['audit_run_id']) ? (int) $_GET['audit_run_id'] : 0;
+                if ($auditRunId > 0) {
+                    \CometBilling\DisputePackExporter::streamCsvForRun($auditRunId);
+                }
                 $from = !empty($_GET['from']) ? (string) $_GET['from'] : null;
                 $to = !empty($_GET['to']) ? (string) $_GET['to'] : null;
                 $range = \CometBilling\HistoricalReconciler::resolveDateRange(null, $from, $to);
@@ -429,10 +470,11 @@ function cometbilling_output($vars)
 
         case 'historical_reconcile_dispute_pdf':
             cometbilling_releaseSession();
-            if (function_exists('set_time_limit')) {
-                @set_time_limit(600);
-            }
             try {
+                $auditRunId = !empty($_GET['audit_run_id']) ? (int) $_GET['audit_run_id'] : 0;
+                if ($auditRunId > 0) {
+                    \CometBilling\DisputePackExporter::streamHtmlForRun($auditRunId);
+                }
                 $from = !empty($_GET['from']) ? (string) $_GET['from'] : null;
                 $to = !empty($_GET['to']) ? (string) $_GET['to'] : null;
                 $range = \CometBilling\HistoricalReconciler::resolveDateRange(null, $from, $to);
