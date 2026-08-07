@@ -3,7 +3,6 @@ package api
 import (
 	"context"
 	"fmt"
-	"sync"
 	"time"
 )
 
@@ -31,9 +30,11 @@ func (c *Client) RunLog(ctx context.Context, runID, level, message string) {
 	if level == "" {
 		level = "info"
 	}
-	if c.runLogMu == nil {
-		c.runLogMu = &sync.Mutex{}
-		c.runLogState = make(map[string]*runLogState)
+	// Mutex + map must exist before any Lock (NewClient initializes them). Never
+	// replace runLogMu/runLogState here — parallel batch children previously raced
+	// a nil-check init and crashed with concurrent map writes.
+	if c.runLogMu == nil || c.runLogState == nil {
+		return
 	}
 	now := time.Now()
 	ts := now.Unix()

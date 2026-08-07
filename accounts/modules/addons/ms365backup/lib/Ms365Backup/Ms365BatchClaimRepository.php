@@ -328,7 +328,7 @@ final class Ms365BatchClaimRepository
             : Ms365EngineConfig::batchMaxAttempts();
         $terminal = $attempts >= $maxAttempts;
 
-        return Capsule::table('ms365_batch_claims')
+        $updated = Capsule::table('ms365_batch_claims')
             ->where('batch_run_id', $batchRunId)
             ->where('worker_node_id', $nodeId)
             ->where('status', 'running')
@@ -341,6 +341,11 @@ final class Ms365BatchClaimRepository
                 'error_message' => mb_substr($message, 0, 500),
                 'updated_at' => $now,
             ]) > 0;
+        if ($updated && $terminal) {
+            self::failBatchChildren($batchRunId, $message);
+        }
+
+        return $updated;
     }
 
     /**
@@ -520,6 +525,62 @@ final class Ms365BatchClaimRepository
     }
 
     /**
+     * Hand off batches that have been claimed for a while yet still have zero
+     * running children (only queued remain). Unlike stranded-requeue hand-off,
+     * this covers claim-time children the owner never started — e.g. worker
+     * crash-loop during batch start — so another idle node can pick them up.
+     *
+     * @return int batches handed off
+     */
+    public static function reconcileIdleOwnedQueuedBatches(): int
+    {
+        if (!self::tableReady() || !Capsule::schema()->hasTable('ms365_backup_runs')) {
+            return 0;
+        }
+        $now = time();
+        // Long enough that a healthy owner would have promoted at least one child
+        // past tryReserve; short enough that a crash-looping owner frees quickly.
+        $cutoff = $now - 180;
+        $batchRunIds = Capsule::table('ms365_batch_claims as b')
+            ->where('b.status', 'running')
+            ->whereNotNull('b.claimed_at')
+            ->where('b.claimed_at', '<', $cutoff)
+            ->whereExists(static function ($query): void {
+                $query->select(Capsule::raw(1))
+                    ->from('ms365_backup_runs as queued')
+                    ->whereColumn('queued.e3_batch_run_id', 'b.batch_run_id')
+                    ->where('queued.status', 'queued');
+            })
+            ->whereNotExists(static function ($query): void {
+                $query->select(Capsule::raw(1))
+                    ->from('ms365_backup_runs as active')
+                    ->whereColumn('active.e3_batch_run_id', 'b.batch_run_id')
+                    ->where('active.status', 'running');
+            })
+            ->pluck('b.batch_run_id')
+            ->all();
+
+        if ($batchRunIds !== []) {
+            // #region agent log
+            @file_put_contents(
+                '/var/www/eazybackup.ca/.cursor/debug-9e9596.log',
+                json_encode([
+                    'sessionId' => '9e9596',
+                    'hypothesisId' => 'H4',
+                    'location' => 'Ms365BatchClaimRepository.php:reconcileIdleOwnedQueuedBatches',
+                    'message' => 'idle owned batch handoff candidates',
+                    'data' => ['batch_run_ids' => array_values($batchRunIds), 'count' => count($batchRunIds)],
+                    'timestamp' => (int) round(microtime(true) * 1000),
+                ], JSON_UNESCAPED_SLASHES) . "\n",
+                FILE_APPEND
+            );
+            // #endregion
+        }
+
+        return self::handOffRunningBatchClaims($batchRunIds, 'Idle owned batch with queued children');
+    }
+
+    /**
      * Release a running batch back to queued (drain hand-off preserves child checkpoints).
      */
     public static function release(string $batchRunId, string $nodeId, string $message = 'Worker released batch'): bool
@@ -562,6 +623,7 @@ final class Ms365BatchClaimRepository
         $reaped = self::reapStalledBatchChildren();
         $reaped += self::reconcileRunQueueStatusMismatch();
         $reaped += self::reconcileStrandedBatchQueuedChildren();
+        $reaped += self::reconcileIdleOwnedQueuedBatches();
         $now = time();
         $heartbeatGap = Ms365EngineConfig::batchHeartbeatGapSeconds();
         $heartbeatCutoff = $now - $heartbeatGap;

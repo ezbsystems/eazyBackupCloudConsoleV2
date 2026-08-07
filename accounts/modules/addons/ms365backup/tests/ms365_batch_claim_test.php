@@ -269,9 +269,20 @@ try {
             'last_heartbeat_at' => $now,
         ]);
     $childReaped = Ms365BatchClaimRepository::reapStalledBatchChildren();
-    assert_true($childReaped >= 1, 'reapStalledBatchChildren requeues silent child');
+    assert_true($childReaped >= 1, 'reapStalledBatchChildren soft-aborts silent child under live owner');
     $staleStatus = (string) Capsule::table('ms365_backup_runs')->where('id', $staleChild)->value('status');
     $activeStatus = (string) Capsule::table('ms365_backup_runs')->where('id', $activeChild)->value('status');
+    // Live owners soft-abort first; requeue only after REQUEUE_AFTER_SECONDS grace.
+    if ($staleStatus === 'running') {
+        $abortAt = (int) Capsule::table('ms365_backup_runs')->where('id', $staleChild)->value('abort_requested_at');
+        assert_true($abortAt > 0, 'silent child receives abort_requested_at under live owner');
+        Capsule::table('ms365_backup_runs')->where('id', $staleChild)->update([
+            'abort_requested_at' => $now - 120,
+        ]);
+        $childReaped = Ms365BatchClaimRepository::reapStalledBatchChildren();
+        assert_true($childReaped >= 1, 'reapStalledBatchChildren requeues after abort grace');
+        $staleStatus = (string) Capsule::table('ms365_backup_runs')->where('id', $staleChild)->value('status');
+    }
     assert_true($staleStatus === 'queued', 'stale child returns to queued');
     assert_true($activeStatus === 'running', 'active sibling child stays running');
     Capsule::table('ms365_batch_claims')->where('batch_run_id', $siblingBatch)->delete();
@@ -369,6 +380,65 @@ try {
     $semStatus = (string) Capsule::table('ms365_batch_claims')->where('batch_run_id', $semBatch)->value('status');
     assert_true($semStatus === 'running', 'batch claim stays running for claim-time queue');
     Capsule::table('ms365_batch_claims')->where('batch_run_id', $semBatch)->delete();
+
+    // Idle owner (0 running, only queued) after grace → hand off even when scheduled_at <= claimed_at.
+    $idleBatch = test_uuid('idle-owned-batch');
+    $idleChild = test_uuid('idle-owned-child');
+    $batchRunIds[] = $idleBatch;
+    $runIds[] = $idleChild;
+    Ms365BatchClaimRepository::enqueueBatch($idleBatch, $tenantRecordId, 50);
+    insertTestRun($idleChild, [
+        'e3_batch_run_id' => $idleBatch,
+        'status' => 'queued',
+        'updated_at' => $now - 300,
+    ]);
+    insertTestQueue($idleChild, ['status' => 'queued', 'scheduled_at' => $now - 600]);
+    Capsule::table('ms365_batch_claims')->where('batch_run_id', $idleBatch)->update([
+        'status' => 'running',
+        'worker_node_id' => $nodeA,
+        'running_tenant_key' => $tenantRecordId,
+        'claimed_at' => $now - 30,
+        'lease_expires_at' => $now + 600,
+        'last_heartbeat_at' => $now,
+        'attempts' => 1,
+        'max_attempts' => 5,
+    ]);
+    $freshIdle = Ms365BatchClaimRepository::reconcileIdleOwnedQueuedBatches();
+    assert_true($freshIdle === 0, 'idle owned hand-off waits for grace period');
+    $freshIdleStatus = (string) Capsule::table('ms365_batch_claims')->where('batch_run_id', $idleBatch)->value('status');
+    assert_true($freshIdleStatus === 'running', 'fresh idle claim stays running inside grace');
+    Capsule::table('ms365_batch_claims')->where('batch_run_id', $idleBatch)->update([
+        'claimed_at' => $now - 300,
+    ]);
+    $idleHanded = Ms365BatchClaimRepository::reconcileIdleOwnedQueuedBatches();
+    assert_true($idleHanded >= 1, 'idle owned batch with only queued children hands off after grace');
+    $idleStatus = (string) Capsule::table('ms365_batch_claims')->where('batch_run_id', $idleBatch)->value('status');
+    assert_true($idleStatus === 'queued', 'idle owned claim returns to queued for another worker');
+
+    // Exhausted attempts: resumeOwnedRunningBatch must fail the claim instead of looping.
+    $exBatch = test_uuid('exhausted-resume-batch');
+    $exChild = test_uuid('exhausted-resume-child');
+    $batchRunIds[] = $exBatch;
+    $runIds[] = $exChild;
+    Ms365BatchClaimRepository::enqueueBatch($exBatch, $tenantRecordId, 50);
+    insertTestRun($exChild, ['e3_batch_run_id' => $exBatch, 'status' => 'queued']);
+    insertTestQueue($exChild, ['status' => 'queued', 'scheduled_at' => $now]);
+    Capsule::table('ms365_batch_claims')->where('batch_run_id', $exBatch)->update([
+        'status' => 'running',
+        'worker_node_id' => $nodeA,
+        'running_tenant_key' => $tenantRecordId,
+        'claimed_at' => $now - 60,
+        'lease_expires_at' => $now + 600,
+        'last_heartbeat_at' => $now,
+        'attempts' => 5,
+        'max_attempts' => 5,
+    ]);
+    $resumed = WorkerClaimService::resumeOwnedRunningBatch($nodeA);
+    assert_true($resumed === null, 'exhausted batch resume returns null');
+    $exStatus = (string) Capsule::table('ms365_batch_claims')->where('batch_run_id', $exBatch)->value('status');
+    assert_true($exStatus === 'failed', 'exhausted resume terminal-fails the batch claim');
+    $exChildStatus = (string) Capsule::table('ms365_backup_runs')->where('id', $exChild)->value('status');
+    assert_true(in_array($exChildStatus, ['error', 'failed'], true), 'exhausted resume fails pending children');
 
     Capsule::table('ms365_batch_claims')->where('batch_run_id', $batch1)->delete();
     Ms365BatchClaimRepository::enqueueBatch($batch1, $tenantRecordId, 50);

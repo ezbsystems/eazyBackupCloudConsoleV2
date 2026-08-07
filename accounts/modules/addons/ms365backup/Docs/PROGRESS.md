@@ -3,13 +3,22 @@
 **Purpose:** Single handoff document so the next agent knows where work stopped. Update this file at the **end of every session** (or after each meaningful milestone).
 
 **Last updated:** 2026-08-06
-**Module version (ms365backup):** 1.52.52
+**Module version (ms365backup):** 1.52.53
 **Cloudstorage (e3) version:** 2.2.4  
-**Worker version (ms365-backup-worker):** 0.4.35 (Kopia v0.23.1)
+**Worker version (ms365-backup-worker):** 0.4.36 (Kopia v0.23.1)
 
 ---
 
 ## Session log
+
+### 2026-08-06 — Waiting-for-worker: RunLog race + exhausted resume wedge
+
+- **Case:** Prod batch `31cc854d-…` (NGI / tenant 31) queued ~12m while fleet looked busy; idle-looking **9022** (PID **2026** after crash) could not claim it.
+- **Evidence:** Worker 9022 journal `fatal error: concurrent map writes` in `Client.RunLog` during parallel batch child start; then stuck owning `a4fb01f8-…` at attempts **5/5** with `load=0` while pagination safety-cap failures auto-retried (`isNonRetryable=no`) and `resumeOwnedRunningBatch` looped under fresh heartbeats (reaper never fired).
+- **Fix (PHP 1.52.53):** Mark `pagination safety cap` non-retryable; refuse/fail exhausted resumes; hand off idle-owned claims (0 running, queued children, claim age ≥180s); keep debug ingest logs for session `9e9596`.
+- **Fix (worker 0.4.36):** Initialize `runLogMu`/`runLogState` in `NewClient`; never lazy-replace under race.
+- **Verify:** `ms365_non_retryable_error_test.php`, `ms365_batch_claim_test.php`, `go test ./internal/api ./internal/jobs` PASS.
+- **Ops:** Deploy PHP via `deploy-production.sh`; publish/roll worker **0.4.36**; exhausted `a4fb01f8` frees 9022 on next claim/resume.
 
 ### 2026-08-06 — Archive restore: UPN person folder names
 

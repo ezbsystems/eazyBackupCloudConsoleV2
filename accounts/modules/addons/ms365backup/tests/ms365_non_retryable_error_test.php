@@ -124,6 +124,12 @@ assert_true(
     'SharePoint duplicate-only pagination loop is non-retryable (stops batch thrash)'
 );
 
+$paginationSafetyCap = 'onedrive: Graph pagination safety cap reached (500 pages); see https://github.com/microsoftgraph/msgraph-sdk-dotnet/issues/3070';
+assert_true(
+    JobQueueRepository::isNonRetryableError($paginationSafetyCap),
+    'Graph pagination safety cap is non-retryable (stops resumeOwned thrash)'
+);
+
 assert_true(
     JobQueueRepository::isNonRetryableError($directoryPagination),
     'directory pagination loop is non-retryable'

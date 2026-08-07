@@ -34,6 +34,10 @@ func NewClient(baseURL, token, nodeID string) *Client {
 		httpClient: &http.Client{
 			Timeout: 120 * time.Second,
 		},
+		// Initialize under construction — lazy init in RunLog raced across parallel
+		// batch children (fatal error: concurrent map writes on prod worker 9022).
+		runLogMu:    &sync.Mutex{},
+		runLogState: make(map[string]*runLogState),
 	}
 }
 

@@ -78,7 +78,11 @@ final class JobQueueRepository
         if (str_contains($message, 'graph pagination loop')
             || str_contains($message, 'page contained only previously seen items')
             || str_contains($message, 'identical @odata.nextlink')
-            || str_contains($message, 'consecutive empty page')) {
+            || str_contains($message, 'consecutive empty page')
+            // Hard page-count cap (GraphClient) — retrying the same drive/shards
+            // forever wedges the owning worker (resumeOwnedRunningBatch loop) so
+            // idle capacity cannot pick up other tenant batches.
+            || str_contains($message, 'pagination safety cap')) {
             return true;
         }
 
