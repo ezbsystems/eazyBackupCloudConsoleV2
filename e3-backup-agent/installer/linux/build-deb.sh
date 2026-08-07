@@ -55,10 +55,38 @@ Description: Enrollment token required
   sudo TOKEN=YOUR_TOKEN dpkg -i e3-backup-agent-linux.deb
 TEMPLATES
 
-# Fail the package build if templates are invalid (debconf-utils optional).
+# Validate templates without touching the system debconf DB (Agent Builds run as www-data).
 if command -v debconf-loadtemplate >/dev/null 2>&1; then
-  debconf-loadtemplate e3-backup-agent "$STAGING/DEBIAN/templates" \
-    || die "Invalid DEBIAN/templates (debconf-loadtemplate failed)"
+  _debconf_tmpdir="$(mktemp -d)"
+  _debconf_rc="${_debconf_tmpdir}/debconf.conf"
+  cat > "$_debconf_rc" <<EOF
+Config: configdb
+Templates: templatedb
+
+Name: configdb
+Driver: File
+Mode: 644
+Filename: ${_debconf_tmpdir}/config.dat
+
+Name: templatedb
+Driver: File
+Mode: 644
+Filename: ${_debconf_tmpdir}/templates.dat
+EOF
+  # #region agent log
+  printf '{"sessionId":"bcd995","hypothesisId":"D","location":"build-deb.sh","message":"validating templates with private debconf db","data":{"tmpdir":"%s","user":"%s"},"timestamp":%s}\n' \
+    "$_debconf_tmpdir" "$(id -un 2>/dev/null || echo unknown)" "$(date +%s000)" \
+    >> /var/www/eazybackup.ca/.cursor/debug-bcd995.log 2>/dev/null || true
+  # #endregion
+  if ! DEBCONF_SYSTEMRC="$_debconf_rc" debconf-loadtemplate e3-backup-agent "$STAGING/DEBIAN/templates"; then
+    rm -rf "$_debconf_tmpdir"
+    die "Invalid DEBIAN/templates (debconf-loadtemplate failed)"
+  fi
+  # #region agent log
+  printf '{"sessionId":"bcd995","hypothesisId":"D","location":"build-deb.sh","message":"templates validation ok","data":{"ok":true},"timestamp":%s}\n' \
+    "$(date +%s000)" >> /var/www/eazybackup.ca/.cursor/debug-bcd995.log 2>/dev/null || true
+  # #endregion
+  rm -rf "$_debconf_tmpdir"
 fi
 
 cat > "$STAGING/DEBIAN/config" <<'CONFIG'
