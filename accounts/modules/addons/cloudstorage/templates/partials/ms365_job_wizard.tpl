@@ -301,6 +301,16 @@
                                                @change="toggleSelectAllInventory(); $el.indeterminate = inventoryGlobalCheckState() === 'indeterminate'; $el.checked = inventoryGlobalCheckState() === 'checked'">
                                         <span class="text-sm font-medium text-[var(--eb-text-primary)] select-none">Select all resources</span>
                                     </label>
+                                    <div x-show="hasSharePointListsSelected()"
+                                         class="eb-alert eb-alert--warning mt-2"
+                                         x-cloak>
+                                        <div class="eb-alert-title">SharePoint Lists included</div>
+                                        <p class="eb-type-caption mb-0">
+                                            Including SharePoint Lists significantly reduces backup performance.
+                                            Backups may take over 24 hours to complete.
+                                            You should expect only one backup every 2–3 days.
+                                        </p>
+                                    </div>
                                 </div>
                                 <div class="flex-1 overflow-x-hidden overflow-y-auto p-2"
                                      x-ref="inventoryScroller"

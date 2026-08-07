@@ -421,6 +421,10 @@
         else delete selection[key];
     }
 
+    function isSharePointListsCapability(node) {
+        return node.kind === 'capability' && node.scopeKey === 'lists';
+    }
+
     function selectableChildren(sectionNodes, parentKey, indexes) {
         return getDescendants(sectionNodes, parentKey, indexes).filter((c) => c.selectable !== false);
     }
@@ -432,9 +436,21 @@
         const children = selectableChildren(sectionNodes, parentNode.key, indexes);
         const allChecked = children.every((c) => isChecked(selection, c.key)) && children.length > 0;
         const next = !allChecked;
-        if (next) setChecked(selection, parentNode.key, true);
-        else delete selection[parentNode.key];
-        children.forEach((c) => setChecked(selection, c.key, next));
+        if (next) {
+            setChecked(selection, parentNode.key, true);
+            if (parentNode.sectionKey === 'sharepoint') {
+                children.forEach((c) => {
+                    if (!isSharePointListsCapability(c)) {
+                        setChecked(selection, c.key, true);
+                    }
+                });
+            } else {
+                children.forEach((c) => setChecked(selection, c.key, true));
+            }
+        } else {
+            delete selection[parentNode.key];
+            children.forEach((c) => setChecked(selection, c.key, false));
+        }
     }
 
     function toggleNode(sectionNodes, selection, node, indexes) {
@@ -485,7 +501,7 @@
             return { onedrive: true, files: true };
         }
         if (type === TYPE_SITE) {
-            return { files: true, lists: true };
+            return { files: true, lists: false };
         }
         if (type === TYPE_TEAM) {
             return { teams_metadata: true, teams_messages: true, files: true };
@@ -599,6 +615,19 @@
                     if (parentId) {
                         selection[nodeKey('cap', parentId, 'onedrive')] = true;
                     }
+                } else if (type === TYPE_SITE) {
+                    SECTIONS.forEach((section) => {
+                        if (section.key !== 'sharepoint') {
+                            return;
+                        }
+                        const nodes = trees[section.key] || [];
+                        const filesCap = nodes.find(
+                            (n) => n.kind === 'capability' && n.resourceId === id && n.scopeKey === 'files',
+                        );
+                        if (filesCap) {
+                            selection[filesCap.key] = true;
+                        }
+                    });
                 } else {
                     SECTIONS.forEach((section) => {
                         const nodes = trees[section.key] || [];
@@ -863,7 +892,20 @@
                     const children = selectableChildren(nodes, node.key, indexes);
                     if (children.length > 0) {
                         setChecked(selection, node.key, true);
+                        if (section.key === 'sharepoint') {
+                            children.forEach((c) => {
+                                if (!isSharePointListsCapability(c)) {
+                                    setChecked(selection, c.key, true);
+                                }
+                            });
+                        } else {
+                            children.forEach((c) => setChecked(selection, c.key, true));
+                        }
                     }
+                    return;
+                }
+                if (isSharePointListsCapability(node)) {
+                    return;
                 }
                 if (node.kind === 'capability' || node.kind === 'resource_child' || node.kind === 'leaf') {
                     setChecked(selection, node.key, true);
@@ -871,6 +913,19 @@
             });
         });
         return selection;
+    }
+
+    function isAnyListsSelected(treesBySection, selection) {
+        let found = false;
+        SECTIONS.forEach((section) => {
+            const nodes = treesBySection[section.key] || [];
+            nodes.forEach((node) => {
+                if (isSharePointListsCapability(node) && isChecked(selection, node.key)) {
+                    found = true;
+                }
+            });
+        });
+        return found;
     }
 
     function globalCheckState(treesBySection, selection) {
@@ -999,6 +1054,7 @@
         globalCheckState,
         toggleGlobalSelect,
         selectAll,
+        isAnyListsSelected,
         buildSavePayload,
         hydrateFromSavedJob,
         selectionSummary,

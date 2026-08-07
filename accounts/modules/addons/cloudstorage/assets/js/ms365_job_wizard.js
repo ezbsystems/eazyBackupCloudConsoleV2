@@ -1554,6 +1554,16 @@
                     || this.workloadCount('onedrive') > 0;
             },
 
+            hasSharePointListsSelected() {
+                if (!window.ms365JobSelection) {
+                    return false;
+                }
+                return window.ms365JobSelection.isAnyListsSelected(
+                    inventoryStash.treesBySection,
+                    this.selection,
+                );
+            },
+
             rebuildTrees() {
                 rebuildInventoryStash(inventoryStash.inventory);
                 this.inventoryViewRevision += 1;

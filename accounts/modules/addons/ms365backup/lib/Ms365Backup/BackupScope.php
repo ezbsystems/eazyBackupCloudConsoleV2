@@ -46,7 +46,7 @@ final class BackupScope
             $scope->flags[self::FILES] = true;
         } elseif ($resourceType === TenantResource::TYPE_SHAREPOINT_SITE) {
             $scope->flags[self::FILES] = true;
-            $scope->flags[self::LISTS] = true;
+            $scope->flags[self::LISTS] = false;
         } elseif ($resourceType === TenantResource::TYPE_TEAM) {
             $scope->flags[self::TEAMS_METADATA] = true;
             $scope->flags[self::TEAMS_MESSAGES] = true;

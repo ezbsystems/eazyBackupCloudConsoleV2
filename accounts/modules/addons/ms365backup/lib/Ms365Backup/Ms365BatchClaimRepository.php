@@ -276,16 +276,46 @@ final class Ms365BatchClaimRepository
 
     private static function batchHasActiveChildren(string $batchRunId): bool
     {
+        return self::countPendingChildren($batchRunId) > 0;
+    }
+
+    /**
+     * Queued or running children still needing work (excludes terminal success/cancelled/error).
+     */
+    public static function countPendingChildren(string $batchRunId): int
+    {
         if ($batchRunId === '' || !Capsule::schema()->hasTable('ms365_backup_runs')) {
             // Without a children table we cannot prove the batch is finished;
             // err on the safe side and treat it as still active.
-            return true;
+            return 1;
         }
 
-        return Capsule::table('ms365_backup_runs')
+        return (int) Capsule::table('ms365_backup_runs')
             ->where('e3_batch_run_id', $batchRunId)
             ->whereIn('status', ['queued', 'running'])
-            ->exists();
+            ->count();
+    }
+
+    /**
+     * Reset attempt budget for a live owner that still has pending children
+     * (infra thrash burned attempts without real workload failure).
+     */
+    public static function resetAttempts(string $batchRunId, string $nodeId, int $attempts = 1): bool
+    {
+        if (!self::tableReady() || $batchRunId === '' || $nodeId === '') {
+            return false;
+        }
+        $now = time();
+
+        return Capsule::table('ms365_batch_claims')
+            ->where('batch_run_id', $batchRunId)
+            ->where('worker_node_id', $nodeId)
+            ->where('status', 'running')
+            ->update([
+                'attempts' => max(0, $attempts),
+                'error_message' => 'Attempt budget reset (pending children remain)',
+                'updated_at' => $now,
+            ]) > 0;
     }
 
     /**
@@ -540,11 +570,20 @@ final class Ms365BatchClaimRepository
         $now = time();
         // Long enough that a healthy owner would have promoted at least one child
         // past tryReserve; short enough that a crash-looping owner frees quickly.
+        // claimed_at age alone is insufficient: prior-snapshot MergePrior commonly
+        // takes >180s before the first graph_sync progress post, so children stay
+        // "queued" while the owner is healthy (prod: 31cc854d Cheryl/Karim cancelled
+        // via ghost reconcile after idle hand-off during ~200s prior merge).
         $cutoff = $now - 180;
+        $heartbeatCutoff = $now - Ms365EngineConfig::batchHeartbeatGapSeconds();
         $batchRunIds = Capsule::table('ms365_batch_claims as b')
             ->where('b.status', 'running')
             ->whereNotNull('b.claimed_at')
             ->where('b.claimed_at', '<', $cutoff)
+            ->where(static function ($query) use ($heartbeatCutoff): void {
+                $query->whereNull('b.last_heartbeat_at')
+                    ->orWhere('b.last_heartbeat_at', '<', $heartbeatCutoff);
+            })
             ->whereExists(static function ($query): void {
                 $query->select(Capsule::raw(1))
                     ->from('ms365_backup_runs as queued')
@@ -559,6 +598,15 @@ final class Ms365BatchClaimRepository
             })
             ->pluck('b.batch_run_id')
             ->all();
+
+        // #region agent log
+        if ($batchRunIds !== []) {
+            self::agentDebugLog('H2', 'Ms365BatchClaimRepository.php:reconcileIdleOwnedQueuedBatches', 'idle hand-off candidates', [
+                'count' => count($batchRunIds),
+                'batches' => array_map(static fn ($id) => substr((string) $id, 0, 8), array_slice($batchRunIds, 0, 8)),
+            ]);
+        }
+        // #endregion
 
         return self::handOffRunningBatchClaims($batchRunIds, 'Idle owned batch with queued children');
     }
@@ -888,7 +936,7 @@ final class Ms365BatchClaimRepository
         }
         $rows = Capsule::table('ms365_batch_claims')
             ->where('status', 'failed')
-            ->get(['batch_run_id', 'error_message', 'updated_at']);
+            ->get(['batch_run_id', 'error_message', 'updated_at', 'attempts', 'max_attempts']);
 
         $now = time();
         // Cool-down so a batch just terminal-failed in this reaper cycle is not
@@ -900,10 +948,25 @@ final class Ms365BatchClaimRepository
             if ($batchRunId === '') {
                 continue;
             }
-            if ((int) ($row->updated_at ?? 0) > $reviveAfter) {
+            $err = (string) ($row->error_message ?? '');
+            $ageOk = (int) ($row->updated_at ?? 0) <= $reviveAfter;
+            $transient = self::isTransientFailureReason($err);
+            $hasActive = self::batchHasActiveChildren($batchRunId);
+            // #region agent log
+            if (!$transient && $hasActive) {
+                self::agentDebugLog('H1', 'Ms365BatchClaimRepository.php:recoverStrandedFailedBatches', 'recover skip non-transient', [
+                    'batch' => substr($batchRunId, 0, 8),
+                    'age_ok' => $ageOk,
+                    'attempts' => (int) ($row->attempts ?? 0),
+                    'max_attempts' => (int) ($row->max_attempts ?? 0),
+                    'err_prefix' => substr($err, 0, 80),
+                ]);
+            }
+            // #endregion
+            if (!$ageOk) {
                 continue;
             }
-            if (!self::isTransientFailureReason((string) ($row->error_message ?? ''))) {
+            if (!$transient) {
                 continue;
             }
             // Revive claim and any children terminal-failed by the same infra reaper so
@@ -929,11 +992,36 @@ final class Ms365BatchClaimRepository
             if ($updated > 0) {
                 Ms365BatchRunRepository::reopenAfterTransientInfraFailure($batchRunId);
                 ++$recovered;
+                // #region agent log
+                self::agentDebugLog('H1', 'Ms365BatchClaimRepository.php:recoverStrandedFailedBatches', 'claim revived', [
+                    'batch' => substr($batchRunId, 0, 8),
+                    'recovered' => $recovered,
+                    'err_prefix' => substr($err, 0, 80),
+                ]);
+                // #endregion
             }
         }
 
         return $recovered;
     }
+
+    // #region agent log
+    /** @param array<string, mixed> $data */
+    private static function agentDebugLog(string $hypothesisId, string $location, string $message, array $data): void
+    {
+        $payload = [
+            'sessionId' => '2c7deb',
+            'runId' => 'pre-fix',
+            'hypothesisId' => $hypothesisId,
+            'location' => $location,
+            'message' => $message,
+            'data' => $data,
+            'timestamp' => (int) round(microtime(true) * 1000),
+        ];
+        $line = json_encode($payload, JSON_UNESCAPED_SLASHES) . "\n";
+        @file_put_contents('/var/www/eazybackup.ca/.cursor/debug-2c7deb.log', $line, FILE_APPEND | LOCK_EX);
+    }
+    // #endregion
 
     /**
      * Reset children that were terminal-failed for a transient infra reason so the
@@ -997,9 +1085,14 @@ final class Ms365BatchClaimRepository
             return false;
         }
 
+        // Heartbeat/lease/progress stale: worker restarted or stalled while owning the claim.
+        // "Attempts exhausted while resuming": resumeOwnedRunningBatch frees a wedged owner
+        // after max_attempts; pending children must still be reclaimable (prod: 31cc854d /
+        // Cheryl+Karim stranded queued under a failed claim that recover previously skipped).
         return strpos($m, 'heartbeat stale') !== false
             || strpos($m, 'lease expired') !== false
-            || strpos($m, 'progress stale') !== false;
+            || strpos($m, 'progress stale') !== false
+            || strpos($m, 'attempts exhausted while resuming') !== false;
     }
 
     public static function hasLiveLease(string $batchRunId, ?string $nodeId = null): bool
@@ -1153,9 +1246,27 @@ final class Ms365BatchClaimRepository
             && (str_contains($priorError, 'drain')
                 || str_contains($priorError, 'disk hard')
                 || str_contains($priorError, 'disk pressure'));
-        $attemptsExpr = $infraHandOff
-            ? 'attempts'
-            : 'attempts + 1';
+        $priorAttempts = (int) ($prior->attempts ?? 0);
+        $maxAttempts = Ms365EngineConfig::batchMaxAttempts();
+        // Exhausted claims that were revived/requeued must not keep climbing past
+        // max_attempts on the next claim (prod: f4bee1e7 at 9–10/5 then immediate resume fail).
+        if ($priorAttempts >= $maxAttempts) {
+            $attemptsExpr = '1';
+        } else {
+            $attemptsExpr = $infraHandOff
+                ? 'attempts'
+                : 'attempts + 1';
+        }
+        // #region agent log
+        if ($priorAttempts >= $maxAttempts || str_contains($priorError, 'attempts exhausted')) {
+            self::agentDebugLog('H4', 'Ms365BatchClaimRepository.php:tryClaimBatch', 'claiming high-attempt batch', [
+                'batch' => substr($batchRunId, 0, 8),
+                'prior_attempts' => $priorAttempts,
+                'attempts_expr' => $attemptsExpr,
+                'err_prefix' => substr($priorError, 0, 60),
+            ]);
+        }
+        // #endregion
         $updated = Capsule::table('ms365_batch_claims')
             ->where('batch_run_id', $batchRunId)
             ->where('status', 'queued')

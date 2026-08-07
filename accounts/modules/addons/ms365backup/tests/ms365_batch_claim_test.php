@@ -346,6 +346,33 @@ try {
         ->value('status');
     assert_true($handoffAfterActiveStatus === 'queued', 'idle batch claim hands off for retry payload refresh');
 
+    // Live-heartbeating owner during prior-snapshot (children still queued) must NOT be handed off.
+    $priorMergeBatch = test_uuid('prior-merge-batch');
+    $priorMergeChild = test_uuid('prior-merge-child');
+    $batchRunIds[] = $priorMergeBatch;
+    $runIds[] = $priorMergeChild;
+    Ms365BatchClaimRepository::enqueueBatch($priorMergeBatch, $tenantRecordId, 50);
+    insertTestRun($priorMergeChild, [
+        'e3_batch_run_id' => $priorMergeBatch,
+        'status' => 'queued',
+    ]);
+    insertTestQueue($priorMergeChild, ['status' => 'queued']);
+    Capsule::table('ms365_batch_claims')->where('batch_run_id', $priorMergeBatch)->update([
+        'status' => 'running',
+        'worker_node_id' => $nodeA,
+        'running_tenant_key' => $tenantRecordId,
+        'claimed_at' => $now - 240,
+        'last_heartbeat_at' => $now - 30,
+        'last_progress_at' => $now - 240,
+        'lease_expires_at' => $now + 600,
+        'updated_at' => $now,
+    ]);
+    $priorHanded = Ms365BatchClaimRepository::reconcileIdleOwnedQueuedBatches();
+    $priorClaimStatus = (string) Capsule::table('ms365_batch_claims')->where('batch_run_id', $priorMergeBatch)->value('status');
+    assert_true($priorHanded === 0, 'live heartbeat owner during prior-merge is not idle-handed-off');
+    assert_true($priorClaimStatus === 'running', 'prior-merge claim stays running under fresh heartbeat');
+    Capsule::table('ms365_batch_claims')->where('batch_run_id', $priorMergeBatch)->delete();
+
     // Claim-time semaphore waiters (scheduled_at <= claimed_at) must not thrash the claim.
     $semBatch = test_uuid('sem-wait-batch');
     $semQueued = test_uuid('sem-wait-child');
@@ -409,13 +436,22 @@ try {
     assert_true($freshIdleStatus === 'running', 'fresh idle claim stays running inside grace');
     Capsule::table('ms365_batch_claims')->where('batch_run_id', $idleBatch)->update([
         'claimed_at' => $now - 300,
+        // Fresh heartbeat: owner is alive (e.g. prior-snapshot merge) — do not hand off.
+        'last_heartbeat_at' => $now - 30,
+    ]);
+    $aliveIdle = Ms365BatchClaimRepository::reconcileIdleOwnedQueuedBatches();
+    assert_true($aliveIdle === 0, 'idle-looking claim with fresh heartbeat is not handed off');
+    Capsule::table('ms365_batch_claims')->where('batch_run_id', $idleBatch)->update([
+        // Stale heartbeat: owner is truly wedged — hand off.
+        'last_heartbeat_at' => $now - Ms365EngineConfig::batchHeartbeatGapSeconds() - 10,
     ]);
     $idleHanded = Ms365BatchClaimRepository::reconcileIdleOwnedQueuedBatches();
     assert_true($idleHanded >= 1, 'idle owned batch with only queued children hands off after grace');
     $idleStatus = (string) Capsule::table('ms365_batch_claims')->where('batch_run_id', $idleBatch)->value('status');
     assert_true($idleStatus === 'queued', 'idle owned claim returns to queued for another worker');
 
-    // Exhausted attempts: resumeOwnedRunningBatch must fail the claim instead of looping.
+    // Exhausted attempts with pending children: reset budget and continue (do not
+    // mid-run fail — that caused ghost reconcile cancels on prod f4bee1e7).
     $exBatch = test_uuid('exhausted-resume-batch');
     $exChild = test_uuid('exhausted-resume-child');
     $batchRunIds[] = $exBatch;
@@ -433,12 +469,43 @@ try {
         'attempts' => 5,
         'max_attempts' => 5,
     ]);
-    $resumed = WorkerClaimService::resumeOwnedRunningBatch($nodeA);
-    assert_true($resumed === null, 'exhausted batch resume returns null');
+    // buildBatchPayload needs tenant context; stub may return null payload — assert claim state.
+    WorkerClaimService::resumeOwnedRunningBatch($nodeA);
     $exStatus = (string) Capsule::table('ms365_batch_claims')->where('batch_run_id', $exBatch)->value('status');
-    assert_true($exStatus === 'failed', 'exhausted resume terminal-fails the batch claim');
+    $exAttempts = (int) Capsule::table('ms365_batch_claims')->where('batch_run_id', $exBatch)->value('attempts');
+    assert_true($exStatus === 'running', 'exhausted resume with pending children keeps claim running');
+    assert_true($exAttempts === 1, 'exhausted resume with pending children resets attempt budget');
     $exChildStatus = (string) Capsule::table('ms365_backup_runs')->where('id', $exChild)->value('status');
-    assert_true(in_array($exChildStatus, ['error', 'failed'], true), 'exhausted resume fails pending children');
+    assert_true($exChildStatus === 'queued', 'exhausted resume with pending children does not fail children');
+    // Free nodeA before the no-pending exhausted case (getRunningForNode returns one row).
+    Capsule::table('ms365_batch_claims')->where('batch_run_id', $exBatch)->update([
+        'status' => 'done',
+        'worker_node_id' => null,
+        'running_tenant_key' => null,
+    ]);
+
+    // Exhausted attempts with no pending children: terminal-fail to free the worker.
+    $exDoneBatch = test_uuid('exhausted-done-batch');
+    $exDoneChild = test_uuid('exhausted-done-child');
+    $batchRunIds[] = $exDoneBatch;
+    $runIds[] = $exDoneChild;
+    Ms365BatchClaimRepository::enqueueBatch($exDoneBatch, $tenantRecordId, 50);
+    insertTestRun($exDoneChild, ['e3_batch_run_id' => $exDoneBatch, 'status' => 'success']);
+    insertTestQueue($exDoneChild, ['status' => 'done', 'scheduled_at' => $now]);
+    Capsule::table('ms365_batch_claims')->where('batch_run_id', $exDoneBatch)->update([
+        'status' => 'running',
+        'worker_node_id' => $nodeA,
+        'running_tenant_key' => $tenantRecordId,
+        'claimed_at' => $now - 60,
+        'lease_expires_at' => $now + 600,
+        'last_heartbeat_at' => $now,
+        'attempts' => 5,
+        'max_attempts' => 5,
+    ]);
+    $resumedDone = WorkerClaimService::resumeOwnedRunningBatch($nodeA);
+    assert_true($resumedDone === null, 'exhausted resume with no pending children returns null');
+    $exDoneStatus = (string) Capsule::table('ms365_batch_claims')->where('batch_run_id', $exDoneBatch)->value('status');
+    assert_true($exDoneStatus === 'failed', 'exhausted resume with no pending children terminal-fails');
 
     Capsule::table('ms365_batch_claims')->where('batch_run_id', $batch1)->delete();
     Ms365BatchClaimRepository::enqueueBatch($batch1, $tenantRecordId, 50);
@@ -784,6 +851,36 @@ try {
 } finally {
     Capsule::table('s3_cloudbackup_runs')->whereRaw('run_id = UUID_TO_BIN(?)', [strtolower($reopenBatch)])->delete();
     cleanupBatchTestRows([$reopenBatch], [$reopenChild]);
+}
+
+// Exhausted-resume claims with pending children must be revived (not permanently stranded).
+$exhaustedBatch = test_uuid('exhausted-resume-batch');
+$exhaustedChild = test_uuid('exhausted-resume-child');
+try {
+    Ms365BatchClaimRepository::enqueueBatch($exhaustedBatch, $tenantRecordId, 40);
+    insertTestRun($exhaustedChild, [
+        'e3_batch_run_id' => $exhaustedBatch,
+        'status' => 'queued',
+    ]);
+    insertTestQueue($exhaustedChild, ['status' => 'queued']);
+    Capsule::table('ms365_batch_claims')->where('batch_run_id', $exhaustedBatch)->update([
+        'status' => 'failed',
+        'worker_node_id' => null,
+        'running_tenant_key' => null,
+        'claimed_at' => null,
+        'lease_expires_at' => null,
+        'attempts' => 16,
+        'max_attempts' => 5,
+        'error_message' => 'Batch attempts exhausted while resuming; freeing worker for other claims',
+        'updated_at' => $now - 600,
+    ]);
+    $recoveredExhausted = Ms365BatchClaimRepository::recoverStrandedFailedBatches();
+    assert_true($recoveredExhausted >= 1, 'recoverStrandedFailedBatches revives exhausted-resume claims with pending children');
+    $claimAfter = Capsule::table('ms365_batch_claims')->where('batch_run_id', $exhaustedBatch)->first();
+    assert_true(($claimAfter->status ?? '') === 'queued', 'exhausted-resume claim requeued');
+    assert_true((int) ($claimAfter->attempts ?? -1) === 0, 'exhausted-resume claim attempts reset');
+} finally {
+    cleanupBatchTestRows([$exhaustedBatch], [$exhaustedChild]);
 }
 
 // Drain hand-off reclaim must not burn attempt budget (disk hard-pressure cycles).

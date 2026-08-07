@@ -565,7 +565,7 @@ final class CometSelectionMapper
         $override = BackupScope::emptyCapabilityTemplate(TenantResource::TYPE_SHAREPOINT_SITE)->toArray();
         if ($flags['sharepoint']) {
             $override[BackupScope::FILES] = true;
-            $override[BackupScope::LISTS] = true;
+            $override[BackupScope::LISTS] = false;
         } elseif ($flags['onedrive']) {
             $override[BackupScope::FILES] = true;
             $override[BackupScope::LISTS] = false;

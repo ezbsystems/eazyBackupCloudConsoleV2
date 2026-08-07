@@ -88,7 +88,7 @@ final class WorkerClaimService
     }
 
     /**
-     * When the worker reports in-memory load but owns no queue claims, treat the node as idle
+     * When the worker reports in-memory load but owns no queue/batch claims, treat the node as idle
      * for fleet gates (deploy, orphan release, claim capacity) until the worker reconciles.
      */
     public static function effectiveReportedLoad(string $nodeId, int $reportedLoad): int
@@ -97,8 +97,13 @@ final class WorkerClaimService
             return 0;
         }
         $queueLoad = self::runningClaimCountForNode($nodeId);
+        $batchLoad = 0;
+        if (Ms365BatchClaimRepository::tableReady()) {
+            $batchLoad = count(Ms365BatchClaimRepository::activeBatchRunIdsForNode($nodeId));
+        }
+        $ownedLoad = $queueLoad + $batchLoad;
 
-        return $queueLoad === 0 ? 0 : max($reportedLoad, $queueLoad);
+        return $ownedLoad === 0 ? 0 : max($reportedLoad, $ownedLoad);
     }
 
     /** @return int Nodes whose stored load was corrected to match queue truth */
@@ -315,14 +320,44 @@ final class WorkerClaimService
         // resumeOwnedRunningBatch-looping the same exhausted claim forever while
         // heartbeats refresh the lease — blocking that node from claiming other
         // queued tenant batches (prod: 9022 stuck on a4fb01f8 at 5/5).
+        //
+        // When pending children remain, attempts were usually burned by infra thrash
+        // (false idle hand-off during prior_snapshot, deploy restarts). Failing the
+        // claim mid-run causes ghost reconcile + cancels (prod: f4bee1e7). Reset the
+        // budget and continue; only terminal-fail when nothing is left to run.
         if ($attempts >= $maxAttempts) {
-            Ms365BatchClaimRepository::fail(
-                $batchRunId,
-                $nodeId,
-                'Batch attempts exhausted while resuming; freeing worker for other claims'
-            );
+            $pendingKids = Ms365BatchClaimRepository::countPendingChildren($batchRunId);
+            // #region agent log
+            $payload = [
+                'sessionId' => '2c7deb',
+                'runId' => 'pre-fix',
+                'hypothesisId' => 'H4',
+                'location' => 'WorkerClaimService.php:resumeOwnedRunningBatch',
+                'message' => 'exhausted claim on resume',
+                'data' => [
+                    'batch' => substr($batchRunId, 0, 8),
+                    'node' => substr($nodeId, 0, 8),
+                    'attempts' => $attempts,
+                    'max_attempts' => $maxAttempts,
+                    'pending_children' => $pendingKids,
+                    'action' => $pendingKids > 0 ? 'reset_continue' : 'fail',
+                ],
+                'timestamp' => (int) round(microtime(true) * 1000),
+            ];
+            $line = json_encode($payload, JSON_UNESCAPED_SLASHES) . "\n";
+            @file_put_contents('/var/www/eazybackup.ca/.cursor/debug-2c7deb.log', $line, FILE_APPEND | LOCK_EX);
+            // #endregion
+            if ($pendingKids > 0) {
+                Ms365BatchClaimRepository::resetAttempts($batchRunId, $nodeId, 1);
+            } else {
+                Ms365BatchClaimRepository::fail(
+                    $batchRunId,
+                    $nodeId,
+                    'Batch attempts exhausted while resuming; freeing worker for other claims'
+                );
 
-            return null;
+                return null;
+            }
         }
         Ms365BatchClaimRepository::renew($batchRunId, $nodeId);
 
@@ -374,6 +409,9 @@ final class WorkerClaimService
             }
             // A new batch owner (or resume) may start requeued children. Clear the
             // soft-abort / hand-off suppress markers so hub progress can promote them.
+            // Also clear exhausted-resume stamps: shouldPromoteFromBatchProgress refuses
+            // any non-empty queue error, which left children DB-queued during prior_snapshot
+            // and triggered idle hand-off / ghost cancel (prod: f4bee1e7).
             if ($status === 'queued') {
                 Capsule::table('ms365_job_queue')
                     ->where('run_id', $runId)
@@ -381,7 +419,12 @@ final class WorkerClaimService
                     ->where(function ($q): void {
                         $q->where('error_message', 'like', '%Child progress stale%')
                             ->orWhere('error_message', 'like', '%Soft-abort hand-off%')
-                            ->orWhere('error_message', 'like', '%Worker drain hand-off%');
+                            ->orWhere('error_message', 'like', '%Worker drain hand-off%')
+                            ->orWhere('error_message', 'like', '%attempts exhausted while resuming%')
+                            ->orWhere('error_message', 'like', '%Stranded queued batch children%')
+                            ->orWhere('error_message', 'like', '%Idle owned batch%')
+                            ->orWhere('error_message', 'like', '%Re-queued after transient%')
+                            ->orWhere('error_message', 'like', '%Re-queued after batch auto-retry%');
                     })
                     ->update(['error_message' => '']);
             }
@@ -1352,7 +1395,7 @@ final class WorkerClaimService
         } elseif (str_starts_with($physical, 'site:')) {
             $only = [];
             $filesEnabled = !array_key_exists('files', $scope) || (bool) $scope['files'];
-            $listsEnabled = !array_key_exists('lists', $scope) || (bool) $scope['lists'];
+            $listsEnabled = array_key_exists('lists', $scope) && (bool) $scope['lists'];
             if ($filesEnabled) {
                 $only[] = 'sharepoint';
             }

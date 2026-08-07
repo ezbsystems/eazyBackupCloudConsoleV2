@@ -78,8 +78,62 @@ final class Ms365BatchRetryService
             self::requeueChildForBatchRetry($runId, $message);
         }
         Ms365BatchRunRepository::markBatchRetryInProgress($batchRunId, $newRound, count($toRequeue));
+        self::ensureBatchClaimClaimableAfterRetry($batchRunId);
+
+        // #region agent log
+        $claim = Capsule::schema()->hasTable('ms365_batch_claims')
+            ? Capsule::table('ms365_batch_claims')->where('batch_run_id', $batchRunId)->first(['status', 'attempts', 'max_attempts', 'error_message'])
+            : null;
+        $payload = [
+            'sessionId' => '2c7deb',
+            'runId' => 'pre-fix',
+            'hypothesisId' => 'H1',
+            'location' => 'Ms365BatchRetryService.php:maybeRequeueFailedShards',
+            'message' => 'auto-retry requeued children; claim state after',
+            'data' => [
+                'batch' => substr($batchRunId, 0, 8),
+                'round' => $newRound,
+                'requeued' => count($toRequeue),
+                'claim_status' => $claim->status ?? null,
+                'claim_attempts' => isset($claim->attempts) ? (int) $claim->attempts : null,
+                'claim_err_prefix' => isset($claim->error_message) ? substr((string) $claim->error_message, 0, 80) : null,
+            ],
+            'timestamp' => (int) round(microtime(true) * 1000),
+        ];
+        $line = json_encode($payload, JSON_UNESCAPED_SLASHES) . "\n";
+        @file_put_contents('/var/www/eazybackup.ca/.cursor/debug-2c7deb.log', $line, FILE_APPEND | LOCK_EX);
+        // #endregion
 
         return count($toRequeue);
+    }
+
+    /**
+     * Auto-retry leaves children queued under a failed/exhausted claim when
+     * resumeOwnedRunningBatch terminal-failed the claim first. Reset the claim so
+     * the fleet can pick the work up again.
+     */
+    private static function ensureBatchClaimClaimableAfterRetry(string $batchRunId): void
+    {
+        if ($batchRunId === '' || !Capsule::schema()->hasTable('ms365_batch_claims')) {
+            return;
+        }
+        $now = time();
+        $updated = Capsule::table('ms365_batch_claims')
+            ->where('batch_run_id', $batchRunId)
+            ->where('status', 'failed')
+            ->update([
+                'status' => 'queued',
+                'worker_node_id' => null,
+                'running_tenant_key' => null,
+                'claimed_at' => null,
+                'lease_expires_at' => null,
+                'attempts' => 0,
+                'error_message' => 'Re-queued after batch auto-retry (pending children remain)',
+                'updated_at' => $now,
+            ]);
+        if ($updated > 0) {
+            Ms365BatchRunRepository::reopenAfterTransientInfraFailure($batchRunId);
+        }
     }
 
     /**

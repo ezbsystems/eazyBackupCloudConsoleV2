@@ -3,13 +3,27 @@
 **Purpose:** Single handoff document so the next agent knows where work stopped. Update this file at the **end of every session** (or after each meaningful milestone).
 
 **Last updated:** 2026-08-07
-**Module version (ms365backup):** 1.52.55
+**Module version (ms365backup):** 1.52.58
 **Cloudstorage (e3) version:** 2.2.4  
 **Worker version (ms365-backup-worker):** 0.4.38 (Kopia v0.23.1)
 
 ---
 
 ## Session log
+
+### 2026-08-07 — Batch stall: exhausted-resume + idle hand-off thrash (PHP 1.52.58)
+
+- **Prod cases:** `c6cdb17c-…` stranded failed (1 queued child); `f4bee1e7-…` thrash at attempts 9–10/5 with UI “Batch attempts exhausted while resuming”; `5964c88e-…` slow upload (Dara Frere) — items completing, not same stall class.
+- **Root cause:** (1) Prod lacked treating exhausted-resume as transient → permanent strand. (2) Idle-owned hand-off used claim age only (no heartbeat gate) → healthy prior_snapshot owners released → ghost reconcile cancels. (3) Exhausted queue errors blocked `shouldPromoteFromBatchProgress` → children stayed DB-queued → triggered idle hand-off. (4) Resume failed mid-run when attempts≥max even with pending children.
+- **Fix:** Idle hand-off requires stale heartbeat; exhausted-resume is transient for recover; clear infra queue errors on payload build; resume resets attempt budget when pending children remain; claim resets attempts when prior≥max; auto-retry reopens failed claims.
+- **Verify:** `ms365_batch_claim_test.php` PASS; deploy + remediate live claims; monitor debug session `2c7deb`.
+
+### 2026-08-07 — SharePoint Lists opt-in default + fleet migration (PHP 1.52.57)
+
+- **Product:** SharePoint site backup defaults to **Files only**; **Lists** is explicit opt-in in the job wizard with performance warning (24h+ backups; expect 1 backup every 2–3 days).
+- **Server:** `BackupScope`, `CustomerSelectionCodec`, `WorkerClaimService`, Comet import — missing `lists` ⇒ off; `selectAllFromInventory` sets `lists:false`.
+- **Migration:** `bin/ms365_disable_sharepoint_lists.php` (`--dry-run` / `--apply`) rewrites all MS365 jobs `lists:false` and cancels queued/running `list:` / lists-only `site:` runs.
+- **Tests:** `ms365_sharepoint_lists_default_test.php`; Comet mapper expectation updated.
 
 ### 2026-08-07 — Dual-mode upload parallelism for tiny overlay objects (worker 0.4.38, PHP 1.52.55)
 

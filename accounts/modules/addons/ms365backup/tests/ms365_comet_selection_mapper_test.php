@@ -84,8 +84,8 @@ assert_true(
 
 $siteScope = $result['scope_overrides']['site:' . $siteGraph] ?? [];
 assert_true(
-    ($siteScope[BackupScope::FILES] ?? false) && ($siteScope[BackupScope::LISTS] ?? false),
-    'site files+lists'
+    ($siteScope[BackupScope::FILES] ?? false) && !($siteScope[BackupScope::LISTS] ?? true),
+    'site files only (lists opt-in off by default)'
 );
 
 assert_true($result['report']['unmatched_backup_option_keys'] === [], 'no unmatched');

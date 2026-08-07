@@ -140,6 +140,9 @@ final class CustomerSelectionCodec
             foreach (array_keys($flags) as $key) {
                 $flags[$key] = true;
             }
+            if ($resourceType === TenantResource::TYPE_SHAREPOINT_SITE) {
+                $flags[BackupScope::LISTS] = false;
+            }
             $scopeOverrides[$id] = $flags;
         };
 
@@ -348,10 +351,10 @@ final class CustomerSelectionCodec
             $flags = $scopeOverrides[$id] ?? [];
             $filesSelected = array_key_exists(BackupScope::FILES, $flags)
                 ? (bool) $flags[BackupScope::FILES]
-                : $flags === [];
+                : true;
             $listsSelected = array_key_exists(BackupScope::LISTS, $flags)
                 ? (bool) $flags[BackupScope::LISTS]
-                : $flags === [];
+                : false;
 
             $filesAccessible = (bool) ($selectability['capability_access']['files'] ?? true);
             $listsAccessible = (bool) ($selectability['capability_access']['lists'] ?? true);
@@ -465,10 +468,10 @@ final class CustomerSelectionCodec
             $flags = $overrides[$id] ?? [];
             $filesSelected = array_key_exists(BackupScope::FILES, $flags)
                 ? (bool) $flags[BackupScope::FILES]
-                : $flags === [];
+                : true;
             $listsSelected = array_key_exists(BackupScope::LISTS, $flags)
                 ? (bool) $flags[BackupScope::LISTS]
-                : $flags === [];
+                : false;
 
             if ($filesSelected && !($selectability['capability_access']['files'] ?? true)) {
                 throw new \RuntimeException(
