@@ -28,7 +28,8 @@ Generate an enrollment token from **Enrollment Tokens** in the portal, then use 
   sudo TOKEN=<one-time-token> dpkg -i e3-backup-agent.deb
   ```
   In an interactive terminal, run `sudo dpkg -i e3-backup-agent.deb` without `TOKEN=` — a debconf dialog (whiptail/dialog) prompts for your enrollment token during install.
-  The installer writes `/etc/e3-backup-agent/agent.conf`, installs the systemd service, and enrolls automatically.
+  The installer validates the token against the enrollment API, writes `/etc/e3-backup-agent/agent.conf` with enrolled credentials, installs the systemd service, and **fails the install** if the token is invalid, revoked, or exhausted (no false success message).
+  Published installers always target production (`https://accounts.eazybackup.ca/modules/addons/cloudstorage/api`) unless you override with `API_BASE=` or `install.sh --api` (useful for lab testing against dev).
 
 - **Windows:** download `e3-backup-agent-setup.exe`, then run silently:
   ```text

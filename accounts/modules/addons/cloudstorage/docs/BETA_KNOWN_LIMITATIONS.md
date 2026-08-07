@@ -50,7 +50,8 @@ on the agent and reach out to support so we can capture your use case.
   rolled-up "this run had N permission-denied files" surface is GA-only.
 
 ## Installer (Linux)
-- **Installer script and .deb** — `e3-backup-agent-linux-install.sh` and `e3-backup-agent-linux.deb` install the binary, systemd unit, and `agent.conf`. Enrollment uses a portal token (`--token` or `TOKEN=` env).
+- **Installer script and .deb** — `e3-backup-agent-linux-install.sh` and `e3-backup-agent-linux.deb` install the binary, systemd unit, and `agent.conf`. Enrollment uses a portal token (`--token`, `TOKEN=` env, or debconf prompt). The installer calls the enrollment API during install and **fails** if the token is invalid, revoked, or exhausted.
+- **API endpoint** — Published installers default to production (`https://accounts.eazybackup.ca/modules/addons/cloudstorage/api`). Override with `API_BASE=` or `install.sh --api` for lab/dev testing.
 - **Upgrade path** — Re-running the install script or installing a newer `.deb` preserves enrolled credentials. Not yet covered by an automated lab scenario.
 - **Distro support** — Ubuntu 22.04 lab-validated. Debian-family expected compatible. RHEL/Rocky not yet tested.
 
