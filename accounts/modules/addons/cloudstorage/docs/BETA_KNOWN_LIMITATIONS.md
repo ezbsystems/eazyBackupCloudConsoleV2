@@ -67,6 +67,17 @@ on the agent and reach out to support so we can capture your use case.
   `e3-backup-agent.exe`, inbound loopback :8088 for
   `e3-recovery-agent.exe`). They are removed on uninstall.
 
+## Cloud NAS
+- **Sidecar required** — Cloud NAS mounts need the optional **Install
+  Cloud NAS** component from the Windows agent installer (includes
+  `e3-cloudnas` + WinFsp Core). If mounts fail with
+  `cloudnas_sidecar_missing` or `winfsp_missing`, re-run the installer
+  with that option checked.
+- **Drive capacity display** — Legacy WebDAV-era builds mirrored C:
+  free space in Explorer, causing false "disk full" errors. **Fixed in
+  sidecar builds**: WinFsp Statfs reports backend quota or a large
+  default free size instead of mirroring C:.
+
 ## Hyper-V
 - **Recommended host platform: Windows Server 2022.** End-to-end
   backup → restore → attach is validated against Windows Server 2022

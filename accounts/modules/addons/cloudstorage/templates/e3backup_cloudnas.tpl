@@ -271,6 +271,15 @@ function cloudNAS() {
             }
             return true;
         },
+
+        get hasSidecarInstallError() {
+            return this.mounts.some(m => this.isSidecarInstallError(m.error));
+        },
+
+        isSidecarInstallError(error) {
+            const err = (error || '').toLowerCase();
+            return err.includes('cloudnas_sidecar_missing') || err.includes('winfsp_missing');
+        },
         
         // Initialize
         async init() {
