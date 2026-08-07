@@ -20,6 +20,12 @@ use WHMCS\Module\Addon\CloudStorage\Admin\AgentBuild\WindowsRemote;
  *   assets\tray_logo.ico
  *   assets\wizard_large.bmp
  *   assets\wizard_small.bmp
+ *   CloudNAS\bin\e3-cloudnas.exe               (when built on Windows)
+ *   CloudNAS\LICENSE
+ *   CloudNAS\installer\e3-cloudnas.iss
+ *   CloudNAS\installer\README.md
+ *   CloudNAS\installer\redist\README.md
+ *   CloudNAS\installer\redist\winfsp.msi       (when cached locally)
  *   Output\
  */
 class WindowsStage extends StepBase
@@ -31,10 +37,14 @@ class WindowsStage extends StepBase
         $remote = WindowsRemote::fromSettings();
         $jobId = (int) $job['id'];
         $remoteRoot = rtrim((string) $s['win_work_dir'], '\\') . '\\' . $jobId;
+        $cloudNasRepo = dirname($repo) . '/e3-cloudnas';
 
         // Ensure remote dirs
         $mkdirCmd =
-            "New-Item -ItemType Directory -Force -Path '$remoteRoot\\bin','$remoteRoot\\installer','$remoteRoot\\assets','$remoteRoot\\Output' | Out-Null";
+            "New-Item -ItemType Directory -Force -Path " .
+            "'$remoteRoot\\bin','$remoteRoot\\installer','$remoteRoot\\assets'," .
+            "'$remoteRoot\\CloudNAS\\bin','$remoteRoot\\CloudNAS\\installer\\redist'," .
+            "'$remoteRoot\\Output' | Out-Null";
         $rc = $runner->run($remote->powershell($mkdirCmd), $logPath);
         if ($rc !== 0) return $rc;
 
@@ -46,6 +56,19 @@ class WindowsStage extends StepBase
             // Required by installer/e3-backup-agent.iss [Files] Source: "..\THIRD_PARTY_LICENSES.txt"
             $repo . '/THIRD_PARTY_LICENSES.txt' => $remoteRoot . '\\THIRD_PARTY_LICENSES.txt',
         ];
+
+        // Cloud NAS is optional. The agent Inno script includes its checked-by-
+        // default task only when both the Windows CGO build and WinFsp MSI are
+        // present in this staged tree.
+        $cloudNasUploads = [
+            $cloudNasRepo . '/bin/e3-cloudnas.exe' => $remoteRoot . '\\CloudNAS\\bin\\e3-cloudnas.exe',
+            $cloudNasRepo . '/LICENSE' => $remoteRoot . '\\CloudNAS\\LICENSE',
+            $cloudNasRepo . '/installer/e3-cloudnas.iss' => $remoteRoot . '\\CloudNAS\\installer\\e3-cloudnas.iss',
+            $cloudNasRepo . '/installer/README.md' => $remoteRoot . '\\CloudNAS\\installer\\README.md',
+            $cloudNasRepo . '/installer/redist/README.md' => $remoteRoot . '\\CloudNAS\\installer\\redist\\README.md',
+            $cloudNasRepo . '/installer/redist/winfsp.msi' => $remoteRoot . '\\CloudNAS\\installer\\redist\\winfsp.msi',
+        ];
+        $uploads = array_merge($uploads, $cloudNasUploads);
 
         if ($this->flag($job, 'include_recovery') && file_exists($repo . '/bin/e3-recovery-agent.exe')) {
             $uploads[$repo . '/bin/e3-recovery-agent.exe'] = $remoteRoot . '\\bin\\e3-recovery-agent.exe';

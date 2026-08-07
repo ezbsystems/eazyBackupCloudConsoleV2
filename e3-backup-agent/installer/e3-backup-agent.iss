@@ -4,6 +4,12 @@
 #ifndef AssetsDir
   #define AssetsDir "..\..\e3-cloudbackup-worker\assets"
 #endif
+#define CloudNASSourceDir "..\CloudNAS"
+#if FileExists(CloudNASSourceDir + "\bin\e3-cloudnas.exe")
+  #if FileExists(CloudNASSourceDir + "\installer\redist\winfsp.msi")
+    #define IncludeCloudNAS
+  #endif
+#endif
 
 [Setup]
 AppName=E3 Backup Agent
@@ -30,7 +36,7 @@ SetupIconFile={#AssetsDir}\tray_logo.ico
 WizardImageFile={#AssetsDir}\wizard_large.bmp
 WizardSmallImageFile={#AssetsDir}\wizard_small.bmp
 CloseApplications=force
-CloseApplicationsFilter=e3-backup-agent.exe,e3-backup-tray.exe
+CloseApplicationsFilter=e3-backup-agent.exe,e3-backup-tray.exe,e3-cloudnas.exe
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -39,6 +45,9 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "autorun_tray"; Description: "Run tray helper at login (recommended)"; Flags: checkedonce
 Name: "start_tray_now"; Description: "Start tray helper after install"; Flags: checkedonce
 Name: "desktopicon"; Description: "Create a desktop shortcut"; Flags: checkedonce
+#ifdef IncludeCloudNAS
+Name: "cloudnas"; Description: "Install Cloud NAS (maps cloud buckets as drives)"; Flags: checkedonce
+#endif
 
 [Dirs]
 ; Ensure standard users can update config/logs/runs without elevation
@@ -53,6 +62,14 @@ Name: "{commonappdata}\E3Backup\runs"; Permissions: users-modify
 Source: "..\bin\e3-backup-agent.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\bin\e3-backup-tray.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\THIRD_PARTY_LICENSES.txt"; DestDir: "{app}"; Flags: ignoreversion
+
+#ifdef IncludeCloudNAS
+; Optional GPLv3 sidecar and WinFsp runtime. These entries are compiled only
+; when WindowsStage has supplied both required build artifacts.
+Source: "{#CloudNASSourceDir}\bin\e3-cloudnas.exe"; DestDir: "{autopf}\E3Backup\CloudNAS"; Flags: ignoreversion; Tasks: cloudnas
+Source: "{#CloudNASSourceDir}\LICENSE"; DestDir: "{autopf}\E3Backup\CloudNAS"; DestName: "LICENSE.txt"; Flags: ignoreversion; Tasks: cloudnas
+Source: "{#CloudNASSourceDir}\installer\redist\winfsp.msi"; DestDir: "{tmp}"; DestName: "winfsp.msi"; Flags: deleteafterinstall; Tasks: cloudnas
+#endif
 
 ; Tray icon assets (installer places PNG next to tray exe; tray will wrap PNG->ICO at runtime)
 Source: "{#AssetsDir}\tray_logo-drk-orange120x120.png"; DestDir: "{app}"; DestName: "tray_logo-drk-orange120x120.png"; Flags: ignoreversion
@@ -78,6 +95,11 @@ Name: "{autodesktop}\E3 Backup Agent"; Filename: "{app}\e3-backup-tray.exe"; Par
 ; elevated token on UAC-enabled systems, causing drive mappings to be
 ; invisible in the non-elevated Explorer shell.
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "E3BackupTray"; ValueData: """{app}\e3-backup-tray.exe"" -config ""{commonappdata}\E3Backup\agent.conf"""; Tasks: autorun_tray; Flags: uninsdeletevalue
+#ifdef IncludeCloudNAS
+; Keep the sidecar in the interactive user session so its drive mappings are
+; visible in Explorer rather than in Setup's elevated logon token.
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "E3CloudNAS"; ValueData: """{autopf}\E3Backup\CloudNAS\e3-cloudnas.exe"""; Tasks: cloudnas; Flags: uninsdeletevalue
+#endif
 
 [Run]
 ; Write initial config to ProgramData\E3Backup\agent.conf
@@ -100,12 +122,20 @@ Filename: "{cmd}"; Parameters: "/c netsh advfirewall firewall add rule name=""E3
 Filename: "{cmd}"; Parameters: "/c netsh advfirewall firewall delete rule name=""E3 Recovery Agent (loopback 8088)"" >nul 2>&1"; Flags: runhidden
 Filename: "{cmd}"; Parameters: "/c netsh advfirewall firewall add rule name=""E3 Recovery Agent (loopback 8088)"" dir=in action=allow protocol=TCP localport=8088 localip=127.0.0.1 enable=yes >nul 2>&1"; Flags: runhidden
 
+#ifdef IncludeCloudNAS
+; Inno logs the MSI exit code and continues. This tolerates an existing WinFsp
+; installation while /norestart leaves reboot control with the operator.
+Filename: "{sys}\msiexec.exe"; Parameters: "/i ""{tmp}\winfsp.msi"" /qn /norestart ADDLOCAL=Core"; Flags: runhidden waituntilterminated; StatusMsg: "Installing WinFsp Core..."; Tasks: cloudnas
+#endif
+
 ; Start tray helper after install (optional)
 Filename: "{app}\e3-backup-tray.exe"; Parameters: "-config ""{commonappdata}\E3Backup\agent.conf"""; Tasks: start_tray_now; Flags: nowait postinstall skipifsilent
 
 [UninstallRun]
 ; Stop tray helper (may lock files in Program Files)
 Filename: "{cmd}"; Parameters: "/c taskkill /F /IM e3-backup-tray.exe >nul 2>&1"; Flags: runhidden; RunOnceId: "StopTray"
+; Stop the optional sidecar before removing {app}\CloudNAS.
+Filename: "{cmd}"; Parameters: "/c taskkill /F /IM e3-cloudnas.exe >nul 2>&1"; Flags: runhidden; RunOnceId: "StopCloudNAS"
 ; Stop/uninstall service on uninstall
 Filename: "{app}\e3-backup-agent.exe"; Parameters: "-service stop -config ""{commonappdata}\E3Backup\agent.conf"""; Flags: runhidden; RunOnceId: "StopService"
 Filename: "{app}\e3-backup-agent.exe"; Parameters: "-service uninstall -config ""{commonappdata}\E3Backup\agent.conf"""; Flags: runhidden; RunOnceId: "UninstallService"
