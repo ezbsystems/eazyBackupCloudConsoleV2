@@ -3,7 +3,7 @@
 **Purpose:** Single handoff document so the next agent knows where work stopped. Update this file at the **end of every session** (or after each meaningful milestone).
 
 **Last updated:** 2026-08-07
-**Module version (ms365backup):** 1.52.60
+**Module version (ms365backup):** 1.52.62
 **Cloudstorage (e3) version:** 2.2.4  
 **Worker version (ms365-backup-worker):** 0.4.39 (Kopia v0.23.1)
 
@@ -11,7 +11,12 @@
 
 ## Session log
 
-### 2026-08-07 — Warning-on-success + wedged upload (PHP 1.52.60)
+### 2026-08-07 — Warning-on-success + wedged upload + sticky suppress (PHP 1.52.60→1.52.62)
+
+- **f4bee1e7:** Completed `warning` because `aggregateStatus` mapped success+cancelled → warning (22 SharePoint Lists policy cancels). Graph 429 log lines were `warning` level and looked like the cause.
+- **Fix:** success/skipped + cancelled (no errors) → `success`; Graph throttling progress log downgraded to `info`. Healed parent to `success`.
+- **5964c88e Ruben:** After graph_sync, Kopia upload wedged (hash frozen, 0 CPU). Soft-abort + hand-off left child queued because queue error `Ops soft-abort:…` was not in the fragile LIKE clear-list → `shouldPromoteFromBatchProgress` blocked forever.
+- **Fix:** `buildBatchPayload` clears **any** non-empty queued suppress marker.
 
 - **f4bee1e7:** Completed `warning` because `aggregateStatus` mapped success+cancelled → warning (22 SharePoint Lists policy cancels). Graph 429 log lines were `warning` level and looked like the cause.
 - **Fix:** success/skipped + cancelled (no errors) → `success`; Graph throttling progress log downgraded to `info`.

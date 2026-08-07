@@ -794,7 +794,37 @@ try {
         'latestManifestForSources returns latest manifest per key',
     );
 
+    // Sticky ops soft-abort queue text must clear on payload build so the new owner
+    // can promote the child (prod: 5964c88e Ruben after "Ops soft-abort: wedged…").
+    if (!Capsule::table('ms365_job_queue')->where('run_id', $childA)->exists()) {
+        insertTestQueue($childA, [
+            'status' => 'queued',
+            'error_message' => 'Ops soft-abort: wedged zero-byte upload after graph_sync',
+        ]);
+    } else {
+        Capsule::table('ms365_job_queue')->where('run_id', $childA)->update([
+            'status' => 'queued',
+            'error_message' => 'Ops soft-abort: wedged zero-byte upload after graph_sync',
+            'worker_node_id' => null,
+            'claimed_at' => null,
+            'lease_expires_at' => null,
+        ]);
+    }
+    Capsule::table('ms365_backup_runs')->where('id', $childA)->update(['status' => 'queued']);
+    assert_true(
+        !Ms365BatchClaimRepository::shouldPromoteFromBatchProgress($childA),
+        'ops soft-abort queue text blocks hub promote before payload clear',
+    );
+
     $batchPayload = WorkerClaimService::buildBatchPayload($payloadBatch, 'test-batch-payload-node');
+    assert_true(
+        trim((string) (Capsule::table('ms365_job_queue')->where('run_id', $childA)->value('error_message') ?? '')) === '',
+        'buildBatchPayload clears ops soft-abort suppress marker',
+    );
+    assert_true(
+        Ms365BatchClaimRepository::shouldPromoteFromBatchProgress($childA),
+        'child is promotable after payload clears suppress marker',
+    );
     assert_true(
         isset($batchPayload['graph_token']) && ($batchPayload['graph_token'] ?? '') !== '',
         'batch payload carries a single shared graph token',

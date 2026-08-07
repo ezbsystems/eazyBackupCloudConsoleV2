@@ -409,29 +409,23 @@ final class WorkerClaimService
             if ($runId === '') {
                 continue;
             }
-            // A new batch owner (or resume) may start requeued children. Clear the
-            // soft-abort / hand-off suppress markers so hub progress can promote them.
-            // Also clear exhausted-resume stamps: shouldPromoteFromBatchProgress refuses
-            // any non-empty queue error, which left children DB-queued during prior_snapshot
-            // and triggered idle hand-off / ghost cancel (prod: f4bee1e7).
+            // A new batch owner (or resume) may start requeued children. Clear ALL
+            // queue suppress markers so hub progress can promote them.
+            // shouldPromoteFromBatchProgress refuses any non-empty queue error; a
+            // fragile LIKE whitelist previously left ops soft-abort messages sticky
+            // (prod: 5964c88e Ruben stayed queued after hand-off with
+            // "Ops soft-abort: wedged zero-byte upload…").
             if ($status === 'queued') {
+                // #region agent log
+                $preErr = (string) (Capsule::table('ms365_job_queue')->where('run_id', $runId)->where('status', 'queued')->value('error_message') ?? '');
+                if ($preErr !== '') {
+                    @file_put_contents('/var/www/eazybackup.ca/.cursor/debug-2c7deb.log', json_encode(['sessionId'=>'2c7deb','hypothesisId'=>'H6','location'=>'WorkerClaimService.php:buildBatchPayload','message'=>'clearing sticky queue error for queued child','data'=>['run'=>substr($runId,0,8),'err_prefix'=>substr($preErr,0,80)],'timestamp'=> (int) (microtime(true) * 1000)]) . "\n", FILE_APPEND | LOCK_EX);
+                }
+                // #endregion
                 Capsule::table('ms365_job_queue')
                     ->where('run_id', $runId)
                     ->where('status', 'queued')
-                    ->where(function ($q): void {
-                        $q->where('error_message', 'like', '%Child progress stale%')
-                            ->orWhere('error_message', 'like', '%Soft-abort hand-off%')
-                            ->orWhere('error_message', 'like', '%Worker drain hand-off%')
-                            ->orWhere('error_message', 'like', '%attempts exhausted while resuming%')
-                            ->orWhere('error_message', 'like', '%Stranded queued batch children%')
-                            ->orWhere('error_message', 'like', '%Idle owned batch%')
-                            ->orWhere('error_message', 'like', '%Re-queued after transient%')
-                            ->orWhere('error_message', 'like', '%Re-queued after batch auto-retry%')
-                            ->orWhere('error_message', 'like', '%Batch auto-retry%')
-                            ->orWhere('error_message', 'like', '%Attempt budget reset%')
-                            ->orWhere('error_message', 'like', '%kopia upload stalled%')
-                            ->orWhere('error_message', 'like', '%Upload in progress stalled%');
-                    })
+                    ->where('error_message', '!=', '')
                     ->update(['error_message' => '']);
             }
             $payload = self::buildRunPayload($runId, $batchContext, $child);
