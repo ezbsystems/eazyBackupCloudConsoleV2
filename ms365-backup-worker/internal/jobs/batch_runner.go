@@ -274,6 +274,17 @@ func (br *BatchRunner) Run(ctx context.Context, batch *api.BatchJob, onAbort con
 	brc := &batchRunContext{
 		sharedGC:     gc,
 		progressSink: emitProgress,
+		activeUploadSiblings: func() int {
+			snap := hub.snapshot()
+			n := 1
+			for _, upd := range snap {
+				switch strings.ToLower(strings.TrimSpace(upd.Phase)) {
+				case "kopia_upload", "upload":
+					n++
+				}
+			}
+			return n
+		},
 		// Terminal child reports MUST be delivered on a context detached from the
 		// batch ctx. Children frequently complete in a fast burst (e.g. no-change
 		// incrementals), and the moment the last child returns, Run() returns and

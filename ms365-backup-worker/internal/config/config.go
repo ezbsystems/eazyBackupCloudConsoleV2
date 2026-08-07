@@ -89,6 +89,15 @@ type APIConfig struct {
 type KopiaConfig struct {
 	RepoConfigDir             string `yaml:"repo_config_dir"`
 	ParallelUploads           int    `yaml:"parallel_uploads"`
+	// ParallelUploadsOverlayMax raises Kopia upload workers for overlay-heavy tiny
+	// objects (lists/mail JSON). nil/64 default; explicit 0 disables overlay boost.
+	ParallelUploadsOverlayMax *int `yaml:"parallel_uploads_overlay_max"`
+	// ParallelUploadsSmallMax raises workers for Graph-backed small files. nil/16
+	// default; explicit 0 disables graph-small boost.
+	ParallelUploadsSmallMax *int `yaml:"parallel_uploads_small_max"`
+	// ParallelUploadsSmallAvgBytes is the average file size ceiling for graph-small
+	// boost. nil/262144 default.
+	ParallelUploadsSmallAvgBytes *int `yaml:"parallel_uploads_small_avg_bytes"`
 	Compressor                string `yaml:"compressor"`
 	MaxPackSizeMiB            int    `yaml:"max_pack_size_mib"`
 	ContentCacheSizeMiB       int `yaml:"content_cache_size_mib"`
@@ -470,6 +479,42 @@ func (k KopiaConfig) PriorSnapshotTimeout() time.Duration {
 		sec = 300
 	}
 	return time.Duration(sec) * time.Second
+}
+
+// ResolvedParallelUploadsOverlayMax returns the overlay-heavy parallelism ceiling.
+// nil uses 64; explicit 0 disables overlay boost.
+func (k KopiaConfig) ResolvedParallelUploadsOverlayMax() int {
+	if k.ParallelUploadsOverlayMax == nil {
+		return 64
+	}
+	if *k.ParallelUploadsOverlayMax < 0 {
+		return 0
+	}
+	return *k.ParallelUploadsOverlayMax
+}
+
+// ResolvedParallelUploadsSmallMax returns the Graph small-file parallelism ceiling.
+// nil uses 16; explicit 0 disables graph-small boost.
+func (k KopiaConfig) ResolvedParallelUploadsSmallMax() int {
+	if k.ParallelUploadsSmallMax == nil {
+		return 16
+	}
+	if *k.ParallelUploadsSmallMax < 0 {
+		return 0
+	}
+	return *k.ParallelUploadsSmallMax
+}
+
+// ResolvedParallelUploadsSmallAvgBytes returns the average file size threshold for
+// graph-small boost. nil uses 262144 (256 KiB).
+func (k KopiaConfig) ResolvedParallelUploadsSmallAvgBytes() int64 {
+	if k.ParallelUploadsSmallAvgBytes == nil {
+		return 262144
+	}
+	if *k.ParallelUploadsSmallAvgBytes < 0 {
+		return 0
+	}
+	return int64(*k.ParallelUploadsSmallAvgBytes)
 }
 
 func (c *WorkerConfig) DiskWatermarkBytes() int64 {

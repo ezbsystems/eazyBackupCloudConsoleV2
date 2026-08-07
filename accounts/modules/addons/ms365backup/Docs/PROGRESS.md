@@ -3,13 +3,21 @@
 **Purpose:** Single handoff document so the next agent knows where work stopped. Update this file at the **end of every session** (or after each meaningful milestone).
 
 **Last updated:** 2026-08-07
-**Module version (ms365backup):** 1.52.54
+**Module version (ms365backup):** 1.52.55
 **Cloudstorage (e3) version:** 2.2.4  
-**Worker version (ms365-backup-worker):** 0.4.37 (Kopia v0.23.1)
+**Worker version (ms365-backup-worker):** 0.4.38 (Kopia v0.23.1)
 
 ---
 
 ## Session log
+
+### 2026-08-07 — Dual-mode upload parallelism for tiny overlay objects (worker 0.4.38, PHP 1.52.55)
+
+- **Prod case (follow-up):** Batch `895844b3-…` slow KB/s was **not** glacial Graph streams — remaining child **Common** (`lists:true`) hashes **~85,835** list-item JSON blobs (~348 B) from overlay at `parallel_uploads: 6`.
+- **Fix (worker 0.4.38):** After `graph_sync`, classify overlay (`staticFile` vs `GraphFile`) + avg size; **overlay** mode scales Kopia workers up to **64** for tiny static-heavy workloads; **graph_small** mode raises toward **16** clamped by AIMD/global headroom; baseline unchanged for large files.
+- **Fix (PHP 1.52.55):** Persist `upload_parallelism` + `upload_parallelism_mode` in `stats_json`.
+- **Verify:** `go test ./...` PASS; `ms365_batch_progress_liveness_test.php` PASS (upload parallelism telemetry).
+- **Deploy:** pending commit → fleet build **0.4.38** → canary then rolling.
 
 ### 2026-08-07 — Worker performance: glacial Graph content-stream recovery (worker 0.4.37, PHP 1.52.54)
 

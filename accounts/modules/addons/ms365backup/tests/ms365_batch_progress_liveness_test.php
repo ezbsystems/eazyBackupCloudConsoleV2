@@ -516,6 +516,31 @@ try {
         && (int) ($telemetryAfter['last_progress_at'] ?? 0) < $now - 60,
         'telemetry-only heartbeat does not falsify byte progress liveness',
     );
+
+    $parallelRunId = test_uuid('upload-parallel');
+    $runIds[] = $parallelRunId;
+    insertTestRun($parallelRunId, [
+        'phase' => 'kopia_upload',
+        'bytes_hashed' => 2000,
+        'bytes_uploaded' => 0,
+        'updated_at' => $now - 120,
+        'last_progress_at' => $now - 120,
+    ]);
+    Ms365RestoreWorkerHooks::onProgress($parallelRunId, [
+        'phase' => 'kopia_upload',
+        'bytes_hashed' => 2000,
+        'bytes_uploaded' => 0,
+        'upload_parallelism' => 57,
+        'upload_parallelism_mode' => 'overlay',
+        'message' => 'heartbeat',
+    ]);
+    $parallelAfter = BackupRunRepository::get($parallelRunId) ?? [];
+    $parallelStats = json_decode((string) ($parallelAfter['stats_json'] ?? ''), true) ?: [];
+    assert_true(
+        (int) ($parallelStats['upload_parallelism'] ?? 0) === 57
+        && (string) ($parallelStats['upload_parallelism_mode'] ?? '') === 'overlay',
+        'upload parallelism telemetry persists into stats_json',
+    );
 } finally {
     cleanupTestRows($runIds);
 }

@@ -249,6 +249,9 @@ type ProgressUpdate struct {
 	ContentRangeRecoveries   int64 `json:"content_range_recoveries,omitempty"`
 	ContentRecoveryExhausted int64 `json:"content_recovery_exhausted,omitempty"`
 	ContentSourceBytesPerSec int64 `json:"content_source_bytes_per_sec,omitempty"`
+	// Upload parallelism chosen for this Kopia snapshot (scalar diagnostics).
+	UploadParallelism     int    `json:"upload_parallelism,omitempty"`
+	UploadParallelismMode string `json:"upload_parallelism_mode,omitempty"`
 }
 
 type CompleteUpdate struct {

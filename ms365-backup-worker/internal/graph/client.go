@@ -310,6 +310,23 @@ func (c *Client) AdaptiveConcurrency() int {
 	return getTenantController(c.azureTenantID).limitValue()
 }
 
+// AdaptiveHeadroom returns remaining tenant AIMD slots for Graph-backed work.
+func (c *Client) AdaptiveHeadroom() int {
+	if !c.adaptiveEnabled {
+		lim := c.maxConcurrency
+		if lim <= 0 {
+			lim = defaultTenantCeiling
+		}
+		return lim
+	}
+	snap := c.tenantController().snapshot()
+	free := snap.Limit - snap.InFlight
+	if free < 1 {
+		return 1
+	}
+	return free
+}
+
 func (c *Client) SetToken(token string) {
 	c.tokenMu.Lock()
 	c.token = strings.TrimSpace(token)

@@ -450,6 +450,10 @@ final class Ms365RestoreWorkerHooks
         if ($contentPatch !== null) {
             $statsPatch = array_merge($statsPatch, $contentPatch);
         }
+        $parallelPatch = self::buildUploadParallelismStatsPatch($existing, $body);
+        if ($parallelPatch !== null) {
+            $statsPatch = array_merge($statsPatch, $parallelPatch);
+        }
         if ($statsPatch !== []) {
             $encoded = self::encodeMergedChildStatsJson($existing, $statsPatch);
             if ($encoded !== null) {
@@ -1088,6 +1092,40 @@ final class Ms365RestoreWorkerHooks
                 continue;
             }
             $patch[$key] = $incoming;
+        }
+
+        return $patch === [] ? null : $patch;
+    }
+
+    /**
+     * Persist upload parallelism diagnostics from worker progress payloads.
+     *
+     * @param array<string, mixed> $existing
+     * @param array<string, mixed> $body
+     * @return array<string, mixed>|null
+     */
+    private static function buildUploadParallelismStatsPatch(array $existing, array $body): ?array
+    {
+        if (!\WHMCS\Database\Capsule::schema()->hasColumn('ms365_backup_runs', 'stats_json')) {
+            return null;
+        }
+        $hasParallel = array_key_exists('upload_parallelism', $body);
+        $hasMode = array_key_exists('upload_parallelism_mode', $body);
+        if (!$hasParallel && !$hasMode) {
+            return null;
+        }
+        $stats = self::decodeChildStatsJson($existing);
+        $patch = [];
+        if ($hasParallel) {
+            $incoming = (int) $body['upload_parallelism'];
+            $stored = (int) ($stats['upload_parallelism'] ?? 0);
+            $patch['upload_parallelism'] = max($stored, $incoming);
+        }
+        if ($hasMode) {
+            $mode = trim((string) $body['upload_parallelism_mode']);
+            if ($mode !== '') {
+                $patch['upload_parallelism_mode'] = $mode;
+            }
         }
 
         return $patch === [] ? null : $patch;

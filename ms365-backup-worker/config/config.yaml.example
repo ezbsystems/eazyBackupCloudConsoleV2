@@ -42,6 +42,11 @@ worker:
 kopia:
   repo_config_dir: /var/lib/ms365-backup-worker/kopia
   parallel_uploads: 4
+  # Raise Kopia workers for overlay-heavy tiny objects (lists/mail JSON). 0 disables.
+  parallel_uploads_overlay_max: 64
+  # Raise workers for Graph-backed small files, clamped by AIMD headroom. 0 disables.
+  parallel_uploads_small_max: 16
+  parallel_uploads_small_avg_bytes: 262144
   compressor: zstd-default
   max_pack_size_mib: 32
   content_cache_size_mib: 512

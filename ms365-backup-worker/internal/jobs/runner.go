@@ -351,16 +351,6 @@ func (r *Runner) Run(ctx context.Context, job *api.RunJob, onAbort context.Cance
 		})
 	}
 
-	sendChildProgress(api.ProgressUpdate{
-		RunID:       job.RunID,
-		Phase:       "kopia_upload",
-		Percent:     40,
-		ItemsTotal:  wlRes.FileCount,
-		ItemsDone:   int(wlRes.ItemsDone),
-		BytesHashed: wlRes.BytesTotal,
-		Message:     "Uploading snapshot to Kopia repository",
-	})
-
 	if err := kopia.EnsureRunDir(r.cfg.Worker.RunDir); err != nil {
 		r.reportFail(ctx, job.RunID, err.Error())
 		return err
@@ -378,6 +368,43 @@ func (r *Runner) Run(ctx context.Context, job *api.RunJob, onAbort context.Cance
 			return err
 		}
 	}
+
+	overlayStats := overlay.EntryStats()
+	activeSiblingUploads := 1
+	if brc != nil && brc.activeUploadSiblings != nil {
+		activeSiblingUploads = brc.activeUploadSiblings()
+		if activeSiblingUploads < 1 {
+			activeSiblingUploads = 1
+		}
+	}
+	uploadParallel := ResolveUploadParallelism(UploadParallelismInput{
+		BaseParallel:         r.cfg.Kopia.ParallelUploads,
+		OverlayMax:           r.cfg.Kopia.ResolvedParallelUploadsOverlayMax(),
+		SmallMax:             r.cfg.Kopia.ResolvedParallelUploadsSmallMax(),
+		SmallAvgBytes:        r.cfg.Kopia.ResolvedParallelUploadsSmallAvgBytes(),
+		ItemCount:            wlRes.FileCount,
+		BytesTotal:           wlRes.BytesTotal,
+		Overlay:              overlayStats,
+		TenantHeadroom:       gc.AdaptiveHeadroom(),
+		GlobalHeadroom:       graph.GlobalTransportHeadroom(),
+		ActiveSiblingUploads: activeSiblingUploads,
+	})
+	r.client.RunLogf(ctx, job.RunID, "info",
+		"upload_parallelism mode=%s parallel=%d avg_bytes=%d graph_files=%d static_files=%d %s",
+		uploadParallel.Mode, uploadParallel.Parallel, uploadParallel.AvgBytes,
+		overlayStats.GraphFiles, overlayStats.StaticFiles, uploadParallel.Reason)
+
+	uploadStart := api.ProgressUpdate{
+		RunID:       job.RunID,
+		Phase:       "kopia_upload",
+		Percent:     40,
+		ItemsTotal:  wlRes.FileCount,
+		ItemsDone:   int(wlRes.ItemsDone),
+		BytesHashed: wlRes.BytesTotal,
+		Message:     "Uploading snapshot to Kopia repository",
+	}
+	applyUploadParallelismTelemetry(&uploadStart, uploadParallel)
+	sendChildProgress(uploadStart)
 
 	if !batchMode {
 		uploadStop := r.client.StartProgressHeartbeat(ctx, job.RunID, r.cfg.ProgressHeartbeat(), stallAwareProgressFn(r.cfg.Worker.ProgressStallSeconds, func() api.ProgressUpdate {
@@ -424,6 +451,7 @@ func (r *Runner) Run(ctx context.Context, job *api.RunJob, onAbort context.Cance
 			ItemsTotal:    total,
 		}
 		applyContentStreamTelemetry(&upd, gc)
+		applyUploadParallelismTelemetry(&upd, uploadParallel)
 		emitAndRecordUpload(upd)
 	})
 
@@ -460,7 +488,7 @@ func (r *Runner) Run(ctx context.Context, job *api.RunJob, onAbort context.Cance
 		Host:               r.cfg.Worker.Hostname,
 		Username:           "ms365",
 		Entry:              tree,
-		Parallel:           r.cfg.Kopia.ParallelUploads,
+		Parallel:           uploadParallel.Parallel,
 		Compressor:         r.cfg.Kopia.Compressor,
 		MaxPackSizeMiB:     r.cfg.Kopia.MaxPackSizeMiB,
 		CheckpointInterval: r.cfg.Kopia.CheckpointInterval(),
@@ -490,16 +518,18 @@ func (r *Runner) Run(ctx context.Context, job *api.RunJob, onAbort context.Cance
 	r.client.RunLogf(ctx, job.RunID, "info", "run %s kopia_snapshot completed in %dms manifest=%s", job.RunID, snapshotElapsed.Milliseconds(), snapRes.ManifestID)
 
 	stats, _ := json.Marshal(mergeCompletionStats(map[string]any{
-		"manifest_id":       snapRes.ManifestID,
-		"bytes_hashed":      snapRes.BytesHashed,
-		"bytes_uploaded":    snapRes.BytesUploaded,
-		"files":             snapRes.FilesDone,
-		"workloads":         wlRes.Stats,
-		"delta_states":      wlRes.DeltaStates,
-		"graph_429_hits":    wlRes.Stats["graph_429_hits"],
-		"physical_key":      job.PhysicalKey,
-		"graph_sync_ms":     graphElapsed.Milliseconds(),
-		"kopia_snapshot_ms": snapshotElapsed.Milliseconds(),
+		"manifest_id":             snapRes.ManifestID,
+		"bytes_hashed":            snapRes.BytesHashed,
+		"bytes_uploaded":          snapRes.BytesUploaded,
+		"files":                   snapRes.FilesDone,
+		"workloads":               wlRes.Stats,
+		"delta_states":            wlRes.DeltaStates,
+		"graph_429_hits":          wlRes.Stats["graph_429_hits"],
+		"physical_key":            job.PhysicalKey,
+		"graph_sync_ms":           graphElapsed.Milliseconds(),
+		"kopia_snapshot_ms":       snapshotElapsed.Milliseconds(),
+		"upload_parallelism":      uploadParallel.Parallel,
+		"upload_parallelism_mode": string(uploadParallel.Mode),
 	}, wlRes.Stats))
 	log.Printf("run %s completed total=%dms", job.RunID, time.Since(runStart).Milliseconds())
 	r.client.RunLogf(ctx, job.RunID, "info", "run %s completed total=%dms", job.RunID, time.Since(runStart).Milliseconds())
@@ -610,6 +640,14 @@ func applyContentStreamTelemetry(upd *api.ProgressUpdate, gc *graph.Client) {
 	upd.ContentRangeRecoveries = recoveries
 	upd.ContentRecoveryExhausted = exhausted
 	upd.ContentSourceBytesPerSec = sourceBPS
+}
+
+func applyUploadParallelismTelemetry(upd *api.ProgressUpdate, result UploadParallelismResult) {
+	if upd == nil || result.Parallel <= 0 {
+		return
+	}
+	upd.UploadParallelism = result.Parallel
+	upd.UploadParallelismMode = string(result.Mode)
 }
 
 func (r *Runner) RunSafe(ctx context.Context, job *api.RunJob, onAbort context.CancelFunc) (err error) {

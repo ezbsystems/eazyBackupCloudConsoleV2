@@ -93,6 +93,12 @@ Workers call `ms365_worker_graph_token.php` on Graph **401** and proactively eve
 | `graph.content_read_min_file_size_mib` | `16` | Minimum file size before throughput guard applies; explicit `0` disables |
 | `kopia.stall_check_interval_seconds` | `60` | Stall watchdog poll interval |
 | `kopia.stall_grace_seconds` | `300` | Ignore stall checks during initial repo open |
+| `kopia.parallel_uploads` | `4` (fleet template **8**) | Baseline Kopia upload worker count |
+| `kopia.parallel_uploads_overlay_max` | `64`; `0` = disable | Overlay-heavy tiny objects (lists/mail JSON) may scale above baseline |
+| `kopia.parallel_uploads_small_max` | `16`; `0` = disable | Graph-backed small files may scale above baseline, AIMD-clamped |
+| `kopia.parallel_uploads_small_avg_bytes` | `262144` | Average file size ceiling for graph-small boost |
+
+**Dual-mode parallelism (0.4.38+):** Worker inspects overlay `staticFile` vs `GraphFile` counts after `graph_sync` and chooses `upload_parallelism_mode` (`overlay`, `graph_small`, `baseline`). Diagnostics persist in `stats_json` as `upload_parallelism` + `upload_parallelism_mode`.
 
 **Live UI:** Parent batch throughput is phase-aware via `Ms365LiveSpeedMetrics` (EMA-smoothed, 30s staleness):
 

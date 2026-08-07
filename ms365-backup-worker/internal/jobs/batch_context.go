@@ -8,10 +8,11 @@ import (
 )
 
 type batchRunContext struct {
-	sharedGC     *graph.Client
-	progressSink func(api.ProgressUpdate)
-	completeSink func(api.CompleteUpdate) error
-	failSink     func(string, string)
+	sharedGC             *graph.Client
+	progressSink         func(api.ProgressUpdate)
+	completeSink         func(api.CompleteUpdate) error
+	failSink             func(string, string)
+	activeUploadSiblings func() int
 }
 
 type batchRunContextKey struct{}

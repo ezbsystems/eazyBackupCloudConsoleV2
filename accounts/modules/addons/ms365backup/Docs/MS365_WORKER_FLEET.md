@@ -158,6 +158,8 @@ OneDrive workloads use the **heavy job** RAM/disk budget (`heavy_job_ram_budget_
 
 **Kopia `parallel_uploads` (0.4.37 benchmark note):** Golden fleet template keeps **`parallel_uploads: 8`**. Code default when unset is **4**. Dev micro-benchmark (`BenchmarkContentStreamRecovery`) confirms healthy streams complete orders of magnitude faster than trickle-recovery paths; without staging evidence of ≥20% wall-time gain at **12** uploads with Graph 429 ratio ≤5%, this release does **not** raise `parallel_uploads`, `max_concurrent_runs`, or `graph_parallel_requests`. Extra CPU/RAM alone does not fix glacial Graph content streams — the throughput guard addresses that class of wedge.
 
+**Dual-mode upload parallelism (0.4.38+):** After `graph_sync`, worker classifies overlay entries and may raise Kopia `ParallelUploads` per child without changing Graph knobs. **Overlay** mode (lists/mail JSON, no Graph bodies) scales up to `parallel_uploads_overlay_max` (**64** default). **Graph small-file** mode raises toward `parallel_uploads_small_max` (**16** default) clamped by tenant AIMD + global transport headroom ÷ active upload siblings. Large/mixed workloads keep configured `parallel_uploads`. See `Docs/specs/2026-08-07-dual-mode-upload-parallelism-design.md`.
+
 **UI note:** The live page stage shows e.g. `Syncing from Microsoft Graph (3 of 12 workloads active)` when multiple children run in parallel; parent progress blends completed workloads plus in-flight graph_sync fraction. When Graph pacing is **material** (429 ratio ≥5% or active throttle window), a reassuring pacing banner appears — a handful of 429s alone does not alarm.
 
 ## Graph throttling and stall safety (worker 0.3.16+)

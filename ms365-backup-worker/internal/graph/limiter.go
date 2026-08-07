@@ -94,3 +94,16 @@ func GlobalSemStats() (inUse, capacity int) {
 	defer sem.mu.Unlock()
 	return sem.inUse, sem.cap
 }
+
+// GlobalTransportHeadroom returns remaining global transport semaphore slots.
+func GlobalTransportHeadroom() int {
+	inUse, cap := GlobalSemStats()
+	if cap <= 0 {
+		return 64
+	}
+	free := cap - inUse
+	if free < 1 {
+		return 1
+	}
+	return free
+}
