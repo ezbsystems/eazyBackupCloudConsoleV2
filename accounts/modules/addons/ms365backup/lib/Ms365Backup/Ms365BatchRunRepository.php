@@ -795,15 +795,9 @@ final class Ms365BatchRunRepository
             }
         }
         if ($hasSuccess && $onlySuccessOrCancelled) {
-            // #region agent log
-            @file_put_contents('/var/www/eazybackup.ca/.cursor/debug-2c7deb.log', json_encode(['sessionId'=>'2c7deb','hypothesisId'=>'H4','location'=>'Ms365BatchRunRepository.php:aggregateStatus','message'=>'success+cancelled -> success','data'=>['child_count'=>count($childRuns),'result'=>'success'],'timestamp'=> (int) (microtime(true) * 1000)]) . "\n", FILE_APPEND | LOCK_EX);
-            // #endregion
             return 'success';
         }
 
-        // #region agent log
-        @file_put_contents('/var/www/eazybackup.ca/.cursor/debug-2c7deb.log', json_encode(['sessionId'=>'2c7deb','hypothesisId'=>'H4','location'=>'Ms365BatchRunRepository.php:aggregateStatus','message'=>'aggregate fell through to warning','data'=>['child_count'=>count($childRuns),'statuses'=>array_values(array_unique(array_map(static fn ($r) => (string) ($r['status'] ?? ''), $childRuns)))],'timestamp'=> (int) (microtime(true) * 1000)]) . "\n", FILE_APPEND | LOCK_EX);
-        // #endregion
         return 'warning';
     }
 

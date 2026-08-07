@@ -599,15 +599,6 @@ final class Ms365BatchClaimRepository
             ->pluck('b.batch_run_id')
             ->all();
 
-        // #region agent log
-        if ($batchRunIds !== []) {
-            self::agentDebugLog('H2', 'Ms365BatchClaimRepository.php:reconcileIdleOwnedQueuedBatches', 'idle hand-off candidates', [
-                'count' => count($batchRunIds),
-                'batches' => array_map(static fn ($id) => substr((string) $id, 0, 8), array_slice($batchRunIds, 0, 8)),
-            ]);
-        }
-        // #endregion
-
         return self::handOffRunningBatchClaims($batchRunIds, 'Idle owned batch with queued children');
     }
 
@@ -951,18 +942,6 @@ final class Ms365BatchClaimRepository
             $err = (string) ($row->error_message ?? '');
             $ageOk = (int) ($row->updated_at ?? 0) <= $reviveAfter;
             $transient = self::isTransientFailureReason($err);
-            $hasActive = self::batchHasActiveChildren($batchRunId);
-            // #region agent log
-            if (!$transient && $hasActive) {
-                self::agentDebugLog('H1', 'Ms365BatchClaimRepository.php:recoverStrandedFailedBatches', 'recover skip non-transient', [
-                    'batch' => substr($batchRunId, 0, 8),
-                    'age_ok' => $ageOk,
-                    'attempts' => (int) ($row->attempts ?? 0),
-                    'max_attempts' => (int) ($row->max_attempts ?? 0),
-                    'err_prefix' => substr($err, 0, 80),
-                ]);
-            }
-            // #endregion
             if (!$ageOk) {
                 continue;
             }
@@ -992,36 +971,11 @@ final class Ms365BatchClaimRepository
             if ($updated > 0) {
                 Ms365BatchRunRepository::reopenAfterTransientInfraFailure($batchRunId);
                 ++$recovered;
-                // #region agent log
-                self::agentDebugLog('H1', 'Ms365BatchClaimRepository.php:recoverStrandedFailedBatches', 'claim revived', [
-                    'batch' => substr($batchRunId, 0, 8),
-                    'recovered' => $recovered,
-                    'err_prefix' => substr($err, 0, 80),
-                ]);
-                // #endregion
             }
         }
 
         return $recovered;
     }
-
-    // #region agent log
-    /** @param array<string, mixed> $data */
-    private static function agentDebugLog(string $hypothesisId, string $location, string $message, array $data): void
-    {
-        $payload = [
-            'sessionId' => '2c7deb',
-            'runId' => 'pre-fix',
-            'hypothesisId' => $hypothesisId,
-            'location' => $location,
-            'message' => $message,
-            'data' => $data,
-            'timestamp' => (int) round(microtime(true) * 1000),
-        ];
-        $line = json_encode($payload, JSON_UNESCAPED_SLASHES) . "\n";
-        @file_put_contents('/var/www/eazybackup.ca/.cursor/debug-2c7deb.log', $line, FILE_APPEND | LOCK_EX);
-    }
-    // #endregion
 
     /**
      * Reset children that were terminal-failed for a transient infra reason so the
@@ -1257,16 +1211,6 @@ final class Ms365BatchClaimRepository
                 ? 'attempts'
                 : 'attempts + 1';
         }
-        // #region agent log
-        if ($priorAttempts >= $maxAttempts || str_contains($priorError, 'attempts exhausted')) {
-            self::agentDebugLog('H4', 'Ms365BatchClaimRepository.php:tryClaimBatch', 'claiming high-attempt batch', [
-                'batch' => substr($batchRunId, 0, 8),
-                'prior_attempts' => $priorAttempts,
-                'attempts_expr' => $attemptsExpr,
-                'err_prefix' => substr($priorError, 0, 60),
-            ]);
-        }
-        // #endregion
         $updated = Capsule::table('ms365_batch_claims')
             ->where('batch_run_id', $batchRunId)
             ->where('status', 'queued')

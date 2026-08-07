@@ -436,22 +436,6 @@ final class JobQueueRepository
             return false;
         }
         if (self::isNonRetryableError($message)) {
-            // #region agent log
-            $payload = [
-                'sessionId' => '2c7deb',
-                'runId' => 'post-fix',
-                'hypothesisId' => 'H6,H7',
-                'location' => 'JobQueueRepository.php:markFailed',
-                'message' => 'terminal non-retryable fail',
-                'data' => [
-                    'run' => substr($runId, 0, 8),
-                    'err_prefix' => substr($message, 0, 100),
-                ],
-                'timestamp' => (int) round(microtime(true) * 1000),
-            ];
-            $line = json_encode($payload, JSON_UNESCAPED_SLASHES) . "\n";
-            @file_put_contents('/var/www/eazybackup.ca/.cursor/debug-2c7deb.log', $line, FILE_APPEND | LOCK_EX);
-            // #endregion
             self::markTerminalFailed($runId, $message);
 
             return false;

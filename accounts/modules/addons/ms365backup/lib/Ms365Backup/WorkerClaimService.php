@@ -327,26 +327,6 @@ final class WorkerClaimService
         // budget and continue; only terminal-fail when nothing is left to run.
         if ($attempts >= $maxAttempts) {
             $pendingKids = Ms365BatchClaimRepository::countPendingChildren($batchRunId);
-            // #region agent log
-            $payload = [
-                'sessionId' => '2c7deb',
-                'runId' => 'pre-fix',
-                'hypothesisId' => 'H4',
-                'location' => 'WorkerClaimService.php:resumeOwnedRunningBatch',
-                'message' => 'exhausted claim on resume',
-                'data' => [
-                    'batch' => substr($batchRunId, 0, 8),
-                    'node' => substr($nodeId, 0, 8),
-                    'attempts' => $attempts,
-                    'max_attempts' => $maxAttempts,
-                    'pending_children' => $pendingKids,
-                    'action' => $pendingKids > 0 ? 'reset_continue' : 'fail',
-                ],
-                'timestamp' => (int) round(microtime(true) * 1000),
-            ];
-            $line = json_encode($payload, JSON_UNESCAPED_SLASHES) . "\n";
-            @file_put_contents('/var/www/eazybackup.ca/.cursor/debug-2c7deb.log', $line, FILE_APPEND | LOCK_EX);
-            // #endregion
             if ($pendingKids > 0) {
                 Ms365BatchClaimRepository::resetAttempts($batchRunId, $nodeId, 1);
             } else {
@@ -416,12 +396,6 @@ final class WorkerClaimService
             // (prod: 5964c88e Ruben stayed queued after hand-off with
             // "Ops soft-abort: wedged zero-byte upload…").
             if ($status === 'queued') {
-                // #region agent log
-                $preErr = (string) (Capsule::table('ms365_job_queue')->where('run_id', $runId)->where('status', 'queued')->value('error_message') ?? '');
-                if ($preErr !== '') {
-                    @file_put_contents('/var/www/eazybackup.ca/.cursor/debug-2c7deb.log', json_encode(['sessionId'=>'2c7deb','hypothesisId'=>'H6','location'=>'WorkerClaimService.php:buildBatchPayload','message'=>'clearing sticky queue error for queued child','data'=>['run'=>substr($runId,0,8),'err_prefix'=>substr($preErr,0,80)],'timestamp'=> (int) (microtime(true) * 1000)]) . "\n", FILE_APPEND | LOCK_EX);
-                }
-                // #endregion
                 Capsule::table('ms365_job_queue')
                     ->where('run_id', $runId)
                     ->where('status', 'queued')
@@ -1676,9 +1650,6 @@ final class WorkerClaimService
         if ($runIds === []) {
             return 0;
         }
-        // #region agent log
-        @file_put_contents('/var/www/eazybackup.ca/.cursor/debug-2c7deb.log', json_encode(['sessionId'=>'2c7deb','hypothesisId'=>'H1','location'=>'WorkerClaimService.php:requeueBackupRuns','message'=>'requeueBackupRuns invoked','data'=>['run_ids'=>$runIds,'message'=>mb_substr($message,0,120),'count'=>count($runIds)],'timestamp'=> (int) (microtime(true) * 1000)]) . "\n", FILE_APPEND | LOCK_EX);
-        // #endregion
         self::requeueRuns($runIds, $message);
 
         return count($runIds);

@@ -3,9 +3,9 @@
 **Purpose:** Single handoff document so the next agent knows where work stopped. Update this file at the **end of every session** (or after each meaningful milestone).
 
 **Last updated:** 2026-08-07
-**Module version (ms365backup):** 1.52.62
+**Module version (ms365backup):** 1.52.63
 **Cloudstorage (e3) version:** 2.2.4  
-**Worker version (ms365-backup-worker):** 0.4.41 (Kopia v0.23.1)
+**Worker version (ms365-backup-worker):** 0.4.42 (Kopia v0.23.1)
 
 ---
 
@@ -15,8 +15,9 @@
 
 - **Runtime proof:** On two workers, `prior_snapshot` timed out at exactly 300s. Worker 0.4.40 diagnostics then logged `snapshot pipeline entered` but never `repository acquired`; the cold Kopia index cache grew **4,472 → 4,929 in 20s** and later exceeded 6,000 files. Repo 20 has **25,453 index blobs** despite full maintenance op 574 reporting success.
 - **Root cause:** `StartStallWatch` started before `Pool.Snapshot` acquired/opened the repository. Cold loading of the fragmented index set was therefore labeled `upload` and cancelled after 900s before Kopia's uploader had started. Worker hand-off moved the retry to another cold cache and repeated the cycle.
-- **Fix:** Track Kopia's `UploadStarted` callback; the upload watchdog ignores pre-upload repository acquisition. Report the pre-uploader phase as `repo_open`, which receives the generic 1800s control-plane window instead of the 900s upload-tail rule. Diagnostic stage logs remain active for post-fix proof.
+- **Fix:** Track Kopia's `UploadStarted` callback; the upload watchdog ignores pre-upload repository acquisition. Report the pre-uploader phase as `repo_open`, which receives the generic 1800s control-plane window instead of the 900s upload-tail rule. Diagnostic stage logs were retained through post-fix proof.
 - **Post-fix proof:** Worker 9009 stayed in `repo_open` for **1,544,102ms** without aborting, including past the former 900s cutoff; cache indexes advanced **4,740 → 23,176**. It then logged acquire → policy → list → uploader, and Ruben advanced to real upload at **46.34%**, `attempt_bytes_hashed=365,853,377`, fresh liveness, and no abort. Build 149 / release 160→84 / deploy 50 completed **20/20** on 0.4.41.
+- **Cleanup:** Removed session `2c7deb` PHP NDJSON probes and worker snapshot-stage diagnostics after operator confirmation; functional watchdog and phase fixes remain.
 
 ### 2026-08-07 — Warning-on-success + wedged upload + sticky suppress (PHP 1.52.60→1.52.62)
 
@@ -36,7 +37,7 @@
 - **Prod cases:** `c6cdb17c-…` stranded failed (1 queued child); `f4bee1e7-…` thrash at attempts 9–10/5 with UI “Batch attempts exhausted while resuming”; `5964c88e-…` slow upload (Dara Frere) — items completing, not same stall class.
 - **Root cause:** (1) Prod lacked treating exhausted-resume as transient → permanent strand. (2) Idle-owned hand-off used claim age only (no heartbeat gate) → healthy prior_snapshot owners released → ghost reconcile cancels. (3) Exhausted queue errors blocked `shouldPromoteFromBatchProgress` → children stayed DB-queued → triggered idle hand-off. (4) Resume failed mid-run when attempts≥max even with pending children.
 - **Fix:** Idle hand-off requires stale heartbeat; exhausted-resume is transient for recover; clear infra queue errors on payload build; resume resets attempt budget when pending children remain; claim resets attempts when prior≥max; auto-retry reopens failed claims.
-- **Verify:** `ms365_batch_claim_test.php` PASS; deploy + remediate live claims; monitor debug session `2c7deb`.
+- **Verify:** `ms365_batch_claim_test.php` PASS; deployed and remediated live claims.
 
 ### 2026-08-07 — SharePoint Lists opt-in default + fleet migration (PHP 1.52.57)
 
