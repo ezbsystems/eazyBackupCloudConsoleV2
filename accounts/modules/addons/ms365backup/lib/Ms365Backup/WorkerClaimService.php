@@ -1682,6 +1682,9 @@ final class WorkerClaimService
         if ($runIds === []) {
             return 0;
         }
+        // #region agent log
+        @file_put_contents('/var/www/eazybackup.ca/.cursor/debug-2c7deb.log', json_encode(['sessionId'=>'2c7deb','hypothesisId'=>'H1','location'=>'WorkerClaimService.php:requeueBackupRuns','message'=>'requeueBackupRuns invoked','data'=>['run_ids'=>$runIds,'message'=>mb_substr($message,0,120),'count'=>count($runIds)],'timestamp'=> (int) (microtime(true) * 1000)]) . "\n", FILE_APPEND | LOCK_EX);
+        // #endregion
         self::requeueRuns($runIds, $message);
 
         return count($runIds);
