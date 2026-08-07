@@ -424,7 +424,9 @@ final class WorkerClaimService
                             ->orWhere('error_message', 'like', '%Stranded queued batch children%')
                             ->orWhere('error_message', 'like', '%Idle owned batch%')
                             ->orWhere('error_message', 'like', '%Re-queued after transient%')
-                            ->orWhere('error_message', 'like', '%Re-queued after batch auto-retry%');
+                            ->orWhere('error_message', 'like', '%Re-queued after batch auto-retry%')
+                            ->orWhere('error_message', 'like', '%Batch auto-retry%')
+                            ->orWhere('error_message', 'like', '%Attempt budget reset%');
                     })
                     ->update(['error_message' => '']);
             }
