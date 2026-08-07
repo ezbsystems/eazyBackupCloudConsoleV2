@@ -290,9 +290,30 @@ install_binary() {
 }
 
 install_unit() {
-  local unit_src
+  local unit_src packaged="/lib/systemd/system/${UNIT_SRC_NAME}"
   unit_src="$(script_dir)/${UNIT_SRC_NAME}"
+
+  # #region agent log
+  printf '{"sessionId":"bcd995","hypothesisId":"E","location":"install.sh:install_unit","message":"unit path check","data":{"unitSrc":"%s","unitSrcExists":%s,"packagedExists":%s,"unitDest":"%s"},"timestamp":%s}\n' \
+    "$unit_src" \
+    "$([[ -f "$unit_src" ]] && echo true || echo false)" \
+    "$([[ -f "$packaged" ]] && echo true || echo false)" \
+    "$UNIT_DEST" \
+    "$(date +%s000)" \
+    >> /tmp/e3-backup-agent-install-debug.ndjson 2>/dev/null || true
+  # #endregion
+
+  # .deb already installs the unit under /lib/systemd/system; do not fail if the
+  # share-directory copy is absent.
+  if [[ ! -f "$unit_src" ]] && [[ -f "$packaged" ]]; then
+    log "Using packaged systemd unit ${packaged}"
+    return 0
+  fi
   [[ -f "$unit_src" ]] || die "Missing unit file: ${unit_src}"
+  if [[ -f "$UNIT_DEST" ]] && { [[ "$unit_src" -ef "$UNIT_DEST" ]] || [[ "$unit_src" == "$UNIT_DEST" ]]; }; then
+    log "Systemd unit already at ${UNIT_DEST} — skipping copy"
+    return 0
+  fi
   install -m 644 -o root -g root "$unit_src" "$UNIT_DEST"
   log "Installed systemd unit ${UNIT_DEST}"
 }

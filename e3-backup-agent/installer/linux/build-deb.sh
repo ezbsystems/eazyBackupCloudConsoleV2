@@ -24,6 +24,8 @@ mkdir -p "$STAGING/usr/share/e3-backup-agent"
 
 install -m 755 "${ROOT}/bin/e3-backup-agent" "$STAGING/usr/local/bin/e3-backup-agent"
 install -m 644 "${LINUX_DIR}/e3-backup-agent.service" "$STAGING/lib/systemd/system/e3-backup-agent.service"
+# Also ship next to install.sh so postinst enrollment can find the unit source.
+install -m 644 "${LINUX_DIR}/e3-backup-agent.service" "$STAGING/usr/share/e3-backup-agent/e3-backup-agent.service"
 install -m 644 "${LINUX_DIR}/agent.conf.template" "$STAGING/usr/share/e3-backup-agent/agent.conf.template"
 install -m 755 "${LINUX_DIR}/install.sh" "$STAGING/usr/share/e3-backup-agent/install.sh"
 
