@@ -533,7 +533,9 @@ final class Ms365RestoreWorkerHooks
         ]);
 
         if ($incoming429 >= 5 && !$isHeartbeat) {
-            $logger->warning('Microsoft Graph throttling detected', [
+            // Informational only — Graph 429 pacing is expected on large tenants and
+            // must not look like a job-level warning in run logs (prod: f4bee1e7).
+            $logger->info('Microsoft Graph throttling detected (normal pacing)', [
                 'graph_429_hits' => $incoming429,
                 'graph_adaptive_limit' => $incomingAdaptive > 0 ? $incomingAdaptive : null,
             ]);

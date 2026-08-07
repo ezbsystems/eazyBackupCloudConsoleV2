@@ -3,13 +3,19 @@
 **Purpose:** Single handoff document so the next agent knows where work stopped. Update this file at the **end of every session** (or after each meaningful milestone).
 
 **Last updated:** 2026-08-07
-**Module version (ms365backup):** 1.52.59
+**Module version (ms365backup):** 1.52.60
 **Cloudstorage (e3) version:** 2.2.4  
 **Worker version (ms365-backup-worker):** 0.4.39 (Kopia v0.23.1)
 
 ---
 
 ## Session log
+
+### 2026-08-07 — Warning-on-success + wedged upload (PHP 1.52.60)
+
+- **f4bee1e7:** Completed `warning` because `aggregateStatus` mapped success+cancelled → warning (22 SharePoint Lists policy cancels). Graph 429 log lines were `warning` level and looked like the cause.
+- **Fix:** success/skipped + cancelled (no errors) → `success`; Graph throttling progress log downgraded to `info`.
+- **5964c88e Ruben:** After graph_sync, Kopia upload wedged (hash frozen, 0 CPU). Soft-abort + requeue after deploy.
 
 ### 2026-08-07 — Drive lock thrash: serviceReadOnly + 423 Locked (PHP 1.52.59, worker 0.4.39)
 

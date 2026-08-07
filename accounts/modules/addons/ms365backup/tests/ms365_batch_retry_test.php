@@ -104,6 +104,15 @@ assert_true(
     'All-error terminal batch stays failed',
 );
 
+$successPlusCancelled = array_merge(
+    array_fill(0, 5, child('success')),
+    array_fill(0, 2, child('cancelled', 'SharePoint Lists disabled by platform policy')),
+);
+assert_true(
+    Ms365BatchRunRepository::aggregateStatus($successPlusCancelled) === 'success',
+    'success + policy-cancelled children aggregate to success (not warning)',
+);
+
 assert_true(
     Ms365BatchRetryService::currentRetryRound(['stats_json' => json_encode(['ms365_batch_auto_retry_round' => 2])]) === 2,
     'currentRetryRound reads stats_json',

@@ -780,6 +780,24 @@ final class Ms365BatchRunRepository
             return 'success';
         }
 
+        // success/skipped + cancelled (no errors) is success — cancelled children are
+        // intentional skips (e.g. SharePoint Lists disabled by platform policy).
+        // Prod f4bee1e7: 259 success + 22 lists-disabled cancels was wrongly "warning",
+        // which users associated with normal Graph 429 log lines.
+        $hasSuccess = false;
+        $onlySuccessOrCancelled = true;
+        foreach ($childRuns as $run) {
+            $st = (string) ($run['status'] ?? '');
+            if (in_array($st, ['success', 'skipped'], true)) {
+                $hasSuccess = true;
+            } elseif ($st !== 'cancelled') {
+                $onlySuccessOrCancelled = false;
+            }
+        }
+        if ($hasSuccess && $onlySuccessOrCancelled) {
+            return 'success';
+        }
+
         return 'warning';
     }
 
