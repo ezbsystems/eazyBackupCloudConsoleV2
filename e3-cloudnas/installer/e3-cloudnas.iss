@@ -33,9 +33,10 @@ Source: "redist\winfsp.msi"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "E3CloudNAS"; ValueData: """{app}\e3-cloudnas.exe"""; Flags: uninsdeletevalue
 
 [Run]
-; Inno logs the MSI exit code and continues. This makes an already-installed
-; WinFsp runtime non-fatal; /norestart leaves reboot control with the operator.
-Filename: "{sys}\msiexec.exe"; Parameters: "/i ""{tmp}\winfsp.msi"" /qn /norestart ADDLOCAL=Core"; Flags: runhidden waituntilterminated; StatusMsg: "Installing WinFsp Core..."
+; WinFsp 2.2 "Core" feature ID is F.User. Using ADDLOCAL=Core fails (1603).
+; Default INSTALLLEVEL installs F.User. Log to ProgramData for support.
+Filename: "{cmd}"; Parameters: "/c if not exist ""{commonappdata}\E3Backup\logs"" mkdir ""{commonappdata}\E3Backup\logs"""; Flags: runhidden
+Filename: "{sys}\msiexec.exe"; Parameters: "/i ""{tmp}\winfsp.msi"" /qn /norestart /l*v ""{commonappdata}\E3Backup\logs\winfsp-msi.log"""; Flags: runhidden waituntilterminated; StatusMsg: "Installing WinFsp Core..."
 
 [UninstallRun]
 Filename: "{cmd}"; Parameters: "/c taskkill /F /IM e3-cloudnas.exe >nul 2>&1"; Flags: runhidden; RunOnceId: "StopCloudNAS"

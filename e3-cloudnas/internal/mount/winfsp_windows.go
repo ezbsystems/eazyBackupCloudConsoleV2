@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -23,7 +24,10 @@ import (
 	"golang.org/x/sys/windows/registry"
 )
 
-const winFspDLL = `C:\Program Files (x86)\WinFsp\bin\winfsp-x64.dll`
+const (
+	winFspDLLx86 = `C:\Program Files (x86)\WinFsp\bin\winfsp-x64.dll`
+	winFspDLLx64 = `C:\Program Files\WinFsp\bin\winfsp-x64.dll`
+)
 
 type winFspMount struct {
 	request api.MountRequest
@@ -46,8 +50,24 @@ func NewWinFspMounter(version string) (Mounter, error) {
 }
 
 func WinFspAvailable() bool {
-	if info, err := os.Stat(winFspDLL); err == nil && !info.IsDir() {
-		return true
+	for _, path := range []string{winFspDLLx86, winFspDLLx64} {
+		if info, err := os.Stat(path); err == nil && !info.IsDir() {
+			return true
+		}
+	}
+
+	// WinFsp 2.x uses SxS layouts; bin\ may be a junction under SxS\*\bin\.
+	for _, pattern := range []string{
+		`C:\Program Files (x86)\WinFsp\SxS\*\bin\winfsp-x64.dll`,
+		`C:\Program Files\WinFsp\SxS\*\bin\winfsp-x64.dll`,
+	} {
+		if matches, err := filepath.Glob(pattern); err == nil {
+			for _, match := range matches {
+				if info, err := os.Stat(match); err == nil && !info.IsDir() {
+					return true
+				}
+			}
+		}
 	}
 
 	for _, path := range []string{

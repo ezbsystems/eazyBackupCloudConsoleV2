@@ -123,9 +123,11 @@ Filename: "{cmd}"; Parameters: "/c netsh advfirewall firewall delete rule name="
 Filename: "{cmd}"; Parameters: "/c netsh advfirewall firewall add rule name=""E3 Recovery Agent (loopback 8088)"" dir=in action=allow protocol=TCP localport=8088 localip=127.0.0.1 enable=yes >nul 2>&1"; Flags: runhidden
 
 #ifdef IncludeCloudNAS
-; Inno logs the MSI exit code and continues. This tolerates an existing WinFsp
-; installation while /norestart leaves reboot control with the operator.
-Filename: "{sys}\msiexec.exe"; Parameters: "/i ""{tmp}\winfsp.msi"" /qn /norestart ADDLOCAL=Core"; Flags: runhidden waituntilterminated; StatusMsg: "Installing WinFsp Core..."; Tasks: cloudnas
+; WinFsp 2.2 feature ID for "Core" is F.User (not "Core"). ADDLOCAL=Core fails
+; with exit 1603 and leaves Cloud NAS installed without a usable WinFsp runtime.
+; Default INSTALLLEVEL=1 already selects F.User; omit ADDLOCAL.
+Filename: "{cmd}"; Parameters: "/c if not exist ""{commonappdata}\E3Backup\logs"" mkdir ""{commonappdata}\E3Backup\logs"""; Flags: runhidden; Tasks: cloudnas
+Filename: "{sys}\msiexec.exe"; Parameters: "/i ""{tmp}\winfsp.msi"" /qn /norestart /l*v ""{commonappdata}\E3Backup\logs\winfsp-msi.log"""; Flags: runhidden waituntilterminated; StatusMsg: "Installing WinFsp Core..."; Tasks: cloudnas
 #endif
 
 ; Start tray helper after install (optional)
