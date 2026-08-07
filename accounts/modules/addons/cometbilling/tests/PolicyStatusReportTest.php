@@ -88,6 +88,30 @@ assertEq(1, count($sections['billed_successful']), 'section C one billed success
 assertEq('SuccessBilled', $sections['billed_successful'][0]['username'], 'section C username');
 assertEq(2.0, $sections['billed_successful'][0]['billed_device_amount'], 'section C device amount');
 assertEq(8.0, $sections['billed_successful'][0]['billed_booster_amount'], 'section C booster amount');
+
+$bhByAccount = [
+    'errbilled' => ['total_amount' => 0.0, 'last_charge' => null],
+    'successbilled' => ['total_amount' => 2.0, 'last_charge' => '2024-11-06'],
+];
+$enriched = PolicyStatusReport::enrichBilledSectionsWithBhDevice($sections, $bhByAccount);
+assertEq('phantom', $enriched['billed_unhealthy'][0]['bh_device_status'], 'section B phantom when AS device no BH');
+assertEq(0.0, $enriched['billed_unhealthy'][0]['bh_device_amount'], 'section B bh amount zero');
+assertEq('verified', $enriched['billed_successful'][0]['bh_device_status'], 'section C verified when both have device');
+assertEq(2.0, $enriched['billed_successful'][0]['bh_device_amount'], 'section C bh device amount');
+assertEq('2024-11-06', $enriched['billed_successful'][0]['bh_device_last'], 'section C bh last date');
+
+assertEq('phantom', PolicyStatusReport::classifyBhDeviceStatus(10.0, 0.0), 'classify phantom');
+assertEq('verified', PolicyStatusReport::classifyBhDeviceStatus(2.0, 2.0), 'classify verified');
+assertEq('bh_only', PolicyStatusReport::classifyBhDeviceStatus(0.0, 5.0), 'classify bh_only');
+assertEq('none', PolicyStatusReport::classifyBhDeviceStatus(0.0, 0.0), 'classify none');
+
+$attached = PolicyStatusReport::attachBhDeviceFields([
+    'username' => 'Acct',
+    'billed_device_amount' => 10.0,
+], ['acct' => ['total_amount' => 0.0, 'last_charge' => null]]);
+assertEq('phantom', $attached['bh_device_status'], 'attach phantom fields');
+assertEq(0.0, $attached['bh_device_amount'], 'attach bh amount');
+
 assertEq(true, PolicyStatusReport::isSuccess(5000), 'isSuccess 5000');
 assertEq(false, PolicyStatusReport::isSuccess(7001), 'isSuccess excludes warning');
 
@@ -115,6 +139,9 @@ $csvReport = [
         'status_label' => 'error',
         'billed_device_amount' => 2.0,
         'billed_booster_amount' => 8.5,
+        'bh_device_amount' => 0.0,
+        'bh_device_status' => 'phantom',
+        'bh_device_last' => null,
     ]],
     'billed_successful' => [],
 ];
@@ -124,8 +151,11 @@ assertEq(false, str_contains($csvA, 'Device charge'), 'csv A omits charge column
 assertEq(true, str_contains($csvA, 'WarnOnly'), 'csv A has warn username');
 $csvB = PolicyStatusReport::buildCsvForSection($csvReport, PolicyStatusReport::SECTION_BILLED_UNHEALTHY);
 assertEq(true, str_contains($csvB, 'Device charge'), 'csv B has device charge header');
+assertEq(true, str_contains($csvB, 'BH device'), 'csv B has bh device header');
+assertEq(true, str_contains($csvB, 'BH device status'), 'csv B has bh device status header');
 assertEq(true, str_contains($csvB, 'Booster charge'), 'csv B has booster charge header');
 assertEq(true, str_contains($csvB, '8.50'), 'csv B has booster amount');
+assertEq(true, str_contains($csvB, 'phantom'), 'csv B has phantom status');
 assertEq(true, PolicyStatusReport::isValidSection('billed_successful'), 'valid section successful');
 assertEq(false, PolicyStatusReport::isValidSection('nope'), 'invalid section rejected');
 assertEq(true, PolicyStatusReport::isValidGroup(PolicyStatusReport::GROUP_VIRTUAL_SERVER), 'virtual server group valid');

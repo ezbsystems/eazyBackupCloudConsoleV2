@@ -31,6 +31,38 @@ function policyStatusFormatMoney(float $amount): string
     return $amount > 0 ? '$' . number_format($amount, 2) : '—';
 }
 
+function policyStatusBhDeviceClass(string $status): string
+{
+    if ($status === 'phantom') {
+        return 'cb-bh-phantom';
+    }
+    if ($status === 'verified') {
+        return 'cb-bh-verified';
+    }
+    if ($status === 'bh_only') {
+        return 'cb-bh-bh-only';
+    }
+    return '';
+}
+
+function policyStatusFormatBhDevice(array $row): string
+{
+    $amount = (float) ($row['bh_device_amount'] ?? 0);
+    $status = (string) ($row['bh_device_status'] ?? 'none');
+    $last = (string) ($row['bh_device_last'] ?? '');
+
+    if ($status === 'none' && $amount <= 0) {
+        return '—';
+    }
+
+    $money = '$' . number_format($amount, 2);
+    $label = htmlspecialchars($status);
+    if ($status === 'verified' && $last !== '') {
+        $label .= ' <span class="cb-muted">(last ' . htmlspecialchars($last) . ')</span>';
+    }
+    return '<span class="' . policyStatusBhDeviceClass($status) . '">' . $money . ' ' . $label . '</span>';
+}
+
 function policyStatusCsvUrl(string $csvBase, string $groupKey, string $section): string
 {
     return $csvBase
@@ -53,6 +85,9 @@ function policyStatusCsvUrl(string $csvBase, string $groupKey, string $section):
 .cb-status-ok { color: #137333; font-weight: 600; }
 .cb-status-warn { color: #e37400; font-weight: 600; }
 .cb-status-error { color: #c5221f; font-weight: 600; }
+.cb-bh-phantom { color: #c5221f; font-weight: 600; }
+.cb-bh-verified { color: #137333; font-weight: 600; }
+.cb-bh-bh-only { color: #e37400; font-weight: 600; }
 .cb-policy-list { margin: 10px 0 0; padding-left: 20px; }
 .cb-section-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 15px; }
 .cb-section-head h4 { margin: 0; }
@@ -65,6 +100,9 @@ function policyStatusCsvUrl(string $csvBase, string $groupKey, string $section):
         Accounts on configured CSW Policy IDs for <strong>Microsoft 365</strong> and <strong>Virtual Server</strong> policies.
         For each policy set: Section A = last-backup warning; Section B = billed warning/error;
         Section C = billed success with device/booster Active Services charges.
+        Sections B and C reconcile Active Services device fees against canonical Bill History:
+        <strong>phantom</strong> = AS shows a device fee with no BH deduction;
+        <strong>verified</strong> = BH has device debits.
     </p>
 
     <div class="cb-box">
@@ -194,6 +232,7 @@ function policyStatusCsvUrl(string $csvBase, string $groupKey, string $section):
                     <?php if ($asPulledAt): ?>
                     (<?= htmlspecialchars((string) $asPulledAt) ?>).
                     <?php endif; ?>
+                    Device charge = Active Services run-rate; BH device = Bill History total.
                 </p>
                 <?php if (count($billedUnhealthy) === 0): ?>
                 <p class="cb-muted">No billed unhealthy accounts found.</p>
@@ -208,6 +247,7 @@ function policyStatusCsvUrl(string $csvBase, string $groupKey, string $section):
                             <th>Last job (UTC)</th>
                             <th>Status</th>
                             <th>Device charge</th>
+                            <th>BH device</th>
                             <th>Booster charge</th>
                         </tr>
                     </thead>
@@ -222,6 +262,7 @@ function policyStatusCsvUrl(string $csvBase, string $groupKey, string $section):
                             <td><?= htmlspecialchars(policyStatusFormatJobTime((int) ($row['last_job_time'] ?? 0))) ?></td>
                             <td class="<?= policyStatusStatusClass($statusLabel) ?>"><?= htmlspecialchars($statusLabel) ?></td>
                             <td><?= policyStatusFormatMoney((float) ($row['billed_device_amount'] ?? 0)) ?></td>
+                            <td><?= policyStatusFormatBhDevice($row) ?></td>
                             <td><?= policyStatusFormatMoney((float) ($row['billed_booster_amount'] ?? 0)) ?></td>
                         </tr>
                     <?php endforeach; ?>
@@ -237,7 +278,7 @@ function policyStatusCsvUrl(string $csvBase, string $groupKey, string $section):
                 </div>
                 <p class="cb-muted">
                     Last backup <strong>success</strong> (5000) and present in Active Services.
-                    Device/booster amounts are Active Services run-rate.
+                    Device/booster amounts are Active Services run-rate; BH device reconciles against Bill History.
                 </p>
                 <?php if (count($billedSuccessful) === 0): ?>
                 <p class="cb-muted">No billed successful accounts found.</p>
@@ -252,6 +293,7 @@ function policyStatusCsvUrl(string $csvBase, string $groupKey, string $section):
                             <th>Last job (UTC)</th>
                             <th>Status</th>
                             <th>Device charge</th>
+                            <th>BH device</th>
                             <th>Booster charge</th>
                         </tr>
                     </thead>
@@ -266,6 +308,7 @@ function policyStatusCsvUrl(string $csvBase, string $groupKey, string $section):
                             <td><?= htmlspecialchars(policyStatusFormatJobTime((int) ($row['last_job_time'] ?? 0))) ?></td>
                             <td class="<?= policyStatusStatusClass($statusLabel) ?>"><?= htmlspecialchars($statusLabel) ?></td>
                             <td><?= policyStatusFormatMoney((float) ($row['billed_device_amount'] ?? 0)) ?></td>
+                            <td><?= policyStatusFormatBhDevice($row) ?></td>
                             <td><?= policyStatusFormatMoney((float) ($row['billed_booster_amount'] ?? 0)) ?></td>
                         </tr>
                     <?php endforeach; ?>

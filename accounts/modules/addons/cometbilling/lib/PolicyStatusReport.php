@@ -316,6 +316,8 @@ final class PolicyStatusReport
             $accounts = $accountsByGroup[$groupKey] ?? [];
             $members = $membersByGroup[$groupKey] ?? [];
             $sections = self::buildSections($accounts, $activeServices['by_account']);
+            $bhDeviceByAccount = self::indexBhDeviceTotalsByAccount($members);
+            $sections = self::enrichBilledSectionsWithBhDevice($sections, $bhDeviceByAccount);
             $historical = self::historicalDeviceCharges($members);
             $totalAccounts += count($accounts);
             $totalMembers += count($members);
@@ -371,6 +373,109 @@ final class PolicyStatusReport
     }
 
     /**
+     * Classify AS device run-rate vs Bill History device total.
+     *
+     * @return 'phantom'|'verified'|'bh_only'|'none'
+     */
+    public static function classifyBhDeviceStatus(float $asDeviceAmount, float $bhDeviceAmount): string
+    {
+        $as = round($asDeviceAmount, 2);
+        $bh = round($bhDeviceAmount, 2);
+        if ($as > 0 && $bh <= 0) {
+            return 'phantom';
+        }
+        if ($as > 0 && $bh > 0) {
+            return 'verified';
+        }
+        if ($as <= 0 && $bh > 0) {
+            return 'bh_only';
+        }
+        return 'none';
+    }
+
+    /**
+     * Bill History device totals keyed by normalized account (for Section B/C reconcile).
+     *
+     * @param list<array{username:string,device_ids?:list<string>}> $members
+     * @return array<string, array{total_amount: float, last_charge: ?string}>
+     */
+    public static function indexBhDeviceTotalsByAccount(array $members): array
+    {
+        $lookup = self::buildMemberLookup($members);
+        if ($lookup['by_user'] === []) {
+            return [];
+        }
+
+        $totals = [];
+        foreach (self::queryPolicyMemberDeviceUsageRows($lookup) as $match) {
+            $userKey = $match['user_key'];
+            $amount = $match['amount'];
+            $date = $match['usage_date'];
+            if (!isset($totals[$userKey])) {
+                $totals[$userKey] = [
+                    'total_amount' => 0.0,
+                    'last_charge' => $date !== '' ? $date : null,
+                ];
+            }
+            $totals[$userKey]['total_amount'] = round(
+                (float) $totals[$userKey]['total_amount'] + $amount,
+                2
+            );
+            if ($date !== '') {
+                $last = $totals[$userKey]['last_charge'];
+                if ($last === null || $date > $last) {
+                    $totals[$userKey]['last_charge'] = $date;
+                }
+            }
+        }
+
+        return $totals;
+    }
+
+    /**
+     * @param array<string, array{total_amount: float, last_charge: ?string}> $bhDeviceByAccount
+     * @param array{
+     *   warning_accounts: list<array<string,mixed>>,
+     *   billed_unhealthy: list<array<string,mixed>>,
+     *   billed_successful: list<array<string,mixed>>
+     * } $sections
+     * @return array{
+     *   warning_accounts: list<array<string,mixed>>,
+     *   billed_unhealthy: list<array<string,mixed>>,
+     *   billed_successful: list<array<string,mixed>>
+     * }
+     */
+    public static function enrichBilledSectionsWithBhDevice(array $sections, array $bhDeviceByAccount): array
+    {
+        $enrich = static function (array $row) use ($bhDeviceByAccount): array {
+            return self::attachBhDeviceFields($row, $bhDeviceByAccount);
+        };
+
+        return [
+            'warning_accounts' => $sections['warning_accounts'] ?? [],
+            'billed_unhealthy' => array_map($enrich, $sections['billed_unhealthy'] ?? []),
+            'billed_successful' => array_map($enrich, $sections['billed_successful'] ?? []),
+        ];
+    }
+
+    /**
+     * @param array<string, array{total_amount: float, last_charge: ?string}> $bhDeviceByAccount
+     */
+    public static function attachBhDeviceFields(array $row, array $bhDeviceByAccount): array
+    {
+        $key = self::normalizeAccountKey((string) ($row['username'] ?? ''));
+        $bh = $bhDeviceByAccount[$key] ?? ['total_amount' => 0.0, 'last_charge' => null];
+        $asDevice = (float) ($row['billed_device_amount'] ?? 0);
+        $bhAmount = (float) ($bh['total_amount'] ?? 0);
+
+        return $row + [
+            'bh_device_amount' => $bhAmount,
+            'bh_device_last' => $bh['last_charge'] ?? null,
+            'bh_device_status' => self::classifyBhDeviceStatus($asDevice, $bhAmount),
+        ];
+    }
+
+    /**
      * Bill History device charges for current policy members (claim support).
      *
      * @param list<array{username:string,server_key?:string,server_label?:string,policy_id?:string,device_ids?:list<string>}> $members
@@ -386,35 +491,8 @@ final class PolicyStatusReport
      */
     public static function historicalDeviceCharges(array $members): array
     {
-        $byUser = [];
-        $usernames = [];
-        $deviceToUser = [];
-        $allDeviceIds = [];
-
-        foreach ($members as $member) {
-            $username = trim((string) ($member['username'] ?? ''));
-            if ($username === '') {
-                continue;
-            }
-            $key = self::normalizeAccountKey($username);
-            $byUser[$key] = [
-                'username' => $username,
-                'server_key' => (string) ($member['server_key'] ?? ''),
-                'server_label' => (string) ($member['server_label'] ?? ''),
-                'policy_id' => (string) ($member['policy_id'] ?? ''),
-            ];
-            $usernames[$username] = true;
-            foreach (($member['device_ids'] ?? []) as $deviceId) {
-                $deviceId = trim((string) $deviceId);
-                if ($deviceId === '') {
-                    continue;
-                }
-                $deviceToUser[strtolower($deviceId)] = $key;
-                $allDeviceIds[$deviceId] = true;
-            }
-        }
-
-        if ($byUser === []) {
+        $lookup = self::buildMemberLookup($members);
+        if ($lookup['by_user'] === []) {
             return [
                 'summary' => [],
                 'details' => [],
@@ -426,49 +504,17 @@ final class PolicyStatusReport
             ];
         }
 
-        $usernameList = array_keys($usernames);
-        $deviceList = array_keys($allDeviceIds);
-
-        $query = CanonicalUsage::query()
-            ->where('amount', '>', 0)
-            ->where(function ($q) use ($usernameList, $deviceList) {
-                $q->whereIn('tenant_id', $usernameList);
-                if ($deviceList !== []) {
-                    $q->orWhereIn('device_id', $deviceList);
-                }
-            })
-            ->orderBy('usage_date')
-            ->orderBy('id');
-
+        $byUser = $lookup['by_user'];
         $summaryMap = [];
         $details = [];
         $totalAmount = 0.0;
         $earliest = null;
         $latest = null;
 
-        foreach ($query->get(['usage_date', 'tenant_id', 'device_id', 'item_type', 'item_desc', 'amount']) as $row) {
-            $category = ChargeCategoryResolver::fromUsageRow(
-                (string) ($row->item_type ?? ''),
-                $row->item_desc !== null ? (string) $row->item_desc : null
-            );
-            if ($category !== 'devices') {
-                continue;
-            }
-
-            $tenantKey = self::normalizeAccountKey((string) ($row->tenant_id ?? ''));
-            $deviceId = strtolower(trim((string) ($row->device_id ?? '')));
-            $userKey = null;
-            if ($tenantKey !== '' && isset($byUser[$tenantKey])) {
-                $userKey = $tenantKey;
-            } elseif ($deviceId !== '' && isset($deviceToUser[$deviceId])) {
-                $userKey = $deviceToUser[$deviceId];
-            }
-            if ($userKey === null || !isset($byUser[$userKey])) {
-                continue;
-            }
-
-            $amount = round((float) ($row->amount ?? 0), 2);
-            $date = substr((string) ($row->usage_date ?? ''), 0, 10);
+        foreach (self::queryPolicyMemberDeviceUsageRows($lookup) as $match) {
+            $userKey = $match['user_key'];
+            $amount = $match['amount'];
+            $date = $match['usage_date'];
             $meta = $byUser[$userKey];
 
             if (!isset($summaryMap[$userKey])) {
@@ -510,9 +556,9 @@ final class PolicyStatusReport
                 'policy_id' => $meta['policy_id'],
                 'username' => $meta['username'],
                 'usage_date' => $date,
-                'device_id' => (string) ($row->device_id ?? ''),
-                'item_type' => (string) ($row->item_type ?? ''),
-                'item_desc' => (string) ($row->item_desc ?? ''),
+                'device_id' => $match['device_id'],
+                'item_type' => $match['item_type'],
+                'item_desc' => $match['item_desc'],
                 'amount' => $amount,
             ];
         }
@@ -535,6 +581,123 @@ final class PolicyStatusReport
             'earliest' => $earliest,
             'latest' => $latest,
         ];
+    }
+
+    /**
+     * @param list<array{username:string,server_key?:string,server_label?:string,policy_id?:string,device_ids?:list<string>}> $members
+     * @return array{
+     *   by_user: array<string, array{username:string,server_key:string,server_label:string,policy_id:string}>,
+     *   device_to_user: array<string, string>,
+     *   username_list: list<string>,
+     *   device_list: list<string>
+     * }
+     */
+    private static function buildMemberLookup(array $members): array
+    {
+        $byUser = [];
+        $usernames = [];
+        $deviceToUser = [];
+        $allDeviceIds = [];
+
+        foreach ($members as $member) {
+            $username = trim((string) ($member['username'] ?? ''));
+            if ($username === '') {
+                continue;
+            }
+            $key = self::normalizeAccountKey($username);
+            $byUser[$key] = [
+                'username' => $username,
+                'server_key' => (string) ($member['server_key'] ?? ''),
+                'server_label' => (string) ($member['server_label'] ?? ''),
+                'policy_id' => (string) ($member['policy_id'] ?? ''),
+            ];
+            $usernames[$username] = true;
+            foreach (($member['device_ids'] ?? []) as $deviceId) {
+                $deviceId = trim((string) $deviceId);
+                if ($deviceId === '') {
+                    continue;
+                }
+                $deviceToUser[strtolower($deviceId)] = $key;
+                $allDeviceIds[$deviceId] = true;
+            }
+        }
+
+        return [
+            'by_user' => $byUser,
+            'device_to_user' => $deviceToUser,
+            'username_list' => array_keys($usernames),
+            'device_list' => array_keys($allDeviceIds),
+        ];
+    }
+
+    /**
+     * @param array{
+     *   by_user: array<string, array{username:string,server_key:string,server_label:string,policy_id:string}>,
+     *   device_to_user: array<string, string>,
+     *   username_list: list<string>,
+     *   device_list: list<string>
+     * } $lookup
+     * @return \Generator<int, array{
+     *   user_key: string,
+     *   usage_date: string,
+     *   amount: float,
+     *   device_id: string,
+     *   item_type: string,
+     *   item_desc: string
+     * }>
+     */
+    private static function queryPolicyMemberDeviceUsageRows(array $lookup): \Generator
+    {
+        $byUser = $lookup['by_user'];
+        $deviceToUser = $lookup['device_to_user'];
+        $usernameList = $lookup['username_list'];
+        $deviceList = $lookup['device_list'];
+
+        if ($byUser === []) {
+            return;
+        }
+
+        $query = CanonicalUsage::query()
+            ->where('amount', '>', 0)
+            ->where(function ($q) use ($usernameList, $deviceList) {
+                $q->whereIn('tenant_id', $usernameList);
+                if ($deviceList !== []) {
+                    $q->orWhereIn('device_id', $deviceList);
+                }
+            })
+            ->orderBy('usage_date')
+            ->orderBy('id');
+
+        foreach ($query->get(['usage_date', 'tenant_id', 'device_id', 'item_type', 'item_desc', 'amount']) as $row) {
+            $category = ChargeCategoryResolver::fromUsageRow(
+                (string) ($row->item_type ?? ''),
+                $row->item_desc !== null ? (string) $row->item_desc : null
+            );
+            if ($category !== 'devices') {
+                continue;
+            }
+
+            $tenantKey = self::normalizeAccountKey((string) ($row->tenant_id ?? ''));
+            $deviceId = strtolower(trim((string) ($row->device_id ?? '')));
+            $userKey = null;
+            if ($tenantKey !== '' && isset($byUser[$tenantKey])) {
+                $userKey = $tenantKey;
+            } elseif ($deviceId !== '' && isset($deviceToUser[$deviceId])) {
+                $userKey = $deviceToUser[$deviceId];
+            }
+            if ($userKey === null || !isset($byUser[$userKey])) {
+                continue;
+            }
+
+            yield [
+                'user_key' => $userKey,
+                'usage_date' => substr((string) ($row->usage_date ?? ''), 0, 10),
+                'amount' => round((float) ($row->amount ?? 0), 2),
+                'device_id' => (string) ($row->device_id ?? ''),
+                'item_type' => (string) ($row->item_type ?? ''),
+                'item_desc' => (string) ($row->item_desc ?? ''),
+            ];
+        }
     }
 
     private static function profileValue($profile, string $key)
@@ -672,6 +835,9 @@ final class PolicyStatusReport
         ];
         if ($includeCharges) {
             $headers[] = 'Device charge';
+            $headers[] = 'BH device';
+            $headers[] = 'BH device status';
+            $headers[] = 'BH device last';
             $headers[] = 'Booster charge';
         }
 
@@ -689,6 +855,9 @@ final class PolicyStatusReport
             ];
             if ($includeCharges) {
                 $line[] = number_format((float) ($row['billed_device_amount'] ?? 0), 2, '.', '');
+                $line[] = number_format((float) ($row['bh_device_amount'] ?? 0), 2, '.', '');
+                $line[] = (string) ($row['bh_device_status'] ?? 'none');
+                $line[] = (string) ($row['bh_device_last'] ?? '');
                 $line[] = number_format((float) ($row['billed_booster_amount'] ?? 0), 2, '.', '');
             }
             return $line;
