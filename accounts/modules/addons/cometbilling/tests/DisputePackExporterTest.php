@@ -371,11 +371,12 @@ namespace {
     ];
 
     $csv = DisputePackExporter::buildCsv('2026-07-01', '2026-07-31');
-    assert_true(str_contains($csv, 'claim'), 'csv has claim header');
-    assert_true(str_contains($csv, 'active_service_evidence'), 'csv has Active Services evidence');
     assert_true(str_contains($csv, 'duplicate_pending_amount'), 'csv has pending duplicate amount');
-    assert_true(str_contains($csv, 'occurrence_statuses'), 'csv has occurrence statuses');
     assert_true(str_contains($csv, 'DailyCorp'), 'csv includes confirmed account');
+    assert_true(!str_contains($csv, 'claim'), 'csv omits claim column');
+    assert_true(!str_contains($csv, 'active_service_name'), 'csv omits active_service_name');
+    assert_true(!str_contains($csv, 'active_service_evidence'), 'csv omits active_service_evidence');
+    assert_true(!str_contains($csv, 'occurrence_statuses'), 'csv omits occurrence_statuses');
     assert_true(!str_contains($csv, 'identity_status'), 'csv omits identity columns');
     assert_true(!str_contains($csv, 'usage_id'), 'csv omits usage_id');
     $lines = array_values(array_filter(explode("\n", trim($csv))));

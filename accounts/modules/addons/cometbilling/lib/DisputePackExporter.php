@@ -463,7 +463,6 @@ class DisputePackExporter
     {
         $cases = self::collectCasesForRun($auditRunId);
         $headers = [
-            'claim',
             'account',
             'device_id',
             'device_name',
@@ -474,10 +473,8 @@ class DisputePackExporter
             'registered_at',
             'expected_billing_end',
             'active_service_snapshot_at',
-            'active_service_name',
             'active_service_quantity',
             'active_service_amount',
-            'active_service_evidence',
             'debit_date',
             'confirmed_amount',
             'occurrence_count',
@@ -485,22 +482,13 @@ class DisputePackExporter
             'duplicate_pending_amount',
             'packs_used',
             'pack_debited',
-            'occurrence_statuses',
         ];
 
         $fh = fopen('php://temp', 'r+');
         fputcsv($fh, $headers);
         foreach ($cases as $case) {
             foreach ($case['debit_dates'] as $dateRow) {
-                $row = array_merge($case, $dateRow, [
-                    'occurrence_statuses' => implode(
-                        '; ',
-                        array_map(
-                            static fn (array $occurrence): string => (string) $occurrence['status'],
-                            $dateRow['occurrences']
-                        )
-                    ),
-                ]);
+                $row = array_merge($case, $dateRow);
                 $line = [];
                 foreach ($headers as $h) {
                     $line[] = $row[$h] ?? '';
