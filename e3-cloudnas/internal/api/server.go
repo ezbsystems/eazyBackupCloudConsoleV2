@@ -18,14 +18,17 @@ type Server struct {
 	mounter Mounter
 	token   string
 	version string
+	winfsp  bool
 	mux     *http.ServeMux
 }
 
-func NewServer(mounter Mounter, token string, version string) *Server {
+func NewServer(mounter Mounter, token string, version string, winfsp ...bool) *Server {
+	winfspAvailable := len(winfsp) > 0 && winfsp[0]
 	s := &Server{
 		mounter: mounter,
 		token:   token,
 		version: version,
+		winfsp:  winfspAvailable,
 		mux:     http.NewServeMux(),
 	}
 	s.mux.HandleFunc("GET /health", s.requireAuth(s.handleHealth))
@@ -62,7 +65,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, HealthResponse{
 		OK:      true,
 		Version: s.version,
-		WinFsp:  false,
+		WinFsp:  s.winfsp,
 	})
 }
 

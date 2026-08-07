@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"runtime"
 	"syscall"
 
 	"github.com/ezbsystems/e3-cloudnas/internal/api"
@@ -25,9 +26,17 @@ func main() {
 		log.Fatal("program data directory is required: set ProgramData or pass -program-data")
 	}
 
-	manager := mount.NewManager()
+	var mounter mount.Mounter = mount.NewManager()
+	if runtime.GOOS == "windows" {
+		realMounter, err := mount.NewWinFspMounter(version)
+		if err != nil {
+			log.Fatalf("initialize WinFsp mounter: %v", err)
+		}
+		mounter = realMounter
+	}
+	winfspAvailable := mount.WinFspAvailable()
 
-	listener, err := api.NewServer(manager, "", version).Listen()
+	listener, err := api.NewServer(mounter, "", version, winfspAvailable).Listen()
 	if err != nil {
 		log.Fatalf("listen: %v", err)
 	}
@@ -42,7 +51,7 @@ func main() {
 		log.Fatalf("write discovery: %v", err)
 	}
 
-	server := api.NewServer(manager, token, version)
+	server := api.NewServer(mounter, token, version, winfspAvailable)
 
 	errCh := make(chan error, 1)
 	go func() {

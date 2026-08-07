@@ -65,6 +65,32 @@ func TestHealthRequiresToken(t *testing.T) {
 	}
 }
 
+func TestHealthReportsWinFspAvailability(t *testing.T) {
+	srv := api.NewServer(newFakeMounter(), "secret-token", "0.1.0", true)
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(ts.Close)
+
+	req, err := http.NewRequest(http.MethodGet, ts.URL+"/health", nil)
+	if err != nil {
+		t.Fatalf("new health request: %v", err)
+	}
+	req.Header.Set(api.TokenHeader, "secret-token")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET /health: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var health api.HealthResponse
+	if err := json.NewDecoder(resp.Body).Decode(&health); err != nil {
+		t.Fatalf("decode health: %v", err)
+	}
+	if !health.WinFsp {
+		t.Fatal("winfsp = false, want true")
+	}
+}
+
 func TestMountUnmountWithFakeMounter(t *testing.T) {
 	mounter := newFakeMounter()
 	srv := api.NewServer(mounter, "secret-token", "0.1.0")
