@@ -3,15 +3,21 @@
 **Purpose:** Single handoff document so the next agent knows where work stopped. Update this file at the **end of every session** (or after each meaningful milestone).
 
 **Last updated:** 2026-08-07
-**Module version (ms365backup):** 1.52.58
+**Module version (ms365backup):** 1.52.59
 **Cloudstorage (e3) version:** 2.2.4  
-**Worker version (ms365-backup-worker):** 0.4.38 (Kopia v0.23.1)
+**Worker version (ms365-backup-worker):** 0.4.39 (Kopia v0.23.1)
 
 ---
 
 ## Session log
 
-### 2026-08-07 — Batch stall: exhausted-resume + idle hand-off thrash (PHP 1.52.58)
+### 2026-08-07 — Drive lock thrash: serviceReadOnly + 423 Locked (PHP 1.52.59, worker 0.4.39)
+
+- **Prod:** `c6cdb17c` thrashing every ~5s on Wali OneDrive `403 serviceReadOnly`; `5964c88e` remaining children mostly `423 resourceLocked` (admin-blocked) + sticky `kopia upload stalled` hiding progress; `f4bee1e7` healthy.
+- **Fix (worker):** Skip OneDrive/SharePoint when `IsDriveUnavailable` (serviceReadOnly / 423 Locked) instead of hard-failing the batch.
+- **Fix (PHP):** Those errors are non-retryable; clear kopia-stall queue stamps on payload build so hub can promote.
+- **Ops:** Terminal-fail locked children; hand-off Ruben for clean upload retry after PHP deploy; roll worker 0.4.39.
+
 
 - **Prod cases:** `c6cdb17c-…` stranded failed (1 queued child); `f4bee1e7-…` thrash at attempts 9–10/5 with UI “Batch attempts exhausted while resuming”; `5964c88e-…` slow upload (Dara Frere) — items completing, not same stall class.
 - **Root cause:** (1) Prod lacked treating exhausted-resume as transient → permanent strand. (2) Idle-owned hand-off used claim age only (no heartbeat gate) → healthy prior_snapshot owners released → ghost reconcile cancels. (3) Exhausted queue errors blocked `shouldPromoteFromBatchProgress` → children stayed DB-queued → triggered idle hand-off. (4) Resume failed mid-run when attempts≥max even with pending children.

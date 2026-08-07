@@ -419,6 +419,32 @@ func IsSharePointAccessDenied(err error) bool {
 		strings.Contains(msg, "access denied")
 }
 
+// IsDriveUnavailable reports permanent OneDrive/SharePoint drive access failures that
+// should skip the drive workload instead of hard-failing (and thrashing) the batch:
+//
+//   - 403 serviceReadOnly / "Database Is Read Only" (Microsoft-side read-only lock)
+//   - 423 resourceLocked / "Access to this site has been blocked" (admin lock)
+//
+// Generic accessDenied 403s are also covered via IsSharePointAccessDenied so a
+// mailbox/user child whose OneDrive is inaccessible can still finish mail etc.
+func IsDriveUnavailable(err error) bool {
+	if err == nil {
+		return false
+	}
+	if IsSharePointAccessDenied(err) {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	if strings.Contains(msg, "graph 401 after token refresh") {
+		return false
+	}
+	return strings.Contains(msg, "graph 423") ||
+		strings.Contains(msg, "resourcelocked") ||
+		strings.Contains(msg, "access to this site has been blocked") ||
+		strings.Contains(msg, "servicereadonly") ||
+		strings.Contains(msg, "database is read only")
+}
+
 func IsMailboxUnavailable(err error) bool {
 	if err == nil {
 		return false

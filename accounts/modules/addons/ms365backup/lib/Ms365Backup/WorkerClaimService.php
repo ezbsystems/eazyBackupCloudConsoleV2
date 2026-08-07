@@ -379,7 +379,7 @@ final class WorkerClaimService
         $tenantRecordId = 0;
         foreach ($childrenRows as $child) {
             $status = (string) ($child['status'] ?? '');
-            if ($status === 'success' || $status === 'cancelled') {
+            if (in_array($status, ['success', 'cancelled', 'error', 'failed'], true)) {
                 continue;
             }
             $tenantRecordId = (int) ($child['tenant_record_id'] ?? 0);
@@ -400,7 +400,9 @@ final class WorkerClaimService
         $children = [];
         foreach ($childrenRows as $child) {
             $status = (string) ($child['status'] ?? '');
-            if ($status === 'success' || $status === 'cancelled') {
+            // Terminal failures must not be re-offered to the worker (prod: serviceReadOnly
+            // / 423 Locked children were re-included after markTerminalFailed and thrash-looped).
+            if (in_array($status, ['success', 'cancelled', 'error', 'failed'], true)) {
                 continue;
             }
             $runId = (string) ($child['id'] ?? '');
@@ -426,7 +428,9 @@ final class WorkerClaimService
                             ->orWhere('error_message', 'like', '%Re-queued after transient%')
                             ->orWhere('error_message', 'like', '%Re-queued after batch auto-retry%')
                             ->orWhere('error_message', 'like', '%Batch auto-retry%')
-                            ->orWhere('error_message', 'like', '%Attempt budget reset%');
+                            ->orWhere('error_message', 'like', '%Attempt budget reset%')
+                            ->orWhere('error_message', 'like', '%kopia upload stalled%')
+                            ->orWhere('error_message', 'like', '%Upload in progress stalled%');
                     })
                     ->update(['error_message' => '']);
             }
@@ -499,7 +503,7 @@ final class WorkerClaimService
         $e3JobIds = [];
         foreach ($childrenRows as $child) {
             $status = (string) ($child['status'] ?? '');
-            if ($status === 'success' || $status === 'cancelled') {
+            if (in_array($status, ['success', 'cancelled', 'error', 'failed'], true)) {
                 continue;
             }
             $pendingChildren[] = $child;

@@ -100,8 +100,14 @@ assert_true(
 
 $serviceReadOnly = 'onedrive: graph 403 Forbidden: {"error":{"code":"accessDenied","innerError":{"code":"serviceReadOnly"},"message":"Database Is Read Only"}}';
 assert_true(
-    !JobQueueRepository::isNonRetryableError($serviceReadOnly),
-    'OneDrive serviceReadOnly / Database Is Read Only is retryable'
+    JobQueueRepository::isNonRetryableError($serviceReadOnly),
+    'OneDrive serviceReadOnly / Database Is Read Only is non-retryable (stops thrash)'
+);
+
+$resourceLocked = 'onedrive: graph 423 Locked: {"error":{"code":"notAllowed","innerError":{"code":"resourceLocked"},"message":"Access to this site has been blocked."}}';
+assert_true(
+    JobQueueRepository::isNonRetryableError($resourceLocked),
+    'OneDrive 423 resourceLocked is non-retryable (admin-blocked site)'
 );
 
 $directoryPagination = 'directory: Graph pagination loop suspected: 3 consecutive empty page(s) still have @odata.nextLink [directory:users]';

@@ -157,13 +157,21 @@ func (w *WorkloadRunner) Run(ctx context.Context) (*WorkloadResult, error) {
 			OnProgress:    func(d, t int, b int64) { progress("onedrive", d, t, b) },
 		})
 		if err != nil {
-			return nil, fmt.Errorf("onedrive: %w", err)
+			// Permanent drive locks (serviceReadOnly / 423 resourceLocked) must not
+			// hard-fail the whole child — that caused claim resume thrash every ~5s
+			// with zero UI progress (prod: c6cdb17c Wali Ahmad).
+			if w.skipIfDriveUnavailable("onedrive", err, stats) {
+				// other workloads on this user/mailbox may still succeed
+			} else {
+				return nil, fmt.Errorf("onedrive: %w", err)
+			}
+		} else {
+			stats["onedrive"] = odRes.Stats
+			if len(odRes.DeltaStates) > 0 {
+				deltaStates["onedrive"] = odRes.DeltaStates
+			}
+			w.emitCheckpoint(deltaStates, itemsDone, bytesTotal)
 		}
-		stats["onedrive"] = odRes.Stats
-		if len(odRes.DeltaStates) > 0 {
-			deltaStates["onedrive"] = odRes.DeltaStates
-		}
-		w.emitCheckpoint(deltaStates, itemsDone, bytesTotal)
 	}
 
 	if w.allowsWorkload("sharepoint") {
@@ -387,13 +395,24 @@ func (w *WorkloadRunner) scopeFlag(key string, defaultWhenMissing bool) bool {
 // same no-mailbox users; without the latter, a single no-mailbox user would hard
 // -fail the entire run on the tasks workload and requeue until max attempts.
 func (w *WorkloadRunner) skipIfSharePointAccessDenied(workload string, err error, stats map[string]any) bool {
-	if err == nil || !graph.IsSharePointAccessDenied(err) {
+	if err == nil || !graph.IsDriveUnavailable(err) {
 		return false
 	}
 	if w.RunLog != nil {
-		w.RunLog("warning", fmt.Sprintf("%s skipped: access denied to site", workload))
+		w.RunLog("warning", fmt.Sprintf("%s skipped: site/drive unavailable", workload))
 	}
 	stats[workload] = map[string]any{"skipped": "access_denied"}
+	return true
+}
+
+func (w *WorkloadRunner) skipIfDriveUnavailable(workload string, err error, stats map[string]any) bool {
+	if err == nil || !graph.IsDriveUnavailable(err) {
+		return false
+	}
+	if w.RunLog != nil {
+		w.RunLog("warning", fmt.Sprintf("%s skipped: drive unavailable (locked or read-only)", workload))
+	}
+	stats[workload] = map[string]any{"skipped": "drive_unavailable"}
 	return true
 }
 

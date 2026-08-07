@@ -97,6 +97,23 @@ func TestIsSharePointAccessDenied(t *testing.T) {
 	}
 }
 
+func TestIsDriveUnavailable(t *testing.T) {
+	serviceReadOnly := errorString(`onedrive: graph 403 Forbidden: {"error":{"code":"accessDenied","innerError":{"code":"serviceReadOnly"},"message":"Database Is Read Only"}}`)
+	if !IsDriveUnavailable(serviceReadOnly) {
+		t.Fatal("expected serviceReadOnly 403 to be drive unavailable")
+	}
+	locked := errorString(`onedrive: graph 423 Locked: {"error":{"code":"notAllowed","innerError":{"code":"resourceLocked"},"message":"Access to this site has been blocked. Please contact the administrator to resolve this problem."}}`)
+	if !IsDriveUnavailable(locked) {
+		t.Fatal("expected 423 resourceLocked to be drive unavailable")
+	}
+	if IsDriveUnavailable(errorString("graph 401 after token refresh: empty token")) {
+		t.Fatal("bad-token 401 should not be drive unavailable")
+	}
+	if IsDriveUnavailable(nil) {
+		t.Fatal("nil should not match")
+	}
+}
+
 func TestIsMailboxUnavailable(t *testing.T) {
 	// 404 MailboxNotEnabledForRESTAPI (mail/contacts shape) still matches.
 	if !IsMailboxUnavailable(errorString(`graph 404 Not Found: {"error":{"code":"MailboxNotEnabledForRESTAPI","message":"The mailbox is either inactive, soft-deleted, or is hosted on-premise."}}`)) {

@@ -39,12 +39,17 @@ final class JobQueueRepository
         if (str_contains($message, 'graph 400') && str_contains($message, 'parameter \'deltatoken\' not supported')) {
             return true;
         }
-        // OneDrive/SharePoint "Database Is Read Only" (serviceReadOnly) is a transient
-        // Microsoft-side lock; retries often succeed. Must be excluded before the
-        // generic graph 403 / access denied patterns below.
+        // OneDrive/SharePoint "Database Is Read Only" (serviceReadOnly) and admin
+        // site locks (423 resourceLocked / "Access to this site has been blocked")
+        // do not heal on rapid retry — they thrash the owning worker (prod: c6cdb17c
+        // Wali every ~5s; 5964c88e Fiona/Monique/Joanne). Terminal-fail so the batch
+        // can finish; worker also skips these drives so sibling workloads can succeed.
         if (str_contains($message, 'servicereadonly')
-            || str_contains($message, 'database is read only')) {
-            return false;
+            || str_contains($message, 'database is read only')
+            || str_contains($message, 'resourcelocked')
+            || str_contains($message, 'graph 423')
+            || str_contains($message, 'access to this site has been blocked')) {
+            return true;
         }
         $patterns = [
             'graph 403',
@@ -431,6 +436,22 @@ final class JobQueueRepository
             return false;
         }
         if (self::isNonRetryableError($message)) {
+            // #region agent log
+            $payload = [
+                'sessionId' => '2c7deb',
+                'runId' => 'post-fix',
+                'hypothesisId' => 'H6,H7',
+                'location' => 'JobQueueRepository.php:markFailed',
+                'message' => 'terminal non-retryable fail',
+                'data' => [
+                    'run' => substr($runId, 0, 8),
+                    'err_prefix' => substr($message, 0, 100),
+                ],
+                'timestamp' => (int) round(microtime(true) * 1000),
+            ];
+            $line = json_encode($payload, JSON_UNESCAPED_SLASHES) . "\n";
+            @file_put_contents('/var/www/eazybackup.ca/.cursor/debug-2c7deb.log', $line, FILE_APPEND | LOCK_EX);
+            // #endregion
             self::markTerminalFailed($runId, $message);
 
             return false;

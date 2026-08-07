@@ -143,6 +143,87 @@ func TestWorkloadRunnerSkipsSharePointWhenAccessDenied(t *testing.T) {
 	}
 }
 
+// TestWorkloadRunnerSkipsOneDriveWhenServiceReadOnly reproduces prod c6cdb17c:
+// OneDrive returns 403 serviceReadOnly / Database Is Read Only; the run must
+// skip OneDrive and complete instead of hard-failing the batch in a tight loop.
+func TestWorkloadRunnerSkipsOneDriveWhenServiceReadOnly(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/drive") || strings.Contains(r.URL.Path, "/drives") {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = w.Write([]byte(`{"error":{"code":"accessDenied","innerError":{"code":"serviceReadOnly"},"message":"Database Is Read Only"}}`))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	client := graph.NewTestClient(srv.URL, graph.ClientOptions{MaxRetries: 0, MaxConcurrency: 4})
+	runner := &WorkloadRunner{
+		Client:  client,
+		Overlay: graphfs.NewOverlayBuilder(),
+		Job: &api.RunJob{
+			PhysicalKey:   "user:165c9324-07c3-4e24-8e72-a4a36f886028",
+			GraphID:       "165c9324-07c3-4e24-8e72-a4a36f886028",
+			AzureTenantID: "tenant-1",
+			Workloads:     map[string]bool{"onedrive": true},
+			Scope:         api.ScopeFlags{"onedrive": true},
+		},
+	}
+
+	res, err := runner.Run(context.Background())
+	if err != nil {
+		t.Fatalf("Run returned error, expected graceful skip: %v", err)
+	}
+	odStats, ok := res.Stats["onedrive"].(map[string]any)
+	if !ok {
+		t.Fatalf("onedrive stats missing or wrong type: %#v", res.Stats["onedrive"])
+	}
+	if odStats["skipped"] != "drive_unavailable" {
+		t.Fatalf("onedrive skipped stat = %#v", odStats["skipped"])
+	}
+}
+
+// TestWorkloadRunnerSkipsOneDriveWhenResourceLocked reproduces prod 5964c88e:
+// admin-blocked personal sites return Graph 423 resourceLocked.
+func TestWorkloadRunnerSkipsOneDriveWhenResourceLocked(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/drive") || strings.Contains(r.URL.Path, "/drives") {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusLocked)
+			_, _ = w.Write([]byte(`{"error":{"code":"notAllowed","innerError":{"code":"resourceLocked"},"message":"Access to this site has been blocked. Please contact the administrator to resolve this problem."}}`))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	client := graph.NewTestClient(srv.URL, graph.ClientOptions{MaxRetries: 0, MaxConcurrency: 4})
+	runner := &WorkloadRunner{
+		Client:  client,
+		Overlay: graphfs.NewOverlayBuilder(),
+		Job: &api.RunJob{
+			PhysicalKey:   "user:e4342539-e2f2-4718-81a8-a4fe6223b50e",
+			GraphID:       "e4342539-e2f2-4718-81a8-a4fe6223b50e",
+			AzureTenantID: "tenant-1",
+			Workloads:     map[string]bool{"onedrive": true},
+			Scope:         api.ScopeFlags{"onedrive": true},
+		},
+	}
+
+	res, err := runner.Run(context.Background())
+	if err != nil {
+		t.Fatalf("Run returned error, expected graceful skip: %v", err)
+	}
+	odStats, ok := res.Stats["onedrive"].(map[string]any)
+	if !ok {
+		t.Fatalf("onedrive stats missing or wrong type: %#v", res.Stats["onedrive"])
+	}
+	if odStats["skipped"] != "drive_unavailable" {
+		t.Fatalf("onedrive skipped stat = %#v", odStats["skipped"])
+	}
+}
+
 // TestAllowsSharePointForDriveShard reproduces STCHF Admin drive child runs:
 // PHP maps drive: shards with _site_id to sharepoint workload, but allowsWorkload
 // previously rejected kind "drive" and the run completed no_changes with no manifest.
