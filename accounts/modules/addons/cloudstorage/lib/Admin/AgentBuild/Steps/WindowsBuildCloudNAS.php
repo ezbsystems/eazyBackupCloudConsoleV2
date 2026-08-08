@@ -70,62 +70,55 @@ class WindowsBuildCloudNAS extends StepBase
             return $rc;
         }
 
-        // Ensure WinFsp Developer headers exist on the Windows build host (F.Developer).
-        // Core-only installs leave inc\fuse missing and break CGO.
+        // Ensure WinFsp fuse headers for CGO without modifying the installed
+        // WinFsp product. msiexec ADDLOCAL=F.Developer hits SecureRepair 1603
+        // when Core is already installed from a different MSI cache path.
+        // Administrative install (/a) only extracts files.
         $rc = $runner->run($remote->scpUp($localMsi, $remoteMsi), $logPath);
         if ($rc !== 0) {
-            $this->appendLog($logPath, '[error] failed uploading WinFsp MSI for Developer install');
+            $this->appendLog($logPath, '[error] failed uploading WinFsp MSI for header extract');
             return $rc;
         }
         $ensureDev = <<<'PS'
 $ErrorActionPreference = 'Stop'
-$winfspInc = '__WINFSP_INC__'
+$winfspIncPreferred = '__WINFSP_INC__'
 $msi = '__REMOTE_MSI__'
-$candidates = @(
-  $winfspInc,
-  'C:\Program Files (x86)\WinFsp\inc\fuse',
-  'C:\Program Files\WinFsp\inc\fuse'
-)
+$extractRoot = 'C:\E3Build\winfsp-headers'
 function Find-WinFspInc {
-  param([string[]]$Paths)
-  foreach ($p in $Paths) {
+  $candidates = @(
+    $winfspIncPreferred,
+    'C:\Program Files (x86)\WinFsp\inc\fuse',
+    'C:\Program Files\WinFsp\inc\fuse',
+    (Join-Path $extractRoot 'DYNAMIC\inc\fuse'),
+    (Join-Path $extractRoot 'WinFsp\inc\fuse'),
+    (Join-Path $extractRoot 'inc\fuse')
+  )
+  foreach ($p in $candidates) {
     if ($p -and (Test-Path (Join-Path $p 'fuse.h'))) { return $p }
-    if ($p -and (Test-Path $p) -and (Test-Path (Join-Path $p 'fuse.h'))) { return $p }
   }
-  # WinFsp 2.x may place headers under the install root inc\ directly.
-  foreach ($root in @('C:\Program Files (x86)\WinFsp','C:\Program Files\WinFsp')) {
-    $fuse = Join-Path $root 'inc\fuse'
-    if (Test-Path (Join-Path $fuse 'fuse.h')) { return $fuse }
-    $inc = Join-Path $root 'inc'
-    if (Test-Path (Join-Path $inc 'fuse.h')) { return $inc }
-  }
-  return $null
+  Get-ChildItem -Path $extractRoot -Recurse -Filter fuse.h -ErrorAction SilentlyContinue |
+    Where-Object { $_.DirectoryName -match '\\fuse$' } |
+    Select-Object -First 1 |
+    ForEach-Object { $_.DirectoryName }
 }
-$found = Find-WinFspInc $candidates
+$found = Find-WinFspInc
 if ($found) {
   Write-Output "WINFSP_HEADERS_OK $found"
   exit 0
 }
 if (-not (Test-Path $msi)) { throw "WinFsp MSI missing at $msi" }
-$log = 'C:\E3Build\winfsp-developer-msi.log'
-Write-Output "Installing WinFsp Core+Developer via MSI (INSTALLLEVEL=1000)..."
-$p = Start-Process -FilePath msiexec.exe -ArgumentList @('/i', $msi, '/qn', '/norestart', 'INSTALLLEVEL=1000', '/l*v', $log) -Wait -PassThru
-Write-Output ("msiexec INSTALLLEVEL=1000 exit=" + $p.ExitCode)
-$found = Find-WinFspInc $candidates
-if (-not $found) {
-  Write-Output 'Headers still missing; trying ADDLOCAL=F.User,F.Developer...'
-  $p2 = Start-Process -FilePath msiexec.exe -ArgumentList @('/i', $msi, '/qn', '/norestart', 'ADDLOCAL=F.User,F.Developer', '/l*v', $log) -Wait -PassThru
-  Write-Output ("msiexec ADDLOCAL=F.User,F.Developer exit=" + $p2.ExitCode)
-  $found = Find-WinFspInc $candidates
+$log = 'C:\E3Build\winfsp-admin-extract.log'
+if (Test-Path $extractRoot) { Remove-Item -Recurse -Force $extractRoot }
+New-Item -ItemType Directory -Force -Path $extractRoot | Out-Null
+Write-Output "Extracting WinFsp headers via msiexec /a TARGETDIR=$extractRoot ..."
+$p = Start-Process -FilePath msiexec.exe -ArgumentList @('/a', $msi, '/qn', "TARGETDIR=$extractRoot", '/l*v', $log) -Wait -PassThru
+Write-Output ("msiexec /a exit=" + $p.ExitCode)
+if ($p.ExitCode -ne 0 -and $p.ExitCode -ne 3010) {
+  throw "WinFsp administrative extract failed exit=$($p.ExitCode); see $log"
 }
+$found = Find-WinFspInc
 if (-not $found) {
-  Write-Output 'Headers still missing; trying ADDLOCAL=F.Developer only...'
-  $p3 = Start-Process -FilePath msiexec.exe -ArgumentList @('/i', $msi, '/qn', '/norestart', 'ADDLOCAL=F.Developer', '/l*v', $log) -Wait -PassThru
-  Write-Output ("msiexec ADDLOCAL=F.Developer exit=" + $p3.ExitCode)
-  $found = Find-WinFspInc $candidates
-}
-if (-not $found) {
-  throw "WinFsp fuse headers still missing after MSI install (expected under WinFsp\inc\fuse); see $log"
+  throw "WinFsp fuse.h missing after msiexec /a extract; see $log under $extractRoot"
 }
 Write-Output "WINFSP_HEADERS_OK $found"
 PS;
@@ -138,15 +131,16 @@ PS;
             $ensureDev
         );
         // #region agent log
-        $this->debugLog('H5', 'WindowsBuildCloudNAS.php:ensure-dev-headers', 'ensuring WinFsp Developer headers on build host', [
+        $this->debugLog('H6', 'WindowsBuildCloudNAS.php:ensure-headers-admin', 'extract WinFsp headers via msiexec /a (avoid SecureRepair)', [
             'winfspInc' => $winfspInc,
             'remoteMsi' => $remoteMsi,
+            'priorFailure' => 'SecureRepair 1603 on ADDLOCAL=F.Developer',
         ]);
         // #endregion
         $rc = $runner->run($remote->powershell($ensureDev), $logPath, null, null, 900);
         if ($rc !== 0) {
             // #region agent log
-            $this->debugLog('H5', 'WindowsBuildCloudNAS.php:ensure-dev-failed', 'WinFsp Developer ensure failed', [
+            $this->debugLog('H6', 'WindowsBuildCloudNAS.php:ensure-headers-failed', 'WinFsp header extract failed', [
                 'exitCode' => $rc,
             ]);
             // #endregion
@@ -192,8 +186,20 @@ $env:Path = "$goBin;$mingwBin;" + $env:Path
 if (-not (Test-Path "$goBin\go.exe")) { throw "go.exe not found under $goBin" }
 if (-not (Test-Path "$mingwBin\gcc.exe")) { throw "gcc.exe not found under $mingwBin" }
 $winfspInc = $null
-foreach ($p in @($winfspIncPreferred, 'C:\Program Files (x86)\WinFsp\inc\fuse', 'C:\Program Files\WinFsp\inc\fuse', 'C:\Program Files (x86)\WinFsp\inc', 'C:\Program Files\WinFsp\inc')) {
+foreach ($p in @(
+  $winfspIncPreferred,
+  'C:\E3Build\winfsp-headers\DYNAMIC\inc\fuse',
+  'C:\Program Files (x86)\WinFsp\inc\fuse',
+  'C:\Program Files\WinFsp\inc\fuse',
+  'C:\Program Files (x86)\WinFsp\inc',
+  'C:\Program Files\WinFsp\inc'
+)) {
   if ($p -and (Test-Path (Join-Path $p 'fuse.h'))) { $winfspInc = $p; break }
+}
+if (-not $winfspInc) {
+  $hit = Get-ChildItem -Path 'C:\E3Build\winfsp-headers' -Recurse -Filter fuse.h -ErrorAction SilentlyContinue |
+    Where-Object { $_.DirectoryName -match '\\fuse$' } | Select-Object -First 1
+  if ($hit) { $winfspInc = $hit.DirectoryName }
 }
 if (-not $winfspInc) { throw "WinFsp fuse headers missing after ensure step (fuse.h not found)" }
 if (Test-Path 'C:\WinFspInc') { cmd /c 'rmdir C:\WinFspInc' | Out-Null }

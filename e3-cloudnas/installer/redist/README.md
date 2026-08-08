@@ -24,12 +24,13 @@ Silent Core install (end-user agents):
 msiexec /i winfsp.msi /qn /norestart
 ```
 
-Silent Core + Developer (build host):
+Build-host headers (do **not** use ADDLOCAL=F.Developer when Core is already
+installed — SecureRepair often fails with 1603). Prefer administrative extract:
 
 ```text
-msiexec /i winfsp.msi /qn /norestart INSTALLLEVEL=1000
+msiexec /a winfsp.msi /qn TARGETDIR=C:\E3Build\winfsp-headers
 ```
 
-`windows_build_cloudnas` uploads this MSI and installs Developer automatically
-when `fuse.h` is missing. Agent installer logs go to
+Headers land under `TARGETDIR\DYNAMIC\inc\fuse`. `windows_build_cloudnas`
+does this automatically when `fuse.h` is missing. Agent installer logs go to
 `%ProgramData%\E3Backup\logs\winfsp-msi.log`.
