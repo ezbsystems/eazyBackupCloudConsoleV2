@@ -2,7 +2,7 @@
 
 **Purpose:** Single handoff document so the next agent knows where work stopped. Update this file at the **end of every session** (or after each meaningful milestone).
 
-**Last updated:** 2026-08-07
+**Last updated:** 2026-08-08
 **Module version (ms365backup):** 1.52.65
 **Cloudstorage (e3) version:** 2.2.4  
 **Worker version (ms365-backup-worker):** 0.4.44 (Kopia v0.23.1)
@@ -10,6 +10,15 @@
 ---
 
 ## Session log
+
+### 2026-08-08 — Prod fleet scale-out +7 workers per Proxmox host (21 new)
+
+- **Goal:** Deploy 7 additional workers on each of `yow-pve-r640-01` / `r630-01` / `r730-01`; bring them to **worker ≥0.4.44** and **fleet config v7** before claiming.
+- **Template fix:** `9097` was stranded on r630 (`hastate=error`); vzdump → destroy → restore onto **r730** `local-lvm`. Re-granted ACL `/vms/9097` → `eazyBackupCloneSource` for `root@pam!mytoken`.
+- **Template bake:** Updated golden templates **9099/9098/9097** with binary **0.4.44**, config YAML sha `4d7aa4d2…` (v7), and `config.applied_version=7`.
+- **Scale-up:** Prod CLI `ProxmoxProvisioner::scaleUp` — r640 **9026–9027,9031,9034,9037,9040,9043**; r630 **9028,9030,9033,9036,9039,9042,9046**; r730 **9029,9032,9035,9038,9041,9044–9045**. Parallel clone raced one VMID on r630 (retried → **9046**).
+- **Claim gate:** Nodes drained until `version≥0.4.44` + `config_version=7`, then activated. (Canary 9026 briefly claimed once before bake/drain hardening; subsequent nodes held until ready.)
+- **Verify:** `ms365_fleet_smoke.php` **41** active nodes; all new workers on **0.4.44** / **cfg=7**. Per-host active with `proxmox_node` set: **13/13/13**.
 
 ### 2026-08-07 — Full mailbox sharding + remainder shard (worker 0.4.44, PHP 1.52.65)
 
