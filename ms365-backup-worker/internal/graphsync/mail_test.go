@@ -15,6 +15,14 @@ import (
 	"github.com/eazybackup/ms365-backup-worker/internal/graphfs"
 )
 
+func respondEmptyMailChildFolders(w http.ResponseWriter, r *http.Request) bool {
+	if strings.Contains(r.URL.Path, "/childFolders") && !strings.Contains(r.URL.Path, "/messages/") {
+		_, _ = w.Write([]byte(`{"value":[]}`))
+		return true
+	}
+	return false
+}
+
 func TestSyncMailRetriesRepeatedFolderNextLinkWithSmallerPage(t *testing.T) {
 	var serverURL string
 	var folderPageSizes []string
@@ -24,6 +32,9 @@ func TestSyncMailRetriesRepeatedFolderNextLinkWithSmallerPage(t *testing.T) {
 	var runLog []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		if respondEmptyMailChildFolders(w, r) {
+			return
+		}
 		switch {
 		case r.URL.Path == "/users/test-user/mailFolders":
 			currentTop = r.URL.Query().Get("$top")
@@ -99,6 +110,9 @@ func TestSyncMailKeepsUniqueFoldersAfterFinalRepeatedNextLink(t *testing.T) {
 	var runLog []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		if respondEmptyMailChildFolders(w, r) {
+			return
+		}
 		switch {
 		case r.URL.Path == "/users/test-user/mailFolders":
 			_, _ = w.Write([]byte(`{"value":[{"id":"folder-1","displayName":"Inbox"}],"@odata.nextLink":"` + serverURL + `/mail-folders-page-2"}`))
@@ -148,6 +162,9 @@ func TestSyncMailWellKnownShardSegmentMatchesFolder(t *testing.T) {
 	var deltaFolders []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		if respondEmptyMailChildFolders(w, r) {
+			return
+		}
 		switch {
 		case strings.HasSuffix(r.URL.Path, "/mailFolders") && !strings.Contains(r.URL.Path, "/messages/"):
 			_, _ = w.Write([]byte(`{"value":[
@@ -213,10 +230,100 @@ func TestMailFolderMatchesShardWellKnownAndID(t *testing.T) {
 	}
 }
 
+func TestMailFolderMatchesShardRemainder(t *testing.T) {
+	inbox := map[string]any{"id": "inbox-id", "wellKnownName": "inbox"}
+	sent := map[string]any{"id": "sent-id", "wellKnownName": "sentitems"}
+	archive := map[string]any{"id": "archive-id", "wellKnownName": "archive"}
+	custom := map[string]any{"id": "custom-id", "displayName": "Projects"}
+	nested := map[string]any{"id": "nested-id", "displayName": "Nested"}
+
+	for _, folder := range []map[string]any{inbox, sent, archive} {
+		if mailFolderMatchesShard(folder, mailRemainderSegment) {
+			t.Fatalf("remainder must exclude well-known folder %#v", folder)
+		}
+	}
+	for _, folder := range []map[string]any{custom, nested} {
+		if !mailFolderMatchesShard(folder, mailRemainderSegment) {
+			t.Fatalf("remainder must include non-well-known folder %#v", folder)
+		}
+	}
+}
+
+func TestSyncMailRemainderShardSyncsCustomAndNestedFolders(t *testing.T) {
+	var deltaFolders []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/mailFolders") && !strings.Contains(r.URL.Path, "/messages/") && !strings.Contains(r.URL.Path, "/childFolders"):
+			_, _ = w.Write([]byte(`{"value":[
+				{"id":"AQMk-inbox","displayName":"Inbox","wellKnownName":"inbox"},
+				{"id":"AQMk-custom","displayName":"Projects"},
+				{"id":"AQMk-parent","displayName":"Parent"}
+			]}`))
+		case strings.HasSuffix(r.URL.Path, "/mailFolders/AQMk-parent/childFolders"):
+			_, _ = w.Write([]byte(`{"value":[{"id":"AQMk-nested","displayName":"Nested Child"}]}`))
+		case strings.Contains(r.URL.Path, "/childFolders") && !strings.Contains(r.URL.Path, "/messages/"):
+			_, _ = w.Write([]byte(`{"value":[]}`))
+		case strings.Contains(r.URL.Path, "/mailFolders/AQMk-parent/messages/delta"):
+			deltaFolders = append(deltaFolders, "parent")
+			_, _ = w.Write([]byte(`{"value":[],"@odata.deltaLink":"https://graph.test/parent-done"}`))
+		case strings.Contains(r.URL.Path, "/mailFolders/AQMk-custom/messages/delta"):
+			deltaFolders = append(deltaFolders, "custom")
+			_, _ = w.Write([]byte(`{"value":[{"id":"msg-custom","subject":"Custom","body":{"content":"hi"}}],"@odata.deltaLink":"https://graph.test/custom-done"}`))
+		case strings.Contains(r.URL.Path, "/mailFolders/AQMk-nested/messages/delta"):
+			deltaFolders = append(deltaFolders, "nested")
+			_, _ = w.Write([]byte(`{"value":[{"id":"msg-nested","subject":"Nested","body":{"content":"hi"}}],"@odata.deltaLink":"https://graph.test/nested-done"}`))
+		case strings.Contains(r.URL.Path, "/mailFolders/AQMk-inbox/messages/delta"):
+			deltaFolders = append(deltaFolders, "inbox")
+			_, _ = w.Write([]byte(`{"value":[],"@odata.deltaLink":"https://graph.test/inbox-done"}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	client := graph.NewTestClient(srv.URL, graph.ClientOptions{MaxRetries: 0, MaxConcurrency: 2})
+	result, err := SyncMail(context.Background(), client, MailSyncOptions{
+		AzureTenantID:  "tenant-1",
+		UserID:         "user-1",
+		Parallel:       2,
+		FolderParallel: 2,
+		ShardKey:       "mail:" + mailRemainderSegment,
+		Staging:        graphfs.NewOverlayBuilder(),
+	})
+	if err != nil {
+		t.Fatalf("SyncMail remainder shard: %v", err)
+	}
+	if result.Stats.Folders != 4 {
+		t.Fatalf("Folders = %d, want 4 including nested child", result.Stats.Folders)
+	}
+	if result.Stats.FoldersDelta != 3 {
+		t.Fatalf("FoldersDelta = %d, want 3 (parent + custom + nested)", result.Stats.FoldersDelta)
+	}
+	if result.Stats.Messages != 2 {
+		t.Fatalf("Messages = %d, want 2", result.Stats.Messages)
+	}
+	got := map[string]bool{}
+	for _, name := range deltaFolders {
+		got[name] = true
+	}
+	for _, want := range []string{"parent", "custom", "nested"} {
+		if !got[want] {
+			t.Fatalf("delta folders = %v, missing %q", deltaFolders, want)
+		}
+	}
+	if len(deltaFolders) != 3 {
+		t.Fatalf("delta folders = %v, want exactly parent/custom/nested", deltaFolders)
+	}
+}
+
 func TestSyncMailRetriesQuotaExceededFolderWithSmallerPage(t *testing.T) {
 	var deltaPageSizes []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		if respondEmptyMailChildFolders(w, r) {
+			return
+		}
 		switch {
 		case strings.HasSuffix(r.URL.Path, "/mailFolders") && !strings.Contains(r.URL.Path, "/messages/"):
 			_, _ = w.Write([]byte(`{"value":[{"id":"folder-junk","displayName":"Junk Email"}]}`))
@@ -261,6 +368,9 @@ func TestSyncMailSkipsFolderWhenQuotaRetryAlsoFails(t *testing.T) {
 	var warnings []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		if respondEmptyMailChildFolders(w, r) {
+			return
+		}
 		switch {
 		case strings.HasSuffix(r.URL.Path, "/mailFolders") && !strings.Contains(r.URL.Path, "/messages/"):
 			_, _ = w.Write([]byte(`{"value":[
@@ -316,6 +426,9 @@ func TestSyncMailProgressReportsMessageCounts(t *testing.T) {
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		if respondEmptyMailChildFolders(w, r) {
+			return
+		}
 		switch {
 		case strings.HasSuffix(r.URL.Path, "/mailFolders") && !strings.Contains(r.URL.Path, "/messages/"):
 			_, _ = w.Write([]byte(`{"value":[` +
@@ -407,6 +520,9 @@ func TestSyncMailWritesFoldersCatalogAndBrowseIndex(t *testing.T) {
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		if respondEmptyMailChildFolders(w, r) {
+			return
+		}
 		switch {
 		case strings.HasSuffix(r.URL.Path, "/mailFolders") && !strings.Contains(r.URL.Path, "/messages/"):
 			_, _ = w.Write([]byte(`{"value":[{"id":"` + folderID + `","displayName":"Inbox"}]}`))
@@ -487,6 +603,9 @@ func TestSyncMailBrowseIndexIncrementalMergeAndDeletion(t *testing.T) {
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		if respondEmptyMailChildFolders(w, r) {
+			return
+		}
 		switch {
 		case strings.HasSuffix(r.URL.Path, "/mailFolders"):
 			_, _ = w.Write([]byte(`{"value":[{"id":"` + folderID + `","displayName":"Inbox"}]}`))
@@ -569,6 +688,9 @@ func TestSyncMailRemovedMessageDeletesAttachmentSubtree(t *testing.T) {
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		if respondEmptyMailChildFolders(w, r) {
+			return
+		}
 		switch {
 		case strings.HasSuffix(r.URL.Path, "/mailFolders"):
 			_, _ = w.Write([]byte(`{"value":[{"id":"` + folderID + `","displayName":"Inbox"}]}`))
@@ -636,6 +758,9 @@ func TestSyncMailUpdatedMessageClearsStaleAttachments(t *testing.T) {
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		if respondEmptyMailChildFolders(w, r) {
+			return
+		}
 		switch {
 		case strings.HasSuffix(r.URL.Path, "/mailFolders"):
 			_, _ = w.Write([]byte(`{"value":[{"id":"` + folderID + `","displayName":"Inbox"}]}`))
@@ -693,6 +818,9 @@ func TestSyncMailMalformedPriorBrowseIndexRecovered(t *testing.T) {
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		if respondEmptyMailChildFolders(w, r) {
+			return
+		}
 		switch {
 		case strings.HasSuffix(r.URL.Path, "/mailFolders"):
 			_, _ = w.Write([]byte(`{"value":[{"id":"` + folderID + `","displayName":"Inbox"}]}`))

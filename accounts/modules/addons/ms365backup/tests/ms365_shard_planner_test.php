@@ -273,6 +273,92 @@ $oneDriveExpanded = $planner->expand(
 );
 assert_true(isset($oneDriveExpanded['drive:drive-od#shard:0']), 'OneDrive still shards on byte threshold');
 
+$remainderSegment = PhysicalKeyHelper::MAIL_REMAINDER_SEGMENT;
+$smallMailUserResource = [
+    'id' => 'user:u-small',
+    'resource_type' => TenantResource::TYPE_USER,
+    'graph_id' => 'u-small',
+    'display_name' => 'Small Mailbox',
+    'meta' => [
+        'size_bytes' => 10 * 1024 * 1024 * 1024,
+    ],
+];
+$smallMailUserJob = new PhysicalBackupJob(
+    'user:u-small',
+    $smallMailUserResource,
+    [['id' => 'user:u-small', 'resource_type' => TenantResource::TYPE_USER]],
+    new BackupScope([BackupScope::MAIL => true]),
+    PhysicalBackupJob::STATUS_RUNNABLE,
+);
+$smallMailExpanded = $planner->expand(
+    ['user:u-small' => $smallMailUserJob],
+    ['user:u-small' => $smallMailUserResource],
+);
+assert_true(
+    count($smallMailExpanded) === 1 && isset($smallMailExpanded['user:u-small']),
+    'below-threshold mailbox stays a single user job',
+);
+
+$largeMailUserResource = [
+    'id' => 'user:u-large',
+    'resource_type' => TenantResource::TYPE_USER,
+    'graph_id' => 'u-large',
+    'display_name' => 'Large Mailbox',
+    'meta' => [
+        'size_bytes' => 200 * 1024 * 1024 * 1024,
+    ],
+];
+$largeMailUserJob = new PhysicalBackupJob(
+    'user:u-large',
+    $largeMailUserResource,
+    [['id' => 'user:u-large', 'resource_type' => TenantResource::TYPE_USER]],
+    new BackupScope([BackupScope::MAIL => true]),
+    PhysicalBackupJob::STATUS_RUNNABLE,
+);
+$largeMailExpanded = $planner->expand(
+    ['user:u-large' => $largeMailUserJob],
+    ['user:u-large' => $largeMailUserResource],
+);
+assert_true(count($largeMailExpanded) === 4, 'large mailbox expands to four mail shards');
+foreach (['inbox', 'sentitems', 'archive', $remainderSegment] as $segment) {
+    $key = 'user:u-large#mail:' . $segment;
+    assert_true(isset($largeMailExpanded[$key]), 'mail shard exists: ' . $segment);
+    assert_true($largeMailExpanded[$key]->shardTotal === 4, 'mail shard total includes remainder: ' . $segment);
+}
+assert_true(
+    ($largeMailExpanded['user:u-large#mail:' . $remainderSegment]->shardIndex ?? -1) === 3,
+    'remainder shard is last',
+);
+
+$opaqueMailUserResource = [
+    'id' => 'user:u-opaque',
+    'resource_type' => TenantResource::TYPE_USER,
+    'graph_id' => 'u-opaque',
+    'display_name' => 'Opaque Folders Mailbox',
+    'meta' => [
+        'size_bytes' => 200 * 1024 * 1024 * 1024,
+        'mail_folders' => [
+            ['id' => 'folder-big-1', 'displayName' => 'Big 1', 'size_bytes' => 120 * 1024 * 1024 * 1024],
+            ['id' => 'folder-small', 'displayName' => 'Small', 'size_bytes' => 1024],
+        ],
+    ],
+];
+$opaqueMailUserJob = new PhysicalBackupJob(
+    'user:u-opaque',
+    $opaqueMailUserResource,
+    [['id' => 'user:u-opaque', 'resource_type' => TenantResource::TYPE_USER]],
+    new BackupScope([BackupScope::MAIL => true]),
+    PhysicalBackupJob::STATUS_RUNNABLE,
+);
+$opaqueMailExpanded = $planner->expand(
+    ['user:u-opaque' => $opaqueMailUserJob],
+    ['user:u-opaque' => $opaqueMailUserResource],
+);
+assert_true(count($opaqueMailExpanded) === 2, 'inventory mail_folders yields one large shard plus remainder');
+assert_true(isset($opaqueMailExpanded['user:u-opaque#mail:folder-big-1']), 'large inventory folder gets dedicated shard');
+assert_true(isset($opaqueMailExpanded['user:u-opaque#mail:' . $remainderSegment]), 'inventory path still emits remainder');
+assert_true(!isset($opaqueMailExpanded['user:u-opaque#mail:folder-small']), 'small inventory folder is not a dedicated shard');
+
 if ($failures > 0) {
     echo "\n{$failures} test(s) failed.\n";
     exit(1);

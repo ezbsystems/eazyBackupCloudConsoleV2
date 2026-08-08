@@ -3,13 +3,21 @@
 **Purpose:** Single handoff document so the next agent knows where work stopped. Update this file at the **end of every session** (or after each meaningful milestone).
 
 **Last updated:** 2026-08-07
-**Module version (ms365backup):** 1.52.64
+**Module version (ms365backup):** 1.52.65
 **Cloudstorage (e3) version:** 2.2.4  
-**Worker version (ms365-backup-worker):** 0.4.43 (Kopia v0.23.1)
+**Worker version (ms365-backup-worker):** 0.4.44 (Kopia v0.23.1)
 
 ---
 
 ## Session log
+
+### 2026-08-07 — Full mailbox sharding + remainder shard (worker 0.4.44, PHP 1.52.65)
+
+- **Problem:** Large-mailbox planner shards only `#mail:inbox|sentitems|archive`; Drafts/Junk/custom/nested folders never backed up. Unsharded mailboxes skipped nested folders (`GET /mailFolders` only).
+- **Fix (PHP):** `ResourceShardPlanner::mailFolderShards` always appends `#mail:__remainder__` (constant `PhysicalKeyHelper::MAIL_REMAINDER_SEGMENT`). Inventory `mail_folders` path shards only folders ≥ threshold + remainder; well-known fallback unchanged + remainder.
+- **Fix (worker):** Recursive `childFolders` discovery; `mailFolderMatchesShard` treats `__remainder__` as all folders except inbox/sentitems/archive (by id or `wellKnownName`).
+- **Tests:** `ms365_shard_planner_test.php` (4 shards, opaque inventory + remainder); Go `TestMailFolderMatchesShardRemainder`, `TestSyncMailRemainderShardSyncsCustomAndNestedFolders`.
+- **Ops:** Hide Rhonda one-off batch `03f37d58-…` from restore picker via `run_type='hidden'` (Job Logs unchanged).
 
 ### 2026-08-07 — Mail shard well-known names skipped all messages (worker 0.4.43, PHP 1.52.64)
 
@@ -19,6 +27,7 @@
 - **Verify:** Unit tests for well-known shard match; re-backup Rhonda after worker roll must show `Messages>0` / `FoldersDelta>=1` on inbox shard.
 - **Deploy:** commit `c92f4975` → `origin/main`; PHP **1.52.64** via `deploy-production.sh`; build job **151** → release **162** / prod release **86** (`sha256 46fb093f…`); rolling deploy job **52** (16/20 on **0.4.43** at verify, remainder draining).
 - **Post-fix (Rhonda batch `03f37d58-…` on worker 9025 / 0.4.43):** inbox `#mail:inbox` **Messages=118** `FoldersDelta=1` (was 0/0); sentitems **242**/1; archive **0**/1 (empty folder, matched). Browse Inbox returns message files with subjects.
+- **Cleanup:** Removed session `661d13` PHP claim/browse NDJSON probes and leftover restore-browse `dc344d` instrumentation after operator confirmation.
 
 ### 2026-08-07 — Ruben cold-repo open misclassified as upload stall (worker 0.4.40→0.4.41)
 

@@ -68,13 +68,21 @@ type MailStats struct {
 
 var mailFolderPageSizes = []string{"100", "50", "25"}
 
+const mailRemainderSegment = "__remainder__"
+
+var mailWellKnownParallelShards = []string{"inbox", "sentitems", "archive"}
+
 func paginateMailFolders(ctx context.Context, client *graph.Client, opts MailSyncOptions) ([]map[string]any, error) {
+	return paginateMailFolderCollection(ctx, client, opts, fmt.Sprintf("/users/%s/mailFolders", opts.UserID))
+}
+
+func paginateMailFolderCollection(ctx context.Context, client *graph.Client, opts MailSyncOptions, path string) ([]map[string]any, error) {
 	var last []map[string]any
 	for i, top := range mailFolderPageSizes {
 		outcome := &graph.PaginationOutcome{}
 		monitor := graph.NewPaginationMonitor("mail:folders", graph.DuplicatePageDetectOnly, nil)
 		monitor.SoftStopRepeatedNextLink = true
-		folders, err := client.PaginateOpts(ctx, fmt.Sprintf("/users/%s/mailFolders", opts.UserID), map[string]string{"$top": top}, &graph.PaginateOptions{
+		folders, err := client.PaginateOpts(ctx, path, map[string]string{"$top": top}, &graph.PaginateOptions{
 			Monitor:     monitor,
 			Outcome:     outcome,
 			TrackDupIDs: true,
@@ -93,6 +101,46 @@ func paginateMailFolders(ctx context.Context, client *graph.Client, opts MailSyn
 	return last, nil
 }
 
+func paginateMailFoldersRecursive(ctx context.Context, client *graph.Client, opts MailSyncOptions) ([]map[string]any, error) {
+	topLevel, err := paginateMailFolders(ctx, client, opts)
+	if err != nil {
+		return nil, err
+	}
+
+	seen := map[string]struct{}{}
+	var all []map[string]any
+	var walk func([]map[string]any) error
+	walk = func(folders []map[string]any) error {
+		for _, folder := range folders {
+			folderID, _ := folder["id"].(string)
+			if folderID == "" {
+				continue
+			}
+			if _, ok := seen[folderID]; ok {
+				continue
+			}
+			seen[folderID] = struct{}{}
+			all = append(all, folder)
+
+			childPath := fmt.Sprintf("/users/%s/mailFolders/%s/childFolders", opts.UserID, folderID)
+			children, err := paginateMailFolderCollection(ctx, client, opts, childPath)
+			if err != nil {
+				return err
+			}
+			if len(children) > 0 {
+				if err := walk(children); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	}
+	if err := walk(topLevel); err != nil {
+		return nil, err
+	}
+	return all, nil
+}
+
 func SyncMail(ctx context.Context, client *graph.Client, opts MailSyncOptions) (*MailSyncResult, error) {
 	if opts.Parallel <= 0 {
 		opts.Parallel = 16
@@ -107,7 +155,7 @@ func SyncMail(ctx context.Context, client *graph.Client, opts MailSyncOptions) (
 		return nil, fmt.Errorf("mail sync requires overlay builder")
 	}
 
-	folders, err := paginateMailFolders(ctx, client, opts)
+	folders, err := paginateMailFoldersRecursive(ctx, client, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -377,7 +425,25 @@ func SyncMail(ctx context.Context, client *graph.Client, opts MailSyncOptions) (
 
 // mailFolderMatchesShard accepts either the Graph folder id or a well-known
 // name (inbox/sentitems/archive) used by ResourceShardPlanner fallbacks.
+// The reserved __remainder__ segment matches every folder not claimed by the
+// parallel well-known shards.
 func mailFolderMatchesShard(folder map[string]any, expected string) bool {
+	expected = strings.TrimSpace(expected)
+	if expected == "" {
+		return false
+	}
+	if strings.EqualFold(expected, mailRemainderSegment) {
+		for _, wellKnown := range mailWellKnownParallelShards {
+			if mailFolderDirectMatch(folder, wellKnown) {
+				return false
+			}
+		}
+		return true
+	}
+	return mailFolderDirectMatch(folder, expected)
+}
+
+func mailFolderDirectMatch(folder map[string]any, expected string) bool {
 	expected = strings.TrimSpace(expected)
 	if expected == "" {
 		return false

@@ -16,6 +16,9 @@ final class PhysicalKeyHelper
     public const SHARD_MARKER = '#shard:';
     public const MAIL_SHARD_MARKER = '#mail:';
 
+    /** Reserved mail shard segment: every folder not claimed by parallel well-known shards. */
+    public const MAIL_REMAINDER_SEGMENT = '__remainder__';
+
     public static function baseKey(string $physicalKey): string
     {
         $physicalKey = trim($physicalKey);

@@ -505,10 +505,12 @@ final class ResourceShardPlanner
             return [];
         }
 
+        $hasInventoryFolders = is_array($meta['mail_folders'] ?? null) && $meta['mail_folders'] !== [];
+
         $largeFolders = array_values(array_filter(
             $mailFolders,
             static fn (array $f) => ($f['size_bytes'] ?? 0) >= $threshold
-                || ($sizeBytes >= $threshold && count($mailFolders) > 1),
+                || (!$hasInventoryFolders && $sizeBytes >= $threshold && count($mailFolders) > 1),
         ));
 
         if ($largeFolders === [] && $sizeBytes < $threshold) {
@@ -519,14 +521,23 @@ final class ResourceShardPlanner
             $largeFolders = $mailFolders;
         }
 
-        $out = [];
-        $total = count($largeFolders);
-        foreach ($largeFolders as $index => $folder) {
+        $segments = [];
+        foreach ($largeFolders as $folder) {
             $folderId = (string) ($folder['id'] ?? '');
             if ($folderId === '') {
                 continue;
             }
-            $shardKey = PhysicalKeyHelper::mailFolderKey($job->physicalKey, $folderId);
+            $segments[] = $folderId;
+        }
+        if ($segments === []) {
+            return [];
+        }
+        $segments[] = PhysicalKeyHelper::MAIL_REMAINDER_SEGMENT;
+
+        $out = [];
+        $total = count($segments);
+        foreach ($segments as $index => $segment) {
+            $shardKey = PhysicalKeyHelper::mailFolderKey($job->physicalKey, $segment);
             $out[] = new PhysicalBackupJob(
                 $shardKey,
                 $job->primaryResource,
