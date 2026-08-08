@@ -143,28 +143,6 @@ final class RestoreTreeBrowseService
 
         self::writeCache($cacheKey, $result);
 
-        // #region agent log
-        if (str_contains($path, '/mail') && (int) ($result['total_count'] ?? 0) === 0) {
-            @file_put_contents(
-                '/var/www/eazybackup.ca/.cursor/debug-661d13.log',
-                json_encode([
-                    'sessionId' => '661d13',
-                    'hypothesisId' => 'H2',
-                    'location' => 'RestoreTreeBrowseService.php:list',
-                    'message' => 'empty mail browse result',
-                    'data' => [
-                        'path_tail' => substr($path, max(0, strlen($path) - 80)),
-                        'manifest_id' => $manifestId,
-                        'child_run_id' => is_array($childRun) ? (string) ($childRun['id'] ?? '') : '',
-                        'batch_run_id' => $batchRunId,
-                    ],
-                    'timestamp' => (int) round(microtime(true) * 1000),
-                ], JSON_UNESCAPED_SLASHES) . "\n",
-                FILE_APPEND | LOCK_EX
-            );
-        }
-        // #endregion
-
         return $result;
     }
 

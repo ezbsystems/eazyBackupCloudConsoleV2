@@ -390,9 +390,6 @@
                         }
                     });
                 }
-                // #region agent log
-                fetch('http://127.0.0.1:7675/ingest/9183d0cd-775c-444c-9a41-6e97e9e7d4d0',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'dc344d'},body:JSON.stringify({sessionId:'dc344d',hypothesisId:'H3',location:'ms365_restore_wizard.js:filteredTreeNodes',message:'filter keep set',data:{q,total:this.treeNodes.length,keep:keep.size},timestamp:Date.now()})}).catch(()=>{});
-                // #endregion
                 return this.treeNodes.filter((n) => keep.has(n.key));
             },
 
