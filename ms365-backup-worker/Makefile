@@ -1,13 +1,17 @@
 BINARY=ms365-backup-worker
-VERSION?=0.3.26
+VERSION?=0.4.45
 LDFLAGS=-ldflags "-X github.com/eazybackup/ms365-backup-worker/internal/version.Version=$(VERSION)"
+KOPIA_PREPARE=./scripts/prepare-kopia.sh
 
-.PHONY: build test tidy licenses
+.PHONY: build test tidy licenses prepare-kopia
 
-build:
+prepare-kopia:
+	$(KOPIA_PREPARE)
+
+build: prepare-kopia
 	go build $(LDFLAGS) -o bin/$(BINARY) ./cmd/worker
 
-test:
+test: prepare-kopia
 	go test ./...
 
 tidy:

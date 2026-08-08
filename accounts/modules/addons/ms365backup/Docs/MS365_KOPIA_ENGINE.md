@@ -28,6 +28,12 @@ One repository per `e3ms365-*` bucket (`repository_id` = `ms365:{bucket}`), regi
 
 Run rows store `manifest_id`, `bytes_hashed`, `bytes_uploaded`, `engine_mode` (`kopia`).
 
+### Patched Kopia (cold index fetch)
+
+Worker builds replace `github.com/kopia/kopia v0.23.1` with a patched tree under `ms365-backup-worker/third_party/kopia` (see `third_party/kopia-patches/`). Patches raise index blob download parallelism from **5 → 32** and align S3 HTTP `MaxIdleConnsPerHost` for RGW keep-alive reuse during cold `repo_open`. Regenerate with `./scripts/prepare-kopia.sh` (also run automatically by `make build` / fleet `go_test` / `go_build`).
+
+Cold opens log `kopia repo cold open repo=… index_blobs before->after repo_open_ms=…` from the worker pool when new index files are downloaded.
+
 ## Graph sync performance
 
 | Knob | Default | Purpose |

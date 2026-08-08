@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -98,6 +99,8 @@ func (p *Pool) Acquire(ctx context.Context, storage StorageOptions, maxPackSizeM
 			rep repo.Repository
 			err error
 		}
+		openStart := time.Now()
+		indexBlobsBefore := p.IndexBlobCount(storage)
 		done := make(chan openResult, 1)
 		go func() {
 			rep, err := repositoryOpener(ctx, openRepoOptions{
@@ -122,6 +125,12 @@ func (p *Pool) Acquire(ctx context.Context, storage StorageOptions, maxPackSizeM
 			closeOpening()
 			if r.err != nil {
 				return nil, nil, r.err
+			}
+			indexBlobsAfter := p.IndexBlobCount(storage)
+			if indexBlobsAfter > indexBlobsBefore {
+				log.Printf("kopia repo cold open repo=%s index_blobs %d->%d repo_open_ms=%d",
+					filepath.Base(storage.PersistentRepoConfigPath(p.cache.RepoConfigDir)),
+					indexBlobsBefore, indexBlobsAfter, time.Since(openStart).Milliseconds())
 			}
 			p.mu.Lock()
 			if entry, ok := p.repos[key]; ok && entry != nil {

@@ -90,6 +90,11 @@ final class BuildRunner
                         $summary = $rc === 0 ? 'synced ' . $gitRef : 'git failed';
                         break;
                     case 'go_test':
+                        $rc = self::prepareKopia($runner, $logPath, $repoPath);
+                        if ($rc !== 0) {
+                            $summary = 'prepare-kopia failed';
+                            break;
+                        }
                         $rc = $runner->run(
                             [$goBin, 'test', './...'],
                             $logPath,
@@ -99,6 +104,11 @@ final class BuildRunner
                         $summary = $rc === 0 ? 'tests passed' : 'tests failed';
                         break;
                     case 'go_build':
+                        $rc = self::prepareKopia($runner, $logPath, $repoPath);
+                        if ($rc !== 0) {
+                            $summary = 'prepare-kopia failed';
+                            break;
+                        }
                         $ldflags = '-X github.com/eazybackup/ms365-backup-worker/internal/version.Version=' . $version;
                         $rc = $runner->run(
                             [$goBin, 'build', '-ldflags', $ldflags, '-o', $buildOut, './cmd/worker'],
@@ -230,6 +240,21 @@ final class BuildRunner
         $env['GOTOOLCHAIN'] = 'local';
 
         return $env;
+    }
+
+    private static function prepareKopia(ProcRunner $runner, string $logPath, string $repoPath): int
+    {
+        $script = $repoPath . '/scripts/prepare-kopia.sh';
+        if (!is_file($script)) {
+            file_put_contents($logPath, "[error] missing {$script}\n", FILE_APPEND);
+            return 1;
+        }
+        return $runner->run(
+            ['bash', $script],
+            $logPath,
+            $repoPath,
+            self::goEnv($repoPath)
+        );
     }
 
     /** @return array<string, string> */

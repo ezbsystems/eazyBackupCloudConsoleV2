@@ -1,0 +1,17 @@
+--- a/repo/blob/s3/s3_storage.go
++++ b/repo/blob/s3/s3_storage.go
+@@ -301,6 +301,14 @@ func (s *s3Storage) DisplayName() string {
+ func getCustomTransport(opt *Options) (*http.Transport, error) {
+ 	transport := http.DefaultTransport.(*http.Transport).Clone() //nolint:forcetypeassert
+ 
++	// eazybackup: align HTTP keep-alive pool with content parallelFetches so cold
++	// index blob downloads reuse connections to RGW instead of default MaxIdleConnsPerHost=2.
++	const indexFetchParallelism = 32
++	transport.MaxIdleConnsPerHost = indexFetchParallelism
++	if transport.MaxIdleConns < indexFetchParallelism*2 {
++		transport.MaxIdleConns = indexFetchParallelism * 2
++	}
++
+ 	if opt.DoNotVerifyTLS {
+ 		//nolint:gosec
+ 		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}

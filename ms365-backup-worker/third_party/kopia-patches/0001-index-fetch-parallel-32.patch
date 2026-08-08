@@ -1,0 +1,11 @@
+--- a/repo/content/content_manager.go
++++ b/repo/content/content_manager.go
+@@ -54,7 +54,7 @@ var PackBlobIDPrefixes = []blob.ID{
+ )
+ 
+ const (
+-	parallelFetches          = 5                // number of parallel reads goroutines
++	parallelFetches          = 32               // number of parallel reads goroutines (eazybackup: cold index fetch)
+ 	flushPackIndexTimeout    = 10 * time.Minute // time after which all pending indexes are flushed
+ 	defaultMinPreambleLength = 32
+ 	defaultMaxPreambleLength = 32
