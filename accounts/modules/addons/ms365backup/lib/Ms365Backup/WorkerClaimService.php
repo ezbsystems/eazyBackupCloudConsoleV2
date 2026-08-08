@@ -1250,6 +1250,40 @@ final class WorkerClaimService
             ];
         }
 
+        // #region agent log
+        try {
+            $paths = [];
+            foreach ($restoreItems as $ri) {
+                $paths[] = [
+                    'type' => (string) ($ri['type'] ?? ''),
+                    'path' => (string) ($ri['path'] ?? ''),
+                    'path_prefix' => (string) ($ri['path_prefix'] ?? ''),
+                    'source_path' => (string) ($ri['source_path'] ?? ''),
+                    'child_run_id' => (string) ($ri['child_run_id'] ?? ''),
+                ];
+            }
+            @file_put_contents(
+                '/var/www/eazybackup.ca/.cursor/debug-661d13.log',
+                json_encode([
+                    'sessionId' => '661d13',
+                    'hypothesisId' => 'H1',
+                    'location' => 'WorkerClaimService.php:restore_items',
+                    'message' => 'restore claim selection items',
+                    'data' => [
+                        'run_id' => (string) ($run['id'] ?? ''),
+                        'restore_mode' => (string) ($selection['restore_mode'] ?? $run['restore_mode'] ?? ''),
+                        'item_count' => count($restoreItems),
+                        'items' => $paths,
+                    ],
+                    'timestamp' => (int) round(microtime(true) * 1000),
+                ], JSON_UNESCAPED_SLASHES) . "\n",
+                FILE_APPEND | LOCK_EX
+            );
+        } catch (\Throwable $e) {
+            // ignore debug log failures
+        }
+        // #endregion
+
         $restoreTargets = [];
         foreach ($targets as $target) {
             if (!is_array($target)) {

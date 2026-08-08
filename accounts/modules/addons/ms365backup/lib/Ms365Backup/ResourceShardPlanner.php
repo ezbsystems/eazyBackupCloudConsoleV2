@@ -493,6 +493,8 @@ final class ResourceShardPlanner
         }
 
         if ($mailFolders === [] && $sizeBytes >= $threshold) {
+            // Well-known Graph folder names (not opaque ids). Worker SyncMail must
+            // match these via mailFolder.wellKnownName as well as folder id.
             $defaultFolders = ['inbox', 'sentitems', 'archive'];
             foreach ($defaultFolders as $folderId) {
                 $mailFolders[] = ['id' => $folderId, 'size_bytes' => (int) floor($sizeBytes / count($defaultFolders))];

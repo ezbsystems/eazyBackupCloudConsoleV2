@@ -144,6 +144,75 @@ func TestSyncMailKeepsUniqueFoldersAfterFinalRepeatedNextLink(t *testing.T) {
 	}
 }
 
+func TestSyncMailWellKnownShardSegmentMatchesFolder(t *testing.T) {
+	var deltaFolders []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/mailFolders") && !strings.Contains(r.URL.Path, "/messages/"):
+			_, _ = w.Write([]byte(`{"value":[
+				{"id":"AQMk-inbox-opaque","displayName":"Inbox","wellKnownName":"inbox"},
+				{"id":"AQMk-sent-opaque","displayName":"Sent Items","wellKnownName":"sentitems"},
+				{"id":"AQMk-custom","displayName":"Projects"}
+			]}`))
+		case strings.Contains(r.URL.Path, "/mailFolders/AQMk-inbox-opaque/messages/delta"):
+			deltaFolders = append(deltaFolders, "inbox")
+			_, _ = w.Write([]byte(`{"value":[{"id":"msg-1","subject":"Hello","body":{"content":"hi"}}],"@odata.deltaLink":"https://graph.test/inbox-done"}`))
+		case strings.Contains(r.URL.Path, "/mailFolders/AQMk-sent-opaque/messages/delta"):
+			deltaFolders = append(deltaFolders, "sent")
+			_, _ = w.Write([]byte(`{"value":[],"@odata.deltaLink":"https://graph.test/sent-done"}`))
+		case strings.Contains(r.URL.Path, "/mailFolders/AQMk-custom/messages/delta"):
+			deltaFolders = append(deltaFolders, "custom")
+			_, _ = w.Write([]byte(`{"value":[],"@odata.deltaLink":"https://graph.test/custom-done"}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	client := graph.NewTestClient(srv.URL, graph.ClientOptions{MaxRetries: 0, MaxConcurrency: 2})
+	result, err := SyncMail(context.Background(), client, MailSyncOptions{
+		AzureTenantID:  "tenant-1",
+		UserID:         "user-1",
+		Parallel:       2,
+		FolderParallel: 2,
+		ShardKey:       "mail:inbox",
+		Staging:        graphfs.NewOverlayBuilder(),
+	})
+	if err != nil {
+		t.Fatalf("SyncMail well-known shard: %v", err)
+	}
+	if result.Stats.Folders != 3 {
+		t.Fatalf("Folders = %d, want 3 catalogued", result.Stats.Folders)
+	}
+	if result.Stats.FoldersDelta != 1 {
+		t.Fatalf("FoldersDelta = %d, want 1 (inbox shard only)", result.Stats.FoldersDelta)
+	}
+	if result.Stats.Messages != 1 {
+		t.Fatalf("Messages = %d, want 1", result.Stats.Messages)
+	}
+	if strings.Join(deltaFolders, ",") != "inbox" {
+		t.Fatalf("delta folders = %v, want [inbox] only (not opaque-id mismatch skip-all)", deltaFolders)
+	}
+}
+
+func TestMailFolderMatchesShardWellKnownAndID(t *testing.T) {
+	folder := map[string]any{
+		"id":            "AQMk-opaque-id",
+		"displayName":   "Inbox",
+		"wellKnownName": "inbox",
+	}
+	if !mailFolderMatchesShard(folder, "inbox") {
+		t.Fatal("expected wellKnownName inbox to match shard segment inbox")
+	}
+	if !mailFolderMatchesShard(folder, "AQMk-opaque-id") {
+		t.Fatal("expected Graph folder id to match")
+	}
+	if mailFolderMatchesShard(folder, "sentitems") {
+		t.Fatal("sentitems must not match inbox folder")
+	}
+}
+
 func TestSyncMailRetriesQuotaExceededFolderWithSmallerPage(t *testing.T) {
 	var deltaPageSizes []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

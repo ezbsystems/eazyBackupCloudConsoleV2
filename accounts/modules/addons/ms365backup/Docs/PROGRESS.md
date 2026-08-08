@@ -3,13 +3,20 @@
 **Purpose:** Single handoff document so the next agent knows where work stopped. Update this file at the **end of every session** (or after each meaningful milestone).
 
 **Last updated:** 2026-08-07
-**Module version (ms365backup):** 1.52.63
+**Module version (ms365backup):** 1.52.64
 **Cloudstorage (e3) version:** 2.2.4  
-**Worker version (ms365-backup-worker):** 0.4.42 (Kopia v0.23.1)
+**Worker version (ms365-backup-worker):** 0.4.43 (Kopia v0.23.1)
 
 ---
 
 ## Session log
+
+### 2026-08-07 — Mail shard well-known names skipped all messages (worker 0.4.43, PHP 1.52.64)
+
+- **Prod case:** Restore batch `416251d6-…` (Spirit YEG / Rhonda) failed archive export with `no exportable files found in selection`. Client had selected `…/mail/`; expand showed folders but no messages.
+- **Root cause:** Large-mailbox planner fallback shards `#mail:inbox|sentitems|archive` (well-known names). Worker SyncMail compared shard segment only to Graph folder **ids** (`AQMk…`) → `FoldersDelta:0` / `Messages:0` on all such shards (fleet-wide).
+- **Fix:** Match shard segment to `wellKnownName` as well as folder id; warn when a mail shard matches no folders. Debug NDJSON retained in claim/browse paths for session `661d13`.
+- **Verify:** Unit tests for well-known shard match; re-backup Rhonda after worker roll must show `Messages>0` / `FoldersDelta>=1` on inbox shard.
 
 ### 2026-08-07 — Ruben cold-repo open misclassified as upload stall (worker 0.4.40→0.4.41)
 

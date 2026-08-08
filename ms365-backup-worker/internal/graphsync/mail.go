@@ -147,6 +147,11 @@ func SyncMail(ctx context.Context, client *graph.Client, opts MailSyncOptions) (
 	g, gctx := errgroup.WithContext(ctx)
 	g.SetLimit(opts.FolderParallel)
 	quotaRetrySlot := make(chan struct{}, 1)
+	var shardMatched atomic.Bool
+	mailShardSegment := ""
+	if opts.ShardKey != "" && stringsHasPrefix(opts.ShardKey, "mail:") {
+		mailShardSegment = strings.TrimPrefix(opts.ShardKey, "mail:")
+	}
 
 	for _, folder := range folders {
 		folder := folder
@@ -161,11 +166,11 @@ func SyncMail(ctx context.Context, client *graph.Client, opts MailSyncOptions) (
 			opts.Staging.PutJSON(metaPath, folderMeta, graphfsModTime(folder["lastModifiedDateTime"]))
 
 			deltaKey := DeltaKeyForShard(opts.ShardKey)
-			if opts.ShardKey != "" && stringsHasPrefix(opts.ShardKey, "mail:") {
-				expectedFolder := strings.TrimPrefix(opts.ShardKey, "mail:")
-				if folderID != expectedFolder {
+			if mailShardSegment != "" {
+				if !mailFolderMatchesShard(folder, mailShardSegment) {
 					return nil
 				}
+				shardMatched.Store(true)
 			}
 
 			deltaPath := fmt.Sprintf("/users/%s/mailFolders/%s/messages/delta", opts.UserID, folderID)
@@ -351,6 +356,15 @@ func SyncMail(ctx context.Context, client *graph.Client, opts MailSyncOptions) (
 	}
 	emitProgress()
 
+	if mailShardSegment != "" && !shardMatched.Load() && stats.Folders > 0 {
+		if opts.Log != nil {
+			opts.Log("warning", fmt.Sprintf(
+				"mail shard segment %q matched no folders (id/wellKnownName); messages will be empty until shard key resolves",
+				mailShardSegment,
+			))
+		}
+	}
+
 	stats.Graph429Hits = client.ThrottleHits()
 	return &MailSyncResult{
 		Stats:       stats,
@@ -359,6 +373,24 @@ func SyncMail(ctx context.Context, client *graph.Client, opts MailSyncOptions) (
 		ItemsDone:   stats.Messages,
 		BytesTotal:  bytesTotal,
 	}, nil
+}
+
+// mailFolderMatchesShard accepts either the Graph folder id or a well-known
+// name (inbox/sentitems/archive) used by ResourceShardPlanner fallbacks.
+func mailFolderMatchesShard(folder map[string]any, expected string) bool {
+	expected = strings.TrimSpace(expected)
+	if expected == "" {
+		return false
+	}
+	folderID, _ := folder["id"].(string)
+	if folderID != "" && (folderID == expected || strings.EqualFold(folderID, expected)) {
+		return true
+	}
+	wellKnown, _ := folder["wellKnownName"].(string)
+	if wellKnown != "" && strings.EqualFold(wellKnown, expected) {
+		return true
+	}
+	return false
 }
 
 func syncMailAttachments(ctx context.Context, client *graph.Client, opts MailSyncOptions, folderID, msgID string, item map[string]any, mu *sync.Mutex, stats *MailStats, bytesTotal *int64, onStored func()) error {
