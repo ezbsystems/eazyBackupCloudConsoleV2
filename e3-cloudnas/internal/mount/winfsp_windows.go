@@ -4,9 +4,11 @@ package mount
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -113,6 +115,12 @@ func (m *winFspMounter) Mount(ctx context.Context, req api.MountRequest) error {
 		return fmt.Errorf("create Ceph S3 filesystem: %w", err)
 	}
 	vfsOpt := vfsOptions(req)
+	cloudNASDebugLog("H2", "Mount", letter, map[string]any{
+		"cacheMode":    req.CacheMode,
+		"vfsCacheMode": vfsOpt.CacheMode.String(),
+		"readOnly":     req.ReadOnly,
+		"bucket":       req.Bucket,
+	})
 	vfsInstance := vfs.New(remote, &vfsOpt)
 	fsys := newRcloneFileSystem(vfsInstance)
 	host := fuse.NewFileSystemHost(fsys)
@@ -332,13 +340,19 @@ func (f *rcloneFileSystem) Statfs(_ string, stat *fuse.Statfs_t) int {
 func (f *rcloneFileSystem) Open(path string, flags int) (int, uint64) {
 	handle, err := f.vfs.OpenFile(path, fuseFlags(flags), 0o777)
 	if err != nil {
-		return translateVFSError(err), unsetHandle
+		errc := translateVFSError(err)
+		cloudNASDebugLog("H3", "Open", path, map[string]any{"flags": flags, "errc": errc, "err": err.Error()})
+		return errc, unsetHandle
 	}
 	return 0, f.openHandle(handle)
 }
 
-func (f *rcloneFileSystem) Create(path string, flags int, _ uint32) (int, uint64) {
-	return f.Open(path, flags|fuse.O_CREAT)
+func (f *rcloneFileSystem) Create(path string, flags int, mode uint32) (int, uint64) {
+	errc, fh := f.Open(path, flags|fuse.O_CREAT)
+	if errc != 0 {
+		cloudNASDebugLog("H3", "Create", path, map[string]any{"flags": flags, "mode": mode, "errc": errc})
+	}
+	return errc, fh
 }
 
 func (f *rcloneFileSystem) Read(_ string, buffer []byte, offset int64, handleID uint64) int {
@@ -348,7 +362,9 @@ func (f *rcloneFileSystem) Read(_ string, buffer []byte, offset int64, handleID 
 	}
 	n, err := handle.ReadAt(buffer, offset)
 	if err != nil && !errors.Is(err, io.EOF) {
-		return translateVFSError(err)
+		errc = translateVFSError(err)
+		cloudNASDebugLog("H4", "Read", handle.Node().Path(), map[string]any{"offset": offset, "errc": errc, "err": err.Error()})
+		return errc
 	}
 	return n
 }
@@ -356,11 +372,16 @@ func (f *rcloneFileSystem) Read(_ string, buffer []byte, offset int64, handleID 
 func (f *rcloneFileSystem) Write(_ string, buffer []byte, offset int64, handleID uint64) int {
 	handle, errc := f.getHandle(handleID)
 	if errc != 0 {
+		cloudNASDebugLog("H3", "Write", "", map[string]any{"handleID": handleID, "errc": errc})
 		return errc
 	}
 	n, err := handle.WriteAt(buffer, offset)
 	if err != nil {
-		return translateVFSError(err)
+		errc = translateVFSError(err)
+		cloudNASDebugLog("H3", "Write", handle.Node().Path(), map[string]any{
+			"offset": offset, "len": len(buffer), "n": n, "errc": errc, "err": err.Error(),
+		})
+		return errc
 	}
 	return n
 }
@@ -370,7 +391,12 @@ func (f *rcloneFileSystem) Flush(_ string, handleID uint64) int {
 	if errc != 0 {
 		return errc
 	}
-	return translateVFSError(handle.Flush())
+	if err := handle.Flush(); err != nil {
+		errc = translateVFSError(err)
+		cloudNASDebugLog("H3", "Flush", handle.Node().Path(), map[string]any{"errc": errc, "err": err.Error()})
+		return errc
+	}
+	return 0
 }
 
 func (f *rcloneFileSystem) Release(_ string, handleID uint64) int {
@@ -387,13 +413,75 @@ func (f *rcloneFileSystem) Truncate(path string, size int64, handleID uint64) in
 		if errc != 0 {
 			return errc
 		}
-		return translateVFSError(handle.Truncate(size))
+		if err := handle.Truncate(size); err != nil {
+			errc = translateVFSError(err)
+			cloudNASDebugLog("H3", "Truncate", path, map[string]any{"size": size, "errc": errc, "err": err.Error()})
+			return errc
+		}
+		return 0
 	}
 	node, err := f.vfs.Stat(path)
 	if err != nil {
 		return translateVFSError(err)
 	}
-	return translateVFSError(node.Truncate(size))
+	if err := node.Truncate(size); err != nil {
+		errc := translateVFSError(err)
+		cloudNASDebugLog("H3", "Truncate", path, map[string]any{"size": size, "errc": errc, "err": err.Error()})
+		return errc
+	}
+	return 0
+}
+
+// Chmod is a no-op (S3 has no POSIX modes). Returning -ENOSYS makes many
+// Windows apps report a generic IO error after Explorer-style creates succeed.
+func (f *rcloneFileSystem) Chmod(path string, mode uint32) int {
+	cloudNASDebugLog("H1", "Chmod", path, map[string]any{"mode": mode, "errc": 0})
+	return 0
+}
+
+// Chown is a no-op for the same reason as Chmod.
+func (f *rcloneFileSystem) Chown(path string, uid uint32, gid uint32) int {
+	return 0
+}
+
+// Access is a no-op; permission checks are enforced by S3 credentials.
+func (f *rcloneFileSystem) Access(path string, mask uint32) int {
+	return 0
+}
+
+var invalidDateCutoff = time.Date(1601, 1, 2, 0, 0, 0, 0, time.UTC)
+
+// Utimens maps Windows SetFileTime onto VFS SetModTime when possible.
+func (f *rcloneFileSystem) Utimens(path string, tmsp []fuse.Timespec) int {
+	node, errc := f.node(path, unsetHandle)
+	if errc != 0 {
+		cloudNASDebugLog("H1", "Utimens", path, map[string]any{"errc": errc})
+		return errc
+	}
+	if len(tmsp) < 2 {
+		return 0
+	}
+	t := tmsp[1].Time()
+	if t.Before(invalidDateCutoff) {
+		return 0
+	}
+	if err := node.SetModTime(t); err != nil {
+		errc = translateVFSError(err)
+		cloudNASDebugLog("H1", "Utimens", path, map[string]any{"errc": errc, "err": err.Error()})
+		return errc
+	}
+	return 0
+}
+
+// Fsync is a no-op for rclone VFS (uploads happen on Flush/Release).
+func (f *rcloneFileSystem) Fsync(path string, _ bool, handleID uint64) int {
+	cloudNASDebugLog("H1", "Fsync", path, map[string]any{"handleID": handleID, "errc": 0})
+	return 0
+}
+
+// Fsyncdir is a no-op for rclone VFS.
+func (f *rcloneFileSystem) Fsyncdir(path string, _ bool, _ uint64) int {
+	return 0
 }
 
 func (f *rcloneFileSystem) Mkdir(path string, _ uint32) int {
@@ -515,6 +603,45 @@ func translateVFSError(err error) int {
 	default:
 		return -fuse.EIO
 	}
+}
+
+// cloudNASDebugLog writes compact NDJSON diagnostics for mount IO failures.
+// Kept tiny and best-effort; never blocks the FUSE path on log errors.
+func cloudNASDebugLog(hypothesisID, op, path string, data map[string]any) {
+	payload := map[string]any{
+		"sessionId":    "acfd10",
+		"hypothesisId": hypothesisID,
+		"location":     "winfsp_windows.go:" + op,
+		"message":      op,
+		"data":         data,
+		"path":         path,
+		"timestamp":    time.Now().UnixMilli(),
+		"runId":        "cloudnas-io",
+	}
+	if path != "" {
+		if data == nil {
+			data = map[string]any{}
+		}
+		data["path"] = path
+		payload["data"] = data
+	}
+	line, err := json.Marshal(payload)
+	if err != nil {
+		return
+	}
+	log.Printf("cloudnas-debug %s", string(line))
+	// Also append beside the normal sidecar log when ProgramData is available.
+	programData := os.Getenv("ProgramData")
+	if programData == "" {
+		return
+	}
+	logPath := filepath.Join(programData, "E3Backup", "logs", "cloudnas-debug.ndjson")
+	f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	_, _ = f.Write(append(line, '\n'))
 }
 
 var _ Mounter = (*winFspMounter)(nil)

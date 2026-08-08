@@ -16,7 +16,7 @@ import (
 	"github.com/ezbsystems/e3-cloudnas/internal/mount"
 )
 
-const version = "0.1.0-dev"
+const version = "0.1.1-iofix"
 
 func main() {
 	programData := flag.String("program-data", os.Getenv("ProgramData"), "ProgramData root (defaults to ProgramData env)")
