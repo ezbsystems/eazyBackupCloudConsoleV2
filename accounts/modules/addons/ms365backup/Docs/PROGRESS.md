@@ -18,6 +18,7 @@
 - **Fix (worker):** Recursive `childFolders` discovery; `mailFolderMatchesShard` treats `__remainder__` as all folders except inbox/sentitems/archive (by id or `wellKnownName`).
 - **Tests:** `ms365_shard_planner_test.php` (4 shards, opaque inventory + remainder); Go `TestMailFolderMatchesShardRemainder`, `TestSyncMailRemainderShardSyncsCustomAndNestedFolders`.
 - **Ops:** Hide Rhonda one-off batch `03f37d58-…` from restore picker via `run_type='hidden'` (Job Logs unchanged).
+- **Deploy:** commit `28e009c9` → `origin/main`; PHP **1.52.65** rsynced to prod; build job **152** → release **163** / prod release **87** (`sha256 49df5034…`); dev rolling deploy job **107** **4/4** on **0.4.44**; prod rolling deploy job **53** in progress (10/20 nodes on **0.4.44** at verify). Prod planner for Rhonda mailbox now emits 4 shards incl. `#mail:__remainder__`.
 
 ### 2026-08-07 — Mail shard well-known names skipped all messages (worker 0.4.43, PHP 1.52.64)
 
