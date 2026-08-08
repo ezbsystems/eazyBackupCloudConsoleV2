@@ -46,7 +46,7 @@ Name: "autorun_tray"; Description: "Run tray helper at login (recommended)"; Fla
 Name: "start_tray_now"; Description: "Start tray helper after install"; Flags: checkedonce
 Name: "desktopicon"; Description: "Create a desktop shortcut"; Flags: checkedonce
 #ifdef IncludeCloudNAS
-Name: "cloudnas"; Description: "Install Cloud NAS (maps cloud buckets as drives)"; Flags: checkedonce
+Name: "cloudnas"; Description: "Install Cloud NAS (maps cloud buckets as drives)"; Flags: checked
 #endif
 
 [Dirs]
@@ -68,7 +68,10 @@ Source: "..\THIRD_PARTY_LICENSES.txt"; DestDir: "{app}"; Flags: ignoreversion
 ; when WindowsStage has supplied both required build artifacts.
 Source: "{#CloudNASSourceDir}\bin\e3-cloudnas.exe"; DestDir: "{autopf}\E3Backup\CloudNAS"; Flags: ignoreversion; Tasks: cloudnas
 Source: "{#CloudNASSourceDir}\LICENSE"; DestDir: "{autopf}\E3Backup\CloudNAS"; DestName: "LICENSE.txt"; Flags: ignoreversion; Tasks: cloudnas
-Source: "{#CloudNASSourceDir}\installer\redist\winfsp.msi"; DestDir: "{tmp}"; DestName: "winfsp.msi"; Flags: deleteafterinstall; Tasks: cloudnas
+; Always stage the WinFsp MSI when this installer was built with Cloud NAS
+; support so upgrades can repair the runtime even if the Cloud NAS task was
+; unchecked (checkedonce left it off after 1.0.29).
+Source: "{#CloudNASSourceDir}\installer\redist\winfsp.msi"; DestDir: "{tmp}"; DestName: "winfsp.msi"; Flags: deleteafterinstall
 #endif
 
 ; Tray icon assets (installer places PNG next to tray exe; tray will wrap PNG->ICO at runtime)
@@ -126,8 +129,10 @@ Filename: "{cmd}"; Parameters: "/c netsh advfirewall firewall add rule name=""E3
 ; WinFsp 2.2 feature ID for "Core" is F.User (not "Core"). ADDLOCAL=Core fails
 ; with exit 1603 and leaves Cloud NAS installed without a usable WinFsp runtime.
 ; Default INSTALLLEVEL=1 already selects F.User; omit ADDLOCAL.
-Filename: "{cmd}"; Parameters: "/c if not exist ""{commonappdata}\E3Backup\logs"" mkdir ""{commonappdata}\E3Backup\logs"""; Flags: runhidden; Tasks: cloudnas
-Filename: "{sys}\msiexec.exe"; Parameters: "/i ""{tmp}\winfsp.msi"" /qn /norestart /l*v ""{commonappdata}\E3Backup\logs\winfsp-msi.log"""; Flags: runhidden waituntilterminated; StatusMsg: "Installing WinFsp Core..."; Tasks: cloudnas
+; Always run when this build includes Cloud NAS so upgrades repair a missing
+; runtime even if the optional Cloud NAS task is unchecked.
+Filename: "{cmd}"; Parameters: "/c if not exist ""{commonappdata}\E3Backup\logs"" mkdir ""{commonappdata}\E3Backup\logs"""; Flags: runhidden
+Filename: "{sys}\msiexec.exe"; Parameters: "/i ""{tmp}\winfsp.msi"" /qn /norestart /l*v ""{commonappdata}\E3Backup\logs\winfsp-msi.log"""; Flags: runhidden waituntilterminated; StatusMsg: "Installing WinFsp Core..."
 #endif
 
 ; Start tray helper after install (optional)
