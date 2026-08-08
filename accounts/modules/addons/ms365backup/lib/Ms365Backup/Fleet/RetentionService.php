@@ -31,8 +31,11 @@ final class RetentionService
     public static function prune(): array
     {
         $now = time();
+        // #region agent log
+        $agentDebugStart = hrtime(true);
+        // #endregion
 
-        return [
+        $deleted = [
             'assignments' => self::pruneBatched(
                 static function () use ($now) {
                     return Capsule::table('ms365_run_worker_assignments')
@@ -62,6 +65,12 @@ final class RetentionService
                 }
             ),
         ];
+
+        // #region agent log
+        file_put_contents('/var/www/eazybackup.ca/.cursor/debug-459149.log', json_encode(['sessionId' => '459149', 'runId' => 'pre-fix', 'hypothesisId' => 'H1', 'location' => 'Ms365Backup/Fleet/RetentionService.php:65', 'message' => 'Fleet retention pass completed', 'data' => ['durationMs' => round((hrtime(true) - $agentDebugStart) / 1e6, 3), 'deleted' => $deleted], 'timestamp' => (int) round(microtime(true) * 1000)], JSON_UNESCAPED_SLASHES) . PHP_EOL, FILE_APPEND | LOCK_EX);
+        // #endregion
+
+        return $deleted;
     }
 
     /**
