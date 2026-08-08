@@ -17,6 +17,8 @@
 - **Root cause:** Large-mailbox planner fallback shards `#mail:inbox|sentitems|archive` (well-known names). Worker SyncMail compared shard segment only to Graph folder **ids** (`AQMk…`) → `FoldersDelta:0` / `Messages:0` on all such shards (fleet-wide).
 - **Fix:** Match shard segment to `wellKnownName` as well as folder id; warn when a mail shard matches no folders. Debug NDJSON retained in claim/browse paths for session `661d13`.
 - **Verify:** Unit tests for well-known shard match; re-backup Rhonda after worker roll must show `Messages>0` / `FoldersDelta>=1` on inbox shard.
+- **Deploy:** commit `c92f4975` → `origin/main`; PHP **1.52.64** via `deploy-production.sh`; build job **151** → release **162** / prod release **86** (`sha256 46fb093f…`); rolling deploy job **52** (16/20 on **0.4.43** at verify, remainder draining).
+- **Post-fix (Rhonda batch `03f37d58-…` on worker 9025 / 0.4.43):** inbox `#mail:inbox` **Messages=118** `FoldersDelta=1` (was 0/0); sentitems **242**/1; archive **0**/1 (empty folder, matched). Browse Inbox returns message files with subjects.
 
 ### 2026-08-07 — Ruben cold-repo open misclassified as upload stall (worker 0.4.40→0.4.41)
 
