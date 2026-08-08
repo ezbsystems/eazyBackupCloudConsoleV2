@@ -59,12 +59,97 @@ class WindowsBuildCloudNAS extends StepBase
             'agent_build_windows_winfsp_inc',
             'C:\\Program Files (x86)\\WinFsp\\inc\\fuse'
         );
+        $localMsi = $cloudNasRepo . '/installer/redist/winfsp.msi';
+        $remoteMsi = $remoteRoot . '\\winfsp-build.msi';
 
         // Fresh remote source tree for this job
         $mkdir = "Remove-Item -Recurse -Force -ErrorAction SilentlyContinue '$remoteSrc'; "
-            . "New-Item -ItemType Directory -Force -Path '$remoteSrc','$remoteSrc\\bin' | Out-Null";
+            . "New-Item -ItemType Directory -Force -Path '$remoteSrc','$remoteSrc\\bin','$remoteRoot' | Out-Null";
         $rc = $runner->run($remote->powershell($mkdir), $logPath);
         if ($rc !== 0) {
+            return $rc;
+        }
+
+        // Ensure WinFsp Developer headers exist on the Windows build host (F.Developer).
+        // Core-only installs leave inc\fuse missing and break CGO.
+        $rc = $runner->run($remote->scpUp($localMsi, $remoteMsi), $logPath);
+        if ($rc !== 0) {
+            $this->appendLog($logPath, '[error] failed uploading WinFsp MSI for Developer install');
+            return $rc;
+        }
+        $ensureDev = <<<'PS'
+$ErrorActionPreference = 'Stop'
+$winfspInc = '__WINFSP_INC__'
+$msi = '__REMOTE_MSI__'
+$candidates = @(
+  $winfspInc,
+  'C:\Program Files (x86)\WinFsp\inc\fuse',
+  'C:\Program Files\WinFsp\inc\fuse'
+)
+function Find-WinFspInc {
+  param([string[]]$Paths)
+  foreach ($p in $Paths) {
+    if ($p -and (Test-Path (Join-Path $p 'fuse.h'))) { return $p }
+    if ($p -and (Test-Path $p) -and (Test-Path (Join-Path $p 'fuse.h'))) { return $p }
+  }
+  # WinFsp 2.x may place headers under the install root inc\ directly.
+  foreach ($root in @('C:\Program Files (x86)\WinFsp','C:\Program Files\WinFsp')) {
+    $fuse = Join-Path $root 'inc\fuse'
+    if (Test-Path (Join-Path $fuse 'fuse.h')) { return $fuse }
+    $inc = Join-Path $root 'inc'
+    if (Test-Path (Join-Path $inc 'fuse.h')) { return $inc }
+  }
+  return $null
+}
+$found = Find-WinFspInc $candidates
+if ($found) {
+  Write-Output "WINFSP_HEADERS_OK $found"
+  exit 0
+}
+if (-not (Test-Path $msi)) { throw "WinFsp MSI missing at $msi" }
+$log = 'C:\E3Build\winfsp-developer-msi.log'
+Write-Output "Installing WinFsp Core+Developer via MSI (INSTALLLEVEL=1000)..."
+$p = Start-Process -FilePath msiexec.exe -ArgumentList @('/i', $msi, '/qn', '/norestart', 'INSTALLLEVEL=1000', '/l*v', $log) -Wait -PassThru
+Write-Output ("msiexec INSTALLLEVEL=1000 exit=" + $p.ExitCode)
+$found = Find-WinFspInc $candidates
+if (-not $found) {
+  Write-Output 'Headers still missing; trying ADDLOCAL=F.User,F.Developer...'
+  $p2 = Start-Process -FilePath msiexec.exe -ArgumentList @('/i', $msi, '/qn', '/norestart', 'ADDLOCAL=F.User,F.Developer', '/l*v', $log) -Wait -PassThru
+  Write-Output ("msiexec ADDLOCAL=F.User,F.Developer exit=" + $p2.ExitCode)
+  $found = Find-WinFspInc $candidates
+}
+if (-not $found) {
+  Write-Output 'Headers still missing; trying ADDLOCAL=F.Developer only...'
+  $p3 = Start-Process -FilePath msiexec.exe -ArgumentList @('/i', $msi, '/qn', '/norestart', 'ADDLOCAL=F.Developer', '/l*v', $log) -Wait -PassThru
+  Write-Output ("msiexec ADDLOCAL=F.Developer exit=" + $p3.ExitCode)
+  $found = Find-WinFspInc $candidates
+}
+if (-not $found) {
+  throw "WinFsp fuse headers still missing after MSI install (expected under WinFsp\inc\fuse); see $log"
+}
+Write-Output "WINFSP_HEADERS_OK $found"
+PS;
+        $ensureDev = str_replace(
+            ['__WINFSP_INC__', '__REMOTE_MSI__'],
+            [
+                str_replace("'", "''", $winfspInc),
+                str_replace("'", "''", $remoteMsi),
+            ],
+            $ensureDev
+        );
+        // #region agent log
+        $this->debugLog('H5', 'WindowsBuildCloudNAS.php:ensure-dev-headers', 'ensuring WinFsp Developer headers on build host', [
+            'winfspInc' => $winfspInc,
+            'remoteMsi' => $remoteMsi,
+        ]);
+        // #endregion
+        $rc = $runner->run($remote->powershell($ensureDev), $logPath, null, null, 900);
+        if ($rc !== 0) {
+            // #region agent log
+            $this->debugLog('H5', 'WindowsBuildCloudNAS.php:ensure-dev-failed', 'WinFsp Developer ensure failed', [
+                'exitCode' => $rc,
+            ]);
+            // #endregion
             return $rc;
         }
 
@@ -101,16 +186,20 @@ class WindowsBuildCloudNAS extends StepBase
 $ErrorActionPreference = 'Stop'
 $goBin = '__GO_BIN__'
 $mingwBin = '__MINGW_BIN__'
-$winfspInc = '__WINFSP_INC__'
+$winfspIncPreferred = '__WINFSP_INC__'
 $src = '__REMOTE_SRC__'
 $env:Path = "$goBin;$mingwBin;" + $env:Path
 if (-not (Test-Path "$goBin\go.exe")) { throw "go.exe not found under $goBin" }
 if (-not (Test-Path "$mingwBin\gcc.exe")) { throw "gcc.exe not found under $mingwBin" }
-if (-not (Test-Path $winfspInc)) { throw "WinFsp fuse headers missing: $winfspInc (install WinFsp Developer on the build host)" }
-if (-not (Test-Path 'C:\WinFspInc')) {
-  cmd /c "mklink /J C:\WinFspInc `"$winfspInc`""
-  if ($LASTEXITCODE -ne 0 -and -not (Test-Path 'C:\WinFspInc')) { throw 'failed to create C:\WinFspInc junction' }
+$winfspInc = $null
+foreach ($p in @($winfspIncPreferred, 'C:\Program Files (x86)\WinFsp\inc\fuse', 'C:\Program Files\WinFsp\inc\fuse', 'C:\Program Files (x86)\WinFsp\inc', 'C:\Program Files\WinFsp\inc')) {
+  if ($p -and (Test-Path (Join-Path $p 'fuse.h'))) { $winfspInc = $p; break }
 }
+if (-not $winfspInc) { throw "WinFsp fuse headers missing after ensure step (fuse.h not found)" }
+if (Test-Path 'C:\WinFspInc') { cmd /c 'rmdir C:\WinFspInc' | Out-Null }
+cmd /c "mklink /J C:\WinFspInc `"$winfspInc`""
+if (-not (Test-Path 'C:\WinFspInc\fuse.h')) { throw "C:\WinFspInc junction missing fuse.h (from $winfspInc)" }
+Write-Output "Using WinFsp headers: $winfspInc"
 Set-Location $src
 New-Item -ItemType Directory -Force -Path bin | Out-Null
 Remove-Item -Force -ErrorAction SilentlyContinue 'bin\e3-cloudnas.exe'
